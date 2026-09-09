@@ -8,7 +8,7 @@
        on /articles/intro would resolve every asset below against /articles/, so
        the page would lose its stylesheet and favicon — and, because main.js is
        relative too, the app would never boot at all. One <base> fixes all of
-       them; see the Hicasso routing guide, "A route deeper than one segment
+       them; see the Fresco routing guide, "A route deeper than one segment
        moves what relative URLs resolve against".
        Under a sub-path deployment this becomes <base href="/my-app/">, with
        rf.routing/with-base-path on the frame's :url-strategy so the two agree. -->

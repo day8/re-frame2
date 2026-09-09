@@ -22,7 +22,7 @@ readings — the corpus already supplies forty of.
 
 **THE WITNESS IS ARMED. It is a refusal, it exits non-zero, and its control passes.**
 
-`implementation/hicasso/test/re_frame/bench/hicasso/alloc_level_witness.cjs` compares,
+`implementation/fresco/test/re_frame/bench/fresco/alloc_level_witness.cjs` compares,
 per segment and inside one run, the level the run **settled** at against the level it
 **started** at, and refuses when the step exceeds **5% of the run's own starting level**.
 
@@ -375,7 +375,7 @@ Every one is byte-identical to the table on
 ## The corpus this was calibrated against
 
 All datasets are committed under
-`implementation/hicasso/test/re_frame/bench/hicasso/data/`. The plan is identical across
+`implementation/fresco/test/re_frame/bench/fresco/data/`. The plan is identical across
 every one of them — `P0_ALLOC_PLAN=floor`, `P0_ALLOC_WRITE=all`, `P0_ROOTS=4`,
 `P0_ALLOC_CELLS=6`, `P0_ALLOC_ROUNDS=18`, so B = 24 — except the six-round pilot noted
 above. Every figure is a browser figure: `:advanced`, real Chromium under playwright,
@@ -401,18 +401,18 @@ control is a read over committed JSON and takes a few seconds.
 
 ```bash
 # the full corpus control, printing the bands and every exclusion by name
-node hicasso/test/re_frame/bench/hicasso/alloc_level_witness.cjs --corpus
+node fresco/test/re_frame/bench/fresco/alloc_level_witness.cjs --corpus
 
 # the fixtures alone
-node hicasso/test/re_frame/bench/hicasso/alloc_level_witness.cjs --self-test
+node fresco/test/re_frame/bench/fresco/alloc_level_witness.cjs --self-test
 
 # fixtures, the corpus control, the loosen/tighten mutation proofs, and the
 # missing-segment proof against a committed record
-node hicasso/test/re_frame/bench/hicasso/alloc_level_witness.test.cjs
+node fresco/test/re_frame/bench/fresco/alloc_level_witness.test.cjs
 
 # one run, or a window's worth: exits non-zero on any refusal
-node hicasso/test/re_frame/bench/hicasso/alloc_level_witness.cjs \
-  hicasso/test/re_frame/bench/hicasso/data/alloc-77gz8/run09-a4a1537cb71.json
+node fresco/test/re_frame/bench/fresco/alloc_level_witness.cjs \
+  fresco/test/re_frame/bench/fresco/data/alloc-77gz8/run09-a4a1537cb71.json
 ```
 
 `run09` is the worked example the bead cites. It prints:

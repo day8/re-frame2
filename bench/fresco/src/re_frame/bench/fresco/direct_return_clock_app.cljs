@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.direct-return-clock-app
+(ns re-frame.bench.fresco.direct-return-clock-app
   "THE CLOCK HALF OF THE DIRECT-RETURN DELTA (rf2-5yn9).
 
   `rf2-hic-033` took the DETERMINISTIC half — budgets.md D10–D13, entries
@@ -19,7 +19,7 @@
   pair, verbatim: the same props in the same order, the same two ambient
   reads, the same data, the same spelled-out class shorthand. The
   original lives in
-  `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs`,
+  `implementation/fresco/test/re_frame/fresco/direct_return_cljs_test.cljs`,
   which is a `*-cljs-test` namespace on the node lane. Requiring it from
   an `:advanced` `:browser` bundle would pull `cljs.test` and the whole
   suite into the measured page, so the pair is COPIED.
@@ -32,7 +32,7 @@
   on purpose ([[parity-can-fail?]]), because an equality that cannot
   answer false is not a gate.
 
-  It is MOUNTED-DOM equality here, through `rf.bench.hicasso.lane/canonical`, and that is
+  It is MOUNTED-DOM equality here, through `rf.bench.fresco.lane/canonical`, and that is
   a STRONGER claim than the deterministic half made. That file states its
   own limit explicitly: it settles markup under `renderToStaticMarkup`
   and says nothing about a mounted node's properties or what a commit
@@ -44,7 +44,7 @@
 
   One page written twice, at [[boundaries]] boundaries, mounted into a
   fresh container inside ONE `react-dom/flushSync` window
-  (`rf.bench.hicasso.lane/mount-batch!`). The window therefore holds the substrate's
+  (`rf.bench.fresco.lane/mount-batch!`). The window therefore holds the substrate's
   element construction AND React's render, commit and DOM mutation —
   which is the point: the escape removes CLJS lowering from a cost React
   otherwise dominates, and a figure that excluded React's share would
@@ -70,7 +70,7 @@
 
   ## The control is adjudicated STRICTLY, and per round (rf2-gsn62)
 
-  `rf.bench.hicasso.lane/control-verdict-strict` decides it: every round's `:ctl-2x` /
+  `rf.bench.fresco.lane/control-verdict-strict` decides it: every round's `:ctl-2x` /
   `:hiccup` ratio must sit inside ±25% of 2.00x, and one bad round
   refuses the run however good the others were. This instrument is
   entitled to that rule and the coarse-leg rows are not — the 2026-07-31
@@ -94,7 +94,7 @@
 
   ## The published figure
 
-  `rf.bench.hicasso.lane/ratio-between :direct :hiccup` over the per-round floor-normalised
+  `rf.bench.fresco.lane/ratio-between :direct :hiccup` over the per-round floor-normalised
   ratios — direct-return mount time as a fraction of the hiccup spelling's,
   with its range and its `:straddles-1?` flag. A range that includes 1.0
   means INDISTINGUISHABLE and the row must say so rather than quote the
@@ -103,13 +103,13 @@
   budget converted) is adjudicated against it.
 
   Owner: rf2-5yn9. Instrument: `lane.cljs`, ridden through `run.cjs` on the
-  existing `:hicasso-bench` build id via `HICASSO_INIT_FN` — no
+  existing `:fresco-bench` build id via `FRESCO_INIT_FN` — no
   `shadow-cljs.edn` edit, which is what the driver's `--config-merge`
   exists for."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.fresco :as rf.fresco]
             ["react" :as react]))
 
 (def frame-id ::direct-return-clock)
@@ -158,11 +158,11 @@
   "The ordinary Rung 1 spelling. Two ambient reads, an intent vector at a
   callback slot, and a controlled field."
   [{:keys [id]}]
-  (let [label (rf.hicasso/sub [:dr/label id])
-        n     (count (rf.hicasso/sub [:dr/tags id]))]
+  (let [label (rf.fresco/sub [:dr/label id])
+        n     (count (rf.fresco/sub [:dr/tags id]))]
     [:div {:class "row" :on-click [:dr/picked id]}
      [:span {:class "label"} (str label " " n)]
-     [:input {:class "field" :value label :on-input [:dr/edited id ::rf.hicasso/value]}]]))
+     [:input {:class "field" :value label :on-input [:dr/edited id ::rf.fresco/value]}]]))
 
 (defn direct-body
   "The Rung 3 spelling of the same page. The reads are the boundary's,
@@ -171,8 +171,8 @@
   function — and no controlled repair, so the field's echo is the
   author's to write."
   [{:keys [id]}]
-  (let [label (rf.hicasso/sub [:dr/label id])
-        n     (count (rf.hicasso/sub [:dr/tags id]))]
+  (let [label (rf.fresco/sub [:dr/label id])
+        n     (count (rf.fresco/sub [:dr/tags id]))]
     (react/createElement "div" #js {:className "row" :onClick (fn [_] nil)}
       (react/createElement "span" #js {:className "label"} (str label " " n))
       (react/createElement "input" #js {:className "field" :value label
@@ -185,9 +185,9 @@
   [_]
   nil)
 
-(rf.hicasso/defview hiccup-arm [props] (hiccup-body props))
-(rf.hicasso/defview direct-arm [props] (direct-body props))
-(rf.hicasso/defview floor-arm  [props] (floor-body props))
+(rf.fresco/defview hiccup-arm [props] (hiccup-body props))
+(rf.fresco/defview direct-arm [props] (direct-body props))
+(rf.fresco/defview floor-arm  [props] (floor-body props))
 
 ;; ---------------------------------------------------------------------------
 ;; The page — identical for every arm but the body
@@ -224,13 +224,13 @@
   ;; answers nil; `client-root` is an inert atom, so what sits inside the
   ;; timed window is what `mount!` used to allocate inside it too.
   (fn [container _props _n]
-    (let [handle (rf.hicasso/client-root)]
-      (rf.hicasso/render! handle
-                          [rf.hicasso/frame-provider {:frame frame-id} (page view)]
+    (let [handle (rf.fresco/client-root)]
+      (rf.fresco/render! handle
+                          [rf.fresco/frame-provider {:frame frame-id} (page view)]
                           container)
       handle)))
 
-(defn- unmount-page [handle] (rf.hicasso/unmount! handle))
+(defn- unmount-page [handle] (rf.fresco/unmount! handle))
 
 (def ^:private arms
   [{:id :floor  :k 1 :elements floor-elements :parity-exempt? true
@@ -264,8 +264,8 @@
   splits round one, which is the contrast the guard reported; at
   `:warmup 8` it lands inside the warm-up and no measured sample straddles
   it. `{:warmup 8 :samples 12}` is also what every other harness riding
-  [[rf.bench.hicasso.lane/mount-batch!]] already runs. That set is checkable and small —
-  `(rf.bench.hicasso.lane/mount-batch!` has five call sites on this lane, this file,
+  [[rf.bench.fresco.lane/mount-batch!]] already runs. That set is checkable and small —
+  `(rf.bench.fresco.lane/mount-batch!` has five call sites on this lane, this file,
   `amp_merge_clock_app`, `coldmount_app`, `p0_converge_app` and
   `p0_reagent_app` — and the last three all sample at 8/12, so the two
   clocks were the lane's only batched-mount outliers. This arm stops
@@ -311,7 +311,7 @@
   probe that cannot pass manufactures a defect and hides real ones behind
   it."
   [arm container]
-  (and (= (:elements arm) (rf.bench.hicasso.lane/element-count container))
+  (and (= (:elements arm) (rf.bench.fresco.lane/element-count container))
        (or (= :floor (:id arm))
            (= (expected-far-end) (far-end container)))))
 
@@ -321,10 +321,10 @@
 
 (defn parity!
   "Mount every arm at once and compare the judged arms' canonical DOM.
-  Answers `rf.bench.hicasso.lane/parity`'s verdict with the mounts already released."
+  Answers `rf.bench.fresco.lane/parity`'s verdict with the mounts already released."
   []
-  (let [{:keys [mounts] :as p} (rf.bench.hicasso.lane/parity arms nil)]
-    (doseq [m mounts] (rf.bench.hicasso.lane/release! m))
+  (let [{:keys [mounts] :as p} (rf.bench.fresco.lane/parity arms nil)]
+    (doseq [m mounts] (rf.bench.fresco.lane/release! m))
     p))
 
 (defn parity-can-fail?
@@ -333,15 +333,15 @@
   to the run's own labels afterwards, so nothing downstream is measured
   on the mutated page."
   []
-  (let [before (let [m (rf.bench.hicasso.lane/mount-arm! (nth arms 1) nil)
-                     s (rf.bench.hicasso.lane/canonical (:container m))]
-                 (rf.bench.hicasso.lane/release! m)
+  (let [before (let [m (rf.bench.fresco.lane/mount-arm! (nth arms 1) nil)
+                     s (rf.bench.fresco.lane/canonical (:container m))]
+                 (rf.bench.fresco.lane/release! m)
                  s)]
     (rf/with-frame frame-id
       (rf/dispatch-sync [:dr/seed (seed-db boundaries mutated-label)]))
-    (let [after (let [m (rf.bench.hicasso.lane/mount-arm! (nth arms 2) nil)
-                      s (rf.bench.hicasso.lane/canonical (:container m))]
-                  (rf.bench.hicasso.lane/release! m)
+    (let [after (let [m (rf.bench.fresco.lane/mount-arm! (nth arms 2) nil)
+                      s (rf.bench.fresco.lane/canonical (:container m))]
+                  (rf.bench.fresco.lane/release! m)
                   s)]
       (rf/with-frame frame-id
         (rf/dispatch-sync [:dr/seed (seed-db boundaries default-label)]))
@@ -353,12 +353,12 @@
 
 (defn- measure-one!
   [tally arm]
-  (let [{:keys [ms mounts]} (rf.bench.hicasso.lane/mount-batch! arm nil (:k arm))]
+  (let [{:keys [ms mounts]} (rf.bench.fresco.lane/mount-batch! arm nil (:k arm))]
     (doseq [m mounts]
       (let [ok? (verified? arm (:container m))]
         (swap! tally (fn [{:keys [of bad]}]
                        {:of (inc of) :bad (if ok? bad (inc bad))}))))
-    (doseq [m mounts] (rf.bench.hicasso.lane/release! m))
+    (doseq [m mounts] (rf.bench.fresco.lane/release! m))
     ms))
 
 (defn- fmt [x n] (.toFixed (double x) n))
@@ -369,7 +369,7 @@
        "BEFORE the clock starts; the :ctl-2x arm's sample is the SAME operation "
        "performed TWICE inside one window, so its per-sample constants double "
        "with its work and its prediction is 2.00x by construction rather than by "
-       "model — adjudicated by rf.bench.hicasso.lane/control-verdict-strict, which requires EVERY "
+       "model — adjudicated by rf.bench.fresco.lane/control-verdict-strict, which requires EVERY "
        "round's ctl-2x/hiccup ratio to sit inside ±"
        (.toFixed (* 100.0 control-slack) 0)
        "% of it rather than merely the range, and records the per-round values so "
@@ -388,8 +388,8 @@
 
 (defn ^:export -main []
   (rf/init! rf.adapter.uix/adapter)
-  (rf.bench.hicasso.lane/leave-act-environment!)
-  (rf.bench.hicasso.lane/self-test!)
+  (rf.bench.fresco.lane/leave-act-environment!)
+  (rf.bench.fresco.lane/self-test!)
   (-> (js/Promise.resolve nil)
       (.then
         (fn [_]
@@ -402,12 +402,12 @@
           ;; known able to disagree.
           (let [p         (parity!)
                 can-fail? (parity-can-fail?)]
-            (rf.bench.hicasso.lane/record! :direct-return-clock-parity
+            (rf.bench.fresco.lane/record! :direct-return-clock-parity
                           {:agree?    (:agree? p)
                            :disagree  (:disagree p)
                            :counts    (:counts p)
                            :can-fail? can-fail?
-                           :bytes     (rf.bench.hicasso.lane/utf8-bytes (or (:reference p) ""))})
+                           :bytes     (rf.bench.fresco.lane/utf8-bytes (or (:reference p) ""))})
             (when-not (:agree? p)
               (throw (ex-info (str "FAIRNESS GATE: the two arms do not build the same "
                                    "mounted page, so no ratio between them is about the "
@@ -419,40 +419,40 @@
                                    "that cannot answer false is not a gate, and the "
                                    "agreement above is worth nothing.")
                               {}))))
-          (rf.bench.hicasso.lane/assert-teardown-clean! "the fairness gate")
-          (.then (rf.bench.hicasso.lane/settle!) (fn [_] nil))))
+          (rf.bench.fresco.lane/assert-teardown-clean! "the fairness gate")
+          (.then (rf.bench.fresco.lane/settle!) (fn [_] nil))))
       (.then
         (fn [_]
-          (let [baseline (rf.bench.hicasso.lane/residue frame-id)
-                tally    (rf.bench.hicasso.lane/tally)
+          (let [baseline (rf.bench.fresco.lane/residue frame-id)
+                tally    (rf.bench.fresco.lane/tally)
                 {:keys [readings samples]}
-                (rf.bench.hicasso.lane/rounds! arms sampling rounds (partial measure-one! tally))
-                norm     (mapv #(rf.bench.hicasso.lane/normalise % :floor) readings)
+                (rf.bench.fresco.lane/rounds! arms sampling rounds (partial measure-one! tally))
+                norm     (mapv #(rf.bench.fresco.lane/normalise % :floor) readings)
                 ratios   (mapv :ratio norm)
-                summ     (rf.bench.hicasso.lane/across-rounds ratios)
+                summ     (rf.bench.fresco.lane/across-rounds ratios)
                 p50s     (mapv :p50 norm)
                 abs      (into {}
                                (map (fn [{:keys [id]}]
-                                      [id (rf.bench.hicasso.lane/summarise (mapv #(get % id) p50s))]))
+                                      [id (rf.bench.fresco.lane/summarise (mapv #(get % id) p50s))]))
                                arms)
-                escape   (rf.bench.hicasso.lane/ratio-between ratios :direct :hiccup)
-                gv       (rf.bench.hicasso.lane/guard! samples "direct-return clock arms (in-page ms)")
+                escape   (rf.bench.fresco.lane/ratio-between ratios :direct :hiccup)
+                gv       (rf.bench.fresco.lane/guard! samples "direct-return clock arms (in-page ms)")
                 ;; THE POSITIVE CONTROL, per round and strictly (rf2-gsn62).
                 ;; `:ctl-2x` is `:hiccup`'s own operation performed twice in
                 ;; one window, so 2.00x is arithmetic rather than a model,
                 ;; and dividing each round by ITS OWN `:hiccup` leaves the
                 ;; floor and the round's drift out of it.
-                ctl-ratio (rf.bench.hicasso.lane/ratio-between ratios :ctl-2x :hiccup)
-                ctl      (rf.bench.hicasso.lane/control-verdict-strict
+                ctl-ratio (rf.bench.fresco.lane/ratio-between ratios :ctl-2x :hiccup)
+                ctl      (rf.bench.fresco.lane/control-verdict-strict
                            2.0 (:per-round ctl-ratio) control-slack)
-                tv       (rf.bench.hicasso.lane/tally-value tally)]
-            (rf.bench.hicasso.lane/assert-teardown-clean! "the measured rounds")
-            (rf.bench.hicasso.lane/record! :direct-return-clock
-                          {:benchmark   :hicasso.P0/direct-return-clock
+                tv       (rf.bench.fresco.lane/tally-value tally)]
+            (rf.bench.fresco.lane/assert-teardown-clean! "the measured rounds")
+            (rf.bench.fresco.lane/record! :direct-return-clock
+                          {:benchmark   :fresco.P0/direct-return-clock
                            :bead        "rf2-5yn9"
                            :cites       "budgets.md D10-D13 (rf2-hic-033) — the deterministic half, NOT re-derived here"
                            :grade       :distributional
-                           :runtime     (rf.bench.hicasso.lane/runtime-label)
+                           :runtime     (rf.bench.fresco.lane/runtime-label)
                            :boundaries  boundaries
                            :elements    {:floor floor-elements :page page-elements}
                            :design      {:rounds rounds :sampling sampling}
@@ -490,13 +490,13 @@
                                    " measured mounts did not match their own arithmetic")
                               tv)))
             (when (:refuse? gv)
-              (set! (.-HICASSO_GUARD_REFUSED js/window) true))
+              (set! (.-FRESCO_GUARD_REFUSED js/window) true))
             (when-not (:ok? ctl)
-              (set! (.-HICASSO_CONTROL_FAILED js/window) true))
-            (.then (rf.bench.hicasso.lane/settle!)
+              (set! (.-FRESCO_CONTROL_FAILED js/window) true))
+            (.then (rf.bench.fresco.lane/settle!)
                    (fn [_]
-                     (rf.bench.hicasso.lane/assert-residue! baseline frame-id "the measured rounds")
-                     (rf.bench.hicasso.lane/done!))))))
+                     (rf.bench.fresco.lane/assert-residue! baseline frame-id "the measured rounds")
+                     (rf.bench.fresco.lane/done!))))))
       (.catch (fn [e]
-                (rf.bench.hicasso.lane/fail! (or (some-> e .-message) (str e)))
-                (rf.bench.hicasso.lane/done!)))))
+                (rf.bench.fresco.lane/fail! (or (some-> e .-message) (str e)))
+                (rf.bench.fresco.lane/done!)))))

@@ -1,8 +1,8 @@
-(ns re-frame.hicasso.expansion-probe
+(ns re-frame.fresco.expansion-probe
   "**WHAT ONLY THE COMPILER KNOWS, HANDED TO THE SUITE AS DATA**.
 
   This artefact has no JVM test lane and that is the CORRECT outcome —
-  `implementation/hicasso/deps.edn` says so and waives the runner's
+  `implementation/fresco/deps.edn` says so and waives the runner's
   coverage floor for it, because every namespace the package ships needs
   React and every suite it owns is therefore ClojureScript on the Node
   lane. One fact about the hooks namespace is nevertheless a fact about
@@ -21,14 +21,14 @@
   The artefact's `clojure -M:test` alias is a classpath probe whose
   correct outcome is zero tests, and this file does not disturb it: the
   runner discovers by namespace NAME and requires only what its test
-  pattern matches, which `re-frame.hicasso.expansion-probe` deliberately
+  pattern matches, which `re-frame.fresco.expansion-probe` deliberately
   does not. That was measured rather than assumed — a deliberately
   unresolvable `:require` planted at the top of this file leaves the
   lane green, which is the only proof that the lane never reads it. So
   the artefact's `deps.edn` note stands unchanged: if a JVM-runnable
   SUITE ever lands in `test/`, that is when `--probe` comes off."
   (:require [cljs.analyzer.api :as ana-api]
-            [re-frame.hicasso.native]))
+            [re-frame.fresco.native]))
 
 (defmacro public-vars
   "The public var names of `ns-sym`, as a sorted vector of strings.

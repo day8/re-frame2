@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.slot-cljs-test
+(ns re-frame.fresco.slot-cljs-test
   "THE EQUIVALENCE PIN for the canonical slot rule (rf2-ani6y).
 
   This file is `.cljc` on purpose, and that is the whole mechanism. The
@@ -7,11 +7,11 @@
   a CLJS lane as well as the JVM one, so [[corpus]] below is asserted
   twice against ONE implementation: once by `npm run test:cljs` in Node
   and once by `clojure -M:test` on the JVM, in
-  `implementation/hicasso`.
+  `implementation/fresco`.
 
   Both arms are gated, which is what makes this a mechanism rather than a
   suite somebody could quietly stop running. The JVM arm is the
-  unconditional `jvm-hicasso` job in `.github/workflows/test.yml`, listed
+  unconditional `jvm-fresco` job in `.github/workflows/test.yml`, listed
   under `All required checks passed` — a job absent from that list is
   advisory whatever its own gate says — and the artefact carries a row on
   `scripts/test-jvm-implementation.sh` (rf2-ipx7h). The Node arm rides
@@ -20,9 +20,9 @@
 
   ## What it would catch
 
-  The rule has exactly one definition, `re-frame.hicasso.impl.slot/prop-name`
+  The rule has exactly one definition, `re-frame.fresco.impl.slot/prop-name`
   — the package's own; the bench tree's copy of it is evidence under
-  bench/hicasso and pins nothing (rf2-6c12m.1) — so the interesting failure
+  bench/fresco and pins nothing (rf2-6c12m.1) — so the interesting failure
   is not \"someone edited one copy\". It is the two ways one definition can
   still answer two things:
 
@@ -47,7 +47,7 @@
   are."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [re-frame.hicasso.impl.slot :as rf.hicasso.impl.slot]))
+            [re-frame.fresco.impl.slot :as rf.fresco.impl.slot]))
 
 (def corpus
   "Authored prop key → the canonical React slot it emits into.
@@ -121,7 +121,7 @@
 
 (deftest the-slot-rule-answers-the-corpus
   (doseq [[k expected] corpus]
-    (is (= expected (rf.hicasso.impl.slot/prop-name k))
+    (is (= expected (rf.fresco.impl.slot/prop-name k))
         (str "slot for " (pr-str k)))))
 
 (deftest the-slot-rule-is-a-pure-function-of-the-key
@@ -129,7 +129,7 @@
             on a rule that holds no state at all — the codec's caches are
             an accelerant over this, never a source of a different answer"
     (doseq [[k expected] corpus]
-      (is (= expected (rf.hicasso.impl.slot/prop-name k) (rf.hicasso.impl.slot/prop-name k))
+      (is (= expected (rf.fresco.impl.slot/prop-name k) (rf.fresco.impl.slot/prop-name k))
           (str "repeated for " (pr-str k))))))
 
 (deftest every-branch-of-the-rule-is-represented

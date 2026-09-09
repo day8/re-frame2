@@ -1,4 +1,4 @@
-(ns day8.re-frame2-xray.panels.hicasso-causal
+(ns day8.re-frame2-xray.panels.fresco-causal
   "ONE complete causal slice, link by link (rf2-hic-037).
 
   Spec SN §10 states the causal lens as a chain:
@@ -28,9 +28,9 @@
   the one before it**, and collapsing the two is how a causal display
   starts lying. Links 2 and 3 are both `:observation` — the sub really
   recomputed, the cell's epoch really moved — and the join between them
-  is `:uncorrelated`, because Hicasso's commit seam records no cascade id
+  is `:uncorrelated`, because Fresco's commit seam records no cascade id
   and an epoch stamp carries no dispatch. Two solid facts, printed
-  adjacent, joined by nothing: exactly the adjacency `re-frame.hicasso.tool`
+  adjacent, joined by nothing: exactly the adjacency `re-frame.fresco.tool`
   refuses to call causality, surfaced here as its own row rather than
   implied away by the arrow between two green links.
 
@@ -45,7 +45,7 @@
   A display that renders `evidenced` from a seam it is not actually
   reading is worse than one that renders `unknown`, and the two are
   indistinguishable from the outside on a healthy application. So each
-  evidenced link has a sabotage row in `hicasso_causal_cljs_test`: break
+  evidenced link has a sabotage row in `fresco_causal_cljs_test`: break
   that link's seam, and the link must stop being evidenced — degrading to
   a stated loss, never to a confident wrong answer, and never borrowing a
   neighbouring seam to keep its colour. Each sabotage carries the
@@ -78,19 +78,19 @@
   `n/use-sub` read builds the same cell, takes the same reader slot and
   earns its own census row, so it is a first-class slice subject; a
   foreign component reads nothing of the application's and so claims no
-  row at all. `hicasso-causal-native-island-dom-cljs-test` is the witness
+  row at all. `fresco-causal-native-island-dom-cljs-test` is the witness
   for both halves and for the identity above.
 
   Pure data → data, CLJC, so the algebra runs under the JVM target too.
 
-  Normative owner: `tools/xray/spec/028-Hicasso-Advisor.md`."
+  Normative owner: `tools/xray/spec/028-Fresco-Advisor.md`."
   (:require [clojure.string :as string]
-            [day8.re-frame2-xray.panels.hicasso-helpers :as hh]))
+            [day8.re-frame2-xray.panels.fresco-helpers :as hh]))
 
 (def causal-schema
-  "Xray's own stamp. See `hicasso-advisor/advice-schema` for why the
+  "Xray's own stamp. See `fresco-advisor/advice-schema` for why the
   producer's is not borrowed for a derivation the producer never made."
-  :day8.re-frame2-xray.hicasso-causal/v1)
+  :day8.re-frame2-xray.fresco-causal/v1)
 
 (def causal-producer :re-frame2/xray)
 
@@ -162,7 +162,7 @@
     :says  (str "Whether a notified boundary re-ran, retried, was abandoned or "
                 "was bailed out by its memo comparator is React's to know. The "
                 "comparator sits ABOVE the boundary's own function, so a "
-                "bail-out never enters it. Hicasso emits no `:rf.view/render` "
+                "bail-out never enters it. Fresco emits no `:rf.view/render` "
                 "trace, and per-boundary self time was killed as a decision: "
                 "the 0.1 ms timer grain is coarser than the quantity, so a "
                 "ranking built on it would order noise.")
@@ -213,7 +213,7 @@
   "Link 2 — the subscriptions this dispatch RECOMPUTED.
 
   The roster is filtered on `hh/sub-recompute?`, which is the same
-  predicate `hicasso-advisor`'s timing fold asks of the same events. It
+  predicate `fresco-advisor`'s timing fold asks of the same events. It
   was not: this link collected every `:subs` item carrying an
   `:rf.sub/id`, and the projection's `:subs` slot holds `:rf.sub/skip` and
   `:rf.sub/dispose` alongside `:rf.sub/run` and `:rf.sub/create` (Spec 009
@@ -328,7 +328,7 @@
      :loss  nil
      ;; THE UNCORRELATED JOIN. Both sides are solid and nothing links them.
      :joins {:on nil :status :uncorrelated
-             :says (str "an epoch stamp carries no dispatch id and Hicasso's "
+             :says (str "an epoch stamp carries no dispatch id and Fresco's "
                         "commit seam records no cascade id, so the recompute "
                         "above and the movement here CANNOT be joined. They "
                         "are printed adjacent because the chain runs that way, "

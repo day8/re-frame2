@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.navigation.events
+(ns re-frame.fresco.examples.navigation.events
   "THE NAVIGATION WITNESS'S EVENTS — and the focus-on-route RECIPE
   (specification §7's routing row).
 
@@ -33,7 +33,7 @@
   - A re-render is not a navigation. Typing a character re-renders the
     article pane; nothing about that should move focus, and nothing here
     can, because no keystroke fires `:on-match`.
-  - Hicasso has no effect DSL and no local ref, deliberately (the
+  - Fresco has no effect DSL and no local ref, deliberately (the
     completeness audit's explicit refusals). A view could not run this
     even if it wanted to.
 
@@ -66,7 +66,7 @@
   after the commit and after paint, which is the first moment the new
   pane is on the page.
 
-  It is worth being plain that this ordering is not a Hicasso property:
+  It is worth being plain that this ordering is not a Fresco property:
   it is React's, and any substrate that commits asynchronously has it.
   The frame is also why the witness waits two frames before asserting
   that focus did NOT move — a negative that did not wait would be green

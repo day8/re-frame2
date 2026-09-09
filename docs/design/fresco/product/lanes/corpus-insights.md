@@ -1,6 +1,6 @@
 # Corpus-derived product insights
 
-These are the useful product implications distilled from the wider Hicasso/re-frame2 view corpus. The primary specification owns decisions and ordering; this document preserves rationale and deciding cautions.
+These are the useful product implications distilled from the wider Fresco/re-frame2 view corpus. The primary specification owns decisions and ordering; this document preserves rationale and deciding cautions.
 
 ## Requirements are mined, not imagined
 
@@ -12,15 +12,15 @@ React-library interop and SSR/hydration correctness remain core completeness obl
 
 ## What transfers and what does not
 
-| Corpus asset | Hicasso disposition |
+| Corpus asset | Fresco disposition |
 |---|---|
 | Fitness harness, frequency census, canonical-DOM and intent witnesses | Keep as the living requirements mine and acceptance corpus |
 | Hiccup/data intents, one component form, explicit state addresses | Keep as the ordinary authoring spine |
 | Render-probes/commit-owns and the tear check | Keep the correctness guarantee; do not keep the ViewCell or observation ledger that first carried it |
-| Stable complaint ids and the versioned S6 evidence shape | Reuse behind the adapter-neutral Hicasso provider, with a named consumer and production erasure |
+| Stable complaint ids and the versioned S6 evidence shape | Reuse behind the adapter-neutral Fresco provider, with a named consumer and production erasure |
 | JVM structural tree and dual-emitter parity corpus | Reuse compatible assertion data/helpers only for restricted L2 tests; React server bytes remain SSR/hydration authority |
 | Analyzer, compiled Hiccup tier and static manifest | Do not revive; recover bounded syntax facts with lint and use an explicit native React form only at a visible escape boundary |
-| UIx adapter and `$`/component ergonomics | Keep UIx supported and as a tuned comparator; Hicasso's narrow native route removes it as a mandatory hot-path dependency |
+| UIx adapter and `$`/component ergonomics | Keep UIx supported and as a tuned comparator; Fresco's narrow native route removes it as a mandatory hot-path dependency |
 
 This is guarantee/mechanism separation: a predecessor can teach a law without donating the object graph that implemented it.
 
@@ -50,7 +50,7 @@ Durable and application-visible state belongs at explicit re-frame2 addresses. C
 
 Maximum-performance and ecosystem compatibility are contracts with native React. UIx is a proven ergonomic CLJS route and a permanent comparator, but requiring it for a rare hot island would make an optional optimization acquire a second library and API.
 
-A narrowly scoped Hicasso-native namespace owns the shared-frame read hooks and nothing else, which is what keeps it from becoming another component framework. The semantic split stays visible: Hiccup is always interpreted; a React island always uses React semantics. Two-arm evidence, handwritten React against UIx, decides whether a convenience surface earns its place. (*This paragraph also gave the namespace* "direct element construction, stable native component identity … and boundary-ABI helpers", *and called the evidence* "three-way", *until 2026-09-04, `rf2-aunp`. The question it poses was ANSWERED on 2026-08-29 by `rf2-6c12m.3`, which weighed exactly this and kept only the hooks: the other three duplicated UIx, raw React or `h/defhost` and had one non-test consumer each. The third arm went with them.*)
+A narrowly scoped Fresco-native namespace owns the shared-frame read hooks and nothing else, which is what keeps it from becoming another component framework. The semantic split stays visible: Hiccup is always interpreted; a React island always uses React semantics. Two-arm evidence, handwritten React against UIx, decides whether a convenience surface earns its place. (*This paragraph also gave the namespace* "direct element construction, stable native component identity … and boundary-ABI helpers", *and called the evidence* "three-way", *until 2026-09-04, `rf2-aunp`. The question it poses was ANSWERED on 2026-08-29 by `rf2-6c12m.3`, which weighed exactly this and kept only the hooks: the other three duplicated UIx, raw React or `h/defhost` and had one non-test consumer each. The third arm went with them.*)
 
 ## Completeness is layered
 
@@ -58,9 +58,9 @@ A narrowly scoped Hicasso-native namespace owns the shared-frame read hooks and 
 - Optional libraries own forms, overlays, presence and activated resource features; the deployable Node/React SSR service is optional infrastructure over the core server/hydration contract.
 - Recipes cover routing conduct, mutation correlation, virtualization, imperative ownership, styling, i18n and navigation focus.
 - Tooling owns lint, semantic assertions, Xray/Pair, migration and generative checks.
-- Native React owns hook-intensive/vendor/high-rate surfaces; UIx and raw React are the supported authoring routes, and the Hicasso-native hooks are how such an island reads Hicasso state. (*This line listed* "Hicasso-native" *as a third authoring route until 2026-09-04, `rf2-aunp`; `rf2-6c12m.3` retired it on 2026-08-29, and [`design-laws.md`](design-laws.md#native-boundary) law 1 — the law this line restates — was corrected in that same act.*)
+- Native React owns hook-intensive/vendor/high-rate surfaces; UIx and raw React are the supported authoring routes, and the Fresco-native hooks are how such an island reads Fresco state. (*This line listed* "Fresco-native" *as a third authoring route until 2026-09-04, `rf2-aunp`; `rf2-6c12m.3` retired it on 2026-08-29, and [`design-laws.md`](design-laws.md#native-boundary) law 1 — the law this line restates — was corrected in that same act.*)
 
-Every layer has a witness and an unused-cost rule. One facade is taught; live Xray/Story/Pair consumers migrate to the adapter-neutral Hicasso evidence provider, then obsolete re-frame.ui/Freehand surfaces and documentation are archived or removed before release. Named compatibility fixtures may remain isolated.
+Every layer has a witness and an unused-cost rule. One facade is taught; live Xray/Story/Pair consumers migrate to the adapter-neutral Fresco evidence provider, then obsolete re-frame.ui/Freehand surfaces and documentation are archived or removed before release. Named compatibility fixtures may remain isolated.
 
 ## Innovation rationale
 

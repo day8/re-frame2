@@ -6,13 +6,13 @@ diagnostic** quoted for its ratios, never against the bar, per the discipline
 in [the studio index](README.md).
 **Reproduction** the behaviour each row rests on is pinned by the `deftest`s
 named below in
-`bench/hicasso/src/re_frame/bench/hicasso/arm1/boundary_crossing_cljs_test.cljs`
-(the bench lane is hand-run from `bench/hicasso/`; see its README). The clock
+`bench/fresco/src/re_frame/bench/fresco/arm1/boundary_crossing_cljs_test.cljs`
+(the bench lane is hand-run from `bench/fresco/`; see its README). The clock
 harness that produced the timings was an A/B/C rig written in the measuring
 namespace and was not committed — which is the reason the rows below are
 quoted as ratios and the absolute figures are not carried forward.
 
-This page is the measured record behind `re-frame.hicasso.impl.codec`'s
+This page is the measured record behind `re-frame.fresco.impl.codec`'s
 `realize-deep`. The figures were carried in that function's docstring until
 `rf2-6c12m.4` ruled measurement narrative out of source; the argument for the
 walk — why a boundary prop is the one position the eager codec did not reach,
@@ -22,7 +22,7 @@ carries the methodological note on the instrument confound recorded in §2.
 
 The runtime carrying these figures landed in this tree at
 `93ec92d491c744f6adf8ab4ea48443e18b23bc45` (`rf2-hic-001`, the copy of the
-runtime into `implementation/hicasso/`); the bench rows moved to their present
+runtime into `implementation/fresco/`); the bench rows moved to their present
 path at `8a10915ed813a6d35b8a47923028060e2d549ae0` (`rf2-6c12m.1`).
 
 ## 1. The walk at the hand-off

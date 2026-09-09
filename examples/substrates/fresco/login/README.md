@@ -1,4 +1,4 @@
-# A login form, rendered with Hicasso
+# A login form, rendered with Fresco
 
 This is a login form. You type an email and a password, hit **Sign in**, and one
 of 3 things happens: you're signed in, you get an error and can try again, or —
@@ -9,7 +9,7 @@ the page, so you just start it and click.
 The one twist is the view layer. This is the
 [`examples/core/login/`](../../../core/login/) app with one thing changed — the
 notation the views are written in. Here that's
-[Hicasso](../../../../docs/core/hicasso/index.md), re-frame2's own native view
+[Fresco](../../../../docs/core/fresco/index.md), re-frame2's own native view
 layer, instead of Reagent.
 
 Everything below the view layer stays the same, because it is literally the same
@@ -25,7 +25,7 @@ what each one holds constant.
 
 ## What this demonstrates
 
-- **Handlers as data.** A Hicasso view states its intent rather than writing a
+- **Handlers as data.** A Fresco view states its intent rather than writing a
   callback: `{:on-change [:auth.login/edit-field :email ::h/value]}` *is* the
   handler. `::h/value` substitutes the event target's current value at dispatch
   time, so there is no `(fn [e] …)` and no `.. -target -value` in sight. That is
@@ -33,7 +33,7 @@ what each one holds constant.
 
 - **`h/defview` + `h/sub`, in place of a deref or a hook.** A Reagent view
   dereferences a subscription (`@(subscribe …)`); a UIx view reads one through
-  the `use-sub` hook. A Hicasso view calls `(h/sub [:auth.login/error])`
+  the `use-sub` hook. A Fresco view calls `(h/sub [:auth.login/error])`
   anywhere in the synchronous body — inside a `let`, a `when`, or an inlined
   helper — and the edge is recorded where the read happens. Different idiom,
   the same subscription underneath.
@@ -87,11 +87,11 @@ the page keeps no root state of its own. `{:hydrate? true}` on that first call
 makes it adopt the server's DOM instead — which is the SSR route below, and the
 only difference between the two boots.
 
-Hicasso is a view layer, not a
+Fresco is a view layer, not a
 [substrate](../../../../docs/core/glossary.md#substrate): it owns Hiccup
 interpretation and the render boundary, while the reactive container app-db
 lives in comes from an [adapter](../../../../docs/core/glossary.md#adapter).
-Hicasso ships its own in `re-frame.hicasso.substrate`, so line 1 costs no extra
+Fresco ships its own in `re-frame.fresco.substrate`, so line 1 costs no extra
 coordinate — and it is not optional, since creating a frame asks the adapter for
 a state container.
 
@@ -126,7 +126,7 @@ second verb that could `createRoot` twice by mistake.
 
 ```
 login/
-  core.cljs    — the Hicasso HALF: h/defview views + adapter init + frame + boot.
+  core.cljs    — the Fresco HALF: h/defview views + adapter init + frame + boot.
   server.cljs  — the SERVER bundle: the entry table the ssr-node sidecar loads.
   host.clj     — the JVM half: one ssr-handler wired to the Node renderer.
   policy.cljc  — the render-state list and the entry id, read by BOTH of those.
@@ -142,7 +142,7 @@ config — is not in this folder: it is the shared
 
 ```bash
 # From implementation/:
-npm run dev:example -- examples/login-hicasso
+npm run dev:example -- examples/login-fresco
 ```
 
 One command. It starts `shadow-cljs watch` (edits recompile live), serves the
@@ -156,7 +156,7 @@ No backend ships. The login runs against the canned HTTP stub in
 ## Rendering it on the server
 
 The same views render on a server, and the interesting part is *which* server.
-Hicasso interprets Hiccup at runtime through React, so there is no JVM string
+Fresco interprets Hiccup at runtime through React, so there is no JVM string
 emitter to render it with — the page's body is rendered by **Node**, running
 this very application's compiled bundle, while a JVM Ring handler owns
 everything else. That split is the whole shape of it:
@@ -219,7 +219,7 @@ resolves per request, which the render may read and the browser never receives.
 **A key in that position must not change the markup.** The hydrating client
 renders from the payload, so a node the two halves disagree about is a node
 React recovers by re-rendering — one recoverable error, measured rather than
-asserted in `re-frame.hicasso.login-server-crossing-ssr-dom-cljs-test`. So
+asserted in `re-frame.fresco.login-server-crossing-ssr-dom-cljs-test`. So
 `host.clj` ships with no notice in app-db, and the key is there to make the
 distinction between the two policies concrete rather than theoretical.
 
@@ -232,12 +232,12 @@ cannot print a secret it was never handed, and the input comes back reading
 
 ```bash
 # From implementation/ — the server bundle and the client bundle.
-npx shadow-cljs compile :examples/login-hicasso-server
-npx shadow-cljs compile :examples/login-hicasso
+npx shadow-cljs compile :examples/login-fresco-server
+npx shadow-cljs compile :examples/login-fresco
 
 # The sidecar, pointed at the server bundle. It prints ONE JSON line on
 # stdout when it is listening; read the `url` out of that.
-node ssr-node/bin/serve.cjs --module out/examples/login-hicasso-server/server.js
+node ssr-node/bin/serve.cjs --module out/examples/login-fresco-server/server.js
 ```
 
 For a deployment, stamp a real build identity into the bundle and give the JVM
@@ -245,11 +245,11 @@ host the same string — the sidecar refuses a request that names a different
 one, and the adapter refuses an answer that comes back with one:
 
 ```bash
-npx shadow-cljs release examples/login-hicasso-server   --config-merge '{:closure-defines {hicasso.login.server/build-id "2026-09-02-a1b2c3"}}'
+npx shadow-cljs release examples/login-fresco-server   --config-merge '{:closure-defines {fresco.login.server/build-id "2026-09-02-a1b2c3"}}'
 ```
 
 Then serve `host.clj`'s `handler` from any Ring adapter, with
-`LOGIN_HICASSO_SSR_NODE` pointing at the sidecar's URL, and open the page. The
+`LOGIN_FRESCO_SSR_NODE` pointing at the sidecar's URL, and open the page. The
 client boots through the same `core.cljs` either way: it looks for
 `__rf_payload`, and hydrates when it finds one instead of mounting.
 
@@ -262,12 +262,12 @@ reader conditional around the demo session effect's `localStorage` write.
 
 The crossing is witnessed from both ends:
 
-- `implementation/hicasso/test/re_frame/hicasso/login_server_crossing_ssr_dom_cljs_test.cljs`
+- `implementation/fresco/test/re_frame/fresco/login_server_crossing_ssr_dom_cljs_test.cljs`
   — the **render** half, in CLJS: the real views, the real `login.model`
   registrations and this module's published entry table, through the sidecar's
   own request validator.
 - `implementation/ssr-ring/test/re_frame/ssr/ring/login_host_crossing_test.clj`
-  — the **host** half, on the JVM. Requiring `hicasso.login.host` is itself the
+  — the **host** half, on the JVM. Requiring `fresco.login.host` is itself the
   compile gate (before it, a compile error here passed everything silently);
   its `:crossing` tests spawn the real `serve.cjs` launcher on a port-0 socket
   and drive this file's `make-handler`, asserting the complete JVM-owned
@@ -277,18 +277,18 @@ The crossing is witnessed from both ends:
 
 ## Copying this into your own app
 
-Read [Installation](../../../../docs/core/hicasso/00-installation.md) first —
-it names every file a Hicasso project needs, including the React pin (19.2 or
+Read [Installation](../../../../docs/core/fresco/00-installation.md) first —
+it names every file a Fresco project needs, including the React pin (19.2 or
 newer) and the `shadow-cljs` npm package the build will not work without.
 
 One thing that chapter says and this README will not repeat differently:
-**`day8/re-frame2-hicasso` is not published to Clojars, and there is no date at
+**`day8/re-frame2-fresco` is not published to Clojars, and there is no date at
 which it will be.** Today you resolve it — and `day8/re-frame2` with it — from a
 monorepo checkout with `:local/root`. There is no Maven version to quote here,
 and quoting one would be an invention. In *this* repository the file compiles
 against the aggregate build, which already carries the artefact, which is
 exactly why the coordinate question is easy to miss on the way out.
 
-There is also no Hicasso variant in the re-frame2 app template
+There is also no Fresco variant in the re-frame2 app template
 (`tools/template` scaffolds `:reagent` and `:uix`). Build by hand from the
 installation chapter; this example's `core.cljs` is the shape the result takes.

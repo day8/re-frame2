@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.retaining-host-callbacks-dom-cljs-test
+(ns re-frame.fresco.retaining-host-callbacks-dom-cljs-test
   "THE RETAINING HOST — callback identity measured where it can cost
   something, and the stable-event verdict.
 
@@ -26,7 +26,7 @@
   the retaining host is the only place on a page where identity is a
   price rather than a detail, and it is where this file looks.
 
-  `sink` is written as ordinary React — it knows nothing about Hicasso,
+  `sink` is written as ordinary React — it knows nothing about Fresco,
   it counts its own body runs, and it KEEPS every callback it is handed.
   That last part is the retention: a vendor that stores a handler and
   calls it after a debounce, a WebSocket message or an animation frame is
@@ -67,7 +67,7 @@
   it is. It is the event `React.memo` exists to prevent, counted where it
   happens; how much one costs depends on the vendor, which is a fact
   about somebody else's code. `hm/bodies-run` in section 7 is the
-  matching reading on OUR side of the fence — Hicasso boundary bodies,
+  matching reading on OUR side of the fence — Fresco boundary bodies,
   page-wide — and it is there to show what the ordinary path pays for the
   incarnation pin, which is the second half of the risk row.
 
@@ -76,7 +76,7 @@
   `-dom-cljs-test`, so `:browser-test` runs it against a real React DOM;
   under `:node-test` every DOM claim degrades to a stated skip. The
   verdict this file's numbers support is recorded in
-  `docs/design/hicasso/product/callback-identity-verdict.md`.
+  `docs/design/fresco/product/callback-identity-verdict.md`.
 
   ## Companion
 
@@ -90,13 +90,13 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.frames :as rf.hicasso.impl.frames]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.native :as rf.hicasso.native]
-            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.frames :as rf.fresco.impl.frames]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.native :as rf.fresco.native]
+            [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]))
 
@@ -136,7 +136,7 @@
      ;; loudly enough to take the whole namespace down with it.
      :async?        true
      :init-fn       (fn []
-                      (rf.hicasso.impl.collector/reset-runtime!)
+                      (rf.fresco.impl.collector/reset-runtime!)
                       (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---------------------------------------------------------------------------
@@ -176,7 +176,7 @@
 
 (def ^:private sink (react/memo sink-body))
 
-(rf.hicasso/defhost sink-event
+(rf.fresco/defhost sink-event
   "The crossing under the RULED DEFAULT `:server :client-only`, so the grid
   measures the path a consumer gets by writing nothing. The gate that
   policy mints is a plain function component that hands its props object
@@ -205,26 +205,26 @@
   author's own function does not hoist what the vendor sees. That is the
   `:event-hoisted` row, and it is the row that shows the churn is the
   LOWERING's and not the author's."
-  (rf.hicasso/event [& _] (swap! !plain-calls inc) [::ping :hoisted]))
+  (rf.fresco/event [& _] (swap! !plain-calls inc) [::ping :hoisted]))
 
 ;; ---------------------------------------------------------------------------
 ;; The interpreted parent — one boundary, one read, eight carriers
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview host-parent
+(rf.fresco/defview host-parent
   "Reads a piece of app-db the vendor's props do not depend on, so every
   tick re-runs this body and hands the crossing a fresh props object
   carrying semantically identical values. Whether the vendor re-renders
   is then a question about ONE thing: the identity of what sits at
   `:on-ping`."
   [{:keys [arm]}]
-  (let [tick (rf.hicasso/sub [::ticks])]
+  (let [tick (rf.fresco/sub [::ticks])]
     [:div.parent {:data-tick (str tick)}
      (case arm
        :absent        [sink-event   {:label "s"}]
        :plain-fn      [sink-event   {:label "s" :on-ping plain-ping}]
        :intent-vector [sink-event   {:label "s" :on-ping [::ping :vector]}]
-       :event-inline  [sink-event   {:label "s" :on-ping (rf.hicasso/event [& _] [::ping :inline])}]
+       :event-inline  [sink-event   {:label "s" :on-ping (rf.fresco/event [& _] [::ping :inline])}]
        :event-hoisted [sink-event   {:label "s" :on-ping hoisted-event}]
        :key-map       [sink-event   {:label "s" :on-ping {"Enter" [::ping :key-map]}}])]))
 
@@ -254,8 +254,8 @@
   solution the standing rule asks about, assembled out of surface that
   already ships."
   [^js _props]
-  (let [_tick   (rf.hicasso.native/use-sub [::ticks])
-        ops     (rf.hicasso.native/use-frame)
+  (let [_tick   (rf.fresco.native/use-sub [::ticks])
+        ops     (rf.fresco.native/use-frame)
         on-ping (react/useCallback
                   (fn [& _] ((:dispatch-sync ops) [::ping :native-stable]) nil)
                   #js [ops])]
@@ -267,16 +267,16 @@
   bail-out to the island, to the missing gate, or to `use-frame` itself
   rather than to the memoisation of the closure."
   [^js _props]
-  (let [_tick (rf.hicasso.native/use-sub [::ticks])
-        ops   (rf.hicasso.native/use-frame)]
+  (let [_tick (rf.fresco.native/use-sub [::ticks])
+        ops   (rf.fresco.native/use-frame)]
     (react/createElement sink
                          #js {:label  "s"
                               :onPing (fn [& _]
                                         ((:dispatch-sync ops) [::ping :native-churn])
                                         nil)})))
 
-(rf.hicasso/defview stable-parent [_] (react/createElement stable-island nil))
-(rf.hicasso/defview churn-parent  [_] (react/createElement churning-island nil))
+(rf.fresco/defview stable-parent [_] (react/createElement stable-island nil))
+(rf.fresco/defview churn-parent  [_] (react/createElement churning-island nil))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -294,9 +294,9 @@
   inside one."
   ([] (fresh! "A"))
   ([who]
-   (rf.hicasso.checkpoint-support/leave-act-environment!)
+   (rf.fresco.checkpoint-support/leave-act-environment!)
    (when (rf.frame/frame-incarnation-token frame-id) (rf/destroy-frame! frame-id))
-   (rf.hicasso.impl.frames/forget-frame-ops! frame-id)
+   (rf.fresco.impl.frames/forget-frame-ops! frame-id)
    (rf/make-frame {:id frame-id})
    (rf/with-frame frame-id (rf/dispatch-sync [::seed who]))
    (reset! !sink-runs 0)
@@ -345,11 +345,11 @@
   defeated by identity."
   [form]
   (fresh!)
-  (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id form)]
+  (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id form)]
     (try
-      (dotimes [_ ticks] (rf.hicasso.impl.mount/dispatch! handle [::tick]))
+      (dotimes [_ ticks] (rf.fresco.impl.mount/dispatch! handle [::tick]))
       @!sink-runs
-      (finally (rf.hicasso.impl.mount/release! handle)))))
+      (finally (rf.fresco.impl.mount/release! handle)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — THE GRID. What a memoized vendor costs, per carrier
@@ -369,7 +369,7 @@
    [:native-churn  [churn-parent {}]                   :re-renders]])
 
 (deftest the-memoized-vendor-grid
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM, and a memo bail-out is React's own")
     (doseq [[carrier form expectation] grid]
       (testing (str (name carrier) " — the vendor "
@@ -388,20 +388,20 @@
   ;; no longer notifies, a tick that no longer writes. So the same
   ;; scenario is asked the opposite question: the carriers that churn must
   ;; churn by exactly the number of ticks that were driven.
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (testing "the parent really did re-render once per tick"
         (fresh!)
-        (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
+        (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id
                                   [host-parent {:arm :intent-vector}])]
           (try
-            (dotimes [_ ticks] (rf.hicasso.impl.mount/dispatch! handle [::tick]))
+            (dotimes [_ ticks] (rf.fresco.impl.mount/dispatch! handle [::tick]))
             (is (= (str ticks) (.getAttribute (.querySelector (:container handle) ".parent")
                                               "data-tick"))
                 "the parent painted every tick, so the bail-out rows above were
                  given something to bail out of")
-            (finally (rf.hicasso.impl.mount/release! handle)))))
+            (finally (rf.fresco.impl.mount/release! handle)))))
 
       (testing "and the vendor is one component, so the two answers are
                 comparable rather than two different memos"
@@ -416,34 +416,34 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest what-the-vendor-holds-across-renders
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (testing "a lowered intent vector hands the vendor a NEW function every
                 render — which is the mechanism the grid measures the
                 consequence of"
         (fresh!)
-        (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
+        (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id
                                   [host-parent {:arm :intent-vector}])]
           (try
-            (dotimes [_ ticks] (rf.hicasso.impl.mount/dispatch! handle [::tick]))
+            (dotimes [_ ticks] (rf.fresco.impl.mount/dispatch! handle [::tick]))
             (is (= (inc ticks) (count @!held)))
             (is (= (inc ticks) (count (set @!held)))
                 "every one of them is a distinct object")
-            (finally (rf.hicasso.impl.mount/release! handle)))))
+            (finally (rf.fresco.impl.mount/release! handle)))))
 
       (testing "the identity-stable carriers hand it the SAME function every
                 render, so the bail-out above is `Object.is` answering true
                 rather than React skipping a render for some other reason"
         (doseq [arm [:plain-fn]]
           (fresh!)
-          (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
+          (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id
                                     [host-parent {:arm arm}])]
             (try
-              (dotimes [_ ticks] (rf.hicasso.impl.mount/dispatch! handle [::tick]))
+              (dotimes [_ ticks] (rf.fresco.impl.mount/dispatch! handle [::tick]))
               (is (= 1 (count @!held))
                   (str (name arm) " re-rendered the vendor"))
-              (finally (rf.hicasso.impl.mount/release! handle)))))))))
+              (finally (rf.fresco.impl.mount/release! handle)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — RETENTION. A callback the vendor kept still routes inside its own
@@ -451,17 +451,17 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-mount-renders-callback-still-routes-after-later-renders
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id
                                 [host-parent {:arm :intent-vector}])]
         (try
-          (dotimes [_ ticks] (rf.hicasso.impl.mount/dispatch! handle [::tick]))
+          (dotimes [_ ticks] (rf.fresco.impl.mount/dispatch! handle [::tick]))
           (let [oldest (first @!held)
                 {:keys [refusals]} (with-refusals #(fire! oldest))]
-            (rf.hicasso.impl.mount/settle!)
+            (rf.fresco.impl.mount/settle!)
             (is (= 1 (pings))
                 "the closure minted by the MOUNT render — five renders stale,
                  and the only one a vendor holding its first handler would
@@ -471,21 +471,21 @@
                 "and nothing is refused: staleness across renders is not
                  staleness across incarnations, and only the second is a
                  fault"))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — TEARDOWN and RETIREMENT. Harmless afterwards, and LOUDLY so
 ;; ---------------------------------------------------------------------------
 
 (deftest a-retained-callback-is-harmless-after-the-frame-is-retired
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle   (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
+      (let [handle   (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id
                                   [host-parent {:arm :intent-vector}])
-            retained (do (rf.hicasso.impl.mount/dispatch! handle [::tick]) (first @!held))]
-        (rf.hicasso.impl.mount/unmount! handle)
+            retained (do (rf.fresco.impl.mount/dispatch! handle [::tick]) (first @!held))]
+        (rf.fresco.impl.mount/unmount! handle)
         (rf/destroy-frame! frame-id)
         (let [{:keys [refusals]} (with-refusals #(fire! retained))]
           (is (= 1 (count refusals))
@@ -504,16 +504,16 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-retained-callback-cannot-write-the-successor-under-the-same-id
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (testing "SAFETY — the predecessor's callback, still held by a live
                 vendor, is refused against a successor at the same address"
         (fresh! "A")
-        (let [handle   (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
+        (let [handle   (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id
                                     [host-parent {:arm :intent-vector}])
               retained (first @!held)]
-          (rf.hicasso.impl.mount/unmount! handle)
+          (rf.fresco.impl.mount/unmount! handle)
           (reincarnate! "B")
           (is (zero? (pings)) "sanity: the successor starts unpinged")
           (let [{:keys [refusals]} (with-refusals #(fire! retained))]
@@ -528,14 +528,14 @@
                 one, so the silence above is a refusal and not a runtime in
                 which nothing dispatches at all"
         (fresh! "B")
-        (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
+        (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id
                                   [host-parent {:arm :intent-vector}])]
           (try
             (let [{:keys [refusals]} (with-refusals #(fire! (first @!held)))]
-              (rf.hicasso.impl.mount/settle!)
+              (rf.fresco.impl.mount/settle!)
               (is (= 1 (pings)) "the live incarnation's own vendor writes its own app-db")
               (is (empty? refusals)))
-            (finally (rf.hicasso.impl.mount/release! handle))))))))
+            (finally (rf.fresco.impl.mount/release! handle))))))))
 
 (deftest NEGATIVE-CONTROL-an-unpinned-capture-does-reach-the-successor
   ;; Section 5's safety half asserts a NON-event, and the bead names the
@@ -544,7 +544,7 @@
   ;; seam rather than by redefining a runtime var — `rf/capture-frame`
   ;; taken while NO frame is live under the id pins nothing, so the ops
   ;; stay address-directed and write whoever occupies the address later.
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [unpinned (rf/capture-frame frame-id)]    ; captured with no live frame
       (fresh! "A")
@@ -566,14 +566,14 @@
   ;; a vendor never fires from. This one goes through a real `setTimeout`,
   ;; long after the render's dynamic extent has unwound and after the
   ;; teardown — the debounce, the socket message, the animation frame.
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done
       (fresh! "A")
-      (let [handle   (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
+      (let [handle   (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id
                                   [host-parent {:arm :intent-vector}])
             retained (first @!held)]
-        (rf.hicasso.impl.mount/unmount! handle)
+        (rf.fresco.impl.mount/unmount! handle)
         (reincarnate! "B")
         (js/setTimeout
           (fn []
@@ -598,18 +598,18 @@
   ;; page and without one. `hm/bodies-run` is the page-wide reading for
   ;; exactly this and it settles inside the thunk, which `mount/dispatch!`
   ;; already does.
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (doseq [arm [:absent :intent-vector :plain-fn]]
       (testing (str "one tick runs one boundary body with the " (name arm)
                     " carrier on the page")
         (fresh!)
-        (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id
+        (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id
                                   [host-parent {:arm arm}])]
           (try
-            (is (= 1 (rf.hicasso.test.mounted/bodies-run #(rf.hicasso.impl.mount/dispatch! handle [::tick])))
+            (is (= 1 (rf.fresco.test.mounted/bodies-run #(rf.fresco.impl.mount/dispatch! handle [::tick])))
                 "the parent's body, and nothing else. The crossing, the gate
                  and the vendor are not boundaries, and the pin the safety
                  rests on is a memo row acquired once per incarnation rather
                  than work done per render")
-            (finally (rf.hicasso.impl.mount/release! handle))))))))
+            (finally (rf.fresco.impl.mount/release! handle))))))))

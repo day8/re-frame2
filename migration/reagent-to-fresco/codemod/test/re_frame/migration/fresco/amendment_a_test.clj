@@ -1,4 +1,4 @@
-(ns re-frame.migration.hicasso.amendment-a-test
+(ns re-frame.migration.fresco.amendment-a-test
   "**AMENDMENT (A), pinned by EXECUTION rather than by text.**
 
   The golden corpus pins text and only text, and the design is candid
@@ -22,7 +22,7 @@
   diverges here, so the amendment is load-bearing rather than defensive."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.migration.hicasso.rewrite :as rf.migration.hicasso.rewrite]
+            [re-frame.migration.fresco.rewrite :as rf.migration.fresco.rewrite]
             [rewrite-clj.node :as n]
             [rewrite-clj.parser :as p]))
 
@@ -44,20 +44,20 @@
 (defn- eval-here
   "Evaluate an emitted form with this namespace's vars in scope."
   [form]
-  (binding [*ns* (find-ns 're-frame.migration.hicasso.amendment-a-test)]
+  (binding [*ns* (find-ns 're-frame.migration.fresco.amendment-a-test)]
     (eval form)))
 
 (defn- emitted
   "Run W4 over a literal `(r/partial …)` call; return `[wrapper text]`."
   [src]
-  (let [node (:node (rf.migration.hicasso.rewrite/w4-plan (p/parse-string src)))]
+  (let [node (:node (rf.migration.fresco.rewrite/w4-plan (p/parse-string src)))]
     [(eval-here (n/sexpr node)) (n/string node)]))
 
 (defn- naive
   "The design's stated rewrite, `(fn [& args] (apply f a … args))`, built
   from the same call — the shape amendment (A) replaced."
   [src]
-  (let [els  (rf.migration.hicasso.rewrite/elements (p/parse-string src))
+  (let [els  (rf.migration.fresco.rewrite/elements (p/parse-string src))
         body (str/join " " (map n/string (rest els)))]
     (eval-here (read-string (str "(fn [& args] (apply " body " args))")))))
 
@@ -180,7 +180,7 @@
   "W4's output for `src`, evaluated inside an outer `let` binding `outer`.
   Returns `[wrapper text]`."
   [outer src]
-  (let [node (:node (rf.migration.hicasso.rewrite/w4-plan (p/parse-string src)))]
+  (let [node (:node (rf.migration.fresco.rewrite/w4-plan (p/parse-string src)))]
     [(eval-here (list 'let outer (n/sexpr node))) (n/string node)]))
 
 (defn- source-symbols
@@ -194,7 +194,7 @@
   "The names W4 minted for `src`: the `let`'s binding names, plus the
   wrapper's rest parameter."
   [src]
-  (let [[_ binds body] (n/sexpr (:node (rf.migration.hicasso.rewrite/w4-plan (p/parse-string src))))]
+  (let [[_ binds body] (n/sexpr (:node (rf.migration.fresco.rewrite/w4-plan (p/parse-string src))))]
     (set (concat (take-nth 2 binds) (remove #{'&} (second body))))))
 
 (defn- collisions

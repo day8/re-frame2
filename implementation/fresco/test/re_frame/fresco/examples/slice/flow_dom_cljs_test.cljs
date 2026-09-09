@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.slice.flow-dom-cljs-test
+(ns re-frame.fresco.examples.slice.flow-dom-cljs-test
   "L3 — THE WHOLE FLOW, MOUNTED.
 
   One complete pass through the application on a real React root: the
@@ -11,7 +11,7 @@
   ## This file reaches no internal namespace either
 
   The bead's acceptance fences the APPLICATION, and a test is allowed
-  more — `re-frame.hicasso.test.mounted`'s own witnesses reach
+  more — `re-frame.fresco.test.mounted`'s own witnesses reach
   `impl.collector` and `impl.mount` for good reasons. This one does not,
   and the two helpers below are why: `browser?` and `skip!` are one line
   each, the act flag is one more inside the fixture, and writing them
@@ -20,7 +20,7 @@
 
   ## TWO CLICKS, TWO SETTLING RULES — the report's findings 6 and 7
 
-  A Hicasso intent dispatches through the runtime's own **synchronous**
+  A Fresco intent dispatches through the runtime's own **synchronous**
   frame-locked door, so after a real click on `.save` or `.discard` the
   handlers have run, `app-db` has moved and React has committed: the next
   line reads the repainted page. That is what `hm/settle!` is for and it
@@ -70,12 +70,12 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.event-emit :as rf.event-emit]
-            [re-frame.hicasso.examples.slice.db :as rf.hicasso.examples.slice.db]
-            [re-frame.hicasso.examples.slice.events :as rf.hicasso.examples.slice.events]
-            [re-frame.hicasso.examples.slice.routes :as rf.hicasso.examples.slice.routes]
-            [re-frame.hicasso.examples.slice.subs :as rf.hicasso.examples.slice.subs]
-            [re-frame.hicasso.examples.slice.views :as rf.hicasso.examples.slice.views]
-            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.fresco.examples.slice.db :as rf.fresco.examples.slice.db]
+            [re-frame.fresco.examples.slice.events :as rf.fresco.examples.slice.events]
+            [re-frame.fresco.examples.slice.routes :as rf.fresco.examples.slice.routes]
+            [re-frame.fresco.examples.slice.subs :as rf.fresco.examples.slice.subs]
+            [re-frame.fresco.examples.slice.views :as rf.fresco.examples.slice.views]
+            [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@
                       ;; captured when this form was EVALUATED, which is
                       ;; before `routes` finished loading. See that
                       ;; namespace on why `register!` is exposed at all.
-                      (rf.hicasso.examples.slice.routes/register!))}))
+                      (rf.fresco.examples.slice.routes/register!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading and driving the page
@@ -113,12 +113,12 @@
 (defn- text [m sel] (some-> (node m sel) .-textContent))
 
 (defn- click!
-  "A real click on a Hicasso intent, and then a settle. `HTMLElement.click()`
+  "A real click on a Fresco intent, and then a settle. `HTMLElement.click()`
   is what a `user-event` sequence ultimately performs; the intent's own
   dispatch is synchronous, so the settle is all that is owed."
   [m sel]
   (.click (node m sel))
-  (rf.hicasso.test.mounted/settle! m))
+  (rf.fresco.test.mounted/settle! m))
 
 (defn- type-into!
   "Type `v` into the field at `sel` — a foreign write followed by a real
@@ -136,7 +136,7 @@
         d     (js/Object.getOwnPropertyDescriptor proto "value")]
     (.call (.-set d) n v)
     (.dispatchEvent n (js/InputEvent. "input" #js {:bubbles true}))
-    (rf.hicasso.test.mounted/settle! m)))
+    (rf.fresco.test.mounted/settle! m)))
 
 (defn- read-sub [m query-v] (rf/subscribe-once query-v {:frame (:frame m)}))
 
@@ -146,19 +146,19 @@
   "The whole application, on its own root and its own frame, seeded and
   pointed at a route. `:initial-events` drain to fixed point before the
   first render, so the page a row opens on is already the seeded one."
-  ([] (mount-app! [:rf.route/navigate {:to rf.hicasso.examples.slice.routes/feed}]))
+  ([] (mount-app! [:rf.route/navigate {:to rf.fresco.examples.slice.routes/feed}]))
   ([nav-event]
-   (rf.hicasso.test.mounted/mount! [rf.hicasso.examples.slice.views/app {}] {:initial-events [[::rf.hicasso.examples.slice.events/seed] nav-event]})))
+   (rf.fresco.test.mounted/mount! [rf.fresco.examples.slice.views/app {}] {:initial-events [[::rf.fresco.examples.slice.events/seed] nav-event]})))
 
 (defn- at-article!
   "Mounted, with the article route already resolved."
   [slug]
-  (mount-app! [:rf.route/navigate {:to rf.hicasso.examples.slice.routes/article :params {:slug slug}}]))
+  (mount-app! [:rf.route/navigate {:to rf.fresco.examples.slice.routes/article :params {:slug slug}}]))
 
 (defn- finish
   "Tear down, assert this mount left nothing behind, and end the row."
   [m done]
-  (-> (rf.hicasso.test.mounted/unmount! m) (rf.hicasso.test.mounted/assert-clean!) (.then done)))
+  (-> (rf.fresco.test.mounted/unmount! m) (rf.fresco.test.mounted/assert-clean!) (.then done)))
 
 (defn- finish-after
   "End the row when `p` settles, reporting a rejected `p` as a failure
@@ -184,9 +184,9 @@
       (let [m (mount-app!)]
         (is (= "Chronicle" (text m ".slice-title")))
         (is (= "Articles" (text m ".feed h2")))
-        (is (= ["Hicasso, briefly" "Intents are data" "Controlled, synchronously"]
+        (is (= ["Fresco, briefly" "Intents are data" "Controlled, synchronously"]
                (mapv #(.-textContent %) (nodes m ".article-link"))))
-        (is (= ["/slice/article/hicasso" "/slice/article/intents" "/slice/article/controls"]
+        (is (= ["/slice/article/fresco" "/slice/article/intents" "/slice/article/controls"]
                (mapv #(.getAttribute % "href") (nodes m ".article-link")))
             "the hrefs are the routing artefact's; `views` builds no URL")
         (is (= 1 (count (nodes m ".draft-badge")))
@@ -203,8 +203,8 @@
         ;; own `activate-link!` deciding. Nothing here calls preventDefault
         ;; — if the click were not claimed, this page would navigate away.
         (.click (node m ".article-list li:nth-child(2) .article-link"))
-        (-> (rf.hicasso.test.mounted/settle-until! m
-                              #(= rf.hicasso.examples.slice.routes/article (read-sub m [:rf.route/id]))
+        (-> (rf.fresco.test.mounted/settle-until! m
+                              #(= rf.fresco.examples.slice.routes/article (read-sub m [:rf.route/id]))
                               {:label "the route-link's navigate to drain"})
             (.then (fn [_]
                      (is (= {:slug "intents"} (read-sub m [:rf.route/params])))
@@ -237,7 +237,7 @@
         (is (= "A click carries a vector, and two renders are equal."
                (.-value (node m ".field-body"))))
         (is (true? (.-checked (node m "#slice-published"))))
-        (is (false? (read-sub m [::rf.hicasso.examples.slice.subs/dirty? "intents"]))
+        (is (false? (read-sub m [::rf.fresco.examples.slice.subs/dirty? "intents"]))
             "opening an article is not editing it; `:drafts` is still empty")
         (finish m done)))))
 
@@ -249,13 +249,13 @@
         (type-into! m ".field-title" "Intents, revisited")
         (is (= "Intents, revisited" (.-value (node m ".field-title")))
             "the glass")
-        (is (= "Intents, revisited" (:title (read-sub m [::rf.hicasso.examples.slice.subs/draft "intents"])))
+        (is (= "Intents, revisited" (:title (read-sub m [::rf.fresco.examples.slice.subs/draft "intents"])))
             "and the model — one place, not two")
         (is (= "A click carries a vector, and two renders are equal."
                (.-value (node m ".field-body")))
             "the field nobody touched is untouched: the first keystroke
              edited on top of the article rather than into an empty map")
-        (is (= "Intents are data" (:title (rf.hicasso.examples.slice.db/article (app-db m) "intents")))
+        (is (= "Intents are data" (:title (rf.fresco.examples.slice.db/article (app-db m) "intents")))
             "and the ARTICLE has not moved — a draft is not a save")
         (finish m done)))))
 
@@ -266,8 +266,8 @@
       (let [m (at-article! "controls")]
         (is (false? (.-checked (node m "#slice-published"))))
         (click! m "#slice-published")
-        (is (true? (:published? (read-sub m [::rf.hicasso.examples.slice.subs/draft "controls"])))
-            "a Hicasso intent dispatches SYNCHRONOUSLY — no drain, no poll,
+        (is (true? (:published? (read-sub m [::rf.fresco.examples.slice.subs/draft "controls"])))
+            "a Fresco intent dispatches SYNCHRONOUSLY — no drain, no poll,
              the next line reads the moved model")
         (is (true? (.-checked (node m "#slice-published"))))
         (finish m done)))))
@@ -279,8 +279,8 @@
 (defn- replied
   "Wait for the save region of `slug` to leave `:saving`."
   [m slug]
-  (rf.hicasso.test.mounted/settle-until! m
-                    #(not= :saving (:status (read-sub m [::rf.hicasso.examples.slice.subs/save-state slug])))
+  (rf.fresco.test.mounted/settle-until! m
+                    #(not= :saving (:status (read-sub m [::rf.fresco.examples.slice.subs/save-state slug])))
                     {:label (str "the stand-in server's reply for " slug)}))
 
 (deftest a-save-the-server-refuses-shows-its-reason-and-keeps-the-draft
@@ -314,7 +314,7 @@
                      typed because the server disagreed is the cruellest
                      failure mode")
                 (is (= "Controlled, synchronously"
-                       (:title (rf.hicasso.examples.slice.db/article (app-db m) "controls")))
+                       (:title (rf.fresco.examples.slice.db/article (app-db m) "controls")))
                     "and the article did not move")))
             (finish-after m done))))))
 
@@ -335,12 +335,12 @@
                      (is (nil? (node m ".save-problem")))
                      (is (= "Saved." (text m ".save-ok")))
                      (is (= "Controlled, revisited"
-                            (:title (rf.hicasso.examples.slice.db/article (app-db m) "controls")))
+                            (:title (rf.fresco.examples.slice.db/article (app-db m) "controls")))
                          "the article moved")
-                     (is (false? (read-sub m [::rf.hicasso.examples.slice.subs/dirty? "controls"]))
+                     (is (false? (read-sub m [::rf.fresco.examples.slice.subs/dirty? "controls"]))
                          "and the draft was cleared by the commit")
 
-                     (rf.hicasso.test.mounted/dispatch-and-settle! m [:rf.route/navigate {:to rf.hicasso.examples.slice.routes/feed}])
+                     (rf.fresco.test.mounted/dispatch-and-settle! m [:rf.route/navigate {:to rf.fresco.examples.slice.routes/feed}])
                      (is (some #{"Controlled, revisited"}
                                (mapv #(.-textContent %) (nodes m ".article-link")))
                          "the feed shows the new title, because it reads the
@@ -362,7 +362,7 @@
         ;; not the request was skipped.
         (is (= "A title is required. Try again" (text m ".save-problem")))
         (is (nil? (node m ".save-ok")))
-        (is (= :failed (:status (read-sub m [::rf.hicasso.examples.slice.subs/save-state "intents"]))))
+        (is (= :failed (:status (read-sub m [::rf.fresco.examples.slice.subs/save-state "intents"]))))
         (finish m done)))))
 
 ;; ---------------------------------------------------------------------------
@@ -406,7 +406,7 @@
               "and it is the SAME element: re-baselined, not remounted, so
                focus, selection and scroll position survive a discard"))
 
-        (is (false? (read-sub m [::rf.hicasso.examples.slice.subs/dirty? "intents"])))
+        (is (false? (read-sub m [::rf.fresco.examples.slice.subs/dirty? "intents"])))
         (is (true? (.-disabled (node m ".discard"))))
         (finish m done)))))
 
@@ -436,7 +436,7 @@
           (.call (.-set d) n "pasted by something else"))
         (is (= "pasted by something else" (.-value (node m ".field-title")))
             "the drift landed, and nothing in the application knows")
-        (is (= "Intents are data" (:title (read-sub m [::rf.hicasso.examples.slice.subs/draft "intents"])))
+        (is (= "Intents are data" (:title (read-sub m [::rf.fresco.examples.slice.subs/draft "intents"])))
             "the model is exactly where it was — this is the state a reset
              trigger would exist for")
 
@@ -480,10 +480,10 @@
                 ;; are in it — `::h/value` and `::h/checked` are
                 ;; substituted before the handler ever runs, so this is
                 ;; what a handler actually received.
-                (is (= [[::rf.hicasso.examples.slice.events/edit "controls" :title "Ready"]
-                        [::rf.hicasso.examples.slice.events/toggle-published "controls" true]
-                        [::rf.hicasso.examples.slice.events/save {:slug "controls"}]
-                        [::rf.hicasso.examples.slice.events/saved
+                (is (= [[::rf.fresco.examples.slice.events/edit "controls" :title "Ready"]
+                        [::rf.fresco.examples.slice.events/toggle-published "controls" true]
+                        [::rf.fresco.examples.slice.events/save {:slug "controls"}]
+                        [::rf.fresco.examples.slice.events/saved
                          {:slug  "controls"
                           :draft {:title      "Ready"
                                   :body       "The model is the only place the text lives."
@@ -513,8 +513,8 @@
         ;; reading — so unmounting `a` and asserting it while `b` is still
         ;; up reports `b`'s live subscriptions as `a`'s leak. The facade
         ;; says so in the failure it raises, which is how this was found.
-        (rf.hicasso.test.mounted/unmount! a)
-        (rf.hicasso.test.mounted/unmount! b)
-        (-> (rf.hicasso.test.mounted/assert-clean! a)
-            (.then (fn [_] (rf.hicasso.test.mounted/assert-clean! b)))
+        (rf.fresco.test.mounted/unmount! a)
+        (rf.fresco.test.mounted/unmount! b)
+        (-> (rf.fresco.test.mounted/assert-clean! a)
+            (.then (fn [_] (rf.fresco.test.mounted/assert-clean! b)))
             (.then done))))))

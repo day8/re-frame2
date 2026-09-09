@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.p0-converge-order-cljs-test
+(ns re-frame.bench.fresco.p0-converge-order-cljs-test
   "THE SEGMENT-ORDER VERDICT, replayed against the numbers it was built to
   judge (rf2-a4x1o).
 
@@ -9,7 +9,7 @@
 
   A gate whose only evidence is the run it shipped with has not been
   tested. These are the PUBLISHED per-round vectors from
-  `docs/design/hicasso/studio/p0-converged-witness-set.md`, replayed:
+  `docs/design/fresco/studio/p0-converged-witness-set.md`, replayed:
   the run the red-zone table was taken from, and the independent
   four-row reproduction sweep (rf2-rjfz1) taken at main `32cb224d6e`.
   Both are on the page, both are five rounds, and both ran the only
@@ -77,7 +77,7 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.set :as set]
             [clojure.walk :as walk]
-            [re-frame.bench.hicasso.p0-converge-app :as rf.bench.hicasso.p0-converge-app]))
+            [re-frame.bench.fresco.p0-converge-app :as rf.bench.fresco.p0-converge-app]))
 
 ;; ---------------------------------------------------------------------------
 ;; The published vectors
@@ -107,7 +107,7 @@
   "Replay a PUBLISHED five-round vector. Every published five-round run
   was Reagent-start, and the start is stated rather than defaulted."
   [vs]
-  (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 5 :reagent-subs))
+  (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 5 :reagent-subs))
 
 (defn- close-to?
   "Within `tol`. Every figure below is quoted from the studio page at
@@ -213,7 +213,7 @@
            UIx-first rounds reading 0.7 is a figure that says `slower`
            when one segment leads and `faster` when the other does — no
            direction to publish, and the run must not"
-    (let [r (rf.bench.hicasso.p0-converge-app/segment-order-verdict [1.40 0.70 1.45 0.72 1.38] 5 :reagent-subs)]
+    (let [r (rf.bench.fresco.p0-converge-app/segment-order-verdict [1.40 0.70 1.45 0.72 1.38] 5 :reagent-subs)]
       (is (= :numerator-slower (:direction (:reagent-first r))))
       (is (= :numerator-faster (:direction (:uix-first r))))
       (is (false? (:direction-agrees? r)))
@@ -235,7 +235,7 @@
            construction — the repair rf2-6i0i2 took, and the design the
            entry now runs"
     (let [vs [1.10 1.20 1.30 1.40 1.50 1.60]
-          r  (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 6 :reagent-subs)]
+          r  (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 :reagent-subs)]
       (is (true? (:balanced-design? r)))
       (is (= 3 (:n (:reagent-first r))))
       (is (= 3 (:n (:uix-first r))))
@@ -254,8 +254,8 @@
            which is exactly the confound the counterbalanced runs exist
            to break"
     (let [vs [1.30 1.10 1.25 1.12 1.35 1.11]
-          r  (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 6 :reagent-subs)
-          u  (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 6 :uix-subs)]
+          r  (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 :reagent-subs)
+          u  (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 :uix-subs)]
       (is (= :reagent-subs (:start r)))
       (is (= :uix-subs (:start u)))
       (is (= [1.30 1.25 1.35] (:per-round (:reagent-first r))))
@@ -268,8 +268,8 @@
            vector that refuses under one start refuses under the other
            with the directions exchanged"
     (let [vs [1.40 0.70 1.45 0.72 1.38 0.69]
-          r  (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 6 :reagent-subs)
-          u  (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 6 :uix-subs)]
+          r  (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 :reagent-subs)
+          u  (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 :uix-subs)]
       (is (= :numerator-slower (:direction (:reagent-first r))))
       (is (= :numerator-faster (:direction (:reagent-first u))))
       (is (true? (:refuse? r)))
@@ -306,7 +306,7 @@
            {:start :uix-subs     :vs [2.7222 2.4210 2.4444 2.8750 2.3889 2.3889]}]})
 
 (defn- legs [row] (map (fn [{:keys [vs start]}]
-                         (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 6 start "the reactive leg's"))
+                         (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 start "the reactive leg's"))
                        (get leg row)))
 
 (deftest every-published-leg-run-resolves-a-magnitude
@@ -572,7 +572,7 @@
   readings give 877/1024 = 0.8564, which is the 0.856 the page
   publishes. A displayed number is not an input."
   [vs start]
-  (let [r (rf.bench.hicasso.p0-converge-app/segment-order-verdict vs 6 start)]
+  (let [r (rf.bench.fresco.p0-converge-app/segment-order-verdict vs 6 start)]
     (js/Math.log (/ (mean (:per-round (:reagent-first r)))
                     (mean (:per-round (:uix-first r)))))))
 
@@ -815,7 +815,7 @@
 
 (defn- strata-of [row]
   (mapcat (fn [run]
-            (let [v (rf.bench.hicasso.p0-converge-app/segment-order-verdict (get run row) 6 (:start run))]
+            (let [v (rf.bench.fresco.p0-converge-app/segment-order-verdict (get run row) 6 (:start run))]
               [(:reagent-first v) (:uix-first v)]))
           ensemble))
 
@@ -840,7 +840,7 @@
            are the individually-unpublishable points the aggregate rule
            deliberately keeps in the ensemble"
     (let [verdicts (for [run ensemble row rows]
-                     [(:run run) row (rf.bench.hicasso.p0-converge-app/segment-order-verdict (get run row) 6 (:start run))])
+                     [(:run run) row (rf.bench.fresco.p0-converge-app/segment-order-verdict (get run row) 6 (:start run))])
           unresolved (remove #(:magnitude-resolved? (nth % 2)) verdicts)]
       (is (= 37 (count (filter #(:magnitude-resolved? (nth % 2)) verdicts))))
       (is (= 3 (count unresolved)))
@@ -854,7 +854,7 @@
            40`, which is the discredited 11-of-12 restated on the
            balanced design and no longer an effect"
     (is (= 23 (count (for [run ensemble row rows
-                           :let [v (rf.bench.hicasso.p0-converge-app/segment-order-verdict (get run row) 6 (:start run))]
+                           :let [v (rf.bench.fresco.p0-converge-app/segment-order-verdict (get run row) 6 (:start run))]
                            :when (> (:mean (:reagent-first v)) (:mean (:uix-first v)))]
                        [(:run run) row]))))))
 
@@ -1186,7 +1186,7 @@
            rather than quoted: the two order strata point opposite ways
            across 1.0, so `segment-order-verdict` refuses and the driver
            exits 1. The driver was right"
-    (let [vd (rf.bench.hicasso.p0-converge-app/segment-order-verdict (:M1 run-5-per-round) 6 :reagent-subs)]
+    (let [vd (rf.bench.fresco.p0-converge-app/segment-order-verdict (:M1 run-5-per-round) 6 :reagent-subs)]
       (is (true? (:refuse? vd)))
       (is (false? (:direction-agrees? vd)))
       (is (false? (:magnitude-resolved? vd)))
@@ -1198,7 +1198,7 @@
            overlap and every one resolves a magnitude. Run 5 is not a bad
            run; it is a run whose M1 sat on parity"
     (doseq [row [:M2 :broad :narrow]]
-      (let [vd (rf.bench.hicasso.p0-converge-app/segment-order-verdict (get run-5-per-round row) 6 :reagent-subs)]
+      (let [vd (rf.bench.fresco.p0-converge-app/segment-order-verdict (get run-5-per-round row) 6 :reagent-subs)]
         (is (false? (:refuse? vd)) (str (name row) " — no refusal"))
         (is (true? (:magnitude-resolved? vd)) (str (name row) " — magnitude resolved"))
         (is (close? (get (nth retake 4) row) (mean (get run-5-per-round row)))
@@ -1280,24 +1280,24 @@
 ;; The flag is global and the arm is not (rf2-2rtt6.21)
 ;; ---------------------------------------------------------------------------
 ;;
-;; `HICASSO_RATOM=on` is a page-global request; arm presence is decided per
-;; row. With no `HICASSO_ONLY` the driver selects ALL FOUR rows, and `M2`
+;; `FRESCO_RATOM=on` is a page-global request; arm presence is decided per
+;; row. With no `FRESCO_ONLY` the driver selects ALL FOUR rows, and `M2`
 ;; and `narrow` deliberately carry no `:reagent-ratom` arm — `M2`'s witness
 ;; ignores the flag and `bulk-arms` admits the arm only on `:broad`. Until
 ;; this section the record still read the FLAG: it divided by a ratio those
 ;; rows never produced, formed a ratom floor of nothing, ran the leg verdict
 ;; over the result and labelled the row as carrying the arm. The published
 ;; runs escaped it only by always pairing the flag with
-;; `HICASSO_ONLY=M1,broad`, so neither CI nor the quality gates ever ran the
+;; `FRESCO_ONLY=M1,broad`, so neither CI nor the quality gates ever ran the
 ;; natural flagged invocation.
 ;;
 ;; Three facts, in the order the run establishes them: which arms the row's
-;; PLAN plants, what [[rf.bench.hicasso.p0-converge-app/ratom-leg]] DECIDES from a round, and what the
+;; PLAN plants, what [[rf.bench.fresco.p0-converge-app/ratom-leg]] DECIDES from a round, and what the
 ;; RECORD then publishes. Pure arithmetic over constants — no DOM, no clock,
 ;; no browser, like everything else in this namespace.
 
 (def ^:private flagged-rows
-  "What `HICASSO_RATOM=on` with no `HICASSO_ONLY` selects: the driver's
+  "What `FRESCO_RATOM=on` with no `FRESCO_ONLY` selects: the driver's
   default row list, all four of them."
   [:M1 :M2 :broad :narrow])
 
@@ -1311,17 +1311,17 @@
            every assertion below rests on, and it is asked of the entry's
            own plan rather than restated beside it"
     (doseq [row flagged-rows]
-      (let [ids (set (rf.bench.hicasso.p0-converge-app/reagent-segment-arm-ids row true))]
+      (let [ids (set (rf.bench.fresco.p0-converge-app/reagent-segment-arm-ids row true))]
         (is (contains? ids :reagent-subs) (str row " must always run the denominator"))
         (is (= (contains? rows-carrying-the-arm row)
                (contains? ids :reagent-ratom))
-            (str row " under HICASSO_RATOM=on")))))
+            (str row " under FRESCO_RATOM=on")))))
   (testing "and with the flag OFF no row runs it, which is what keeps an
            unflagged invocation the instrument the four published rows
            were measured on"
     (doseq [row flagged-rows]
-      (is (not (contains? (set (rf.bench.hicasso.p0-converge-app/reagent-segment-arm-ids row false)) :reagent-ratom))
-          (str row " under HICASSO_RATOM=off")))))
+      (is (not (contains? (set (rf.bench.fresco.p0-converge-app/reagent-segment-arm-ids row false)) :reagent-ratom))
+          (str row " under FRESCO_RATOM=off")))))
 
 (deftest the-leg-is-formed-only-when-every-round-measured-the-arm
   (let [round (fn [ratom] {:reagent-subs
@@ -1329,21 +1329,21 @@
                                      ratom (assoc :reagent-ratom ratom))}})]
     (testing "six rounds that all measured the arm: the leg is 4.0 / 3.0,
              once per round"
-      (let [l (rf.bench.hicasso.p0-converge-app/ratom-leg (mapv round (repeat 6 3.0)))]
+      (let [l (rf.bench.fresco.p0-converge-app/ratom-leg (mapv round (repeat 6 3.0)))]
         (is (= 6 (count l)))
         (is (every? #(close? 1.3333 %) l))))
     (testing "no round measured it — nil, and NOT a quotient over a
              denominator that was never taken. This is the M2 and narrow
              case, and `subs / nil` is `Infinity` in JavaScript rather
              than an error, so nothing downstream would have complained"
-      (is (nil? (rf.bench.hicasso.p0-converge-app/ratom-leg (mapv round (repeat 6 nil))))))
+      (is (nil? (rf.bench.fresco.p0-converge-app/ratom-leg (mapv round (repeat 6 nil))))))
     (testing "a PARTIAL arm is no arm: one round short and the leg is nil,
              because a figure that quietly changes what it averages over
              is worse than one that is absent"
-      (is (nil? (rf.bench.hicasso.p0-converge-app/ratom-leg (mapv round [3.0 3.0 3.0 3.0 3.0 nil])))))
+      (is (nil? (rf.bench.fresco.p0-converge-app/ratom-leg (mapv round [3.0 3.0 3.0 3.0 3.0 nil])))))
     (testing "and a zero denominator divides to Infinity, so it is refused
              at the same door"
-      (is (nil? (rf.bench.hicasso.p0-converge-app/ratom-leg (mapv round (repeat 6 0.0))))))))
+      (is (nil? (rf.bench.fresco.p0-converge-app/ratom-leg (mapv round (repeat 6 0.0))))))))
 
 (def ^:private synthetic-ms
   "One reading vector per arm id, constant, so every ratio the record
@@ -1357,13 +1357,13 @@
    :ctl-2x [2.0 2.0 2.0]})
 
 (defn- flagged-record
-  "The published record for `row` under `HICASSO_RATOM=on`, over six rounds
+  "The published record for `row` under `FRESCO_RATOM=on`, over six rounds
   of that row's ACTUAL flagged arm set. The Reagent segment's arms come
   from the entry's own plan, so no premise is transcribed here."
   [row]
-  (let [reagent-arms (select-keys synthetic-ms (rf.bench.hicasso.p0-converge-app/reagent-segment-arm-ids row true))
+  (let [reagent-arms (select-keys synthetic-ms (rf.bench.fresco.p0-converge-app/reagent-segment-arm-ids row true))
         uix-arms     (select-keys synthetic-ms [:floor :uix-subs :ctl-2x])]
-    (:record (rf.bench.hicasso.p0-converge-app/row-record
+    (:record (rf.bench.fresco.p0-converge-app/row-record
                {:row row
                 :grade :bar
                 :doc "a contract fixture, not a measurement"
@@ -1386,7 +1386,7 @@
     @found))
 
 (deftest the-flagged-default-selection-publishes-a-leg-only-where-the-arm-ran
-  (testing "HICASSO_RATOM=on with the default four rows. M1 and broad
+  (testing "FRESCO_RATOM=on with the default four rows. M1 and broad
            publish a leg of 4.0 / 3.0 and say they carry the arm; M2 and
            narrow publish no leg, no ratom floor, no leg verdict and no
            comparability note, and say they carry no arm — and no row
@@ -1411,7 +1411,7 @@
             (str row " emitted non-finite numbers: " (pr-str (non-finite rec))))))))
 
 (deftest an-m2-or-narrow-only-flagged-selection-emits-no-leg-and-no-infinity
-  (testing "`HICASSO_RATOM=on HICASSO_ONLY=M2,narrow` — the selection
+  (testing "`FRESCO_RATOM=on FRESCO_ONLY=M2,narrow` — the selection
            nobody published from, CI never ran and the quality gates never
            exercised, which is precisely why it was the broken one. Both
            rows must answer with no leg at all rather than with a division

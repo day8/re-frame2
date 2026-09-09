@@ -167,43 +167,43 @@
   {:namespace "re-frame.flows", :var "reset-flows!", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "reset-last-inputs!", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "run-flows-on-db", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso", :var "as-component", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso", :var "as-element", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso", :var "client-root", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso", :var "defhost", :tier :advanced, :kind :macro, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso", :var "defview", :tier :advanced, :kind :macro, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso", :var "error-boundary", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso", :var "event", :tier :advanced, :kind :macro, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso", :var "frame-provider", :tier :advanced, :kind :var, :owner "002", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso", :var "frame-root", :tier :advanced, :kind :var, :owner "002", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso", :var "portal", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso", :var "reg-state", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso", :var "render!", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso", :var "route-link", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso", :var "sub", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso", :var "unmount!", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.hicasso.evidence", :var "envelope", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.evidence", :var "loss-reasons", :tier :tooling, :kind :var, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.evidence", :var "producer", :tier :tooling, :kind :var, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.evidence", :var "reads", :tier :tooling, :kind :var, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.evidence", :var "schema", :tier :tooling, :kind :var, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.evidence", :var "unknown", :tier :tooling, :kind :var, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.forms", :var "buffered-field", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.forms", :var "drafts", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.motion", :var "presence", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.native", :var "use-frame", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.native", :var "use-sub", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.overlay", :var "modal", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.overlay", :var "popover", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.server", :var "document", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.server", :var "payload-script", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.server", :var "render", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.server", :var "render-body", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.substrate", :var "adapter", :tier :adapter, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.tool", :var "explain-render", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.tool", :var "read-intents", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.tool", :var "read-mounted-boundaries", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.hicasso.tool", :var "read-read-attribution", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco", :var "as-component", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco", :var "as-element", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco", :var "client-root", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco", :var "defhost", :tier :advanced, :kind :macro, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco", :var "defview", :tier :advanced, :kind :macro, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco", :var "error-boundary", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco", :var "event", :tier :advanced, :kind :macro, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco", :var "frame-provider", :tier :advanced, :kind :var, :owner "002", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco", :var "frame-root", :tier :advanced, :kind :var, :owner "002", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco", :var "portal", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco", :var "reg-state", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco", :var "render!", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco", :var "route-link", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco", :var "sub", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco", :var "unmount!", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.fresco.evidence", :var "envelope", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.evidence", :var "loss-reasons", :tier :tooling, :kind :var, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.evidence", :var "producer", :tier :tooling, :kind :var, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.evidence", :var "reads", :tier :tooling, :kind :var, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.evidence", :var "schema", :tier :tooling, :kind :var, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.evidence", :var "unknown", :tier :tooling, :kind :var, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.forms", :var "buffered-field", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.forms", :var "drafts", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.motion", :var "presence", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.native", :var "use-frame", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.native", :var "use-sub", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.overlay", :var "modal", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.overlay", :var "popover", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.server", :var "document", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.server", :var "payload-script", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.server", :var "render", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.server", :var "render-body", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.substrate", :var "adapter", :tier :adapter, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.tool", :var "explain-render", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.tool", :var "read-intents", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.tool", :var "read-mounted-boundaries", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.fresco.tool", :var "read-read-attribution", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
   {:namespace "re-frame.interop", :var "debug-enabled?", :tier :tooling, :kind :var, :owner "009", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "after-cancel-fx", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "after-schedule-fx", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
@@ -425,7 +425,7 @@
   {:namespace "re-frame.story", :var "reg-variant*", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? true, :runtime-verified? true, :action :keep, :justification "The plain-fn partner of `reg-variant`, for programmatic registration (a loop over a data table, a generator, an MCP write path) where a macro cannot be called. Named as a facade surface alongside its macro by tools/story/spec/API.md §Facade re-export discipline; stranding the fn behind a door its macro does not need would break the pair."}
   {:namespace "re-frame.story", :var "reg-workspace", :tier :tooling, :kind :macro, :owner "007", :status "post-v1 lib", :facade? true, :runtime-verified? true, :action :keep, :justification "Registers a workspace, the multi-variant canvas -- authoring vocabulary written in every Story file. A subnamespace door here would split the one thing every Story file does; Conventions §Keep product facades coherent makes that split the failure mode, not the fix."}
   {:namespace "re-frame.story", :var "reg-workspace*", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? true, :runtime-verified? true, :action :keep, :justification "The plain-fn partner of `reg-workspace`, for programmatic registration (a loop over a data table, a generator, an MCP write path) where a macro cannot be called. Named as a facade surface alongside its macro by tools/story/spec/API.md §Facade re-export discipline; stranding the fn behind a door its macro does not need would break the pair."}
-  {:namespace "re-frame.story", :var "register-substrate!", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? true, :runtime-verified? true, :action :keep, :justification "The host-boot verb of the multi-substrate feature: a host calls it once per substrate it wants Story to render against, which is ordinary consumer workflow rather than chrome-internal plumbing. tools/story/spec/002-Runtime.md §Substrate hooks and 005-SOTA-Features.md §Multi-substrate side-by-side rendering are its normative home; the hicasso_counter testbed calls it through the facade at boot; story_multi_substrate_cljs_test pins rf.story/register-substrate! as THE public form (the sub-namespace call is the internal one); and skills/re-frame2 names the same qualified spelling when explaining why story-mcp list-substrates is browser-only. It is also the WRITE half of the pair whose READ half (registered-substrates) already sat on the facade -- keeping the reader and moving the writer is the split §Keep product facades coherent forbids."}
+  {:namespace "re-frame.story", :var "register-substrate!", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? true, :runtime-verified? true, :action :keep, :justification "The host-boot verb of the multi-substrate feature: a host calls it once per substrate it wants Story to render against, which is ordinary consumer workflow rather than chrome-internal plumbing. tools/story/spec/002-Runtime.md §Substrate hooks and 005-SOTA-Features.md §Multi-substrate side-by-side rendering are its normative home; the fresco_counter testbed calls it through the facade at boot; story_multi_substrate_cljs_test pins rf.story/register-substrate! as THE public form (the sub-namespace call is the internal one); and skills/re-frame2 names the same qualified spelling when explaining why story-mcp list-substrates is browser-only. It is also the WRITE half of the pair whose READ half (registered-substrates) already sat on the facade -- keeping the reader and moving the writer is the split §Keep product facades coherent forbids."}
   {:namespace "re-frame.story", :var "registered-substrates", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? true, :runtime-verified? true, :action :keep, :justification "The READ half of the substrate pair: the set of registered substrate ids, which is how a custom shell or a tooling caller enumerates what a variant's :substrates opt-in may legally name. Already a var-row of tools/story/spec/API.md §Registry queries and of docs/story/api/reference.md, so it was documented as a facade surface while carrying no manifest row at all -- the exact accretion the facade audit exists to stop. Kept with register-substrate! as one workflow: register at boot, enumerate later."}
   {:namespace "re-frame.story", :var "registered?", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? true, :runtime-verified? true, :action :keep, :justification "Presence predicate for one id: the guard a fixture or a tool writes before running a variant that may not exist."}
   {:namespace "re-frame.story", :var "registrations", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? true, :runtime-verified? true, :action :keep, :justification "The registry read -- what a sidebar, an MCP tool or a fixture calls to enumerate registered Story entities."}

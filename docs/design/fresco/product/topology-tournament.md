@@ -215,15 +215,15 @@ C4" survives the table intact and [§2.9.9](#299-what-was-not-concluded) says wh
 
 | | |
 |---|---|
-| instrument | `implementation/freehand/test/re_frame/bench/hicasso/topo/census_dom_cljs_test.cljs` |
-| substrate | the bench's **arm-1** runtime, not `implementation/hicasso` |
+| instrument | `implementation/freehand/test/re_frame/bench/fresco/topo/census_dom_cljs_test.cljs` |
+| substrate | the bench's **arm-1** runtime, not `implementation/fresco` |
 | witness | `npm run test:browser` (Chromium, real DOM), 1,507 tests / 9,533 assertions, 0 failures / 0 errors |
 | clock control | `topo/control_app.cljs` via the lane's generic `run.cjs` — the changed-set form **refused**; its rendered-scale replacement **certifies `fine`, `coarse` and `chunked`, and refuses `virtual`**; see §2.6 |
 | profile | P-DEV-1 |
 | box | `\System\Processor Queue Length` read **0.00** on every sample taken before, during and after both runs |
 
 **The substrate limitation is stated rather than buried.** Every figure below
-is an arm-1 figure and carries no `implementation/hicasso` generalisation. That
+is an arm-1 figure and carries no `implementation/fresco` generalisation. That
 is the same discipline [the budgets page](budgets.md#4-distributional-rows--s1s5-re-pinned-on-the-package-s6s7-carried)
 applies to its own rows when it labels S6 and S7 *bench-tree figures* beside
 S1–S5's *package figures*, and it is not softened here.
@@ -1047,11 +1047,11 @@ window did not relitigate that refusal.
     here; it would still be a `p95` of the wrong population. See
     [budgets.md §9.4](budgets.md#94-what-rf2-hic-071-has-taken-so-far-and-what-it-still-cannot-take).
 - **`C3` and `C4` are not addressed at all**, and not merely unresolved. They
-  compare Hicasso against **the best relevant adapter**; this table compares
+  compare Fresco against **the best relevant adapter**; this table compares
   four read *topologies* against each other inside one runtime. The two are
   different populations, and reading an arm-to-arm ratio as a `C3` figure
   would be the substitution `§1.4` forbids in a second direction.
-- **No `implementation/hicasso` generalisation.** Like the census, every figure
+- **No `implementation/fresco` generalisation.** Like the census, every figure
   here is an **arm-1** figure, taken through the bench's UIx-adapter runtime.
   §2.1's substrate limitation applies unchanged and is not softened by the
   clock half existing.
@@ -1176,8 +1176,8 @@ windows, not because it was re-derived.
   window supplies no bound on it in either direction. The control's band stays
   §1.5's. `batch-k`, `sampling` and `rounds` are the instrument's own and are
   read out of it rather than chosen here.
-- **THE PORT.** The driver takes `HICASSO_PORT=8148`, which is its own
-  docstring's value and not a choice made here. A stray idle `ssr:hicasso-serve`
+- **THE PORT.** The driver takes `FRESCO_PORT=8148`, which is its own
+  docstring's value and not a choice made here. A stray idle `ssr:fresco-serve`
   holds **8139** on this box; that is a different port, so nothing is moved and
   nothing is killed. Had it collided, §2.9.1's rig-fault clause already covers
   *a port already held*.
@@ -1187,7 +1187,7 @@ windows, not because it was re-derived.
   bracketed by `flushSync` on a synthetic bench page, and `U1`-`U3` are stated
   over a slice application's interactions through to a paint. Every cell stays
   `UNASSESSED` against them, `C3` and `C4` stay unaddressed as different
-  populations, and no `implementation/hicasso` generalisation is drawn from an
+  populations, and no `implementation/fresco` generalisation is drawn from an
   arm-1 figure. **No row of
   [`budgets.md` §9](budgets.md#9-the-budget-line-reconciliation-ledger)
   moves as a result of this part, in either direction.**
@@ -1271,7 +1271,7 @@ bracket that only accompanies admitted runs cannot be checked for selection.
 and no headless browser outside an invocation. Twenty-two `node` processes were
 resident throughout, every one an idle harness server with under two seconds of
 *cumulative* CPU across days of uptime — process age, not load. **The
-`ssr:hicasso-serve` stray on port 8139 was resident at every bracket and was
+`ssr:fresco-serve` stray on port 8139 was resident at every bracket and was
 neither used nor killed**; the driver takes 8148, which was free at every
 bracket, so §3.2's port clause never bound.
 
@@ -1489,7 +1489,7 @@ falls on.
   admitted runs is narrower and it is what the condition actually checks: no
   process other than this worker wrote into the shared scratch directory while
   they ran.
-- **No `implementation/hicasso` generalisation.** Every figure here is an
+- **No `implementation/fresco` generalisation.** Every figure here is an
   **arm-1** figure taken through the bench's UIx-adapter runtime, as §2.1
   requires, and nothing about the box condition softens that.
 - **No tuning iteration was spent.** §1.6 allows two per red cell; no cell was

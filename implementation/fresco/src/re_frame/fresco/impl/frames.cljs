@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.impl.frames
+(ns re-frame.fresco.impl.frames
   "FRAME-LOCKED OPS — resolved once per frame INCARNATION, and not once per
   boundary.
 
@@ -49,13 +49,13 @@
 
   It is not a RETENTION bound. The successor's first lookup is the ONLY
   eviction, so an id that never gets a successor would keep its row for the
-  life of the process — and `re-frame.hicasso.server/render` mints exactly
+  life of the process — and `re-frame.fresco.server/render` mints exactly
   such an id per request (`fresh-frame-id`'s `gensym`), one row per request
   served, each holding that request's `capture-frame` bundle, in a process
   built to be long-lived.
 
   `forget-frame-ops!` is therefore ALSO wired to frame destruction,
-  through core's `:hicasso/on-frame-destroyed!` late-bind hook — the same
+  through core's `:fresco/on-frame-destroyed!` late-bind hook — the same
   shape every other artefact releases its frame-keyed bookkeeping through
   in `destroy-frame!`'s step 7. It changes nothing above: a row a destroyed
   incarnation leaves behind is already unreachable by every branch of
@@ -64,7 +64,7 @@
   ## What lives here, and the one thing that does not
 
   The row's `:dispatch` closure is minted by
-  `re-frame.hicasso.impl.collector/frame-row` and handed in, because it is a
+  `re-frame.fresco.impl.collector/frame-row` and handed in, because it is a
   partial application of the collector's commit door (`with-commit` over the
   captured bundle's `:dispatch-sync`), and a namespace cycle is the
   alternative. It is ONE row rather than two tables so that the bundle and the
@@ -166,4 +166,4 @@
   [frame-kw]
   (forget-frame-ops! frame-kw))
 
-(rf.late-bind/set-fn! :hicasso/on-frame-destroyed! on-frame-destroyed!)
+(rf.late-bind/set-fn! :fresco/on-frame-destroyed! on-frame-destroyed!)

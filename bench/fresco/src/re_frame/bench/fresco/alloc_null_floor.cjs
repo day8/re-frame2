@@ -2,11 +2,11 @@
 // THE NON-CANCELLATION FLOOR, RE-DERIVED OVER THE WHOLE COMMITTED NULL-ARM
 // CORPUS — rf2-0eu1s.
 //
-//     node hicasso/test/re_frame/bench/hicasso/alloc_null_floor.cjs
-//     node hicasso/test/re_frame/bench/hicasso/alloc_null_floor.cjs --tables
-//     node hicasso/test/re_frame/bench/hicasso/alloc_null_floor.cjs --self-test
+//     node fresco/test/re_frame/bench/fresco/alloc_null_floor.cjs
+//     node fresco/test/re_frame/bench/fresco/alloc_null_floor.cjs --tables
+//     node fresco/test/re_frame/bench/fresco/alloc_null_floor.cjs --self-test
 //
-// Record: docs/design/hicasso/studio/the-floor-is-two-populations.md
+// Record: docs/design/fresco/studio/the-floor-is-two-populations.md
 //
 // ## WHAT THIS IS AND IS NOT
 //
@@ -67,7 +67,7 @@
 // than 43, so the one internally controlled comparison in this corpus is
 // STRENGTHENED. The 1.5 / 4.5 / 45 triple is untouched and the ruling this bead
 // waits on is unaffected: nothing above re-cuts a percentile or moves the bar.
-// Record: docs/design/hicasso/studio/the-band-on-the-aggregate-and-the-second-session.md
+// Record: docs/design/fresco/studio/the-band-on-the-aggregate-and-the-second-session.md
 //
 // ## WHY THE POOLED p90 CANNOT BE READ AS A MAGNITUDE HERE
 //

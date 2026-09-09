@@ -1,10 +1,10 @@
 # Arm 1 — lean-React: the mechanism, and the three-rendering dogfood judgement
 
-**Bead:** `rf2-2rtt6.9` · **Arm:** Hicasso lean-React
+**Bead:** `rf2-2rtt6.9` · **Arm:** Fresco lean-React
 ([architecture.md](../architecture.md) Arm 1) · **Branch:** `worker/arm1-2rtt6-9`
 
 > **Status, 2026-07-31: this is no longer a tournament arm — it is the product
-> line.** The operator ruled that Hicasso is "an adaptor for React that is
+> line.** The operator ruled that Fresco is "an adaptor for React that is
 > optimised for re-frame2, user ergonomics and performance", and dropped Arm 2
 > (PATCH) on product direction rather than on measurement — it had met its hard
 > gate. The competitive framing below (parity gates against a rival, the
@@ -78,10 +78,10 @@ slot with a counting `Proxy` and reads back what React was actually asked for.
 
 | Boundary | Reads | Hooks React was asked for |
 |---|---:|---|
-| Hicasso shell | 1 | `["useContext" "useSyncExternalStore"]` |
-| Hicasso shell | 7 | 2 |
-| Hicasso shell | 20 | 2 |
-| Raw UIx (`use-subscribe` ×1) | 1 | strictly more than the whole Hicasso shell |
+| Fresco shell | 1 | `["useContext" "useSyncExternalStore"]` |
+| Fresco shell | 7 | 2 |
+| Fresco shell | 20 | 2 |
+| Raw UIx (`use-subscribe` ×1) | 1 | strictly more than the whole Fresco shell |
 | Raw UIx (`use-subscribe` ×3) | 3 | more again — the count rises **with** the read count |
 
 No `useRef`, no `useState`, no `useMemo`, no `useCallback` in the shell. The
@@ -580,15 +580,15 @@ consumes a value it was handed. On this screen that is a one-line difference; on
 a screen where the loop's body decides *which* query it needs, it is a
 restructuring.
 
-**The event position.** Both Hicasso renderings write intent vectors straight
+**The event position.** Both Fresco renderings write intent vectors straight
 into the props map. The raw UIx rendering writes seven closures, each reaching
 into the event for `.-value` and each re-implementing the IME composition gate.
 Every one of them is a place the wrong event id can be written with nothing to
 notice.
 
 > Amended 2026-08-03 (`rf2-2rtt6.67`): when this page was written the two
-> Hicasso renderings took those vectors from a shared `front.dogfood/row-intents`
-> helper. That helper is gone — it was Hicasso authoring hoisted into a file
+> Fresco renderings took those vectors from a shared `front.dogfood/row-intents`
+> helper. That helper is gone — it was Fresco authoring hoisted into a file
 > named shared, which kept thirteen lines of one surface out of the preference
 > case's line count. Each rendering now writes its own event positions, and the
 > agreement the helper used to guarantee by construction is proved by

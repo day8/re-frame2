@@ -17,7 +17,7 @@
 > live in two places you can check: the `:rf.root/*` descriptor/manifest family this Spec
 > owns is emitted by `implementation/ssr/src/re_frame/ssr/manifest.cljc`, and the
 > ENSURE-at-host-preflight lifecycle of [§Preflight runs before React](#preflight-runs-before-react)
-> is realised by `re-frame.hicasso` — `implementation/hicasso/src/re_frame/hicasso/impl/mount.cljs`'s
+> is realised by `re-frame.fresco` — `implementation/fresco/src/re_frame/fresco/impl/mount.cljs`'s
 > `root!` calls `ensure-frame!` before `createRoot`. Where a door is named below it is named
 > as the historical realisation, never as a surface to build on. **This document's own
 > disposition is now ruled (rf2-h89ri, 2026-08-18): 004C is KEPT.** `spec/004-Views.md`
@@ -689,8 +689,8 @@ contract it points into.
 
 The door this section was written against (`re-frame.freehand`, conventionally
 aliased `v`) was removed on 2026-08-16 (rf2-0yp7w), **and the lifecycle below was
-not.** It is realised in-tree today by `re-frame.hicasso`, whose
-`implementation/hicasso/src/re_frame/hicasso/impl/mount.cljs` `root!` calls
+not.** It is realised in-tree today by `re-frame.fresco`, whose
+`implementation/fresco/src/re_frame/fresco/impl/mount.cljs` `root!` calls
 `ensure-frame!` — frame ENSURE plus the `:initial-events` drain — **before**
 `react-dom/client`'s `createRoot`, which is exactly the ordering
 [§Preflight runs before React](#preflight-runs-before-react) below requires.

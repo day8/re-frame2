@@ -1,4 +1,4 @@
-(ns re-frame.migration.hicasso.census
+(ns re-frame.migration.fresco.census
   "The corpus census — the REPORTER's second half, and the one that
   answers *what is in this codebase* rather than *what can I fix*.
 
@@ -19,7 +19,7 @@
   \"clean\", not \"nothing to do\": nothing. A migrator reading that report
   sees a file that is not mentioned, and a file that is not mentioned is
   the one shape a report must never make ambiguous. Reagent's local
-  reactive cell is the single most common thing a Hicasso migration has to
+  reactive cell is the single most common thing a Fresco migration has to
   answer for, and it was invisible.
 
   So the census walks the same files for the **view-substrate API
@@ -40,7 +40,7 @@
 
   **A CALL site is source that RUNS**, so `#_(r/atom 0)`, `'(r/atom 0)`
   and `(comment (r/atom 0))` are not among them and
-  [[re-frame.migration.hicasso.rewrite/inert?]] prunes them. An advertised
+  [[re-frame.migration.fresco.rewrite/inert?]] prunes them. An advertised
   estimand a reader can construct a counterexample to in one line is worse
   than a vaguer one honestly stated.
 
@@ -85,7 +85,7 @@
   answers `:recognised?`, [[summarise]] carries `:recognition` and a
   `:caveat` sentence, the file counts PARTITION the corpus so an
   unrecognised file is a bucket rather than a gap, and
-  [[re-frame.migration.hicasso.report/build]] hoists the verdict to the
+  [[re-frame.migration.fresco.report/build]] hoists the verdict to the
   TOP of the artefact — because the reader who is going to be misled is
   the one who reads the first summary and stops.
 
@@ -108,7 +108,7 @@
   reconciled against every recognised namespace's supported public calls;
   the coupling between the two lists is now a stated law with a test
   ratchet on
-  [[re-frame.migration.hicasso.rewrite/reagent-namespaces]], so a
+  [[re-frame.migration.fresco.rewrite/reagent-namespaces]], so a
   namespace cannot join the recognition set without a call the census can
   find in it; and the `:full` wording was weakened to the claim it can
   actually support — *this census had a population*, which is about the
@@ -151,7 +151,7 @@
   closes over is on the roster, and the shape it cannot name it does not
   count. A confident wrong number is worse than a stated silence."
   (:require [clojure.string :as str]
-            [re-frame.migration.hicasso.rewrite :as rf.migration.hicasso.rewrite]
+            [re-frame.migration.fresco.rewrite :as rf.migration.fresco.rewrite]
             [rewrite-clj.node :as n]
             [rewrite-clj.parser :as p]
             [rewrite-clj.zip :as z]))
@@ -161,7 +161,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def surface
-  "Reagent's public API, and what a Hicasso migration owes each entry.
+  "Reagent's public API, and what a Fresco migration owes each entry.
 
   One row per callable. The `:class` is what the report says; the
   `:verdict` is the migrator's triage bucket, and the three buckets are
@@ -178,7 +178,7 @@
   ## The roster covers every namespace the tool RECOGNISES, and that is a law
 
   A row here is looked up by NAME, while
-  [[re-frame.migration.hicasso.rewrite/reagent-namespaces]] decides
+  [[re-frame.migration.fresco.rewrite/reagent-namespaces]] decides
   per-FILE whether the file reaches for Reagent at all. The two must be
   widened together or the tool starts recognising files it cannot count —
   see the coupling law on that Var, which is where the reasoning lives.
@@ -277,7 +277,7 @@
   dropped) count files with no Reagent name in them; and it would leave
   the roster an enumeration, so the next adapter along reproduces the same
   silent zero. Two rosters, two counts, and a PREFIX RULE for this one:
-  see [[re-frame.migration.hicasso.rewrite/substrate-ns-prefix]].
+  see [[re-frame.migration.fresco.rewrite/substrate-ns-prefix]].
 
   ## What is on it
 
@@ -306,7 +306,7 @@
   `:files-clean 1, entries 0, :recognition :full` — a confident zero. Two
   rows close it, and they earn their place on the migration ask as well:
   a headless test that mounts a tree and drives an update is exactly the
-  code a Hicasso migration has to re-point.
+  code a Fresco migration has to re-point.
 
   Nothing here is `:mechanical` either, for the same reason nothing in
   [[surface]] is: no rewrite in this tool family reaches any of it.
@@ -316,7 +316,7 @@
   This file used to assert the two rosters were disjoint, on the reasoning
   that [[scan]] tries Reagent first so an overlap would classify a
   substrate call under a Reagent class. **That reasoning does not survive
-  reading [[re-frame.migration.hicasso.rewrite/bound-call?]]**, and the
+  reading [[re-frame.migration.fresco.rewrite/bound-call?]]**, and the
   assertion was retired when `reagent2.dom.client/flush-views!` had to be
   rostered on the Reagent side too (rf2-xoal): the two arms are not
   decided by name order, they are decided by two SEPARATE `ns` contexts,
@@ -363,13 +363,13 @@
   report's fourth property (§7.4) is that a refusal names the fix, and a
   census entry is a refusal with a wider fence than the fixer's."
   {:local-reactive-cell
-   (str "Reagent's local reactive cell. Hicasso has NO view-local state tier at all, so this "
+   (str "Reagent's local reactive cell. Fresco has NO view-local state tier at all, so this "
         "is not a syntax change: decide where the fact lives — an app-db address, the forms "
         "module's draft, or inside a declared native host if it is genuinely widget mechanics "
         "and not an application fact.")
 
    :derived-cell
-   (str "A Reagent derived cell — `cursor`, `track`, `reaction`, `run!`. In Hicasso a derived "
+   (str "A Reagent derived cell — `cursor`, `track`, `reaction`, `run!`. In Fresco a derived "
         "value is a layered subscription, registered once and read at the point of use. Port "
         "the derivation to a `sub`; a cell created inside render has no home here.")
 
@@ -380,12 +380,12 @@
         "event or a declared host's release path, and it will not survive a mechanical edit.")
 
    :lifecycle-class
-   (str "A form-3 component. React lifecycle is React's, not Hicasso's: port it to callback "
+   (str "A form-3 component. React lifecycle is React's, not Fresco's: port it to callback "
         "refs, or to a named native component that owns its own lifecycle behind a declared "
         "host.")
 
    :as-element
-   (str "`r/as-element` lowers Hiccup for a foreign caller. Hicasso's counterpart is "
+   (str "`r/as-element` lowers Hiccup for a foreign caller. Fresco's counterpart is "
         "`h/as-element` under a declared `:render` callback contract — and the closure usually "
         "runs OUTSIDE the owner's render window, when the library calls it, so this is not a "
         "text substitution.")
@@ -401,12 +401,12 @@
         "every call site at once, including call sites this run never saw.")
 
    :react-create-element
-   (str "`r/create-element` builds a React element directly. Hicasso's raw crossing is `[:> …]`, "
+   (str "`r/create-element` builds a React element directly. Fresco's raw crossing is `[:> …]`, "
         "and a repeated one graduates to a declared host — but the props dialect differs, so "
         "read the crossing's rules before respelling this.")
 
    :props-helper
-   (str "`r/merge-props` merges under Reagent's own class/style rules. Hicasso composes classes "
+   (str "`r/merge-props` merges under Reagent's own class/style rules. Fresco composes classes "
         "under its own accepted spellings; check the merged result rather than assuming the two "
         "rules agree.")
 
@@ -417,11 +417,11 @@
 
    :component-introspection
    (str "This reads or writes the CURRENTLY-RENDERING Reagent component — its props, children, "
-        "argv, replaceable state, or its DOM node. Hicasso has no such ambient component "
+        "argv, replaceable state, or its DOM node. Fresco has no such ambient component "
         "object. Pass the value in as data, or own the node from a declared native host.")
 
    :render-control
-   (str "This drives Reagent's own render scheduler. Hicasso commits on its own clock and "
+   (str "This drives Reagent's own render scheduler. Fresco commits on its own clock and "
         "exposes no equivalent lever; a migration that needed one is usually a migration with a "
         "read still living outside the frame.")
 
@@ -443,13 +443,13 @@
         "in an effect.")
 
    :root-mount
-   (str "Root mounting. Hicasso mounts its own root; this call is boot ceremony and is replaced "
+   (str "Root mounting. Fresco mounts its own root; this call is boot ceremony and is replaced "
         "wholesale rather than edited.")
 
    :static-markup
    (str "Hiccup to an HTML STRING, outside the React lifecycle — `render-to-string` or "
-        "`render-to-static-markup`. Hicasso's counterpart is the SSR seam "
-        "(`day8/re-frame2-ssr`'s `re-frame.ssr/render-to-string`), which lowers a HICASSO tree "
+        "`render-to-static-markup`. Fresco's counterpart is the SSR seam "
+        "(`day8/re-frame2-ssr`'s `re-frame.ssr/render-to-string`), which lowers a FRESCO tree "
         "rather than a Reagent one, so this is a re-point rather than an edit. An export that "
         "only ever wanted static bytes — clipboard HTML, report HTML, email — ports "
         "straightforwardly; anything whose output is later HYDRATED has to be re-read against "
@@ -457,31 +457,31 @@
 
    :substrate-read-hook
    (str "A read through the substrate adapter's own hook tier - the UIx adapter's "
-        "`use-sub` / `use-frame`. Hicasso reads with `h/sub` at the "
+        "`use-sub` / `use-frame`. Fresco reads with `h/sub` at the "
         "point of use inside a declared view, so this is not a hook swap: the value stops "
         "arriving through React's hook order and starts arriving through the view's own "
         "reactive read, and a component whose hooks were conditional has to be re-shaped.")
 
    :substrate-view-seam
    (str "The substrate adapter's own view seam - the hiccup emitter the adapter "
-        "was told to lower through. Hicasso owns both ends of that seam itself: views are "
-        "declared with `h/defview` and lowered by Hicasso's own compiler, so an explicit seam "
+        "was told to lower through. Fresco owns both ends of that seam itself: views are "
+        "declared with `h/defview` and lowered by Fresco's own compiler, so an explicit seam "
         "call has no counterpart to be respelled into. Code-gen and library scaffolding that "
-        "minted these needs a Hicasso-side equivalent rather than an edit.")
+        "minted these needs a Fresco-side equivalent rather than an edit.")
 
    :substrate-test-seam
    (str "`flush-views!` wraps React's `act()` so a test can settle pending effects before "
         "reading the DOM. It is a REAGENT/UIX-substrate seam, per Spec 008's per-adapter-require "
-        "rule, so it does not follow the views across: settle a Hicasso tree the way the "
-        "Hicasso testing chapter directs, and delete the require the call came through — which "
+        "rule, so it does not follow the views across: settle a Fresco tree the way the "
+        "Fresco testing chapter directs, and delete the require the call came through — which "
         "is the substrate adapter for the re-exported spelling and `reagent2.dom.client` for the "
         "promise-returning one.")
 
    :substrate-test-harness
    (str "`mount!` / `trigger-update!` — the headless test adapter's own harness, which mounts a "
         "view tree with no browser and drives an update through it. It is test scaffolding "
-        "rather than application code, so it does not port: a Hicasso view is exercised the way "
-        "the Hicasso testing chapter directs, and this call is replaced wholesale along with the "
+        "rather than application code, so it does not port: a Fresco view is exercised the way "
+        "the Fresco testing chapter directs, and this call is replaced wholesale along with the "
         "adapter require it came through. Check what the test was ASSERTING before respelling "
         "it — a harness that reached into the render tree is usually asserting something a "
         "subscription-level test says more directly.")
@@ -516,7 +516,7 @@
   roster key is then the ORIGINAL name, which is the only one the roster
   has a class and a recovery sentence for."
   [nd ctx roster]
-  (when-let [h (rf.migration.hicasso.rewrite/head-symbol nd)]
+  (when-let [h (rf.migration.fresco.rewrite/head-symbol nd)]
     (let [k (or (when-not (namespace h) (get (:renamed ctx) h))
                 (symbol (name h)))]
       (when (contains? roster k) k))))
@@ -567,14 +567,14 @@
   `(comment …)` body are none of it."
   [source file]
   (let [root        (p/parse-string-all source)
-        rctx        (rf.migration.hicasso.rewrite/ns-context root rf.migration.hicasso.rewrite/reagent-namespace?)
-        sctx        (rf.migration.hicasso.rewrite/ns-context root rf.migration.hicasso.rewrite/substrate-namespace?)
-        reagent?    (rf.migration.hicasso.rewrite/names-reagent? root)
+        rctx        (rf.migration.fresco.rewrite/ns-context root rf.migration.fresco.rewrite/reagent-namespace?)
+        sctx        (rf.migration.fresco.rewrite/ns-context root rf.migration.fresco.rewrite/substrate-namespace?)
+        reagent?    (rf.migration.fresco.rewrite/names-reagent? root)
         substrate?  (boolean (seq (into (:aliases sctx) (:referred sctx))))
         unresolved? (and reagent? (empty? (into (:aliases rctx) (:referred rctx))))
         excerpt     (fn [loc] (let [s (z/string loc)]
                                 (if (> (count s) 200) (str (subs s 0 200) " …") s)))
-        ns-node?    rf.migration.hicasso.rewrite/ns-form?]
+        ns-node?    rf.migration.fresco.rewrite/ns-form?]
     (loop [loc      (z/of-string source {:track-position? true})
            entries  []
            ns-said? false]
@@ -584,8 +584,8 @@
          :substrate?  substrate?
          :unresolved? unresolved?
          :recognised? (or reagent? substrate?)}
-        (if (rf.migration.hicasso.rewrite/inert? (z/node loc))
-          (recur (rf.migration.hicasso.rewrite/past-subtree loc) entries ns-said?)
+        (if (rf.migration.fresco.rewrite/inert? (z/node loc))
+          (recur (rf.migration.fresco.rewrite/past-subtree loc) entries ns-said?)
           (let [nd         (z/node loc)
                 rk         (roster-name nd rctx surface)
                 sk         (roster-name nd sctx substrate-surface)
@@ -606,7 +606,7 @@
 
                ;; Resolved: this really is Reagent's, through a symbol the
                ;; `ns` form binds.
-               (and rk (rf.migration.hicasso.rewrite/bound-call? nd rk rctx))
+               (and rk (rf.migration.fresco.rewrite/bound-call? nd rk rctx))
                (conj entries (entry (get surface rk) file line col (excerpt loc)
                                     {:api (str rk)}))
 
@@ -615,7 +615,7 @@
                ;; This is the arm the reported defect was missing — a
                ;; re-frame2 application on the Reagent adapter has every one
                ;; of its substrate calls here and none in the arm above.
-               (and sk (rf.migration.hicasso.rewrite/bound-call? nd sk sctx))
+               (and sk (rf.migration.fresco.rewrite/bound-call? nd sk sctx))
                (conj entries (entry (get substrate-surface sk) file line col (excerpt loc)
                                     {:api (str sk)}))
 
@@ -630,12 +630,12 @@
                ;; `rdc/render` that IS the finding. Reporting both makes the
                ;; real one harder to see, which is the only thing a census
                ;; owes anybody.
-               (and rk unresolved? (namespace (rf.migration.hicasso.rewrite/head-symbol nd)))
+               (and rk unresolved? (namespace (rf.migration.fresco.rewrite/head-symbol nd)))
                (conj entries (entry {:class   :unresolved-alias
                                      :verdict :runtime-blocker}
                                     file line col (excerpt loc)
                                     {:api    (str rk)
-                                     :symbol (str (rf.migration.hicasso.rewrite/head-symbol nd))}))
+                                     :symbol (str (rf.migration.fresco.rewrite/head-symbol nd))}))
 
                :else entries)
              (or ns-said? ns-here?))))))))

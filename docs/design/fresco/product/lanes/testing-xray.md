@@ -2,7 +2,7 @@
 
 ## Recommendation
 
-Testing and diagnostics are product surfaces, not documentation afterthoughts. Ship a supported `re-frame.hicasso.test` namespace and a dev-only adapter-neutral evidence provider. Do not expose the raw internal sink or invent evidence the interpreted runtime cannot know.
+Testing and diagnostics are product surfaces, not documentation afterthoughts. Ship a supported `re-frame.fresco.test` namespace and a dev-only adapter-neutral evidence provider. Do not expose the raw internal sink or invent evidence the interpreted runtime cannot know.
 
 ## Testing ladder
 
@@ -10,7 +10,7 @@ Testing and diagnostics are product surfaces, not documentation afterthoughts. S
 |---|---|---|
 | L0 | event handlers, subscriptions, state transitions | pure CLJ/CLJS tests |
 | L1 | codecs, intents, controlled-field/presence laws | pure data/property and macro-expansion tests (`h/defview` and `h/defhost` are the macros left) |
-| L2 | one hook-free Hicasso body; it expands no children of its own, and a nested boundary is recorded as the call it is | restricted semantic-tree harness |
+| L2 | one hook-free Fresco body; it expands no children of its own, and a nested boundary is recorded as the call it is | restricted semantic-tree harness |
 | L3 | React lifecycle, hooks, context, refs, foreign hosts and native components | mounted React DOM tests |
 | L4 | IME, caret, focus, hydration, layout, performance | Chromium, Firefox, and WebKit witnesses |
 
@@ -20,7 +20,7 @@ The L2 harness is not a JVM renderer or alternate execution semantics. It invoke
 
 Before defining another schema, audit the existing versioned structural-tree and Spec-011 assertion utilities and reuse compatible data/helpers only; do not inherit another renderer, SSR authority, or simulated React lifecycle. Hooks, directly returned React elements, native components, and raw/foreign hosts are opaque and refuse with a pointer to L3. Missing fixtures refuse; they are never replaced with fake React dispatchers.
 
-The mounted facade should provide isolated-frame `mount!`, `hydrate!`, `render!`, `dispatch-and-settle!`, `settle!`, `advance-clock!`, `unmount!`, and `assert-clean!`. It should interoperate with Testing Library and user-event instead of introducing another selector language. Cleanup unmounts, waits for Hicasso quiescence, compares residue with the pre-mount baseline, and only then resets.
+The mounted facade should provide isolated-frame `mount!`, `hydrate!`, `render!`, `dispatch-and-settle!`, `settle!`, `advance-clock!`, `unmount!`, and `assert-clean!`. It should interoperate with Testing Library and user-event instead of introducing another selector language. Cleanup unmounts, waits for Fresco quiescence, compares residue with the pre-mount baseline, and only then resets.
 
 Every witness names the equality it proves. Authored-data equality, semantic assertion-tree equality, canonical DOM, intent streams, React server bytes, and hydrated browser behavior are distinct claims. A normalized tree is never a proxy for hydration-wire parity, and L2 never claims React lifecycle parity.
 
@@ -46,18 +46,18 @@ Useful basis/loss states include:
 - `:cap` for retention-window loss;
 - `:uncorrelated` when an event-to-render relationship cannot be established.
 
-Project current registrations from state Hicasso already retains and use the existing trace ring for history. Do not add a universal accumulator, universal occurrence identity, or second history buffer merely to make a panel look complete. A named operation such as mount/unmount correlation or capsule capture may allocate bounded, commit-owned identity. Production returns nil and contains no evidence, schema, or source sentinels.
+Project current registrations from state Fresco already retains and use the existing trace ring for history. Do not add a universal accumulator, universal occurrence identity, or second history buffer merely to make a panel look complete. A named operation such as mount/unmount correlation or capsule capture may allocate bounded, commit-owned identity. Production returns nil and contains no evidence, schema, or source sentinels.
 
 Preserve the live Xray consumer contract while replacing producer semantics behind the adapter-neutral schema. Move every primary Xray/Story/Pair consumer off the experimental re-frame.ui/Freehand producer before those donor surfaces are disposed; fixture-only integrations may remain as named compatibility evidence, not an architecture foundation.
 
 ## Questions Xray must answer
 
-1. What Hicasso views ran or committed in this epoch?
+1. What Fresco views ran or committed in this epoch?
 2. Which changed subscriptions intersected the current reads?
 3. Did props, context, a read-set change, or a host boundary trigger the work?
 4. Where are read fan-out, read-set churn, render storms, retries, and abandoned work concentrated?
 5. Is time in the body, Hiccup lowering, React commit, layout, or paint?
-6. Which boundary is a credible topology-tuning or native-island candidate, and is a direct React element, a named island in raw React or UIx, or a foreign host the smallest fitting route? (*This question read* "direct `n/$`, a named Hicasso-native component, UIx, or a foreign host" *until 2026-09-04, `rf2-aunp`; `rf2-6c12m.3` deleted both Hicasso spellings on 2026-08-29 and the routes they named survive as React's own.*)
+6. Which boundary is a credible topology-tuning or native-island candidate, and is a direct React element, a named island in raw React or UIx, or a foreign host the smallest fitting route? (*This question read* "direct `n/$`, a named Fresco-native component, UIx, or a foreign host" *until 2026-09-04, `rf2-aunp`; `rf2-6c12m.3` deleted both Fresco spellings on 2026-08-29 and the routes they named survive as React's own.*)
 7. What is unknown, capped, opaque, or uncorrelated?
 
 Render timing is not commit evidence. Correlate event, subscription recomputation, boundary invalidation, body run, commit, and paint when the instruments support it; label every missing link. Xray owns bounded retention. React DevTools and browser performance tools remain the authority for React commits and paint.
@@ -72,7 +72,7 @@ Production-erasure tests use unique sentinels and a reachable positive-control s
 
 Every testing refusal is structured and source-located. Query results never leave the process unless an explicitly authorized consumer requests them, and query arguments pass through the existing privacy projector. Sink failures are contained. Performance collection is independently gated and off by default.
 
-Optional modules contribute evidence only while installed and used. Forms, overlays, presence, resources, and native islands may add their own bounded projections—for example draft ownership, active top-layer region, transition posture, resource owners and fetch cause, or native read edges—but none adds a universal accumulator to ordinary Hicasso.
+Optional modules contribute evidence only while installed and used. Forms, overlays, presence, resources, and native islands may add their own bounded projections—for example draft ownership, active top-layer region, transition posture, resource owners and fetch cause, or native read edges—but none adds a universal accumulator to ordinary Fresco.
 
 *The resources projection above read* "resource demand" *until 2026-08-16 (`rf2-h3tke`).* `rf2-hic-050` returned **STOP** on committed-read demand and a subscription never fetches, so what there is to project is the explicit owner and the cause that fetched — which is what the public diagnostics page names.
 

@@ -294,30 +294,30 @@
   scope). The two axes coincided while the members were `:reagent` and
   `:uix`, and the coincidence read as identity.
 
-  `:hicasso` is still the member that separates them, though no longer
-  for the reason first recorded here. That reason was that Hicasso
-  shipped NO adapter — that there was no `:rf.adapter/hicasso` anywhere
-  in the repository, deliberately, and that a Hicasso application booted
-  on the UIx adapter. rf2-hvr5h retired it: `re-frame.hicasso.substrate`
-  ships `:kind :rf.adapter/hicasso`, and the install chapter teaches
+  `:fresco` is still the member that separates them, though no longer
+  for the reason first recorded here. That reason was that Fresco
+  shipped NO adapter — that there was no `:rf.adapter/fresco` anywhere
+  in the repository, deliberately, and that a Fresco application booted
+  on the UIx adapter. rf2-hvr5h retired it: `re-frame.fresco.substrate`
+  ships `:kind :rf.adapter/fresco`, and the install chapter teaches
   `(rf/init! substrate/adapter)` as the default (rf2-4rozj).
 
   The separation survives intact, because it never rested on the
-  absence. A Hicasso application may install Hicasso's own adapter or
+  absence. A Fresco application may install Fresco's own adapter or
   somebody else's — the install is explicit and there is no
   default-adapter registry — and it remains ONE authoring layer either
   way: its views are boundaries minted by `h/defview`, reached through
   `rf/view` on the view registrar and crossed into with
   `h/as-element`. That is what a member of THIS set names, and it does
   not move when the adapter beneath it does. The two enums now share a
-  `hicasso` spelling and still answer different questions, which is
+  `fresco` spelling and still answer different questions, which is
   precisely the one-to-one reading this section exists to prevent.
 
   ## Who registers what
 
   Story installs `:reagent` itself (`install-reagent-substrate!`). `:uix`
-  and `:hicasso` are host-registered at boot through the public
-  `register-substrate!` — the `:hicasso` recipe is written out in
+  and `:fresco` are host-registered at boot through the public
+  `register-substrate!` — the `:fresco` recipe is written out in
   `re-frame.story.ui.multi-substrate`'s ns docstring. Membership here is
   an AUTHORING vocabulary check; it says nothing about whether the host
   actually registered a renderer, and a variant naming a substrate no
@@ -327,7 +327,7 @@
   `:reagent-slim` is reserved for addition at reagent-slim GA / first
   published artefact — the same trigger that gates Story's own UI-shell
   migration (see spec/Principles.md §Reagent for the v1 UI shell)."
-  [:set [:enum :reagent :uix :hicasso]])
+  [:set [:enum :reagent :uix :fresco]])
 
 (def PlatformSet
   "Subset of `#{:server :client}` per /spec/007-Stories.md `:platforms`."

@@ -9,9 +9,9 @@ prototype coordinate and every one of them must stay green.
   `arm1.mount/render!` are provenance prose — the overwhelmingly common in-tree
   spelling, and the one the fix hint tells authors to use.
 * **A preceding `.` denies token start.** The honest fully-qualified
-  re-frame.bench.hicasso.front.slot-cljs-test names the prototype tree
+  re-frame.bench.fresco.front.slot-cljs-test names the prototype tree
   truthfully; it is not a coordinate anyone could mistake for a shipped one.
-  Same for re-frame.bench.hicasso.arm1.hydrate-dom-cljs-test.
+  Same for re-frame.bench.fresco.arm1.hydrate-dom-cljs-test.
 * **The namespace dot is mandatory.** arm1/host_hatch_dom_cljs_test is the
   pervasive shorthand for a FILE in the prototype's arm1 directory, not a
   namespace coordinate. Roughly twenty comments spell it that way.
@@ -22,4 +22,4 @@ prototype coordinate and every one of them must stay green.
   denied by both patterns at once.
 
 The shipped spelling, for contrast:
-`re-frame.hicasso.impl.collector/frame-prop-shell`.
+`re-frame.fresco.impl.collector/frame-prop-shell`.

@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.typeahead.subs
+(ns re-frame.fresco.examples.typeahead.subs
   "THE DERIVATION GRAPH — and the two reads the flagship experiment is
   about.
 
@@ -18,7 +18,7 @@
   and the argument says WHICH ONE, and a boundary that stops rendering the
   panel stops holding the first. Today nothing connects that fact to the
   request, which is what
-  [[re-frame.hicasso.examples.typeahead.events]]'s census rows are.
+  [[re-frame.fresco.examples.typeahead.events]]'s census rows are.
 
   It matters that the parameter is in the QUERY rather than read out of
   `app-db` inside the sub. A sub that reads the current term for itself is
@@ -28,7 +28,7 @@
   the term is read once by the field's own boundary and handed down as a
   prop."
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso.examples.typeahead.db :as rf.hicasso.examples.typeahead.db]))
+            [re-frame.fresco.examples.typeahead.db :as rf.fresco.examples.typeahead.db]))
 
 ;; ---------------------------------------------------------------------------
 ;; The field
@@ -77,7 +77,7 @@
 (rf/reg-sub ::wanted
   {:doc "The term a live read wants, or `nil` — [[db/wanted]] as a
          subscription, so the shell can hand the panel its parameter."}
-  (fn [db _] (rf.hicasso.examples.typeahead.db/wanted db)))
+  (fn [db _] (rf.fresco.examples.typeahead.db/wanted db)))
 
 (rf/reg-sub ::held-rows
   {:doc "Whatever rows are held, whichever term they answer. Read ONLY by
@@ -106,4 +106,4 @@
   {:doc "Has the user typed enough to be worth a request? The panel shows
          a hint rather than an empty list when they have not."
    :inputs [[::term]]}
-  (fn [[term] _] (rf.hicasso.examples.typeahead.db/searchable? term)))
+  (fn [[term] _] (rf.fresco.examples.typeahead.db/searchable? term)))

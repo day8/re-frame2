@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.topo.model
+(ns re-frame.bench.fresco.topo.model
   "THE TOPOLOGY TOURNAMENT'S STATE LAYER — one table, four read
   topologies, four operations (rf2-hic-036).
 
@@ -6,14 +6,14 @@
   only answerable if the four arms are four *readings of one
   application*: four hand-written models would make every arm-to-arm
   difference unattributable, which is the argument
-  [[re-frame.bench.hicasso.shapes.model]] already makes for the tier-1
+  [[re-frame.bench.fresco.shapes.model]] already makes for the tier-1
   shape roster and `jsfb-model` makes for the js-framework-benchmark
   pair. So the rows, the markup, the seed and the four events live here,
-  once, and [[re-frame.bench.hicasso.topo.arms]] cuts them four ways.
+  once, and [[re-frame.bench.fresco.topo.arms]] cuts them four ways.
 
   ## The row's TWO reads, and why exactly two
 
-  [The counterfactual worksheet](../../../../../../../docs/design/hicasso/product/counterfactual-topology-prediction.md)
+  [The counterfactual worksheet](../../../../../../../docs/design/fresco/product/counterfactual-topology-prediction.md)
   froze its predictions on `R = 2`, and closed by naming the way this
   page could invalidate them: *\"if the tournament's table reads more
   than 2 keys per row, every `B·R` figure on this page is low.\"* It

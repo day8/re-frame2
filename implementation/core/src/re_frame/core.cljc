@@ -2745,7 +2745,7 @@
 
   It is also the ONLY door for records with no resolvable frame owner:
   `:rf.error/no-frame-context`, the pre-frame SSR hydration-parse arm of
-  `:rf.error/malformed-hydration-payload`, hicasso's compute-sub
+  `:rf.error/malformed-hydration-payload`, fresco's compute-sub
   `:rf.error/sub-exception`, and any record whose `:frame` no longer resolves
   (a destroyed frame, a dissociated incarnation's teardown report). These
   reach the process default projected under an EXPLICITLY NIL governing frame
@@ -2960,7 +2960,7 @@
 
   ONE read, map-shaped. Branch code asks for the discriminator as a KEY:
   `(:kind (rf/current-adapter))` — `:rf.adapter/reagent`,
-  `:rf.adapter/reagent-slim`, `:rf.adapter/uix`, `:rf.adapter/hicasso`,
+  `:rf.adapter/reagent-slim`, `:rf.adapter/uix`, `:rf.adapter/fresco`,
   `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or `nil` for a custom
   adapter map that picked no canonical kind (nothing is synthesised for
   it). PRESENCE is a question about the MAP, never about `:kind`.

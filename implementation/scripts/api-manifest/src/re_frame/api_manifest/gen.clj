@@ -134,13 +134,13 @@
     re-frame.ssr.render-state
     re-frame.ssr.ring.node
     re-frame.epoch
-    ;; The Hicasso view substrate's public door. A `.cljc` whose `:clj` arm
+    ;; The Fresco view substrate's public door. A `.cljc` whose `:clj` arm
     ;; is the three authoring macros (`defview` / `event` / `defhost`) and
     ;; whose `:cljs` arm is the runtime aliases — a SPLIT-HOST public
     ;; namespace, so each host inventories the arm it can see: `ns-publics`
     ;; here returns the macros, and the CLJS probe reconciles the aliases
     ;; against these same `:classification` rows (rf2-phm7g).
-    re-frame.hicasso
+    re-frame.fresco
     ;; The event-bundle projection surface (rf2-kuky.72). Its two public fns
     ;; — `group-by-event` and `domino-bucket` — used to be rowed at their
     ;; `re-frame.core` facade twins on the justification that the producing
@@ -222,7 +222,7 @@
 ;; caller. The gate was not forgotten, it was ORPHANED, and the orphan reads
 ;; exactly like a live backstop to anyone grepping for one. Three namespaces
 ;; then shipped unscanned through the gap (`re-frame.ssr.ring.node`,
-;; `re-frame.ssr.render-state`, `re-frame.hicasso.server`).
+;; `re-frame.ssr.render-state`, `re-frame.fresco.server`).
 ;;
 ;; THE GATE. It infers NOTHING about publicness: no namespace is
 ;; auto-enrolled, no var is auto-published, and `^:no-doc` carve-outs behave
@@ -239,7 +239,7 @@
 ;; is the honest part of this fix rather than a shortcut. The SSR trees are
 ;; where the class just recurred, and enrolling a tree is not free: every
 ;; namespace in it must be classified by a human, once, and recorded below.
-;; `implementation/hicasso/src` joined them under rf2-3ne8, and what it cost is
+;; `implementation/fresco/src` joined them under rf2-3ne8, and what it cost is
 ;; worth recording, because it is the argument for the gate rather than against
 ;; it. Twenty-four of its twenty-six namespaces were unaccounted, and the
 ;; assumption — this bead's own, and the dispatch's — was that they were mostly
@@ -250,23 +250,23 @@
 ;; documentation page, and nothing but this gate would have said so. They were
 ;; tiered honestly and given pages rather than quieted with `^:no-doc`; the two
 ;; tool-tier namespaces (`.tool`, `.evidence`) were rowed `:tooling`, which
-;; obliges no page; the eighteen `re-frame.hicasso.impl.*` are below.
+;; obliges no page; the eighteen `re-frame.fresco.impl.*` are below.
 ;; Widening to the remaining artefacts is a per-tree decision with a per-tree
 ;; cost; the point of the data-driven shape below is that each is a root plus
 ;; its classifications, never another mechanism.
 ;;
 ;; ROUTING AND RESOURCES joined under rf2-hjj4, executing step 2 of the
 ;; rf2-qvhx ruling, and their result is worth recording because it points the
-;; OTHER WAY from hicasso's. They were chosen on blast radius — the two trees
+;; OTHER WAY from fresco's. They were chosen on blast radius — the two trees
 ;; judged most likely to hide a public authoring surface an application
 ;; requires directly. Fifty-one namespaces were unaccounted (routing 28,
 ;; resources 23) and ALL FIFTY-ONE classified internal: no new manifest row, no
 ;; new documentation page, the row count unchanged. The reason the two trees
-;; differ from hicasso is structural rather than lucky. Both are FAÇADE
+;; differ from fresco is structural rather than lucky. Both are FAÇADE
 ;; artefacts — one enrolled door re-exporting what an app may call (27 rows for
 ;; routing, 21 for resources), with the siblings holding handler bodies,
 ;; `*-meta` registration maps, cofx constructors, `*-sub-fn` bodies and
-;; host-side caches. Hicasso is the opposite shape: its optional modules are
+;; host-side caches. Fresco is the opposite shape: its optional modules are
 ;; separately requirable BECAUSE they are opt-in, so its door could not
 ;; re-export them. That distinction is the useful predictor for the remaining
 ;; trees, and it is what rf2-hjj4's verdict rests on.
@@ -284,7 +284,7 @@
 ;; worse than none because it looks like a decision.
 ;;
 ;; THE ADAPTERS EXCEPTION WAS PRICED AND DECLINED. Adapters are requirable BY
-;; DEFINITION — an app requires the adapter it uses — so they wear the hicasso
+;; DEFINITION — an app requires the adapter it uses — so they wear the fresco
 ;; shape rather than the façade one, and the ruling named them as the one tree
 ;; worth enrolling next, at three namespaces. THE COUNT IS FIFTEEN: four
 ;; adapter doors (reagent, uix, test-react, reagent-slim) plus a VENDORED
@@ -303,14 +303,14 @@
    beneath it (see this section's header)."
   ["implementation/ssr/src"
    "implementation/ssr-ring/src"
-   "implementation/hicasso/src"
+   "implementation/fresco/src"
    "implementation/routing/src"
    "implementation/resources/src"])
 
 (def internal-namespaces
   "Source namespaces under `roster-covered-roots` that are deliberately NOT a
   supported surface: SSR pipeline internals, host-adapter plumbing and
-  emitters, the Hicasso runtime beneath its door, and the per-concern siblings
+  emitters, the Fresco runtime beneath its door, and the per-concern siblings
   the routing and resources façades compose. Nothing here is published,
   documented or rowed in the manifest — being on this list is the RECORD of
   that decision, not a consequence of it.
@@ -319,9 +319,9 @@
   (the SSR trees use it nowhere at all), so the marker cannot be the
   classifier — which is precisely why the roster is written down instead of
   derived. The public doors of these five artefacts are `re-frame.ssr`,
-  `re-frame.ssr.ring`, `re-frame.hicasso`, `re-frame.routing` and
+  `re-frame.ssr.ring`, `re-frame.fresco`, `re-frame.routing` and
   `re-frame.resources`, plus the two crossing surfaces rf2-8arzr.7 enrolled and
-  the Hicasso modules rf2-3ne8 enrolled; everything below is reached only from
+  the Fresco modules rf2-3ne8 enrolled; everything below is reached only from
   inside them.
 
   READ THE GROUPING COMMENTS AS THE CLASSIFICATION. Each names what the group
@@ -373,14 +373,14 @@
      re-frame.ssr.ring.shell
      re-frame.ssr.ring.streaming
      re-frame.ssr.ring.trust
-     ;; --- implementation/hicasso/src ---------------------------------------
-     ;; Everything under `re-frame.hicasso.impl.*` and nothing else: the door
-     ;; (`re-frame.hicasso`), its five optional authoring modules, its SSR
+     ;; --- implementation/fresco/src ---------------------------------------
+     ;; Everything under `re-frame.fresco.impl.*` and nothing else: the door
+     ;; (`re-frame.fresco`), its five optional authoring modules, its SSR
      ;; module and its two tool-tier namespaces are all ENROLLED instead — nine
      ;; namespaces of the tree's twenty-seven, leaving these eighteen. The `impl`
      ;; segment is the artefact's own published boundary, stated in
-     ;; `docs/api/re-frame.hicasso.md` and in spec/Conventions.md's artefact
-     ;; row: "everything else is `re-frame.hicasso.impl.*` and is not a
+     ;; `docs/api/re-frame.fresco.md` and in spec/Conventions.md's artefact
+     ;; row: "everything else is `re-frame.fresco.impl.*` and is not a
      ;; consumer surface". So the roster and the naming agree here, which the
      ;; SSR trees above could not manage — but the roster is still written out
      ;; rather than derived from the segment, because a prefix rule would
@@ -388,34 +388,34 @@
      ;; which is the exact failure this gate exists to prevent.
      ;; The render pipeline: hiccup in, React elements out, and the commit
      ;; fence that keeps one render pass on one commit.
-     re-frame.hicasso.impl.codec
-     re-frame.hicasso.impl.collector
-     re-frame.hicasso.impl.generation
-     re-frame.hicasso.impl.slot
+     re-frame.fresco.impl.codec
+     re-frame.fresco.impl.collector
+     re-frame.fresco.impl.generation
+     re-frame.fresco.impl.slot
      ;; Props and callbacks: intent lowering, controlled-element converge.
-     re-frame.hicasso.impl.controlled
-     re-frame.hicasso.impl.intent
+     re-frame.fresco.impl.controlled
+     re-frame.fresco.impl.intent
      ;; Roots, mounting and the hydration adoption window.
-     re-frame.hicasso.impl.mount
-     re-frame.hicasso.impl.roots
+     re-frame.fresco.impl.mount
+     re-frame.fresco.impl.roots
      ;; The two in-tree frame boundaries' shells, whose door re-exports them
      ;; as `h/frame-root` / `h/frame-provider` (rf2-kuky.58).
-     re-frame.hicasso.impl.frame-boundary
+     re-frame.fresco.impl.frame-boundary
      ;; Frame-locked ops and instance-key local state.
-     re-frame.hicasso.impl.frames
-     re-frame.hicasso.impl.state
+     re-frame.fresco.impl.frames
+     re-frame.fresco.impl.state
      ;; Refusals: the one constructor, the dev-only ledger, and the runtime's
      ;; own error boundary component.
-     re-frame.hicasso.impl.boundary
-     re-frame.hicasso.impl.error
+     re-frame.fresco.impl.boundary
+     re-frame.fresco.impl.error
      ;; The impure halves of the optional modules, whose doors are the
-     ;; enrolled `re-frame.hicasso.overlay` / `.motion` namespaces, plus the
+     ;; enrolled `re-frame.fresco.overlay` / `.motion` namespaces, plus the
      ;; portal and route-link markup shapes the door re-exports.
-     re-frame.hicasso.impl.overlay
-     re-frame.hicasso.impl.portal
-     re-frame.hicasso.impl.presence
-     re-frame.hicasso.impl.presence-react
-     re-frame.hicasso.impl.route-link
+     re-frame.fresco.impl.overlay
+     re-frame.fresco.impl.portal
+     re-frame.fresco.impl.presence
+     re-frame.fresco.impl.presence-react
+     re-frame.fresco.impl.route-link
      ;; --- implementation/routing/src ---------------------------------------
      ;; The door is `re-frame.routing`, enrolled above, and it says so in its
      ;; own docstring: "This namespace is the public boot point and facade for

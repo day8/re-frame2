@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.grid.app
+(ns re-frame.fresco.examples.grid.app
   "THE GRID'S ENTRY POINT — an adapter, a frame, a root.
 
   The editor's entry point with one difference: [[initial-events]] is a
@@ -8,9 +8,9 @@
   `examples.editor.app`'s, and its docstring carries the reasoning."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.grid.events :as rf.hicasso.examples.grid.events]
-            [re-frame.hicasso.examples.grid.views :as rf.hicasso.examples.grid.views]))
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.grid.events :as rf.fresco.examples.grid.events]
+            [re-frame.fresco.examples.grid.views :as rf.fresco.examples.grid.views]))
 
 (def frame-id
   "This application's frame. Namespaced, so two applications in one
@@ -24,14 +24,14 @@
   variable of `grid.scaling-dom-cljs-test`: the suite mounts the same
   application twice and the only difference between the two mounts is
   what this returns."
-  ([] (initial-events rf.hicasso.examples.grid.events/default-dimensions))
-  ([dimensions] [[::rf.hicasso.examples.grid.events/seed dimensions]]))
+  ([] (initial-events rf.fresco.examples.grid.events/default-dimensions))
+  ([dimensions] [[::rf.fresco.examples.grid.events/seed dimensions]]))
 
 (defonce ^:private app-root
   ;; `defonce`, because a reload re-evaluates this namespace and a plain
   ;; `def` would replace the handle the reload exists to render through.
   ;; Inert until the first render — no DOM work at allocation.
-  (rf.hicasso/client-root))
+  (rf.fresco/client-root))
 
 (defn ^:dev/after-load mount!
   "Render the application through its one client-root handle — the boot
@@ -39,9 +39,9 @@
   React root; every later one updates that same root, so the DOM, the
   subscriptions and every scrap of component state survive a reload."
   []
-  (rf.hicasso/render! app-root
-    [rf.hicasso/frame-root {:id frame-id}
-     [rf.hicasso.examples.grid.views/grid {}]]
+  (rf.fresco/render! app-root
+    [rf.fresco/frame-root {:id frame-id}
+     [rf.fresco.examples.grid.views/grid {}]]
     (js/document.getElementById "app")))
 
 (defn ^:export -main

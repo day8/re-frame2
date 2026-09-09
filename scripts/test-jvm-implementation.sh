@@ -109,8 +109,8 @@ artefacts=(
   # JVM per deftest (slowest artefact), matching the dedicated
   # `jvm-test-quiet` PR-CI job (test.yml).
   implementation/test-quiet
-  # rf2-ipx7h — the Hicasso view substrate, and the ONE thing it runs on the
-  # JVM: `re-frame.hicasso.slot-cljs-test`, the `.cljc` equivalence pin for
+  # rf2-ipx7h — the Fresco view substrate, and the ONE thing it runs on the
+  # JVM: `re-frame.fresco.slot-cljs-test`, the `.cljc` equivalence pin for
   # the canonical slot rule (rf2-ani6y), retargeted onto the package's own
   # `impl/slot.cljc` when the bench tree left (rf2-6c12m.1). Measured here:
   # 3 tests, 92 assertions, ~5s.
@@ -129,16 +129,16 @@ artefacts=(
   # carries NO `--probe`: it takes the runner's test-count floor, so if the pin
   # ever stops being discovered the lane reds instead of passing empty.
   #
-  # This entry landed WITH the `jvm-hicasso` job in `.github/workflows/test.yml`
+  # This entry landed WITH the `jvm-fresco` job in `.github/workflows/test.yml`
   # (unconditional, in `all-required-passed`'s `needs:`), because
   # `check_jvm_lane_rosters.py` R1/R2 refuse either half alone. It replaces a
   # "NOT HERE, ON PURPOSE" note that justified the exclusion by naming a JVM
-  # suite `re-frame.hicasso.lint-export-test`: `140620d291` added that deftest,
+  # suite `re-frame.fresco.lint-export-test`: `140620d291` added that deftest,
   # `dd9f31bbc4` replaced it with `scripts/check_lint_export.py` and restored
   # `--probe`, and the note was left describing a world that no longer existed.
   # The lint export is still gated by `lint.yml`'s required `clj-kondo` job and
-  # by `npm run test:hicasso-lint`; it is not a JVM suite and never was one.
-  implementation/hicasso
+  # by `npm run test:fresco-lint`; it is not a JVM suite and never was one.
+  implementation/fresco
 )
 
 for artefact in "${artefacts[@]}"; do

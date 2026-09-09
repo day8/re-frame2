@@ -3,11 +3,11 @@
 //
 // THE CROSS-CHECK ITSELF — two instruments, one app, one table (rf2-rguy1).
 //
-//   node hicasso/test/re_frame/bench/hicasso/jsfb_compare.cjs \
+//   node fresco/test/re_frame/bench/fresco/jsfb_compare.cjs \
 //     --theirs <clone>/webdriver-ts/results --ours <jsfb_ours_run.cjs JSON>
 //
 // Reads the benchmark driver's own result files and our instrument's JSON
-// and prints the `hicasso / reagent` ratio each one measured, side by side.
+// and prints the `fresco / reagent` ratio each one measured, side by side.
 //
 // ## What "agree" means here, stated before the numbers are looked at
 //
@@ -82,7 +82,7 @@ const path = require('node:path');
 const AGREEMENT_BAND = 0.15;
 
 const BASE = 'rf2-reagent';
-const OTHERS = ['rf2-hicasso', 'rf2-uix'];
+const OTHERS = ['rf2-fresco', 'rf2-uix'];
 
 // benchmark id -> the row id our instrument uses for the same operation.
 //
@@ -305,11 +305,11 @@ const fmt = (x, n = 4) => (Number.isFinite(x) ? x.toFixed(n) : 'n/a');
 // row. Our instrument on the benchmark's create-1,000 against our
 // instrument on the M1 mount witness: same instrument, different page.
 const PUBLISHED_M1_MOUNT = 1.2107;
-const WORKLOAD_CELL = cellId('01_run1k', 'rf2-hicasso');
+const WORKLOAD_CELL = cellId('01_run1k', 'rf2-fresco');
 
 function report(theirs, ours, rows) {
   console.log('');
-  console.log(';; THE CROSS-CHECK — hicasso / reagent, measured two ways on ONE app');
+  console.log(';; THE CROSS-CHECK — fresco / reagent, measured two ways on ONE app');
   console.log(';;');
   console.log(';;   theirs = js-framework-benchmark driver, wall clock click -> paint Commit,');
   console.log(';;            median of N iterations, fresh page per iteration');

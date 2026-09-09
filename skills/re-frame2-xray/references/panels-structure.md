@@ -1,11 +1,11 @@
-# panels-structure — live runtime structure: Graph, Frames, Hicasso
+# panels-structure — live runtime structure: Graph, Frames, Fresco
 
 The structure family: the three Dynamic-shell tabs that do **not** follow
 the focused event. **Graph** draws the dependency graph across families;
-**Frames** shows which image loaded each live frame; **Hicasso** is the
-evidence lens over the Hicasso view layer. Picking an epoch in L2 rebinds
+**Frames** shows which image loaded each live frame; **Fresco** is the
+evidence lens over the Fresco view layer. Picking an epoch in L2 rebinds
 none of them — Graph follows its own projection toggle (and the L1 frame
-picker on the Realized side), Frames and Hicasso read the live runtime.
+picker on the Realized side), Frames and Fresco read the live runtime.
 Inventory + scope matrix: [panels.md](panels.md).
 
 ## Graph — where does this value come from?
@@ -80,11 +80,11 @@ does this frame resolve its registrations?"
 
 Spec: [`026-Module-View-Panel.md` §8](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/026-Module-View-Panel.md).
 
-## Hicasso — the view-layer evidence lens
+## Fresco — the view-layer evidence lens
 
-Question: **What is Hicasso actually doing — which boundaries are
+Question: **What is Fresco actually doing — which boundaries are
 mounted, what do they read, and why did one re-render?** The evidence
-lens for Hicasso, re-frame2's re-frame-native view layer.
+lens for Fresco, re-frame2's re-frame-native view layer.
 
 **Six views over four envelopes**, as a sub-strip inside the tab:
 
@@ -108,7 +108,7 @@ about different things — **four envelopes, six views**.
 absence renders as a **named loss state with its own sentence**, never
 an empty list — "nothing is mounted" is a clean bill of health, while
 "the retained intent window is empty" is a cap that proves nothing about
-what was dispatched. A host **not running Hicasso** shows the honest
+what was dispatched. A host **not running Fresco** shows the honest
 no-evidence state, distinct from *running with nothing mounted*.
 
 - **No read carries application data** — a boundary's identity is its
@@ -123,5 +123,5 @@ no-evidence state, distinct from *running with nothing mounted*.
 `:cart/items`?", "why did this boundary re-render?", "which boundary is
 hot?", "walk this dispatch from event to paint".
 
-Spec: [`027-Hicasso-Evidence.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/027-Hicasso-Evidence.md)
-+ [`028-Hicasso-Advisor.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/028-Hicasso-Advisor.md).
+Spec: [`027-Fresco-Evidence.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/027-Fresco-Evidence.md)
++ [`028-Fresco-Advisor.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/028-Fresco-Advisor.md).

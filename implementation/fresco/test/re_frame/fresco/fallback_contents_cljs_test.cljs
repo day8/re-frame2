@@ -1,7 +1,7 @@
-(ns re-frame.hicasso.fallback-contents-cljs-test
+(ns re-frame.fresco.fallback-contents-cljs-test
   "WHAT A `defhost` `:fallback` MAY CONTAIN — **THE CONTRACT**.
 
-  [[re-frame.hicasso.impl.codec/mint-host-gate!]] states the rule
+  [[re-frame.fresco.impl.codec/mint-host-gate!]] states the rule
   the guide teaches: *\"a fallback is inert markup — it is not a body, so
   a subscription or an intent written there is the same loud error it
   would be anywhere outside a boundary.\"* These rows are what enforces
@@ -35,13 +35,13 @@
 
   ## The ruling, and the recovery it points at
 
-  `:rf.error/hicasso-host-fallback-boundary-head`, at the declaration,
+  `:rf.error/fresco-host-fallback-boundary-head`, at the declaration,
   naming the host, the offending head and its position in the declared
   form. The workaround this deletes — writing a provider's subtree a
   second time as the declaration's fallback, once the only recovery — is
   SUPERSEDED rather than merely removed: `:server :render` now
   renders the real subtree on the server, with the real context value and
-  no duplication ([[re-frame.hicasso.host-ssr-dom-cljs-test]]).
+  no duplication ([[re-frame.fresco.host-ssr-dom-cljs-test]]).
 
   ## The mutation witnesses — both directions
 
@@ -63,12 +63,12 @@
   `renderToString`, so there is nothing here a DOM would add."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.fresco :as rf.fresco]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
@@ -80,25 +80,25 @@
 ;; captures its source-store baseline when the `use-fixtures` form is
 ;; evaluated (the sibling suites' convention).
 
-(rf/reg-sub :hicasso.fb/title (fn [db _] (:title db)))
+(rf/reg-sub :fresco.fb/title (fn [db _] (:title db)))
 
-(rf/reg-event :hicasso.fb/seed (fn [_ [_ title]] {:db {:title title}}))
+(rf/reg-event :fresco.fb/seed (fn [_ [_ title]] {:db {:title title}}))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 (defn- fresh!
   "Two frames holding different values, because frame isolation is what
   the placeholder rows are read against."
   []
-  (rf.hicasso.checkpoint-support/leave-act-environment!)
+  (rf.fresco.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-a})
   (rf/make-frame {:id frame-b})
-  (rf/with-frame frame-a (rf/dispatch-sync [:hicasso.fb/seed "ALPHA"]))
-  (rf/with-frame frame-b (rf/dispatch-sync [:hicasso.fb/seed "BRAVO"])))
+  (rf/with-frame frame-a (rf/dispatch-sync [:fresco.fb/seed "ALPHA"]))
+  (rf/with-frame frame-b (rf/dispatch-sync [:fresco.fb/seed "BRAVO"])))
 
 ;; ---------------------------------------------------------------------------
 ;; The component behind the door, and the things a fallback might contain
@@ -111,15 +111,15 @@
   fallback and nothing else."
   (react/createContext "unset"))
 
-(rf.hicasso/defview fallback-view
+(rf.fresco/defview fallback-view
   "A `defview` head written into a fallback — the whole question."
   [_]
-  [:section.fb-view [:h2.sub (rf.hicasso.impl.collector/sub [:hicasso.fb/title])]])
+  [:section.fb-view [:h2.sub (rf.fresco.impl.collector/sub [:fresco.fb/title])]])
 
 (defn- inner-component [_props]
   (react/createElement "i" #js {:className "inner"} "INNER"))
 
-(rf.hicasso/defhost inner-host
+(rf.fresco/defhost inner-host
   "A `defhost` head written into a fallback — a second deferring head, so
   the rule is not a `defview` fact."
   inner-component
@@ -139,12 +139,12 @@
   "One declaration, made HERE rather than at the top level, so a row that
   is about the declaration can put its own hiccup in it."
   [host-name fallback]
-  (rf.hicasso.impl.codec/mint-host! host-name (.-Provider theme-context)
+  (rf.fresco.impl.codec/mint-host! host-name (.-Provider theme-context)
                     {:fallback fallback}))
 
 (defn- server-html [frame hiccup]
   (react-dom-server/renderToString
-    (rf.hicasso.impl.mount/provider frame (rf.hicasso.impl.codec/root-element frame hiccup))))
+    (rf.fresco.impl.mount/provider frame (rf.fresco.impl.codec/root-element frame hiccup))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — what the mint-time WALK can see, it refuses (unchanged by the ruling)
@@ -159,17 +159,17 @@
   (testing "an intent vector — the fallback is walked outside any frame, so
             there is no frame-locked dispatch to lower it against, and it
             is the same loud error it would be anywhere outside a boundary"
-    (is (= :rf.error/hicasso-intent-outside-boundary
+    (is (= :rf.error/fresco-intent-outside-boundary
            (error-id #(host-with-fallback "fb/intent"
                                           [:button {:on-click [:x/y]} "go"])))))
   (testing "a `sub` call written in the fallback FORM — evaluated where the
             declaration is, which is outside any render"
-    (is (= :rf.error/hicasso-sub-outside-render
+    (is (= :rf.error/fresco-sub-outside-render
            (error-id #(host-with-fallback "fb/sub"
-                                          [:div (rf.hicasso.impl.collector/sub [:hicasso.fb/title])])))))
+                                          [:div (rf.fresco.impl.collector/sub [:fresco.fb/title])])))))
   (testing "and hiccup that is not hiccup, which is the property the walk
             was moved to the declaration FOR"
-    (is (= :rf.error/hicasso-empty-vector
+    (is (= :rf.error/fresco-empty-vector
            (error-id #(host-with-fallback "fb/empty" []))))))
 
 ;; ---------------------------------------------------------------------------
@@ -181,27 +181,27 @@
   (testing "a `defview` head — an element whose body runs later, so the
             evaluating walk never looks inside it. The structural walk
             does, and refuses it where the author's stack is"
-    (is (= :rf.error/hicasso-host-fallback-boundary-head
+    (is (= :rf.error/fresco-host-fallback-boundary-head
            (error-id #(host-with-fallback "fb/view" [fallback-view {}])))))
   (testing "and so does a `defhost` head, so the rule is about DEFERRAL and
             not about `defview` — any head whose content the walk cannot
             reach is refused the same way"
-    (is (= :rf.error/hicasso-host-fallback-boundary-head
+    (is (= :rf.error/fresco-host-fallback-boundary-head
            (error-id #(host-with-fallback "fb/host" [inner-host {}])))))
   (testing "a bare head, with no vector around it at all — a fallback is a
             hiccup FORM, so the refusal is written against the form and
             not against head position"
-    (is (= :rf.error/hicasso-host-fallback-boundary-head
+    (is (= :rf.error/fresco-host-fallback-boundary-head
            (error-id #(host-with-fallback "fb/bare" fallback-view)))))
   (testing "and a head nested arbitrarily deep, because \"inert markup\"
             is a claim about the whole form"
-    (is (= :rf.error/hicasso-host-fallback-boundary-head
+    (is (= :rf.error/fresco-host-fallback-boundary-head
            (error-id #(host-with-fallback
                         "fb/deep"
                         [:div.skeleton
                          [:p "loading"]
                          [:section [:span [fallback-view {}]]]]))))
-    (is (= :rf.error/hicasso-host-fallback-boundary-head
+    (is (= :rf.error/fresco-host-fallback-boundary-head
            (error-id #(host-with-fallback
                         "fb/seq"
                         [:ul (for [i (range 2)]
@@ -215,9 +215,9 @@
     (let [data (error-data #(host-with-fallback
                               "fb/named"
                               [:div.skeleton [:span [fallback-view {}]]]))]
-      (is (= :rf.error/hicasso-host-fallback-boundary-head (:rf.error/id data)))
+      (is (= :rf.error/fresco-host-fallback-boundary-head (:rf.error/id data)))
       (is (= "fb/named" (:host data)) "the host whose declaration is at fault")
-      (is (= "re-frame.hicasso.fallback-contents-cljs-test/fallback-view"
+      (is (= "re-frame.fresco.fallback-contents-cljs-test/fallback-view"
              (:head data))
           "the offending head, by the displayName its mint stamped")
       (is (= "defview" (:kind data)) "and which door minted it")
@@ -234,7 +234,7 @@
   (testing "the `defhost` case names its own door"
     (let [data (error-data #(host-with-fallback "fb/named-host" [inner-host {}]))]
       (is (= "defhost" (:kind data)))
-      (is (= "re-frame.hicasso.fallback-contents-cljs-test/inner-host"
+      (is (= "re-frame.fresco.fallback-contents-cljs-test/inner-host"
              (:head data)))
       (is (= [0] (:position data)) "head position of the fallback itself"))))
 
@@ -256,7 +256,7 @@
           (str "the SAME declared placeholder in a frame holding a different "
                "value — identical bytes, which is what a placeholder is: "
                in-a " vs " in-b))
-      (rf/with-frame frame-a (rf/dispatch-sync [:hicasso.fb/seed "ALPHA-TWO"]))
+      (rf/with-frame frame-a (rf/dispatch-sync [:fresco.fb/seed "ALPHA-TWO"]))
       (let [after (server-html frame-a [:div.page [head {:value "dark"}]])]
         (is (= in-a after)
             (str "and a write moved nothing, because there is nothing there "

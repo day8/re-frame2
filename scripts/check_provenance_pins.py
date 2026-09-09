@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Every cited AUTHORED head in the Hicasso evidence corpus must be accompanied
+"""Every cited AUTHORED head in the Fresco evidence corpus must be accompanied
 by a RESOLVABLE LANDED SHA.
 
 This repo rebase-merges, which mints a new SHA for every commit on the branch.
@@ -244,7 +244,7 @@ import subprocess
 import sys
 from typing import Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple
 
-DEFAULT_ROOT = "docs/design/hicasso"
+DEFAULT_ROOT = "docs/design/fresco"
 BASELINE_REF = "origin/main"
 
 # A hex run long enough to be a git object id.  7 is git's historical minimum

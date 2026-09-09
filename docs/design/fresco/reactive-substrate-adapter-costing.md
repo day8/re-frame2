@@ -1,15 +1,15 @@
-# Sizing a Hicasso-shaped adapter (`rf2-hvr5h`)
+# Sizing a Fresco-shaped adapter (`rf2-hvr5h`)
 
 > **RULED AND BUILT.** The hold this page was written under is discharged: the
 > operator ruled *build it* on 2026-08-19 01:05 AUSEST, on this page's own
-> finding that the sizing came back small, and `re-frame.hicasso.substrate`
+> finding that the sizing came back small, and `re-frame.fresco.substrate`
 > shipped the same night. The page stays as the sizing it was, with the build's
 > corrections recorded in [§What the build found](#what-the-build-found) rather
 > than folded back into the prose — a prediction is only worth keeping if what
 > happened next is beside it.
 >
 > **A sizing. No adapter was built, no contract changed, and no ruling is taken
-> here.** Whether to *ship* a Hicasso-shaped adapter is public surface with a
+> here.** Whether to *ship* a Fresco-shaped adapter is public surface with a
 > maintenance tail, and it is held for the operator. What is released — because
 > it is true under either answer — is the measurement below: what such an
 > adapter would have to implement, what already exists, and what it would cost
@@ -20,15 +20,15 @@
 
 ## The defect being sized
 
-A reader following the Hicasso install chapter writes two dependency
+A reader following the Fresco install chapter writes two dependency
 coordinates, and the second exists only to supply an **adapter**:
 
 ```clojure
-{:deps {day8/re-frame2-hicasso {:local/root "..."}
+{:deps {day8/re-frame2-fresco {:local/root "..."}
         day8/re-frame2-uix     {:local/root ".../adapters/uix"}}}
 ```
 
-Hicasso mounts through `react-dom` itself and interprets its own Hiccup, but
+Fresco mounts through `react-dom` itself and interprets its own Hiccup, but
 `h/mount!` ensures a frame, `rf/make-frame` asks the **adapter** for a state
 container, and there is no adapter unless the consumer installs one. So an app
 built on the view layer described as *re-frame-native* takes a dependency on
@@ -85,7 +85,7 @@ The plain-atom `make-derived-value` reifies `IDeref` and the re-frame-owned
 derived values recompute on every deref."* It registers no watch on its
 sources, so it notifies nobody, which is exactly right for SSR (a sub runs a
 handful of times per request) and exactly wrong under a live view. That is why
-the Hicasso witnesses and the editor example both open with
+the Fresco witnesses and the editor example both open with
 `(rf/init! uix-adapter/adapter)`.
 
 The bead frames the question as *what would an `IWatchable` plain reactive
@@ -105,7 +105,7 @@ dependency and move on*.
 > Shared substrate-spine helpers for React-shaped adapters that lack a native
 > reactive-atom primitive (UIx and any future minimal-React-wrapper substrate).
 
-Hicasso *is* a minimal React-wrapper substrate. The spine was written for this
+Fresco *is* a minimal React-wrapper substrate. The spine was written for this
 case. It provides the plain-`atom` container quartet, a `make-derived-value`
 that wires **one watch per source** and coalesces through a per-adapter epoch
 scheduler so a multi-input derived value recomputes glitch-free and notifies
@@ -143,17 +143,17 @@ controlled-input behaviour. The `defui` components are native *only* so that
 UIx's own prop and trailing-child marshalling is preserved — a
 notation concern, not a reactivity one.
 
-Hicasso already imports `react` directly, already calls React hooks
+Fresco already imports `react` directly, already calls React hooks
 (`useSyncExternalStore` is the whole of its client-only gate), and already
 renders a frame provider over the shared context object every React-shaped
 adapter reads (`re-frame.adapter.context/frame-context`, written by
-`re-frame.hicasso.impl.mount/provider`). Every ingredient
-`make-react-spine` asks for is something Hicasso has in hand.
+`re-frame.fresco.impl.mount/provider`). Every ingredient
+`make-react-spine` asks for is something Fresco has in hand.
 
-**Reasoned, not built:** on that evidence a Hicasso adapter is a small
+**Reasoned, not built:** on that evidence a Fresco adapter is a small
 assembly namespace in the shape of the UIx one — a spine call supplying
 React's own `useMemo` / `useCallback` / `useContext`, a `:kind`, and the
-frame-provider Hicasso already has. It is a wrapper, not machinery. The
+frame-provider Fresco already has. It is a wrapper, not machinery. The
 sizing does not extend to *proving* it compiles; nothing was built.
 
 ## Bundle size
@@ -165,14 +165,14 @@ structurally absent rather than dead-code-eliminated.
 
 So the comparison is:
 
-| Today | With a Hicasso adapter |
+| Today | With a Fresco adapter |
 |---|---|
-| core + hicasso + `day8/re-frame2-uix` + `com.pitch/uix.core` | core + hicasso |
+| core + fresco + `day8/re-frame2-uix` + `com.pitch/uix.core` | core + fresco |
 | spine (via the UIx adapter) **and** the UIx runtime | spine only |
 
 The spine is present in both columns, because it is what supplies the reactive
 container either way. What leaves is `com.pitch/uix.core` — a compiler, hook
-wrappers and element marshalling that a Hicasso app never invokes. Bundle size
+wrappers and element marshalling that a Fresco app never invokes. Bundle size
 therefore moves **down**, and no new machinery is added to move it back up.
 
 **Not measured.** No release build was run for this sizing (a bench-class
@@ -197,11 +197,11 @@ the late-bind hook publication set, and the public-surface guard.
 
 The UIx adapter carries nine test files in total. The eight beyond the shared
 entry are substrate-notation specific — controlled-input defaults, `defui`-shaped
-provider and hook tests — and Hicasso's own suite already covers the
-equivalent ground for Hicasso's notation.
+provider and hook tests — and Fresco's own suite already covers the
+equivalent ground for Fresco's notation.
 
 **Reasoned:** the marginal test surface is one enrolment file plus whatever
-Hicasso-notation provider tests the review wants. The expensive suite is
+Fresco-notation provider tests the review wants. The expensive suite is
 already written and already in core.
 
 ## Verdict
@@ -210,7 +210,7 @@ The sizing comes back **small**, and it comes back small for a reason worth
 stating plainly: the question the bead asks — *what does an `IWatchable` plain
 reactive container cost?* — has the answer *nothing, because core already ships
 one*. The plain-atom adapter's non-reactive derived value is a deliberate
-property of a headless SSR/JVM adapter, not the base a Hicasso adapter would
+property of a headless SSR/JVM adapter, not the base a Fresco adapter would
 build on. The base is the spine, which exists, is push-based, and was written
 for "any future minimal-React-wrapper substrate".
 
@@ -226,7 +226,7 @@ Two honest cautions against it:
    maintenance tail, a release-DAG slot and a version-lockstep entry, none of
    which the sizing above prices.
 2. **Nothing was compiled.** The assembly is argued from two adapter factories'
-   stated contracts and from what Hicasso already imports. It is a strong
+   stated contracts and from what Fresco already imports. It is a strong
    argument, not a green build.
 
 The decision remains the operator's. Its cost, if taken, is a small assembly
@@ -234,28 +234,28 @@ namespace and one test-enrolment file — not a reactive engine.
 
 ## What the build found
 
-`re-frame.hicasso.substrate` shipped on 2026-08-19 under the ruling above. Four
+`re-frame.fresco.substrate` shipped on 2026-08-19 under the ruling above. Four
 things the sizing said held, and one it did not price.
 
 **The assembly is a wrapper, as predicted.** The namespace is a
 `make-react-spine` call supplying React's own `useMemo` / `useCallback` /
 `useContext`, a plain React function component for the contract's
 frame-provider slot, and a `make-react-adapter` call with
-`:kind :rf.adapter/hicasso`. Nothing else. It COMPILES, which the sizing said
+`:kind :rf.adapter/fresco`. Nothing else. It COMPILES, which the sizing said
 explicitly it had not proved.
 
 **The test surface is one enrolment file, as predicted.** Ninety-two generated
 forwarders — the `:test` rows in the macro namespace's `test-specs` literal —
-run against the Hicasso adapter from a single entry file. The focused Hicasso
+run against the Fresco adapter from a single entry file. The focused Fresco
 CLJS lane measures 1326 tests / 5407 assertions, 0 failures, with the
 enrolment in. That the forwarders genuinely target THIS adapter was proved by
 sabotage rather than by reading the count: mis-declaring the entry file's
 `:substrate-kw` reddened one generated test, `actual: (not (= :rf.adapter/uix
-:rf.adapter/hicasso))`.
+:rf.adapter/fresco))`.
 
 **The public-surface rows read the spine map rather than re-exported Vars.**
 The shared suite's guard asserts seven Vars every other React-shaped adapter
-re-exports; Hicasso re-exports none, deliberately, because a body reads through
+re-exports; Fresco re-exports none, deliberately, because a body reads through
 `h/sub` and a second read path would be a second commit discipline. The guard's
 load-bearing half survives the difference — the spine produced all seven, each
 is fn-shaped, no two are the same object — and that is what catches a
@@ -263,7 +263,7 @@ cross-wired spine key.
 
 **It is an OPTIONAL module, which the sizing did not consider.** Nothing under
 `src/` requires it, so an application that deliberately installs Reagent,
-reagent-slim or UIx under a Hicasso tree pays no spine bytes. That is why the
+reagent-slim or UIx under a Fresco tree pays no spine bytes. That is why the
 adapter is not re-exported from the public door, and
 `check_optional_module_reachability.py` carries the row that keeps it true.
 
@@ -273,17 +273,17 @@ in the shared suite reaches one of them. Measured while building:
 
 | Roster | What it needs | Landed with the adapter? |
 |---|---|---|
-| `re-frame.late-bind.directory/hooks` (core) | `re-frame.hicasso.substrate` on eight hook entries' `:producer-ns`; the suite's directory cross-check asserts it | yes |
-| `implementation/hicasso/scripts/check_naming_census.py` + the naming ledger | the eleventh shipped namespace, and a row for its two public names | yes |
+| `re-frame.late-bind.directory/hooks` (core) | `re-frame.fresco.substrate` on eight hook entries' `:producer-ns`; the suite's directory cross-check asserts it | yes |
+| `implementation/fresco/scripts/check_naming_census.py` + the naming ledger | the eleventh shipped namespace, and a row for its two public names | yes |
 | `check_optional_module_reachability.py` | the module row above | yes |
 | `check_guide_samples.py` | four re-pinned digests in `00-installation.md` | yes |
-| Spec — Conventions §Reserved namespaces, 006 §CLJS reference scope, 006 §Adapter introspection, API.md's `current-adapter` row | `:rf.adapter/hicasso` as a canonical `:rf.adapter/*` member | **NO — spec is one-toucher and was fenced off this work** |
-| `tools/xray`'s `react-element-render-kinds` | the new kind, so Xray refuses a Hicasso host cleanly instead of mounting a hiccup shell into an element-shaped `:render` | **NO — outside the fence** |
-| `tools/story`'s `schemas.cljc` docstring | it states *there is no `:rf.adapter/hicasso` anywhere in the repository, deliberately*, which the adapter falsifies | **NO — outside the fence** |
+| Spec — Conventions §Reserved namespaces, 006 §CLJS reference scope, 006 §Adapter introspection, API.md's `current-adapter` row | `:rf.adapter/fresco` as a canonical `:rf.adapter/*` member | **NO — spec is one-toucher and was fenced off this work** |
+| `tools/xray`'s `react-element-render-kinds` | the new kind, so Xray refuses a Fresco host cleanly instead of mounting a hiccup shell into an element-shaped `:render` | **NO — outside the fence** |
+| `tools/story`'s `schemas.cljc` docstring | it states *there is no `:rf.adapter/fresco` anywhere in the repository, deliberately*, which the adapter falsifies | **NO — outside the fence** |
 
 The two `tools/` rows are the ones that matter, and the Xray one is functional
 rather than editorial: its refusal set is keyed on the kind, and its own
-docstring reasons from Hicasso minting none. Until it carries an entry, a page
+docstring reasons from Fresco minting none. Until it carries an entry, a page
 that installs this adapter and runs Xray gets an uncaught React child error
 where it used to get a clean diagnostic. Nothing regresses for a page that
 keeps installing UIx.

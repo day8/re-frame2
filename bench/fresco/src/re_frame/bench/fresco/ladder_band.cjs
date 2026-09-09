@@ -56,11 +56,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const seamlib = require('./seam.cjs');
 
-const SEGMENTS = ['reagent-subs', 'uix-subs', 'hicasso'];
+const SEGMENTS = ['reagent-subs', 'uix-subs', 'fresco'];
 const FLOOR = 'floor';
 const PLUMB = 'plumb';
 const FIXED = 'ctl-2x';
-const BAR = ['hicasso', 'reagent-subs']; // numerator segment, denominator segment
+const BAR = ['fresco', 'reagent-subs']; // numerator segment, denominator segment
 
 const p50 = (xs) => {
   const v = [...xs].sort((a, b) => a - b);
@@ -262,7 +262,7 @@ function inflate(cr) {
 // OPERATIVE; the pooled one is kept because `BAND_CEILING`'s withdrawn "q99"
 // derivation was read off it, and a reader checking that retraction needs the
 // number being retracted. See `rf2-nk1hq` and section 5 of
-// `docs/design/hicasso/studio/the-band-re-calibrated.md`.
+// `docs/design/fresco/studio/the-band-re-calibrated.md`.
 
 /**
  * Draws per model. Fixed, and large enough that a q99 is stable in its third
@@ -574,7 +574,7 @@ function main() {
     console.log(`- runs breaching the ${pc(seamlib.BAND_CEILING)} ceiling: **${breaches} of ${bands.length}**`);
     console.log(`- seam: ${pc(Math.min(...rs.map((r) => r.seam)))} – ${pc(Math.max(...rs.map((r) => r.seam)))}, mean ${pc(mean(rs.map((r) => r.seam)))}`);
     console.log(`- ctl-2x/floor: ${mean(rs.map((r) => r.ctl2xMean)).toFixed(4)} [${Math.min(...rs.map((r) => r.ctl2xMean)).toFixed(4)} – ${Math.max(...rs.map((r) => r.ctl2xMean)).toFixed(4)}]`);
-    console.log(`- bar hicasso/reagent-subs: ${mean(rs.map((r) => r.bar)).toFixed(4)} [${Math.min(...rs.map((r) => r.barMin)).toFixed(4)} – ${Math.max(...rs.map((r) => r.barMax)).toFixed(4)}]`);
+    console.log(`- bar fresco/reagent-subs: ${mean(rs.map((r) => r.bar)).toFixed(4)} [${Math.min(...rs.map((r) => r.barMin)).toFixed(4)} – ${Math.max(...rs.map((r) => r.barMax)).toFixed(4)}]`);
     console.log('');
     console.log('**Correlations across the ladder** — the multiplicativity evidence:');
     console.log('');

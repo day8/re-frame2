@@ -1,18 +1,18 @@
-# The Hicasso bench lane
+# The Fresco bench lane
 
-**Moved on 2026-08-29 from `implementation/hicasso/test/re_frame/bench/hicasso` under
-rf2-6c12m.1.** The tree is now `bench/hicasso/src/re_frame/bench/hicasso/`, its own
+**Moved on 2026-08-29 from `implementation/fresco/test/re_frame/bench/fresco` under
+rf2-6c12m.1.** The tree is now `bench/fresco/src/re_frame/bench/fresco/`, its own
 shadow-cljs project off the implementation classpath and off every per-PR lane; every path
-cited under `docs/design/hicasso` before that date resolves by prefix substitution
-(`implementation/hicasso/test/re_frame/bench/hicasso/` → `bench/hicasso/src/re_frame/bench/hicasso/`).
+cited under `docs/design/fresco` before that date resolves by prefix substitution
+(`implementation/fresco/test/re_frame/bench/fresco/` → `bench/fresco/src/re_frame/bench/fresco/`).
 The four lane riders that used to sit beside the artefacts they measure — `p0_app`,
-`p0_heap` and the rest of the P0 arms from `core/test/re_frame/bench/`, `hicasso_narrow`
+`p0_heap` and the rest of the P0 arms from `core/test/re_frame/bench/`, `fresco_narrow`
 and its app from `adapters/reagent/test/re_frame/bench/` — moved in with it, one level up
 at `src/re_frame/bench/`. Namespaces are unchanged.
 
-Disposition: KEEP AS EVIDENCE. This tree is the measurement harness the Hicasso
+Disposition: KEEP AS EVIDENCE. This tree is the measurement harness the Fresco
 programme's numbers were taken on. It is not shipped, it is not a second implementation
-you may build against, and nothing under `implementation/hicasso/src/` may import it —
+you may build against, and nothing under `implementation/fresco/src/` may import it —
 which is now a compile error in every build as well as a finding in
 `check_optional_module_reachability.py`'s `bench tree` row. It is also not archived: the
 harness is live and hand-run.
@@ -32,7 +32,7 @@ change**:
 
 ```
 npm run check       # every namespace under src/ compiled warnings-fatal, then the harness self-tests
-npm run bench       # the P0 arms (run.cjs); HICASSO_INIT_FN / HICASSO_OUT_DIR select another arm
+npm run bench       # the P0 arms (run.cjs); FRESCO_INIT_FN / FRESCO_OUT_DIR select another arm
 npm run ssr:bake    # the SSR spike's fixtures
 ```
 
@@ -52,12 +52,12 @@ protects the 12 files below.
 ## Where the run data went
 
 The run records the programme's numbers were taken from — 237 files, 80 MB under
-`src/re_frame/bench/hicasso/data/` — were deleted from main on 2026-08-29 (rf2-6c12m.6);
+`src/re_frame/bench/fresco/data/` — were deleted from main on 2026-08-29 (rf2-6c12m.6);
 git history is the archive. The full tree lives at commit `7b492b98cb`, and one command
 puts it back exactly where every reader still looks:
 
 ```
-git restore --source=7b492b98cb -- bench/hicasso/src/re_frame/bench/hicasso/data
+git restore --source=7b492b98cb -- bench/fresco/src/re_frame/bench/fresco/data
 ```
 
 `data/` is git-ignored, so a restored corpus (or a run record a driver has just written
@@ -71,23 +71,23 @@ were not re-pointed; every block carries the SHA its data resolves at.
 
 ## What is frozen here, and why
 
-`re-frame.hicasso` was copied out of this tree. 12 files were the donors, 7 under `front/`
+`re-frame.fresco` was copied out of this tree. 12 files were the donors, 7 under `front/`
 and 5 under `arm1/`:
 
 | Frozen donor | Package namespace it was copied into |
 |---|---|
-| `front/codec.cljs` | `re-frame.hicasso.impl.codec` |
-| `front/controlled.cljs` | `re-frame.hicasso.impl.controlled` |
-| `front/intent.cljs` | `re-frame.hicasso.impl.intent` |
-| `front/presence.cljs` | `re-frame.hicasso.impl.presence` |
-| `front/route_link.cljs` | `re-frame.hicasso.impl.route-link` |
-| `front/slot.cljc` | `re-frame.hicasso.impl.slot` |
-| `front/state.cljc` | `re-frame.hicasso.impl.state` |
+| `front/codec.cljs` | `re-frame.fresco.impl.codec` |
+| `front/controlled.cljs` | `re-frame.fresco.impl.controlled` |
+| `front/intent.cljs` | `re-frame.fresco.impl.intent` |
+| `front/presence.cljs` | `re-frame.fresco.impl.presence` |
+| `front/route_link.cljs` | `re-frame.fresco.impl.route-link` |
+| `front/slot.cljc` | `re-frame.fresco.impl.slot` |
+| `front/state.cljc` | `re-frame.fresco.impl.state` |
 | `arm1/runtime.cljs` | split into `impl.{collector,generation,frames,roots,evidence,inventory}` |
-| `arm1/boundary.cljs` | `re-frame.hicasso.impl.boundary` |
-| `arm1/mount.cljs` | `re-frame.hicasso.impl.mount` |
-| `arm1/presence.cljs` | `re-frame.hicasso.impl.presence-react` |
-| `arm1/lang.clj` | `re-frame.hicasso` |
+| `arm1/boundary.cljs` | `re-frame.fresco.impl.boundary` |
+| `arm1/mount.cljs` | `re-frame.fresco.impl.mount` |
+| `arm1/presence.cljs` | `re-frame.fresco.impl.presence-react` |
+| `arm1/lang.clj` | `re-frame.fresco` |
 
 Their divergence from the package is expected and permanent. A fix landing in the
 package leaves the file here the stale copy, and back-porting it is refused: this tree is
@@ -99,20 +99,20 @@ rule in one line: the package is the artefact from that commit forward.
 The digest pin that used to make this checkable — `frozen-sources.edn` and
 `check_freeze.py` in the package — retired with the move (rf2-6c12m.1): its last row was
 `front/slot.cljc`, the package's `impl/slot.cljc` is pinned to the JVM/CLJS corpus by its
-own `test/re_frame/hicasso/slot_cljs_test.cljc` instead, and the other 11 donors had
+own `test/re_frame/fresco/slot_cljs_test.cljc` instead, and the other 11 donors had
 already been unpinned across three recorded retirements. Where a difference has to be
 understood, read it off git rather than off a summary — for example
-`git log --oneline 93ec92d491.. -- implementation/hicasso/src/re_frame/hicasso/impl/controlled.cljs`
+`git log --oneline 93ec92d491.. -- implementation/fresco/src/re_frame/fresco/impl/controlled.cljs`
 lists the package changes `front/controlled.cljs` deliberately does not carry.
 
 ## Rules a reader can act on
 
 1. Do not import it. `re-frame.bench` is a forbidden prefix for every file under
-   `implementation/hicasso/src/`, and the tree is off that classpath in any case. Prose
+   `implementation/fresco/src/`, and the tree is off that classpath in any case. Prose
    may name a bench namespace — a docstring citing the witness that pins a behaviour is
    worth more than a clean grep.
 2. Do not read a donor for what ships. The live element path, runtime, mount and
-   authoring macros are under `implementation/hicasso/src/re_frame/hicasso/`. Read the
+   authoring macros are under `implementation/fresco/src/re_frame/fresco/`. Read the
    package.
 3. Do not repair a donor against the package. Divergence is the freeze working.
 4. A donor edit is a measurement decision. If a reading has to be re-taken on changed
@@ -120,7 +120,7 @@ lists the package changes `front/controlled.cljs` deliberately does not carry.
 
 ## Where this sits in the wider record
 
-Hicasso had 2 contemporaries — `re-frame.ui` and `re-frame.freehand` — and both were
+Fresco had 2 contemporaries — `re-frame.ui` and `re-frame.freehand` — and both were
 retired and removed from the tree. The 3 donor surfaces and their dispositions are
 recorded together at
 [`docs/design/retirement/donor-surfaces.md`](../../docs/design/retirement/donor-surfaces.md).

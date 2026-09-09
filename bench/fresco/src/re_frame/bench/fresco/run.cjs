@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// THE HICASSO P0 LANE DRIVER — build, serve, run, print, judge.
+// THE FRESCO P0 LANE DRIVER — build, serve, run, print, judge.
 // EP-0038 / HD-017; built by rf2-2rtt6.2 for rf2-2rtt6.2/.3/.4/.5.
 //
 // ONE driver for the whole P0 lane. Every arm rides it by naming its own
@@ -8,12 +8,12 @@
 // HD-017 makes a build-id touch a hot-zone, sequenced dispatch and four
 // arms would otherwise be four of them.
 //
-//   node implementation/hicasso/test/re_frame/bench/hicasso/run.cjs
+//   node implementation/fresco/test/re_frame/bench/fresco/run.cjs
 //
-//   HICASSO_INIT_FN=re-frame.bench.hicasso.my-arm-app/-main \
-//   HICASSO_OUT_DIR=out/hicasso-my-arm \
-//   HICASSO_PORT=8131 \
-//     node implementation/hicasso/test/re_frame/bench/hicasso/run.cjs
+//   FRESCO_INIT_FN=re-frame.bench.fresco.my-arm-app/-main \
+//   FRESCO_OUT_DIR=out/fresco-my-arm \
+//   FRESCO_PORT=8131 \
+//     node implementation/fresco/test/re_frame/bench/fresco/run.cjs
 //
 // With every variable unset this file is byte-for-byte the published
 // rf2-2rtt6.2 instrument.
@@ -54,11 +54,11 @@ const { shadowBuild } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
 
-const BUILD_ID = 'hicasso-bench';
-const OUT_DIR = process.env.HICASSO_OUT_DIR || 'out/hicasso-bench';
-const INIT_FN = process.env.HICASSO_INIT_FN || 're-frame.bench.hicasso.p0-reagent-app/-main';
+const BUILD_ID = 'fresco-bench';
+const OUT_DIR = process.env.FRESCO_OUT_DIR || 'out/fresco-bench';
+const INIT_FN = process.env.FRESCO_INIT_FN || 're-frame.bench.fresco.p0-reagent-app/-main';
 const OUT = path.join(PROJECT, OUT_DIR);
-const PORT = Number(process.env.HICASSO_PORT || 8131);
+const PORT = Number(process.env.FRESCO_PORT || 8131);
 
 // The page's own budget. Six rounds of four arms with warm-up is minutes,
 // not seconds, and a loaded workstation is the normal case.
@@ -75,9 +75,9 @@ function build() {
   // The lane's cache rule, before anything reads the cache. `lane_cache.cjs`
   // carries the measurement and the rejected alternatives.
   if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
-    console.error(`[hicasso] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
+    console.error(`[fresco] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
   }
-  console.error(`[hicasso] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
+  console.error(`[fresco] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
   // `lane_build.cjs` owns the spawn form (shadow's own `cli/runner.js` under
   // THIS node binary, never the `.cmd` shim — a shim needs `shell: true`, a
   // shell concatenates argv, and a concatenated argv is the other way the
@@ -90,7 +90,7 @@ function build() {
     mode: 'release',
     buildId: BUILD_ID,
     configMerge: CONFIG_MERGE,
-    tag: 'hicasso',
+    tag: 'fresco',
   });
 }
 
@@ -99,7 +99,7 @@ const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'applicat
 function serve() {
   fs.writeFileSync(
     path.join(OUT, 'index.html'),
-    '<!doctype html><html><head><meta charset="utf-8"><title>Hicasso P0</title></head>' +
+    '<!doctype html><html><head><meta charset="utf-8"><title>Fresco P0</title></head>' +
       '<body><div id="app"></div><script src="main.js"></script></body></html>'
   );
   return http
@@ -127,11 +127,11 @@ async function run() {
   const pageErrors = [];
   page.on('pageerror', (e) => {
     pageErrors.push(e.message);
-    console.error('[hicasso] PAGE ERROR:', e.message);
+    console.error('[fresco] PAGE ERROR:', e.message);
   });
   page.on('console', (msg) => {
     const t = msg.text();
-    if (t.startsWith(';; ') || t.startsWith('[hicasso]')) console.log(t);
+    if (t.startsWith(';; ') || t.startsWith('[fresco]')) console.log(t);
   });
 
   // `'commit'`, not `'load'`. The bundle's `:init-fn` runs inside the
@@ -142,16 +142,16 @@ async function run() {
   await navigate(page, `http://127.0.0.1:${PORT}/`, {
     waitUntil: 'commit',
     timeoutMs: NAV_TIMEOUT_MS,
-    budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.HICASSO_DONE`,
+    budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.FRESCO_DONE`,
   });
-  await page.waitForFunction('window.HICASSO_DONE === true || window.HICASSO_ERROR', null, {
+  await page.waitForFunction('window.FRESCO_DONE === true || window.FRESCO_ERROR', null, {
     timeout: SENTINEL_TIMEOUT_MS,
   });
 
-  const err = await page.evaluate('window.HICASSO_ERROR || null');
-  const refused = await page.evaluate('window.HICASSO_GUARD_REFUSED === true');
-  const controlFailed = await page.evaluate('window.HICASSO_CONTROL_FAILED === true');
-  const results = await page.evaluate('window.HICASSO_RESULTS || {}');
+  const err = await page.evaluate('window.FRESCO_ERROR || null');
+  const refused = await page.evaluate('window.FRESCO_GUARD_REFUSED === true');
+  const controlFailed = await page.evaluate('window.FRESCO_CONTROL_FAILED === true');
+  const results = await page.evaluate('window.FRESCO_RESULTS || {}');
   const version = browser.version();
   await browser.close();
   return { err, refused, controlFailed, results, pageErrors, version };
@@ -167,16 +167,16 @@ async function run() {
     server.close();
   }
 
-  console.log(`;; ==== HICASSO RUNTIME ====`);
+  console.log(`;; ==== FRESCO RUNTIME ====`);
   console.log(`;; chromium ${outcome.version} (playwright), :advanced, goog.DEBUG false`);
   for (const [k, v] of Object.entries(outcome.results)) {
-    console.log(`;; ==== HICASSO ${k} ====`);
+    console.log(`;; ==== FRESCO ${k} ====`);
     console.log(v);
   }
 
   if (outcome.pageErrors.length > 0) {
     console.error(
-      `[hicasso] FAILED: ${outcome.pageErrors.length} uncaught page error(s) — ` +
+      `[fresco] FAILED: ${outcome.pageErrors.length} uncaught page error(s) — ` +
         `every figure above was taken on a page that had already thrown:\n  ` +
         outcome.pageErrors.join('\n  ')
     );
@@ -184,7 +184,7 @@ async function run() {
   }
   if (outcome.refused) {
     console.error(
-      '[hicasso] ARM-ORDER GUARD REFUSED (exit 2). At least one arm reads ' +
+      '[fresco] ARM-ORDER GUARD REFUSED (exit 2). At least one arm reads ' +
         'differently for WHERE IN THE PLAN it was measured, so no figure above ' +
         'is reportable. Repair the ARM — more warm-up, fewer arms per round, a ' +
         'longer measured window. The guard tolerance is not yours to move.'
@@ -193,15 +193,15 @@ async function run() {
   }
   if (outcome.controlFailed) {
     console.error(
-      '[hicasso] FAILED: the positive control did not see the change its own ' +
+      '[fresco] FAILED: the positive control did not see the change its own ' +
         'arithmetic predicts. An instrument that cannot see a predicted change ' +
         'cannot be trusted with an unpredicted one.'
     );
     process.exit(1);
   }
   if (outcome.err) {
-    console.error(`[hicasso] FAILED: ${outcome.err}`);
+    console.error(`[fresco] FAILED: ${outcome.err}`);
     process.exit(1);
   }
-  console.error('[hicasso] ok');
+  console.error('[fresco] ok');
 })();

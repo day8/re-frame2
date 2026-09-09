@@ -13,4 +13,4 @@
   :head "Btn",
   :detail {:prop ":variant", :was ":contained", :now "contained"},
   :note
-  "Reagent named every keyword and symbol prop value; Hicasso keeps them whole except at HTML-attribute slots. The string is a fixpoint on both walks."}]
+  "Reagent named every keyword and symbol prop value; Fresco keeps them whole except at HTML-attribute slots. The string is a fixpoint on both walks."}]

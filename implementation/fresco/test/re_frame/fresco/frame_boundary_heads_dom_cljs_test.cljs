@@ -1,10 +1,10 @@
-(ns re-frame.hicasso.frame-boundary-heads-dom-cljs-test
+(ns re-frame.fresco.frame-boundary-heads-dom-cljs-test
   "THE TWO IN-TREE FRAME BOUNDARIES — `h/frame-root` (ENSURE) and
   `h/frame-provider` (SCOPE) — against a real React root (rf2-kuky.58).
 
   ## The claim this file exists for
 
-  Hicasso's root door used to ENSURE its frame SYNCHRONOUSLY, before
+  Fresco's root door used to ENSURE its frame SYNCHRONOUSLY, before
   `createRoot`, and `rf/make-frame` drains its `:initial-events` to a
   fixed point before returning — so *the first paint is the seeded one*
   held BY CONSTRUCTION. Spelling ENSURE in the tree gives that
@@ -25,7 +25,7 @@
 
   ## Why the readings are the DOM here, where its sibling refuses them
 
-  `re-frame.hicasso.public-root-lifecycle-dom-cljs-test` reads the cell
+  `re-frame.fresco.public-root-lifecycle-dom-cljs-test` reads the cell
   table rather than the markup because a root whose runtime was emptied
   under it still LOOKS right. This suite's question is the opposite one —
   *what is on the page at the moment the door returns* — so the markup is
@@ -39,9 +39,9 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.test-support :as rf.test-support]))
 
 (def ^:private ensured ::ensured)
@@ -77,14 +77,14 @@
      ;; and a scoping miss would read as a rendering difference rather than as
      ;; the failure it is.
      :ambient-frame nil
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
-(rf.hicasso/defview panel
+(rf.fresco/defview panel
   "The whole app: two reads and a caller-supplied tag."
   [{:keys [tag]}]
   [:div.panel {:data-tag tag}
-   [:span.label (rf.hicasso/sub [::label])]
-   [:span.stamp (str (rf.hicasso/sub [::stamp]))]])
+   [:span.label (rf.fresco/sub [::label])]
+   [:span.stamp (str (rf.fresco/sub [::stamp]))]])
 
 (defn- skip! [why] (is true (str "this claim needs a real React DOM — " why)))
 
@@ -95,7 +95,7 @@
   ;; React's `act` queue is not the browser's scheduler, and every reading
   ;; here is taken outside it.
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-  (rf.hicasso.impl.collector/reset-runtime!)
+  (rf.fresco.impl.collector/reset-runtime!)
   nil)
 
 (defn- live? [frame-kw] (some? (rf.frame/frame-incarnation-token frame-kw)))
@@ -130,16 +130,16 @@
 ;; is made at commit.
 
 (deftest frame-root-ensures-in-the-tree-and-the-first-paint-is-the-seeded-one
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_ (bare!)
           _ (is (false? (live? ensured))
                 "premise: the frame this tree names must not exist yet, or the
                  ENSURE claim below is green against somebody else's frame")
-          ca (rf.hicasso.impl.mount/fresh-container!)
-          a  (rf.hicasso/client-root)
-          _  (rf.hicasso/render! a
-               [rf.hicasso/frame-root
+          ca (rf.fresco.impl.mount/fresh-container!)
+          a  (rf.fresco/client-root)
+          _  (rf.fresco/render! a
+               [rf.fresco/frame-root
                 ;; TWO steps, because ORDER is part of the contract: `::seed`
                 ;; installs a whole db and `::relabel` edits it, so running them
                 ;; the other way round leaves "first" and the reading
@@ -167,32 +167,32 @@
 
         (testing "the root is ordinarily wired afterwards — the ensured frame
                   is a real frame, not a one-shot seeding trick"
-          (rf.hicasso.impl.mount/dispatch! ensured [::relabel "third"])
+          (rf.fresco.impl.mount/dispatch! ensured [::relabel "third"])
           (is (= "third" (text-at ca ".label"))))
 
         (finally
-          (rf.hicasso/unmount! a)
+          (rf.fresco/unmount! a)
           (detach! ca)
-          (rf.hicasso.impl.collector/reset-runtime!))))))
+          (rf.fresco.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W2 — the head takes the WHOLE `make-frame` option map
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `:fx-overrides` is the key that could not ride the old root-door config, and
-;; the reason `examples/substrates/hicasso/login` called `rf/make-frame` first
+;; the reason `examples/substrates/fresco/login` called `rf/make-frame` first
 ;; and mounted to JOIN. It rides the head like any other option, because the
 ;; head IS the `make-frame` call.
 
 (deftest frame-root-takes-the-whole-make-frame-option-map
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_ (bare!)
           _ (reset! !fx-seen nil)
-          ca (rf.hicasso.impl.mount/fresh-container!)
-          a  (rf.hicasso/client-root)
-          _  (rf.hicasso/render! a
-               [rf.hicasso/frame-root
+          ca (rf.fresco.impl.mount/fresh-container!)
+          a  (rf.fresco/client-root)
+          _  (rf.fresco/render! a
+               [rf.fresco/frame-root
                 {:id             ensured
                  :initial-events [[::seed "seeded"] [::stamp-via-fx]]
                  :fx-overrides   {::stamp-fx (fn [_ _] (reset! !fx-seen :override))}}
@@ -209,9 +209,9 @@
                   the seed painted"
           (is (= "seeded" (text-at ca ".label"))))
         (finally
-          (rf.hicasso/unmount! a)
+          (rf.fresco/unmount! a)
           (detach! ca)
-          (rf.hicasso.impl.collector/reset-runtime!))))))
+          (rf.fresco.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W3 — a SECOND boundary under the same :id JOINs: DURABLE STATE survives,
@@ -233,16 +233,16 @@
 ;; is config that ANNOUNCES which incarnation is installed.
 
 (deftest a-second-frame-root-under-one-id-joins-without-re-seeding
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_ (bare!)
           _ (reset! !fx-seen nil)
-          ca (rf.hicasso.impl.mount/fresh-container!)
-          cb (rf.hicasso.impl.mount/fresh-container!)
-          a  (rf.hicasso/client-root)
-          b  (rf.hicasso/client-root)]
-      (rf.hicasso/render! a
-        [rf.hicasso/frame-root
+          ca (rf.fresco.impl.mount/fresh-container!)
+          cb (rf.fresco.impl.mount/fresh-container!)
+          a  (rf.fresco/client-root)
+          b  (rf.fresco/client-root)]
+      (rf.fresco/render! a
+        [rf.fresco/frame-root
          {:id             ensured
           :initial-events [[::seed "creator"]]
           :fx-overrides   {::stamp-fx (fn [_ _] (reset! !fx-seen :creator))}}
@@ -252,8 +252,8 @@
       ;; be IGNORED. A head that replayed would leave "joiner" on both
       ;; screens, and this row is the only thing on the page to notice.
       ;; Its `:fx-overrides` is the opposite case: config, which DOES take.
-      (rf.hicasso/render! b
-        [rf.hicasso/frame-root
+      (rf.fresco/render! b
+        [rf.fresco/frame-root
          {:id             ensured
           :initial-events [[::seed "joiner"]]
           :fx-overrides   {::stamp-fx (fn [_ _] (reset! !fx-seen :joiner))}}
@@ -266,7 +266,7 @@
           (is (= "creator" (text-at cb ".label"))))
 
         (testing "and it really is ONE frame: a single dispatch moves both"
-          (rf.hicasso.impl.mount/dispatch! ensured [::relabel "shared"])
+          (rf.fresco.impl.mount/dispatch! ensured [::relabel "shared"])
           (is (= ["shared" "shared"] [(text-at ca ".label") (text-at cb ".label")])
               "the two roots did not join one frame"))
 
@@ -275,31 +275,31 @@
                   idempotent replacement, not a defect: JOIN with the creator's
                   opts to change nothing"
           (reset! !fx-seen nil)
-          (rf.hicasso.impl.mount/dispatch! ensured [::stamp-via-fx])
+          (rf.fresco.impl.mount/dispatch! ensured [::stamp-via-fx])
           (is (= :joiner @!fx-seen)
               (str "the joining head's `:fx-overrides` did not install: the "
                    "effect ran " (pr-str @!fx-seen) ". A `:creator` reading "
                    "here would mean the shared ENSURE had stopped refreshing "
                    "config, which is a CONTRACT CHANGE across every substrate "
-                   "riding `frame-root-fc` — not a Hicasso-local fix")))
+                   "riding `frame-root-fc` — not a Fresco-local fix")))
         (finally
-          (rf.hicasso/unmount! a) (rf.hicasso/unmount! b)
+          (rf.fresco/unmount! a) (rf.fresco/unmount! b)
           (detach! ca) (detach! cb)
-          (rf.hicasso.impl.collector/reset-runtime!))))))
+          (rf.fresco.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W4 — `frame-provider` SCOPEs, and refuses an absent frame
 ;; ---------------------------------------------------------------------------
 
 (deftest frame-provider-scopes-a-live-frame-and-refuses-an-absent-one
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_ (bare!)
           _ (rf/make-frame {:id scoped :initial-events [[::seed "already here"]]})
-          ca (rf.hicasso.impl.mount/fresh-container!)
-          a  (rf.hicasso/client-root)
-          _  (rf.hicasso/render! a
-               [rf.hicasso/frame-provider {:frame scoped} [panel {:tag "scope"}]]
+          ca (rf.fresco.impl.mount/fresh-container!)
+          a  (rf.fresco/client-root)
+          _  (rf.fresco/render! a
+               [rf.fresco/frame-provider {:frame scoped} [panel {:tag "scope"}]]
                ca)]
       (try
         (testing "the subtree reads the frame the head named, and the head
@@ -310,15 +310,15 @@
                   the guardrail that is the whole reason SCOPE is its own verb"
           (is (= :rf.error/frame-provider-frame-absent
                  (:rf.error/id
-                   (refusal #(rf.hicasso/render!
-                               (rf.hicasso/client-root)
-                               [rf.hicasso/frame-provider {:frame absent}
+                   (refusal #(rf.fresco/render!
+                               (rf.fresco/client-root)
+                               [rf.fresco/frame-provider {:frame absent}
                                 [panel {:tag "nope"}]]
-                               (rf.hicasso.impl.mount/fresh-container!)))))))
+                               (rf.fresco.impl.mount/fresh-container!)))))))
         (finally
-          (rf.hicasso/unmount! a)
+          (rf.fresco/unmount! a)
           (detach! ca)
-          (rf.hicasso.impl.collector/reset-runtime!))))))
+          (rf.fresco.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W5 — the did-you-mean pair: each head refuses the OTHER's key
@@ -327,23 +327,23 @@
 ;; No DOM: the refusals are raised during LOWERING, which is ordinary CLJS.
 
 (deftest frame-root-given-a-frame-key-is-refused-naming-frame-provider
-  (let [d (refusal #(rf.hicasso/as-element
-                      [rf.hicasso/frame-root {:frame ensured} [panel {:tag "x"}]]))]
+  (let [d (refusal #(rf.fresco/as-element
+                      [rf.fresco/frame-root {:frame ensured} [panel {:tag "x"}]]))]
     (is (= :rf.error/frame-root-given-frame (:rf.error/id d)))
-    (is (= 're-frame.hicasso/frame-root (:where d))
+    (is (= 're-frame.fresco/frame-root (:where d))
         "the refusal must name the head the AUTHOR wrote, not an impl fn")))
 
 (deftest frame-provider-given-an-id-key-is-refused-naming-frame-root
-  (let [d (refusal #(rf.hicasso/as-element
-                      [rf.hicasso/frame-provider {:id ensured} [panel {:tag "x"}]]))]
+  (let [d (refusal #(rf.fresco/as-element
+                      [rf.fresco/frame-provider {:id ensured} [panel {:tag "x"}]]))]
     (is (= :rf.error/frame-provider-given-id (:rf.error/id d)))
-    (is (= 're-frame.hicasso/frame-provider (:where d)))))
+    (is (= 're-frame.fresco/frame-provider (:where d)))))
 
 (deftest frame-root-without-an-id-is-refused
   (is (= :rf.error/frame-root-missing-id
          (:rf.error/id
-           (refusal #(rf.hicasso/as-element
-                       [rf.hicasso/frame-root {} [panel {:tag "x"}]]))))))
+           (refusal #(rf.fresco/as-element
+                       [rf.fresco/frame-root {} [panel {:tag "x"}]]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W6 — the root doors carry ROOT options only, and fail loud on the rest
@@ -354,20 +354,20 @@
 ;; handed to a mount went on the floor.
 
 (deftest the-root-doors-refuse-frame-configuration-naming-the-head-that-takes-it
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no container to hand a door")
     ;; ONE door now, in its two first-call modes: the refusal is the same
     ;; `require-root-options!` on the create path and the hydrate path alike.
-    (doseq [[door call] [["render!"                #(rf.hicasso/render! (rf.hicasso/client-root) [panel {}] (rf.hicasso.impl.mount/fresh-container!) %)]
-                         ["render! {:hydrate? true}" #(rf.hicasso/render! (rf.hicasso/client-root) [panel {}] (rf.hicasso.impl.mount/fresh-container!) (assoc % :hydrate? true))]]]
+    (doseq [[door call] [["render!"                #(rf.fresco/render! (rf.fresco/client-root) [panel {}] (rf.fresco.impl.mount/fresh-container!) %)]
+                         ["render! {:hydrate? true}" #(rf.fresco/render! (rf.fresco/client-root) [panel {}] (rf.fresco.impl.mount/fresh-container!) (assoc % :hydrate? true))]]]
     (testing (str "h/" door " given `:frame`")
-      (is (= :rf.error/hicasso-frame-config-misplaced
+      (is (= :rf.error/fresco-frame-config-misplaced
              (:rf.error/id (refusal #(call {:frame ensured}))))))
     (testing (str "h/" door " given `:initial-events`")
-      (is (= :rf.error/hicasso-frame-config-misplaced
+      (is (= :rf.error/fresco-frame-config-misplaced
              (:rf.error/id (refusal #(call {:initial-events [[::seed "x"]]}))))))
     (testing (str "h/" door " given a key it does not own")
-      (is (= :rf.error/hicasso-unknown-root-option
+      (is (= :rf.error/fresco-unknown-root-option
              (:rf.error/id (refusal #(call {:fx-overrides {}}))))
           "a misspelled or misplaced root option must be refused, not
            silently dropped")))))
@@ -398,20 +398,20 @@
   reload is what changes. The OPTIONS are fixed by construction, which is the
   shape the guides now teach."
   [tag]
-  [rf.hicasso/frame-root
+  [rf.fresco/frame-root
    {:id reloaded :initial-events [[::seed "boot"]]}
    [panel {:tag tag}]])
 
 (deftest the-documented-boot-then-reload-pair-keeps-its-frame-and-its-state
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_ (bare!)
           _ (is (false? (live? reloaded))
                 "premise: the frame this boot names must not exist yet, or the
                  ENSURE below is green against somebody else's frame")
-          ca (rf.hicasso.impl.mount/fresh-container!)
-          a  (rf.hicasso/client-root)
-          _  (rf.hicasso/render! a (reload-tree "boot") ca)
+          ca (rf.fresco.impl.mount/fresh-container!)
+          a  (rf.fresco/client-root)
+          _  (rf.fresco/render! a (reload-tree "boot") ca)
           node (node-at ca ".panel")]
       (try
         (testing "premise: the boot ensured its frame and the seed is painted"
@@ -423,13 +423,13 @@
         ;; replayed `:initial-events` would put "boot" back over it, so this is
         ;; the reading that separates "reused" from "re-seeded".
         (testing "premise: the application has moved on from its seed"
-          (rf.hicasso.impl.mount/dispatch! reloaded [::relabel "live"])
+          (rf.fresco.impl.mount/dispatch! reloaded [::relabel "live"])
           (is (= "live" (text-at ca ".label"))))
 
         (testing "the documented reload — the SAME options, new view code —
                   goes through rather than raising
                   `:rf.error/frame-root-reconfigured`"
-          (is (nil? (refusal #(rf.hicasso/render! a (reload-tree "reloaded") ca)))
+          (is (nil? (refusal #(rf.fresco/render! a (reload-tree "reloaded") ca)))
               "the repaired boot → reload pair was refused; a reader copying
                the guide's own recipe would get a throw where `render!` is
                supposed to preserve the mounted tree"))
@@ -448,9 +448,9 @@
               "the reload remounted instead of reconciling"))
 
         (finally
-          (rf.hicasso/unmount! a)
+          (rf.fresco/unmount! a)
           (detach! ca)
-          (rf.hicasso.impl.collector/reset-runtime!))))))
+          (rf.fresco.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W8 — THE TRAP on the other side of W7, and why it is witnessed THIS way
@@ -485,16 +485,16 @@
   "The documented root tree with an error boundary over it — `opts` is the
   frame-root's option map, `tag` the view code a reload is what changes."
   [opts tag]
-  [rf.hicasso/error-boundary {:fallback [:p.fell "fell"]}
-   [rf.hicasso/frame-root opts [panel {:tag tag}]]])
+  [rf.fresco/error-boundary {:fallback [:p.fell "fell"]}
+   [rf.fresco/frame-root opts [panel {:tag tag}]]])
 
 (deftest a-reload-that-trims-the-heads-options-is-refused-as-a-reconfiguration
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_ (bare!)
-          ca (rf.hicasso.impl.mount/fresh-container!)
-          a  (rf.hicasso/client-root)
-          _  (rf.hicasso/render! a
+          ca (rf.fresco.impl.mount/fresh-container!)
+          a  (rf.fresco/client-root)
+          _  (rf.fresco/render! a
                (guarded {:id trimmed-frame :initial-events [[::seed "boot"]]}
                         "boot")
                ca)]
@@ -507,7 +507,7 @@
         (testing "the reload TRIMS `:initial-events` — precisely the omission
                   the guides used to teach, on the ground that the seed had
                   already run — and the committed boundary refuses it"
-          (rf.hicasso/render! a (guarded {:id trimmed-frame} "trimmed") ca)
+          (rf.fresco/render! a (guarded {:id trimmed-frame} "trimmed") ca)
           (is (= "fell" (text-at ca ".fell"))
               "a committed frame-root accepted a DIFFERENT option map: the
                silent reconfiguration this boundary exists to refuse")
@@ -516,6 +516,6 @@
                the fallback above is not evidence the guard fired"))
 
         (finally
-          (rf.hicasso/unmount! a)
+          (rf.fresco/unmount! a)
           (detach! ca)
-          (rf.hicasso.impl.collector/reset-runtime!))))))
+          (rf.fresco.impl.collector/reset-runtime!))))))

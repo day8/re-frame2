@@ -1,8 +1,8 @@
-(ns re-frame.hicasso.examples.slice.routes
+(ns re-frame.fresco.examples.slice.routes
   "THE SLICE'S TWO ROUTES.
 
   Two `reg-route` calls and nothing else. Routing is `day8/re-frame2-
-  routing`'s, reached through its own public door; Hicasso reaches the
+  routing`'s, reached through its own public door; Fresco reaches the
   same registrations through core's late-bind seams, so a `h/route-link`
   in a view and a `[:rf.route/navigate …]` from a handler are the same
   two definitions read two ways.
@@ -53,7 +53,7 @@
   consumer would write, and they are exactly the two RealWorld already
   holds — so registering them here made `match-url` answer this app's
   route for RealWorld's URLs, and twelve of its assertions failed naming
-  `:re-frame.hicasso.examples.slice.routes/article` where they expected
+  `:re-frame.fresco.examples.slice.routes/article` where they expected
   `:realworld.article/show`.
 
   Nothing warned. `reg-route` emits `:rf.warning/route-shadowed-by-equal-
@@ -89,7 +89,7 @@
   and `/slice?page=1` are the same page rather than two shapes the view
   has to know about. A number OUTSIDE the range the data has —
   `?page=900` — is not routing's problem to refuse:
-  [[re-frame.hicasso.examples.slice.db/clamp-page]] brings it inside,
+  [[re-frame.fresco.examples.slice.db/clamp-page]] brings it inside,
   because a URL is user input and a typo is a page rather than an error."
   []
   (rf.routing/reg-route feed

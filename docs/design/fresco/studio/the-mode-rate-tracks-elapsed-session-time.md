@@ -6,7 +6,7 @@ estimator produced three incompatible rates for the elevated floor mode.
 
 **No allocation window was taken for this page, and no rig file was edited.**
 Every figure is re-derived from datasets already committed under
-`implementation/hicasso/test/re_frame/bench/hicasso/data/`.
+`implementation/fresco/test/re_frame/bench/fresco/data/`.
 
 > **CORRECTED 2026-08-21 — the admissibility rule.** The first version of this
 > page admitted two runs whose own positive control had FAILED, and counted both
@@ -279,7 +279,7 @@ Every measured figure on this page — every rate, duration, `p`, rank statistic
 and byte level — is re-derived from the committed records by:
 
 ```bash
-node implementation/hicasso/test/re_frame/bench/hicasso/alloc_mode_rate_session.cjs
+node implementation/fresco/test/re_frame/bench/fresco/alloc_mode_rate_session.cjs
 ```
 
 It launches nothing, reads no rig file and writes nothing. Its fixtures run under

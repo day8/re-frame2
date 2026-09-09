@@ -2,7 +2,7 @@
   "NEGATIVE fixture: the THREE places the shipped package names a prototype
   coordinate BARE — no backticks — in a comment or a docstring. Reproduced
   verbatim from
-  `implementation/hicasso/src/re_frame/hicasso/impl/{state.cljc,presence_react.cljs}`.
+  `implementation/fresco/src/re_frame/fresco/impl/{state.cljc,presence_react.cljs}`.
 
   rf2-r4jy's brief named ONE of these (the state.cljc section header) and asked
   whether to allowlist it or mask comments generally. Scanning the real surface

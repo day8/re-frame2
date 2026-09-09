@@ -1,9 +1,9 @@
-(ns re-frame.hicasso.test-kit-runtime-parity-cljs-test
+(ns re-frame.fresco.test-kit-runtime-parity-cljs-test
   "THE PARITY TABLE — one corpus, driven through the RUNTIME and through
   the kit's L2 walk, so the two cannot disagree quietly.
 
-  `re-frame.hicasso.test` publishes a semantic tree and claims two things
-  about it: that its child discrimination is *Hicasso's*, and that its
+  `re-frame.fresco.test` publishes a semantic tree and claims two things
+  about it: that its child discrimination is *Fresco's*, and that its
   node schema is *Spec 004B version 1*. A merged-PR audit found nine
   places where neither held — a keyword child the runtime renders as text
   and the kit refused, a `true` child the runtime makes a loud error and
@@ -42,15 +42,15 @@
   rather than its own by
   running the runtime's guards (`codec/vector-kind`). Asserting `:where`
   is what makes that structural rather than coincidental: a kit
-  paraphrase would carry `re-frame.hicasso.test` and red."
+  paraphrase would carry `re-frame.fresco.test` and red."
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
-            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
+            [re-frame.fresco.test :as rf.fresco.test]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]))
 
@@ -66,7 +66,7 @@
      :ambient-frame nil
      :init-fn       (fn []
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-                      (rf.hicasso.impl.collector/reset-runtime!))}))
+                      (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The two probes
@@ -101,11 +101,11 @@
   `[:deferred]` is a token rather than `[:foreign (pr-str v)]` because
   the print of a `Delay` carries its `:status` and `:val` — a pin on
   ClojureScript's internals that would red on a print change and say
-  nothing about Hicasso. What the row is about is that the value crosses
+  nothing about Fresco. What the row is about is that the value crosses
   UNFORCED, and the token says exactly that."
   [x]
-  (let [o (outcome #(rf.hicasso.impl.intent/with-frame frame-id (rf.hicasso.impl.collector/frame-dispatch frame-id)
-                      (fn [] (rf.hicasso.impl.codec/as-element x))))]
+  (let [o (outcome #(rf.fresco.impl.intent/with-frame frame-id (rf.fresco.impl.collector/frame-dispatch frame-id)
+                      (fn [] (rf.fresco.impl.codec/as-element x))))]
     (if-some [d (:refused o)]
       [:refused (:rf.error/id d)]
       (let [v (:returned o)]
@@ -131,7 +131,7 @@
   travels the kit's real path rather than a walk reached behind its
   door."
   [form]
-  (let [o (outcome #(rf.hicasso.test/tree [(fn [_] form)]))]
+  (let [o (outcome #(rf.fresco.test/tree [(fn [_] form)]))]
     (if-some [d (:refused o)]
       {:refused (select-keys d [:rf.error/id :where])}
       {:tree (:returned o)})))
@@ -140,13 +140,13 @@
 ;; The table
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defhost a-host js/Object {:server :client-only})
+(rf.fresco/defhost a-host js/Object {:server :client-only})
 
-(rf.hicasso/defview a-boundary [props] [:i (str (:x props))])
+(rf.fresco/defview a-boundary [props] [:i (str (:x props))])
 
 (defn- raw-component [] nil)
 
-(def ^:private v rf.hicasso.test/tree-version)
+(def ^:private v rf.fresco.test/tree-version)
 
 (def ^:private rows
   [{:case    "a body that renders nothing roots in an EMPTY FRAGMENT"
@@ -188,12 +188,12 @@
 
    {:case    "a `true` child RAISES, and raises the runtime's own id"
     :form    [:div true]
-    :runtime [:refused :rf.error/hicasso-true-child]
-    :refuses {:rf.error/id :rf.error/hicasso-true-child}
+    :runtime [:refused :rf.error/fresco-true-child]
+    :refuses {:rf.error/id :rf.error/fresco-true-child}
     :why     (str "codec/as-element — nil and false render nothing; true is an "
                   "error (HD-016). Dropping it silently teaches a spelling the "
                   "runtime rejects. 004B §Child normalization drops a `true` "
-                  "that reaches TREE BUILD; Hicasso's grammar refuses it "
+                  "that reaches TREE BUILD; Fresco's grammar refuses it "
                   "upstream of that, so one never arrives — see the namespace "
                   "docstring's §Scope of the 004B claim.")}
 
@@ -207,7 +207,7 @@
     :form    [:div [:> raw-component]]
     :subject [:> raw-component]
     :runtime [:opaque]
-    :refuses {:rf.error/id :rf.error/hicasso-test-react-is-opaque}
+    :refuses {:rf.error/id :rf.error/fresco-test-react-is-opaque}
     :why     (str "codec/raw-head? — `[:> C]` hands C to React untouched "
                   "(HD-011). The namespace docstring promises anything the "
                   "codec hands to React untouched refuses with a pointer to "
@@ -225,14 +225,14 @@
    ;; before it classifies a head at all. Both are the RUNTIME's refusal,
    ;; raised by the runtime's own guards through `codec/vector-kind`, so these
    ;; rows assert `:where` as well: a kit paraphrase would name
-   ;; `re-frame.hicasso.test` and red here.
+   ;; `re-frame.fresco.test` and red here.
 
    {:case    "an EMPTY VECTOR raises the runtime's own empty-vector refusal"
     :form    [:div []]
     :subject []
-    :runtime [:refused :rf.error/hicasso-empty-vector]
-    :refuses {:rf.error/id :rf.error/hicasso-empty-vector
-              :where       're-frame.hicasso.impl.codec/vec->element}
+    :runtime [:refused :rf.error/fresco-empty-vector]
+    :refuses {:rf.error/id :rf.error/fresco-empty-vector
+              :where       're-frame.fresco.impl.codec/vec->element}
     :why     (str "codec/vec->element refuses an empty vector AHEAD of any "
                   "head classification, because every branch below reads "
                   "position 0. A kit that asks `head-kind` about the nil it "
@@ -242,9 +242,9 @@
    {:case    "`[:>]` with NO component raises the runtime's own refusal"
     :form    [:div [:>]]
     :subject [:>]
-    :runtime [:refused :rf.error/hicasso-raw-not-a-component]
-    :refuses {:rf.error/id :rf.error/hicasso-raw-not-a-component
-              :where       're-frame.hicasso.impl.codec/raw-element}
+    :runtime [:refused :rf.error/fresco-raw-not-a-component]
+    :refuses {:rf.error/id :rf.error/fresco-raw-not-a-component
+              :where       're-frame.fresco.impl.codec/raw-element}
     :why     (str "codec/raw-component — the escape's Component slot is empty. "
                   "Opacity is not the answer: there is nothing for React to "
                   "interpret, so a pointer to L3 sends the programmer to "
@@ -253,9 +253,9 @@
    {:case    "`[:> nil]` — the broken-import spelling — raises the same id"
     :form    [:div [:> nil]]
     :subject [:> nil]
-    :runtime [:refused :rf.error/hicasso-raw-not-a-component]
-    :refuses {:rf.error/id :rf.error/hicasso-raw-not-a-component
-              :where       're-frame.hicasso.impl.codec/raw-element}
+    :runtime [:refused :rf.error/fresco-raw-not-a-component]
+    :refuses {:rf.error/id :rf.error/fresco-raw-not-a-component
+              :where       're-frame.fresco.impl.codec/raw-element}
     :why     (str "codec/raw-component — a `:default` import that resolved "
                   "nothing is the usual cause, and it is the case a test kit "
                   "is most likely to meet first. Distinct SPELLING from `[:>]` "
@@ -265,8 +265,8 @@
     :form    [:div [a-host]]
     :subject [a-host]
     :runtime [:opaque]
-    :refuses {:rf.error/id :rf.error/hicasso-test-host-is-opaque
-              :where       're-frame.hicasso.test}
+    :refuses {:rf.error/id :rf.error/fresco-test-host-is-opaque
+              :where       're-frame.fresco.test}
     :why     (str "The kit's stated opacity, and the row that keeps it "
                   "distinct. `:where` is the KIT here, deliberately: L2's own "
                   "opacity is the kit's claim to make, and the rows above show "
@@ -276,8 +276,8 @@
     :form    [:div (delay [:p])]
     :subject (delay [:p])
     :runtime [:deferred]
-    :refuses {:rf.error/id :rf.error/hicasso-deferred-read-at-boundary
-              :where       're-frame.hicasso.test}
+    :refuses {:rf.error/id :rf.error/fresco-deferred-read-at-boundary
+              :where       're-frame.fresco.test}
     :why     (str "THE ROW rf2-tsdik EXISTS FOR (after rf2-llps1). The kit "
                   "borrows the RUNTIME's id here, and the runtime's reason has "
                   "to come with it: opacity is honest "
@@ -296,9 +296,9 @@
 
    {:case    "an unforced `delay` in a BOUNDARY's PROPS — the row both sides refuse"
     :form    [a-boundary {:x (delay 1)}]
-    :runtime [:refused :rf.error/hicasso-deferred-read-at-boundary]
-    :refuses {:rf.error/id :rf.error/hicasso-deferred-read-at-boundary
-              :where       're-frame.hicasso.test}
+    :runtime [:refused :rf.error/fresco-deferred-read-at-boundary]
+    :refuses {:rf.error/id :rf.error/fresco-deferred-read-at-boundary
+              :where       're-frame.fresco.test}
     :why     (str "THE POSITION THE ID IS NAMED FOR (rf2-dr0ad). The row above "
                   "is a delay the runtime hands ONWARD; this is the one form "
                   "it genuinely REFUSES — `codec/realize-deep` runs at the "
@@ -318,7 +318,7 @@
     :form    [a-boundary {:x (doto (delay 1) deref)}]
     :runtime [:opaque]
     :refuses {:rf.error/id :rf.error/ui-tree-malformed
-              :where       're-frame.hicasso.test}
+              :where       're-frame.fresco.test}
     :why     (str "`realize-deep` refuses only an UNFORCED delay: one the "
                   "author already deref'd in their own body carries a computed "
                   "value, derefs to it without calling anything, and is "
@@ -361,7 +361,7 @@
     :form    [:div {:data-x {(fn [] 1) :v}}]
     :runtime [:element "div"]
     :refuses {:rf.error/id :rf.error/ui-tree-malformed
-              :where       're-frame.hicasso.test}
+              :where       're-frame.fresco.test}
     :why     (str "004B §The opaque marker — the marker occupies a SITE, never "
                   "a value inside one; a non-data value nested inside a "
                   "recorded value is rejected. A key is inside the value. The "
@@ -379,7 +379,7 @@
     :form    [:div {:data-x #{(fn [] 1)}}]
     :runtime [:element "div"]
     :refuses {:rf.error/id :rf.error/ui-tree-malformed
-              :where       're-frame.hicasso.test}
+              :where       're-frame.fresco.test}
     :why     (str "The SECOND arm that drops the path (rf2-6xhxu), and the one "
                   "`non-data` says so in: a set member has no position worth "
                   "naming, so the walk stops there and this offender's `:path` "
@@ -393,7 +393,7 @@
     :form    [:div {:data-x #js {"a" 1}}]
     :runtime [:element "div"]
     :refuses {:rf.error/id :rf.error/ui-tree-malformed
-              :where       're-frame.hicasso.test}
+              :where       're-frame.fresco.test}
     :why     (str "004B §The node schema — the tree is plain, serialisable "
                   "Clojure data that EDN print/read round-trips; §Attr value "
                   "normalization — a host object is rejected. THE ROW rf2-6xhxu "
@@ -408,7 +408,7 @@
     :form    [:div {:data-x {:k #js {"a" 1}}}]
     :runtime [:element "div"]
     :refuses {:rf.error/id :rf.error/ui-tree-malformed
-              :where       're-frame.hicasso.test}
+              :where       're-frame.fresco.test}
     :why     (str "The other half of the same predicate (rf2-6xhxu). A non-empty "
                   "path says the value is nested, not that it has somewhere to "
                   "go: hoisted to `:data-y` this object meets the identical "
@@ -464,7 +464,7 @@
                          rows)]
       (is (seq shared))
       ;; The RAISING SITE is what makes a shared row shared. The kit stamps
-      ;; its own refusals `re-frame.hicasso.test`, so a `:where` inside the
+      ;; its own refusals `re-frame.fresco.test`, so a `:where` inside the
       ;; runtime's own namespaces is the evidence that the id came from the
       ;; interpreter rather than from a kit-private twin — which is the
       ;; sentence below, stated as a predicate.
@@ -478,6 +478,6 @@
       ;; names the package survives the next move; one that names a file
       ;; only survives until it.
       (is (seq (filter #(str/starts-with? (str (:where (:refuses %)))
-                                          "re-frame.hicasso.impl.")
+                                          "re-frame.fresco.impl.")
                        shared))
           "at least one row's refusal is raised by the runtime's own guard"))))

@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.read-extent-dom-cljs-test
+(ns re-frame.fresco.read-extent-dom-cljs-test
   "INVARIANT I7, IN THE CARRIERS A NODE LANE CANNOT DRIVE.
 
   > `sub` is legal during the direct synchronous execution of the active
@@ -6,9 +6,9 @@
   > callback, promise, timer, lazy sequence, or other escaped extent
   > refuses with source and recovery.
   >
-  > — `implementation/hicasso/spec/invariants.md`, I7
+  > — `implementation/fresco/spec/invariants.md`, I7
 
-  [[re-frame.hicasso.read-extent-cljs-test]] is the legality matrix:
+  [[re-frame.fresco.read-extent-cljs-test]] is the legality matrix:
   fourteen rows, three legal shapes, seven refusals asserted as exact
   error maps, the reconciliation clause and one declared limit. It states
   in its own docstring what it cannot reach. The package's lane is Node —
@@ -41,7 +41,7 @@
   Each is a plausible author move — *read it in the effect*, *read it
   once the data arrives*, *read it when the panel opens* — and each is a
   moment at which it is easy to believe a body is still on the stack.
-  None is. [[re-frame.hicasso.impl.collector/run-once]] clears the render
+  None is. [[re-frame.fresco.impl.collector/run-once]] clears the render
   frame slot in the `finally` that closes the body, and it clears it for
   a thrown Suspense thenable exactly as it does for an ordinary return.
   The rows below are that sentence, measured.
@@ -85,7 +85,7 @@
   asserts the deferral had **not** fired while the subtree was hidden.
 
   Liveness is proved the way
-  [[re-frame.hicasso.kernel-commit-owns-dom-cljs-test]] proves it: a
+  [[re-frame.fresco.kernel-commit-owns-dom-cljs-test]] proves it: a
   write round-trip. A boundary React has not finished subscribing cannot
   repaint, so a repaint is proof the passive phase is done — and proof
   the surviving registration is live rather than merely present. That
@@ -114,7 +114,7 @@
 
   ## On the node lane every row states a skip, never a green
 
-  `:node-test-hicasso` compiles this namespace too — its `ns-regexp`
+  `:node-test-fresco` compiles this namespace too — its `ns-regexp`
   matches — and it has no DOM. Each row degrades to an explicit skip
   rather than to an assertion that passes because nothing ran. The two
   controls that need no DOM run in both lanes."
@@ -122,11 +122,11 @@
             [clojure.set :as set]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/client" :as react-dom-client]))
@@ -159,7 +159,7 @@
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The exercised population — a MEASUREMENT, not a claim
@@ -225,8 +225,8 @@
   namespace docstring. It is prose, re-routing it is the complaint
   catalogue's, and the Node matrix is where it is pinned."
   [query-v]
-  {:rf.error/id :rf.error/hicasso-sub-outside-render
-   :where       're-frame.hicasso.impl.collector/read-key!
+  {:rf.error/id :rf.error/fresco-sub-outside-render
+   :where       're-frame.fresco.impl.collector/read-key!
    :recovery    :no-recovery
    :query-v     query-v})
 
@@ -235,22 +235,22 @@
   [o]
   (dissoc (:refused o) :reason))
 
-(defn- readers-of [query-v] (count (rf.hicasso.test.runtime/cell-readers (sub-key query-v))))
+(defn- readers-of [query-v] (count (rf.fresco.test.runtime/cell-readers (sub-key query-v))))
 
 (def ^:private nothing-owned {:cells 0 :cell-refs 0 :boundaries 0 :edges 0})
 
-(defn- ownership [] (dissoc (rf.hicasso.test.runtime/residue) :entries))
+(defn- ownership [] (dissoc (rf.fresco.test.runtime/residue) :entries))
 
 (defn- app
-  "The hicasso subtree: the frame provider over a root element."
+  "The fresco subtree: the frame provider over a root element."
   [hiccup]
-  (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup)))
+  (rf.fresco.impl.mount/provider frame-id (rf.fresco.impl.codec/root-element frame-id hiccup)))
 
 (defn- mount-concurrent!
   "A concurrent root, rendered WITHOUT `flushSync`.
 
   Deliberately not `mount/root!`, for
-  [[re-frame.hicasso.kernel-commit-owns-dom-cljs-test]]'s reason: Suspense
+  [[re-frame.fresco.kernel-commit-owns-dom-cljs-test]]'s reason: Suspense
   and Activity are React's concurrent business, and a row that forced them
   synchronous would be a row about the forced schedule. Every wait below
   is a poll on a condition instead."
@@ -290,7 +290,7 @@
   under test, since a second reader changes a count without changing any
   text."
   [handle expected label]
-  (rf.hicasso.impl.collector/dispatch! frame-id [:red/bump])
+  (rf.fresco.impl.collector/dispatch! frame-id [:red/bump])
   (poll #(= expected (text-at handle "#painted")) label))
 
 (defn- teardown-census!
@@ -299,13 +299,13 @@
   reads zeros whether teardown released anything or not — the shape of
   gate that cannot go red (`impl.mount/unmount!`)."
   [handle]
-  (rf.hicasso.impl.mount/unmount! handle)
-  (.then (rf.hicasso.test.runtime/quiesced!)
+  (rf.fresco.impl.mount/unmount! handle)
+  (.then (rf.fresco.test.runtime/quiesced!)
          (fn [_]
            (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                  (rf.hicasso.test.runtime/residue))
+                  (rf.fresco.test.runtime/residue))
                "teardown is exact: zero residue after quiescence")
-           (rf.hicasso.impl.mount/release! handle)
+           (rf.fresco.impl.mount/release! handle)
            nil)))
 
 (defn- report-failure!
@@ -324,21 +324,21 @@
   offending namespace again.
 
   The long-form account is on
-  [[re-frame.hicasso.reincarnation-paint-dom-cljs-test]]'s own
+  [[re-frame.fresco.reincarnation-paint-dom-cljs-test]]'s own
   `report-failure!`; the shape is the one
-  [[re-frame.hicasso.checkpoint-support/at-the-checkpoint]] already uses."
+  [[re-frame.fresco.checkpoint-support/at-the-checkpoint]] already uses."
   [label handle]
   (fn [e]
     (is false (str label " — " (.-message e)
                    " | ownership " (pr-str (ownership))))
-    (when handle (rf.hicasso.impl.mount/release! handle))
+    (when handle (rf.fresco.impl.mount/release! handle))
     nil))
 
 ;; ---------------------------------------------------------------------------
 ;; The views
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview sibling-line
+(rf.fresco/defview sibling-line
   "A second boundary reading a DIFFERENT key, and it is load-bearing
   rather than scenery.
 
@@ -350,13 +350,13 @@
   nothing will ever release. That is a number, and it is the smallest tree
   in which it is one."
   [_]
-  [:p {:id "sibling"} (str "sibling=" (rf.hicasso/sub [:red/sibling]))])
+  [:p {:id "sibling"} (str "sibling=" (rf.fresco/sub [:red/sibling]))])
 
 (def ^:private !effect-runs (atom 0))
 (def ^:private !layout-read (atom nil))
 (def ^:private !passive-read (atom nil))
 
-(rf.hicasso/defview effect-deferring-line
+(rf.fresco/defview effect-deferring-line
   "A boundary that reads legally and then defers two reads into React's
   own post-body phases — the mutation phase (`useLayoutEffect`) and the
   passive phase (`useEffect`).
@@ -372,18 +372,18 @@
   about effects: the same escaped extent, the same instant, and the write
   goes through."
   [_]
-  (let [v (rf.hicasso/sub [:red/painted])]
+  (let [v (rf.fresco/sub [:red/painted])]
     (react/useLayoutEffect
       (fn []
         (swap! !effect-runs inc)
-        (reset! !layout-read (outcome (fn [] (rf.hicasso/sub [:red/escaped-2]))))
+        (reset! !layout-read (outcome (fn [] (rf.fresco/sub [:red/escaped-2]))))
         js/undefined)
       #js [])
     (react/useEffect
       (fn []
         (swap! !effect-runs inc)
-        (reset! !passive-read (outcome (fn [] (rf.hicasso/sub [:red/escaped]))))
-        (rf.hicasso.impl.collector/dispatch! frame-id [:red/bump])
+        (reset! !passive-read (outcome (fn [] (rf.fresco/sub [:red/escaped]))))
+        (rf.fresco.impl.collector/dispatch! frame-id [:red/bump])
         js/undefined)
       #js [])
     [:p {:id "painted"} (str "painted=" v)]))
@@ -409,7 +409,7 @@
 
 (defn- release-gate! [] (reset! !released? true) (@!resolve-gate nil) nil)
 
-(rf.hicasso/defview suspending-line
+(rf.fresco/defview suspending-line
   "A boundary that reads, defers a read onto the very thenable it is about
   to throw, and suspends.
 
@@ -425,7 +425,7 @@
   is what keeps the deferral single, so `1` is an assertable count rather
   than a schedule-dependent one."
   [_]
-  (let [v (rf.hicasso/sub [:red/painted])]
+  (let [v (rf.fresco/sub [:red/painted])]
     (when-not @!released?
       (when-not @!attached?
         (reset! !attached? true)
@@ -433,7 +433,7 @@
             (.then (fn [_]
                      (swap! !resume-runs inc)
                      (reset! !resume-read
-                             (outcome (fn [] (rf.hicasso/sub [:red/escaped]))))))))
+                             (outcome (fn [] (rf.fresco/sub [:red/escaped]))))))))
       (throw @!gate-promise))
     [:p {:id "painted"} (str "painted=" v)]))
 
@@ -441,15 +441,15 @@
 (def ^:private !activity-read (atom nil))
 (def ^:private !set-visible (atom nil))
 
-(rf.hicasso/defview activity-deferring-line
+(rf.fresco/defview activity-deferring-line
   "A boundary inside an `Activity` subtree, deferring a read into the
   effect React withholds for as long as the subtree is hidden."
   [_]
-  (let [v (rf.hicasso/sub [:red/painted])]
+  (let [v (rf.fresco/sub [:red/painted])]
     (react/useEffect
       (fn []
         (swap! !activity-runs inc)
-        (reset! !activity-read (outcome (fn [] (rf.hicasso/sub [:red/escaped]))))
+        (reset! !activity-read (outcome (fn [] (rf.fresco/sub [:red/escaped]))))
         js/undefined)
       #js [])
     [:p {:id "painted"} (str "painted=" v)]))
@@ -474,7 +474,7 @@
 
 (deftest a-read-deferred-into-a-react-effect-refuses
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no DOM, so React commits nothing and no effect runs")
           (done))
       (let [_ (seeded!)
@@ -482,7 +482,7 @@
                   (reset! !layout-read nil)
                   (reset! !passive-read nil))
             handle (mount-concurrent!
-                     (rf.hicasso.impl.mount/fresh-container!)
+                     (rf.fresco.impl.mount/fresh-container!)
                      (app [:div [effect-deferring-line {}] [sibling-line {}]]))]
         ;; The poll condition is three premises at once: the tree
         ;; committed, the passive effect ran to completion PAST its refused
@@ -518,7 +518,7 @@
                           of the mount"
                   (is (zero? (readers-of [:red/escaped])))
                   (is (zero? (readers-of [:red/escaped-2])))
-                  (is (nil? (rf.hicasso.test.runtime/cell-reaction (sub-key [:red/escaped])))))
+                  (is (nil? (rf.fresco.test.runtime/cell-reaction (sub-key [:red/escaped])))))
 
                 (testing "while each body's own read is acquired exactly
                           once, and the runtime holds the two boundaries and
@@ -532,15 +532,15 @@
                 ;; and not about two queries that were broken anyway. The
                 ;; identical reads, inside a body's window, resolve to their
                 ;; values and record their edges.
-                (let [_     (rf.hicasso.impl.collector/render-body
+                (let [_     (rf.fresco.impl.collector/render-body
                               frame-id
-                              (fn [_] [:p (rf.hicasso/sub [:red/escaped])
-                                       (rf.hicasso/sub [:red/escaped-2])])
+                              (fn [_] [:p (rf.fresco/sub [:red/escaped])
+                                       (rf.fresco/sub [:red/escaped-2])])
                               {})
-                      entry (rf.hicasso.impl.collector/last-reads)]
+                      entry (rf.fresco.impl.collector/last-reads)]
                   (testing "the identical reads are legal in a window"
                     (is (= #{(sub-key [:red/escaped]) (sub-key [:red/escaped-2])}
-                           (rf.hicasso.test.runtime/reads-of entry)))))
+                           (rf.fresco.test.runtime/reads-of entry)))))
 
                 (exercised! :effect/layout)
                 (exercised! :effect/passive)
@@ -554,14 +554,14 @@
 
 (deftest a-read-deferred-across-a-suspense-retry-refuses
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no DOM, so nothing suspends and nothing retries")
           (done))
       (let [_      (seeded!)
             _      (arm-gate!)
-            before (rf.hicasso.test.runtime/body-runs)
+            before (rf.fresco.test.runtime/body-runs)
             handle (mount-concurrent!
-                     (rf.hicasso.impl.mount/fresh-container!)
+                     (rf.fresco.impl.mount/fresh-container!)
                      (react/createElement
                        (.-Suspense react)
                        #js {:fallback (react/createElement
@@ -573,7 +573,7 @@
                 (testing "the premise: React RAN the body — it took its read
                           and then threw the thenable — and then threw the
                           attempt away"
-                  (is (pos? (- (rf.hicasso.test.runtime/body-runs) before)))
+                  (is (pos? (- (rf.fresco.test.runtime/body-runs) before)))
                   (is (nil? (text-at handle "#painted"))))
 
                 (testing "and the abandoned attempt acquired nothing, so the
@@ -602,7 +602,7 @@
                 (testing "the refused key was not acquired by the retry that
                           followed it"
                   (is (zero? (readers-of [:red/escaped])))
-                  (is (nil? (rf.hicasso.test.runtime/cell-reaction (sub-key [:red/escaped])))))
+                  (is (nil? (rf.fresco.test.runtime/cell-reaction (sub-key [:red/escaped])))))
 
                 (testing "and the retry acquired exactly its own read set:
                           one reader per key, with no second registration
@@ -623,7 +623,7 @@
 
 (deftest a-read-deferred-across-an-activity-reveal-refuses
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no DOM, so nothing is hidden and nothing is revealed")
           (done))
       (let [_ (seeded!)
@@ -631,7 +631,7 @@
                   (reset! !activity-read nil)
                   (reset! !set-visible nil))
             handle (mount-concurrent!
-                     (rf.hicasso.impl.mount/fresh-container!)
+                     (rf.fresco.impl.mount/fresh-container!)
                      (react/createElement
                        activity-host
                        #js {:child (app [:div
@@ -669,7 +669,7 @@
 
                 (testing "the refused key was not acquired at the reveal"
                   (is (zero? (readers-of [:red/escaped])))
-                  (is (nil? (rf.hicasso.test.runtime/cell-reaction (sub-key [:red/escaped])))))
+                  (is (nil? (rf.fresco.test.runtime/cell-reaction (sub-key [:red/escaped])))))
 
                 (testing "while each revealed boundary holds exactly its own
                           read, once. Measured: with one boundary here this
@@ -701,10 +701,10 @@
   ;; runtime's conduct.
   (seeded!)
   (let [!seen (atom nil)]
-    (rf.hicasso.impl.collector/render-body
+    (rf.fresco.impl.collector/render-body
       frame-id
       (fn [_]
-        (reset! !seen (outcome (fn [] (rf.hicasso/sub [:red/escaped]))))
+        (reset! !seen (outcome (fn [] (rf.fresco/sub [:red/escaped]))))
         [:p "x"])
       {})
 
@@ -723,7 +723,7 @@
 
 (deftest the-declared-population-was-actually-exercised
   ;; Declared LAST so every row above has run.
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM, so no carrier is driven there")
     (is (= declared-population @!exercised)
         (str "every declared deferral carrier must be reached; missing: "

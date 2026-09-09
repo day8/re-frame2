@@ -75,7 +75,7 @@ The bead states it as a hard stop: *any drift toward a per-leaf dependency ledge
 
 ## The measurement
 
-The comparator is `implementation/hicasso/test/re_frame/hicasso/pull_reads_spike_cljs_test.cljs`, built for this question and for nothing else. It runs on the package's own Node lane — `shadow-cljs :node-test-hicasso`, and again under the always-on `:node-test` build, both of which already select `re-frame.hicasso.*-cljs-test`, so nothing was added to `shadow-cljs.edn` to make it run.
+The comparator is `implementation/fresco/test/re_frame/fresco/pull_reads_spike_cljs_test.cljs`, built for this question and for nothing else. It runs on the package's own Node lane — `shadow-cljs :node-test-fresco`, and again under the always-on `:node-test` build, both of which already select `re-frame.fresco.*-cljs-test`, so nothing was added to `shadow-cljs.edn` to make it run.
 
 A fourth reading appears beside the three arms and is not a fourth arm. **`pull-compiled`** is the same query lowered once at registration into a closure rather than interpreted per read. It is there so that a verdict against the pull arm cannot be answered with *you measured an interpreter*; it is excluded from every three-arm row and reported in its own column.
 

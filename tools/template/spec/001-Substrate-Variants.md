@@ -129,7 +129,7 @@ they are.
 
 Reserved, not implemented:
 
-- **Hicasso** (`day8/re-frame2-hicasso`) — a third value of
+- **Fresco** (`day8/re-frame2-fresco`) — a third value of
   `:substrate`, gated on the repository's first `v*` tag so its
   coordinate resolves before a scaffold names it. Owned by rf2-8urba.
 - **reagent-slim** — gated on reagent-slim's first published artefact.

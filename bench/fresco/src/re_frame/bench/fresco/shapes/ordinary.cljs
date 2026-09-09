@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.shapes.ordinary
+(ns re-frame.bench.fresco.shapes.ordinary
   "**TIER-1 SHAPE 1 — ORDINARY VIEWS**, the ~50-element form/list/layout
   screen (charter §Use cases A1; rf2-2rtt6.51).
 
@@ -49,7 +49,7 @@
   The census's author byline is a `ui/route-link` — the census counts
   **106 of them** and calls the form tier-1 — and this port spelled it
   `[:a {:href …}]` while the arm had no route-link. It now has one
-  ([[re-frame.bench.hicasso.front.route-link/route-link]]), so the
+  ([[re-frame.bench.fresco.front.route-link/route-link]]), so the
   byline names a route and params and never sees a URL, exactly as the
   census author writes it. A route-link is a plain function: it inlines,
   mints no boundary, reads no subscription, and emits the same single
@@ -57,10 +57,10 @@
 
   ## Reading the body
 
-  Nothing here is a Hicasso idiom an author has to learn: a `let`, a
+  Nothing here is a Fresco idiom an author has to learn: a `let`, a
   `when`, a `for`, ordinary destructuring, hiccup vectors, and event
   intents as data. The two things that are not plain Clojure —
-  `defview` minting a boundary, and `:re-frame.hicasso/value` as the
+  `defview` minting a boundary, and `:re-frame.fresco/value` as the
   placeholder for the typed value — are one concept each.
 
   Body forms are `.cljc`-compatible by construction (HD-020(d)): no
@@ -69,10 +69,10 @@
   HD-020 addendum makes SSR and hydration **required** scope, so a body
   that reached for `window` would be a body this screen could not render
   on a server."
-  (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.front.route-link :refer [route-link]]
-            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require [re-frame.bench.fresco.arm1.runtime :refer [sub]]
+            [re-frame.bench.fresco.front.route-link :refer [route-link]]
+            [re-frame.bench.fresco.shapes.model :as rf.bench.fresco.shapes.model])
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 ;; ---------------------------------------------------------------------------
 ;; The screen's size, as arithmetic
@@ -142,7 +142,7 @@
      [:div.card-footer
       (route-link {:to :conduit.profile/show :params {:username (:username author)}
                    :class "comment-author"}
-        [:img.comment-author-img {:src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""}]
+        [:img.comment-author-img {:src (rf.bench.fresco.shapes.model/avatar-src (:image author)) :alt ""}]
         " "
         (:username author))
       [:span.date-posted createdAt]
@@ -173,10 +173,10 @@
       [:textarea.form-control {:data-testid "comment-body-input"
                                :rows        3
                                :placeholder "Write a comment..."
-                               :value       (sub [:conduit/draft rf.bench.hicasso.shapes.model/comment-draft-key])
+                               :value       (sub [:conduit/draft rf.bench.fresco.shapes.model/comment-draft-key])
                                :disabled    pending?
-                               :on-input    [:conduit/edit-draft rf.bench.hicasso.shapes.model/comment-draft-key
-                                             :re-frame.hicasso/value]}]]
+                               :on-input    [:conduit/edit-draft rf.bench.fresco.shapes.model/comment-draft-key
+                                             :re-frame.fresco/value]}]]
      [:div.card-footer
       [:button.btn.btn-sm.btn-primary {:type        "submit"
                                        :data-testid "comment-submit"

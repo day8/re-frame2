@@ -1,9 +1,9 @@
-(ns re-frame.hicasso.overlay
+(ns re-frame.fresco.overlay
   "OVERLAYS — the optional module, and the posture it exists to state.
 
       (ns my.app
-        (:require [re-frame.hicasso :as h]
-                  [re-frame.hicasso.overlay :as overlay]))
+        (:require [re-frame.fresco :as h]
+                  [re-frame.fresco.overlay :as overlay]))
 
       (h/defview filter-menu [{:keys [id]}]
         (let [trigger (str \"filter-\" id \"-trigger\")]
@@ -68,7 +68,7 @@
 
   ## What follows from the posture, and is witnessed
 
-  `re-frame.hicasso.overlay-dom-cljs-test` is the witness for the claims
+  `re-frame.fresco.overlay-dom-cljs-test` is the witness for the claims
   below, and the browser lane is where they
   are decided — the node lane has no top layer, so every claim about one
   degrades to a stated skip there.
@@ -108,9 +108,9 @@
   merely dropped from the document restores nothing, and that is the
   difference between this and the same code written with an effect.
 
-  **Absent when unused.** `re-frame.hicasso` does not reach this
+  **Absent when unused.** `re-frame.fresco` does not reach this
   namespace, so an application that never requires it carries none of it.
-  `hicasso/scripts/check_optional_module_reachability.py` is what keeps
+  `fresco/scripts/check_optional_module_reachability.py` is what keeps
   that true, and it fails the moment the public door imports the module or
   its engine.
 
@@ -127,7 +127,7 @@
   and it is worth arranging deliberately rather than inheriting.
 
   NEITHER autofocus spelling reaches the platform, and the witness is what
-  settled it. Hicasso's attribute grammar camelCases a hyphenated key, so
+  settled it. Fresco's attribute grammar camelCases a hyphenated key, so
   `:auto-focus` reaches React as `autoFocus`, which React applies by
   calling `.focus()` during the commit and WITHOUT emitting the attribute
   — one child-first commit before this module's ref attaches and calls
@@ -149,7 +149,7 @@
   | `:on-dismiss` | ✓ | the intent the platform's own dismissal dispatches |
   | `:label` | ✓ | the accessible name, as `aria-label` |
   | `:anchor` | popover | the DOM id of the trigger to position against |
-  | `:placement` | popover | a compass word — see `re-frame.hicasso.impl.overlay/position-areas` |
+  | `:placement` | popover | a compass word — see `re-frame.fresco.impl.overlay/position-areas` |
   | `:light-dismiss?` | modal | whether a backdrop click dismisses (default false) |
 
   Every other key is an ordinary attribute and reaches the element
@@ -165,15 +165,15 @@
 
   The alternative is a silent no-op — the panel opening in the top layer
   at the UA's default position, visibly unanchored, saying nothing.
-  `:rf.error/hicasso-overlay-anchor-missing` is a live row of
-  `implementation/hicasso/spec/complaints.md` and of
+  `:rf.error/fresco-overlay-anchor-missing` is a live row of
+  `implementation/fresco/spec/complaints.md` and of
   `spec/009-Instrumentation.md`'s catalogue, and
   `check_complaint_catalogue.py` holds the emitter and both rows in
   step; naming-ledger row 30 records the id as the corpus's single
   deliberate mint.
 
-  `:rf.error/hicasso-overlay-anchor-missing` is raised from
-  `re-frame.hicasso.impl.overlay/claim-anchor!` — the ref callback, the
+  `:rf.error/fresco-overlay-anchor-missing` is raised from
+  `re-frame.fresco.impl.overlay/claim-anchor!` — the ref callback, the
   first moment the id can honestly be resolved. **Omitting `:anchor`
   remains legal and silent**: a modal takes none, and a popover without
   one is asking for the default position rather than failing to find a
@@ -182,11 +182,11 @@
   ## `:exit-ms` is deliberately not here
 
   Retaining a leaving node for its exit animation is
-  `re-frame.hicasso.motion`'s subject and already has a machine, a
+  `re-frame.fresco.motion`'s subject and already has a machine, a
   terminal bound and a witness. Composing the two is worth doing and is
   not this module's; a second retention clock inside it would be the
   duplicate `motion` exists to prevent."
-  (:require [re-frame.hicasso.impl.overlay :as rf.hicasso.impl.overlay]))
+  (:require [re-frame.fresco.impl.overlay :as rf.fresco.impl.overlay]))
 
 (def ^{:doc "`overlay/popover` — an anchored, light-dismissable panel on
   the browser's own top layer.
@@ -198,7 +198,7 @@
        [:ul {:role \"menu\"} …]]
 
   A legal hiccup head, marked the same way a `defview` product is — though
-  it is not a Hicasso *reactive* boundary: it reads no subscription and
+  it is not a Fresco *reactive* boundary: it reads no subscription and
   holds no cell. `:open?` false renders nothing at all.
 
   `:anchor` is the DOM id of the trigger; the module gives that element a
@@ -211,8 +211,8 @@
   `popover=\"auto\"` and takes its place in the platform's LIFO stack;
   without one it is `popover=\"manual\"` and dismisses for nothing, because
   a dismissal with nowhere to go is how an open flag acquires a second
-  owner. `re-frame.hicasso.impl.overlay/popover`."}
-  popover rf.hicasso.impl.overlay/popover)
+  owner. `re-frame.fresco.impl.overlay/popover`."}
+  popover rf.fresco.impl.overlay/popover)
 
 (def ^{:doc "`overlay/modal` — a blocking dialog on the browser's own top
   layer, opened with `showModal`.
@@ -236,5 +236,5 @@
   dispatches `:on-dismiss`; a backdrop click does so only with
   `:light-dismiss? true`, because a destructive confirmation must not go
   away on a stray click. Without `:on-dismiss` the dialog honours no close
-  request at all. `re-frame.hicasso.impl.overlay/modal`."}
-  modal rf.hicasso.impl.overlay/modal)
+  request at all. `re-frame.fresco.impl.overlay/modal`."}
+  modal rf.fresco.impl.overlay/modal)

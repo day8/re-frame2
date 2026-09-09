@@ -553,11 +553,11 @@
 ;; its own shell reads.
 ;;
 ;; A substrate whose render extent has a read/write discipline of its own
-;; needs exactly that missing sentence. Hicasso is the motivating case
+;; needs exactly that missing sentence. Fresco is the motivating case
 ;; (EP-0038 HD-002 clause (a)): inside a boundary body, every read must go
 ;; through the boundary's collector so it becomes an edge the boundary
 ;; re-renders on. An ambient `rf/subscribe` written in a body RESOLVES —
-;; the Hicasso frame is genuinely in scope through tier 2 — and then
+;; the Fresco frame is genuinely in scope through tier 2 — and then
 ;; mutates the sub-cache during render, contributes ZERO collector edges,
 ;; and leaves a boundary that never re-renders when that subscription
 ;; moves. It is a silent correctness failure whose only fence today is
@@ -992,7 +992,7 @@
 ;;
 ;; Reporting the refusal as `no-frame-context` would be actively misleading:
 ;; that error's recovery is "establish a scope", and the author has one —
-;; a Hicasso body always sits under a frame boundary. Following the generic
+;; a Fresco body always sits under a frame boundary. Following the generic
 ;; advice (wrap it in another provider, or a `with-frame`) would not fix the
 ;; frozen boundary, because the boundary was never the problem. The refusing
 ;; substrate supplies the sentence that IS the fix, and this payload carries
@@ -1849,7 +1849,7 @@
   "Return the monotonic per-frame commit epoch for frame `id` — the count of
   physical frame-state installs since the frame's registration (0 for a fresh
   or unknown frame). Consumed by a re-frame-native view substrate's read
-  evidence — `day8/re-frame2-hicasso`'s generation basis is the live caller; a
+  evidence — `day8/re-frame2-fresco`'s generation basis is the live caller; a
   moved epoch between two reads means the frame's durable state was
   (re)installed in the gap. Pure read."
   [id]
@@ -4395,7 +4395,7 @@
                                               suppressed.
          :fx/on-frame-destroyed!            — cancel + remove the frame's
                                               pending :dispatch-later timers.
-         :hicasso/on-frame-destroyed!       — drop the Hicasso substrate's
+         :fresco/on-frame-destroyed!       — drop the Fresco substrate's
                                               memoised frame-ops row (the
                                               destroyed incarnation's
                                               `capture-frame` bundle + ambient
@@ -4709,21 +4709,21 @@
         ;; invert the load order); the hook is bound at boot since fx ships in
         ;; every canonical build.
         (safe-call-hook! :fx/on-frame-destroyed! id)
-        ;; Drop the Hicasso frame-ops row. That substrate memoises one row per
+        ;; Drop the Fresco frame-ops row. That substrate memoises one row per
         ;; frame — the `capture-frame` bundle plus the ambient dispatch closure
         ;; over it, both pinned to the incarnation that minted them — and its
         ;; own eviction is LAZY: the successor's first lookup under the same id
         ;; replaces the row. That bounds a client id, which is reused across
         ;; incarnations, and bounds nothing at all for an id that never gets a
-        ;; successor — `re-frame.hicasso.server/render` mints a fresh gensym per
+        ;; successor — `re-frame.fresco.server/render` mints a fresh gensym per
         ;; request, so a long-lived SSR process retained one bundle per request
         ;; served (rf2-uejlj). Keyed and unconditional, needing no incarnation
         ;; token: a same-id successor is constructable only after the step-9
         ;; dissoc, so every row standing here is a dead incarnation's. Pure
         ;; RETENTION — the substrate's safety argument is that lazy replacement
-        ;; and is untouched by this. No-op when the day8/re-frame2-hicasso
+        ;; and is untouched by this. No-op when the day8/re-frame2-fresco
         ;; artefact is absent (the hook is unbound).
-        (safe-call-hook! :hicasso/on-frame-destroyed! id)
+        (safe-call-hook! :fresco/on-frame-destroyed! id)
         ;; rf2-cq0yi — release the frame's generation-PROVENANCE row: the
         ;; `re-frame.live-frame` side table naming which descriptor pool this
         ;; frame's current generation was resolved against (nil = the live
@@ -4731,7 +4731,7 @@
         ;; explicit pool). EVERY successful public `make-frame` writes one and
         ;; nothing removed it: destroying N never-reused ids left N permanent
         ;; rows, and the 2-arity additionally kept the caller's explicit
-        ;; descriptor pool reachable. Same shape as the Hicasso row above, one
+        ;; descriptor pool reachable. Same shape as the Fresco row above, one
         ;; layer down, and it bites for the same reason — the documented
         ;; per-request SSR recipe mints a fresh id per request, so a long-lived
         ;; server accumulated one row per request served. Its only reader is

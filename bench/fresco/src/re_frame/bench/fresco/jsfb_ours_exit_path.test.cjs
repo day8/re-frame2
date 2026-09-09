@@ -5,7 +5,7 @@
 // `clock_exit_path.test.cjs` pins for the clock driver and
 // `jsfb_compare_exit_path.test.cjs` for the comparator.
 //
-//     node hicasso/test/re_frame/bench/hicasso/jsfb_ours_exit_path.test.cjs
+//     node fresco/test/re_frame/bench/fresco/jsfb_ours_exit_path.test.cjs
 //
 // THE DEFECT THIS PINS. `jsfb_ours_run.cjs` decides an exit code that is quoted
 // as a quality gate, over five independent gates:

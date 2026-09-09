@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.core-view-ssr-dom-cljs-test
+(ns re-frame.fresco.core-view-ssr-dom-cljs-test
   "**The interpreted tier under `react-dom/server`** — dispositions.md
   §2.1 rows HS-01 to HS-09, which is every core view surface an
   application writes before it reaches a host, an escape or a module.
@@ -11,7 +11,7 @@
   server bytes, so what these rows read is the surface's own server
   behaviour and nothing else — and then hydrates those same bytes
   through the product door. The package's own server door is
-  `re-frame.hicasso.server/render`; this harness sits beside it, not
+  `re-frame.fresco.server/render`; this harness sits beside it, not
   instead of it.
 
   ## What a row here has to show, and why the list is not negotiable
@@ -44,11 +44,11 @@
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
             [re-frame.test-support :as rf.test-support]
             ["react-dom/server" :as react-dom-server]))
 
@@ -59,29 +59,29 @@
 ;; The request state
 ;; ---------------------------------------------------------------------------
 
-(rf/reg-sub :hicasso.core-ssr/title (fn [db _] (:title db)))
-(rf/reg-sub :hicasso.core-ssr/draft (fn [db _] (:draft db)))
-(rf/reg-sub :hicasso.core-ssr/done? (fn [db _] (:done? db)))
+(rf/reg-sub :fresco.core-ssr/title (fn [db _] (:title db)))
+(rf/reg-sub :fresco.core-ssr/draft (fn [db _] (:draft db)))
+(rf/reg-sub :fresco.core-ssr/done? (fn [db _] (:done? db)))
 
 ;; Read ONLY from the branch a `:done?` of false does not take. The
 ;; acquisition rows need a key whose reader count answers *did that
 ;; branch run*, and a key the page reads unconditionally cannot.
-(rf/reg-sub :hicasso.core-ssr/badge (fn [db _] (:badge db)))
+(rf/reg-sub :fresco.core-ssr/badge (fn [db _] (:badge db)))
 
-(rf/reg-event :hicasso.core-ssr/seed
+(rf/reg-event :fresco.core-ssr/seed
               (fn [_ [_ title]]
                 {:db {:title (or title "quarterly")
                       :draft "draft-a"
                       :done? false
                       :badge "shipped"}}))
 
-(rf/reg-event :hicasso.core-ssr/retitle
+(rf/reg-event :fresco.core-ssr/retitle
               (fn [{:keys [db]} [_ t]] {:db (assoc db :title t)}))
 
-(rf/reg-event :hicasso.core-ssr/finish
+(rf/reg-event :fresco.core-ssr/finish
               (fn [{:keys [db]} _] {:db (assoc db :done? true)}))
 
-(rf/reg-event :hicasso.core-ssr/edit (fn [{:keys [db]} _] {:db db}))
+(rf/reg-event :fresco.core-ssr/edit (fn [{:keys [db]} _] {:db db}))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -90,7 +90,7 @@
      ;; the hydration rows wait on a real clock, and `cljs.test`
      ;; hard-errors on a fn-form fixture in a suite with an async test.
      :async?        true
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 (defn- skip! [why]
   (is true (str "a hydration claim needs a real React DOM — " why)))
@@ -103,14 +103,14 @@
   ([kw title]
    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
    (rf/make-frame {:id kw})
-   (rf/with-frame kw (rf/dispatch-sync [:hicasso.core-ssr/seed title]))
+   (rf/with-frame kw (rf/dispatch-sync [:fresco.core-ssr/seed title]))
    kw))
 
 ;; ---------------------------------------------------------------------------
 ;; The views — one surface per view, so a red row names a surface
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview article
+(rf.fresco/defview article
   "HS-01 and HS-02. A boundary whose whole content is subscription
   reads, one of them behind a `when` — because §2.4's snapshot clause is
   about *conditional* reads as much as unconditional ones, and a page
@@ -118,11 +118,11 @@
   taken contributes nothing."
   [_]
   [:article.article
-   [:h1.title (rf.hicasso/sub [:hicasso.core-ssr/title])]
-   (when (rf.hicasso/sub [:hicasso.core-ssr/done?])
-     [:span.badge (rf.hicasso/sub [:hicasso.core-ssr/badge])])])
+   [:h1.title (rf.fresco/sub [:fresco.core-ssr/title])]
+   (when (rf.fresco/sub [:fresco.core-ssr/done?])
+     [:span.badge (rf.fresco/sub [:fresco.core-ssr/badge])])])
 
-(rf.hicasso/defview chrome
+(rf.fresco/defview chrome
   "HS-04 and HS-05. The intrinsic head in its three shapes — an HTML
   element, an SVG subtree, and a custom element — under a fragment head
   that must contribute no wrapper of its own. The two bare strings are
@@ -137,7 +137,7 @@
     [:path {:d "M0 0 L10 10" :stroke-width 2 :stroke "currentColor"}]]
    [:my-widget {:data-kind "custom" :aria-label "widget"} "inside"]])
 
-(rf.hicasso/defview slots
+(rf.fresco/defview slots
   "HS-06 and HS-15. One canonical slot per value however the key was
   written — kebab keyword, camel keyword and string all name the same
   React prop — and the caller's attributes forwarded with an ordinary
@@ -152,7 +152,7 @@
                    :defaultValue "typed"})]
    [:span {:style {:font-weight 700 :margin-top 4}} "styled"]])
 
-(rf.hicasso/defview intents
+(rf.fresco/defview intents
   "HS-03 and HS-07. Every intent spelling the grammar has — a literal
   vector, the `::h/prevent` decorator head, and the `::h/value` and
   `::h/checked` placeholders — plus `::h/revision`, the controlled
@@ -161,7 +161,7 @@
   lowering that let any of these through would ship the application's
   event vocabulary to the browser as markup."
   [_]
-  [:form.intents {:on-submit [::rf.hicasso/prevent [:hicasso.core-ssr/edit]]}
+  [:form.intents {:on-submit [::rf.fresco/prevent [:fresco.core-ssr/edit]]}
    ;; CONTROLLED, and it has to be: `::h/revision` re-baselines a
    ;; controlled field to its model, so `impl.controlled/install!`
    ;; refuses it on a field with no `:value` to re-baseline TO. Measured
@@ -169,15 +169,15 @@
    ;; [[a-revision-on-an-uncontrolled-field-is-refused-at-source]] is
    ;; that refusal kept as a row rather than merely designed around.
    [:input.text {:type        "text"
-                 :value       (rf.hicasso/sub [:hicasso.core-ssr/draft])
-                 :on-change   [:hicasso.core-ssr/edit ::rf.hicasso/value]
-                 ::rf.hicasso/revision 7}]
+                 :value       (rf.fresco/sub [:fresco.core-ssr/draft])
+                 :on-change   [:fresco.core-ssr/edit ::rf.fresco/value]
+                 ::rf.fresco/revision 7}]
    [:input.check {:type "checkbox" :defaultChecked true
-                  :on-change [:hicasso.core-ssr/edit ::rf.hicasso/checked]}]
-   [:a.link {:href "#x" :on-click [::rf.hicasso/prevent [:hicasso.core-ssr/finish]]} "veto"]
-   [:button.go {:on-click [:hicasso.core-ssr/finish]} "go"]])
+                  :on-change [:fresco.core-ssr/edit ::rf.fresco/checked]}]
+   [:a.link {:href "#x" :on-click [::rf.fresco/prevent [:fresco.core-ssr/finish]]} "veto"]
+   [:button.go {:on-click [:fresco.core-ssr/finish]} "go"]])
 
-(rf.hicasso/defview bad-revision
+(rf.fresco/defview bad-revision
   "`::h/revision` on an UNCONTROLLED field — `:defaultValue`, so there is
   no model to re-baseline to. The refusal this shape draws is HS-07's
   own, and it fires during the SERVER render, which is the half worth
@@ -185,9 +185,9 @@
   ship this page and fail at adoption."
   [_]
   [:div.bad
-   [:input {:type "text" :defaultValue "x" ::rf.hicasso/revision 7}]])
+   [:input {:type "text" :defaultValue "x" ::rf.fresco/revision 7}]])
 
-(rf.hicasso/defview controls
+(rf.fresco/defview controls
   "HS-08 as a class. Section 2.3 dispositions each control type for the
   controlled-field law; this row is the *server* half §2.1 owns — the
   value a control carries has to be IN the bytes, or the page paints
@@ -195,26 +195,26 @@
   contract exists to prevent."
   [_]
   [:div.controls
-   [:input.c-text {:type "text" :value (rf.hicasso/sub [:hicasso.core-ssr/draft])
-                   :on-change [:hicasso.core-ssr/edit ::rf.hicasso/value]}]
+   [:input.c-text {:type "text" :value (rf.fresco/sub [:fresco.core-ssr/draft])
+                   :on-change [:fresco.core-ssr/edit ::rf.fresco/value]}]
    [:input.c-check {:type "checkbox" :checked true
-                    :on-change [:hicasso.core-ssr/edit ::rf.hicasso/checked]}]
+                    :on-change [:fresco.core-ssr/edit ::rf.fresco/checked]}]
    [:textarea.c-area {:value "area-text"
-                      :on-change [:hicasso.core-ssr/edit ::rf.hicasso/value]}]
-   [:select.c-select {:value "b" :on-change [:hicasso.core-ssr/edit ::rf.hicasso/value]}
+                      :on-change [:fresco.core-ssr/edit ::rf.fresco/value]}]
+   [:select.c-select {:value "b" :on-change [:fresco.core-ssr/edit ::rf.fresco/value]}
     [:option {:value "a"} "A"]
     [:option {:value "b"} "B"]]])
 
-(rf.hicasso/defview guarded
+(rf.fresco/defview guarded
   "HS-09, the succeeding arm: `h/error-boundary` around a child that
   does not throw contributes its child's output and no wrapper element
   of its own."
   [_]
   [:div.guarded
-   [rf.hicasso/error-boundary {:fallback [:p.fellback "fell back"]}
-    [:p.kid (rf.hicasso/sub [:hicasso.core-ssr/title])]]])
+   [rf.fresco/error-boundary {:fallback [:p.fellback "fell back"]}
+    [:p.kid (rf.fresco/sub [:fresco.core-ssr/title])]]])
 
-(rf.hicasso/defview exploding
+(rf.fresco/defview exploding
   "HS-09, the throwing arm. React is explicit that a CLIENT error
   boundary does not catch a SERVER rendering error, so the declared
   `:fallback` is not what stands in the bytes — the render fails. A row
@@ -222,10 +222,10 @@
   does not exist."
   [_]
   [:div.guarded
-   [rf.hicasso/error-boundary {:fallback [:p.fellback "fell back"]}
+   [rf.fresco/error-boundary {:fallback [:p.fellback "fell back"]}
     [:p.kid (throw (js/Error. "server render exploded"))]]])
 
-(rf.hicasso/defview page
+(rf.fresco/defview page
   "The hydration rows' page: the reading boundary, the intrinsic chrome
   and the intent grammar in one tree, so ONE adoption covers HS-01 to
   HS-07 rather than leaving most of them witnessed on the server side
@@ -246,7 +246,7 @@
   ([hiccup] (server-html frame-id hiccup))
   ([kw hiccup]
    (react-dom-server/renderToString
-     (rf.hicasso.impl.mount/provider kw (rf.hicasso.impl.codec/root-element kw hiccup)))))
+     (rf.fresco.impl.mount/provider kw (rf.fresco.impl.codec/root-element kw hiccup)))))
 
 (defn- page-bytes
   "`server-html` with Spec 006's dev-mode view annotations taken out — for
@@ -258,7 +258,7 @@
   they baked, and a client render annotates too, so stripping one side
   would manufacture the mismatch those rows exist to rule out."
   [hiccup]
-  (rf.hicasso.roots-frames-support/without-view-annotations (server-html hiccup)))
+  (rf.fresco.roots-frames-support/without-view-annotations (server-html hiccup)))
 
 (defn- query-node [root selector] (.querySelector root selector))
 
@@ -284,17 +284,17 @@
   [hiccup done after]
   (fresh!)
   (let [html      (server-html hiccup)
-        container (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
-        {:keys [seen stop!]} (rf.hicasso.roots-frames-support/watch-mismatches!)
-        handle    (rf.hicasso.impl.mount/hydrate-root! container frame-id hiccup)]
+        container (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))
+        {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)
+        handle    (rf.fresco.impl.mount/hydrate-root! container frame-id hiccup)]
     (js/setTimeout
       (fn []
         (stop!)
         (try
           (after container @seen html)
           (finally
-            (rf.hicasso.impl.mount/release! handle)
-            (rf.hicasso.impl.collector/reset-runtime!)
+            (rf.fresco.impl.mount/release! handle)
+            (rf.fresco.impl.collector/reset-runtime!)
             (done))))
       200)))
 
@@ -346,7 +346,7 @@
             is equally consistent with a body that never renders a badge
             at all"
     (fresh!)
-    (rf/with-frame frame-id (rf/dispatch-sync [:hicasso.core-ssr/finish]))
+    (rf/with-frame frame-id (rf/dispatch-sync [:fresco.core-ssr/finish]))
     (let [html (server-html [article {}])]
       (is (re-find #"class=\"badge\"" html)
           (str "the taken branch is in the bytes: " html))
@@ -464,10 +464,10 @@
       (is (not (re-find #"(?i)onclick|onsubmit|oninput|onchange" html))
           (str "no DOM event attribute — React never emits handler props,
                 and an intent must not sneak in as one: " html))
-      (is (not (re-find #"hicasso" html))
+      (is (not (re-find #"fresco" html))
           (str "and no reserved keyword survived into the markup:
                 `::h/value`, `::h/checked`, `::h/prevent` and
-                `::h/revision` all carry the `re-frame.hicasso`
+                `::h/revision` all carry the `re-frame.fresco`
                 namespace, so one match here catches any of them: " html))
       (is (not (re-find #"on-click|on-input|on-submit|on-change" html))
           (str "nor did the authoring spelling reach the bytes as an
@@ -493,9 +493,9 @@
                  (catch :default e e))
           d (ex-data e)]
       (is (some? e) "the render refused rather than emitting the field")
-      (is (= :rf.error/hicasso-revision-not-controlled (:rf.error/id d))
+      (is (= :rf.error/fresco-revision-not-controlled (:rf.error/id d))
           (str "with the id that names the mistake: " (pr-str d)))
-      (is (= 're-frame.hicasso.core-view-ssr-dom-cljs-test/bad-revision
+      (is (= 're-frame.fresco.core-view-ssr-dom-cljs-test/bad-revision
              (symbol (:view d)))
           (str "attributed to the AUTHOR'S boundary — not to the codec
                 that noticed — which is the whole of `at source`: "
@@ -565,7 +565,7 @@
 
 (deftest the-page-adopts-the-servers-own-nodes
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (hydration-row
         [page {}]
@@ -579,36 +579,36 @@
               (str "**REACT FOUND NOTHING TO RECONCILE.** The client's
                     first pass rendered what the server did, so the two
                     agreed by construction: " (pr-str seen)))
-          (is (rf.hicasso.roots-frames-support/every-server-node? container ".title")
+          (is (rf.fresco.roots-frames-support/every-server-node? container ".title")
               "and the title is the SERVER'S node, still carrying the
                expando — adoption, not a re-render that looks the same")
-          (is (rf.hicasso.roots-frames-support/every-server-node? container ".adjacent")
+          (is (rf.fresco.roots-frames-support/every-server-node? container ".adjacent")
               "as is the adjacent-text paragraph, which is the node the
                comment separator exists for")
-          (is (rf.hicasso.roots-frames-support/every-server-node? container "my-widget")
+          (is (rf.fresco.roots-frames-support/every-server-node? container "my-widget")
               "and the custom element, whose head React does not know")
           (is (= "quarterly" (.-textContent (query-node container ".title")))
               "carrying the request's value"))))))
 
 (deftest a-deliberate-mismatch-is-attributed-to-the-root-that-owns-it
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
         (let [html      (server-html [page {}])
-              container (rf.hicasso.roots-frames-support/server-dom! html)
-              {:keys [seen stop!]} (rf.hicasso.roots-frames-support/watch-mismatches!)
+              container (rf.fresco.roots-frames-support/server-dom! html)
+              {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)
               ;; MANUFACTURED here and asserted on here — the only shape
               ;; of call site at which swallowing an uncaught error is
               ;; not the fail-open the pageerror rule forbids.
-              {:keys [captured close!]} (rf.hicasso.roots-frames-support/open-console-capture!
+              {:keys [captured close!]} (rf.fresco.roots-frames-support/open-console-capture!
                                           {:swallow-uncaught? true})]
           ;; The request the client renders is not the request the server
           ;; rendered — the divergence a stale cache or a clock produces.
           (rf/with-frame frame-id
-            (rf/dispatch-sync [:hicasso.core-ssr/retitle "annual"]))
-          (let [handle (rf.hicasso.impl.mount/hydrate-root! container frame-id [page {}])]
+            (rf/dispatch-sync [:fresco.core-ssr/retitle "annual"]))
+          (let [handle (rf.fresco.impl.mount/hydrate-root! container frame-id [page {}])]
             (js/setTimeout
               (fn []
                 (close!)
@@ -629,37 +629,37 @@
                     (is (= 1 (count @seen))
                         (str "the framework's Spec 011 diagnostic fired
                               exactly once, for this one root; got "
-                             (pr-str (mapv (comp :error rf.hicasso.roots-frames-support/tags-of) @seen))))
-                    (is (= 're-frame.hicasso.impl.mount/hydrate-root!
-                           (:where (rf.hicasso.roots-frames-support/tags-of (first @seen))))
+                             (pr-str (mapv (comp :error rf.fresco.roots-frames-support/tags-of) @seen))))
+                    (is (= 're-frame.fresco.impl.mount/hydrate-root!
+                           (:where (rf.fresco.roots-frames-support/tags-of (first @seen))))
                         "attributed to the door that owns the adoption")
                     (is (= :warned-and-replaced
-                           (:recovery (rf.hicasso.roots-frames-support/tags-of (first @seen))))
+                           (:recovery (rf.fresco.roots-frames-support/tags-of (first @seen))))
                         "with the recovery React had already performed")
                     (is (= "annual" (.-textContent (query-node container ".title")))
                         "and the repaired DOM carries the CLIENT's value,
                          which is what 'warned and replaced' means"))
                   (finally
-                    (rf.hicasso.impl.mount/release! handle)
-                    (rf.hicasso.impl.collector/reset-runtime!)
+                    (rf.fresco.impl.mount/release! handle)
+                    (rf.fresco.impl.collector/reset-runtime!)
                     (done))))
               300)))))))
 
 (deftest two-overlapping-roots-adopt-under-distinct-prefixes
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh! frame-id "quarterly")
         (fresh! other-frame-id "annual")
         (let [html-a (server-html frame-id [page {}])
               html-b (server-html other-frame-id [page {}])
-              ca     (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html-a))
-              cb     (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html-b))
-              {:keys [seen stop!]} (rf.hicasso.roots-frames-support/watch-mismatches!)
-              ha     (rf.hicasso.impl.mount/hydrate-root! ca frame-id [page {}]
+              ca     (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html-a))
+              cb     (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html-b))
+              {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)
+              ha     (rf.fresco.impl.mount/hydrate-root! ca frame-id [page {}]
                                           {:identifier-prefix "pfx-a-"})
-              hb     (rf.hicasso.impl.mount/hydrate-root! cb other-frame-id [page {}]
+              hb     (rf.fresco.impl.mount/hydrate-root! cb other-frame-id [page {}]
                                           {:identifier-prefix "pfx-b-"})]
           (js/setTimeout
             (fn []
@@ -683,14 +683,14 @@
                       "root A settled on its own request")
                   (is (= "annual" (.-textContent (query-node cb ".title")))
                       "root B on its own")
-                  (is (rf.hicasso.roots-frames-support/every-server-node? ca ".title")
+                  (is (rf.fresco.roots-frames-support/every-server-node? ca ".title")
                       "root A adopted the server's nodes")
-                  (is (rf.hicasso.roots-frames-support/every-server-node? cb ".title")
+                  (is (rf.fresco.roots-frames-support/every-server-node? cb ".title")
                       "and so did root B, concurrently"))
                 (finally
-                  (rf.hicasso.impl.mount/release! ha)
-                  (rf.hicasso.impl.mount/release! hb)
-                  (rf.hicasso.impl.collector/reset-runtime!)
+                  (rf.fresco.impl.mount/release! ha)
+                  (rf.fresco.impl.mount/release! hb)
+                  (rf.fresco.impl.collector/reset-runtime!)
                   (done))))
             300))))))
 
@@ -700,42 +700,42 @@
 
 (deftest a-server-render-acquires-no-reader-and-an-adoption-acquires-one
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (hydration-row
         [page {}]
         done
         (fn [_container _seen _html]
-          (is (= 1 (rf.hicasso.roots-frames-support/readers-of [frame-id [:hicasso.core-ssr/title]]))
+          (is (= 1 (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.core-ssr/title]]))
               (str "exactly ONE reader after adoption. The server render
                     ran the same body and registered NONE — there is no
                     subscription to release on a server, and a tier that
                     acquired one there would leak a cell per request —
                     so a count of two would mean both halves acquired
                     and the server's was never released; cells: "
-                   (pr-str (rf.hicasso.roots-frames-support/cell-keys))))
-          (is (zero? (rf.hicasso.roots-frames-support/readers-of [frame-id [:hicasso.core-ssr/badge]]))
+                   (pr-str (rf.fresco.roots-frames-support/cell-keys))))
+          (is (zero? (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.core-ssr/badge]]))
               (str "and the key only the untaken branch reads has no
                     reader at all, on either side: "
-                   (pr-str (rf.hicasso.roots-frames-support/cell-keys)))))))))
+                   (pr-str (rf.fresco.roots-frames-support/cell-keys)))))))))
 
 (deftest an-adopted-page-releases-exactly-what-it-acquired
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (rf.hicasso.impl.collector/reset-runtime!)
+      (rf.fresco.impl.collector/reset-runtime!)
       (testing "§2.4's last clause: exact cleanup. Narrowing caught:
                 a teardown that empties the runtime's tables rather than
                 releasing the subscriptions — it answers zero whether it
                 released anything or not, which is a gate that cannot go
                 red (`impl.mount/unmount!`, rf2-2rtt6.48)"
-        (let [h (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [page {}])]
-          (is (= 1 (rf.hicasso.roots-frames-support/readers-of [frame-id [:hicasso.core-ssr/title]]))
+        (let [h (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [page {}])]
+          (is (= 1 (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.core-ssr/title]]))
               (str "one reader while mounted; cells: "
-                   (pr-str (rf.hicasso.roots-frames-support/cell-keys))))
-          (rf.hicasso.impl.mount/unmount! h)
-          (is (zero? (rf.hicasso.roots-frames-support/readers-of [frame-id [:hicasso.core-ssr/title]]))
+                   (pr-str (rf.fresco.roots-frames-support/cell-keys))))
+          (rf.fresco.impl.mount/unmount! h)
+          (is (zero? (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.core-ssr/title]]))
               (str "and none after the PUBLIC teardown door, which
                     touches nothing the runtime holds; cells: "
-                   (pr-str (rf.hicasso.roots-frames-support/cell-keys)))))))))
+                   (pr-str (rf.fresco.roots-frames-support/cell-keys)))))))))

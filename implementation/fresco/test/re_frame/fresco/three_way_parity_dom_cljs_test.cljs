@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.three-way-parity-dom-cljs-test
+(ns re-frame.fresco.three-way-parity-dom-cljs-test
   "TWO-ARM PARITY UNDER A REAL REACT.
 
   `three_way_parity_cljs_test` settles what a server render can settle:
@@ -77,11 +77,11 @@
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
             [re-frame.test-support :as rf.test-support]
             [uix.core :as uix :refer-macros [defui]]
             ["react" :as react]))
@@ -133,10 +133,10 @@
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :init-fn       (fn []
-                      (rf.hicasso.checkpoint-support/leave-act-environment!)
+                      (rf.fresco.checkpoint-support/leave-act-environment!)
                       (reset! !refs {})
                       (reset! !renders {})
-                      (rf.hicasso.impl.collector/reset-runtime!))}))
+                      (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The two routes, as components
@@ -166,17 +166,17 @@
   [^js props]
   (uix/$ uix-cell {:label (.-label props) :inner-ref (.-innerRef props)}))
 
-(rf.hicasso/defhost react-host react-cell {:server :render})
-(rf.hicasso/defhost uix-host   uix-arm    {:server :render})
+(rf.fresco/defhost react-host react-cell {:server :render})
+(rf.fresco/defhost uix-host   uix-arm    {:server :render})
 
-(rf.hicasso/defview page
+(rf.fresco/defview page
   "Both arms in one tree, under one frame, in one commit — so a row
   comparing them is comparing one render and not two that happened to
   agree."
   [_]
   [:div.page
-   [react-host {:label (str (rf.hicasso/sub [::price])) :inner-ref react-ref}]
-   [uix-host   {:label (str (rf.hicasso/sub [::price])) :inner-ref uix-ref}]])
+   [react-host {:label (str (rf.fresco/sub [::price])) :inner-ref react-ref}]
+   [uix-host   {:label (str (rf.fresco/sub [::price])) :inner-ref uix-ref}]])
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -194,8 +194,8 @@
 
 (defn- mounted!
   []
-  (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [page {}])]
-    (rf.hicasso.impl.mount/settle!)
+  (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [page {}])]
+    (rf.fresco.impl.mount/settle!)
     handle))
 
 (defn- cells
@@ -223,7 +223,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-two-routes-paint-the-same-dom
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no React DOM")
     (do
       (seeded!)
@@ -250,14 +250,14 @@
               (is (seq handwritten) "the premise: normalising left markup")
               (is (some? (re-find #"<span" handwritten)))
               (is (= handwritten (normalised (:uix found))))))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Refs
 ;; ---------------------------------------------------------------------------
 
 (deftest a-ref-reaches-a-real-node-on-every-route-and-is-released-on-unmount
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no commit, so no ref is ever filled")
     (do
       (seeded!)
@@ -278,7 +278,7 @@
           (doseq [route routes]
             (is (= "SPAN" (.-tagName ^js (first (get @!refs route)))))))
 
-        (rf.hicasso.roots-frames-support/teardown-census! handle)
+        (rf.fresco.roots-frames-support/teardown-census! handle)
 
         (testing "unmount calls each route's ref again with nil, which is
                   React's own contract and the half a mounted-only row cannot
@@ -294,7 +294,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest teardown-releases-everything-the-two-route-tree-acquired
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test acquires nothing, so it can release nothing")
     (do
       (seeded!)
@@ -309,7 +309,7 @@
           ;; `count` throws `ICounted` rather than answering two.
           (is (= 2 (.-length (.querySelectorAll ^js container "span.cell")))))
 
-        (let [census (rf.hicasso.roots-frames-support/teardown-census! handle)]
+        (let [census (rf.fresco.roots-frames-support/teardown-census! handle)]
 
           (testing "the container is empty — React unmounted the whole tree,
                     both foreign subtrees included"
@@ -336,7 +336,7 @@
 ;; React fills once per mount and would fill again on a remount.
 
 (deftest a-re-render-updates-every-route-rather-than-remounting-it
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no second render")
     (do
       (seeded!)
@@ -349,7 +349,7 @@
             (is (= [1 1] (mapv #(count (get @!refs %)) routes))))
 
           (rf/with-frame frame-id (rf/dispatch-sync [::seed {:price 192}]))
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
 
           (testing "the write really re-rendered the page — every route's
                     body ran a second time and repainted the new value.
@@ -372,4 +372,4 @@
                     remount would read two — the observable the DOM cannot
                     provide, since the pixels are identical either way"
             (is (= [1 1] (mapv #(count (get @!refs %)) routes))))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))

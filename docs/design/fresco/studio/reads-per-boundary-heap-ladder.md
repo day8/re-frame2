@@ -7,8 +7,8 @@ the P0 baseline record that superseded the operator-owned standard
 
 **Two measurements live on this page, on two instruments, and they are kept
 apart.** §§1–5 are the donor ladder of `rf2-2rtt6.5`, taken on the freehand
-harness. [§6](#6-the-hicasso-candidate-rung--one-hook-plus-a-shared-index) is
-the **Hicasso candidate rung** of `rf2-2rtt6.34`, measured 2026-08-01 on the
+harness. [§6](#6-the-fresco-candidate-rung--one-hook-plus-a-shared-index) is
+the **Fresco candidate rung** of `rf2-2rtt6.34`, measured 2026-08-01 on the
 **P0 bench instrument** with both donors re-taken beside it in the same runs —
 because a candidate is judged against the donor row taken on its own
 instrument, and the two harnesses differ by a measured ~5% common-mode offset.
@@ -112,7 +112,7 @@ exits **2** if the arm-order guard refuses, **3** on an unverified mount,
 The two substrate pages are independent by construction, so this run took them
 one at a time (`LADDER_SUBSTRATES=reagent`, then `=uix`) at the one commit.
 
-**That command reproduces §§1–5 only.** [§6](#6-the-hicasso-candidate-rung--one-hook-plus-a-shared-index)
+**That command reproduces §§1–5 only.** [§6](#6-the-fresco-candidate-rung--one-hook-plus-a-shared-index)
 is a different instrument and carries its own reproduction line, its own
 blobs and its own conditions.
 
@@ -646,7 +646,7 @@ pure view-layer per-read price.
 
 ---
 
-## 6. The Hicasso candidate rung — one hook plus a shared index
+## 6. The Fresco candidate rung — one hook plus a shared index
 
 **Measured 2026-08-01 for `rf2-2rtt6.34`** (and discharging the per-read
 half of `rf2-2rtt6.41`'s item 5), on the **P0 bench instrument** —
@@ -689,7 +689,7 @@ fails its own paper line.**
 
 - **One hook per boundary instead of N is worth 708 B per read**, measured
   as a straight same-substrate contrast: on the UIx-adapter segment the
-  UIx spine costs **2,981 B/read** and the Hicasso arm on the identical
+  UIx spine costs **2,981 B/read** and the Fresco arm on the identical
   subscription substrate costs **2,272 B/read**. That is **0.7624×**, a
   23.8% margin — nearly five times the 5% instrument-limited floor, so it
   is a result and not an offset.
@@ -697,7 +697,7 @@ fails its own paper line.**
   With Reagent's reactions underneath it the candidate reads **1,363
   B/read**; with the React spine's, **2,272 B/read**. The grouped tier's
   conceded ~2,000 B/read is therefore cleared only on the cheaper of the
-  two, and which one a shipped Hicasso would sit on is not settled by
+  two, and which one a shipped Fresco would sit on is not settled by
   this page.
 - **943 B/read is not beaten.** On the *same* substrate as the K3 donor,
   the candidate costs **1,363 B/read against Reagent's 948** — **1.4379×**,
@@ -739,7 +739,7 @@ same-instrument comparison has to establish first.
 
 ### What the rung is, and how the shape is verified rather than asserted
 
-The arm **is** Arm 1 — `re-frame.bench.hicasso.arm1.runtime`, reached
+The arm **is** Arm 1 — `re-frame.bench.fresco.arm1.runtime`, reached
 through that arm's own `defview` and its ambient collector `sub`, mounted
 through `arm1.mount/root!`. It is not a model of the design; a hand-rolled
 imitation would have priced the imitation.
@@ -787,7 +787,7 @@ unique query keys the frame's sub-cache is holding.
 
 #### Reagent-adapter segment
 
-| reads | Reagent | Hicasso | Hicasso ÷ Reagent |
+| reads | Reagent | Fresco | Fresco ÷ Reagent |
 |---:|---:|---:|---:|
 | 0 *(anchor — regressed nowhere)* | 508 [500–513] | 1,143 [1,132–1,156] | 2.248× |
 | **1** | **1,675** [1,659–1,689] | **2,954** [2,935–2,967] | 1.764× |
@@ -797,7 +797,7 @@ unique query keys the frame's sub-cache is holding.
 
 #### UIx-adapter segment
 
-| reads | UIx | Hicasso | Hicasso ÷ UIx |
+| reads | UIx | Fresco | Fresco ÷ UIx |
 |---:|---:|---:|---:|
 | 0 *(anchor — regressed nowhere)* | 220 [213–226] | 1,134 [1,123–1,149] | 5.146× |
 | **1** | **3,287** [3,270–3,318] | **3,855** [3,842–3,871] | 1.173× |
@@ -818,9 +818,9 @@ measurement.
 | arm | marginal slope | fitted intercept | shell (R=0, **measured**) | first read | r² |
 |---|---:|---:|---:|---:|---:|
 | Reagent | **948** [947–948] | 492 [478–503] | 508 [500–513] | 1,166 [1,155–1,179] | 0.99872 |
-| Hicasso, Reagent substrate | **1,363** [1,360–1,364] | 1,271 [1,259–1,280] | 1,143 [1,132–1,156] | 1,812 [1,793–1,824] | 0.99903 |
+| Fresco, Reagent substrate | **1,363** [1,360–1,364] | 1,271 [1,259–1,280] | 1,143 [1,132–1,156] | 1,812 [1,793–1,824] | 0.99903 |
 | UIx | **2,981** [2,979–2,986] | 161 [143–182] | 220 [213–226] | 3,067 [3,044–3,099] | 0.99996 |
-| Hicasso, UIx substrate | **2,272** [2,268–2,275] | 1,175 [1,158–1,200] | 1,134 [1,123–1,149] | 2,721 [2,703–2,748] | 0.99947 |
+| Fresco, UIx substrate | **2,272** [2,268–2,275] | 1,175 [1,158–1,200] | 1,134 [1,123–1,149] | 2,721 [2,703–2,748] | 0.99947 |
 
 **All four are lines, in all six rounds.** r² ≥ 0.9987 everywhere, so the
 slopes are per-read costs rather than something that grows with the number
@@ -833,7 +833,7 @@ assuming it — so the 0.98 floor is a criterion that can fail.
 
 The candidate was mounted in **both** adapter segments. That is a
 measurement, not a duplicate, and the first run of the row is what
-established why: the Hicasso shell read **1,139 and 1,132 B** in the two
+established why: the Fresco shell read **1,139 and 1,132 B** in the two
 segments — the same number, because the shell touches no adapter — while
 its per-read slope read **1,363 and 2,273 B**. The arm needs neither
 adapter's *hooks*, but every read goes through `re-frame.subs`, and the
@@ -844,10 +844,10 @@ So there are two level contrasts, each taken inside one segment, in the
 same rounds, against the same floor:
 
 ```
-within the UIx-adapter segment      UIx 2,981  −  Hicasso 2,272  =  −708 B/read
+within the UIx-adapter segment      UIx 2,981  −  Fresco 2,272  =  −708 B/read
   what replacing N hook stacks with one hook plus N index edges is worth
 
-within the Reagent-adapter segment  Hicasso 1,363  −  Reagent 948  =  +415 B/read
+within the Reagent-adapter segment  Fresco 1,363  −  Reagent 948  =  +415 B/read
   what the key cell, the index edge and the read-set entry cost over a
   bare deref-capture of the same reaction
 ```
@@ -856,14 +856,14 @@ Neither is derived from the other; they come from different arm pairs on
 different substrates. **The −708 is the design's win and the +415 is its
 bill**, and both are real.
 
-**The cross-segment ratio is not level and is marked as such.** Hicasso's
+**The cross-segment ratio is not level and is marked as such.** Fresco's
 1,363 against UIx's 2,981 is **0.4572×**, and it is quoted nowhere in this
 section's verdict, because it folds a substrate change into a view-layer
-claim: it is the answer to "what if Hicasso ran on Reagent's reactions and
+claim: it is the answer to "what if Fresco ran on Reagent's reactions and
 UIx ran on its own", which is not a question anyone asked. The two
 within-segment figures above are what the row hands the programme.
 
-**A shipped Hicasso would sit on neither.** It is an adapter for React
+**A shipped Fresco would sit on neither.** It is an adapter for React
 (`rf2-2rtt6.10`) and would install its own reactive substrate. The two
 columns **bracket** that choice — a view layer cannot cost less than the
 reactions it holds — and the bracket is wide: 1,363 to 2,272 B/read.
@@ -878,7 +878,7 @@ are the only fixed terms that belong to them.
 
 ```
 fitted lines   UIx      y =   161 + 2,981·R
-               Hicasso  y = 1,175 + 2,272·R
+               Fresco  y = 1,175 + 2,272·R
 
 crossover   =  (1,175 − 161) / (2,981 − 2,272)  =  R = 1.43 reads
                MODEL-INFERRED — no R = 2 rung was measured
@@ -953,7 +953,7 @@ without the sledgehammer.
 2. **The candidate's boundary is built by the runtime codec**, and the
    donors' by UIx's compile-time `$` and Reagent's own path. That cost is
    constant in R, so it lands in the **shell and not in the slope** — the
-   1,139 B figure is a Hicasso-plus-codec shell and is not decomposed
+   1,139 B figure is a Fresco-plus-codec shell and is not decomposed
    here. **Biases against the candidate on the shell axis** and not at all
    on the per-read axis this section is for.
 3. **The hook budget is cited, not re-measured.** Two hooks per boundary
@@ -986,11 +986,11 @@ row **re-taken on the landed arm**.
 |---|---:|---:|---:|
 | Arm 1 blobs | pre-rebase | pre-rebase | **landed** |
 | Reagent, per read | 948 [947–949] | 947 [947–948] | **948** [947–948] |
-| Hicasso, Reagent substrate | 1,363 [1,360–1,364] | 1,363 [1,360–1,364] | **1,363** [1,360–1,364] |
+| Fresco, Reagent substrate | 1,363 [1,360–1,364] | 1,363 [1,360–1,364] | **1,363** [1,360–1,364] |
 | UIx, per read | 2,980 [2,978–2,985] | 2,981 [2,979–2,985] | **2,981** [2,979–2,986] |
-| Hicasso, UIx substrate | 2,273 [2,268–2,275] | 2,273 [2,268–2,275] | **2,272** [2,268–2,275] |
-| Hicasso shell (Reagent seg.) | 1,139 [1,131–1,150] | 1,138 [1,129–1,147] | **1,143** [1,132–1,156] |
-| Hicasso shell (UIx seg.) | 1,132 [1,120–1,145] | 1,135 [1,119–1,148] | **1,134** [1,123–1,149] |
+| Fresco, UIx substrate | 2,273 [2,268–2,275] | 2,273 [2,268–2,275] | **2,272** [2,268–2,275] |
+| Fresco shell (Reagent seg.) | 1,139 [1,131–1,150] | 1,138 [1,129–1,147] | **1,143** [1,132–1,156] |
+| Fresco shell (UIx seg.) | 1,132 [1,120–1,145] | 1,135 [1,119–1,148] | **1,134** [1,123–1,149] |
 | positive control | 4,698,439 B | 4,697,764 B | **4,698,615 B** |
 
 All three: **0 unverified of 154 mounts**, **0 structural read-back
@@ -1032,14 +1032,14 @@ so **the blobs are what to trust**. The instrument:
 |---|---|
 | `p0_run.cjs` | `4718aaead7035ae9a6cf74a89ef13141803742cc` |
 | `p0_heap.cljs` | `34c9210dfe39d3c7ee153c724fa63cf8e65dd1e1` |
-| `p0_hicasso.cljs` | `f2440e307423665048dfe227b14baaf4ffc8ac89` |
+| `p0_fresco.cljs` | `f2440e307423665048dfe227b14baaf4ffc8ac89` |
 | `p0_reagent.cljs` | `b1f5ec9223536557403f6ae9415ab42ac26843b0` |
 | `p0_uix.cljs` | `deec8976010c17e4d2c6e8dc3499678997acd2c0` |
 | `p0_fixture.cljc` | `867ad5838ab64ac6aa7afbf8317d8fb305f53619` |
 
 all under `implementation/core/test/re_frame/bench/`. **The candidate arm
 is not in that list**, because the candidate arm is Arm 1 itself — these
-are its blobs, under `implementation/freehand/test/re_frame/bench/hicasso/`:
+are its blobs, under `implementation/freehand/test/re_frame/bench/fresco/`:
 
 | file | blob |
 |---|---|
@@ -1070,19 +1070,19 @@ paths, so this half is ordinary drift:
 |---|---|---|
 | `p0_run.cjs` | `4718aaea…` | `9c993e96…` |
 | `p0_heap.cljs` | `34c9210d…` | `2d922d31…` |
-| `p0_hicasso.cljs` | `f2440e30…` | `7a91564f…` |
+| `p0_fresco.cljs` | `f2440e30…` | `7a91564f…` |
 | `p0_reagent.cljs` | `b1f5ec92…` | `419e166a…` |
 | `p0_uix.cljs` | `deec8976…` | `f1aaf9cb…` |
 | `p0_fixture.cljc` | `867ad583…` | `de27135c…` |
 
 The candidate arm's five are not drift, and the pinned path no longer exists.
-The benchmark harness was re-homed into `implementation/hicasso/` on 2026-08-14
+The benchmark harness was re-homed into `implementation/fresco/` on 2026-08-14
 by `e61e175341`; `implementation/freehand` was then deleted whole on 2026-08-15
 by `c951808b47` (`rf2-0yp7w.6`). **The re-home is what moved these files — the
 deletion only removed what was left behind**, which is worth stating because the
 two are easy to conflate and only the first bears on the pins. Four of the five
 are therefore findable, under
-`implementation/hicasso/test/re_frame/bench/hicasso/`, and every one of them
+`implementation/fresco/test/re_frame/bench/fresco/`, and every one of them
 differs from its pin there:
 
 | candidate-arm file | pinned blob | at the re-homed path, 2026-08-18 |
@@ -1108,15 +1108,15 @@ holds either.
 
 **The deeper supersession is that these five are no longer the candidate arm at
 all**, and this is why the re-pin is a re-registration rather than a re-hash.
-The pinned `p0_hicasso.cljs` (`f2440e30`) required
-`re-frame.bench.hicasso.arm1.runtime` and `…arm1.lang`; the blob at the tip
-(`7a91564f`) requires `re-frame.hicasso` — the shipped package — because
+The pinned `p0_fresco.cljs` (`f2440e30`) required
+`re-frame.bench.fresco.arm1.runtime` and `…arm1.lang`; the blob at the tip
+(`7a91564f`) requires `re-frame.fresco` — the shipped package — because
 `rf2-fe0l` repointed the candidate seam there, and that file's own docstring now
 records the arm as *"the shipped package, not a model of it"*. So re-pinning the
 four survivors at their re-homed path would register **the wrong files**: a
 frozen prototype the package was deliberately moved away from, whose divergence
 from the product that same docstring calls expected and permanent. The candidate
-arm as it stands is `re-frame.hicasso` under `implementation/hicasso/src/`, 27
+arm as it stands is `re-frame.fresco` under `implementation/fresco/src/`, 27
 files, whose whole-tree object at `7902167197` is
 `d8700409dee4ecaa1f207f11839327bb3a001d65` — one identity for the arm, recorded
 here so the re-pin run has something that exists to name.
@@ -1149,7 +1149,7 @@ run: 236 s, after waiting out a resumed sibling's browser suite to CPU 0%**
 earlier one-round trial was taken *during* a sibling's JVM compile and is
 not published; its slopes were 949 / 2,979 / 1,359 / 2,273 B/read. Two of
 those four sit inside run 3's six-round ranges and **two sit exactly one
-byte outside** — Reagent 949 against [947–948], and Hicasso on the Reagent
+byte outside** — Reagent 949 against [947–948], and Fresco on the Reagent
 substrate 1,359 against [1,360–1,364], each about 0.07% out. It is recorded
 exactly, because a contended reading that lands within a byte is still a
 contended reading: it is not evidence for the rows above, and treating the
@@ -1220,11 +1220,11 @@ stand beside it.
 `rf2-2rtt6.58` and the page-chrome row both name
 `implementation/freehand/test/re_frame/freehand/bench/reads_ladder_run.cjs` as
 "the instrument that produced 1,143 B". **It is not, and it could not have
-been.** 1,143 B is published in [§6](#6-the-hicasso-candidate-rung--one-hook-plus-a-shared-index)
+been.** 1,143 B is published in [§6](#6-the-fresco-candidate-rung--one-hook-plus-a-shared-index)
 above, whose own opening sentence names the **P0 bench** — `p0_run.cjs --only
 ladder` — "and not on the instrument §§1–4 were taken on". The freehand ladder
-carries `reagent,uix` and nothing else: it has no Hicasso arm, never reaches
-`re-frame.bench.hicasso.*`, and so cannot mount the wrapper at all. A run there
+carries `reagent,uix` and nothing else: it has no Fresco arm, never reaches
+`re-frame.bench.fresco.*`, and so cannot mount the wrapper at all. A run there
 would have produced no candidate row to compare. This re-take is therefore on
 `p0_run.cjs --only ladder`, and the six P0 instrument blobs below are
 **byte-identical to §6's published run 3** — same instrument, not merely the
@@ -1264,8 +1264,8 @@ min–max across them. **0 unverified of 154 mounts** in each of the three runs.
 
 | R=0 shell | A1 *(wrapper)* | B *(no wrapper)* | A2 *(wrapper)* | delta |
 |---|---:|---:|---:|---:|
-| Hicasso, Reagent segment | **1,247** [1,240–1,257] | **1,141** [1,125–1,154] | **1,247** [1,239–1,267] | **+106 B, +9.3%** |
-| Hicasso, UIx segment | **1,236** [1,227–1,250] | **1,138** [1,119–1,159] | **1,241** [1,227–1,261] | **+100 B, +8.8%** |
+| Fresco, Reagent segment | **1,247** [1,240–1,257] | **1,141** [1,125–1,154] | **1,247** [1,239–1,267] | **+106 B, +9.3%** |
+| Fresco, UIx segment | **1,236** [1,227–1,250] | **1,138** [1,119–1,159] | **1,241** [1,227–1,261] | **+100 B, +8.8%** |
 
 **The A and B ranges are disjoint on both segments** — an 85 B gap on the
 Reagent segment and 68 B on the UIx segment — so by this studio's own house rule
@@ -1284,8 +1284,8 @@ shell and leave the per-read slope alone. It does, to the byte:
 
 | marginal slope | A1 *(wrapper)* | B *(no wrapper)* | A2 *(wrapper)* |
 |---|---:|---:|---:|
-| Hicasso, Reagent segment | 1,447 [1,444–1,448] | 1,447 [1,444–1,448] | 1,447 [1,443–1,448] |
-| Hicasso, UIx segment | 2,289 [2,284–2,291] | 2,289 [2,284–2,291] | 2,289 [2,283–2,291] |
+| Fresco, Reagent segment | 1,447 [1,444–1,448] | 1,447 [1,444–1,448] | 1,447 [1,443–1,448] |
+| Fresco, UIx segment | 2,289 [2,284–2,291] | 2,289 [2,284–2,291] | 2,289 [2,283–2,291] |
 
 **Identical medians across all three runs on both segments.** A wrapper that had
 leaked into the per-read term would have shown here, and it does not.
@@ -1294,7 +1294,7 @@ leaked into the per-read term would have shown here, and it does not.
 
 **Negative controls — the donors, which cannot see the toggle.** Neither Reagent
 nor UIx goes through `mint-view!`, so they must not move between arms. They do
-not, which is what licenses reading the Hicasso difference as the wrapper rather
+not, which is what licenses reading the Fresco difference as the wrapper rather
 than as the box:
 
 | donor | A1 | B | A2 |
@@ -1416,7 +1416,7 @@ The instrument, **byte-identical to §6's run 3**, all under
 |---|---|
 | `p0_run.cjs` | `4718aaead7035ae9a6cf74a89ef13141803742cc` |
 | `p0_heap.cljs` | `34c9210dfe39d3c7ee153c724fa63cf8e65dd1e1` |
-| `p0_hicasso.cljs` | `f2440e307423665048dfe227b14baaf4ffc8ac89` |
+| `p0_fresco.cljs` | `f2440e307423665048dfe227b14baaf4ffc8ac89` |
 | `p0_reagent.cljs` | `b1f5ec9223536557403f6ae9415ab42ac26843b0` |
 | `p0_uix.cljs` | `deec8976010c17e4d2c6e8dc3499678997acd2c0` |
 | `p0_fixture.cljc` | `867ad5838ab64ac6aa7afbf8317d8fb305f53619` |
@@ -1463,7 +1463,7 @@ before any run and read within 0.06% low in all four; **0 unverified of 154
 mounts, structural witness fully answered, arm-order guard reportable, exit
 0 — every run.**
 
-| run | tree | Hicasso, Reagent seg. | Hicasso, UIx seg. | donors (Rg / UIx) |
+| run | tree | Fresco, Reagent seg. | Fresco, UIx seg. | donors (Rg / UIx) |
 |---|---|---:|---:|---:|
 | *§6 run 3 (2026-08-01, above)* | *runtime blob `69bfc6fc`* | *1,363 [1,360–1,364]* | *2,272 [2,268–2,275]* | *948 / 2,981* |
 | 1 | the `main` ↔ `worker/cascade-2rtt6-52` merge-base, `8d0e06f6d3` | **1,446** [1,443–1,447] | **2,289** [2,284–2,291] | 948 / 2,980 |
@@ -1555,7 +1555,7 @@ published — nothing here touches them. The candidate's live numbers move:
 |---|---:|---:|
 | the design's win (UIx seg., donor − candidate) | −708 B/read (0.7624×) | **−692 B/read** (0.7679×, a 23.2% margin) |
 | the design's bill (Reagent seg., candidate − donor) | +415 B/read (1.4379×) | **+499 B/read** (1.5264×) |
-| the bracket a shipped Hicasso sits in | 1,363 – 2,272 B/read | **1,447 – 2,289 B/read** |
+| the bracket a shipped Fresco sits in | 1,363 – 2,272 B/read | **1,447 – 2,289 B/read** |
 | crossover against the UIx spine *(model-inferred)* | R = 1.43 reads, fitted lines | **not restated** — the bisection publishes slopes, not intercepts |
 | the grouped tier's ~2,000 B line | cleared on the Reagent substrate only | unchanged in kind: 1,447 < 2,000 < 2,289 |
 | seven-read archetype vs UIx, B = 1,200 | 4,341 B/boundary saved | **4,230 B/boundary** saved (16,572 vs 20,802, measured R = 7; ≈5.1 MB across 1,200) |
@@ -1615,7 +1615,7 @@ certified for a new absolute.
 
 #### The key cell was minting an identity it did not need
 
-Every cell carried its own watch key — `(keyword "rf-hicasso-arm1" (str
+Every cell carried its own watch key — `(keyword "rf-fresco-arm1" (str
 "w" (vswap! counter inc)))` — so that `add-watch`/`remove-watch` could
 name it. That bought a uniqueness the runtime already had: there is at
 most one cell per `(frame, query)`, `subs/subscribe` hands back that
@@ -1638,7 +1638,7 @@ kept because they corroborate, and because three unchanged arms agreeing
 to within 1 B is itself the evidence that neither landing touches this
 axis.
 
-| run | tree | Rg donor | UIx donor | Hicasso, Rg seg. | Hicasso, UIx seg. |
+| run | tree | Rg donor | UIx donor | Fresco, Rg seg. | Fresco, UIx seg. |
 |---|---|---:|---:|---:|---:|
 | **A″** | **`main` `1ef3fdb73e`, unchanged** | 948 | 2,979 | **1,446** [1,444–1,447] | **2,283** [2,277–2,287] |
 | **B″** | **that tree + this landing** | 947 | 2,980 | **1,338** [1,336–1,340] | **2,175** [2,170–2,179] |
@@ -1715,7 +1715,7 @@ wobble does not read as a change in the bill.
 |---|---:|---:|
 | the design's bill (Reagent seg., candidate − donor) | +498 B/read (1.5253×) | **+390 B/read** (1.4114×) |
 | the design's win (UIx seg., donor − candidate) | −697 B/read (0.7661×) | **−805 B/read** (0.7299×, a 27.0% margin) |
-| the bracket a shipped Hicasso sits in | 1,446 – 2,283 B/read | **1,338 – 2,175 B/read** |
+| the bracket a shipped Fresco sits in | 1,446 – 2,283 B/read | **1,338 – 2,175 B/read** |
 | the grouped tier's ~2,000 B line | cleared on the Reagent substrate only | unchanged in kind: 1,338 < 2,000 < 2,175 |
 
 **943/948 B/read is still not beaten**, and the verdict's shape is
@@ -1809,7 +1809,7 @@ Against B″, restating the table `rf2-aqgr2` left:
 |---|---:|---:|
 | the design's bill (Reagent seg.) | +390 B/read (1.4114×) | **+331 B/read** (1.3492×) |
 | the design's win (UIx seg.) | −805 B/read (0.7299×, 27.0%) | **−864 B/read** (0.7099×, 29.0%) |
-| the bracket a shipped Hicasso sits in | 1,338 – 2,175 B/read | **1,278 – 2,115 B/read** |
+| the bracket a shipped Fresco sits in | 1,338 – 2,175 B/read | **1,278 – 2,115 B/read** |
 | the grouped tier's ~2,000 B line | 1,338 < 2,000 < 2,175 | unchanged in kind: 1,278 < 2,000 < 2,115 |
 
 **943/948 B/read is still not beaten** and the verdict's shape is unchanged:
@@ -1980,8 +1980,8 @@ across the six rounds.
 
 | R=0 shell | A1 *(wrapper)* | B *(no wrapper)* | A2 *(wrapper)* | delta |
 |---|---:|---:|---:|---:|
-| Hicasso, Reagent segment | **1,101** [1,088–1,112] | **994** [985–1,003] | **1,098** [1,090–1,103] | **+105.5 B, +10.6%** |
-| Hicasso, UIx segment | **1,097** [1,095–1,098] | **992** [985–998] | **1,097** [1,092–1,105] | **+105.0 B, +10.6%** |
+| Fresco, Reagent segment | **1,101** [1,088–1,112] | **994** [985–1,003] | **1,098** [1,090–1,103] | **+105.5 B, +10.6%** |
+| Fresco, UIx segment | **1,097** [1,095–1,098] | **992** [985–998] | **1,097** [1,092–1,105] | **+105.0 B, +10.6%** |
 
 **The estimator is named rather than left to be inferred.** The delta is the
 paired one — `mean(A1, A2) − B` — and the percentage is that delta over **B**,
@@ -2028,8 +2028,8 @@ lighter in the shell and 169 / 174 B lighter per read:
 
 | marginal slope | A1 *(wrapper)* | B *(no wrapper)* | A2 *(wrapper)* |
 |---|---:|---:|---:|
-| Hicasso, Reagent segment | 1,278 [1,275–1,280] | 1,278 [1,276–1,279] | 1,279 [1,276–1,280] |
-| Hicasso, UIx segment | 2,115 [2,110–2,118] | 2,115 [2,110–2,118] | 2,115 [2,110–2,118] |
+| Fresco, Reagent segment | 1,278 [1,275–1,280] | 1,278 [1,276–1,279] | 1,279 [1,276–1,280] |
+| Fresco, UIx segment | 2,115 [2,110–2,118] | 2,115 [2,110–2,118] | 2,115 [2,110–2,118] |
 
 A per-boundary constant is what HD-028 priced the wrapper as, and three runs on
 two segments put the slope inside a 1 B spread. Nothing leaked into the
@@ -2148,7 +2148,7 @@ The instrument, all under `implementation/core/test/re_frame/bench/`:
 |---|---|---|
 | `p0_run.cjs` | `586474b5cfad0f09df5e3e968ca0282e2c1cd95c` | moved — PRs #7448/#7450/#7451 |
 | `p0_heap.cljs` | `0a568a63cd24b66865e433c49a62eadff8993e8a` | moved |
-| `p0_hicasso.cljs` | `f2440e307423665048dfe227b14baaf4ffc8ac89` | identical |
+| `p0_fresco.cljs` | `f2440e307423665048dfe227b14baaf4ffc8ac89` | identical |
 | `p0_reagent.cljs` | `b1f5ec9223536557403f6ae9415ab42ac26843b0` | identical |
 | `p0_uix.cljs` | `deec8976010c17e4d2c6e8dc3499678997acd2c0` | identical |
 | `p0_fixture.cljc` | `867ad5838ab64ac6aa7afbf8317d8fb305f53619` | identical |
@@ -2212,7 +2212,7 @@ four rounds. Only the R=0 rung is at issue, so the ladder is run short — the R
 rung is carried because a fit needs two points, and the slope it yields is
 correctly reported `UNIDENTIFIED` and is not used here.
 
-| point | tree | position in the window | Hicasso, Rg seg. | Hicasso, UIx seg. |
+| point | tree | position in the window | Fresco, Rg seg. | Fresco, UIx seg. |
 |---|---|---|---:|---:|
 | **T1** | `abfc2e5ce4` | `27f846cf5a^` — after `rf2-aqgr2`'s landing | **1,237** [1,224–1,255] | **1,232** [1,218–1,249] |
 | **T2** | `27f846cf5a` | that tree + `rf2-ixb92` | **1,162** [1,146–1,168] | **1,164** [1,154–1,175] |
@@ -2467,8 +2467,8 @@ rung**, never the fitted intercept; bands are min–max across the six rounds.
 
 | R=0 shell | A1 *(context, 2 hooks)* | B *(frame-prop, 1 hook)* | A2 *(context)* | delta |
 |---|---:|---:|---:|---:|
-| Hicasso, Reagent segment | **1,098** [1,087–1,111] | **1,054** [1,049–1,066] | **1,100** [1,091–1,105] | **−45.0 B, −4.1%** |
-| Hicasso, UIx segment | **1,096** [1,092–1,101] | **1,051** [1,047–1,056] | **1,099** [1,095–1,102] | **−46.5 B, −4.2%** |
+| Fresco, Reagent segment | **1,098** [1,087–1,111] | **1,054** [1,049–1,066] | **1,100** [1,091–1,105] | **−45.0 B, −4.1%** |
+| Fresco, UIx segment | **1,096** [1,092–1,101] | **1,051** [1,047–1,056] | **1,099** [1,095–1,102] | **−46.5 B, −4.2%** |
 
 **The estimator is the paired one** — `B − mean(A1, A2)`, with the percentage
 over the **A** arm, because the question is what the variant *takes off* the
@@ -2488,8 +2488,8 @@ move under the pair.
 
 | marginal slope | A1 *(context)* | B *(frame-prop)* | A2 *(context)* |
 |---|---:|---:|---:|
-| Hicasso, Reagent segment | 1,278 [1,276–1,280] | 1,278 [1,275–1,280] | 1,279 [1,278–1,280] |
-| Hicasso, UIx segment | 2,115 [2,110–2,118] | 2,115 [2,110–2,118] | 2,115 [2,110–2,118] |
+| Fresco, Reagent segment | 1,278 [1,276–1,280] | 1,278 [1,275–1,280] | 1,279 [1,278–1,280] |
+| Fresco, UIx segment | 2,115 [2,110–2,118] | 2,115 [2,110–2,118] | 2,115 [2,110–2,118] |
 
 A hook is per boundary, not per read, so a saving that appeared in the slope
 would have meant the arms differed in something other than the hook. Three runs
@@ -2613,8 +2613,8 @@ The one line under test, `defview` in `arm1/lang.clj`:
 
 | arm | line | `arm1/lang.clj` blob |
 |---|---|---|
-| **A1, A2** | `(re-frame.bench.hicasso.arm1.runtime/mint-view!` | `74cfbfab7e77db64c3098b63a5e58b5ab4c0e1d3` |
-| **B** | `(re-frame.bench.hicasso.arm1.runtime/mint-frame-prop-view!` | `eca40a01c9feacc8fe97eede3db59bf21e09f2d9` |
+| **A1, A2** | `(re-frame.bench.fresco.arm1.runtime/mint-view!` | `74cfbfab7e77db64c3098b63a5e58b5ab4c0e1d3` |
+| **B** | `(re-frame.bench.fresco.arm1.runtime/mint-frame-prop-view!` | `eca40a01c9feacc8fe97eede3db59bf21e09f2d9` |
 
 `arm1/runtime.cljs` is `8b37dd2cbf67f19cc3f07933285c04593d8b7e3f` and
 `front/codec.cljs` is `cf9ef32dc8f751e344016cfa01b1db722ba2440b` in all three
@@ -2631,7 +2631,7 @@ instrument as well as a tree:
 |---|---|
 | `p0_run.cjs` | `586474b5cfad0f09df5e3e968ca0282e2c1cd95c` |
 | `p0_heap.cljs` | `0a568a63cd24b66865e433c49a62eadff8993e8a` |
-| `p0_hicasso.cljs` | `f2440e307423665048dfe227b14baaf4ffc8ac89` |
+| `p0_fresco.cljs` | `f2440e307423665048dfe227b14baaf4ffc8ac89` |
 | `p0_reagent.cljs` | `b1f5ec9223536557403f6ae9415ab42ac26843b0` |
 | `p0_uix.cljs` | `deec8976010c17e4d2c6e8dc3499678997acd2c0` |
 | `p0_fixture.cljc` | `867ad5838ab64ac6aa7afbf8317d8fb305f53619` |
@@ -2662,11 +2662,11 @@ did not move.
 ### The package itself, priced on this rung at last (rf2-fe0l)
 
 **2026-08-12.** Every candidate figure above this line was taken on
-`re-frame.bench.hicasso.arm1.*` — the prototype in the benchmark tree.
-`implementation/hicasso/src` is a deliberately frozen *copy* of that runtime,
+`re-frame.bench.fresco.arm1.*` — the prototype in the benchmark tree.
+`implementation/fresco/src` is a deliberately frozen *copy* of that runtime,
 and until 2026-08-11 **no heap instrument pointed at the package at all**,
 which is why [budgets.md](../product/budgets.md) had to refuse its "re-measured
-on `implementation/hicasso`" deliverable and report the refusal instead.
+on `implementation/fresco`" deliverable and report the refusal instead.
 PR #7939 repointed this rig's four candidate seams at the package — the mount
 door, the runtime reset, and both residue reads — and left the donors, the
 floor, the harness, the fixtures, the fit rules and the order guard alone.
@@ -2681,7 +2681,7 @@ mechanical here rather than disciplinary.
 
 #### The rig resolves the package, and the compile is not what says so
 
-`:hicasso-bench` compiles both trees. An arm pointed back at the prototype
+`:fresco-bench` compiles both trees. An arm pointed back at the prototype
 therefore builds **green with zero warnings** and reads plausibly; it simply
 prices different software. Dispatch 1 demonstrated exactly that by reverting one
 seam. So the evidence is the rig's own **module graph**, read from a cleared
@@ -2692,22 +2692,22 @@ which is the read that matters, because it describes the very bundle the figures
 below came out of rather than a rehearsal of it. The two agree exactly:
 
 ```
-PRESENT  re_frame.hicasso.impl.mount.js      ABSENT  re_frame.bench.hicasso.arm1.runtime.js
-PRESENT  re_frame.hicasso.impl.collector.js  ABSENT  re_frame.bench.hicasso.arm1.mount.js
-PRESENT  re_frame.hicasso.impl.inventory.js  ABSENT  re_frame.bench.hicasso.arm1.lang.js
-PRESENT  re_frame.hicasso.js                 ABSENT  re_frame.bench.hicasso.front.codec.js
-130 namespaces in the rig's graph; build=hicasso-bench initFn=re-frame.bench.p0-app/-main
+PRESENT  re_frame.fresco.impl.mount.js      ABSENT  re_frame.bench.fresco.arm1.runtime.js
+PRESENT  re_frame.fresco.impl.collector.js  ABSENT  re_frame.bench.fresco.arm1.mount.js
+PRESENT  re_frame.fresco.impl.inventory.js  ABSENT  re_frame.bench.fresco.arm1.lang.js
+PRESENT  re_frame.fresco.js                 ABSENT  re_frame.bench.fresco.front.codec.js
+130 namespaces in the rig's graph; build=fresco-bench initFn=re-frame.bench.p0-app/-main
 arm1 namespaces in graph: 0
-bench.hicasso.front namespaces in graph: 0
-hicasso.impl namespaces in graph: 16
+bench.fresco.front namespaces in graph: 0
+fresco.impl namespaces in graph: 16
 ```
 
 **That read is worthless without a control, because an enumeration that finds
 nothing and an enumeration that looks nowhere print the same thing.** The
 control is a sibling program on the *same build id* that genuinely does require
-the prototype — `re-frame.bench.hicasso.clock-app/-main`, swapped in through the
+the prototype — `re-frame.bench.fresco.clock-app/-main`, swapped in through the
 driver's own `P0_INIT_FN` override, with **no file in the rig touched**. It
-reports `arm1 namespaces in graph: 2`, `hicasso.impl namespaces in graph: 0`,
+reports `arm1 namespaces in graph: 2`, `fresco.impl namespaces in graph: 0`,
 and exits **1**. The reader can see the prototype when the prototype is there.
 
 Sixteen of the package's eighteen `impl.*` modules are in the graph;
@@ -2729,11 +2729,11 @@ across the six rounds. Residue is per boundary after teardown.
 | reagent | 3 | 3,600 | 3,600 | 3,391 [3,382–3,405] | 2 [−7–18] |
 | reagent | 7 | 8,400 | 8,400 | 6,704 [6,682–6,717] | 11 [1–20] |
 | reagent | 20 | 24,000 | 24,000 | 19,570 [19,556–19,585] | 6 [−9–46] |
-| **hicasso** | 0 | 0 | 0 | **1,100** [1,091–1,107] | 1 [−6–7] |
-| **hicasso** | 1 | 1,200 | 1,200 | **2,949** [2,934–2,965] | 3 [−10–19] |
-| **hicasso** | 3 | 3,600 | 3,600 | **5,400** [5,384–5,409] | 5 [−2–10] |
-| **hicasso** | 7 | 8,400 | 8,400 | **10,310** [10,293–10,331] | 7 [−5–18] |
-| **hicasso** | 20 | 24,000 | 24,000 | **29,650** [29,629–29,670] | −6 [−55–12] |
+| **fresco** | 0 | 0 | 0 | **1,100** [1,091–1,107] | 1 [−6–7] |
+| **fresco** | 1 | 1,200 | 1,200 | **2,949** [2,934–2,965] | 3 [−10–19] |
+| **fresco** | 3 | 3,600 | 3,600 | **5,400** [5,384–5,409] | 5 [−2–10] |
+| **fresco** | 7 | 8,400 | 8,400 | **10,310** [10,293–10,331] | 7 [−5–18] |
+| **fresco** | 20 | 24,000 | 24,000 | **29,650** [29,629–29,670] | −6 [−55–12] |
 
 | `uix-subs` | reads | E | Q | exclusive B/boundary | residue B/bdy |
 |---|---:|---:|---:|---:|---:|
@@ -2743,11 +2743,11 @@ across the six rounds. Residue is per boundary after teardown.
 | uix | 3 | 3,600 | 3,600 | 9,114 [9,108–9,122] | 6 [−4–20] |
 | uix | 7 | 8,400 | 8,400 | 20,800 [20,786–20,816] | 13 [4–24] |
 | uix | 20 | 24,000 | 24,000 | 59,825 [59,812–59,832] | −31 [−106–3] |
-| **hicasso** | 0 | 0 | 0 | **1,095** [1,087–1,101] | −1 [−6–2] |
-| **hicasso** | 1 | 1,200 | 1,200 | **3,660** [3,653–3,665] | 1 [−8–7] |
-| **hicasso** | 3 | 3,600 | 3,600 | **7,602** [7,520–7,637] | −17 [−101–14] |
-| **hicasso** | 7 | 8,400 | 8,400 | **15,491** [15,428–15,540] | −14 [−69–27] |
-| **hicasso** | 20 | 24,000 | 24,000 | **43,681** [43,587–43,738] | −11 [−109–46] |
+| **fresco** | 0 | 0 | 0 | **1,095** [1,087–1,101] | −1 [−6–2] |
+| **fresco** | 1 | 1,200 | 1,200 | **3,660** [3,653–3,665] | 1 [−8–7] |
+| **fresco** | 3 | 3,600 | 3,600 | **7,602** [7,520–7,637] | −17 [−101–14] |
+| **fresco** | 7 | 8,400 | 8,400 | **15,491** [15,428–15,540] | −14 [−69–27] |
+| **fresco** | 20 | 24,000 | 24,000 | **43,681** [43,587–43,738] | −11 [−109–46] |
 
 #### The fitted lines
 
@@ -2757,9 +2757,9 @@ measured R=0 rung and never the fitted intercept.
 | arm | slope B/read | intercept | shell (R=0, measured) | first read | r² |
 |---|---:|---:|---:|---:|---:|
 | `reagent-subs` \| reagent | 948 [947–948] | 493 [481–503] | 511 [500–519] | 1,167 [1,153–1,182] | 0.99871 |
-| `reagent-subs` \| **hicasso** | **1,417** [1,416–1,417] | 1,097 [1,085–1,110] | **1,100** [1,091–1,107] | 1,849 [1,836–1,859] | 0.99833 |
+| `reagent-subs` \| **fresco** | **1,417** [1,416–1,417] | 1,097 [1,085–1,110] | **1,100** [1,091–1,107] | 1,849 [1,836–1,859] | 0.99833 |
 | `uix-subs` \| uix | 2,980 [2,979–2,981] | 165 [149–177] | 220 [214–226] | 3,066 [3,049–3,090] | 0.99996 |
-| `uix-subs` \| **hicasso** | **2,115** [2,109–2,118] | 1,217 [1,187–1,251] | **1,095** [1,087–1,101] | 2,565 [2,557–2,575] | 0.99957 |
+| `uix-subs` \| **fresco** | **2,115** [2,109–2,118] | 1,217 [1,187–1,251] | **1,095** [1,087–1,101] | 2,565 [2,557–2,575] | 0.99957 |
 
 All four are lines in R, and **6 of 6 rounds are linear on every arm** — the
 per-round verdict, not only the pooled one.
@@ -2813,7 +2813,7 @@ What it does to the candidate's standing, stated plainly:
 
 The verdict's *shape* is unchanged — won against UIx, lost to Reagent's
 `deref`-capture — but the loss against Reagent is materially deeper on the
-software that ships, and the bracket a shipped Hicasso sits in widens from
+software that ships, and the bracket a shipped Fresco sits in widens from
 `1,278 – 2,115` to **`1,417 – 2,115` B/read**.
 
 #### Against the 1,024 B line, which is now frozen
@@ -2908,7 +2908,7 @@ The instrument, all under `implementation/core/test/re_frame/bench/`:
 |---|---|---|
 | `p0_run.cjs` | `ce4f01a9e548dad37513929ea7e03ed0fe909f8f` | moved — one comment line, PR #7939 |
 | `p0_heap.cljs` | `ef9b5adcf0ef81487ddbab43affc2e46f229ffac` | moved — the four seams, PR #7939 |
-| `p0_hicasso.cljs` | `7a91564f59a216ae4c0d13535fdac65b0ef81481` | moved — the two doors, PR #7939 |
+| `p0_fresco.cljs` | `7a91564f59a216ae4c0d13535fdac65b0ef81481` | moved — the two doors, PR #7939 |
 | `p0_reagent.cljs` | `419e166a93526bfb32794fb6236c840068fbd417` | moved — docstring only |
 | `p0_uix.cljs` | `f1aaf9cb1e58a62c8c1429ea66bca8bdd8c76a56` | moved — docstring only |
 | `p0_fixture.cljc` | `de27135ce820229e782b86628c42f7fcca2b899f` | moved — see below |
@@ -2930,14 +2930,14 @@ what actually settles it.
 
 The candidate arm is no longer in a table of its own, because **the candidate
 arm is now the package**. Its doors, under
-`implementation/hicasso/src/re_frame/hicasso/`:
+`implementation/fresco/src/re_frame/fresco/`:
 
 | file | blob |
 |---|---|
 | `impl/mount.cljs` | `ddf06f21e0ae2112031de6f835da389ed6760ec3` |
 | `impl/collector.cljs` | `3876ae023224f670e2cdaa086cf364f5fdbf4844` |
 | `impl/inventory.cljs` | `e1ac96953e7739aa30c8b7bfd7e752bc159fabda` |
-| `../hicasso.cljc` (the facade) | `405646b7bceab6d98d1fdb879932d7913b7f149e` |
+| `../fresco.cljc` (the facade) | `405646b7bceab6d98d1fdb879932d7913b7f149e` |
 
 Sixteen `impl.*` modules are in the graph, so these four are the doors and not
 the whole arm; the tree anchor above is what pins the rest.
@@ -2949,7 +2949,7 @@ node implementation/core/test/re_frame/bench/p0_run.cjs --only ladder
 ```
 
 (defaults `P0_LADDER_ROUNDS=6 P0_LADDER_RUNGS=0,1,3,7,20 P0_ROOTS=4`; no build
-id was added — the driver rides `:hicasso-bench` through `P0_BUILD` and
+id was added — the driver rides `:fresco-bench` through `P0_BUILD` and
 `P0_INIT_FN`, merging `:output-dir` and `:init-fn` onto it, and clears that id's
 cache entry first.)
 
@@ -3019,7 +3019,7 @@ today* — the package's `impl/collector.cljs` and the prototype's
 on-dispose sequence, line for line.
 
 One landing in that window adds exactly one per-cell retained item and adds it
-**to the ratom family alone**: `9d01cd171e`, `fix(hicasso): arm1 must activate
+**to the ratom family alone**: `9d01cd171e`, `fix(fresco): arm1 must activate
 its Reaction before watching it` (`rf2-2kshh`), merged **2026-08-07 09:32
 +1000** — three days after the 1,278 reading and five before the package run.
 Its whole code change is one line inside `wire-cell!`:
@@ -3083,7 +3083,7 @@ with the rig untouched throughout: all nine instrument blobs are byte-identical
 to the package run above, and the only file that differs between arms is the one
 line in `impl/collector.cljs`.
 
-| run | tree | Hicasso, Reagent seg. | Hicasso, UIx seg. | donors (Rg / UIx) | `main.js` |
+| run | tree | Fresco, Reagent seg. | Fresco, UIx seg. | donors (Rg / UIx) | `main.js` |
 |---|---|---:|---:|---:|---|
 | *§6's package run (2026-08-12, above)* | *`ce31a30b77`* | *1,417 [1,416–1,417]* | *2,115 [2,109–2,118]* | *948 / 2,980* | *—* |
 | **A1** | `c6b7da3cd8`, which is `origin/main` | **1,417** [1,416–1,418] | **2,115** [2,110–2,118] | 947 / 2,978 | sha256 `2c794d01…` |
@@ -3111,7 +3111,7 @@ own.
 The removed line is a **correctness repair**, and this is its price on this axis,
 not an argument for reverting it. Without it the arm is the deaf arm `rf2-2kshh`
 found: it paints once at mount and no later write becomes re-render work. What
-`139 B/read` buys is that a Reagent-hosted Hicasso boundary answers writes at
+`139 B/read` buys is that a Reagent-hosted Fresco boundary answers writes at
 all.
 
 Two figures the ablation moves that are **not** claims:
@@ -3128,7 +3128,7 @@ Two figures the ablation moves that are **not** claims:
   restated here.
 
 **No published figure changes.** S3 stays `1,417 B/read`, the bracket a shipped
-Hicasso sits in stays `1,417 – 2,115 B/read`, and the governed contrast against
+Fresco sits in stays `1,417 – 2,115 B/read`, and the governed contrast against
 Reagent stays `1.4953×`. This subsection attributes a figure; it does not move
 one.
 
@@ -3188,7 +3188,7 @@ on all three.
 Whole-tree anchor **`c6b7da3cd8`**, which is `origin/main` — the measured tree
 and the published tree are the same tree, and `git status --porcelain` was empty
 before arm A1 and again after arm A2. The one line under test, in
-`implementation/hicasso/src/re_frame/hicasso/impl/collector.cljs`:
+`implementation/fresco/src/re_frame/fresco/impl/collector.cljs`:
 
 | arm | line 675 | `impl/collector.cljs` blob |
 |---|---|---|
@@ -3197,7 +3197,7 @@ before arm A1 and again after arm A2. The one line under test, in
 
 The instrument, all under `implementation/core/test/re_frame/bench/`, **all nine
 byte-identical to the package run above** — `p0_run.cjs` `ce4f01a9e5`,
-`p0_heap.cljs` `ef9b5adcf0`, `p0_hicasso.cljs` `7a91564f59`, `p0_reagent.cljs`
+`p0_heap.cljs` `ef9b5adcf0`, `p0_fresco.cljs` `7a91564f59`, `p0_reagent.cljs`
 `419e166a93`, `p0_uix.cljs` `f1aaf9cb1e`, `p0_fixture.cljc` `de27135ce8`,
 `p0_arms.cljs` `beced24315`, `p0_harness.cljs` `e18c2f50d4`, `p0_floor.cljs`
 `6b61e125f4`. `impl/collector.cljs` and `impl/inventory.cljs` are likewise

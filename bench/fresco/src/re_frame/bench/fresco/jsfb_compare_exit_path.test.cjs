@@ -6,7 +6,7 @@
 // code is quoted as a quality gate, taking that exit from a reading that had
 // nothing in it.
 //
-//     node hicasso/test/re_frame/bench/hicasso/jsfb_compare_exit_path.test.cjs
+//     node fresco/test/re_frame/bench/fresco/jsfb_compare_exit_path.test.cjs
 //
 // THE DEFECT THIS PINS. `jsfb_compare.cjs` read the benchmark driver's results
 // directory with `if (!fs.existsSync(dir)) return {}` and our run's JSON with
@@ -210,10 +210,10 @@ test('a results directory of files for OTHER frameworks refuses', () => {
 // --- MALFORMED evidence is absent evidence ----------------------------------
 
 test('a results file that will not parse is NAMED rather than skipped', () => {
-  const dir = theirsDir('corrupt', { corrupt: 'rf2-hicasso_01_run1k.json' });
+  const dir = theirsDir('corrupt', { corrupt: 'rf2-fresco_01_run1k.json' });
   const v = verdict(evidence(dir, oursJson('corrupt.json')));
   assert.strictEqual(v.code, 2);
-  assert.match(v.lines[0], /will not parse: rf2-hicasso_01_run1k\.json/);
+  assert.match(v.lines[0], /will not parse: rf2-fresco_01_run1k\.json/);
 });
 
 test('an ours JSON that will not parse is NAMED rather than treated as absent-and-fine', () => {
@@ -245,7 +245,7 @@ test('one benchmark missing from THEIRS refuses, naming both its cells and the s
   assert.strictEqual(v.code, 1, 'evidence that arrived short is a different failure from evidence that never arrived');
   const all = v.lines.join('\n');
   assert.match(all, /2 of 10 expected cells were not measured by both instruments/);
-  assert.match(all, /05_swap1k \/ rf2-hicasso: the benchmark driver's results carry no usable median/);
+  assert.match(all, /05_swap1k \/ rf2-fresco: the benchmark driver's results carry no usable median/);
   assert.match(all, /05_swap1k \/ rf2-uix: the benchmark driver's results carry no usable median/);
   assert.doesNotMatch(all, /01_run1k/, 'a cell that arrived must not be blamed');
 });
@@ -255,7 +255,7 @@ test('one ARM missing from OURS refuses, naming our side', () => {
   assert.strictEqual(v.code, 1);
   const all = v.lines.join('\n');
   assert.match(all, /1 of 10 expected cells/);
-  assert.match(all, /02_replace1k \/ rf2-hicasso: our run's JSON carries no usable ratio/);
+  assert.match(all, /02_replace1k \/ rf2-fresco: our run's JSON carries no usable ratio/);
 });
 
 test('the DENOMINATOR going missing takes every cell of that benchmark with it', () => {
@@ -273,7 +273,7 @@ test('a cell absent from BOTH instruments says so rather than blaming one', () =
   });
   const v = verdict(evidence(dir, oursJson('both-gone.json', { drop: [`${OTHERS[0]}_clear1k`, `${OTHERS[1]}_clear1k`] })));
   assert.strictEqual(v.code, 1);
-  assert.match(v.lines.join('\n'), /09_clear1k_x8 \/ rf2-hicasso: NEITHER instrument measured it/);
+  assert.match(v.lines.join('\n'), /09_clear1k_x8 \/ rf2-fresco: NEITHER instrument measured it/);
 });
 
 test('a ratio present but NOT FINITE is missing evidence, not a measured cell', () => {
@@ -287,7 +287,7 @@ test('a ratio present but NOT FINITE is missing evidence, not a measured cell', 
     fs.writeFileSync(f, JSON.stringify(j));
     const v = verdict(evidence(dir, f));
     assert.strictEqual(v.code, 1, `ratio=${String(bad)} must refuse`);
-    assert.match(v.lines.join('\n'), /01_run1k \/ rf2-hicasso: our run's JSON carries no usable ratio/);
+    assert.match(v.lines.join('\n'), /01_run1k \/ rf2-fresco: our run's JSON carries no usable ratio/);
   });
 });
 
@@ -392,11 +392,11 @@ test('an OURS base or arm duration of zero or negative refuses even behind a sou
 test('EXPECTED_CELLS is the ten the audit counted, and it is DERIVED from PAIRS', () => {
   assert.strictEqual(EXPECTED_CELLS.length, 10, 'five benchmarks the driver runs, crossed with two non-base arms');
   assert.deepStrictEqual(EXPECTED_CELLS, [
-    '01_run1k / rf2-hicasso', '01_run1k / rf2-uix',
-    '02_replace1k / rf2-hicasso', '02_replace1k / rf2-uix',
-    '03_update10th1k_x16 / rf2-hicasso', '03_update10th1k_x16 / rf2-uix',
-    '05_swap1k / rf2-hicasso', '05_swap1k / rf2-uix',
-    '09_clear1k_x8 / rf2-hicasso', '09_clear1k_x8 / rf2-uix',
+    '01_run1k / rf2-fresco', '01_run1k / rf2-uix',
+    '02_replace1k / rf2-fresco', '02_replace1k / rf2-uix',
+    '03_update10th1k_x16 / rf2-fresco', '03_update10th1k_x16 / rf2-uix',
+    '05_swap1k / rf2-fresco', '05_swap1k / rf2-uix',
+    '09_clear1k_x8 / rf2-fresco', '09_clear1k_x8 / rf2-uix',
   ]);
   assert.strictEqual(
     EXPECTED_CELLS.length,
@@ -453,7 +453,7 @@ test('THE PROCESS EXIT: absent evidence exits non-zero from the shell', () => {
 test('THE PROCESS EXIT: complete evidence exits 0 and prints the table', () => {
   const r = run(['--theirs', theirsDir('e2e'), '--ours', oursJson('e2e.json')]);
   assert.strictEqual(r.status, 0, r.stderr);
-  assert.match(r.stdout, /THE CROSS-CHECK — hicasso \/ reagent/);
+  assert.match(r.stdout, /THE CROSS-CHECK — fresco \/ reagent/);
   assert.match(r.stdout, /VERDICT: \d+ of 10 comparable rows agree within 15% \(10 expected\)/);
   assert.strictEqual(r.stderr, '');
 });

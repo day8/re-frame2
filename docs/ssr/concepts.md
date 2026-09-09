@@ -443,7 +443,7 @@ Same `:frame` on `hydrate!` and `frame-provider`. Full walk-through:
 
 Everything above renders on the JVM, which works because Reagent hiccup is
 data a JVM can walk. A **native** view layer's components are JavaScript, and
-a JVM cannot call them — [Hicasso](../core/hicasso/index.md) roots are the
+a JVM cannot call them — [Fresco](../core/fresco/index.md) roots are the
 case in point. So there is a second renderer: the JVM keeps the request and
 asks a small Node sidecar for the body markup, and nothing else.
 
@@ -455,11 +455,11 @@ browser, and because the body is rendered before any shell is assembled, there
 is no partial page to serve.
 
 The worked example is
-[`substrates/hicasso/login`](../../examples/substrates/hicasso/login), and both
+[`substrates/fresco/login`](../../examples/substrates/fresco/login), and both
 halves of it run. `server.cljs` is a real render module and `host.clj` is a real
 Ring handler — the shared `login.model` is `.cljc`, so the JVM holds the
 application's state the same way the browser does. Two suites drive them:
-`re-frame.hicasso.login-server-crossing-ssr-dom-cljs-test` renders the real
+`re-frame.fresco.login-server-crossing-ssr-dom-cljs-test` renders the real
 views and registrations through the published entry table, and
 `re-frame.ssr.ring.login-host-crossing-test` spawns the real launcher on an
 ephemeral port and drives the handler across it.
@@ -521,8 +521,8 @@ a build id, an **entry table** derived from that policy, a once-per-isolate
 ```clojure
 (ns my-app.server
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso.server :as server]
-            [re-frame.hicasso.substrate :as substrate]
+            [re-frame.fresco.server :as server]
+            [re-frame.fresco.substrate :as substrate]
             [re-frame.ssr.render-state :as render-state]
             ;; The one policy, shared with the host in step 3.
             [my-app.policy :as policy]

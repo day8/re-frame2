@@ -21,9 +21,9 @@ disclaimer is kept rather than dropped because it is what a reader needs in
 order to know where these numbers did *not* come from; what has changed is that
 the tree it excludes is no longer somewhere a reader could go and look.
 
-[apps]: ../../../../implementation/hicasso/test/re_frame/hicasso/examples/
-[contrast]: ../../../../implementation/hicasso/test/re_frame/hicasso/examples/grid/row_total_layer2_dom_cljs_test.cljs
-[kit]: ../../../../implementation/hicasso/test_kit/src/re_frame/hicasso/test/mounted.cljs
+[apps]: ../../../../implementation/fresco/test/re_frame/fresco/examples/
+[contrast]: ../../../../implementation/fresco/test/re_frame/fresco/examples/grid/row_total_layer2_dom_cljs_test.cljs
+[kit]: ../../../../implementation/fresco/test_kit/src/re_frame/fresco/test/mounted.cljs
 
 ## Currency, and the census suite this page was written against
 
@@ -36,7 +36,7 @@ Every figure in §2–§5 and §7 — **except §4.1's**, which come from
 [their own run table](#41-the-layer-2-contrast-measured), exactly as
 [§7](#7-provenance) already says — was taken by the **per-keystroke census suite**,
 which stood at
-`implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs`
+`implementation/fresco/test/re_frame/fresco/examples/per_keystroke_dom_cljs_test.cljs`
 and **is no longer in the tree**: it was retired on 2026-08-30 by `f5f40d1116`,
 *"retire the per-keystroke census suite; its counter moves into the grid layer-2
 contrast"* (`rf2-6c12m.8`). The retirement was deliberate and its reasoning is on
@@ -384,12 +384,12 @@ them:
 
 ```
 FAIL in (the-layer-2-row-total-recomputes-once-where-the-layer-1-one-recomputes-per-row)
-  (re_frame/hicasso/examples/grid/row_total_layer2_dom_cljs_test.cljs:277:13)
+  (re_frame/fresco/examples/grid/row_total_layer2_dom_cljs_test.cljs:277:13)
 expected: (= 999 (:sub-runs l2-100))
   actual: (not (= 999 102))
 
 FAIL in (the-layer-2-row-total-recomputes-once-where-the-layer-1-one-recomputes-per-row)
-  (re_frame/hicasso/examples/grid/row_total_layer2_dom_cljs_test.cljs:278:13)
+  (re_frame/fresco/examples/grid/row_total_layer2_dom_cljs_test.cljs:278:13)
 expected: (= {…grid.subs/cell 999, …/row-total-l2 999, …grid.subs/dimensions 999}
              (:by-sub l2-25))
   actual: (not (= {…999, …999, …999}
@@ -617,7 +617,7 @@ Inverting one figure produced a captured failure naming it:
 
 ```
 FAIL in (the-grids-per-keystroke-census-at-two-sizes)
-  (re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs:437:11)
+  (re_frame/fresco/examples/per_keystroke_dom_cljs_test.cljs:437:11)
 P7 — subscription recomputations at 10x10. Measured:
   {…grid.subs/cell 100, …grid.subs/row-total 10, …grid.subs/dimensions 1}
 expected: (= 112 (:sub-runs at-100))
@@ -645,12 +645,12 @@ model's value beside it:
 
 ```
 FAIL in (the-editors-per-keystroke-census)
-  (re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs:450:23)
+  (re_frame/fresco/examples/per_keystroke_dom_cljs_test.cljs:450:23)
 expected: (= "intents-are-data, World" echo)
   actual: (not (= "intents-are-data, World" "intents-are-data-world"))
 
 FAIL in (the-grids-per-keystroke-census-at-two-sizes)
-  (re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs:580:23)
+  (re_frame/fresco/examples/per_keystroke_dom_cljs_test.cljs:580:23)
 expected: (= "34x" (clojure.core/deref echo))
   actual: (not (= "34x" "34"))
 ```
@@ -715,5 +715,5 @@ everything, and this one published a good deal.
   also has an `edit` operation and also counts work per keystroke, and the two
   sets of figures are **not** comparable: its arms vary *boundary placement* on
   the bench tree's arm-1 runtime, which its own §2.1 states, while every figure
-  here is `implementation/hicasso` with the topology held fixed. Neither page
+  here is `implementation/fresco` with the topology held fixed. Neither page
   re-derives the other and neither may be quoted for the other's population.

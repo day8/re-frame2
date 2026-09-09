@@ -1,6 +1,6 @@
-# Hicasso — decisions (HD-001 … HD-029)
+# Fresco — decisions (HD-001 … HD-029)
 
-Every design decision for the Hicasso programme, resolved. Each record carries the
+Every design decision for the Fresco programme, resolved. Each record carries the
 ruling, the decisive rationale, and the condition under which it reopens. **HD-001
 through HD-028 were resolved under delegated authority; HD-029 — the P2 fork — was
 given by the operator directly, which is the decider
@@ -18,8 +18,8 @@ pages: [charter.md](charter.md), [architecture.md](architecture.md),
 
 ## HD-001 — Name, namespace, alias
 
-**Ruling.** The product is **Hicasso**; namespace `re-frame.hicasso`; artifact
-`io.github.day8/re-frame2-hicasso`; conventional alias `h`. Single-c spelling.
+**Ruling.** The product is **Fresco**; namespace `re-frame.fresco`; artifact
+`io.github.day8/re-frame2-fresco`; conventional alias `h`. Single-c spelling.
 **Rationale.** Hiccup + Picasso one letter apart; the wordplay carries the product
 claim (single-line freehand drawing = one-pass interpretation; Cubism =
 decomposition into data primitives). Verified unclaimed on Clojars/GitHub/npm.
@@ -43,7 +43,7 @@ HD-018) and `ui`.
 > grouped. The correctness gates ((a)–(d) below) were not waived by this
 > ruling; [the dogfood judgement](studio/arm1-lean-react-dogfood-judgement.md)
 > §2 is their clause-by-clause discharge, and
-> `implementation/freehand/test/re_frame/bench/hicasso/arm1/runtime.cljs`
+> `implementation/freehand/test/re_frame/bench/fresco/arm1/runtime.cljs`
 > carries the same ruling in the code that implements it. Recorded on
 > `rf2-2rtt6`.
 
@@ -166,7 +166,7 @@ default comparison is a cost every render pays.
 
 ## HD-007 — Two arms, equal class — **SUPERSEDED 2026-07-31**
 
-> **Superseded by operator ruling, 2026-07-31.** Mike ruled that Hicasso is "an
+> **Superseded by operator ruling, 2026-07-31.** Mike ruled that Fresco is "an
 > adaptor for React that is optimised for re-frame2, user ergonomics and
 > performance" and dropped Arm 2. **There is one arm: lean-React, and it is the
 > product line rather than a contender.** The decision below is superseded on
@@ -176,7 +176,7 @@ default comparison is a cost every render pays.
 > (`rf2-m6if4`), not because it lost. Its rationale was never refuted; the
 > operator chose not to own a renderer. Recorded on `rf2-2rtt6`.
 
-**Ruling (superseded).** P1 runs **two** kill-bounded Hicasso arms under the one
+**Ruling (superseded).** P1 runs **two** kill-bounded Fresco arms under the one
 product name: lean-React (leading) and PATCH (own renderer, React at islands).
 PATCH is an equal-class spike, not a contingency reserve.
 **Rationale.** Lean-React is the smallest falsifiable bet but may ceiling at
@@ -243,7 +243,7 @@ predecessors' pattern of building before measuring.
 > where app data flows.
 >
 > **Refusals are loud.** A nil or malformed instance key refuses at read and
-> at write with `:rf.error/hicasso-state-bad-key`, naming the concern —
+> at write with `:rf.error/fresco-state-bad-key`, naming the concern —
 > converting the guide's silent every-instance-shares pitfall into an error.
 > Nesting composes by one pure helper, `h/child-key`
 > (`(if (vector? k) (conj k part) [k part])`), so every key is by induction a
@@ -284,7 +284,7 @@ predecessors' pattern of building before measuring.
 > teaches the convention in the same tense.
 
 **Ruling.** No component-local reactive cell (`local`, ratom-equivalent, or
-`useState` for app state) exists in Hicasso. In order: CSS for hover/focus;
+`useState` for app state) exists in Fresco. In order: CSS for hover/focus;
 platform-carried state (the top layer owns open/dismiss; resources/mutations own
 async status; the controls kit owns drafts/revisions); host-private React state
 at host edges for geometry/composition; app-db for everything semantically
@@ -297,7 +297,7 @@ exists**. v0 ships nothing and pre-commits to nothing beyond "sugar, not a
 state system".
 **Rationale.** The census is decisive — 85 idiomatic files, every classic hard
 case, zero local cells — and most of Reagent's local-state demand was
-manufactured by machinery Hicasso deletes structurally. A second reactive system
+manufactured by machinery Fresco deletes structurally. A second reactive system
 is the top item on the anti-regression fence. The tax is per-concern, not
 per-instance.
 **Reopens** only if dogfooders fail the preference test specifically on state
@@ -312,7 +312,7 @@ carries drafts is also post-v0, so ceremony complaints in v0 are expected
 signal, not verdicts.
 *(Amended 2026-08-12 by operator ruling — Mike, in session, 17:36 AUSEST,
 `rf2-xpq9`, following `rf2-sh56` the same day: **the controls kit that carries
-drafts is no longer post-v0.** `re-frame.hicasso.forms/buffered-field` shipped
+drafts is no longer post-v0.** `re-frame.fresco.forms/buffered-field` shipped
 in v0, and every Phase 5 item is now v0 scope. Both premises of the sentence
 above have therefore lapsed — the 2026-08-04 addendum already superseded "ships
 nothing in v0" by ruling `h/reg-state` into v0 — so a v0 ceremony complaint is
@@ -401,11 +401,11 @@ nothing.)*
 > **No new public concept is minted by taking this ruling**, and no code, no new
 > fx and no measurement follow from it.
 
-**Ruling.** Hicasso ships **no context abstraction of its own**, and its native
+**Ruling.** Fresco ships **no context abstraction of its own**, and its native
 theming uses none; the substrate keeps exactly one internal context (frame
 identity). Ordinary React context remains available to advanced authors at the
 HD-003 escape hatch (a compound-component contract, a provider an ecosystem
-library expects) — this ruling bans a *Hicasso* context API and context-based
+library expects) — this ruling bans a *Fresco* context API and context-based
 *theming*, not React itself. Theming is three layers: design
 tokens as CSS custom properties (the cascade is the scoping mechanism; a theme
 switch is one attribute flip, zero React work); parts as data addresses with
@@ -415,7 +415,7 @@ Foreign providers a hosted library demands are declared through `defhost`.
 Two laws bound the mechanism (law (a) and the structure-through-slots half of
 (b) inherited from the predecessor's ruled theming decision,
 `docs/design/freehand/decisions/D018-theming-and-parts.md`; the boot-static
-part→class rule is a Hicasso strengthening): **(a) the owned-literal merge law** —
+part→class rule is a Fresco strengthening): **(a) the owned-literal merge law** —
 `:key`, `:ref`, controlled `:value`/`:checked`, and owned event handlers are
 unoverridable by theme or parts; a theme can style a field, never rewrite its
 controlled contract; **(b) the static-map law** — anything runtime-switchable
@@ -466,19 +466,19 @@ instance props can express.
 >
 > **No dev warning accompanies this.** `reagent-slim` warns once per non-HTML
 > keyword prop because it narrowed the rule underneath an installed Reagent
-> codebase and the warning is that migration's safety net; Hicasso has no such
+> codebase and the warning is that migration's safety net; Fresco has no such
 > codebase, and a keyword at a host prop is the taught spelling of this
 > decision's flagship case, so warning on the happy path would be a nag. The
-> guide teaches the rule instead (`docs/core/hicasso/09-interop.md`, "provide
+> guide teaches the rule instead (`docs/core/fresco/09-interop.md`, "provide
 > that value explicitly"), and the Reagent-side hazard is the codemod's
 > ([the codemod against the landed escape](studio/reagent-codemod-against-the-landed-escape.md)).
 
 > **Amended 2026-08-30, recording `rf2-6c12m.11` (PR #8772, merged
 > 2026-08-29).** The `[:>]` Component-slot roster in the 2026-08-07 addendum
 > below is collapsed: `raw-component` refuses `nil` and a `defview`/`defhost`
-> head on one id, `:rf.error/hicasso-raw-not-a-component`, and hands everything
+> head on one id, `:rf.error/fresco-raw-not-a-component`, and hands everything
 > else — strings and keywords included — to React, which refuses at fiber
-> creation what it cannot mint a fiber for. `:rf.error/hicasso-raw-no-component`
+> creation what it cannot mint a fiber for. `:rf.error/fresco-raw-no-component`
 > is retired. The three-narrowing roster stands below as the dated record.
 
 > **Addendum, 2026-08-29 — a callback contract is INFERRED from the prop's
@@ -506,18 +506,18 @@ instance props can express.
 > did not were the two the guide invented to illustrate the roster. The stated
 > reason for "never infer" — a value-first foreign callback such as
 > `onChange(date)`, where a vector would read `date.target` — was always caught
-> at runtime by `:rf.error/hicasso-intent-needs-the-event`, which names the
+> at runtime by `:rf.error/fresco-intent-needs-the-event`, which names the
 > position; the declaration never prevented that mistake. Four refusal ids, one
 > half-id and some five hundred lines of validation and commentary policed a
 > grammar with no consumer.
 >
-> **Ids.** Retired: `:rf.error/hicasso-host-undeclared-callback`,
-> `:rf.error/hicasso-intent-at-a-non-event-contract`,
-> `:rf.error/hicasso-host-structural-callback`,
-> `:rf.error/hicasso-host-callback-slot-collision`. Narrowed:
-> `:rf.error/hicasso-host-unclaimed-callback` keeps only the declared-slot arm
+> **Ids.** Retired: `:rf.error/fresco-host-undeclared-callback`,
+> `:rf.error/fresco-intent-at-a-non-event-contract`,
+> `:rf.error/fresco-host-structural-callback`,
+> `:rf.error/fresco-host-callback-slot-collision`. Narrowed:
+> `:rf.error/fresco-host-unclaimed-callback` keeps only the declared-slot arm
 > of HD-024's 2026-08-11 addendum. Kept, two-valued:
-> `:rf.error/hicasso-unknown-callback-contract`. The 2026-08-06 addendum's
+> `:rf.error/fresco-unknown-callback-contract`. The 2026-08-06 addendum's
 > nothing-claimed refusal is therefore gone — inference claims every position,
 > so the marked form at a formerly unclaimed slot takes a wrapper rather than
 > a refusal — while its fence holds: a plain function is untouched, the reserved
@@ -553,11 +553,11 @@ instance props can express.
 >
 > **No alias, no deprecation path.** This is pre-alpha and a rename is a rename,
 > so `{:ssr …}` is not translated — it lands on
-> `:rf.error/hicasso-host-unknown-option`, which names the four keys that exist.
+> `:rf.error/fresco-host-unknown-option`, which names the four keys that exist.
 > **No id was minted and none retired**: an id names a refusal rather than an
 > option, so a `:server` value outside the two, and a `:fallback` the policy
 > beside it cannot carry, both raise the existing
-> `:rf.error/hicasso-host-bad-ssr-policy`. Its recovery keyword moved with the
+> `:rf.error/fresco-host-bad-ssr-policy`. Its recovery keyword moved with the
 > option (`:declare-render-or-client-only-with-an-optional-fallback`), as row 23's
 > did.
 >
@@ -663,7 +663,7 @@ instance props can express.
 > user's click does nothing, in production, with no diagnostic at all.
 >
 > **It is derived, not new policy.** `mint-host!` refuses an option it does not
-> know (`:rf.error/hicasso-host-unknown-option`) on exactly this reasoning,
+> know (`:rf.error/fresco-host-unknown-option`) on exactly this reasoning,
 > recorded in this decision's addendum below: a policy could be written and
 > never applied, and *the silent-ignore was its own defect*. An `h/fn` whose
 > contract is never selected **is** a policy written and never applied.
@@ -683,7 +683,7 @@ instance props can express.
 >
 > **The shape.** One branch in `host-entry`'s `:else` arm, beside the
 > event-shaped-data refusal and ahead of `host-prop-value`:
-> `:rf.error/hicasso-host-unclaimed-callback`, naming the host, the position,
+> `:rf.error/fresco-host-unclaimed-callback`, naming the host, the position,
 > the declared roster and the recovery (*declare the slot in `:callbacks`, or
 > hand a plain function*). The id is deliberately a PAIR with the sibling's —
 > `undeclared-callback` is intent DATA at an event-spelled slot,
@@ -769,7 +769,7 @@ instance props can express.
 > mid-server-render, so whether it worked at all depended on which mint the
 > head came from). The mint now walks a declared fallback **structurally** and
 > refuses a `defview` or `defhost` head at any position —
-> `:rf.error/hicasso-host-fallback-boundary-head`, naming the host, the head's
+> `:rf.error/fresco-host-fallback-boundary-head`, naming the host, the head's
 > `displayName` and its index route into the form. Walk-scoped, so it covers
 > the frame-fed variant without knowing it exists.
 >
@@ -791,9 +791,9 @@ instance props can express.
 > vanished server-side"* is now "declare it, with `{:ssr :render}`" — which
 > finally works.
 >
-> Witnessed in `re-frame.hicasso.host-ssr-dom-cljs-test` (the refusal roster, the
+> Witnessed in `re-frame.fresco.host-ssr-dom-cljs-test` (the refusal roster, the
 > server-render children and context rows, and the hydration row that counts
-> mounts), `re-frame.hicasso.fallback-contents-cljs-test` (the refusal, both directions,
+> mounts), `re-frame.fresco.fallback-contents-cljs-test` (the refusal, both directions,
 > with every legitimate fallback position proven individually) and
 > `ssr/entry_cljs_test` (the corpus row, at a handed-in and a nested position).
 
@@ -818,9 +818,9 @@ instance props can express.
 > **Everything is refused at the declaration**, where this record already puts
 > every other host refusal. A third `:ssr` value, an explicit `nil`, an empty
 > or multi-key fallback map, and a fallback that is not hiccup all raise
-> `:rf.error/hicasso-host-bad-ssr-policy` or the walk's own error at mint —
+> `:rf.error/fresco-host-bad-ssr-policy` or the walk's own error at mint —
 > the fallback is walked once, there. **And an option `defhost` does not know
-> is now refused rather than ignored** (`:rf.error/hicasso-host-unknown-option`,
+> is now refused rather than ignored** (`:rf.error/fresco-host-unknown-option`,
 > roster `#{:callbacks :ssr}`): the silent-ignore was its own defect, of the
 > same class as an intent crossing to a library as inert data.
 >
@@ -841,13 +841,13 @@ instance props can express.
 > used to mint no wrapper, no fiber and no hook: the foreign component was the
 > element's own type. It now mints one gate per declaration, so a crossing
 > costs **one fiber and one hook**. HD-020(b)'s ≤2-hook budget is untouched and
-> still means what it said — it is a statement about Hicasso's **boundary**
+> still means what it said — it is a statement about Fresco's **boundary**
 > shells, `shell-hook-ledger` still declares two, and the gate is not a
 > boundary: it holds no subscription, reads no frame and runs no body. The
 > hosted-page hook census was updated to state the new truth rather than
 > deleted, and now reads the shell's two, then the door's one, then nothing
 > that is not the hosted component's own roster. Witnessed in
-> `re-frame.hicasso.host-ssr-dom-cljs-test` (declaration, server render, fresh
+> `re-frame.fresco.host-ssr-dom-cljs-test` (declaration, server render, fresh
 > mount, hydration) and `arm1/host_hatch_dom_cljs_test` (the hook census).
 
 **Ruling.** **`defhost` is the door, and the only form taught**: a one-line
@@ -960,7 +960,7 @@ the decider stays where the lock put it.
 
 ## HD-014 — The clock
 
-**Ruling.** Six focused weeks, starting at **the first Hicasso-arm commit (lean
+**Ruling.** Six focused weeks, starting at **the first Fresco-arm commit (lean
 or PATCH) that mounts the dogfood list+form screen**. P0 instruments, paper
 work, and the composed donor arm are instruments and do **not** start it. The
 donor-arm stop ruling (HD-008) is issued only against the published P0 baseline
@@ -1003,7 +1003,7 @@ render nothing, `true` is an error; nested/lazy sequences are realized once and
 flattened one level; an existing React element is a legal child (pass-through);
 the fragment spelling is `[:<> …]`, and a view may return `nil`, one root, or a
 fragment; `:ref` is legal on native tags and `defhost`/`[:>]` crossings
-(callback refs only) and is **not** a v0 surface on Hicasso views (use ids).
+(callback refs only) and is **not** a v0 surface on Fresco views (use ids).
 **Reopens** if the dogfood shows the vector/call distinction confusing — the
 fallback is a lint, not a third convention. Note: helper-donated reads are
 settled rather than contingent. HD-002's ruling makes the ambient collector the
@@ -1052,7 +1052,7 @@ read that lands in the calling boundary's window.
 >
 > **Corpus correction, binding on any record of this ruling.** The decisive
 > framing is **not** "wrong at two-thirds" — that ratio belongs to the v1-idiom
-> examples corpus. The governing Hicasso-idiom corpus, the charter's own `shapes/`
+> examples corpus. The governing Fresco-idiom corpus, the charter's own `shapes/`
 > tree included, runs **~70% scalar binding-as-key**, which reads *for* the sugar
 > rather than against it. The verdict took that correction and stood, because it
 > never rested on serve rate.
@@ -1079,7 +1079,7 @@ read that lands in the calling boundary's window.
 >
 > Read the clause as: *`:ref` is legal on native tags and `defhost`/`[:>]`
 > crossings; the callback ref is the taught form; the reserved vector spelling
-> is refused; `:ref` is not a v0 surface on Hicasso views (use ids).*
+> is refused; `:ref` is not a v0 surface on Fresco views (use ids).*
 >
 > Design C's parity rule is what makes this the cheap answer as well as the
 > right one: whatever is decided applies to **both** crossing forms and to
@@ -1092,15 +1092,15 @@ read that lands in the calling boundary's window.
 ## HD-017 — Code residence and graduation
 
 > **Note, 2026-07-31.** This entry's graduation clause was written as "the P2
-> ruling graduates exactly one arm into a tracked `implementation/hicasso/`
+> ruling graduates exactly one arm into a tracked `implementation/fresco/`
 > artefact" — phrasing that assumed P2 would pick a winner between two live
 > arms. The 2026-07-31 product ruling (HD-007, superseded) settled *which* arm
 > ahead of P2: Arm 2 (PATCH) was dropped on product direction, not on
 > measurement, so P2 is now the surviving arm (lean-React) versus null, not a
 > choice among arms. The residence-and-graduation mechanism below is otherwise
 > unchanged: runtime skeletons stay disposable until the surviving arm
-> graduates into a tracked `implementation/hicasso/` artefact on a P2 "go"
-> (HD-018); on a stop, nothing graduates and Hicasso's spike code is archived.
+> graduates into a tracked `implementation/fresco/` artefact on a P2 "go"
+> (HD-018); on a stop, nothing graduates and Fresco's spike code is archived.
 > See also [architecture.md's Code residence section](architecture.md#code-residence-hd-017).
 
 **Ruling.** Instrument arms live in the existing tracked bench/test trees —
@@ -1108,11 +1108,11 @@ read that lands in the calling boundary's window.
 freeze** (those trees, e.g. `implementation/freehand/test/re_frame/freehand/bench/`,
 are the programme's measurement apparatus; instrument-only merges there are
 legal; donor `src/` stays frozen). Results publish to their beads and to
-**`docs/design/hicasso/studio/`** (minted by the first P0 worker; the frozen
+**`docs/design/fresco/studio/`** (minted by the first P0 worker; the frozen
 Freehand studio is never extended).
 Runtime skeletons stay disposable (spike branch or the local `ai/` tree) until
 the P2 ruling graduates exactly one arm into a tracked
-`implementation/hicasso/` artefact (deps.edn, test tree, and CI lanes chartered
+`implementation/fresco/` artefact (deps.edn, test tree, and CI lanes chartered
 at that point, not before). The spike-01 index model **graduates into the
 tracked bench/test tree at P1** (its six-law algebra becomes the index's unit
 tests); until then it is local-only evidence. Any arm needing a new build id or
@@ -1130,7 +1130,7 @@ home because the exploration tree is untracked.
 `re-frame.freehand` and `re-frame.ui` surfaces are **deleted** — no absorption
 programme, no donor inventory ledger, no dual teaching; small proven
 micro-mechanics may be copied with attribution in the source. On a loss: the
-adapters stand, the donors keep their status quo, and Hicasso's spike code is
+adapters stand, the donors keep their status quo, and Fresco's spike code is
 archived. Never three living stories.
 **Rationale.** The predecessor's absorption programme consumed enormous effort
 tracking 200+ ledger rows; the honest lesson is that migration-as-success-metric
@@ -1157,7 +1157,7 @@ is the failure mode.
 > keeping.
 >
 > **This is a deliberate divergence from plain React, and it is claimed as
-> one.** It is scoped precisely to Hicasso's converge: the model still refuses
+> one.** It is scoped precisely to Fresco's converge: the model still refuses
 > or normalises every intermediate composition state exactly as before, and on
 > the refusing field the exchange ends with the same model and the same field as
 > the React baseline reaches. `ime_run.cjs` asserts the divergence and its scope
@@ -1291,7 +1291,7 @@ candidate second call site appears. The composition value path reopens on
 > `::h/revision` (`rf2-zq8kh`).** The trigger sentence above — *resets are by
 > explicit caller revision, never value equality*, kept from D016 — had no
 > spelling at the element path. It has one now:
-> `:re-frame.hicasso/revision`, **[unfrozen]**, matched as the exact namespaced
+> `:re-frame.fresco/revision`, **[unfrozen]**, matched as the exact namespaced
 > keyword and never slot-claimed. A change to its value (CLJS `=`) re-baselines
 > a controlled `<input>`/`<textarea>` to the model **without remount** — the
 > node is kept, the focus is kept, and the caret lands at end-of-model on the
@@ -1299,15 +1299,15 @@ candidate second call site appears. The composition value path reopens on
 > `value` assignment and which D016's caret clause licenses as permission
 > rather than obligation. A value change under an unchanged revision continues
 > the draft. Equal-but-fresh revisions are inert. The design record is
-> `docs/design/hicasso/studio/revision-prop-spec.md`; the single prop is the
+> `docs/design/fresco/studio/revision-prop-spec.md`; the single prop is the
 > whole scope, and the buffered ladder **consumes** this trigger rather
 > than extending it.
 >
 > **Amended 2026-08-12 (operator ruling): the buffered ladder is no longer
 > post-v0 (`rf2-sh56`).** Mike ruled the forms module into V0 scope, with
-> `docs/core/hicasso/05-forms.md` standing as its draft spec — for this feature only,
+> `docs/core/fresco/05-forms.md` standing as its draft spec — for this feature only,
 > overriding `specification.md` §7's second-caller extraction gate; the gate
-> stands everywhere else. `re-frame.hicasso.forms/buffered-field` shipped
+> stands everywhere else. `re-frame.fresco.forms/buffered-field` shipped
 > against this addendum's sentence unchanged: it **consumes** `::h/revision`
 > and extends nothing. The caller supplies the revision, the field forwards it
 > to the element, and the module's own use of it is an eligibility rule over
@@ -1316,8 +1316,8 @@ candidate second call site appears. The composition value path reopens on
 > reset vocabulary, no new prop at the element, and no diagnostic id: the
 > chapter says the module's failures are behavioural rather than separately
 > named runtime errors, and the two refusals its surface can reach —
-> `:rf.error/hicasso-state-bad-key` and
-> `:rf.error/hicasso-revision-not-controlled` — were already shipped and
+> `:rf.error/fresco-state-bad-key` and
+> `:rf.error/fresco-revision-not-controlled` — were already shipped and
 > already catalogued.
 >
 > **The `flushSync` count is unchanged, and the audit statement is the
@@ -1392,22 +1392,22 @@ candidate second call site appears. The composition value path reopens on
 ## HD-020 — v0 host mechanics: frame plumbing, hook ledger, error boundary, SSR posture
 
 > **Addendum, 2026-08-04 — clause (d) is reopened and reversed: SSR + hydration
-> is REQUIRED Hicasso scope (`rf2-2rtt6.83`).** This entry's own Reopens line
+> is REQUIRED Fresco scope (`rf2-2rtt6.83`).** This entry's own Reopens line
 > says "at product phase (SSR, richer boundary API) by ordinary ruling"; this
 > is that ruling, taken by the operator. **Mike, 2026-08-04, verbatim:** *"SSR
-> is an important part of re-frame2. If hicasso is to be the re-frame native
+> is an important part of re-frame2. If fresco is to be the re-frame native
 > view layer then it has to be used with SSR"* — and, earlier the same day:
-> *"hicasso is useless unless it does SSR."*
+> *"fresco is useless unless it does SSR."*
 >
-> **What is ruled.** SSR + hydration moves from out-of-v0 to required Hicasso
-> scope. Hicasso participates in re-frame2's **existing** SSR story — Spec 011
+> **What is ruled.** SSR + hydration moves from out-of-v0 to required Fresco
+> scope. Fresco participates in re-frame2's **existing** SSR story — Spec 011
 > (`spec/011-SSR.md`): the payload policy, the `#__rf_payload` EDN embed, the
 > `hydrate!` boot helper and the reserved `:rf/hydrate` db adoption before
 > first render, the hydration-mismatch machinery, and `ssr-ring` as the HTTP
-> host — **never a parallel Hicasso-only mechanism** (requirement R0). The full
+> host — **never a parallel Fresco-only mechanism** (requirement R0). The full
 > requirement set R0–R8, the non-goals, and the P2-sitting linkage are recorded
 > in the same-date addendum in
-> `docs/EP/EP-0038-the-hicasso-view-layer-programme.md`.
+> `docs/EP/EP-0038-the-fresco-view-layer-programme.md`.
 >
 > **What does not move.** SSR *speed* stays off the bar: HD-012 and
 > validation.md's "never SSR or test-lane speed" line stand unchanged. Clauses
@@ -1432,7 +1432,7 @@ candidate second call site appears. The composition value path reopens on
 >
 > **What does not move.** The per-surface hydration contract was already
 > mandatory and never waited on this service, and R0's "never a parallel
-> Hicasso-only mechanism" stands: the service hosts Spec 011's story, it does
+> Fresco-only mechanism" stands: the service hosts Spec 011's story, it does
 > not fork it. SSR *speed* stays off the bar. Clauses (a)–(c) of the ruling
 > below are untouched, and (d) remains the dated record of what v0 was
 > originally scoped to.
@@ -1459,7 +1459,7 @@ ad hoc mid-spike; none is reversible for free once witnesses pin behaviour.
 the *parent's* body and walked by the codec inside the **class's own render**,
 one render later — so `intent/*dispatch*` was unbound when the codec reached
 them, and an intent at an event position on either raised
-`:rf.error/hicasso-intent-outside-boundary`. The fallback half made (c)'s own
+`:rf.error/fresco-intent-outside-boundary`. The fallback half made (c)'s own
 worked example unwritable: `:fallback` ships beside `:reset-key` precisely so
 that "the retry is the caller's to schedule", and the control that schedules it
 is a button whose `:on-click` is an intent. Worse, a fallback that throws while
@@ -1488,7 +1488,7 @@ error, naming the intent. Witnessed, retry button and all, in
 > unchanged, and so is the *first paint is the seeded one* property: the layout
 > effect flips before paint and `h/mount!` renders inside `flushSync`, so the
 > door still returns with the seeded markup on the page (witnessed in
-> `re-frame.hicasso.frame-boundary-heads-dom-cljs-test`). The text below stands
+> `re-frame.fresco.frame-boundary-heads-dom-cljs-test`). The text below stands
 > as the record of what was decided; read the frame half through this note.
 >
 > **Amended again 2026-09-08 (rf2-kuky.59) — the four root verbs are one
@@ -1502,7 +1502,7 @@ error, naming the intent. Witnessed, retry button and all, in
 > teardown and the hot reload this record decides are all unchanged, and the
 > impl tier (`root!` / `hydrate-root!` / `render!` / `unmount!`) keeps its own
 > names beneath them. One thing here is NEW rather than respelled:
-> `rf/destroy-adapter!` now releases a live Hicasso root, which it never did.
+> `rf/destroy-adapter!` now releases a live Fresco root, which it never did.
 
 **Ruling.** (a) **Headless rendering** covers hook-free tier-1 bodies through a
 pure read resolver (structural render as data, sub reads overridable); bodies
@@ -1541,12 +1541,12 @@ deletions they justify are shipped. Read every "against K5" below as historical.
 
 **Amended 2026-08-29 (rf2-6c12m.11).** The reservation is retired: a vector at
 `:ref` crosses to React as data like any other value, and
-`:rf.error/hicasso-ref-vector-reserved` is struck. The ruling below stands as the
+`:rf.error/fresco-ref-vector-reserved` is struck. The ruling below stands as the
 v0 record.
 
 **Ruling.** `:ref` accepts **a function** — HD-003's escape hatch and HD-016's
 callback-refs-only rule, both unchanged. A **vector** (`{:ref [registered-id
-config]}`) is **RESERVED**: v0 refuses it with `:rf.error/hicasso-ref-vector-reserved`
+config]}`) is **RESERVED**: v0 refuses it with `:rf.error/fresco-ref-vector-reserved`
 rather than passing it to React as an opaque value. That is the whole ruling —
 one refusal branch and one error id. **Not in scope, explicitly:** a behaviors
 registry, a `:timing` option, a commands roster, or any host-ownership subsystem
@@ -1558,7 +1558,7 @@ check `"ref"` and `:x/ref` walk past — carrying the opaque array to React, whi
 ignores it in silence, which is the ref-that-never-fires the reservation exists to
 replace. The ref position's exclusion from callback lowering is taken on the same
 slot, for the same reason and at the same cost: the walk has the value already.
-**Rationale.** `:ref` is the one place Hicasso is planned to be *less*
+**Rationale.** `:ref` is the one place Fresco is planned to be *less*
 data-oriented than the substrate it replaces: the predecessor's registered
 behaviors keep the use site as data (`[v/behavior {:use autosize :target … :config
 {…}}]`) and put the code in a registry, with `:config` refusing a callback, a
@@ -1589,14 +1589,14 @@ map or chart instance) or spending an effect. The recommended later shape is
 therefore **attach/detach only, config immutable for the connection's life, and
 steady-state change routed through a command effect**, which is already data.
 This limit is taught in the guide
-([Interop](../../core/hicasso/09-interop.md#imperative-sdks-with-callback-refs))
+([Interop](../../core/fresco/09-interop.md#imperative-sdks-with-callback-refs))
 rather than left to be discovered.
 **Reopens** when the component-library tier is chartered — the reservation exists
 to make that reopening non-breaking.
 
 ## HD-023 — One attribute merge: a reserved `:&` key, owned-literal law unconditional
 
-**Ruling.** Hicasso has **one** attribute merge, spelled as data in the attribute
+**Ruling.** Fresco has **one** attribute merge, spelled as data in the attribute
 map, with one unconditional law.
 
 ```clojure
@@ -1649,11 +1649,11 @@ nothing there apportions the fold its own share (`rf2-pqyxz`). The ladder in
 *Apportioned* does not isolate it either: it lands whole inside that ladder's rung
 (1), where `:expanded` writes the class in the tag and every other arm declares it
 (`rf2-z143r`).
-(d) The **same key and the same law hold at a crossing** (a Hicasso view head, a
+(d) The **same key and the same law hold at a crossing** (a Fresco view head, a
 `defhost` head, `[:>]`). `:&` is merged *before* any conversion, and the conversion
 that follows is the position's own — so a forwarded `:className` crosses under the
 name it was written as. One rule covers both positions.
-(e) A non-map at `:&` is `:rf.error/hicasso-merge-not-a-map`.
+(e) A non-map at `:&` is `:rf.error/fresco-merge-not-a-map`.
 **Consequence:** two public concepts (the predecessor's `spread` and `spread-safe`)
 become **zero**. An attribute key is not a concept in the K5 sense.
 
@@ -1688,14 +1688,14 @@ call sites, and — the part that matters — the helper does not have to defend
 itself against what a caller forwards.
 **Cost, measured — the spelling is NOT free, and the ergonomic win is quoted with
 its price (`rf2-pqyxz`).** `:&` is an addition to the codec this programme took
-from reagent-slim, and the ruling that Hicasso authors no codec carries a caveat
+from reagent-slim, and the ruling that Fresco authors no codec carries a caveat
 that such additions be measured rather than assumed. On an element that does NOT
 use it the structural claim stands and is unchanged: one `contains?` per attribute
 map, the map back by identity, nothing allocated. On an element that DOES use it,
 the clock was named here as unmeasured and now is not.
 
 The instrument is
-`implementation/hicasso/test/re_frame/bench/hicasso/amp_merge_clock_app.cljs`,
+`implementation/fresco/test/re_frame/bench/fresco/amp_merge_clock_app.cljs`,
 built on the arm-pair shape `rf2-5yn9` uses for the direct-return escape: the
 *same page written twice* — the four attribute maps written out, against the
 `field` helper plus four `:&` call sites — read against a floor, a `:ctl-2x`
@@ -1703,7 +1703,7 @@ positive control predicting 2.00x by construction, and a NULL arm (`:expanded-b`
 a second boundary head over the identical body) whose reading is the instrument's
 resolution rather than a result. The witness is the same article-editor fieldset
 the paragraph above ports, at 100 boundaries: 1,001 elements, 400 `:&` sites,
-mounted through `run.cjs` on `:hicasso-bench` under `:advanced` with
+mounted through `run.cjs` on `:fresco-bench` under `:advanced` with
 `goog.DEBUG` false, Chromium 147.0.7727.15. The fairness gate agrees the three
 judged arms build one 1,001-element page and is proven able to answer false before
 any clock is read.
@@ -2040,7 +2040,7 @@ below, with the full window in
 > from inside a render callback is not policed (`rf2-6c12m.20`, PR #8746).**
 > The 2026-08-03 addendum's mechanism — a gate minted per invocation of
 > every render prop, poisoning the ambient dispatch while the call ran and
-> raising `:rf.error/hicasso-dispatch-in-render-position` — is gone, and the
+> raising `:rf.error/fresco-dispatch-in-render-position` — is gone, and the
 > id is retired ([Spec 009's row](../../../spec/009-Instrumentation.md#error-event-catalogue)
 > is struck in place). It spent a volatile, a
 > closure and a three-var binding per invocation of every render prop to
@@ -2050,7 +2050,7 @@ below, with the full window in
 > and dispatch at lowering time and rebinds both per invocation, so a row
 > built inside a foreign render prop belongs to the boundary that supplied
 > it; a callback lowered with no owner rebinds nil, and a handler lowered
-> inside it raises the ordinary `:rf.error/hicasso-intent-outside-boundary`.
+> inside it raises the ordinary `:rf.error/fresco-intent-outside-boundary`.
 > Row 3's purity law below is now a statement of the contract rather than a
 > refusal the runtime enforces.
 
@@ -2068,10 +2068,10 @@ below, with the full window in
 > infers the wrong contract (an on*-named render prop), with the declared
 > contract outranking the spelling. The value-first law below is unchanged and
 > was always the runtime's guard rather than the roster's:
-> `:rf.error/hicasso-intent-needs-the-event` names a marker-bearing intent at a
+> `:rf.error/fresco-intent-needs-the-event` names a marker-bearing intent at a
 > value-first invoker regardless of any declaration. The "declaration governs
 > every carrier" paragraph is superseded in one half: at `:render` a vector or
-> key-map is no longer refused — `:rf.error/hicasso-intent-at-a-non-event-contract`
+> key-map is no longer refused — `:rf.error/fresco-intent-at-a-non-event-contract`
 > is retired — and crosses as data through the shallow conversion, as it does
 > at a native tag. HD-011's same-date addendum carries the ids and the mechanism.
 
@@ -2090,7 +2090,7 @@ below, with the full window in
 > marked form, and it is not unclaimed — it is claimed for markup, and markup has
 > no contract to give a function. An `h/fn` there is therefore a policy written and
 > never applied, and it **refuses**. The id is
-> `:rf.error/hicasso-host-unclaimed-callback`, the same one the unclaimed position
+> `:rf.error/fresco-host-unclaimed-callback`, the same one the unclaimed position
 > raises, because the fault and the recovery are the one thing said twice; the
 > message names which of the two positions it met. Row 3's parenthesis carries the
 > scope below.
@@ -2124,7 +2124,7 @@ below, with the full window in
 > was the right answer to *"is this render-wrapped?"* and the wrong answer to
 > *"is a marked callback nothing reads acceptable?"*. It is not: at an unclaimed
 > slot the mark asks for a contract no position selected, so the crossing now
-> **refuses** — `:rf.error/hicasso-host-unclaimed-callback`. HD-011's dated
+> **refuses** — `:rf.error/fresco-host-unclaimed-callback`. HD-011's dated
 > addendum carries the full ruling, its grounds, and its fence, because the DOOR
 > owns crossing conduct. A **plain** function at that slot is untouched and
 > still crosses by identity, which is the part of the row's deletion clause that
@@ -2142,7 +2142,7 @@ below, with the full window in
 > **Addendum, 2026-08-03 — render-position enforcement is INVOCATION-scoped, and
 > the owner forwards (`rf2-2rtt6.74`).** Both laws below stand: a `:render`
 > position is pure, and dispatching from inside the call is
-> `:rf.error/hicasso-dispatch-in-render-position`, naming the position. What is
+> `:rf.error/fresco-dispatch-in-render-position`, naming the position. What is
 > superseded is the Rationale's mechanism sentence — "enforced by poisoning the
 > ambient dispatch for the call's dynamic extent" — insofar as it read as though
 > handlers *lowered* inside the call stayed poisoned forever. They do not; the
@@ -2175,7 +2175,7 @@ below, with the full window in
 > is rebound to it for the invocation as well, so a `route-link` written in a row
 > body pins its navigation there rather than failing loudly. Where no owner was in
 > scope at wrapper creation, a handler lowered inside raises the ordinary
-> `:rf.error/hicasso-intent-outside-boundary` when it fires — loud, never silent,
+> `:rf.error/fresco-intent-outside-boundary` when it fires — loud, never silent,
 > and never a new error id.
 >
 > **Fence.** No new API, no config knob, no new error id, nothing about
@@ -2197,7 +2197,7 @@ below, with the full window in
 > particular there was **no `h/as-element`**: this addendum illustrated the row with
 > one until 2026-08-05, copied from `front/intent/render-callback`'s own docstring,
 > as did four of the `[:>]` design records under `studio/`, and the spelling was not
-> real then. **It is real now.** `h/as-element` is exported from `re-frame.hicasso`
+> real then. **It is real now.** `h/as-element` is exported from `re-frame.fresco`
 > — the one explicit hiccup→ReactNode conversion, delegating to `codec/as-element`
 > — so the row is written `(h/as-element [:li {:on-click [:row/pick id]} …])` and
 > keeps its intents, which fire on the user's click into the frame of the boundary
@@ -2205,7 +2205,7 @@ below, with the full window in
 > records that named the spelling before it existed are dated records of what was
 > believed then and stand unedited.
 
-**Ruling.** Hicasso ships **one** callback form — `h/fn` (spelling unfrozen) — and
+**Ruling.** Fresco ships **one** callback form — `h/fn` (spelling unfrozen) — and
 it is **an ordinary function**. The contract comes from the **position**, because
 the runtime already knows every position it walks:
 
@@ -2213,11 +2213,11 @@ the runtime already knows every position it walks:
 |---|---|
 | a native `:on-*` prop | **event** — a returned VECTOR is dispatched; any other return is ignored |
 | a `defhost` `:callbacks` entry | as **declared** (`:event`, `:handler` or `:render`), never inferred from an `on*` name |
-| any other walked prop position (a slot, a foreign render prop — but NOT an unclaimed `defhost` slot, and NOT one declared a ReactNode position in `:slots`; both refuse, see the 2026-08-06 and 2026-08-11 addenda) | **render** — pure; the return is render output and is not dispatched, and dispatching from inside is `:rf.error/hicasso-dispatch-in-render-position`, **naming the position** |
+| any other walked prop position (a slot, a foreign render prop — but NOT an unclaimed `defhost` slot, and NOT one declared a ReactNode position in `:slots`; both refuse, see the 2026-08-06 and 2026-08-11 addenda) | **render** — pure; the return is render output and is not dispatched, and dispatching from inside is `:rf.error/fresco-dispatch-in-render-position`, **naming the position** |
 | `:ref` | React's own: commit phase, node in, cleanup out. Excluded from lowering |
-| anywhere Hicasso does not walk (a raw `#js` prop) | it is a plain function; it runs, and its return is ignored |
+| anywhere Fresco does not walk (a raw `#js` prop) | it is a plain function; it runs, and its return is ignored |
 
-A Hicasso **view's** props map is not a position — it is data in transit, exactly
+A Fresco **view's** props map is not a position — it is data in transit, exactly
 as an intent vector is. The view puts the value on an element and *that* position
 lowers it.
 **The event wrapper forwards every argument its invoker passes.** A native DOM
@@ -2237,7 +2237,7 @@ key-map, and an ordinary value — and the row above is a law about the POSITION
 so the contract is the outer question and the carrier the inner one. `:event`
 keeps the vector and key-map conveniences, because dispatching is exactly what
 that contract means; at `:handler` and at `:render` both are **refused**
-(`:rf.error/hicasso-intent-at-a-non-event-contract`, naming the position), because
+(`:rf.error/fresco-intent-at-a-non-event-contract`, naming the position), because
 each of those carriers is a dispatch and nothing else while neither contract
 dispatches. Reading the value first is how a declaration that says `:handler`
 comes to dispatch a bare intent silently, and how a `:render` position comes to
@@ -2251,7 +2251,7 @@ hands them, and what an event-first foreign contract (`(on-draft event)`) hands
 them too. A value-first invoker (`(on-pick value event)`) has no event there, and
 nothing guesses which of a library's arguments is one: inference at that seam is
 what HD-011 forbids in the first place. The refusal is
-`:rf.error/hicasso-intent-needs-the-event`, naming the position and pointing at
+`:rf.error/fresco-intent-needs-the-event`, naming the position and pointing at
 `h/fn` — the one form, which receives every argument in order — rather than
 leaving the author `value.preventDefault is not a function`, the engine's own
 `TypeError` naming nothing they wrote. An intent carrying neither a marker nor a
@@ -2269,7 +2269,7 @@ engine's own `TypeError` — `props.onPing is not a function` — "naming nothin
 wrote". Making the one form an ordinary function deletes the fifth rule outright,
 because there is nothing that can fail to be callable; making the position select
 the contract deletes the other three, because the role is already declared exactly
-once per crossing and Hicasso already walks the position. Four concepts collapse to
+once per crossing and Fresco already walks the position. Four concepts collapse to
 one: **half the K5 budget back**. The census supports the trade — keyboard-condition
 handlers appear 3 times in 85 idiomatic files, `stopPropagation` 0 times, and
 foreign React components 0 times, so the roster is priced for a component-library
@@ -2294,7 +2294,7 @@ and `:rf/phase` is retired. The rest of this entry stands as written.
 **Amended 2026-08-29 (rf2-6c12m.11).** An override written on a boundary child,
 or anywhere no tray reaches, is dropped rather than refused — a boundary child
 receives `:rf/phase` and the codec's prop walks skip the two private keys, so no
-override reaches the DOM as an attribute. `:rf.error/hicasso-presence-override-on-a-view`
+override reaches the DOM as an attribute. `:rf.error/fresco-presence-override-on-a-view`
 and `-override-out-of-reach` are struck; `-child-not-hiccup` folds into
 `-child-unkeyed`.
 
@@ -2325,11 +2325,11 @@ nothing else can reach that slot in any spelling.
 
 **(2) When the presence child IS a boundary, the phase arrives as an ORDINARY
 PROP** — `[toast-card {:key id :toast t :rf/phase :unmounting}]`. An attribute
-override written on a view head is `:rf.error/hicasso-presence-override-on-a-view`,
+override written on a view head is `:rf.error/fresco-presence-override-on-a-view`,
 naming `:rf/phase`, because the boundary cannot see inside an opaque child and a
 silently dropped override map is the class of failure this ruling exists to delete.
 
-**Consequence: `presence-phase` has no Hicasso equivalent — one fewer public
+**Consequence: `presence-phase` has no Fresco equivalent — one fewer public
 concept against K5.**
 
 **Rationale.** The predecessor exposes phase as an AMBIENT READ, and its own guide
@@ -2382,7 +2382,7 @@ converges), because an effect there would cost a paint with the wrong tree in it
 design** (rf2-2rtt6.66). A presence child is hiccup written in the parent's body
 and **lowered inside presence's own render**, so `intent/*dispatch*` was unbound
 when the codec walked it and *any* intent on *any* presence child raised
-`:rf.error/hicasso-intent-outside-boundary` — the inline dismiss button this
+`:rf.error/fresco-intent-outside-boundary` — the inline dismiss button this
 ruling is sold on could not be written. Presence therefore resolves the frame once
 from the substrate's single internal context and re-binds it (HD-020(a)) around the
 one `as-element` call, so a child lowers exactly as it would have in the parent's
@@ -2407,7 +2407,7 @@ is opted in by **one reserved intent head** at an event position:
 
 The grammar is **closed, and this is all of it**: `[::h/prevent INTENT]` — exactly
 two forms, the second a non-empty intent vector that is not itself a decorator.
-Anything else is `:rf.error/hicasso-malformed-prevent`, **naming the position**.
+Anything else is `:rf.error/fresco-malformed-prevent`, **naming the position**.
 The decorator is **classified and unwrapped at lowering time**, once per render,
 *before* marker analysis — so `::h/value` and `::h/checked` compose inside a
 prevented intent — and what reaches `dispatch` is the ordinary inner vector.
@@ -2457,10 +2457,10 @@ independently and confirmed against the library that has pushed the school
 furthest. **Declined, deliberately:** Replicant carries listener modifiers as
 sibling attribute keys (`:replicant.event/capture`, `:replicant.event/once`,
 `:replicant.event/passive`), which is the sibling-attribute option this ruling
-rejects — an intent in Hicasso **travels as a value** (a view may hand one to a
+rejects — an intent in Fresco **travels as a value** (a view may hand one to a
 child, which places it on an element), and a policy written in a sibling key cannot
 travel with it. **Also declined:** Replicant *infers no meaning* from handler data,
-so it owes no diagnostic and offers none. Hicasso's roster is interpreted —
+so it owes no diagnostic and offers none. Fresco's roster is interpreted —
 `::h/value`, `::h/checked`, and now `::h/prevent` — so it owes one, and the
 refusal follows Freehand's house style instead: state the legal grammar, then what
 was found, then the form to write (`events/event-plan`'s `:rf.error/view-bad-event`
@@ -2498,20 +2498,20 @@ shapes. **Reopens** on the dogfooding condition named under Scope.
 ## HD-027 — `route-link`: a plain function over routing's link seam, and a second reserved head
 
 **Amended 2026-08-30 (rf2-6c12m.15).** The navigate head is demoted to the
-implementation: it reads `:re-frame.hicasso.impl.intent/navigate`, is minted
+implementation: it reads `:re-frame.fresco.impl.intent/navigate`, is minted
 by `route-link` and named in source only as `impl.intent/navigate-head`, and
 is no longer in the door's marker table. It was never author-written — the
 `::h/…` spelling below is the shape as ruled, not a spelling an application
-uses — and with `hicasso-malformed-navigate` struck nothing polices it as a
+uses — and with `fresco-malformed-navigate` struck nothing polices it as a
 public marker. The grammar and the click law are unchanged.
 
 **Amended 2026-08-29 (rf2-6c12m.11).** The navigate map is no longer re-validated
 at lowering — `route-link` mints it and nothing else writes it — so
-`:rf.error/hicasso-malformed-navigate` is struck. The v0 `:prefetch` decline
-(`:rf.error/hicasso-route-link-prefetch-declined`) is struck with it: `:prefetch`
+`:rf.error/fresco-malformed-navigate` is struck. The v0 `:prefetch` decline
+(`:rf.error/fresco-route-link-prefetch-declined`) is struck with it: `:prefetch`
 is a key the link owns and does not read, kept off the anchor.
 
-**Ruling.** The fifth tier-1 shape's Hicasso spelling is **`route-link`, a plain
+**Ruling.** The fifth tier-1 shape's Fresco spelling is **`route-link`, a plain
 function** (`front/route_link.cljs` in the bench arm): the author writes
 `(route-link {:to :conduit.profile/show :params {:username u}} u)` and never sees
 a URL. It renders ONE real `<a>` whose `:href` is routing's own synthesis and
@@ -2534,7 +2534,7 @@ the exact key SET rather than as four presence tests, because a check that
 validates only the keys it knows admits both a map missing `:veto` (an
 uncancelable navigation where a cancelable one was promised) and a map carrying a
 fifth key the lowering then silently drops. Everything else is
-`:rf.error/hicasso-malformed-navigate`, naming the position; decorators do not
+`:rf.error/fresco-malformed-navigate`, naming the position; decorators do not
 nest in either order. Classified and lowered once per render, beside the prevent
 head, in `front/intent.cljs`.
 
@@ -2542,10 +2542,10 @@ head, in `front/intent.cljs`.
 href, payload and `:native?` come from `:routing/link-model` at render; the click
 runs `:routing/activate-link!` — the substrate-neutral late-bound seams routing
 publishes for exactly this consumer class, already consumed by `rf/route-link`,
-`ui/route-link` and Freehand's `v/route-link`. Hicasso restates **none** of the
+`ui/route-link` and Freehand's `v/route-link`. Fresco restates **none** of the
 click law (caller veto first, modifier/auxiliary and native-anchor deferral,
 `preventDefault` + dispatch to the render-captured frame with `:source :router`),
-and the packaging graph stays `hicasso → core late-bind ← routing`. A missing
+and the packaging graph stays `fresco → core late-bind ← routing`. A missing
 routing artefact fails at RENDER with `:rf.error/routing-artefact-missing` naming
 the link's `:to`; a hook that vanished between render and click (dev hot-reload)
 degrades to native navigation after the veto runs, never a throw at a detached
@@ -2564,7 +2564,7 @@ composition machinery exists: `activate-link!` already honours `defaultPrevented
 and the prevent head already sets it.
 
 **Not a boundary, deliberately.** Freehand's `v/route-link` is a `defview`; here
-that citation is declined. A Hicasso boundary costs two hooks and a row in every
+that citation is declined. A Fresco boundary costs two hooks and a row in every
 boundary count, and the census's 106 links live INSIDE rows that are already
 boundaries — an author byline is not a unit of re-render. `route-link` is a plain
 function like the card: it inlines, mints no boundary, adds no hook, and reads no
@@ -2579,18 +2579,18 @@ Freehand's `require-current-frame!` precedent, in the collector's ambient idiom.
 click law. **Freehand (taken):** render-time frame capture; render-time
 artefact-missing refusal; the one-intent-per-click law at the veto position.
 **(Declined:** its fn-only `:on-click` roster — Freehand has no in-band spelling
-for "cancel-and-replace"; Hicasso does, and admits exactly it.**)**
+for "cancel-and-replace"; Fresco does, and admits exactly it.**)**
 **Replicant via HD-026 (taken):** behaviour as a namespaced-keyword-headed vector
 `=` can see — two renders of one link are equal data, and a structural test reads
 the click decision off the tree. **(Declined:** Replicant's global body-level
 click interceptor for routing — ambient behaviour no vector carries is what the
 in-band school exists to avoid.**)** **Also declined for v0:** the
 `:prefetch :intent` trio routing publishes and Freehand consumes — the census
-counts no prefetch site, and the opt-in is sugar over an event a Hicasso author
+counts no prefetch site, and the opt-in is sugar over an event a Fresco author
 can already spell at an ordinary intent position. **Declined means REFUSED, not
 ignored**: any present `:prefetch` fails at render with
-`:rf.error/hicasso-route-link-prefetch-declined`, `:intent` included. Routing's
-`link-model` validates and ACCEPTS `:intent` while Hicasso installs none of the
+`:rf.error/fresco-route-link-prefetch-declined`, `:intent` included. Routing's
+`link-model` validates and ACCEPTS `:intent` while Fresco installs none of the
 three handlers behind the opt-in, so a key that merely fell through would leave a
 link that prefetches nothing, says so nowhere, and carries a stray `prefetch`
 attribute on the anchor.
@@ -2618,7 +2618,7 @@ the line. `rf2-cno31` then decomposed it
 the ruling survives the measurement intact, for two reasons the profile
 establishes:
 
-- **77% of the term was routing's, not Hicasso's** — `route-url` synthesis
+- **77% of the term was routing's, not Fresco's** — `route-url` synthesis
   (66.6%) plus the render-time strategy consult (10.2%). "The same cost every
   other link surface pays" was exactly right, and it is why the remedy landed in
   routing rather than behind `route-link`: cheapening it there would have left
@@ -2649,7 +2649,7 @@ zero-prefetch count stops describing the corpus.
 **Amends [HD-006](#hd-006--memoization-defaults--amended-2026-08-02). This is the
 evidence-driven overturn HD-006 itself provided for, not a change of taste.**
 
-**Ruling.** A **value-equality bail-out is the DEFAULT at every minted Hicasso
+**Ruling.** A **value-equality bail-out is the DEFAULT at every minted Fresco
 boundary** — CLJS `=` over the complete `rfProps` value — implemented as a
 **codec-level stable memo wrapper**.
 
@@ -2708,14 +2708,14 @@ cached** (`cached-react-class`; the source comment reads *"the memo wrap is
 required"*). Every structural choice above is therefore the incumbent's: `=` over
 the complete value, a custom comparator because shallow identity cannot work, one
 stable wrapper per head, and fail-open. **UIx 1.4.4**'s `uix.core/memo` defaults to
-`=` over `argv` *plus* `:children` when present — Hicasso's `rfProps` already
+`=` over `argv` *plus* `:children` when present — Fresco's `rfProps` already
 carries `:children` as realized hiccup, so the compared value matches UIx's
 without a special case, and hiccup children compare structurally where React
 elements would only compare by identity.
 
 **Declined, with reasons.** *Reagent's `*always-update*` dynamic escape* — its
 comparator consults a dynamic var so `force-update-all` can bypass the bail-out for
-hot reload. Hicasso does not need it: re-evaluating a `defview` re-mints the head
+hot reload. Fresco does not need it: re-evaluating a `defview` re-mints the head
 *and* its wrapper, which is a new React element **type**, so HMR replaces the
 subtree rather than needing to force through a comparison. *Reagent's class-path
 polarity* — stock `shouldComponentUpdate` catches a comparison throw and returns
@@ -2763,8 +2763,8 @@ verified quiet before each run, exit 0 on all three
 
 | R=0 shell | no wrapper | wrapper | delta | vs the 1 KB line |
 |---|---:|---:|---:|---|
-| Hicasso, Reagent segment | 994 B [985–1,003] | **1,099.5 B** [1,088–1,112] | **+105.5 B, +10.6%** | 0.99× → **1.10×** |
-| Hicasso, UIx segment | 992 B [985–998] | **1,097 B** [1,092–1,105] | **+105.0 B, +10.6%** | 0.99× → **1.10×** |
+| Fresco, Reagent segment | 994 B [985–1,003] | **1,099.5 B** [1,088–1,112] | **+105.5 B, +10.6%** | 0.99× → **1.10×** |
+| Fresco, UIx segment | 992 B [985–998] | **1,097 B** [1,092–1,105] | **+105.0 B, +10.6%** | 0.99× → **1.10×** |
 
 *(The 2026-08-02 pair read 1,141 → 1,247 B and 1,138 → 1,236 B: +106 B / +9.3%
 and +98 B / +8.6%. The **delta reproduced to within 1 B on both segments**; the
@@ -2829,9 +2829,9 @@ to refuse, and makes every `for` site a performance decision.
 retained-heap bar on a shape that matters, the same comparator ships as an explicit
 boundary-level opt-in and HD-006 is restored as the default.
 
-## HD-029 — The P2 fork: Hicasso graduates, as a success
+## HD-029 — The P2 fork: Fresco graduates, as a success
 
-**Ruling.** The P2 fork is ruled: **Hicasso graduates, and the programme's
+**Ruling.** The P2 fork is ruled: **Fresco graduates, and the programme's
 outcome is recorded as a SUCCESS.** Given by the operator directly in chat on
 **2026-08-13 at 04:57 AUSEST**, which is the decider
 [HD-013](#hd-013--governance) reserves this ruling to; the advisory passes
@@ -2845,15 +2845,15 @@ kill-table dispositions as they stand at graduation are in
 
 **Consequences, and each one is a consequence rather than a new decision.**
 
-**(a) v0 proceeds in `implementation/hicasso/`**, which is already the live
+**(a) v0 proceeds in `implementation/fresco/`**, which is already the live
 tree. [HD-017](#hd-017--code-residence-and-graduation)'s graduation clause is
 executed by this ruling rather than pending it, and
 [HD-018](#hd-018--end-state)'s end state is the one v0 now works toward — on
 its own stated conditions, which this ruling does not discharge.
 
-**(b) The adapters remain first-class alongside it.** Graduating Hicasso is not
+**(b) The adapters remain first-class alongside it.** Graduating Fresco is not
 a demotion of the Reagent, reagent-slim and UIx adapters: they stay supported,
-and they remain the standing comparator every Hicasso measurement is taken
+and they remain the standing comparator every Fresco measurement is taken
 against ([HD-012](#hd-012--the-bar-and-uixs-role-in-it)).
 
 **(c) The held K1 price is accepted, and the amendment is ratified by this
@@ -2879,7 +2879,7 @@ sibling sites are.
 ruling given is a ruling: the sitting was the *forum* prepared to obtain one,
 never a condition on the operator's authority to give it. Recording it here, in
 the entry series that HD-013 makes normative, is what keeps the fork's outcome
-where every other Hicasso decision already lives, rather than resident only in a
+where every other Fresco decision already lives, rather than resident only in a
 tracker note. The direction itself was argued in the
 [decision brief](product/decision-brief.md) and is not re-argued here.
 
@@ -2910,8 +2910,8 @@ its author declared for that phase, and branches on those.
 ```
 
 **The number that decided it.** The bead asked for one spelling and named no
-lean, so the count was taken at the consumer-facing sites — `docs/core/hicasso`
-and `implementation/hicasso/test`, the two trees that show what an author
+lean, so the count was taken at the consumer-facing sites — `docs/core/fresco`
+and `implementation/fresco/test`, the two trees that show what an author
 writes — before any edit:
 
 | Spelling | docs/core | test | consumer-shaped total | src |
@@ -2926,7 +2926,7 @@ longer teaches a rule for elements and a different rule for views, and the
 "override on a view head does nothing" special case disappears rather than
 being documented. A view is handed ordinary props under names its author
 chose, so a headless test supplies the exiting shape as a plain map with no
-reserved key to know about. And Hicasso stops minting a key in core's reserved
+reserved key to know about. And Fresco stops minting a key in core's reserved
 `:rf/` root for a concept that is the motion module's own — the module's
 vocabulary now lives entirely in the module's namespace, which is what
 naming-ledger row 31's respelling was for.

@@ -1,7 +1,7 @@
-;; THE HICASSO BENCH LANE — its own shadow-cljs project (rf2-6c12m.1).
+;; THE FRESCO BENCH LANE — its own shadow-cljs project (rf2-6c12m.1).
 ;;
-;; This tree is the measurement harness the Hicasso programme's numbers were
-;; taken on. It lived inside implementation/hicasso/test until rf2-6c12m.1
+;; This tree is the measurement harness the Fresco programme's numbers were
+;; taken on. It lived inside implementation/fresco/test until rf2-6c12m.1
 ;; moved it here, off the package classpath and off every per-PR lane: its
 ;; suites exercise LOCAL COPIES of the runtime (see README.md), so running
 ;; them on every PR could not catch a regression in the shipped one. The lane
@@ -13,16 +13,16 @@
 ;; an arm starts requiring something new. `core/test` is here for the shared
 ;; bench helpers that stayed in the package (`re-frame.bench.calibration`,
 ;; `order-guard`, `p0-fixture`, `p0-workcount`) and `re-frame.test-support`;
-;; `hicasso/test` for the witness applications under
-;; `re-frame.hicasso.examples.*` that the slice and ledger clocks drive.
+;; `fresco/test` for the witness applications under
+;; `re-frame.fresco.examples.*` that the slice and ledger clocks drive.
 ;;
 ;; The COMPILE is what derives them, and there is no roster test to keep in
 ;; step: `npm run check`'s first arm walks `src/` and compiles every namespace
 ;; under it warnings-fatal from a cleared cache, so a root the closure does
 ;; not reach cannot change the build, and one it does reach reds the gate by
 ;; name. MEASURED both ways when rf2-6r9j.82 dropped `spec-resource/src` and
-;; `spec` from this list: dropping `hicasso/src` instead fails with
-;; `re-frame.hicasso is not available`, while dropping those two left the same
+;; `spec` from this list: dropping `fresco/src` instead fails with
+;; `re-frame.fresco is not available`, while dropping those two left the same
 ;; 155 namespaces compiling warnings-free to the same 931 output files. The
 ;; comparison is that file SET and not its bytes: two compiles of one
 ;; unchanged tree do not agree byte for byte. Neither root had ever been
@@ -40,9 +40,9 @@
                 "../../implementation/adapters/reagent/src"
                 "../../implementation/adapters/reagent-slim/src"
                 "../../implementation/adapters/uix/src"
-                "../../implementation/hicasso/src"
-                "../../implementation/hicasso/test"
-                "../../implementation/hicasso/test_kit/src"
+                "../../implementation/fresco/src"
+                "../../implementation/fresco/test"
+                "../../implementation/fresco/test_kit/src"
                 "../../implementation/http/src"
                 "../../implementation/resources/src"
                 "../../implementation/resources/test"
@@ -61,7 +61,7 @@
   ;; `--config-merge {:output-dir … :modules {:main {:init-fn …}}}` — so a
   ;; sibling arm needs no edit here. shadow-cljs keys the build cache on the
   ;; id alone, before any merge, so every rider clears
-  ;; `.shadow-cljs/builds/hicasso-bench` first (`lane_cache.cjs`, rf2-2rtt6.20)
+  ;; `.shadow-cljs/builds/fresco-bench` first (`lane_cache.cjs`, rf2-2rtt6.20)
   ;; and `lane_cache_wiring.test.cjs` holds them to it.
   ;;
   ;; `:advanced` with goog.DEBUG false, because HD-012 makes every bar number a
@@ -71,15 +71,15 @@
   ;; measures. A plain `:browser` module with an `:init-fn` rather than a test
   ;; build, since `:advanced` cannot compile `:browser-test`. No `:dev-http`
   ;; — compiled and driven, never served.
-  :hicasso-bench
+  :fresco-bench
   {:target     :browser
-   :output-dir "out/hicasso-bench"
+   :output-dir "out/fresco-bench"
    :asset-path "."
    :js-options {:node-modules-dir "../../implementation/node_modules"}
    :compiler-options {:optimizations   :advanced
                       :infer-externs   :auto
                       :closure-defines {goog.DEBUG false}}
-   :modules {:main {:init-fn re-frame.bench.hicasso.p0-reagent-app/-main}}}
+   :modules {:main {:init-fn re-frame.bench.fresco.p0-reagent-app/-main}}}
 
   ;; THE SAME LANE'S NODE PROGRAM ID. Two drivers need a program under Node:
   ;; `ssr/driver.cjs` (`renderToString` resolves `react-dom/server` through
@@ -94,9 +94,9 @@
   ;; externs, so with `:auto` merged over it the build raised eight
   ;; `:infer-warning`s — four in core's spine.cljs, four in the lane's own
   ;; front/arm1 files — and `lane_build.cjs` is warnings-fatal.
-  :hicasso-bench-node
+  :fresco-bench-node
   {:target    :node-script
-   :main      re-frame.bench.hicasso.ssr.node/-main
-   :output-to "out/hicasso-bench-node.js"
+   :main      re-frame.bench.fresco.ssr.node/-main
+   :output-to "out/fresco-bench-node.js"
    :js-options {:node-modules-dir "../../implementation/node_modules"}
    :compiler-options {:infer-externs false}}}}

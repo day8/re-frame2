@@ -1,10 +1,10 @@
-(ns re-frame.bench.hicasso.ssr.fixtures
+(ns re-frame.bench.fresco.ssr.fixtures
   "THE SSR CONFORMANCE CORPUS (rf2-2rtt6.86 clause 3) — the requests the
   bake driver bakes and the witnesses assert on.
 
   One ordered vector, because the corpus is a ROSTER and a roster whose
   order moves is a fixture set whose file names move with it. Each row is
-  exactly the `opts` map [[re-frame.bench.hicasso.ssr.entry/render]]
+  exactly the `opts` map [[re-frame.bench.fresco.ssr.entry/render]]
   takes, plus an `:id` naming its output files and a `:why` naming what it
   is here to cover — a row that cannot say what it covers is a row nobody
   can decide to delete.
@@ -34,7 +34,7 @@
     events write `h/reg-state` instance state, rendered once with `:ui`
     on the allowlist and once without it. The two rows are a matched
     pair and only mean anything together; see
-    [[re-frame.bench.hicasso.ssr.instance-key]] and the witness
+    [[re-frame.bench.fresco.ssr.instance-key]] and the witness
     `ssr/instance-key-payload-dom-cljs-test`.
 
   ## The host rows are REAL DECLARATIONS (rf2-2rtt6.92)
@@ -48,21 +48,21 @@
   both rows are written the way an author writes them —
   `(defhost … {:ssr …})` — and the server HTML they assert on is
   therefore evidence about the public declaration."
-  (:require [re-frame.bench.hicasso.arm1.dogfood-collector :as rf.bench.hicasso.arm1.dogfood-collector]
-            [re-frame.bench.hicasso.arm1.presence :refer [presence]]
+  (:require [re-frame.bench.fresco.arm1.dogfood-collector :as rf.bench.fresco.arm1.dogfood-collector]
+            [re-frame.bench.fresco.arm1.presence :refer [presence]]
             ;; `defview` and `defhost` are not compilers — they expand to
             ;; `runtime/mint-view!` and `codec/mint-host!` calls, so the
             ;; two namespaces they name are ordinary runtime requires of
             ;; this one even though no alias is spelled below.
-            [re-frame.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.front.codec]
-            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
-            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
-            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
-            [re-frame.bench.hicasso.ssr.instance-key :as rf.bench.hicasso.ssr.instance-key]
+            [re-frame.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.front.codec]
+            [re-frame.bench.fresco.front.dogfood :as rf.bench.fresco.front.dogfood]
+            [re-frame.bench.fresco.shapes.large-template :as rf.bench.fresco.shapes.large-template]
+            [re-frame.bench.fresco.shapes.model :as rf.bench.fresco.shapes.model]
+            [re-frame.bench.fresco.ssr.instance-key :as rf.bench.fresco.ssr.instance-key]
             [re-frame.routing :as rf.routing]
             ["react" :as react])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defhost defview]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defhost defview]]))
 
 ;; ---------------------------------------------------------------------------
 ;; The host rows
@@ -195,14 +195,14 @@
   row's server bytes are born-present too and carry no `toast--enter` at
   all. `the-server-render-ships-no-mounting-overrides` asserts exactly
   that, and this row is the only shape in the corpus that can go red if
-  the window is ever removed. See [[re-frame.bench.hicasso.ssr.entry]]
+  the window is ever removed. See [[re-frame.bench.fresco.ssr.entry]]
   §The adoption window."
   [presence {:timeout-ms 200}
    (for [i (range 2)]
      [:div.toast {:key                          i
                   :data-id                      i
-                  :re-frame.hicasso/mounting    {:class "toast--enter"}
-                  :re-frame.hicasso/unmounting  {:class "toast--exit"}}
+                  :re-frame.fresco/mounting    {:class "toast--enter"}
+                  :re-frame.fresco/unmounting  {:class "toast--exit"}}
       (str "toast " i)])])
 
 ;; ---------------------------------------------------------------------------
@@ -219,33 +219,33 @@
   "The ordered roster. See the namespace docstring."
   [{:id     "dogfood-snapshot"
     :why    "the dogfood screen, seeded through the :rf/set-db snapshot-in door, with a key allowlist"
-    :hiccup [rf.bench.hicasso.arm1.dogfood-collector/screen {}]
-    :snapshot (rf.bench.hicasso.front.dogfood/seed-db 8)
+    :hiccup [rf.bench.fresco.arm1.dogfood-collector/screen {}]
+    :snapshot (rf.bench.fresco.front.dogfood/seed-db 8)
     :payload  dogfood-payload-keys
-    :title    "Hicasso SSR — dogfood (snapshot-in)"
+    :title    "Fresco SSR — dogfood (snapshot-in)"
     :script-src "/main.js"}
 
    {:id     "dogfood-initial-events"
     :why    "the same screen through the :initial-events door, and the whole-app-db payload opt-in"
-    :hiccup [rf.bench.hicasso.arm1.dogfood-collector/screen {}]
+    :hiccup [rf.bench.fresco.arm1.dogfood-collector/screen {}]
     :initial-events [[:dogfood/seed 3]
                      [:dogfood/toggle 1]
-                     [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key "half typed"]]
+                     [:dogfood/edit-draft rf.bench.fresco.front.dogfood/new-draft-key "half typed"]]
     :payload  :rf.ssr.payload/whole-app-db
-    :title    "Hicasso SSR — dogfood (initial-events)"
+    :title    "Fresco SSR — dogfood (initial-events)"
     :script-src "/main.js"}
 
    {:id     "conduit-feed"
     :why    "a tier-1 bulk shape — the ~1,200-element Conduit feed page, at the size the bar rows are taken at"
-    :hiccup [rf.bench.hicasso.shapes.large-template/page {}]
-    :snapshot   (rf.bench.hicasso.shapes.model/seed-db rf.bench.hicasso.shapes.large-template/seed)
+    :hiccup [rf.bench.fresco.shapes.large-template/page {}]
+    :snapshot   (rf.bench.fresco.shapes.model/seed-db rf.bench.fresco.shapes.large-template/seed)
     ;; The census is a HASH-URL app and its anchors go through routing's
     ;; `link-model`, whose strategy consult defaults to the history
     ;; strategy when a frame declares none — so the frame declares the
     ;; one `shapes/model/make-frame!` declares, through the same door.
     :frame-opts {:url-strategy rf.routing/hash-url-strategy}
     :payload    [:articles :order :tags :user :page :your-feed?]
-    :title      "Hicasso SSR — conduit feed"
+    :title      "Fresco SSR — conduit feed"
     :script-src "/main.js"}
 
    {:id     "presence-mounting"
@@ -253,7 +253,7 @@
     :hiccup presence-tray
     :snapshot {}
     :payload  :rf.ssr.payload/whole-app-db
-    :title    "Hicasso SSR — presence (born present)"
+    :title    "Fresco SSR — presence (born present)"
     :script-src "/main.js"}
 
    {:id     "defhost-ssr-policy"
@@ -261,7 +261,7 @@
     :hiccup host-screen
     :snapshot {}
     :payload  :rf.ssr.payload/whole-app-db
-    :title    "Hicasso SSR — defhost :ssr policy"
+    :title    "Fresco SSR — defhost :ssr policy"
     :script-src "/main.js"}
 
    {:id     "defhost-ssr-render"
@@ -269,7 +269,7 @@
     :hiccup render-host-screen
     :snapshot {}
     :payload  :rf.ssr.payload/whole-app-db
-    :title    "Hicasso SSR — defhost :ssr :render"
+    :title    "Fresco SSR — defhost :ssr :render"
     :script-src "/main.js"}
 
    {:id     "defhost-ssr-nested"
@@ -277,7 +277,7 @@
     :hiccup nested-host-screen
     :snapshot {}
     :payload  :rf.ssr.payload/whole-app-db
-    :title    "Hicasso SSR — defhost :ssr policy, nested"
+    :title    "Fresco SSR — defhost :ssr policy, nested"
     :script-src "/main.js"}
 
    ;; THE MATCHED PAIR. Same hiccup, same boot events, same everything
@@ -288,18 +288,18 @@
    ;; React's own hydration-mismatch machinery and nothing else.
    {:id     "instance-key-payload"
     :why    "server boot events write reg-state instance state and the allowlist NAMES :ui — the obligation met"
-    :hiccup [rf.bench.hicasso.ssr.instance-key/screen {}]
-    :initial-events rf.bench.hicasso.ssr.instance-key/boot-events
-    :payload  (conj rf.bench.hicasso.ssr.instance-key/domain-keys :ui)
-    :title    "Hicasso SSR — instance state, :ui shipped"
+    :hiccup [rf.bench.fresco.ssr.instance-key/screen {}]
+    :initial-events rf.bench.fresco.ssr.instance-key/boot-events
+    :payload  (conj rf.bench.fresco.ssr.instance-key/domain-keys :ui)
+    :title    "Fresco SSR — instance state, :ui shipped"
     :script-src "/main.js"}
 
    {:id     "instance-key-payload-omitted"
     :why    "the SAME page with :ui OMITTED — a well-formed allowlist that strands the instance state, and the red-by-design half of the obligation witness"
-    :hiccup [rf.bench.hicasso.ssr.instance-key/screen {}]
-    :initial-events rf.bench.hicasso.ssr.instance-key/boot-events
-    :payload  rf.bench.hicasso.ssr.instance-key/domain-keys
-    :title    "Hicasso SSR — instance state, :ui stranded"
+    :hiccup [rf.bench.fresco.ssr.instance-key/screen {}]
+    :initial-events rf.bench.fresco.ssr.instance-key/boot-events
+    :payload  rf.bench.fresco.ssr.instance-key/domain-keys
+    :title    "Fresco SSR — instance state, :ui stranded"
     :script-src "/main.js"}])
 
 (defn ids
@@ -320,5 +320,5 @@
   Idempotent, and called by every driver and every witness before the
   first render so no caller has to remember an ordering."
   []
-  (rf.bench.hicasso.shapes.model/register-routes!)
+  (rf.bench.fresco.shapes.model/register-routes!)
   nil)

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // THE IME COMPOSITION HARNESS — driver (rf2-o27h3).
 //
-//   node implementation/hicasso/test/re_frame/bench/hicasso/ime_run.cjs
+//   node implementation/fresco/test/re_frame/bench/fresco/ime_run.cjs
 //
 // Drives REAL composition exchanges — CDP `Input.imeSetComposition` /
 // `Input.insertText` / `Input.dispatchKeyEvent` — against the three
@@ -41,7 +41,7 @@
 // the row claiming the behaviour is desired.
 //
 // Since **rf2-digtt** the mid-composition rows are two conducts rather
-// than one, and the difference is the point. `hicasso` carries the
+// than one, and the difference is the point. `fresco` carries the
 // COMPOSITION CARVE-OUT — nothing writes a controlled text field while a
 // composition is live, and the refusal or normalisation lands whole at
 // `compositionend` — so its rows are `(CARVE-OUT)`. `react` and
@@ -88,9 +88,9 @@ const { shadowBuild } = require('./lane_build.cjs');
 const PROJECT = path.resolve(__dirname, '../../../..');
 const IMPL = path.resolve(PROJECT, '../../implementation');
 
-const BUILD_ID = 'hicasso-bench';
-const OUT_DIR = process.env.IME_OUT_DIR || 'out/hicasso-ime';
-const INIT_FN = 're-frame.bench.hicasso.ime-app/-main';
+const BUILD_ID = 'fresco-bench';
+const OUT_DIR = process.env.IME_OUT_DIR || 'out/fresco-ime';
+const INIT_FN = 're-frame.bench.fresco.ime-app/-main';
 const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.IME_PORT || 8146);
 const READY_TIMEOUT_MS = 60 * 1000;
@@ -101,7 +101,7 @@ const READY_TIMEOUT_MS = 60 * 1000;
 // silently-skipped page while leaving room for per-impl variation.
 const MIN_CHECKS = 100;
 
-const ALL_IMPLS = ['hicasso', 'react', 'uix-port'];
+const ALL_IMPLS = ['fresco', 'react', 'uix-port'];
 // `IME_ONLY=react` runs one page over the same bundle and gates —
 // development convenience; the floor is prorated so a partial run can
 // still be green while a partial run masquerading as full cannot.
@@ -138,7 +138,7 @@ const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'applicat
 function serve() {
   fs.writeFileSync(
     path.join(OUT, 'index.html'),
-    '<!doctype html><html><head><meta charset="utf-8"><title>Hicasso IME harness</title></head>' +
+    '<!doctype html><html><head><meta charset="utf-8"><title>Fresco IME harness</title></head>' +
       '<body><div id="app"></div><script src="main.js"></script></body></html>'
   );
   return http
@@ -185,7 +185,7 @@ const state = async (page) => JSON.parse(await page.evaluate('window.IME_STATE()
 const clearLog = (page) => page.evaluate('window.IME_CLEAR_LOG()');
 // Two animation frames and a macrotask: the uix-port's refusal path
 // converges on Reagent's after-render queue (drained from rAF), and the
-// cell/entry reapers in the hicasso runtime ride a macrotask.
+// cell/entry reapers in the fresco runtime ride a macrotask.
 const settle = (page) =>
   page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 0)))));
 const reset = async (page) => { await page.evaluate('window.IME_RESET()'); await settle(page); };
@@ -287,7 +287,7 @@ async function s1Carriage(page, cdp, R) {
 
   // The handler layer — what the application's own handlers saw.
   const handler = handlerOf(st, 'plain');
-  if (R.impl === 'hicasso') {
+  if (R.impl === 'fresco') {
     const hStarts = ofType(handler, 'compositionstart');
     const hEnds = ofType(handler, 'compositionend');
     R.check('s1: React delivered onCompositionStart/End to the event probes',
@@ -327,7 +327,7 @@ async function s2ComposingEnter(page, cdp, R) {
     kd.length === 1 && kd[0].isComposing === true && kd[0].isTrusted === true, kd);
   R.check('s2: LAW — a composing Enter commits nothing', st.committed.plain === undefined, st.committed);
 
-  if (R.impl !== 'hicasso') {
+  if (R.impl !== 'fresco') {
     const hkd = ofType(handlerOf(st, 'plain'), 'keydown');
     R.check('s2: the handler saw isComposing true on the NATIVE event',
       hkd.length === 1 && hkd[0].nativeIsComposing === true, hkd);
@@ -398,7 +398,7 @@ async function s4Cancel(page, cdp, R) {
     if (field === 'plain') {
       R.check('s4 [plain]: a compositionend closed the exchange, with empty data',
         ends.length >= 1 && ends[ends.length - 1].data === '', ends.map((e) => e.data));
-    } else if (R.impl === 'hicasso') {
+    } else if (R.impl === 'fresco') {
       // THE CARVE-OUT, on the cancel path (rf2-digtt). Nothing wrote the
       // field while the composition was live, so there IS a composition
       // for the cancel to cancel — and cancelling it is the ordinary
@@ -438,7 +438,7 @@ async function s4Cancel(page, cdp, R) {
 // and they are flipped here on purpose (rf2-digtt).** Two conducts now,
 // asserted as a DIVERGENCE rather than as parity:
 //
-//   - `hicasso` re-pins ONE uninterrupted compositionstart → compositionend
+//   - `fresco` re-pins ONE uninterrupted compositionstart → compositionend
 //     exchange. Nothing writes the field while the composition is live;
 //     the model refuses or normalises every intermediate state exactly as
 //     before; and the refusal or normalisation lands whole, once, at the
@@ -450,7 +450,7 @@ async function s4Cancel(page, cdp, R) {
 
 async function s5MidComposition(page, cdp, R, out) {
   // The carve-out is Arm 1's; the other two pages are the baseline.
-  const carved = R.impl === 'hicasso';
+  const carved = R.impl === 'fresco';
 
   // -- digits: the refusing model -------------------------------------------
   await reset(page);
@@ -650,26 +650,26 @@ async function runImpl(browser, impl) {
   // here, and what has to be asserted is that the divergence is real and
   // that it is scoped to the live composition and nothing else.
   const by = Object.fromEntries(outcomes.map((o) => [o.impl, o]));
-  if (by.hicasso && by.react) {
-    const R = by.hicasso.R;
-    console.log(';; ==== IME comparative (hicasso vs the plain-React baseline) ====');
+  if (by.fresco && by.react) {
+    const R = by.fresco.R;
+    console.log(';; ==== IME comparative (fresco vs the plain-React baseline) ====');
     R.check('comparative: THE DIVERGENCE — one uninterrupted exchange on the arm where React aborts and the IME restarts',
-      by.hicasso.digits.starts === 1 && by.react.digits.starts === 2,
-      { hicasso: by.hicasso.digits.starts, react: by.react.digits.starts });
+      by.fresco.digits.starts === 1 && by.react.digits.starts === 2,
+      { fresco: by.fresco.digits.starts, react: by.react.digits.starts });
     R.check('comparative: and the arm reaches a compositionend where React delivers none at all',
-      by.hicasso.digits.ends === 1 && by.react.digits.ends === 0,
-      { hicasso: by.hicasso.digits.ends, react: by.react.digits.ends });
+      by.fresco.digits.ends === 1 && by.react.digits.ends === 0,
+      { fresco: by.fresco.digits.ends, react: by.react.digits.ends });
     R.check('comparative: mid-composition the arm shows the DRAFT where React has already written the refused-to value',
-      by.hicasso.digits.settled === '12し' && by.react.digits.settled === '12',
-      { hicasso: by.hicasso.digits.settled, react: by.react.digits.settled });
+      by.fresco.digits.settled === '12し' && by.react.digits.settled === '12',
+      { fresco: by.fresco.digits.settled, react: by.react.digits.settled });
     R.check('comparative: THE SCOPE — the refusal itself is identical. Same model throughout, same field once the exchange closes',
-      by.hicasso.digits.model === by.react.digits.model &&
-        by.hicasso.digits.closed === by.react.digits.closed,
-      { hicasso: by.hicasso.digits, react: by.react.digits });
+      by.fresco.digits.model === by.react.digits.model &&
+        by.fresco.digits.closed === by.react.digits.closed,
+      { fresco: by.fresco.digits, react: by.react.digits });
     R.check('comparative: on the normalising field the same divergence — one uninterrupted exchange against two, a compositionend against none',
-      by.hicasso.upper.starts === 1 && by.react.upper.starts === 2 &&
-        by.hicasso.upper.ends === 1 && by.react.upper.ends === 0,
-      { hicasso: by.hicasso.upper, react: by.react.upper });
+      by.fresco.upper.starts === 1 && by.react.upper.starts === 2 &&
+        by.fresco.upper.ends === 1 && by.react.upper.ends === 0,
+      { fresco: by.fresco.upper, react: by.react.upper });
     // MEASURED 2026-08-03, and the row the digits scope-claim above does
     // NOT extend to: on a normalising model the baseline's abort does not
     // merely lose the composition, it CORRUPTS what the exchange commits.
@@ -678,19 +678,19 @@ async function runImpl(browser, impl) {
     // `S` → `SSH`, the commit on top of that → `SSHSH`. The arm, having
     // written nothing until the end, commits the `SH` the user typed.
     R.check('comparative: THE SCOPE, on the normalising field — the arm commits what was composed; the baseline commits what its own restarts left behind',
-      by.hicasso.upper.model === 'SH' && by.react.upper.model === 'SSHSH',
-      { hicasso: by.hicasso.upper.model, react: by.react.upper.model });
+      by.fresco.upper.model === 'SH' && by.react.upper.model === 'SSHSH',
+      { fresco: by.fresco.upper.model, react: by.react.upper.model });
   }
-  if (by.hicasso && by['uix-port']) {
-    const R = by.hicasso.R;
+  if (by.fresco && by['uix-port']) {
+    const R = by.fresco.R;
     R.check('comparative: the UIx port aborts the exchange too — one frame later, and the arm diverges from it identically',
-      by.hicasso.digits.starts === 1 && by['uix-port'].digits.starts === 2,
-      { hicasso: by.hicasso.digits.starts, 'uix-port': by['uix-port'].digits.starts });
+      by.fresco.digits.starts === 1 && by['uix-port'].digits.starts === 2,
+      { fresco: by.fresco.digits.starts, 'uix-port': by['uix-port'].digits.starts });
   }
 
   console.log(';; ==== IME RUNTIME ====');
   console.log(`;; chromium (playwright), DEV bundle (:none — see header), pages: ${IMPLS.join(', ')}`);
-  console.log(`;; reproduce  ${ONLY ? `IME_ONLY=${ONLY} ` : ''}node implementation/hicasso/test/re_frame/bench/hicasso/ime_run.cjs`);
+  console.log(`;; reproduce  ${ONLY ? `IME_ONLY=${ONLY} ` : ''}node implementation/fresco/test/re_frame/bench/fresco/ime_run.cjs`);
 
   const errored = outcomes.filter((o) => o.pageErrors.length > 0);
   if (errored.length > 0) {

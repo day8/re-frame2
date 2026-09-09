@@ -1,5 +1,5 @@
-(ns day8.re-frame2-xray.panels.hicasso-helpers-cljs-test
-  "The Hicasso tab's pure algebra (rf2-hic-023).
+(ns day8.re-frame2-xray.panels.fresco-helpers-cljs-test
+  "The Fresco tab's pure algebra (rf2-hic-023).
 
   Two properties carry this suite, and both are about the same thing —
   whether the producer's honesty survives the trip to the screen.
@@ -9,7 +9,7 @@
      unknown as an empty collection buys nothing if the panel then draws
      `capped` and `uncorrelated` identically, and \"distinct\" is a
      property a suite can check where \"we were careful\" is not.
-  2. **The empties are pairwise distinct.** *Not running Hicasso* and *a
+  2. **The empties are pairwise distinct.** *Not running Fresco* and *a
      schema this build cannot parse* have unrelated remedies, and a reader
      who cannot tell them apart is back where the schema found them. The
      third empty — *the roster came back empty* — is not one fact but
@@ -21,7 +21,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer [deftest is testing]])
             [clojure.string :as string]
-            [day8.re-frame2-xray.panels.hicasso-helpers :as hh]))
+            [day8.re-frame2-xray.panels.fresco-helpers :as hh]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures — envelopes shaped exactly as the producer emits them
@@ -178,12 +178,12 @@
 (deftest the-schema-pin-is-consumer-owned-and-exact
   (testing "an envelope stamped anything else degrades rather than mis-parses"
     (is (true? (hh/supported? mounted)))
-    (is (false? (hh/supported? (assoc mounted :schema :re-frame.hicasso.evidence/v99))))
+    (is (false? (hh/supported? (assoc mounted :schema :re-frame.fresco.evidence/v99))))
     (is (false? (hh/supported? (assoc mounted :producer :re-frame/freehand))))
     (is (false? (hh/supported? nil))))
   (testing "an unsupported envelope yields NO rows — never a half-parsed one"
     (doseq [f [hh/mounted-rows hh/attribution-rows hh/intent-rows hh/explain-rows]]
-      (is (= [] (f (assoc mounted :schema :re-frame.hicasso.evidence/v99))))
+      (is (= [] (f (assoc mounted :schema :re-frame.fresco.evidence/v99))))
       (is (= [] (f nil))))))
 
 (deftest the-superseded-v2-shape-is-refused-rather-than-mis-parsed
@@ -195,9 +195,9 @@
   ;; gone, and `:views` replaced `:view` / `:source`. The pin only earns its
   ;; keep if the predecessor now MISMATCHES; there is no acceptance path and
   ;; no compatibility adapter to route around this.
-  (let [v2 (assoc mounted :schema :re-frame.hicasso.evidence/v2)]
+  (let [v2 (assoc mounted :schema :re-frame.fresco.evidence/v2)]
     (testing "the pin names the version whose shape this build actually parses"
-      (is (= :re-frame.hicasso.evidence/v3 hh/consumed-evidence-schema)
+      (is (= :re-frame.fresco.evidence/v3 hh/consumed-evidence-schema)
           (str "the wire shape and the stamp move together or the pin is "
                "nominal — change one and this row says so")))
 

@@ -258,7 +258,7 @@ One rule keeps it wired: hydrate through re-frame2's client mount entry, `(re-fr
 
 **One honest limit.** Adoption reports only what React itself recovers from. An **attribute-only** mismatch — a stale `class`, `style`, or ARIA value on an element whose tag and text still match — is not in that set: React warns in development, makes [no promise to patch it](https://react.dev/reference/react-dom/client/hydrateRoot), and calls neither `onRecoverableError` nor any production equivalent. So a divergent attribute hydrates silently on this tier, with **no** trace. It is a real bug; an adoption tier simply does not carry the structural hash that would catch it — that is the trade the hiccup tier makes by keeping a client render-tree it *can* hash.
 
-Hicasso verifies by adoption for the same reason, and [Hicasso → SSR and hydration](../core/hicasso/18-ssr-and-hydration.md) is where that story is told.
+Fresco verifies by adoption for the same reason, and [Fresco → SSR and hydration](../core/fresco/18-ssr-and-hydration.md) is where that story is told.
 
 ## Step 6 — gate the one-sided code: `:platforms`
 

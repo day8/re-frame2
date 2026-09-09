@@ -2,7 +2,7 @@
 
 Copy the block below into `<pilot-root>/BRIEF.md`. Everything inside it is written *to the pilot agent* and is the only thing that agent is given, alongside the blank friction log and the workspace itself.
 
-The brief is deliberately free of in-tree references: no bead ids, no spec sections, no repository paths except the ones the published documentation itself tells a reader to use. `rf2-lpfz` had to add one — `docs/core/hicasso/` inside the checkout — because the published documentation had nowhere else to live, and naming it was what made the pilot's only reference reachable at all. **That exception is retired under `rf2-pug6`: the documentation site is published, so the brief gives the pilot a URL and the checkout goes back to being a build input with no reading exception at all.** That is not tidiness. A brief that leaks in-tree knowledge does not bend a rule, it invalidates the evidence the pilot exists to produce, and the leak is invisible in the output.
+The brief is deliberately free of in-tree references: no bead ids, no spec sections, no repository paths except the ones the published documentation itself tells a reader to use. `rf2-lpfz` had to add one — `docs/core/fresco/` inside the checkout — because the published documentation had nowhere else to live, and naming it was what made the pilot's only reference reachable at all. **That exception is retired under `rf2-pug6`: the documentation site is published, so the brief gives the pilot a URL and the checkout goes back to being a build input with no reading exception at all.** That is not tidiness. A brief that leaks in-tree knowledge does not bend a rule, it invalidates the evidence the pilot exists to produce, and the leak is invisible in the output.
 
 Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the sentence naming the test command, under `rf2-xkhul`; the address of the published documentation in the read rules, under `rf2-lpfz`, and its flip from the checkout to the published site — with the public Xray manual admitted and outcome 7 moved onto released versions — under `rf2-pug6`; the paragraph naming the page check, under `rf2-ek1a`. Assemble the workspace first, per [`workspace.md`](workspace.md).
 
@@ -12,7 +12,7 @@ Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-direc
 # Your brief
 
 You are migrating two screens of a working ClojureScript application onto a
-view layer called Hicasso, using its published documentation and nothing else.
+view layer called Fresco, using its published documentation and nothing else.
 
 The application is Conduit, a Medium-style blogging app: sign in, write
 articles, follow authors, favourite posts, comment, paginate. It runs offline
@@ -35,7 +35,7 @@ Your two screens are **the feed** and **the article editor**.
 ## The rule
 
 **Everything you need is in the published documentation. You may not use
-anything else to learn how Hicasso works.**
+anything else to learn how Fresco works.**
 
 This is the whole point of the exercise, so it is worth being exact about it.
 The question being asked is not "can this application be migrated" — of course
@@ -51,7 +51,7 @@ afterwards from the code you produce. Only you can tell us.
   <https://day8.github.io/re-frame2/>. It is your reference for everything:
   what to type, what things are called, why something broke, how to test, how
   to build for production. If the site publishes a page, you may read it. The
-  Hicasso guide is the part you will live in, and the Xray manual beside it is
+  Fresco guide is the part you will live in, and the Xray manual beside it is
   documentation on the same footing — outcome 5 sends you there, so read it as
   freely as the guide.
 - Everything in `app/`. That is your codebase. Its README explains what the
@@ -74,7 +74,7 @@ afterwards from the code you produce. Only you can tell us.
 
 **The `re-frame2/` checkout is a build input, not a reference work.** There is
 no reading exception: the documentation is on the site, so nothing in the
-checkout is a reference for how Hicasso works. Two uses of it are expected and
+checkout is a reference for how Fresco works. Two uses of it are expected and
 correct, because the published documentation itself tells you to make them:
 your `deps.edn` resolves the library from it, and the migration tool the
 documentation opens with is run from a path inside it. Both are the documented
@@ -125,7 +125,7 @@ of you, and you should not go looking for more.
    start and capture the result — that baseline is what "still" means. Port
    them as the migration requires and keep them testing behaviour rather than
    markup.
-2. **The feed and the article editor render through Hicasso**, with the same
+2. **The feed and the article editor render through Fresco**, with the same
    behaviour a user sees today. The published migration chapter has a process;
    follow it, including the step that generates a report before you port
    anything.

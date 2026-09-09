@@ -1,6 +1,6 @@
-# The complaint catalogue — Hicasso's diagnostic ids
+# The complaint catalogue — Fresco's diagnostic ids
 
-Every refusal Hicasso raises carries a stable `:rf.error/…` id. That id is
+Every refusal Fresco raises carries a stable `:rf.error/…` id. That id is
 the thing a test asserts on, a tool branches on, an AI pair looks up and a
 consumer's error monitor groups by — so it is a published surface.
 
@@ -12,10 +12,10 @@ restate what a complaint means or what it carries.
 
 | Fact | Owner |
 |---|---|
-| What a complaint means, what it carries, its `:recovery` | `spec/009-Instrumentation.md`, §Hicasso and §Hicasso test kit |
+| What a complaint means, what it carries, its `:recovery` | `spec/009-Instrumentation.md`, §Fresco and §Fresco test kit |
 | Whether an id exists, and whether it is retired | the same Spec 009 rows: a row means the runtime raises it today; a struck-through row is the tombstone |
 | How to write the code so it never fires | the guide chapter each row names |
-| What a spelling should be called | [`naming-ledger.md`](../../../docs/design/hicasso/product/naming-ledger.md), settled by the naming packet (design history since 2026-08-30, `rf2-6c12m.8`) |
+| What a spelling should be called | [`naming-ledger.md`](../../../docs/design/fresco/product/naming-ledger.md), settled by the naming packet (design history since 2026-08-30, `rf2-6c12m.8`) |
 
 One owner per fact, bound by id. The repo-wide
 `scripts/check_keyword_catalogue_drift.py` is what keeps the binding true,
@@ -27,7 +27,7 @@ column below is hand-maintained.
 ## What every complaint carries
 
 A complaint is a thrown `ex-info`, built by
-`re-frame.hicasso.impl.error/fail!` through `re-frame.error/ex-info-from-data`.
+`re-frame.fresco.impl.error/fail!` through `re-frame.error/ex-info-from-data`.
 Its message is the reason with the id appended in brackets, and its `ex-data`
 carries core's four slots:
 
@@ -65,59 +65,59 @@ package's retired ids are listed there, not here.
 
 ## Live complaints
 
-Raised by the shipped package today. The Spec 009 §Hicasso rows carry the
+Raised by the shipped package today. The Spec 009 §Fresco rows carry the
 meaning, the payload and the recovery for each; the chapter column points
 at the guide page that teaches how not to hit it (`—` means no page names
 it yet).
 
-Three ids here are **corpus-owned** — Hicasso reuses a spelling the wider
+Three ids here are **corpus-owned** — Fresco reuses a spelling the wider
 framework already defines rather than minting a private twin — and are
-rowed in Spec 009's main catalogue rather than in its Hicasso section.
+rowed in Spec 009's main catalogue rather than in its Fresco section.
 
 | Complaint | Raised when you | Taught in |
 |---|---|---|
-| `:rf.error/hicasso-bad-head` | put something outside the closed head set in hiccup head position | ch02, ch06, ch16 |
-| `:rf.error/hicasso-bad-host-declaration` | wrote a `defhost` declaration outside its shape — options that are not a map, an option outside `#{:callbacks :slots :server :fallback}`, a `:callbacks` contract outside `:event`/`:render`, a malformed `:slots` set, or a form after the options map; the reason names which | ch09, ch18 |
-| `:rf.error/hicasso-boundary-bad-on-error` | gave `h/error-boundary` an `:on-error` that is neither an intent vector nor a function, so nothing could fire it | — |
-| `:rf.error/hicasso-boundary-unknown-prop` | wrote a key outside `h/error-boundary`'s closed roster — a misspelled `:on-error` is an error boundary that reports nothing | — |
-| `:rf.error/hicasso-deferred-read-at-boundary` | let an unforced `delay` reach a boundary's props | ch02, ch15, ch16 |
-| `:rf.error/hicasso-empty-vector` | wrote `[]` where hiccup was expected | — |
-| `:rf.error/hicasso-file-input-value-marker` | read `::h/value` off a file input, where `.value` is the `C:\fakepath\` fiction and the first file's name — not the files | — |
-| `:rf.error/hicasso-generation-fence-exhausted` | wrote to app-db from a body, on four consecutive runs | — |
-| `:rf.error/hicasso-host-bad-ssr-policy` | gave a `defhost` a `:server` value outside the two it admits, or a `:fallback` the policy beside it cannot carry | ch09, ch18 |
-| `:rf.error/hicasso-host-fallback-boundary-head` | put a `defview` or `defhost` head inside a declared fallback | ch09, ch18 |
-| `:rf.error/hicasso-host-no-component` | declared a `defhost` over `nil` | — |
-| `:rf.error/hicasso-host-unclaimed-callback` | wrote the one callback form at a `defhost` position declared a ReactNode slot, where markup lowers and there is no contract to give a function | ch03, ch09, ch16 |
-| `:rf.error/hicasso-intent-needs-the-event` | wrote an event-reading intent at a value-first foreign callback | ch03, ch09 |
-| `:rf.error/hicasso-intent-outside-boundary` | lowered or fired an intent with no frame-locked dispatch bound | ch16, ch17 |
-| `:rf.error/hicasso-malformed-prevent` | wrapped something other than exactly one intent vector in the prevent decorator | ch03 |
-| `:rf.error/hicasso-overlay-anchor-missing` | gave an overlay an `:anchor` naming a DOM id no element in the document carries. Omitting `:anchor` is legal and silent; naming one that resolves to nothing is the typo this catches | ch13 |
-| `:rf.error/hicasso-presence-child-unkeyed` | gave a presence boundary a child with no `:key` — a child that is not a hiccup vector included | — |
-| `:rf.error/hicasso-presence-timeout-required` | left a presence boundary's timeout absent or not positive | — |
-| `:rf.error/hicasso-raw-not-a-component` | handed the raw escape `nil`, or a `defview`/`defhost` head; any other bad type is React's own error at render | ch09 |
-| `:rf.error/hicasso-revision-not-controlled` | put the reset trigger on something that is not a controlled text field | ch04, ch05, ch16 |
-| `:rf.error/hicasso-route-link-bad-on-click` | gave a route link an `:on-click` outside the route-click roster | — |
-| `:rf.error/hicasso-route-link-outside-boundary` | rendered a route link with no ambient frame | — |
-| `:rf.error/hicasso-state-bad-argument` | gave `reg-state` a concern that is not namespace-qualified or options outside `{:default …}`, or used an instance key outside the accepted set (`nil` included) at a read or write; the reason names which | — |
-| `:rf.error/hicasso-sub-outside-render` | read a subscription outside a boundary body | ch02, ch15, ch16 |
-| `:rf.error/hicasso-true-child` | let `true` reach child position | ch02 |
-| `:rf.error/hicasso-test-bad-option` | gave an L2 `tree` non-map options, or an option outside its closed roster `#{:subs}` | — |
-| `:rf.error/hicasso-test-bad-reads` | gave an L2 `tree` a `:subs` option that is not a query-to-value map | — |
-| `:rf.error/hicasso-test-boundary-body-not-retained` | gave an L2 `tree` a minted head in a build that erased its body | — |
-| `:rf.error/hicasso-test-host-is-opaque` | let a `defhost` crossing reach the L2 semantic tree | — |
-| `:rf.error/hicasso-test-l1-dispatch` | invoked a handler lowered by a pure L1 projection | — |
-| `:rf.error/hicasso-test-missing-read-fixture` | let an L2 body read a subscription no fixture answers | — |
-| `:rf.error/hicasso-test-no-handler-at-position` | fired at a prop position the form does not write | — |
-| `:rf.error/hicasso-test-not-a-body` | gave an L2 `tree` form a head that is not a `defview` body | — |
-| `:rf.error/hicasso-test-not-a-dom-node` | gave the canonical-DOM comparator something that is not a DOM node | — |
-| `:rf.error/hicasso-test-not-a-host` | read the declared server policy off something that is not a `defhost` | — |
-| `:rf.error/hicasso-test-not-a-native-form` | gave an L1 projection a form whose head is not a tag keyword | — |
-| `:rf.error/hicasso-test-not-a-render-form` | gave an L2 `tree` something other than a hiccup form | — |
-| `:rf.error/hicasso-test-not-an-intent` | gave the L1 marker materializer something other than an intent vector | — |
-| `:rf.error/hicasso-test-plain-fn-head` | put a plain function in a hiccup head inside an L2 tree | ch16 |
-| `:rf.error/hicasso-test-position-is-not-a-handler` | fired at a position that lowers to something other than a function | — |
-| `:rf.error/hicasso-test-react-is-opaque` | let a raw React element reach the L2 semantic tree | — |
-| `:rf.error/no-frame-context` | (corpus-owned) rendered a Hicasso boundary whose React context carries no frame | ch03, ch09, ch10, ch18, ch20 |
+| `:rf.error/fresco-bad-head` | put something outside the closed head set in hiccup head position | ch02, ch06, ch16 |
+| `:rf.error/fresco-bad-host-declaration` | wrote a `defhost` declaration outside its shape — options that are not a map, an option outside `#{:callbacks :slots :server :fallback}`, a `:callbacks` contract outside `:event`/`:render`, a malformed `:slots` set, or a form after the options map; the reason names which | ch09, ch18 |
+| `:rf.error/fresco-boundary-bad-on-error` | gave `h/error-boundary` an `:on-error` that is neither an intent vector nor a function, so nothing could fire it | — |
+| `:rf.error/fresco-boundary-unknown-prop` | wrote a key outside `h/error-boundary`'s closed roster — a misspelled `:on-error` is an error boundary that reports nothing | — |
+| `:rf.error/fresco-deferred-read-at-boundary` | let an unforced `delay` reach a boundary's props | ch02, ch15, ch16 |
+| `:rf.error/fresco-empty-vector` | wrote `[]` where hiccup was expected | — |
+| `:rf.error/fresco-file-input-value-marker` | read `::h/value` off a file input, where `.value` is the `C:\fakepath\` fiction and the first file's name — not the files | — |
+| `:rf.error/fresco-generation-fence-exhausted` | wrote to app-db from a body, on four consecutive runs | — |
+| `:rf.error/fresco-host-bad-ssr-policy` | gave a `defhost` a `:server` value outside the two it admits, or a `:fallback` the policy beside it cannot carry | ch09, ch18 |
+| `:rf.error/fresco-host-fallback-boundary-head` | put a `defview` or `defhost` head inside a declared fallback | ch09, ch18 |
+| `:rf.error/fresco-host-no-component` | declared a `defhost` over `nil` | — |
+| `:rf.error/fresco-host-unclaimed-callback` | wrote the one callback form at a `defhost` position declared a ReactNode slot, where markup lowers and there is no contract to give a function | ch03, ch09, ch16 |
+| `:rf.error/fresco-intent-needs-the-event` | wrote an event-reading intent at a value-first foreign callback | ch03, ch09 |
+| `:rf.error/fresco-intent-outside-boundary` | lowered or fired an intent with no frame-locked dispatch bound | ch16, ch17 |
+| `:rf.error/fresco-malformed-prevent` | wrapped something other than exactly one intent vector in the prevent decorator | ch03 |
+| `:rf.error/fresco-overlay-anchor-missing` | gave an overlay an `:anchor` naming a DOM id no element in the document carries. Omitting `:anchor` is legal and silent; naming one that resolves to nothing is the typo this catches | ch13 |
+| `:rf.error/fresco-presence-child-unkeyed` | gave a presence boundary a child with no `:key` — a child that is not a hiccup vector included | — |
+| `:rf.error/fresco-presence-timeout-required` | left a presence boundary's timeout absent or not positive | — |
+| `:rf.error/fresco-raw-not-a-component` | handed the raw escape `nil`, or a `defview`/`defhost` head; any other bad type is React's own error at render | ch09 |
+| `:rf.error/fresco-revision-not-controlled` | put the reset trigger on something that is not a controlled text field | ch04, ch05, ch16 |
+| `:rf.error/fresco-route-link-bad-on-click` | gave a route link an `:on-click` outside the route-click roster | — |
+| `:rf.error/fresco-route-link-outside-boundary` | rendered a route link with no ambient frame | — |
+| `:rf.error/fresco-state-bad-argument` | gave `reg-state` a concern that is not namespace-qualified or options outside `{:default …}`, or used an instance key outside the accepted set (`nil` included) at a read or write; the reason names which | — |
+| `:rf.error/fresco-sub-outside-render` | read a subscription outside a boundary body | ch02, ch15, ch16 |
+| `:rf.error/fresco-true-child` | let `true` reach child position | ch02 |
+| `:rf.error/fresco-test-bad-option` | gave an L2 `tree` non-map options, or an option outside its closed roster `#{:subs}` | — |
+| `:rf.error/fresco-test-bad-reads` | gave an L2 `tree` a `:subs` option that is not a query-to-value map | — |
+| `:rf.error/fresco-test-boundary-body-not-retained` | gave an L2 `tree` a minted head in a build that erased its body | — |
+| `:rf.error/fresco-test-host-is-opaque` | let a `defhost` crossing reach the L2 semantic tree | — |
+| `:rf.error/fresco-test-l1-dispatch` | invoked a handler lowered by a pure L1 projection | — |
+| `:rf.error/fresco-test-missing-read-fixture` | let an L2 body read a subscription no fixture answers | — |
+| `:rf.error/fresco-test-no-handler-at-position` | fired at a prop position the form does not write | — |
+| `:rf.error/fresco-test-not-a-body` | gave an L2 `tree` form a head that is not a `defview` body | — |
+| `:rf.error/fresco-test-not-a-dom-node` | gave the canonical-DOM comparator something that is not a DOM node | — |
+| `:rf.error/fresco-test-not-a-host` | read the declared server policy off something that is not a `defhost` | — |
+| `:rf.error/fresco-test-not-a-native-form` | gave an L1 projection a form whose head is not a tag keyword | — |
+| `:rf.error/fresco-test-not-a-render-form` | gave an L2 `tree` something other than a hiccup form | — |
+| `:rf.error/fresco-test-not-an-intent` | gave the L1 marker materializer something other than an intent vector | — |
+| `:rf.error/fresco-test-plain-fn-head` | put a plain function in a hiccup head inside an L2 tree | ch16 |
+| `:rf.error/fresco-test-position-is-not-a-handler` | fired at a position that lowers to something other than a function | — |
+| `:rf.error/fresco-test-react-is-opaque` | let a raw React element reach the L2 semantic tree | — |
+| `:rf.error/no-frame-context` | (corpus-owned) rendered a Fresco boundary whose React context carries no frame | ch03, ch09, ch10, ch18, ch20 |
 | `:rf.error/routing-artefact-missing` | (corpus-owned) rendered a route link with routing absent | ch07 |
 | `:rf.error/ui-tree-malformed` | (corpus-owned) let a value outside the structural-tree grammar reach an L2 tree or a projection | — |
 
@@ -128,9 +128,9 @@ Stated above under *What every complaint carries*, and repeated here because
 it is the promise most easily made too broadly.
 
 **Two ids keep their spellings although the options they police were
-renamed.** `:rf.error/hicasso-host-bad-ssr-policy` names `:ssr`, which
+renamed.** `:rf.error/fresco-host-bad-ssr-policy` names `:ssr`, which
 `defhost` settled as `:server` with a sibling `:fallback` (naming-ledger row
-21), and `:rf.error/hicasso-test-bad-reads` names `:reads`, which the L2
+21), and `:rf.error/fresco-test-bad-reads` names `:reads`, which the L2
 fixture option settled as `:subs` (row 23). An id names the refusal, not the
 option, and neither refusal changed its meaning; a rename would buy one better
 word at the price of a tombstone kept forever and a fresh spelling every

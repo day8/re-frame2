@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.client-only-arms-ssr-cljs-test
+(ns re-frame.fresco.client-only-arms-ssr-cljs-test
   "**The Client-only rows that had never been server-rendered** —
   dispositions.md §2.1 rows HS-31 (optional forms module), HS-32
   (optional overlay module) and HS-23 (Activity-hosted subtree).
@@ -41,7 +41,7 @@
     point. Through `h/defhost` the Client-only refusal is real and fires
     at the declaration source, with both of the policy's arms. Through
     raw React construction — the route
-    `docs/design/hicasso/product/lanes/react-compatibility-notes.md`
+    `docs/design/fresco/product/lanes/react-compatibility-notes.md`
     tells an author to take — there is no refusal and a VISIBLE
     Activity's subtree reaches the response.
 
@@ -74,21 +74,21 @@
   ## HS-34 is NOT in this file, and its absence is the finding
 
   HS-34 is the *optional routing-integration module*, and there is no
-  such module to render. `implementation/hicasso/src/re_frame/hicasso/`
+  such module to render. `implementation/fresco/src/re_frame/fresco/`
   holds six optional-module namespaces and routing is not among them;
-  `hicasso/scripts/check_optional_module_reachability.py`'s `MODULES`
+  `fresco/scripts/check_optional_module_reachability.py`'s `MODULES`
   roster names those same six (`motion`, `overlay`, `native`, `forms`,
   `server`, `substrate`) — a roster that has GROWN THREE TIMES without
   admitting routing, so the count evidences the absence more sharply
   than when this paragraph was written and it read three;
-  `docs/design/hicasso/product/naming-ledger.md` row 6 carries
-  `re-frame.hicasso.routing` as a PROVISIONAL recommendation and NOT
+  `docs/design/fresco/product/naming-ledger.md` row 6 carries
+  `re-frame.fresco.routing` as a PROVISIONAL recommendation and NOT
   under an open question — that ledger's publication note says every
   row is dispositioned and none is open, and its sibling
   `naming-packet.md`'s own row 6 glosses the marker in terms,
   *provisional — the namespace does not exist yet*, a better citation
   for THERE IS NO MODULE than an open question ever was; and
-  `implementation/hicasso/spec/invariants.md`'s route-link
+  `implementation/fresco/spec/invariants.md`'s route-link
   row states the move in the FUTURE tense. `h/route-link`
   lives on the core facade today and is witnessed there as HS-40,
   Render, in `facade-roster-ssr-dom-cljs-test`. There is no declaration
@@ -103,14 +103,14 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.forms :as rf.hicasso.forms]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.overlay :as rf.hicasso.overlay]
-            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
-            [re-frame.hicasso.test.forms :as rf.hicasso.test.forms]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.forms :as rf.fresco.forms]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.overlay :as rf.fresco.overlay]
+            [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
+            [re-frame.fresco.test.forms :as rf.fresco.test.forms]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
@@ -126,18 +126,18 @@
 ;; captures its source-store baseline when the `use-fixtures` form is
 ;; evaluated (the sibling suites' convention).
 
-(rf/reg-sub :hicasso.arms/title (fn [db _] (:title db)))
-(rf/reg-sub :hicasso.arms/revision (fn [db _] (:revision db)))
-(rf/reg-sub :hicasso.arms/open? (fn [db _] (:open? db)))
+(rf/reg-sub :fresco.arms/title (fn [db _] (:title db)))
+(rf/reg-sub :fresco.arms/revision (fn [db _] (:revision db)))
+(rf/reg-sub :fresco.arms/open? (fn [db _] (:open? db)))
 
-(rf/reg-event :hicasso.arms/seed
+(rf/reg-event :fresco.arms/seed
   (fn [_ [_ open?]] {:db {:title "milk" :revision 3 :open? open?}}))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 (defn- fresh!
   "A frame seeded to one immutable request snapshot.
@@ -148,9 +148,9 @@
   documents."
   [open?]
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-  (rf.hicasso/reg-state :re-frame.hicasso.forms/drafts {:default nil})
+  (rf.fresco/reg-state :re-frame.fresco.forms/drafts {:default nil})
   (rf/make-frame {:id frame-id})
-  (rf/with-frame frame-id (rf/dispatch-sync [:hicasso.arms/seed open?]))
+  (rf/with-frame frame-id (rf/dispatch-sync [:fresco.arms/seed open?]))
   frame-id)
 
 (defn- server-html
@@ -158,113 +158,113 @@
   `renderToString`, called by hand — the smallest thing that produces
   server bytes, so what these rows read is the arm's own server
   behaviour and nothing else. The package's own server door is
-  `re-frame.hicasso.server/render`; this harness sits beside it, not
+  `re-frame.fresco.server/render`; this harness sits beside it, not
   instead of it.
 
   Spec 006's two dev-mode view annotations are taken out before the rows
   read the bytes. Every scan below is for vocabulary that must NOT be in
-  the markup — `#\"hicasso\"`, `#\"popover\"`, `#\"dialog\"` — and each of
+  the markup — `#\"fresco\"`, `#\"popover\"`, `#\"dialog\"` — and each of
   those matches a view's own name, which the annotation puts in the
   bytes on purpose. Left in, they would turn a real guard into a row that
   reds on the framework doing exactly what Spec 006 requires.
-  `rf.hicasso.roots-frames-support/without-view-annotations` carries the argument in full."
+  `rf.fresco.roots-frames-support/without-view-annotations` carries the argument in full."
   [hiccup]
-  (rf.hicasso.roots-frames-support/without-view-annotations
+  (rf.fresco.roots-frames-support/without-view-annotations
     (react-dom-server/renderToString
-      (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup)))))
+      (rf.fresco.impl.mount/provider frame-id (rf.fresco.impl.codec/root-element frame-id hiccup)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The subjects — one surface per view, so a red row names a surface
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview field-page
+(rf.fresco/defview field-page
   "HS-31's subject: the optional forms module's one view."
   []
   [:div.owner
-   [rf.hicasso.forms/buffered-field
+   [rf.fresco.forms/buffered-field
     {:control     control
-     :value       (rf.hicasso/sub [:hicasso.arms/title])
-     ::rf.hicasso/revision (rf.hicasso/sub [:hicasso.arms/revision])
+     :value       (rf.fresco/sub [:fresco.arms/title])
+     ::rf.fresco/revision (rf.fresco/sub [:fresco.arms/revision])
      :on-commit   [:todo/committed 7]
      :placeholder "What needs doing?"}]])
 
-(rf.hicasso/defview anchored-popover-page
+(rf.fresco/defview anchored-popover-page
   "HS-32's subject with an `:anchor`, which is the arm that bakes a
   generated CSS anchor name into the `style` attribute."
   []
   [:div.owner
    [:button {:id "trigger"} "Filter"]
-   [rf.hicasso.overlay/popover {:open?      (rf.hicasso/sub [:hicasso.arms/open?])
+   [rf.fresco.overlay/popover {:open?      (rf.fresco/sub [:fresco.arms/open?])
                      :on-dismiss [:menu/dismissed]
                      :anchor     "trigger"
                      :placement  :bottom-start}
     [:ul {:role "menu"} [:li.choice "Unread"]]]])
 
-(rf.hicasso/defview unanchored-popover-page
+(rf.fresco/defview unanchored-popover-page
   "The same surface with no `:anchor` — the control that keeps §5 a fact
   about the anchor ident rather than about popovers."
   []
   [:div.owner
-   [rf.hicasso.overlay/popover {:open?      (rf.hicasso/sub [:hicasso.arms/open?])
+   [rf.fresco.overlay/popover {:open?      (rf.fresco/sub [:fresco.arms/open?])
                      :on-dismiss [:menu/dismissed]}
     [:ul {:role "menu"} [:li.choice "Unread"]]]])
 
-(rf.hicasso/defview modal-page
+(rf.fresco/defview modal-page
   "HS-32's other door. A modal takes no `:anchor`, so it mints no ident."
   []
   [:div.owner
-   [rf.hicasso.overlay/modal {:open?      (rf.hicasso/sub [:hicasso.arms/open?])
+   [rf.fresco.overlay/modal {:open?      (rf.fresco/sub [:fresco.arms/open?])
                    :on-dismiss [:invoice/cancelled]
                    :label      "Confirm deletion"}
     [:h2.title "Delete this invoice?"]
     [:button.confirm "Delete"]]])
 
-(rf.hicasso/defview undismissable-modal-page
+(rf.fresco/defview undismissable-modal-page
   "The `closedby` ladder's no-dismissal arm: with no `:on-dismiss` there
   is nowhere to route a close request, so the dialog is told to honour
   none and the open flag cannot acquire a second owner."
   []
   [:div.owner
-   [rf.hicasso.overlay/modal {:open? (rf.hicasso/sub [:hicasso.arms/open?])
+   [rf.fresco.overlay/modal {:open? (rf.fresco/sub [:fresco.arms/open?])
                    :label "Processing"}
     [:p.wait "Do not close this tab."]]])
 
-(rf.hicasso/defview light-dismiss-modal-page
+(rf.fresco/defview light-dismiss-modal-page
   "The ladder's opt-in arm: `:light-dismiss?` widens `closedby` to the
   platform's `any`, so a backdrop click can dismiss."
   []
   [:div.owner
-   [rf.hicasso.overlay/modal {:open?          (rf.hicasso/sub [:hicasso.arms/open?])
+   [rf.fresco.overlay/modal {:open?          (rf.fresco/sub [:fresco.arms/open?])
                    :on-dismiss     [:invoice/cancelled]
                    :light-dismiss? true
                    :label          "Quick filter"}
     [:p.hint "Click anywhere outside to dismiss."]]])
 
-(rf.hicasso/defview manual-popover-page
+(rf.fresco/defview manual-popover-page
   "The popover half of the same choice: no `:on-dismiss` means `manual` —
   in the top layer, dismissing for nothing."
   []
   [:div.owner
-   [rf.hicasso.overlay/popover {:open? (rf.hicasso/sub [:hicasso.arms/open?])}
+   [rf.fresco.overlay/popover {:open? (rf.fresco/sub [:fresco.arms/open?])}
     [:ul {:role "menu"} [:li.choice "Unread"]]]])
 
-(rf.hicasso/defview author-placed-popover-page
+(rf.fresco/defview author-placed-popover-page
   "An author's `:style {:position-area …}` written beside the
   `:placement` that also produces one — `element-attrs`' documented
   precedence subject."
   []
   [:div.owner
-   [rf.hicasso.overlay/popover {:open?      (rf.hicasso/sub [:hicasso.arms/open?])
+   [rf.fresco.overlay/popover {:open?      (rf.fresco/sub [:fresco.arms/open?])
                      :on-dismiss [:menu/dismissed]
                      :placement  :bottom-start
                      :style      {:position-area "block-start"}}
     [:ul {:role "menu"} [:li.choice "Unread"]]]])
 
-(rf.hicasso/defview island
-  "The Hicasso boundary that sits UNDER the Activity host, so that a row
+(rf.fresco/defview island
+  "The Fresco boundary that sits UNDER the Activity host, so that a row
   measuring bytes is measuring a real read rather than a literal."
   []
-  [:p.inner (str "title=" (rf.hicasso/sub [:hicasso.arms/title]))])
+  [:p.inner (str "title=" (rf.fresco/sub [:fresco.arms/title]))])
 
 (def ^:private Activity
   "React 19.2's own `<Activity>`, reached by interop. It is a symbol
@@ -272,15 +272,15 @@
   which door it goes through."
   (.-Activity react))
 
-(rf.hicasso/defhost activity-bare Activity)
+(rf.fresco/defhost activity-bare Activity)
 
-(rf.hicasso/defhost activity-with-fallback Activity
+(rf.fresco/defhost activity-with-fallback Activity
   {:fallback [:div.activity-skeleton "loading"]})
 
-(rf.hicasso/defhost activity-render Activity
+(rf.fresco/defhost activity-render Activity
   {:server :render})
 
-(rf.hicasso/defview activity-host-page
+(rf.fresco/defview activity-host-page
   "HS-23 through `h/defhost` — the third of the three routes the lane
   note names, and the only one that carries a server policy at all."
   [{:keys [head mode]}]
@@ -288,7 +288,7 @@
    [head {:mode mode}
     [island {}]]])
 
-(rf.hicasso/defview activity-native-page
+(rf.fresco/defview activity-native-page
   "HS-23 through raw React construction, which the lane note recommends
   first and which the client witness uses: a boundary body returning the
   `<Activity>` element itself, with the hosted subtree crossed through
@@ -296,7 +296,7 @@
   [{:keys [mode]}]
   [:div.owner
    (react/createElement Activity #js {:mode mode}
-                        (rf.hicasso.impl.codec/as-element [island {}]))])
+                        (rf.fresco.impl.codec/as-element [island {}]))])
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — HS-31, the optional forms module
@@ -321,7 +321,7 @@
       (is (re-find #"<input[^>]*placeholder=\"What needs doing\?\"" html)
           (str "and a pass-through attribute reaches the element, which is
                 what says the module's own prop split ran: " html))
-      (is (not (re-find #"hicasso" html))
+      (is (not (re-find #"fresco" html))
           (str "no reserved keyword survives into the bytes — the module
                 writes `::h/revision` and three intent vectors, and none
                 of them is markup: " html)))))
@@ -347,7 +347,7 @@
             the protocol and not this file's idea of it"
     (fresh! true)
     (rf/with-frame frame-id
-      (rf/dispatch-sync [rf.hicasso.test.forms/edit-id control 3 "half-typed"]))
+      (rf/dispatch-sync [rf.fresco.test.forms/edit-id control 3 "half-typed"]))
     (let [html (server-html [field-page {}])]
       (is (re-find #"<input[^>]*value=\"half-typed\"" html)
           (str "the draft, not the committed value: " html))
@@ -358,7 +358,7 @@
             commit a no-op, answered while producing bytes"
     (fresh! true)
     (rf/with-frame frame-id
-      (rf/dispatch-sync [rf.hicasso.test.forms/edit-id control 2 "stale"]))
+      (rf/dispatch-sync [rf.fresco.test.forms/edit-id control 2 "stale"]))
     (let [html (server-html [field-page {}])]
       (is (re-find #"<input[^>]*value=\"milk\"" html)
           (str "the committed value, because revision 2 is not 3: " html)))))
@@ -580,7 +580,7 @@
 (deftest a-hidden-activity-is-reacts-own-omission-and-not-a-refusal
   (testing "under `:server :render` the mode decides, and React decides it:
             a hidden `<Activity>` contributes nothing to the response. No
-            Hicasso declaration source is consulted and no recovery is
+            Fresco declaration source is consulted and no recovery is
             carried, so this is React's behaviour rather than this
             product's refusal — a distinction HS-23's cell has to make,
             because only one of the two is a disposition"

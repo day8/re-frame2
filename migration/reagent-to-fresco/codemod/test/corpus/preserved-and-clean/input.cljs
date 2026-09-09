@@ -1,18 +1,18 @@
 (ns app.clean
   "§5.4 — divergences the tool deliberately does NOT repair, each because
-  Hicasso is better than the donor or the difference is invisible. The
+  Fresco is better than the donor or the difference is invisible. The
   report is written on a clean run too, so \"not in the report\" is never
   ambiguous."
   (:require [reagent.core :as r]))
 
 (defn a-class-collection-under-any-spelling []
   ;; Reagent read the literal `:class` key only, so this reached React as
-  ;; a `clj->js` array and the DOM wrote it "a,b". Hicasso coerces and
+  ;; a `clj->js` array and the DOM wrote it "a,b". Fresco coerces and
   ;; composes at the slot in every spelling.
   [:> Btn {:className ["a" "b"]}])
 
 (defn a-nested-class-collection []
-  ;; Reagent's `class-names` does not recurse; Hicasso's does.
+  ;; Reagent's `class-names` does not recurse; Fresco's does.
   [:> Btn {:class ["a" ["b" "c"]]}])
 
 (defn a-literal-nil-at-the-props-slot []

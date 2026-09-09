@@ -9,7 +9,7 @@ before it disposes of the donor tool surfaces.
 **Why the third pass, because it is the failure mode this document is most exposed to.** The first
 two passes were authored against a tree that moved underneath them. Between the authoring of the
 `rf2-kqls` branch and its landing, `rf2-n3mb` merged and took all five of Pair's view tools off the
-donor wire and onto `re-frame.hicasso.tool`. The patch rebased cleanly — every hunk applied
+donor wire and onto `re-frame.fresco.tool`. The patch rebased cleanly — every hunk applied
 unchanged — and that is precisely the danger: **a census is a claim about the tree at a moment, and
 a clean rebase preserves the text while silently invalidating the claim.** Nothing in a diff review
 can catch it. The only defence is to re-run the measurement, which is why the search command and its
@@ -18,7 +18,7 @@ count are now recorded in the document rather than in a commit message.
 The obligation is one sentence of the specification
 ([§12 Phase 6](specification.md#phase-6--adoption-and-release)):
 
-> Move every live Xray/Story/Pair consumer onto the adapter-neutral Hicasso evidence provider before
+> Move every live Xray/Story/Pair consumer onto the adapter-neutral Fresco evidence provider before
 > disposing of the experimental donor tool surfaces. Fixtures may retain explicit compatibility
 > coverage, but production and primary tooling may not retain a hidden dependency.
 
@@ -31,17 +31,17 @@ once**, with a verdict and the reason for it.
 |---|---|---|---|
 | donor 1 | `re-frame.ui.tool` | `view-manifest`, `view-dependencies`, `view-event-sites`, `mounted-views`, `explain-render` | EXPERIMENTAL (`implementation/ui/`) |
 | donor 2 | `re-frame.freehand.tool` | `read-view-manifest`, `read-view-dependencies`, `read-view-event-sites`, `read-mounted-views`, `explain-render` | donor tree (`implementation/freehand/`) |
-| **target** | **`re-frame.hicasso.tool`** | `read-mounted-boundaries`, `read-read-attribution`, `read-intents`, `explain-render` | the adapter-neutral provider (rf2-hic-023) |
+| **target** | **`re-frame.fresco.tool`** | `read-mounted-boundaries`, `read-read-attribution`, `read-intents`, `explain-render` | the adapter-neutral provider (rf2-hic-023) |
 
 Four columns, four cells per row, checked by hand.
 
 **Donor 1 → donor 2 was a rename; donor 2 → the target is not.** The first two rows publish the same
 five reads under different names, which is why the earlier crossing cost the consumers only their
 `:require` lines. The target publishes **four reads, of which only `explain-render` shares a name**,
-and the missing four have no counterpart by design rather than by omission: Hicasso's runtime mints
+and the missing four have no counterpart by design rather than by omission: Fresco's runtime mints
 no boundary identity, so there is no view registry to read a manifest from, and
-`re-frame.hicasso.tool` states `:view` and `:source` as
-`re-frame.hicasso.evidence/unknown` under an `:opaque` naming projection. A boundary there is keyed
+`re-frame.fresco.tool` states `:view` and `:source` as
+`re-frame.fresco.evidence/unknown` under an `:opaque` naming projection. A boundary there is keyed
 by its **read set**, because that is the only identity the runtime retains.
 
 This is the single most consequential fact in the census, and it is why the still-live rows below
@@ -59,7 +59,7 @@ different question set, and it is available as precedent to every cluster still 
 
 | verdict | meaning |
 |---|---|
-| **MIGRATED** | the consumer reads the adapter-neutral provider (`re-frame.hicasso.tool` / `re-frame.hicasso.evidence`). No donor name sits in a load-bearing position. |
+| **MIGRATED** | the consumer reads the adapter-neutral provider (`re-frame.fresco.tool` / `re-frame.fresco.evidence`). No donor name sits in a load-bearing position. |
 | **FIXTURE-ONLY** | the donor is named only from the artefact's `test/` tree, on a `:test`-alias classpath, and its purpose there is compatibility evidence. It executes on every PR — that is the point of a witness — but no path a user or an agent reaches passes through it, so removing the donor costs the witness and nothing else. This is the coverage the specification sentence expressly permits. |
 | **STILL-LIVE** | a shipped tool path reaches the donor: an artefact-level `:deps` coordinate, a panel a user sees, an MCP tool an agent calls, a gated browser scenario, or a test whose subject is one of those. |
 
@@ -85,8 +85,8 @@ third pass. Eight files left the result and three entered it, a net **−5**, al
 `rf2-n3mb` retired `view_tool.cljs` and `view_tool_test.cljs` outright, and took the donor name out
 of `descriptors_data.cljs`, `tool-descriptors.edn`, `conformance_test.cljs`, Pair's
 `tools/registry.cljs`, `closed_world_test.cljs` and
-`tools/mcp-conformance/test/end-to-end-re-frame2-pair.cjs`. Entering are `hicasso_tool.cljs`,
-`hicasso_tool_test.cljs` and `hicasso_wire_test.cljs` — each of which names a donor exactly once,
+`tools/mcp-conformance/test/end-to-end-re-frame2-pair.cjs`. Entering are `fresco_tool.cljs`,
+`fresco_tool_test.cljs` and `fresco_wire_test.cljs` — each of which names a donor exactly once,
 and none of which *depends* on one. See [Pair](#pair--6-rows-6-migrated).
 
 That number is not a dependency count and must never be quoted as one: **a grep returns requires,
@@ -172,7 +172,7 @@ fixture.
 ## Xray — 13 rows (9 STILL-LIVE, 4 MIGRATED)
 
 Xray is the tool that stands on **both** tiers at once, and that is now what distinguishes it: the
-Hicasso tab reads `re-frame.hicasso.tool`, while the Reactive panel's "Mounted Views" section still
+Fresco tab reads `re-frame.fresco.tool`, while the Reactive panel's "Mounted Views" section still
 reads `re-frame.freehand.tool`. Both ship in the same build. (Since `rf2-n3mb`, Pair is on the
 target too — but wholly, with nothing left behind on the donor.)
 
@@ -217,10 +217,10 @@ target too — but wholly, with nothing left behind on the donor.)
 | X6 | `tools/xray/testbeds/freehand_views/core.cljs` | `:require` of `re-frame.freehand` (L97) — the one staged deck whose views are Freehand views | ~~STILL-LIVE~~ → **RETIRED** (rf2-0yp7w — the whole `freehand_views/` deck deleted) |
 | X7 | `tools/xray/testbeds/freehand_views/index.html` | **names no donor** — its two hits (`<title>` L5, a comment L29) name the deck's own `freehand-views` prefix. It is a row as the deck's host page: `#app` (L26) is the mount target X6's `run` takes, and `fh-mount` / `fh-unmount` (L33-34) are the ids X8's scenario drives. `freehand-views.core/run` is bound by `:init-fn` in top-level `implementation/shadow-cljs.edn` L2042, not here | ~~STILL-LIVE~~ → **RETIRED** (rf2-0yp7w — deleted with X6's deck) |
 | X8 | `tools/xray/testbeds/feature_matrix/scenarios.cjs` | the `freehand-views populated Views roster` scenario (L3819) plus its `build` / `bundleDir` / `html` / `servedPath` wiring (L184-187) — a gated browser scenario | ~~STILL-LIVE~~ → **SUBSTRATE-FREE** (rf2-l86mm — the file survives; the scenario and its wiring went) |
-| X9 | `tools/xray/src/day8/re_frame2_xray/panels/hicasso_reads.cljs` | `:require [re-frame.hicasso.tool :as tool]` (L41) — the live read seam behind the Hicasso tab | MIGRATED |
-| X10 | `tools/xray/src/day8/re_frame2_xray/panels/hicasso_helpers.cljc` | pins `:re-frame.hicasso.evidence/v2` (L66) as the consumer-owned schema literal | MIGRATED |
-| X11 | `tools/xray/test/day8/re_frame2_xray/panels/hicasso_cljs_test.cljs` | requires `re-frame.hicasso`, `.evidence`, `.impl.collector`, `.tool` | MIGRATED |
-| X12 | `tools/xray/test/day8/re_frame2_xray/panels/hicasso_helpers_cljs_test.cljc` | names `:re-frame/freehand` once (L175) **only to assert `supported?` returns false for it** — the donor appears as the rejected case | MIGRATED |
+| X9 | `tools/xray/src/day8/re_frame2_xray/panels/fresco_reads.cljs` | `:require [re-frame.fresco.tool :as tool]` (L41) — the live read seam behind the Fresco tab | MIGRATED |
+| X10 | `tools/xray/src/day8/re_frame2_xray/panels/fresco_helpers.cljc` | pins `:re-frame.fresco.evidence/v2` (L66) as the consumer-owned schema literal | MIGRATED |
+| X11 | `tools/xray/test/day8/re_frame2_xray/panels/fresco_cljs_test.cljs` | requires `re-frame.fresco`, `.evidence`, `.impl.collector`, `.tool` | MIGRATED |
+| X12 | `tools/xray/test/day8/re_frame2_xray/panels/fresco_helpers_cljs_test.cljc` | names `:re-frame/freehand` once (L175) **only to assert `supported?` returns false for it** — the donor appears as the rejected case | MIGRATED |
 | X13 | `tools/xray/src/day8/re_frame2_xray/registry.cljs` | the schema-4 reload warning (`js/console.warn`, L268-277, in `warn-donor-ownership-resident!` at L260) names `re-frame.ui` (L270, L273) and `re-frame.freehand.tool` (L273) in the sentence a developer reads when it fires — a runtime string the code actually uses, load-bearing on the same footing as the shipped `:description` prose of Pair's descriptor rows. The file's other eight donor hits are docstrings and comments | STILL-LIVE |
 
 **How X2's liveness was established** — not from its `:require`, which proves nothing on its own. The
@@ -257,7 +257,7 @@ mentions, all comments" until `rf2-kqls`.
 
 **Pair's old donor wire string was the same species again, and its migration is the standing
 counter-example.** That coupling was invisible to every static tool too, and it was caught only
-because this census read the consumer code rather than the grep. `hicasso_wire_test.cljs` (row P6)
+because this census read the consumer code rather than the grep. `fresco_wire_test.cljs` (row P6)
 is the guard that shape earned — it now fails if a donor name returns to Pair's `src/`. Xray's X13
 has no equivalent, which is why it is written down here instead.
 
@@ -272,10 +272,10 @@ presence bridge.
 > the verdict column records how. The measurement itself held: the rows are left as taken rather
 > than rewritten, because a census is a record of what was found, not of what is true now.
 >
-> The migration resolved as **retire with the donor**, not as a port. Hicasso publishes no
+> The migration resolved as **retire with the donor**, not as a port. Fresco publishes no
 > presence-advance verb to port onto: `motion/presence` is a component, `impl/presence` is private,
 > and the facade carries no clock, flush or presence verb. The `advance-clock!` in
-> `hicasso/test_kit` is a page-wide fake-timer facility bound to a `{:clock true}` mount handle —
+> `fresco/test_kit` is a page-wide fake-timer facility bound to a `{:clock true}` mount handle —
 > a different affordance that happens to share a name. So the bridge, its two Freehand-only witness
 > suites and the `day8/re-frame2-freehand` coordinate are gone; the presence RUNG stays and is
 > substrate-neutral, a host installing its own advance through `install-presence-flush!`.
@@ -298,13 +298,13 @@ presence bridge.
 > reached for Xray's Views panel and `rf2-l86mm` re-confirmed for its tool-door reads — and it is
 > the *same* refusal, because Story's consumer asks the donor's questions verbatim. Three of the
 > five projections it shapes (`view-manifest`, `view-dependencies`, `view-event-sites`) are static
-> questions about **a view named by its id**, and Hicasso mints no boundary identity to name: a
+> questions about **a view named by its id**, and Fresco mints no boundary identity to name: a
 > boundary is keyed by its READ SET, with `:view` and `:source` projected `unknown` under the
 > `:opaque` naming projection. The fourth, `mounted-views`, degrades for the same reason — Story
 > filters it by `:view-id`, which the target's roster does not carry. The JVM half has no target at
 > all: `re-frame.ui.test/render` returns a versioned structural tree (`:rf.ui/tree-version`), and
-> outside the two retiring donors nothing in the repository produces one — `re-frame.hicasso.tool`
-> is `.cljs`-only and Hicasso ships no headless render.
+> outside the two retiring donors nothing in the repository produces one — `re-frame.fresco.tool`
+> is `.cljs`-only and Fresco ships no headless render.
 >
 > **What is deliberately lost, named rather than left silent.** Two claims, and they are not equally
 > replaceable.
@@ -322,7 +322,7 @@ presence bridge.
 > pins the invariant that makes the seam opt-in. What goes with S10 is narrower and real: the only
 > caller of `multi/render-view` against a **non-`:reagent`** substrate, and the only end-to-end arm
 > in which a foreign substrate's real app view is played by the runner. Re-acquiring it means a
-> Hicasso or UIx deck standing where the `re-frame.ui` counter stood — a product decision, not this
+> Fresco or UIx deck standing where the `re-frame.ui` counter stood — a product decision, not this
 > bead's, and tracked as its own bead rather than assumed.
 
 | row | consumer | donor surface named, and how | verdict |
@@ -381,27 +381,27 @@ running app, and reads back an envelope. So a dependency scan that only looks at
 clean, and until `rf2-n3mb` it was not.
 
 **`rf2-n3mb` landed (PR #7848), and Pair is now wholly on the target.** The five donor view tools
-were not renamed onto `re-frame.hicasso.tool` — they were re-authored into **three**, and the
+were not renamed onto `re-frame.fresco.tool` — they were re-authored into **three**, and the
 arithmetic of that is the finding, not a shortfall. Freehand published a view registry and a
 compiler manifest, so it could answer `read-view-manifest`, `read-view-dependencies` and
-`read-view-event-sites`: static questions about a view named by its declared id. Hicasso mints no
+`read-view-event-sites`: static questions about a view named by its declared id. Fresco mints no
 boundary identity and keeps no registry, so those three have no counterpart and were **retired
-rather than shipped answering with a fabricated emptiness**. `re-frame.hicasso.tool/read-intents` was
+rather than shipped answering with a fabricated emptiness**. `re-frame.fresco.tool/read-intents` was
 deliberately not taken as a fourth tool either: it folds Spec 009's retained event ring, which Pair
 already answers under richer projection as `trace-window`.
 
 | row | consumer | tier surface named, and how | verdict |
 |---|---|---|---|
-| P1 | `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/hicasso_tool.cljs` | `(def tier-ns "re-frame.hicasso.tool")` (L132) is interpolated into every emitted eval form; `tier-reads` (L140) names the three reads called; `consumed-evidence-schema` pins `:re-frame.hicasso.evidence/v2` (L165) and gates every reply. Its one donor mention (L30) is a docstring sentence recording what it replaced | MIGRATED |
-| P2 | `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors_data.cljs` | the three MCP tool descriptions shipped to the agent name `re-frame.hicasso.tool/<read>` (L1288, L1323, L1351) and `:re-frame.hicasso.evidence/v2` (L1305, L1336, L1369) in their `:description` prose. Names **no** donor — outside the grep | MIGRATED |
+| P1 | `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/fresco_tool.cljs` | `(def tier-ns "re-frame.fresco.tool")` (L132) is interpolated into every emitted eval form; `tier-reads` (L140) names the three reads called; `consumed-evidence-schema` pins `:re-frame.fresco.evidence/v2` (L165) and gates every reply. Its one donor mention (L30) is a docstring sentence recording what it replaced | MIGRATED |
+| P2 | `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors_data.cljs` | the three MCP tool descriptions shipped to the agent name `re-frame.fresco.tool/<read>` (L1288, L1323, L1351) and `:re-frame.fresco.evidence/v2` (L1305, L1336, L1369) in their `:description` prose. Names **no** donor — outside the grep | MIGRATED |
 | P3 | `tools/re-frame2-pair-mcp/tool-descriptors.edn` | the checked-in descriptor export carrying the same three descriptions (L14, L25, L26) — derived from P2, so the two move together. Names **no** donor — outside the grep | MIGRATED |
-| P4 | `tools/re-frame2-pair-mcp/test/re_frame2_pair_mcp/hicasso_tool_test.cljs` | the suite of P1: form composition, the door-resolution guard (`cljs.core/exists?` at this census; `cljs.core/find-ns-obj` since `rf2-t2ec` made the absent-door rung reachable), and the schema gate. Names a donor once (L106) **only to assert `(not (str/includes? form "freehand"))`** — the donor as the rejected case, X12's species | MIGRATED |
-| P5 | `tools/re-frame2-pair-mcp/test/re_frame2_pair_mcp/conformance_test.cljs` | the conformance fixtures stub nREPL replies keyed by the exact `re-frame.hicasso.tool/<read>` form string and assert `:schema :re-frame.hicasso.evidence/v2` throughout (L1778-1975). Names **no** donor — outside the grep | MIGRATED |
-| P6 | `tools/re-frame2-pair-mcp/test/re_frame2_pair_mcp/hicasso_wire_test.cljs` | **new with `rf2-n3mb`; the donor era had no counterpart.** Reads the provider's own source and asserts every emitted read is a public `defn` there, that `consumed-evidence-schema` equals the stamp `re-frame.hicasso.evidence/schema` carries, and (L166-181) that **no donor namespace survives in a callable position anywhere in Pair's shipped `src/`**. Its two donor names (L175) are the prohibition list | MIGRATED |
+| P4 | `tools/re-frame2-pair-mcp/test/re_frame2_pair_mcp/fresco_tool_test.cljs` | the suite of P1: form composition, the door-resolution guard (`cljs.core/exists?` at this census; `cljs.core/find-ns-obj` since `rf2-t2ec` made the absent-door rung reachable), and the schema gate. Names a donor once (L106) **only to assert `(not (str/includes? form "freehand"))`** — the donor as the rejected case, X12's species | MIGRATED |
+| P5 | `tools/re-frame2-pair-mcp/test/re_frame2_pair_mcp/conformance_test.cljs` | the conformance fixtures stub nREPL replies keyed by the exact `re-frame.fresco.tool/<read>` form string and assert `:schema :re-frame.fresco.evidence/v2` throughout (L1778-1975). Names **no** donor — outside the grep | MIGRATED |
+| P6 | `tools/re-frame2-pair-mcp/test/re_frame2_pair_mcp/fresco_wire_test.cljs` | **new with `rf2-n3mb`; the donor era had no counterpart.** Reads the provider's own source and asserts every emitted read is a public `defn` there, that `consumed-evidence-schema` equals the stamp `re-frame.fresco.evidence/schema` carries, and (L166-181) that **no donor namespace survives in a callable position anywhere in Pair's shipped `src/`**. Its two donor names (L175) are the prohibition list | MIGRATED |
 
 **`rf2-hic-023`'s deliverable now holds, and it did not before.** That deliverable reads "Xray and
-Pair consume the same projected schema byte-for-byte". Xray's Hicasso tab consumes
-`:re-frame.hicasso.evidence/v2` (X10) and Pair's `consumed-evidence-schema` is the same literal (P1)
+Pair consume the same projected schema byte-for-byte". Xray's Fresco tab consumes
+`:re-frame.fresco.evidence/v2` (X10) and Pair's `consumed-evidence-schema` is the same literal (P1)
 — same schema, same producer, same question set, and P6 asserts the second half of that against the
 producer's source on every run. The census's previous pass recorded this sentence as **false**; it
 is now true, and a reader coming to this document for the old verdict should know the tree moved
@@ -437,7 +437,7 @@ from its docstrings, so re-reading the returned lines could never have found it.
 
 **Three files left this list entirely with `rf2-n3mb`**, and they are named here because a reader
 comparing against the previous pass will look for them. Pair's
-`src/re_frame2_pair_mcp/tools/registry.cljs` (which now requires `hicasso-tool` and wires the three
+`src/re_frame2_pair_mcp/tools/registry.cljs` (which now requires `fresco-tool` and wires the three
 target handlers), its `test/re_frame2_pair_mcp/closed_world_test.cljs`, and
 `tools/mcp-conformance/test/end-to-end-re-frame2-pair.cjs` no longer name a donor **at all**. They
 are not rows: each reaches the target only transitively through P1, exactly as Pair's
@@ -463,7 +463,7 @@ The full list:
 - `tools/xray/spec/014-Registry-Catalogue.md`
 - `tools/xray/spec/017-Test-Coverage-Matrix.md`
 - `tools/xray/spec/021-Dynamic-Panel-Designs.md`
-- `tools/xray/spec/027-Hicasso-Evidence.md`
+- `tools/xray/spec/027-Fresco-Evidence.md`
 - `tools/xray/spec/Principles.md`
 - `tools/xray/src/day8/re_frame2_xray/core.cljs`
 - `tools/xray/src/day8/re_frame2_xray/panels/reactive_panel_subs.cljs`
@@ -501,10 +501,10 @@ completed work gets re-done.
 
 | cluster | rows | what moving it costs | disposition |
 |---|---|---|---|
-| Xray Views panel on donor 2 | X1, X2, X4, X5 | re-authoring against four different reads; the panel's whole question ("which *views* are mounted") is one the target cannot answer, because Hicasso keys boundaries by read set and has no view registry | `rf2-jkdy` **CLOSED — the verdict was a refusal.** Of the panel's eight questions two carry across, one degrades structurally and five have no answer at all, so there is no migration to perform; the eight-row mapping is `tools/xray/spec/021-Dynamic-Panel-Designs.md` §3.4.3. The retire-or-keep call, and X1's coordinate with it, is a product decision recorded on `rf2-hic-062`. **SETTLED — the call was RETIRE, and `rf2-l86mm` executed it** (`73eb268be2`, `47e1e891a5`, both 2026-08-14): the panel's Mounted Views and Declared View Sites sections, `mounted_views.cljs` and its suite, X5's schema assertions and X1's coordinate are all gone. All four rows discharged; `rf2-hic-062` has since closed |
+| Xray Views panel on donor 2 | X1, X2, X4, X5 | re-authoring against four different reads; the panel's whole question ("which *views* are mounted") is one the target cannot answer, because Fresco keys boundaries by read set and has no view registry | `rf2-jkdy` **CLOSED — the verdict was a refusal.** Of the panel's eight questions two carry across, one degrades structurally and five have no answer at all, so there is no migration to perform; the eight-row mapping is `tools/xray/spec/021-Dynamic-Panel-Designs.md` §3.4.3. The retire-or-keep call, and X1's coordinate with it, is a product decision recorded on `rf2-hic-062`. **SETTLED — the call was RETIRE, and `rf2-l86mm` executed it** (`73eb268be2`, `47e1e891a5`, both 2026-08-14): the panel's Mounted Views and Declared View Sites sections, `mounted_views.cljs` and its suite, X5's schema assertions and X1's coordinate are all gone. All four rows discharged; `rf2-hic-062` has since closed |
 | The staged Freehand deck | X6, X7, X8 | the deck's shadow-cljs build id and `:dev-http` port live in top-level `implementation/shadow-cljs.edn` — hot zone, and fenced out of this bead | follow-up bead `rf2-u5b4` — ~~open~~ **CLOSED**. Resolved as retire, not migrate: `rf2-0yp7w`.6 (`c951808b47`, 2026-08-15) deleted the whole `tools/xray/testbeds/freehand_views/` deck, and `rf2-l86mm` had already taken the feature-matrix scenario. All three rows discharged |
-| Story presence bridge | S2, S3, S4, S5, S6, S11 | Hicasso's presence surface is `re-frame.hicasso.impl.presence` / `.presence-react`, not a published `presence-runtime` door with `advance-clock!`; the bridge needs a target-side verb that does not exist yet. S11 is the cheap row of the six — the refusal message just names whatever replaces Freehand — and S4's assertion fails until it does | follow-up bead `rf2-5gka` — ~~open~~ **CLOSED**. Resolved as retire with the donor, not as a port; see the ACTIONED banner in [Story](#story--11-rows-6-still-live-5-fixture-only). All six rows discharged |
-| ~~Pair's five view tools~~ | *(was P1-P5)* | same four-reads problem as the Xray cluster, plus a regenerated `tool-descriptors.edn` and a spec-catalogue rewrite | `rf2-n3mb` **CLOSED and LANDED** (PR #7848). The five tools became three on `re-frame.hicasso.tool`; the rows are now MIGRATED P1-P6 and no longer still-live. **Not pending work** |
+| Story presence bridge | S2, S3, S4, S5, S6, S11 | Fresco's presence surface is `re-frame.fresco.impl.presence` / `.presence-react`, not a published `presence-runtime` door with `advance-clock!`; the bridge needs a target-side verb that does not exist yet. S11 is the cheap row of the six — the refusal message just names whatever replaces Freehand — and S4's assertion fails until it does | follow-up bead `rf2-5gka` — ~~open~~ **CLOSED**. Resolved as retire with the donor, not as a port; see the ACTIONED banner in [Story](#story--11-rows-6-still-live-5-fixture-only). All six rows discharged |
+| ~~Pair's five view tools~~ | *(was P1-P5)* | same four-reads problem as the Xray cluster, plus a regenerated `tool-descriptors.edn` and a spec-catalogue rewrite | `rf2-n3mb` **CLOSED and LANDED** (PR #7848). The five tools became three on `re-frame.fresco.tool`; the rows are now MIGRATED P1-P6 and no longer still-live. **Not pending work** |
 | Xray adapter-id set | X3 | `:rf.adapter/ui` and `:rf.adapter/freehand` are adapter identities, not evidence reads; they retire when the adapters do, under `rf2-hic-062` itself | fold into `rf2-hic-062` — no follow-up bead. **STANDS, re-verified 2026-08-18 at 2 occurrences, and the fold was overtaken by a decision to KEEP**: `rf2-wtznc` closed on the reading that the member is a defensive denylist entry, on the footing `:rf.adapter/helix` has held since its own adapter was removed (`rf2-d6epb`), and `rf2-0yp7w.9` lists the set under DO NOT DELETE. `docs/design/retirement/donor-surfaces.md` reaches the same disposition independently |
 | Xray's schema-4 reload warning | X13 | nothing to migrate: the donor names are prose inside one `js/console.warn` about a schema-3 residue. With the tiers gone the message names namespaces that no longer exist, so the cost is a stale developer-facing string, not a broken read | fold into `rf2-hic-062` — reword or drop the warning with the tiers; no follow-up bead. **STANDS, re-verified 2026-08-18 at 2 occurrences, and it now HAS a follow-up bead: `rf2-0ucyg`.** The predicted cost arrived early and by a different route — the message says schema 4 "reads views through `re-frame.freehand.tool`", which stopped being true at `rf2-l86mm` on 2026-08-14, a day BEFORE the tree was deleted. `rf2-hic-062` closed without it, and `rf2-0yp7w.9` has the file only as "comments and docstrings", which is not what this is |
 
@@ -517,13 +517,13 @@ with a broken panel and no census.
 
 **What the two settled clusters proved is that both honest answers exist.** `rf2-n3mb` re-authored
 Pair's family and shipped fewer, better tools. `rf2-jkdy` looked at the same problem for Xray's
-Views panel and refused, because a mounted roster that can name no view, rendered beside a Hicasso
+Views panel and refused, because a mounted roster that can name no view, rendered beside a Fresco
 tab already showing those envelopes whole, would be worse than nothing. Neither is a shortfall, and
 `rf2-hic-062` inherits two decisions rather than two open questions.
 
 The 5 FIXTURE-ONLY rows need no action at all: they are precisely the "explicit compatibility
 coverage" the specification sentence permits fixtures to retain. The 10 MIGRATED rows need none
-either — 4 in Xray's Hicasso tab, 6 in Pair.
+either — 4 in Xray's Fresco tab, 6 in Pair.
 
 > **OVERTAKEN for the 5 FIXTURE-ONLY rows, 2026-08-14 (rf2-2og6s) — and by a change of premise,
 > not of measurement.** The sentence above holds only while the donor trees are *archived*. Mike
@@ -549,7 +549,7 @@ survive.
 > liveness question, which is the whole lesson of the section above.
 >
 > **The primary tool paths ARE donor-free.** Of 30 tool-consumer rows across Xray, Story and Pair,
-> **10 are MIGRATED** to the adapter-neutral Hicasso provider (4 in Xray's Hicasso tab, all 6 of
+> **10 are MIGRATED** to the adapter-neutral Fresco provider (4 in Xray's Fresco tab, all 6 of
 > Pair's), **18 are DISCHARGED** — retired, made substrate-free or reworded, each with the bead that
 > landed it in its verdict cell — and **2 are STILL-LIVE**. Zero remain FIXTURE-ONLY. The three
 > clusters are all settled: `rf2-jkdy` and `rf2-u5b4` by retirement, `rf2-5gka` and `rf2-2og6s` by
@@ -565,7 +565,7 @@ survive.
 >
 > **So the Freehand tree HAS been disposed of, and this census no longer withholds it.**
 > `git ls-files implementation/freehand` returns 0, controlled against 464 for
-> `implementation/hicasso` in the same command. Xray's top-level coordinate went with `rf2-l86mm`;
+> `implementation/fresco` in the same command. Xray's top-level coordinate went with `rf2-l86mm`;
 > its Views panel and staged deck are deleted; Story's bridge is retired. The paragraph in the
 > measurement below that refuses disposal was correct when written and is spent.
 
@@ -579,8 +579,8 @@ For `rf2-hic-062` to cite:
 > rebased cleanly onto a 43-file one, which changed nothing in the text and everything in the claim.
 >
 > **Primary tool paths are not yet donor-free, but Pair now is.** Of 30 tool-consumer rows across
-> Xray, Story and Pair, **10 are MIGRATED** to the adapter-neutral Hicasso provider (4 in Xray's
-> Hicasso tab, and all 6 of Pair's), 5 are FIXTURE-ONLY compatibility evidence in Story's `test/`
+> Xray, Story and Pair, **10 are MIGRATED** to the adapter-neutral Fresco provider (4 in Xray's
+> Fresco tab, and all 6 of Pair's), 5 are FIXTURE-ONLY compatibility evidence in Story's `test/`
 > tree on a `:test`-alias classpath, and **15 are STILL-LIVE on a donor tier**.
 >
 > **Thirteen of those 15 sit in three clusters, and only two of the three are pending work.** Xray's
@@ -591,9 +591,9 @@ For `rf2-hic-062` to cite:
 > scenario (`rf2-u5b4`, 3 rows) and Story's shipped `presence-host` bridge (`rf2-5gka`, 6 rows).
 >
 > **`rf2-n3mb` is CLOSED and landed, and Pair is not a blocking cluster.** Its five view tools were
-> re-authored into three on `re-frame.hicasso.tool` (PR #7848) — the three the target cannot answer
+> re-authored into three on `re-frame.fresco.tool` (PR #7848) — the three the target cannot answer
 > were retired rather than shipped answering with a fabricated emptiness. Pair holds no donor
-> coordinate, no donor `:require` and no donor wire string; `hicasso_wire_test.cljs` asserts that
+> coordinate, no donor `:require` and no donor wire string; `fresco_wire_test.cljs` asserts that
 > last point against Pair's whole shipped `src/` on every run, so the wire cannot be quietly
 > re-acquired. **Any plan that still treats Pair as pending migration work is reading a superseded
 > pass of this census.**
@@ -612,8 +612,8 @@ For `rf2-hic-062` to cite:
 >
 > **The blocker is not effort, it is question shape.** `re-frame.ui.tool` and
 > `re-frame.freehand.tool` publish the same five reads, so donor 1 → donor 2 was a rename.
-> `re-frame.hicasso.tool` publishes four reads of which only `explain-render` shares a name; the
-> other four donor reads are manifest- and view-registry-shaped, and Hicasso mints no boundary
+> `re-frame.fresco.tool` publishes four reads of which only `explain-render` shares a name; the
+> other four donor reads are manifest- and view-registry-shaped, and Fresco mints no boundary
 > identity, projecting `:view` and `:source` as `unknown` under an `:opaque` naming projection. So
 > every remaining migration is a re-authoring against a different question set — which `rf2-n3mb`
 > answered by shipping fewer tools and `rf2-jkdy` answered by shipping none. Both are valid

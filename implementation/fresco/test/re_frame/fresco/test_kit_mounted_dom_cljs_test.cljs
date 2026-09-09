@@ -1,7 +1,7 @@
-(ns re-frame.hicasso.test-kit-mounted-dom-cljs-test
+(ns re-frame.fresco.test-kit-mounted-dom-cljs-test
   "THE MOUNTED FACADE'S OWN WITNESSES.
 
-  `re-frame.hicasso.test.mounted` is an instrument, so every row here is
+  `re-frame.fresco.test.mounted` is an instrument, so every row here is
   either a POSITIVE control — the facade does what it claims on a working
   app — or a SABOTAGE control — a deliberate fault, and the instrument
   moves. An instrument asserted only on the working case is satisfied by
@@ -49,7 +49,7 @@
     drains to fixed point before it returns; so what this facade could
     honestly see is exactly what it already settles, and what it cannot
     see is what a test put in flight by another route;
-  - a **core-level subscription** — `rf/subscribe` held outside a Hicasso
+  - a **core-level subscription** — `rf/subscribe` held outside a Fresco
     body — is in core's sub-cache and not in the cell table this census
     reads;
   - a retained foreign-host **callback** is visible only through what it
@@ -67,12 +67,12 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
-            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
+            [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.routing :as rf.routing]
             [re-frame.test-support :as rf.test-support]))
 
@@ -97,13 +97,13 @@
 (defn- plain-child
   "An ORDINARY function, and that is the whole of it: in child head
   position the runtime refuses a plain function outright (HD-016,
-  `:rf.error/hicasso-bad-head`) rather than calling it. Deliberately not
+  `:rf.error/fresco-bad-head`) rather than calling it. Deliberately not
   a `defview`, and deliberately referred to through its var so nothing
   can decide the question before the render does."
   [_props]
   [:span.unreachable "never rendered"])
 
-(rf.hicasso/defview row-with-a-plain-function-child
+(rf.fresco/defview row-with-a-plain-function-child
   "A VALID registered view whose BODY is malformed. The view itself mounts;
   what the runtime refuses is the child head inside its body, from inside
   React's own render, which is the position a refusal is most easily lost
@@ -111,7 +111,7 @@
   [_]
   [:li.row [plain-child {}]])
 
-(rf.hicasso/defview row
+(rf.fresco/defview row
   "One to-do, with a toggle button. Reads exactly ONE subscription, which
   is what makes the residue arithmetic below readable: one live row is one
   cell, one reader membership, one boundary and one edge.
@@ -120,7 +120,7 @@
   mounted under — see `roots-frames-isolation-dom-cljs-test`, which states
   the same rule for the same reason."
   [{:keys [id]}]
-  (let [todo (rf.hicasso/sub [::todo id])]
+  (let [todo (rf.fresco/sub [::todo id])]
     [:li.row {:data-id id}
      [:span.title (:title todo)]
      [:span.done (str (boolean (:done? todo)))]
@@ -158,13 +158,13 @@
   registration, so calling it from the fixture as well as at load costs
   nothing."
   []
-  (rf.routing/reg-route here  {:doc "W7's first page."}  "/hicasso-test-kit-mounted")
-  (rf.routing/reg-route there {:doc "W7's second page."} "/hicasso-test-kit-mounted/there")
+  (rf.routing/reg-route here  {:doc "W7's first page."}  "/fresco-test-kit-mounted")
+  (rf.routing/reg-route there {:doc "W7's second page."} "/fresco-test-kit-mounted/there")
   nil)
 
 (register-routes!)
 
-(rf.hicasso/defview two-pages
+(rf.fresco/defview two-pages
   "The smallest page that can leave work ENQUEUED: an `h/route-link` and a
   reading of where the router thinks we are.
 
@@ -172,9 +172,9 @@
   is what claims the click, and if it did not, this page would navigate
   the test runner away."
   [_]
-  (let [id (rf.hicasso/sub [:rf.route/id])]
+  (let [id (rf.fresco/sub [:rf.route/id])]
     [:div.pages
-     (rf.hicasso/route-link {:to there :class "to-there"} "go there")
+     (rf.fresco/route-link {:to there :class "to-there"} "go there")
      [:span.where (if (= there id) "there" "here")]]))
 
 (use-fixtures :each
@@ -190,8 +190,8 @@
      ;; this namespace.
      :async?        true
      :init-fn       (fn []
-                      (rf.hicasso.roots-frames-support/leave-act-environment!)
-                      (rf.hicasso.impl.collector/reset-runtime!)
+                      (rf.fresco.roots-frames-support/leave-act-environment!)
+                      (rf.fresco.impl.collector/reset-runtime!)
                       ;; The reset rolled the registrar back past the
                       ;; load-time registration above — see that comment.
                       (register-routes!))}))
@@ -206,15 +206,15 @@
 (defn- seeded
   "One mount of the row, under its own frame, seeded with three to-dos."
   ([] (seeded 1))
-  ([id] (rf.hicasso.test.mounted/mount! [row {:id id}] {:initial-events [[::seed 3]]})))
+  ([id] (rf.fresco.test.mounted/mount! [row {:id id}] {:initial-events [[::seed 3]]})))
 
 ;; ---------------------------------------------------------------------------
 ;; W1 — the dogfood claim, one rung up: a REAL click on a REAL page
 ;; ---------------------------------------------------------------------------
 
 (deftest l3-a-real-click-on-a-real-button-moves-the-real-page
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (let [m (seeded)]
         (testing "the mount rendered the seeded screen into a container that is
@@ -234,7 +234,7 @@
                   at L1 no element exists, so there is no bubbling, no default
                   action and no React event system"
           (.click (node-at m ".toggle"))
-          (rf.hicasso.test.mounted/settle! m)
+          (rf.fresco.test.mounted/settle! m)
           (is (= "true" (text-at m ".done")))
           (is (true? (:done? (rf/with-frame (:frame m)
                                (deref (rf/subscribe [::todo 1])))))))
@@ -242,15 +242,15 @@
         (testing "and dispatch-and-settle! drives the same page from OUTSIDE
                   it — the handle's frame, the runtime's synchronous door, the
                   commit landed before the next line"
-          (rf.hicasso.test.mounted/dispatch-and-settle! m [::toggle 1])
+          (rf.fresco.test.mounted/dispatch-and-settle! m [::toggle 1])
           (is (= "false" (text-at m ".done"))))
 
         (testing "teardown is clean, and this is the positive control the
                   sabotage rows below are measured against: without it, an
                   assert-clean! that never went green would be satisfied by an
                   instrument that always reds"
-          (-> (rf.hicasso.test.mounted/unmount! m)
-              (rf.hicasso.test.mounted/assert-clean!)
+          (-> (rf.fresco.test.mounted/unmount! m)
+              (rf.fresco.test.mounted/assert-clean!)
               (.then (fn [report]
                        (is (true? (:clean? report)))
                        (is (nil? (:leaked report)))
@@ -261,8 +261,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest l3-two-mounts-are-two-isolated-frames
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (let [a (seeded)
             b (seeded)]
@@ -276,26 +276,26 @@
                   structure and cannot repair it, which is why the claim is read
                   here rather than off the page"
           (is (= #{[(:frame a) [::todo 1]] [(:frame b) [::todo 1]]}
-                 (rf.hicasso.roots-frames-support/cell-keys))
-              (str "got " (pr-str (rf.hicasso.roots-frames-support/cell-keys))))
-          (is (= [1 1] [(rf.hicasso.roots-frames-support/readers-of [(:frame a) [::todo 1]])
-                        (rf.hicasso.roots-frames-support/readers-of [(:frame b) [::todo 1]])])
+                 (rf.fresco.roots-frames-support/cell-keys))
+              (str "got " (pr-str (rf.fresco.roots-frames-support/cell-keys))))
+          (is (= [1 1] [(rf.fresco.roots-frames-support/readers-of [(:frame a) [::todo 1]])
+                        (rf.fresco.roots-frames-support/readers-of [(:frame b) [::todo 1]])])
               "one reader each — a leak is TWO readers on ONE key"))
 
         (testing "a dispatch into A's frame moves A's page and NOT B's. This is
                   the property the whole framework rests on, and a facade that
                   let one mount reach the other would have broken it"
-          (rf.hicasso.test.mounted/dispatch-and-settle! a [::toggle 1])
+          (rf.fresco.test.mounted/dispatch-and-settle! a [::toggle 1])
           (is (= "true"  (text-at a ".done")))
           (is (= "false" (text-at b ".done"))))
 
         (testing "both come down clean, each measured against its own baseline"
-          (rf.hicasso.test.mounted/unmount! a)
-          (rf.hicasso.test.mounted/unmount! b)
-          (-> (rf.hicasso.test.mounted/assert-clean! a)
+          (rf.fresco.test.mounted/unmount! a)
+          (rf.fresco.test.mounted/unmount! b)
+          (-> (rf.fresco.test.mounted/assert-clean! a)
               (.then (fn [ra]
                        (is (true? (:clean? ra)))
-                       (rf.hicasso.test.mounted/assert-clean! b)))
+                       (rf.fresco.test.mounted/assert-clean! b)))
               (.then (fn [rb]
                        (is (true? (:clean? rb)))
                        (done)))))))))
@@ -305,8 +305,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest l3-assert-clean-sees-a-leaked-subscription
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (let [m      (seeded)
             ;; THE SABOTAGE. A second root, put up inside the mount's window
@@ -319,9 +319,9 @@
             ;; deliberately: a facade mount is a PEER and says so in the report
             ;; (`:standing`), and a peer explained by the instrument is not the
             ;; fault this row exists to detect.
-            orphan (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) (:frame m) [row {:id 2}])]
-        (rf.hicasso.test.mounted/unmount! m)
-        (-> (rf.hicasso.test.mounted/residue m)
+            orphan (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) (:frame m) [row {:id 2}])]
+        (rf.fresco.test.mounted/unmount! m)
+        (-> (rf.fresco.test.mounted/residue m)
             (.then (fn [report]
                      (testing "the instrument moved: the mount is not clean"
                        (is (false? (:clean? report)))
@@ -346,7 +346,7 @@
 
                      ;; Restore: the orphan is this row's, and it does not
                      ;; belong to the next one.
-                     (rf.hicasso.impl.mount/release! orphan)
+                     (rf.fresco.impl.mount/release! orphan)
 
                      ;; And FINALISE. `residue` reads; only `assert-clean!`
                      ;; records the verdict and releases this mount's private
@@ -355,15 +355,15 @@
                      ;; never be read — and holds the reset gate off zero for
                      ;; every row after it. The tests for a cleanliness
                      ;; instrument have to be clean themselves.
-                     (-> (rf.hicasso.test.mounted/assert-clean! m)
+                     (-> (rf.fresco.test.mounted/assert-clean! m)
                          (.then (fn [after]
                                   (is (true? (:clean? after))
                                       "the induced fault was repaired before the verdict")
                                   (done)))))))))))
 
 (deftest l3-assert-clean-sees-a-frame-the-app-left-behind
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (let [m (seeded)]
         ;; THE SABOTAGE. A frame opened inside the mount's window and never
@@ -371,8 +371,8 @@
         ;; a preview and forgets it. A count would say "one more frame"; the
         ;; report names the id, which is the one thing here a reader can act on.
         (rf/make-frame {:id ::spawned})
-        (rf.hicasso.test.mounted/unmount! m)
-        (-> (rf.hicasso.test.mounted/residue m)
+        (rf.fresco.test.mounted/unmount! m)
+        (-> (rf.fresco.test.mounted/residue m)
             (.then (fn [report]
                      (is (false? (:clean? report)))
                      (is (= #{::spawned} (:frames (:leaked report)))
@@ -384,29 +384,29 @@
                      (rf/destroy-frame! ::spawned)
 
                      ;; And FINALISE — see the row above.
-                     (-> (rf.hicasso.test.mounted/assert-clean! m)
+                     (-> (rf.fresco.test.mounted/assert-clean! m)
                          (.then (fn [after]
                                   (is (true? (:clean? after))
                                       "the spawned frame was destroyed before the verdict")
                                   (done)))))))))))
 
 (deftest l3-assert-clean-sees-a-root-that-was-never-unmounted
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (let [m (seeded)]
         ;; THE SABOTAGE. No unmount! at all. A live root's cells ARE residue by
         ;; every number in the census, so an instrument that only counted would
         ;; red with a leak report and send a reader hunting a subscription. The
         ;; missing teardown is reported as itself.
-        (-> (rf.hicasso.test.mounted/residue m)
+        (-> (rf.fresco.test.mounted/residue m)
             (.then (fn [report]
                      (is (true? (:still-mounted? report)))
                      (is (false? (:clean? report))
                          "the live root's own cell is above the baseline")
                      (is (= 1 (:cells (:leaked report))))
-                     (-> (rf.hicasso.test.mounted/unmount! m)
-                         (rf.hicasso.test.mounted/assert-clean!)
+                     (-> (rf.fresco.test.mounted/unmount! m)
+                         (rf.fresco.test.mounted/assert-clean!)
                          (.then (fn [after]
                                   (testing "and after the teardown it does go
                                             clean — the control that says the
@@ -422,7 +422,7 @@
 ;;
 ;; `assert-clean!` resets the page-wide runtime after the LAST open mount
 ;; is read, and only then — `!open`'s whole account in
-;; `re-frame.hicasso.test.mounted` (the rf2-2rtt6.48 shape: a census taken
+;; `re-frame.fresco.test.mounted` (the rf2-2rtt6.48 shape: a census taken
 ;; after a reset answers zero whether the teardown released anything or
 ;; not, the gate that cannot go red). Every row above takes its verdicts
 ;; in an order an EARLY reset would also satisfy: no row plants a leak
@@ -438,22 +438,22 @@
 ;; would read as clean.
 
 (deftest l3-the-reset-gate-holds-while-a-sibling-mount-awaits-its-verdict
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (let [mb     (seeded 1)
-            orphan (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) (:frame mb) [row {:id 2}])
-            _      (rf.hicasso.test.mounted/unmount! mb)
+            orphan (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) (:frame mb) [row {:id 2}])
+            _      (rf.fresco.test.mounted/unmount! mb)
             ma     (seeded 2)]
-        (rf.hicasso.test.mounted/unmount! ma)
-        (-> (rf.hicasso.test.mounted/assert-clean! ma)
+        (rf.fresco.test.mounted/unmount! ma)
+        (-> (rf.fresco.test.mounted/assert-clean! ma)
             (.then
               (fn [ra]
                 (is (true? (:clean? ra))
                     (str "premise: A is clean — the orphan predates A's own "
                          "baseline, so nothing here is A's residue. Got: "
                          (pr-str (:leaked ra))))
-                (-> (rf.hicasso.test.mounted/residue mb)
+                (-> (rf.fresco.test.mounted/residue mb)
                     (.then
                       (fn [rb]
                         (is (false? (:clean? rb))
@@ -473,8 +473,8 @@
                         ;; states: the tests for a cleanliness instrument
                         ;; have to be clean themselves, and B's verdict is
                         ;; what lets the gate reach zero and reset.
-                        (rf.hicasso.impl.mount/release! orphan)
-                        (-> (rf.hicasso.test.mounted/assert-clean! mb)
+                        (rf.fresco.impl.mount/release! orphan)
+                        (-> (rf.fresco.test.mounted/assert-clean! mb)
                             (.then (fn [after]
                                      (is (true? (:clean? after))
                                          "the induced fault was repaired
@@ -486,12 +486,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest l3-render-changes-props-without-remounting
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (let [m  (seeded 1)
             li (node-at m ".row")]
-        (rf.hicasso.test.mounted/rerender! m [row {:id 2}])
+        (rf.fresco.test.mounted/rerender! m [row {:id 2}])
 
         (testing "the new props reached the body and the page moved"
           (is (= "todo 2" (text-at m ".title")))
@@ -502,8 +502,8 @@
                   door exists and a claim no semantic tree can make"
           (is (identical? li (node-at m ".row"))))
 
-        (-> (rf.hicasso.test.mounted/unmount! m)
-            (rf.hicasso.test.mounted/assert-clean!)
+        (-> (rf.fresco.test.mounted/unmount! m)
+            (rf.fresco.test.mounted/assert-clean!)
             (.then (fn [report] (is (true? (:clean? report))) (done))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -511,8 +511,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest l3-hydrate-adopts-the-server-nodes
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (let [;; A throwaway frame, purely to produce the bytes an SSR route
             ;; would deliver. Released before anything is measured, so the
@@ -520,36 +520,36 @@
             bytes-frame ::server
             _           (rf/make-frame {:id bytes-frame
                                         :initial-events [[::seed 3]]})
-            html        (rf.hicasso.roots-frames-support/server-html! bytes-frame [row {:id 1}])
+            html        (rf.fresco.roots-frames-support/server-html! bytes-frame [row {:id 1}])
             _           (rf/destroy-frame! bytes-frame)
-            _           (rf.hicasso.impl.collector/reset-runtime!)
+            _           (rf.fresco.impl.collector/reset-runtime!)
             ;; The page as it arrives: the server's nodes, stamped with an
             ;; EXPANDO. An expando cannot survive serialisation and cannot be
             ;; reconstructed, so a node still carrying it is THE node the
             ;; server markup produced — the only observable that tells adoption
             ;; from a client render that happens to agree.
-            container   (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))]
-        (is (rf.hicasso.roots-frames-support/every-server-node? container ".row") "premise: the bytes were stamped")
-        (-> (rf.hicasso.test.mounted/hydrate! [row {:id 1}] {:container container
+            container   (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))]
+        (is (rf.fresco.roots-frames-support/every-server-node? container ".row") "premise: the bytes were stamped")
+        (-> (rf.fresco.test.mounted/hydrate! [row {:id 1}] {:container container
                                         :initial-events [[::seed 3]]})
             (.then (fn [m]
                      (testing "the promise resolved on THIS root's adoption
                                window shutting, so the DOM on this line is the
                                adopted one — hydrate-root! itself returns while
                                the page is still the server's"
-                       (is (rf.hicasso.roots-frames-support/every-server-node? (:container m) ".row")
+                       (is (rf.fresco.roots-frames-support/every-server-node? (:container m) ".row")
                            "the server's own nodes were adopted, not replaced")
                        (is (= "todo 1" (text-at m ".title"))))
 
                      (testing "and it is live: a dispatch reaches the adopted
                                tree"
-                       (rf.hicasso.test.mounted/dispatch-and-settle! m [::toggle 1])
+                       (rf.fresco.test.mounted/dispatch-and-settle! m [::toggle 1])
                        (is (= "true" (text-at m ".done")))
-                       (is (rf.hicasso.roots-frames-support/every-server-node? (:container m) ".row")
+                       (is (rf.fresco.roots-frames-support/every-server-node? (:container m) ".row")
                            "still the same nodes after a commit"))
 
-                     (-> (rf.hicasso.test.mounted/unmount! m)
-                         (rf.hicasso.test.mounted/assert-clean!)
+                     (-> (rf.fresco.test.mounted/unmount! m)
+                         (rf.fresco.test.mounted/assert-clean!)
                          (.then (fn [report]
                                   (is (true? (:clean? report)))
                                   (done)))))))))))
@@ -582,12 +582,12 @@
 (defn- body-children [] (.-childElementCount js/document.body))
 
 (deftest l3-mount-propagates-the-runtimes-refusal-and-leaves-nothing-behind
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
-      (let [before   (rf.hicasso.test.mounted/census)
+      (let [before   (rf.fresco.test.mounted/census)
             children (body-children)
-            outcome  (try (rf.hicasso.test.mounted/mount! [row-with-a-plain-function-child {}])
+            outcome  (try (rf.fresco.test.mounted/mount! [row-with-a-plain-function-child {}])
                           (catch :default e e))]
 
         (testing "the refusal reached the CALLER, carrying the runtime's own id,
@@ -602,11 +602,11 @@
               (str "mount! answered " (pr-str outcome) " instead of refusing"))
           (when (instance? ExceptionInfo outcome)
             (let [data (ex-data outcome)]
-              (is (= :rf.error/hicasso-bad-head (:rf.error/id data)))
+              (is (= :rf.error/fresco-bad-head (:rf.error/id data)))
               (is (identical? plain-child (:head data))
                   "the offending head is the one the body wrote"))))
 
-        (-> (rf.hicasso.test.runtime/quiesced!)
+        (-> (rf.fresco.test.runtime/quiesced!)
             (.then
               (fn [_]
                 (testing "and the page is as the call found it. The frame this
@@ -615,9 +615,9 @@
                           programmer who catches this refusal has nothing left
                           to clean up and no handle they would have had to be
                           given one"
-                  (is (= before (rf.hicasso.test.mounted/census))
+                  (is (= before (rf.fresco.test.mounted/census))
                       (str "the census moved: " (pr-str before) " → "
-                           (pr-str (rf.hicasso.test.mounted/census))))
+                           (pr-str (rf.fresco.test.mounted/census))))
                   (is (= children (body-children))
                       "the container the failed mount appended is still attached"))
 
@@ -626,16 +626,16 @@
                           `!standing` left incremented by the failed call shows
                           up here and nowhere else"
                   (let [m (seeded)]
-                    (rf.hicasso.test.mounted/unmount! m)
-                    (-> (rf.hicasso.test.mounted/assert-clean! m)
+                    (rf.fresco.test.mounted/unmount! m)
+                    (-> (rf.fresco.test.mounted/assert-clean! m)
                         (.then (fn [report]
                                  (is (zero? (:standing report)))
                                  (is (true? (:clean? report)))
                                  (done)))))))))))))
 
 (deftest l3-hydrate-rejects-a-form-the-codec-refuses-and-leaves-nothing-behind
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (let [;; The caller's OWN container, carrying the caller's own bytes —
             ;; the arm where the rollback must NOT tidy up, because the node is
@@ -643,12 +643,12 @@
             container (js/document.createElement "div")
             _         (set! (.-innerHTML container) "<li class=\"row\">server</li>")
             _         (.appendChild js/document.body container)
-            before    (rf.hicasso.test.mounted/census)
+            before    (rf.fresco.test.mounted/census)
             children  (body-children)]
         ;; THE FAULT: an empty hiccup vector has no head, and the codec refuses
         ;; it while `hydrate-root!` is still building its root element — on
         ;; that call's own stack, before React is handed anything.
-        (-> (rf.hicasso.test.mounted/hydrate! [] {:container container})
+        (-> (rf.fresco.test.mounted/hydrate! [] {:container container})
             (.then (fn [m]
                      (is false (str "hydrate! resolved with " (pr-str m)
                                     " for a form the codec refuses")))
@@ -658,14 +658,14 @@
                                `.catch` the caller attached and hang the async
                                test instead of failing it"
                        (is (instance? ExceptionInfo e))
-                       (is (= :rf.error/hicasso-empty-vector
+                       (is (= :rf.error/fresco-empty-vector
                               (:rf.error/id (ex-data e)))))))
-            (.then (fn [_] (rf.hicasso.test.runtime/quiesced!)))
+            (.then (fn [_] (rf.fresco.test.runtime/quiesced!)))
             (.then (fn [_]
                      (testing "the frame is destroyed and no counter moved"
-                       (is (= before (rf.hicasso.test.mounted/census))
+                       (is (= before (rf.fresco.test.mounted/census))
                            (str "the census moved: " (pr-str before) " → "
-                                (pr-str (rf.hicasso.test.mounted/census)))))
+                                (pr-str (rf.fresco.test.mounted/census)))))
                      (testing "and the caller's container is EXACTLY where they
                                left it, with the bytes they put in it. A
                                rollback that removed it would delete a node the
@@ -677,16 +677,16 @@
                      (done))))))))
 
 (deftest l3-hydrate-that-never-adopts-rejects-and-leaves-nothing-behind
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (let [bytes-frame ::timeout-server
             _           (rf/make-frame {:id bytes-frame
                                         :initial-events [[::seed 3]]})
-            html        (rf.hicasso.roots-frames-support/server-html! bytes-frame [row {:id 1}])
+            html        (rf.fresco.roots-frames-support/server-html! bytes-frame [row {:id 1}])
             _           (rf/destroy-frame! bytes-frame)
-            _           (rf.hicasso.impl.collector/reset-runtime!)
-            before      (rf.hicasso.test.mounted/census)
+            _           (rf.fresco.impl.collector/reset-runtime!)
+            before      (rf.fresco.test.mounted/census)
             children    (body-children)
             ;; THE ROLLBACK'S OWN NOISE, captured rather than suppressed.
             ;;
@@ -714,7 +714,7 @@
         ;; body that throws during adoption — never resolves EITHER, but it
         ;; also reports an uncaught error at the window, and that is a
         ;; different fault with a channel of its own.
-        (-> (rf.hicasso.test.mounted/hydrate! [row {:id 1}] {:html html :initial-events [[::seed 3]]} -1)
+        (-> (rf.fresco.test.mounted/hydrate! [row {:id 1}] {:html html :initial-events [[::seed 3]]} -1)
             (.then (fn [m]
                      (is false (str "hydrate! resolved with " (pr-str m)
                                     " on a spent budget")))
@@ -735,12 +735,12 @@
                          (is (keyword? frame))
                          (is (not (contains? (set (rf/frame-ids)) frame))
                              (str frame " is still registered"))))))
-            (.then (fn [_] (rf.hicasso.test.runtime/quiesced!)))
+            (.then (fn [_] (rf.fresco.test.runtime/quiesced!)))
             (.then (fn [_]
                      (.removeEventListener js/window "error" on-error)
-                     (is (= before (rf.hicasso.test.mounted/census))
+                     (is (= before (rf.fresco.test.mounted/census))
                          (str "the census moved: " (pr-str before) " → "
-                              (pr-str (rf.hicasso.test.mounted/census))))
+                              (pr-str (rf.fresco.test.mounted/census))))
                      (testing "and the container the facade minted for the
                                server bytes is gone, because this one IS the
                                facade's to remove"
@@ -778,7 +778,7 @@
 (defn- routed
   "One mount of [[two-pages]], opened on the first route."
   []
-  (rf.hicasso.test.mounted/mount! [two-pages {}]
+  (rf.fresco.test.mounted/mount! [two-pages {}]
              {:initial-events [[:rf.route/navigate {:to here}]]}))
 
 (defn- route-id-of
@@ -790,13 +790,13 @@
   (rf/subscribe-once [:rf.route/id] {:frame (:frame m)}))
 
 (deftest l3-settle-until-lands-work-the-router-merely-enqueued
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (let [m (routed)]
         (is (= here (route-id-of m)) "premise: the page opened on the first route")
         (is (= "here" (text-at m ".where")))
-        (is (= "/hicasso-test-kit-mounted/there"
+        (is (= "/fresco-test-kit-mounted/there"
                (.getAttribute (node-at m ".to-there") "href"))
             "premise: the link is routing's own, so clicking it is a real
              route-link click rather than a dispatch dressed as one")
@@ -811,12 +811,12 @@
                   `interop/next-tick`, a next-turn TASK, and at this line
                   nothing has reached React for the flush to commit. Neither
                   app-db nor the page has moved"
-          (rf.hicasso.test.mounted/settle! m)
+          (rf.fresco.test.mounted/settle! m)
           (is (= here (route-id-of m))
               "the navigation is enqueued, not landed")
           (is (= "here" (text-at m ".where"))))
 
-        (-> (rf.hicasso.test.mounted/settle-until! m #(= there (route-id-of m))
+        (-> (rf.fresco.test.mounted/settle-until! m #(= there (route-id-of m))
                               {:label "the route-link's navigate to drain"})
             (.then
               (fn [answered]
@@ -838,22 +838,22 @@
                                      (pr-str (ex-data e))))
                       nil))
             (.then (fn [_]
-                     (-> (rf.hicasso.test.mounted/unmount! m)
-                         (rf.hicasso.test.mounted/assert-clean!)
+                     (-> (rf.fresco.test.mounted/unmount! m)
+                         (rf.fresco.test.mounted/assert-clean!)
                          (.then (fn [report]
                                   (is (true? (:clean? report)))
                                   (done)))))))))))
 
 (deftest l3-settle-until-fails-at-its-deadline-rather-than-hanging
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
     (async done
       (let [m (routed)]
         ;; THE SABOTAGE: a condition that cannot ever hold, and nothing
         ;; clicked, so no navigation is even enqueued. The only way out of
         ;; this row is the deadline — which is what makes it a witness for
         ;; the WAITING rather than for the returning.
-        (-> (rf.hicasso.test.mounted/settle-until! m (constantly false)
+        (-> (rf.fresco.test.mounted/settle-until! m (constantly false)
                               {:timeout-ms 50
                                :interval-ms 5
                                :label "a condition that never holds"})
@@ -882,8 +882,8 @@
                                its handler at all is that claim"
                        (is true "the rejection reached a handler"))))
             (.then (fn [_]
-                     (-> (rf.hicasso.test.mounted/unmount! m)
-                         (rf.hicasso.test.mounted/assert-clean!)
+                     (-> (rf.fresco.test.mounted/unmount! m)
+                         (rf.fresco.test.mounted/assert-clean!)
                          (.then (fn [report]
                                   (is (true? (:clean? report)))
                                   (done)))))))))))

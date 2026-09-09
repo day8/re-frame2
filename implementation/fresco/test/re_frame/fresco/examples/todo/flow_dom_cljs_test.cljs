@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.todo.flow-dom-cljs-test
+(ns re-frame.fresco.examples.todo.flow-dom-cljs-test
   "L3 — THE WHOLE TODO FLOW, MOUNTED.
 
   One pass through the application on a real React root: adding through
@@ -17,7 +17,7 @@
 
   ## TWO CLICKS, TWO SETTLING RULES (the slice report's finding 6, confirmed)
 
-  A Hicasso intent dispatches through the runtime's own SYNCHRONOUS
+  A Fresco intent dispatches through the runtime's own SYNCHRONOUS
   frame-locked door, so after a real click on `.destroy` or
   `.clear-completed` the handlers have run, `app-db` has moved and React
   has committed: the next line reads the repainted page, and
@@ -60,13 +60,13 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.examples.todo.app :as rf.hicasso.examples.todo.app]
-            [re-frame.hicasso.examples.todo.db :as rf.hicasso.examples.todo.db]
-            [re-frame.hicasso.examples.todo.events :as rf.hicasso.examples.todo.events]
-            [re-frame.hicasso.examples.todo.routes :as rf.hicasso.examples.todo.routes]
-            [re-frame.hicasso.examples.todo.subs :as rf.hicasso.examples.todo.subs]
-            [re-frame.hicasso.examples.todo.views :as rf.hicasso.examples.todo.views]
-            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.fresco.examples.todo.app :as rf.fresco.examples.todo.app]
+            [re-frame.fresco.examples.todo.db :as rf.fresco.examples.todo.db]
+            [re-frame.fresco.examples.todo.events :as rf.fresco.examples.todo.events]
+            [re-frame.fresco.examples.todo.routes :as rf.fresco.examples.todo.routes]
+            [re-frame.fresco.examples.todo.subs :as rf.fresco.examples.todo.subs]
+            [re-frame.fresco.examples.todo.views :as rf.fresco.examples.todo.views]
+            [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@
                       ;; captured when this form was EVALUATED, which is
                       ;; before `routes` finished loading. See that
                       ;; namespace on why `register!` is exposed at all.
-                      (rf.hicasso.examples.todo.routes/register!))}))
+                      (rf.fresco.examples.todo.routes/register!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading and driving the page
@@ -113,18 +113,18 @@
           (.closest ".todo-row")))
 
 (defn- click!
-  "A real click on a Hicasso intent, and then a settle. `HTMLElement.click()`
+  "A real click on a Fresco intent, and then a settle. `HTMLElement.click()`
   is what a `user-event` sequence ultimately performs; the intent's own
   dispatch is synchronous, so the settle is all that is owed."
   [m sel]
   (.click (node m sel))
-  (rf.hicasso.test.mounted/settle! m))
+  (rf.fresco.test.mounted/settle! m))
 
 (defn- double-click!
   "A real `dblclick`, which `.click()` cannot synthesise."
   [m sel]
   (.dispatchEvent (node m sel) (js/MouseEvent. "dblclick" #js {:bubbles true}))
-  (rf.hicasso.test.mounted/settle! m))
+  (rf.fresco.test.mounted/settle! m))
 
 (defn- press!
   "A real `keydown` carrying `key`, at `sel`. React's synthetic
@@ -132,7 +132,7 @@
   lookup is the real one."
   [m sel key]
   (.dispatchEvent (node m sel) (js/KeyboardEvent. "keydown" #js {:key key :bubbles true}))
-  (rf.hicasso.test.mounted/settle! m))
+  (rf.fresco.test.mounted/settle! m))
 
 (defn- submit!
   "Submit the form at `sel` the way the browser's own implicit
@@ -140,7 +140,7 @@
   and cannot drive."
   [m sel]
   (.requestSubmit (node m sel))
-  (rf.hicasso.test.mounted/settle! m))
+  (rf.fresco.test.mounted/settle! m))
 
 (defn- type-into!
   "Type `v` into the field at `sel` — a foreign write followed by a real
@@ -155,7 +155,7 @@
         d (js/Object.getOwnPropertyDescriptor js/HTMLInputElement.prototype "value")]
     (.call (.-set d) n v)
     (.dispatchEvent n (js/InputEvent. "input" #js {:bubbles true}))
-    (rf.hicasso.test.mounted/settle! m)))
+    (rf.fresco.test.mounted/settle! m)))
 
 (defn- read-sub [m query-v] (rf/subscribe-once query-v {:frame (:frame m)}))
 
@@ -167,23 +167,23 @@
                 (nodes m ".filters a"))]
     (is (some? a) (str "there is a tab labelled " (pr-str label)))
     (.click a)
-    (rf.hicasso.test.mounted/settle-until! m
-                      #(= expected-filter (read-sub m [::rf.hicasso.examples.todo.subs/showing]))
+    (rf.fresco.test.mounted/settle-until! m
+                      #(= expected-filter (read-sub m [::rf.fresco.examples.todo.subs/showing]))
                       {:label (str "the " label " filter to land")})))
 
 (defn- mount-app!
   "The whole application, on its own root and its own frame, seeded and
   pointed at *All*. `:initial-events` drain to fixed point before the
   first render, so a row opens on the seeded page."
-  ([] (mount-app! [:rf.route/navigate {:to rf.hicasso.examples.todo.routes/all}]))
+  ([] (mount-app! [:rf.route/navigate {:to rf.fresco.examples.todo.routes/all}]))
   ([nav-event]
-   (rf.hicasso.test.mounted/mount! [rf.hicasso.examples.todo.views/app {}]
-              {:initial-events [[::rf.hicasso.examples.todo.events/seed rf.hicasso.examples.todo.app/sample-todos] nav-event]})))
+   (rf.fresco.test.mounted/mount! [rf.fresco.examples.todo.views/app {}]
+              {:initial-events [[::rf.fresco.examples.todo.events/seed rf.fresco.examples.todo.app/sample-todos] nav-event]})))
 
 (defn- finish
   "Tear down, assert this mount left nothing behind, and end the row."
   [m done]
-  (-> (rf.hicasso.test.mounted/unmount! m) (rf.hicasso.test.mounted/assert-clean!) (.then done)))
+  (-> (rf.fresco.test.mounted/unmount! m) (rf.fresco.test.mounted/assert-clean!) (.then done)))
 
 (defn- finish-after
   "End the row when `p` settles, reporting a rejected `p` as a failure
@@ -207,16 +207,16 @@
     (skip! "the seeded page and a form submission")
     (async done
       (let [m (mount-app!)]
-        (is (= rf.hicasso.examples.todo.app/sample-todos (titles m))
+        (is (= rf.fresco.examples.todo.app/sample-todos (titles m))
             "the frame's :initial-events drained before the first render")
         (is (= "3 items left" (text m ".todo-count")))
 
         (type-into! m "#new-todo" "buy milk")
-        (is (= "buy milk" (read-sub m [::rf.hicasso.examples.todo.subs/new-todo]))
+        (is (= "buy milk" (read-sub m [::rf.fresco.examples.todo.subs/new-todo]))
             "controlled: the keystroke reached the model, not a local draft")
 
         (submit! m ".new-todo-form")
-        (is (= (conj rf.hicasso.examples.todo.app/sample-todos "buy milk") (titles m)))
+        (is (= (conj rf.fresco.examples.todo.app/sample-todos "buy milk") (titles m)))
         (is (= "" (.-value (node m "#new-todo")))
             "and the box emptied itself, because its :value IS the model")
         (finish m done)))))
@@ -231,8 +231,8 @@
     (async done
       (let [m (mount-app!)]
         (.click (node m ".todo-row .toggle"))
-        (rf.hicasso.test.mounted/settle! m)
-        (is (= 2 (read-sub m [::rf.hicasso.examples.todo.subs/active-count])))
+        (rf.fresco.test.mounted/settle! m)
+        (is (= 2 (read-sub m [::rf.fresco.examples.todo.subs/active-count])))
         (is (= "2 items left" (text m ".todo-count")))
         (is (true? (.-checked (node m ".todo-row .toggle")))
             "the box shows what the model says, which is the same fact it
@@ -277,7 +277,7 @@
           (press! m ".edit" "Enter")
           (is (= "Read the whole spec" (first (titles m))))
           (is (nil? (node m ".edit")) "and the editor closed")
-          (is (nil? (read-sub m [rf.hicasso.examples.todo.db/draft 1])) "leaving no draft behind"))
+          (is (nil? (read-sub m [rf.fresco.examples.todo.db/draft 1])) "leaving no draft behind"))
 
         (testing "Escape reverts, and the blur that follows commits nothing"
           (double-click! m ".todo-row .todo-title")
@@ -300,14 +300,14 @@
         ;; name and `closest` — no test-only attribute on the application
         (.dispatchEvent (.querySelector (row-node m "Write the witness") ".todo-title")
                         (js/MouseEvent. "dblclick" #js {:bubbles true}))
-        (rf.hicasso.test.mounted/settle! m)
+        (rf.fresco.test.mounted/settle! m)
         (is (= 1 (count (nodes m ".edit")))
             "one editor, because the draft is keyed by the to-do's id. A
              hand-rolled [:ui :edit-draft] path would have opened all
              three, silently")
         (is (= "Write the witness" (.-value (node m ".edit"))))
-        (is (nil? (read-sub m [rf.hicasso.examples.todo.db/draft 1])))
-        (is (= "Write the witness" (read-sub m [rf.hicasso.examples.todo.db/draft 2])))
+        (is (nil? (read-sub m [rf.fresco.examples.todo.db/draft 1])))
+        (is (= "Write the witness" (read-sub m [rf.fresco.examples.todo.db/draft 2])))
         (finish m done)))))
 
 ;; ---------------------------------------------------------------------------
@@ -320,7 +320,7 @@
     (async done
       (let [m (mount-app!)]
         (.click (node m ".todo-row .toggle"))          ;; "Read the spec" is done
-        (rf.hicasso.test.mounted/settle! m)
+        (rf.fresco.test.mounted/settle! m)
         (let [before-witness (row-node m "Write the witness")
               before-spec    (row-node m "Read the spec")]
           (is (some? before-witness))
@@ -329,7 +329,7 @@
           (-> (follow-filter! m "Active" :active)
               (.then
                 (fn [_]
-                  (is (= rf.hicasso.examples.todo.routes/filtered (read-sub m [:rf.route/id]))
+                  (is (= rf.fresco.examples.todo.routes/filtered (read-sub m [:rf.route/id]))
                       "a real click on a real anchor navigated the frame")
                   (is (= ["Write the witness" "Merge the PR"] (titles m))
                       "the completed row left the list")
@@ -385,11 +385,11 @@
       (let [m (mount-app!)]
         (.dispatchEvent (.querySelector (row-node m "Merge the PR") ".todo-title")
                         (js/MouseEvent. "dblclick" #js {:bubbles true}))
-        (rf.hicasso.test.mounted/settle! m)
+        (rf.fresco.test.mounted/settle! m)
         (type-into! m ".edit" "Merge it")
         (let [field (node m ".edit")]
           (.click (.querySelector (row-node m "Read the spec") ".toggle"))
-          (rf.hicasso.test.mounted/settle! m)
+          (rf.fresco.test.mounted/settle! m)
           (is (identical? field (node m ".edit"))
               "the editor is the same element across a commit that moved a
                different row — keyed rows again, and the reason a caret

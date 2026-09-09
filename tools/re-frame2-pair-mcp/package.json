@@ -23,7 +23,7 @@
     "test:post-merge-hook": "node test/post-merge-hook-test.cjs",
     "test:roots-discovery-live": "node test/roots-discovery-live.js",
     "test:live-e2e-fixture": "node test/live-e2e-fixture.cjs",
-    "test:live-hicasso-wire": "node test/live-hicasso-wire.cjs"
+    "test:live-fresco-wire": "node test/live-fresco-wire.cjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

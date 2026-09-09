@@ -1,11 +1,11 @@
-(ns re-frame.hicasso.view-alias-registry-cljs-test
+(ns re-frame.fresco.view-alias-registry-cljs-test
   "THE AUTHORING-TIME ALIAS — what `h/defview` publishes to core's `:view`
   registrar, and what it deliberately does not.
 
   A Story variant names its subject with a KEYWORD and resolves it
   through the framework registrar. Without the alias `h/defview` computes
   a name, computes a coordinate, hands both to
-  `impl.collector/mint-view!` and registered nothing — so a Hicasso
+  `impl.collector/mint-view!` and registered nothing — so a Fresco
   boundary was the one view in the repository a keyword could not reach.
   It now publishes one entry, and the shape of that entry is the whole
   claim:
@@ -20,9 +20,9 @@
 
   ## The head rides `:handler-fn`, which is the whole of rf2-kuky.60
 
-  It used to ride a private `:hicasso/component`, with `:executable-key`
+  It used to ride a private `:fresco/component`, with `:executable-key`
   pointing the registrar at it and `:handler-fn` deliberately absent, so
-  `(rf/view id)` answered nil for a Hicasso view and every consumer needed
+  `(rf/view id)` answered nil for a Fresco view and every consumer needed
   a second descriptor shape. `re-frame.views/view-head` returns a `:view`
   slot it did not itself build EXACTLY AS STORED — no `compose-view`, no
   `:adapter/wrap-view`, no componentise — so publishing the head under
@@ -51,14 +51,14 @@
 
   ## What this file does NOT assert
 
-  Production absence. `re-frame.hicasso.error-source-coord-elision-prod-test`
+  Production absence. `re-frame.fresco.error-source-coord-elision-prod-test`
   owns that, because it is the one suite compiled under `:advanced` with
   `goog.DEBUG=false`, and asserting absence in a dev build would assert
   nothing at all."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.registrar :as rf.registrar]
             [re-frame.test-support :as rf.test-support]))
 
@@ -74,13 +74,13 @@
 ;; hazard the fixture's own docstring describes. Declared above it, they are
 ;; part of this file's baseline and are reinstated before every row.
 
-(rf.hicasso/defview aliased-row
+(rf.fresco/defview aliased-row
   "A DOCUMENTED boundary — the `:doc` half of the slot needs one that has a
   docstring to carry."
   [{:keys [label]}]
   [:li label])
 
-(rf.hicasso/defview undocumented-row
+(rf.fresco/defview undocumented-row
   [_]
   [:li "no docstring"])
 
@@ -114,9 +114,9 @@
 (deftest the-entry-appears-under-the-id-reg-view-would-have-derived
   (testing "`::aliased-row` IS `(keyword \"<ns>\" \"<sym>\")`, so an author
             who knows how to name a core view already knows how to name a
-            Hicasso one"
+            Fresco one"
     (is (some? (slot ::aliased-row)))
-    (is (= "re-frame.hicasso.view-alias-registry-cljs-test"
+    (is (= "re-frame.fresco.view-alias-registry-cljs-test"
            (namespace ::aliased-row))))
 
   (testing "the peer proves it is ONE convention and not two that happen to
@@ -134,11 +134,11 @@
         peer-coords  (select-keys (slot ::core-peer)   coord-keys)]
 
     (testing "the same coord keys, at the same level of the same map — a
-              consumer needs no second seam for Hicasso"
+              consumer needs no second seam for Fresco"
       (is (= (set (keys peer-coords)) (set (keys alias-coords)))))
 
     (testing "and they describe THIS file"
-      (is (= 're-frame.hicasso.view-alias-registry-cljs-test (:ns alias-coords)))
+      (is (= 're-frame.fresco.view-alias-registry-cljs-test (:ns alias-coords)))
       (is (re-find #"view_alias_registry_cljs_test\.cljs$" (:file alias-coords)))
       (is (pos-int? (:line alias-coords)))
       (is (pos-int? (:column alias-coords))))))
@@ -166,11 +166,11 @@
 
   (testing "and the private key it used to ride is gone, so no consumer can
             still be reading it"
-    (is (not (contains? (slot ::aliased-row) :hicasso/component)))
+    (is (not (contains? (slot ::aliased-row) :fresco/component)))
     (is (not (contains? (slot ::aliased-row) :executable-key)))))
 
 (deftest rf-view-answers-the-boundary-and-answers-it-untouched
-  (testing "`(rf/view id)` resolves a Hicasso view the way it resolves a
+  (testing "`(rf/view id)` resolves a Fresco view the way it resolves a
             Reagent or a UIx one — one lookup, every substrate"
     (is (some? (rf/view ::aliased-row))))
 
@@ -212,7 +212,7 @@
             whole — same id, same coord keys, same untouched head"
     (let [head #(:handler-fn (slot ::aliased-row))
           before (head)]
-      (rf.hicasso.impl.collector/publish-view-alias!
+      (rf.fresco.impl.collector/publish-view-alias!
         ::aliased-row (select-keys (slot ::aliased-row) coord-keys) before)
       (is (identical? before (head)))
       (is (identical? before (rf/view ::aliased-row))))))
@@ -231,7 +231,7 @@
         coords    (select-keys (slot ::aliased-row) coord-keys)
         before    (count (rf/registrations {:source :store :kind :view}))]
 
-    (rf.hicasso.impl.collector/publish-view-alias! ::aliased-row coords reloaded)
+    (rf.fresco.impl.collector/publish-view-alias! ::aliased-row coords reloaded)
 
     (testing "one entry, not two — the registrar replaces the slot behind
               the id it already holds"
@@ -261,7 +261,7 @@
 ;;
 ;; That is the second thing rf2-kuky.60 bought, and it is worth stating
 ;; because it used to cut the other way. While the head rode a private
-;; `:hicasso/component` with no `:handler-fn`, the default derivation
+;; `:fresco/component` with no `:handler-fn`, the default derivation
 ;; compared nil with nil and called a real component rotation idempotent;
 ;; `:executable-key` existed to point the registrar back at the private
 ;; slot. Publishing under the ordinary key makes the default correct, so
@@ -306,8 +306,8 @@
     (testing "the entry names no `:executable-key`, and does not need to:
               the registrar's derivation already defaults to `:handler-fn`,
               which is where the head now lives. The registrar tells the two
-              cases apart without learning anything about Hicasso — and now
-              without Hicasso telling it anything either. The two rows below
+              cases apart without learning anything about Fresco — and now
+              without Fresco telling it anything either. The two rows below
               are the proof that the default derivation actually bites; this
               one only records that nothing is pointing it anywhere"
       (is (not (contains? (slot ::aliased-row) :executable-key)))
@@ -318,7 +318,7 @@
               devtool refreshes on"
       (let [rotated (fn rotated-row [_] nil)
             calls   (while-recording
-                      #(rf.hicasso.impl.collector/publish-view-alias! ::aliased-row coords rotated))]
+                      #(rf.fresco.impl.collector/publish-view-alias! ::aliased-row coords rotated))]
         (is (= 1 (count calls)) "exactly one replacement, not zero and not two")
         (is (= {:kind :view :id ::aliased-row :different-fn? true}
                (first calls)))))
@@ -328,7 +328,7 @@
               like, and still says so"
       (let [same  (head)
             calls (while-recording
-                    #(rf.hicasso.impl.collector/publish-view-alias! ::aliased-row coords same))]
+                    #(rf.fresco.impl.collector/publish-view-alias! ::aliased-row coords same))]
         (is (= 1 (count calls)) "the hook fires on every re-registration")
         (is (= {:kind :view :id ::aliased-row :different-fn? false}
                (first calls)))))))

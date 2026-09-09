@@ -1,5 +1,5 @@
-(ns re-frame.bench.hicasso.lane
-  "THE HICASSO P0 MEASUREMENT LANE — the shared instrument every P0 arm
+(ns re-frame.bench.fresco.lane
+  "THE FRESCO P0 MEASUREMENT LANE — the shared instrument every P0 arm
   runs on (EP-0038, HD-017; built by rf2-2rtt6.2 for rf2-2rtt6.2/.3/.4/.5).
 
   One instrument, four arms' worth of consumers, so the METHOD is one
@@ -11,16 +11,16 @@
 
   ## Where this file lives, and why the namespace does not say `freehand`
 
-  Physically under `implementation/hicasso/test/`. It began under
+  Physically under `implementation/fresco/test/`. It began under
   `implementation/freehand/test/` — HD-017 carved the bench/test
   measurement lane out of the donor freeze, and that tree was the one
   whose classpath already carried Reagent, UIx, React and `react-dom`
   together — and rf2-0yp7w moved the whole bench tree to its
   evidence-owned home beside the substrate it measures. The NAMESPACE is
-  `re-frame.bench.hicasso.*` because the charter's anti-regression fence
-  is explicit that Hicasso carries no continuity claim to its
+  `re-frame.bench.fresco.*` because the charter's anti-regression fence
+  is explicit that Fresco carries no continuity claim to its
   predecessors: an instrument that had to spell a withdrawn programme's
-  name to compile would be making one. `implementation/hicasso/test` is a
+  name to compile would be making one. `implementation/fresco/test` is a
   shadow `:source-paths` root, so the path under it is the namespace and
   nothing else is needed.
 
@@ -401,7 +401,7 @@
   its watches and its caches when the next row is measured, and that row
   then reports a precise number for a page that is not the page under
   test. The throw lands in the caller's fatal path, which records
-  `HICASSO_ERROR`, and the driver exits 1.
+  `FRESCO_ERROR`, and the driver exits 1.
 
   This is the ADJUDICATION half of [[teardown-failure!]]. Recording a
   failure and never asking about it is the same silence
@@ -790,7 +790,7 @@
   That is not an accident of what happened to get written. It is the shape
   the only shared schedule allowed, and it is the reason both of the clock
   drivers pointed at the package measure a mount:
-  `docs/design/hicasso/product/budgets.md` §4 registers `U1`–`U4` over
+  `docs/design/fresco/product/budgets.md` §4 registers `U1`–`U4` over
   *latency to visible echo* and *latency to next paint* and records, in
   those words, that the population is what still blocks them.
 
@@ -1129,7 +1129,7 @@
   unverified of N` against a DOM that is merely LATE — and, with the
   read-back suppressed, `0.16–0.50x` the floor from a page that never
   changed. rf2-z3vlz pinned it against a standalone rig and
-  `docs/design/hicasso/studio/slim-non-reactive-arm-diagnosis.md` carries
+  `docs/design/fresco/studio/slim-non-reactive-arm-diagnosis.md` carries
   the evidence.
 
   The two shapes do not bill the same wait, so an arm measured through
@@ -1236,7 +1236,7 @@
   The row this defect was filed over stands on its page under that
   ruling:
 
-      docs/design/hicasso/studio/p0-converged-witness-set.md
+      docs/design/fresco/studio/p0-converged-witness-set.md
       M2 mount, UIx segment — predicted 1.9412, slack 0.25, so the band
       is [1.4559 – 2.4265]. The published range is [1.333 – 2.000]: its
       worst round sits 8.4% BELOW the band's floor and it carries a ✅
@@ -1469,24 +1469,24 @@
    :device-memory        (when (exists? js/navigator) (.-deviceMemory js/navigator))})
 
 (defn record!
-  "Park one record on `window.HICASSO_RESULTS` for the driver to read, and
+  "Park one record on `window.FRESCO_RESULTS` for the driver to read, and
   echo it to the console as EDN."
   [k v]
-  (let [acc (or (.-HICASSO_RESULTS js/window) #js {})]
+  (let [acc (or (.-FRESCO_RESULTS js/window) #js {})]
     (aset acc (name k) (pr-str v))
-    (set! (.-HICASSO_RESULTS js/window) acc)
-    (js/console.log (str ";; HICASSO " (name k) "\n" (pr-str v)))
+    (set! (.-FRESCO_RESULTS js/window) acc)
+    (js/console.log (str ";; FRESCO " (name k) "\n" (pr-str v)))
     v))
 
 (defn fail!
   "Record a fatal reason. The driver exits non-zero and publishes nothing
   as measured."
   [why]
-  (set! (.-HICASSO_ERROR js/window) (str why))
-  (js/console.error (str ";; HICASSO FAILED — " why))
+  (set! (.-FRESCO_ERROR js/window) (str why))
+  (js/console.error (str ";; FRESCO FAILED — " why))
   nil)
 
 (defn done! []
-  (set! (.-HICASSO_DONE js/window) true)
-  (js/console.log ";; HICASSO DONE")
+  (set! (.-FRESCO_DONE js/window) true)
+  (js/console.log ";; FRESCO DONE")
   nil)

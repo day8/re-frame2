@@ -1,4 +1,4 @@
-# Hicasso — the authoring surface
+# Fresco — the authoring surface
 
 What a programmer (and their AI) writes. This page is design intent for the v0
 dogfood and the eventual guide; the declaration spellings stay unfrozen until the
@@ -10,7 +10,7 @@ cited as HD-nnn are normative in [decisions.md](decisions.md).
 ## Views and reads
 
 ```clojure
-(:require [re-frame.hicasso :as h :refer [defview sub]])
+(:require [re-frame.fresco :as h :refer [defview sub]])
 
 (defview todo-row [{:keys [id]}]
   (let [todo     (sub [:todo/by-id id])
@@ -57,7 +57,7 @@ cited as HD-nnn are normative in [decisions.md](decisions.md).
 declared so it is scored from day one, not discovered mid-clock:
 
 ```clojure
-(:require [re-frame.hicasso :as h :refer [defview use-subs]])
+(:require [re-frame.fresco :as h :refer [defview use-subs]])
 
 (defview todo-row [{:keys [id]}]
   (let [{:keys [todo editing? draft]}
@@ -76,7 +76,7 @@ declared so it is scored from day one, not discovered mid-clock:
 | Head | Props | Children | `:key` | `:ref` |
 |---|---|---|---|---|
 | Native tag | attr map | trailing forms; seqs realized once, flattened one level; `nil`/`false` render nothing, `true` errors | `:key` in the attr map | callback ref, legal |
-| Hicasso view | one props map | trailing forms, delivered as `(:children props)` (realized vector) | in the props map; **extracted before the body sees props** (React's contract) | not a v0 surface (use ids) |
+| Fresco view | one props map | trailing forms, delivered as `(:children props)` (realized vector) | in the props map; **extracted before the body sees props** (React's contract) | not a v0 surface (use ids) |
 | Fragment `[:<> …]` | — | trailing forms | on the fragment vector's props map if keyed | — |
 | Foreign (`defhost` / `[:>]`) | converted per declaration/defaults | hiccup → elements | `:key` in props | callback ref, legal |
 
@@ -87,7 +87,7 @@ return `nil`, one root, or a fragment.
 teaches, because React 19 makes attach and teardown structural there (whatever the
 callback returns is its cleanup). A **vector** is the reserved value-space for the
 later data spelling (`{:ref [registered-id config]}`) and is refused loudly —
-`:rf.error/hicasso-ref-vector-reserved` (HD-022). The reservation is one branch and
+`:rf.error/fresco-ref-vector-reserved` (HD-022). The reservation is one branch and
 one error id; it exists so the imperative escape can become data without minting a
 second attribute name, and it carries one honest limit that shapes what you write
 today: a ref callback fires on attach and detach and **never on config change**, so
@@ -116,7 +116,7 @@ rf2-d03av).
   because metadata does not participate in `=`, and HD-021's headless door reads
   intent vectors by equality. The grammar is closed: exactly one inner intent
   vector, unwrapped before `::h/value` is looked for, and anything else is
-  `:rf.error/hicasso-malformed-prevent` naming the position.
+  `:rf.error/fresco-malformed-prevent` naming the position.
 - Callbacks generated from intents close over the boundary's frame (resolved once
   per boundary from the substrate's single internal context) so they remain valid
   when the browser invokes them after render scope unwinds.
@@ -148,9 +148,9 @@ There is **one** callback form, `h/event`, and it is an **ordinary function**:
 | a native `:on-*` prop | **event** — a returned vector is dispatched; any other return is ignored |
 | a `defhost` `:callbacks` entry | ~~as **declared** (`:event`, `:handler` or `:render`)~~ **[amended 2026-08-29, PR #8755 (`rf2-6c12m.24`)]**: a `defhost` prop is **inferred** exactly as a native tag's is — an `on*` prop is an event position, anything else a render position — and `:callbacks` survives only as an optional `:event` / `:render` override for an `on*`-named render prop; `:handler` is deleted, since a plain function already crosses untouched at every position |
 | any other walked prop position (a native non-event prop, a foreign render prop) | **render** — pure; the return is output, and dispatching from inside is a loud error **naming the position** |
-| a `defhost` prop nothing claimed, and one declared a ReactNode position in `:slots` | **none to give** — the mark asks the POSITION for a contract, and neither has one: an unclaimed prop selected nothing, and a slot is claimed for markup. Both refuse with `:rf.error/hicasso-host-unclaimed-callback`, which names which of the two it met. A plain function at the unclaimed prop is untouched and crosses by identity |
+| a `defhost` prop nothing claimed, and one declared a ReactNode position in `:slots` | **none to give** — the mark asks the POSITION for a contract, and neither has one: an unclaimed prop selected nothing, and a slot is claimed for markup. Both refuse with `:rf.error/fresco-host-unclaimed-callback`, which names which of the two it met. A plain function at the unclaimed prop is untouched and crosses by identity |
 | `:ref` | React's own contract; not lowered |
-| anywhere Hicasso does not walk | a plain function; it runs, and its return is ignored |
+| anywhere Fresco does not walk | a plain function; it runs, and its return is ignored |
 
 A view's props map is not a position — it is data in transit, exactly as an intent
 vector is; the value is lowered where it finally lands. Ordinary functions remain
@@ -161,11 +161,11 @@ handler-identity bail-outs keep working.
 **The declared contract governs every carrier at that position**, not just the
 `h/event`. An intent vector and a key-map are each a dispatch and nothing else, so
 they are accepted at `:event` and refused at `:handler` and `:render` with
-`:rf.error/hicasso-intent-at-a-non-event-contract` — otherwise the value would be
+`:rf.error/fresco-intent-at-a-non-event-contract` — otherwise the value would be
 selecting the contract, which is the thing the row above forbids.
 
 **[Amended 2026-08-29, PR #8755 (`rf2-6c12m.24`).]** That refusal is retired
-with `:handler`: `:rf.error/hicasso-intent-at-a-non-event-contract` is struck in
+with `:handler`: `:rf.error/fresco-intent-at-a-non-event-contract` is struck in
 Spec 009, and a vector or key-map at a render position — declared or inferred —
 now crosses as data through the shallow conversion, exactly as it does at a
 native tag. The rule that the position, never the value, selects the contract is
@@ -175,7 +175,7 @@ unchanged.
 and a key-map's key lookup read the DOM event from **argument one** — what a
 native position hands them and what `onDraft(event)` hands them. A value-first
 foreign invoker (`onPick(value, event)`) raises
-`:rf.error/hicasso-intent-needs-the-event` naming the position, rather than the
+`:rf.error/fresco-intent-needs-the-event` naming the position, rather than the
 engine's `value.preventDefault is not a function`; `h/event` is the spelling there,
 since it receives every argument in order. An intent carrying neither a marker nor
 a decorator never reads its argument, so it is correct under any invoker contract.
@@ -287,7 +287,7 @@ bare `:revision` is not this prop, and becomes an
 ordinary DOM attribute — silently, and with a namespaced keyword's namespace
 deleted on the way, so `:rev/a` and `:other/a` both show as `revision="a"` in
 devtools. On anything that is not a controlled `<input>`/`<textarea>` the prop
-is a loud refusal, `:rf.error/hicasso-revision-not-controlled` — including a
+is a loud refusal, `:rf.error/fresco-revision-not-controlled` — including a
 value-less checkbox, though a checkbox carrying a form-submission `value` is
 accepted and the revision is simply inert there.
 
@@ -296,7 +296,7 @@ acknowledgement that the reset landed, no caret-policy knobs. The
 buffered-controls ladder **consumes** this trigger; it never extends it.
 
 *Amended 2026-08-12: that ladder is **no longer post-v0**. The operator ruled
-`re-frame.hicasso.forms` into V0 scope on 2026-08-12 (`rf2-sh56`; the same day's
+`re-frame.fresco.forms` into V0 scope on 2026-08-12 (`rf2-sh56`; the same day's
 Phase 5 ruling `rf2-xpq9` put the rest of that phase in v0 too), and
 `forms/buffered-field` has shipped, reading `::h/revision` as an input exactly as
 the sentence above says. **The prop itself does not move**: the scope fence holds,
@@ -330,7 +330,7 @@ the sites, emit the `defhost`, rewrite the call sites — and all three are by
 hand. The shipped migration codemod is a props-dialect **fixer**: it repairs the
 crossings you already have and leaves them `[:>]`, minting no declaration and
 hoisting nothing. The hoist that would mint them is demand-gated and unbuilt
-([the codemod](../../core/hicasso/20-migration-from-reagent.md#4-apply-the-mechanical-codemod)).
+([the codemod](../../core/fresco/20-migration-from-reagent.md#4-apply-the-mechanical-codemod)).
 **The one raw escape** (HD-011), explicitly secondary to the declaration:
 `[:> Component props & children]` — same foreign lowering path, same default
 conversions, `.cljs`-only at that node, reduced structural identity; for
@@ -342,7 +342,7 @@ either way; imperative SDKs use ordinary host-edge React (refs/effects, HD-003).
 
 ## Theming — and why there is no context API (HD-010)
 
-React context is not a Hicasso-native mechanism: the substrate owns exactly one
+React context is not a Fresco-native mechanism: the substrate owns exactly one
 internal context (frame identity). Library and app theming is three layers, none
 of them context:
 
@@ -363,14 +363,14 @@ of them context:
 
 ## Presence — phase as data (HD-025)
 
-Presence lives in the optional `re-frame.hicasso.motion` namespace, not on the
+Presence lives in the optional `re-frame.fresco.motion` namespace, not on the
 public door (rf2-hic-053) — an application that never requires it carries none of
 it. `motion/presence` retains exiting keyed children for `:timeout-ms`. A child
 says what it looks like in each phase, **in its own attribute map**:
 
 ```clojure
-(:require [re-frame.hicasso :as h]
-          [re-frame.hicasso.motion :as motion])
+(:require [re-frame.fresco :as h]
+          [re-frame.fresco.motion :as motion])
 
 (motion/presence {:timeout-ms 300}
   (for [t (sub [:toasts/visible])]
@@ -435,14 +435,14 @@ in implementation, not yet landed):
 ;;        a concern-named setter event [::open ikey v] — never a generic ui/set
 ;;        the documented path [:ui ::open ikey]
 ;; clear: the framework event [::h/clear ::open ikey] removes the entry;
-;;        bad keys refuse loudly (:rf.error/hicasso-state-bad-key)
+;;        bad keys refuse loudly (:rf.error/fresco-state-bad-key)
 ;; nesting: (h/child-key parent-key part)
 ```
 
 The instance key is authored data — domain ids first, entity-qualified id
 values when one widget serves two entity types, placement-like vs value-like
 sharing, "a good React `:key` is a good instance key" — four rules taught in
-[the guide](../../core/hicasso/11-ephemeral-state.md), not policed. What HD-009 froze
+[the guide](../../core/fresco/11-ephemeral-state.md), not policed. What HD-009 froze
 about any such sugar still holds under the ruled design: it mints a **named**
 setter event rather than a generic `ui/set`, and it is sugar rather than a
 state system — no runtime state, no hooks, no context.

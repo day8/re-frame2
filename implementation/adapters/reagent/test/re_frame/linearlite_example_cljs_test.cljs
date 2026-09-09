@@ -130,7 +130,7 @@
    who it sat beside rather than on account of its own subject. Registering
    everything first and making the frame last removes that dependence entirely,
    and matches the committed pilot baseline
-   (`docs/design/hicasso/product/pilots/baseline/linearlite/baseline_test.cljs`).
+   (`docs/design/fresco/product/pilots/baseline/linearlite/baseline_test.cljs`).
    Verified by building this suite in a single-app bundle: 16 failures before,
    0 after."
   []

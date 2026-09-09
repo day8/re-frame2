@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // RE-ADJUDICATE AN ENSEMBLE OF CLOCK RUNS (rf2-emvod).
 //
-//   node hicasso/test/re_frame/bench/hicasso/clock_readjudicate.cjs out/run*.json
+//   node fresco/test/re_frame/bench/fresco/clock_readjudicate.cjs out/run*.json
 //
 // `clock_run.cjs` adjudicates ONE run. Every conclusion this lane has
 // reached about the candidate's clock rows rests on an ENSEMBLE — five runs
@@ -95,7 +95,7 @@
 //   passed 4 of 42 runs.
 //
 //   THE PUBLICATION RULE is an EFFECT-SIZE CONFIDENCE INTERVAL on the quantity
-//   the product claim actually asserts — the paired same-round Hicasso/donor
+//   the product claim actually asserts — the paired same-round Fresco/donor
 //   LEVEL ratio at fixed witness and fixed K — computed by a run-preserving
 //   hierarchical bootstrap (Kalibera & Jones 2013: resample outer RUNS before
 //   inner ROUNDS). A magnitude publishes only when the WHOLE interval lies on
@@ -196,7 +196,7 @@
 // AGAINST DONOR, which answers no question `validation.md`'s bulk bar asks.
 // That bar reads "<= 1.0x Reagent-on-subs, like-for-like", naming ONE
 // comparison exactly as the mount's names one, so `bulk` gates
-// `hicasso / reagent-subs` and reports the other two beside it. A pair nobody
+// `fresco / reagent-subs` and reports the other two beside it. A pair nobody
 // adjudicates has no verdict for a retirement to promote it into, so
 // `rf2-8a746`'s "remain calibration/diagnostic evidence and are NOT
 // retroactively promoted to published magnitudes" is honoured in full — and
@@ -205,7 +205,7 @@
 //
 // THE ONE BULK PAIR THAT IS ADJUDICATED DOES NOT MOVE, which is what makes the
 // retirement safe to make rather than merely arguable: on all six row-ensemble
-// combinations `hicasso / reagent-subs` STRADDLES 1.0 and is refused by the
+// combinations `fresco / reagent-subs` STRADDLES 1.0 and is refused by the
 // whole-interval rule, which sits ahead of the veto and is untouched by it. The
 // veto was never what was holding it. That is a fact about this corpus and not
 // a property of the rule, so `clock_exit_path.test.cjs` drives it in both
@@ -279,8 +279,8 @@ function ens(xs) {
   return { n: v.length, mean: mean(v), min: Math.min(...v), max: Math.max(...v) };
 }
 
-const PAIRS = ['hicasso / reagent-subs', 'hicasso / uix-subs', 'uix-subs / reagent-subs'];
-const SEGMENTS = ['reagent-subs', 'uix-subs', 'hicasso'];
+const PAIRS = ['fresco / reagent-subs', 'fresco / uix-subs', 'uix-subs / reagent-subs'];
+const SEGMENTS = ['reagent-subs', 'uix-subs', 'fresco'];
 
 /**
  * THE ESTIMATOR THAT TOUCHES NEITHER FLOOR (rf2-w3yxd).
@@ -479,11 +479,11 @@ const PUBLICATION = {
     // THE BAR GATES THE PAIR IT NAMES (rf2-vp0j7). `validation.md:17` states it
     // as "<= 1.0x Reagent-on-subs, LIKE-FOR-LIKE, both sides reading re-frame2
     // subscriptions" — ONE comparison, exactly as `:15-16` state the mount's
-    // against direct UIx-on-subs. Adjudicating `hicasso / uix-subs` or
+    // against direct UIx-on-subs. Adjudicating `fresco / uix-subs` or
     // `uix-subs / reagent-subs` against it holds a pair to a threshold written
     // for a different question, which is the error rf2-diaud fixed one class
     // up. They keep their intervals and lose only the verdict.
-    gatedPairs: ['hicasso / reagent-subs'],
+    gatedPairs: ['fresco / reagent-subs'],
     // AND THE CROSS-RUN MAX-BAND SECOND VETO IS RETIRED HERE TOO (rf2-vh0e3) —
     // which the line above is what made possible. Every pair the veto was
     // holding is donor against donor, so once they are no longer adjudicated
@@ -541,7 +541,7 @@ const PUBLICATION = {
     // terms that Reagent-on-subs does NOT gate this row. So the other two pairs
     // get the same estimand and the same interval — and no gate verdict, because
     // a threshold defined for one comparison says nothing about another.
-    gatedPairs: ['hicasso / uix-subs'],
+    gatedPairs: ['fresco / uix-subs'],
     // RETIRED HERE, which is where rf2-diaud (c) states its consequence. The
     // widest same-run bands on this row are 22.34% and 18.29%, so retaining it
     // would refuse a 17.2% effect whose whole interval clears K1's line — an
@@ -1546,7 +1546,7 @@ function main(argv) {
       console.log(
         `;;     VERDICT ${
           reg.indistinguishable
-            ? `Hicasso, Reagent-on-subs and UIx-on-subs are INDISTINGUISHABLE at Event Timing's ` +
+            ? `Fresco, Reagent-on-subs and UIx-on-subs are INDISTINGUISHABLE at Event Timing's ` +
               `resolution — every observed interaction was one frame (${fmt(reg.frame, 1)} ms)`
             : `the arms did NOT fall in one bucket on this run — the frame statement does not hold here`
         }`

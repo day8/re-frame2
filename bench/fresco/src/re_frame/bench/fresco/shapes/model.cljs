@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.shapes.model
+(ns re-frame.bench.fresco.shapes.model
   "THE TIER-1 SHAPE ROSTER'S STATE LAYER — one census-real app behind all
   four shapes (rf2-2rtt6.51).
 
@@ -18,7 +18,7 @@
   four pages sit on four hand-written models is measuring four
   applications, and any difference read between two rows is
   unattributable — the same argument
-  [[re-frame.bench.hicasso.front.dogfood]] makes for the three dogfood
+  [[re-frame.bench.fresco.front.dogfood]] makes for the three dogfood
   renderings and `jsfb-model` makes for the two js-framework-benchmark
   arms. Here it binds harder, because shapes 2/3/4 are deliberately **the
   same screen at three boundary decompositions**: if the model differed,
@@ -308,10 +308,10 @@
   repair for the rf2-2rtt6.54 parity gap). Conduit is a hash-URL app —
   every anchor in the census markup reads `#/profile/…` — and the
   uix/reagent/floor twins in `census_clock_arms` port that markup
-  verbatim, hand-writing the `#`. Hicasso's anchors go through routing's
+  verbatim, hand-writing the `#`. Fresco's anchors go through routing's
   `link-model`, whose strategy consult defaults to the HISTORY strategy
   when a frame declares none — so after the rf2-2rtt6.54 migration the
-  Hicasso pages rendered path-form hrefs against the twins' hash-form and
+  Fresco pages rendered path-form hrefs against the twins' hash-form and
   the census clock's boot parity gate refused every row (PR #7383's rows
   did not see it: its runs measured the pre-migration blobs its
   provenance table records, and the branch was rebase-merged over the

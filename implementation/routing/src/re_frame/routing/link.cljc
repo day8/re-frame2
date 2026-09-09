@@ -593,9 +593,9 @@
      `link-model` consumer able to ACCEPT `:prefetch :intent` with no
      published way to honour it. rf2-kuky.37 closed that hole from the other
      side — `link-model` now carries `:prefetch` / `:prefetch-keys`, and
-     `re-frame.hicasso`'s route-link honours the key from there — so this fn
+     `re-frame.fresco`'s route-link honours the key from there — so this fn
      is no longer the ONLY published route. It stays for the consumer shape
-     the seam keys do not serve: a closure-based one. Hicasso takes the data
+     the seam keys do not serve: a closure-based one. Fresco takes the data
      route because its anchors carry intents as vectors its own lowering
      walks; a view artefact that installs real handler functions instead
      wants this composition, and would otherwise write it again."

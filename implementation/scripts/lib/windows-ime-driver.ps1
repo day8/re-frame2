@@ -2,7 +2,7 @@
   THE OS-LEVEL INPUT DRIVER for the scripted native-IME witness (rf2-hic-016).
 
   A long-lived request/response process, spoken to over stdin by
-  `implementation/scripts/run-hicasso-native-ime-witness.cjs`. It exists
+  `implementation/scripts/run-fresco-native-ime-witness.cjs`. It exists
   because the thing this witness has to produce — a REAL Windows IME
   composition, with a real candidate window and a real ESC abort — is
   produced by the OS input stack and by nothing a page script can call. CDP's

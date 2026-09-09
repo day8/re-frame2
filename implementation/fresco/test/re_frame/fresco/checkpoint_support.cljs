@@ -1,9 +1,9 @@
-(ns re-frame.hicasso.checkpoint-support
+(ns re-frame.fresco.checkpoint-support
   "THE MICROTASK-CHECKPOINT INSTRUMENT, and the sabotage that proves it
   can go red.
 
   Three namespaces read this file, because all three wait on the same
-  deferral — `re-frame.hicasso.impl.collector/invalidate-cell!`'s second
+  deferral — `re-frame.fresco.impl.collector/invalidate-cell!`'s second
   phase — and waiting on it three different ways is how three answers
   drift apart:
 
@@ -15,7 +15,7 @@
 
   ## What is being waited on, and why a duration cannot express it
 
-  `re-frame.hicasso.impl.collector/invalidate-cell!` drops a retired
+  `re-frame.fresco.impl.collector/invalidate-cell!` drops a retired
   reaction synchronously and rebuilds the durable attachment on a
   **microtask**. Design law React 3 is what makes that the scheduling
   rather than a preference: a render/commit tear must be corrected

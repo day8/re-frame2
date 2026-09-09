@@ -1,8 +1,8 @@
-(ns re-frame.hicasso.impl.presence
+(ns re-frame.fresco.impl.presence
   "PRESENCE AS DATA — the retention machine and the phase transform
   (HD-025). The **pure half**: a value in, a value out, no React, no
   clock, no ambient read. The React component that drives it is
-  `re-frame.hicasso.impl.presence-react`.
+  `re-frame.fresco.impl.presence-react`.
 
   ## Why the phase is never an ambient read
 
@@ -73,14 +73,14 @@
   spend an effect on it. Deadlines are absolute instants stored when a
   key starts exiting, so a timer re-armed for an unrelated reason cannot
   extend a child's retention past its terminal bound."
-  (:require [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.error :refer [fail!]]))
+  (:require [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.error :refer [fail!]]))
 
 ;; ---------------------------------------------------------------------------
 ;; The reserved keys
 ;; ---------------------------------------------------------------------------
 
-;; The two override keys are DEFINED in `re-frame.hicasso.impl.codec` and
+;; The two override keys are DEFINED in `re-frame.fresco.impl.codec` and
 ;; read from there: they are this module's vocabulary, but the codec's
 ;; prop walks have to recognise them — an override no tray reached is
 ;; skipped there rather than emitted as an attribute — and this namespace
@@ -89,12 +89,12 @@
 (def mounting-key
   "`::motion/mounting` — the attribute overrides applied while a child is
   entering."
-  rf.hicasso.impl.codec/mounting-key)
+  rf.fresco.impl.codec/mounting-key)
 
 (def unmounting-key
   "`::motion/unmounting` — the attribute overrides applied while a child
   is being retained on its way out."
-  rf.hicasso.impl.codec/unmounting-key)
+  rf.fresco.impl.codec/unmounting-key)
 
 (def override-keys #{mounting-key unmounting-key})
 
@@ -104,7 +104,7 @@
 ;; Errors
 ;; ---------------------------------------------------------------------------
 
-;; `fail!` is `re-frame.hicasso.impl.error`'s — one constructor for the whole
+;; `fail!` is `re-frame.fresco.impl.error`'s — one constructor for the whole
 ;; package, and the ambient view and source coordinate come with it.
 
 ;; ---------------------------------------------------------------------------
@@ -136,8 +136,8 @@
   [child]
   (let [k (when (vector? child) (:key (props-of child)))]
     (when (nil? k)
-      (fail! :rf.error/hicasso-presence-child-unkeyed
-             're-frame.hicasso.impl.presence/child-key
+      (fail! :rf.error/fresco-presence-child-unkeyed
+             're-frame.fresco.impl.presence/child-key
              (str "A presence child must be a hiccup vector with a :key; it was "
                   (pr-str child) ". Presence retains children by key, so a "
                   "child without one cannot be recognised across a render "
@@ -164,17 +164,17 @@
 
   The structural slots are never taken from the override, and the
   exclusion is on the canonical SLOT through
-  `re-frame.hicasso.impl.codec/without-structural`: an override carrying
+  `re-frame.fresco.impl.codec/without-structural`: an override carrying
   `\"key\"` or `:x/key` would otherwise canonicalise onto React's key and
   remount the very child presence exists to retain, mid-exit. Design
-  record: docs/design/hicasso/decisions.md, HD-025 and HD-030."
+  record: docs/design/fresco/decisions.md, HD-025 and HD-030."
   [child phase]
   (let [props    (props-of child)
         override (override-for props phase)
         base     (when props (apply dissoc props override-keys))]
     (cond
       (map? override)
-      (with-props child (merge base (rf.hicasso.impl.codec/without-structural override)))
+      (with-props child (merge base (rf.fresco.impl.codec/without-structural override)))
 
       ;; Nothing to strip and nothing to merge: the child is already
       ;; exactly what it should render as, so it comes back untouched
@@ -310,8 +310,8 @@
   fails or is disabled."
   [timeout-ms]
   (when-not (and (number? timeout-ms) (pos? timeout-ms))
-    (fail! :rf.error/hicasso-presence-timeout-required
-           're-frame.hicasso.impl.presence/check-timeout!
+    (fail! :rf.error/fresco-presence-timeout-required
+           're-frame.fresco.impl.presence/check-timeout!
            (str "presence needs a positive :timeout-ms; it was "
                 (pr-str timeout-ms) ". It is the retention length and the hard "
                 "terminal bound — presence does not wait on transitionend, so "

@@ -2,7 +2,7 @@
 
 Choose the cheapest test that can prove the behaviour you care about.
 
-Most Hicasso application logic does not need a browser. Event handlers and
+Most Fresco application logic does not need a browser. Event handlers and
 subscriptions are plain functions. Markup helpers return data. A hook-free
 view body can run under an injected subscription resolver. Mount React only
 when the claim depends on React or the DOM, and use real browsers for facts
@@ -10,8 +10,8 @@ that only a browser engine knows.
 
 The test kit is split across two namespaces:
 
-- `re-frame.hicasso.test`, usually aliased `ht`, for browser-free tests;
-- `re-frame.hicasso.test.mounted`, usually aliased `hm`, for real React and DOM
+- `re-frame.fresco.test`, usually aliased `ht`, for browser-free tests;
+- `re-frame.fresco.test.mounted`, usually aliased `hm`, for real React and DOM
   tests.
 
 Each level has preconditions — a classpath entry, a subscription fixture, a
@@ -21,19 +21,19 @@ the level that needs it.
 
 ## Put the test kit on the classpath
 
-Where the kit comes from depends on how you resolve Hicasso, and the two routes
+Where the kit comes from depends on how you resolve Fresco, and the two routes
 differ.
 
 **From a published coordinate**, both namespaces arrive in the jar and there is
 nothing to add. The kit's source root is on the artifact's `:src-dirs`, which is
-what decides jar content, so it is packaged alongside `re-frame.hicasso` itself.
+what decides jar content, so it is packaged alongside `re-frame.fresco` itself.
 What keeps it out of your production bundle is not packaging but reachability: no
 shipping namespace requires the kit, so a build that never requires `ht` or `hm`
 compiles none of it — the same property the diagnostic and SSR modules have.
 
 **From a `:local/root` checkout** — the only shape available while nothing is
 published — the kit is one line you add yourself. It has its own source root,
-`test_kit/src`, deliberately outside the Hicasso artifact's `:paths`, so an
+`test_kit/src`, deliberately outside the Fresco artifact's `:paths`, so an
 application that writes no test carries none of it; and until you put that root on
 a test alias every `ht` and `hm` require on this page fails to resolve. Following
 the [`:local/root` setup](00-installation.md#add-the-dependencies):
@@ -41,15 +41,15 @@ the [`:local/root` setup](00-installation.md#add-the-dependencies):
 ```clojure
 ;; deps.edn
 {:paths ["src"]
- :deps  {day8/re-frame2-hicasso {:local/root "../re-frame2/implementation/hicasso"}
+ :deps  {day8/re-frame2-fresco {:local/root "../re-frame2/implementation/fresco"}
          day8/re-frame2-uix     {:local/root "../re-frame2/implementation/adapters/uix"}}
 
  :aliases
  {:shadow {:extra-deps {thheller/shadow-cljs {:mvn/version "3.4.10"}}}
 
   ;; The test kit, from the same checkout the artifact resolves from.
-  :test   {:extra-deps {day8/re-frame2-hicasso-test-kit
-                        {:local/root "../re-frame2/implementation/hicasso/test_kit"}}}}}
+  :test   {:extra-deps {day8/re-frame2-fresco-test-kit
+                        {:local/root "../re-frame2/implementation/fresco/test_kit"}}}}}
 ```
 
 Then select that alias in the build, beside the one that puts the compiler on the
@@ -69,7 +69,7 @@ project's boundary and the Clojure CLI has nothing to deprecate. Naming
 but that path escapes your project root, and the CLI says so on every
 invocation: `WARNING: Use of :paths external to the project has been
 deprecated`. Both routes work today; only one of them is quiet, and only one of
-them survives a CLI that decides to refuse the escape. When Hicasso is
+them survives a CLI that decides to refuse the escape. When Fresco is
 published, the kit arrives inside the jar and this alias goes away entirely.
 
 Which build target the tests then run under is a choice per level, and
@@ -93,7 +93,7 @@ call compiles and then fails at run time.
 Two build shapes answer it, and they are not equivalent.
 
 **A `:browser-test` target** compiles the suite into a page and runs it in a
-real engine, so the document is a browser's. This is what Hicasso's own mounted
+real engine, so the document is a browser's. This is what Fresco's own mounted
 suites use, and it is the recommendation: L3 exists to prove React and DOM
 facts, and a real engine is the only thing that knows them.
 
@@ -183,7 +183,7 @@ The examples use one todo row:
 
 ```clojure
 (ns todo.views
-  (:require [re-frame.hicasso :as h]))
+  (:require [re-frame.fresco :as h]))
 
 (h/defview todo-row [{:keys [id]}]
   (let [{:keys [title done?]} (h/sub [:todo/by-id id])]
@@ -275,7 +275,7 @@ semantic tree.
 ```clojure
 (ns todo.views-test
   (:require [clojure.test :refer [deftest is]]
-            [re-frame.hicasso.test :as ht]
+            [re-frame.fresco.test :as ht]
             [todo.views :as views]))
 
 (deftest row-renders-title-and-carries-the-toggle
@@ -330,8 +330,8 @@ minted under — which, under `ht/tree`, is a fresh probe keyword per call,
 numbered in the order the tests happened to run:
 
 ```clojure
-[:re-frame.hicasso.impl.intent/navigate
- {:frame   :re-frame.hicasso.test/probe-7
+[:re-frame.fresco.impl.intent/navigate
+ {:frame   :re-frame.fresco.test/probe-7
   :payload [:rf.route/url-requested {:url "/profile/jane" ...}]
   :native? false
   :veto    nil}]
@@ -432,7 +432,7 @@ that supplies one.
 | `hm/mount!` | Mount a view under a fresh isolated frame and return a handle |
 | `hm/hydrate!` | Adopt supplied server bytes and return a promise of the handle after hydration commits |
 | `hm/rerender!` | Render a new element into the same root |
-| `hm/dispatch-and-settle!` | Dispatch into the mount's frame and wait until Hicasso and React are quiescent |
+| `hm/dispatch-and-settle!` | Dispatch into the mount's frame and wait until Fresco and React are quiescent |
 | `hm/settle!` | Wait for quiescence after an external user-event or other stimulation |
 | `hm/advance-clock!` | Advance the mount's virtual clock and run due work; requires `{:clock true}` at mount or hydrate |
 | `hm/unmount!` | Tear down the root |
@@ -442,7 +442,7 @@ that supplies one.
 (ns todo.views-mounted-test
   (:require [cljs.test :refer [async deftest is]]
             ["@testing-library/dom" :as tl]
-            [re-frame.hicasso.test.mounted :as hm]
+            [re-frame.fresco.test.mounted :as hm]
             [todo.events]
             [todo.subs]
             [todo.views :as views]))
@@ -550,12 +550,12 @@ on all three. Pin the version rather than floating it: the browser that comes
 down is what decides what the check can see, and `1.59.1` is the pin this
 repository's own engine gates run at.
 
-Hicasso's L4 gate is the worked example, and there is less to it than you might
+Fresco's L4 gate is the worked example, and there is less to it than you might
 expect — a build, a server, a browser and a script, with no runner framework and
 no config file.
-[`hicasso/testbed/spec.cjs`](../../../implementation/hicasso/testbed/spec.cjs)
+[`fresco/testbed/spec.cjs`](../../../implementation/fresco/testbed/spec.cjs)
 is a plain file of assertions, and
-[`serve-and-run-hicasso-controlled-testbed.cjs`](../../../implementation/scripts/serve-and-run-hicasso-controlled-testbed.cjs)
+[`serve-and-run-fresco-controlled-testbed.cjs`](../../../implementation/scripts/serve-and-run-fresco-controlled-testbed.cjs)
 compiles the testbed build, serves it, and runs that spec once per engine.
 
 Controlled-input composition is a canonical L4 case
@@ -564,7 +564,7 @@ budgets belong to [Performance](19-performance.md).
 
 ## Migration shadow tests
 
-`hm/shadow!` is a development-only migration harness. It drives a Hicasso view
+`hm/shadow!` is a development-only migration harness. It drives a Fresco view
 and its Reagent original with one script, then compares canonical DOM and
 intent streams at each checkpoint. Its full use belongs to
 [Migrating from Reagent](20-migration-from-reagent.md).
@@ -613,8 +613,8 @@ props. The row's own test proves what a row renders.
 | `ht/tree` raises and points to L3 | The body reached a hook, a raw React element, or a host | Mount the view at L3; split out a hook-free semantic part when useful |
 | `ht/tree` raises and names a query | The body read a subscription with no fixture | Add the exact query fixture; identity is `(query-id, args)` under value equality |
 | `ht/tree` cannot inspect a `defview` head in an advanced build | `goog.DEBUG` false removed the body property used by the development harness | Run view tests in a development build, or pass the body function instead of the head |
-| A plain test raises `:rf.error/hicasso-sub-outside-render` | A helper called `h/sub` without a render context | Use L2 for a view body; use L0 for handlers and subscriptions |
-| `:rf.error/hicasso-deferred-read-at-boundary` | A closure, lazy sequence, or unforced `delay` carried a read beyond render | Read during the body and close over the value ([Views and reads](02-views-and-reads.md)) |
+| A plain test raises `:rf.error/fresco-sub-outside-render` | A helper called `h/sub` without a render context | Use L2 for a view body; use L0 for handlers and subscriptions |
+| `:rf.error/fresco-deferred-read-at-boundary` | A closure, lazy sequence, or unforced `delay` carried a read beyond render | Read during the body and close over the value ([Views and reads](02-views-and-reads.md)) |
 | `hm/assert-clean!` fails | A subscription, listener, task, or foreign callback survived unmount | Fix the leak; retained host callbacks are a common cause ([Interop](09-interop.md)) |
 | Data test passes but mounted test fails | React lifecycle, effect order, StrictMode, or commit timing changed the result | Treat the mounted result as authoritative for React behaviour |
 | Tree assertion sees `nil` | A `when` returned `nil`; it renders nothing but still appears in authored data | Assert that `nil`, or filter it before comparing |
@@ -663,7 +663,7 @@ order.
 Use canonical DOM when comparing:
 
 - before and after a refactor;
-- a Hicasso port with its Reagent original
+- a Fresco port with its Reagent original
   ([Migrating from Reagent](20-migration-from-reagent.md));
 - a React island with the interpreted subtree it replaced
   ([Islands](10-native-tier.md)).

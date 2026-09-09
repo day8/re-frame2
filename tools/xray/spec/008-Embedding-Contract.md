@@ -225,7 +225,7 @@ ever drift):
 
 ```
 #{:epoch :app-db :views :trace :machines :routing
-  :resources :derivation-graph :module-view :hicasso}
+  :resources :derivation-graph :module-view :fresco}
 ```
 
 (Ten tabs — all ten Dynamic L4 tabs are focusable. The registry id for
@@ -234,7 +234,7 @@ the visible display-noun can pass `:routes`, normalised to `:routing` via
 `focus/panel-aliases`. `:derivation-graph` renders as "Graph" and
 `:module-view` as "Frames". Focusability and mountability are separate
 axes: all ten are focusable, and the three L4-only registry tabs — Graph,
-Frames and Hicasso — have no standalone `mount-*!` facade. The `:issues`
+Frames and Fresco — have no standalone `mount-*!` facade. The `:issues`
 tab was removed per rf2-gbz39 — issues now surface inline in the Epoch
 panel + the L2 event-row pink-wash +
 the always-on issues ribbon signal, so `:issues` is no longer a focusable
@@ -500,7 +500,7 @@ namespace docstring (see `tools/xray/src/day8/re_frame2_xray/registry.cljs`).
 
 Xray renders pure hiccup, so it can mount only through a host adapter
 whose `:render` slot accepts hiccup render-trees — the **ratom family**
-(stock Reagent, Reagent-slim). The React-hook substrates (UIx, Hicasso)
+(stock Reagent, Reagent-slim). The React-hook substrates (UIx, Fresco)
 share an **element-shaped** `render` that hands the tree to React
 untouched; a hiccup shell mounted there
 reaches React children as raw CLJS data (fn-as-child console.error
@@ -513,17 +513,17 @@ nothing. Rendering Xray on the React-element substrates is future
 work (tracked from rf2-qgfo4); until then the supported render hosts
 are the ratom family.
 
-**Hicasso mints its own kind and is refused on its own entry (rf2-zkjd5).**
-This section previously recorded the opposite — that Hicasso shipped no
-adapter, that `:rf.adapter/hicasso` did not exist, and that a Hicasso page
+**Fresco mints its own kind and is refused on its own entry (rf2-zkjd5).**
+This section previously recorded the opposite — that Fresco shipped no
+adapter, that `:rf.adapter/fresco` did not exist, and that a Fresco page
 therefore answered `:rf.adapter/uix` (rf2-wtznc). rf2-hvr5h retired that
-premise. `re-frame.hicasso.substrate` ships `:kind :rf.adapter/hicasso`,
+premise. `re-frame.fresco.substrate` ships `:kind :rf.adapter/fresco`,
 built from `re-frame.substrate.spine/make-react-adapter` and so carrying
-the spine's element-shaped `:render`, and the Hicasso install chapter
-teaches `(rf/init! substrate/adapter)` as the default. A Hicasso page MUST
-therefore be refused on `:rf.adapter/hicasso` itself; a roster of the
+the spine's element-shaped `:render`, and the Fresco install chapter
+teaches `(rf/init! substrate/adapter)` as the default. A Fresco page MUST
+therefore be refused on `:rf.adapter/fresco` itself; a roster of the
 refused kinds that omits it lets the hiccup shell reach React as raw CLJS
-data. A Hicasso application that installs UIx or Reagent instead —
+data. A Fresco application that installs UIx or Reagent instead —
 installation is explicit, and there is no default-adapter registry —
 reports that adapter's kind and resolves on its entry, unchanged.
 

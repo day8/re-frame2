@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * THE SOURCE-COORDINATE SENTINEL for implementation/hicasso/ (rf2-hic-007).
+ * THE SOURCE-COORDINATE SENTINEL for implementation/fresco/ (rf2-hic-007).
  *
  * `defview` and `defhost` bake an absolute on-disk file path into every
  * declaration in a dev build, so that a refusal can name the line the author
@@ -8,7 +8,7 @@
  * `goog.DEBUG=false` must carry no source-coordinate strings at all.
  *
  * The companion CLJS suite
- * (`re-frame.hicasso.error-source-coord-elision-prod-test`) proves the
+ * (`re-frame.fresco.error-source-coord-elision-prod-test`) proves the
  * coordinate is not REACHABLE in that build — the ledger is empty, refusals
  * carry no `:source`. It cannot prove the stronger property, because a string
  * Closure kept but nothing reads is invisible from inside the page. That is
@@ -41,7 +41,7 @@
  * `deftest` and every `is`, so the first draft — which declared the sentinel
  * view inside the elision suite — found its own file name in the bundle 38
  * times and went red on a build whose erasure was correct. The declarations
- * moved to `re-frame.hicasso.coord-sentinel-source`, which carries no
+ * moved to `re-frame.fresco.coord-sentinel-source`, which carries no
  * `deftest`, so nothing but a surviving coordinate can name it.
  */
 
@@ -54,7 +54,7 @@ const HERE = path.dirname(path.resolve(__filename));
 const PACKAGE_ROOT = path.dirname(HERE);
 const IMPL_ROOT = path.dirname(PACKAGE_ROOT);
 
-const SUITE = path.join(PACKAGE_ROOT, 'test', 're_frame', 'hicasso',
+const SUITE = path.join(PACKAGE_ROOT, 'test', 're_frame', 'fresco',
                         'coord_sentinel_source.cljs');
 const BUNDLE = path.join(IMPL_ROOT, 'out', 'browser-test-prod-elision', 'js', 'test.js');
 
@@ -64,10 +64,10 @@ const BUNDLE = path.join(IMPL_ROOT, 'out', 'browser-test-prod-elision', 'js', 't
 const SENTINEL = 'coord_sentinel_source.cljs';
 
 // Unconditional, and therefore the proof that the bundle is the right one.
-const POSITIVE_CONTROL = 're-frame.hicasso.coord-sentinel-source/sentinel-row';
+const POSITIVE_CONTROL = 're-frame.fresco.coord-sentinel-source/sentinel-row';
 
 function fail(message) {
-  process.stderr.write(`hicasso source-coord elision: FAIL\n${message}\n`);
+  process.stderr.write(`fresco source-coord elision: FAIL\n${message}\n`);
   process.exit(1);
 }
 
@@ -97,7 +97,7 @@ if (bundle.includes(SENTINEL)) {
   fail(`the source-coordinate sentinel survived the advanced bundle: ${SENTINEL}\n` +
        'A `defview` / `defhost` coordinate reached production. The capture is ' +
        'emitted inside `(when re-frame.interop/debug-enabled? …)`; check that ' +
-       'gate in re_frame/hicasso.cljc.');
+       'gate in re_frame/fresco.cljc.');
 }
 
 process.stdout.write(

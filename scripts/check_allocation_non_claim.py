@@ -99,7 +99,7 @@ two claims.
 
 An absence check over a corpus the scan never really read is a green that
 means nothing, and it is the failure this class of gate is most exposed to
-(the idiom is `implementation/hicasso/scripts/check_bundle_isolation.cjs`'s,
+(the idiom is `implementation/fresco/scripts/check_bundle_isolation.cjs`'s,
 and so is the reasoning). So the same pattern that must find NOTHING on the
 publication surface must find SOMETHING in the design record, where the
 instrument's own measurements legitimately live. If it finds nothing there,
@@ -152,12 +152,12 @@ QUALIFIERS = re.compile(
 # way the premise has moved and the gate must be re-authorised.
 PREMISES = [
     (
-        "docs/design/hicasso/product/budgets.md",
+        "docs/design/fresco/product/budgets.md",
         re.compile(r"\|\s*S7\s*\|\s*Warm allocation\s*\|\s*no publishable claim", re.IGNORECASE),
         "budgets.md section 9's S7 row reads `no publishable claim`",
     ),
     (
-        "docs/design/hicasso/product/lanes/evidence-baseline.md",
+        "docs/design/fresco/product/lanes/evidence-baseline.md",
         re.compile(r"\|\s*Warm allocation\s*\|\s*No fitted series clears the registered quality floor", re.IGNORECASE),
         "evidence-baseline.md's Warm allocation row reads `No fitted series clears the registered quality floor`",
     ),
@@ -320,12 +320,12 @@ _GOOD_BASELINE = "| Warm allocation | No fitted series clears the registered qua
 
 def _make_tree(tmp: Path, *, budgets: str, baseline: str, design: str, publication: str) -> Path:
     root = tmp / "tree"
-    (root / "docs" / "design" / "hicasso" / "product" / "lanes").mkdir(parents=True)
+    (root / "docs" / "design" / "fresco" / "product" / "lanes").mkdir(parents=True)
     (root / "docs" / "core").mkdir(parents=True)
     # The two premise files are written at the addresses `PREMISES` names, so a
     # re-point there without a re-point here reds every fixture with PREMISE
     # GONE — which is what rf2-ps7ia's move of `budgets.md` out of
-    # `docs/design/hicasso/product/` did (and rf2-6c12m.8's move back into it
+    # `docs/design/fresco/product/` did (and rf2-6c12m.8's move back into it
     # on 2026-08-30 would have done), and the shape this comment exists to
     # make obvious the next time.
     for rel, _, _ in PREMISES:
@@ -333,7 +333,7 @@ def _make_tree(tmp: Path, *, budgets: str, baseline: str, design: str, publicati
         path.parent.mkdir(parents=True, exist_ok=True)
     root.joinpath(*PREMISES[0][0].split("/")).write_text(budgets, encoding="utf-8")
     root.joinpath(*PREMISES[1][0].split("/")).write_text(baseline, encoding="utf-8")
-    (root / "docs" / "design" / "hicasso" / "record.md").write_text(design, encoding="utf-8")
+    (root / "docs" / "design" / "fresco" / "record.md").write_text(design, encoding="utf-8")
     (root / "docs" / "core" / "guide.md").write_text(publication, encoding="utf-8")
     subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
     subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
@@ -354,7 +354,7 @@ def _run_self_tests() -> int:
                 budgets=_GOOD_BUDGETS,
                 baseline=_GOOD_BASELINE,
                 design="The floor arm reads 24,108 B per write.\n",
-                publication="Hicasso keeps high-rate work local to a native host.\n",
+                publication="Fresco keeps high-rate work local to a native host.\n",
             ),
             None,
         )

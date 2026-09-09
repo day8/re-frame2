@@ -1,22 +1,22 @@
-(ns re-frame.hicasso.substrate
-  "Hicasso's own reactive-substrate adapter — the value an application
+(ns re-frame.fresco.substrate
+  "Fresco's own reactive-substrate adapter — the value an application
   installs with `(rf/init! substrate/adapter)` before it mounts anything.
 
-  ## Why Hicasso owns one
+  ## Why Fresco owns one
 
-  An adapter is not a renderer. Hicasso already renders itself, through
+  An adapter is not a renderer. Fresco already renders itself, through
   `react-dom/client`, and interprets its own Hiccup; what the substrate
   contract asks for is the OBSERVATION half — the container `app-db` lives
   in, and a derived value that says when it moved. The two halves are
-  independent, and owning both is what lets a Hicasso application depend on
-  core plus Hicasso and nothing else: without this namespace an interactive
+  independent, and owning both is what lets a Fresco application depend on
+  core plus Fresco and nothing else: without this namespace an interactive
   one would have to add a SECOND dependency coordinate —
   `day8/re-frame2-uix` or a Reagent one — purely to obtain the second half,
   and then never write a line of that substrate's notation.
 
   This is an OPTION, not a replacement. Reagent, reagent-slim and UIx
   remain first-class, independently supported adapters, and installing one
-  of them under a Hicasso tree is supported — a Hicasso subtree and a UIx
+  of them under a Fresco tree is supported — a Fresco subtree and a UIx
   subtree resolve the same frame, because every React-shaped adapter reads
   the one shared context object
   (`re-frame.adapter.context/frame-context`).
@@ -24,7 +24,7 @@
   ## What it stands on
 
   `re-frame.substrate.spine` — core's shared spine for \"React-shaped adapters
-  that lack a native reactive-atom primitive\", which is what Hicasso is. The
+  that lack a native reactive-atom primitive\", which is what Fresco is. The
   spine's `make-derived-value` wires ONE WATCH PER SOURCE at construction and
   coalesces through a per-adapter epoch scheduler, so a derived value is live
   the moment it exists.
@@ -33,7 +33,7 @@
   `re-frame.substrate.plain-atom` cannot give it. Plain-atom's derived value
   reifies `IDeref` and disposal and nothing else — no watch, recomputed on
   every deref, which is right for a headless SSR render and wrong under a live
-  view. `re-frame.hicasso.impl.collector/wire-cell!` installs a watch on the
+  view. `re-frame.fresco.impl.collector/wire-cell!` installs a watch on the
   reaction it subscribes and marks its cell dirty when the value moves; under
   plain-atom that watch fires never, so the runtime paints once and is deaf
   thereafter.
@@ -44,7 +44,7 @@
   (`re-frame.interop/activate-derived-value!`) before watching it. On this
   spine that activation is a routed no-op, because the watch is already wired.
 
-  So Hicasso supplies React's own `useMemo` / `useCallback` / `useContext` and
+  So Fresco supplies React's own `useMemo` / `useCallback` / `useContext` and
   takes no new dependency: it already requires `react`, and the spine already
   lives in core.
 
@@ -52,7 +52,7 @@
 
   Nothing under `src/` requires this namespace, so a build that never asks for
   it carries neither it nor the spine — the same reachability property
-  `re-frame.hicasso.forms`, `.overlay`, `.motion` and `.native` have, and
+  `re-frame.fresco.forms`, `.overlay`, `.motion` and `.native` have, and
   `scripts/check_optional_module_reachability.py` is what checks it at the
   door. That is what keeps the cost off an application that deliberately
   installs Reagent instead, and it is why the adapter is not re-exported from
@@ -61,12 +61,12 @@
   ## Why the namespace is `substrate` and not `adapter`
 
   A ClojureScript namespace and a Var cannot share a JS path. Were this
-  namespace called `re-frame.hicasso.adapter`, it would occupy the same path
+  namespace called `re-frame.fresco.adapter`, it would occupy the same path
   as an `adapter` Var on the public door, and the compiler's `:ns-var-clash`
   would leave one of the two reading `nil`. The machinery is therefore homed
   under `substrate`.
 
-  INTERNAL, apart from `adapter`. Hicasso re-exports none of the spine's
+  INTERNAL, apart from `adapter`. Fresco re-exports none of the spine's
   hook surfaces: a body reads through `h/sub` and the collector, and a second
   read path would be a second commit discipline.
 
@@ -90,10 +90,10 @@
   (`re-frame.adapter.react-shared-suite`) can assert the surfaces the spine
   produced: their presence, their kind, and that no two of them are the same
   fn object, which is what catches a cross-wired spine key. None of it is
-  application API — Hicasso publishes `adapter` and reads subscriptions
+  application API — Fresco publishes `adapter` and reads subscriptions
   through `h/sub`."
   (rf.substrate.spine/make-react-spine
-    {:substrate-name        "Hicasso"
+    {:substrate-name        "Fresco"
      :gensym-prefix-sub     "rf-hic-sub-"
      :gensym-prefix-derived "rf-hic-derived-"
      :gensym-prefix-use-sub "rf-hic-use-sub-"
@@ -110,12 +110,12 @@
   function component writing the shared frame context.
 
   This is the LOWER-LEVEL contract slot rather than an authoring verb.
-  Hicasso scopes a root's frame on the way in
-  (`re-frame.hicasso.impl.mount/provider`, from `h/render!`), so a Hicasso
+  Fresco scopes a root's frame on the way in
+  (`re-frame.fresco.impl.mount/provider`, from `h/render!`), so a Fresco
   application never writes this head; the slot exists because the contract has
   it, because core's own provider tier reaches for it, and because writing the
   same one context every React-shaped adapter reads is what lets a mixed
-  Hicasso / UIx provider tree compose.
+  Fresco / UIx provider tree compose.
 
   Plain React rather than a minted boundary: there is no marshalling to do
   here — the props arrive as React hands them over — so there is nothing for a
@@ -123,9 +123,9 @@
   [^js props]
   (let [frame-kw (rf.frame/require-frame-provider-target!
                    (.-frame props)
-                   're-frame.hicasso.substrate/frame-provider)]
+                   're-frame.fresco.substrate/frame-provider)]
     (rf.views.frame-boundary/require-live-frame-for-scope!
-      frame-kw 're-frame.hicasso.substrate/frame-provider)
+      frame-kw 're-frame.fresco.substrate/frame-provider)
     (apply rf.adapter.context/provider-element
            frame-kw
            (rf.adapter.context/normalize-children (.-children props)))))
@@ -135,19 +135,19 @@
 ;; ---------------------------------------------------------------------------
 
 (def adapter
-  "The Hicasso adapter map — the substrate contract plus
-  `:kind :rf.adapter/hicasso`. Install it before the first frame exists:
+  "The Fresco adapter map — the substrate contract plus
+  `:kind :rf.adapter/fresco`. Install it before the first frame exists:
 
       (require '[re-frame.core :as rf]
-               '[re-frame.hicasso :as h]
-               '[re-frame.hicasso.substrate :as substrate])
+               '[re-frame.fresco :as h]
+               '[re-frame.fresco.substrate :as substrate])
 
       (rf/init! substrate/adapter)
       (h/render! app-root [h/frame-root {:id :app/main} [app]]
                  (js/document.getElementById \"app\"))
 
   Installation is explicit and there is no default-adapter registry, so a
-  Hicasso application that installs Reagent or UIx instead keeps working and
+  Fresco application that installs Reagent or UIx instead keeps working and
   never reaches this namespace.
 
   `spine/make-react-adapter` owns the shared React-hook routing and lifecycle
@@ -161,21 +161,21 @@
   `dispose-adapter!` is exactly the spine's. The drain that releases every
   Root a `h/client-root` handle still holds — Spec 006 §Adapter disposal
   lifecycle MUST (2) — hangs off the PROCESS teardown boundary instead:
-  `re-frame.hicasso.impl.mount` publishes it on core's
-  `:hicasso/drain-client-roots!` late-bind hook and
+  `re-frame.fresco.impl.mount` publishes it on core's
+  `:fresco/drain-client-roots!` late-bind hook and
   `re-frame.substrate.adapter/dispose-adapter!` invokes it before the
   installed adapter's own disposer.
 
   It was chained here first, and the merged-PR audit of #9459 found what
-  that misses. Hicasso's roots are not the spine's — `h/render!` calls
-  `createRoot` / `hydrateRoot` through `re-frame.hicasso.impl.mount`,
+  that misses. Fresco's roots are not the spine's — `h/render!` calls
+  `createRoot` / `hydrateRoot` through `re-frame.fresco.impl.mount`,
   never through the substrate contract's `render` slot — but they are not
   THIS ADAPTER's either, and an application may install UIx or Reagent and
-  still mount Hicasso roots. A drain reached only through this map is
+  still mount Fresco roots. A drain reached only through this map is
   reached only when this map is the installed one, so that supported
   composition leaked a Root on every `rf/destroy-adapter!`. The guarantee
   belongs where it holds for all of them."
   (rf.substrate.spine/make-react-adapter
     spine-fns
-    {:kind           :rf.adapter/hicasso
+    {:kind           :rf.adapter/fresco
      :frame-provider frame-provider}))

@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.ledger.vendor
+(ns re-frame.fresco.examples.ledger.vendor
   "THE BLESSED FOREIGN VIRTUALIZER.
 
   `specification.md` §7's *Large collections* row answers the job with a
@@ -9,7 +9,7 @@
   ## It is FOREIGN, and the `ns` form is the evidence
 
   Its only dependency is `[\"react\" :as react]`. It knows nothing of
-  `re-frame.hicasso`, `re-frame.core`, the native tier or the test kit —
+  `re-frame.fresco`, `re-frame.core`, the native tier or the test kit —
   read that off the `:require` below rather than off this sentence. So
   everything the ledger does with it, it does through the declared door
   — which is the whole point of the screen.
@@ -34,7 +34,7 @@
   ## Why *blessed*, in three testable properties
 
   The spec's adjective is doing work. A virtualizer is blessed for a
-  Hicasso screen when:
+  Fresco screen when:
 
   | property | why it matters | what it would break |
   |---|---|---|

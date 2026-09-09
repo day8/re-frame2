@@ -1,6 +1,6 @@
-(ns re-frame2-pair-mcp.hicasso-wire-test
+(ns re-frame2-pair-mcp.fresco-wire-test
   "THE BOTH-SIDES WITNESS. Pair's coupling to the evidence provider is a
-  STRING — `re-frame.hicasso.tool`, interpolated into the CLJS source every
+  STRING — `re-frame.fresco.tool`, interpolated into the CLJS source every
   view-evidence tool sends over nREPL — and a string is invisible to every
   static tool this repo runs. There is no `:require`, no `deps.edn`
   coordinate, and therefore no compiler error, no clj-kondo finding and no
@@ -18,9 +18,9 @@
   the wire contract against it:
 
     1. every reader fn named in an ACTUAL EMITTED FORM is defined, publicly, in
-       `re-frame.hicasso.tool`;
+       `re-frame.fresco.tool`;
     2. the consumer-owned `consumed-evidence-schema` equals the literal
-       `re-frame.hicasso.evidence/schema` stamps on every envelope — the gate
+       `re-frame.fresco.evidence/schema` stamps on every envelope — the gate
        is worthless if the two drift, because every read then reports a
        mismatch and no read ever succeeds;
     3. no donor namespace survives anywhere in Pair's shipped source, so the
@@ -38,7 +38,7 @@
   sides would restate the gap instead of closing it."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
-            [re-frame2-pair-mcp.tools.hicasso-tool :as hicasso-tool]))
+            [re-frame2-pair-mcp.tools.fresco-tool :as fresco-tool]))
 
 (def ^:private fs (js/require "fs"))
 (def ^:private path (js/require "path"))
@@ -51,13 +51,13 @@
   (loop [d (.cwd js/process)]
     (cond
       (and (.existsSync fs (.join path d "tools/re-frame2-pair-mcp/src"))
-           (.existsSync fs (.join path d "implementation/hicasso/src")))
+           (.existsSync fs (.join path d "implementation/fresco/src")))
       d
 
       (= d (.dirname path d))
       (throw (ex-info (str "Could not locate the repository root from cwd — the wire "
                            "witness needs both tools/re-frame2-pair-mcp/src and "
-                           "implementation/hicasso/src to compare the two sides.")
+                           "implementation/fresco/src to compare the two sides.")
                       {:cwd (.cwd js/process)}))
 
       :else (recur (.dirname path d)))))
@@ -79,16 +79,16 @@
     (read-text full)))
 
 (def ^:private provider-tool-src
-  (delay (slurp-repo "implementation/hicasso/src/re_frame/hicasso/tool.cljs")))
+  (delay (slurp-repo "implementation/fresco/src/re_frame/fresco/tool.cljs")))
 
 (def ^:private provider-evidence-src
-  (delay (slurp-repo "implementation/hicasso/src/re_frame/hicasso/evidence.cljs")))
+  (delay (slurp-repo "implementation/fresco/src/re_frame/fresco/evidence.cljs")))
 
 (defn- emitted-read-names
   "Every read name a form Pair will actually send resolves off the door, as a
   set.
 
-  Since rf2-t2ec the emitted form carries no `re-frame.hicasso.tool/<read>`
+  Since rf2-t2ec the emitted form carries no `re-frame.fresco.tool/<read>`
   SYMBOL — a var reference into a namespace the running build has not loaded is
   rejected by shadow's analyzer before the form can run, which is what made the
   `:evidence-tier-unavailable` rung unreachable. The door is now resolved at
@@ -115,19 +115,19 @@
 
 (deftest every-emitted-read-is-defined-by-the-provider
   (let [src @provider-tool-src]
-    (doseq [read-fn hicasso-tool/tier-reads]
+    (doseq [read-fn fresco-tool/tier-reads]
       (testing read-fn
-        (let [form  (hicasso-tool/projection-form read-fn)
+        (let [form  (fresco-tool/projection-form read-fn)
               named (emitted-read-names form)]
           (is (= #{read-fn} named)
               "the emitted form names this read and no other")
-          (is (= #{hicasso-tool/tier-ns} (emitted-door-namespaces form))
+          (is (= #{fresco-tool/tier-ns} (emitted-door-namespaces form))
               "…resolved off the door namespace and no other")
           ;; A public `defn` at column 0. `defn-` would not match, and must
           ;; not: a private read is unreachable from an eval form even though
           ;; the name is spelled identically.
           (is (str/includes? src (str "\n(defn " read-fn "\n"))
-              (str "re-frame.hicasso.tool must publish " read-fn
+              (str "re-frame.fresco.tool must publish " read-fn
                    " — the emitted form calls it by name across a process "
                    "boundary, so a rename on the provider is a runtime failure "
                    "here and nowhere else")))))))
@@ -138,9 +138,9 @@
   ;; provider answers.
   (let [src   @provider-tool-src
         named (into #{}
-                    (mapcat #(emitted-read-names (hicasso-tool/projection-form %)))
-                    hicasso-tool/tier-reads)]
-    (is (= (set hicasso-tool/tier-reads) named)
+                    (mapcat #(emitted-read-names (fresco-tool/projection-form %)))
+                    fresco-tool/tier-reads)]
+    (is (= (set fresco-tool/tier-reads) named)
         "the emitted forms name exactly the declared reads")
     (doseq [n named]
       (is (str/includes? src (str "\n(defn " n "\n"))
@@ -157,11 +157,11 @@
   ;; and every tool in the family returns a mismatch forever. That is a silent
   ;; total outage, so it gets a witness rather than a comment.
   (let [src @provider-evidence-src
-        m   (re-find #"\(def schema\b[\s\S]*?\n  (:re-frame\.hicasso\.evidence/v\d+)\)" src)]
+        m   (re-find #"\(def schema\b[\s\S]*?\n  (:re-frame\.fresco\.evidence/v\d+)\)" src)]
     (is (some? m)
-        "re-frame.hicasso.evidence/schema must carry a keyword literal this witness can read")
-    (is (= (str hicasso-tool/consumed-evidence-schema) (second m))
-        (str "Pair consumes " hicasso-tool/consumed-evidence-schema
+        "re-frame.fresco.evidence/schema must carry a keyword literal this witness can read")
+    (is (= (str fresco-tool/consumed-evidence-schema) (second m))
+        (str "Pair consumes " fresco-tool/consumed-evidence-schema
              " but the producer stamps " (second m)
              " — bump consumed-evidence-schema ONLY once this build is taught "
              "the new shape"))))
@@ -191,12 +191,12 @@
       (let [text (read-text f)]
         (doseq [donor ["re-frame.freehand" "re-frame.ui.tool"]]
           ;; Prose may NAME the donor to record that it was left behind — the
-          ;; hicasso-tool docstring does exactly that. What must not appear is
+          ;; fresco-tool docstring does exactly that. What must not appear is
           ;; a donor symbol in a position that reaches the wire.
           (is (not (str/includes? text (str donor "/")))
               (str (.basename path f) " names a donor read (" donor
                    "/…) in a callable position")))))))
 
 (deftest the-tier-string-is-the-adapter-neutral-door
-  (is (= "re-frame.hicasso.tool" hicasso-tool/tier-ns)
+  (is (= "re-frame.fresco.tool" fresco-tool/tier-ns)
       "the wire targets the adapter-neutral provider, not a donor tier"))

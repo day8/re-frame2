@@ -49,7 +49,7 @@ that looks past `flushSync`, and replaced by a direction rather than a number.
 > and `DevToolsCommandDuration` **carries the page script a protocol command
 > invokes**. Measured: an arm's `devtools` term less the tare's baseline tracks
 > that arm's in-page window (`floor` 0.62 ms against an in-page 0.40,
-> `reagent-subs` 2.76 against 2.30, `uix-subs` 2.01 against 1.60, `hicasso` 3.26
+> `reagent-subs` 2.76 against 2.30, `uix-subs` 2.01 against 1.60, `fresco` 3.26
 > against 2.80).
 >
 > **The door is what decides which rows that reaches, and this page's three all
@@ -89,25 +89,25 @@ clock and every published row reaches it:
 
 | producer | clock, at file and symbol | window closes | class |
 |---|---|---|---|
-| `lane.cljs` — the shared clock | [`lane.cljs`'s `now-ms`](../../../../bench/hicasso/src/re_frame/bench/hicasso/lane.cljs) → `js/performance.now()` | — | in-page |
-| `lane/mount-arm!` — every single mount row | [`lane.cljs`'s `mount-arm!`](../../../../bench/hicasso/src/re_frame/bench/hicasso/lane.cljs) `t0 (now-ms)` · `flushSync` · `{:ms (- (now-ms) t0)}` | when `flushSync` returns | in-page |
-| `lane/mount-batch!` — every batched mount row | [`lane.cljs`'s `mount-batch!`](../../../../bench/hicasso/src/re_frame/bench/hicasso/lane.cljs) same shape, `k` mounts inside one window | when `flushSync` returns | in-page |
-| `p0_converge_app` — M1, M2, broad, narrow | [`p0_converge_app.cljs`'s `mount-round!`](../../../../bench/hicasso/src/re_frame/bench/hicasso/p0_converge_app.cljs) `(lane/mount-batch! arm props k)` | via the lane | in-page |
-| `coldmount_app` — the `1.0054×` witness | [`coldmount_app.cljs`'s `mount-round!`](../../../../bench/hicasso/src/re_frame/bench/hicasso/coldmount_app.cljs) `(lane/mount-batch! arm props 1)` | via the lane | in-page |
-| `hd8_rows` — the HD-008 donor rows | [`hd8_rows.cljs`'s `mount-round!`](../../../../bench/hicasso/src/re_frame/bench/hicasso/hd8_rows.cljs) `(lane/mount-arm! arm props)`; own windows in [`window-of`](../../../../bench/hicasso/src/re_frame/bench/hicasso/hd8_rows.cljs) and [`yield-window!`](../../../../bench/hicasso/src/re_frame/bench/hicasso/hd8_rows.cljs) | when the drain returns | in-page |
-| `p0_reagent_app` — the first author's baseline | [`p0_reagent_app.cljs`'s `measure-mount!`](../../../../bench/hicasso/src/re_frame/bench/hicasso/p0_reagent_app.cljs) `(lane/mount-batch! arm props k)` | via the lane | in-page |
+| `lane.cljs` — the shared clock | [`lane.cljs`'s `now-ms`](../../../../bench/fresco/src/re_frame/bench/fresco/lane.cljs) → `js/performance.now()` | — | in-page |
+| `lane/mount-arm!` — every single mount row | [`lane.cljs`'s `mount-arm!`](../../../../bench/fresco/src/re_frame/bench/fresco/lane.cljs) `t0 (now-ms)` · `flushSync` · `{:ms (- (now-ms) t0)}` | when `flushSync` returns | in-page |
+| `lane/mount-batch!` — every batched mount row | [`lane.cljs`'s `mount-batch!`](../../../../bench/fresco/src/re_frame/bench/fresco/lane.cljs) same shape, `k` mounts inside one window | when `flushSync` returns | in-page |
+| `p0_converge_app` — M1, M2, broad, narrow | [`p0_converge_app.cljs`'s `mount-round!`](../../../../bench/fresco/src/re_frame/bench/fresco/p0_converge_app.cljs) `(lane/mount-batch! arm props k)` | via the lane | in-page |
+| `coldmount_app` — the `1.0054×` witness | [`coldmount_app.cljs`'s `mount-round!`](../../../../bench/fresco/src/re_frame/bench/fresco/coldmount_app.cljs) `(lane/mount-batch! arm props 1)` | via the lane | in-page |
+| `hd8_rows` — the HD-008 donor rows | [`hd8_rows.cljs`'s `mount-round!`](../../../../bench/fresco/src/re_frame/bench/fresco/hd8_rows.cljs) `(lane/mount-arm! arm props)`; own windows in [`window-of`](../../../../bench/fresco/src/re_frame/bench/fresco/hd8_rows.cljs) and [`yield-window!`](../../../../bench/fresco/src/re_frame/bench/fresco/hd8_rows.cljs) | when the drain returns | in-page |
+| `p0_reagent_app` — the first author's baseline | [`p0_reagent_app.cljs`'s `measure-mount!`](../../../../bench/fresco/src/re_frame/bench/fresco/p0_reagent_app.cljs) `(lane/mount-batch! arm props k)` | via the lane | in-page |
 | `p0_harness` — the UIx frontier arm's rows, in a **different tree** | [`p0_harness.cljs`'s `now-ms` and `mount-arm!`](../../../../implementation/core/test/re_frame/bench/p0_harness.cljs) its own `now-ms` → `js/performance.now()`, `t0` then `flushSync` | when `flushSync` returns | in-page |
-| `hicasso_narrow` — the ratom-spine narrow write, in a **third tree** | [`hicasso_narrow.cljs`'s `now`](../../../../implementation/adapters/reagent/test/re_frame/bench/hicasso_narrow.cljs) `(defn now [] (js/performance.now))` | when the forced drain returns | in-page |
+| `fresco_narrow` — the ratom-spine narrow write, in a **third tree** | [`fresco_narrow.cljs`'s `now`](../../../../implementation/adapters/reagent/test/re_frame/bench/fresco_narrow.cljs) `(defn now [] (js/performance.now))` | when the forced drain returns | in-page |
 
 **The roster is closed and the answer is uniform — across all three producer
-trees.** A sweep of the whole `bench/hicasso` tree finds no
+trees.** A sweep of the whole `bench/fresco` tree finds no
 `requestAnimationFrame` in any measuring path — the only occurrences are in DOM
 correctness tests and in `z3vlz_probe`'s settle helper — and the only CDP traffic
 in any driver before this audit is `HeapProfiler.collectGarbage` in
 `retention_run.cjs`, which is a collector door for the heap rows and not a clock.
-The two producers that live outside `bench/hicasso` reach the same answer by
+The two producers that live outside `bench/fresco` reach the same answer by
 their own code rather than through the lane: `p0_harness`'s docstring states it
-outright — *"A reading is one `flushSync` window"* — and `hicasso_narrow` defines
+outright — *"A reading is one `flushSync` window"* — and `fresco_narrow` defines
 its own bare `performance.now()`. There was no instrument anywhere in this
 programme that could see past `flushSync` until `rf2-0qj9w` built one — and the
 one it built read the frame *without* the script until `rf2-yd52q` corrected it,
@@ -123,7 +123,7 @@ only; `arm1-lean-react-dogfood-judgement` and
 ## 2. Why the floor normalisation does not protect the ratio
 
 The published bar figure is not a raw quotient. It is a **double ratio** —
-[`p0_converge_app.cljs`'s `row-record`](../../../../bench/hicasso/src/re_frame/bench/hicasso/p0_converge_app.cljs),
+[`p0_converge_app.cljs`'s `row-record`](../../../../bench/fresco/src/re_frame/bench/fresco/p0_converge_app.cljs),
 with `:numerator :uix-subs` and `:denominator :reagent-subs` declared in the same
 function's `:red-zone` map:
 
@@ -145,7 +145,7 @@ boundary.
 > either clock — and drew the conclusion that the published number is the
 > substrate arms' quotient. **The two floors are not one value.** The numerator
 > is normalised in the UIx segment and the denominator in the Reagent segment
-> ([`p0_converge_app.cljs`'s `ratios-of`](../../../../bench/hicasso/src/re_frame/bench/hicasso/p0_converge_app.cljs),
+> ([`p0_converge_app.cljs`'s `ratios-of`](../../../../bench/fresco/src/re_frame/bench/fresco/p0_converge_app.cljs),
 > whose own docstring says *every ratio against the floor measured in THAT
 > segment of THAT round*; the same shape in this audit's driver, whose
 > `crossSegment` takes a numerator segment and a denominator segment and
@@ -223,7 +223,7 @@ operation — see the box at the top. Every figure in this section is therefore
 `reagent-subs`, `uix-subs` and `floor` arms mount **the same components with the
 same props as the published M1 witness** — `v/subs-root v/m1-subs`,
 `ux/subs-root ux/m1` and `v/m1-floor` at `v/cells-n`
-([`clock_app.cljs`'s `m1-arms` and `floor-mount-arm`](../../../../bench/hicasso/src/re_frame/bench/hicasso/clock_app.cljs)) — and it computes the same
+([`clock_app.cljs`'s `m1-arms` and `floor-mount-arm`](../../../../bench/fresco/src/re_frame/bench/fresco/clock_app.cljs)) — and it computes the same
 floor-normalised, per-segment statistic, so dividing its two legs reproduces the
 published quantity on the second clock.
 
@@ -243,15 +243,15 @@ instrument's error against another's truth:**
 |---|---|---|---|
 | M1 | `reagent-subs` | +384.1% to +497.8% (n=6) | +429.8% |
 | M1 | `uix-subs` | +317.4% to +376.1% (n=6) | +343.4% |
-| M1 | `hicasso` | +619.6% to +704.2% (n=6) | +646.3% |
+| M1 | `fresco` | +619.6% to +704.2% (n=6) | +646.3% |
 | M1 | `ctl-2x` *(pure React)* | −9.3% to +2.3% (n=6) | −4.8% |
 | bulk300 | `reagent-subs` | +436.4% to +542.7% (n=6) | +479.5% |
 | bulk300 | `uix-subs` | +267.8% to +296.1% (n=6) | +281.9% |
-| bulk300 | `hicasso` | +511.0% to +575.2% (n=6) | +531.1% |
+| bulk300 | `fresco` | +511.0% to +575.2% (n=6) | +531.1% |
 | bulk300 | `ctl-2x` *(pure React)* | −5.9% to +7.9% (n=6) | +0.9% |
 | narrow | `reagent-subs` | +409.1% to +484.4% (n=4) | +454.0% |
 | narrow | `uix-subs` | +398.4% to +412.0% (n=4) | +403.2% |
-| narrow | `hicasso` | +374.2% to +448.9% (n=4) | +418.0% |
+| narrow | `fresco` | +374.2% to +448.9% (n=4) | +418.0% |
 | narrow | `ctl-2x` *(pure React)* | −0.2% to +7.8% (n=4) | +2.7% |
 
 `ctl-2x` ranges are the union over both segments' control arms. **This
@@ -303,7 +303,7 @@ instead, named where it appears.
 **`narrow` has no corrected-clock donor bar, and this page does not manufacture
 one.** `rf2-yd52q`'s ensemble ran `M1` and `bulk300` only. `rf2-emvod`'s
 seven-run ensemble does cover `narrow` on raw `TaskDuration`, but publishes
-`hicasso / reagent-subs` (`1.0236×` [0.9855 – 1.0900]) rather than the
+`fresco / reagent-subs` (`1.0236×` [0.9855 – 1.0900]) rather than the
 `uix-subs ÷ reagent-subs` donor quotient this row needs — even though the driver
 computes both, `uix-subs / reagent-subs` being one of its three `BAR_PAIRS`.
 
@@ -441,13 +441,13 @@ budgetary.** The clock of record has exactly one raw-`TaskDuration` instrument o
 the `M1` page, `clock_run.cjs`, and four facts in that instrument compose into a
 verdict fixed before any box is booted:
 
-- [`clock_app.cljs:121`](../../../../bench/hicasso/src/re_frame/bench/hicasso/clock_app.cljs)
+- [`clock_app.cljs:121`](../../../../bench/fresco/src/re_frame/bench/fresco/clock_app.cljs)
   — `:narrow` is **already** `{:kind :bulk :k 1}`. It is not a row awaiting a
   bulk classification; it has one.
-- [`clock_app.cljs:553-557`](../../../../bench/hicasso/src/re_frame/bench/hicasso/clock_app.cljs)
+- [`clock_app.cljs:553-557`](../../../../bench/fresco/src/re_frame/bench/fresco/clock_app.cljs)
   — `arms-for` appends `(ctl3-arms)` to **every** `:bulk` row, with no further
   condition.
-- [`clock_run.cjs:3032-3051`](../../../../bench/hicasso/src/re_frame/bench/hicasso/clock_run.cjs)
+- [`clock_run.cjs:3032-3051`](../../../../bench/fresco/src/re_frame/bench/fresco/clock_run.cjs)
   — the presence of those three arms is what *selects the gate*: `ctlBad` reads
   `ctl3.ok` **alone** on any row that carries them, and `ctl-2x` is demoted to a
   printed diagnostic there.
@@ -480,12 +480,12 @@ recomputation and nothing here manufactures one.
 > "narrow at k=10 … falls out of the same run". It does not, and the two
 > harnesses' `k` are two different quantities:
 >
-> - [`clock_app.cljs`'s `rows`](../../../../bench/hicasso/src/re_frame/bench/hicasso/clock_app.cljs)
+> - [`clock_app.cljs`'s `rows`](../../../../bench/fresco/src/re_frame/bench/fresco/clock_app.cljs)
 >   declares `:narrow {:kind :bulk :k 1}`, and the same file's `write-cells!`
 >   docstring fixes what `k` means there — *"`k = 300` is the broad row,
 >   `k = 100` the K=100 rung, `k = 1` narrow"*, i.e. **how many of the 300
 >   boundaries one commit changes**. One commit per timed sample, always.
-> - [`p0_converge_app.cljs`'s `narrow-batch-k`](../../../../bench/hicasso/src/re_frame/bench/hicasso/p0_converge_app.cljs)
+> - [`p0_converge_app.cljs`'s `narrow-batch-k`](../../../../bench/fresco/src/re_frame/bench/fresco/p0_converge_app.cljs)
 >   is `10`, and its docstring fixes *its* meaning: **how many narrow writes
 >   share ONE clock**. The published row is ten commits inside one window; the
 >   corrected clock's `narrow` row is one commit inside each of many.
@@ -626,7 +626,7 @@ definition and Chromium source — not from the summaries in this tree:
   rounded to the nearest 8 ms and that **the minimum `durationThreshold` an
   observer may ask for is 16 ms** — both accurate — and it passes
   `durationThreshold: 16` explicitly in
-  [`clock_run.cjs`'s `EVENT_TIMING_INIT`](../../../../bench/hicasso/src/re_frame/bench/hicasso/clock_run.cjs).
+  [`clock_run.cjs`'s `EVENT_TIMING_INIT`](../../../../bench/fresco/src/re_frame/bench/fresco/clock_run.cjs).
   The trap nearby is that the *default* threshold, absent that argument, is
   **104 ms** (W3C *Event Timing* §3.4: "let minDuration be 104"), not 16. The
   instrument does not rely on the default and does not claim it does. **No
@@ -644,7 +644,7 @@ definition and Chromium source — not from the summaries in this tree:
     accounting model is exactly how a clock ends up measuring the complement of
     what it meant to. The check that would have caught it needed no
     documentation at all: print the absolutes beside the ratio, and
-    `hicasso`'s in-page `2.938 ms` against its `taskNet` `2.466 ms` refutes a
+    `fresco`'s in-page `2.938 ms` against its `taskNet` `2.466 ms` refutes a
     superset claim on sight. The driver prints them now.
 
 ## 7. Provenance and reproduction
@@ -711,8 +711,8 @@ questions from one ensemble.
 
 ```bash
 cd implementation
-HCLOCK_JSON=out/window/run1.json node hicasso/test/re_frame/bench/hicasso/clock_run.cjs
-node hicasso/test/re_frame/bench/hicasso/clock_readjudicate.cjs out/window/run*.json
+HCLOCK_JSON=out/window/run1.json node fresco/test/re_frame/bench/fresco/clock_run.cjs
+node fresco/test/re_frame/bench/fresco/clock_readjudicate.cjs out/window/run*.json
 ```
 
 The driver's exit code is a whole-run verdict and is **not** a row's licence:
@@ -833,8 +833,8 @@ driver's existing `raw` flag, which drops the tare and keeps the normalisation.
 | `uix-subs / reagent-subs` | raw `TaskDuration` | 0.9628× [0.8804 – 1.1222] | 0.9723× [0.9230 – 1.0513] | −0.9 pp |
 | `uix-subs / reagent-subs` | `taskNet` *(frame-only)* | 1.0394× [0.9036 – 1.3094] | 1.0588× [0.9246 – 1.2394] | −1.9 pp |
 | `uix-subs / reagent-subs` | in-page | 0.9064× [0.8340 – 0.9968] | 0.9128× [0.8173 – 0.9620] | −0.6 pp |
-| `hicasso / uix-subs` | raw `TaskDuration` | 1.2057× [1.1731 – 1.2390] | 1.1670× [1.1023 – 1.2063] | +3.9 pp |
-| `hicasso / reagent-subs` | raw `TaskDuration` | 1.1492× [1.0492 – 1.3339] | 1.1303× [1.0540 – 1.2495] | +1.9 pp |
+| `fresco / uix-subs` | raw `TaskDuration` | 1.2057× [1.1731 – 1.2390] | 1.1670× [1.1023 – 1.2063] | +3.9 pp |
+| `fresco / reagent-subs` | raw `TaskDuration` | 1.1492× [1.0492 – 1.3339] | 1.1303× [1.0540 – 1.2495] | +1.9 pp |
 
 `bulk300` and `narrow`, whose magnitudes this ensemble refuses — the pair is
 published anyway, because the question §2 asks is about the *estimator* and does
@@ -857,12 +857,12 @@ estimator.** `clock_readjudicate.cjs` forms the pair for every row, pair and
 window it can — five row blocks × three `PAIRS` × three estimator windows, so
 ~~forty-two~~ **forty-five** comparisons — and four of them cross.
 `bulk100` · `uix-subs / reagent-subs` reads `1.0072×` normalised against
-`0.9949×` raw on the published clock; `narrow` · `hicasso / reagent-subs` reads
+`0.9949×` raw on the published clock; `narrow` · `fresco / reagent-subs` reads
 `0.9659×` against `1.0065×` on `taskNet`; and `keystroke` ·
 `uix-subs / reagent-subs` crosses on both of those windows — `1.0265×` against
 `0.9754×`, and `1.0209×` against `0.9590×`. The gap runs wider outside the table
-too: `5.4 pp` on `narrow` · `hicasso / uix-subs` in-page, `9.8 pp` on `bulk100` ·
-`hicasso / uix-subs`. Every crossing falls on a row the per-row table above
+too: `5.4 pp` on `narrow` · `fresco / uix-subs` in-page, `9.8 pp` on `bulk100` ·
+`fresco / uix-subs`. Every crossing falls on a row the per-row table above
 refused a magnitude for, and none of the eight figures sits more than 4.1 points
 from parity, so no verdict on this page turns on which estimator is read. But
 agreement on the rows chosen is not agreement in general, and this paragraph
@@ -904,7 +904,7 @@ out of six.
 ### What is now durable
 
 Six datasets at
-`implementation/freehand/test/re_frame/bench/hicasso/data/clock-w3yxd/run{1..6}.json`,
+`implementation/freehand/test/re_frame/bench/fresco/data/clock-w3yxd/run{1..6}.json`,
 every one `canonical: true`, re-adjudicated by
 `clock_readjudicate.cjs` at **exit 0**. §7's *"no dataset from this ensemble
 survives"* is a statement about the 2026-08-01 runs and stays true of them; it is
@@ -950,8 +950,8 @@ promised to usually do so.
 > centre `1.7956×`, location `[1.6765 – 1.9147]`, dispersion ≤ `0.577` — and
 > under it **`14 of 14` runs are in control**, so the reportable subset is the
 > whole ensemble and the figures move to the whole-ensemble column. On this
-> page's own ensemble that is `hicasso / uix-subs` **1.2057×** *(n=6)* rather
-> than `1.1848×` *(n=3)*, and `hicasso / reagent-subs` **1.1492×** *(n=6)*
+> page's own ensemble that is `fresco / uix-subs` **1.2057×** *(n=6)* rather
+> than `1.1848×` *(n=3)*, and `fresco / reagent-subs` **1.1492×** *(n=6)*
 > rather than `1.1100×` *(n=3)* — both already tabled below, so no new number
 > enters this page. `rf2-8a746`'s publication rule then reaches the row for the
 > first time and returns `INSTRUMENT-LIMITED` on every pair, which puts it in
@@ -978,7 +978,7 @@ promised to usually do so.
 
 **`clock-w3yxd` is the ensemble this page carries**, so the section above
 contributes three of those seven eligible runs. Its own tables do not move: the
-`hicasso / uix-subs` line at `1.2057×` [1.1731 – 1.2390] and `hicasso /
+`fresco / uix-subs` line at `1.2057×` [1.1731 – 1.2390] and `fresco /
 reagent-subs` at `1.1492×` [1.0492 – 1.3339] were already printed
 [two estimators at a time](#two-estimators-published-together--on-all-three-windows),
 and what changed is that a reportable subset drawn from them may now be quoted as

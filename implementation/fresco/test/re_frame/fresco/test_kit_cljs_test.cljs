@@ -1,7 +1,7 @@
-(ns re-frame.hicasso.test-kit-cljs-test
+(ns re-frame.fresco.test-kit-cljs-test
   "THE TEST KIT'S OWN WITNESSES — L1 and L2, positive and sabotaged.
 
-  `re-frame.hicasso.test` is an instrument, and an instrument is only
+  `re-frame.fresco.test` is an instrument, and an instrument is only
   worth the controls that can make it go red. Every claim below is
   written as a PAIR: the thing the kit answers, and a control that fails
   if the kit answered it by accident.
@@ -28,7 +28,7 @@
 
   ## What is asserted elsewhere
 
-  [[re-frame.hicasso.test/canonical-dom]] takes a DOM node, so its
+  [[re-frame.fresco.test/canonical-dom]] takes a DOM node, so its
   witnesses are in `test-kit-dom-cljs-test` on the browser lane. This is
   the node lane: nothing here mounts, and nothing here needs a document."
   (:require [cljs.reader :as reader]
@@ -36,11 +36,11 @@
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
-            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
+            [re-frame.fresco.test :as rf.fresco.test]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]))
 
@@ -64,7 +64,7 @@
      :ambient-frame nil
      :init-fn       (fn []
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-                      (rf.hicasso.impl.collector/reset-runtime!))}))
+                      (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The discriminator
@@ -97,12 +97,12 @@
             so the :refused assertions below are not a helper that only
             knows one verb"
     (is (= {:returned {:rf.ui/tree-version 1 :tag :p}}
-           (outcome #(rf.hicasso.test/tree [(fn [_] [:p])  {}])))))
+           (outcome #(rf.fresco.test/tree [(fn [_] [:p])  {}])))))
 
   (testing "and :refused, with the id, for one that is not"
-    (is (= {:rf.error/id :rf.error/hicasso-test-not-a-body
-            :where       're-frame.hicasso.test}
-           (refusal (outcome #(rf.hicasso.test/tree [:not-a-body-fn 1])) [])))))
+    (is (= {:rf.error/id :rf.error/fresco-test-not-a-body
+            :where       're-frame.fresco.test}
+           (refusal (outcome #(rf.fresco.test/tree [:not-a-body-fn 1])) [])))))
 
 (deftest a-refusal-s-payload-cannot-rewrite-the-identity-it-rides-on
   ;; The constructor directly, because no refusal site in the kit spells an
@@ -110,9 +110,9 @@
   ;; can, including the one somebody writes next year. Driving the weakest
   ;; case means handing it the four keys it guarantees, not a well-formed
   ;; payload that would pass under either merge order.
-  (let [o (outcome #(#'rf.hicasso.test/refuse! :rf.error/hicasso-test-not-a-body
+  (let [o (outcome #(#'rf.fresco.test/refuse! :rf.error/fresco-test-not-a-body
                                   "render's head is the BODY FUNCTION."
-                                  {:rf.error/id :rf.error/hicasso-true-child
+                                  {:rf.error/id :rf.error/fresco-true-child
                                    :where       'app.impostor/elsewhere
                                    :reason      "replaced"
                                    :recovery    nil
@@ -122,8 +122,8 @@
               any of the four loses, and the class's own slot rides alongside
               untouched. It used to merge LAST, so this call emitted the
               impostor's id, a nil recovery and no raising site at all"
-      (is (= {:rf.error/id :rf.error/hicasso-test-not-a-body
-              :where       're-frame.hicasso.test
+      (is (= {:rf.error/id :rf.error/fresco-test-not-a-body
+              :where       're-frame.fresco.test
               :reason      "render's head is the BODY FUNCTION."
               :recovery    :no-recovery
               :value       :the-class-s-own-slot}
@@ -135,7 +135,7 @@
               this kit exists to provide is that its refusal IS the runtime's,
               and a map and a message disagreeing about which refusal occurred
               defeats that before a reader gets to the id"
-      (is (= "render's head is the BODY FUNCTION. [:rf.error/hicasso-test-not-a-body]"
+      (is (= "render's head is the BODY FUNCTION. [:rf.error/fresco-test-not-a-body]"
              (:message o))))))
 
 ;; ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@
 (defn- badge-component [^js props]
   (react/createElement "b" #js {"className" "badge"} (.-label props)))
 
-(rf.hicasso/defhost badge badge-component {:server :render})
+(rf.fresco/defhost badge badge-component {:server :render})
 
 ;; The `<name>-body` pair, which is the spelling this suite's own examples
 ;; teach — and which used to be unrenderable. `h/defview` named
@@ -156,14 +156,14 @@
 ;; in scope is the author's; `a-body-may-call-a-helper-named-after-its-view`
 ;; below is what says so.
 (defn- greeting-body [{:keys [who]}] [:p (str "hi " who)])
-(rf.hicasso/defview greeting [props] (greeting-body props))
+(rf.fresco/defview greeting [props] (greeting-body props))
 
 ;; The pair the minted-head render rows below run, spelled the OTHER way —
 ;; a helper whose name is not derived from the view's — so those rows keep
 ;; measuring the retention contract rather than doubling as the
 ;; helper-naming witness.
 (defn- farewell-text [{:keys [who]}] [:p (str "bye " who)])
-(rf.hicasso/defview farewell [props] (farewell-text props))
+(rf.fresco/defview farewell [props] (farewell-text props))
 
 (def ^:private unretained-head
   "A boundary head carrying NO retained body — which is exactly what an
@@ -173,42 +173,42 @@
 
   Marked through the codec's own door, so what is under test is the
   runtime's notion of a boundary head rather than this file's."
-  (doto (rf.hicasso.impl.codec/mark-boundary! (fn [_] [:p "never runs at L2"]))
+  (doto (rf.fresco.impl.codec/mark-boundary! (fn [_] [:p "never runs at L2"]))
     (unchecked-set "displayName"
-                   "re-frame.hicasso.test-kit-cljs-test/unretained-head")))
+                   "re-frame.fresco.test-kit-cljs-test/unretained-head")))
 
 (deftest the-abi-predicates-discriminate-rather-than-restate-fn?
   (testing "a `defview` var is a boundary and its own body function is not —
             which is the whole discrimination, since both are functions"
-    (is (true?  (rf.hicasso.test/boundary? greeting)))
-    (is (false? (rf.hicasso.test/boundary? greeting-body)))
-    (is (false? (rf.hicasso.test/boundary? badge))))
+    (is (true?  (rf.fresco.test/boundary? greeting)))
+    (is (false? (rf.fresco.test/boundary? greeting-body)))
+    (is (false? (rf.fresco.test/boundary? badge))))
 
   (testing "a `defhost` var is a crossing and the component it named is not"
-    (is (true?  (rf.hicasso.test/host? badge)))
-    (is (false? (rf.hicasso.test/host? badge-component)))
-    (is (false? (rf.hicasso.test/host? greeting))))
+    (is (true?  (rf.fresco.test/host? badge)))
+    (is (false? (rf.fresco.test/host? badge-component)))
+    (is (false? (rf.fresco.test/host? greeting))))
 
   (testing "`h/event` is the one callback form and an identically-written
             plain `fn` is not"
-    (is (true?  (rf.hicasso.test/callback? (rf.hicasso/event [e] [:tk/picked (.-value e)]))))
-    (is (false? (rf.hicasso.test/callback? (fn [e] [:tk/picked (.-value e)])))))
+    (is (true?  (rf.fresco.test/callback? (rf.fresco/event [e] [:tk/picked (.-value e)]))))
+    (is (false? (rf.fresco.test/callback? (fn [e] [:tk/picked (.-value e)])))))
 
   (testing "the minted name is the one React DevTools and Spec 009's
             render measure are keyed on"
-    (is (= "re-frame.hicasso.test-kit-cljs-test/greeting" (rf.hicasso.test/view-name greeting)))
-    (is (= "re-frame.hicasso.test-kit-cljs-test/badge" (rf.hicasso.test/view-name badge)))
-    (is (nil? (rf.hicasso.test/view-name {:not "a minted value"}))))
+    (is (= "re-frame.fresco.test-kit-cljs-test/greeting" (rf.fresco.test/view-name greeting)))
+    (is (= "re-frame.fresco.test-kit-cljs-test/badge" (rf.fresco.test/view-name badge)))
+    (is (nil? (rf.fresco.test/view-name {:not "a minted value"}))))
 
   (testing "the declared server policy is read back off the crossing as data"
-    (is (= :render (rf.hicasso.test/host-policy badge))))
+    (is (= :render (rf.fresco.test/host-policy badge))))
 
   (testing "and asking a NON-host for a policy refuses rather than
             answering nil — a nil here would read as :client-only's
             neighbour"
-    (is (= {:rf.error/id :rf.error/hicasso-test-not-a-host
-            :where       're-frame.hicasso.test}
-           (refusal (outcome #(rf.hicasso.test/host-policy greeting)) [])))))
+    (is (= {:rf.error/id :rf.error/fresco-test-not-a-host
+            :where       're-frame.fresco.test}
+           (refusal (outcome #(rf.fresco.test/host-policy greeting)) [])))))
 
 ;; ---------------------------------------------------------------------------
 ;; L1 — the codec, projected
@@ -219,74 +219,74 @@
             an explicit id WINS over `#id`, the shorthand class is
             PREPENDED to a declared one"
     (is (= {"id" "main" "className" "wide tall"}
-           (rf.hicasso.test/element-props [:div#ignored.wide {:id "main" :class "tall"}]))))
+           (rf.fresco.test/element-props [:div#ignored.wide {:id "main" :class "tall"}]))))
 
   (testing "and the control: without the shorthand the same props emit the
             same slots MINUS the folded halves, so the row above is
             measuring the fold rather than the props"
     (is (= {"id" "main" "className" "tall"}
-           (rf.hicasso.test/element-props [:div {:id "main" :class "tall"}]))))
+           (rf.fresco.test/element-props [:div {:id "main" :class "tall"}]))))
 
   (testing "canonical slot names, not the author's spelling"
     (is (= {"tabIndex" 0 "htmlFor" "x"}
-           (rf.hicasso.test/element-props [:label {:tab-index 0 :for "x"}]))))
+           (rf.fresco.test/element-props [:label {:tab-index 0 :for "x"}]))))
 
   (testing "a caller's map merged with the owned keys last: the literal
             the element writes wins by presence, and the projection sees
             the one merged map the codec sees"
     (is (= {"className" "owned" "title" "from-caller"}
-           (rf.hicasso.test/element-props [:div (merge {:class "hijacked" :title "from-caller"}
+           (rf.fresco.test/element-props [:div (merge {:class "hijacked" :title "from-caller"}
                                           {:class "owned"})]))))
 
   (testing "a lowered handler records as 004B's opaque marker — the site's
             existence and spelling are the claim, its behaviour is L3"
     (is (= {"onClick" {:rf.ui/opaque :fn}}
-           (rf.hicasso.test/element-props [:button {:on-click [:tk/toggle 1]}]))))
+           (rf.fresco.test/element-props [:button {:on-click [:tk/toggle 1]}]))))
 
   (testing "and a non-native form is refused rather than projected"
-    (is (= {:rf.error/id :rf.error/hicasso-test-not-a-native-form
-            :where       're-frame.hicasso.test}
-           (refusal (outcome #(rf.hicasso.test/element-props [greeting {}])) [])))))
+    (is (= {:rf.error/id :rf.error/fresco-test-not-a-native-form
+            :where       're-frame.fresco.test}
+           (refusal (outcome #(rf.fresco.test/element-props [greeting {}])) [])))))
 
 (deftest materialize-is-the-runtime-marker-law
   (testing "`::h/value` takes the target's value"
     (is (= [:tk/set-filter "done"]
-           (rf.hicasso.test/materialize [:tk/set-filter :re-frame.hicasso/value]
+           (rf.fresco.test/materialize [:tk/set-filter :re-frame.fresco/value]
                            {:value "done"}))))
 
   (testing "`::h/checked` takes the target's checked state, and a marker
             that is not present is left alone — the substitution is a
             roster, not a positional rule"
     (is (= [:tk/set 7 true]
-           (rf.hicasso.test/materialize [:tk/set 7 :re-frame.hicasso/checked]
+           (rf.fresco.test/materialize [:tk/set 7 :re-frame.fresco/checked]
                            {:value "ignored" :checked true}))))
 
   (testing "an intent carrying no marker comes back identical, so a green
             equality above is not a green everything"
-    (is (= [:tk/toggle 1] (rf.hicasso.test/materialize [:tk/toggle 1] {:value "x"}))))
+    (is (= [:tk/toggle 1] (rf.fresco.test/materialize [:tk/toggle 1] {:value "x"}))))
 
   (testing "and a non-vector refuses"
-    (is (= {:rf.error/id :rf.error/hicasso-test-not-an-intent
-            :where       're-frame.hicasso.test}
-           (refusal (outcome #(rf.hicasso.test/materialize {:not "an intent"} {})) [])))))
+    (is (= {:rf.error/id :rf.error/fresco-test-not-an-intent
+            :where       're-frame.fresco.test}
+           (refusal (outcome #(rf.fresco.test/materialize {:not "an intent"} {})) [])))))
 
 (deftest the-controlled-and-revision-laws-read-as-data
   (testing "a text input carrying a value and a change handler IS the
             controlled door — the runtime's own selection, not a
             re-derivation of it"
-    (is (true? (rf.hicasso.test/controlled? [:input {:type  "text"
+    (is (true? (rf.fresco.test/controlled? [:input {:type  "text"
                                         :value "milk"
                                         :on-change [:tk/edit]}]))))
 
   (testing "and the near neighbours are not: an uncontrolled input, and a
             div carrying the identical props"
-    (is (false? (rf.hicasso.test/controlled? [:input {:type "text"}])))
-    (is (false? (rf.hicasso.test/controlled? [:div {:value "milk" :on-change [:tk/edit]}]))))
+    (is (false? (rf.fresco.test/controlled? [:input {:type "text"}])))
+    (is (false? (rf.fresco.test/controlled? [:div {:value "milk" :on-change [:tk/edit]}]))))
 
   (testing "the revision trigger reads off the author's own attribute map"
-    (is (= 7 (rf.hicasso.test/revision [:input {:value "milk"
-                                   :re-frame.hicasso/revision 7}])))
-    (is (nil? (rf.hicasso.test/revision [:input {:value "milk"}])))))
+    (is (= 7 (rf.fresco.test/revision [:input {:value "milk"
+                                   :re-frame.fresco/revision 7}])))
+    (is (nil? (rf.fresco.test/revision [:input {:value "milk"}])))))
 
 ;; ---------------------------------------------------------------------------
 ;; L1 — intent capture at Spec 009's observation port
@@ -305,7 +305,7 @@
   (seeded!)
   (testing "what the frame dispatched, in order, as the vectors themselves"
     (let [{:keys [intents value]}
-          (rf.hicasso.test/capture-intents frame-id
+          (rf.fresco.test/capture-intents frame-id
                               (fn []
                                 (rf/with-frame frame-id
                                   (rf/dispatch-sync [:tk/toggle 1])
@@ -318,12 +318,12 @@
             without this row an assertion of [] could be green for a
             capture that was never armed"
     (is (= {:value :nothing-dispatched :intents []}
-           (rf.hicasso.test/capture-intents frame-id (fn [] :nothing-dispatched)))))
+           (rf.fresco.test/capture-intents frame-id (fn [] :nothing-dispatched)))))
 
   (testing "another frame's events are not this frame's capture"
     (rf/make-frame {:id ::other})
     (rf/with-frame ::other (rf/dispatch-sync [:tk/seed {:todos {}}]))
-    (is (= [] (:intents (rf.hicasso.test/capture-intents
+    (is (= [] (:intents (rf.fresco.test/capture-intents
                           frame-id
                           (fn [] (rf/with-frame ::other
                                    (rf/dispatch-sync [:tk/seed {:todos {}}])))))))))
@@ -336,18 +336,18 @@
   "A body written exactly as an author writes one: `h/sub` from the public
   door, hiccup out, no hooks and nothing React-shaped."
   [{:keys [id]}]
-  (let [todo (rf.hicasso/sub [:tk/todo id])]
+  (let [todo (rf.fresco/sub [:tk/todo id])]
     [:li.row {:data-id id :on-click [:tk/toggle id]}
      [:span.text (:text todo)]
      (when (:done todo) [:span.done "✓"])]))
 
 (deftest render-answers-the-versioned-004b-tree
-  (let [tree (rf.hicasso.test/tree [todo-row-body {:id 1}]
+  (let [tree (rf.fresco.test/tree [todo-row-body {:id 1}]
                         {:subs {[:tk/todo 1] {:text "milk" :done false}}})]
 
     (testing "the root carries the version gate every consumer validates first"
       (is (= 1 (:rf.ui/tree-version tree)))
-      (is (= 1 rf.hicasso.test/tree-version)))
+      (is (= 1 rf.fresco.test/tree-version)))
 
     (testing "the whole tree is plain serialisable data — no wrapper types,
               no metadata-carried contract"
@@ -360,53 +360,53 @@
       (is (= tree (reader/read-string (pr-str tree)))))
 
     (testing "the projections read it"
-      (is (= "milk" (rf.hicasso.test/text tree)))
-      (is (= :span (:tag (rf.hicasso.test/find tree #(= "text" (:class (:attrs %)))))))
-      (is (= 2 (count (rf.hicasso.test/find-all tree map?))))
-      (is (= [:tk/toggle 1] (:on-click (rf.hicasso.test/attrs tree)))))
+      (is (= "milk" (rf.fresco.test/text tree)))
+      (is (= :span (:tag (rf.fresco.test/find tree #(= "text" (:class (:attrs %)))))))
+      (is (= 2 (count (rf.fresco.test/find-all tree map?))))
+      (is (= [:tk/toggle 1] (:on-click (rf.fresco.test/attrs tree)))))
 
     (testing "and `attrs` MERGES events with attributes, which is the one
               attribute read — a keyword lookup on the node is a field miss"
-      (is (= {:data-id 1 :class "row" :on-click [:tk/toggle 1]} (rf.hicasso.test/attrs tree)))
+      (is (= {:data-id 1 :class "row" :on-click [:tk/toggle 1]} (rf.fresco.test/attrs tree)))
       (is (nil? (:on-click tree)))))
 
   (testing "the branch not taken contributes no node, and the branch taken
             does — so the row above is reading the body's control flow
             rather than a fixed shape"
-    (let [tree (rf.hicasso.test/tree [todo-row-body {:id 1}]
+    (let [tree (rf.fresco.test/tree [todo-row-body {:id 1}]
                           {:subs {[:tk/todo 1] {:text "milk" :done true}}})]
-      (is (= "milk✓" (rf.hicasso.test/text tree)))
-      (is (some? (rf.hicasso.test/find tree #(= "done" (:class (:attrs %)))))))))
+      (is (= "milk✓" (rf.fresco.test/text tree)))
+      (is (some? (rf.fresco.test/find tree #(= "done" (:class (:attrs %)))))))))
 
 (deftest the-tree-carries-intents-as-data
-  (let [tree (rf.hicasso.test/tree [(fn [_]
+  (let [tree (rf.fresco.test/tree [(fn [_]
                            [:ul
                             [:li {:on-click [:tk/toggle 1]} "one"]
                             [:li {:on-click [:tk/toggle 2]
                                   :on-key-down {"Enter"  [:tk/commit 2]
                                                 "Escape" [:tk/cancel 2]}} "two"]
-                            [:li {:on-click (rf.hicasso/event [_] [:tk/opaque])} "three"]])
+                            [:li {:on-click (rf.fresco/event [_] [:tk/opaque])} "three"]])
                          {}])]
     (testing "every literal intent site, in document order, including both
               branches of a data key-map"
       (is (= [[:tk/toggle 1] [:tk/toggle 2] [:tk/commit 2] [:tk/cancel 2]]
-             (rf.hicasso.test/intents tree))))
+             (rf.fresco.test/intents tree))))
 
     (testing "a callback site contributes nothing — it is exactly the site
               whose intent is not data — and records as the opaque marker"
       (is (= {:rf.ui/opaque :fn}
-             (:on-click (rf.hicasso.test/attrs (rf.hicasso.test/find tree #(= "three" (rf.hicasso.test/text %))))))))
+             (:on-click (rf.fresco.test/attrs (rf.fresco.test/find tree #(= "three" (rf.fresco.test/text %))))))))
 
     (testing "and the empty case answers empty, so an equality against a
               stated expectation cannot pass vacuously"
-      (is (= [] (rf.hicasso.test/intents (rf.hicasso.test/tree [(fn [_] [:p "no handlers here"]) {}])))))))
+      (is (= [] (rf.fresco.test/intents (rf.fresco.test/tree [(fn [_] [:p "no handlers here"]) {}])))))))
 
 (deftest a-child-boundary-records-the-call-and-never-its-rendering
-  (let [tree (rf.hicasso.test/tree [(fn [_] [:div [greeting {:key 9 :who "ada"} "extra"]]) {}])
-        node (rf.hicasso.test/find tree :view-id)]
+  (let [tree (rf.fresco.test/tree [(fn [_] [:div [greeting {:key 9 :who "ada"} "extra"]]) {}])
+        node (rf.fresco.test/find tree :view-id)]
     (testing "the node is the CALL: the view id, the props the call site
               passed, and the children it wrote"
-      (is (= {:view-id  "re-frame.hicasso.test-kit-cljs-test/greeting"
+      (is (= {:view-id  "re-frame.fresco.test-kit-cljs-test/greeting"
               :key      9
               :props    {:who "ada"}
               :children ["extra"]}
@@ -415,8 +415,8 @@
     (testing "and nothing of the child's own rendering is in it — the body
               did not run, so `text` answers the call site's children and
               the word the child would have rendered is absent"
-      (is (= "extra" (rf.hicasso.test/text node)))
-      (is (nil? (re-find #"hi ada" (rf.hicasso.test/text tree)))))))
+      (is (= "extra" (rf.fresco.test/text node)))
+      (is (nil? (re-find #"hi ada" (rf.fresco.test/text tree)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — honest opacity. Every refusal, with its legal twin.
@@ -429,31 +429,31 @@
   ;; The refusal is not gone — the last row below is it, reached the one way
   ;; it can still be reached.
   (testing "a minted `h/defview` head renders, and answers the body's tree"
-    (let [tree (rf.hicasso.test/tree [farewell {:who "ada"}])]
+    (let [tree (rf.fresco.test/tree [farewell {:who "ada"}])]
       (is (= :p (:tag tree)))
-      (is (= "bye ada" (rf.hicasso.test/text tree)))))
+      (is (= "bye ada" (rf.fresco.test/text tree)))))
 
   (testing "and it is the SAME tree the body answers when named directly —
             which is what running a view AS WRITTEN has to mean, and rules
             out a second rendering path that merely agrees on the text"
-    (is (= (rf.hicasso.test/tree [farewell-text {:who "ada"}])
-           (rf.hicasso.test/tree [farewell {:who "ada"}]))))
+    (is (= (rf.fresco.test/tree [farewell-text {:who "ada"}])
+           (rf.fresco.test/tree [farewell {:who "ada"}]))))
 
   (testing "what it cost is ONE own property on the head: the head is still
             the function `defview` defined and still a boundary, so no memo
             object escaped as the public representation (rf2-2rtt6.52)"
     (is (fn? farewell))
-    (is (true? (rf.hicasso.test/boundary? farewell)))
-    (is (fn? (rf.hicasso.impl.codec/retained-body farewell))))
+    (is (true? (rf.fresco.test/boundary? farewell)))
+    (is (fn? (rf.fresco.impl.codec/retained-body farewell))))
 
   (testing "the retention is DEV-ONLY, so the refusal is still live and still
             named: a boundary head with no retained body — an `:advanced` +
             `goog.DEBUG=false` mint — refuses with the id, the view and the
             L3 pointer it always carried"
-    (let [o (outcome #(rf.hicasso.test/tree [unretained-head {:who "ada"}]))]
-      (is (= {:rf.error/id :rf.error/hicasso-test-boundary-body-not-retained
-              :where       're-frame.hicasso.test
-              :view        "re-frame.hicasso.test-kit-cljs-test/unretained-head"}
+    (let [o (outcome #(rf.fresco.test/tree [unretained-head {:who "ada"}]))]
+      (is (= {:rf.error/id :rf.error/fresco-test-boundary-body-not-retained
+              :where       're-frame.fresco.test
+              :view        "re-frame.fresco.test-kit-cljs-test/unretained-head"}
              (refusal o [:view])))
       (is (re-find #"L3 owns React lifecycle" (:message o))
           "the message points up the ladder rather than restating the tier"))))
@@ -467,46 +467,46 @@
   ;; naming no view, no id and no macro.
   (testing "the helper the body calls is the author's, so a view whose helper
             is named after it renders rather than recursing"
-    (let [tree (rf.hicasso.test/tree [greeting {:who "ada"}])]
+    (let [tree (rf.fresco.test/tree [greeting {:who "ada"}])]
       (is (= :p (:tag tree)))
-      (is (= "hi ada" (rf.hicasso.test/text tree)))))
+      (is (= "hi ada" (rf.fresco.test/text tree)))))
 
   (testing "and it is the SAME tree the helper answers when rendered directly,
             which rules out a body that recursed once and happened to stop"
-    (is (= (rf.hicasso.test/tree [greeting-body {:who "ada"}])
-           (rf.hicasso.test/tree [greeting {:who "ada"}]))))
+    (is (= (rf.fresco.test/tree [greeting-body {:who "ada"}])
+           (rf.fresco.test/tree [greeting {:who "ada"}]))))
 
   (testing "the control: `farewell`, whose helper is NOT named after it, was
             always renderable — so the rows above measure the collision and
             not the kit's minted-head path in general"
-    (is (= "bye ada" (rf.hicasso.test/text (rf.hicasso.test/tree [farewell {:who "ada"}]))))))
+    (is (= "bye ada" (rf.fresco.test/text (rf.fresco.test/tree [farewell {:who "ada"}]))))))
 
 (deftest a-host-crossing-is-opaque-at-l2
   (testing "at the root"
-    (is (= {:rf.error/id :rf.error/hicasso-test-host-is-opaque
-            :where       're-frame.hicasso.test
-            :host        "re-frame.hicasso.test-kit-cljs-test/badge"}
-           (refusal (outcome #(rf.hicasso.test/tree [badge {:label "x"}])) [:host]))))
+    (is (= {:rf.error/id :rf.error/fresco-test-host-is-opaque
+            :where       're-frame.fresco.test
+            :host        "re-frame.fresco.test-kit-cljs-test/badge"}
+           (refusal (outcome #(rf.fresco.test/tree [badge {:label "x"}])) [:host]))))
 
   (testing "and inside a body's own tree, which is where a crossing
             actually appears"
-    (is (= {:rf.error/id :rf.error/hicasso-test-host-is-opaque
-            :where       're-frame.hicasso.test
-            :host        "re-frame.hicasso.test-kit-cljs-test/badge"}
-           (refusal (outcome #(rf.hicasso.test/tree [(fn [_] [:div [badge {:label "x"}]]) {}]))
+    (is (= {:rf.error/id :rf.error/fresco-test-host-is-opaque
+            :where       're-frame.fresco.test
+            :host        "re-frame.fresco.test-kit-cljs-test/badge"}
+           (refusal (outcome #(rf.fresco.test/tree [(fn [_] [:div [badge {:label "x"}]]) {}]))
                     [:host]))))
 
   (testing "the legal twin: the same body WITHOUT the crossing renders, so
             the refusal is the crossing's and not the div's"
     (is (= {:rf.ui/tree-version 1 :tag :div}
-           (rf.hicasso.test/tree [(fn [_] [:div]) {}])))))
+           (rf.fresco.test/tree [(fn [_] [:div]) {}])))))
 
 (deftest raw-react-is-opaque-at-l2
   (testing "an element only React can interpret has no semantic form here"
-    (is (= {:rf.error/id :rf.error/hicasso-test-react-is-opaque
-            :where       're-frame.hicasso.test}
+    (is (= {:rf.error/id :rf.error/fresco-test-react-is-opaque
+            :where       're-frame.fresco.test}
            (refusal (outcome
-                      #(rf.hicasso.test/tree [(fn [_]
+                      #(rf.fresco.test/tree [(fn [_]
                                      [:div (react/createElement "b" nil "raw")])
                                    {}]))
                     []))))
@@ -523,22 +523,22 @@
             prose and not frozen here; what this pins is the id, borrowed
             from the runtime, and `:where`, the kit's own — a borrowed id
             brings the runtime's reason with it or it is not a borrowing."
-    (is (= {:rf.error/id :rf.error/hicasso-deferred-read-at-boundary
-            :where       're-frame.hicasso.test}
-           (refusal (outcome #(rf.hicasso.test/tree [(fn [_] [:div (delay [:p])]) {}]))
+    (is (= {:rf.error/id :rf.error/fresco-deferred-read-at-boundary
+            :where       're-frame.fresco.test}
+           (refusal (outcome #(rf.fresco.test/tree [(fn [_] [:div (delay [:p])]) {}]))
                     [])))))
 
 (deftest a-plain-function-in-head-position-refuses-as-the-runtime-does
-  (testing "HD-016 makes it a loud error in Hicasso, so the kit refuses it
+  (testing "HD-016 makes it a loud error in Fresco, so the kit refuses it
             too rather than teaching a spelling the runtime rejects"
-    (is (= {:rf.error/id :rf.error/hicasso-test-plain-fn-head
-            :where       're-frame.hicasso.test}
-           (refusal (outcome #(rf.hicasso.test/tree [(fn [_] [:div [greeting-body {:who "x"}]])
+    (is (= {:rf.error/id :rf.error/fresco-test-plain-fn-head
+            :where       're-frame.fresco.test}
+           (refusal (outcome #(rf.fresco.test/tree [(fn [_] [:div [greeting-body {:who "x"}]])
                                           {}]))
                     []))))
 
   (testing "the legal twin: the same function IS the root form's head"
-    (is (= "hi x" (rf.hicasso.test/text (rf.hicasso.test/tree [greeting-body {:who "x"}]))))))
+    (is (= "hi x" (rf.fresco.test/text (rf.fresco.test/tree [greeting-body {:who "x"}]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — the injected read fixtures
@@ -547,9 +547,9 @@
 (deftest a-read-no-fixture-answers-refuses-rather-than-resolving-to-nil
   (testing "the refusal names the query, so the message is actionable
             without a debugger"
-    (let [o (outcome #(rf.hicasso.test/tree [todo-row-body {:id 3}] {:subs {}}))]
-      (is (= {:rf.error/id :rf.error/hicasso-test-missing-read-fixture
-              :where       're-frame.hicasso.test
+    (let [o (outcome #(rf.fresco.test/tree [todo-row-body {:id 3}] {:subs {}}))]
+      (is (= {:rf.error/id :rf.error/fresco-test-missing-read-fixture
+              :where       're-frame.fresco.test
               :phase       :after-body-run
               :missing     [[:tk/todo 3]]}
              (refusal o [:missing :phase])))))
@@ -558,20 +558,20 @@
             renders — so the refusal is about the fixture and not about a
             body that was broken anyway"
     (is (= "bread"
-           (rf.hicasso.test/text (rf.hicasso.test/tree [todo-row-body {:id 3}]
+           (rf.fresco.test/text (rf.fresco.test/tree [todo-row-body {:id 3}]
                                {:subs {[:tk/todo 3] {:text "bread"}}})))))
 
   (testing "a fixture supplied but NOT read is not an error — the read set
             is what the body did, not what the caller offered"
     (is (= "milk"
-           (rf.hicasso.test/text (rf.hicasso.test/tree [todo-row-body {:id 1}]
+           (rf.fresco.test/text (rf.fresco.test/tree [todo-row-body {:id 1}]
                                {:subs {[:tk/todo 1] {:text "milk"}
                                         [:tk/filter] :all}})))))
 
   (testing "and :subs itself is checked"
-    (is (= {:rf.error/id :rf.error/hicasso-test-bad-reads
-            :where       're-frame.hicasso.test}
-           (refusal (outcome #(rf.hicasso.test/tree [greeting-body {}] {:subs [:not :a :map]}))
+    (is (= {:rf.error/id :rf.error/fresco-test-bad-reads
+            :where       're-frame.fresco.test}
+           (refusal (outcome #(rf.fresco.test/tree [greeting-body {}] {:subs [:not :a :map]}))
                     [])))))
 
 (deftest the-option-roster-is-closed-so-a-key-nothing-reads-cannot-look-set
@@ -584,68 +584,68 @@
             row the rename left uncovered: `{:reads …}` supplies no
             fixtures, the body needs none, so the render used to succeed
             outright and the author's fixture map was never read by anything"
-    (is (= {:rf.error/id :rf.error/hicasso-test-bad-option
-            :where       're-frame.hicasso.test
+    (is (= {:rf.error/id :rf.error/fresco-test-bad-option
+            :where       're-frame.fresco.test
             :unknown     [:reads]}
-           (refusal (outcome #(rf.hicasso.test/tree [greeting-body {:who "ada"}]
+           (refusal (outcome #(rf.fresco.test/tree [greeting-body {:who "ada"}]
                                        {:reads {[:tk/todo 1] {:text "milk"}}}))
                     [:unknown]))))
 
   (testing "and on a body that DOES read, where the old behaviour named the
             wrong problem — the fixtures were ignored and the refusal
             reported a missing read fixture rather than the bad option"
-    (is (= :rf.error/hicasso-test-bad-option
+    (is (= :rf.error/fresco-test-bad-option
            (:rf.error/id
-            (:refused (outcome #(rf.hicasso.test/tree [todo-row-body {:id 3}]
+            (:refused (outcome #(rf.fresco.test/tree [todo-row-body {:id 3}]
                                          {:reads {[:tk/todo 3] {:text "bread"}}})))))))
 
   (testing "an unrecognised key is refused whatever it is spelled, and the
             refusal NAMES what it did not recognise — sorted, so two typos
             read the same way twice"
     (is (= [:sbus :subz]
-           (:unknown (:refused (outcome #(rf.hicasso.test/tree [greeting-body {:who "ada"}]
+           (:unknown (:refused (outcome #(rf.fresco.test/tree [greeting-body {:who "ada"}]
                                                   {:subz {} :sbus {}})))))))
 
   (testing "options that are not a map at all"
-    (is (= {:rf.error/id :rf.error/hicasso-test-bad-option
-            :where       're-frame.hicasso.test
+    (is (= {:rf.error/id :rf.error/fresco-test-bad-option
+            :where       're-frame.fresco.test
             :value       [:subs {}]}
-           (refusal (outcome #(rf.hicasso.test/tree [greeting-body {:who "ada"}] [:subs {}]))
+           (refusal (outcome #(rf.fresco.test/tree [greeting-body {:who "ada"}] [:subs {}]))
                     [:value]))))
 
   (testing "and the legal twins, which are what say the roster refuses the
             unknown rather than everything: the one-arg default still
             renders, and so does a correctly spelled :subs"
-    (is (= "hi ada" (rf.hicasso.test/text (rf.hicasso.test/tree [greeting-body {:who "ada"}]))))
-    (is (= "hi ada" (rf.hicasso.test/text (rf.hicasso.test/tree [greeting-body {:who "ada"}] {}))))
+    (is (= "hi ada" (rf.fresco.test/text (rf.fresco.test/tree [greeting-body {:who "ada"}]))))
+    (is (= "hi ada" (rf.fresco.test/text (rf.fresco.test/tree [greeting-body {:who "ada"}] {}))))
     (is (= "milk"
-           (rf.hicasso.test/text (rf.hicasso.test/tree [todo-row-body {:id 1}]
+           (rf.fresco.test/text (rf.fresco.test/tree [todo-row-body {:id 1}]
                              {:subs {[:tk/todo 1] {:text "milk"}}}))))))
 
 (deftest the-read-resolver-is-discardable
   (testing "the fixture cells exist for the body run and are gone when it
             returns — nothing subscribed, nothing watched, nothing left to
             dispose"
-    (let [before (count @rf.hicasso.impl.collector/!cells)]
-      (rf.hicasso.test/tree [todo-row-body {:id 1}] {:subs {[:tk/todo 1] {:text "milk"}}})
-      (is (= before (count @rf.hicasso.impl.collector/!cells)))))
+    (let [before (count @rf.fresco.impl.collector/!cells)]
+      (rf.fresco.test/tree [todo-row-body {:id 1}] {:subs {[:tk/todo 1] {:text "milk"}}})
+      (is (= before (count @rf.fresco.impl.collector/!cells)))))
 
   (testing "and the runtime's own retention tables are as they were — the
             render acquired no cell, took no reference and recorded no edge"
-    (let [before (dissoc (rf.hicasso.test.runtime/residue) :entries)]
-      (rf.hicasso.test/tree [todo-row-body {:id 1}] {:subs {[:tk/todo 1] {:text "milk"}}})
-      (is (= before (dissoc (rf.hicasso.test.runtime/residue) :entries)))
+    (let [before (dissoc (rf.fresco.test.runtime/residue) :entries)]
+      (rf.fresco.test/tree [todo-row-body {:id 1}] {:subs {[:tk/todo 1] {:text "milk"}}})
+      (is (= before (dissoc (rf.fresco.test.runtime/residue) :entries)))
       (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
-             (dissoc (rf.hicasso.test.runtime/residue) :entries))
+             (dissoc (rf.fresco.test.runtime/residue) :entries))
           "and the baseline itself is the empty one, so the equality above
            is not two identical wrong numbers")))
 
   (testing "the probe frame is minted per call, so two renders cannot see
             each other's fixtures"
-    (is (= "milk" (rf.hicasso.test/text (rf.hicasso.test/tree [todo-row-body {:id 1}]
+    (is (= "milk" (rf.fresco.test/text (rf.fresco.test/tree [todo-row-body {:id 1}]
                                       {:subs {[:tk/todo 1] {:text "milk"}}}))))
-    (is (= :rf.error/hicasso-test-missing-read-fixture
-           (:rf.error/id (:refused (outcome #(rf.hicasso.test/tree [todo-row-body {:id 1}]
+    (is (= :rf.error/fresco-test-missing-read-fixture
+           (:rf.error/id (:refused (outcome #(rf.fresco.test/tree [todo-row-body {:id 1}]
                                                         {:subs {}}))))))))
 
 (deftest the-body-runs-on-the-runtime-s-own-path
@@ -654,20 +654,20 @@
             is what says this harness runs bodies rather than imitating one"
     (let [escaped (volatile! nil)
           o (outcome
-              #(rf.hicasso.test/tree [(fn [_]
-                             (vreset! escaped (fn [] (rf.hicasso/sub [:tk/filter])))
+              #(rf.fresco.test/tree [(fn [_]
+                             (vreset! escaped (fn [] (rf.fresco/sub [:tk/filter])))
                              [:p])
                            {}]))]
       (is (map? (:returned o)) "the body itself is legal")
-      (is (= {:rf.error/id :rf.error/hicasso-sub-outside-render
-              :where       're-frame.hicasso.impl.collector/read-key!}
+      (is (= {:rf.error/id :rf.error/fresco-sub-outside-render
+              :where       're-frame.fresco.impl.collector/read-key!}
              (refusal (outcome @escaped) [])))))
 
   (testing "and the body-run counter moved, so the row above is not green
             for a body that never ran"
-    (rf.hicasso.test.runtime/reset-body-runs!)
-    (rf.hicasso.test/tree [greeting-body {:who "ada"}])
-    (is (= 1 (rf.hicasso.test.runtime/body-runs)))))
+    (rf.fresco.test.runtime/reset-body-runs!)
+    (rf.fresco.test/tree [greeting-body {:who "ada"}])
+    (is (= 1 (rf.fresco.test.runtime/body-runs)))))
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — the projections' own refusals
@@ -678,19 +678,19 @@
             whichever the discrimination order reaches first"
     (is (= :rf.error/ui-tree-malformed
            (:rf.error/id
-            (:refused (outcome #(rf.hicasso.test/attrs {:tag :p :view-id "x"})))))))
+            (:refused (outcome #(rf.fresco.test/attrs {:tag :p :view-id "x"})))))))
 
   (testing "text content is not a node, at either projection"
     (is (= :rf.error/ui-tree-malformed
-           (:rf.error/id (:refused (outcome #(rf.hicasso.test/attrs "milk"))))))
+           (:rf.error/id (:refused (outcome #(rf.fresco.test/attrs "milk"))))))
     (is (= :rf.error/ui-tree-malformed
-           (:rf.error/id (:refused (outcome #(rf.hicasso.test/text "milk")))))))
+           (:rf.error/id (:refused (outcome #(rf.fresco.test/text "milk")))))))
 
   (testing "and nil threads through a missed traversal rather than throwing,
             so `(attrs (find …))` nil-puns"
-    (is (nil? (rf.hicasso.test/attrs nil)))
-    (is (nil? (rf.hicasso.test/text nil)))
-    (is (nil? (rf.hicasso.test/find {:rf.ui/tree-version 1 :tag :p} #(= :div (:tag %)))))))
+    (is (nil? (rf.fresco.test/attrs nil)))
+    (is (nil? (rf.fresco.test/text nil)))
+    (is (nil? (rf.fresco.test/find {:rf.ui/tree-version 1 :tag :p} #(= :div (:tag %)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; L0 — the ladder is data, and the refusals cite it
@@ -699,17 +699,17 @@
 (deftest the-ladder-is-the-single-source-of-the-tier-vocabulary
   (testing "five rows, in tier order, each naming what it proves and the
             mechanism it is written with"
-    (is (= [:l0 :l1 :l2 :l3 :l4] (mapv :tier rf.hicasso.test/ladder)))
+    (is (= [:l0 :l1 :l2 :l3 :l4] (mapv :tier rf.fresco.test/ladder)))
     (is (every? (fn [row] (and (string? (:proves row)) (string? (:mechanism row))))
-                rf.hicasso.test/ladder)))
+                rf.fresco.test/ladder)))
 
   (testing "this namespace ships L1 and L2 and says so, which is what makes
             a reader's `where do I write this` answerable from data"
-    (is (= [:l1 :l2] (mapv :tier (filterv :here? rf.hicasso.test/ladder)))))
+    (is (= [:l1 :l2] (mapv :tier (filterv :here? rf.fresco.test/ladder)))))
 
   (testing "and an opacity refusal quotes the L3 row rather than restating
             it — so a tier description has one home"
-    (let [l3  (first (filterv #(= :l3 (:tier %)) rf.hicasso.test/ladder))
-          msg (:message (outcome #(rf.hicasso.test/tree [badge {}])))]
+    (let [l3  (first (filterv #(= :l3 (:tier %)) rf.fresco.test/ladder))
+          msg (:message (outcome #(rf.fresco.test/tree [badge {}])))]
       (is (str/includes? msg (:proves l3)))
       (is (str/includes? msg (:mechanism l3))))))

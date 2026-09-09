@@ -8,10 +8,10 @@ are pinned by the rows named beside them.
 **Reproduction** `npm run test:browser` from `implementation/` — the
 `:browser-test` build selects every `*-dom-cljs-test` namespace, and the rows
 are in
-`implementation/hicasso/test/re_frame/hicasso/overlay_focus_dom_cljs_test.cljs`.
+`implementation/fresco/test/re_frame/fresco/overlay_focus_dom_cljs_test.cljs`.
 Each row below names the `deftest` that pins it.
 
-This page is the measured record behind `re-frame.hicasso.impl.overlay`'s
+This page is the measured record behind `re-frame.fresco.impl.overlay`'s
 `wrap-tab!` and the four predicates that feed it. It was carried in that
 namespace's docstrings until `rf2-6c12m.4` ruled measurement narrative out of
 source; the mechanism it explains — and the one-sentence invariant each

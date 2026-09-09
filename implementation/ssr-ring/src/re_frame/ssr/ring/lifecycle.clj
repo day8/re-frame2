@@ -249,7 +249,7 @@
   brand-based** — which is what Spec 011 asks for (\"two tiers, keyed by
   render-tree representation, not by adapter brand\"). The server cannot
   see which substrate will hydrate its markup, and it does not need to: an
-  adoption-tier root (a native UIx root, a Hicasso root) can
+  adoption-tier root (a native UIx root, a Fresco root) can
   only ever hand the server the unresolved form, because the tree is walked
   inside React and no data tree describing the page ever exists on this
   side. Asking instead whether a hashable data tree is PRESENT answers the

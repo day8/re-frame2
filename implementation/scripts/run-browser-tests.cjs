@@ -697,7 +697,7 @@ async function main() {
             `cannot be acknowledged, so the row will never resume.\n` +
             `  ${where}\n` +
             `  FIX: the two halves of this bridge have drifted. The page side is ` +
-            `\`re-frame.hicasso.trusted-input-support\`; the runner side is ` +
+            `\`re-frame.fresco.trusted-input-support\`; the runner side is ` +
             `\`serviceTrustedInputRequest\` in this file. Make the published ` +
             `request \`{token: <non-empty string>, keys: <array>, ack: <fn>}\` ` +
             `again — those three are the whole protocol.`,

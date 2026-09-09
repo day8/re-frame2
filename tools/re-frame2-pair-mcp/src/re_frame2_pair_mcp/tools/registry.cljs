@@ -25,7 +25,7 @@
             [re-frame2-pair-mcp.tools.orient :as orient]
             [re-frame2-pair-mcp.tools.read-dom :as read-dom]
             [re-frame2-pair-mcp.tools.read-ui :as read-ui]
-            [re-frame2-pair-mcp.tools.hicasso-tool :as hicasso-tool]
+            [re-frame2-pair-mcp.tools.fresco-tool :as fresco-tool]
             [re-frame2-pair-mcp.tools.record :as record]
             [re-frame2-pair-mcp.tools.watch-until :as watch-until]
             [re-frame2-pair-mcp.tools.list-subscriptions :as list-subscriptions]
@@ -130,22 +130,22 @@
     ;; mutation, so a cache keyed on app-db would serve stale render reads.
     :cacheable? false
     :descriptor data/read-ui}
-   ;; The three read-only re-frame.hicasso.tool reads — the adapter-neutral
+   ;; The three read-only re-frame.fresco.tool reads — the adapter-neutral
    ;; evidence a pairing agent reads from a running app. NOT cacheable: the
    ;; read-set entry cache, the cell table and their epochs move with every
    ;; commit and every mount, none of which bumps the app-db precheck hash the
    ;; cache keys on, so a cache would serve stale evidence (the read-ui /
    ;; read-dom posture).
    {:name       "read-mounted-boundaries"
-    :handler    (ignoring-extra #(hicasso-tool/read-mounted-boundaries-tool %1 %2))
+    :handler    (ignoring-extra #(fresco-tool/read-mounted-boundaries-tool %1 %2))
     :cacheable? false
     :descriptor data/read-mounted-boundaries}
    {:name       "read-read-attribution"
-    :handler    (ignoring-extra #(hicasso-tool/read-read-attribution-tool %1 %2))
+    :handler    (ignoring-extra #(fresco-tool/read-read-attribution-tool %1 %2))
     :cacheable? false
     :descriptor data/read-read-attribution}
    {:name       "explain-render"
-    :handler    (ignoring-extra #(hicasso-tool/explain-render-tool %1 %2))
+    :handler    (ignoring-extra #(fresco-tool/explain-render-tool %1 %2))
     :cacheable? false
     :descriptor data/explain-render}
    {:name       "record"

@@ -4,7 +4,7 @@
 // One worker thread is one isolate: its own V8 heap, its own module
 // registry, its own copy of the application's server bundle. That is not
 // an implementation detail, it is the reason the design works. The
-// Hicasso render entry opens a MODULE-LEVEL adoption-window flag around
+// Fresco render entry opens a MODULE-LEVEL adoption-window flag around
 // its `renderToString`, the reactive substrate is installed exactly once
 // per process (Spec 006), and the framework's registrar is likewise
 // process-scoped. Every one of those is per-ISOLATE here, so "per-request

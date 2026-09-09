@@ -1,10 +1,10 @@
-(ns day8.re-frame2-xray.panels.hicasso-cljs-test
-  "The Hicasso tab, over a REAL Hicasso runtime (rf2-hic-023).
+(ns day8.re-frame2-xray.panels.fresco-cljs-test
+  "The Fresco tab, over a REAL Fresco runtime (rf2-hic-023).
 
   ## The tiny consumer app is real, and that is the point
 
   Every row below mounts actual boundaries through the actual commit seam
-  (`rf.hicasso.impl.collector/render-body` then `rf.hicasso.impl.collector/commit-boundary!` — the same
+  (`rf.fresco.impl.collector/render-body` then `rf.fresco.impl.collector/commit-boundary!` — the same
   `subscribe` closure React calls, which is why this is answerable in
   Node), then renders the panel's hiccup over the projection those
   boundaries produced. Nothing is stubbed between the runtime and the
@@ -12,9 +12,9 @@
   running app, and a suite built on hand-written envelopes would
   demonstrate only that the renderer can render. The tab ships six views;
   the derived pair — Advisor and Causal — has its own suites
-  (`hicasso_advisor_cljs_test.cljc`, `hicasso_causal_cljs_test.cljs`).
+  (`fresco_advisor_cljs_test.cljc`, `fresco_causal_cljs_test.cljs`).
 
-  The pure algebra has its own suite (`hicasso_helpers_cljs_test.cljc`);
+  The pure algebra has its own suite (`fresco_helpers_cljs_test.cljc`);
   what is asserted here is the part that needs the runtime.
 
   ## Byte-for-byte, asserted once rather than twice
@@ -35,23 +35,23 @@
   caught a panel that drew both the same."
   (:require [cljs.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as string]
-            [day8.re-frame2-xray.panels.hicasso :as hicasso]
-            [day8.re-frame2-xray.panels.hicasso-helpers :as hh]
-            [day8.re-frame2-xray.panels.hicasso-reads :as reads]
+            [day8.re-frame2-xray.panels.fresco :as fresco]
+            [day8.re-frame2-xray.panels.fresco-helpers :as hh]
+            [day8.re-frame2-xray.panels.fresco-reads :as reads]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.evidence :as rf.hicasso.evidence]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.tool :as rf.hicasso.tool]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.evidence :as rf.fresco.evidence]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.tool :as rf.fresco.tool]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-(def ^:private app-frame ::hicasso-tab-app)
+(def ^:private app-frame ::fresco-tab-app)
 
 (rf/reg-sub :htab/left  (fn [db _] (:left db)))
 (rf/reg-sub :htab/right (fn [db _] (:right db)))
@@ -59,19 +59,19 @@
 (rf/reg-event :htab/bump (fn [{:keys [db]} _] {:db (update db :left inc)}))
 
 ;; A DECLARED view, for the naming rows: `defview` stamps its `<ns>/<sym>`
-;; on the body and `rf.hicasso.impl.codec/retained-body` hands that body back, so the
+;; on the body and `rf.fresco.impl.codec/retained-body` hands that body back, so the
 ;; harness renders it through the same seam as an anonymous fn.
-(rf.hicasso/defview named-probe [_] (rf.hicasso/sub [:htab/left]) nil)
+(rf.fresco/defview named-probe [_] (rf.fresco/sub [:htab/left]) nil)
 
-(def ^:private named-probe-name "day8.re-frame2-xray.panels.hicasso-cljs-test/named-probe")
+(def ^:private named-probe-name "day8.re-frame2-xray.panels.fresco-cljs-test/named-probe")
 
 ;; The UIx adapter, not the Xray suite's plain-atom default — and RESTORED
 ;; at the end of the namespace.
 ;;
-;; It is not a preference. Hicasso's cell wiring calls `add-watch` on the
+;; It is not a preference. Fresco's cell wiring calls `add-watch` on the
 ;; substrate's derived value, and plain-atom's is not `IWatchable`, so a
 ;; boundary mounted under it throws `No protocol method IWatchable.-add-watch`
-;; before any projection exists to assert on. A Hicasso witness needs a
+;; before any projection exists to assert on. A Fresco witness needs a
 ;; reactive substrate, which is why the package's own suites take one too.
 ;;
 ;; THE `:once` RESTORE IS LOAD-BEARING, and was measured. `install-adapter!`
@@ -82,7 +82,7 @@
 ;; anything this bead touches. Restoring the Xray default is what makes
 ;; taking a different substrate for one namespace a local decision.
 ;;
-;; `:post-reset` is load-bearing for a second reason: the Hicasso runtime's
+;; `:post-reset` is load-bearing for a second reason: the Fresco runtime's
 ;; tables are process-global `defonce`s and the core fixture knows nothing
 ;; about them, so without it a boundary mounted by one test is still in the
 ;; entry cache for the next and every roster assertion counts a neighbour's
@@ -99,7 +99,7 @@
 (use-fixtures :each
   (xray-test-support/make-xray-runtime-fixture
     {:adapter    rf.adapter.uix/adapter
-     :post-reset (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :post-reset (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -146,14 +146,14 @@
 (defn- mount!
   "A real boundary, rendered and committed. Answers React's cleanup."
   [body-fn]
-  (rf.hicasso.impl.collector/render-body app-frame body-fn {})
-  (rf.hicasso.impl.collector/commit-boundary! (rf.hicasso.impl.collector/last-reads) (fn [])))
+  (rf.fresco.impl.collector/render-body app-frame body-fn {})
+  (rf.fresco.impl.collector/commit-boundary! (rf.fresco.impl.collector/last-reads) (fn [])))
 
 (defn- refresh!
-  "Drop Xray's sub cache so `:rf.xray.hicasso/data` recomputes against the
+  "Drop Xray's sub cache so `:rf.xray.fresco/data` recomputes against the
   runtime as it stands NOW.
 
-  The tab is a live projection of process-global Hicasso tables rather
+  The tab is a live projection of process-global Fresco tables rather
   than of Xray's app-db, so a held reaction has nothing to invalidate it
   when a boundary mounts. In the running panel the `:rf.xray/trace-buffer`
   tick does this job; a Node witness that never runs the trace collector
@@ -165,9 +165,9 @@
   "Select `view`, refresh, and render the panel."
   [view]
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray.hicasso/set-view view])
+    (rf/dispatch-sync [:rf.xray.fresco/set-view view])
     (refresh!)
-    (hicasso/Panel)))
+    (fresco/Panel)))
 
 (defn- render-now
   "Render the panel the way the RUNNING shell renders it — no `refresh!`.
@@ -178,7 +178,7 @@
   reaction currently answers, which is the only way to ask whether the tab
   is a live projection or a screenshot of one."
   []
-  (rf/with-frame :rf/xray (hicasso/Panel)))
+  (rf/with-frame :rf/xray (fresco/Panel)))
 
 (defn- tick-trace!
   "One trace-buffer tick, delivered the way the collector delivers it.
@@ -200,12 +200,12 @@
 
 (deftest the-tab-registers-as-a-dynamic-l4-tab
   (setup!)
-  (let [tab (panel-registry/tab-by-id :dynamic :hicasso)]
-    (is (some? tab) "the Hicasso tab must be in the Dynamic tab registry")
-    (is (= "Hicasso" (:label tab)))
+  (let [tab (panel-registry/tab-by-id :dynamic :fresco)]
+    (is (some? tab) "the Fresco tab must be in the Dynamic tab registry")
+    (is (= "Fresco" (:label tab)))
     (is (fn? (:panel tab))))
   (testing "and the focus mirror knows it — a drifting mirror fails the build"
-    (is (contains? focus/valid-panels :hicasso))
+    (is (contains? focus/valid-panels :fresco))
     (is (= (panel-registry/tab-ids-for-mode :dynamic) focus/valid-panels))))
 
 ;; ---------------------------------------------------------------------------
@@ -216,10 +216,10 @@
   (setup!)
   (let [tree (show! :mounted)
         ids  (testids tree)]
-    (is (contains? ids "rf-xray-hicasso-empty-mounted")
-        "Hicasso answered and no boundary holds a read edge — a survey result")
-    (is (not (contains? ids "rf-xray-hicasso-absent"))
-        "an empty runtime must NOT render as `no Hicasso on this host` — those
+    (is (contains? ids "rf-xray-fresco-empty-mounted")
+        "Fresco answered and no boundary holds a read edge — a survey result")
+    (is (not (contains? ids "rf-xray-fresco-absent"))
+        "an empty runtime must NOT render as `no Fresco on this host` — those
          are unrelated facts with unrelated remedies")
     (is (string/includes? (text-of tree) "survey result"))))
 
@@ -235,14 +235,14 @@
   (let [by-view (into {} (map (fn [v] [v (show! v)])) [:mounted :attribution
                                                        :intents :explain])]
     (testing "each view renders its OWN empty testid and no other view's"
-      (doseq [[view suffix] [[:mounted     "rf-xray-hicasso-empty-mounted"]
-                             [:attribution "rf-xray-hicasso-empty-attribution"]
-                             [:intents     "rf-xray-hicasso-empty-intents"]
-                             [:explain     "rf-xray-hicasso-empty-explain"]]]
+      (doseq [[view suffix] [[:mounted     "rf-xray-fresco-empty-mounted"]
+                             [:attribution "rf-xray-fresco-empty-attribution"]
+                             [:intents     "rf-xray-fresco-empty-intents"]
+                             [:explain     "rf-xray-fresco-empty-explain"]]]
         (let [ids (testids (get by-view view))]
           (is (contains? ids suffix)
               (str view " must render its own empty note"))
-          (is (= 1 (count (filter #(string/starts-with? % "rf-xray-hicasso-empty-") ids)))
+          (is (= 1 (count (filter #(string/starts-with? % "rf-xray-fresco-empty-") ids)))
               (str view " must render exactly one empty note — not a second view's")))))
 
     (testing "the Intents empty is a CAP, and never a clean bill of health"
@@ -254,7 +254,7 @@
                  "empty ring is a knob setting, not a finding"))))
 
     (testing "and the cap's own loss note is rendered even with no rows at all"
-      (is (contains? (testids (get by-view :intents)) "rf-xray-hicasso-intents-cap")
+      (is (contains? (testids (get by-view :intents)) "rf-xray-fresco-intents-cap")
           (str "a view that showed its qualifications only when it had rows would "
                "drop them exactly where the reader has least else to go on")))))
 
@@ -264,22 +264,22 @@
   ;; off screen. The panel states that beside the rows rather than leaving
   ;; the reader to supply the word "visible".
   (setup!)
-  (let [release (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))
+  (let [release (mount! (fn [_] (rf.fresco/sub [:htab/left]) nil))
         tree    (show! :mounted)]
-    (is (contains? (testids tree) "rf-xray-hicasso-mounted-visibility"))
+    (is (contains? (testids tree) "rf-xray-fresco-mounted-visibility"))
     (is (string/includes? (text-of tree) "SUBSCRIPTION"))
     (is (string/includes? (text-of tree) "Suspense"))
     (release)))
 
-(deftest a-host-without-hicasso-is-ABSENT-not-empty
+(deftest a-host-without-fresco-is-ABSENT-not-empty
   (setup!)
   (with-redefs [reads/evidence (constantly {:mounted-boundaries nil
                                             :read-attribution   nil
                                             :intents            nil
                                             :explain-render     nil})]
     (let [ids (testids (show! :mounted))]
-      (is (contains? ids "rf-xray-hicasso-absent"))
-      (is (not (contains? ids "rf-xray-hicasso-empty-mounted"))))))
+      (is (contains? ids "rf-xray-fresco-absent"))
+      (is (not (contains? ids "rf-xray-fresco-empty-mounted"))))))
 
 (deftest an-unparseable-schema-is-MISMATCH-and-suppresses-rows
   (setup!)
@@ -293,10 +293,10 @@
   ;; stale stamp before (audit #7802), so the predecessor must mismatch on
   ;; the page like anything else this build was not taught. There is no
   ;; acceptance path for it.
-  (let [release (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))]
-    (doseq [stamp [:re-frame.hicasso.evidence/v2
-                   :re-frame.hicasso.evidence/v99]]
-      (let [other (assoc (rf.hicasso.tool/read-mounted-boundaries) :schema stamp)]
+  (let [release (mount! (fn [_] (rf.fresco/sub [:htab/left]) nil))]
+    (doseq [stamp [:re-frame.fresco.evidence/v2
+                   :re-frame.fresco.evidence/v99]]
+      (let [other (assoc (rf.fresco.tool/read-mounted-boundaries) :schema stamp)]
         (is (seq (:boundaries other))
             "NON-VACUITY: the envelope being refused really does carry rows")
         (with-redefs [reads/evidence (constantly {:mounted-boundaries other
@@ -305,8 +305,8 @@
                                                   :explain-render     other})]
           (let [tree (show! :mounted)
                 ids  (testids tree)]
-            (is (contains? ids "rf-xray-hicasso-mismatch") (str stamp))
-            (is (not (contains? ids "rf-xray-hicasso-empty-mounted")) (str stamp))
+            (is (contains? ids "rf-xray-fresco-mismatch") (str stamp))
+            (is (not (contains? ids "rf-xray-fresco-empty-mounted")) (str stamp))
             (is (string/includes? (text-of tree) "not taught to parse"))))))
     (release)))
 
@@ -316,14 +316,14 @@
 
 (deftest the-mounted-view-answers-which-boundaries-are-mounted
   (setup!)
-  (let [a (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))
-        b (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))
-        c (mount! (fn [_] (rf.hicasso/sub [:htab/left]) (rf.hicasso/sub [:htab/right]) nil))
+  (let [a (mount! (fn [_] (rf.fresco/sub [:htab/left]) nil))
+        b (mount! (fn [_] (rf.fresco/sub [:htab/left]) nil))
+        c (mount! (fn [_] (rf.fresco/sub [:htab/left]) (rf.fresco/sub [:htab/right]) nil))
         tree (show! :mounted)
         txt  (text-of tree)
         ids  (testids tree)]
-    (is (contains? ids "rf-xray-hicasso-mounted"))
-    (is (not (contains? ids "rf-xray-hicasso-empty-mounted")))
+    (is (contains? ids "rf-xray-fresco-mounted"))
+    (is (not (contains? ids "rf-xray-fresco-empty-mounted")))
     (is (string/includes? txt "2 instances")
         "the two boundaries with one edge set report as one row of two")
     (is (string/includes? txt "[:htab/left]"))
@@ -332,13 +332,13 @@
       (is (some #(string/ends-with? % "-view-loss-unknown") ids))
       (is (not-any? #(string/ends-with? % "-views") ids)))
     (testing "React's half is spelled out beneath the roster"
-      (is (contains? ids "rf-xray-hicasso-mounted-visibility"))
+      (is (contains? ids "rf-xray-fresco-mounted-visibility"))
       (is (string/includes? txt "React DevTools")))
     (a) (b) (c)))
 
 (deftest a-declared-view-is-named-on-the-page-with-its-source
   (setup!)
-  (let [release (mount! (rf.hicasso.impl.codec/retained-body named-probe))
+  (let [release (mount! (rf.fresco.impl.codec/retained-body named-probe))
         tree    (show! :mounted)
         txt     (text-of tree)
         ids     (testids tree)]
@@ -354,30 +354,30 @@
       (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
       (let [why (show! :explain)]
         (is (string/includes? (text-of why) named-probe-name))
-        (is (some #(and (string/starts-with? % "rf-xray-hicasso-explain-")
+        (is (some #(and (string/starts-with? % "rf-xray-fresco-explain-")
                         (string/ends-with? % "-views"))
                   (testids why)))))
     (release)))
 
 (deftest the-reads-view-answers-which-boundaries-read-each-subscription
   (setup!)
-  (let [a (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))
-        b (mount! (fn [_] (rf.hicasso/sub [:htab/left]) (rf.hicasso/sub [:htab/right]) nil))
+  (let [a (mount! (fn [_] (rf.fresco/sub [:htab/left]) nil))
+        b (mount! (fn [_] (rf.fresco/sub [:htab/left]) (rf.fresco/sub [:htab/right]) nil))
         tree (show! :attribution)
         txt  (text-of tree)
         ids  (testids tree)]
-    (is (contains? ids "rf-xray-hicasso-attribution"))
+    (is (contains? ids "rf-xray-fresco-attribution"))
     (is (string/includes? txt "fan-out 2") ":htab/left is read by both boundaries")
     (is (string/includes? txt "fan-out 1") ":htab/right by one")
     (is (string/includes? txt "[:htab/left] + [:htab/right]")
         "each edge names the boundaries holding it, by the same key the
          mounted roster uses")
     (testing "each row carries its WHOLE projected identity in the testid (audit #7802)"
-      (let [edge-ids (into #{} (filter #(and (string/starts-with? % "rf-xray-hicasso-edge-")
+      (let [edge-ids (into #{} (filter #(and (string/starts-with? % "rf-xray-fresco-edge-")
                                              (not (string/ends-with? % "-readers"))))
                            ids)]
         (is (= 2 (count edge-ids)) "two cells, two testids")
-        (is (every? #(string/includes? % "hicasso-tab-app") edge-ids)
+        (is (every? #(string/includes? % "fresco-tab-app") edge-ids)
             (str "an edge testid must carry the FRAME as well as the sub id — "
                  "frames are isolated contexts, so two frames holding one sub id "
                  "are two rows and not one seen twice"))
@@ -390,12 +390,12 @@
 
 (deftest the-intents-view-answers-what-was-dispatched
   (setup!)
-  (let [release (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))]
+  (let [release (mount! (fn [_] (rf.fresco/sub [:htab/left]) nil))]
     (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
     (let [tree (show! :intents)
           txt  (text-of tree)
           ids  (testids tree)]
-      (is (contains? ids "rf-xray-hicasso-intents"))
+      (is (contains? ids "rf-xray-fresco-intents"))
       (is (string/includes? txt ":htab/bump"))
       (is (string/includes? txt "(not carried)")
           "the panel says the arguments are absent BY DESIGN, so a reader does
@@ -403,17 +403,17 @@
       (testing "the summary states the window's cap on every render, good or bad"
         (is (string/includes? txt "capped")))
       (testing "and the cap's own note is on the page beneath the rows"
-        (is (contains? ids "rf-xray-hicasso-intents-cap"))))
+        (is (contains? ids "rf-xray-fresco-intents-cap"))))
     (release)))
 
 (deftest the-why-view-answers-which-reads-changed-and-refuses-to-answer-why
   (setup!)
-  (let [release (mount! (fn [_] (rf.hicasso/sub [:htab/left]) (rf.hicasso/sub [:htab/right]) nil))]
+  (let [release (mount! (fn [_] (rf.fresco/sub [:htab/left]) (rf.fresco/sub [:htab/right]) nil))]
     (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
     (let [tree (show! :explain)
           txt  (text-of tree)
           ids  (testids tree)]
-      (is (contains? ids "rf-xray-hicasso-explain"))
+      (is (contains? ids "rf-xray-fresco-explain"))
       (testing "PROVEN: the reads at the boundary's peak epoch, off the stamps"
         (is (some #(string/ends-with? % "-proven") ids))
         (is (string/includes? txt "moved most recently:"))
@@ -431,8 +431,8 @@
         (is (string/includes? txt (str "frame " (hh/format-id app-frame)))
             (str "two boundaries reading one query in two frames have the same "
                  "label, so without the frame the reader sees one line twice"))
-        (is (some #(and (string/starts-with? % "rf-xray-hicasso-explain-")
-                        (string/includes? % "hicasso-tab-app"))
+        (is (some #(and (string/starts-with? % "rf-xray-fresco-explain-")
+                        (string/includes? % "fresco-tab-app"))
                   ids))))
     (release)))
 
@@ -445,14 +445,14 @@
   ;; and `show!` drops Xray's sub cache first. So every one of them proves
   ;; what the panel renders GIVEN a fresh projection, and none of them
   ;; proves the projection ever refreshes on its own — the tab's liveness
-  ;; was a comment on `:rf.xray.hicasso/data` and nothing else.
+  ;; was a comment on `:rf.xray.fresco/data` and nothing else.
   ;;
   ;; That is the property a browser row was proposed for, and it does not
   ;; need one. The tab is live because the sub composes off
   ;; `:rf.xray/trace-buffer`, and that signal is an ordinary app-db slot
   ;; written by an ordinary dispatch, so the tick is drivable right here.
   ;;
-  ;; The middle assertion is the load-bearing one. Hicasso's tables are
+  ;; The middle assertion is the load-bearing one. Fresco's tables are
   ;; process-global rather than part of Xray's app-db, so a mount moves
   ;; nothing the held reaction watches — which is precisely why a panel
   ;; wired to no tick at all would sit on an empty roster forever while
@@ -460,22 +460,22 @@
   ;; control the last assertion would pass on a reaction that had simply
   ;; never been computed before the tick.
   (setup!)
-  (let [empty-testid "rf-xray-hicasso-empty-mounted"]
+  (let [empty-testid "rf-xray-fresco-empty-mounted"]
     (is (contains? (testids (show! :mounted)) empty-testid)
         "the projection is computed and HELD while nothing is mounted")
-    (let [release (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))]
+    (let [release (mount! (fn [_] (rf.fresco/sub [:htab/left]) nil))]
       (is (contains? (testids (render-now)) empty-testid)
           "NON-VACUITY: a real mount alone leaves the held reaction stale,
            so the tick below is the only thing that can move this roster")
       (tick-trace!)
       (let [tree (render-now)
             ids  (testids tree)]
-        ;; A BOUNDARY ROW, not the section wrapper. `rf-xray-hicasso-mounted`
+        ;; A BOUNDARY ROW, not the section wrapper. `rf-xray-fresco-mounted`
         ;; is the wrapper `mounted-view` renders in every arm — the empty
         ;; note lives inside it — so asserting the wrapper would pass on the
         ;; stale empty roster this row exists to catch. That is the bead's own
         ;; question turned on this test, and the first draft failed it.
-        (is (some #(string/starts-with? % "rf-xray-hicasso-boundary-") ids)
+        (is (some #(string/starts-with? % "rf-xray-fresco-boundary-") ids)
             "the trace tick re-fired the projection and a boundary ROW
              arrived — with no cache clear anywhere in this test")
         (is (string/includes? (text-of tree) "[:htab/left]")
@@ -492,7 +492,7 @@
 
 (deftest the-loss-states-render-under-distinct-testids
   (setup!)
-  (let [release (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))]
+  (let [release (mount! (fn [_] (rf.fresco/sub [:htab/left]) nil))]
     (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
 
     (testing "a live window renders the UNCORRELATED chip"
@@ -534,7 +534,7 @@
   ;; Frame destruction is the forcing function: there the door PROMISES to
   ;; fail closed, so nothing derived from the query may render.
   (setup!)
-  (mount! (fn [_] (rf.hicasso/sub [:htab/left the-secret]) nil))
+  (mount! (fn [_] (rf.fresco/sub [:htab/left the-secret]) nil))
   (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
 
   (testing "NON-VACUITY: with the frame alive the argument really is on the page"
@@ -555,7 +555,7 @@
 
   (testing "and the rows are still THERE, so the redaction is not merely an empty page"
     (let [ids (testids (show! :mounted))]
-      (is (not (contains? ids "rf-xray-hicasso-empty-mounted"))
+      (is (not (contains? ids "rf-xray-fresco-empty-mounted"))
           (str "a panel that rendered nothing would pass every assertion above "
                "while proving none of them")))))
 
@@ -565,29 +565,29 @@
 
 (deftest the-seam-reshapes-nothing
   (setup!)
-  (let [release (mount! (fn [_] (rf.hicasso/sub [:htab/left]) nil))]
+  (let [release (mount! (fn [_] (rf.fresco/sub [:htab/left]) nil))]
     (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
     (testing "the read seam answers the producer's own bytes"
-      (doseq [[door seam] [[rf.hicasso.tool/read-mounted-boundaries reads/mounted-boundaries]
-                           [rf.hicasso.tool/read-read-attribution   reads/read-attribution]
-                           [rf.hicasso.tool/read-intents            reads/intents]
-                           [rf.hicasso.tool/explain-render          reads/explain-render]]]
+      (doseq [[door seam] [[rf.fresco.tool/read-mounted-boundaries reads/mounted-boundaries]
+                           [rf.fresco.tool/read-read-attribution   reads/read-attribution]
+                           [rf.fresco.tool/read-intents            reads/intents]
+                           [rf.fresco.tool/explain-render          reads/explain-render]]]
         (is (= (pr-str (door)) (pr-str (seam)))
             "a seam that reshaped could not be byte-identical to its door")))
     (testing "and so does the subscription the VIEW derefs — the whole chain"
       (refresh!)
       (let [held (rf/with-frame :rf/xray
-                   (:envelopes @(rf/subscribe [:rf.xray.hicasso/data])))]
-        (is (= (pr-str (rf.hicasso.tool/read-mounted-boundaries))
+                   (:envelopes @(rf/subscribe [:rf.xray.fresco/data])))]
+        (is (= (pr-str (rf.fresco.tool/read-mounted-boundaries))
                (pr-str (:mounted-boundaries held))))
-        (is (= (pr-str (rf.hicasso.tool/read-read-attribution))
+        (is (= (pr-str (rf.fresco.tool/read-read-attribution))
                (pr-str (:read-attribution held))))))
     (release)))
 
 (deftest the-consumer-pin-tracks-the-producer-today-and-detects-a-bump
   (testing "the pin is a LITERAL, not the producer's var — but today they agree"
-    (is (= rf.hicasso.evidence/schema hh/consumed-evidence-schema)
-        (str "Xray's pin and the Hicasso producer's schema have diverged. That "
+    (is (= rf.fresco.evidence/schema hh/consumed-evidence-schema)
+        (str "Xray's pin and the Fresco producer's schema have diverged. That "
              "is the pin doing its job: teach this build the new shape, then "
              "bump the pin in the same change."))
-    (is (= rf.hicasso.evidence/producer hh/consumed-producer))))
+    (is (= rf.fresco.evidence/producer hh/consumed-producer))))

@@ -2,7 +2,7 @@
 
 Copy the block below into `<pilot-root>/BRIEF.md`. Everything inside it is written *to the pilot agent* and is the only thing that agent is given, alongside the blank friction log and the workspace itself.
 
-The brief is deliberately free of in-tree references: no bead ids, no spec sections, no repository paths except the ones the published documentation itself tells a reader to use. `rf2-lpfz` had to add one — `docs/core/hicasso/` inside the checkout — because the published documentation had nowhere else to live, and naming it was what made the pilot's only reference reachable at all. **That exception is retired under `rf2-pug6`: the documentation site is published, so the brief gives the pilot a URL and the checkout goes back to being a build input with no reading exception at all.** That is not tidiness. A brief that leaks in-tree knowledge does not bend a rule, it invalidates the evidence the pilot exists to produce, and the leak is invisible in the output.
+The brief is deliberately free of in-tree references: no bead ids, no spec sections, no repository paths except the ones the published documentation itself tells a reader to use. `rf2-lpfz` had to add one — `docs/core/fresco/` inside the checkout — because the published documentation had nowhere else to live, and naming it was what made the pilot's only reference reachable at all. **That exception is retired under `rf2-pug6`: the documentation site is published, so the brief gives the pilot a URL and the checkout goes back to being a build input with no reading exception at all.** That is not tidiness. A brief that leaks in-tree knowledge does not bend a rule, it invalidates the evidence the pilot exists to produce, and the leak is invisible in the output.
 
 Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the sentence naming the test command, under `rf2-xkhul`; the address of the published documentation in the read rules, under `rf2-lpfz`, and its flip from the checkout to the published site — with the public Xray manual admitted and outcome 7 moved onto released versions — under `rf2-pug6`; the paragraph naming the page check, under `rf2-ek1a`. Assemble the workspace first, per [`workspace.md`](workspace.md).
 
@@ -14,7 +14,7 @@ Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-direc
 # Your brief
 
 You are working on a small ClojureScript issue tracker, moving it onto a view
-layer called Hicasso, using its published documentation and nothing else.
+layer called Fresco, using its published documentation and nothing else.
 
 The application is a Linear-style board: cards you create, retitle, and drag
 between statuses. Its point is that every write shows on screen instantly and
@@ -35,9 +35,9 @@ in your project: read it, change it, extend it.
 
 You have two screens, and they are two different jobs.
 
-**The board** exists. Migrate it to Hicasso, preserving what it does now.
+**The board** exists. Migrate it to Fresco, preserving what it does now.
 
-**The card detail** does not exist. Build it, on Hicasso, from scratch: click
+**The card detail** does not exist. Build it, on Fresco, from scratch: click
 a card, get a screen showing that issue in full, with its title editable and
 its status changeable — the same operations the board offers, given room.
 Route to it and back. It ships as part of this pilot; it is not a stretch
@@ -51,7 +51,7 @@ your time on it and log it heavily.
 ## The rule
 
 **Everything you need is in the published documentation. You may not use
-anything else to learn how Hicasso works.**
+anything else to learn how Fresco works.**
 
 This is the whole point of the exercise, so it is worth being exact about it.
 The question being asked is not "can this be built" — of course it can. The
@@ -67,7 +67,7 @@ produce. Only you can tell us.
   <https://day8.github.io/re-frame2/>. It is your reference for everything:
   what to type, what things are called, why something broke, how to test, how
   to build for production. If the site publishes a page, you may read it. The
-  Hicasso guide is the part you will live in, and the Xray manual beside it is
+  Fresco guide is the part you will live in, and the Xray manual beside it is
   documentation on the same footing — outcome 5 sends you there, so read it as
   freely as the guide.
 - Everything in `app/`. That is your codebase. Its README explains what the
@@ -90,7 +90,7 @@ produce. Only you can tell us.
 
 **The `re-frame2/` checkout is a build input, not a reference work.** There is
 no reading exception: the documentation is on the site, so nothing in the
-checkout is a reference for how Hicasso works. Two uses of it are expected and
+checkout is a reference for how Fresco works. Two uses of it are expected and
 correct, because the published documentation itself tells you to make them:
 your `deps.edn` resolves the library from it, and the migration tool the
 documentation opens with is run from a path inside it. Both are the documented
@@ -148,7 +148,7 @@ of you, and you should not go looking for more.
    start and capture the result — that baseline is what "still" means. Port
    them as the migration requires, keep them testing behaviour rather than
    markup, and add cover for the card detail you build.
-2. **The board renders through Hicasso and the card detail ships.** Same
+2. **The board renders through Fresco and the card detail ships.** Same
    behaviour for the board as a user sees today; a working, routed, editable
    card detail beside it. For the board, the published migration chapter has a
    process — follow it, including the step that generates a report before you
@@ -158,7 +158,7 @@ of you, and you should not go looking for more.
    small, real. It has to be something other than the card detail — that one
    is a deliverable, not the change. This is what tells us whether the result
    is workable or merely working.
-4. **Hot reload works.** Change a Hicasso view with the build running and
+4. **Hot reload works.** Change a Fresco view with the build running and
    record what survived and what did not.
 5. **Diagnose one failure you induce on purpose, through the documented
    diagnostic path.** Break something the diagnostics chapter says it can find,
@@ -188,7 +188,7 @@ Do not change the substrate adapter, and do not restructure how the
 application stores its data or performs its writes — the instant-update
 behaviour is the application's whole point and it is not what is under test.
 Read the existing code for how a write is declared and follow it. If a
-Hicasso view makes that awkward, that awkwardness is the single most valuable
+Fresco view makes that awkward, that awkwardness is the single most valuable
 entry you can log.
 
 If you think the framework itself should change, write it down as friction and

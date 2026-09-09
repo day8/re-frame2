@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.foreign-root-bridge-dom-cljs-test
+(ns re-frame.fresco.foreign-root-bridge-dom-cljs-test
   "WHO OWNS THE ROOT IS NOT THE VARIABLE, AND AN INVALIDATED CELL IS.
 
   ## What this file was written to settle, and what it found instead
@@ -9,12 +9,12 @@
   that would make it the outward bridge generally rather than a Reagent
   story.
 
-  **Neither is deaf.** §1 below drives FIVE mounting routes — Hicasso's
+  **Neither is deaf.** §1 below drives FIVE mounting routes — Fresco's
   own root, a Reagent root through each of the two bridge doors, a plain
   `react-dom/client` root, and a UIx `defui` parent under a plain root —
   with one boundary, one subscription, one adapter and one drain, and
   every one of them re-runs its body and moves the DOM on a write into
-  its own frame. So a Hicasso view inside a foreign React host is
+  its own frame. So a Fresco view inside a foreign React host is
   reactive, and the answer the bead's first move asks for is *a UIx
   parent repaints*.
 
@@ -71,11 +71,11 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
-            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
+            [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
             [re-frame.registrar :as rf.registrar]
             [re-frame.test-support :as rf.test-support]
             [uix.core :as uix :refer-macros [defui]]
@@ -92,7 +92,7 @@
 (rf/reg-sub ::counter (fn [db _] (or (:n db) 0)))
 (rf/reg-event ::bump (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
 
-(rf.hicasso/defview card
+(rf.fresco/defview card
   "One ordinary boundary, reached by every route below. It reads a
   subscription, so the frame it resolved is observable on screen, and it
   bumps a counter, so a re-render is a NUMBER rather than an appearance —
@@ -100,12 +100,12 @@
   missing notification from a stale read."
   [props]
   (swap! !runs inc)
-  [:article {:data-test "card"} (str (:label props) "/" (rf.hicasso/sub [::counter]))])
+  [:article {:data-test "card"} (str (:label props) "/" (rf.fresco/sub [::counter]))])
 
 (def ^:private bridged
   "THE OUTWARD BRIDGE, minted once at top level beside the view it
   bridges — the law, because it allocates a component."
-  (rf.hicasso/as-component card))
+  (rf.fresco/as-component card))
 
 (def ^:private memo-bridged (react/memo bridged))
 
@@ -127,9 +127,9 @@
      ;; keep the behaviour they had under the fn-form.
      :async?        true
      :init-fn       (fn []
-                      (rf.hicasso.roots-frames-support/leave-act-environment!)
+                      (rf.fresco.roots-frames-support/leave-act-environment!)
                       (reset! !runs 0)
-                      (rf.hicasso.impl.collector/reset-runtime!))}))
+                      (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -139,7 +139,7 @@
   "The ratom host's drain, and it is two acts rather than one. `r/flush`
   runs the reactions the write enqueued — a re-frame subscription under
   the ratom family IS a bare `reagent.ratom/Reaction`, and running it is
-  what fires the watch a Hicasso cell rides. The empty `flushSync` then
+  what fires the watch a Fresco cell rides. The empty `flushSync` then
   lets the sync-lane `onStoreChange` that raised commit."
   []
   (r/flush)
@@ -155,27 +155,27 @@
   (some-> (.querySelector node "[data-test=\"card\"]") .-textContent))
 
 (defn- readers-of [frame-kw]
-  (count (rf.hicasso.test.runtime/cell-readers [frame-kw [::counter]])))
+  (count (rf.fresco.test.runtime/cell-readers [frame-kw [::counter]])))
 
 (defn- wired?
   "Does this frame's cell hold a live reaction? The cell is the only thing
   a watch can hang off, so this is the commit-owned fact a repaint
   depends on — and it is readable before any DOM is."
   [frame-kw]
-  (some? (some-> ^js (get @rf.hicasso.impl.collector/!cells [frame-kw [::counter]]) (.-reaction))))
+  (some? (some-> ^js (get @rf.fresco.impl.collector/!cells [frame-kw [::counter]]) (.-reaction))))
 
 ;; ---------------------------------------------------------------------------
 ;; The five routes — one boundary, one subscription, one adapter, one drain
 ;; ---------------------------------------------------------------------------
 
-(defn- hicasso-root
-  "THE CONTROL. Hicasso's own root door, and no crossing at all."
+(defn- fresco-root
+  "THE CONTROL. Fresco's own root door, and no crossing at all."
   [node frame-kw]
-  (let [handle (rf.hicasso/client-root)]
-    (rf.hicasso/render! handle
-                        [rf.hicasso/frame-root {:id frame-kw} [card {:label "ctl"}]]
+  (let [handle (rf.fresco/client-root)]
+    (rf.fresco/render! handle
+                        [rf.fresco/frame-root {:id frame-kw} [card {:label "ctl"}]]
                         node)
-    (fn [] (try (rf.hicasso/unmount! handle) (catch :default _ nil)))))
+    (fn [] (try (rf.fresco/unmount! handle) (catch :default _ nil)))))
 
 (defn- reagent-root-as-element
   "The bead's route 2: a REAGENT root, `rf/frame-provider` above, and the
@@ -186,7 +186,7 @@
       (fn []
         (rdc/render root
                     [rf/frame-provider {:frame frame-kw}
-                     [:div.reagent-parent (rf.hicasso/as-element [card {:label "alpha"}])]])))
+                     [:div.reagent-parent (rf.fresco/as-element [card {:label "alpha"}])]])))
     (fn [] (try (.unmount root) (catch :default _ nil)))))
 
 (defn- reagent-root-as-component
@@ -205,33 +205,33 @@
 (defn- plain-react-root
   "A root the CONSUMER opened with `react-dom/client` itself, with no
   Reagent and no UIx anywhere in the tree — the sharpest reading of *who
-  owns the root*, because it differs from [[hicasso-root]] in nothing
+  owns the root*, because it differs from [[fresco-root]] in nothing
   else."
   [node frame-kw]
   (let [root (react-dom-client/createRoot node)]
     (react-dom/flushSync
       (fn []
-        (.render root (rf.hicasso.impl.mount/provider frame-kw
+        (.render root (rf.fresco.impl.mount/provider frame-kw
                                       (react/createElement
                                         "div" nil
-                                        (rf.hicasso/as-element [card {:label "plain"}]))))))
+                                        (rf.fresco/as-element [card {:label "plain"}]))))))
     (fn [] (try (.unmount root) (catch :default _ nil)))))
 
 (defn- uix-parent-plain-root
   "THE ROW THE BEAD'S FIRST MOVE ASKS FOR: a UIx `defui` parent, under a
-  root Hicasso did not open."
+  root Fresco did not open."
   [node frame-kw]
   (let [root (react-dom-client/createRoot node)]
     (react-dom/flushSync
       (fn []
-        (.render root (rf.hicasso.impl.mount/provider frame-kw (uix/$ uix-parent {:label "uix"})))))
+        (.render root (rf.fresco.impl.mount/provider frame-kw (uix/$ uix-parent {:label "uix"})))))
     (fn [] (try (.unmount root) (catch :default _ nil)))))
 
 (def ^:private routes
   "Every mounting route §1 drives, with the frame each takes and the label
   its own parent writes. Declared as data so the row cannot quietly stop
   reaching one of them."
-  [{:route :root/hicasso     :frame ::r1 :label "ctl"   :mount hicasso-root}
+  [{:route :root/fresco     :frame ::r1 :label "ctl"   :mount fresco-root}
    {:route :crossed/reagent-as-element   :frame ::r2 :label "alpha" :mount reagent-root-as-element}
    {:route :crossed/reagent-as-component :frame ::r3 :label "brg"   :mount reagent-root-as-component}
    {:route :crossed/plain-react-root     :frame ::r4 :label "plain" :mount plain-react-root}
@@ -243,8 +243,8 @@
 
 (deftest a-write-repaints-through-every-mounting-route
   (testing "rf2-phabt's headline claim, driven rather than argued: *a
-            Hicasso view rendered inside any React-shaped host that is not
-            a Hicasso root is non-reactive*. It is not. One boundary, one
+            Fresco view rendered inside any React-shaped host that is not
+            a Fresco root is non-reactive*. It is not. One boundary, one
             subscription, one adapter and one drain; only the root and the
             parent vary, and every route re-runs the body and moves the
             DOM.
@@ -254,12 +254,12 @@
             was a missing NOTIFICATION rather than a stale read, so the
             reading that answers it is the one that says the body was
             invoked again."
-    (if-not (rf.hicasso.impl.mount/browser?)
-      (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM")
+    (if-not (rf.fresco.impl.mount/browser?)
+      (rf.fresco.roots-frames-support/skip! ":node-test has no DOM")
       (doseq [{:keys [route frame label mount]} routes]
         (testing (str route)
           (seat! frame 1)
-          (let [node (rf.hicasso.impl.mount/fresh-container!)
+          (let [node (rf.fresco.impl.mount/fresh-container!)
                 stop (mount node frame)]
             (try
               (is (= (str label "/1") (text-of node))
@@ -300,7 +300,7 @@
   window is genuinely open."
   [frame-kw mount-fn]
   (seat! frame-kw 1)
-  (let [node (rf.hicasso.impl.mount/fresh-container!)
+  (let [node (rf.fresco.impl.mount/fresh-container!)
         stop (mount-fn node frame-kw)]
     (stop))
   ;; A first-time `reg-sub` of a query a live cell holds. The registrar
@@ -318,7 +318,7 @@
   (testing "THE ROW THE BEAD'S MEASUREMENT ACTUALLY TOOK, with the
             crossing held OUT of it. The cell for this frame's read is
             still in the table and its reaction has been dropped; a
-            boundary now mounts through Hicasso's OWN root — no bridge, no
+            boundary now mounts through Fresco's OWN root — no bridge, no
             foreign parent, nothing crossed — writes, and drains, all in
             one turn.
 
@@ -334,21 +334,21 @@
             the cell at the microtask checkpoint, so a row that yielded
             first would be green either way and would be measuring the
             deferral rather than the acquire."
-    (if-not (rf.hicasso.impl.mount/browser?)
-      (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM")
+    (if-not (rf.fresco.impl.mount/browser?)
+      (rf.fresco.roots-frames-support/skip! ":node-test has no DOM")
       (doseq [[label frame mount-fn painted]
-              [["h/render!"        ::w1 hicasso-root           "ctl"]
+              [["h/render!"        ::w1 fresco-root           "ctl"]
                ["a Reagent parent" ::w2 reagent-root-as-element "alpha"]]]
         (testing label
           (open-the-window! frame mount-fn)
-          (is (contains? (rf.hicasso.roots-frames-support/cell-keys) [frame [::counter]])
+          (is (contains? (rf.fresco.roots-frames-support/cell-keys) [frame [::counter]])
               "PRECONDITION: the cell is still in the table — its reaper is
                a macrotask and nothing has yielded")
           (is (not (wired? frame))
               "PRECONDITION: and its reaction has been dropped. Without
                this the row mounts against an ordinary live cell and
                proves nothing")
-          (let [node (rf.hicasso.impl.mount/fresh-container!)
+          (let [node (rf.fresco.impl.mount/fresh-container!)
                 stop (mount-fn node frame)]
             (try
               (is (wired? frame)
@@ -395,7 +395,7 @@
   it. `label` is a PROP, so a server/client divergence is a
   one-argument change rather than a second app."
   [frame-kw label]
-  (rf.hicasso.impl.mount/provider frame-kw (react/createElement bridged #js {"label" label})))
+  (rf.fresco.impl.mount/provider frame-kw (react/createElement bridged #js {"label" label})))
 
 (defn- consumer-server-bytes!
   "The markup a consumer's own server render would deliver for the bridged
@@ -403,7 +403,7 @@
   an ordinary root and unmounted, so nothing of that render survives into
   the reading."
   [frame-kw label]
-  (let [node (rf.hicasso.impl.mount/fresh-container!)
+  (let [node (rf.fresco.impl.mount/fresh-container!)
         root (react-dom-client/createRoot node)]
     (react-dom/flushSync (fn [] (.render root (consumer-element frame-kw label))))
     (let [html (.-innerHTML node)]
@@ -426,14 +426,14 @@
   (let [frame ::hydrate-consumer]
     (seat! frame 1)
     (let [html (consumer-server-bytes! frame "srv")]
-      (rf.hicasso.impl.collector/reset-runtime!)
-      (let [node                      (rf.hicasso.roots-frames-support/server-dom! html)
-            {:keys [seen stop!]}      (rf.hicasso.roots-frames-support/watch-mismatches!)
-            {:keys [captured close!]} (rf.hicasso.roots-frames-support/open-console-capture!
+      (rf.fresco.impl.collector/reset-runtime!)
+      (let [node                      (rf.fresco.roots-frames-support/server-dom! html)
+            {:keys [seen stop!]}      (rf.fresco.roots-frames-support/watch-mismatches!)
+            {:keys [captured close!]} (rf.fresco.roots-frames-support/open-console-capture!
                                         {:swallow-uncaught? true})
             root                      (react-dom-client/hydrateRoot
                                         node (consumer-element frame "cli"))]
-        (-> (rf.hicasso.roots-frames-support/wait-until! #(= "cli/1" (text-of node)))
+        (-> (rf.fresco.roots-frames-support/wait-until! #(= "cli/1" (text-of node)))
             (.then
               (fn [recovered?]
                 (close!)
@@ -450,7 +450,7 @@
                           built this root, so no re-frame2 door set
                           `onRecoverableError` and Spec 011's diagnostic has
                           nowhere to fire from; got "
-                         (pr-str (mapv (comp :error rf.hicasso.roots-frames-support/tags-of) @seen))))
+                         (pr-str (mapv (comp :error rf.fresco.roots-frames-support/tags-of) @seen))))
                 (try (.unmount root) (catch :default _ nil))
                 true)))))))
 
@@ -460,15 +460,15 @@
   []
   (let [frame ::hydrate-package]
     (seat! frame 1)
-    (let [html (rf.hicasso.roots-frames-support/server-html! frame [card {:label "own-srv"}])]
-      (rf.hicasso.impl.collector/reset-runtime!)
-      (let [node                      (rf.hicasso.roots-frames-support/server-dom! html)
-            {:keys [seen stop!]}      (rf.hicasso.roots-frames-support/watch-mismatches!)
-            {:keys [captured close!]} (rf.hicasso.roots-frames-support/open-console-capture!
+    (let [html (rf.fresco.roots-frames-support/server-html! frame [card {:label "own-srv"}])]
+      (rf.fresco.impl.collector/reset-runtime!)
+      (let [node                      (rf.fresco.roots-frames-support/server-dom! html)
+            {:keys [seen stop!]}      (rf.fresco.roots-frames-support/watch-mismatches!)
+            {:keys [captured close!]} (rf.fresco.roots-frames-support/open-console-capture!
                                         {:swallow-uncaught? true})
-            handle                    (rf.hicasso.impl.mount/hydrate-root!
+            handle                    (rf.fresco.impl.mount/hydrate-root!
                                         node frame [card {:label "own-cli"}])]
-        (-> (rf.hicasso.roots-frames-support/adopted! handle)
+        (-> (rf.fresco.roots-frames-support/adopted! handle)
             (.then
               (fn [adopted?]
                 (close!)
@@ -482,17 +482,17 @@
                      divergence DOES reach the instrumentation stream — so the
                      zero above is the absence of a REPORTER, not of a listener")
                 (doseq [ev @seen]
-                  (is (= 're-frame.hicasso.impl.mount/hydrate-root!
-                         (:where (rf.hicasso.roots-frames-support/tags-of ev)))
+                  (is (= 're-frame.fresco.impl.mount/hydrate-root!
+                         (:where (rf.fresco.roots-frames-support/tags-of ev)))
                       "and what fired is tier-discriminated by the door that
                        opened the root"))
-                (rf.hicasso.impl.mount/unmount! handle)
+                (rf.fresco.impl.mount/unmount! handle)
                 true)))))))
 
 (deftest a-consumer-built-root-hydrates-a-bridged-subtree-with-no-framework-reporter
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
-      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
+    (if-not (rf.fresco.impl.mount/browser?)
+      (do (rf.fresco.roots-frames-support/skip! ":node-test has no DOM") (done))
       (-> (consumer-arm!)
           (.then (fn [_] (package-arm!)))
           (.then (fn [_] (done)))

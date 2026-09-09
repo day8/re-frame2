@@ -350,7 +350,7 @@
   ;; The rf2-i6kh sweep classified the 116 JVM-visible `re-frame.story`
   ;; exports and left these FIVE unrowed, which its own post-merge audit
   ;; caught: `re-frame.story` is a split-host `.cljc` exactly like
-  ;; `re-frame.hicasso` below, and its `#?(:cljs …)` arm publishes five more
+  ;; `re-frame.fresco` below, and its `#?(:cljs …)` arm publishes five more
   ;; facade fns the JVM `ns-publics` cannot see. Four of them
   ;; (`registered-substrates`, `mount-shell!`, `unmount-shell!`,
   ;; `active-shell`) were merely SILENCED on the
@@ -393,7 +393,7 @@
   ;; true without that coverage.
   {:namespace "re-frame.story" :var "register-substrate!" :kind :fn :facade? true :tier :tooling :owner "007" :status "post-v1 lib" :runtime-verified? true
    :action :keep
-   :justification "The host-boot verb of the multi-substrate feature: a host calls it once per substrate it wants Story to render against, which is ordinary consumer workflow rather than chrome-internal plumbing. tools/story/spec/002-Runtime.md §Substrate hooks and 005-SOTA-Features.md §Multi-substrate side-by-side rendering are its normative home; the hicasso_counter testbed calls it through the facade at boot; story_multi_substrate_cljs_test pins rf.story/register-substrate! as THE public form (the sub-namespace call is the internal one); and skills/re-frame2 names the same qualified spelling when explaining why story-mcp list-substrates is browser-only. It is also the WRITE half of the pair whose READ half (registered-substrates) already sat on the facade -- keeping the reader and moving the writer is the split §Keep product facades coherent forbids."}
+   :justification "The host-boot verb of the multi-substrate feature: a host calls it once per substrate it wants Story to render against, which is ordinary consumer workflow rather than chrome-internal plumbing. tools/story/spec/002-Runtime.md §Substrate hooks and 005-SOTA-Features.md §Multi-substrate side-by-side rendering are its normative home; the fresco_counter testbed calls it through the facade at boot; story_multi_substrate_cljs_test pins rf.story/register-substrate! as THE public form (the sub-namespace call is the internal one); and skills/re-frame2 names the same qualified spelling when explaining why story-mcp list-substrates is browser-only. It is also the WRITE half of the pair whose READ half (registered-substrates) already sat on the facade -- keeping the reader and moving the writer is the split §Keep product facades coherent forbids."}
   {:namespace "re-frame.story" :var "registered-substrates" :kind :fn :facade? true :tier :tooling :owner "007" :status "post-v1 lib" :runtime-verified? true
    :action :keep
    :justification "The READ half of the substrate pair: the set of registered substrate ids, which is how a custom shell or a tooling caller enumerates what a variant's :substrates opt-in may legally name. Already a var-row of tools/story/spec/API.md §Registry queries and of docs/story/api/reference.md, so it was documented as a facade surface while carrying no manifest row at all -- the exact accretion the facade audit exists to stop. Kept with register-substrate! as one workflow: register at boot, enumerate later."}
@@ -407,7 +407,7 @@
    :action :keep
    :justification "The READ of the shell pair -- the live shell handle or nil. Load-bearing rather than cosmetic: 003-Render-Shell.md §Shell lifecycle makes v1 a singleton in which a second mount-shell! tears the first down, so a host or fixture that must not clobber an existing shell has to ask first, and this is the only way to ask. Rowed in tools/story/spec/API.md §Shell lifecycle and docs/story/api/reference.md."}
 
-  ;; ---- re-frame.hicasso — the CLJS ARM of a SPLIT-HOST door (rf2-phm7g) ----
+  ;; ---- re-frame.fresco — the CLJS ARM of a SPLIT-HOST door (rf2-phm7g) ----
   ;;
   ;; Unlike every block above, this namespace IS JVM-loadable: it sits in the
   ;; generator's `jvm-namespaces`, where `ns-publics` returns its `#?(:clj …)`
@@ -422,7 +422,7 @@
   ;; and neither can silently gain or lose a public.
   ;;
   ;; `advanced` throughout, restrictive-by-default per spec/API.md §Tier
-  ;; taxonomy: Hicasso is an OPT-IN published substrate, so its door is not
+  ;; taxonomy: Fresco is an OPT-IN published substrate, so its door is not
   ;; the front-porch set the Guide and skills load by default (that set is
   ;; `re-frame.core`'s, which is what doc-guide-check projects against).
   ;; `:kind` is the curated human assertion the probe deliberately does NOT
@@ -435,36 +435,36 @@
   ;; React view adapters answer and whose rows for
   ;; `re-frame.adapter.reagent` and `re-frame.adapter.uix` carry the same
   ;; three names under the same owner (rf2-kuky.59; it was 004C's while the
-  ;; door was Hicasso's own `mount!` / `hydrate!` pair). The frame-boundary
-  ;; heads are 002's, and the rest are 006's, which also carries Hicasso's
+  ;; door was Fresco's own `mount!` / `hydrate!` pair). The frame-boundary
+  ;; heads are 002's, and the rest are 006's, which also carries Fresco's
   ;; row in the canonical substrate inventory.
-  {:namespace "re-frame.hicasso" :var "as-component"   :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.hicasso" :var "as-element"     :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.hicasso" :var "error-boundary" :kind :var :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.fresco" :var "as-component"   :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.fresco" :var "as-element"     :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.fresco" :var "error-boundary" :kind :var :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   ;; The two IN-TREE frame boundaries (rf2-kuky.58). Owner "002", not "006",
   ;; because the contract each realises — ENSURE at commit / SCOPE a live frame,
   ;; and the did-you-mean pair between them — is Spec 002's `frame-root` /
-  ;; `frame-provider`, and Hicasso's heads are shells over the same shared cores
+  ;; `frame-provider`, and Fresco's heads are shells over the same shared cores
   ;; the Reagent and UIx realisations use. `:tier :advanced` matches every other
-  ;; `re-frame.hicasso` row: Hicasso is a substrate a consumer opts into, and its
+  ;; `re-frame.fresco` row: Fresco is a substrate a consumer opts into, and its
   ;; whole surface sits behind that opt-in rather than on the core front porch.
-  {:namespace "re-frame.hicasso" :var "frame-provider" :kind :var :facade? false :tier :advanced :owner "002"  :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.hicasso" :var "frame-root"     :kind :var :facade? false :tier :advanced :owner "002"  :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.hicasso" :var "client-root"    :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.hicasso" :var "portal"         :kind :var :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.hicasso" :var "reg-state"      :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.hicasso" :var "render!"        :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.hicasso" :var "route-link"     :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.hicasso" :var "sub"            :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.hicasso" :var "unmount!"       :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.fresco" :var "frame-provider" :kind :var :facade? false :tier :advanced :owner "002"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.fresco" :var "frame-root"     :kind :var :facade? false :tier :advanced :owner "002"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.fresco" :var "client-root"    :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.fresco" :var "portal"         :kind :var :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.fresco" :var "reg-state"      :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.fresco" :var "render!"        :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.fresco" :var "route-link"     :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.fresco" :var "sub"            :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.fresco" :var "unmount!"       :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
 
-  ;; ---- re-frame.hicasso.server — the third ssr-node crossing ns (rf2-3ne8) --
+  ;; ---- re-frame.fresco.server — the third ssr-node crossing ns (rf2-3ne8) --
   ;;
   ;; The last of the three namespaces rf2-8arzr.7 found shipping UNSCANNED:
   ;; genuinely public vars, zero `^:no-doc` markers, and no manifest row at all.
   ;; PR #9040 enrolled the other two (`re-frame.ssr.render-state` and
   ;; `re-frame.ssr.ring.node`) and left this one deliberately, because
-  ;; `implementation/hicasso/**` was held by PR #9035 while that work ran.
+  ;; `implementation/fresco/**` was held by PR #9035 while that work ran.
   ;;
   ;; It lands HERE rather than in `jvm-namespaces` because it is CLJS-ONLY: the
   ;; namespace `:require`s `["react-dom/server"]`, so the JVM generator cannot
@@ -485,17 +485,17 @@
   ;; build graph, which is a shared-build change rather than a row change; the
   ;; flag exists precisely so an unprobed row states its own status rather than
   ;; overclaiming (see `gen.clj`'s note on the per-row flag, rf2-2mtte).
-  {:namespace "re-frame.hicasso.server" :var "document"       :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.server" :var "payload-script" :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.server" :var "render"         :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.server" :var "render-body"    :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.server" :var "document"       :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.server" :var "payload-script" :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.server" :var "render"         :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.server" :var "render-body"    :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
 
-  ;; ---- The rest of the Hicasso tree (rf2-3ne8) ------------------------------
+  ;; ---- The rest of the Fresco tree (rf2-3ne8) ------------------------------
   ;;
-  ;; `implementation/hicasso/src` became a `roster-covered-roots` entry with
+  ;; `implementation/fresco/src` became a `roster-covered-roots` entry with
   ;; these rows, so every namespace under it is now classified: the five
   ;; OPTIONAL AUTHORING MODULES and the two TOOL-TIER namespaces below, plus
-  ;; the door and `.server` above, with the seventeen `re-frame.hicasso.impl.*`
+  ;; the door and `.server` above, with the seventeen `re-frame.fresco.impl.*`
   ;; namespaces recorded in the generator's `internal-namespaces`.
   ;;
   ;; They land HERE rather than in `jvm-namespaces` for the same reason
@@ -507,23 +507,23 @@
   ;; 2026-09-03). The first five are genuine public authoring surfaces — each
   ;; carries a require-me-directly example in its own ns docstring, and
   ;; `substrate/adapter` is what an application passes to `(rf/init! …)`. So
-  ;; `:advanced` throughout, matching the door's own rows (Hicasso is an opt-in
+  ;; `:advanced` throughout, matching the door's own rows (Fresco is an opt-in
   ;; published substrate, so it is not the front-porch set), except
-  ;; `re-frame.hicasso.substrate`, which is `:adapter` on exactly the footing
+  ;; `re-frame.fresco.substrate`, which is `:adapter` on exactly the footing
   ;; `re-frame.adapter.reagent` and `re-frame.adapter.uix` already have. Those
-  ;; tiers are docs-eligible, and the five `docs/api/re-frame.hicasso.*.md`
+  ;; tiers are docs-eligible, and the five `docs/api/re-frame.fresco.*.md`
   ;; pages that `doc_api_check`'s coverage clause therefore obliges landed in
   ;; the same change. `^:no-doc` was NOT used to make the gate quiet: a public
   ;; authoring surface with no documentation page is the friction this library
   ;; exists to remove.
   ;;
-  ;; `re-frame.hicasso.tool` and `re-frame.hicasso.evidence` are `:tooling` by
+  ;; `re-frame.fresco.tool` and `re-frame.fresco.evidence` are `:tooling` by
   ;; their own docstrings — the four reads Xray and the AI pair consume, and the
   ;; envelope vocabulary those reads answer in. Owner `Tool-Pair`, the contract
   ;; that governs a tool-facing reader door. `:tooling` is outside
   ;; `doc_api_check`'s eligible tiers, so those rows add no docs/api obligation.
   ;;
-  ;; NOT ROWED: `re-frame.hicasso.substrate/spine-fns`. It is public only so
+  ;; NOT ROWED: `re-frame.fresco.substrate/spine-fns`. It is public only so
   ;; core's shared React-adapter conformance suite can assert the surfaces the
   ;; spine produced, and it carries `^:no-doc` — which `gen.clj` drops from
   ;; every JVM-introspected namespace, so omitting it here is the same rule
@@ -534,24 +534,24 @@
   ;; Covering them would pull each module's own React/DOM requires into the
   ;; probe's build graph, which is a shared-build change rather than a row
   ;; change; #9040 and #9045 set the same precedent.
-  {:namespace "re-frame.hicasso.evidence"  :var "envelope"               :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.evidence"  :var "loss-reasons"           :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.evidence"  :var "producer"               :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.evidence"  :var "reads"                  :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.evidence"  :var "schema"                 :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.evidence"  :var "unknown"                :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.forms"     :var "buffered-field"         :kind :var :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.forms"     :var "drafts"                 :kind :var :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.motion"    :var "presence"               :kind :var :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.native"    :var "use-frame"              :kind :fn  :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.native"    :var "use-sub"                :kind :fn  :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.overlay"   :var "modal"                  :kind :var :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.overlay"   :var "popover"                :kind :var :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.substrate" :var "adapter"                :kind :var :facade? false :tier :adapter  :owner "006"       :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.tool"      :var "explain-render"         :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.tool"      :var "read-intents"           :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.tool"      :var "read-mounted-boundaries" :kind :fn :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.tool"      :var "read-read-attribution"  :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}]
+  {:namespace "re-frame.fresco.evidence"  :var "envelope"               :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.evidence"  :var "loss-reasons"           :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.evidence"  :var "producer"               :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.evidence"  :var "reads"                  :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.evidence"  :var "schema"                 :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.evidence"  :var "unknown"                :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.forms"     :var "buffered-field"         :kind :var :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.forms"     :var "drafts"                 :kind :var :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.motion"    :var "presence"               :kind :var :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.native"    :var "use-frame"              :kind :fn  :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.native"    :var "use-sub"                :kind :fn  :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.overlay"   :var "modal"                  :kind :var :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.overlay"   :var "popover"                :kind :var :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.substrate" :var "adapter"                :kind :var :facade? false :tier :adapter  :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.tool"      :var "explain-render"         :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.tool"      :var "read-intents"           :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.tool"      :var "read-mounted-boundaries" :kind :fn :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.fresco.tool"      :var "read-read-attribution"  :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}]
 
  ;; --------------------------------------------------------------------------
  ;; :jvm-only-classification — the MIRROR of :cljs-only above, and the
@@ -2525,7 +2525,7 @@
   ["re-frame.mcp-base.sensitive" "reset-malformed-count!"] {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
 
   ;; =========================================================================
-  ;; re-frame.hicasso — the JVM ARM of the split-host door (rf2-phm7g).
+  ;; re-frame.fresco — the JVM ARM of the split-host door (rf2-phm7g).
   ;; =========================================================================
   ;; The door's `#?(:clj …)` arm is these three authoring macros and nothing
   ;; else, so `ns-publics` on the JVM returns exactly them and the generator
@@ -2536,10 +2536,10 @@
   ;;
   ;; These rows need NO `:jvm-only-classification` entry. Each macro is
   ;; `:require-macros`-referred by the door's own `:cljs` arm
-  ;; (`hicasso.cljc`'s `#?(:cljs (:require-macros [re-frame.hicasso :refer
+  ;; (`fresco.cljc`'s `#?(:cljs (:require-macros [re-frame.fresco :refer
   ;; [defview defhost event]]))`), so the CLJS analyzer carries it and the
   ;; probe reconciles it normally — the case that key's own docstring
   ;; excludes ("an entry is needed only where the CLJS host has NOTHING").
-  ["re-frame.hicasso" "defview"]  {:tier :advanced :owner "006" :status "v1"}
-  ["re-frame.hicasso" "defhost"]  {:tier :advanced :owner "006" :status "v1"}
-  ["re-frame.hicasso" "event"]    {:tier :advanced :owner "006" :status "v1"}}}
+  ["re-frame.fresco" "defview"]  {:tier :advanced :owner "006" :status "v1"}
+  ["re-frame.fresco" "defhost"]  {:tier :advanced :owner "006" :status "v1"}
+  ["re-frame.fresco" "event"]    {:tier :advanced :owner "006" :status "v1"}}}

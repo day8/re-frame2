@@ -22,7 +22,7 @@ const ELLIPSIS = '\u2026';
 const CLEF = '\u{1D11E}';
 
 const BODY =
-  `<h1>Hicasso SSR ${EM_DASH} bytes</h1>` +
+  `<h1>Fresco SSR ${EM_DASH} bytes</h1>` +
   `<p>loading${ELLIPSIS}</p>` +
   `<p>${CLEF}</p>` +
   `<p>&lt;/script&gt; &amp; &quot;quoted&quot;</p>` +

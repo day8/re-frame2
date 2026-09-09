@@ -66,39 +66,39 @@
   class of decoration as a mount count that is printed and not gated.
 
   Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
-  2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
+  2026-08-10, enumerated once in `docs/design/fresco/studio/README.md`;
   this arm rf2-2rtt6.4; the fan-out family and the additive model
   rf2-5prok."
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
             [clojure.string :as str]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.bench.order-guard :as rf.bench.order-guard]
             [re-frame.bench.p0-arms :as rf.bench.p0-arms]
             [re-frame.bench.p0-fixture :as rf.bench.p0-fixture]
             [re-frame.bench.p0-floor :as rf.bench.p0-floor]
             [re-frame.bench.p0-harness :as rf.bench.p0-harness]
-            [re-frame.bench.p0-hicasso :as rf.bench.p0-hicasso]
+            [re-frame.bench.p0-fresco :as rf.bench.p0-fresco]
             [re-frame.bench.p0-reagent :as rf.bench.p0-reagent]
             [re-frame.bench.p0-uix :as rf.bench.p0-uix]
             [re-frame.bench.p0-workcount :as rf.bench.p0-workcount]
             [re-frame.frame :as rf.frame]
             ;; THE CANDIDATE ARM'S THREE DOORS, called at four seams, and
             ;; they are the PACKAGE's now (rf2-fe0l). They used to be
-            ;; `re-frame.bench.hicasso.arm1.*` — the frozen prototype
-            ;; `implementation/hicasso/src` was moved from — so every
+            ;; `re-frame.bench.fresco.arm1.*` — the frozen prototype
+            ;; `implementation/fresco/src` was moved from — so every
             ;; heap figure this file ever produced priced a bench-tree
             ;; copy rather than the product. The
             ;; equivalents are 1:1 and named here so a reader can check
             ;; the claim: `impl.mount/root!` for the mount door,
             ;; `impl.collector/reset-runtime!` for the page-wide fixture
-            ;; reset, `re-frame.hicasso.test.runtime/residue` for the structural census.
+            ;; reset, `re-frame.fresco.test.runtime/residue` for the structural census.
             ;; Bench requiring package is the allowed direction;
-            ;; `hicasso/scripts/check_freeze.py`'s SEALED rule forbids
+            ;; `fresco/scripts/check_freeze.py`'s SEALED rule forbids
             ;; only package requiring bench.
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [reagent.core :as r]
             [reagent.dom.client :as rdc]
             [uix.dom :as uix-dom]))
@@ -150,9 +150,9 @@
                     rt))
    :unmount-one (fn [rt] (uix-dom/unmount-root rt))})
 
-(defn- hicasso-root-arm
-  "One root of the Hicasso candidate arm (rf2-2rtt6.34), through the
-  PACKAGE's OWN root door — `re-frame.hicasso.impl.mount/root!` installs
+(defn- fresco-root-arm
+  "One root of the Fresco candidate arm (rf2-2rtt6.34), through the
+  PACKAGE's OWN root door — `re-frame.fresco.impl.mount/root!` installs
   the frame provider, renders inside a `flushSync` and returns the handle
   its `release!` takes.
 
@@ -176,7 +176,7 @@
   [hiccup-of selector expected]
   {:selector    selector
    :expected    expected
-   :mount-one   (fn [c i] (rf.hicasso.impl.mount/root! c rf.bench.p0-arms/frame-id (hiccup-of i)))
+   :mount-one   (fn [c i] (rf.fresco.impl.mount/root! c rf.bench.p0-arms/frame-id (hiccup-of i)))
    :unmount-one (fn [handle]
                   (react-dom/flushSync (fn [] (.unmount (:root handle)))))})
 
@@ -329,8 +329,8 @@
                   :uix     (uix-root-arm
                              (fn [r] (rf.bench.p0-uix/lad-root rf.bench.p0-arms/frame-id (* r cells) cells reads))
                              ".cell" cells)
-                  :hicasso (hicasso-root-arm
-                             (fn [r] (rf.bench.p0-hicasso/lad-grid (* r cells) cells reads))
+                  :fresco (fresco-root-arm
+                             (fn [r] (rf.bench.p0-fresco/lad-grid (* r cells) cells reads))
                              ".cell" cells))]
     (assoc base
            ;; The candidate reads through `re-frame.subs` and the
@@ -349,7 +349,7 @@
            :segment       (case substrate
                             :reagent :reagent-subs
                             :uix     :uix-subs
-                            :hicasso nil)
+                            :fresco nil)
            :reads         reads
            ;; A boundary that reads NOTHING holds no cache entry, so the
            ;; R=0 rung's Q is 0 whatever `q` says — [[fan-arm]]'s rule,
@@ -375,7 +375,7 @@
       :fan/uix     (fan-arm :uix     (:reads opts) (:keys opts))
       :lad/reagent (lad-arm :reagent cells (:reads opts) (:keys opts))
       :lad/uix     (lad-arm :uix     cells (:reads opts) (:keys opts))
-      :lad/hicasso (lad-arm :hicasso cells (:reads opts) (:keys opts))
+      :lad/fresco (lad-arm :fresco cells (:reads opts) (:keys opts))
       (get arm-table arm-id))))
 
 ;; ---------------------------------------------------------------------------
@@ -398,7 +398,7 @@
   reads (rf2-2rtt6.140)."
   ([segment-id] (prepare! segment-id per-root))
   ([segment-id grid-width]
-   ;; The Hicasso runtime memoises `capture-frame` per frame id, and
+   ;; The Fresco runtime memoises `capture-frame` per frame id, and
    ;; `enter-segment!` destroys and re-creates `:p0/frame` — a bundle
    ;; captured before the swap is pinned to a dead incarnation. Resetting
    ;; here rather than after an arm is deliberate: `prepare!` runs OUTSIDE
@@ -406,7 +406,7 @@
    ;; own residue lands in the baseline, and no arm's teardown is ever
    ;; forced — which is what leaves the survival metric something to
    ;; measure (rf2-2rtt6.34).
-   (rf.hicasso.impl.collector/reset-runtime!)
+   (rf.fresco.impl.collector/reset-runtime!)
    (let [segment (first (filter #(= segment-id (:id %)) rf.bench.p0-arms/segments))]
      (when segment (rf.bench.p0-arms/enter-segment! segment (long grid-width))))
    true))
@@ -469,13 +469,13 @@
         live       (live-key-count)]
     (reset! held {:arm (keyword arm-id) :unmount-one unmount-one
                   :handles handles :containers containers})
-    (let [hic (rf.hicasso.test.runtime/residue)]
+    (let [hic (rf.fresco.test.runtime/residue)]
       #js {:elements     elements
            :expected     want
            :keys         live
            :keysExpected keys-expected
            :ok           (and (= elements want) (= live keys-expected))
-           ;; THE STRUCTURAL STAMP, counted off the Hicasso runtime on
+           ;; THE STRUCTURAL STAMP, counted off the Fresco runtime on
            ;; every mount of every arm (rf2-2rtt6.34). On a candidate arm
            ;; it is what makes "one hook plus N edges in a shared index" a
            ;; number the driver gates rather than a sentence in a
@@ -491,7 +491,7 @@
            ;; arm every one of them must be zero, which is the check that
            ;; the candidate's runtime is not standing behind the rows it
            ;; is compared to.
-           :hicasso      #js {:cells      (:cells hic)
+           :fresco      #js {:cells      (:cells hic)
                               :cellRefs   (:cell-refs hic)
                               :boundaries (:boundaries hic)
                               :edges      (:edges hic)
@@ -974,7 +974,7 @@
 ;; allocates nothing", and H1's pre-registered prediction is that "the
 ;; allocation slope across warm 1/3/7/20 reads is FLAT AT ZERO",
 ;; **falsified by** a non-flat slope. The mechanism is `entry-matches?`
-;; in `re-frame.hicasso.impl.collector` — an ordered pairwise compare of
+;; in `re-frame.fresco.impl.collector` — an ordered pairwise compare of
 ;; the cached entry's key array against the scratch, which allocates
 ;; nothing, so a warm re-render whose read set did not change re-uses
 ;; `subscribe`'s identity and the commit does no work.
@@ -1305,7 +1305,7 @@
              ;; per-round readings — and until rf2-95s5b it printed that
              ;; pair as a bare ratio nothing adjudicated.
              ;;
-             ;; THE RULE IS `rf.bench.hicasso.lane/control-verdict-strict`, EVERY ROUND
+             ;; THE RULE IS `rf.bench.fresco.lane/control-verdict-strict`, EVERY ROUND
              ;; INSIDE THE BAND (rf2-egdaq). It used to be the lane's
              ;; overlap rule, which asks only that the measured RANGE meet
              ;; the band — and on a counter this precise that is not a
@@ -1358,7 +1358,7 @@
              ;; is built as flat `#js` objects one level down too.
              :controlVerdict (fn [predicted per-round slack]
                                (let [vs (vec (js->clj per-round))
-                                     v  (rf.bench.hicasso.lane/control-verdict-strict predicted vs slack)]
+                                     v  (rf.bench.fresco.lane/control-verdict-strict predicted vs slack)]
                                  #js {:ok       (boolean (:ok? v))
                                       :rule     (name (:rule v))
                                       :why      (:why v)
@@ -1454,8 +1454,8 @@
              ;; nonzero one is a retained per-occurrence object, which is
              ;; HD-002 clause (d)'s failure and a different and worse
              ;; finding than a large per-boundary figure.
-             :hicassoResidue (fn []
-                               (let [r (rf.hicasso.test.runtime/residue)]
+             :frescoResidue (fn []
+                               (let [r (rf.fresco.test.runtime/residue)]
                                  #js {:cells      (:cells r)
                                       :cellRefs   (:cell-refs r)
                                       :boundaries (:boundaries r)

@@ -110,7 +110,7 @@ const { IMPL_ROOT } = require('./_path-policy.cjs');
 //                                           8042 counter-with-stories
 //                                           8043 login-form
 //                                           8044 linearlite (plain example)
-//                                           8045 hicasso-counter (rf2-kttom)
+//                                           8045 fresco-counter (rf2-kttom)
 //                                         The next free slot in this band is
 //                                         8046.
 //   805x        examples orchestrator     DEFAULT_PORT in
@@ -118,7 +118,7 @@ const { IMPL_ROOT } = require('./_path-policy.cjs');
 //                                           (8050; pre-flight + forward scan).
 //   806x        Top-level testbeds        :dev-http (shadow-cljs.edn):
 //                                           8060 tenant-switcher (rf2-5e22yc)
-//                                           8061 hicasso HMR (rf2-vsgq) —
+//                                           8061 fresco HMR (rf2-vsgq) —
 //                                         the one :dev-http port a GATE
 //                                         depends on, because the contract it
 //                                         witnesses is what a real hot reload
@@ -160,21 +160,21 @@ const DEV_HTTP = {
   // rf2-tideyl — Linearlite optimistic-board example (804x band, plain
   // build: no Story shell, so no `story: true`).
   ':examples/linearlite': { port: 8044 },
-  // rf2-kttom — the Hicasso Story testbed (804x band). Story shell at
+  // rf2-kttom — the Fresco Story testbed (804x band). Story shell at
   // /#/stories, so `story: true` like its Reagent siblings; the difference
-  // is in the deck, which declares `:substrates #{:hicasso}` and paints
-  // through the host-registered `:hicasso` render fn.
-  ':examples/hicasso-counter': { port: 8045, story: true },
+  // is in the deck, which declares `:substrates #{:fresco}` and paints
+  // through the host-registered `:fresco` render fn.
+  ':examples/fresco-counter': { port: 8045, story: true },
   // rf2-5e22yc — top-level tenant-switcher testbed (806x band).
   ':testbeds/tenant-switcher': { port: 8060 },
-  // rf2-vsgq — the Hicasso HMR testbed (806x band). Unlike every other
+  // rf2-vsgq — the Fresco HMR testbed (806x band). Unlike every other
   // entry here this build is not primarily a developer surface: it is the
   // one build in the repo driven by a GATE that needs `watch`, because the
   // contract it witnesses is what a real hot reload does to a live page
-  // (scripts/serve-and-run-hicasso-hmr-testbed.cjs). `npx shadow-cljs watch
-  // :hicasso/hmr-testbed` still opens it by hand at the URL below, which is
+  // (scripts/serve-and-run-fresco-hmr-testbed.cjs). `npx shadow-cljs watch
+  // :fresco/hmr-testbed` still opens it by hand at the URL below, which is
   // how the witnesses were developed.
-  ':hicasso/hmr-testbed': { port: 8061 },
+  ':fresco/hmr-testbed': { port: 8061 },
 };
 
 /**

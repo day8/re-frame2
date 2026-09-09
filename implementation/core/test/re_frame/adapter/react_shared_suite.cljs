@@ -44,7 +44,7 @@
      :public-surface-keys the roster that map MUST carry, in order — the
                    adapter's own published surface, NOT a cross-adapter
                    constant (UIx's is its `spec/api-manifest.edn` rows
-                   minus `adapter`; Hicasso publishes a different set)}
+                   minus `adapter`; Fresco publishes a different set)}
 
   COVERAGE (closes rf2-sx77q gaps G2/G3/G4/G5 for the React-hook adapters):
     - dispose MUST (1) sub-cache walk + best-effort poison tolerance (G3)
@@ -2527,7 +2527,7 @@
 ;; constant, because the adapters do not publish the same set. UIx
 ;; re-exports the eight fns `spec/api-manifest.edn` rows for
 ;; `re-frame.adapter.uix` (that file is the API contract; `adapter`, its
-;; ninth row, is checked by the adapter-map assertion below). Hicasso
+;; ninth row, is checked by the adapter-map assertion below). Fresco
 ;; re-exports NONE of them by design and reads the spine map instead, so
 ;; its roster is the six spine surfaces it publishes. Neither roster
 ;; carries the spine's internal warn-once clear thunk: that seam is
@@ -4168,7 +4168,7 @@
 ;; rf2-4mi2zj direction these rows used to carry.)
 ;;
 ;; THE RULE. A React hook — `use-sub`'s 1-arity and `use-frame`, on UIx and
-;; on Hicasso's native tier alike — resolves its frame from the React
+;; on Fresco's native tier alike — resolves its frame from the React
 ;; context the boundary above installed (a `frame-provider` SCOPE or a
 ;; `frame-root` ENSURE) and from nothing else. No provider above raises
 ;; `:rf.error/no-frame-context`, in both context-reading environments (the
@@ -4595,7 +4595,7 @@
   "rf2-kuky.62, merged-PR audit of #9427 — THE SCHEDULING WITNESS, and the
   one shape the rest of this cluster cannot reach.
 
-  Every other row in this section renders inside `act()` — and Hicasso's
+  Every other row in this section renders inside `act()` — and Fresco's
   own rows inside `flushSync` — so the component body runs on the very
   stack that scheduled it and a `with-frame` around the render really is
   live while the body runs. That is the right harness for an ADVERSARIAL
@@ -5681,7 +5681,7 @@
 ;; can reach it — and `use-memo`'s hook slot plus `get-snap`'s closure then held
 ;; it for the component's lifetime. Measured at 769 B [765–793] / 23.0 objects
 ;; per read, 22% of every UIx subscription read
-;; (docs/design/hicasso/studio/uix-spine-per-read-decomposition.md). The memo now
+;; (docs/design/fresco/studio/uix-spine-per-read-decomposition.md). The memo now
 ;; derefs INSIDE the round trip, while the reaction is still live, and returns
 ;; the VALUE.
 ;;
@@ -6081,7 +6081,7 @@
 ;;   CONSTRUCTIONS — the sub body runs exactly ONCE for the mount. Nothing
 ;;   moves app-db during it, so a body run IS a build; pre-hand-off this reads
 ;;   2. This is the unit-test twin of the coldmount instrument's `bodyRuns`
-;;   witness (`docs/design/hicasso/studio/coldmount-double-build-priced.md`),
+;;   witness (`docs/design/fresco/studio/coldmount-double-build-priced.md`),
 ;;   which measures the same integer at 300 boundaries and three layers.
 ;;
 ;; The spy here records identities and counts calls; it does NOT wrap the
@@ -6259,7 +6259,7 @@
   So: a red here means the runner's schedule changed, NOT that a consumer's
   did. The consumer-schedule question is answered elsewhere, by a page whose
   gap is representative and which measures that gap before it reads anything:
-  `bench/hicasso/src/re_frame/bench/hicasso/adoption_witness_run.cjs`, an on-demand
+  `bench/fresco/src/re_frame/bench/fresco/adoption_witness_run.cjs`, an on-demand
   diagnostic that gates nothing (rf2-2rtt6.80).
 
   Correctness is not at stake in either direction. Spec 006 §Render-phase

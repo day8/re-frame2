@@ -5,7 +5,7 @@
   :head "\"input\"",
   :detail {:props [":value" ":on-change"]},
   :note
-  "These prop values are computed, so the tool cannot see what crosses. Three things a computed value may silently be, each of which diverges: a KEYWORD or symbol (Reagent named it, Hicasso keeps it whole), a NESTED MAP (Reagent camelCased its keys, Hicasso does not), or a non-fn `IFn` such as an `r/partial` reached through a symbol (Reagent wrapped it, Hicasso passes it opaque and the handler stops firing). Check each by hand."}
+  "These prop values are computed, so the tool cannot see what crosses. Three things a computed value may silently be, each of which diverges: a KEYWORD or symbol (Reagent named it, Fresco keeps it whole), a NESTED MAP (Reagent camelCased its keys, Fresco does not), or a non-fn `IFn` such as an `r/partial` reached through a symbol (Reagent wrapped it, Fresco passes it opaque and the handler stops firing). Check each by hand."}
  {:line 8,
   :col 3,
   :class :string-tag-head,
@@ -13,7 +13,7 @@
   :head "\"input\"",
   :detail {:head "input"},
   :note
-  "Under Reagent `[:> \"input\" …]` took the controlled-input wrapper when the tag was `input` or `textarea`, because `input-component?` matches on exactly this path. Under Hicasso a string head is REFUSED at the crossing. Rewritten to `[:input …]`, which lands the site on Hicasso's own controlled door — the taught form. Reagent's deep camelCasing and its `(name …)` arm are both present at a native tag, so the prop rewrites are fixpoints here and are deliberately not applied."}
+  "Under Reagent `[:> \"input\" …]` took the controlled-input wrapper when the tag was `input` or `textarea`, because `input-component?` matches on exactly this path. Under Fresco a string head is REFUSED at the crossing. Rewritten to `[:input …]`, which lands the site on Fresco's own controlled door — the taught form. Reagent's deep camelCasing and its `(name …)` arm are both present at a native tag, so the prop rewrites are fixpoints here and are deliberately not applied."}
  {:line 11,
   :col 3,
   :class :string-tag-head,
@@ -21,7 +21,7 @@
   :head "\"div\"",
   :detail {:head "div"},
   :note
-  "Under Reagent `[:> \"div\" …]` took the controlled-input wrapper when the tag was `input` or `textarea`, because `input-component?` matches on exactly this path. Under Hicasso a string head is REFUSED at the crossing. Rewritten to `[:div …]`, which lands the site on Hicasso's own controlled door — the taught form. Reagent's deep camelCasing and its `(name …)` arm are both present at a native tag, so the prop rewrites are fixpoints here and are deliberately not applied."}
+  "Under Reagent `[:> \"div\" …]` took the controlled-input wrapper when the tag was `input` or `textarea`, because `input-component?` matches on exactly this path. Under Fresco a string head is REFUSED at the crossing. Rewritten to `[:div …]`, which lands the site on Fresco's own controlled door — the taught form. Reagent's deep camelCasing and its `(name …)` arm are both present at a native tag, so the prop rewrites are fixpoints here and are deliberately not applied."}
  {:line 16,
   :col 3,
   :class :string-tag-unparseable,
@@ -37,7 +37,7 @@
   :head "\"button\"",
   :detail {:prop ":on-click", :value "[:boom]"},
   :note
-  "REWRITE REFUSED, AND THIS IS THE DESIGN'S ONE GENUINELY FATAL CLASS. Under Reagent this was INERT — `convert-prop-value` asks `coll?` before `ifn?`, so it crossed as an array and the handler never fired. At a native Hicasso tag the same form is LOWERED into a live dispatch, so rewriting the head to a native tag would turn a handler that never fired into one that does. The head is left as `[:>]`. Decide whether this handler was ever meant to run."}
+  "REWRITE REFUSED, AND THIS IS THE DESIGN'S ONE GENUINELY FATAL CLASS. Under Reagent this was INERT — `convert-prop-value` asks `coll?` before `ifn?`, so it crossed as an array and the handler never fired. At a native Fresco tag the same form is LOWERED into a live dispatch, so rewriting the head to a native tag would turn a handler that never fired into one that does. The head is left as `[:>]`. Decide whether this handler was ever meant to run."}
  {:line 24,
   :col 13,
   :class :string-tag-head,
@@ -45,7 +45,7 @@
   :head "\"input\"",
   :detail {:head "input"},
   :note
-  "Under Reagent `[:> \"input\" …]` took the controlled-input wrapper when the tag was `input` or `textarea`, because `input-component?` matches on exactly this path. Under Hicasso a string head is REFUSED at the crossing. Rewritten to `[:input …]`, which lands the site on Hicasso's own controlled door — the taught form. Reagent's deep camelCasing and its `(name …)` arm are both present at a native tag, so the prop rewrites are fixpoints here and are deliberately not applied."}
+  "Under Reagent `[:> \"input\" …]` took the controlled-input wrapper when the tag was `input` or `textarea`, because `input-component?` matches on exactly this path. Under Fresco a string head is REFUSED at the crossing. Rewritten to `[:input …]`, which lands the site on Fresco's own controlled door — the taught form. Reagent's deep camelCasing and its `(name …)` arm are both present at a native tag, so the prop rewrites are fixpoints here and are deliberately not applied."}
  {:line 24,
   :col 13,
   :class :partial-wrapper,
@@ -58,7 +58,7 @@
    "(let [f__rf2 handler a0__rf2 @cart] (fn [& args__rf2] (apply f__rf2 a0__rf2 args__rf2)))",
    :captured ["@cart"]},
   :note
-  "Reagent's `convert-prop-value` ends with an `ifn?` arm that wrapped a `PartialFn` in `(fn [& args] (apply x args))`. Hicasso has no such arm, so the object would have crossed opaque and this handler would have stopped firing with nothing thrown. The wrapper is Reagent's own, transcribed — return-transparent, so whatever it returned before it returns now. The `let` is not decoration: `r/partial` evaluated the callee and every argument ONCE when the prop was built, and the `let` is what keeps that true instead of re-evaluating them on every invocation."}
+  "Reagent's `convert-prop-value` ends with an `ifn?` arm that wrapped a `PartialFn` in `(fn [& args] (apply x args))`. Fresco has no such arm, so the object would have crossed opaque and this handler would have stopped firing with nothing thrown. The wrapper is Reagent's own, transcribed — return-transparent, so whatever it returned before it returns now. The `let` is not decoration: `r/partial` evaluated the callee and every argument ONCE when the prop was built, and the `let` is what keeps that true instead of re-evaluating them on every invocation."}
  {:line 24,
   :col 13,
   :class :metadata-key,
@@ -66,4 +66,4 @@
   :head "\"input\"",
   :detail {:key "1"},
   :note
-  "Reagent read a `^{:key …}` on the vector AFTER converting the props, so a metadata key BEAT a props `:key`. Hicasso's `raw-element` reads `(:key props)` and contains no `(meta …)` read at all, so this key would have gone dead at the migration with no diagnostic from either Hicasso or React beyond React's own parent-deduped warning. Moved into the props map, where the destination reads it."}]
+  "Reagent read a `^{:key …}` on the vector AFTER converting the props, so a metadata key BEAT a props `:key`. Fresco's `raw-element` reads `(:key props)` and contains no `(meta …)` read at all, so this key would have gone dead at the migration with no diagnostic from either Fresco or React beyond React's own parent-deduped warning. Moved into the props map, where the destination reads it."}]

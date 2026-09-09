@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.forms.views
+(ns re-frame.fresco.examples.forms.views
   "THE MARKUP FOR THE THREE RECIPES.
 
   Five boundaries. Everything they reach for is `h/…` — `defview`, `sub`,
@@ -54,24 +54,24 @@
   save moves their draft to a value they are not already showing, which
   React's own re-assert handles — and a revision that never has to fire
   is a prop a reader has to reason about for nothing."
-  (:require [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.forms.db :as rf.hicasso.examples.forms.db]
-            [re-frame.hicasso.examples.forms.events :as rf.hicasso.examples.forms.events]
-            [re-frame.hicasso.examples.forms.subs :as rf.hicasso.examples.forms.subs]))
+  (:require [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.forms.db :as rf.fresco.examples.forms.db]
+            [re-frame.fresco.examples.forms.events :as rf.fresco.examples.forms.events]
+            [re-frame.fresco.examples.forms.subs :as rf.fresco.examples.forms.subs]))
 
 (def ^:private problem-text
   "Problem keyword → the sentence shown. The rules live in `db` as
   keywords; turning one into English is a rendering decision and belongs
   here, where the rest of the strings are."
   {:problem/assignee-blank "An assignee is required."
-   :problem/notes-too-long (str "Notes must be " rf.hicasso.examples.forms.db/notes-limit
+   :problem/notes-too-long (str "Notes must be " rf.fresco.examples.forms.db/notes-limit
                                 " characters or fewer.")})
 
 ;; ---------------------------------------------------------------------------
 ;; Recipe 1 — the buffered subject field
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview subject-hint
+(rf.fresco/defview subject-hint
   "*Enter commits, Escape reverts* — present only while a session is open.
 
   Its own boundary, and that is not tidiness. It is the ONLY body that
@@ -83,10 +83,10 @@
   would make `::h/revision` inert, and a reset that only works because
   something else happened to re-render is not a reset."
   [{:keys [ikey]}]
-  (when (rf.hicasso/sub [::rf.hicasso.examples.forms.subs/editing? ikey])
+  (when (rf.fresco/sub [::rf.fresco.examples.forms.subs/editing? ikey])
     [:p.subject-hint "Enter commits, Escape reverts."]))
 
-(rf.hicasso/defview subject-field
+(rf.fresco/defview subject-field
   "The ticket's subject, edited in place behind a draft.
 
   The whole commit protocol is three props and no callback: Enter and
@@ -112,19 +112,19 @@
       {:id          id
        :class       "subject"
        :type        "text"
-       :value       (rf.hicasso/sub [::rf.hicasso.examples.forms.subs/subject-shown ikey])
-       ::rf.hicasso/revision (rf.hicasso/sub [::rf.hicasso.examples.forms.subs/subject-revision ikey])
-       :on-input    [rf.hicasso.examples.forms.db/subject-draft ikey ::rf.hicasso/value]
-       :on-blur     [::rf.hicasso.examples.forms.events/commit-subject ikey]
-       :on-key-down {"Enter"  [::rf.hicasso.examples.forms.events/commit-subject ikey]
-                     "Escape" [::rf.hicasso.examples.forms.events/cancel-subject ikey]}}]
+       :value       (rf.fresco/sub [::rf.fresco.examples.forms.subs/subject-shown ikey])
+       ::rf.fresco/revision (rf.fresco/sub [::rf.fresco.examples.forms.subs/subject-revision ikey])
+       :on-input    [rf.fresco.examples.forms.db/subject-draft ikey ::rf.fresco/value]
+       :on-blur     [::rf.fresco.examples.forms.events/commit-subject ikey]
+       :on-key-down {"Enter"  [::rf.fresco.examples.forms.events/commit-subject ikey]
+                     "Escape" [::rf.fresco.examples.forms.events/cancel-subject ikey]}}]
      [subject-hint {:ikey ikey}]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Recipe 2 — an ordinary field, its touch mark and its gated problem
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview field-row
+(rf.fresco/defview field-row
   "One label, one control, and — once the user has earned it — one
   problem.
 
@@ -134,16 +134,16 @@
   shut, so `aria-describedby` never points at a node that is not there."
   [{:keys [field label multiline?]}]
   (let [id      (str "ticket-" (name field))
-        problem (rf.hicasso/sub [::rf.hicasso.examples.forms.subs/shown-problem field])
-        busy?   (:pending? (rf.hicasso/sub [:rf/mutation {:instance rf.hicasso.examples.forms.events/save-instance}]))
+        problem (rf.fresco/sub [::rf.fresco.examples.forms.subs/shown-problem field])
+        busy?   (:pending? (rf.fresco/sub [:rf/mutation {:instance rf.fresco.examples.forms.events/save-instance}]))
         props   {:id                id
                  :class             (name field)
-                 :value             (rf.hicasso/sub [::rf.hicasso.examples.forms.subs/field field])
+                 :value             (rf.fresco/sub [::rf.fresco.examples.forms.subs/field field])
                  :disabled          busy?
                  :aria-invalid      (if problem "true" "false")
                  :aria-describedby  (when problem (str id "-problem"))
-                 :on-input          [::rf.hicasso.examples.forms.events/edit field ::rf.hicasso/value]
-                 :on-blur           [::rf.hicasso.examples.forms.events/touch {:field field}]}]
+                 :on-input          [::rf.fresco.examples.forms.events/edit field ::rf.fresco/value]
+                 :on-blur           [::rf.fresco.examples.forms.events/touch {:field field}]}]
     [:div.field-row
      [:label {:for id} label]
      (if multiline?
@@ -157,15 +157,15 @@
 ;; Recipe 3 — the write's status, read from the write
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview save-failure
+(rf.fresco/defview save-failure
   "The error region. Present only while the instance says the last
   attempt failed, and gone the moment a retry starts — because it is a
   projection of the write rather than a copy of it."
   [_]
-  (when (:error? (rf.hicasso/sub [:rf/mutation {:instance rf.hicasso.examples.forms.events/save-instance}]))
+  (when (:error? (rf.fresco/sub [:rf/mutation {:instance rf.fresco.examples.forms.events/save-instance}]))
     [:p.save-failure {:role "alert"} "Saving failed. Nothing was lost — try again."]))
 
-(rf.hicasso/defview save-button
+(rf.fresco/defview save-button
   "Submit. Disabled while the write is in flight and carrying nothing at
   all while the form is invalid — see the namespace docstring on why
   those are not two grades of the same thing.
@@ -177,7 +177,7 @@
   the submit handler and exposed at `::subs/can-submit?` for anything
   that needs the answer; `l0` pins those two agreeing."
   [_]
-  (let [busy? (:pending? (rf.hicasso/sub [:rf/mutation {:instance rf.hicasso.examples.forms.events/save-instance}]))]
+  (let [busy? (:pending? (rf.fresco/sub [:rf/mutation {:instance rf.fresco.examples.forms.events/save-instance}]))]
     [:button.save
      {:type     "submit"
       :disabled busy?}
@@ -187,7 +187,7 @@
 ;; The screen
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview details-form
+(rf.fresco/defview details-form
   "The form shell. It reads NOTHING, so a keystroke in either field
   re-renders that field's row and stops there.
 
@@ -195,13 +195,13 @@
   form and the browser does not navigate — with no `.preventDefault`
   anywhere in this file."
   [_]
-  [:form.details {:on-submit [::rf.hicasso.examples.forms.events/submit]}
+  [:form.details {:on-submit [::rf.fresco.examples.forms.events/submit]}
    [field-row {:field :assignee :label "Assignee"}]
    [field-row {:field :notes :label "Notes" :multiline? true}]
    [save-failure {}]
    [save-button {}]])
 
-(rf.hicasso/defview screen
+(rf.fresco/defview screen
   "The whole page: the buffered subject above, the ordinary form below."
   [{:keys [ikey]}]
   [:main.ticket-screen

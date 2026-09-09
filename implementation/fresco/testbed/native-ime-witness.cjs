@@ -5,8 +5,8 @@
  * each one is decided on (rf2-hic-016).
  *
  * This module is the checklist of
- * `docs/design/hicasso/native-ime-scripted-witness.md` expressed as code. It
- * is driven by `implementation/scripts/run-hicasso-native-ime-witness.cjs`,
+ * `docs/design/fresco/native-ime-scripted-witness.md` expressed as code. It
+ * is driven by `implementation/scripts/run-fresco-native-ime-witness.cjs`,
  * which owns the browser, the server and the OS-level keyboard; everything
  * here is about WHAT to type and HOW to read the answer.
  *
@@ -39,7 +39,7 @@
  * Two readings fit that observation and they are opposite:
  *
  *   - the IME never engaged, so `nihongo` went in as seven ASCII letters and
- *     ESC had no composition to abort. Nothing about Hicasso was measured.
+ *     ESC had no composition to abort. Nothing about Fresco was measured.
  *   - the IME did engage and the abort left the draft standing, which is a
  *     real defect in an engine.
  *
@@ -80,7 +80,7 @@
  * lines each.
  */
 
-// The seeds the testbed starts every field at (`hicasso_testbed.core/seed`).
+// The seeds the testbed starts every field at (`fresco_testbed.core/seed`).
 // Duplicated here deliberately: a check asserts "the field went back to its
 // committed value", and reading that expectation out of the page under test
 // would make the assertion agree with any value the page happened to hold.

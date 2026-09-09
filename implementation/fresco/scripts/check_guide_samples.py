@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Every hicasso verb a guide sample names resolves to a public def.
+"""Every fresco verb a guide sample names resolves to a public def.
 
-`docs/core/hicasso/` is the front door, and a guide whose samples name verbs
+`docs/core/fresco/` is the front door, and a guide whose samples name verbs
 the door no longer carries teaches whatever rots first.  This reads every
 fenced Clojure block in the guide, learns the guide's own aliases from its
-`[re-frame.hicasso… :as alias]` requires, and checks each `alias/verb` in
+`[re-frame.fresco… :as alias]` requires, and checks each `alias/verb` in
 code position against the `def*` heads of that namespace's source file.  A
 verb the source does not define, or a namespace with no source, reds naming
 the chapter, the block and the verb.
@@ -15,8 +15,8 @@ Clojure; strings, `;` comments and character literals are blanked before a
 verb is read, `::alias/name` is a marker keyword rather than a var use, and a
 `#_` discard is read as code.
 
-    python hicasso/scripts/check_guide_samples.py --self-test
-    python hicasso/scripts/check_guide_samples.py [--list]
+    python fresco/scripts/check_guide_samples.py --self-test
+    python fresco/scripts/check_guide_samples.py [--list]
 """
 
 from __future__ import annotations
@@ -27,12 +27,12 @@ import re
 import sys
 
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
-PACKAGE_ROOT = os.path.dirname(SCRIPTS_DIR)                 # implementation/hicasso
+PACKAGE_ROOT = os.path.dirname(SCRIPTS_DIR)                 # implementation/fresco
 REPO_ROOT = os.path.dirname(os.path.dirname(PACKAGE_ROOT))  # repo root
 
-GUIDE_DIR = os.path.join(REPO_ROOT, "docs", "core", "hicasso")
+GUIDE_DIR = os.path.join(REPO_ROOT, "docs", "core", "fresco")
 
-# Where a `re-frame.hicasso*` namespace's source may live.  `test_kit/src` is
+# Where a `re-frame.fresco*` namespace's source may live.  `test_kit/src` is
 # on the list because the testing chapter is written against the `ht/` and
 # `hm/` kits, which ship from there.
 SOURCE_ROOTS = [
@@ -42,8 +42,8 @@ SOURCE_ROOTS = [
 SOURCE_EXTS = (".cljc", ".cljs", ".clj")
 CLOJURE_LANGS = frozenset({"clojure", "clj", "cljs", "cljc", "edn"})
 
-# `[re-frame.hicasso.x :as alias]` — the guide's own alias bindings.
-_REQUIRE_RE = re.compile(r"\[(re-frame\.hicasso[a-z.-]*)\s+:as\s+([a-zA-Z][\w.-]*)\]")
+# `[re-frame.fresco.x :as alias]` — the guide's own alias bindings.
+_REQUIRE_RE = re.compile(r"\[(re-frame\.fresco[a-z.-]*)\s+:as\s+([a-zA-Z][\w.-]*)\]")
 # `alias/verb` in code position.  The lookbehind keeps `::h/value` and
 # `:h/thing` out: keywords are not var uses.
 _QUALIFIED_RE = re.compile(
@@ -123,13 +123,13 @@ def corpus(guide_dir: str = GUIDE_DIR) -> dict[str, list[tuple[int, str]]]:
 
 
 def aliases(corp: dict) -> dict[str, str]:
-    """`{alias: namespace}` for every hicasso require in the guide's samples."""
+    """`{alias: namespace}` for every fresco require in the guide's samples."""
     return {alias: ns for blks in corp.values() for _n, code in blks
             for ns, alias in _REQUIRE_RE.findall(code)}
 
 
 def uses(corp: dict, alias_map: dict[str, str]) -> dict[tuple[str, str], list[str]]:
-    """`{(namespace, verb): [site, …]}` for every hicasso verb a sample names."""
+    """`{(namespace, verb): [site, …]}` for every fresco verb a sample names."""
     out: dict[tuple[str, str], list[str]] = {}
     for page, blks in corp.items():
         for n, code in blks:
@@ -182,12 +182,12 @@ def run_check(verbose: bool = False) -> int:
                 exports[ns] = public_names(fh.read())
     problems = unresolved(use_map, exports)
     if problems:
-        print("FAIL: the Hicasso guide names a verb the package does not define", file=sys.stderr)
+        print("FAIL: the Fresco guide names a verb the package does not define", file=sys.stderr)
         for line in problems:
             print(f"  {line}", file=sys.stderr)
         return 1
     sites = sum(len(s) for s in use_map.values())
-    print(f"Hicasso guide samples: {len(use_map)} distinct hicasso verbs at {sites} "
+    print(f"Fresco guide samples: {len(use_map)} distinct fresco verbs at {sites} "
           f"site(s) across {len(corp)} pages resolve to a public def.")
     if verbose:
         for (ns, verb), s in sorted(use_map.items()):
@@ -203,33 +203,33 @@ def self_test() -> int:
         if not ok:
             failures.append(label)
 
-    page = ('```clojure\n(ns a (:require [re-frame.hicasso :as h]))\n'
+    page = ('```clojure\n(ns a (:require [re-frame.fresco :as h]))\n'
             '(h/sub [:x]) ::h/value :h/thing "h/ghost" ; h/ghost2\n'
             '(str \\; (h/defview v [] 1)) (js/setTimeout f 0)\n```\n'
             '```css\n(h/absent)\n```\n')
     corp = {"p.md": clojure_blocks(page)}
     alias_map = aliases(corp)
     seen = uses(corp, alias_map)
-    exports = {"re-frame.hicasso": {"sub", "defview"}}
-    check("the alias is read from the sample's own require", alias_map == {"h": "re-frame.hicasso"})
-    check("a var use is seen", ("re-frame.hicasso", "sub") in seen)
-    check("a marker keyword is not a var use", ("re-frame.hicasso", "value") not in seen)
-    check("a plain keyword is not a var use", ("re-frame.hicasso", "thing") not in seen)
-    check("a string is inert", ("re-frame.hicasso", "ghost") not in seen)
-    check("a comment is inert", ("re-frame.hicasso", "ghost2") not in seen)
-    check("a `\\;` character literal opens no comment", ("re-frame.hicasso", "defview") in seen)
+    exports = {"re-frame.fresco": {"sub", "defview"}}
+    check("the alias is read from the sample's own require", alias_map == {"h": "re-frame.fresco"})
+    check("a var use is seen", ("re-frame.fresco", "sub") in seen)
+    check("a marker keyword is not a var use", ("re-frame.fresco", "value") not in seen)
+    check("a plain keyword is not a var use", ("re-frame.fresco", "thing") not in seen)
+    check("a string is inert", ("re-frame.fresco", "ghost") not in seen)
+    check("a comment is inert", ("re-frame.fresco", "ghost2") not in seen)
+    check("a `\\;` character literal opens no comment", ("re-frame.fresco", "defview") in seen)
     check("an unrequired alias is out of scope", all(ns != "js" for ns, _ in seen))
-    check("a non-Clojure fence carries no verb", ("re-frame.hicasso", "absent") not in seen)
+    check("a non-Clojure fence carries no verb", ("re-frame.fresco", "absent") not in seen)
     check("silence when every verb resolves", unresolved(seen, exports) == [])
 
-    phantom = {"p.md": clojure_blocks("```clojure\n[re-frame.hicasso :as h]\n(h/does-not-exist)\n```\n")}
+    phantom = {"p.md": clojure_blocks("```clojure\n[re-frame.fresco :as h]\n(h/does-not-exist)\n```\n")}
     problems = unresolved(uses(phantom, aliases(phantom)), exports)
     check("a phantom verb reds naming the page, the block and the verb",
           any("p.md block 1" in p and "does-not-exist" in p for p in problems))
-    ghost = {"p.md": clojure_blocks("```clojure\n[re-frame.hicasso.ghost :as g]\n(g/boo)\n```\n")}
+    ghost = {"p.md": clojure_blocks("```clojure\n[re-frame.fresco.ghost :as g]\n(g/boo)\n```\n")}
     check("a namespace with no source reds",
           any("no source" in p for p in unresolved(uses(ghost, aliases(ghost)),
-                                                   {"re-frame.hicasso.ghost": None})))
+                                                   {"re-frame.fresco.ghost": None})))
 
     names = public_names('(def ^{:doc "x"}\n  sub impl/sub)\n(h/defview buffered-field [p] 1)\n'
                          '(defn- hidden [] 1)\n(def ^:private secret 1)\n(def "(def fake 1)" 2)')

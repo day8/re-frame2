@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.slice.views
+(ns re-frame.fresco.examples.slice.views
   "THE SLICE'S VIEWS — the whole application's markup, on the public door.
 
   Thirteen boundaries — the slice's original six, and seven more for
@@ -26,7 +26,7 @@
 
   That is the slice authoring report's third finding. It is a
   ONE-TIME cost — the mistake is loud when made, because a function in
-  head position is refused at runtime as `:rf.error/hicasso-bad-head` —
+  head position is refused at runtime as `:rf.error/fresco-bad-head` —
   but it is the only place in this application where two things that do
   the same job are spelled in two grammars.
 
@@ -39,17 +39,17 @@
   [[article-row]] and [[pager]] used to read through the grouped
   `h/use-subs` as the control; that door was removed (rf2-6c12m.15) and
   both bodies now read the same way as the rest."
-  (:require [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.slice.events :as rf.hicasso.examples.slice.events]
-            [re-frame.hicasso.examples.slice.i18n :as rf.hicasso.examples.slice.i18n]
-            [re-frame.hicasso.examples.slice.routes :as rf.hicasso.examples.slice.routes]
-            [re-frame.hicasso.examples.slice.subs :as rf.hicasso.examples.slice.subs]))
+  (:require [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.slice.events :as rf.fresco.examples.slice.events]
+            [re-frame.fresco.examples.slice.i18n :as rf.fresco.examples.slice.i18n]
+            [re-frame.fresco.examples.slice.routes :as rf.fresco.examples.slice.routes]
+            [re-frame.fresco.examples.slice.subs :as rf.fresco.examples.slice.subs]))
 
 ;; ---------------------------------------------------------------------------
 ;; The chrome — locale and theme, switched at runtime
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview chrome
+(rf.fresco/defview chrome
   "The header: the application's name, a locale `<select>` and two theme
   buttons.
 
@@ -60,39 +60,39 @@
   switching either moves one key in `app-db`, and every boundary that
   read a string or a token re-renders because it read it."
   [_]
-  (let [locale-now (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/locale])
-        theme-now  (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/theme])]
+  (let [locale-now (rf.fresco/sub [::rf.fresco.examples.slice.subs/locale])
+        theme-now  (rf.fresco/sub [::rf.fresco.examples.slice.subs/theme])]
     [:header.slice-chrome
-     [:h1.slice-title (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :app/title])]
+     [:h1.slice-title (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :app/title])]
 
-     [:label.locale-label {:for "slice-locale"} (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :app/locale])]
+     [:label.locale-label {:for "slice-locale"} (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :app/locale])]
      [:select#slice-locale.locale
       {;; `::h/value` off a `<select>` is `.-value`, a string — the
        ;; handler keywords it. Positional, because the marker substitutes
        ;; at the intent's top level only; see `events`'s namespace
        ;; docstring.
        :value     (name locale-now)
-       :on-change [::rf.hicasso.examples.slice.events/set-locale ::rf.hicasso/value]}
+       :on-change [::rf.fresco.examples.slice.events/set-locale ::rf.fresco/value]}
       ;; The option roster never changes, so it is a module constant read
       ;; directly rather than a subscription over a literal.
-      (for [locale rf.hicasso.examples.slice.i18n/locales]
+      (for [locale rf.fresco.examples.slice.i18n/locales]
         [:option {:key (name locale) :value (name locale)} (name locale)])]
 
      [:div.theme-switch
-      [:span.theme-label (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :app/theme])]
+      [:span.theme-label (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :app/theme])]
       (for [[theme label-key] [[:light :theme/light] [:dark :theme/dark]]]
         [:button.theme-choice
          {:key      (name theme)
           :type     "button"
           :class    (when (= theme theme-now) "current")
-          :on-click [::rf.hicasso.examples.slice.events/set-theme {:theme theme}]}
-         (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t label-key])])]]))
+          :on-click [::rf.fresco.examples.slice.events/set-theme {:theme theme}]}
+         (rf.fresco/sub [::rf.fresco.examples.slice.subs/t label-key])])]]))
 
 ;; ---------------------------------------------------------------------------
 ;; The feed — a keyed list
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview article-row
+(rf.fresco/defview article-row
   "One row of the feed: a link to the article, and a tag disclosure whose
   open flag is this row's own.
 
@@ -101,13 +101,13 @@
   :tags-open?]` path is the bug the sugar deletes: every row on the page
   would share one flag and they would all open together, silently."
   [{:keys [slug title published? tags]}]
-  (let [open?      (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/tags-open? slug])
-        tags-label (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :feed/tags])]
+  (let [open?      (rf.fresco/sub [::rf.fresco.examples.slice.subs/tags-open? slug])
+        tags-label (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :feed/tags])]
     [:li.article-row
      ;; CALLED, not a head — see the namespace docstring. The href and the
      ;; click decision come whole from the routing artefact; this body
      ;; never sees a URL.
-     (rf.hicasso/route-link {:to rf.hicasso.examples.slice.routes/article :params {:slug slug} :class "article-link"}
+     (rf.fresco/route-link {:to rf.fresco.examples.slice.routes/article :params {:slug slug} :class "article-link"}
                    title)
      (when-not published?
        [:span.draft-badge "draft"])
@@ -116,7 +116,7 @@
         [:button.tags-toggle
          {:type          "button"
           :aria-expanded (str (boolean open?))
-          :on-click      [::rf.hicasso.examples.slice.subs/tags-open? slug (not open?)]}
+          :on-click      [::rf.fresco.examples.slice.subs/tags-open? slug (not open?)]}
          tags-label]
         (when open?
           [:ul.tag-list
@@ -127,7 +127,7 @@
 ;; The pager — the page is a URL, so Back and Forward are routing's
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview pager
+(rf.fresco/defview pager
   "The feed's pager: an end-stop or a link at each end, and one link per
   page in between.
 
@@ -136,7 +136,7 @@
   event. Three things follow that this body does not have to write:
   Back and Forward restore the page, a page is a URL somebody can send,
   and the address bar cannot disagree with the list because there is only
-  one fact. See [[re-frame.hicasso.examples.slice.routes/register!]].
+  one fact. See [[re-frame.fresco.examples.slice.routes/register!]].
 
   ## The ends are `<span>`s, not disabled links
 
@@ -154,19 +154,19 @@
   shrinking with the branch, and `l2-cljs-test` asserts exactly that by
   handing this body a fixture map with no strings in it."
   [_]
-  (let [page  (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/current-page])
-        pages (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/page-count])]
+  (let [page  (rf.fresco/sub [::rf.fresco.examples.slice.subs/current-page])
+        pages (rf.fresco/sub [::rf.fresco.examples.slice.subs/page-count])]
     (when (< 1 pages)
       ;; Both labels are read OUTSIDE the branches that place them, so the
       ;; page a user is on never changes which strings this body reads.
       ;; An edge that appears on page 2 and not on page 1 is an edge whose
       ;; absence nobody would notice until a translation changed.
-      (let [previous (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :feed/previous])
-            next     (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :feed/next])]
-        [:nav.pager {:aria-label (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :feed/pagination])}
+      (let [previous (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :feed/previous])
+            next     (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :feed/next])]
+        [:nav.pager {:aria-label (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :feed/pagination])}
          (if (= 1 page)
            [:span.pager-prev {:aria-disabled "true"} previous]
-           (rf.hicasso/route-link {:to rf.hicasso.examples.slice.routes/feed :query {:page (dec page)} :class "pager-prev"}
+           (rf.fresco/route-link {:to rf.fresco.examples.slice.routes/feed :query {:page (dec page)} :class "pager-prev"}
                          previous))
          [:ol.pager-pages
           (for [n (range 1 (inc pages))]
@@ -177,11 +177,11 @@
                ;; link because a link to the page you are on is a link
                ;; that does nothing.
                [:span.pager-current {:aria-current "page"} (str n)]
-               (rf.hicasso/route-link {:to rf.hicasso.examples.slice.routes/feed :query {:page n} :class "pager-link"}
+               (rf.fresco/route-link {:to rf.fresco.examples.slice.routes/feed :query {:page n} :class "pager-link"}
                              (str n)))])]
          (if (= page pages)
            [:span.pager-next {:aria-disabled "true"} next]
-           (rf.hicasso/route-link {:to rf.hicasso.examples.slice.routes/feed :query {:page (inc page)} :class "pager-next"}
+           (rf.fresco/route-link {:to rf.fresco.examples.slice.routes/feed :query {:page (inc page)} :class "pager-next"}
                          next))]))))
 
 ;; ---------------------------------------------------------------------------
@@ -194,12 +194,12 @@
 ;; picking one out of a map is picking a value out of a map.
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview prose-block
+(rf.fresco/defview prose-block
   "A paragraph."
   [{:keys [block]}]
   [:p.block-prose (:block/text block)])
 
-(rf.hicasso/defview list-block
+(rf.fresco/defview list-block
   "A bulleted list — and the one renderer in this application that
   REFUSES its input.
 
@@ -224,7 +224,7 @@
           (map (fn [item] [:li.block-item {:key item} item]))
           items)))
 
-(rf.hicasso/defview callout-block
+(rf.fresco/defview callout-block
   "An aside whose EMPHASIS TAG and colour are both chosen from the
   block's tone at render time.
 
@@ -235,10 +235,10 @@
   [{:keys [block]}]
   (let [warning? (= :warning (:block/tone block))]
     [:aside.block-callout
-     {:style {:color (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/token (if warning? :danger :accent)])}}
+     {:style {:color (rf.fresco/sub [::rf.fresco.examples.slice.subs/token (if warning? :danger :accent)])}}
      [(if warning? :strong :em) {:class "block-emphasis"} (:block/text block)]]))
 
-(rf.hicasso/defview unsupported-block
+(rf.fresco/defview unsupported-block
   "A block of a kind this build has no renderer for.
 
   The EXPECTED failure, and it stays data. Content outlives the build
@@ -248,7 +248,7 @@
   swallowed, so the hole says what it is."
   [{:keys [block]}]
   [:p.block-unsupported
-   (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :digest/unsupported])
+   (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :digest/unsupported])
    " "
    [:code.block-kind (str (:block/kind block))]])
 
@@ -259,7 +259,7 @@
    :block/list    list-block
    :block/callout callout-block})
 
-(rf.hicasso/defview digest-body
+(rf.fresco/defview digest-body
   "The blocks, each rendered by whichever view its own kind names.
 
   `(get block-views kind unsupported-block)` in HEAD POSITION is the
@@ -268,13 +268,13 @@
   other. A kind with no entry falls to [[unsupported-block]] rather than
   to a refusal — the default argument is the policy."
   [_]
-  (let [blocks (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/digest-blocks])]
+  (let [blocks (rf.fresco/sub [::rf.fresco.examples.slice.subs/digest-blocks])]
     (into [:div.digest-body]
           (map (fn [{:block/keys [id kind] :as block}]
                  [(get block-views kind unsupported-block) {:key id :block block}]))
           blocks)))
 
-(rf.hicasso/defview digest
+(rf.fresco/defview digest
   "The digest region, and the application's NESTED error region.
 
   `h/error-boundary` here sits inside the one
@@ -294,26 +294,26 @@
   fallback a second time after a visible flicker. Reading the content
   itself, a retry that changed nothing changes nothing on screen."
   [_]
-  (let [blocks   (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/digest-blocks])
-        loading? (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/digest-loading?])]
+  (let [blocks   (rf.fresco/sub [::rf.fresco.examples.slice.subs/digest-blocks])
+        loading? (rf.fresco/sub [::rf.fresco.examples.slice.subs/digest-loading?])]
     [:section.digest
-     [:h3.digest-heading (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :digest/heading])]
-     [rf.hicasso/error-boundary
+     [:h3.digest-heading (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :digest/heading])]
+     [rf.fresco/error-boundary
       {:reset-key blocks
        :fallback  [:div.digest-error {:role "alert"}
-                   [:p.digest-problem (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :digest/problem])]
+                   [:p.digest-problem (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :digest/problem])]
                    [:button.digest-retry
                     {:type     "button"
                      :disabled loading?
-                     :on-click [::rf.hicasso.examples.slice.events/reload-digest]}
-                    (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t (if loading? :digest/loading :digest/retry)])]]}
+                     :on-click [::rf.fresco.examples.slice.events/reload-digest]}
+                    (rf.fresco/sub [::rf.fresco.examples.slice.subs/t (if loading? :digest/loading :digest/retry)])]]}
       [digest-body {}]]]))
 
 ;; ---------------------------------------------------------------------------
 ;; The feed page
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview feed-page
+(rf.fresco/defview feed-page
   "The list. Keyed by slug, because a keyed list whose key is its index
   reuses the wrong row the moment the order changes — and with
   pagination there is a moment: every page flip replaces the whole list,
@@ -325,12 +325,12 @@
   this body still reads exactly the two things it read before pagination
   existed, so the page it renders is still *the rows, and a heading*."
   [_]
-  (let [rows (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/feed])]
+  (let [rows (rf.fresco/sub [::rf.fresco.examples.slice.subs/feed])]
     [:section.feed
-     [:h2 (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :feed/heading])]
+     [:h2 (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :feed/heading])]
      [digest {}]
      (if (empty? rows)
-       [:p.feed-empty (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :feed/empty])]
+       [:p.feed-empty (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :feed/empty])]
        [:ul.article-list
         (for [{:keys [slug] :as row} rows]
           [article-row (assoc row :key slug)])])
@@ -340,7 +340,7 @@
 ;; The editor — controlled fields, an async save, an error region, a reset
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview editor
+(rf.fresco/defview editor
   "The article's form.
 
   Both text fields are CONTROLLED in the substrate's sense: `:value` is a
@@ -363,38 +363,38 @@
   React never saw. This editor is neither, and
   `flow-dom-cljs-test`'s reset section witnesses both halves."
   [{:keys [slug]}]
-  (let [draft            (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/draft slug])
-        dirty?           (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/dirty? slug])
-        {:keys [status problem]} (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/save-state slug])
+  (let [draft            (rf.fresco/sub [::rf.fresco.examples.slice.subs/draft slug])
+        dirty?           (rf.fresco/sub [::rf.fresco.examples.slice.subs/dirty? slug])
+        {:keys [status problem]} (rf.fresco/sub [::rf.fresco.examples.slice.subs/save-state slug])
         saving?          (= :saving status)]
-    [:form.editor {:on-submit [::rf.hicasso.examples.slice.events/save {:slug slug}]}
-     [:h3 (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :editor/heading])]
+    [:form.editor {:on-submit [::rf.fresco.examples.slice.events/save {:slug slug}]}
+     [:h3 (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :editor/heading])]
 
-     [:label {:for "slice-title"} (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :editor/title])]
+     [:label {:for "slice-title"} (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :editor/title])]
      [:input#slice-title.field-title
       {:type     "text"
        :value    (:title draft)
-       :on-input [::rf.hicasso.examples.slice.events/edit slug :title ::rf.hicasso/value]}]
+       :on-input [::rf.fresco.examples.slice.events/edit slug :title ::rf.fresco/value]}]
 
-     [:label {:for "slice-body"} (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :editor/body])]
+     [:label {:for "slice-body"} (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :editor/body])]
      [:textarea#slice-body.field-body
       {:value    (:body draft)
-       :on-input [::rf.hicasso.examples.slice.events/edit slug :body ::rf.hicasso/value]}]
+       :on-input [::rf.fresco.examples.slice.events/edit slug :body ::rf.fresco/value]}]
 
      [:label.published {:for "slice-published"}
       [:input#slice-published
        {:type      "checkbox"
         :checked   (boolean (:published? draft))
-        :on-change [::rf.hicasso.examples.slice.events/toggle-published slug ::rf.hicasso/checked]}]
-      (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :editor/published])]
+        :on-change [::rf.fresco.examples.slice.events/toggle-published slug ::rf.fresco/checked]}]
+      (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :editor/published])]
 
      [:div.editor-actions
       [:button.save {:type "submit" :disabled saving?}
-       (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t (if saving? :editor/saving :editor/save)])]
+       (rf.fresco/sub [::rf.fresco.examples.slice.subs/t (if saving? :editor/saving :editor/save)])]
       [:button.discard {:type     "button"
                         :disabled (not dirty?)
-                        :on-click [::rf.hicasso.examples.slice.events/discard {:slug slug}]}
-       (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :editor/discard])]]
+                        :on-click [::rf.fresco.examples.slice.events/discard {:slug slug}]}
+       (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :editor/discard])]]
 
      ;; The error region. A problem is a KEYWORD in `app-db` and a
      ;; sentence here, which is what makes a failed save translatable and
@@ -404,29 +404,29 @@
      ;; a message it is not showing.
      (when (= :failed status)
        [:p.save-problem {:role  "alert"
-                         :style {:color (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/token :danger])}}
-        (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t problem])
+                         :style {:color (rf.fresco/sub [::rf.fresco.examples.slice.subs/token :danger])}}
+        (rf.fresco/sub [::rf.fresco.examples.slice.subs/t problem])
         " "
-        [:button.retry {:type "button" :on-click [::rf.hicasso.examples.slice.events/save {:slug slug}]}
-         (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :editor/retry])]])
+        [:button.retry {:type "button" :on-click [::rf.fresco.examples.slice.events/save {:slug slug}]}
+         (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :editor/retry])]])
 
      (when (= :saved status)
-       [:p.save-ok {:role "status"} (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :editor/saved])])]))
+       [:p.save-ok {:role "status"} (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :editor/saved])])]))
 
-(rf.hicasso/defview article-page
+(rf.fresco/defview article-page
   "One article and its editor. The slug comes from the URL through
   routing's own subscription — the slice keeps no copy of the current
   route in `app-db`, so the address bar and the page cannot disagree."
   [_]
-  (let [slug    (:slug (rf.hicasso/sub [:rf.route/params]))
-        article (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/article slug])]
+  (let [slug    (:slug (rf.fresco/sub [:rf.route/params]))
+        article (rf.fresco/sub [::rf.fresco.examples.slice.subs/article slug])]
     [:section.article
-     (rf.hicasso/route-link {:to rf.hicasso.examples.slice.routes/feed :class "back"}
-                   (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :article/back]))
+     (rf.fresco/route-link {:to rf.fresco.examples.slice.routes/feed :class "back"}
+                   (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :article/back]))
      (if (nil? article)
        ;; A URL is user input, so a slug nobody published is a page rather
        ;; than an error.
-       [:p.article-missing (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :article/missing])]
+       [:p.article-missing (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :article/missing])]
        [:<>
         [:h2.article-title (:title article)]
         [editor {:slug slug}]])]))
@@ -435,7 +435,7 @@
 ;; The shell
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview app
+(rf.fresco/defview app
   "The whole application: the chrome, then whichever pane the route
   selects, under one error boundary.
 
@@ -444,22 +444,22 @@
   application's, taken at the moment the user does something different,
   rather than the boundary's to guess."
   [_]
-  (let [route (rf.hicasso/sub [:rf.route/id])]
+  (let [route (rf.fresco/sub [:rf.route/id])]
     [:main.slice
-     {:style {:background (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/token :surface])
-              :color      (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/token :ink])}}
+     {:style {:background (rf.fresco/sub [::rf.fresco.examples.slice.subs/token :surface])
+              :color      (rf.fresco/sub [::rf.fresco.examples.slice.subs/token :ink])}}
      [chrome {}]
      ;; The fallback is markup written HERE, in a body that rendered fine,
      ;; so its string is read the way every other string is. A hardcoded
      ;; English sentence would be the one place in the application a
      ;; French reader falls out of their own language, and it would do so
      ;; at the worst possible moment.
-     [rf.hicasso/error-boundary {:reset-key route
+     [rf.fresco/error-boundary {:reset-key route
                         :fallback  [:p.pane-error {:role "alert"}
-                                    (rf.hicasso/sub [::rf.hicasso.examples.slice.subs/t :app/pane-error])]}
+                                    (rf.fresco/sub [::rf.fresco.examples.slice.subs/t :app/pane-error])]}
       (cond
-        (= route rf.hicasso.examples.slice.routes/article) [article-page {}]
-        (= route rf.hicasso.examples.slice.routes/feed)    [feed-page {}]
+        (= route rf.fresco.examples.slice.routes/article) [article-page {}]
+        (= route rf.fresco.examples.slice.routes/feed)    [feed-page {}]
         ;; Before the first navigation resolves there is no route at all,
         ;; and a page that rendered nothing there would be a blank screen
         ;; with no explanation. The feed is the honest default.

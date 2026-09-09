@@ -1,10 +1,10 @@
-(ns re-frame.bench.hicasso.front.dogfood
+(ns re-frame.bench.fresco.front.dogfood
   "THE DOGFOOD SCREEN'S SHARED APP AND STATE (rf2-2rtt6.8) — the state
   layer only.
 
   **There is no screen in this namespace, and mounting one is not this
   bead's work.** HD-014 starts the six-week clock at the first
-  Hicasso-arm commit that mounts the dogfood screen; the arms
+  Fresco-arm commit that mounts the dogfood screen; the arms
   (rf2-2rtt6.9 and rf2-2rtt6.10) own that commit. What is here is
   everything the screen will sit on: the app-db shape, the events, the
   subscriptions, and the frame lifecycle. Nothing renders, nothing
@@ -170,12 +170,12 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; This namespace once exported `row-intents` / `new-item-intents` — the
-;; event vectors in Hicasso's data spelling, hoisted here so the three
+;; event vectors in Fresco's data spelling, hoisted here so the three
 ;; renderings "could not drift on the events while claiming to differ only
 ;; on the view". They are gone, for two reasons that point the same way.
 ;;
 ;; 1. **They were never shared.** The raw-UIx rendering cannot consume an
-;;    intent vector; it writes closures. So the helpers were Hicasso
+;;    intent vector; it writes closures. So the helpers were Fresco
 ;;    authoring living in a file named shared, and the preference case
 ;;    counted the two renderings' view layers with thirteen lines of one
 ;;    side's authoring sitting outside the count (rf2-2rtt6.67, merged-PR

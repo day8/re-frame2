@@ -1,7 +1,7 @@
-(ns re-frame.hicasso.examples.editor.app
+(ns re-frame.fresco.examples.editor.app
   "THE EDITOR'S ENTRY POINT — an adapter, a frame, a root.
 
-  The three lines that start a Hicasso application, and the handle a hot
+  The three lines that start a Fresco application, and the handle a hot
   reload needs. Nothing here is specific to this application except the
   frame keyword and the seed event.
 
@@ -29,16 +29,16 @@
   ## Nothing serves this build, and that is a stated limit
 
   There is no shadow-cljs build id for this application. Its namespaces
-  are compiled because `hicasso/test` is a `:source-paths` entry, and its
+  are compiled because `fresco/test` is a `:source-paths` entry, and its
   suites run on the node and browser lanes — which is the coverage that
   matters. Serving it needs a `:dev-http` entry in
   `implementation/shadow-cljs.edn`, which is a hot-zone file; the
   measurement lane that wants one adds it with the build it needs."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.editor.events :as rf.hicasso.examples.editor.events]
-            [re-frame.hicasso.examples.editor.views :as rf.hicasso.examples.editor.views]))
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.editor.events :as rf.fresco.examples.editor.events]
+            [re-frame.fresco.examples.editor.views :as rf.fresco.examples.editor.views]))
 
 (def frame-id
   "This application's frame. Namespaced, so two applications in one
@@ -49,13 +49,13 @@
   "What seeds a fresh frame. Public because every test that mounts this
   application seeds it the same way, and a witness that seeded itself
   differently from the application would be evidence about the witness."
-  [[::rf.hicasso.examples.editor.events/seed]])
+  [[::rf.fresco.examples.editor.events/seed]])
 
 (defonce ^:private app-root
   ;; `defonce`, because a reload re-evaluates this namespace and a plain
   ;; `def` would replace the handle the reload exists to render through.
   ;; Inert until the first render — no DOM work at allocation.
-  (rf.hicasso/client-root))
+  (rf.fresco/client-root))
 
 (defn ^:dev/after-load mount!
   "Render the application through its one client-root handle — the boot
@@ -63,9 +63,9 @@
   React root; every later one updates that same root, so the DOM, the
   subscriptions and every scrap of component state survive a reload."
   []
-  (rf.hicasso/render! app-root
-    [rf.hicasso/frame-root {:id frame-id}
-     [rf.hicasso.examples.editor.views/editor {}]]
+  (rf.fresco/render! app-root
+    [rf.fresco/frame-root {:id frame-id}
+     [rf.fresco.examples.editor.views/editor {}]]
     (js/document.getElementById "app")))
 
 (defn ^:export -main

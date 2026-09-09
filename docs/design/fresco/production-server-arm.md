@@ -21,9 +21,9 @@ contract). Nothing else changed, and the page still draws no conclusion.
 
 **Amended 2026-08-11 (`rf2-t2ba`), from the `rf2-2rtt6` ruling's packet-hygiene
 item.** Two places moved, in two passes. §9's root-naming row let the walk arm
-read as though a Hicasso root were already a Var the JVM could call, while its
+read as though a Fresco root were already a Var the JVM could call, while its
 sidecar counterpart carried the absence clause; `rf2-2rtt6.88`'s ruling comment
-establishes that **neither host has a callable Hicasso root today** — which is
+establishes that **neither host has a callable Fresco root today** — which is
 what §5 has said all along — and the row now says so on both sides. The
 merged-PR audit on that pass then found the same premise earlier and less
 guarded: §1's paragraph introducing job one's two inputs had a db snapshot and a
@@ -42,9 +42,9 @@ here rather than re-argued.
 
 **A third status fact, added 2026-08-13 (`rf2-2rtt6.144`): there is no sitting,
 and this page's tense is the only thing that changes.** The P2 fork was ruled by
-the operator directly in chat on 2026-08-13 — *Hicasso graduates, as a success*
+the operator directly in chat on 2026-08-13 — *Fresco graduates, as a success*
 — which pre-empts the 2026-08-25 packet freeze and the 2026-08-27 sitting; the
-record is [`decisions.md` HD-029](decisions.md#hd-029--the-p2-fork-hicasso-graduates-as-a-success)
+record is [`decisions.md` HD-029](decisions.md#hd-029--the-p2-fork-fresco-graduates-as-a-success)
 and [validation.md's graduation section](validation.md#the-kill-table-at-graduation--the-p2-ruling-of-2026-08-13).
 So **read every "at the sitting" and "a sitting will want" below as the forum
 this page was written for rather than one still ahead** — including the header
@@ -120,7 +120,7 @@ re-measured onto a replacement, because for these two rows there is no
 replacement to measure.
 
 Two consequences run further than a tense change, and both make the JVM walk arm
-**dearer** rather than cheaper. §4's text-separator row priced a Hicasso JVM
+**dearer** rather than cheaper. §4's text-separator row priced a Fresco JVM
 twin as needing *a fourth* copy of an algorithm three trees already implemented;
 all three implementations went with their trees and none was replaced, so the
 twin would now write the first surviving one. And §The parity apparatus argued
@@ -157,7 +157,7 @@ closed at commit `a4e1d6f5e6`. What each gate now has:
   (`.github/workflows/test.yml`) runs `node_crossing_test.clj` against a plain
   fixture render module, over a real socket, on any PR touching either half of
   the crossing (`implementation_jvm` or `ssr_node`). Slice E added the
-  application half beside it — a CLJS product witness driving the real Hicasso
+  application half beside it — a CLJS product witness driving the real Fresco
   login views and registrations through that example's own published entry
   table, simulating only the transport the other half already proves. **The two
   halves are complementary rather than one end-to-end run**, and the gap is
@@ -203,7 +203,7 @@ and no spec text is edited.
 
 ## 1. The question, and the three jobs both arms must do
 
-Hicasso graduates with SSR or it does not graduate — that is HD-020's addendum
+Fresco graduates with SSR or it does not graduate — that is HD-020's addendum
 and EP-0038's, both taken by the operator on 2026-08-04. The remaining question
 is *what produces the markup on a production server*.
 
@@ -217,14 +217,14 @@ Whatever produces it must do three jobs, and the arms differ on all three:
 
 R0 settles the second and third jobs for both arms: the host is `ssr-ring`, the
 payload is Spec 011's, the mismatch machinery is Spec 011's, and neither arm may
-mint a parallel Hicasso-only mechanism. **So the arms are a choice about job one
+mint a parallel Fresco-only mechanism. **So the arms are a choice about job one
 only** — and the interesting costs are what job one drags behind it.
 
 Job one's two inputs are not equally available to the two arms, and **neither
 arm has both of them in the form job one requires**. Where a JVM walk would run
 the state is in hand — `ssr-ring` holds the post-drain request frame, and
 `compute-sub` is `.cljc`, so the JVM can read against it — but the root form is
-not: a Hicasso root's head is a JavaScript function `defview` mints at namespace
+not: a Fresco root's head is a JavaScript function `defview` mints at namespace
 load, with no JVM referent, and no registry maps a name back to it on either
 host. Where a sidecar would run the root form can be built, because the bundle
 that renders it holds the codec — but the JVM has no name to ask for one by, and
@@ -248,7 +248,7 @@ the honest starting point for anyone re-reading this pricing.
 | Structural tree → HTML, react-dom 19.2.0-pinned | `implementation/ssr/src/re_frame/ssr/ui_tree.cljc` (1,040 lines) | shipped; pure, deterministic, JVM-runnable |
 | A two-sided emitter parity apparatus | `implementation/ui/test/re_frame/ui/parity_fixtures.cljc` (643 lines, 66 cases) + `parity_corpus_cljs_test.cljs` + `parity_html.cljc`, at this page's base commit | **RETIRED — deleted with `re-frame.ui`, and not re-homed.** See the fifth status fact above and §The parity apparatus |
 | An interpreted structural walk that runs on the JVM | `implementation/freehand/src/re_frame/freehand/tree.cljc` (678) + `node.cljc` (1,438) + `conversion.cljc` (906), at this page's base commit | **RETIRED — deleted with Freehand, and not re-homed.** No structural walk runs on the JVM today; see below |
-| Hicasso's hydration door, `defhost` `:ssr` policy (three values, incl. `:render`), Node render entry | `rf2-2rtt6.84` / `.85` / `.86` / `rf2-l0wfx` | shipped in the bench lane |
+| Fresco's hydration door, `defhost` `:ssr` policy (three values, incl. `:render`), Node render entry | `rf2-2rtt6.84` / `.85` / `.86` / `rf2-l0wfx` | shipped in the bench lane |
 | Five hydration correctness rows on the dogfood screen | `rf2-2rtt6.87` | published |
 
 Two entries in that table carry more weight than their line counts suggest.
@@ -276,8 +276,8 @@ was deleted whole by commit `c951808b47`.
 004B tree from Hiccup. The three JVM-capable files that name
 `:rf.ui/tree-version` are the serialiser `implementation/ssr/src/re_frame/ssr/ui_tree.cljc`
 and its two tests, and all three **consume** a tree rather than produce one; the
-only surviving producer is the Hicasso test kit's L2 walk at
-`implementation/hicasso/test_kit/src/re_frame/hicasso/test.cljs`, which is
+only surviving producer is the Fresco test kit's L2 walk at
+`implementation/fresco/test_kit/src/re_frame/fresco/test.cljs`, which is
 CLJS-only and is a test kit rather than a render path. `re-frame.ssr/render-to-string`
 does walk Hiccup on the JVM, but to HTML directly — it is the hiccup tier §2's
 seam paragraph quotes, not a structural walk.
@@ -286,7 +286,7 @@ It is worth being precise about what the Freehand precedent proved and what it
 did not, because the precedent outlives its subject. It proved a `.cljc`
 interpreted walk to the v1 tree was buildable, shippable and
 conformance-testable, and that the pattern was not novel in this repo when this
-page priced it. It proved nothing about Hicasso's codec, which is different code
+page priced it. It proved nothing about Fresco's codec, which is different code
 with different semantics — `front/codec.cljs` requires `["react" :as react]` and
 calls `react/createElement` / `react/memo` / `react/useSyncExternalStore`
 directly, with no structural-tree stage anywhere in it. And Freehand's JVM walk
@@ -318,21 +318,21 @@ quietly assumed.
 
 ## 3. How R0 bites each arm
 
-R0 is the binding constraint: Hicasso rides re-frame2's *existing* Spec 011
+R0 is the binding constraint: Fresco rides re-frame2's *existing* Spec 011
 mechanism — payload policy, `#__rf_payload`, `ssr/hydrate!`, `:rf/hydrate`, the
-mismatch machinery, `ssr-ring` as HTTP host — **never a parallel Hicasso-only
+mismatch machinery, `ssr-ring` as HTTP host — **never a parallel Fresco-only
 mechanism**.
 
 **For the JVM walk, R0 is nearly free.** The arm is in-process on the JVM, so it
 inherits `ssr-ring`'s host wholesale: the pipeline drains events, assembles the
 page, writes the payload script, and calls one function differently. The
 payload, the manifest, the response accumulator and the error projection are
-untouched. The arm adds a second *emitter* of Hicasso semantics, which is not
+untouched. The arm adds a second *emitter* of Fresco semantics, which is not
 what R0 forbids — Spec 004B blesses exactly that shape ("two modes, two
 emitters, one tree"; "the emitters are separate implementations on purpose …
 divergence is *detected, not prevented*"). What is genuinely open is that 004B
 writes that blessing for **Freehand**, and extending the contract to cover a
-Hicasso structural emitter is a spec question this page is fenced from
+Fresco structural emitter is a spec question this page is fenced from
 answering. It belongs in the sitting's output, not in its inputs.
 
 **For the Node sidecar, R0 is the binding shape of the design, and the spike
@@ -366,7 +366,7 @@ record of what was true when §3 was written.)*
 
 ### What has to be built
 
-A `.cljc` twin of the Hicasso codec's pure analysis rules, emitting the 004B v1
+A `.cljc` twin of the Fresco codec's pure analysis rules, emitting the 004B v1
 structural tree, with reads resolving through `re-frame.subs/compute-sub`
 (`implementation/core/src/re_frame/subs.cljc` — already `.cljc`, already
 public, `[query-v db]`, needing no frame and no reactive runtime, and accepting
@@ -376,11 +376,11 @@ reachable too: the same namespace's `^:no-doc compute-sub-with-memo` takes a
 caller-supplied memo atom, so sharing one across a page's reads is a wiring
 question rather than a new mechanism.
 
-The codec is `implementation/hicasso/test/re_frame/bench/hicasso/front/codec.cljs`
+The codec is `implementation/fresco/test/re_frame/bench/fresco/front/codec.cljs`
 — **1,789 lines, 77 top-level definitions, `.cljs` only**, measured at this
 page's base commit `a40da23a51`, where the same file sat under
 `implementation/freehand/test/`. The frozen donor root was re-homed to
-`implementation/hicasso` ahead of Freehand's deletion, so this row is a move and
+`implementation/fresco` ahead of Freehand's deletion, so this row is a move and
 not a loss; the measurement is left pinned where it was taken and is not
 restated against the file's later size. Every path in the table below is
 relative to that donor root, and all seven resolve under it today. It is not the
@@ -503,7 +503,7 @@ its single content entry arrives "already text-coalesced". Coalescing happens at
 nothing replaced them. A repo-wide search for a text-coalescing implementation
 now returns a single hit, and it is the `ui_tree.cljc` docstring quoted above
 recording that its input arrives already coalesced — the serialiser names the
-step, it does not perform it. **So a Hicasso JVM twin would have to write the
+step, it does not perform it. **So a Fresco JVM twin would have to write the
 first surviving implementation rather than a fourth copy of an existing one**,
 because the CLJS codec has none either — it hands children to `createElement` as
 authored, which is exactly why React's own render is separator-correct and a
@@ -560,7 +560,7 @@ nothing in this repo derives the conversion tables from a real react-dom, and a
 bump is again answered by reading. Second, and the same point from the other
 side: that pin anchored the serialiser to **the UI compiler's** rule table, and
 the walk arm's *extra* cost was a second pinning relationship on top of a first
-one it inherited free. The first one is gone, so a Hicasso JVM twin now owes the
+one it inherited free. The first one is gone, so a Fresco JVM twin now owes the
 corpus cases, the probe and a pinning relationship from nothing — new apparatus
 entire, with no old apparatus left to extend.
 
@@ -621,7 +621,7 @@ produces both sides, so there is nothing for two tables to disagree about.
   corpus grows with it and the react-dom-bump tax grows with the corpus.
 - If the text-separator row cannot be settled without changing the tree's
   canonical form, the change reaches Spec 004B and every existing consumer of
-  the v1 tree, not just Hicasso.
+  the v1 tree, not just Fresco.
 - If attribute-level divergences turn out to be common in practice, the arm's
   correctness rests entirely on a corpus that has to be complete, and corpus
   completeness is not a thing anyone can assert.
@@ -635,9 +635,9 @@ The render exists and is witnessed. What does not exist is everything around it.
 | Piece | State when this page was written |
 |---|---|
 | The render itself | **built** — the entry's `render`, `renderToString` over the same runtime/mount/codec the browser uses |
-| A root the JVM can name | **no** — `render` takes `:hiccup`, and a Hicasso root is `[<minted head> {props}]` whose head is a JavaScript function with no JVM referent. See below |
+| A root the JVM can name | **no** — `render` takes `:hiccup`, and a Fresco root is `[<minted head> {props}]` whose head is a JavaScript function with no JVM referent. See below |
 | A JVM↔Node contract | **does not exist** — the spike is Node-only end to end |
-| A callable Node process | **no** — the build is a `:node-script` publishing on `globalThis.HICASSO_SSR`; the driver `require`s the bundle in-process, and there is no module export and no IPC |
+| A callable Node process | **no** — the build is a `:node-script` publishing on `globalThis.FRESCO_SSR`; the driver `require`s the bundle in-process, and there is no module export and no IPC |
 | A production host in front of it | **explicitly not** — `driver.cjs`'s `serve` disclaims the response accumulator, cookies, redirects and CRLF fail-fast, and `/main.js` returns a stub |
 | Payload/shell written by the JVM | **no** — the spike writes both in Node, re-spelling `ssr-ring`'s shapes by hand |
 | Process supervision, pooling, restart | **not started** |
@@ -652,9 +652,9 @@ shipped entry**, and §6 of this page already contained the refutation of one of
 them. What follows replaces that sentence; the repricing it forces is in §10.
 
 **The root form is not an EDN value and has no JVM referent.**
-`re-frame.bench.hicasso.ssr.entry/render` takes `:hiccup` — its own docstring
+`re-frame.bench.fresco.ssr.entry/render` takes `:hiccup` — its own docstring
 says *"REQUIRED. The root hiccup form"* — and hands it straight to
-`codec/root-element`. A Hicasso root form is `[<minted head> {props}]`:
+`codec/root-element`. A Fresco root form is `[<minted head> {props}]`:
 `defview` expands to a `def` of `(runtime/mint-view! "<ns>/<sym>" (fn …))`, and
 `mint-view!`'s docstring is explicit that **the returned value is still the
 function**. So the head is a JavaScript function created at namespace load,
@@ -684,7 +684,7 @@ table that bundle publishes — plus **root arguments in a stated serialization
 domain**. The shape is not an invention: core already registers views under
 stable ids and looks them up with `rf/view` (`registrar/lookup :view id`), which
 is the *"other explicit cross-host registry"* the audit allows for. What is
-absent is Hicasso participating in any such registry. `defview` mints a `def`,
+absent is Fresco participating in any such registry. `defview` mints a `def`,
 and the name it does capture at expansion — `"<ns>/<sym>"`, stamped by
 `mint-view!` as `displayName` — is carried **on** the head and is not a key **to**
 it. The inverse map exists in neither host.
@@ -775,7 +775,7 @@ record.
   Nothing detects that skew today.
 - **A build step the programmer owns.** The sidecar bundle is per-application:
   the app's own shadow-cljs build has to produce a server bundle. The spike's is
-  a `:node-script` produced by `--config-merge` over `:hicasso-bench-node`,
+  a `:node-script` produced by `--config-merge` over `:fresco-bench-node`,
   which is a bench convenience and not a shape an application can copy. **And it
   is not only a build**: the bundle has to publish the entry table the JVM's
   identifiers resolve against, so the artefact has a named public surface rather
@@ -803,7 +803,7 @@ record.
   to a second process. That is precisely the decision `payload-policy` exists to
   make explicit and fail-closed for the client wire, and the sidecar wire would
   have no equivalent contract.
-- If a second runtime is unacceptable to the audience Hicasso is for, the arm is
+- If a second runtime is unacceptable to the audience Fresco is for, the arm is
   disqualified on deployment rather than on engineering, and no amount of parity
   saving buys it back.
 - If the render contract ends up needing to carry request context, cofx, or the
@@ -836,10 +836,10 @@ sitting will want them:
    hydration-mismatch section is tiered by *client render-tree representation*,
    and both the compiled tier and native React-element roots "deliberately carry
    **no** such hash", verifying instead by React-native adoption through
-   `onRecoverableError`. Hicasso is a React adapter minting React-element roots.
+   `onRecoverableError`. Fresco is a React adapter minting React-element roots.
    On that reading `rf2-2rtt6.91`'s candidate (c) — accept the shallow hash, or
    carry none, and rely on adoption — is not a concession but the spec's own
-   existing answer for Hicasso's tier, and `rf2-2rtt6.97` has already landed the
+   existing answer for Fresco's tier, and `rf2-2rtt6.97` has already landed the
    `onRecoverableError` door that answer requires. This is an observation for
    `rf2-2rtt6.91`'s owner, not a ruling, and it does not change the pricing of
    either arm.
@@ -849,7 +849,7 @@ was the ruling.** The section above stands as written: it is a dated record of a
 measurement that is *still exactly reproducible*, and nothing on this page ever
 leaned on the hash. Three corrections, none of which move a figure:
 
-- **The status.** The hash is no longer live for this tier. The Hicasso SSR
+- **The status.** The hash is no longer live for this tier. The Fresco SSR
   entry stopped emitting `:rf/render-hash` altogether, and Spec 011 now states
   the **server** end of the tier rule it already stated for the client: a root
   that verifies by React-native adoption — a compiled `re-frame.ui` root, a
@@ -857,11 +857,11 @@ leaned on the hash. Three corrections, none of which move a figure:
   payload and stamps no `data-rf-render-hash` marker on its root element.
   Observation 3 read the tiering correctly: it keys on **render-tree
   representation, not on adapter brand**, and candidate (c) was the spec's own
-  existing answer for Hicasso's tier rather than a concession. The payload now
+  existing answer for Fresco's tier rather than a concession. The payload now
   **omits** the key rather than stamping a nil, because the schema slot is
   `{:optional true} :string` and not `[:maybe :string]` — a present-and-nil key
   is not a legal spelling of absence.
-- **The render-tree hash `83b865f8` was never a Hicasso fact.** It is the
+- **The render-tree hash `83b865f8` was never a Fresco fact.** It is the
   FNV-1a-32 of the canonical EDN `[#fn[] {}]` — the *unresolved*
   `[<minted head> {props}]` root, in which canonical EDN renders every function
   identically. **Any** `[<fn> {}]` root takes the same value, which is exactly
@@ -937,7 +937,7 @@ in two:
 | X4 the screen is alive | the hydrated screen dispatches the stated 15 intents | — |
 | X5 teardown clean | zero residue after unmounting a hydrated root | — |
 
-So: **the client half of Hicasso SSR is witnessed and is arm-independent.** The
+So: **the client half of Fresco SSR is witnessed and is arm-independent.** The
 hydration door, the adoption, the reactivity, the liveness and the teardown hold
 whatever produced the bytes, and that is a genuine and substantial input to the
 sitting for both arms.
@@ -952,9 +952,9 @@ either.
 
 Named explicitly, because at a sitting an honest gap outranks a guess.
 
-1. **No JVM emitter of Hicasso semantics exists**, so there is no parity row, no
+1. **No JVM emitter of Fresco semantics exists**, so there is no parity row, no
    byte comparison, and no idea how many of the 66 existing corpus cases would
-   need Hicasso siblings.
+   need Fresco siblings.
 2. **No JVM↔Node render contract exists**, so the sidecar has no latency,
    throughput, snapshot-serialisation or process-supervision figure. Since
    2026-08-05 this row is sharper than "unmeasured": per §5 there is no stable
@@ -967,7 +967,7 @@ Named explicitly, because at a sitting an honest gap outranks a guess.
    programme has ruled it does not measure.
 4. **The cost of resolving reads through `compute-sub` on a real page.** The
    mechanism exists and a shared memo is reachable (`compute-sub-with-memo`),
-   but nothing has measured what a Hicasso-shaped page costs when every read
+   but nothing has measured what a Fresco-shaped page costs when every read
    bypasses the reactive cache. The census's seven-read archetype is the obvious
    witness and nobody has run it.
 5. **The text-separator row is unsettled and its fixture does not exist**, and
@@ -978,7 +978,7 @@ Named explicitly, because at a sitting an honest gap outranks a guess.
 7. **HD-021(a)'s headless-door demand is unquantified.** No open bead requires
    it, so the walk arm's co-discharge is a benefit nobody has costed the absence
    of.
-8. **How many of the 66 existing parity cases need Hicasso siblings** is
+8. **How many of the 66 existing parity cases need Fresco siblings** is
    unknown. The site roster in §4 is enumerated; the corpus mapping is not.
 9. **Node's runtime pin is CI-only.** The workflows pin `node-version: '24'`;
    `implementation/package.json` carries no `engines` field and there is no
@@ -993,12 +993,12 @@ One row per axis, and no column is a score.
 | Production runtimes | one (the JVM the app already has) | two, supervised and scaled independently |
 | R0 fit | inherits `ssr-ring` wholesale; one call changes | compliant only if a JVM↔Node contract is built; the spike's shape is not it |
 | Spec 011 reuse | payload, manifest, head, response, host — all reused | same on the JVM side; the spike's Node side re-spells the payload tag and shell by hand |
-| Emitters of Hicasso semantics | two | one |
+| Emitters of Fresco semantics | two | one |
 | Parity apparatus | extend a live one (66 cases today), re-opened at each react-dom bump | none, ever |
 | Text-separator row | must be settled first, with new apparatus | does not arise |
 | Attribute-only divergence | possible, and unreportable by React | impossible by construction |
 | Codec churn exposure | a twin to keep in step; 3–19 commits/day into `front/` this week | none |
-| How the host names the root | a Var the JVM calls in-process — the shape `ssr-ring` already uses for core roots, but no Hicasso root is one today: `defview` mints a JavaScript function with no JVM referent (§5) | a stable identifier resolved against a table the app's Node bundle publishes — neither the identifier nor the table exists (§5) |
+| How the host names the root | a Var the JVM calls in-process — the shape `ssr-ring` already uses for core roots, but no Fresco root is one today: `defview` mints a JavaScript function with no JVM referent (§5) | a stable identifier resolved against a table the app's Node bundle publishes — neither the identifier nor the table exists (§5) |
 | `defhost` `:ssr :render` (rf2-l0wfx, 2026-08-05) | not reachable — no React on the JVM; such a host must be written `:client-only` or `{:fallback …}`, so the arm constrains the authoring surface rather than failing | reachable — it is the same React that renders it in the browser |
 | What crosses per request | nothing — one process | a render-visibility projection of the post-drain frame-state, in a domain and under a policy not yet written (§5); unmeasured |
 | Deploy lockstep | none | two artefacts must ship together; the entry table is the one thing that would make the skew detectable at all |
@@ -1013,7 +1013,7 @@ are with their basis stated; anyone may re-derive them.
 
 **Arm A — JVM structural walk.** The nearest landed analogue is Freehand's own
 cross-host walk: `tree.cljc` + `node.cljc` + `conversion.cljc` = 3,022 shipped
-lines plus its conformance corpus. Hicasso's twin is smaller in scope (no
+lines plus its conformance corpus. Fresco's twin is smaller in scope (no
 compiled tier) and larger in surface (intents, controlled, presence, route-link).
 
 | Bead | What it lands | Estimate |
@@ -1022,7 +1022,7 @@ compiled tier) and larger in surface (intents, controlled, presence, route-link)
 | A2 | the read resolver — `compute-sub` against the request snapshot, sharing one memo across the walk | 0.5 week — the mechanism exists |
 | A3 | intents, controlled, presence, route-link server answers | 1–1.5 weeks |
 | A4 | the text-separator settlement — a fourth coalescer, a `renderToString`-authored hydration fixture, and whatever 004B/011 change it forces | 0.5–1.5 weeks, **and it may reach the spec** |
-| A5 | the parity corpus extension — Hicasso siblings for the corpus cases, **plus a pinning relationship the serialiser does not have for Hicasso today** | 1–2 weeks |
+| A5 | the parity corpus extension — Fresco siblings for the corpus cases, **plus a pinning relationship the serialiser does not have for Fresco today** | 1–2 weeks |
 | A6 | the `ssr-ring` render seam and the end-to-end witness | 0.5 week |
 | | **total** | **5–8.5 weeks, 6 beads** |
 
@@ -1083,10 +1083,10 @@ Named now so that neither arm gets to fail quietly later.
 - A parity case that cannot be expressed in the corpus because the two emitters
   disagree about the *tree* rather than about the markup. That is a contract
   divergence, not an emitter bug, and it means 004B is under-specified for
-  Hicasso.
+  Fresco.
 - The text-separator settlement requiring a change to the tree's canonical form.
   Every existing v1-tree consumer is then in scope and the arm is no longer
-  local to Hicasso.
+  local to Fresco.
 - A rule that cannot be twinned because it needs a live React value at render
   time. The walk cannot reach that case, and a walk that cannot reach a case
   ships an application a hole. **This tripwire stopped being hypothetical on

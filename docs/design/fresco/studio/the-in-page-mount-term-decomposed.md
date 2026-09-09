@@ -2,7 +2,7 @@
 
 `rf2-cno31` fixed the route-link term, re-took the census clock rows, and
 published this split for the acceptance arm — floor `12.010 ms`;
-**hicasso `16.015 = 8.254 taskNet + 6.100 in-page`**; **uix
+**fresco `16.015 = 8.254 taskNet + 6.100 in-page`**; **uix
 `13.742 = 8.246 taskNet + 3.900 in-page`**. `taskNet` is indistinguishable
 between the arms (8.254 against 8.246), so the whole `+2.2 ms` lives in the
 **in-page** half. `rf2-2rtt6.63` had already put the interpreter walk at
@@ -110,9 +110,9 @@ measurement failure — see §5.
 | | |
 |---|---|
 | **Producing commit** | `b8e6da66814e380cafe08a9ebdf58d74f3730828` on `worker/inpage-409ab`, based on `origin/main` `667c744dc8`. Working tree clean at every run (`out/` and `logs/` are ignored), so the stamped blobs are the commit's. **Authored, and rebase-merged, so this SHA is on no branch and will not resolve in a fresh clone**; it landed on main as **`4866dfa90c`** (same patch — identical `git patch-id --stable`), with the blob it contributed unchanged. The landed SHA is the one to check out; it sits on a later base, so it carries the change rather than the whole measured tree |
-| **Reproduction** | `HICASSO_INIT_FN=re-frame.bench.hicasso.inpage-ladder-app/-main HICASSO_OUT_DIR=out/hicasso-inpage-ladder HICASSO_PORT=8152 node implementation/freehand/test/re_frame/bench/hicasso/run.cjs` |
-| **Re-deriving every figure below** | `node implementation/hicasso/test/re_frame/bench/hicasso/inpage_ladder_aggregate.cjs` — fail-closed, see §7 |
-| **Build** | `:hicasso-bench` (`--config-merge` entry swap; `implementation/shadow-cljs.edn` untouched) — `:advanced`, `goog.DEBUG false`, cache cleared per `rf2-2rtt6.20`. 199 files, 144 compiled, **0 warnings** |
+| **Reproduction** | `FRESCO_INIT_FN=re-frame.bench.fresco.inpage-ladder-app/-main FRESCO_OUT_DIR=out/fresco-inpage-ladder FRESCO_PORT=8152 node implementation/freehand/test/re_frame/bench/fresco/run.cjs` |
+| **Re-deriving every figure below** | `node implementation/fresco/test/re_frame/bench/fresco/inpage_ladder_aggregate.cjs` — fail-closed, see §7 |
+| **Build** | `:fresco-bench` (`--config-merge` entry swap; `implementation/shadow-cljs.edn` untouched) — `:advanced`, `goog.DEBUG false`, cache cleared per `rf2-2rtt6.20`. 199 files, 144 compiled, **0 warnings** |
 | **Runtime** | `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), node `v24.13.0`, hardware-concurrency 24, device-memory 32 |
 | **Design** | 6 rounds × (4 warmup + 10 samples) per arm — 60 samples per arm per run, four runs |
 | **Clock** | in-page `performance.now()` around one `react-dom/flushSync` mount, **diagnostic**; deltas on the 10% trimmed mean |
@@ -128,19 +128,19 @@ Blob hashes, read at the producing commit:
 
 | file | blob |
 |---|---|
-| `…/bench/hicasso/inpage_ladder_app.cljs` | `0b6a07734670c93dd7f23b6d18c5dc7f13d83609` **(this bead's instrument)** |
-| `…/bench/hicasso/shapes/large_template.cljs` | `f575b78429ba1292a98a355b3ba1a8d3fac5bec6` |
-| `…/bench/hicasso/shapes/card.cljs` | `07458921f7830b99b60a90262cbb974f7e05d5c7` |
-| `…/bench/hicasso/shapes/census_clock_arms.cljs` | `de6bacfad4c46ca491569ffbe72f4adc0cfa3f36` |
-| `…/bench/hicasso/arm1/runtime.cljs` | `0cd4311c228fd26e66a6c1639dcc3d969dce8950` |
-| `…/bench/hicasso/front/codec.cljs` | `874bd699aa4015fec847d0b4cc699b299e9ca0bd` |
-| `…/bench/hicasso/front/route_link.cljs` | `e093d729322e239d15235bcc11992102826aa977` |
-| `…/bench/hicasso/lane.cljs` | `0642815dc234c1544d1f97bd9e1e4dd24365c027` |
-| `…/bench/hicasso/run.cjs` | `07575b38d950eeee86b54df259c4d059c21c0295` |
+| `…/bench/fresco/inpage_ladder_app.cljs` | `0b6a07734670c93dd7f23b6d18c5dc7f13d83609` **(this bead's instrument)** |
+| `…/bench/fresco/shapes/large_template.cljs` | `f575b78429ba1292a98a355b3ba1a8d3fac5bec6` |
+| `…/bench/fresco/shapes/card.cljs` | `07458921f7830b99b60a90262cbb974f7e05d5c7` |
+| `…/bench/fresco/shapes/census_clock_arms.cljs` | `de6bacfad4c46ca491569ffbe72f4adc0cfa3f36` |
+| `…/bench/fresco/arm1/runtime.cljs` | `0cd4311c228fd26e66a6c1639dcc3d969dce8950` |
+| `…/bench/fresco/front/codec.cljs` | `874bd699aa4015fec847d0b4cc699b299e9ca0bd` |
+| `…/bench/fresco/front/route_link.cljs` | `e093d729322e239d15235bcc11992102826aa977` |
+| `…/bench/fresco/lane.cljs` | `0642815dc234c1544d1f97bd9e1e4dd24365c027` |
+| `…/bench/fresco/run.cjs` | `07575b38d950eeee86b54df259c4d059c21c0295` |
 | `implementation/core/src/re_frame/substrate/spine.cljs` | `ad7b19d9d8957e7a1872e58f9b18ace8acdc4841` |
 
 Datasets — the raw per-sample rounds every statistic below is a function of:
-`implementation/freehand/test/re_frame/bench/hicasso/data/inpage-ladder-409ab/`.
+`implementation/freehand/test/re_frame/bench/fresco/data/inpage-ladder-409ab/`.
 
 ## 3. The instrument ties to the published row
 
@@ -332,7 +332,7 @@ command that rebuilds every published aggregate from them. This page ships
 both.
 
 ```bash
-node implementation/hicasso/test/re_frame/bench/hicasso/inpage_ladder_aggregate.cjs
+node implementation/fresco/test/re_frame/bench/fresco/inpage_ladder_aggregate.cjs
 ```
 
 It reads the four runs' **raw per-sample rounds** and recomputes, per arm,

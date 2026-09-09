@@ -50,17 +50,17 @@ Two corrections to the bead's statement of the symptom fall out of this:
 | Runtime | **chromium 147.0.7727.15** (playwright, headless), `:advanced`, `goog.DEBUG false` |
 | Host | Windows 11, 24 logical cores, 32 GB |
 | Taken | 2026-07-31 00:36 AUSEST |
-| Instrument | `implementation/freehand/test/re_frame/bench/hicasso/z3vlz_{probe,slim_substrate,reagent_substrate}.cljs` |
+| Instrument | `implementation/freehand/test/re_frame/bench/fresco/z3vlz_{probe,slim_substrate,reagent_substrate}.cljs` |
 | Entries | `z3vlz_{slim_only,slim_reagent,slim_uix,mixed}.cljs` |
-| Build id | `:hicasso-bench` via `--config-merge` — **no new build id**, `implementation/shadow-cljs.edn` untouched |
+| Build id | `:fresco-bench` via `--config-merge` — **no new build id**, `implementation/shadow-cljs.edn` untouched |
 
 ```bash
 cd C:/path/to/re-frame2
-node implementation/hicasso/test/re_frame/bench/hicasso/z3vlz_run.cjs
+node implementation/fresco/test/re_frame/bench/fresco/z3vlz_run.cjs
 
 # one rung at a time
 Z3VLZ_ONLY=slim-only Z3VLZ_PORT=8171 \
-  node implementation/hicasso/test/re_frame/bench/hicasso/z3vlz_run.cjs
+  node implementation/fresco/test/re_frame/bench/fresco/z3vlz_run.cjs
 ```
 
 Exit codes: `0` every declared bundle matched and every page ran; `1` a build

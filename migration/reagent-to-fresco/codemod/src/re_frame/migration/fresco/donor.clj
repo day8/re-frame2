@@ -1,8 +1,8 @@
-(ns re-frame.migration.hicasso.donor
+(ns re-frame.migration.fresco.donor
   "**What Reagent 2.0.1 does** — the DONOR column of the design's §3 table.
 
   Every rewrite in
-  `docs/design/hicasso/studio/reagent-codemod-against-the-landed-escape.md`
+  `docs/design/fresco/studio/reagent-codemod-against-the-landed-escape.md`
   is argued from a proof sketch, and every proof sketch is a claim about
   this namespace's subject: what Reagent's `convert-prop-value` / `kv-conv`
   / `cached-prop-name` answer for a given prop. The claims are pinned by an
@@ -14,11 +14,11 @@
   ## The key function, and why it is not transcribed
 
   Reagent's `cached-prop-name` and this repo's
-  [[re-frame.hicasso.impl.slot/prop-name]] are the SAME kebab→camel
+  [[re-frame.fresco.impl.slot/prop-name]] are the SAME kebab→camel
   rule with the same three seeded renames and the same `aria`/`data`
   exemption. They part company in exactly two cells:
 
-  | cell | Reagent's `cached-prop-name` | our `rf.hicasso.impl.slot/prop-name` |
+  | cell | Reagent's `cached-prop-name` | our `rf.fresco.impl.slot/prop-name` |
   |---|---|---|
   | a STRING key | verbatim — the cache is only consulted for `named?` keys, so `\"class\"` stays `\"class\"` | the three renames apply to every spelling, so `\"class\"` is `\"className\"` |
   | a `--custom-property` | mangled: `--brand-color` → `BrandColor` | preserved verbatim |
@@ -32,7 +32,7 @@
   directions. There is one camel rule in this repository and this
   namespace calls it."
   (:require [clojure.string :as str]
-            [re-frame.hicasso.impl.slot :as rf.hicasso.impl.slot]))
+            [re-frame.fresco.impl.slot :as rf.fresco.impl.slot]))
 
 (defn css-var-name?
   "Is `n` a CSS custom property? Reagent's `dash-to-prop-name` splits
@@ -72,7 +72,7 @@
         ;; The cache is keyed on `(name k)`, so a namespaced spelling
         ;; lands on the same slot as its bare twin — `:x/class` is
         ;; `className`. Re-keywording `n` reproduces that.
-        (rf.hicasso.impl.slot/prop-name (keyword n))))
+        (rf.fresco.impl.slot/prop-name (keyword n))))
 
     :else nil))
 

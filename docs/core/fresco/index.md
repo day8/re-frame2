@@ -1,11 +1,11 @@
-# Hicasso user guide
+# Fresco user guide
 
-Hicasso is re-frame2's native view layer. Views are Hiccup data, subscription
+Fresco is re-frame2's native view layer. Views are Hiccup data, subscription
 reads are ordinary function calls, and event handlers can remain event vectors.
 The runtime turns that data into React elements; app-db, events, subscriptions,
 frames, and the event pipeline remain ordinary re-frame2.
 
-This guide explains the Hicasso view model, controlled inputs, forms, routing,
+This guide explains the Fresco view model, controlled inputs, forms, routing,
 resources, React interop, native components, local UI state, motion/presence,
 overlays, SSR, testing, diagnostics, performance, migration, code splitting,
 and accessibility. Numbered pages run from
@@ -19,7 +19,7 @@ ships with; the [Cookbook](cookbook.md) carries whole recipes you can copy;
 [Troubleshooting](troubleshooting.md) starts from a symptom or a complaint id;
 [The escape ladder](escape-ladder.md) gives the criteria for going outside the
 interpreted model and what each rung costs; and the [Glossary](glossary.md)
-defines the Hicasso-specific terms the chapters use.
+defines the Fresco-specific terms the chapters use.
 
 ## Prerequisites
 
@@ -28,9 +28,9 @@ subscriptions, effects, and frames. The Core guide owns those concepts. This
 corpus explains what changes at the view layer and how that layer behaves at
 its boundaries.
 
-## When Hicasso fits
+## When Fresco fits
 
-Use Hicasso when you want re-frame2's data-oriented model to continue through
+Use Fresco when you want re-frame2's data-oriented model to continue through
 the view tree:
 
 - markup remains inspectable Hiccup data
@@ -40,20 +40,20 @@ the view tree:
 
 ## When to use another corpus or adapter
 
-Pure business logic and HTTP work with no Hicasso view belong in the Core,
+Pure business logic and HTTP work with no Fresco view belong in the Core,
 async, or resources guides.
 
 A Reagent application still using re-frame v1 event shapes should complete the
-core migration before applying the Hicasso migration. A React-first product —
+core migration before applying the Fresco migration. A React-first product —
 hooks throughout the screen and a React component system at the centre — will
-usually be clearer with the UIx adapter, using Hicasso only where its data-first
+usually be clearer with the UIx adapter, using Fresco only where its data-first
 view model is useful.
 
 ## Status
 
 !!! info "Pre-alpha"
 
-    Hicasso is pre-alpha, and this guide is written against what ships. Every
+    Fresco is pre-alpha, and this guide is written against what ships. Every
     namespace and verb it names is exported today, and a gate reads each
     verb in every fenced sample against the source that defines it, so a
     sample here cannot name a spelling the door does not carry. [SSR and

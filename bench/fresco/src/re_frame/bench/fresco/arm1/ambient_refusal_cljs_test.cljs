@@ -1,8 +1,8 @@
-(ns re-frame.bench.hicasso.arm1.ambient-refusal-cljs-test
+(ns re-frame.bench.fresco.arm1.ambient-refusal-cljs-test
   "AMBIENT `rf/subscribe` / `rf/dispatch` INSIDE A BODY REFUSE (rf2-2rtt6.122).
 
   The hazard this file closes was real, verified, and fenced by nothing
-  but which adapter the host happened to install. Hicasso mounts the
+  but which adapter the host happened to install. Fresco mounts the
   shared adapter-context Provider regardless, and the UIx / Freehand
   adapters publish a `:adapter/current-frame` reader that reads the
   context slot — so an ambient `rf/subscribe` written inside a boundary
@@ -14,8 +14,8 @@
   made elsewhere.
 
   Core now has a refusal tier (`rf.frame/call-with-ambient-frame-refused`)
-  and [[re-frame.bench.hicasso.front.intent/with-frame]] establishes it
-  over every Hicasso render extent, so the answer is the same under every
+  and [[re-frame.bench.fresco.front.intent/with-frame]] establishes it
+  over every Fresco render extent, so the answer is the same under every
   adapter: a loud `:rf.error/ambient-frame-refused` naming the collector.
 
   WHY THESE ROWS ARE NOT VACUOUS, which is the only interesting thing
@@ -29,11 +29,11 @@
   runs under that same publication. Remove the fence and the refusal
   rows go green-to-red as a pair with that control staying green.
 
-  A body run is reached through `rf.bench.hicasso.arm1.runtime/render-body` rather than a React
+  A body run is reached through `rf.bench.fresco.arm1.runtime/render-body` rather than a React
   root on purpose: React routes a render-phase throw to `reportError`,
   where `cljs.test` cannot see it, and a row that cannot see its own
   exception is a row that cannot go red. The real-React half — the
-  adapter island rendering under a Hicasso tree, which must keep its
+  adapter island rendering under a Fresco tree, which must keep its
   ambient resolution — is `arm1/ambient_refusal_dom_cljs_test`.
 
   THE DOOR HAS THREE CONSUMERS AND THIS FILE ONCE COVERED TWO
@@ -47,8 +47,8 @@
             [clojure.string :as str]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.front.intent :as rf.bench.fresco.front.intent]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
@@ -60,7 +60,7 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::rt122)
 
@@ -120,7 +120,7 @@
               "tier 2 is genuinely answering here; if it were not, every
                refusal row below would be proving nothing")
           (is (= 7 @(rf/subscribe [:rt122/v]))
-              "an ambient read outside any Hicasso render extent is
+              "an ambient read outside any Fresco render extent is
                ordinary, correct re-frame2 and stays that way"))))))
 
 ;; ---------------------------------------------------------------------------
@@ -132,11 +132,11 @@
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
-          (let [data (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))]
+          (let [data (outcome #(rf.bench.fresco.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))]
             (is (= :rf.error/ambient-frame-refused (:rf.error/id data))
                 (str "expected the refusal; got " (pr-str data)))
             (is (= :subscribe (:operation data)))
-            (is (= :hicasso (:substrate data))
+            (is (= :fresco (:substrate data))
                 "the payload names the substrate that refused")
             (is (= :rt122/v (:event-id data))
                 "and the query that tried the door")
@@ -149,11 +149,11 @@
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
-          (let [data (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (rf/dispatch [:rt122/bump]) [:li]) {}))]
+          (let [data (outcome #(rf.bench.fresco.arm1.runtime/render-body f (fn [_] (rf/dispatch [:rt122/bump]) [:li]) {}))]
             (is (= :rf.error/ambient-frame-refused (:rf.error/id data))
                 (str "expected the refusal; got " (pr-str data)))
             (is (= :dispatch (:operation data)))
-            (is (= :hicasso (:substrate data)))))))))
+            (is (= :fresco (:substrate data)))))))))
 
 (deftest the-refusal-says-what-to-write-instead
   (testing "the message is the deliverable: the generic no-frame-context
@@ -163,7 +163,7 @@
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
-          (let [data   (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))
+          (let [data   (outcome #(rf.bench.fresco.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))
                 reason (:reason data)]
             (is (string? reason))
             (is (re-find #"collector" reason)
@@ -171,7 +171,7 @@
             (is (re-find #"NOT an absence" reason)
                 "and says explicitly that adding another scope is not the fix")
             (is (= :read-through-the-boundary-collector (:recovery data)))
-            (is (= 'hicasso/boundary-render (:extent data)))))))))
+            (is (= 'fresco/boundary-render (:extent data)))))))))
 
 (deftest the-refusal-rides-the-always-on-axis
   (testing "same ladder as :rf.error/no-frame-context — what it prevents
@@ -182,7 +182,7 @@
       (with-context-frame f
         (fn []
           (let [records (captured-errors
-                          #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))]
+                          #(rf.bench.fresco.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))]
             (is (some (fn [r] (= :rf.error/ambient-frame-refused (:error r))) records)
                 (str "no always-on record for the refusal: " (pr-str records)))))))))
 
@@ -198,7 +198,7 @@
       (with-context-frame f
         (fn []
           (let [seen (volatile! ::unset)]
-            (rf.bench.hicasso.arm1.runtime/render-body f
+            (rf.bench.fresco.arm1.runtime/render-body f
                             (fn [_]
                               (rf/with-frame f (vreset! seen @(rf/subscribe [:rt122/v])))
                               [:li])
@@ -216,7 +216,7 @@
       (with-context-frame f
         (fn []
           (let [seen (volatile! ::unset)]
-            (rf.bench.hicasso.arm1.runtime/render-body f
+            (rf.bench.fresco.arm1.runtime/render-body f
                             (fn [_]
                               (vreset! seen @(rf/subscribe [:rt122/v] {:frame f}))
                               [:li])
@@ -230,7 +230,7 @@
       (with-context-frame f
         (fn []
           (let [seen (volatile! ::unset)]
-            (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (vreset! seen (rf.bench.hicasso.arm1.runtime/sub [:rt122/v])) [:li]) {})
+            (rf.bench.fresco.arm1.runtime/render-body f (fn [_] (vreset! seen (rf.bench.fresco.arm1.runtime/sub [:rt122/v])) [:li]) {})
             (is (= 7 @seen) "the read the author is supposed to write")))))))
 
 (deftest the-refusal-unwinds-with-the-body
@@ -239,13 +239,13 @@
            the model of every child fiber, host-interop gate and event
            callback — resolves ambiently again. This is the scoping row:
            React renders a child only after the parent's render function
-           has returned, so an adapter island under a Hicasso tree never
+           has returned, so an adapter island under a Fresco tree never
            runs inside the binding"
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
           (let [deferred (volatile! nil)]
-            (rf.bench.hicasso.arm1.runtime/render-body f
+            (rf.bench.fresco.arm1.runtime/render-body f
                             (fn [_]
                               (vreset! deferred (fn [] @(rf/subscribe [:rt122/v])))
                               [:li])
@@ -263,8 +263,8 @@
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
-          (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] [:li]) {})
-          ((rf.bench.hicasso.arm1.runtime/frame-dispatch f) [:rt122/bump])
+          (rf.bench.fresco.arm1.runtime/render-body f (fn [_] [:li]) {})
+          ((rf.bench.fresco.arm1.runtime/frame-dispatch f) [:rt122/bump])
           (is (= 8 @(rf/subscribe [:rt122/v]))
               "the intent's dispatch landed and an ambient read outside the
                extent still resolves"))))))
@@ -303,7 +303,7 @@
 ;;
 ;; THE ROW PLANNED HERE SAID THE OPPOSITE, and that is worth recording
 ;; rather than quietly fixing. rf2-2rtt6.118's witness list pinned "the
-;; accidental door": 0-arity `rf/capture-frame` inside a Hicasso body
+;; accidental door": 0-arity `rf/capture-frame` inside a Fresco body
 ;; SUCCEEDS on the dominant configurations — through the raw React-context
 ;; read the UIx and Freehand adapters publish — recorded so that a future
 ;; change to the accident would be seen rather than silent.
@@ -315,7 +315,7 @@
 ;; `:rf.error/ambient-frame-refused` is SETTLED: it is rowed in
 ;; `spec/009-Instrumentation.md`'s error catalogue, it is raised by
 ;; `re-frame.frame/emit-ambient-frame-refused!`, and the stability rule in
-;; `implementation/hicasso/spec/complaints.md` closes the question outright
+;; `implementation/fresco/spec/complaints.md` closes the question outright
 ;; — an id names one refusal, and it is never re-spelled or reused.
 ;;
 ;; So the indirection below is not waiting on a rename; it earns its place
@@ -331,7 +331,7 @@
   live, so it is the anchor rather than a second copy of the spelling."
   [f]
   (:rf.error/id
-    (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))))
+    (outcome #(rf.bench.fresco.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))))
 
 (deftest a-carry-inside-a-body-is-admitted-while-a-read-refuses
   (testing "FLIPPED under rf2-t32wg, which admits the pure doors: this row
@@ -345,7 +345,7 @@
           held (volatile! nil)]
       (with-context-frame f
         (fn []
-          (let [data   (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))
+          (let [data   (outcome #(rf.bench.fresco.arm1.runtime/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))
                 anchor (refusal-id f)]
             (is (some? anchor)
                 "precondition: an ambient READ still refuses here, so the
@@ -377,7 +377,7 @@
         (with-context-frame f
           (fn []
             (vreset! calls 0)
-            (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (rf/capture-frame) [:li]) {}))
+            (outcome #(rf.bench.fresco.arm1.runtime/render-body f (fn [_] (rf/capture-frame) [:li]) {}))
             (is (zero? @calls)
                 "the refused carry never asked the adapter")
 
@@ -400,7 +400,7 @@
     (let [f (make-frame!)]
       (with-context-frame f
         (fn []
-          (let [data   (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))
+          (let [data   (outcome #(rf.bench.fresco.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))
                 reason (:reason data)]
             (is (string? reason))
             (is (re-find #"CARRYING" reason)
@@ -426,7 +426,7 @@
           held (volatile! nil)]
       (with-context-frame f
         (fn []
-          (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (vreset! held (rf/capture-frame f)) [:li]) {})))
+          (rf.bench.fresco.arm1.runtime/render-body f (fn [_] (vreset! held (rf/capture-frame f)) [:li]) {})))
       (is (= f (:frame @held)))
       (is (nil? rf.frame/*ambient-frame-refusal*) "the extent has unwound")
       ((:dispatch-sync @held) [:rt122/bump])
@@ -444,9 +444,9 @@
           held (volatile! nil)]
       (with-context-frame f
         (fn []
-          (rf.bench.hicasso.arm1.runtime/render-body f
+          (rf.bench.fresco.arm1.runtime/render-body f
                           (fn [_]
-                            (vreset! held (rf/capture-frame (rf.bench.hicasso.front.intent/hframe)))
+                            (vreset! held (rf/capture-frame (rf.bench.fresco.front.intent/hframe)))
                             [:li])
                           {})))
       (is (= f (:frame @held)))
@@ -466,7 +466,7 @@
 ;; where the body would read and dispatch against `:b` while the collector's
 ;; reads, the lowered intents and the presence tray target `:a`.
 ;;
-;; Reachable from any host that renders a Hicasso tree inside a scope: a
+;; Reachable from any host that renders a Fresco tree inside a scope: a
 ;; `flushSync` mount under an `rf/with-frame`, an SSR host wrapping
 ;; `renderToString`, a test fixture that root-binds an ambient frame. The SSR
 ;; case is not hypothetical — `test-support`'s `:ambient-frame` default
@@ -497,7 +497,7 @@
       (with-context-frame f
         (fn []
           (let [data   (rf/with-frame other
-                         (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (rf/capture-frame) [:li]) {})))
+                         (outcome #(rf.bench.fresco.arm1.runtime/render-body f (fn [_] (rf/capture-frame) [:li]) {})))
                 anchor (refusal-id f)]
             (is (some? anchor)
                 "precondition: an ambient read refuses here at all, so the
@@ -522,8 +522,8 @@
       (with-context-frame f
         (fn []
           (rf/with-frame other
-            (let [read     (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))
-                  dispatch (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (rf/dispatch [:rt122/bump]) [:li]) {}))]
+            (let [read     (outcome #(rf.bench.fresco.arm1.runtime/render-body f (fn [_] @(rf/subscribe [:rt122/v]) [:li]) {}))
+                  dispatch (outcome #(rf.bench.fresco.arm1.runtime/render-body f (fn [_] (rf/dispatch [:rt122/bump]) [:li]) {}))]
               (is (= :subscribe (:operation read)))
               (is (= other (:carried-frame read))
                   (str "an ambient read under a mismatched scope refuses; got "
@@ -542,7 +542,7 @@
       (with-context-frame f
         (fn []
           (let [reason (:reason (rf/with-frame other
-                                  (outcome #(rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (rf/capture-frame) [:li]) {}))))]
+                                  (outcome #(rf.bench.fresco.arm1.runtime/render-body f (fn [_] (rf/capture-frame) [:li]) {}))))]
             (is (string? reason))
             (is (str/includes? reason (pr-str other)) "it names the carried stamp")
             (is (str/includes? reason (pr-str f)) "and the extent's own frame")
@@ -566,7 +566,7 @@
       (with-context-frame f
         (fn []
           (rf/with-frame f
-            (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))))
+            (rf.bench.fresco.arm1.runtime/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))))
       (is (= f (:frame @held))
           "the ambient carry still answers when the stamp IS the extent's frame")
       ((:dispatch-sync @held) [:rt122/bump])
@@ -589,6 +589,6 @@
       (with-context-frame f
         (fn []
           (rf/with-frame built
-            (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))))
+            (rf.bench.fresco.arm1.runtime/render-body f (fn [_] (vreset! held (rf/capture-frame)) [:li]) {}))))
       (is (= f (:frame @held))
           "a stamp equal to the extent's frame is the extent's frame"))))

@@ -2,7 +2,7 @@
 'use strict';
 // THE BAKE MANIFEST COUNTS BYTES, NOT CODE UNITS — rf2-2rtt6.114.
 //
-//     node hicasso/test/re_frame/bench/hicasso/ssr/bake_bytes.test.cjs
+//     node fresco/test/re_frame/bench/fresco/ssr/bake_bytes.test.cjs
 //
 // THE DEFECT THIS PINS. `driver.cjs bake` wrote a manifest whose
 // `documentBytes`, `bodyBytes` and `payloadBytes` were `String.prototype
@@ -69,7 +69,7 @@ const CASES = [
   { what: 'an astral-plane character', s: `a${CLEF}b`, units: 4, bytes: 6 },
   {
     what: 'the corpus mix — a title, a fallback and a clef',
-    s: `<title>Hicasso SSR ${EM_DASH} defhost</title><span>loading${ELLIPSIS}</span>${CLEF}`,
+    s: `<title>Fresco SSR ${EM_DASH} defhost</title><span>loading${ELLIPSIS}</span>${CLEF}`,
     units: 59,
     bytes: 65,
   },

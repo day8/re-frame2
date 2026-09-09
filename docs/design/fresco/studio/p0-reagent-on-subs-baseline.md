@@ -28,9 +28,9 @@ acceptance `rf2-hic-003`, budget gates `rf2-hic-089`/`rf2-hic-071`, kill rules i
 | | |
 |---|---|
 | **Producing commit** | `19401ad083e895b19d55151157f37a59551cb5e2` — **off main.** Its landed equivalent is **`f03960a8da`** (see [the re-certification](#the-re-certification)); the rebase rewrote the id and moved no instrument byte |
-| **Reproduction** | `cd implementation && npm run bench:hicasso` |
+| **Reproduction** | `cd implementation && npm run bench:fresco` |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium, via Playwright), Windows x64 |
-| **Build** | `:hicasso-bench` — `:advanced`, `goog.DEBUG false` |
+| **Build** | `:fresco-bench` — `:advanced`, `goog.DEBUG false` |
 | **Adapter** | `:rf.adapter/reagent`; Reagent 2.0.1 |
 | **Schedule** | 5 rounds × (8 warm-up + 12 samples) per arm per round, arms interleaved at the sample level, order rotating **and reflecting** on the sample index |
 | **Arm-order guard** | **reportable** — no arm reads differently for its position in the plan. Self-test 8/8 before anything was measured. *This was the pre-#7267 guard; the same verdict has since been re-taken under the repaired one with **zero lost positions on every arm** — see [the re-certification](#the-re-certification)* |
@@ -142,21 +142,21 @@ ancestor of main. Every instrument file matches at the byte:
 
 | file | blob at `19401ad083` **and** `f03960a8da` | on main `32cb224d6e` |
 |---|---|---|
-| `…/hicasso/lane.cljs` | `d32312d9c562f0b6aa7d7f84538eb81ffc18e61c` | `885592cf9fdd…` — **moved** (#7267, #7270) |
-| `…/hicasso/p0_reagent_app.cljs` | `a4aefdd825fef83cc1810b05926a488eee69613d` | `b7dfb2452b8a…` — **moved** (#7267) |
-| `…/hicasso/p0_reagent_views.cljs` | `6daefef0479e0a7247e0deda6f2c574d9c04bd93` | `4032e39779ce…` — **moved** |
-| `…/hicasso/run.cjs` | `3dc92c316191b8f52ab04bfced399192203cf95d` | `3dc92c316191…` — **unchanged** |
+| `…/fresco/lane.cljs` | `d32312d9c562f0b6aa7d7f84538eb81ffc18e61c` | `885592cf9fdd…` — **moved** (#7267, #7270) |
+| `…/fresco/p0_reagent_app.cljs` | `a4aefdd825fef83cc1810b05926a488eee69613d` | `b7dfb2452b8a…` — **moved** (#7267) |
+| `…/fresco/p0_reagent_views.cljs` | `6daefef0479e0a7247e0deda6f2c574d9c04bd93` | `4032e39779ce…` — **moved** |
+| `…/fresco/run.cjs` | `3dc92c316191b8f52ab04bfced399192203cf95d` | `3dc92c316191…` — **unchanged** |
 | `…/bench/order_guard.cljc` | `adf59ca03cfe8e2639de97c031c138838f2d34b7` | `e42450ef1c77…` — **moved** (#7267) |
 
 ```bash
-P=implementation/freehand/test/re_frame/bench/hicasso/p0_reagent_app.cljs
+P=implementation/freehand/test/re_frame/bench/fresco/p0_reagent_app.cljs
 git rev-parse f03960a8da:$P   # a4aefdd825fef83cc1810b05926a488eee69613d
 git merge-base --is-ancestor f03960a8da origin/main && echo on-main
 ```
 
 **Four blobs have moved, so the wave's rule applies: re-run or mark superseded.
 It was re-run.** Twice, five rounds each, at main `32cb224d6e`, under the
-repaired guard — `npm run bench:hicasso`, **exit 0 both times**.
+repaired guard — `npm run bench:fresco`, **exit 0 both times**.
 
 ### Every row reproduces
 
@@ -196,7 +196,7 @@ is the verdict. Nothing here changes; the row's grading is what already said it.
 | | |
 |---|---|
 | **Commit measured at** | `32cb224d6e5dde730d1e7ddc99c062656cb68155` — `origin/main`, clean tree |
-| **Reproduction** | `cd implementation && npm run bench:hicasso` — **run twice at this instrument, exit 0 both times** |
+| **Reproduction** | `cd implementation && npm run bench:fresco` — **run twice at this instrument, exit 0 both times** |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), Windows 11 x64, 24 logical CPUs, sibling agents live on the box |
 | **Instrument** | `lane.cljs` `885592cf9fdd79f701d6353fc5d3dae0868d74f1` · `p0_reagent_app.cljs` `b7dfb2452b8a7984237e0c2db5e117dc72001638` · `p0_reagent_views.cljs` `4032e39779ce55fee1e1cd4f7a8e9561237e2cfd` · `run.cjs` `3dc92c316191b8f52ab04bfced399192203cf95d` · `order_guard.cljc` `e42450ef1c7759b51feca6a3d1bae2c0eb8ab323` |
 | **Arm-order guard** | **no refusal on either run** — `refuse? false`, `contaminated? false`, `unchecked? false`, tolerance 0.10 |
@@ -376,7 +376,7 @@ every run: both read `{:body-children 2, :sub-entries 0, :sub-ref-count 0}`.
 
 ### The corrected instrument, re-run — and nothing moves
 
-`cd implementation && npm run bench:hicasso` — **exit 0**, guard `refuse? false /
+`cd implementation && npm run bench:fresco` — **exit 0**, guard `refuse? false /
 contaminated? false / unchecked? false`, tolerance 0.10, `0 unverified of 1,220`.
 
 | row | figure | published | corrected instrument | overlap | verdict |
@@ -446,7 +446,7 @@ parity, controls and read-back — and neither is adjudicated the winner here.
 What a reader may take from this page is the direction and the fact of a cost;
 the magnitude carries a harness with it.
 
-**Does not settle.** Nothing about a candidate: no Hicasso arm exists, and none is
+**Does not settle.** Nothing about a candidate: no Fresco arm exists, and none is
 quotable against this table until it does. Nothing about UIx (rf2-2rtt6.4 owns the
 frontier comparator and the red-zone ratios are set from it). Nothing about narrow
 writes (rf2-2rtt6.3) or retained heap (rf2-2rtt6.5). And nothing about the

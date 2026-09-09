@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.cold-probe-cljs-test
+(ns re-frame.fresco.cold-probe-cljs-test
   "THE COLD PROBE'S CONTRACT — what a read guarantees on a first,
   uncached read.
 
@@ -84,8 +84,8 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.interop :as rf.interop]
             [re-frame.subs :as rf.subs]
             [re-frame.test-support :as rf.test-support]))
@@ -107,7 +107,7 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!) (vreset! !runs 0))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!) (vreset! !runs 0))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -130,9 +130,9 @@
   about."
   [fid f]
   (let [!seen (volatile! [])]
-    (rf.hicasso.impl.collector/render-body
+    (rf.fresco.impl.collector/render-body
       fid
-      (fn [_] (f (fn [query-v] (vswap! !seen conj (rf.hicasso.impl.collector/sub query-v)))) [:p])
+      (fn [_] (f (fn [query-v] (vswap! !seen conj (rf.fresco.impl.collector/sub query-v)))) [:p])
       {})
     @!seen))
 
@@ -144,7 +144,7 @@
 (def ^:private this-ns
   "The namespace `reg-sub` attributes this file's registrations to, and
   therefore the one an image has to select to carry them."
-  "re-frame.hicasso.cold-probe-cljs-test")
+  "re-frame.fresco.cold-probe-cljs-test")
 
 (defn- image-loaded!
   "A frame running an EXPLICIT image over `selected-ns`, seeded, and
@@ -192,25 +192,25 @@
             reverse edge and no watch; no sub-cache slot, so no reaction
             and no ref-count. An abandoned render pays for its reads and
             keeps none of them"
-    (is (nil? (get @rf.hicasso.impl.collector/!cells (sub-key [:coldprobe/plain]))))
+    (is (nil? (get @rf.fresco.impl.collector/!cells (sub-key [:coldprobe/plain]))))
     (is (nil? (sub-cache-entry [:coldprobe/plain])))
-    (is (= [] (rf.hicasso.test.runtime/cell-readers (sub-key [:coldprobe/plain]))))
+    (is (= [] (rf.fresco.test.runtime/cell-readers (sub-key [:coldprobe/plain]))))
     (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
-           (dissoc (rf.hicasso.test.runtime/residue) :entries))))
+           (dissoc (rf.fresco.test.runtime/residue) :entries))))
 
   ;; THE CONTROL, and the reason the four nils above mean anything. Both
   ;; tables are perfectly capable of holding this key; what decides is
   ;; whether React committed the render.
-  (let [entry   (do (rf.hicasso.impl.collector/render-body
-                      frame-id (fn [_] (rf.hicasso.impl.collector/sub [:coldprobe/plain]) [:p]) {})
-                    (rf.hicasso.impl.collector/last-reads))
-        release (rf.hicasso.impl.collector/commit-boundary! entry (fn []))]
+  (let [entry   (do (rf.fresco.impl.collector/render-body
+                      frame-id (fn [_] (rf.fresco.impl.collector/sub [:coldprobe/plain]) [:p]) {})
+                    (rf.fresco.impl.collector/last-reads))
+        release (rf.fresco.impl.collector/commit-boundary! entry (fn []))]
     (testing "committing the very same read fills both tables — so the
               emptiness above is the probe's promise, not an instrument
               that cannot see"
-      (is (some? (get @rf.hicasso.impl.collector/!cells (sub-key [:coldprobe/plain]))))
+      (is (some? (get @rf.fresco.impl.collector/!cells (sub-key [:coldprobe/plain]))))
       (is (some? (sub-cache-entry [:coldprobe/plain])))
-      (is (= 1 (count (rf.hicasso.test.runtime/cell-readers (sub-key [:coldprobe/plain]))))))
+      (is (= 1 (count (rf.fresco.test.runtime/cell-readers (sub-key [:coldprobe/plain]))))))
     (release)))
 
 (deftest a-cold-read-answers-what-the-committed-path-answers
@@ -219,15 +219,15 @@
   ;; probe's pure compute and the reactive build share the input grammar,
   ;; so a value must not depend on which rung answered it.
   (let [cold (first (run-body! (fn [read] (read [:coldprobe/plain]))))]
-    (let [entry   (do (rf.hicasso.impl.collector/render-body
-                        frame-id (fn [_] (rf.hicasso.impl.collector/sub [:coldprobe/plain]) [:p]) {})
-                      (rf.hicasso.impl.collector/last-reads))
-          release (rf.hicasso.impl.collector/commit-boundary! entry (fn []))
+    (let [entry   (do (rf.fresco.impl.collector/render-body
+                        frame-id (fn [_] (rf.fresco.impl.collector/sub [:coldprobe/plain]) [:p]) {})
+                      (rf.fresco.impl.collector/last-reads))
+          release (rf.fresco.impl.collector/commit-boundary! entry (fn []))
           warm    (first (run-body! (fn [read] (read [:coldprobe/plain]))))]
       (testing "the warm read really is warm — a committed cell now holds
                 the key, so this second read is a pure deref and not a
                 second cold one"
-        (is (some? (get @rf.hicasso.impl.collector/!cells (sub-key [:coldprobe/plain])))))
+        (is (some? (get @rf.fresco.impl.collector/!cells (sub-key [:coldprobe/plain])))))
       (is (= cold warm))
       (is (= 7 warm))
       (release))))
@@ -255,7 +255,7 @@
             scratch's sub-keys are values: a repeated read is a repeated
             entry in the sequence and one member of the set"
     (is (= #{(sub-key [:coldprobe/counted])}
-           (rf.hicasso.test.runtime/reads-of (rf.hicasso.impl.collector/last-reads)))))
+           (rf.fresco.test.runtime/reads-of (rf.fresco.impl.collector/last-reads)))))
 
   ;; THE OTHER HALF, and it is the half a global memo would break. The box
   ;; is reset by every body run, so a LATER render computes again rather
@@ -321,7 +321,7 @@
               cell holds the key, so this read is cold by the runtime's
               own definition and rung 1 is the rung it must take"
       (is (some? (sub-cache-entry [:coldprobe/counted])))
-      (is (nil? (get @rf.hicasso.impl.collector/!cells (sub-key [:coldprobe/counted])))))
+      (is (nil? (get @rf.fresco.impl.collector/!cells (sub-key [:coldprobe/counted])))))
 
     (testing "the read answers the reaction's own value"
       (is (= [7] (run-body! (fn [read] (read [:coldprobe/counted]))))))
@@ -371,7 +371,7 @@
   ;; the coordinate the two images below include and exclude.
   (rf/reg-sub :coldprobe/mine (fn [db _] (:v db)))
 
-  (let [narrow  (image-loaded! ::narrow-image "re-frame.hicasso.todo-support")
+  (let [narrow  (image-loaded! ::narrow-image "re-frame.fresco.todo-support")
         records (errors-during
                   (fn []
                     (is (= [nil] (run-body-in! narrow (fn [read] (read [:coldprobe/mine]))))

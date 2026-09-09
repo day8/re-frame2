@@ -1,10 +1,10 @@
-(ns day8.re-frame2-xray.panels.hicasso-advisor-cljs-test
+(ns day8.re-frame2-xray.panels.fresco-advisor-cljs-test
   "The advisor's algebra — ranking, classification, and the refusal
   (rf2-hic-037).
 
   Pure data → data, so this namespace runs under the JVM target beside the
   CLJS one. The claims that need a live runtime are in
-  `hicasso_causal_cljs_test`.
+  `fresco_causal_cljs_test`.
 
   ## The load-bearing row is a PAIR
 
@@ -21,8 +21,8 @@
             #?(:cljs [cljs.reader])
             #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer [deftest is testing]])
-            [day8.re-frame2-xray.panels.hicasso-advisor :as advisor]
-            [day8.re-frame2-xray.panels.hicasso-helpers :as hh]))
+            [day8.re-frame2-xray.panels.fresco-advisor :as advisor]
+            [day8.re-frame2-xray.panels.fresco-helpers :as hh]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures — envelopes and windows in the producers' own shapes
@@ -202,8 +202,8 @@
     (is (= :host-opaque (:reason (:loss adv))))
     (is (= advisor/advice-schema (:schema adv)))
     (is (= :re-frame2/xray (:producer adv))
-        (str "Xray derived it and Hicasso did not — stamping the producer's "
-             "schema would tell a reader Hicasso vouched for a ranking it has "
+        (str "Xray derived it and Fresco did not — stamping the producer's "
+             "schema would tell a reader Fresco vouched for a ranking it has "
              "never seen"))))
 
 ;; ---------------------------------------------------------------------------
@@ -292,7 +292,7 @@
          ;; below is about EVERY classification the classifier emits, and
          ;; an arm missing from here would be an arm the refusal was never
          ;; asserted over. Its own semantics live in
-         ;; `hicasso-skip-semantics-cljs-test`.
+         ;; `fresco-skip-semantics-cljs-test`.
          [(boundary [[:app/main :a]])
           {:app/main [(bundle 1 :e [(sub-ev :a nil :rf.sub/skip)])]}]
          [(boundary [[:app/main :a]]) {:app/main []}]

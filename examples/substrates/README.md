@@ -29,7 +29,7 @@ namespace and add nothing but their own views and boot:
 |---|---|---|---|
 | Reagent | [`core/login/core.cljs`](../core/login/core.cljs) | `examples/login` | `reg-view` with `dispatch` / `subscribe` injected into the body |
 | UIx | [`uix/login/core.cljs`](uix/login/core.cljs) | `examples/login-uix` | `defui` reading through the `use-sub` / `use-frame` hooks |
-| Hicasso | [`hicasso/login/core.cljs`](hicasso/login/core.cljs) | `examples/login-hicasso` | `h/defview` with `h/sub`, and handlers stated as data — an event vector at `:on-change` |
+| Fresco | [`fresco/login/core.cljs`](fresco/login/core.cljs) | `examples/login-fresco` | `h/defview` with `h/sub`, and handlers stated as data — an event vector at `:on-change` |
 
 Open any two of those three side by side. The subscription vectors are
 identical, the event ids are identical, the app-db shape is identical, and the
@@ -48,18 +48,18 @@ honest:
   `login.model` drags in no view library or adapter
   (`implementation/scripts/check-login-bundle-isolation.cjs`).
 
-### The Hicasso arm also renders on a server
+### The Fresco arm also renders on a server
 
-The Hicasso login carries a fourth file the other two arms do not:
-[`hicasso/login/server.cljs`](hicasso/login/server.cljs), a `:node-library`
-build (`examples/login-hicasso-server`) that publishes the render module the
+The Fresco login carries a fourth file the other two arms do not:
+[`fresco/login/server.cljs`](fresco/login/server.cljs), a `:node-library`
+build (`examples/login-fresco-server`) that publishes the render module the
 [`ssr-node`](../../implementation/ssr-node/README.md) sidecar loads, plus
-[`hicasso/login/host.clj`](hicasso/login/host.clj), the JVM Ring handler that
-dials it — the shape of a native Hicasso root rendered on Node while the JVM
+[`fresco/login/host.clj`](fresco/login/host.clj), the JVM Ring handler that
+dials it — the shape of a native Fresco root rendered on Node while the JVM
 keeps the request, the `<head>`, the payload and the shell (`rf2-8arzr`).
 
 **Both files run, and a gate drives each.** `server.cljs` is exercised by the
-CLJS product witness (`re-frame.hicasso.login-server-crossing-ssr-dom-cljs-test`),
+CLJS product witness (`re-frame.fresco.login-server-crossing-ssr-dom-cljs-test`),
 which drives the real views, the real `login.model` registrations and this
 module's own published entry table through the sidecar's own request validator,
 simulating only the transport. `host.clj` is exercised by
@@ -84,7 +84,7 @@ From `implementation/`:
 ```bash
 npm run dev:example -- examples/login            # Reagent
 npm run dev:example -- examples/login-uix        # UIx
-npm run dev:example -- examples/login-hicasso    # Hicasso
+npm run dev:example -- examples/login-fresco    # Fresco
 npm run dev:example -- examples/counter          # Reagent counter
 npm run dev:example -- examples/counter-uix      # UIx counter
 npm run dev:example -- examples/counter-slim-and-fast

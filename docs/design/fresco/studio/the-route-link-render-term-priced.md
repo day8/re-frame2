@@ -8,7 +8,7 @@ moved back above the line (acceptance 1.2409× → 1.4759×, feed 1.0875× →
 after it: **is 8.21 µs necessary?**
 
 It is not. Roughly half of it was work the synthesis performed and discarded,
-and **77% of it was not Hicasso's at all** — it was routing's, on a path every
+and **77% of it was not Fresco's at all** — it was routing's, on a path every
 re-frame2 link surface runs.
 
 Bead **`rf2-cno31`**. Adjudicated against the mount gate as **`rf2-2rtt6.1`**
@@ -32,7 +32,7 @@ the real one was 39%, so this bead's first act is a decomposition, not a
 remedy.
 
 **Instrument.** Two diagnostic probe apps on the lane's generic `run.cjs`
-driver, both riding `:hicasso-bench` (`:advanced`, `goog.DEBUG false`): they
+driver, both riding `:fresco-bench` (`:advanced`, `goog.DEBUG false`): they
 build the acceptance page's own 207 link addresses from the model's own seed
 (69 cards × two profile links + one article link), run them through the
 runtime's `render-body` door exactly as `route-link` performs them, and
@@ -69,7 +69,7 @@ the seam's own glue (address extraction, the dispatch payload, the native-anchor
 verdict).
 
 **So the cost is the seam's, not ours.** That is the first finding and it
-decides where the remedy goes: fixing it in Hicasso's `route-link` would be
+decides where the remedy goes: fixing it in Fresco's `route-link` would be
 working around routing on behalf of one consumer, while every other link
 surface — `rf/route-link`, `ui/route-link`, Freehand's `v/route-link` — kept
 paying.
@@ -239,7 +239,7 @@ answer false.
 
 ## 5. The re-taken rows
 
-The gated pair is **hicasso / direct UIx-on-subs, same run, raw `TaskDuration`,
+The gated pair is **fresco / direct UIx-on-subs, same run, raw `TaskDuration`,
 floor-normalised, plumb-tared**. Before rows are `rf2-6c237`'s.
 
 `uix` run — **the gate**:
@@ -253,7 +253,7 @@ floor-normalised, plumb-tared**. Before rows are `rf2-6c237`'s.
 `reagent` run — co-instrumented, **never a second gate**. Its control held on
 one row of three, and the other two rows are reported carrying that failure:
 
-| row | control | hicasso / uix | hicasso / reagent | uix / reagent |
+| row | control | fresco / uix | fresco / reagent | uix / reagent |
 |---|---|---|---|---|
 | large-template | **PASS** | 1.1566× [0.9258 – 1.3686] | 1.0436× [STRADDLES 1.0] | 0.9064× [STRADDLES 1.0] |
 | feed | **FAIL** | 1.1814× [1.1121 – 1.3159] | 1.1438× [STRADDLES 1.0] | 0.9685× [STRADDLES 1.0] |
@@ -261,12 +261,12 @@ one row of three, and the other two rows are reported carrying that failure:
 
 **Absolutes, `uix` run** (p50 raw `TaskDuration`, tared; `= taskNet + in-page`):
 
-| row | floor | hicasso | uix | ctl-2× |
+| row | floor | fresco | uix | ctl-2× |
 |---|---|---|---|---|
 | large-template (1,202 el) | 12.010 ms (tared 10.825) | 16.015 = 8.254 + 6.100 | 13.742 = 8.246 + 3.900 | 21.022 |
 | feed (5,129 el) | 43.671 ms (tared 40.452) | 64.110 = 34.029 + 26.150 | 60.068 = 34.054 + 21.300 | 84.289 |
 
-**B / E / Q, per row:** large-template **B=1** (hicasso 141 per-instance reads,
+**B / E / Q, per row:** large-template **B=1** (fresco 141 per-instance reads,
 uix 5 coarse — the read-shape asymmetry the roster states on every stamp),
 E=1,202, Q — grain 0.905 ms; feed **B=301**, 603 per-instance reads on BOTH
 arms (the cleanest gated pair in the file), E=5,129, grain 1.836 ms; ordinary
@@ -345,9 +345,9 @@ feed controls both passed.
 
 | | |
 |---|---|
-| **Producing commit** | `08344cb500` on `worker/linkterm-cno31`. The working tree carried no uncommitted change to any measured file — the only untracked paths were a pinned clj-kondo binary, a PR draft and this run's own dataset, none on the measured path. **Authored, and rebase-merged, so this SHA is on no branch and will not resolve in a fresh clone**; it landed on main as **`d0c91ad811`** (same patch — identical `git patch-id --stable`). The rebase moved only `docs/design/hicasso/decisions.md`, which is not on the measured path; both measured blobs are unchanged. The landed SHA is the one to check out; it sits on a later base, so it carries the change rather than the whole measured tree |
-| **Reproduction** | `C56CLOCK_DATA_DIR=…/data/censusclock-cno31 node implementation/freehand/test/re_frame/bench/hicasso/shapes/census_clock_run.cjs` — both adapter runs, all three rows, nothing overridden |
-| **Build** | `:hicasso-bench` (`--config-merge` entry swap; `implementation/shadow-cljs.edn` untouched) — `:advanced`, `goog.DEBUG false`, lane cache cleared per `rf2-2rtt6.20`. **0 warnings**, 201 files |
+| **Producing commit** | `08344cb500` on `worker/linkterm-cno31`. The working tree carried no uncommitted change to any measured file — the only untracked paths were a pinned clj-kondo binary, a PR draft and this run's own dataset, none on the measured path. **Authored, and rebase-merged, so this SHA is on no branch and will not resolve in a fresh clone**; it landed on main as **`d0c91ad811`** (same patch — identical `git patch-id --stable`). The rebase moved only `docs/design/fresco/decisions.md`, which is not on the measured path; both measured blobs are unchanged. The landed SHA is the one to check out; it sits on a later base, so it carries the change rather than the whole measured tree |
+| **Reproduction** | `C56CLOCK_DATA_DIR=…/data/censusclock-cno31 node implementation/freehand/test/re_frame/bench/fresco/shapes/census_clock_run.cjs` — both adapter runs, all three rows, nothing overridden |
+| **Build** | `:fresco-bench` (`--config-merge` entry swap; `implementation/shadow-cljs.edn` untouched) — `:advanced`, `goog.DEBUG false`, lane cache cleared per `rf2-2rtt6.20`. **0 warnings**, 201 files |
 | **Runtime** | `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), node `v24.13.0`, hardware-concurrency 24, device-memory 32 |
 | **Design** | 6 rounds × 3 blocks × (4 warmup + 10 samples) per arm per row — 18 blocks, the published shape |
 | **Clock / door / tare** | PUBLISHED: `Performance.getMetrics` raw `TaskDuration`, frame-settled. DIAGNOSTIC: `taskNet` + the in-page window on the same samples. One door for every arm including the plumb tare (`page.evaluate → C56CLOCK.sample`), tare subtracted from every figure |
@@ -373,4 +373,4 @@ changes, and the census pages themselves are byte-identical to `rf2-6c237`'s:
 | `…/arm1/runtime.cljs` · `…/lane.cljs` | `d6067d5a41` · `0642815dc2` |
 
 Compact datasets:
-`implementation/freehand/test/re_frame/bench/hicasso/data/censusclock-cno31/`.
+`implementation/freehand/test/re_frame/bench/fresco/data/censusclock-cno31/`.

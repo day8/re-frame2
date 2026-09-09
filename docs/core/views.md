@@ -515,10 +515,10 @@ that survives any async hop. [Frames](frames.md) is that pattern's home.
     Port substrates and only `init!` plus view notation change —
     [Use UIx or reagent-slim](how-to/use-uix-or-slim.md).
 
-??? note "Hicasso: a second way to write a view"
+??? note "Fresco: a second way to write a view"
 
     This page has taught `reg-view`, and `reg-view` is the view API of the Core
-    track. [Hicasso](hicasso/index.md) is re-frame2's own view layer, and it
+    track. [Fresco](fresco/index.md) is re-frame2's own view layer, and it
     offers a different one — `h/defview` in place of `reg-view`, with markup
     that stays inspectable Hiccup data, subscriptions that read as plain values
     wherever a body needs them, handlers that stay event vectors, and a hot
@@ -529,7 +529,7 @@ that survives any async hop. [Frames](frames.md) is that pattern's home.
     What does not change is everything else on this page. Events, app-db,
     subscriptions and the purity rule are identical under both, which is why the
     notation is the last thing this track teaches rather than the first. Note
-    that Hicasso is **not** a substrate and does not belong in the fold above:
-    it still renders through an adapter, and a Hicasso application calls `init!`
+    that Fresco is **not** a substrate and does not belong in the fold above:
+    it still renders through an adapter, and a Fresco application calls `init!`
     with Reagent or UIx exactly as described there. It is pre-alpha, and its
     guide is a draft.

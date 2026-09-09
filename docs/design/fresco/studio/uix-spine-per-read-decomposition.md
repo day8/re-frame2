@@ -235,7 +235,7 @@ expect.
 **This term is irreducible for a hook-based substrate.** It is not re-frame's, it
 does not shrink by writing better re-frame, and it is the reason a subscribing UIx
 boundary loses to Reagent even after the defect above is fixed. It is also the
-term Hicasso is in a position to avoid, since a substrate that does not route
+term Fresco is in a position to avoid, since a substrate that does not route
 reads through hooks does not pay it.
 
 ### 769 B / 23.0 obj — the retained render-phase reaction

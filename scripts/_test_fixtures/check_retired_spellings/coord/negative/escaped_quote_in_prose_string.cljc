@@ -18,7 +18,7 @@
 
 (def retirement-note
   (str "rf2-hic-007 moved the 42 coordinates; the assertion that used "
-       "\"front.codec/\" as its prefix now reads \"re-frame.hicasso.impl.\"."))
+       "\"front.codec/\" as its prefix now reads \"re-frame.fresco.impl.\"."))
 
 (def one-line-note
   "the old assertion used \"arm1.mount/render!\" and had to be rewritten")

@@ -1,7 +1,7 @@
 (ns re-frame.ssr.ring.login-host-crossing-test
   "rf2-8arzr.5 — THE LOGIN ARM'S JVM HOST WITNESS.
 
-  Slice E shipped `examples/substrates/hicasso/login/` as the native-Hicasso
+  Slice E shipped `examples/substrates/fresco/login/` as the native-Fresco
   PRODUCT witness for the ssr-node crossing, and the merged-PR audit found
   that half of it did not run: `host.clj` commented out its `login.model`
   require because the shared model was ClojureScript-only, the example
@@ -12,7 +12,7 @@
   This namespace is the gate that was missing, in two tiers.
 
   UNTAGGED — runs in the default `:test` lane, no Node. Loading this
-  namespace requires `hicasso.login.host`, which requires the shared
+  namespace requires `fresco.login.host`, which requires the shared
   `login.model` on a plain Clojure classpath. That is the compile witness:
   the namespace cannot rot without a red gate. The untagged tests then
   assert the things that hold without a sidecar — that the handler
@@ -24,10 +24,10 @@
   `jvm-node-crossing` job; Node 24 on PATH). Each spawns
   implementation/ssr-node's serve launcher on `test/fixtures/node/
   login_host.cjs`, over a real socket on port 0, and drives
-  `hicasso.login.host/make-handler` — the same constructor the shipped
+  `fresco.login.host/make-handler` — the same constructor the shipped
   `handler` Var is built from, pointed at the ephemeral endpoint the
   spawned sidecar reported. The fixture is configured FROM
-  `hicasso.login.policy`, so the sidecar enforces the application's own
+  `fresco.login.policy`, so the sidecar enforces the application's own
   entry allowlists rather than a second copy of them.
 
   ## What this witnesses, and what it does not
@@ -39,8 +39,8 @@
   launcher, and a complete JVM-owned document comes back with Node's body
   inserted verbatim.
 
-  It does NOT re-witness the Hicasso render itself — that is React on Node,
-  and `re-frame.hicasso.login-server-crossing-ssr-dom-cljs-test` drives the
+  It does NOT re-witness the Fresco render itself — that is React on Node,
+  and `re-frame.fresco.login-server-crossing-ssr-dom-cljs-test` drives the
   real views, the real registrations and the real published entry table
   against the sidecar's own request validator. Compiling the login server
   bundle inside a JVM test would buy nothing that test does not already
@@ -64,8 +64,8 @@
             [re-frame.ssr.ring.node :as rf.ssr.ring.node]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]
             ;; THE SUBJECT. Requiring it is half the witness.
-            [hicasso.login.host :as host]
-            [hicasso.login.policy :as policy])
+            [fresco.login.host :as host]
+            [fresco.login.policy :as policy])
   (:import [java.util.concurrent TimeUnit]))
 
 ;; ===========================================================================
@@ -208,10 +208,10 @@
 (deftest the-jvm-host-loads-and-constructs
   (testing "the namespace this test requires is the deployment's own host"
     (is (fn? host/handler)
-        "hicasso.login.host/handler — constructed at namespace load, on a
+        "fresco.login.host/handler — constructed at namespace load, on a
          plain Clojure classpath, with the shared model required")
     (is (fn? (host/make-handler {:endpoint "http://127.0.0.1:8148"
-                                 :build-id "login-hicasso-dev"}))
+                                 :build-id "login-fresco-dev"}))
         "make-handler builds one against any endpoint — the seam this
          witness drives, and the constructor `handler` itself is built from"))
 
@@ -231,16 +231,16 @@
     (is (= {:app-db     [:auth :auth.login/server-notice]
             :runtime-db [:rf.runtime/machines]}
            policy/render-state-policy)
-        "hicasso.login.policy/render-state-policy — the one list")
-    (is (= "hicasso.login/root" policy/root-entry)
+        "fresco.login.policy/render-state-policy — the one list")
+    (is (= "fresco.login/root" policy/root-entry)
         "and the one entry id"))
 
   (testing "neither reader keeps a copy. host.clj is Clojure and server.cljs
             is ClojureScript, so neither can be read by the other's compiler
             — which is exactly why a copy in either would be silent. Read
             them as TEXT and assert they name the Var instead."
-    (doseq [f ["../../examples/substrates/hicasso/login/host.clj"
-               "../../examples/substrates/hicasso/login/server.cljs"]]
+    (doseq [f ["../../examples/substrates/fresco/login/host.clj"
+               "../../examples/substrates/fresco/login/server.cljs"]]
       (let [src (slurp (io/file f))
             ;; The forms in `policy.cljc`'s own docstring do not appear
             ;; here; what would appear in a COPY is the key vector itself.

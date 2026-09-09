@@ -1,13 +1,13 @@
-(ns re-frame.hicasso.view-annotation-dom-cljs-test
-  "SPEC 006'S TWO DEV-MODE DOM ANNOTATIONS, ON A HICASSO BOUNDARY (rf2-c5w1).
+(ns re-frame.fresco.view-annotation-dom-cljs-test
+  "SPEC 006'S TWO DEV-MODE DOM ANNOTATIONS, ON A FRESCO BOUNDARY (rf2-c5w1).
 
   Spec 006 §Source-coord annotation requires `data-rf2-source-coord` on
   the rendered root DOM element of each registered view, §View tagging
   contract requires `data-rf-view` beside it on the same element and the
   same gate, and §Cross-host binds every in-scope React-binding adapter to
-  both. Hicasso is one — Mike's 2026-07-31 ruling, and its own
-  `re-frame.hicasso.substrate/adapter` — and a `rf.hicasso/defview` is a registered
-  view: `rf.hicasso.impl.collector/publish-view-alias!` writes it into re-frame's `:view`
+  both. Fresco is one — Mike's 2026-07-31 ruling, and its own
+  `re-frame.fresco.substrate/adapter` — and a `rf.fresco/defview` is a registered
+  view: `rf.fresco.impl.collector/publish-view-alias!` writes it into re-frame's `:view`
   registrar under the id `rf/reg-view` would have derived from the same
   symbol.
 
@@ -17,7 +17,7 @@
   (`implementation/adapters/reagent/test/re_frame/view_id_attr_cljs_test.cljs`)
   reads the annotated hiccup straight back out of `(rf/view id)`, because
   there the registered thing IS a hiccup-returning render fn. `(rf/view
-  id)` answers a Hicasso view too (rf2-kuky.60), but what it answers is a
+  id)` answers a Fresco view too (rf2-kuky.60), but what it answers is a
   React component rather than a render fn, so there is still no hiccup to
   read back without mounting; and the claim worth proving is in any case
   the consumers' one — Xray's hover-highlight and
@@ -39,10 +39,10 @@
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::view-annotation)
@@ -51,34 +51,34 @@
   "This namespace's name, which is the `<ns>` half of every id below. Taken
   as a literal rather than read off a var, so a rename reddens the rows
   instead of following them."
-  "re-frame.hicasso.view-annotation-dom-cljs-test")
+  "re-frame.fresco.view-annotation-dom-cljs-test")
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The declarations — one per shape Spec 006 distinguishes
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview plain-root
+(rf.fresco/defview plain-root
   "A DOM-tag root with NO attrs map: the splice branch."
   [_]
   [:p.plain "plain"])
 
-(rf.hicasso/defview attrs-root
+(rf.fresco/defview attrs-root
   "A DOM-tag root that already carries attrs: the merge branch."
   [_]
   [:p {:class "attrs" :id "keep-me"} "attrs"])
 
-(rf.hicasso/defview author-wins
+(rf.fresco/defview author-wins
   "A body that writes `:data-rf-view` itself; the author's value stands."
   [_]
   [:p {:class "wins" :data-rf-view "author-set"} "wins"])
 
-(rf.hicasso/defview author-wins-in-another-spelling
+(rf.fresco/defview author-wins-in-another-spelling
   "A body that writes the STRING spelling of `data-rf-view`, in a map big
   enough to be a PersistentHashMap.
 
@@ -96,24 +96,24 @@
        :data-filler-9  "9" :data-filler-10 "10"}
    "wins"])
 
-(rf.hicasso/defview inner-view
+(rf.fresco/defview inner-view
   "The inner half of a boundary-rooted pair — it tags its OWN root."
   [_]
   [:p.inner "inner"])
 
-(rf.hicasso/defview boundary-root
+(rf.fresco/defview boundary-root
   "A root that is another declared view: Spec 006's component-head
-  exemption, and Hicasso's most ordinary composition."
+  exemption, and Fresco's most ordinary composition."
   [_]
   [inner-view {}])
 
-(rf.hicasso/defview fragment-root
+(rf.fresco/defview fragment-root
   "A fragment root: Spec 006's fragment exemption — no element to carry an
   attribute."
   [_]
   [:<> [:p.frag "fragment"]])
 
-(rf.hicasso/defview screen
+(rf.fresco/defview screen
   "One mount carrying every shape above."
   [_]
   [:div.screen
@@ -132,7 +132,7 @@
   (is true (str "a DOM claim needs a real DOM — " why)))
 
 (defn- fresh! []
-  (rf.hicasso.checkpoint-support/leave-act-environment!)
+  (rf.fresco.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   frame-id)
 
@@ -146,14 +146,14 @@
 
 (defn- mounted! []
   (fresh!)
-  (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [screen {}]))
+  (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [screen {}]))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the annotated shapes
 ;; ---------------------------------------------------------------------------
 
 (deftest a-dom-rooted-boundary-carries-both-annotations
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [handle (mounted!)]
       (try
@@ -177,10 +177,10 @@
         (testing "the mount's own outer view is annotated too — the stamp is
                   per boundary, not per tree"
           (is (= (str ":" view-ns "/screen") (view-attr handle ".screen"))))
-        (finally (rf.hicasso.impl.mount/release! handle))))))
+        (finally (rf.fresco.impl.mount/release! handle))))))
 
 (deftest the-author-wins-a-collision
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [handle (mounted!)]
       (try
@@ -191,10 +191,10 @@
         (is (str/starts-with? (coord-attr handle ".wins")
                               (str view-ns ":author-wins:"))
             "and the attribute it did NOT write is still stamped")
-        (finally (rf.hicasso.impl.mount/release! handle))))))
+        (finally (rf.fresco.impl.mount/release! handle))))))
 
 (deftest the-author-wins-a-collision-in-any-spelling-of-the-slot
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [handle (mounted!)]
       (try
@@ -209,14 +209,14 @@
              is per slot, not a blanket refusal to annotate")
         (is (= "5" (attr handle ".wins-string" "data-filler-5"))
             "the author's ordinary attributes are untouched")
-        (finally (rf.hicasso.impl.mount/release! handle))))))
+        (finally (rf.fresco.impl.mount/release! handle))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the exemptions, asserted as absences
 ;; ---------------------------------------------------------------------------
 
 (deftest a-boundary-rooted-body-is-exempt-and-its-child-tags-itself
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [handle (mounted!)]
       (try
@@ -229,10 +229,10 @@
                   view's element"
           (is (nil? (q handle (str "[data-rf-view='" ":" view-ns "/boundary-root']")))
               "no element claims to be boundary-root"))
-        (finally (rf.hicasso.impl.mount/release! handle))))))
+        (finally (rf.fresco.impl.mount/release! handle))))))
 
 (deftest a-fragment-rooted-body-is-exempt
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [handle (mounted!)]
       (try
@@ -244,14 +244,14 @@
               "and carries no view id — it is the fragment's child, not a
                registered view's root")
           (is (nil? (coord-attr handle ".frag"))))
-        (finally (rf.hicasso.impl.mount/release! handle))))))
+        (finally (rf.fresco.impl.mount/release! handle))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — the forward/backward join a tool actually walks
 ;; ---------------------------------------------------------------------------
 
 (deftest the-attribute-resolves-back-through-the-view-registrar
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [handle (mounted!)]
       (try
@@ -265,4 +265,4 @@
             (is (some? (rf/handler-meta {:source :store :kind :view :id id}))
                 "and that id has a `:view` registrar entry, so the coordinate
                  is recoverable even for the exempt shapes above")))
-        (finally (rf.hicasso.impl.mount/release! handle))))))
+        (finally (rf.fresco.impl.mount/release! handle))))))

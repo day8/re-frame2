@@ -16,7 +16,7 @@ Make the five canonical questions ([`000-Vision.md`](000-Vision.md) §Why it exi
 
 1. A **two-ribbon chrome** (rf2-4vp5j) — a chrome ribbon (`Event History` label + nav cluster + `+ filter` + frame view-scope + Dynamic/Static mode dropdown + settings/close) above an events ribbon (filter pills + hidden-by-filters count). The events ribbon is hidden by default and animates open only once the first filter exists (rf2-pjjwh). The focus-dimension feature (focus button / focus-chip / per-row focus gutter / out-of-focus dimming) and the `Clear Filters` button were RETIRED per rf2-pjjwh — they were not in the Figma surface; row click still SELECTS the cascade and drives every panel.
 2. An **event list** that is the orienting timeline + canonical scrubber.
-3. A **tab bar** of 10 surfaces (Epoch / App-db / Views / Trace / Machines / Routing / Resources / Graph / Frames / Hicasso — the Issues tab was removed per rf2-gbz39 Option (c); the Resources / Graph / Frames tabs are the cohesive-sub-domain L4 lenses added per EP-0016 / EP-0014 / EP-0013, and Hicasso is the evidence lens added per rf2-hic-023).
+3. A **tab bar** of 10 surfaces (Epoch / App-db / Views / Trace / Machines / Routing / Resources / Graph / Frames / Fresco — the Issues tab was removed per rf2-gbz39 Option (c); the Resources / Graph / Frames tabs are the cohesive-sub-domain L4 lenses added per EP-0016 / EP-0014 / EP-0013, and Fresco is the evidence lens added per rf2-hic-023).
 4. A **detail panel** whose content is always the current tab's projection of the focused event.
 
 Every selection event passes through a single spine sub — `:rf.xray/focus` — so every panel reading the spine rebinds atomically. No panel reads `(peek history)`; no panel carries its own `:selected-*-id` slot.
@@ -63,7 +63,7 @@ Wireframe at default (800px popout, "cosy" density):
 │ ◉ :order/retry                                      🌐  ← head/sel      │
 ├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
 │ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ○Resources …    │   L3 — 10 tabs
-│   (… ○Graph ○Frames ○Hicasso — strip scrolls horizontally below 560px)  │
+│   (… ○Graph ○Frames ○Fresco — strip scrolls horizontally below 560px)  │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Epoch panel content for the focused event —                           │   L4 — fills the rest
 │   numbered cascade: DISPATCH · COEFFECTS · HANDLER · FLOW · FX · …      │
@@ -513,7 +513,7 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ○Resources ○Graph ○Frames ○Hicasso │   L3
+│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ○Resources ○Graph ○Frames ○Fresco │   L3
 └───────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -535,7 +535,7 @@ is accepted as a host-friendly alias normalising to `:routing`):
 | 7 | **Resources** | `s` | `:resources` | Server-state / resource cache lens (EP-0016): registry · instances · in-flight work · invalidations · the route→resource graph · scope-resolver audit. Cohesive sub-domain earns its own L4 tab (Mike's cohesive-sub-domain ruling). | [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Xray and AI tooling |
 | 8 | **Graph** | `g` | `:derivation-graph` | The unified derivation/process graph across all algebra-view families (EP-0014 prop-3, rf2-9ett2d). **L4-only** — a `reg-l4-tab!` registry surface with no standalone `mount-*!` facade (shell-internal; focusable, not independently mountable). | [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) |
 | 9 | **Frames** | `u` | `:module-view` | The EP-0023 **`image -> frame`** PUBLIC model (rf2-wtg9z4 · rf2-32siq3.12): each live image-loaded frame as an execution context carrying its resolved image's `[kind id]` descriptors with per-descriptor provenance; the same `(kind id)` resolves differently in frames running different images. A process not using image-loaded frames shows the honest no-image caption. (The retired EP-0013 realm / app-value / module substrate this tab once also surfaced was **deleted in full**.) **L4-only** — a `reg-l4-tab!` registry surface with no standalone `mount-*!` facade (shell-internal; focusable, not independently mountable). | [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) |
-| 10 | **Hicasso** | `h` | `:hicasso` | Six views over the adapter-neutral Hicasso evidence surface (rf2-hic-023): **Mounted** boundaries and their frames · **Reads** attribution · the **Intents** stream · **Why**, which separates what the epoch stamps prove from the causal link that cannot be made · **Advisor**, which ranks the mounted census and refuses the routes its evidence cannot support · **Causal**, which walks one dispatch link by link and names every link it cannot evidence (rf2-hic-037). The last two are derivations over the same four envelopes as the first four, taken in one turn, which is why they are sub-views of this tab rather than tabs of their own. **L4-only** — a `reg-l4-tab!` registry surface with no standalone `mount-*!` facade (shell-internal; focusable, not independently mountable). | [`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md) + [`028-Hicasso-Advisor.md`](028-Hicasso-Advisor.md) |
+| 10 | **Fresco** | `h` | `:fresco` | Six views over the adapter-neutral Fresco evidence surface (rf2-hic-023): **Mounted** boundaries and their frames · **Reads** attribution · the **Intents** stream · **Why**, which separates what the epoch stamps prove from the causal link that cannot be made · **Advisor**, which ranks the mounted census and refuses the routes its evidence cannot support · **Causal**, which walks one dispatch link by link and names every link it cannot evidence (rf2-hic-037). The last two are derivations over the same four envelopes as the first four, taken in one turn, which is why they are sub-views of this tab rather than tabs of their own. **L4-only** — a `reg-l4-tab!` registry surface with no standalone `mount-*!` facade (shell-internal; focusable, not independently mountable). | [`027-Fresco-Evidence.md`](027-Fresco-Evidence.md) + [`028-Fresco-Advisor.md`](028-Fresco-Advisor.md) |
 
 (rf2-gbz39 — the **Issues** tab (`i`) was removed per Mike's Option (c) ruling. It carried JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns. Those classes now surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal; the §5.4 content contract below records WHAT surfaces + where. The underlying `:rf.xray/issues-ribbon` projection survives as the ribbon signal's data source.)
 
@@ -556,7 +556,7 @@ noise that flagged the Xray events-list as a problem.)
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ○Resources ○Graph ○Frames ○Hicasso │
+│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ○Resources ○Graph ○Frames ○Fresco │
 └───────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // THE CANDIDATE'S CLOCK ROWS — driver (rf2-0qj9w).
 //
-//   node implementation/hicasso/test/re_frame/bench/hicasso/clock_run.cjs
+//   node implementation/fresco/test/re_frame/bench/fresco/clock_run.cjs
 //
 // The programme has no wall-clock measurement of its own candidate. Hook
 // count and per-read retained heap are measured; mount, bulk K=100/300,
@@ -20,7 +20,7 @@
 // mutation causes. The error would be tolerable if it were common-mode.
 // It is not: how much work a substrate leaves for the browser after its
 // stack unwinds is precisely what differs between these arms, and
-// Hicasso's whole design concerns WHEN work happens, so an in-page window
+// Fresco's whole design concerns WHEN work happens, so an in-page window
 // systematically flatters whichever arm defers most.
 //
 // So the clock here is CHROME'S OWN. `Performance.getMetrics` over the
@@ -170,9 +170,9 @@ const checkstd = require('./clock_check_standard.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
 
-const BUILD_ID = 'hicasso-bench';
-const OUT_DIR = process.env.HCLOCK_OUT_DIR || 'out/hicasso-clock';
-const INIT_FN = 're-frame.bench.hicasso.clock-app/-main';
+const BUILD_ID = 'fresco-bench';
+const OUT_DIR = process.env.HCLOCK_OUT_DIR || 'out/fresco-clock';
+const INIT_FN = 're-frame.bench.fresco.clock-app/-main';
 const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.HCLOCK_PORT || 8137);
 
@@ -253,7 +253,7 @@ if (ROWS.length === 0) {
   process.exit(1);
 }
 
-const SEGMENTS = ['reagent-subs', 'uix-subs', 'hicasso'];
+const SEGMENTS = ['reagent-subs', 'uix-subs', 'fresco'];
 const FLOOR = 'floor';
 const PLUMB = 'plumb';
 
@@ -275,8 +275,8 @@ const PLUMB = 'plumb';
 // and puts the programme's most-quoted clock row under the same adjudication
 // as every other row this driver prints.
 const BAR_PAIRS = [
-  ['hicasso', 'reagent-subs'],
-  ['hicasso', 'uix-subs'],
+  ['fresco', 'reagent-subs'],
+  ['fresco', 'uix-subs'],
   ['uix-subs', 'reagent-subs'],
 ];
 
@@ -306,7 +306,7 @@ const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'applicat
 function serve() {
   fs.writeFileSync(
     path.join(OUT, 'index.html'),
-    '<!doctype html><html><head><meta charset="utf-8"><title>Hicasso clock</title></head>' +
+    '<!doctype html><html><head><meta charset="utf-8"><title>Fresco clock</title></head>' +
       '<body><div id="app"></div><script src="main.js"></script></body></html>'
   );
   return http
@@ -1689,7 +1689,7 @@ function report(out) {
   // So the excess of an arm's `devtools` term over the tare's baseline tracks
   // that arm's own in-page window: on one bulk300 run, floor 0.62 ms against an
   // in-page 0.40, `reagent-subs` 2.76 against 2.30, `uix-subs` 2.01 against
-  // 1.60, `hicasso` 3.26 against 2.80.
+  // 1.60, `fresco` 3.26 against 2.80.
   //
   // The consequence is not small. `taskNet` is style + layout + paint with the
   // OPERATION'S OWN SCRIPT REMOVED — a frame-ONLY clock, not a frame-inclusive
@@ -2507,7 +2507,7 @@ function rowAdjudication(bars) {
  * direct UIx-on-subs, floor-normalised on the clock of record, the verdict is
  * K1 MISSED, DECISIVELY — the whole interval sits above K1's `1.10x` mount
  * gate on both committed ensembles. The row is
- * `docs/design/hicasso/studio/rows-re-adjudicated-on-the-corrected-clock.md`
+ * `docs/design/fresco/studio/rows-re-adjudicated-on-the-corrected-clock.md`
  * sec 4.3, and the figures are printed by `clock_readjudicate.cjs` over the
  * committed corpus. QUOTE THEM FROM THERE. They are deliberately not copied
  * into this comment: a figure with two homes has two futures, and this file
@@ -2578,7 +2578,7 @@ const REGIMES = {
     // per-block band membership — but the regime's independence from it is what
     // let the row state itself at all, and it is unaffected by the correction.)
     statementNeedsControl: false,
-    // SUPERSEDED (rf2-vr1hl, 2026-08-08), was: 'DIRECTION ONLY — hicasso mounts
+    // SUPERSEDED (rf2-vr1hl, 2026-08-08), was: 'DIRECTION ONLY — fresco mounts
     // materially slower than both adapters; no magnitude'. rf2-t2flm and then
     // rf2-diaud gave the row a magnitude, so DIRECTION ONLY is no longer what
     // it publishes; what this DRIVER can build from one run is what changed.
@@ -2586,7 +2586,7 @@ const REGIMES = {
     // in the cited row and are printed by `clock_readjudicate.cjs`.
     publishes:
       'NO MAGNITUDE FROM ONE RUN — M1 publishes a magnitude, but an ENSEMBLE one, and its verdict is ' +
-      'K1 MISSED, DECISIVELY (docs/design/hicasso/studio/rows-re-adjudicated-on-the-corrected-clock.md sec 4.3)',
+      'K1 MISSED, DECISIVELY (docs/design/fresco/studio/rows-re-adjudicated-on-the-corrected-clock.md sec 4.3)',
     // SUPERSEDED (rf2-vr1hl, 2026-08-08), was: 'ctl-2x undershoots 2.00x by the
     // additive constant c ~ 1.04 ms and no changed-set control can reach a
     // mount, so the control status is the published reason rather than a fault
@@ -2683,7 +2683,7 @@ function reportabilitySelfTest() {
   // bar-level verdict was ADDED to the exit code, not substituted for the
   // row-level one.
   const ctl = reportability([
-    row({ ctlOk: false, ctlNote: ' (check standard hicasso-clock/ctl-2x-level v1: median 0.6156x is outside [1.5509 – 1.8905])' }),
+    row({ ctlOk: false, ctlNote: ' (check standard fresco-clock/ctl-2x-level v1: median 0.6156x is outside [1.5509 – 1.8905])' }),
   ]);
   check(
     'a failed positive control still refuses, alone, exactly as before',
@@ -2731,7 +2731,7 @@ function reportabilitySelfTest() {
   const ADJ = bar(false);
   const UNADJ = bar(true, KEYSTROKE_WHY);
 
-  const allAdj = rowAdjudication({ 'hicasso / reagent-subs': ADJ, 'hicasso / uix-subs': ADJ });
+  const allAdj = rowAdjudication({ 'fresco / reagent-subs': ADJ, 'fresco / uix-subs': ADJ });
   check(
     'a row whose every bar carries a band is adjudicable',
     allAdj.adjudicable === true && allAdj.barCount === 2 && allAdj.unadjudicatedBars.length === 0,
@@ -2739,8 +2739,8 @@ function reportabilitySelfTest() {
   );
 
   const mixedBars = rowAdjudication({
-    'hicasso / reagent-subs': ADJ,
-    'hicasso / uix-subs': UNADJ,
+    'fresco / reagent-subs': ADJ,
+    'fresco / uix-subs': UNADJ,
     'uix-subs / reagent-subs': ADJ,
   });
   check(
@@ -2753,7 +2753,7 @@ function reportabilitySelfTest() {
     'and the mixed row names WHICH bar has no band, rather than the first reason alone',
     mixedBars.barCount === 3 &&
       mixedBars.unadjudicatedBars.length === 1 &&
-      mixedBars.unadjudicatedBars[0] === 'hicasso / uix-subs' &&
+      mixedBars.unadjudicatedBars[0] === 'fresco / uix-subs' &&
       mixedBars.unadjudicatedWhy === KEYSTROKE_WHY,
     JSON.stringify(mixedBars)
   );
@@ -2764,7 +2764,7 @@ function reportabilitySelfTest() {
   check(
     'a mixed row refuses the run, and the refusal counts the bars it is about',
     mixedLines.code !== 0 &&
-      mixedLines.lines.some((l) => l.includes('1 of 3 published bars carry no band (hicasso / uix-subs)')),
+      mixedLines.lines.some((l) => l.includes('1 of 3 published bars carry no band (fresco / uix-subs)')),
     mixedLines.lines.join(' | ')
   );
   check(
@@ -2774,7 +2774,7 @@ function reportabilitySelfTest() {
     mixedLines.lines[mixedLines.lines.length - 1]
   );
 
-  const allUnadj = rowAdjudication({ 'hicasso / reagent-subs': UNADJ, 'hicasso / uix-subs': UNADJ });
+  const allUnadj = rowAdjudication({ 'fresco / reagent-subs': UNADJ, 'fresco / uix-subs': UNADJ });
   check(
     'a row whose every bar is UNADJUDICATED is still unadjudicable — the strict rule ' +
       'did not lose the case the loose one caught',
@@ -2796,20 +2796,20 @@ function reportabilitySelfTest() {
   // AND THE FIELD, not merely the bar (#7550's audit). A bar present but
   // carrying no verdict used to read as adjudicated, because the rule asked
   // truthiness rather than `=== false`.
-  const absentField = rowAdjudication({ 'hicasso / reagent-subs': ADJ, 'hicasso / uix-subs': {} });
+  const absentField = rowAdjudication({ 'fresco / reagent-subs': ADJ, 'fresco / uix-subs': {} });
   check(
     'a bar with NO `unadjudicated` field is unadjudicated — absent is not clean',
     absentField.adjudicable === false &&
       absentField.barCount === 2 &&
       absentField.unadjudicatedBars.length === 1 &&
-      absentField.unadjudicatedBars[0] === 'hicasso / uix-subs' &&
+      absentField.unadjudicatedBars[0] === 'fresco / uix-subs' &&
       absentField.unadjudicatedWhy === 'the bar carries no adjudication verdict at all',
     JSON.stringify(absentField)
   );
   check(
     'and a bar stored as null is unadjudicated rather than a crash',
-    rowAdjudication({ 'hicasso / reagent-subs': null }).adjudicable === false,
-    JSON.stringify(rowAdjudication({ 'hicasso / reagent-subs': null }))
+    rowAdjudication({ 'fresco / reagent-subs': null }).adjudicable === false,
+    JSON.stringify(rowAdjudication({ 'fresco / reagent-subs': null }))
   );
 
   // THE REGIMES (rf2-jcm3p, rf2-swwud). Every fixture above carries no
@@ -3222,14 +3222,14 @@ async function main() {
   }
   console.error(`[clock] seam adjudicator self-test: ${sst.checks.length} checks, all ok`);
 
-  console.log(`;; ==== HICASSO CANDIDATE CLOCK ====`);
+  console.log(`;; ==== FRESCO CANDIDATE CLOCK ====`);
   console.log(`;; chromium ${version} (playwright), :advanced, goog.DEBUG false`);
   console.log(`;; rows      ${ROWS.join(', ')}`);
   console.log(`;; segments  ${SEGMENTS.join(', ')}  (order rotates with the round)`);
   console.log(`;; design    ${ROUNDS} rounds x (${WARMUP} warm-up + ${SAMPLES} samples) per arm per segment`);
   console.log(
     `;; reproduce ${ONLY ? `HCLOCK_ONLY=${ONLY} ` : ''}node ` +
-      `implementation/hicasso/test/re_frame/bench/hicasso/clock_run.cjs`
+      `implementation/fresco/test/re_frame/bench/fresco/clock_run.cjs`
   );
   console.log(`;; tare      ${TARE ? 'ON' : 'OFF'} — plumb, an arm that mounts nothing and settles the same frame`);
   console.log(`;; PREDICTIONS, written before the run:`);

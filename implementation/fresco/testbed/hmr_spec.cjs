@@ -12,9 +12,9 @@
  * the `defview` macro and a real shadow reload, nor catch a renderer that
  * fails to run old-generation cleanup on a type replacement.
  *
- * Every save below is therefore a REAL ONE. `serve-and-run-hicasso-hmr-
+ * Every save below is therefore a REAL ONE. `serve-and-run-fresco-hmr-
  * testbed.cjs` runs `shadow-cljs watch`, rewrites one marked line in
- * `hicasso/testbed/hicasso_hmr_testbed/views.cljs`, and shadow recompiles
+ * `fresco/testbed/fresco_hmr_testbed/views.cljs`, and shadow recompiles
  * that namespace, pushes the module to the live page, re-evaluates it and
  * runs the app's `^:dev/after-load` hook. `runContext.save()` returns only once
  * the page has reported the new literal on screen — so nothing here can
@@ -350,7 +350,7 @@ async function compositionInFlight(page, witness, runContext) {
 // 4. Child hook state inside a host
 // ---------------------------------------------------------------------------
 
-// The child is plain React with no Hicasso in it, which is what makes it a
+// The child is plain React with no Fresco in it, which is what makes it a
 // fair witness: the runtime is not being asked to preserve something it
 // could have preserved. Two observables rather than one — the counter and
 // the per-fiber instance id — because a counter alone cannot separate
@@ -516,7 +516,7 @@ async function frameRoutingAcrossASave(page, witness, runContext) {
 
 // rf2-y5x6j and rf2-iq0a in one section, because they are one fixture.
 //
-// §7 of the Hicasso specification names `HMR` in the code-splitting row's
+// §7 of the Fresco specification names `HMR` in the code-splitting row's
 // required proof, beside load, fallback, error and retry — the four that
 // landed in `lazy_boundary_dom_cljs_test`, which then stated the hot-reload
 // fact in PROSE: "the retry a rejected chunk needs is a NEW HEAD, which is
@@ -851,7 +851,7 @@ const SECTIONS = [
 ];
 
 module.exports = {
-  name: 'Hicasso HMR contract through a real shadow reload',
+  name: 'Fresco HMR contract through a real shadow reload',
   url: '/',
   pageHelpers: PAGE_HELPERS,
   SECTIONS,

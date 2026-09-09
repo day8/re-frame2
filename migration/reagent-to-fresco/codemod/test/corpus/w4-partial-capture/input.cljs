@@ -4,7 +4,7 @@
 
   Reagent's `convert-prop-value` ends with an `ifn?` arm returning
   `(fn [& args] (apply x args))`, and `r/partial` builds a `PartialFn`
-  deftype that reaches it. Hicasso has no such arm, so the object crosses
+  deftype that reaches it. Fresco has no such arm, so the object crosses
   opaque and a working handler stops firing with nothing thrown.
 
   The design's stated rewrite re-evaluates the callee and every argument

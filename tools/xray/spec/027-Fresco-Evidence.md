@@ -1,15 +1,15 @@
-# 027 — The Hicasso Evidence tab
+# 027 — The Fresco Evidence tab
 
-**Status**: shipped (rf2-hic-023) · **Tab**: `:hicasso`, Dynamic L4, order 10, mnemonic `h`
-**Producer**: `re-frame.hicasso.tool` (`implementation/hicasso/`)
-**Consumer**: `day8.re-frame2-xray.panels.hicasso` + `…panels.hicasso-reads` + `…panels.hicasso-helpers`
-**Normative upstream**: `docs/design/hicasso/product/specification.md` §10 · `docs/design/hicasso/product/lanes/testing-xray.md` §Evidence contract
+**Status**: shipped (rf2-hic-023) · **Tab**: `:fresco`, Dynamic L4, order 10, mnemonic `h`
+**Producer**: `re-frame.fresco.tool` (`implementation/fresco/`)
+**Consumer**: `day8.re-frame2-xray.panels.fresco` + `…panels.fresco-reads` + `…panels.fresco-helpers`
+**Normative upstream**: `docs/design/fresco/product/specification.md` §10 · `docs/design/fresco/product/lanes/testing-xray.md` §Evidence contract
 
 ---
 
 ## What this tab is for
 
-Hicasso is a lean-React view substrate: a boundary is a real React function
+Fresco is a lean-React view substrate: a boundary is a real React function
 component, the runtime owns which boundaries a commit must re-run, and
 everything else is React's. The tab answers the four questions spec SN §10
 says a developer actually asks of such a substrate, one sub-view each — and
@@ -26,22 +26,22 @@ ranking about a census the slice no longer agrees with.
 | **Reads** | Which boundaries read each subscription, at what fan-out? | `:read-attribution` |
 | **Intents** | What was dispatched, in order, in the retained window? | `:intents` |
 | **Why** | Which reads changed, and what does that prove? | `:explain-render` |
-| **Advisor** | Which boundary is hot, what owns the pressure, and what is the smallest route that addresses it? | derived — all four, no read of its own ([`028-Hicasso-Advisor.md`](028-Hicasso-Advisor.md)) |
-| **Causal** | One dispatch, walked link by link from event to paint — with every missing link named. | derived — all four, no read of its own ([`028-Hicasso-Advisor.md`](028-Hicasso-Advisor.md)) |
+| **Advisor** | Which boundary is hot, what owns the pressure, and what is the smallest route that addresses it? | derived — all four, no read of its own ([`028-Fresco-Advisor.md`](028-Fresco-Advisor.md)) |
+| **Causal** | One dispatch, walked link by link from event to paint — with every missing link named. | derived — all four, no read of its own ([`028-Fresco-Advisor.md`](028-Fresco-Advisor.md)) |
 
-The live view list is `hicasso-helpers/sub-modes`, and the per-view copy and
+The live view list is `fresco-helpers/sub-modes`, and the per-view copy and
 testid suites count against THAT rather than a literal, so a seventh view
 cannot ship carrying a sixth view's sentence.
 
-The sub-view is panel-local app-db state (`:rf.xray.hicasso/set-view` /
-`:rf.xray.hicasso/view`), normalised on write so a stale or hand-dispatched
+The sub-view is panel-local app-db state (`:rf.xray.fresco/set-view` /
+`:rf.xray.fresco/view`), normalised on write so a stale or hand-dispatched
 id lands on a view that exists. The strip dispatches through the
 `reg-view`-injected frame-bound `dispatch`, threaded down from the `Panel`
 body: the click fires after render unwinds, when the ambient frame is gone,
 so a bare global `rf/dispatch` would leak to `:rf/default` and switch some
 other shell's sub-view (rf2-1w07r; `frame_singleton_guard_test` holds it).
 All four envelopes are taken in ONE turn by
-`:rf.xray.hicasso/data` — the rosters are projections of a single runtime
+`:rf.xray.fresco/data` — the rosters are projections of a single runtime
 state, and reading them across two turns would let a mount land between the
 census and the edges.
 
@@ -53,8 +53,8 @@ Every envelope carries five fields. Three identify it; two state how far to
 trust it.
 
 ```clojure
-{:schema     :re-frame.hicasso.evidence/v3   ; validated FIRST
- :producer   :re-frame/hicasso               ; the schema is adapter-neutral
+{:schema     :re-frame.fresco.evidence/v3   ; validated FIRST
+ :producer   :re-frame/fresco               ; the schema is adapter-neutral
  :read       :mounted-boundaries             ; which question this answers
  :complete?  true                            ; a claim about under-reporting
  :loss       nil}                            ; or {:reason … :dropped …}
@@ -85,11 +85,11 @@ or looked at nothing.
 
 ### Xray and Pair consume the same bytes
 
-There is ONE door. `re-frame.hicasso.tool` exposes exactly four reads, none
+There is ONE door. `re-frame.fresco.tool` exposes exactly four reads, none
 of which takes an argument — no audience, no profile, no verbosity — so the
 AI pair calling `read-mounted-boundaries` on a running application receives
-the identical value Xray does. Xray's read seam (`hicasso-reads.cljs`) passes
-each envelope through UNCHANGED, and `hicasso_cljs_test/the-seam-reshapes-nothing`
+the identical value Xray does. Xray's read seam (`fresco-reads.cljs`) passes
+each envelope through UNCHANGED, and `fresco_cljs_test/the-seam-reshapes-nothing`
 asserts the whole Xray chain — seam and the subscription the view derefs —
 is `pr-str` identical to the producer's answer. Row shaping happens one layer
 further out, in the pure helpers, against an envelope a reader can still see
@@ -102,7 +102,7 @@ byte claim rests on and it has its own witness
 
 ### The schema pin is consumer-owned
 
-`hicasso-helpers/consumed-evidence-schema` and `…/consumed-producer` are
+`fresco-helpers/consumed-evidence-schema` and `…/consumed-producer` are
 LITERALS, deliberately not the producer's vars. Deriving support from the
 producer makes any bump silently "supported", so an evolved shape would be
 mis-parsed as exact and the version boundary would be nominal. A projection
@@ -132,10 +132,10 @@ converts a loud failure into a quiet wrong answer.
 **There is no acceptance path for a superseded version and no compatibility
 adapter.** This is pre-alpha; a shim would restore exactly the mis-parse the
 pin refuses. A v2-stamped envelope is a mismatch at the data layer
-(`hicasso_helpers_cljs_test/the-superseded-v2-shape-is-refused-rather-than-mis-parsed`,
+(`fresco_helpers_cljs_test/the-superseded-v2-shape-is-refused-rather-than-mis-parsed`,
 with a non-vacuity row proving the same envelope parses under the current
 stamp) and on the page
-(`hicasso_cljs_test/an-unparseable-schema-is-MISMATCH-and-suppresses-rows`,
+(`fresco_cljs_test/an-unparseable-schema-is-MISMATCH-and-suppresses-rows`,
 which drives both the superseded `v2` and an unknown future `v99`, because the
 pin is exact rather than a floor).
 
@@ -168,7 +168,7 @@ coordinate to `impl.error`'s dev-only ledger. The name rides on the reference,
 not on the render: in a dev build the shell hands React a per-(entry, view)
 `subscribe` that counts the name where React commits the reference and
 uncounts it where React's cleanup releases it, kept on the read-set entry
-under the `hicassoViews` own property inside `goog.DEBUG`. So a row's
+under the `frescoViews` own property inside `goog.DEBUG`. So a row's
 `:views` is exactly the roster `refs > 0` claims — a view that unmounts
 leaves the row its twin still holds, and a render React discards (a suspended
 attempt, an aborted transition, StrictMode's first invoke) names nothing,
@@ -220,7 +220,7 @@ door for a roster keyed by view id and occurrence, plus a compiler manifest.
 Neither had a counterpart on this door, and neither was a gap awaiting closure —
 the read set is the only identity this runtime retains, and no evidence
 subsystem ships. Those sections therefore RETIRED rather than being re-pointed
-at `re-frame.hicasso.tool` (rf2-l86mm); the question-by-question mapping and
+at `re-frame.fresco.tool` (rf2-l86mm); the question-by-question mapping and
 the disposition are recorded once, in
 [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §3.4.1. This
 tab is now the only rendering of any view substrate's live evidence in Xray.
@@ -242,7 +242,7 @@ fields on the row and separate lines on the screen.
   `[:row 1]` and `[:row 2]` are one registration and two different reads, and
   a Why view that answered ":row moved" to a developer looking at eight rows
   would be collapsing an identity the door already held (audit #7789).
-- **Uncorrelated.** Hicasso's commit seam records no cascade id, so nothing in
+- **Uncorrelated.** Fresco's commit seam records no cascade id, so nothing in
   the retained window can be JOINED to a boundary's re-run — structurally,
   not circumstantially: a bigger ring does not fix it, and the row's own
   `:loss` says so. `:candidates` are the retained runs that recomputed a
@@ -302,7 +302,7 @@ That witness covers a secret RETURN VALUE. A second pair covers a secret
 QUERY ARGUMENT, which is a different path and was the one that leaked:
 `a-sensitive-query-argument-never-reaches-a-key-a-reader-or-an-explanation`
 spans the mounted, attribution and Why envelopes, and
-`hicasso_cljs_test/a-sensitive-query-argument-reaches-neither-the-page-nor-a-testid`
+`fresco_cljs_test/a-sensitive-query-argument-reaches-neither-the-page-nor-a-testid`
 spans the rendered tree — text AND `data-testid`, because the helpers printed
 the raw query in a label and hashed it into a DOM id, so an envelope-only
 control cannot see the escape. Both use frame destruction as the forcing
@@ -321,9 +321,9 @@ own testid with its own prose.
 
 | Presence | testid | Means |
 |---|---|---|
-| `:absent` | `rf-xray-hicasso-absent` | the door answered `nil` — not running Hicasso, or a production build |
-| `:mismatch` | `rf-xray-hicasso-mismatch` | Hicasso answered, stamping a schema/producer this build was not taught |
-| `:idle` | per view, below | Hicasso answered with an EMPTY roster — which is a different fact in each view |
+| `:absent` | `rf-xray-fresco-absent` | the door answered `nil` — not running Fresco, or a production build |
+| `:mismatch` | `rf-xray-fresco-mismatch` | Fresco answered, stamping a schema/producer this build was not taught |
+| `:idle` | per view, below | Fresco answered with an EMPTY roster — which is a different fact in each view |
 
 **The empty roster is six facts, not one — one per view.** The original single
 sentence — *nothing is mounted, the one empty that is a clean bill of health* —
@@ -334,12 +334,12 @@ than a visible gap, so each view answers for its own scope:
 
 | View | testid | What an empty roster means there |
 |---|---|---|
-| Mounted | `rf-xray-hicasso-empty-mounted` | no boundary holds a live read edge — a survey result, about SUBSCRIPTION rather than the screen |
-| Reads | `rf-xray-hicasso-empty-attribution` | no cell is held; compatible with mounted boundaries that read nothing |
-| Intents | `rf-xray-hicasso-empty-intents` | the retained window is empty — a CAP, which cannot say whether anything was dispatched |
-| Why | `rf-xray-hicasso-empty-explain` | there is no mounted boundary to explain; it follows the census and inherits its qualifications |
-| Advisor | `rf-xray-hicasso-empty-advisor` | there is no boundary to rank; it follows the census, and is not a verdict that nothing is hot — it says nothing about lowering, React or layout, which this tab never measures |
-| Causal | `rf-xray-hicasso-empty-causal` | there is no slice to draw: a slice needs a mounted boundary AND a retained dispatch, and this is the first of the two missing |
+| Mounted | `rf-xray-fresco-empty-mounted` | no boundary holds a live read edge — a survey result, about SUBSCRIPTION rather than the screen |
+| Reads | `rf-xray-fresco-empty-attribution` | no cell is held; compatible with mounted boundaries that read nothing |
+| Intents | `rf-xray-fresco-empty-intents` | the retained window is empty — a CAP, which cannot say whether anything was dispatched |
+| Why | `rf-xray-fresco-empty-explain` | there is no mounted boundary to explain; it follows the census and inherits its qualifications |
+| Advisor | `rf-xray-fresco-empty-advisor` | there is no boundary to rank; it follows the census, and is not a verdict that nothing is hot — it says nothing about lowering, React or layout, which this tab never measures |
+| Causal | `rf-xray-fresco-empty-causal` | there is no slice to draw: a slice needs a mounted boundary AND a retained dispatch, and this is the first of the two missing |
 
 Each view's loss and remedy render whether or not there are rows. A view that
 showed its qualifications only when it had something to qualify would drop
@@ -359,12 +359,12 @@ supply them:
 
 The producer ships no field for either — they are facts about what the census
 cannot see, not values it holds — and the Mounted view states the distinction
-beside the rows under `rf-xray-hicasso-mounted-visibility`, rows or none. No
+beside the rows under `rf-xray-fresco-mounted-visibility`, rows or none. No
 observable is invented for it: the governing promise is amended instead, which
 is the honest half of the choice the audit offered. Hidden-retained is never
 inferred from an empty census, and a subscribed row is never labelled visible.
 The Intents view likewise states the window's cap beneath its rows under
-`rf-xray-hicasso-intents-cap`.
+`rf-xray-fresco-intents-cap`.
 
 ### A row's key and testid carry the WHOLE projected identity
 
@@ -386,7 +386,7 @@ read identically on screen (audit #7802):
 
 **Frames are isolated contexts**, so the first pair is two applications'
 boundaries, not one boundary counted twice — collapsing them is the same
-class of error as collapsing two empties. `hicasso-helpers/read-key-str` is
+class of error as collapsing two empties. `fresco-helpers/read-key-str` is
 now the one place a projected read identity becomes a string, and
 `boundary-slug`, `read-slug` and the Reads and Why rows all go through it.
 
@@ -477,7 +477,7 @@ stopped testing anything and needs re-choosing.
 
 ### Every absence is a chip, and the five chips differ
 
-`hicasso-helpers/loss-chip` turns a loss (or an `:unknown` value) into
+`fresco-helpers/loss-chip` turns a loss (or an `:unknown` value) into
 `{:kind :testid-suffix :short :says}`, and the panel renders it as
 `…-loss-<kind>`. No two kinds share a word, a sentence, or a testid suffix —
 asserted as a property, so a browser selector for `…-loss-cap` can never match
@@ -497,25 +497,25 @@ The 200-row panel budget applies (`common-helpers/cap-rows` +
 ## Read-only, dev-only, bundle-isolated
 
 Every read is a pure projection: nothing is pinned, nothing is dispatched,
-nothing is acquired. The Hicasso tier has no registry and no ownership plane,
+nothing is acquired. The Fresco tier has no registry and no ownership plane,
 so a consumer cannot claim it, cannot be locked out of it by another tool, and
 cannot read a superseded span's data through it.
 
 Every read is `nil` in a production build: the door nil-gates on
-`re-frame.interop/debug-enabled?`. `re-frame.hicasso` does not require the
+`re-frame.interop/debug-enabled?`. `re-frame.fresco` does not require the
 tool namespace, so a production application never loads *it* at all; the
 sentinel-based erasure proof for the door is rf2-hic-024's. Xray itself
 stays out of a release build by build placement — the host doesn't load it
 (see [`Principles.md`](./Principles.md) §Production posture is build
 placement) — and no gate in this repo proves that.
 
-The dependency points one way only: `tools/xray` → `implementation/hicasso`.
+The dependency points one way only: `tools/xray` → `implementation/fresco`.
 Nothing under `implementation/` may `:require` anything under `tools/`.
 
 **Release note — CLOSED.** This edge was once Xray's unpublishable coordinate:
-`implementation/hicasso/deps.edn` carried no `:clein/build`, so
+`implementation/fresco/deps.edn` carried no `:clein/build`, so
 `.github/scripts/preflight-xray-package.sh` refused to find
-`day8/re-frame2-hicasso` in a published pom. rf2-gra70 answered it by
+`day8/re-frame2-fresco` in a published pom. rf2-gra70 answered it by
 publishing the artefact — `deps.edn` now carries the `:clein/build` alias — and
 the refusal is gone. What replaces it is an ordering obligation rather than
 nothing; see [`docs/release-process.md`](../../../docs/release-process.md).
@@ -524,8 +524,8 @@ nothing; see [`docs/release-process.md`](../../../docs/release-process.md).
 
 ## Registration and drift gates
 
-`hicasso/install!` registers `:rf.xray.hicasso/set-view`,
-`:rf.xray.hicasso/view`, `:rf.xray.hicasso/data` and the L4 tab entry. The tab
+`fresco/install!` registers `:rf.xray.fresco/set-view`,
+`:rf.xray.fresco/view`, `:rf.xray.fresco/data` and the L4 tab entry. The tab
 is **L4-only** — no standalone `mount-*!` facade, so it is deliberately absent
 from `panel-enum`, following the Graph and Frames precedent.
 
@@ -535,7 +535,7 @@ Adding it moved six governance pins, each of which fails the build on drift:
 |---|---|
 | `focus/valid-panels` + `focus_cljs_test` | the focusable-panel mirror equals the live Dynamic registry |
 | `registry/schema-version` (4 → 5) + `migrate-schema!` | an already-registered process installs the delta without a reload |
-| `registry_cljs_test` name snapshots | the `:rf.xray.hicasso/*` sub and event ids |
+| `registry_cljs_test` name snapshots | the `:rf.xray.fresco/*` sub and event ids |
 | `panel_gallery_inventory_smoke_cljs_test` | the tab is galleried OR documented-excluded, never neither |
 | `resources_cljs_test` / `routing_cljs_test` palette counts | the command palette's Dynamic tab count |
 | `feature_matrix/scenarios.cjs` `PANEL_HANDOFFS` | the browser sweep reaches a real panel root, never the unknown-tab stub |
@@ -544,33 +544,33 @@ Adding it moved six governance pins, each of which fails the build on drift:
 
 | Suite | Tier | Proves |
 |---|---|---|
-| `re-frame.hicasso.evidence-schema-cljs-test` | node | the envelope door stamps a coherent read and refuses a foreign read, a foreign or unsized loss and a loss beside a completeness claim, each refusal asserting the problem it named, with a positive control |
-| `re-frame.hicasso.tool-reads-cljs-test` | node (reactive substrate) | the four reads over real committed boundaries; a declared view is named on the mounted row, the attribution reader and the explanation with the coordinate `defview` captured, two declared views over one edge set are one row naming both, an unnamed body states `:unknown`, and a name minted outside the macro carries no source; the seeded-value privacy witness for a return value AND for a query argument; two frames sharing a sub id with asymmetric windows; the dispatch-ordered, fragment-merged intent stream; determinism; the production-nil arm |
-| `re-frame.hicasso.erasure-sentinels-cljs-test` | node | the live half of the erasure proof — a dev render mints the `hicassoViews` slot the release scan requires absent, and only the commit names a view in it |
-| `…panels.hicasso-helpers-cljs-test` | node + JVM | the five absences and the empties are pairwise distinct — including the per-view empties, counted against the LIVE `sub-modes` list (six today) rather than a literal, so a seventh view cannot be added carrying a sixth view's sentence; labels and testids are built from the projected key; a named row leads with its view and an unnamed one carries the `unknown` chip; a row key carries the WHOLE projected identity, so two frames' boundaries over one query do not collide; two query variants do not collapse; the key is INJECTIVE as a property over a generated space of 9261 identities, 10162 boundary keys and 441 intent rows, with a non-vacuity control that the space still defeats a lossy slug; the superseded v2 stamp is refused rather than mis-parsed; the schema pin; row projections |
-| `…panels.hicasso-cljs-test` | node (reactive substrate) | the four EVIDENCE views answer on a running app (Advisor and Causal are the derived pair, and have their own suites per [`028-Hicasso-Advisor.md`](028-Hicasso-Advisor.md)); a declared view is named on the Mounted, Reads and Why pages with a `…-views` testid, and a harness body renders the `unknown` chip instead; `:rf.xray.hicasso/data` INVALIDATES and RECOMPUTES on a real `:rf.xray/trace-buffer` tick with no cache clear, against a held reaction proved stale first — the SUBSCRIPTION's half of liveness, the panel's half being the browser row below; the loss states render under distinct testids, driven between two real window states; a sensitive query argument reaches neither the page nor a testid; the Reads and Why rows carry the frame on the page and in the testid; each view renders its own empty; both the superseded and an unknown stamp render the mismatch; the seam reshapes nothing |
-| `…panels.hicasso-live-panel-dom-cljs-test` | browser (real React DOM) | the RUNNING panel is live: one `Panel` mounted into a real `reagent.dom.client` root, inside the shell's own `[frame-provider {:frame :rf/xray}]`, picks up a newly-mounted boundary on a trace tick and commits the row to the DOM. Nothing calls `Panel` a second time; a drained render queue proves the panel stale across the mount first; the `<section>` node afterwards is the one it started with, so the roster arrived by reconciliation and not by a remount |
+| `re-frame.fresco.evidence-schema-cljs-test` | node | the envelope door stamps a coherent read and refuses a foreign read, a foreign or unsized loss and a loss beside a completeness claim, each refusal asserting the problem it named, with a positive control |
+| `re-frame.fresco.tool-reads-cljs-test` | node (reactive substrate) | the four reads over real committed boundaries; a declared view is named on the mounted row, the attribution reader and the explanation with the coordinate `defview` captured, two declared views over one edge set are one row naming both, an unnamed body states `:unknown`, and a name minted outside the macro carries no source; the seeded-value privacy witness for a return value AND for a query argument; two frames sharing a sub id with asymmetric windows; the dispatch-ordered, fragment-merged intent stream; determinism; the production-nil arm |
+| `re-frame.fresco.erasure-sentinels-cljs-test` | node | the live half of the erasure proof — a dev render mints the `frescoViews` slot the release scan requires absent, and only the commit names a view in it |
+| `…panels.fresco-helpers-cljs-test` | node + JVM | the five absences and the empties are pairwise distinct — including the per-view empties, counted against the LIVE `sub-modes` list (six today) rather than a literal, so a seventh view cannot be added carrying a sixth view's sentence; labels and testids are built from the projected key; a named row leads with its view and an unnamed one carries the `unknown` chip; a row key carries the WHOLE projected identity, so two frames' boundaries over one query do not collide; two query variants do not collapse; the key is INJECTIVE as a property over a generated space of 9261 identities, 10162 boundary keys and 441 intent rows, with a non-vacuity control that the space still defeats a lossy slug; the superseded v2 stamp is refused rather than mis-parsed; the schema pin; row projections |
+| `…panels.fresco-cljs-test` | node (reactive substrate) | the four EVIDENCE views answer on a running app (Advisor and Causal are the derived pair, and have their own suites per [`028-Fresco-Advisor.md`](028-Fresco-Advisor.md)); a declared view is named on the Mounted, Reads and Why pages with a `…-views` testid, and a harness body renders the `unknown` chip instead; `:rf.xray.fresco/data` INVALIDATES and RECOMPUTES on a real `:rf.xray/trace-buffer` tick with no cache clear, against a held reaction proved stale first — the SUBSCRIPTION's half of liveness, the panel's half being the browser row below; the loss states render under distinct testids, driven between two real window states; a sensitive query argument reaches neither the page nor a testid; the Reads and Why rows carry the frame on the page and in the testid; each view renders its own empty; both the superseded and an unknown stamp render the mismatch; the seam reshapes nothing |
+| `…panels.fresco-live-panel-dom-cljs-test` | browser (real React DOM) | the RUNNING panel is live: one `Panel` mounted into a real `reagent.dom.client` root, inside the shell's own `[frame-provider {:frame :rf/xray}]`, picks up a newly-mounted boundary on a trace tick and commits the row to the DOM. Nothing calls `Panel` a second time; a drained render queue proves the panel stale across the mount first; the `<section>` node afterwards is the one it started with, so the roster arrived by reconciliation and not by a remount |
 | `frame_singleton_guard_test` | JVM (source text) | the sub-strip dispatches through the `reg-view`-injected frame-bound `dispatch`, never a bare global one |
 | `feature_matrix/scenarios.cjs` | browser | the tab reaches a real panel root in the shell sweep |
 
 ### The populated arms in the browser: one liveness row, and no deck
 
 The tab has no populated arm on a STAGED SURFACE. The shell sweep clicks
-`:hicasso` on the counter surface, which is not a Hicasso application, so the
+`:fresco` on the counter surface, which is not a Fresco application, so the
 root it asserts is holding the `absent` note. That is the whole of the tab's
 staged-surface browser coverage, and it is a decision rather than an unfilled
 gap. It is not the whole of the tab's browser coverage, though: liveness has a
 browser row of its own, three paragraphs down.
 
 **The tab is one of four on the same footing.** Resources, Graph, Frames and
-Hicasso are documented exclusions from the panel gallery, with their coverage
+Fresco are documented exclusions from the panel gallery, with their coverage
 ruled to be the feature-matrix shipped-surface sweep plus their own per-panel
 CLJS unit tests (`panel_gallery/core.cljs` §Intentional gallery exclusions).
 `panel_gallery_inventory_smoke_cljs_test` fails the build if that partition
-drifts. Of the four, Hicasso has much the strongest unit lane.
+drifts. Of the four, Fresco has much the strongest unit lane.
 
 **Nothing about the populated RENDERING is out of that lane's reach.**
-`hicasso_cljs_test` mounts real boundaries through the real commit seam under a
+`fresco_cljs_test` mounts real boundaries through the real commit seam under a
 reactive substrate and stubs nothing between the runtime and the hiccup — its
 two `with-redefs` synthesise the loss arms and touch no populated path. Narrow
 the populated path and it reds: the roster's two-instance fold, both edge
@@ -584,15 +584,15 @@ chrome is the shell-sweep row above; that the sub-strip dispatches through the
 frame-bound `dispatch` is held by `frame_singleton_guard_test`, a source-text
 guard over every panel — broader than a per-panel click and cheaper. Liveness is
 two claims, and the Node lane can only reach the first.
-`:rf.xray.hicasso/data` composes off `:rf.xray/trace-buffer`, an ordinary app-db
+`:rf.xray.fresco/data` composes off `:rf.xray/trace-buffer`, an ordinary app-db
 slot written by an ordinary dispatch, so
-`hicasso_cljs_test/the-populated-roster-arrives-on-the-TRACE-TICK-and-not-on-a-cache-clear`
+`fresco_cljs_test/the-populated-roster-arrives-on-the-TRACE-TICK-and-not-on-a-cache-clear`
 drives the tick in Node against a held reaction it proves stale first, and
 proves the SUBSCRIPTION invalidates and recomputes. It does not prove the
 RUNNING PANEL re-renders: it calls `Panel` a second time itself, with no React
 root mounted, nothing committed and no DOM read — a claim about the sub, cited
 for a claim about the tab (merged-PR audit of #7881). The panel's half is
-`hicasso_live_panel_dom_cljs_test/the-mounted-panel-picks-up-a-new-boundary-on-the-trace-tick`:
+`fresco_live_panel_dom_cljs_test/the-mounted-panel-picks-up-a-new-boundary-on-the-trace-tick`:
 one `Panel` mounted into a real `reagent.dom.client` root inside the shell's own
 `[frame-provider {:frame :rf/xray}]`, a real boundary mounted, the render queue
 DRAINED with the panel still showing its empty note — the control, because a
@@ -605,10 +605,10 @@ browser proof would is a cost belonging to a different lane. It is an ordinary
 `*_dom_cljs_test` namespace in the EXISTING `:browser-test` build, which already
 carries `tools/xray/test` on `:source-paths`; `_browser-dom-lane-partition.test.cjs`
 picks it up automatically. What DOES need a deck is a STAGED-SURFACE row: no
-surface in `feature_matrix/scenarios.cjs` is a Hicasso host, so a populated arm
+surface in `feature_matrix/scenarios.cjs` is a Fresco host, so a populated arm
 in the shell sweep needs a new deck, a new `implementation/shadow-cljs.edn`
 build id and a new `:dev-http` port — the shape rf2-6pohj built for the Views
-panel. That cost is why there is no staged Hicasso host, and it is not a reason
+panel. That cost is why there is no staged Fresco host, and it is not a reason
 against the DOM row above. If that deck is ever wanted, its moment has arrived:
 `testbeds/freehand-views` existed solely to give the Views panel a populated
 roster, those panel sections retired

@@ -1299,7 +1299,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; `refuse-unsupported-substrate!` publish a clean `:unsupported-substrate`
   ;; diagnostic, and a kind ABSENT from it takes the permissive path into an
   ;; uncaught React child error (rf2-zkjd5 measured exactly that when
-  ;; `:rf.adapter/hicasso` was missing). A Malli `[:enum …]` inverts that
+  ;; `:rf.adapter/fresco` was missing). A Malli `[:enum …]` inverts that
   ;; polarity: membership ACCEPTS. Retaining `:capture` would make nothing
   ;; refuse it — it would widen what this schema admits on behalf of no
   ;; producer. Nor is there a defensive consumer to name: nothing in
@@ -2212,7 +2212,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; where that key came from and why no schema declares it any more.
   ;;
   ;; ADOPTION TIER — `re-frame.substrate.spine/native-hydration-reporter` and
-  ;; `re-frame.hicasso.impl.mount/hydration-reporter` emit through plain
+  ;; `re-frame.fresco.impl.mount/hydration-reporter` emit through plain
   ;; `trace/emit!` with a `:warning` envelope. There is therefore NO
   ;; `[:tags :category]` at all (the category rides the top-level `:operation`),
   ;; no hash — a React-element root has no structural render-tree to hash — and

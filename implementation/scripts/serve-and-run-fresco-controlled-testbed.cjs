@@ -2,14 +2,14 @@
 'use strict';
 
 /*
- * THE HICASSO CONTROLLED-INPUT GATE — invariant I15 in three real engines
+ * THE FRESCO CONTROLLED-INPUT GATE — invariant I15 in three real engines
  * (rf2-hic-016).
  *
- *   node implementation/scripts/serve-and-run-hicasso-controlled-testbed.cjs
- *   npm run test:hicasso-controlled          (from implementation/)
+ *   node implementation/scripts/serve-and-run-fresco-controlled-testbed.cjs
+ *   npm run test:fresco-controlled          (from implementation/)
  *
- * Compiles the `:hicasso/testbed` build, serves it, and runs
- * `implementation/hicasso/testbed/spec.cjs` once per engine in Chromium,
+ * Compiles the `:fresco/testbed` build, serves it, and runs
+ * `implementation/fresco/testbed/spec.cjs` once per engine in Chromium,
  * Firefox and WebKit.
  *
  * ## Why this is not an entry in the adapter-smoke manifest
@@ -25,9 +25,9 @@
  *
  * Chromium is where every controlled-input claim in this repo was
  * previously witnessed, and
- * `bench/hicasso/ime_run.cjs` states its own scope as Chromium-only because
+ * `bench/fresco/ime_run.cjs` states its own scope as Chromium-only because
  * `Input.imeSetComposition` is a CDP method. Nothing had ever driven
- * Hicasso's element-path converge outside Chromium, and the mechanism is
+ * Fresco's element-path converge outside Chromium, and the mechanism is
  * made of exactly the things engines differ on: caret and selection
  * restoration, composition event carriage, and the order in which a
  * discrete event's work is flushed. Firefox is the third because it is the
@@ -78,8 +78,8 @@
  * | composition — `beforeinput` carried, and not what drives the converge | — | — | — | **nothing.** GAP 4 below; now `spec.cjs` `beforeinput-does-not-drive-the-converge` |
  * | composition — an ACCEPTING model takes every composing update | ✓ | — | — | `front/revision_dom_cljs_test:575`, Chromium lane. GAP 2; now `spec.cjs` `an-accepting-model-during-a-composition` |
  * | composition — a revision arriving MID-exchange defers to its close | ✓ | — | — | `front/revision_dom_cljs_test:512`, Chromium lane. GAP 1; now `spec.cjs` `a-revision-arriving-mid-composition` |
- * | composition — the browser's real composition RANGE and candidate window | ✓ | — | — | `bench/hicasso/ime_run.cjs` (CDP, so Chromium by construction) |
- * | composition — the ABORT signature (a value write killing an exchange with no `compositionend`) | ✓ | — | — | `bench/hicasso/ime_run.cjs`; unreachable from page script in any engine |
+ * | composition — the browser's real composition RANGE and candidate window | ✓ | — | — | `bench/fresco/ime_run.cjs` (CDP, so Chromium by construction) |
+ * | composition — the ABORT signature (a value write killing an exchange with no `compositionend`) | ✓ | — | — | `bench/fresco/ime_run.cjs`; unreachable from page script in any engine |
  * | selection — a RANGE across an out-of-band write | ✓ | ✓ | ✓ | `spec.cjs` `selection-across-an-out-of-band-write` |
  * | selection — DIRECTION across an out-of-band write | ~ | ~ | ~ | same section, RECORDED — but vacuously. GAP 3; the premise is now asserted |
  * | revision reset at rest, preserving element identity | ✓ | ✓ | ✓ | `spec.cjs` `revision-reset-preserves-identity` |
@@ -94,7 +94,7 @@
  * RULING rather than by omission — the operator amended this bead's
  * acceptance on 2026-08-10 so that the synthetic sequence IS the recurring
  * three-engine witness, with native conduct on Firefox and WebKit verified
- * once by hand against `docs/design/hicasso/native-ime-manual-witness.md`.
+ * once by hand against `docs/design/fresco/native-ime-manual-witness.md`.
  *
  * ### The four gaps that table found
  *
@@ -210,7 +210,7 @@
  * ### Out of reach here, and where it lives instead
  *
  * - **A real IME.** `Input.imeSetComposition` is CDP, so real composition
- *   ranges are Chromium-only and stay with `bench/hicasso/ime_run.cjs`.
+ *   ranges are Chromium-only and stay with `bench/fresco/ime_run.cjs`.
  *   The abort SIGNATURE that harness detects — a value write killing an
  *   exchange with no `compositionend` — cannot be reproduced from page
  *   script in any engine, so it is not claimed here.
@@ -231,10 +231,10 @@
  * 2026-08-11 against the third pass, by replacing `composing-input?`'s body
  * with `false` — the whole carve-out off, both halves, since the shadow is
  * held from the same reading — and driving
- * `HICASSO_TESTBED_ENGINES=webkit`. It exits 1 on the first composing
+ * `FRESCO_TESTBED_ENGINES=webkit`. It exits 1 on the first composing
  * update:
  *
- *     FAIL Hicasso controlled input (I15) — three engines (webkit):
+ *     FAIL Fresco controlled input (I15) — three engines (webkit):
  *       [webkit] the first composing update survives in the field:
  *       expected "123あ", got "123"
  *
@@ -294,7 +294,7 @@
  * question — does every control type `specification.md` §4.2 names have a
  * support-or-refusal policy that holds in three engines, with none of them
  * silently unsupported — and adds twelve sections, one per row of
- * `docs/design/hicasso/product/dispositions.md` §2.3 that it owns.
+ * `docs/design/fresco/product/dispositions.md` §2.3 that it owns.
  *
  * That table is the deliverable; this gate is what keeps it true. Its
  * Witness column cites these sections by name, and `REQUIRED_SECTIONS`
@@ -340,7 +340,7 @@
  *     warning. The prop half is left to the engine: `InvalidStateError` is
  *     the report (rf2-6c12m.11 retired the `-file-input-value-prop` refusal
  *     that once stood in front of it). The marker half is REFUSED:
- *     `:rf.error/hicasso-file-input-value-marker` from
+ *     `:rf.error/fresco-file-input-value-marker` from
  *     `impl.intent/target-value` (`rf2-lhsvs`), with its `spec/009` row. The
  *     asymmetry with the multi-select above is deliberate and the spec row
  *     states it: `::h/value` already means *the control's current value* and
@@ -397,18 +397,18 @@ const {
 const { enforcePolicy, DEFAULT_OUT_ROOT } = require('./_path-policy.cjs');
 
 const IMPL_ROOT = path.resolve(__dirname, '..');
-const BUILD_ID = 'hicasso/testbed';
+const BUILD_ID = 'fresco/testbed';
 const ROOT = enforcePolicy(
-  'HICASSO_TESTBED_ROOT',
-  path.join(IMPL_ROOT, 'out', 'hicasso-testbed'),
+  'FRESCO_TESTBED_ROOT',
+  path.join(IMPL_ROOT, 'out', 'fresco-testbed'),
   { allowedRoots: [DEFAULT_OUT_ROOT] },
 );
-const HTML_SRC = path.join(IMPL_ROOT, 'hicasso', 'testbed', 'index.html');
-const SPEC = require(path.join(IMPL_ROOT, 'hicasso', 'testbed', 'spec.cjs'));
+const HTML_SRC = path.join(IMPL_ROOT, 'fresco', 'testbed', 'index.html');
+const SPEC = require(path.join(IMPL_ROOT, 'fresco', 'testbed', 'spec.cjs'));
 
 const DEFAULT_PORT = 8065;
 const READY_TIMEOUT_MS = 30000;
-const SPEC_TIMEOUT_MS = parseInt(process.env.HICASSO_TESTBED_SPEC_TIMEOUT_MS || '90000', 10);
+const SPEC_TIMEOUT_MS = parseInt(process.env.FRESCO_TESTBED_SPEC_TIMEOUT_MS || '90000', 10);
 // The navigation's own ceiling, named so a CI log cannot read it as the
 // spec budget above. `'commit'` rather than `'load'`: the page's own script
 // is an un-optimized dev bundle that mounts the app, and everything after
@@ -416,11 +416,11 @@ const SPEC_TIMEOUT_MS = parseInt(process.env.HICASSO_TESTBED_SPEC_TIMEOUT_MS || 
 const NAV_WAIT_UNTIL = 'commit';
 const NAV_TIMEOUT_MS = 60000;
 
-// Chromium, Firefox and WebKit. `HICASSO_TESTBED_ENGINES` narrows the set
+// Chromium, Firefox and WebKit. `FRESCO_TESTBED_ENGINES` narrows the set
 // for local iteration; the floor below is prorated so a partial run stays
 // honest about being one.
 const ALL_ENGINES = ['chromium', 'firefox', 'webkit'];
-const ONLY = (process.env.HICASSO_TESTBED_ENGINES || '').trim();
+const ONLY = (process.env.FRESCO_TESTBED_ENGINES || '').trim();
 const ENGINES = ONLY
   ? ALL_ENGINES.filter((e) => ONLY.split(',').map((s) => s.trim()).includes(e))
   : ALL_ENGINES;
@@ -835,7 +835,7 @@ async function driveEngine(engine, baseUrl) {
         `Underlying: ${err.message}`);
     }
     // The app must be up before the first witness touches a field.
-    await page.waitForSelector('[data-testid="hicasso-controlled-testbed"]',
+    await page.waitForSelector('[data-testid="fresco-controlled-testbed"]',
       { timeout: SPEC_TIMEOUT_MS });
 
     // The navigation ceiling travels WITH the context, because a section that
@@ -898,7 +898,7 @@ async function main() {
   let tearingDown = false;
 
   if (ENGINES.length === 0) {
-    console.error(`HICASSO_TESTBED_ENGINES=${ONLY} selects no engine; ` +
+    console.error(`FRESCO_TESTBED_ENGINES=${ONLY} selects no engine; ` +
       `known: ${ALL_ENGINES.join(', ')}`);
     return 1;
   }
@@ -911,7 +911,7 @@ async function main() {
     stageHtml();
 
     const port = await resolveServePort(
-      Number(process.env.HICASSO_TESTBED_PORT) || DEFAULT_PORT,
+      Number(process.env.FRESCO_TESTBED_PORT) || DEFAULT_PORT,
       { onFallback: (p, f) => console.log(`> port ${p} busy, serving on ${f}`) },
     );
     const httpServerBin = require.resolve('http-server/bin/http-server', { paths: [IMPL_ROOT] });
@@ -955,7 +955,7 @@ async function main() {
     for (const n of NARROWINGS) {
       console.log(`  narrowing: ${n.row} on ${n.engines.join('+')} — ${n.why}`);
     }
-    console.log(`\nHICASSO CONTROLLED-INPUT PASS (${ENGINES.join(' + ')})`);
+    console.log(`\nFRESCO CONTROLLED-INPUT PASS (${ENGINES.join(' + ')})`);
     return 0;
   } finally {
     tearingDown = true;

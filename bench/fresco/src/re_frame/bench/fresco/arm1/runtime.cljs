@@ -1,8 +1,8 @@
-(ns re-frame.bench.hicasso.arm1.runtime
-  "HICASSO ARM 1 — LEAN-REACT. The runtime skeleton (rf2-2rtt6.9).
+(ns re-frame.bench.fresco.arm1.runtime
+  "FRESCO ARM 1 — LEAN-REACT. The runtime skeleton (rf2-2rtt6.9).
 
   A boundary is a real React function component minted by `defview`
-  (`re-frame.bench.hicasso.arm1.lang`). React owns identity,
+  (`re-frame.bench.fresco.arm1.lang`). React owns identity,
   reconciliation, context, refs, errors, concurrency and the
   controlled-input end-of-event restore; this namespace owns exactly
   three things React does not: *which* boundaries a commit must re-run,
@@ -155,7 +155,7 @@
   once realised; it would simply never update again.
 
   This arm is safe by construction: [[run-once]] closes the window around
-  `rf.bench.hicasso.front.codec/as-element`, and the codec is eager everywhere it walks —
+  `rf.bench.fresco.front.codec/as-element`, and the codec is eager everywhere it walks —
   `expand-seq` drives a seq to exhaustion, `realize-children` folds one
   into a vector, a seq at a *native* prop position goes through
   `clj->js`, and `front.codec/realize-deep` forces every lazy sequence
@@ -365,8 +365,8 @@
   only accelerant (HD-004); nothing here holds a node reference, plans a
   hole, or writes the DOM."
   (:require [re-frame.adapter.context :as rf.adapter.context]
-            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
-            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
+            [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
+            [re-frame.bench.fresco.front.intent :as rf.bench.fresco.front.intent]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
@@ -433,7 +433,7 @@
 (def ^:private ^js adoption
   "Is this page's tree being ADOPTED from server-rendered HTML right now?
 
-  Opened by [[re-frame.bench.hicasso.arm1.mount/hydrate-root!]] before it
+  Opened by [[re-frame.bench.fresco.arm1.mount/hydrate-root!]] before it
   calls `hydrateRoot`, and closed by that root's closer component from a
   passive effect on the hydration commit — the spine's own pattern
   (`re-frame.substrate.spine/adoption-window-closer`), whose whole point
@@ -601,7 +601,7 @@
   arm installs, and its namespace keeps it clear of any other watcher keyed
   per observer on the same reactions.
 
-  It used to be `(keyword \"rf-hicasso-arm1\" (str \"w\" (vswap! counter inc)))`,
+  It used to be `(keyword \"rf-fresco-arm1\" (str \"w\" (vswap! counter inc)))`,
   which bought that same uniqueness by allocating a `Keyword`, its name
   string and its fully-qualified string per cell and retaining all three
   in the cell and in the reaction's watch map — per *unique key*, which is
@@ -1232,8 +1232,8 @@
   rf2-2rtt6.44."
   [query-v]
   (when (nil? (.-frame rstate))
-    (fail! :rf.error/hicasso-sub-outside-render
-           're-frame.bench.hicasso.arm1.runtime/read-key!
+    (fail! :rf.error/fresco-sub-outside-render
+           're-frame.bench.fresco.arm1.runtime/read-key!
            (str "A subscription read " (pr-str query-v)
                 " happened outside a boundary render. `sub` and `use-subs` "
                 "are legal only inside a defview body; `subscribe-once` is "
@@ -1575,13 +1575,13 @@
   ;; count is the one that says so.
   (set! (.-bodyRuns rstate) (inc (.-bodyRuns rstate)))
   (when ^boolean js/goog.DEBUG
-    (rf.bench.hicasso.front.codec/set-lowering-owner! (unchecked-get body-fn "displayName")))
+    (rf.bench.fresco.front.codec/set-lowering-owner! (unchecked-get body-fn "displayName")))
   (try
-    (rf.bench.hicasso.front.intent/with-frame frame-kw (frame-dispatch frame-kw)
-      (fn [] (rf.bench.hicasso.front.codec/as-element (body-fn props))))
+    (rf.bench.fresco.front.intent/with-frame frame-kw (frame-dispatch frame-kw)
+      (fn [] (rf.bench.fresco.front.codec/as-element (body-fn props))))
     (finally
       (set! (.-frame rstate) nil)
-      (when ^boolean js/goog.DEBUG (rf.bench.hicasso.front.codec/set-lowering-owner! nil)))))
+      (when ^boolean js/goog.DEBUG (rf.bench.fresco.front.codec/set-lowering-owner! nil)))))
 
 (defn render-body
   "Run a boundary body under the generation fence and return its element;
@@ -1611,8 +1611,8 @@
         (recur (inc attempt))
 
         :else
-        (fail! :rf.error/hicasso-generation-fence-exhausted
-               're-frame.bench.hicasso.arm1.runtime/render-body
+        (fail! :rf.error/fresco-generation-fence-exhausted
+               're-frame.bench.fresco.arm1.runtime/render-body
                (str "A boundary body observed a new commit on each of "
                     (inc max-fence-retries) " consecutive runs. A body that "
                     "writes on every render cannot be fenced; move the write "
@@ -1698,8 +1698,8 @@
 (defn- resolve-frame! [frame-kw]
   (if (or (nil? frame-kw) (= rf.adapter.context/no-provider-sentinel frame-kw))
     (fail! :rf.error/no-frame-context
-           're-frame.bench.hicasso.arm1.runtime/shell
-           (str "A Hicasso boundary rendered with no frame in scope. Mount the "
+           're-frame.bench.fresco.arm1.runtime/shell
+           (str "A Fresco boundary rendered with no frame in scope. Mount the "
                 "tree under a frame boundary — `arm1.mount/root!` installs one.")
            :mount-under-a-frame
            {})
@@ -1727,7 +1727,7 @@
 ;; shell has no slot left for anything v0 later needs. The frame does not
 ;; obviously need a hook: it is ordinary data flowing down the tree, and
 ;; the codec knows it at the moment it mints each boundary element
-;; ([[re-frame.bench.hicasso.front.codec/mark-frame-prop!]]). Threading it
+;; ([[re-frame.bench.fresco.front.codec/mark-frame-prop!]]). Threading it
 ;; frees the slot; it costs one more entry in every boundary element's
 ;; props map, on every render, which is an allocation on the other side of
 ;; the ledger and is why this is priced rather than ruled.
@@ -1746,8 +1746,8 @@
 (defn- resolve-frame-prop! [frame-kw]
   (if (nil? frame-kw)
     (fail! :rf.error/no-frame-prop
-           're-frame.bench.hicasso.arm1.runtime/frame-prop-shell
-           (str "A frame-fed Hicasso boundary rendered with no frame in its "
+           're-frame.bench.fresco.arm1.runtime/frame-prop-shell
+           (str "A frame-fed Fresco boundary rendered with no frame in its "
                 "props. Every boundary element below the root is minted by an "
                 "ancestor body, which carries the frame; the root and any "
                 "outward React bridge mint theirs outside a body and must name "
@@ -1787,7 +1787,7 @@
   rf2-2rtt6.52 is that no memo object escapes as the public
   representation. `memoize-boundary!` therefore attaches the wrapper to
   the head and hands the head back; the codec creates elements from the
-  wrapper. See [[re-frame.bench.hicasso.front.codec/memoize-boundary!]].
+  wrapper. See [[re-frame.bench.fresco.front.codec/memoize-boundary!]].
 
   ## Why there is a bail-out at all (HD-006 as amended, rf2-2rtt6.52)
 
@@ -1847,9 +1847,9 @@
 
   Spec 009 §What gets bracketed names four hot paths; three of them
   (`:event`, `:sub`, `:fx`) are core's and are already live for a
-  Hicasso app, because they sit in the router, the subs layer and the fx
+  Fresco app, because they sit in the router, the subs layer and the fx
   layer this arm consumes unchanged. The fourth — `:render` — is the
-  **view substrate's**, and until this bead a Hicasso app was the only
+  **view substrate's**, and until this bead a Fresco app was the only
   re-frame2 app whose per-view render was absent from the User-Timing
   stream. It is a `:render` in the spec's own terms: the bucket is keyed
   on the *representation* of the work — one view boundary's body run,
@@ -1906,11 +1906,11 @@
   `arm1.render-measure-emit-nightly-test` (the ON half)."
   [view-name body-fn]
   (when ^boolean js/goog.DEBUG (unchecked-set body-fn "displayName" view-name))
-  (let [component (fn hicasso-boundary [js-props]
+  (let [component (fn fresco-boundary [js-props]
                     (rf.performance/mark-and-measure :render view-name
                       (shell body-fn js-props)))]
     (unchecked-set component "displayName" view-name)
-    (rf.bench.hicasso.front.codec/memoize-boundary! (rf.bench.hicasso.front.codec/mark-boundary! component))))
+    (rf.bench.fresco.front.codec/memoize-boundary! (rf.bench.fresco.front.codec/mark-boundary! component))))
 
 (defn mint-frame-prop-view!
   "[[mint-view!]]'s frame-fed twin (rf2-2rtt6.39): the same boundary, the
@@ -1922,7 +1922,7 @@
   unchanged, with one addition it names there: the frame reaches this
   boundary through PROPS rather than through context, so the comparator
   compares it — see
-  [[re-frame.bench.hicasso.front.codec/boundary-props=]].
+  [[re-frame.bench.fresco.front.codec/boundary-props=]].
 
   Everything it says about Spec 009's `:render` bucket holds unchanged
   too, and the bracket is here for the same reason it is there: this is
@@ -1932,12 +1932,12 @@
   wired to one of them and not the other would report half a page."
   [view-name body-fn]
   (when ^boolean js/goog.DEBUG (unchecked-set body-fn "displayName" view-name))
-  (let [component (fn hicasso-frame-prop-boundary [js-props]
+  (let [component (fn fresco-frame-prop-boundary [js-props]
                     (rf.performance/mark-and-measure :render view-name
                       (frame-prop-shell body-fn js-props)))]
     (unchecked-set component "displayName" view-name)
-    (rf.bench.hicasso.front.codec/memoize-boundary!
-      (rf.bench.hicasso.front.codec/mark-frame-prop! (rf.bench.hicasso.front.codec/mark-boundary! component)))))
+    (rf.bench.fresco.front.codec/memoize-boundary!
+      (rf.bench.fresco.front.codec/mark-frame-prop! (rf.bench.fresco.front.codec/mark-boundary! component)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Retained inventory — honest accounting, not a claimed absence
@@ -2026,10 +2026,10 @@
   is how this presented, as rf2-vsgq's HMR baseline.
 
   This file is the PACKAGE's donor and is no longer digest-pinned to it
-  (`hicasso/frozen-sources.edn`, \"the first retirement\"), so the two
+  (`fresco/frozen-sources.edn`, \"the first retirement\"), so the two
   copies are kept in step by hand. The package's own
-  `re-frame.hicasso.impl.inventory/cell-readers` carries this fix, and
-  `re-frame.hicasso.inventory-snapshot-cljs-test` pins it."
+  `re-frame.fresco.impl.inventory/cell-readers` carries this fix, and
+  `re-frame.fresco.inventory-snapshot-cljs-test` pins it."
   [sub-key]
   (if-some [^js c (get @!cells sub-key)]
     (vec (aclone (.-readers c)))
@@ -2066,7 +2066,7 @@
      :entries    (reduce + 0 (map (fn [[_ v]] (count v)) @!entries))
      :generation (generation)
      :frames     (count @!frame-ops)
-     :codec      (rf.bench.hicasso.front.codec/cache-sizes)}))
+     :codec      (rf.bench.fresco.front.codec/cache-sizes)}))
 
 (defn entry-buckets
   "The read-set entry cache's bucket occupancy — `{:buckets n :max-bucket

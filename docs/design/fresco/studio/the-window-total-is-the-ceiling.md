@@ -7,12 +7,12 @@ below is re-derived first-hand from datasets already committed to this
 repository, on `main` at `ca0abf8971`.
 
 The corpus is the two paired allocation runs at
-`implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-0gjqi/`, committed
+`implementation/fresco/test/re_frame/bench/fresco/data/alloc-0gjqi/`, committed
 at `e77c4969e9` beside
 [the sign follows the pass, not the write](the-sign-follows-the-pass-not-the-write.md).
 Runtime, carried from that record because it is the runtime these bytes were
 measured in and no new bytes were measured here: Chromium via Playwright,
-shadow-cljs `release` on build id `:hicasso-bench`, `:optimizations :advanced`,
+shadow-cljs `release` on build id `:fresco-bench`, `:optimizations :advanced`,
 `goog.DEBUG false`, `--expose-gc`, `:init-fn re-frame.bench.p0-app/-main`, taken
 2026-08-18 14:26–14:31 AUSEST on branch `worker/pairedwin-0gjqi`, built at
 `1f004b15ff`. Both runs' positive control passed at **8.00 B/double** against a
@@ -22,7 +22,7 @@ quotable and none is quoted**, exactly as on the page that took them.
 Reproduction, from `implementation/`:
 
 ```bash
-node hicasso/test/re_frame/bench/hicasso/alloc_window_ceiling.cjs
+node fresco/test/re_frame/bench/fresco/alloc_window_ceiling.cjs
 ```
 
 That reader launches nothing and writes nothing. Every figure on this page is in
@@ -122,10 +122,10 @@ page.
 |---|---|---|---|---|
 | `reagent-subs` \| `lad/reagent` @all | 0/12 | 883,710 | **1,052,976** | 1 – 1 |
 | `reagent-subs` \| `lad/reagent` @page | 0/12 | 880,268 | **1,046,682** | 1 – 1 |
-| `reagent-subs` \| `lad/hicasso` @all | 0/12 | 882,814 | **1,044,594** | 1 – 3 |
-| `uix-subs` \| `lad/hicasso` @all | 0/12 | 875,296 | **1,040,646** | 1 – 3 |
-| `reagent-subs` \| `lad/hicasso` @page | 0/12 | 864,304 | **1,030,182** | 1 – 2 |
-| `uix-subs` \| `lad/hicasso` @page | 0/12 | 863,164 | **1,028,670** | 1 – 1 |
+| `reagent-subs` \| `lad/fresco` @all | 0/12 | 882,814 | **1,044,594** | 1 – 3 |
+| `uix-subs` \| `lad/fresco` @all | 0/12 | 875,296 | **1,040,646** | 1 – 3 |
+| `reagent-subs` \| `lad/fresco` @page | 0/12 | 864,304 | **1,030,182** | 1 – 2 |
+| `uix-subs` \| `lad/fresco` @page | 0/12 | 863,164 | **1,028,670** | 1 – 1 |
 | `uix-subs` \| `lad/uix` @all | **12/12** | 868,636 | **860,586** | 0 – 0 |
 | `uix-subs` \| `lad/uix` @page | **12/12** | 854,454 | **850,050** | 0 – 0 |
 
@@ -142,14 +142,14 @@ triage counted, each summarised by the median of its six rounds:
 | run 1 \| `reagent-subs` \| `lad/reagent` \| all | 0/6 | 1,051,998 | 876,665 | 883,538 |
 | run 1 \| `reagent-subs` \| `lad/reagent` \| page | 0/6 | 1,047,936 | 873,280 | 881,972 |
 | run 2 \| `reagent-subs` \| `lad/reagent` \| page | 0/6 | 1,045,962 | 871,635 | 876,734 |
-| run 2 \| `uix-subs` \| `lad/hicasso` \| all | 0/6 | 1,045,848 | 871,540 | 879,180 |
-| run 1 \| `reagent-subs` \| `lad/hicasso` \| all | 0/6 | 1,044,666 | 870,555 | 883,192 |
-| run 2 \| `reagent-subs` \| `lad/hicasso` \| all | 0/6 | 1,044,036 | 870,030 | 878,110 |
-| run 1 \| `uix-subs` \| `lad/hicasso` \| all | 0/6 | 1,031,898 | 859,915 | 873,942 |
-| run 1 \| `reagent-subs` \| `lad/hicasso` \| page | 0/6 | 1,030,548 | 858,790 | 871,724 |
-| run 2 \| `reagent-subs` \| `lad/hicasso` \| page | 0/6 | 1,029,888 | 858,240 | 862,326 |
-| run 2 \| `uix-subs` \| `lad/hicasso` \| page | 0/6 | 1,029,312 | 857,760 | 863,164 |
-| run 1 \| `uix-subs` \| `lad/hicasso` \| page | 0/6 | **1,028,670** | 857,225 | 863,788 |
+| run 2 \| `uix-subs` \| `lad/fresco` \| all | 0/6 | 1,045,848 | 871,540 | 879,180 |
+| run 1 \| `reagent-subs` \| `lad/fresco` \| all | 0/6 | 1,044,666 | 870,555 | 883,192 |
+| run 2 \| `reagent-subs` \| `lad/fresco` \| all | 0/6 | 1,044,036 | 870,030 | 878,110 |
+| run 1 \| `uix-subs` \| `lad/fresco` \| all | 0/6 | 1,031,898 | 859,915 | 873,942 |
+| run 1 \| `reagent-subs` \| `lad/fresco` \| page | 0/6 | 1,030,548 | 858,790 | 871,724 |
+| run 2 \| `reagent-subs` \| `lad/fresco` \| page | 0/6 | 1,029,888 | 858,240 | 862,326 |
+| run 2 \| `uix-subs` \| `lad/fresco` \| page | 0/6 | 1,029,312 | 857,760 | 863,164 |
+| run 1 \| `uix-subs` \| `lad/fresco` \| page | 0/6 | **1,028,670** | 857,225 | 863,788 |
 | run 1 \| `uix-subs` \| `lad/uix` \| all | **6/6** | **860,634** | 717,195 | 868,636 |
 | run 2 \| `uix-subs` \| `lad/uix` \| all | **6/6** | 858,696 | 715,580 | 866,172 |
 | run 2 \| `uix-subs` \| `lad/uix` \| page | **6/6** | 851,070 | 709,225 | 856,104 |
@@ -236,9 +236,9 @@ reports only the first position and only the deepest magnitude conceals them:
 
 | window | negative legs | at | `falls` |
 |---|---|---|---|
-| `paired-run1` round 1, `uix-subs \| lad/hicasso @all` | **3** | legs 3, 5, 6 | 3 |
-| `paired-run1` round 4, `reagent-subs \| lad/hicasso @page` | **2** | legs 5, 6 | 2 |
-| `paired-run1` round 5, `reagent-subs \| lad/hicasso @all` | **2** | legs 4, 5 | 3 |
+| `paired-run1` round 1, `uix-subs \| lad/fresco @all` | **3** | legs 3, 5, 6 | 3 |
+| `paired-run1` round 4, `reagent-subs \| lad/fresco @page` | **2** | legs 5, 6 | 2 |
+| `paired-run1` round 5, `reagent-subs \| lad/fresco @all` | **2** | legs 4, 5 | 3 |
 
 **The DOMINANT reclaim is near-constant across the corpus** while the arm costs
 that fill the window are not, and it sits within 10% of the observed ceiling: a

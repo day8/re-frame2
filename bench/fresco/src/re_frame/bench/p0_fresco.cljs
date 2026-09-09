@@ -1,5 +1,5 @@
-(ns re-frame.bench.p0-hicasso
-  "EP-0038 P0 — **the candidate**: a Hicasso-shaped boundary on the P0
+(ns re-frame.bench.p0-fresco
+  "EP-0038 P0 — **the candidate**: a Fresco-shaped boundary on the P0
   reads ladder. One subscription/epoch hook per boundary, N edges in a
   shared index (rf2-2rtt6.34).
 
@@ -22,18 +22,18 @@
 
   ## The arm IS the shipped package, not a model of it
 
-  Every read goes through `re-frame.hicasso/sub` — the ambient collector
+  Every read goes through `re-frame.fresco/sub` — the ambient collector
   the operator ruled the shipping read surface on 2026-07-31 — and every
   boundary is minted by the package's own `defview`. Nothing here
   re-implements the shell, the index, the entry cache or the commit path.
   A hand-rolled imitation would be pricing this file rather than the
   design.
 
-  And it is `implementation/hicasso/src` those doors reach, not the
-  `re-frame.bench.hicasso.arm1.*` prototype the package was moved from
+  And it is `implementation/fresco/src` those doors reach, not the
+  `re-frame.bench.fresco.arm1.*` prototype the package was moved from
   (rf2-fe0l). Until this repoint no heap instrument pointed at the
   package at all: the prototype's own docstring says it lives off every
-  production source path, and `hicasso/scripts/check_freeze.py` says the
+  production source path, and `fresco/scripts/check_freeze.py` says the
   same from the other side, so a heap figure taken through it priced a
   frozen copy whose divergence from the product is expected and
   permanent. The direction of the dependency is the allowed one — the
@@ -63,15 +63,15 @@
   than an argument.
 
   Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
-  2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
+  2026-08-10, enumerated once in `docs/design/fresco/studio/README.md`;
   this arm rf2-2rtt6.34."
   (:require [re-frame.bench.p0-fixture :as rf.bench.p0-fixture]
             [re-frame.bench.p0-workcount :as rf.bench.p0-workcount]
-            [re-frame.hicasso :refer [sub]])
-  (:require-macros [re-frame.hicasso :refer [defview]]))
+            [re-frame.fresco :refer [sub]])
+  (:require-macros [re-frame.fresco :refer [defview]]))
 
 (defview lad-cell
-  "One Hicasso boundary reading `r` DISTINCT subscriptions — the same
+  "One Fresco boundary reading `r` DISTINCT subscriptions — the same
   `:p0/fan` key space, the same `rf.bench.p0-fixture/fan-key` rule and the same
   `span.cell` element the Reagent and UIx ladder cells build, so the three
   arms differ in how a subscription value reaches a boundary and in

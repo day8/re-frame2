@@ -46,7 +46,7 @@
 //
 //   * It only ever saw ONE lane. It lived in Freehand's bench directory and
 //     asserted "at least the 7 known freehand-release riders". The entire
-//     `hicasso-bench` lane — more riders than Freehand ever had, spread across
+//     `fresco-bench` lane — more riders than Freehand ever had, spread across
 //     three trees — was never in its scope at all.
 //   * It died with its tree. When `implementation/freehand/` is deleted the
 //     gate goes with it, silently, taking the only enforcement of a rule whose
@@ -76,11 +76,11 @@
 //
 //   DIRECT  the program spawns shadow-cljs's own `cli/runner.js` itself, with
 //           `'release', BUILD, '--config-merge', …` in the argv. Every
-//           `freehand-release` rider, and three riders of `hicasso-bench`.
+//           `freehand-release` rider, and three riders of `fresco-bench`.
 //   DOOR    the program hands the build to a module that owns the spawn —
-//           `lane_build.cjs`, the hicasso lane's one build door (rf2-2rtt6.73)
+//           `lane_build.cjs`, the fresco lane's one build door (rf2-2rtt6.73)
 //           — as `shadowBuild({ mode: 'release', buildId: BUILD_ID, … })`. Most
-//           of `hicasso-bench`.
+//           of `fresco-bench`.
 //
 // THE DOOR IS RESOLVED, NOT NAMED. A candidate counts as spawning shadow-cljs
 // if its own text names `runner.js`, or if any local `.cjs` it requires does.
@@ -202,13 +202,13 @@ function findImplRoot(from) {
 const IMPL_ROOT = findImplRoot(__dirname);
 const REPO_ROOT = IMPL_ROOT === null ? null : path.dirname(IMPL_ROOT);
 // THE BENCH LANE LEFT THE PACKAGE (rf2-6c12m.1) and took every rider of
-// `hicasso-bench` with it, so the riders this gate exists to hold now live
+// `fresco-bench` with it, so the riders this gate exists to hold now live
 // under the bench project — its own `shadow-cljs.edn` and `package.json`,
 // one level up from the implementation root. Both trees are scanned, and the
 // bench root is asserted found below for the same reason the implementation
 // root is: a gate that scanned one tree while its subjects sat in the other
 // would be the rescoping rf2-d19nf corrected, in a quieter form.
-const BENCH_ROOT = REPO_ROOT === null ? null : path.join(REPO_ROOT, 'bench', 'hicasso');
+const BENCH_ROOT = REPO_ROOT === null ? null : path.join(REPO_ROOT, 'bench', 'fresco');
 const SCAN_ROOTS = [IMPL_ROOT, BENCH_ROOT].filter((r) => r !== null && fs.existsSync(r));
 const FIXTURE_DIR = path.join(__dirname, 'lane_cache_fixtures');
 
@@ -219,7 +219,7 @@ const FIXTURE_DIR = path.join(__dirname, 'lane_cache_fixtures');
 //
 // Adding a lane: add its id. Deleting a lane: delete its id, and the
 // `really is shared` check below makes forgetting to loud.
-const SHARED_BUILD_IDS = ['hicasso-bench'];
+const SHARED_BUILD_IDS = ['fresco-bench'];
 
 const SKIP_DIRS = new Set(['node_modules', '.shadow-cljs', '.git', 'dist', 'out', 'target', 'public']);
 
@@ -502,8 +502,8 @@ test('the bench project root was found (the riders live there, rf2-6c12m.1)', ()
     BENCH_ROOT !== null &&
       fs.existsSync(path.join(BENCH_ROOT, 'shadow-cljs.edn')) &&
       fs.existsSync(path.join(BENCH_ROOT, 'package.json')),
-    'bench/hicasso/ beside implementation/ does not hold a shadow-cljs.edn and ' +
-      'package.json, so the tree carrying every `hicasso-bench` rider was not ' +
+    'bench/fresco/ beside implementation/ does not hold a shadow-cljs.edn and ' +
+      'package.json, so the tree carrying every `fresco-bench` rider was not ' +
       'scanned. Repair BENCH_ROOT — do not let discovery fall back to one tree.'
   );
 });

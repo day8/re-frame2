@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.shapes.card
+(ns re-frame.bench.fresco.shapes.card
   "THE CENSUS'S ARTICLE CARD — written **once**, so shapes 2 and 3 differ
   in one thing (rf2-2rtt6.51).
 
@@ -14,11 +14,11 @@
   is only evidence about boundaries if nothing else differs between the
   two pages, so the markup is written here, once, and:
 
-  - [[re-frame.bench.hicasso.shapes.large-template]] **calls** it —
+  - [[re-frame.bench.fresco.shapes.large-template]] **calls** it —
     `(card slug)` — and it inlines into the page's single boundary
     (HD-016: a plain function call mints no boundary of its own, and its
     `sub` reads are donated to the enclosing one);
-  - [[re-frame.bench.hicasso.shapes.feed]] **wraps** it — one `defview`
+  - [[re-frame.bench.fresco.shapes.feed]] **wraps** it — one `defview`
     whose whole body is `(card slug)` — and it becomes a boundary.
 
   **That is the entire diff between the two shapes**, and it is the
@@ -45,7 +45,7 @@
   `[:a {:href (str \"#/profile/\" …)}]`: a faithful port of the MARKUP
   and an unfaithful one of the AUTHORING, hand-building the URL the
   router owns. They are now
-  [[re-frame.bench.hicasso.front.route-link/route-link]] calls — the
+  [[re-frame.bench.fresco.front.route-link/route-link]] calls — the
   author names a route and params and never sees a URL. A route-link is a
   plain function producing ONE `<a>`, reading NO subscription, so
   [[elements-per-card]] and the card's two-read count are exactly what
@@ -54,13 +54,13 @@
   (`shapes/route_link_dom_cljs_test` owns the click witnesses.)
 
   `.cljc`-compatible by construction: no interop, no JS literal."
-  (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.front.route-link :refer [route-link]]
-            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]))
+  (:require [re-frame.bench.fresco.arm1.runtime :refer [sub]]
+            [re-frame.bench.fresco.front.route-link :refer [route-link]]
+            [re-frame.bench.fresco.shapes.model :as rf.bench.fresco.shapes.model]))
 
 (def elements-per-card
   "The element count of one rendered card, with the two tags
-  [[re-frame.bench.hicasso.shapes.model/tags-for]] gives every article.
+  [[re-frame.bench.fresco.shapes.model/tags-for]] gives every article.
 
   Written down because a page's total is then arithmetic a witness can
   **predict** — `chrome + n * elements-per-card` — rather than a number it
@@ -89,7 +89,7 @@
      [:div.article-meta
       (route-link {:to :conduit.profile/show :params {:username (:username author)}
                    :class "author-link"}
-        [:img.user-pic {:src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""}])
+        [:img.user-pic {:src (rf.bench.fresco.shapes.model/avatar-src (:image author)) :alt ""}])
       [:div.info
        (route-link {:to :conduit.profile/show :params {:username (:username author)}
                     :class "author"}

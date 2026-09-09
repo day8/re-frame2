@@ -5,9 +5,9 @@
 #
 # `clein pom` SILENTLY SKIPS `:local/root` coordinates. tools/xray/deps.edn
 # declares TEN of them in its main `:deps` — core, epoch, routing, flows,
-# schemas, resources, machines, hicasso, machines-viz and reagent-slim —
+# schemas, resources, machines, fresco, machines-viz and reagent-slim —
 # and release-xray.yml rewrites all ten. (It rewrote NINE until rf2-gra70:
-# the slot now held by `day8/re-frame2-hicasso` was `day8/re-frame2-freehand`
+# the slot now held by `day8/re-frame2-fresco` was `day8/re-frame2-freehand`
 # under rf2-5dut1, unpublishable and so deliberately unrewritten.) Run against
 # the in-tree deps.edn with no rewrite at all, `clein pom` prints ten
 # `Skipping coordinate` lines and writes a pom whose `<dependencies>` are
@@ -68,10 +68,10 @@
 # REFUSED the tag push with the coordinate named — rather than publishing a
 # pom with a hole in it, or minting a GAV that could not exist. The
 # coordinate was `day8/re-frame2-freehand` under rf2-5dut1, then
-# `day8/re-frame2-hicasso` after rf2-l86mm deleted the Freehand edge.
+# `day8/re-frame2-fresco` after rf2-l86mm deleted the Freehand edge.
 #
-# rf2-gra70 removed the last one by publishing the artefact: Hicasso now
-# carries a `:clein/build` and release.yml ships `day8/re-frame2-hicasso`.
+# rf2-gra70 removed the last one by publishing the artefact: Fresco now
+# carries a `:clein/build` and release.yml ships `day8/re-frame2-fresco`.
 # All ten coordinates are rewritten, so this gate is expected to PASS on a
 # correctly-ordered release — a framework `v*` tag at the same lockstep
 # VERSION first, then `xray-v*`.
@@ -175,10 +175,10 @@ MISSING_HINT = (
 # There was a SECOND, coordinate-specific hint here until rf2-gra70, held open
 # for whichever in-repo coordinate named an artefact that carried no
 # `:clein/build` — day8/re-frame2-freehand under rf2-5dut1, then
-# day8/re-frame2-hicasso after rf2-l86mm deleted the Freehand edge. It told the
+# day8/re-frame2-fresco after rf2-l86mm deleted the Freehand edge. It told the
 # operator NOT to follow MISSING_HINT above, because adding an unpublishable
 # coordinate to the rewrite step mints a GAV that cannot exist. Both premises
-# are gone: the Freehand edge was deleted and Hicasso is published (rf2-gra70),
+# are gone: the Freehand edge was deleted and Fresco is published (rf2-gra70),
 # so every in-repo coordinate Xray declares has a publishable target and
 # MISSING_HINT is the correct and only advice. Re-introduce a hint like it only
 # with a coordinate that genuinely has no publishable target — and re-introduce

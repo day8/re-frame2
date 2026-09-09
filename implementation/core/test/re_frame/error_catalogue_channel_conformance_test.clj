@@ -1593,7 +1593,7 @@
   `(rf.trace/emit! :warning :rf.ssr/hydration-mismatch {…})` with a `:warning`
   envelope — which is why neither carries `[:tags :category]`."
   ["core/src/re_frame/substrate/spine.cljs"
-   "hicasso/src/re_frame/hicasso/impl/mount.cljs"])
+   "fresco/src/re_frame/fresco/impl/mount.cljs"])
 
 (def ^:private adoption-emit-re
   "The adoption emit's opening. The payload map begins at the match END, so

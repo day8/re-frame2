@@ -1,5 +1,5 @@
-(ns re-frame.bench.hicasso.jsfb-hicasso-app
-  "THE CANDIDATE ARM — js-framework-benchmark's app on Hicasso Arm 1
+(ns re-frame.bench.fresco.jsfb-fresco-app
+  "THE CANDIDATE ARM — js-framework-benchmark's app on Fresco Arm 1
   (rf2-rguy1).
 
   Read this file beside `jsfb-reagent-app`. Same model namespace, same
@@ -40,11 +40,11 @@
 
   Owner: rf2-rguy1."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.jsfb-model :as rf.bench.hicasso.jsfb-model]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :refer [sub]]
+            [re-frame.bench.fresco.jsfb-model :as rf.bench.fresco.jsfb-model]
             [re-frame.core :as rf])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 (defview row
   "One row boundary — two reads through the ambient collector.
@@ -106,7 +106,7 @@
   ;; React-hook spine is built over it and its own witnesses install it.
   ;; The adapter is the substrate the CANDIDATE runs on, not a third arm.
   (rf/init! rf.adapter.uix/adapter)
-  (rf.bench.hicasso.jsfb-model/reset-seed!)
-  (rf.bench.hicasso.jsfb-model/register!)
-  (rf.bench.hicasso.jsfb-model/make-frame!)
-  (rf.bench.hicasso.arm1.mount/root! (js/document.getElementById "main") rf.bench.hicasso.jsfb-model/frame-id [app {}]))
+  (rf.bench.fresco.jsfb-model/reset-seed!)
+  (rf.bench.fresco.jsfb-model/register!)
+  (rf.bench.fresco.jsfb-model/make-frame!)
+  (rf.bench.fresco.arm1.mount/root! (js/document.getElementById "main") rf.bench.fresco.jsfb-model/frame-id [app {}]))

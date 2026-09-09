@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.front.witnesses
+(ns re-frame.bench.fresco.front.witnesses
   "THE WITNESS SET, as data (rf2-2rtt6.8).
 
   validation.md §P1 pins one measurement discipline above all others:

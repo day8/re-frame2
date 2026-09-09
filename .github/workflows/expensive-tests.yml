@@ -157,7 +157,7 @@ jobs:
       # `:node-test-perf-nightly` selects `-emit-nightly-test$`, which the
       # consolidated `:node-test` build's `cljs-test$` does not match, so the
       # two `*_emit_nightly_test.cljs` namespaces (core's
-      # performance_emit_nightly_test, and the hicasso bench tree's
+      # performance_emit_nightly_test, and the fresco bench tree's
       # render_measure_emit_nightly_test) run in this lane ALONE — and the lane
       # ran nowhere. `check_test_lane_bijection.py` could not see it: the lane
       # has a selector and the selector reaches files, so the bijection holds.
@@ -231,8 +231,8 @@ jobs:
       # that is named costs a reader one paragraph; a hole that is not costs
       # them the belief that the sweep is a superset.
       #
-      #   test:hicasso-controlled  — three engines. Needs Firefox AND WebKit,
-      #   test:hicasso-hmr           which this job does not install; the HMR
+      #   test:fresco-controlled  — three engines. Needs Firefox AND WebKit,
+      #   test:fresco-hmr           which this job does not install; the HMR
       #                              gate additionally needs a live
       #                              `shadow-cljs watch` and its own
       #                              `:dev-http` origin on 8061, and drives 36
@@ -245,7 +245,7 @@ jobs:
       #                              ACCEPTED EXPOSURE: a cross-surface break
       #                              of the caret/composition or HMR contracts
       #                              sits on main until a PR touches
-      #                              `implementation/hicasso/**`, the gates'
+      #                              `implementation/fresco/**`, the gates'
       #                              own launchers, or the build-config trio
       #                              (the `implementation/ui/**` arm named
       #                              here retired with that tree, rf2-0yp7w.6,
@@ -792,26 +792,26 @@ jobs:
           RF2_KSBUR_STRESS_ITERS: ${{ matrix.artefact == 'routing' && '500' || '' }}
         run: clojure -M:slow-test
 
-  # rf2-a7ds — THE ONLY THING IN CI THAT COMPILES THE HICASSO BENCH LANE.
+  # rf2-a7ds — THE ONLY THING IN CI THAT COMPILES THE FRESCO BENCH LANE.
   # NIGHTLY, AND NIGHTLY ONLY: ruling rf2-6c12m.1 deliberately keeps `bench/*`
   # off every per-PR lane, and a nightly is not a PR gate. Nothing here may be
   # promoted to `test.yml`, whose `pull_request` trigger is unfiltered.
   #
   # WHAT WAS UNCOVERED, AND WHY THE OBVIOUS INSTRUMENT COULD NOT SEE IT.
-  # `bench/hicasso/` is its own shadow-cljs project rather than a roster entry:
+  # `bench/fresco/` is its own shadow-cljs project rather than a roster entry:
   # `implementation/scripts/check-examples-compile.cjs` derives its build ids
   # from `implementation/shadow-cljs.edn`, which carries none of the bench ones
   # (ask it — `node implementation/scripts/check-examples-compile.cjs --list`).
   # `bench/` Clojure files DO arm `lint.yml`'s require-alias-dialect step, but
   # clj-kondo runs with no classpath and therefore cannot resolve vars at all —
-  # run over the pre-fix tree it named the deleted `re-frame.hicasso/mount!`
+  # run over the pre-fix tree it named the deleted `re-frame.fresco/mount!`
   # ZERO times. An undeclared var is caught by a COMPILER or by nothing, so
   # five bench arms called a deleted public name from the day it was deleted
   # until somebody happened to look (fixed in 5c024a0eb3). This job is the
   # instrument of the right kind.
   #
-  # NO `npm ci` IN `bench/hicasso/`, AND THAT IS THE DESIGN RATHER THAN A
-  # SHORTCUT — so do not "fix" the absent `bench/hicasso/package-lock.json` by
+  # NO `npm ci` IN `bench/fresco/`, AND THAT IS THE DESIGN RATHER THAN A
+  # SHORTCUT — so do not "fix" the absent `bench/fresco/package-lock.json` by
   # adding one. The lane has no `node_modules` of its own and needs none:
   # `lane_build.cjs` spawns shadow-cljs's JS entry point out of the
   # implementation install, and `shadow-cljs.edn` points npm resolution at that
@@ -819,8 +819,8 @@ jobs:
   # exists only to declare the shadow-cljs pin — 3.4.10, the identical version
   # `implementation/package.json` pins — so the CLI does not warn. One install,
   # one lockfile, one pin.
-  hicasso-bench-compile:
-    name: Hicasso bench lane compiles (nightly only - rf2-6c12m.1)
+  fresco-bench-compile:
+    name: Fresco bench lane compiles (nightly only - rf2-6c12m.1)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -848,9 +848,9 @@ jobs:
           path: |
             ~/.m2/repository
             ~/.gitlibs
-          key: ${{ runner.os }}-expensive-hicasso-bench-${{ hashFiles('bench/hicasso/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          key: ${{ runner.os }}-expensive-fresco-bench-${{ hashFiles('bench/fresco/shadow-cljs.edn', 'implementation/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-expensive-hicasso-bench-
+            ${{ runner.os }}-expensive-fresco-bench-
             ${{ runner.os }}-cljs-
 
       - name: Install the implementation node tree (the bench lane borrows it)
@@ -861,9 +861,9 @@ jobs:
       # arm added tomorrow is covered by this job without editing it. The gate
       # refuses a collapsed derivation (floor 40) and refuses an unparsable
       # shadow summary, so it cannot pass vacuously.
-      - name: Compile every lane namespace (:hicasso-bench, warnings-fatal)
-        working-directory: bench/hicasso
-        run: node src/re_frame/bench/hicasso/compile_gate.cjs
+      - name: Compile every lane namespace (:fresco-bench, warnings-fatal)
+        working-directory: bench/fresco
+        run: node src/re_frame/bench/fresco/compile_gate.cjs
 
       # The step above compiles that same source under the BROWSER id; this is
       # the `:node-script` target with `:infer-externs false`, which is the one
@@ -873,13 +873,13 @@ jobs:
       # `--config-merge` is needed — `shadow-cljs.edn` already declares this
       # build's `:main` and `:output-to` so that a bare compile builds the SSR
       # entry rather than nothing.
-      - name: Compile the node lane (:hicasso-bench-node, warnings-fatal)
-        working-directory: bench/hicasso
+      - name: Compile the node lane (:fresco-bench-node, warnings-fatal)
+        working-directory: bench/fresco
         # A literal block, because the inline object below carries `: ` pairs
         # that a plain YAML scalar cannot hold (measured: it parses as a
         # mapping and `check_workflow_yaml.py` refuses the file).
         run: |
-          node -e "require('./src/re_frame/bench/hicasso/lane_build.cjs').shadowBuild({project: process.cwd(), mode: 'compile', buildId: 'hicasso-bench-node', tag: 'hicasso-bench-node'})"
+          node -e "require('./src/re_frame/bench/fresco/lane_build.cjs').shadowBuild({project: process.cwd(), mode: 'compile', buildId: 'fresco-bench-node', tag: 'fresco-bench-node'})"
 
   # THE GATE-SCHEDULING AUDIT USED TO LIVE HERE, AND NO LONGER DOES (rf2-k78o2).
   # It asserts that every `test:*` / `bench:*` / `build:*` command in
@@ -933,7 +933,7 @@ jobs:
       # entry is about ORDERING rather than visibility: without it the
       # signature can be derived while the bench compile is still running, and
       # a red lane would be absent from the night's tracking issue.
-      - hicasso-bench-compile
+      - fresco-bench-compile
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

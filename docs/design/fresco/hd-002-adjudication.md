@@ -159,7 +159,7 @@ measured. [The bulk-rerender profile](../freehand/studio/bulk-rerender-where-the
 §4: the predecessor's `cell/commit!` called `obs/read` on every handle — "a
 **second deref of every subscription**, after render already read it" — as the
 invariant-5 tear check, costing 1.19 ms of a 4.0 ms write for 300 reads, against
-Reagent's entire layout-effect phase of 1.4 microseconds. Hicasso replaces the
+Reagent's entire layout-effect phase of 1.4 microseconds. Fresco replaces the
 commit-side re-read with the **generation fence** (architecture.md: "A generation
 fence keeps all reads within one render pass on one commit (invariant-5
 preservation; the staged-stale CI witness guards it)") — one comparison per
@@ -509,7 +509,7 @@ as **rf2-2rtt6.42** (P0), with three candidate repairs costed against the tripwi
 and none of them implemented here.
 
 **Witness.**
-`implementation/freehand/test/re_frame/bench/hicasso/generation_fence_coverage_cljs_test.cljs`
+`implementation/freehand/test/re_frame/bench/fresco/generation_fence_coverage_cljs_test.cljs`
 — three rows over the real sub layer, real frames and real watches: a retained key
 moving in the gap *does* move the counter (host honesty, without which the staged
 row's still counter would be trivially still), a staged key moving in the gap moves
@@ -562,7 +562,7 @@ delegated-advisory pattern this page follows) ·
 constraints, the tripwire's "overrides the clock" wording) ·
 [validation.md](validation.md) (the survival metric, the witness set, the
 evidence rule) · [charter.md](charter.md) §Constraints (the anti-regression fence)
-· [EP-0038](../../EP/EP-0038-the-hicasso-view-layer-programme.md) ·
+· [EP-0038](../../EP/EP-0038-the-fresco-view-layer-programme.md) ·
 [the bulk-rerender profile](../freehand/studio/bulk-rerender-where-the-time-goes.md)
 (the measured predecessor ledger this page's forbidden class is drawn from).
 

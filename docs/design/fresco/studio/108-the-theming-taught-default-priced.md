@@ -119,7 +119,7 @@ nothing else.
 | Chapters already read | 02 (`defview`, `sub`, the memo default) | 03 (`reg-fx`, the closed effect map) |
 | Chapters newly required | none | 10 (`:platforms #{:client}`, or the server render throws on `js/document`) |
 | Extra steps to a working dark mode | none | an initial event, or the first paint is unthemed |
-| Preconditions to hold | one, already taught: keep the content below the scope behind a `defview` head ([Equal props skip the body](../../../core/hicasso/02-views-and-reads.md#equal-props-skip-the-body)) | none |
+| Preconditions to hold | one, already taught: keep the content below the scope behind a `defview` head ([Equal props skip the body](../../../core/fresco/02-views-and-reads.md#equal-props-skip-the-body)) | none |
 | Surprises inherited | one, and it is silent — §7.2 | three: time travel lies, Xray lies, a test fixture lies |
 | Ceiling | none | one theme per page (§5) |
 
@@ -244,7 +244,7 @@ since the design pass, and §4's table prices it as the one precondition.
 
 ### 7.2 A's SSR divergence is attribute-only, and this tier cannot report it
 
-Guide 10 §*The framework story today* records that Hicasso sits in the adoption
+Guide 10 §*The framework story today* records that Fresco sits in the adoption
 tier: no `:rf/render-hash` rides the wire, verification is React's own adoption,
 and React *"does **not** report an attribute-only divergence (a stale `class` or
 `style` on an element whose tag and text still match) — React makes no guarantee
@@ -265,7 +265,7 @@ diagnosable by anyone who watches the page load. A's residual cost is a wrong
 attribute nobody is told about.
 
 It does not flip the ruling, for three reasons. The blind spot is the tier's, not
-theming's — it condemns every state-derived attribute in Hicasso equally, and the
+theming's — it condemns every state-derived attribute in Fresco equally, and the
 guide already owns the general row. The remedy is already taught on the same page:
 `hydrate!` seeds app-db from the payload *before* the first render, so the two
 sides agree by construction unless the payload dropped the key, which is
@@ -278,7 +278,7 @@ sentence on A's SSR bullet rather than an unqualified *"no flash by construction
 
 `:ssr :render` landed on 2026-08-05 (`rf2-l0wfx`, `rf2-nv07k`), and with it guide
 10 §[`:render` — when the region has to be in the
-response](../../../core/hicasso/18-ssr-and-hydration.md#client-only-components-and-fallbacks).
+response](../../../core/fresco/18-ssr-and-hydration.md#client-only-components-and-fallbacks).
 The load-bearing fact for theming is the one that ruling states about the other
 two policies: `:client-only` (**the default**) and `{:fallback …}` render *instead
 of* the component, so *"a provider at a crossing takes every descendant out of the
@@ -313,7 +313,7 @@ but a channel that exists, where the per-root attribute has none.
   design's claim that per-frame B needs `make-frame :fx-overrides`: `spec/002-Frames.md`
   §*The binary fx-handler signature* already gives an fx handler the frame id in
   its ctx under `:frame`. Since then `h/frame` has **shipped** and guide 03
-  §[Frame-safe callbacks and `h/frame`](../../../core/hicasso/03-events-as-data.md#frame-safe-callbacks-and-hframe)
+  §[Frame-safe callbacks and `h/frame`](../../../core/fresco/03-events-as-data.md#frame-safe-callbacks-and-hframe)
   teaches *"an fx handler receives the frame id in its context"* as a first-class
   fact, echoed in guide 01's troubleshooting table. So B per-root is an app-owned
   `frame-id → node` map populated at mount plus one global fx reading `(:frame m)`

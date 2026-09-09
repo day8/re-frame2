@@ -2,7 +2,7 @@
 
 Worked recipes, each one a whole thing you can copy into an application and then
 edit. Every recipe here is the shape a landed witness in
-`implementation/hicasso/test/re_frame/hicasso/` already runs, reduced to the
+`implementation/fresco/test/re_frame/fresco/` already runs, reduced to the
 parts a reader needs. Most of those witnesses are the example applications under
 `examples/`; a few — the parameterised control, the server render — are contract
 tests sitting beside that directory rather than inside it.
@@ -22,7 +22,7 @@ Everything below assumes a mounted root, so start here.
 (ns my.app
   (:require [re-frame.core :as rf]
             [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.hicasso :as h]
+            [re-frame.fresco :as h]
             [my.app.views :as views]))
 
 (defonce app-root (h/client-root))
@@ -51,14 +51,14 @@ Everything below assumes a mounted root, so start here.
 
 Five things about this shape are load-bearing.
 
-**`rf/init!` comes first, and it is not optional.** Hicasso is a view layer, not
+**`rf/init!` comes first, and it is not optional.** Fresco is a view layer, not
 a [substrate](../glossary.md#substrate): the reactive container app-db lives in
 comes from an [adapter](../glossary.md#adapter), and nothing installs one for
 you. `h/frame-root` ensures its frame, creating a frame asks the adapter for a
 state container, and a boot that beats `init!` throws
 `:rf.error/no-adapter-installed`. `re-frame.adapter.uix` is its own artefact —
 [Installation](00-installation.md#add-the-dependencies) declares the
-`day8/re-frame2-uix` coordinate it comes from alongside Hicasso's, and
+`day8/re-frame2-uix` coordinate it comes from alongside Fresco's, and
 [Use UIx or reagent-slim](../how-to/use-uix-or-slim.md) covers the other two
 substrates.
 
@@ -99,7 +99,7 @@ and every handler is a vector.
 
 ```clojure
 (ns my.app.views
-  (:require [re-frame.hicasso :as h]
+  (:require [re-frame.fresco :as h]
             [my.app.events :as events]
             [my.app.subs :as subs]))
 
@@ -202,8 +202,8 @@ Those need a draft in front of the committed value.
 ```clojure
 (ns my.app.views
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.forms :as forms]
+            [re-frame.fresco :as h]
+            [re-frame.fresco.forms :as forms]
             [my.app.events :as events]
             [my.app.subs :as subs]))
 
@@ -258,7 +258,7 @@ way.
 ```clojure
 (ns my.app.views
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
+            [re-frame.fresco :as h]
             [my.app.subs :as subs]))
 
 (h/defview pager
@@ -367,7 +367,7 @@ Chapter: [Async resources](08-async-resources.md).
 
 ```clojure
 (ns my.app.views
-  (:require [re-frame.hicasso :as h]
+  (:require [re-frame.fresco :as h]
             [my.app.routes :as routes]
             [my.app.subs :as subs]))
 
@@ -412,7 +412,7 @@ Declare the crossing once, then use the resulting var as a Hiccup head anywhere.
 
 ```clojure
 (ns my.app.views
-  (:require [re-frame.hicasso :as h]
+  (:require [re-frame.fresco :as h]
             [my.app.events :as events]
             [my.app.subs :as subs]
             [my.app.vendor :as vendor]))
@@ -528,7 +528,7 @@ client installs the state **and then** adopts the DOM.
 
 ```clojure
 (ns app.server
-  (:require [re-frame.hicasso.server :as server]
+  (:require [re-frame.fresco.server :as server]
             [my.app.views :as views]))
 
 (defn handle [request]
@@ -548,13 +548,13 @@ client installs the state **and then** adopts the DOM.
 **Check determinism in a test, where the renderer is.** A view reading
 `Date.now` or generating a random id produces a document that differs run to
 run, which hydration then reports as a mismatch on someone else's machine. The
-test kit's `re-frame.hicasso.test.server/render-twice` takes the same options
+test kit's `re-frame.fresco.test.server/render-twice` takes the same options
 map you hand `render`:
 
 ```clojure
 (ns app.server-test
   (:require [cljs.test :refer [deftest is]]
-            [re-frame.hicasso.test.server :as ts]))
+            [re-frame.fresco.test.server :as ts]))
 
 (deftest the-page-renders-deterministically
   (let [{:keys [identical? differs-at]} (ts/render-twice opts)]
@@ -568,7 +568,7 @@ the DOM:
 (ns my.app
   (:require [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
-            [re-frame.hicasso :as h]
+            [re-frame.fresco :as h]
             [my.app.views :as views]))
 
 (defonce app-root (h/client-root))

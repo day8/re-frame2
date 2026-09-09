@@ -167,7 +167,7 @@ props object per element per render stands.
 - **re-frame.ui / Freehand's compiled tier**: static extraction with
   runtime-value holes. Same fence, same declination; Freehand's own
   runtime caches are stable-boundary/component caches — head caching, which
-  Hicasso already has by construction (HD-016).
+  Fresco already has by construction (HD-016).
 - **Replicant** (the bead's "static-skeleton caching" pointer): a runtime
   interpreter whose optimisation is update-time diffing over pure-data
   hiccup, plus opt-in value-keyed memoisation of unchanged subtrees.
@@ -260,7 +260,7 @@ both. The full trees are not: `7885a7c148` stays the tree these rows were
 taken on, and `0c0839b368` is the resolvable carrier of the measured blobs
 rather than the measured commit.
 
-| row | hicasso/uix before | verdict before |
+| row | fresco/uix before | verdict before |
 |---|---|---|
 | large-template (the acceptance shape) | **1.3053× [1.1044 – 1.4660]**, band 6.7% | **FAILS THE LINE** (margin 18.7%) |
 | feed (the guard shape) | 1.1646× [1.0951 – 1.2445], band 6.7% | INSTRUMENT-LIMITED (straddles 1.10) |
@@ -273,7 +273,7 @@ rebase-merged, so it too resolves in no fresh clone — it landed on main as
 
 `uix` run — the gated run:
 
-| row | floor abs p50 | hicasso abs | uix abs | **hicasso / uix** | ctl-2x (pred) | band | **verdict vs 1.10×** |
+| row | floor abs p50 | fresco abs | uix abs | **fresco / uix** | ctl-2x (pred) | band | **verdict vs 1.10×** |
 |---|---|---|---|---|---|---|---|
 | large-template | 8.858 ms | 10.976 ms | 9.096 ms | **1.2409× [1.0371 – 1.5371]** | 1.8470 [1.5270–2.1961] vs 1.9759 **PASS** | 13.7% | **INSTRUMENT-LIMITED** — the range straddles 1.10; not a pass |
 | feed | 45.709 ms | 60.231 ms | 56.328 ms | **1.0875× [1.0100 – 1.1921]** | 1.9715 [1.8163–2.1879] vs 1.9943 **PASS** | 5.7% | **INSTRUMENT-LIMITED** — straddles 1.10 |
@@ -281,7 +281,7 @@ rebase-merged, so it too resolves in no fresh clone — it landed on main as
 
 `reagent` run — co-instrumented, never a second gate:
 
-| row | hicasso / uix | hicasso / reagent | uix / reagent | band |
+| row | fresco / uix | fresco / reagent | uix / reagent | band |
 |---|---|---|---|---|
 | large-template | 1.1646× [1.0019 – 1.4016] | **1.0303× [0.9103 – 1.1419] — STRADDLES 1.0** | 0.8872× | 12.6%, ctl PASS |
 | feed | 1.1467× [1.0187 – 1.2784] | 1.1165× [0.9686 – 1.3168] | 0.9758× | 13.4%, **ctl FAIL** |
@@ -300,11 +300,11 @@ rebase-merged, so it too resolves in no fresh clone — it landed on main as
   PASS, the same 6.7%-class as the before-run) and it moved from 1.1646×
   [1.0951–1.2445] to **1.0875× [1.0100–1.1921]**: the mean crossed below
   the 1.10 line for the first time on any census row.
-- **On the pure interpreter shape, Hicasso now reads at stock-Reagent cost**:
-  hicasso/reagent 1.0303× straddles 1.0 on large-template — the shape built
+- **On the pure interpreter shape, Fresco now reads at stock-Reagent cost**:
+  fresco/reagent 1.0303× straddles 1.0 on large-template — the shape built
   to price the interpreter with the shell held at one boundary.
 - **What remains above the line is no longer mostly the walk.** The
-  large-template decomposition: hicasso in-page 3.300 ms vs uix 1.900 ms,
+  large-template decomposition: fresco in-page 3.300 ms vs uix 1.900 ms,
   taskNet 1.0613× — the surviving gap concentrates in the in-page window,
   which on this shape is element construction PLUS the 141-per-instance
   collector reads no one-boundary hook surface can spell (the row's stamp);
@@ -330,8 +330,8 @@ attempt-1 refusal was the build's own heat decaying).
 | | |
 |---|---|
 | **Producing commit** | `8ccd9f4b41` on `worker/walkopt-y1jkm`, working tree clean — the stamped blobs are the commit's. **Authored, and rebase-merged, so this SHA is on no branch and will not resolve in a fresh clone**; it landed on main as **`a3ffe8380e`** (same patch — identical `git patch-id --stable`), with the blob it contributed unchanged. The landed SHA is the one to check out; it sits on a later base, so it carries the change rather than the whole measured tree. **That caveat has a concrete instance, found 2026-08-14**: `a3ffe8380e`'s later base already contained `645c77630d`, so its `card.cljs` is blob `07458921f7` — the post-`route-link` card — while the measured tree's is `d197bf0d6d`. Both `8ccd9f4b41` and `7885a7c148` still resolve in this clone and are the trees to read for the page; the landed SHAs carry the intervention only. The before/after blob equality §4 asserts is **unaffected** — `card` is `d197bf0d6d` at both measured commits, so these rows are the same page on both sides, which is what they claim |
-| **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/shapes/census_clock_run.cjs` (datasets redirected via `C56CLOCK_DATA_DIR` to `data/censusclock-y1jkm/` so the `rf2-2rtt6.56` before-datasets stay intact) |
-| **Build** | `:hicasso-bench` (`--config-merge` entry swap), `:advanced`, `goog.DEBUG false`, cache cleared per `rf2-2rtt6.20`; 0 warnings |
+| **Reproduction** | `node implementation/freehand/test/re_frame/bench/fresco/shapes/census_clock_run.cjs` (datasets redirected via `C56CLOCK_DATA_DIR` to `data/censusclock-y1jkm/` so the `rf2-2rtt6.56` before-datasets stay intact) |
+| **Build** | `:fresco-bench` (`--config-merge` entry swap), `:advanced`, `goog.DEBUG false`, cache cleared per `rf2-2rtt6.20`; 0 warnings |
 | **Runtime** | `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), node `v24.13.0`, hardware-concurrency 24, device-memory 32 |
 | **Design** | 6 rounds × 3 blocks × (4 warmup + 10 samples) per arm per row — the published shape, nothing overridden |
 | **Clock / door / tare** | as the before-run: raw `TaskDuration` frame-settled, one door (`page.evaluate → C56CLOCK.sample`), plumb-tared per block |
@@ -347,7 +347,7 @@ on every measured file except the intervention**:
 | `…/front/codec.cljs` | `5a0b04733a33d1baa815b093f5b297e325aa6675` **(the change under test; before: `92942efb0bc9…`)** |
 | every other measured blob | byte-identical to the before-run's table in `census-real-clock-rows.md` (`census_clock_arms/app/run`, `model`, `card`, `large_template`, `feed`, `ordinary`, `arm1/runtime`, `arm1/lang`, `lane`, `substrate/spine`) |
 
-Compact datasets: `implementation/freehand/test/re_frame/bench/hicasso/data/censusclock-y1jkm/`.
+Compact datasets: `implementation/freehand/test/re_frame/bench/fresco/data/censusclock-y1jkm/`.
 
 ## 5. How this composes with the pending memo wrapper (#7375)
 
@@ -373,7 +373,7 @@ PR rebases over this cleanly (or vice versa).
 - No compiler, no analyzer: `defview` still reads no body form; every new
   cache key is a runtime literal.
 - reagent-slim's codec: **not forked** — `reagent2.impl.template` is
-  untouched; the change is to Hicasso's own extraction, which is the surface
+  untouched; the change is to Fresco's own extraction, which is the surface
   the bead's candidate list names, and it is a cache *at* the codec of the
   kind the bead pre-classifies as in scope.
 - Examples/testbeds: untouched. `.beads` untouched.
@@ -387,9 +387,9 @@ carry. It is recorded here as the lane's current-tip baseline so the next
 optimisation has something to move.
 
 **Provenance.** `origin/main` at `c8634a0824`, worktree clean apart from this
-page. `node …/hicasso/run.cjs` with
-`HICASSO_INIT_FN=re-frame.bench.hicasso.walk-profile-app/-main`, exit `0`,
-one run, window 2026-08-14 00:49:41 – 00:50:36 AUSEST. Build `:hicasso-bench`
+page. `node …/fresco/run.cjs` with
+`FRESCO_INIT_FN=re-frame.bench.fresco.walk-profile-app/-main`, exit `0`,
+one run, window 2026-08-14 00:49:41 – 00:50:36 AUSEST. Build `:fresco-bench`
 `:advanced`, `goog.DEBUG false`, cache cleared per `rf2-2rtt6.20`, 0 warnings.
 `HeadlessChrome/147.0.7727.15`. Design 6 rounds × (4 warmup + 10 samples),
 8 whole-page walks per timing window, 60 samples per arm.
@@ -406,7 +406,7 @@ predicts, with no inversions — the two arms that do *more* work than `local`
 
 **What this instrument does NOT carry: a positive control.**
 `walk_profile_app` never calls `lane/control-verdict` and never sets
-`HICASSO_CONTROL_FAILED`, so `run.cjs`'s control exit path is dead for this
+`FRESCO_CONTROL_FAILED`, so `run.cjs`'s control exit path is dead for this
 arm. That is a property of the rig, not of this run — it was equally true of
 the §1 and §2 figures — and it was **not** repaired here, because building an
 instrument mid-window is what the measurement discipline forbids. Filed as

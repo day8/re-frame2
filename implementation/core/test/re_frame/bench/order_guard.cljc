@@ -162,7 +162,7 @@
   rather than composed. [[self-test]] check 9 prices both halves.
 
   The same arithmetic as `order_guard.cjs`'s `schedule`. `b6-harness` and
-  `re-frame.bench.hicasso.lane` take this function rather than restate it, so
+  `re-frame.bench.fresco.lane` take this function rather than restate it, so
   there are two copies of the rule and not four — and the two are the ones a
   Node driver and a ClojureScript harness genuinely cannot share."
   [n round]

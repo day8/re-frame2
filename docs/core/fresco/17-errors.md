@@ -8,7 +8,7 @@ Wrap independently useful regions with `h/error-boundary`:
 
 ```clojure
 (ns app.articles
-  (:require [re-frame.hicasso :as h]))
+  (:require [re-frame.fresco :as h]))
 
 (h/defview article-page [{:keys [id]}]
   [:main
@@ -99,7 +99,7 @@ The nearest error boundary above the throw handles it:
 ```clojure
 (ns app.reports
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso :as h]))
+            [re-frame.fresco :as h]))
 
 (rf/reg-sub :chart/attempt
   (fn [db _query]
@@ -225,8 +225,8 @@ level that preserves it.
 | One view throws and the whole page blanks | No boundary caught the render failure, so React unmounted the root | Wrap the independently recoverable region with `h/error-boundary` |
 | An event-handler exception does not show the fallback | Event handlers run in the re-frame2 pipeline, not descendant React render | Inspect the `:rf.error/handler-exception` record; do not expect a view fallback |
 | Fallback appears and never clears | There is no `:reset-key`, or its value never changes | Drive a generation value from app-db and change it on Retry |
-| Retry intent in the fallback raises `:rf.error/hicasso-intent-outside-boundary` | The fallback was rendered outside the mounted Hicasso/frame tree | Keep fallback Hiccup inside the boundary and use an ordinary event intent |
-| A boundary with a vector `:on-error` raises `:rf.error/hicasso-intent-outside-boundary` at its first paint, naming `:position :on-error` | A vector `:on-error` is dispatched through the frame the boundary is mounted under, and there is no frame above this one — so the report could never be routed, and the boundary refuses rather than catch a failure and drop the record | Mount the boundary under a frame — `h/frame-root` or `h/frame-provider` — or hand `:on-error` a function, which is called with the error and needs no frame |
+| Retry intent in the fallback raises `:rf.error/fresco-intent-outside-boundary` | The fallback was rendered outside the mounted Fresco/frame tree | Keep fallback Hiccup inside the boundary and use an ordinary event intent |
+| A boundary with a vector `:on-error` raises `:rf.error/fresco-intent-outside-boundary` at its first paint, naming `:position :on-error` | A vector `:on-error` is dispatched through the frame the boundary is mounted under, and there is no frame above this one — so the report could never be routed, and the boundary refuses rather than catch a failure and drop the record | Mount the boundary under a frame — `h/frame-root` or `h/frame-provider` — or hand `:on-error` a function, which is called with the error and needs no frame |
 | A panel fallback throws and the larger page fallback appears | The fallback itself failed and the next outer boundary caught it | Keep fallbacks small and avoid re-reading the failed state |
 | `:on-error` appears to fire twice in development | Two distinct failures occurred; StrictMode alone still produces one report per catch | Inspect the two error records and their causes |
 | A server-render throw is not caught by the client boundary | Server rendering uses the server error channel; a client error boundary cannot handle server execution | Apply the surface's server policy and server error handling ([SSR and hydration](18-ssr-and-hydration.md)) |

@@ -32,10 +32,10 @@ and [§6](specification.md#6-performance-contract), the
    adapter the application installed, and the same collector measures **1,417**
    or **2,115 B per read** on the package depending only on which one that was —
    a 49% spread on the product's own per-read row, set by a line of somebody
-   else's `rf/init!`. Hicasso installs its own adapter, and the substrate under
-   the collector is a Hicasso fact from the ABI freeze onward.
+   else's `rf/init!`. Fresco installs its own adapter, and the substrate under
+   the collector is a Fresco fact from the ABI freeze onward.
 2. **That substrate is the React-hook spine**, `re-frame.substrate.spine` —
-   the body UIx already installs and the one every Hicasso witness has ever run
+   the body UIx already installs and the one every Fresco witness has ever run
    on. It is chosen against a measured per-read premium of **+698 B/read** over
    the ratom family, and that premium is carried explicitly rather than
    discovered later.
@@ -51,7 +51,7 @@ ablation §6 named has since been run (`rf2-l50z`), and it attributed the whole
 move to a single ratom-only correctness line in `wire-cell!`. **No figure above
 moves** — S3 is still `1,417 B/read` — because the attribution names what that
 cost buys rather than removing it. What §6 still leaves open is the ratom
-family's missing clock and migration contrasts, and whether a Hicasso-owned
+family's missing clock and migration contrasts, and whether a Fresco-owned
 derived-value container could beat the spine.
 
 ---
@@ -66,7 +66,7 @@ nor the specification enumerates the candidates, so the first job is to read the
 off the source rather than to assume them.
 
 **[DERIVED] The collector reaches the substrate through exactly one door.**
-`re-frame.hicasso.impl.collector/wire-cell!` subscribes through
+`re-frame.fresco.impl.collector/wire-cell!` subscribes through
 `re-frame.subs/subscribe`, activates the result through
 `re-frame.interop/activate-derived-value!`, watches it, and arms
 `interop/add-on-dispose!`; cold reads go through `subs/compute-sub-with-memo` on
@@ -87,21 +87,21 @@ page**: the package's own `deps.edn` records that plain-atom has no reactivity
 layer, so a subscription under it never notifies and every commit assertion would
 pass vacuously by never firing. It cannot carry a collector.
 
-**[DERIVED] Hicasso installs neither today.** `implementation/hicasso/deps.edn`
+**[DERIVED] Fresco installs neither today.** `implementation/fresco/deps.edn`
 declares core alone and states in terms that shipping source names no adapter;
 `impl/mount.cljs` reads the shared `re-frame.adapter.context/frame-context` and
 installs nothing. The UIx adapter appears only as a test dependency. So the
 substrate under the collector is, literally, whatever the application chose.
 
 **[DERIVED] The product already assumes otherwise.** The specification's native
-tier is written around *"the single installed Hicasso adapter, root, and shared
+tier is written around *"the single installed Fresco adapter, root, and shared
 frame contract"* ([§5](specification.md#5-native-react-hot-path)), and the ladder
-that measured this rung says the same from the other side: *a shipped Hicasso
+that measured this rung says the same from the other side: *a shipped Fresco
 would sit on neither donor's substrate — it is an adapter for React and would
 install its own*
-([the ladder](../studio/reads-per-boundary-heap-ladder.md#6-the-hicasso-candidate-rung--one-hook-plus-a-shared-index)).
+([the ladder](../studio/reads-per-boundary-heap-ladder.md#6-the-fresco-candidate-rung--one-hook-plus-a-shared-index)).
 **The two measured columns are therefore a bracket around a choice, not a menu**,
-and the choice is which `make-derived-value` the Hicasso adapter carries.
+and the choice is which `make-derived-value` the Fresco adapter carries.
 
 ---
 
@@ -125,7 +125,7 @@ asymmetry decidable rather than merely awkward.
 
 **[RULED]** S1–S4 are package figures as of 2026-08-12, re-pinned by `rf2-fe0l`
 in one solo quiet-window run of the P0 ladder repointed at
-`implementation/hicasso` ([`budgets.md` §4](budgets.md), and
+`implementation/fresco` ([`budgets.md` §4](budgets.md), and
 [the run](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l)).
 Both donors, both floors and both shells returned on their published anchors; the
 candidate's slope bands are 1–9 B wide over six rounds.
@@ -145,7 +145,7 @@ per read, on the package, same run
   the spine's premium   +698 B/read   (1.4926×)
 ```
 
-**[DERIVED] The premium is a core fact, not a Hicasso one.** The same run
+**[DERIVED] The premium is a core fact, not a Fresco one.** The same run
 measures the donors at 948 B/read (Reagent) against 2,980 B/read (UIx) on the
 identical rungs, so the ratom family is cheaper per retained read for *both* view
 layers. What the collector does is absorb most of the gap — 2,032 B between the
@@ -154,7 +154,7 @@ working, seen from an angle the verdict rows do not show.
 
 ### The correctness axis, which is one-sided and total
 
-**[DERIVED]** Of the files in `implementation/hicasso`, **73 reference
+**[DERIVED]** Of the files in `implementation/fresco`, **73 reference
 `re-frame.adapter.uix` and none references `re-frame.adapter.reagent`** — none in
 `src`, which names no adapter at all, and none in `test`, `test_kit` or
 `testbed`. Every kernel witness this bead depends on — `rf2-hic-010`'s
@@ -162,7 +162,7 @@ render-probes/commit-owns suites, `rf2-hic-011`'s read-extent matrix,
 `rf2-hic-013`'s reincarnation suites, `rf2-hic-014`'s Activity and Suspense
 conduct, `rf2-hic-015`'s HMR rows, and the hook-budget witness below — installs
 the UIx adapter and therefore runs on the spine. **The ratom family has never
-carried a green Hicasso witness in this package.**
+carried a green Fresco witness in this package.**
 
 **[DERIVED] That is not a formality, because the collector carries a
 ratom-only line.** `wire-cell!` calls `interop/activate-derived-value!` before it
@@ -185,7 +185,7 @@ the same bytes. **Heap evidence on a substrate is not correctness evidence on it
 **[DERIVED]** [The candidate's clock](../studio/the-candidates-clock.md) is built
 as three segments with one substrate arm each, because `install-adapter!` is once
 per process and a bulk write re-renders every arm mounted against the frame. The
-candidate appears in the `hicasso` segment only, on UIx. **There is no
+candidate appears in the `fresco` segment only, on UIx. **There is no
 candidate-on-ratom clock reading on any tree**, and S6/S7 remain bench-tree
 figures — no package-resident clock instrument exists
 ([`budgets.md` §4](budgets.md)).
@@ -201,7 +201,7 @@ teardown on every arm of every round — on both segments. The axis does not
 discriminate.
 
 **[DERIVED]** Migration cost is zero today for either choice, and that is the
-whole reason the bead is timed where it is. `implementation/hicasso/deps.edn`
+whole reason the bead is timed where it is. `implementation/fresco/deps.edn`
 records the artefact as pre-publication: no Maven coordinate, absent from the
 lockstep array and the release deploy matrix. There are no consumers to migrate.
 After publication the same change is an adapter swap in every application's
@@ -213,7 +213,7 @@ rather than *"decide it"*.
 
 ## 3. The verdict on the substrate
 
-**[RULED — delegated, operator-overturnable] Hicasso installs its own adapter,
+**[RULED — delegated, operator-overturnable] Fresco installs its own adapter,
 and that adapter carries the React-hook spine's derived-value container.**
 
 The reasons, in the order they carry weight:
@@ -231,7 +231,7 @@ The reasons, in the order they carry weight:
    adapter makes. The spine's own docstring anticipates precisely this consumer:
    *"React-shaped adapters that lack a native reactive-atom primitive (UIx and
    any future minimal-React-wrapper substrate)."* Taking the ratom family instead
-   means Hicasso depends on Reagent — in a package whose reason for existing is
+   means Fresco depends on Reagent — in a package whose reason for existing is
    to be a lean React substrate, and in every application that installs it.
 3. **The heap premium is real, priced, and the smaller quantity.** +698 B/read is
    not dismissed and is not normalised away; it is [§5](#5-the-carried-costs-and-their-reopen-conditions)'s
@@ -241,7 +241,7 @@ The reasons, in the order they carry weight:
 
 **[INFERRED] The bracket's lower end is a demonstrated target, not a rejected
 option.** 1,417 B/read is what the collector costs when the reactions underneath
-it are cheap, measured on this package on this instrument. A Hicasso-owned
+it are cheap, measured on this package on this instrument. A Fresco-owned
 derived-value container that beat the spine would land somewhere in
 `1,417 – 2,115`, and the ladder's bracket sentence is what says a view layer
 cannot cost less than the reactions it holds. That is a third option this page
@@ -250,19 +250,19 @@ is the shape of the attack, and it is filed as this verdict's reopen condition.
 
 ### What this freezes
 
-- The runtime ABI freezes with a **Hicasso-owned** substrate. No shipped
-  configuration of Hicasso reads its per-read cost off the application's
+- The runtime ABI freezes with a **Fresco-owned** substrate. No shipped
+  configuration of Fresco reads its per-read cost off the application's
   `rf/init!` line.
-- The published per-read figure for Hicasso is the **spine** column. S3's
+- The published per-read figure for Fresco is the **spine** column. S3's
   ratom-segment figure remains a measurement and a K3 scoreboard input
   (`rf2-hic-070` owns that disposition), but it is no longer the number a shipped
-  Hicasso would produce.
+  Fresco would produce.
 
 ### Reopen conditions
 
 Any one of these reopens the choice, and none of them is speculative:
 
-- a Hicasso-owned derived-value container measured on this ladder inside the
+- a Fresco-owned derived-value container measured on this ladder inside the
   `1,417 – 2,115 B/read` bracket, with the kernel witnesses green on it;
 - a same-instrument reading that moves the spine's premium materially — the
   premium is a `re-frame.substrate.spine` fact, so a core landing can move it in
@@ -288,7 +288,7 @@ runtime instead makes both closures pure functions of a value that live on a
 shared read-set entry.
 
 **The measurement, and why it counts as one.** The witness is
-`implementation/hicasso/test/re_frame/hicasso/hook_budget_cljs_test.cljs`
+`implementation/fresco/test/re_frame/fresco/hook_budget_cljs_test.cljs`
 (`rf2-wjag`), which counts the calls **React's own dispatcher received**, through
 a probe that wraps the dispatcher slot. The runtime's `shell-hook-ledger` is a
 declaration, and a budget a runtime reports about itself is not evidence; the
@@ -364,7 +364,7 @@ remediation through the collector-substrate adjudication*
 ([§6](specification.md#6-performance-contract)). The attempt is made here and it
 fails, structurally rather than narrowly: the two substrates' shells are **five
 bytes apart**, inside each other's bands, because the shell touches no adapter at
-all. There is no substrate — including one Hicasso writes itself — that moves an
+all. There is no substrate — including one Fresco writes itself — that moves an
 R=0 boundary, because an R=0 boundary holds no reaction. **The whole overage — 71 B on the chosen substrate, 76 B on the other — would
 have to come out of the shell.**
 
@@ -494,7 +494,7 @@ is why the move showed in one segment and not both: nothing in the window added
 per-cell state to the spine.
 
 **What that costs the collector's own bill, stated rather than glossed.** The
-`139 B/read` is what a Reagent-hosted Hicasso boundary pays to answer writes at
+`139 B/read` is what a Reagent-hosted Fresco boundary pays to answer writes at
 all; without it the arm paints once at mount and goes deaf. It is a real cost on
 a real axis and it is carried, not normalised — the same posture
 [the disposal hook](../studio/reads-per-boundary-heap-ladder.md#the-slope-went-stale-before-this-section-merged-and-the-landing-that-moved-it-rf2-2rtt660)
@@ -507,7 +507,7 @@ the clock page's design — which its own §3 explains is not free, because
 for each other's writes. This page does not ask for it: the arm it would inform
 is the one not selected.
 
-**[OPEN] Whether a Hicasso-owned derived-value container beats the spine.** No
+**[OPEN] Whether a Fresco-owned derived-value container beats the spine.** No
 code, no measurement, a demonstrated target of 1,417 B/read, and a bracket that
 says where it would have to land.
 
@@ -523,7 +523,7 @@ Written 2026-08-12 for `rf2-hic-018`.
 
 **Figures, and their trees.** S1–S5 are package figures, re-pinned by `rf2-fe0l`
 (PRs #7939 and #7941) in one solo quiet-window run of `p0_run.cjs --only ladder`
-against `implementation/hicasso`, six rounds, package candidate and both donors
+against `implementation/fresco`, six rounds, package candidate and both donors
 in the same run set; they are quoted from
 [`budgets.md` §4](budgets.md) and
 [the ladder's own section](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l),

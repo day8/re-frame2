@@ -16,7 +16,7 @@ The skill answers three questions:
 
 Xray runs in one of two modes, flipped by the L1 mode pill or `Cmd/Ctrl+Shift+M`:
 
-- **Dynamic** — the event-coupled spine (4-layer chrome). 10 tabs: **Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph · Frames · Hicasso**. Dynamic names the *shell*, not a uniform data scope: six tabs are lenses on the one focused event, Resources is mixed, and Graph, Frames and Hicasso browse live structure and do **not** rebind when you pick an epoch. There is **no Issues tab** — issues surface inline.
+- **Dynamic** — the event-coupled spine (4-layer chrome). 10 tabs: **Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph · Frames · Fresco**. Dynamic names the *shell*, not a uniform data scope: six tabs are lenses on the one focused event, Resources is mixed, and Graph, Frames and Fresco browse live structure and do **not** rebind when you pick an epoch. There is **no Issues tab** — issues surface inline.
 - **Static** — event-INDEPENDENT registry browse (3-layer chrome, no spine). 5 tabs: **Machines · Routes · Schemas · Flows · Interceptors** — catalogues of what's *registered*.
 
 When the user wants to inspect a single dispatch, that's Dynamic; when they want to browse the whole registry, that's Static. The canonical tab inventory and scope matrix live in the skill package, at [`skills/re-frame2-xray/references/panels.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/references/panels.md) — this page summarizes the role and defers the anatomy to that authority.
@@ -34,7 +34,7 @@ Four hotkey families have keydown listeners installed:
 
 ## When to reach for it
 
-Load this skill when the user wants to *read* the Xray panel — "open Xray", "where is X in Xray", "which Xray tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray popout", "Xray machine inspector", "Xray Frames tab", "which images loaded which frames in Xray", "Xray Hicasso tab", "why did this boundary re-render".
+Load this skill when the user wants to *read* the Xray panel — "open Xray", "where is X in Xray", "which Xray tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray popout", "Xray machine inspector", "Xray Frames tab", "which images loaded which frames in Xray", "Xray Fresco tab", "why did this boundary re-render".
 
 Do **not** use this skill for:
 

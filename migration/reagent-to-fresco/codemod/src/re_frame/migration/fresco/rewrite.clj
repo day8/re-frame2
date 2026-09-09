@@ -1,4 +1,4 @@
-(ns re-frame.migration.hicasso.rewrite
+(ns re-frame.migration.fresco.rewrite
   "The six rewrites (§4) and the refusal set (§5), as pure functions over
   rewrite-clj NODES.
 
@@ -14,11 +14,11 @@
   **Corollary.** A prop's spelling may only ever make the tool do LESS.
   Where a name-shaped test says \"yes\", the answer is always *skip this
   rewrite* or *refuse this site* — never *apply this rewrite*. See
-  [[re-frame.migration.hicasso.dest]], where the vocabulary is enumerated
+  [[re-frame.migration.fresco.dest]], where the vocabulary is enumerated
   with that enforcement in its last column.
 
   **Silent behaviour change is the only fatal class.** `[:>]` is legal in
-  Hicasso, so \"leave it as `[:>]`\" is a valid output for any site the
+  Fresco, so \"leave it as `[:>]`\" is a valid output for any site the
   rewrite cannot make behaviour-preserving. A refused site still works;
   the report is what turns a refusal from silence into an instruction.
 
@@ -38,8 +38,8 @@
   **(B)** W2 refuses normalized-key collisions — [[injective-keys]].
   **(C)** The key slot gets a dedicated report entry — [[w3-entry]]."
   (:require [clojure.string :as str]
-            [re-frame.migration.hicasso.dest :as rf.migration.hicasso.dest]
-            [re-frame.migration.hicasso.donor :as rf.migration.hicasso.donor]
+            [re-frame.migration.fresco.dest :as rf.migration.fresco.dest]
+            [re-frame.migration.fresco.donor :as rf.migration.fresco.donor]
             [rewrite-clj.node :as n]
             [rewrite-clj.parser :as p]
             [rewrite-clj.zip :as z]))
@@ -359,7 +359,7 @@
   ## THE COUPLING LAW, and why it is written here rather than next door
 
   **A namespace joins this set only together with the
-  [[re-frame.migration.hicasso.census/surface]] rows for the names it
+  [[re-frame.migration.fresco.census/surface]] rows for the names it
   publishes.** This set answers a per-FILE question — *is this file's `ns`
   form reaching for Reagent* — and the census roster answers a per-NAME
   one. Widening this set alone therefore does not widen what the tool can
@@ -466,7 +466,7 @@
   `day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core` — and the
   prefix-list shape below. The two answers disagreeing is precisely the
   state a census must REPORT rather than read as \"no Reagent here\" —
-  see [[re-frame.migration.hicasso.census/scan]].
+  see [[re-frame.migration.fresco.census/scan]].
 
   Read off the TEXT of the `ns` form's CLAUSES, against the
   `reagent-namespaces` roster, so it is blind to nothing the reader is
@@ -759,14 +759,14 @@
   Returns `nil` when injective, else a sorted vector of the colliding
   source keys' texts, grouped by the normalized name they collapse onto.
 
-  CSS custom properties are excluded from the check because [[rf.migration.hicasso.donor/key-name]]
+  CSS custom properties are excluded from the check because [[rf.migration.fresco.donor/key-name]]
   answers `nil` for them: they are refused individually and never
   respelled, so they cannot be half of a minted duplicate."
   [map-node]
   (let [named (->> (pairs map-node)
                    (keep (fn [[k _ _]]
                            (let [kv (sexpr-safe k)
-                                 dn (rf.migration.hicasso.donor/key-name kv)]
+                                 dn (rf.migration.fresco.donor/key-name kv)]
                              (when dn [dn (str/trim (n/string k))])))))
         clashes (->> (group-by first named)
                      (filter (fn [[_ v]] (> (count v) 1)))
@@ -783,8 +783,8 @@
   reproduces the donor's emitted name."
   [key-node]
   (let [kv (sexpr-safe key-node)
-        dn (rf.migration.hicasso.donor/key-name kv)]
-    (when (and dn (not= dn (rf.migration.hicasso.dest/nested-key-name kv)))
+        dn (rf.migration.fresco.donor/key-name kv)]
+    (when (and dn (not= dn (rf.migration.fresco.dest/nested-key-name kv)))
       (cond
         (keyword? kv) (n/token-node (keyword dn))
         (symbol? kv)  (n/token-node (symbol dn))
@@ -824,13 +824,13 @@
                  kpath (conj path (str/trim (n/string k)))
                  ;; the key
                  acc   (cond
-                         (and (or (keyword? kv) (symbol? kv)) (rf.migration.hicasso.donor/css-var-name? (name kv)))
+                         (and (or (keyword? kv) (symbol? kv)) (rf.migration.fresco.donor/css-var-name? (name kv)))
                          (update acc :entries conj
                                  (entry :css-var-repair :refused
                                         {:path kpath}
                                         (str "Reagent's `dash-to-prop-name` mangled this CSS custom "
                                              "property into a style key nothing reads, so the "
-                                             "declaration never took effect. Hicasso preserves it and "
+                                             "declaration never took effect. Fresco preserves it and "
                                              "React routes a `--`-prefixed key through `setProperty`. "
                                              "The key is left alone and THE SITE STARTS WORKING — "
                                              "check that the style it now applies is the one you "
@@ -877,7 +877,7 @@
   [path respelled]
   (entry :nested-map-keys :rewrote
          {:path path :respelled (vec (sort respelled))}
-         (str "Reagent camelCased these nested keys on the way across; Hicasso does not, so the "
+         (str "Reagent camelCased these nested keys on the way across; Fresco does not, so the "
               "spelling is now written into your source where the library will actually read it. "
               "IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO "
               "NOTICE — tidying it back to the spelling you originally wrote will silently change "
@@ -892,7 +892,7 @@
 
   **AMENDMENT (C)** is the `key`-slot arm. The exclusion itself is
   ratified — `:foo` and `\"foo\"` sibling keys COLLIDED under Reagent and
-  are DISTINCT under Hicasso, so rewriting would restore the defect
+  are DISTINCT under Fresco, so rewriting would restore the defect
   rf2-vrvv9 removed — but §5.4 priced it as \"one remount\", and a remount
   is not free: React reconciles a changed key by UNMOUNTING the old
   subtree and mounting a new one, which discards its state."
@@ -902,10 +902,10 @@
     (entry :key-slot-named-value :skipped
            {:prop prop :value (str kw)}
            (str "NOT REWRITTEN, DELIBERATELY, AND IT COSTS YOU SOMETHING. Reagent converted this "
-                "key like any prop and React received \"" (name kw) "\"; Hicasso lifts it raw and "
+                "key like any prop and React received \"" (name kw) "\"; Fresco lifts it raw and "
                 "React coerces it to \"" (str kw) "\". Writing \"" (name kw) "\" here would restore a "
                 "defect: two sibling elements keyed `" (str kw) "` and `\"" (name kw) "\"` collided "
-                "under Reagent and are distinct under Hicasso. The cost of leaving it is that the "
+                "under Reagent and are distinct under Fresco. The cost of leaving it is that the "
                 "key CHANGES at the migration, so on the first render after it React treats this "
                 "element as a new one — it unmounts the existing subtree and mounts a fresh one, "
                 "DISCARDING ITS STATE (uncontrolled input values, scroll position, component "
@@ -916,13 +916,13 @@
            {:prop prop :was (str kw) :now (name kw)}
            (str "Preserved exactly, and the preservation bakes in a collision. Reagent answered "
                 "`(name " (str kw) ")`, so `" (str kw) "` and any other namespace's `" (name kw)
-                "` reached the library as ONE string. Hicasso keeps the namespace, which is what "
+                "` reached the library as ONE string. Fresco keeps the namespace, which is what "
                 "rf2-vrvv9 changed it to do. Writing the string preserves your current behaviour; "
                 "if the namespace was carrying meaning, this is where it was already being lost."))
 
     (entry :named-value :rewrote
            {:prop prop :was (str kw) :now (name kw)}
-           (str "Reagent named every keyword and symbol prop value; Hicasso keeps them whole "
+           (str "Reagent named every keyword and symbol prop value; Fresco keeps them whole "
                 "except at HTML-attribute slots. The string is a fixpoint on both walks."))))
 
 ;; ---------------------------------------------------------------------------
@@ -1041,9 +1041,9 @@
 
 (defn- meta-key-note []
   (str "Reagent read a `^{:key …}` on the vector AFTER converting the props, so a metadata key "
-       "BEAT a props `:key`. Hicasso's `raw-element` reads `(:key props)` and contains no `(meta …)` "
+       "BEAT a props `:key`. Fresco's `raw-element` reads `(:key props)` and contains no `(meta …)` "
        "read at all, so this key would have gone dead at the migration with no diagnostic from "
-       "either Hicasso or React beyond React's own parent-deduped warning. Moved into the props "
+       "either Fresco or React beyond React's own parent-deduped warning. Moved into the props "
        "map, where the destination reads it."))
 
 (defn- plan-props
@@ -1055,8 +1055,8 @@
    (fn [acc [k v i]]
      (let [kv    (sexpr-safe k)
            ktext (str/trim (n/string k))
-           slot  (when (or (keyword? kv) (symbol? kv) (string? kv)) (rf.migration.hicasso.dest/canonical-slot kv))
-           event? (rf.migration.hicasso.dest/event-prop? kv)
+           slot  (when (or (keyword? kv) (symbol? kv) (string? kv)) (rf.migration.fresco.dest/canonical-slot kv))
+           event? (rf.migration.fresco.dest/event-prop? kv)
            vi    (inc i)
            add   (fn [a e] (update a :entries conj e))
            edit  (fn [a new-v]
@@ -1065,25 +1065,25 @@
          ;; ---- §5.2 `:amp-key` -------------------------------------------------
          (= :& kv)
          (add acc (entry :amp-key :refused {:prop ktext}
-                         (str "Reagent emitted a prop LITERALLY NAMED \"&\"; Hicasso reads `:&` as "
+                         (str "Reagent emitted a prop LITERALLY NAMED \"&\"; Fresco reads `:&` as "
                               "its one attribute merge, folding the map into this element's own "
                               "attributes under the owned-literal law. Two unrelated meanings for "
                               "one literal and your intent is unrecoverable from the text — decide "
                               "which you meant.")))
 
          ;; ---- §5.3 `:dangerous-html` -----------------------------------------
-         (rf.migration.hicasso.dest/dangerous-html-key? kv)
+         (rf.migration.fresco.dest/dangerous-html-key? kv)
          (add acc (entry :dangerous-html :refused {:prop ktext}
                          (str "MIGRATION BLOCKER. Reagent's `convert-props` DELETED this prop "
                               "unless its value was an `UnsafeHTML` instance, so under Reagent it "
-                              "very likely did nothing at all. Hicasso passes it through, so the "
+                              "very likely did nothing at all. Fresco passes it through, so the "
                               "migration RESURRECTS it and the HTML starts being injected. Decide "
                               "deliberately whether you want that.")))
 
          ;; ---- §5.2 `:named-ref` ----------------------------------------------
          ;; A bare symbol at `:ref` is a CALLBACK ref and is fine; only a
          ;; keyword or quoted symbol made the donor produce a string ref.
-         (and (= rf.migration.hicasso.dest/ref-slot slot) (literal-named-value v))
+         (and (= rf.migration.fresco.dest/ref-slot slot) (literal-named-value v))
          (add acc (entry :named-ref :refused {:prop ktext :value (str/trim (n/string v))}
                          (str "Reagent's `(name …)` here produced a STRING REF, which React 19 "
                               "removed and now throws on — so preserving Reagent would restore a "
@@ -1099,14 +1099,14 @@
                        (str "REWRITE REFUSED, AND THIS IS THE DESIGN'S ONE GENUINELY FATAL CLASS. "
                             "Under Reagent this was INERT — `convert-prop-value` asks `coll?` "
                             "before `ifn?`, so it crossed as an array and the handler never fired. "
-                            "At a native Hicasso tag the same form is LOWERED into a live "
+                            "At a native Fresco tag the same form is LOWERED into a live "
                             "dispatch, so rewriting the head to a native tag would turn a handler "
                             "that never fired into one that does. The head is left as `[:>]`. "
                             "Decide whether this handler was ever meant to run."))
                 (entry :intent-needs-a-declaration :refused
                        {:prop ktext :value (str/trim (n/string v))}
                        (str "DEAD HANDLER GOES LIVE. Under Reagent this intent crossed as an "
-                            "inert array and never fired. Hicasso infers the contract from the "
+                            "inert array and never fired. Fresco infers the contract from the "
                             "spelling at a `[:>]` crossing exactly as at a native tag, so the "
                             "same form now LOWERS to a dispatching handler. Decide two things: "
                             "whether this handler was ever meant to run, and whether the prop is "
@@ -1124,7 +1124,7 @@
                             :now (str/trim (n/string node))
                             :captured captured}
                            (str "Reagent's `convert-prop-value` ends with an `ifn?` arm that "
-                                "wrapped a `PartialFn` in `(fn [& args] (apply x args))`. Hicasso "
+                                "wrapped a `PartialFn` in `(fn [& args] (apply x args))`. Fresco "
                                 "has no such arm, so the object would have crossed opaque and this "
                                 "handler would have stopped firing with nothing thrown. The "
                                 "wrapper is Reagent's own, transcribed — return-transparent, so "
@@ -1138,16 +1138,16 @@
          (literal-named-value v)
          (let [vv (literal-named-value v)]
            (cond
-             ;; W6 landed this site on a NATIVE tag, whose Hicasso walk carries
+             ;; W6 landed this site on a NATIVE tag, whose Fresco walk carries
              ;; the `(name v)` arm itself — so W3 is a fixpoint here and firing
              ;; it would only grow the diff (§4.6).
              native? acc
              ;; both runtimes `name` here — a fixpoint, and skipping keeps the diff small
-             (rf.migration.hicasso.dest/html-attr-slot? slot) acc
-             ;; the class slot: `class-names` names it on the Hicasso side, in every spelling
-             (= rf.migration.hicasso.dest/class-slot slot) acc
+             (rf.migration.fresco.dest/html-attr-slot? slot) acc
+             ;; the class slot: `class-names` names it on the Fresco side, in every spelling
+             (= rf.migration.fresco.dest/class-slot slot) acc
              ;; (C) — ratified exclusion, now with its own report entry
-             (= rf.migration.hicasso.dest/key-slot slot) (add acc (w3-entry :key-slot vv ktext))
+             (= rf.migration.fresco.dest/key-slot slot) (add acc (w3-entry :key-slot vv ktext))
              :else
              (-> (edit acc (n/string-node (name vv)))
                  (add (w3-entry (if (namespace vv) :namespaced :plain) vv ktext)))))
@@ -1178,9 +1178,9 @@
       (entry :computed-value :refused {:props unread}
              (str "These prop values are computed, so the tool cannot see what crosses. Three "
                   "things a computed value may silently be, each of which diverges: a KEYWORD or "
-                  "symbol (Reagent named it, Hicasso keeps it whole), a NESTED MAP (Reagent "
-                  "camelCased its keys, Hicasso does not), or a non-fn `IFn` such as an "
-                  "`r/partial` reached through a symbol (Reagent wrapped it, Hicasso passes it "
+                  "symbol (Reagent named it, Fresco keeps it whole), a NESTED MAP (Reagent "
+                  "camelCased its keys, Fresco does not), or a non-fn `IFn` such as an "
+                  "`r/partial` reached through a symbol (Reagent wrapped it, Fresco passes it "
                   "opaque and the handler stops firing). Check each by hand.")))))
 
 (defn- suggestions
@@ -1197,7 +1197,7 @@
   (when props-node
     (let [ps (pairs props-node)
           ev (->> ps (keep (fn [[k _ _]] (let [kv (sexpr-safe k)]
-                                           (when (rf.migration.hicasso.dest/event-prop? kv) (str/trim (n/string k))))))
+                                           (when (rf.migration.fresco.dest/event-prop? kv) (str/trim (n/string k))))))
                   sort vec)
           fns (->> ps (keep (fn [[k v _]] (when (fn-literal? v) (str/trim (n/string k)))))
                    sort vec)]
@@ -1215,7 +1215,7 @@
       (:r> :f>)
       (assoc base :entries
              [(entry (if (= :r> kind) :r>-site :f>-site) :refused {}
-                     (str "Port this by hand. Hicasso reads `" (name (head-keyword node))
+                     (str "Port this by hand. Fresco reads `" (name (head-keyword node))
                           "` as an ordinary tag keyword and renders an unknown element — nothing "
                           "throws, nothing warns, and the component never mounts."))])
 
@@ -1232,7 +1232,7 @@
             ;; would go live at a native destination.
             carrier?  (and props
                            (some (fn [[k v _]]
-                                   (and (rf.migration.hicasso.dest/event-prop? (sexpr-safe k))
+                                   (and (rf.migration.fresco.dest/event-prop? (sexpr-safe k))
                                         (or (vector-node? v) (map-node? v))))
                                  (pairs props)))
             w6-cand?  (and (= :raw kind) plain-tag?)
@@ -1306,7 +1306,7 @@
                                    (str "An `r/as-element` inside a callback body at this site. "
                                         "Port it by hand: the closure runs when the library calls "
                                         "it, OUTSIDE the owner's render window, so swapping "
-                                        "Reagent's lowering for Hicasso's is not a text "
+                                        "Reagent's lowering for Fresco's is not a text "
                                         "substitution.")))
 
                       (and props (some #(subtree-has-reagent-call? props % ctx)
@@ -1328,16 +1328,16 @@
                       (str "`vec-to-elem` sent a `NativeWrapper` head and a `[:> C …]` head to the "
                            "SAME `native-element`, with the props slot at a different index — two "
                            "spellings of one path. Respelled as `[:> …]`, which is the form "
-                           "Hicasso accepts; left alone it is a head Hicasso answers with "
-                           "`:rf.error/hicasso-bad-head`."))]
+                           "Fresco accepts; left alone it is a head Fresco answers with "
+                           "`:rf.error/fresco-bad-head`."))]
 
               w6?
               [(entry :string-tag-head :rewrote {:head head-str}
                       (str "Under Reagent `[:> \"" head-str "\" …]` took the controlled-input "
                            "wrapper when the tag was `input` or `textarea`, because "
-                           "`input-component?` matches on exactly this path. Under Hicasso a "
+                           "`input-component?` matches on exactly this path. Under Fresco a "
                            "string head is REFUSED at the crossing. Rewritten to `[:" head-str
-                           " …]`, which lands the site on Hicasso's own controlled door — the "
+                           " …]`, which lands the site on Fresco's own controlled door — the "
                            "taught form. Reagent's deep camelCasing and its `(name …)` arm are "
                            "both present at a native tag, so the prop rewrites are fixpoints here "
                            "and are deliberately not applied."))]

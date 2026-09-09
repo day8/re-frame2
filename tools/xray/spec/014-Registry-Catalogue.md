@@ -159,14 +159,14 @@ its own clause for the mirror image of the reason a replacement does: the fn
 that installed those ids is deleted, so no re-registration happens and the
 umbrella has nothing to compare against — left alone they resolve forever as
 phantom ids backed by a deleted namespace's resident closures. Version `5`
-(rf2-hic-023) is the Hicasso evidence tab: three new registrations and one L4
-tab entry, all inside the gated `hicasso/install!` the umbrella no-ops.
+(rf2-hic-023) is the Fresco evidence tab: three new registrations and one L4
+tab entry, all inside the gated `fresco/install!` the umbrella no-ops.
 Version `6` (rf2-l86mm) is a REMOVAL-ONLY delta and the exact mirror of
 version 4's clear — the three sub ids version 4 ADDED
 (`:rf.xray/mounted-views`, `:rf.xray/mounted-views-schema`,
 `:rf.xray/mounted-view-sites`) are cleared, because the Views panel's Mounted
 Views + Declared View Sites sections retired with the Freehand substrate
-rather than migrating to Hicasso (`021-Dynamic-Panel-Designs.md` §3.4.1).
+rather than migrating to Fresco (`021-Dynamic-Panel-Designs.md` §3.4.1).
 Version 4's clause no longer installs them; a process crossing 3 → 6 in one
 step never acquires an id it would immediately have to be relieved of, and
 clearing an id a process never registered is inert, which is what lets the

@@ -134,11 +134,11 @@
   ;; L4 tab registry. The Routing tab's id is `:routing` (renders as
   ;; "Routes"), and the EP-0016 / EP-0014 / EP-0013 cohesive-sub-domain
   ;; tabs `:resources` / `:derivation-graph` / `:module-view` ship, and
-  ;; rf2-hic-023 added `:hicasso` (the Hicasso evidence tab) — so all ten
+  ;; rf2-hic-023 added `:fresco` (the Fresco evidence tab) — so all ten
   ;; live ids are focusable. (rf2-gbz39 removed the Issues tab under
   ;; Option (c) — `:issues` is no longer a focusable panel.)
   (is (= #{:epoch :app-db :views :trace :machines :routing
-           :resources :derivation-graph :module-view :hicasso}
+           :resources :derivation-graph :module-view :fresco}
          focus/valid-panels)))
 
 (deftest valid-panels-mirrors-the-live-registry
@@ -232,14 +232,14 @@
 
 (deftest focus-shipped-l4-tabs-select-real-panels
   (testing "rf2-1sddi6 / rf2-7ed9ms acceptance — every shipped Dynamic
-            tab id (including the L4-only Graph, Frames and Hicasso
+            tab id (including the L4-only Graph, Frames and Fresco
             tabs) is focusable and resolves to an installed panel,
             never the unknown-tab stub.
 
             rf2-v1fg3 — this used to walk a HAND-LISTED
             `[:resources :derivation-graph :module-view]` while
             claiming to cover 'every shipped Dynamic tab id'. When
-            rf2-hic-023 shipped `:hicasso` as a fourth L4-only registry
+            rf2-hic-023 shipped `:fresco` as a fourth L4-only registry
             tab on exactly the same footing, the list was not extended
             and the newest shipped tab went unasserted — the docstring
             said 'every' and the loop meant 'three'. It now walks

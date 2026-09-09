@@ -1,7 +1,7 @@
 # The escape ladder
 
 Sooner or later a screen asks for something the interpreted model does not
-express, and you go outside it. Hicasso expects that. Every escape is explicit
+express, and you go outside it. Fresco expects that. Every escape is explicit
 in source, visible to the tools, and reversible.
 
 What it does not expect is that you take a rung without knowing which of two
@@ -34,8 +34,8 @@ are a descent: you take rung 4 having failed at 3, and rung 3 having failed at
 
 | Rung | What you write | Take it when |
 | --- | --- | --- |
-| 1 | Ordinary Hicasso — Hiccup, `h/sub`, event vectors | always; this is where every screen starts |
-| 2 | Tuned Hicasso — boundaries, keys, read shape, chunking, windowing | a measured interaction invalidates too much work |
+| 1 | Ordinary Fresco — Hiccup, `h/sub`, event vectors | always; this is where every screen starts |
+| 2 | Tuned Fresco — boundaries, keys, read shape, chunking, windowing | a measured interaction invalidates too much work |
 | 3 | A `defview` body returns a React element | Hiccup lowering is the measured owner |
 | 4 | A React island — raw React or UIx, mounted through `h/defhost` | hooks, vendor internals, reconciliation, or per-frame local work dominate |
 | 5 | A native screen | the surface is React-shaped from its first useful design |
@@ -74,14 +74,14 @@ bill.
 | The raw escape | opaque to L2; assert at L3 | the crossing has no authored name | Client-only, with no fallback of its own | contracts are inferred from the spelling as on a declared host; there is no override and no slot |
 
 Two of those rows are refusals rather than conventions. The test kit raises
-`:rf.error/hicasso-test-host-is-opaque` and
-`:rf.error/hicasso-test-react-is-opaque` at L2, each pointing at L3 in its
+`:rf.error/fresco-test-host-is-opaque` and
+`:rf.error/fresco-test-react-is-opaque` at L2, each pointing at L3 in its
 `:reason`, so the boundary is enforced rather than documented
 ([Testing](15-testing.md#l2-refuses-react-only-behaviour)). Every id on this
 page is indexed in [Troubleshooting](troubleshooting.md#the-complaint-index).
 
 One cost is not on the table because it is not recoverable by care. A controlled
-text field moved behind the native fence loses the Hicasso controlled-field
+text field moved behind the native fence loses the Fresco controlled-field
 contract, and native construction does not make typing faster anyway. Keep those
 fields interpreted ([Islands](10-native-tier.md#when-not-to-write-an-island)).
 
@@ -103,7 +103,7 @@ because the rung you justified against last quarter's topology is not
 automatically justified against this one.
 
 !!! note "Where those numbers come from"
-    They are not this page's invention. Hicasso's performance contract states
+    They are not this page's invention. Fresco's performance contract states
     the escape-benefit rule in exactly the three disjuncts above, and pairs it
     with the sentence that supplies their teeth: an island missing its
     threshold is simplified or removed, and thresholds do not widen to keep it.
@@ -162,7 +162,7 @@ the threshold, and it is a threshold on count rather than on time.
 ## What every escape must preserve
 
 Crossing changes how a subtree is written, never what the application promises.
-After taking any rung, re-run the contracts Hicasso can no longer inspect for
+After taking any rung, re-run the contracts Fresco can no longer inspect for
 you ([Islands](10-native-tier.md#verify-every-crossing)):
 
 - DOM and interaction parity;
@@ -198,7 +198,7 @@ no benefit-rule obligation:
 | A callback ref that attaches an imperative SDK and returns its cleanup | the supported way to own a DOM-attached SDK ([Interop](09-interop.md)) |
 | `h/portal` | a container mechanism; the subtree stays interpreted and in the same frame |
 | Ephemeral state for open/closed, hover, or draft-local UI | [Ephemeral state](11-ephemeral-state.md), not local React state escaping |
-| `h/as-component` or `h/as-element` | going outward — handing a Hicasso view to a React parent, which keeps its reads, memo and frame |
+| `h/as-component` or `h/as-element` | going outward — handing a Fresco view to a React parent, which keeps its reads, memo and frame |
 | Writing a plain `defn` helper that returns Hiccup | an inline helper, called in place; it never became a boundary |
 
 ## When you are not on either ladder
@@ -209,7 +209,7 @@ anything. Implement it natively under the same adapter, root and frames, and
 keep one state owner ([Islands](10-native-tier.md#native-screens)).
 
 And if the answer is “the whole application is React-shaped”, the UIx adapter is
-a better fit than a Hicasso application made of islands. A few named escapes are
+a better fit than a Fresco application made of islands. A few named escapes are
 a boundary. Islands throughout is a change of view-layer strategy, and it is
 cheaper to make that choice deliberately than to arrive at it one rung at a
 time.

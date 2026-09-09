@@ -3,7 +3,7 @@
 // THE PAGE-CHROME ROW, AND WHAT THE BAIL-OUT COSTS — driver
 // (rf2-2rtt6.52's landing bar).
 //
-//   node implementation/hicasso/test/re_frame/bench/hicasso/chrome_run.cjs
+//   node implementation/fresco/test/re_frame/bench/fresco/chrome_run.cjs
 //   CHROME_ROUNDS=8 node .../chrome_run.cjs
 //   CHROME_ONLY=chrome,bulk node .../chrome_run.cjs
 //
@@ -73,9 +73,9 @@ const { shadowBuild } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
 
-const BUILD_ID = 'hicasso-bench';
-const OUT_DIR = process.env.CHROME_OUT_DIR || 'out/hicasso-chrome';
-const INIT_FN = 're-frame.bench.hicasso.chrome-app/-main';
+const BUILD_ID = 'fresco-bench';
+const OUT_DIR = process.env.CHROME_OUT_DIR || 'out/fresco-chrome';
+const INIT_FN = 're-frame.bench.fresco.chrome-app/-main';
 const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.CHROME_PORT || 8147);
 const ROUNDS = Number(process.env.CHROME_ROUNDS || 10);
@@ -118,7 +118,7 @@ const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'applicat
 function serve() {
   fs.writeFileSync(
     path.join(OUT, 'index.html'),
-    '<!doctype html><html><head><meta charset="utf-8"><title>Hicasso page-chrome row</title></head>' +
+    '<!doctype html><html><head><meta charset="utf-8"><title>Fresco page-chrome row</title></head>' +
       '<body><div id="app"></div><script src="main.js"></script></body></html>'
   );
   return http
@@ -226,11 +226,11 @@ async function main() {
       timeoutMs: NAV_TIMEOUT_MS,
       budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.HCHROME_READY`,
     });
-    await watch.race('window.HCHROME_READY === true || window.HICASSO_ERROR', {
+    await watch.race('window.HCHROME_READY === true || window.FRESCO_ERROR', {
       timeoutMs: SENTINEL_TIMEOUT_MS,
       budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.HCHROME_READY`,
     });
-    const err = await page.evaluate('window.HICASSO_ERROR || null');
+    const err = await page.evaluate('window.FRESCO_ERROR || null');
     if (err) throw new Error(`the page recorded a fatal before it was ready: ${err}`);
     label = await page.evaluate(() => window.HCHROME.runtimeLabel());
     CARDS_N = await page.evaluate(() => window.HCHROME.cardsN());
@@ -288,7 +288,7 @@ async function main() {
     // before tearing the browser down — that is where a readable cause is.
     let pageSaid = null;
     try {
-      pageSaid = await page.evaluate('window.HICASSO_ERROR || null');
+      pageSaid = await page.evaluate('window.FRESCO_ERROR || null');
     } catch (_) {
       /* the page may already be gone */
     }

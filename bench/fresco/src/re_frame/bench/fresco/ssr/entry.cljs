@@ -1,8 +1,8 @@
-(ns re-frame.bench.hicasso.ssr.entry
-  "THE HICASSO SSR RENDER ENTRY (rf2-2rtt6.86) — one renderer, run in two
+(ns re-frame.bench.fresco.ssr.entry
+  "THE FRESCO SSR RENDER ENTRY (rf2-2rtt6.86) — one renderer, run in two
   places.
 
-  The server engine is **the existing Hicasso runtime** under Node's
+  The server engine is **the existing Fresco runtime** under Node's
   `react-dom/server` `renderToString`. There is no second renderer here
   and there is not going to be one: hydration parity is by construction
   or it is a claim, and the difference is a whole class of bug the
@@ -13,7 +13,7 @@
   Verified in the 2026-08-04 SSR design programme rather than assumed:
 
   - Every shell passes `getServerSnapshot` (`arm1/runtime.cljs` — both
-    [[re-frame.bench.hicasso.arm1.runtime/shell]] and its frame-prop
+    [[re-frame.bench.fresco.arm1.runtime/shell]] and its frame-prop
     twin hand `(.-snapshot entry)` as BOTH the client and server
     snapshot). Under `renderToString` React calls the server snapshot and
     **never calls `subscribe`**, so no registration is minted.
@@ -30,7 +30,7 @@
   A reader looking for where the server honours `:client-only` and
   `{:fallback …}` will not find it in this namespace, and that is the
   design rather than an omission. `mint-host!` mints ONE gate per
-  declaration (`front/codec.cljs` — [[re-frame.bench.hicasso.front.codec/mint-host!]]),
+  declaration (`front/codec.cljs` — [[re-frame.bench.fresco.front.codec/mint-host!]]),
   a component whose single `useSyncExternalStore` answers `false` from
   its SERVER snapshot, so under `renderToString` the gate renders the
   declaration's pre-walked fallback element — or nothing — **because it
@@ -59,14 +59,14 @@
        two concurrent requests cannot read each other's app-db;
     2. seeded through the FRAMEWORK'S doors — `:initial-events`, and the
        reserved `:rf/set-db` for a snapshot handed in whole;
-    3. rendered as `(provider frame (rf.bench.hicasso.front.codec/root-element frame hiccup))`,
+    3. rendered as `(provider frame (rf.bench.fresco.front.codec/root-element frame hiccup))`,
        the same two calls `arm1/mount/render!` makes in the browser,
        **inside an open adoption window** — see below;
     4. the payload built out of the FRAMEWORK'S OWN BYTES —
        `rf.ssr.payload-policy/apply-policy` (the fail-closed `:payload`
        contract), `project-app-db-egress`, `build-payload`, and
        `html-helpers/escape-edn-script-body` under the pinned
-       `__rf_payload` script id. Nothing Hicasso-specific touches the
+       `__rf_payload` script id. Nothing Fresco-specific touches the
        payload path (R0); this namespace supplies the app-db and gets out
        of the way;
     5. the adoption window closed and `destroy-frame!` run in a
@@ -105,7 +105,7 @@
   `:rf.ssr/hydration-mismatch` diagnostic. 011 says of that tier, in as
   many words, that it \"deliberately carries **no** such hash\".
 
-  This entry is that tier. `rf.bench.hicasso.front.codec/root-element` hands React an element
+  This entry is that tier. `rf.bench.fresco.front.codec/root-element` hands React an element
   and the tree is walked INSIDE `renderToString`, so at no point does a
   data tree describing the page exist for anything to hash.
 
@@ -129,7 +129,7 @@
   shape the wire contract already wants: `:rf/render-hash` is
   `{:optional true} :string` in Spec-Schemas, and
   `rf.ssr.payload-policy/build-payload` omits the key on a nil hash, so nothing
-  Hicasso-specific touches the payload path (R0 holds — this namespace
+  Fresco-specific touches the payload path (R0 holds — this namespace
   supplies the app-db and gets out of the way).
 
   **Why not a better hash.** The two candidates rf2-2rtt6.91 named both
@@ -167,7 +167,7 @@
 
   A server render is the FIRST HALF OF AN ADOPTION, so it runs in the
   same window the client's hydrating half does
-  (`arm1/runtime.cljs` — [[re-frame.bench.hicasso.arm1.runtime/adopting?]]
+  (`arm1/runtime.cljs` — [[re-frame.bench.fresco.arm1.runtime/adopting?]]
   says as much: *\"A server render entry opens the same window around its
   own `renderToString`, so the two halves of an SSR route answer this
   identically\"*).
@@ -193,7 +193,7 @@
   placement is the point**: the flag is module-level, so a render that
   threw with the window still open would leave the whole PROCESS
   adopting and every later request born-present — which is what
-  [[re-frame.bench.hicasso.arm1.runtime/close-adoption-window!]]'s own
+  [[re-frame.bench.fresco.arm1.runtime/close-adoption-window!]]'s own
   docstring warns about. A per-request window is a per-request window
   for the same reason a per-request frame is.
 
@@ -205,9 +205,9 @@
   touched by this bead. [[document]] mirrors `ssr-ring`'s own envelope
   shape closely enough to be recognisable and is a BENCH-LANE page, priced
   and ruled elsewhere."
-  (:require [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
+  (:require [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
             [re-frame.core :as rf]
             [re-frame.ssr.constants :as rf.ssr.constants]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
@@ -224,7 +224,7 @@
   is destroyed before the function returns — it needs to be unique in this
   process and nothing more, and it never reaches the wire."
   []
-  (keyword "hicasso.ssr" (str (gensym "request-"))))
+  (keyword "fresco.ssr" (str (gensym "request-"))))
 
 (defn setup-events
   "The construction-time setup vector for one request.
@@ -289,7 +289,7 @@
   (str "<!DOCTYPE html>"
        "<html lang=\"en\">"
        "<head><meta charset=\"utf-8\"><title>"
-       (rf.ssr.html-helpers/escape-html (or title "Hicasso SSR")) "</title></head>"
+       (rf.ssr.html-helpers/escape-html (or title "Fresco SSR")) "</title></head>"
        "<body>"
        "<div id=\"" (rf.ssr.html-helpers/escape-attr (or app-element-id "app")) "\">"
        html
@@ -352,14 +352,14 @@
       ;; The server half of an adoption renders inside the same window as
       ;; the client half — see the namespace docstring. Closed in the
       ;; `finally`.
-      (rf.bench.hicasso.arm1.runtime/open-adoption-window!)
+      (rf.bench.fresco.arm1.runtime/open-adoption-window!)
       (let [;; The hiccup as WRITTEN — there is no server-only tree here.
             ;; `defhost`'s `:ssr` policy is honoured by the gate that is
             ;; the host element's own type, so this entry hands React the
             ;; same form the browser mount hands it; see the namespace
             ;; docstring's §`defhost`'s `:ssr` policy needs nothing here.
             html        (rdom-server/renderToString
-                          (rf.bench.hicasso.arm1.mount/provider frame-id (rf.bench.hicasso.front.codec/root-element frame-id hiccup)))
+                          (rf.bench.fresco.arm1.mount/provider frame-id (rf.bench.fresco.front.codec/root-element frame-id hiccup)))
             policy-opts (cond-> {:payload payload}
                           (some? client-frame-id) (assoc :client-frame-id client-frame-id)
                           (some? version)         (assoc :version version)
@@ -393,7 +393,7 @@
         ;; so a throw here that skipped it would leave the whole process
         ;; adopting. `destroy-frame!` is the per-request cleanup that may
         ;; itself throw; the window must already be shut when it runs.
-        (rf.bench.hicasso.arm1.runtime/close-adoption-window!)
+        (rf.bench.fresco.arm1.runtime/close-adoption-window!)
         (rf/destroy-frame! frame-id)))))
 
 (defn render-twice

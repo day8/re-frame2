@@ -1,10 +1,10 @@
-# Hicasso guide rewrite audit
+# Fresco guide rewrite audit
 
 > **The corpus this audits has shipped.** Under rf2-0yp7w the guide moved from
-> this directory to `docs/core/hicasso/`, `README.md` became that tree's
+> this directory to `docs/core/fresco/`, `README.md` became that tree's
 > `index.md`, and the section replaced Freehand's in the Core tab of
 > `mkdocs.yml`. Read every `draft-guide/NN-*.md` path below as
-> `docs/core/hicasso/NN-*.md`. This audit stays here, in the excluded design
+> `docs/core/fresco/NN-*.md`. This audit stays here, in the excluded design
 > tree, because it is a record of how the rewrite was done and not part of the
 > reader's path.
 
@@ -67,12 +67,12 @@ not treated as separate technical facts.
 
 A `defview` is mounted as a Hiccup head and is not called as a Clojure
 function. Plain `defn` helpers are called inline. The guide describes the
-direct-view-call refusal by mechanism because no dedicated Hicasso error id is
+direct-view-call refusal by mechanism because no dedicated Fresco error id is
 attested for it.
 
 Do not reuse `:rf.error/view-called-directly`; that identifier belongs to the
-Freehand substrate. The Hicasso read-outside-render id is
-`:rf.error/hicasso-sub-outside-render`, not
+Freehand substrate. The Fresco read-outside-render id is
+`:rf.error/fresco-sub-outside-render`, not
 `:rf.error/view-read-outside-render`.
 
 ### Keys
@@ -128,11 +128,11 @@ the source audit as names requiring explicit naming-ledger approval or final
 implementation confirmation:
 
 - `h/frame` (the callback form is settled: `h/event`, under `rf2-hic-066`)
-- artifact coordinates for Hicasso
+- artifact coordinates for Fresco
 - root lifecycle configuration around `h/mount!`, `h/hydrate!`, `h/render!`,
   and `h/unmount!`
 - `:server :render|:client-only` and Client-only `:fallback`
-- `re-frame.hicasso.server` and the `server/render` option map
+- `re-frame.fresco.server` and the `server/render` option map
 - `ht/tree`, its `{:subs ...}` fixture shape, and tree helper names
 - mounted-facade helper names and exact handle shape
 - `hm/shadow!` and its config/result maps
@@ -171,9 +171,9 @@ inventing a keyword:
 - selected forms-module misuse cases;
 - controlled binding on `contenteditable`;
 - invalid route-link prefetch value;
-- a second live Hicasso root mounted on the same DOM container.
+- a second live Fresco root mounted on the same DOM container.
 
-The retired `:rf.error/hicasso-route-link-prefetch-declined` id is not reused
+The retired `:rf.error/fresco-route-link-prefetch-declined` id is not reused
 for a bad prefetch value.
 
 ## Deliberate omissions
@@ -184,7 +184,7 @@ The following older draft ideas are not restored:
 - `[::h/clear]`
 - `h/child-key`
 - vector-ref reservation
-- a Hicasso parts/theming subsystem
+- a Fresco parts/theming subsystem
 - three-value `:ssr`
 - public `subscribe-once`
 - old comparative benchmark figures

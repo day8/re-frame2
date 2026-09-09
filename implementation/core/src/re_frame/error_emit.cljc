@@ -114,7 +114,7 @@
 ;;     all, so it would synthesise an `Error` whose stack points at the
 ;;     reporting site rather than at the cause. (The two in-repo
 ;;     `reportError` sites — `substrate/spine.cljs` and
-;;     `hicasso/impl/mount.cljs` — preserve React's OWN default for
+;;     `fresco/impl/mount.cljs` — preserve React's OWN default for
 ;;     uncaught / recoverable React callback errors. Different situation;
 ;;     untouched by this.)
 ;;

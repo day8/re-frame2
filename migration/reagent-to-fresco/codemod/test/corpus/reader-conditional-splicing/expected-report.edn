@@ -18,7 +18,7 @@
    "(let [f__rf2 handler a0__rf2 @cart] (fn [& args__rf2] (apply f__rf2 a0__rf2 args__rf2)))",
    :captured ["@cart"]},
   :note
-  "Reagent's `convert-prop-value` ends with an `ifn?` arm that wrapped a `PartialFn` in `(fn [& args] (apply x args))`. Hicasso has no such arm, so the object would have crossed opaque and this handler would have stopped firing with nothing thrown. The wrapper is Reagent's own, transcribed — return-transparent, so whatever it returned before it returns now. The `let` is not decoration: `r/partial` evaluated the callee and every argument ONCE when the prop was built, and the `let` is what keeps that true instead of re-evaluating them on every invocation."}
+  "Reagent's `convert-prop-value` ends with an `ifn?` arm that wrapped a `PartialFn` in `(fn [& args] (apply x args))`. Fresco has no such arm, so the object would have crossed opaque and this handler would have stopped firing with nothing thrown. The wrapper is Reagent's own, transcribed — return-transparent, so whatever it returned before it returns now. The `let` is not decoration: `r/partial` evaluated the callee and every argument ONCE when the prop was built, and the `let` is what keeps that true instead of re-evaluating them on every invocation."}
  {:line 23,
   :col 3,
   :class :cljc-site,
@@ -34,7 +34,7 @@
   :head "Foo",
   :detail {:head "Foo"},
   :note
-  "`vec-to-elem` sent a `NativeWrapper` head and a `[:> C …]` head to the SAME `native-element`, with the props slot at a different index — two spellings of one path. Respelled as `[:> …]`, which is the form Hicasso accepts; left alone it is a head Hicasso answers with `:rf.error/hicasso-bad-head`."}
+  "`vec-to-elem` sent a `NativeWrapper` head and a `[:> C …]` head to the SAME `native-element`, with the props slot at a different index — two spellings of one path. Respelled as `[:> …]`, which is the form Fresco accepts; left alone it is a head Fresco answers with `:rf.error/fresco-bad-head`."}
  {:line 23,
   :col 3,
   :class :named-value,
@@ -42,4 +42,4 @@
   :head "Foo",
   :detail {:prop ":variant", :was ":big", :now "big"},
   :note
-  "Reagent named every keyword and symbol prop value; Hicasso keeps them whole except at HTML-attribute slots. The string is a fixpoint on both walks."}]
+  "Reagent named every keyword and symbol prop value; Fresco keeps them whole except at HTML-attribute slots. The string is a fixpoint on both walks."}]

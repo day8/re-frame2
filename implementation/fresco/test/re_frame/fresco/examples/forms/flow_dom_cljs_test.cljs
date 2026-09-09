@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.forms.flow-dom-cljs-test
+(ns re-frame.fresco.examples.forms.flow-dom-cljs-test
   "L3/L4 — THE RECIPES ON A REAL REACT ROOT OVER A REAL DOM.
 
   The claims the node lane cannot decide. A blur ordering, a node's
@@ -52,11 +52,11 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.forms.events :as rf.hicasso.examples.forms.events]
-            [re-frame.hicasso.examples.forms.subs :as rf.hicasso.examples.forms.subs]
-            [re-frame.hicasso.examples.forms.views :as rf.hicasso.examples.forms.views]
-            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.forms.events :as rf.fresco.examples.forms.events]
+            [re-frame.fresco.examples.forms.subs :as rf.fresco.examples.forms.subs]
+            [re-frame.fresco.examples.forms.views :as rf.fresco.examples.forms.views]
+            [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.http.managed]
             [re-frame.test-support :as rf.test-support]))
 
@@ -85,7 +85,7 @@
                       ;; ns-load registration is not still there when a row
                       ;; runs. `events/register-save!` says what that costs
                       ;; when it is forgotten.
-                      (rf.hicasso.examples.forms.events/register-save!))}))
+                      (rf.fresco.examples.forms.events/register-save!))}))
 
 (def ^:private ticket 7)
 (def ^:private committed "Login page hangs on submit")
@@ -112,7 +112,7 @@
   (let [d (js/Object.getOwnPropertyDescriptor js/HTMLInputElement.prototype "value")]
     (.call (.-set d) n v)
     (.dispatchEvent n (js/InputEvent. "input" #js {:bubbles true}))
-    (rf.hicasso.test.mounted/settle! m)))
+    (rf.fresco.test.mounted/settle! m)))
 
 (defn- drift!
   "Move the field's value WITHOUT telling React — the foreign write an
@@ -130,24 +130,24 @@
   real one."
   [m n key]
   (.dispatchEvent n (js/KeyboardEvent. "keydown" #js {:key key :bubbles true}))
-  (rf.hicasso.test.mounted/settle! m))
+  (rf.fresco.test.mounted/settle! m))
 
 (defn- blur!
   "Take focus off `n` for real, which is what fires React's `onBlur`."
   [m n]
   (.blur n)
-  (rf.hicasso.test.mounted/settle! m))
+  (rf.fresco.test.mounted/settle! m))
 
 (defn- read-sub [m query-v] (rf/subscribe-once query-v {:frame (:frame m)}))
 
 (defn- mount-screen!
-  ([] (mount-screen! [rf.hicasso.examples.forms.views/screen {:ikey ticket}]))
-  ([form] (rf.hicasso.test.mounted/mount! form {:initial-events [[::rf.hicasso.examples.forms.events/seed]]})))
+  ([] (mount-screen! [rf.fresco.examples.forms.views/screen {:ikey ticket}]))
+  ([form] (rf.fresco.test.mounted/mount! form {:initial-events [[::rf.fresco.examples.forms.events/seed]]})))
 
 (defn- finish
   "Tear down, assert this mount left nothing behind, and end the row."
   [m done]
-  (-> (rf.hicasso.test.mounted/unmount! m) (rf.hicasso.test.mounted/assert-clean!) (.then done)))
+  (-> (rf.fresco.test.mounted/unmount! m) (rf.fresco.test.mounted/assert-clean!) (.then done)))
 
 (defn- report-rejection!
   "The default reporter: a rejected wait is this row's failure, said in
@@ -226,7 +226,7 @@
             "the trailing blur found no session and committed nothing —
              cancel beats the late blur through the model, not through
              ordering")
-        (is (= 1 (read-sub m [::rf.hicasso.examples.forms.subs/subject-revision ticket]))
+        (is (= 1 (read-sub m [::rf.fresco.examples.forms.subs/subject-revision ticket]))
             "and it moved the revision exactly once: the cancel's. A blur
              that ran would have moved it a second time, which is the
              narrower thing this line is watching for")
@@ -266,10 +266,10 @@
         ;; reach no handler and open no session at all.
         (type-into! m n "Login page hangs on submi")
         (type-into! m n committed)
-        (is (= committed (read-sub m [::rf.hicasso.examples.forms.subs/subject-shown ticket]))
+        (is (= committed (read-sub m [::rf.fresco.examples.forms.subs/subject-shown ticket]))
             "so the value the field reads is what it was before the session
              opened, and ending the session will not move it")
-        (is (true? (read-sub m [::rf.hicasso.examples.forms.subs/editing? ticket])))
+        (is (true? (read-sub m [::rf.fresco.examples.forms.subs/editing? ticket])))
         ;; The drift: a write React never saw and no handler ran for.
         (drift! n "autofilled@example.com")
         (is (= "autofilled@example.com" (.-value n)))
@@ -290,9 +290,9 @@
       (let [m (mount-screen!)]
         (.focus (subject-node m))
         (type-into! m (subject-node m) "half typed")
-        (rf.hicasso.test.mounted/rerender! m [rf.hicasso.examples.forms.views/details-form {}])
+        (rf.fresco.test.mounted/rerender! m [rf.fresco.examples.forms.views/details-form {}])
         (is (nil? (subject-node m)) "the field is off the page")
-        (rf.hicasso.test.mounted/rerender! m [rf.hicasso.examples.forms.views/screen {:ikey ticket}])
+        (rf.fresco.test.mounted/rerender! m [rf.fresco.examples.forms.views/screen {:ikey ticket}])
         (is (= "half typed" (.-value (subject-node m)))
             "and it comes back holding the draft — which lives at an address
              in app-db, not in a fiber that was just thrown away")
@@ -301,15 +301,15 @@
              neither a commit nor a cancel")
         (finish m done)))))
 
-(rf.hicasso/defview two-tickets
+(rf.fresco/defview two-tickets
   "Two of the same field on one page, on different instance keys — the
   arrangement `h/reg-state` exists for. The seed holds one ticket, so
   both fields start from the same committed text, which makes a
   collision harder to miss rather than easier."
   [_]
   [:div.two-tickets
-   [rf.hicasso.examples.forms.views/subject-field {:ikey 7}]
-   [rf.hicasso.examples.forms.views/subject-field {:ikey 9}]])
+   [rf.fresco.examples.forms.views/subject-field {:ikey 7}]
+   [rf.fresco.examples.forms.views/subject-field {:ikey 9}]])
 
 (deftest two-tickets-edit-independently-on-one-page
   (async done
@@ -326,7 +326,7 @@
             "a hand-picked `[:ui :subject-draft]` path would have moved both,
              and nothing on screen would have said so")
         (press! m n7 "Escape")
-        (is (= 0 (read-sub m [::rf.hicasso.examples.forms.subs/subject-revision 9]))
+        (is (= 0 (read-sub m [::rf.fresco.examples.forms.subs/subject-revision 9]))
             "and the cancel moved one revision, not two — a reset is per
              instance")
         (finish m done)))))
@@ -349,7 +349,7 @@
             m (mount-screen!)]
         (is (nil? (node m ".field-problem")) "a blank form reports nothing")
         (.requestSubmit (node m "form.details"))
-        (rf.hicasso.test.mounted/settle! m)
+        (rf.fresco.test.mounted/settle! m)
         (is (= 1 (.-length (.querySelectorAll (:container m) ".field-problem")))
             "one problem — the blank assignee. The note is empty and empty is
              legal, so a gate that revealed both would be reporting a
@@ -374,9 +374,9 @@
         ;; recorder on the next line reads it before that turn. So a marker
         ;; goes through the same queue and the assertion waits behind it —
         ;; anything the submission enqueued has run by then.
-        (rf/dispatch [::rf.hicasso.examples.forms.events/edit :notes "marker"] {:frame (:frame m)})
+        (rf/dispatch [::rf.fresco.examples.forms.events/edit :notes "marker"] {:frame (:frame m)})
         (-> (rf.test-support/poll-until
-              #(= "marker" (read-sub m [::rf.hicasso.examples.forms.subs/field :notes]))
+              #(= "marker" (read-sub m [::rf.fresco.examples.forms.subs/field :notes]))
               {:label "the dispatch queue to reach a marker enqueued after the submit"})
             (.then (fn [_]
                      (is (= [] @!requests)
@@ -411,12 +411,12 @@
                                      {:label "the write to reach the transport"})
             (.then
               (fn [_]
-                (rf.hicasso.test.mounted/settle! m)
+                (rf.fresco.test.mounted/settle! m)
                 (is (= 1 (count @!requests)))
                 (is (true? (.-disabled button)) "busy — from the instance")
                 (is (true? (.-disabled (node m "#ticket-assignee")))
                     "and so are the fields, off the same read")
-                (rf.hicasso.test.mounted/dispatch-and-settle! m (conj (:on-success (last @!requests))
+                (rf.fresco.test.mounted/dispatch-and-settle! m (conj (:on-success (last @!requests))
                                                  {:status :ok :value {:ok true}}))
                 (is (false? (.-disabled button)))
                 (is (= "" (.-value (node m "#ticket-assignee")))
@@ -444,10 +444,10 @@
   (async done
     (if-not (browser?)
       (do (skip! "a real mount to strand") (done))
-      (let [before    (rf.hicasso.test.mounted/census)
+      (let [before    (rf.fresco.test.mounted/census)
             m         (mount-screen!)
             !reported (atom nil)]
-        (is (not= before (rf.hicasso.test.mounted/census)) "the mount is up and the page shows it")
+        (is (not= before (rf.fresco.test.mounted/census)) "the mount is up and the page shows it")
         (-> (rf.test-support/poll-until
               (constantly false)
               {:label "a condition arranged never to hold" :timeout-ms 50 :interval-ms 5})
@@ -470,7 +470,7 @@
                 (is (true? (:clean? report)))
                 (is (zero? (:standing report))
                     "and no facade mount is left standing")
-                (is (= before (rf.hicasso.test.mounted/census))
+                (is (= before (rf.fresco.test.mounted/census))
                     "so the page a following row opens on is the page this
                      row found — nothing retained, no residue to be charged
                      to whoever runs next")

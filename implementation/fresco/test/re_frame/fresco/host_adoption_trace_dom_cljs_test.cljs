@@ -1,11 +1,11 @@
-(ns re-frame.hicasso.host-adoption-trace-dom-cljs-test
+(ns re-frame.fresco.host-adoption-trace-dom-cljs-test
   "**`:rf.ssr/host-adopted` — the client-only crossing, made observable.**
 
   `defhost`'s default policy is `:server :client-only`: the host region
   renders nothing on the server and nothing on hydration's first client
   pass, a declared `:fallback` stands in its place, and React's own
   post-hydration pass swaps it for the foreign component. That is a real,
-  user-visible transition on every hydrated Hicasso page carrying a
+  user-visible transition on every hydrated Fresco page carrying a
   client-only crossing — and until this suite existed, nothing in the
   instrumentation stream said it had happened. The debugging question
   *is this region showing its fallback or its live subtree?* had no
@@ -37,7 +37,7 @@
   for the lifetime of the module. A `defhost` at the top of this file
   would therefore be spent by whichever row ran first, and every row
   after it would read a green that meant only *already announced*. So
-  each row calls [[re-frame.hicasso.impl.codec/mint-host!]] — the same
+  each row calls [[re-frame.fresco.impl.codec/mint-host!]] — the same
   door `defhost` expands to — and gets a declaration nobody else has
   touched.
 
@@ -51,7 +51,7 @@
   mechanism ship broken. (It did: the crossing cell's transitions were
   guarded with `identical?` on keyword literals, which is `false` in a
   dev build, so the trace never fired at all while every no-trace row
-  stayed green. [[re-frame.hicasso.impl.codec/mint-adoption-crossing]]
+  stayed green. [[re-frame.fresco.impl.codec/mint-adoption-crossing]]
   carries the post-mortem.)
 
   So rows 2 and 3 drive the REAL gate, the REAL crossing cell and the
@@ -69,10 +69,10 @@
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]
             ["react" :as react]
@@ -81,22 +81,22 @@
 
 (def ^:private frame-id ::host-adoption-trace)
 
-(rf/reg-event :hicasso.adoption/seed (fn [_ _] {:db {:title "quarterly"}}))
+(rf/reg-event :fresco.adoption/seed (fn [_ _] {:db {:title "quarterly"}}))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 (defn- skip! [why]
   (is true (str "an adoption-trace DOM claim needs a real React DOM — " why)))
 
 (defn- fresh! []
-  (rf.hicasso.checkpoint-support/leave-act-environment!)
+  (rf.fresco.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
-  (rf/with-frame frame-id (rf/dispatch-sync [:hicasso.adoption/seed]))
+  (rf/with-frame frame-id (rf/dispatch-sync [:fresco.adoption/seed]))
   frame-id)
 
 ;; ---------------------------------------------------------------------------
@@ -115,7 +115,7 @@
   "A declaration nobody else has touched — the same door `defhost`
   expands to. `n` keeps the `displayName` legible in a failure."
   [n]
-  (rf.hicasso.impl.codec/mint-host! n chart {:fallback [:div.chart-skeleton "loading"]}))
+  (rf.fresco.impl.codec/mint-host! n chart {:fallback [:div.chart-skeleton "loading"]}))
 
 ;; ---------------------------------------------------------------------------
 ;; Watching the instrumentation channel
@@ -135,15 +135,15 @@
 
 (defn- render-html [hiccup]
   (react-dom-server/renderToString
-    (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup))))
+    (rf.fresco.impl.mount/provider frame-id (rf.fresco.impl.codec/root-element frame-id hiccup))))
 
 (defn- render-as
   "One render of `hiccup` with React's adoption answer FORCED — the whole
   stub, and the reason it is legitimate: `adopted?` is React's signal,
-  not Hicasso's state. Everything downstream of it here — the gate
+  not Fresco's state. Everything downstream of it here — the gate
   closure, the crossing cell, the emit — is the shipping code."
   [adopted? hiccup]
-  (with-redefs [rf.hicasso.impl.codec/adopted? (fn [] adopted?)]
+  (with-redefs [rf.fresco.impl.codec/adopted? (fn [] adopted?)]
     (render-html hiccup)))
 
 (defn- query-node [root selector] (.querySelector root selector))
@@ -169,7 +169,7 @@
           (is (empty? @seen) (pr-str @seen))))
       (finally
         (stop)
-        (rf.hicasso.impl.collector/reset-runtime!)))))
+        (rf.fresco.impl.collector/reset-runtime!)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — a crossing announces ONCE, and carries the facts a tool reads
@@ -181,7 +181,7 @@
         page [:div
               ;; TWO sites of ONE declaration. The grain claim is not
               ;; decoration: the retired predecessor was root-scoped
-              ;; because the substrate that emitted it was, and hicasso's
+              ;; because the substrate that emitted it was, and fresco's
               ;; is per-declaration. A per-SITE implementation passes
               ;; every other assertion in this file and fails this one.
               [host {:label "revenue"}]
@@ -208,7 +208,7 @@
             (is (= :info (:op-type ev)))
             (is (= :rf.ssr/host-adopted (:operation ev)))
             (is (= "crossing-chart" (get-in ev [:tags :host])))
-            (is (= 're-frame.hicasso.impl.codec/mint-host-gate!
+            (is (= 're-frame.fresco.impl.codec/mint-host-gate!
                    (get-in ev [:tags :where]))))))
       (testing "and every later adopted render is silent — React re-renders a
                 gate freely, and a Strict-Mode double render is two passes of
@@ -219,7 +219,7 @@
         (is (= 1 (count @seen)) (pr-str @seen)))
       (finally
         (stop)
-        (rf.hicasso.impl.collector/reset-runtime!)))))
+        (rf.fresco.impl.collector/reset-runtime!)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — nothing crossed, so nothing is announced
@@ -244,7 +244,7 @@
         (is (empty? @seen) (pr-str @seen)))
       (finally
         (stop)
-        (rf.hicasso.impl.collector/reset-runtime!)))))
+        (rf.fresco.impl.collector/reset-runtime!)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — the same claim, unstubbed, through a real hydration
@@ -252,19 +252,19 @@
 
 (deftest a-hydrated-crossing-announces-once
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
         (let [host      (mint! "hydrated-chart")
               page      [:div [host {:label "revenue"}] [host {:label "costs"}]]
               html      (render-html page)
-              container (rf.hicasso.impl.mount/fresh-container!)
+              container (rf.fresco.impl.mount/fresh-container!)
               {:keys [seen stop]} (watch-adoptions!)]
           (set! (.-innerHTML container) html)
           (let [root (react-dom-client/hydrateRoot
                        container
-                       (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id page)))]
+                       (rf.fresco.impl.mount/provider frame-id (rf.fresco.impl.codec/root-element frame-id page)))]
             (js/setTimeout
               (fn []
                 (try
@@ -282,6 +282,6 @@
                     (stop)
                     (.unmount root)
                     (when-some [p (.-parentNode container)] (.removeChild p container))
-                    (rf.hicasso.impl.collector/reset-runtime!)
+                    (rf.fresco.impl.collector/reset-runtime!)
                     (done))))
               150)))))))

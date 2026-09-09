@@ -115,8 +115,8 @@
   is not derivable from the substrate name and the derivation that looked
   like it was fails in the dangerous direction (rf2-ps1u). Two of the
   three substrates the template contemplates live under
-  `implementation/adapters/<name>`; `:hicasso` does not — Hicasso ships
-  its own view layer from `implementation/hicasso`, so
+  `implementation/adapters/<name>`; `:fresco` does not — Fresco ships
+  its own view layer from `implementation/fresco`, so
   `(str \"implementation/adapters/\" (name substrate))` would hand
   `:local/root` a directory that does not exist, or — the worse mode —
   point the smoke at a package that is not the one under test.
@@ -672,18 +672,18 @@
       (doseq [substrate (keys substrate-local-roots)]
         (is (string? (substrate-local-root root substrate))
             (str substrate " resolves to a directory that exists")))
-      ;; `:hicasso` is the value the retired string convention got wrong: it
-      ;; would have produced `implementation/adapters/hicasso`, which does not
-      ;; exist, while the package sits at `implementation/hicasso`. It has no
+      ;; `:fresco` is the value the retired string convention got wrong: it
+      ;; would have produced `implementation/adapters/fresco`, which does not
+      ;; exist, while the package sits at `implementation/fresco`. It has no
       ;; row yet (the variant itself is rf2-8urba), so the rewrite must refuse
       ;; it by name rather than fabricate a path.
-      (is (not (.isDirectory (io/file root "implementation/adapters/hicasso")))
-          "implementation/adapters/hicasso does not exist — the string
-           convention's answer for :hicasso was never a real directory")
-      (is (.isDirectory (io/file root "implementation/hicasso"))
-          "implementation/hicasso does — that is where the package lives")
+      (is (not (.isDirectory (io/file root "implementation/adapters/fresco")))
+          "implementation/adapters/fresco does not exist — the string
+           convention's answer for :fresco was never a real directory")
+      (is (.isDirectory (io/file root "implementation/fresco"))
+          "implementation/fresco does — that is where the package lives")
       (is (thrown? clojure.lang.ExceptionInfo
-                   (substrate-local-root root :hicasso))
+                   (substrate-local-root root :fresco))
           "an unregistered substrate throws, naming the map to extend"))))
 
 ;; One deftest per substrate the generator can emit. That set is DERIVED —
@@ -691,7 +691,7 @@
 ;; is `(set (keys …))` of it, and `template-fn`'s `case` names each entry's
 ;; `_<substrate>/` tree — so a third substrate lands here as a third deftest.
 ;; `template_test.clj` holds the roster itself to the registry; these two are
-;; the behavioural arms of it. (Hicasso and reagent-slim are reserved, not
+;; the behavioural arms of it. (Fresco and reagent-slim are reserved, not
 ;; emitted — see spec/001-Substrate-Variants.md §Future substrates.)
 
 (deftest reagent-emitted-tests-run-test

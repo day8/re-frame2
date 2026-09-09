@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.ledger.a11y-cljs-test
+(ns re-frame.fresco.examples.ledger.a11y-cljs-test
   "THE LEDGER'S STRUCTURAL ACCESSIBILITY, on the a11y kit's helpers
   (specification §7's *Large collections* row, which requires *10K-row
   behavior, focus and accessibility*).
@@ -31,10 +31,10 @@
   times, so it is the piece worth holding to one assertion per rendering."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.hicasso.examples.ledger.events :as rf.hicasso.examples.ledger.events]
-            [re-frame.hicasso.examples.ledger.subs :as rf.hicasso.examples.ledger.subs]
-            [re-frame.hicasso.examples.ledger.views :as rf.hicasso.examples.ledger.views]
-            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.fresco.examples.ledger.events :as rf.fresco.examples.ledger.events]
+            [re-frame.fresco.examples.ledger.subs :as rf.fresco.examples.ledger.subs]
+            [re-frame.fresco.examples.ledger.views :as rf.fresco.examples.ledger.views]
+            [re-frame.fresco.test :as rf.fresco.test]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
@@ -55,18 +55,18 @@
   "The row at model index `i`, in the state the options describe."
   ([i] (row-tree i {}))
   ([i {:keys [note flagged?] :or {note "" flagged? false}}]
-   (rf.hicasso.test/tree [rf.hicasso.examples.ledger.views/ledger-row {:index i :offset (* i rf.hicasso.examples.ledger.views/row-height)}]
-            {:subs {[::rf.hicasso.examples.ledger.subs/record i]   (rf.hicasso.examples.ledger.events/record i)
-                    [::rf.hicasso.examples.ledger.subs/note i]     note
-                    [::rf.hicasso.examples.ledger.subs/flagged? i] flagged?}})))
+   (rf.fresco.test/tree [rf.fresco.examples.ledger.views/ledger-row {:index i :offset (* i rf.fresco.examples.ledger.views/row-height)}]
+            {:subs {[::rf.fresco.examples.ledger.subs/record i]   (rf.fresco.examples.ledger.events/record i)
+                    [::rf.fresco.examples.ledger.subs/note i]     note
+                    [::rf.fresco.examples.ledger.subs/flagged? i] flagged?}})))
 
 (defn- status-tree [window total]
-  (rf.hicasso.test/tree [rf.hicasso.examples.ledger.views/status-line {}]
-           {:subs {[::rf.hicasso.examples.ledger.subs/window] window
-                   [::rf.hicasso.examples.ledger.subs/total]  total}}))
+  (rf.fresco.test/tree [rf.fresco.examples.ledger.views/status-line {}]
+           {:subs {[::rf.fresco.examples.ledger.subs/window] window
+                   [::rf.fresco.examples.ledger.subs/total]  total}}))
 
-(defn- classed [tree class] (rf.hicasso.test/find tree #(= class (:class (rf.hicasso.test/attrs %)))))
-(defn- named [tree node] (rf.hicasso.test/accessible-name tree node))
+(defn- classed [tree class] (rf.fresco.test/find tree #(= class (:class (rf.fresco.test/attrs %)))))
+(defn- named [tree node] (rf.fresco.test/accessible-name tree node))
 
 (defn- rewrite
   "`tree` with every node matching `pred` replaced by `(f node)`.
@@ -98,7 +98,7 @@
 (deftest a-rows-announced-position-is-its-place-in-the-MODEL
   (testing "row 4,137 of ten thousand, from a row that will be rendered
             somewhere around the fourth of twenty-six mounted siblings"
-    (is (= "4137" (:aria-rowindex (rf.hicasso.test/attrs (row-tree 4136))))
+    (is (= "4137" (:aria-rowindex (rf.fresco.test/attrs (row-tree 4136))))
         "`aria-rowindex` is one-based, and it is the MODEL index plus one.
          A window-relative implementation would write `4` here — a value
          that is correct about the document, wrong about the data, and
@@ -108,24 +108,24 @@
 
   (testing "and the first row of the model still says 1, so the rule is a
             rule rather than a constant offset that happens to fit"
-    (is (= "1" (:aria-rowindex (rf.hicasso.test/attrs (row-tree 0))))))
+    (is (= "1" (:aria-rowindex (rf.fresco.test/attrs (row-tree 0))))))
 
   (testing "the columns are announced too — three cells, in order"
-    (let [cells (rf.hicasso.test/find-all (row-tree 4136) #(= :gridcell (rf.hicasso.test/role %)))]
+    (let [cells (rf.fresco.test/find-all (row-tree 4136) #(= :gridcell (rf.fresco.test/role %)))]
       (is (= 3 (count cells)))
-      (is (= ["1" "2" "3"] (mapv #(:aria-colindex (rf.hicasso.test/attrs %)) cells))))))
+      (is (= ["1" "2" "3"] (mapv #(:aria-colindex (rf.fresco.test/attrs %)) cells))))))
 
 (deftest a-row-is-a-row-and-its-cells-are-cells
   (let [tree (row-tree 4136)]
-    (is (= :row (rf.hicasso.test/role tree))
+    (is (= :row (rf.fresco.test/role tree))
         "the row's own role, written by hand: the virtualizer contributes
          two `role=\"presentation\"` wrappers between the grid and this
          node and knows nothing about tables, so the grid's semantics are
          the application's to write")
-    (is (= :textbox (rf.hicasso.test/role (note-node tree)))
+    (is (= :textbox (rf.fresco.test/role (note-node tree)))
         "an `<input type=\"text\">`, resolved through the implicit table
          rather than asserted as a tag")
-    (is (= :button (rf.hicasso.test/role (flag-node tree))))))
+    (is (= :button (rf.fresco.test/role (flag-node tree))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Names — resolved, and following the record rather than the row
@@ -158,7 +158,7 @@
                         (row-tree 4136 {:note "chase" :flagged? true})]
                        ["the first row" (row-tree 0)]
                        ["the last row" (row-tree 9999)]]]
-    (is (= [] (rf.hicasso.test/unnamed-controls tree))
+    (is (= [] (rf.fresco.test/unnamed-controls tree))
         (str what " — every field and button a user can operate must carry
              an accessible name, and this is the whole row asked at once"))))
 
@@ -170,11 +170,11 @@
             — nothing else changes, and the sweep must find exactly one
             offender"
     (let [sabotaged (rewrite (row-tree 4136)
-                             #(= "ledger-note" (:class (rf.hicasso.test/attrs %)))
+                             #(= "ledger-note" (:class (rf.fresco.test/attrs %)))
                              #(update % :attrs dissoc :aria-label))
-          found     (rf.hicasso.test/unnamed-controls sabotaged)]
+          found     (rf.fresco.test/unnamed-controls sabotaged)]
       (is (= 1 (count found)))
-      (is (= (rf.hicasso.examples.ledger.events/note-id 4136) (:id (rf.hicasso.test/attrs (first found))))
+      (is (= (rf.fresco.examples.ledger.events/note-id 4136) (:id (rf.fresco.test/attrs (first found))))
           "and it names the field, by the id the application gave it")))
 
   (testing "and the button, which is named by an attribute rather than by
@@ -182,12 +182,12 @@
             them, so content naming would be a name that identifies
             nothing"
     (let [sabotaged (rewrite (row-tree 4136)
-                             #(= "ledger-flag" (:class (rf.hicasso.test/attrs %)))
+                             #(= "ledger-flag" (:class (rf.fresco.test/attrs %)))
                              #(update % :attrs dissoc :aria-label))]
       (is (= "Flag" (named sabotaged (flag-node sabotaged)))
           "it falls back to its content, which is why the row above
            asserts the VALUE of the name and not merely that one exists")
-      (is (= [] (rf.hicasso.test/unnamed-controls sabotaged))
+      (is (= [] (rf.fresco.test/unnamed-controls sabotaged))
           "so this sabotage does NOT show up in the sweep, and saying so
            is the honest limit of a sweep: it catches an absent name, not
            an unhelpful one"))))
@@ -200,8 +200,8 @@
   (let [off (row-tree 4136)
         on  (row-tree 4136 {:flagged? true})]
     (testing "the state, both ways"
-      (is (= "false" (:aria-pressed (rf.hicasso.test/attrs (flag-node off)))))
-      (is (= "true" (:aria-pressed (rf.hicasso.test/attrs (flag-node on))))))
+      (is (= "false" (:aria-pressed (rf.fresco.test/attrs (flag-node off)))))
+      (is (= "true" (:aria-pressed (rf.fresco.test/attrs (flag-node on))))))
     (testing "and the NAME, unchanged across the toggle — a control that
               renames itself as its state changes is a control a
               screen-reader user has to re-find, and these two halves are
@@ -211,8 +211,8 @@
       (is (= "Flag Record 4136" (named on (flag-node on)))))))
 
 (deftest the-note-field-echoes-the-committed-value
-  (is (= "chase" (:value (rf.hicasso.test/attrs (note-node (row-tree 4136 {:note "chase"}))))))
-  (is (= "" (:value (rf.hicasso.test/attrs (note-node (row-tree 4136)))))
+  (is (= "chase" (:value (rf.fresco.test/attrs (note-node (row-tree 4136 {:note "chase"}))))))
+  (is (= "" (:value (rf.fresco.test/attrs (note-node (row-tree 4136)))))
       "and an untouched field is EMPTY rather than absent — a `nil` here
        is React's uncontrolled-input warning, not an empty field"))
 
@@ -222,13 +222,13 @@
 
 (deftest the-status-line-is-a-status-and-counts-the-model
   (let [tree (status-tree {:from 40 :to 66} 10000)]
-    (is (= :status (rf.hicasso.test/role tree))
+    (is (= :status (rf.fresco.test/role tree))
         "a STATUS and not an ALERT: the window moving is not an
          interruption, and the two roles are different promises about how
          urgently a screen reader speaks")
-    (is (= "Showing rows 41–67 of 10000" (rf.hicasso.test/text tree))
+    (is (= "Showing rows 41–67 of 10000" (rf.fresco.test/text tree))
         "one-based, and the denominator is the MODEL's count — the number
          the document cannot supply")
-    (is (nil? (rf.hicasso.test/accessible-name tree tree))
+    (is (nil? (rf.fresco.test/accessible-name tree tree))
         "a live region takes no name from its own text: it is announced
          BECAUSE it changed")))

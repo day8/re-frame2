@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.public-door-macros-cljs-test
+(ns re-frame.fresco.public-door-macros-cljs-test
   "THE PUBLIC DOOR'S MACRO SHAPES, pinned by contract rather than by donor
   digest.
 
@@ -29,7 +29,7 @@
   second claim about `defhost`, this time about the SHAPE of the form
   rather than the value it hands on. `defview`'s round-trip — a boundary
   minted through the door, asserted `boundary-head?`, rendering a live
-  subscription read — is [[re-frame.hicasso.smoke-cljs-test]]'s and stays
+  subscription read — is [[re-frame.fresco.smoke-cljs-test]]'s and stays
   there. Witness C below is a different claim about the same macro, and
   it is here because it is about the EXPANSION rather than about the
   runtime: what `defview` names inside the fn it emits.
@@ -75,10 +75,10 @@
   when that lands, the sweep renames these witnesses with everything else."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
 
@@ -89,10 +89,10 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest hfn-mints-an-ordinary-function-that-a-position-can-recognise
-  (let [picked (rf.hicasso/event [e] [:door/picked (.-value e)])]
+  (let [picked (rf.fresco/event [e] [:door/picked (.-value e)])]
 
     (testing "the value is an ordinary function — no carrier object, nothing
-              that can fail to be callable where Hicasso does not walk"
+              that can fail to be callable where Fresco does not walk"
       (is (fn? picked)))
 
     (testing "and calling it returns what the author wrote, unwrapped"
@@ -100,33 +100,33 @@
 
     (testing "the mark the expansion applies is on it, so a walked position
               can impose its contract"
-      (is (true? (rf.hicasso.impl.intent/callback? picked))))
+      (is (true? (rf.fresco.impl.intent/callback? picked))))
 
     (testing "and the witness discriminates rather than restating `fn?`: a
               plain `fn` written the same way is NOT the callback form"
-      (is (false? (rf.hicasso.impl.intent/callback? (fn [e] [:door/picked (.-value e)])))))))
+      (is (false? (rf.fresco.impl.intent/callback? (fn [e] [:door/picked (.-value e)])))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Witness B — `h/defhost`, the interop door
 ;; ---------------------------------------------------------------------------
 
 (defn- badge-component
-  "A foreign React component: not a boundary, not hiccup, nothing Hicasso
+  "A foreign React component: not a boundary, not hiccup, nothing Fresco
   minted. The crossing is the only thing that can put its markup on the
   page."
   [^js props]
   (react/createElement "b" #js {"className" "badge"} (.-label props)))
 
-(rf.hicasso/defhost badge badge-component {:server :render})
+(rf.fresco/defhost badge badge-component {:server :render})
 
 (defn- html
   [hiccup]
-  (react-dom-server/renderToString (rf.hicasso.impl.codec/root-element frame-id hiccup)))
+  (react-dom-server/renderToString (rf.fresco.impl.codec/root-element frame-id hiccup)))
 
 (deftest defhost-mints-a-host-head-that-carries-the-option-it-was-declared-with
   (testing "the door hands back a minted host head, not the component the
             author named"
-    (is (true? (rf.hicasso.impl.codec/host-head? badge)))
+    (is (true? (rf.fresco.impl.codec/host-head? badge)))
     (is (not (identical? badge badge-component))))
 
   (testing "the `opts` argument reaches the declaration: the policy read back
@@ -134,12 +134,12 @@
             only reason the server render below produces anything at all —
             `:client-only`, the default a dropped argument would leave,
             renders no host region on the server"
-    (is (= :render (rf.hicasso.impl.codec/host-server badge))))
+    (is (= :render (rf.fresco.impl.codec/host-server badge))))
 
   (testing "and the minted var is a legal hiccup head inside an ordinary tree,
             with the crossing rendering the foreign component's own markup"
-    (let [markup (html [:div.crossing [badge {:label "hicasso"}]])]
-      (is (re-find #"<b[^>]*class=\"badge\"[^>]*>hicasso</b>" markup)))))
+    (let [markup (html [:div.crossing [badge {:label "fresco"}]])]
+      (is (re-find #"<b[^>]*class=\"badge\"[^>]*>fresco</b>" markup)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Witness C — `h/defview`, and the name its emitted fn does NOT bind
@@ -162,7 +162,7 @@
   [{:keys [id]}]
   [:li.ticket (str "ticket " id)])
 
-(rf.hicasso/defview ticket [props] (ticket-body props))
+(rf.fresco/defview ticket [props] (ticket-body props))
 
 (defn- rendered
   "One boundary, server-rendered under a frame — React running the body
@@ -175,12 +175,12 @@
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   (rf/make-frame {:id frame-id})
   (react-dom-server/renderToString
-    (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup))))
+    (rf.fresco.impl.mount/provider frame-id (rf.fresco.impl.codec/root-element frame-id hiccup))))
 
 (deftest the-fn-defview-emits-binds-no-name-a-body-could-reach
   (testing "the door hands back a minted boundary, so what renders below is
             the expansion's own product"
-    (is (true? (rf.hicasso.impl.codec/boundary-head? ticket))))
+    (is (true? (rf.fresco.impl.codec/boundary-head? ticket))))
 
   (testing "a body that calls a helper named after its view resolves the
             AUTHOR's helper: React runs the body once and the markup is the
@@ -191,7 +191,7 @@
   (testing "and the identifier the expansion DOES decide is unchanged — the
             `\"<ns>/<sym>\"` name React DevTools shows and Spec 009 keys
             `rf:render:<name>` on"
-    (is (= "re-frame.hicasso.public-door-macros-cljs-test/ticket"
+    (is (= "re-frame.fresco.public-door-macros-cljs-test/ticket"
            (unchecked-get ticket "displayName")))))
 
 ;; ---------------------------------------------------------------------------
@@ -225,15 +225,15 @@
             DISCARDED, so the declaration is refused at the door rather than
             minting a head whose declared slots silently do not exist"
     (let [data (error-data
-                 #(rf.hicasso/defhost two-options-host badge-component
+                 #(rf.fresco/defhost two-options-host badge-component
                     {:server :render}
                     {:slots #{:title}}))]
-      (is (= :rf.error/hicasso-bad-host-declaration (:rf.error/id data))
+      (is (= :rf.error/fresco-bad-host-declaration (:rf.error/id data))
           (str "the tail was refused and named. Raised: " (pr-str data)))
       (is (= ['{:slots #{:title}}] (:extra data))
           "and the refusal carries the FORM that would have been dropped,
            quoted rather than evaluated")
-      (is (= "re-frame.hicasso.public-door-macros-cljs-test/two-options-host"
+      (is (= "re-frame.fresco.public-door-macros-cljs-test/two-options-host"
              (:host data))
           "named by the declaration it belongs to")))
 
@@ -241,9 +241,9 @@
             exact: the legal three-form shape — docstring, component, options
             — is one form longer than the refused two-form one and must still
             mint, keep its `opts`, and carry its docstring"
-    (is (true? (rf.hicasso.impl.codec/host-head? badge))
+    (is (true? (rf.fresco.impl.codec/host-head? badge))
         "the two-argument shape, declared at the top of this file")
-    (is (= :render (rf.hicasso.impl.codec/host-server badge))
+    (is (= :render (rf.fresco.impl.codec/host-server badge))
         "with its options intact")))
 
 (deftest defhost-refuses-options-that-are-not-a-map
@@ -252,29 +252,29 @@
             raised was not a declaration refusal. `h/reg-state` has had this
             guard since it was written; this is the same guard on the
             comparable surface"
-    (let [data (error-data #(rf.hicasso.impl.codec/mint-host! "doc/in-the-wrong-place"
+    (let [data (error-data #(rf.fresco.impl.codec/mint-host! "doc/in-the-wrong-place"
                                               badge-component
                                               "a docstring in the wrong place"))]
-      (is (= :rf.error/hicasso-bad-host-declaration (:rf.error/id data))
+      (is (= :rf.error/fresco-bad-host-declaration (:rf.error/id data))
           (str "refused, and from the door rather than from inside `keys`. "
                "Raised: " (pr-str data)))
       (is (= "a docstring in the wrong place" (:options data))
           "carrying the value it was given")))
 
   (testing "and every other non-map is refused the same way"
-    (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(rf.hicasso.impl.codec/mint-host! "bad/vec" badge-component [:server :render]))))
-    (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(rf.hicasso.impl.codec/mint-host! "bad/kw" badge-component :render))))
-    (is (= :rf.error/hicasso-bad-host-declaration
-           (error-id #(rf.hicasso.impl.codec/mint-host! "bad/set" badge-component #{:server})))))
+    (is (= :rf.error/fresco-bad-host-declaration
+           (error-id #(rf.fresco.impl.codec/mint-host! "bad/vec" badge-component [:server :render]))))
+    (is (= :rf.error/fresco-bad-host-declaration
+           (error-id #(rf.fresco.impl.codec/mint-host! "bad/kw" badge-component :render))))
+    (is (= :rf.error/fresco-bad-host-declaration
+           (error-id #(rf.fresco.impl.codec/mint-host! "bad/set" badge-component #{:server})))))
 
   (testing "THE NEAR MISS. `nil` is *no options*, which is exactly what the
             two-arity call means, so a guard that refused it would refuse the
             door's own commonest shape. All three legal spellings still mint"
-    (is (true? (rf.hicasso.impl.codec/host-head? (rf.hicasso.impl.codec/mint-host! "ok/nil" badge-component nil))))
-    (is (true? (rf.hicasso.impl.codec/host-head? (rf.hicasso.impl.codec/mint-host! "ok/empty" badge-component {}))))
-    (is (true? (rf.hicasso.impl.codec/host-head? (rf.hicasso.impl.codec/mint-host! "ok/arity2" badge-component))))
-    (is (= :render (rf.hicasso.impl.codec/host-server (rf.hicasso.impl.codec/mint-host! "ok/opts" badge-component
+    (is (true? (rf.fresco.impl.codec/host-head? (rf.fresco.impl.codec/mint-host! "ok/nil" badge-component nil))))
+    (is (true? (rf.fresco.impl.codec/host-head? (rf.fresco.impl.codec/mint-host! "ok/empty" badge-component {}))))
+    (is (true? (rf.fresco.impl.codec/host-head? (rf.fresco.impl.codec/mint-host! "ok/arity2" badge-component))))
+    (is (= :render (rf.fresco.impl.codec/host-server (rf.fresco.impl.codec/mint-host! "ok/opts" badge-component
                                                      {:server :render})))
         "and a real options map still reaches the declaration")))

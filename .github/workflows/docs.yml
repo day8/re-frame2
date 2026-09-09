@@ -53,7 +53,7 @@ on:
       # unconditional `verify-readme-links` job, where it needs no path filter
       # to run. Same move, and the same reason, as
       # `scripts/check_inject_cofx_residue.py` below.)
-      # rf2-kqac1 — the provenance-pin gate reads docs/design/hicasso/**, which
+      # rf2-kqac1 — the provenance-pin gate reads docs/design/fresco/**, which
       # `docs/**` above already arms; this line arms it on its own source, so a
       # change to the checker cannot ship without the checker running.
       - 'scripts/check_provenance_pins.py'
@@ -80,10 +80,10 @@ on:
       # throwaway git tree, so there is no fixture directory to arm.)
       - 'scripts/check_allocation_non_claim.py'
       # rf2-ps7ia moved the scan's OTHER premise, `budgets.md` §9's S7 row, out
-      # from under `docs/**` to `implementation/hicasso/spec/`, and this list
+      # from under `docs/**` to `implementation/fresco/spec/`, and this list
       # carried that path so a PREMISE MOVED red could not ship unraised;
       # rf2-6c12m.8 (2026-08-30) moved the page back to
-      # `docs/design/hicasso/product/budgets.md`, where `docs/**` above arms it
+      # `docs/design/fresco/product/budgets.md`, where `docs/**` above arms it
       # again beside the sibling premise (`lanes/evidence-baseline.md`).
       # rf2-lq99wc — the retired-composition gate now scans the per-tool spec
       # trees too; a drift there must trigger the gate.
@@ -447,7 +447,7 @@ jobs:
       # a ~15-minute MkDocs build on every skills PR; the gate is instead
       # unconditional in test.yml's `verify-skill-mcp-drift` job, where its
       # ~0.3s of pure-Python stdlib cannot be skipped past at all. Same remedy
-      # as the hicasso complaint-catalogue and budget-ledger gates before it.
+      # as the fresco complaint-catalogue and budget-ledger gates before it.
       # See `.github/workflows/test.yml`, step id `check_inject_cofx_residue`.
 
       # rf2-2oqj59 — the failure corpus (docs/core/errors.md + the
@@ -540,7 +540,7 @@ jobs:
       #
       # IT BELONGS IN THIS JOB rather than beside the provenance-pin gate below,
       # and the two are less alike than they look: that one needs `fetch-depth:
-      # 0` and reads docs/design/hicasso, which is why it is a job of its own,
+      # 0` and reads docs/design/fresco, which is why it is a job of its own,
       # while this one derives its corpus from `git ls-files` and reads the
       # PUBLICATION surface — root README/CHANGELOG plus docs/** OUTSIDE
       # docs/design. Its real siblings are the four repo-wide markdown scans
@@ -603,7 +603,7 @@ jobs:
   # Provenance pins (rf2-kqac1), following rf2-owq6p's census.
   #
   # This repo rebase-merges, which mints a new SHA for every commit on the
-  # branch, so a Hicasso page that pins a measurement to the SHA it was authored
+  # branch, so a Fresco page that pins a measurement to the SHA it was authored
   # at is stranded the moment its own PR lands: the object is reachable from no
   # ref and is absent from a fresh clone, and the page's verifiability claim
   # fails without saying so.  The rule is ACCOMPANIMENT — a cited authored head

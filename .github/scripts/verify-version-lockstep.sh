@@ -111,7 +111,7 @@ declare -A ARTEFACT_PATHS=(
   [ssr-ring]="ssr-ring"
   [resources]="resources"
   [epoch]="epoch"
-  [hicasso]="hicasso"
+  [fresco]="fresco"
 )
 
 # rf2-qmhysc — resources + ssr-ring both declare publishable
@@ -130,17 +130,17 @@ declare -A ARTEFACT_PATHS=(
 # deleted at the F6e gate (rf2-drpa3.57). It carries no :clein/build, so the
 # conditional inventory guard below correctly leaves it alone.
 #
-# rf2-gra70 — hicasso (day8/re-frame2-hicasso) is the SECOND artefact whose
+# rf2-gra70 — fresco (day8/re-frame2-fresco) is the SECOND artefact whose
 # published :deps name an in-repo artefact besides core (day8/re-frame2-ssr,
-# for the re-frame.hicasso.server module). Like ssr-ring it therefore ships
+# for the re-frame.fresco.server module). Like ssr-ring it therefore ships
 # from a post-matrix stage in release.yml rather than from the fail-fast:false
 # deploy-leaf matrix; the second-coordinate assertion for it sits beside
 # ssr-ring's below.
-ARTEFACTS=(core schemas reagent reagent-slim uix machines routing flows http ssr ssr-ring resources epoch hicasso)
+ARTEFACTS=(core schemas reagent reagent-slim uix machines routing flows http ssr ssr-ring resources epoch fresco)
 
 # core is the lockstep root: it does not depend on any other re-frame2
 # artefact, so the :local/root core-reference check below skips it.
-NON_CORE=(schemas reagent reagent-slim uix machines routing flows http ssr ssr-ring resources epoch hicasso)
+NON_CORE=(schemas reagent reagent-slim uix machines routing flows http ssr ssr-ring resources epoch fresco)
 
 # Adapters (substrate adapters) are one directory deeper than per-feature
 # artefacts.
@@ -704,7 +704,7 @@ done
 # both name the same one, day8/re-frame2-ssr {:local/root "../ssr"}:
 #
 #   ssr-ring — the Ring/Pedestal host adapter sits on top of the ssr renderer;
-#   hicasso  — re-frame.hicasso.server hands its payload to the ssr
+#   fresco  — re-frame.fresco.server hands its payload to the ssr
 #              artefact's own fail-closed validator and egress projection
 #              rather than re-spelling them (rf2-gra70).
 #
@@ -718,7 +718,7 @@ done
 # fail-fast:false deploy-leaf matrix; see the post-matrix stages there.
 SECOND_IN_REPO_COORD=$(cat <<'EOF'
 ssr-ring|day8/re-frame2-ssr {:local/root "../ssr"}
-hicasso|day8/re-frame2-ssr {:local/root "../ssr"}
+fresco|day8/re-frame2-ssr {:local/root "../ssr"}
 EOF
 )
 
@@ -843,13 +843,13 @@ declare -A TOOLS_PATHS=(
 # completeness pass at the end of the tools loop now derives the true set
 # from each deps.edn, so this list cannot silently fall behind again.
 #
-# Xray's `day8/re-frame2-hicasso` line used to carry a caveat: the artefact
+# Xray's `day8/re-frame2-fresco` line used to carry a caveat: the artefact
 # was NOT publishable, so release-xray.yml deliberately left that one
 # coordinate at `:local/root` while rewriting the other nine, and
 # preflight-xray-package.sh refused the deploy rather than mint a GAV Clojars
-# would not have. rf2-gra70 removed the premise — implementation/hicasso/
+# would not have. rf2-gra70 removed the premise — implementation/fresco/
 # deps.edn now carries a `:clein/build` and release.yml publishes
-# day8/re-frame2-hicasso — so all TEN of Xray's in-repo coordinates are
+# day8/re-frame2-fresco — so all TEN of Xray's in-repo coordinates are
 # rewritable and release-xray.yml rewrites all ten. Xray's publishability
 # therefore now depends on the ordinary release ORDER (a framework `v*` tag
 # before an `xray-v*` tag), which docs/release-process.md §The tools tier
@@ -870,7 +870,7 @@ xray|day8/re-frame2-flows {:local/root "../../implementation/flows"}
 xray|day8/re-frame2-schemas {:local/root "../../implementation/schemas"}
 xray|day8/re-frame2-resources {:local/root "../../implementation/resources"}
 xray|day8/re-frame2-machines {:local/root "../../implementation/machines"}
-xray|day8/re-frame2-hicasso {:local/root "../../implementation/hicasso"}
+xray|day8/re-frame2-fresco {:local/root "../../implementation/fresco"}
 xray|day8/re-frame2-machines-viz {:local/root "../machines-viz"}
 xray|day8/reagent-slim {:local/root "../../implementation/adapters/reagent-slim"}
 story|day8/re-frame2 {:local/root "../../implementation/core"}

@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.impl.state
+(ns re-frame.fresco.impl.state
   "`h/reg-state` — THE INSTANCE-KEY SUGAR (HD-009, as amended by the
   explicit-key ruling).
 
@@ -82,7 +82,7 @@
   delete, so there is no sentinel here and no \"convenience\" arity that
   accepts one."
   (:require [re-frame.events :as rf.events]
-            [re-frame.hicasso.impl.error :refer [fail!]]
+            [re-frame.fresco.impl.error :refer [fail!]]
             [re-frame.subs :as rf.subs]))
 
 ;; ---------------------------------------------------------------------------
@@ -98,13 +98,13 @@
   "`::h/clear` — the FRAMEWORK-NAMED clear event, `[::h/clear ::concern
   ikey]`. One handler serves every concern, because removing an entry
   needs to know nothing about what the entry held."
-  :re-frame.hicasso/clear)
+  :re-frame.fresco/clear)
 
 ;; ---------------------------------------------------------------------------
 ;; Errors
 ;; ---------------------------------------------------------------------------
 
-;; `fail!` is `re-frame.hicasso.impl.error`'s — one constructor for the whole
+;; `fail!` is `re-frame.fresco.impl.error`'s — one constructor for the whole
 ;; package, and the ambient view and source coordinate come with it.
 
 ;; ---------------------------------------------------------------------------
@@ -133,8 +133,8 @@
   the way back out, one interaction later and in a different component."
   [concern ikey op]
   (when-not (instance-key? ikey)
-    (fail! :rf.error/hicasso-state-bad-argument
-           're-frame.hicasso.impl.state/check-key!
+    (fail! :rf.error/fresco-state-bad-argument
+           're-frame.fresco.impl.state/check-key!
            (str "The instance key for " (pr-str concern) " was "
                 (pr-str ikey) ", which is not a keyword, string, number, "
                 "or vector of those. Without a per-instance key every "
@@ -213,30 +213,30 @@
 
   The three refusals — an unqualified concern, options that are not a
   map or carry an unknown key, and a bad instance key at a read or write
-  (`check-key!`) — share `:rf.error/hicasso-state-bad-argument`, with
+  (`check-key!`) — share `:rf.error/fresco-state-bad-argument`, with
   the fault named in the reason; each is an argument outside the contract
   and there is one fix for each. Design record:
-  docs/design/hicasso/decisions.md, HD-009."
+  docs/design/fresco/decisions.md, HD-009."
   ([concern] (reg-state concern nil))
   ([concern opts]
    (when-not (and (keyword? concern) (namespace concern))
-     (fail! :rf.error/hicasso-state-bad-argument
-            're-frame.hicasso.impl.state/reg-state
+     (fail! :rf.error/fresco-state-bad-argument
+            're-frame.fresco.impl.state/reg-state
             (str "A state concern must be a namespace-qualified keyword; it "
                  "was " (pr-str concern) ". The concern is a sub id, an event "
                  "id and an app-db key at once, so an unqualified one collides "
                  "with every other feature on the page in three registries.")
             {:concern concern}))
    (when-not (or (nil? opts) (map? opts))
-     (fail! :rf.error/hicasso-state-bad-argument
-            're-frame.hicasso.impl.state/reg-state
+     (fail! :rf.error/fresco-state-bad-argument
+            're-frame.fresco.impl.state/reg-state
             (str "reg-state options must be a map; for " (pr-str concern)
                  " they were " (pr-str opts) ".")
             {:concern concern :options opts}))
    (let [unknown (seq (disj (set (keys opts)) :default))]
      (when unknown
-       (fail! :rf.error/hicasso-state-bad-argument
-              're-frame.hicasso.impl.state/reg-state
+       (fail! :rf.error/fresco-state-bad-argument
+              're-frame.fresco.impl.state/reg-state
               (str "reg-state accepts :default and nothing else; "
                    (pr-str concern) " was given " (pr-str (vec (sort-by str unknown)))
                    ". An option that is quietly ignored is a setting its author "

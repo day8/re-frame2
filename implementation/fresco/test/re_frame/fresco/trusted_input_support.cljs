@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.trusted-input-support
+(ns re-frame.fresco.trusted-input-support
   "A REAL KEY PRESS, FROM INSIDE A cljs.test ROW.
 
   Three suites in this package used to STATE a gap rather than measure

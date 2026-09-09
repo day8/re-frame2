@@ -206,14 +206,14 @@ runWithWatchdog(
       { name: 'read-dom', arguments: { selector: 'body', limit: 1 } },
       { name: 'read-ui', arguments: { selector: 'body' } },
       { name: 'orient', arguments: {} },
-      // The three re-frame.hicasso.tool reads — the adapter-neutral evidence
+      // The three re-frame.fresco.tool reads — the adapter-neutral evidence
       // door. Degraded (no nREPL) each routes through ensure-runtime! to the
       // shared :nrepl-port-not-found envelope, pinning the callTool envelope +
       // dispatch wiring. All three are NULLARY — the runtime mints no boundary
       // identity, so there is no id to narrow by and no missing-arg
-      // short-circuit to route around; the LIVE read runs in a real Hicasso app
-      // tab (the door lives in day8/re-frame2-hicasso and nothing in
-      // re-frame.hicasso requires it).
+      // short-circuit to route around; the LIVE read runs in a real Fresco app
+      // tab (the door lives in day8/re-frame2-fresco and nothing in
+      // re-frame.fresco requires it).
       { name: 'read-mounted-boundaries', arguments: {} },
       { name: 'read-read-attribution', arguments: {} },
       { name: 'explain-render', arguments: {} },

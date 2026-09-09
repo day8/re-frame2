@@ -3,7 +3,7 @@
 //
 // DRIVER for the key warning's dev pre-pass clock (rf2-2rtt6.104).
 //
-//     node hicasso/test/re_frame/bench/hicasso/keywarn_clock_run.cjs
+//     node fresco/test/re_frame/bench/fresco/keywarn_clock_run.cjs
 //
 // Stdout is the artefact: a markdown table quoted into the PR body, with the
 // human framing riding as `;;` comments. See `keywarn_clock.cljs` for what is
@@ -11,7 +11,7 @@
 //
 // ## WHICH BUILD ID (rf2-0yp7w.9.6)
 //
-// A `:node-script` compile is what this needs, and the lane's `:hicasso-bench`
+// A `:node-script` compile is what this needs, and the lane's `:fresco-bench`
 // is a `:browser` build. Rather than add a build id — HD-017 makes that a
 // hot-zone edit to `implementation/shadow-cljs.edn` and therefore a sequenced
 // dispatch — this rode the donor tree's `:freehand-bench-node` `:node-script`
@@ -20,10 +20,10 @@
 // PR #8322 deleted that build with the tree, leaving this driver naming a
 // build shadow-cljs does not have, and left no `:node-script` build anywhere
 // in that file to ride instead. So the id below is the lane's OWN, minted
-// beside `:hicasso-bench` and shared with `ssr/driver.cjs` — one id, both of
+// beside `:fresco-bench` and shared with `ssr/driver.cjs` — one id, both of
 // the lane's Node programs, the sequencing law paid once. The `--config-merge`
 // mechanism is unchanged, and is the same one `compile_gate.cjs` and
-// `jsfb_build.cjs` use on `:hicasso-bench`.
+// `jsfb_build.cjs` use on `:fresco-bench`.
 //
 // `compile`, not `release`: the pre-pass exists only where `goog.DEBUG` is
 // true, and a dev compile is the build the figure is ABOUT. The clock refuses
@@ -38,7 +38,7 @@ const path = require('node:path');
 const { shadowBuildVerdict, reportRefusal } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
-const BUILD_ID = 'hicasso-bench-node';
+const BUILD_ID = 'fresco-bench-node';
 const OUT = 'out/keywarn-clock.js';
 const TAG = 'keywarn-clock';
 
@@ -50,7 +50,7 @@ fs.rmSync(path.join(PROJECT, '.shadow-cljs', 'builds', BUILD_ID), {
 // whitespace once the data contains a newline, then reports `EOF while
 // reading` from a fragment. JSON is not accepted at all.
 const merge =
-  `{:main re-frame.bench.hicasso.keywarn-clock/-main :output-to "${OUT}"}`;
+  `{:main re-frame.bench.fresco.keywarn-clock/-main :output-to "${OUT}"}`;
 
 console.error(`[${TAG}] compiling ${BUILD_ID} -> ${OUT}`);
 const verdict = shadowBuildVerdict({

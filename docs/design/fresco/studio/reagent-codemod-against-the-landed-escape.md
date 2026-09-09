@@ -32,10 +32,10 @@ record had rotted within two days of being written.
 
 A source-text tool that reads a consumer's Reagent `.cljs` namespaces and repairs the props
 dialect at every foreign crossing, so that a codebase whose `[:> …]` sites are about to be
-interpreted by Hicasso keeps behaving the way Reagent made it behave. It mints no
+interpreted by Fresco keeps behaving the way Reagent made it behave. It mints no
 declaration, hoists nothing, and edits no `ns` form. It writes whole files through
 rewrite-clj, skips any file it cannot parse, and emits a report. Residence, CLI and corpus
-discipline are unchanged from the sibling page's §9: `migration/reagent-to-hicasso/codemod/`,
+discipline are unchanged from the sibling page's §9: `migration/reagent-to-fresco/codemod/`,
 cloned from the `migration/from-re-frame-v1/codemod/` skeleton, corpus-as-spec with asserted
 idempotence.
 
@@ -111,16 +111,16 @@ equivalence argument, and the landed code confirms the strike was right.
 Everything in §4 and §5 is derived from these two functions and their callers. Reagent 2.0.1
 routes `[:> C props & kids]` through `vec-to-elem`'s `:>` case into `native-element` with a
 `HiccupTag` whose id, className and custom flag are all nil, and thence into `convert-props`
-→ `convert-prop-value` → `kv-conv`. Hicasso routes it through `raw-element` → `host-entry` →
+→ `convert-prop-value` → `kv-conv`. Fresco routes it through `raw-element` → `host-entry` →
 `host-prop-value`.
 
-| Input at a `[:>]` prop | Reagent 2.0.1 emits | Hicasso emits | Class |
+| Input at a `[:>]` prop | Reagent 2.0.1 emits | Fresco emits | Class |
 |---|---|---|---|
 | a plain function | the function, by identity (`js-val?` is true of a function) | the function, by identity | agree |
 | a string, number, boolean, `nil` | verbatim | verbatim | agree |
 | a `#js {…}` literal | verbatim (falls to `clj->js`, which returns a foreign value unchanged) | verbatim | agree |
 | a keyword or symbol at `className`/`id`/`role`/`data-*`/`aria-*` | its `name` | its `name` | agree |
-| a collection at the class slot | `class-names`, but only when written as literal `:class` | `class-names` at the slot, every spelling, composing | Hicasso repairs |
+| a collection at the class slot | `class-names`, but only when written as literal `:class` | `class-names` at the slot, every spelling, composing | Fresco repairs |
 | a keyword or symbol anywhere else | its `name` | the keyword or symbol itself | **silent divergence** |
 | a nested map literal | keys recursively camelCased through `cached-prop-name` | `clj->js`: keys keep the spelling the author wrote | **silent divergence** |
 | a nested map reached through a vector or set | `clj->js`, no camelCasing | `clj->js`, no camelCasing | agree |
@@ -153,7 +153,7 @@ and at `defhost` call sites alike.
 | W3 | a literal keyword or symbol prop value | its `name` as a string | Reagent's `(named? x) (name x)` arm |
 | W4 | a literal `(r/partial f a …)` call at a prop value | `(fn [& args] (apply f a … args))` | Reagent's `ifn?` wrapper, return and identity alike |
 | W5 | `[(r/adapt-react-class X) props & kids]` in head position | `[:> X props & kids]` | Reagent's `NativeWrapper` path is the same `native-element` |
-| W6 | `[:> "tag" props & kids]` with a plain tag string | `[:tag props & kids]` | Reagent's `input-component?` wrapper becomes Hicasso's controlled door |
+| W6 | `[:> "tag" props & kids]` with a plain tag string | `[:tag props & kids]` | Reagent's `input-component?` wrapper becomes Fresco's controlled door |
 
 *(4 columns; 6 body rows; hand-counted.)*
 
@@ -163,12 +163,12 @@ and at `defhost` call sites alike.
 returns nothing. Not "no path at the escape" — no path at all. And `check-member-key!`, the
 minted key warning `rf2-2rtt6.104` landed, reaches its message only under `(boundary-head? h)`;
 a `[:>]` crossing is not one. So a migrated seq of keyed crossings loses every key, at every
-build, with no diagnostic from Hicasso and only React's own parent-tag-deduped warning from
+build, with no diagnostic from Fresco and only React's own parent-tag-deduped warning from
 React. For a Reagent codebase this is the entire keying idiom going dead at once.
 
 **Proof sketch.** Reagent's `native-element` sets `.-key` on the converted props object from
 `(-> (meta argv) util/get-react-key)`, *after* `convert-props` has run, so metadata beats a
-props `:key`. Hicasso's `raw-element` reads `(:key props)`. Moving the expression from
+props `:key`. Fresco's `raw-element` reads `(:key props)`. Moving the expression from
 metadata position into the props map therefore lands it where the destination reads, and the
 value is the same expression.
 
@@ -187,20 +187,20 @@ Accepted, bounded, and stated here because §9 would find it anyway.
 **Proof sketch.** Reagent's `convert-prop-value` has a `map?` arm that recurses via `kv-conv`,
 respelling every key with `cached-prop-name` — which is the three seeded renames
 (`class`→`className`, `for`→`htmlFor`, `charset`→`charSet`) over `dash-to-prop-name`'s
-kebab→camel rule, with `aria`/`data` exempt and strings verbatim. Hicasso's `host-prop-value`
+kebab→camel rule, with `aria`/`data` exempt and strings verbatim. Fresco's `host-prop-value`
 sends the same map to `clj->js`, whose keys are the author's own spelling. Applying Reagent's
 key function to the literal keys, in the source, makes the two answers equal.
 
 **Where the recursion stops, and why that is not a judgement call.** Reagent recurses through
 the `map?` arm only. A map that sits inside a vector, list or set is reached by the `coll?`
-arm, which is `clj->js` — no camelCasing. Hicasso's `clj->js` does the same. So W2 walks map
+arm, which is `clj->js` — no camelCasing. Fresco's `clj->js` does the same. So W2 walks map
 values through maps and **stops at the first non-map collection**, because that is exactly
 where the donor stopped. It never descends into a `#js {…}` node, which both runtimes pass
 through untouched.
 
 **The one cell where preservation is refused.** A `--custom-property` key. Reagent's
 `dash-to-prop-name` mangles `--brand-color` into `BrandColor`, which React writes to a style
-property nothing reads; Hicasso's `prop-name` preserves it, and React's style handling routes
+property nothing reads; Fresco's `prop-name` preserves it, and React's style handling routes
 a `--`-prefixed key through `setProperty`, so it works. Preserving Reagent here would mean
 writing a key that never worked. W2 leaves it and reports (`:css-var-repair`): the site
 starts working, and the human is told that it did.
@@ -209,7 +209,7 @@ starts working, and the human is told that it did.
 
 **Proof sketch.** Reagent's `convert-prop-value` answers `(name x)` for any keyword or symbol,
 at every prop of every element, and `[:>]` reaches it through `native-element` like any other.
-Hicasso's `host-prop-value` keeps the named value whole except at `html-attr-slots` — the
+Fresco's `host-prop-value` keeps the named value whole except at `html-attr-slots` — the
 `rf2-vrvv9` narrowing, taken deliberately because `(name v)` collapsed `:theme/dark` and
 `:other/dark` onto one string. Writing the `name` as a string literal in the source makes the
 crossing hand the library what Reagent handed it, and a string is a fixpoint on both walks.
@@ -219,7 +219,7 @@ would restore a defect:
 
 - **`className`, `id`, `role`, `data-*`, `aria-*`.** Both `name` there. Fixpoint; skipping
   keeps the diff small.
-- **The class slot in any spelling.** `class-names` names it on the Hicasso side.
+- **The class slot in any spelling.** `class-names` names it on the Fresco side.
 - **The `ref` slot.** Reagent's `(name :my-ref)` produced a *string ref*, which React 19
   removed and now throws on. Preservation would restore a crash. Reported, never written.
 - **The `key` slot.** Recommended off — see §9.3, which argues it and hands the operator the
@@ -234,7 +234,7 @@ says what was lost (`:namespaced-named-value`). A tool that silently writes `"da
 ### 4.4 · W4 — the non-fn `IFn` literal
 
 **Proof sketch.** Reagent's `convert-prop-value` ends with an `ifn?` arm that returns
-`(fn [& args] (apply x args))`. Hicasso has no such arm on either walk, so the object crosses
+`(fn [& args] (apply x args))`. Fresco has no such arm on either walk, so the object crosses
 opaque and a working handler stops firing with nothing thrown. The replacement is Reagent's
 own wrapper, spelled in the source at the call site. It is **return-transparent** — whatever
 `f` returned before, it returns now — which is Law 2, and it is why W4 cannot blank a render
@@ -257,9 +257,9 @@ recognise is a literal `(r/partial …)` call, alias-resolved from the `ns` form
 `(native-element tag v 1)`; its `:>` case sends `[:> C …]` to `(native-element … v 2)`. Same
 function, same `convert-props`, same nil id/className/custom. The two spellings are one path
 with the props slot at a different index, so respelling one as the other and shifting the
-index preserves the donor's behaviour exactly — and it lands the site on the form Hicasso
-accepts. Left alone, the head is an object Hicasso's `vec->element` answers with
-`:rf.error/hicasso-bad-head`.
+index preserves the donor's behaviour exactly — and it lands the site on the form Fresco
+accepts. Left alone, the head is an object Fresco's `vec->element` answers with
+`:rf.error/fresco-bad-head`.
 
 **Def sites are report-only** (`:adapt-def-site`). `(def Foo (r/adapt-react-class X))` with
 `[Foo …]` call sites elsewhere cannot be rewritten by a fixer: rewriting the def changes
@@ -269,12 +269,12 @@ not have been pointed at. The report names the def, and names the call sites it 
 ### 4.6 · W6 — the string tag head
 
 Under Reagent, `[:> "input" …]` took the controlled-input wrapper, because `input-component?`
-matches `"input"` and `"textarea"` on exactly this path. Under Hicasso the head is refused at
+matches `"input"` and `"textarea"` on exactly this path. Under Fresco the head is refused at
 the crossing with a message that says so. Rewriting to `[:input …]` lands the site on
-Hicasso's own controlled door, which is the taught form.
+Fresco's own controlled door, which is the taught form.
 
 **Two facts make W6 safe to combine with the prop rewrites.** At a native destination
-Hicasso's `convert-prop-value` carries both the `(name v)` arm and the deep-camelCasing `map?`
+Fresco's `convert-prop-value` carries both the `(name v)` arm and the deep-camelCasing `map?`
 arm — so **W2 and W3 are fixpoints there**, and applying them before or after W6, or not at
 all, gives the same emitted props. W1 and W4 are still required, because the native walk reads
 `(:key props)` and has no `ifn?` arm either.
@@ -282,7 +282,7 @@ all, gives the same emitted props. W1 and W4 are still required, because the nat
 **Two guards, and the first is the design's only genuinely fatal class.**
 
 - **A literal vector or key-map at an event-spelled prop.** Inert under Reagent
-  (`clj->js`, because `coll?` precedes `ifn?`); at a native Hicasso tag, `convert-entry`
+  (`clj->js`, because `coll?` precedes `ifn?`); at a native Fresco tag, `convert-entry`
   *lowers* it into a live dispatch. W6 would turn a handler that never fired into one that
   fires. Refused, reported (`:event-carrier-goes-live`), never rewritten.
 - **A string that is not a plain tag name.** `[:> "div#id" …]` was already broken under
@@ -333,12 +333,12 @@ They fall into three kinds, and the kind is what tells a reader how urgent the l
 
 | Class | What it matches | Why it is not mechanical |
 |---|---|---|
-| `:event-carrier-goes-live` | a literal vector or key-map at an event-spelled prop, at a W6 candidate | inert under Reagent, live at a native Hicasso tag: the rewrite would make a dead handler fire |
+| `:event-carrier-goes-live` | a literal vector or key-map at an event-spelled prop, at a W6 candidate | inert under Reagent, live at a native Fresco tag: the rewrite would make a dead handler fire |
 | `:key-conflict` | both a metadata key and a props `:key`, differing | Reagent's metadata wins; W1 would have to overwrite a value the author wrote |
 | `:string-tag-unparseable` | a `#`/`.`/whitespace-bearing string head | the shorthand was inert under Reagent and would parse at a native tag |
 | `:css-var-repair` | a `--custom-property` key inside a W2 map | preservation would write a key that never worked |
 | `:named-ref` | a literal keyword or symbol at the `ref` slot | Reagent produced a string ref, which React 19 throws on |
-| `:amp-key` | a literal `:&` key in a props map | a prop named `"&"` under Reagent, the one attribute merge under Hicasso; intent is unrecoverable |
+| `:amp-key` | a literal `:&` key in a props map | a prop named `"&"` under Reagent, the one attribute merge under Fresco; intent is unrecoverable |
 
 *(3 columns; 6 body rows; hand-counted.)*
 
@@ -349,8 +349,8 @@ These are the migration blockers. The site does not need a rewrite — it needs 
 | Class | What it matches | What the human must do |
 |---|---|---|
 | `:intent-needs-a-declaration` | a literal vector or key-map at an event-spelled prop, at a site staying `[:>]` | declare the crossing with `defhost` and name the prop in `:callbacks`, or hand a plain function — and know the handler never fired under Reagent either |
-| `:dangerous-html` | `dangerouslySetInnerHTML` at any `[:>]` site | decide deliberately: Reagent **deleted** this prop unless `UnsafeHTML`-wrapped, and Hicasso passes it through, so the migration resurrects it |
-| `:r>-site` | `[:r> C props …]` | port by hand; Hicasso reads `:r>` as a tag keyword and renders an unknown element, which is not a loud failure |
+| `:dangerous-html` | `dangerouslySetInnerHTML` at any `[:>]` site | decide deliberately: Reagent **deleted** this prop unless `UnsafeHTML`-wrapped, and Fresco passes it through, so the migration resurrects it |
+| `:r>-site` | `[:r> C props …]` | port by hand; Fresco reads `:r>` as a tag keyword and renders an unknown element, which is not a loud failure |
 | `:f>-site` | `[:f> C …]` | port by hand; same reading, same quietness |
 | `:as-element-island` | `r/as-element` inside a callback body at a `[:>]` site | port by hand; the closure runs outside the owner's render window, so lowering inside it is not a text substitution |
 | `:reagent-api-residue` | `r/atom`, `r/cursor`, form-2/form-3 shapes inside a rewritten site | out of the tool's fence entirely; named so the migrator is not surprised |
@@ -367,16 +367,16 @@ than at render time is most of what the report is for.
 
 ### 5.4 · Divergences the tool deliberately does not repair
 
-Named so nobody files them as gaps. Each is a place Hicasso is *better* than the donor, or
+Named so nobody files them as gaps. Each is a place Fresco is *better* than the donor, or
 where the difference is invisible.
 
 - **A class collection written as `:className`, `"class"` or `:x/class`.** Reagent read the
   literal `:class` key only, so any other spelling reached React as a `clj->js` array and was
-  written to the DOM as `"a,b"`. Hicasso coerces and composes at the slot, in every spelling.
-- **A nested class collection.** Reagent's `class-names` does not recurse; Hicasso's does.
+  written to the DOM as `"a,b"`. Fresco coerces and composes at the slot, in every spelling.
+- **A nested class collection.** Reagent's `class-names` does not recurse; Fresco's does.
 - **Reserved emitted slots.** `__proto__`, `prototype` and `constructor` are dropped by
-  Hicasso and were written by the donor.
-- **A literal `nil` at the props slot.** Reagent counted it as an absent props map; Hicasso
+  Fresco and were written by the donor.
+- **A literal `nil` at the props slot.** Reagent counted it as an absent props map; Fresco
   counts it as a child, and React renders nothing for it.
 - **A keyword `:key` value**, if §9.3's recommendation is taken: `"foo"` becomes `":foo"`,
   which costs one remount at the migration and is stable thereafter.
@@ -464,7 +464,7 @@ One entry, in the shape the sibling codemod's finding-maps already use:
  :class  :named-value
  :action :rewrote
  :detail {:prop :variant :was :contained :now "contained"}
- :note   "Reagent named every keyword prop value; Hicasso keeps the keyword
+ :note   "Reagent named every keyword prop value; Fresco keeps the keyword
           except at HTML-attribute slots."}
 ```
 
@@ -487,7 +487,7 @@ What this could get wrong, and what the damage looks like in a consumer's codeba
 | W3 flattens a namespaced keyword | two distinct keywords now reach the library as one string | Yes, in the report |
 | the tool's slot resolver diverges from `prop-name` | a prop is rewritten for the wrong slot | **No** — see §9.5 |
 | a refused site is never revisited | the migration ships with a silently dead handler that was already dead | Yes, in the report; no, at runtime |
-| a `:r>` or `:f>` site is left in place | Hicasso renders an unknown `<r>` element and nothing throws | **No** — reported, but quiet at runtime |
+| a `:r>` or `:f>` site is left in place | Fresco renders an unknown `<r>` element and nothing throws | **No** — reported, but quiet at runtime |
 
 *(3 columns; 8 body rows; hand-counted.)*
 
@@ -518,7 +518,7 @@ It does not reverse W2, because the alternative is worse in both directions. Nar
 the `style` slot would leave every genuine options map diverging silently, which is the class
 the tool exists for; dropping W2 entirely does the same. The repair is that **W2's report line
 must be the loudest one the tool emits**, naming the map and every key it respelled, with the
-sentence *"Reagent camelCased these; Hicasso does not. If a key here is data rather than a
+sentence *"Reagent camelCased these; Fresco does not. If a key here is data rather than a
 library option, this rewrite is the moment to notice."*
 
 **The residual is real and is recorded, not solved:** a migrator who tidies a W2 diff breaks
@@ -533,16 +533,16 @@ for pure expressions and observable for side-effecting ones. The alternative —
 Recorded, not reported per-site, because a per-site line for a class this rare is noise that
 teaches migrators to skim the report.
 
-### 9.3 · "W3 at the `key` slot re-creates a collision Hicasso had fixed" — **forces a recommendation**
+### 9.3 · "W3 at the `key` slot re-creates a collision Fresco had fixed" — **forces a recommendation**
 
 The sibling page's §6.2 includes `:key` in the named-value rewrite, on the reasoning that
 *"the rule is cheaper applied uniformly than excepted"*. Re-derived against the landed code,
 that cell inverts.
 
 Under Reagent, `{:key :foo}` went through `kv-conv` like any prop and reached React as
-`"foo"`. Under Hicasso, `raw-element` lifts `(:key props)` raw and React coerces the keyword,
+`"foo"`. Under Fresco, `raw-element` lifts `(:key props)` raw and React coerces the keyword,
 giving `":foo"`. So sibling elements keyed `:foo` and `"foo"` **collided under Reagent** and
-are **distinct under Hicasso**. Rewriting `{:key :foo}` to `{:key "foo"}` restores the
+are **distinct under Fresco**. Rewriting `{:key :foo}` to `{:key "foo"}` restores the
 collision — the same shape of defect `rf2-vrvv9` was filed to remove, one slot over.
 
 Against that: not rewriting costs one full remount of the keyed list at the migration, after
@@ -573,7 +573,7 @@ is Law 2, and the audit above is its proof by exhaustion over a set of six.
 
 Where a render prop *is* at risk, the tool refuses rather than rewrites. A callback body
 containing `r/as-element` becomes `:as-element-island`: the closure runs when the library
-calls it, outside the owner's render window, so replacing Reagent's lowering with Hicasso's is
+calls it, outside the owner's render window, so replacing Reagent's lowering with Fresco's is
 not a text substitution and the tool does not attempt one. And `event-prop?` — the term that
 killed E2 — can only ever refuse here (§6), so `onRenderCell` and `onRow` are exactly the
 props at which this tool does the least.
@@ -616,7 +616,7 @@ value proposition changes, and a real consumer corpus would settle it.
 ### 9.7 · "The corpus can now be executed, so §9.5 is over-worry" — **withdrawn, and replaced**
 
 I set out to argue that the escape landing makes the corpus executable end to end: the tool's
-output is now runnable Hicasso, so a corpus case could render and assert.
+output is now runnable Fresco, so a corpus case could render and assert.
 
 It cannot, and the reason is structural. The corpus is a **JVM** harness over source text; the
 destination is a **browser** runtime. Rendering an expected output means loading the codec,
@@ -634,7 +634,7 @@ The 2026-08-04 attack's M4 obligation — named `codemod-contract-*` rows in the
 is still the only executed evidence the rewrites are right, and `grep` finds no such row on
 `main` today. But the landing changed its shape, and cheapened it.
 
-**The Hicasso side is largely already there.** `conversion-parity-with-the-door-on-one-prop-corpus`
+**The Fresco side is largely already there.** `conversion-parity-with-the-door-on-one-prop-corpus`
 runs a sixteen-prop corpus through both `[a-host props]` and `[:> C props]` and asserts slot
 for slot; it already covers keyword values at ordinary and HTML-attribute slots, the class
 coercion across spellings, function identity, and the `:key` lift. What it does not do is name
@@ -687,17 +687,17 @@ or move it decisively toward reporting.
 - [The `[:>]` synthesized spec](raw-escape-spec.md#1-the-model-in-one-sentence) — the ruled
   destination, and `rf2-2rtt6.103`'s own build note recording where the implementation
   departed from it.
-- `implementation/freehand/test/re_frame/bench/hicasso/front/codec.cljs` — `raw-element`,
+- `implementation/freehand/test/re_frame/bench/fresco/front/codec.cljs` — `raw-element`,
   `raw-component`, `raw-crossing`, `raw-gate`, `raw-head?`, `host-entry`, `host-prop-value`,
   `host-element`, `convert-entry`, `convert-prop-value`, `nested-map->js`, `class-names`,
   `merge-caller`, `check-ref!`, `prop-name`, `cached-prop-name`, `html-attr-slot?`,
   `props-map?`, `make-element`, `check-member-key!`, `vec->element`. Cited by name, never by
   line.
-- `implementation/freehand/test/re_frame/bench/hicasso/front/codec_cljs_test.cljs` —
+- `implementation/freehand/test/re_frame/bench/fresco/front/codec_cljs_test.cljs` —
   `the-escape-takes-the-doors-unclaimed-slot-conduct-exactly`,
   `conversion-parity-with-the-door-on-one-prop-corpus`,
   `the-carrier-never-leaks-and-key-rides-the-outer-element`, and the component-value roster.
-- `implementation/freehand/test/re_frame/bench/hicasso/arm1/raw_escape_dom_cljs_test.cljs` —
+- `implementation/freehand/test/re_frame/bench/fresco/arm1/raw_escape_dom_cljs_test.cljs` —
   the SSR-absent, hydration-adoption, same-DOM and child-intent-capture rows.
 - reagent 2.0.1, from the jar: `reagent.impl.template`'s `vec-to-elem`, `native-element`,
   `convert-props`, `convert-prop-value`, `kv-conv`, `cached-prop-name`, `adapt-react-class`

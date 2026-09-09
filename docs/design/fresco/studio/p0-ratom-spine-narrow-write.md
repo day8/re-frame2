@@ -4,7 +4,7 @@
 
 ```bash
 cd implementation && npm ci
-node adapters/reagent/test/re_frame/bench/hicasso_narrow_run.cjs
+node adapters/reagent/test/re_frame/bench/fresco_narrow_run.cjs
 ```
 
 **The instrument that took these readings is identified by content hash, not
@@ -15,9 +15,9 @@ commit SHA moved, while the three blobs below did not move at all.
 
 | file (`implementation/adapters/reagent/test/re_frame/bench/`) | blob |
 |---|---|
-| `hicasso_narrow.cljs` | `713fb3877dea102213da851bc8c21a8e0a9c835d` |
-| `hicasso_narrow_app.cljs` | `a201ff16debe57b2aa297fe6ae7d27a19c3831d2` |
-| `hicasso_narrow_run.cjs` | `cbffc0205675b524060f8c956efe2205f9e3570f` |
+| `fresco_narrow.cljs` | `713fb3877dea102213da851bc8c21a8e0a9c835d` |
+| `fresco_narrow_app.cljs` | `a201ff16debe57b2aa297fe6ae7d27a19c3831d2` |
+| `fresco_narrow_run.cjs` | `cbffc0205675b524060f8c956efe2205f9e3570f` |
 
 Authored as `7c51e77b4f` on `worker/bench-audit-cluster`. That rebase did happen,
 so the authored head resolves in no fresh clone; it landed on `main` as
@@ -26,7 +26,7 @@ so the authored head resolves in no fresh clone; it landed on `main` as
 carrying them, and confirms it:
 
 ```bash
-P=implementation/adapters/reagent/test/re_frame/bench/hicasso_narrow.cljs
+P=implementation/adapters/reagent/test/re_frame/bench/fresco_narrow.cljs
 git log --oneline --all -- $P
 git rev-parse <candidate>:$P    # must print 713fb3877dea102213da851bc8c21a8e0a9c835d
 ```
@@ -368,7 +368,7 @@ Recorded because each produced a plausible, precise, wrong number first.
 
 This bead adds **no build id**. `implementation/shadow-cljs.edn` is
 hot-zone and `rf2-2rtt6.2` owns the lane's id, so the driver overrides the
-`:hicasso-bench` build's entry point and output directory with
+`:fresco-bench` build's entry point and output directory with
 `--config-merge` — the technique the donor's own `b8_run.cjs` uses. The
 `:freehand-release` fallback this page used to describe was removed by
 `rf2-uhw11`: that build is cleaned and rebuilt by two other gates, so a
@@ -376,11 +376,11 @@ bench run and a gate run raced one compile cache, and a figure taken
 through the fallback would not have been comparable with one taken through
 the lane.
 
-The template is now `:hicasso-bench` unconditionally and **there is no
+The template is now `:fresco-bench` unconditionally and **there is no
 environment override**. `HN_BASE_BUILD` went with the fallback; a reader
 working from notes that mention it should know that setting it today does
 nothing. No figure on this page depended on either knob — every row was
-taken through `:hicasso-bench`, which is what the fallback selected once
+taken through `:fresco-bench`, which is what the fallback selected once
 the lane's build id existed.
 
 ---

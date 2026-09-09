@@ -305,7 +305,7 @@
   "The canonical host-facing Xray panel ids a focus command may target
   — one per LIVE Dynamic L4 tab: `#{:epoch :app-db :views :trace
   :machines :routing :resources :derivation-graph :module-view
-  :hicasso}`. A host validates a panel selector against this set before
+  :fresco}`. A host validates a panel selector against this set before
   sending a focus command (the host-friendly alias `:routes` normalises
   to `:routing`).
   This MIRRORS the live L4 tab registry

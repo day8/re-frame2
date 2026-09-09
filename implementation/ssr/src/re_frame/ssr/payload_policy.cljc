@@ -749,7 +749,7 @@
   present-and-nil key is not a legal spelling of absence; and absence is
   the shape an ADOPTION-TIER root needs. Per Spec 011 §Hydration-mismatch
   detection the hash channel applies only to the HICCUP tier: a native UIx
-  root and a Hicasso root both verify by
+  root and a Fresco root both verify by
   React-native adoption and carry no hash at either end. Forcing such a
   caller to supply one would make it invent a value over the only tree it
   has — an unresolved `[<component> {props}]` root, whose canonical EDN is

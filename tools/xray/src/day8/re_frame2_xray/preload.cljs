@@ -105,7 +105,7 @@
   ;; because that tier had a single-owner registry a second tool could hold.
   ;; The second was no step at all — `re-frame.freehand.tool` had no registry
   ;; to claim, so the Views panel's subs read it directly. Both are gone with
-  ;; the substrates they read. The Hicasso tab's door is a reader on the same
+  ;; the substrates they read. The Fresco tab's door is a reader on the same
   ;; terms and acquires nothing from here either.
   (install/install-browser-api-exports!)
   (keybinding/attach!)

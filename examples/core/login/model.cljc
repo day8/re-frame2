@@ -40,7 +40,7 @@
    machine, the form-slice events, and the named subs — plus the initial form
    slice and the shared frame config. It names NO substrate: no view library, no
    adapter. The three login examples — Reagent (`login.core`), UIx
-   (`uix.login.core`) and Hicasso (`hicasso.login.core`) — each `:require` this
+   (`uix.login.core`) and Fresco (`fresco.login.core`) — each `:require` this
    namespace for its side-effecting
    registrations and its `frame-config` / schema Vars, and add ONLY their own
    substrate-specific views, root, adapter init, and visible provider mount.
@@ -58,9 +58,9 @@
    would leak into the two login bundles it doesn't belong in.
 
    SUBSTRATE-FREE AND PLATFORM-NEUTRAL. It is `.cljc`, not `.cljs`, and the
-   second half of that is load-bearing rather than tidy: the Hicasso arm
+   second half of that is load-bearing rather than tidy: the Fresco arm
    server-renders through a JVM Ring host
-   (`examples/substrates/hicasso/login/host.clj`), and a JVM host has to hold
+   (`examples/substrates/fresco/login/host.clj`), and a JVM host has to hold
    the application's state — so every `auth.login` schema, fx, machine, event
    and sub has to be loadable from Clojure. One handler body needs a platform,
    the `localStorage` write in `:auth.session/store`, and it says so in place.
@@ -748,7 +748,7 @@
 ;;
 ;; The one piece of frame config the three mounts share. The Reagent and UIx
 ;; entries merge it into their `frame-root` props alongside a
-;; substrate-specific `:id` / `:doc`; the Hicasso entry merges it into the
+;; substrate-specific `:id` / `:doc`; the Fresco entry merges it into the
 ;; `rf/make-frame` call its root then joins, because `h/render!`'s opts carry
 ;; no `:fx-overrides` key. Same map either way:
 ;;

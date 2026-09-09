@@ -1276,7 +1276,7 @@
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
-;; The three re-frame.hicasso.tool reads — the adapter-neutral evidence a
+;; The three re-frame.fresco.tool reads — the adapter-neutral evidence a
 ;; pairing agent reads from a running app. Each ships one self-describing form
 ;; that RESOLVES the door at runtime rather than referencing its vars — a
 ;; namespace the build never loaded is rejected by shadow's analyzer before the
@@ -1284,11 +1284,11 @@
 ;; every read answers inside the evidence envelope (:schema / :producer /
 ;; :read / :complete? / :loss) and egresses only bounded serializable data (no
 ;; cell / React handle, and no read VALUE at all). Absence is honest:
-;; :evidence-tier-unavailable (the door is not loaded — a non-Hicasso app, or a
-;; Hicasso app nothing pulled it into), :evidence-tier-inactive (a production
+;; :evidence-tier-unavailable (the door is not loaded — a non-Fresco app, or a
+;; Fresco app nothing pulled it into), :evidence-tier-inactive (a production
 ;; build; the door is dev-only).
 ;;
-;; THREE, not the five view reads this family replaced (rf2-n3mb). Hicasso mints
+;; THREE, not the five view reads this family replaced (rf2-n3mb). Fresco mints
 ;; no boundary identity and keeps no view registry, so read-view-manifest /
 ;; read-view-dependencies / read-view-event-sites — static questions about a
 ;; view named by its declared id — have no counterpart here and are not shipped
@@ -1297,15 +1297,15 @@
 ;; coordinates), so a row reads as app.views/todo-row beside its key.
 ;; ---------------------------------------------------------------------------
 
-(def hicasso-door-input
+(def fresco-door-input
   {:type "object"
    :properties {:build {:type "string"}}
    :additionalProperties false})
 
 (def read-mounted-boundaries
   {:name "read-mounted-boundaries"
-   :description (str "Every Hicasso boundary MOUNTED RIGHT NOW. Reads "
-                     "re-frame.hicasso.tool/read-mounted-boundaries: per boundary its :key, the :views that "
+   :description (str "Every Fresco boundary MOUNTED RIGHT NOW. Reads "
+                     "re-frame.fresco.tool/read-mounted-boundaries: per boundary its :key, the :views that "
                      "rendered it, the number of :instances holding that key, the :frame, :read-orders, and "
                      "the :reads it holds — each with a :sub-id, a projected :query and the cell's :epoch, and "
                      "NEVER the value the read returned. No arg, deliberately: the question is what is mounted. "
@@ -1323,25 +1323,25 @@
                      "the census is about subscription, not visibility. READ-ONLY, versioned (:schema) — "
                      "validate the schema first. "
                      "Examples: "
-                     "1. {} -> {:ok? true :schema :re-frame.hicasso.evidence/v3 :producer :re-frame/hicasso "
+                     "1. {} -> {:ok? true :schema :re-frame.fresco.evidence/v3 :producer :re-frame/fresco "
                      ":read :mounted-boundaries :complete? true :loss nil :boundaries [{:boundary {:parent nil "
                      ":key [[:app/main :todo [:todo 7]]]} :views [{:view \"app.views/todo-row\" :source {:ns "
                      "\"app.views\" :file \"/src/app/views.cljs\" :line 12 :column 1}}] :instances 3 "
                      ":read-orders 1 :frame :app/main :reads [{:sub-id :todo :query [:todo 7] :frame-id "
                      ":app/main :epoch 4}]}] :generation 12}. "
                      "2. Nothing mounted: {} -> the same envelope with :boundaries []. "
-                     "3. Door not loaded (a Reagent/UIx app, or a Hicasso app nothing loaded it into): {} -> "
+                     "3. Door not loaded (a Reagent/UIx app, or a Fresco app nothing loaded it into): {} -> "
                      "{:ok? false :reason :evidence-tier-unavailable}. "
                      "4. Production build: {} -> {:ok? false :reason :evidence-tier-inactive}.")
    :typicalTokens 600
    :annotations read-only-annotations
    :outputSchema envelope-or-marker
-   :inputSchema hicasso-door-input})
+   :inputSchema fresco-door-input})
 
 (def read-read-attribution
   {:name "read-read-attribution"
    :description (str "Which boundaries read each subscription — the reverse edge, exactly. Reads "
-                     "re-frame.hicasso.tool/read-read-attribution: per subscription its :sub-id, projected "
+                     "re-frame.fresco.tool/read-read-attribution: per subscription its :sub-id, projected "
                      ":query, :frame-id, the cell's :epoch, the :fan-out (one slot per reading boundary) and "
                      "the distinct :readers holding them — each with its :key, identical to "
                      "read-mounted-boundaries so the two rosters JOIN with no correlation step, and its "
@@ -1354,7 +1354,7 @@
                      "rather than present with zero readers — it is not a subscription with no readers, it is "
                      "one this runtime is not holding. READ-ONLY, versioned (:schema). "
                      "Examples: "
-                     "1. {} -> {:ok? true :schema :re-frame.hicasso.evidence/v3 :producer :re-frame/hicasso "
+                     "1. {} -> {:ok? true :schema :re-frame.fresco.evidence/v3 :producer :re-frame/fresco "
                      ":read :read-attribution :complete? true :loss nil :edges [{:sub-id :todo :query "
                      "[:todo 7] :frame-id :app/main :epoch 4 :fan-out 3 :readers [{:parent nil :key [[:app/main "
                      ":todo [:todo 7]]] :views [{:view \"app.views/todo-row\" :source {...}}]}]}]}. "
@@ -1364,12 +1364,12 @@
    :typicalTokens 500
    :annotations read-only-annotations
    :outputSchema envelope-or-marker
-   :inputSchema hicasso-door-input})
+   :inputSchema fresco-door-input})
 
 (def explain-render
   {:name "explain-render"
    :description (str "Which of a boundary's reads moved most recently, and which retained runs COULD have "
-                     "driven it. Reads re-frame.hicasso.tool/explain-render, which folds Spec 009's retained "
+                     "driven it. Reads re-frame.fresco.tool/explain-render, which folds Spec 009's retained "
                      "event window at read time and keeps nothing of its own — no second history store, no "
                      "second knob (retention is :rf.trace/events-retained). No arg: it spans every mounted "
                      "boundary. "
@@ -1392,7 +1392,7 @@
                      "is React's to know — a notification delivered is not a render performed. READ-ONLY, "
                      "versioned (:schema). "
                      "Examples: "
-                     "1. {} -> {:ok? true :schema :re-frame.hicasso.evidence/v3 :producer :re-frame/hicasso "
+                     "1. {} -> {:ok? true :schema :re-frame.fresco.evidence/v3 :producer :re-frame/fresco "
                      ":read :explain-render :complete? false :loss {:reason :uncorrelated :dropped :unknown} "
                      ":explanations [{:boundary {:parent nil :key [[:app/main :todo [:todo 7]]]} :views "
                      "[{:view \"app.views/todo-row\" :source {...}}] :frame :app/main :instances 1 :window "
@@ -1407,7 +1407,7 @@
    :typicalTokens 600
    :annotations read-only-annotations
    :outputSchema envelope-or-marker
-   :inputSchema hicasso-door-input})
+   :inputSchema fresco-door-input})
 
 ;; ---------------------------------------------------------------------------
 ;; record

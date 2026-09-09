@@ -48,8 +48,8 @@ So the row needed a purpose-built harness, and the bead named it — the
 both clocks over the same samples, `ctl-2x` predicted before the run.
 
 **The published row's arithmetic was already computable from that instrument and
-had never been computed.** `clock_run.cjs` printed `hicasso / reagent-subs` and
-`hicasso / uix-subs` and stopped there; `uix-subs / reagent-subs` — the donor
+had never been computed.** `clock_run.cjs` printed `fresco / reagent-subs` and
+`fresco / uix-subs` and stopped there; `uix-subs / reagent-subs` — the donor
 quotient that *is* `bulk broad`, and `M1 mount` — had to be derived by hand from
 the driver's readings for the audit to reach `1.0509×`. A statistic recomputed
 off-instrument carries no band, no regime and no control verdict. It is now a
@@ -74,7 +74,7 @@ the absolutes instead and the fault is on the page:
 |---|---:|---:|
 | `reagent-subs` | **2.375 ms** | 2.335 ms |
 | `uix-subs` | 1.669 ms | 2.463 ms |
-| `hicasso` | **2.938 ms** | 2.466 ms |
+| `fresco` | **2.938 ms** | 2.466 ms |
 | `floor` | 0.431 ms | 2.372 ms |
 | `ctl-2x` | 0.725 ms | 3.898 ms |
 
@@ -100,7 +100,7 @@ should track that arm's own in-page window. It does:
 | `ctl-2x` | 1.395 ms | **1.01 ms** | 0.800 ms |
 | `uix-subs` | 2.399 ms | **2.01 ms** | 1.600 ms |
 | `reagent-subs` | 3.145 ms | **2.76 ms** | 2.300 ms |
-| `hicasso` | 3.647 ms | **3.26 ms** | 2.800 ms |
+| `fresco` | 3.647 ms | **3.26 ms** | 2.800 ms |
 
 The excess runs 0.2–0.5 ms above each arm's in-page span throughout, which is
 the part of the command outside the `performance.now()` marks — promise setup and
@@ -243,7 +243,7 @@ against bands of 8.8–16.3% — which is what a row *at* parity should look lik
 
 **This is the check that makes the `bulk300` reading worth something.** The
 corrected clock is not a clock that flattens everything toward 1.0: in the same
-eight runs it puts `hicasso / reagent-subs` on `M1` at **1.4896×**
+eight runs it puts `fresco / reagent-subs` on `M1` at **1.4896×**
 [1.3488 – 1.5989], a reading far from parity that clears every run's band. It
 reproduces a published parity row to two parts in a thousand and simultaneously
 separates a large deficit elsewhere. **What that `M1` reading is NOT is the
@@ -295,7 +295,7 @@ Two footnotes belong here rather than in a conclusion. **The floor is not a
 lower bound**: a pure-React re-render of the same page costs 2.803 ms against the
 substrate arms' 4.1–4.7 ms, so a subscription graph over 300 boundaries costs
 roughly 1.5–1.7× a top-down React render on this witness, on a clock that sees
-everything. And **`hicasso` is the most script-heavy arm of the three** at
+everything. And **`fresco` is the most script-heavy arm of the three** at
 2.938 ms, which is the codec walking 901 elements and is the same finding
 [the candidate's clock](the-candidates-clock.md#4-the-mount-row--a-regime-not-a-magnitude)
 reached on the mount row.
@@ -356,7 +356,7 @@ comparable:
 | `clock_run.cjs` | `e145597127a87983377bd1a7ca40ca0388dfc18c` | **this page's driver** |
 
 ```bash
-P=implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs
+P=implementation/freehand/test/re_frame/bench/fresco/clock_run.cjs
 git rev-parse <candidate>:$P   # must print e145597127a87983377bd1a7ca40ca0388dfc18c
 ```
 
@@ -366,7 +366,7 @@ git rev-parse <candidate>:$P   # must print e145597127a87983377bd1a7ca40ca0388df
 | Earlier ensemble | 14 runs at two earlier blobs of the same driver, taken 00:58–01:43, agreeing on every conclusion. Not averaged with the published ensemble and tabulated in [§8](#8-the-earlier-ensemble) |
 | Discarded | **one run, and it is named.** The 15th run of the earlier ensemble was killed part-way by a harness timeout. The driver writes no dataset for a run that died, so nothing partial reached the analysis; its log is kept under a `DISCARDED` name |
 | Runtime | Chromium `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64, Playwright), React 19.2.0, node v24.13.0, `hardware-concurrency` 24, `device-memory` 32 |
-| Build | `:hicasso-bench`, `:advanced`, `goog.DEBUG false`, via `--config-merge` only — no build id added, `implementation/shadow-cljs.edn` untouched |
+| Build | `:fresco-bench`, `:advanced`, `goog.DEBUG false`, via `--config-merge` only — no build id added, `implementation/shadow-cljs.edn` untouched |
 | Box | quiet. Sampled at 0–19% total CPU before the ensemble, no competing agent, no editing during a run. The absolute floor — the load indicator `rf2-cvvb7`'s ladder established — read 2.37–2.44 ms on `bulk300`, at the bottom of the 3.06–5.50 ms range that ladder produced |
 | Exit code | **1** on every run. Exit 1 from a control is scoped to the row that failed it; every whole-run gate cleared on every row of every run |
 | Retained dataset | **NONE, and permanently so. Every table on this page was assembled by hand from console logs, and no run of either ensemble was taken with `HCLOCK_JSON` set.** So `0.8602×`, its `[0.7709 – 0.9058]`, the bands, the controls and the 43-of-48 count are *not recomputable from this repository* — they are readings, recorded, not re-derivable evidence. `rf2-ymi6j` established the same thing from the other side: the seam ladder's `data/ladder-ymi6j.json` is the only published ensemble on this instrument whose dataset survives — and it survives **in history rather than at tip**, committed at commit `30ed97e389` and recoverable from there, the path itself having gone with `implementation/freehand/` when freehand was retired. **A re-take with its datasets retained now exists and it is a different ensemble, not a reproduction of this one** — [§7.1](#71-the-re-take-was-taken-and-the-row-is-refused) |
@@ -385,9 +385,9 @@ figure from this page should be restated without one:
 cd implementation && npm ci
 for i in $(seq 1 8); do
   HCLOCK_ONLY=M1,bulk300 HCLOCK_SAMPLES=20 HCLOCK_JSON=out/run$i.json \
-    node hicasso/test/re_frame/bench/hicasso/clock_run.cjs
+    node fresco/test/re_frame/bench/fresco/clock_run.cjs
 done
-node hicasso/test/re_frame/bench/hicasso/clock_readjudicate.cjs out/run*.json
+node fresco/test/re_frame/bench/fresco/clock_readjudicate.cjs out/run*.json
 ```
 
 The single-run form this page's ensemble was taken with, retained because it is
@@ -396,7 +396,7 @@ what produced the readings above:
 ```bash
 cd implementation && npm ci
 HCLOCK_ONLY=M1,bulk300 HCLOCK_SAMPLES=20 \
-  node freehand/test/re_frame/bench/hicasso/clock_run.cjs
+  node freehand/test/re_frame/bench/fresco/clock_run.cjs
 ```
 
 **The driver has moved since the blob above, and this page is not re-pinned to

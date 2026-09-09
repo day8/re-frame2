@@ -16,7 +16,7 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those the MCP form is `e
 - [Trace](#trace) — trace stream + epoch history
 - [DOM source bridge](screen-reads.md#dom-source-bridge) — in [`screen-reads.md`](screen-reads.md)
 - [Reading what's on screen — two planes (`read-dom` vs `read-ui`)](screen-reads.md#reading-whats-on-screen--two-planes-read-dom-vs-read-ui) — in [`screen-reads.md`](screen-reads.md)
-- [Hicasso evidence — mounted boundaries, read attribution, render cause](screen-reads.md#hicasso-evidence--mounted-boundaries-read-attribution-render-cause) — in [`screen-reads.md`](screen-reads.md)
+- [Fresco evidence — mounted boundaries, read attribution, render cause](screen-reads.md#fresco-evidence--mounted-boundaries-read-attribution-render-cause) — in [`screen-reads.md`](screen-reads.md)
 - [Live watch](#live-watch)
 - [Signal recording + blocking waits](#signal-recording--blocking-waits)
 - [Hot-reload coordination](#hot-reload-coordination)

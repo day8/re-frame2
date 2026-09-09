@@ -209,14 +209,14 @@ story_static_gate=false
 tenant_switcher_smoke=false
 skills_structural=false
 playground=false
-migration_hicasso_codemod=false
-hicasso_controlled=false
-# rf2-hic-015 — the Hicasso HMR gate (`npm run test:hicasso-hmr`), a tier of
-# its own for the same reason `hicasso_controlled` is: it is a DIFFERENT
+migration_fresco_codemod=false
+fresco_controlled=false
+# rf2-hic-015 — the Fresco HMR gate (`npm run test:fresco-hmr`), a tier of
+# its own for the same reason `fresco_controlled` is: it is a DIFFERENT
 # COMMAND, and the only one in the repo that drives a real hot reload. No
 # other job's closure reaches it — every other browser gate serves a COMPILED
 # bundle over http-server, and a compiled bundle cannot hot-reload itself.
-hicasso_hmr=false
+fresco_hmr=false
 migration_v1_codemod=false
 # rf2-n8vp — the ssr-node package's OWN gate (`npm run test:ssr-node`), and its
 # own output for the reason the two migration-codemod outputs have theirs: no
@@ -257,9 +257,9 @@ mark_all() {
   tenant_switcher_smoke=true
   skills_structural=true
   playground=true
-  migration_hicasso_codemod=true
-  hicasso_controlled=true
-  hicasso_hmr=true
+  migration_fresco_codemod=true
+  fresco_controlled=true
+  fresco_hmr=true
   migration_v1_codemod=true
   ssr_node=true
 }
@@ -533,12 +533,12 @@ is_story_full_gate_path() {
 # THE FAIL-OPEN THIS CLOSES. The census is a JVM suite in the routing
 # artefact, so the only job that runs it is `jvm-routing`, gated on
 # `implementation_jvm`. Its inputs are the trees in its own `app-roots` —
-# `examples`, `testbeds` and `implementation/hicasso/test` — and NONE of the
+# `examples`, `testbeds` and `implementation/fresco/test` — and NONE of the
 # three armed that output. Measured on main before this arm:
 #
 #   examples/reagent/todo/src/foo.cljs                      implementation_jvm=false
 #   testbeds/foo.cljs                                       implementation_jvm=false
-#   implementation/hicasso/test/.../examples/foo.cljs       implementation_jvm=false
+#   implementation/fresco/test/.../examples/foo.cljs       implementation_jvm=false
 #
 # So the census could not fire on ANY edit it exists to police. A PR adding
 # or renaming a route path reached main with the collision check never run —
@@ -553,7 +553,7 @@ is_story_full_gate_path() {
 #
 # WHY A PREDICATE AND NOT AN ARM OF THE BIG `case`, the same reason rf2-65ajl
 # gives above: a POSIX `case` takes the FIRST match, and all three roots
-# already have arms there (`examples/*`, `implementation/hicasso/*`), so an
+# already have arms there (`examples/*`, `implementation/fresco/*`), so an
 # arm would be shadowed. A predicate consulted for every file cannot be. It
 # only ever SETS `implementation_jvm`, so it can narrow nothing.
 #
@@ -579,7 +579,7 @@ is_story_full_gate_path() {
 # until this list catches up — the roster is derived, not restated on trust.
 is_route_path_census_input() {
   case "$1" in
-    examples/*|testbeds/*|implementation/hicasso/test/*)
+    examples/*|testbeds/*|implementation/fresco/test/*)
       case "$1" in
         *.cljs|*.cljc)
           return 0 ;;
@@ -685,7 +685,7 @@ else
     # solely on `skills_structural`, and before this dispatch that output was
     # armed only from the skill trees themselves. So the fixture fired on a
     # change to the RECIPE but never on a change to the SUBSTRATE it pins the
-    # recipe against — a core adapter-lifecycle, SSR, Hicasso server-render or
+    # recipe against — a core adapter-lifecycle, SSR, Fresco server-render or
     # Reagent adapter change skipped the only cross-artefact witness that the
     # documented cold start still works, which is the very regression the
     # fixture exists to catch. A skipped job is an accepted result, so the
@@ -704,7 +704,7 @@ else
     # match, and all four of these trees already have arms there
     # (`implementation/core/*`, `implementation/adapters/*`, the per-feature
     # fan-out that carries `implementation/ssr/*`, and `implementation/
-    # hicasso/*`). An arm placed above them would SHADOW those arms and
+    # fresco/*`). An arm placed above them would SHADOW those arms and
     # silently narrow four artefacts' coverage to one output; placed below, it
     # would never match. A dispatch consulted for every file can do neither —
     # it only ever SETS `skills_structural`, so it cannot narrow anything.
@@ -715,7 +715,7 @@ else
     # two of the four: `skills/re-frame2-pair/tests/fixture/deps.edn` declares
     # core and the Reagent adapter as `:local/root` too, so it carries the
     # identical unarmed reverse dependency and this closes it as well. For ssr
-    # and hicasso it over-fires that job, and it over-fires the cheap Babashka
+    # and fresco it over-fires that job, and it over-fires the cheap Babashka
     # `skills-structural` job for all four. TESTING.md's routing rule prefers
     # exactly that trade ("when in doubt, over-classify"), and the alternative
     # — a 29th output existing only to split two fixture jobs apart — buys a
@@ -750,12 +750,12 @@ else
     # machines keeps the machines-viz and `playground` lanes. This dispatch
     # only ever SETS the flag; it cannot narrow them.
     #
-    # The over-fire trade is the same one, and no larger: ssr and hicasso
+    # The over-fire trade is the same one, and no larger: ssr and fresco
     # over-fire `re-frame2-pair-fixture-pure`, epoch/schemas/machines over-fire
     # `reagent-migration-fixture-cold-start`, and all seven over-fire the cheap
     # Babashka `skills-structural` job. Still no 29th output.
     case "$file" in
-      implementation/core/src/*|implementation/core/deps.edn|implementation/ssr/src/*|implementation/ssr/deps.edn|implementation/hicasso/src/*|implementation/hicasso/deps.edn|implementation/adapters/reagent/src/*|implementation/adapters/reagent/deps.edn|implementation/epoch/src/*|implementation/epoch/deps.edn|implementation/schemas/src/*|implementation/schemas/deps.edn|implementation/machines/src/*|implementation/machines/deps.edn)
+      implementation/core/src/*|implementation/core/deps.edn|implementation/ssr/src/*|implementation/ssr/deps.edn|implementation/fresco/src/*|implementation/fresco/deps.edn|implementation/adapters/reagent/src/*|implementation/adapters/reagent/deps.edn|implementation/epoch/src/*|implementation/epoch/deps.edn|implementation/schemas/src/*|implementation/schemas/deps.edn|implementation/machines/src/*|implementation/machines/deps.edn)
         skills_structural=true
         ;;
     esac
@@ -1274,15 +1274,15 @@ else
             tools_cljs_machines_viz=true ;;
         esac
         ;;
-      implementation/hicasso/*)
-        # rf2-8a6s — the Hicasso view substrate artefact (rf2-hic-001).
-        # The package landed with no case here at all, so a hicasso-ONLY
+      implementation/fresco/*)
+        # rf2-8a6s — the Fresco view substrate artefact (rf2-hic-001).
+        # The package landed with no case here at all, so a fresco-ONLY
         # diff classified to NOTHING: every output false, every job
         # skipped, green. TESTING.md §Changed-surface classifier names
         # that exact shape — a new artefact directory needs a classifier
         # rule AND a workflow gate reading it, and either side missing is
         # a silent hole. This is the rule half; the `cljs` job's two
-        # hicasso steps are the gate half.
+        # fresco steps are the gate half.
         #
         # ONE output, deliberately, and NOT the four the retired
         # `implementation/freehand/*` case used to set. That case went with
@@ -1290,16 +1290,16 @@ else
         # artefact's coverage today is exactly what `cljs_node_test`
         # schedules:
         #
-        #   - the package smoke `re-frame.hicasso.smoke-cljs-test`, which
-        #     rides the consolidated `:node-test` build (hicasso/src +
-        #     hicasso/test are on the global :source-paths and the ns
+        #   - the package smoke `re-frame.fresco.smoke-cljs-test`, which
+        #     rides the consolidated `:node-test` build (fresco/src +
+        #     fresco/test are on the global :source-paths and the ns
         #     matches that build's `cljs-test$` regexp) in the `cljs` job;
-        #   - the INVARIANTS GATE, `npm run test:hicasso-invariants`, a step
+        #   - the INVARIANTS GATE, `npm run test:fresco-invariants`, a step
         #     of that same job — the optional-module reachability check (which
         #     since rf2-6c12m.1 also carries the no-bench-import row the
         #     retired freeze gate used to seal), the budget ledger, the facade
         #     inventory and the guide-samples check;
-        #   - the modules compile (`test:hicasso-compile`), already an
+        #   - the modules compile (`test:fresco-compile`), already an
         #     unconditional step there.
         #
         # NOT implementation_jvm — AND THE OLD REASON HAS EXPIRED, so it
@@ -1310,18 +1310,18 @@ else
         # commit a JVM-runnable suite lands and the roster gains the row."
         # rf2-0yp7w re-homed the bench harness here, which brought the
         # `.cljc` equivalence pin for the canonical slot rule (rf2-ani6y) —
-        # now `test/re_frame/hicasso/slot_cljs_test.cljc`, retargeted into
+        # now `test/re_frame/fresco/slot_cljs_test.cljc`, retargeted into
         # the package when the harness moved out again (rf2-6c12m.1) — so
         # the alias dropped `--probe` and took the test-count floor, and
         # rf2-ipx7h put the artefact ON that roster with a required
-        # `jvm-hicasso` job.
+        # `jvm-fresco` job.
         #
         # The row survives because that job is UNCONDITIONAL, so it needs
         # no arm, and because arming this root would be wrong twice over:
-        # 22 OTHER jobs read `implementation_jvm`, so a hicasso-only diff
+        # 22 OTHER jobs read `implementation_jvm`, so a fresco-only diff
         # would schedule all of them to run one five-second one-namespace
         # lane; and the arm would still not cover the lane's own inputs —
-        # `implementation/hicasso/deps.edn` and `test_kit/src/**` are on
+        # `implementation/fresco/deps.edn` and `test_kit/src/**` are on
         # its `:test` classpath and are matched by THIS case, which sets
         # no jvm output. `implementation/scripts/_changed-surfaces.test.cjs`
         # pins all three facts.
@@ -1336,7 +1336,7 @@ else
         # schedule a Playwright job that runs not one line of the changed
         # surface. Widen the moment a `*-dom-cljs-test` namespace lands."
         # Three have landed — kernel_commit_owns, roots_frames_hydration
-        # and roots_frames_isolation, under implementation/hicasso/test/
+        # and roots_frames_isolation, under implementation/fresco/test/
         # (rf2-hic-010, rf2-hic-012) — so the narrowing expired and this
         # is the widening it asked for.
         #
@@ -1358,9 +1358,9 @@ else
         # gate, neither of which the browser lane runs.
         cljs_browser=true
         # rf2-ga8m — and, since the three-engine controlled-input gate
-        # landed (rf2-hic-016), `hicasso_controlled`. That gate compiles
-        # the `:hicasso/testbed` build off THIS tree — the testbed app
-        # and `hicasso/testbed/spec.cjs` both live under it — and drives
+        # landed (rf2-hic-016), `fresco_controlled`. That gate compiles
+        # the `:fresco/testbed` build off THIS tree — the testbed app
+        # and `fresco/testbed/spec.cjs` both live under it — and drives
         # the package's element-path converge in Chromium, Firefox and
         # WebKit. It is the only lane that witnesses invariant I15's
         # caret and composition clauses, and the caret is the ONLY
@@ -1368,14 +1368,14 @@ else
         # plain React: React's own end-of-event restore repairs a
         # value-level misconduct inside the same discrete event, so the
         # value assertions in the `cljs_node_test` suites above stay
-        # green under regressions these rows catch. A hicasso diff that
+        # green under regressions these rows catch. A fresco diff that
         # did not run it would be relying on the weaker witness.
-        hicasso_controlled=true
+        fresco_controlled=true
         # rf2-hic-015 — and, since the HMR witness matrix landed (rf2-vsgq),
-        # `hicasso_hmr`. That gate compiles the `:hicasso/hmr-testbed` build
-        # off THIS tree — the testbed app under hicasso/testbed/
-        # hicasso_hmr_testbed/, the page under hicasso/testbed/hmr/ and
-        # `hicasso/testbed/hmr_spec.cjs` all live here — then starts a REAL
+        # `fresco_hmr`. That gate compiles the `:fresco/hmr-testbed` build
+        # off THIS tree — the testbed app under fresco/testbed/
+        # fresco_hmr_testbed/, the page under fresco/testbed/hmr/ and
+        # `fresco/testbed/hmr_spec.cjs` all live here — then starts a REAL
         # `shadow-cljs watch`, rewrites a marked source line and lets shadow
         # recompile, push the module and re-evaluate it.
         #
@@ -1386,10 +1386,10 @@ else
         # neither drift between the `defview` macro and a real shadow reload
         # nor a renderer that fails to run old-generation cleanup on a type
         # replacement. Every runtime file a reload re-evaluates lives under
-        # this arm, so a hicasso diff that skipped it would be resting the
+        # this arm, so a fresco diff that skipped it would be resting the
         # whole HMR contract on the seam-driven witness.
-        hicasso_hmr=true
-        # rf2-erjv — migration_hicasso_codemod, the reverse edge into the
+        fresco_hmr=true
+        # rf2-erjv — migration_fresco_codemod, the reverse edge into the
         # codemod's JVM lane. It landed here as the SECOND of two such edges,
         # the first being a classpath one on the then-live
         # `implementation/freehand/*` arm; rf2-r4j91 moved that one here as
@@ -1397,7 +1397,7 @@ else
         # with its tree under rf2-0yp7w.
         #
         # The classpath edge: the codemod's deps.edn puts
-        # `../../../implementation/hicasso/src` on `:paths` so the tool and the
+        # `../../../implementation/fresco/src` on `:paths` so the tool and the
         # door share ONE slot rule (rf2-ani6y, repointed off the retiring
         # prototype by rf2-r4j91), and `shared_rule_test.clj` pins the tool's
         # resolver and `impl/slot.cljc`'s `prop-name` `identical?` — plus the
@@ -1407,13 +1407,13 @@ else
         # The source-text edge, which is why this arm existed first.
         # `shared_rule_test.clj`'s `the-callback-contracts-are-the-doors`
         # (rf2-vi11) reaches back up the tree with a relative `io/file` and
-        # slurps `implementation/hicasso/src/re_frame/hicasso/impl/codec.cljs`,
+        # slurps `implementation/fresco/src/re_frame/fresco/impl/codec.cljs`,
         # because that roster is `.cljs` this JVM cannot load but CAN read —
         # then asserts the door's own `callback-contracts` set equals the one
         # the codemod PRINTS into the `defhost` sketch it invites a migrator to
         # paste. Add a fourth contract at the door, or rename one, and the
         # tool's advice goes wrong; that pin is the assertion that says so, and
-        # before this line it lived in a lane a hicasso-only diff never ran.
+        # before this line it lived in a lane a fresco-only diff never ran.
         # The pin also asserts the file EXISTS where it looks, so a MOVE of
         # codec.cljs reds it rather than silently skipping — which is only
         # worth having if the move's own PR schedules the lane.
@@ -1423,7 +1423,7 @@ else
         # where it would shadow the outputs above and silently narrow the
         # package's own coverage. Over-classifying a seconds-long pure JVM
         # suite is the cheaper error, and TESTING.md says to prefer it.
-        migration_hicasso_codemod=true
+        migration_fresco_codemod=true
         ;;
       implementation/reply-conformance/*|implementation/derivation-conformance/*|implementation/event-conformance/*|implementation/security/*)
         # rf2-qxg24 — `implementation/security/*` JOINED this arm, closing a
@@ -1581,7 +1581,7 @@ else
       #                                                              → jvm-ssr
       #   docs/ssr/concepts.md               ssr_doc_example_node_build_id_
       #                                        test.clj              → jvm-ssr
-      #   docs/design/hicasso/product/       recipes/async_nav_doc_test.clj
+      #   docs/design/fresco/product/       recipes/async_nav_doc_test.clj
       #     async-routing-recipes.md                                 → jvm-routing
       #   spec/000-Vision.md                 scope_ensure_authority_test.clj
       #   spec/012-Routing.md                        "
@@ -1671,7 +1671,7 @@ else
         # here when a new JVM suite names one (rf2-8arzr.6).
         implementation_jvm=true
         ;;
-      docs/design/hicasso/product/async-routing-recipes.md)
+      docs/design/fresco/product/async-routing-recipes.md)
         # One named file, and emphatically not its tree: `docs/design/**` is 159
         # files of working design records, deliberately excluded from the site
         # build (`exclude_docs` in mkdocs.yml) and validated only by
@@ -1815,16 +1815,16 @@ else
         reagent_slim_bundle=true
         tenant_switcher_smoke=true
         ;;
-      implementation/scripts/serve-and-run-hicasso-controlled-testbed.cjs)
+      implementation/scripts/serve-and-run-fresco-controlled-testbed.cjs)
         # rf2-ga8m — self-protection, mirroring the launcher cases above.
         # This file IS the three-engine controlled-input gate: it compiles
-        # `:hicasso/testbed`, serves it, drives `hicasso/testbed/spec.cjs`
+        # `:fresco/testbed`, serves it, drives `fresco/testbed/spec.cjs`
         # once per engine, and owns the two pieces of verdict logic that
         # make the run mean anything — the 50-check-per-engine floor, and
         # the cross-engine comparator that reds an unlisted divergence in
         # a RECORDED row. Both are exactly the sort of teeth a diff can
         # soften. The generic `implementation/scripts/*` case below never
-        # arms `hicasso_controlled`, so without this case a PR could edit
+        # arms `fresco_controlled`, so without this case a PR could edit
         # the gate's own floor while avoiding the job that runs it. The
         # static-script surfaces it shares with the generic case stay
         # armed too; this case widens coverage, it does not narrow it.
@@ -1833,9 +1833,9 @@ else
         cljs_prod=true
         bundle_isolation=true
         reagent_slim_bundle=true
-        hicasso_controlled=true
+        fresco_controlled=true
         ;;
-      implementation/scripts/serve-and-run-hicasso-hmr-testbed.cjs)
+      implementation/scripts/serve-and-run-fresco-hmr-testbed.cjs)
         # rf2-hic-015 — self-protection, exactly as for the controlled-input
         # launcher above. This file IS the HMR gate: it starts the
         # `shadow-cljs watch`, owns the HOT-LINE rewriter that makes a save a
@@ -1848,7 +1848,7 @@ else
         # stopped editing the file would report a perfectly green run in which
         # nothing ever reloaded — so softening it is a change that must run
         # the gate. The generic `implementation/scripts/*` case below never
-        # arms `hicasso_hmr`, so without this case a PR could edit the gate's
+        # arms `fresco_hmr`, so without this case a PR could edit the gate's
         # own teeth while avoiding the job that runs them. The static-script
         # surfaces it shares with the generic case stay armed too; this case
         # widens coverage, it does not narrow it.
@@ -1857,7 +1857,7 @@ else
         cljs_prod=true
         bundle_isolation=true
         reagent_slim_bundle=true
-        hicasso_hmr=true
+        fresco_hmr=true
         ;;
       implementation/scripts/check-story-static.cjs|implementation/scripts/story-build.cjs)
         # rf2-9n2cv — self-protection, the same shape as the two freehand
@@ -1946,8 +1946,8 @@ else
         esac
         # rf2-ga8m — the three-engine controlled-input gate is DEFINED by
         # this trio in the same way, and scoped identically. shadow-cljs.edn
-        # declares the `:hicasso/testbed` build the gate compiles; package.json
-        # carries the `test:hicasso-controlled` script AND the `playwright`
+        # declares the `:fresco/testbed` build the gate compiles; package.json
+        # carries the `test:fresco-controlled` script AND the `playwright`
         # pin, which for this gate is not an ordinary dependency bump — the
         # pin IS the three engine revisions under test, so bumping it changes
         # the subject of every caret and composition witness. The lockfile
@@ -1955,22 +1955,22 @@ else
         # script that drives this gate has its own case above.
         case "$file" in
           implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
-            hicasso_controlled=true ;;
+            fresco_controlled=true ;;
         esac
         # rf2-hic-015 — the HMR gate is DEFINED by the same trio, and one of
         # the three carries a fact no other gate depends on. shadow-cljs.edn
-        # declares the `:hicasso/hmr-testbed` build AND its `:dev-http` on
+        # declares the `:fresco/hmr-testbed` build AND its `:dev-http` on
         # port 8061 — this gate is served by shadow's own dev server rather
         # than by http-server precisely so the document and the devtools
         # websocket share an origin, so an edit to either half can stop the
-        # reload arriving. package.json carries the `test:hicasso-hmr` script
+        # reload arriving. package.json carries the `test:fresco-hmr` script
         # and the `playwright` pin, which here as for the controlled gate IS
         # the three engine revisions under test; the lockfile fixes them.
         # `implementation/scripts/*` stays off, exactly as above: the one
         # script that drives this gate has its own case.
         case "$file" in
           implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
-            hicasso_hmr=true ;;
+            fresco_hmr=true ;;
         esac
         # rf2-8m344 — the `:machines-viz-viewer` build is DECLARED here, in
         # implementation/shadow-cljs.edn, while the page it emits a bundle for
@@ -2554,14 +2554,14 @@ else
         # docs/tools/playground/*).
         playground=true
         ;;
-      migration/reagent-to-hicasso/codemod/*)
-        # rf2-2rtt6.143 — the Reagent `[:>]` → Hicasso codemod (the FIXER).
+      migration/reagent-to-fresco/codemod/*)
+        # rf2-2rtt6.143 — the Reagent `[:>]` → Fresco codemod (the FIXER).
         # It shipped with no case here at all, so a codemod-only diff
         # classified to NOTHING: 22 tests / 158 assertions, including the
         # golden corpus that IS this tool's spec, running in no lane anywhere.
         # `migration/**` reaches docs.yml, which stages the tree into the site
         # and executes not one line of it. Same silent hole rf2-8a6s closed for
-        # `implementation/hicasso/*` and rf2-4hc9p / rf2-as6bg closed on the
+        # `implementation/fresco/*` and rf2-4hc9p / rf2-as6bg closed on the
         # tools side; TESTING.md's Changed-surface classifier section names the
         # shape and the two-sided fix.
         #
@@ -2571,7 +2571,7 @@ else
         # other output gates would run it. Arming `implementation_jvm` instead
         # would fire the whole implementation JVM tier for a diff that cannot
         # touch it, and still not run this suite.
-        migration_hicasso_codemod=true
+        migration_fresco_codemod=true
         ;;
       migration/from-re-frame-v1/codemod/*)
         # rf2-0qzh — the v1 `reg-event-db/-fx/-ctx` → `reg-event` codemod
@@ -2592,7 +2592,7 @@ else
         # `implementation_jvm` would fire the whole implementation JVM tier
         # for a diff that cannot touch it and STILL not run this suite.
         #
-        # A separate output from `migration_hicasso_codemod` rather than a
+        # A separate output from `migration_fresco_codemod` rather than a
         # shared `migration_codemods` one: the two artefacts have no
         # dependency on each other, and sharing would make each one's diff
         # pay for the other's lane forever. Unlike its sibling this one has
@@ -2604,7 +2604,7 @@ else
         migration_v1_codemod=true
         ;;
       bench/*)
-        # rf2-6c12m.1 — the Hicasso bench lane, a hand-run shadow-cljs project
+        # rf2-6c12m.1 — the Fresco bench lane, a hand-run shadow-cljs project
         # OFF every per-PR lane by ruling: its suites exercise LOCAL COPIES of
         # the runtime, so running them per PR could not catch a regression in
         # the shipped one, and its 82 MB of committed run records are
@@ -2612,11 +2612,11 @@ else
         # no gate rather than left unclassified — this arm sets nothing so the
         # silence is stated. TESTING.md §Changed-surface classifier calls an
         # unclassified surface a silent hole; this is the other thing, a
-        # surface whose gate is `npm run check` from bench/hicasso/, which
+        # surface whose gate is `npm run check` from bench/fresco/, which
         # the bench README requires before publishing a change there. Two
         # unconditional per-PR readers still reach the tree with no gate of
         # their own: `scripts/check_readme_links.py --ci` validates
-        # bench/hicasso/README.md, and `core/test/re_frame/bench/
+        # bench/fresco/README.md, and `core/test/re_frame/bench/
         # lane_cache_wiring.test.cjs` scans the drivers as TEXT for the
         # cache-clear rule. `implementation/scripts/_changed-surfaces.test.cjs`
         # pins every output false here.
@@ -2659,8 +2659,8 @@ emit story_static_gate "$story_static_gate"
 emit tenant_switcher_smoke "$tenant_switcher_smoke"
 emit skills_structural "$skills_structural"
 emit playground "$playground"
-emit migration_hicasso_codemod "$migration_hicasso_codemod"
-emit hicasso_controlled "$hicasso_controlled"
-emit hicasso_hmr "$hicasso_hmr"
+emit migration_fresco_codemod "$migration_fresco_codemod"
+emit fresco_controlled "$fresco_controlled"
+emit fresco_hmr "$fresco_hmr"
 emit migration_v1_codemod "$migration_v1_codemod"
 emit ssr_node "$ssr_node"

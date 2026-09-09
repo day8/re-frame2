@@ -17,7 +17,7 @@ and the same comparator ships as an explicit opt-in.
 | | |
 |---|---|
 | Producing commit | `2158869e2b226fb01af866ed4656c3dba6c58d86` — **authored, and rebase-merged, so it is on no branch and will not resolve in a fresh clone.** It landed as **`870a7d1684`** (same subject and author date; recovered by that pairing, not by patch-id). **Do not treat the landed commit as the measured tree**: the rebase resolved conflicts in `arm1/runtime.cljs`, `front/codec.cljs` and `shapes/feed.cljs` — all three on the measured path — so its instrument differs from the one these rows were taken on. The measured tree survives nowhere; the run is pinned by this row's runtime, page and window, not by a checkout |
-| Command | `node implementation/freehand/test/re_frame/bench/hicasso/chrome_run.cjs` |
+| Command | `node implementation/freehand/test/re_frame/bench/fresco/chrome_run.cjs` |
 | Runtime | HeadlessChrome **147.0.7727.15**, `:advanced`, **`goog.DEBUG=false`**, 24 cores, 32 GB |
 | Page | the shape roster's feed — 300 card boundaries under one page boundary, the roster's own card markup |
 | Rounds | 10 (3 warm-up, 7 measured) for the clock; 5 (plus a discarded warm-up per arm) for the heap; arms alternate order every round |
@@ -148,7 +148,7 @@ for it.
 > this paragraph
 > originally named **`reads_ladder_run.cjs`** as the rig to re-take it on. That
 > is the wrong instrument: the freehand ladder carries only `reagent,uix`, has
-> no Hicasso arm, and could not have produced the 1,143 B figure. That number
+> no Fresco arm, and could not have produced the 1,143 B figure. That number
 > comes from the **P0 bench** — `p0_run.cjs --only ladder` — which is where the
 > re-take was taken, on instrument blobs byte-identical to the published run.
 > The bead `rf2-2rtt6.58` was filed from this sentence and inherited its error.
@@ -162,8 +162,8 @@ for it.
 >
 > | R=0 shell | no wrapper | wrapper | delta | vs the 1 KB line |
 > |---|---:|---:|---:|---|
-> | Hicasso, Reagent segment | **994 B** [985–1,003] | **1,099.5 B** | **+105.5 B, +10.6%** | 0.99× → **1.10×** |
-> | Hicasso, UIx segment | **992 B** [985–998] | **1,097 B** | **+105.0 B, +10.6%** | 0.99× → **1.10×** |
+> | Fresco, Reagent segment | **994 B** [985–1,003] | **1,099.5 B** | **+105.5 B, +10.6%** | 0.99× → **1.10×** |
+> | Fresco, UIx segment | **992 B** [985–998] | **1,097 B** | **+105.0 B, +10.6%** | 0.99× → **1.10×** |
 >
 > **The wrapper's price is confirmed to within 1 B on both segments.** What
 > changed is underneath it: `rf2-aqgr2` and `rf2-dabt3` took ~140 B out of the

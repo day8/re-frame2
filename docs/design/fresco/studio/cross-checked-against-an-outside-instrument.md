@@ -2,7 +2,7 @@
 
 **The mount row survives and the bulk-broad win does not.** Running
 [krausest/js-framework-benchmark](https://github.com/krausest/js-framework-benchmark)'s
-own driver over three re-frame2 arms — Reagent-on-subs, UIx-on-subs and Hicasso
+own driver over three re-frame2 arms — Reagent-on-subs, UIx-on-subs and Fresco
 Arm 1, sharing one model and building canonically identical DOM — an instrument this
 programme did not write reads the candidate's mount at **1.1756× Reagent**
 against **1.2789×** from our own clock on the same app, the same operation and
@@ -34,7 +34,7 @@ on one clock, so the deficit is not a harness artefact.
 > as what the corrected clock read on 2026-08-01.
 >
 > ~~**THAT `1.4896×` IS A READING, NOT A PUBLISHED MAGNITUDE (`rf2-jcm3p`, ruled
-> 2026-08-06).** `M1` mount is stated as a **REGIME**: hicasso mounts materially
+> 2026-08-06).** `M1` mount is stated as a **REGIME**: fresco mounts materially
 > slower than both adapters — every corroborated reading sits above the amended
 > `≤ 1.10×` UIx gate — direction triple-corroborated (worst-case witnesses,
 > census rows, **this outside benchmark**), and **`≤ 1.10×` has NOT been
@@ -83,7 +83,7 @@ rather than lucky.**
 `page.evaluate` compiles to — owns the whole callback, so a harness that drives
 its operations that way subtracts them away. This harness drives every operation
 with `page.click`
-([`jsfb_ours_run.cjs`'s `click`](../../../../bench/hicasso/src/re_frame/bench/hicasso/jsfb_ours_run.cjs)),
+([`jsfb_ours_run.cjs`'s `click`](../../../../bench/fresco/src/re_frame/bench/fresco/jsfb_ours_run.cjs)),
 an **Input-domain** command: `Input.dispatchMouseEvent` delivers an event and
 returns, and the page's handler runs afterwards in an input task the command does
 not own.
@@ -119,7 +119,7 @@ repository, all `keyed`:
 |---|---|---|
 | `rf2-reagent` | Reagent + `reagent.dom.client` | `@(rf/subscribe [q])` in `reg-view` boundaries |
 | `rf2-uix` | UIx + `uix.dom` | `uixa/use-subscribe` — the published spine |
-| `rf2-hicasso` | Hicasso Arm 1 over the UIx adapter | `(sub [q])` — the ambient collector |
+| `rf2-fresco` | Fresco Arm 1 over the UIx adapter | `(sub [q])` — the ambient collector |
 
 **One model serves all three.** `jsfb_model.cljs` holds the app-db shape, the
 three subscriptions and the eight event handlers; no arm holds state of its own.
@@ -167,7 +167,7 @@ false`.
 rf2-reagent-v0.0.1.alpha-keyed is keyed for 'run benchmark' and keyed for
   'remove row benchmark' and keyed for 'swap rows benchmark'
 rf2-uix-v0.0.1.alpha-keyed     … same
-rf2-hicasso-v0.0.1.alpha-keyed … same
+rf2-fresco-v0.0.1.alpha-keyed … same
 ```
 
 All three in one category, so the comparison is not void. Ids are stable across a
@@ -222,7 +222,7 @@ than as an argument.
 
 ## 2. The design, and the confound it exists to avoid
 
-The naive cross-check is confounded and badly. Our published ratio is `hicasso /
+The naive cross-check is confounded and badly. Our published ratio is `fresco /
 reagent-subs` on the **M1 witness** — 901 elements, 300 boundaries, a cold mount
 into an empty container. The benchmark's is **create 1,000 rows** — ~8,000
 elements, 1,000 boundaries, a click on a mounted app. Two instruments *and* two
@@ -301,7 +301,7 @@ the 2026-08-07 re-take on the landed harness, not by the run these figures come
 from ([§1.3](#13-the-one-deliberate-deviation-and-why-it-strengthens-the-comparison),
 [§6](#6-provenance)).
 
-### 3.1 The candidate — `hicasso / reagent`
+### 3.1 The candidate — `fresco / reagent`
 
 | operation | benchmark id | theirs | ours | ours, range over rounds | \|diff\| | agree? |
 |---|---|---:|---:|---|---:|---|
@@ -331,7 +331,7 @@ discussed rather than averaged away.
 The bead's question was whether the two instruments agree on the ratio. On the
 row the programme has actually published, they do:
 
-| reading | instrument | workload | `hicasso / reagent` |
+| reading | instrument | workload | `fresco / reagent` |
 |---|---|---|---:|
 | published (`rf2-0qj9w`) | ours, CDP **frame-only** — see below | M1 — 901 elements, 300 boundaries | ~~**1.2107**~~ [0.9756 – 1.7208] |
 | this page | ours, CDP — **script and frame** ([§0](#0-which-clock-produced-which-number-rf2-emvod)) | benchmark — ~8,000 elements, 1,000 boundaries | **1.2789** [0.9616 – 1.5482] |
@@ -454,7 +454,7 @@ than the effect they reported. Two independent instruments here agree on both:
 
 Four of ten rows fall outside the 15% band. None is dismissed.
 
-**`clear rows`, `hicasso`: ours 1.8638, theirs 1.2877 (44.7%).** The largest gap
+**`clear rows`, `fresco`: ours 1.8638, theirs 1.2877 (44.7%).** The largest gap
 on the page, and [§2.3](#23-the-one-op-per-frame-caution-answered) predicts its
 direction. Clearing 1,000 rows unmounts 1,000 boundaries; the candidate's
 disposals and reaper passes run in a macrotask **after** the paint. Our window
@@ -466,7 +466,7 @@ teardown looks like. **This is our instrument charging the candidate for work
 the benchmark's does not see, and both are defensible; they are answering
 different questions.**
 
-**`swap rows`, `hicasso`: ours 1.1964, theirs 1.3883 (16.0%).** Just outside the
+**`swap rows`, `fresco`: ours 1.1964, theirs 1.3883 (16.0%).** Just outside the
 band, and both instruments put the candidate clearly slower. The per-round range
 [0.9422 – 1.4560] contains the benchmark's figure. Not a disagreement worth a
 mechanism.
@@ -496,7 +496,7 @@ row-specific window effects, the largest of which is named above.
 | arm | measured | verdict |
 |---|---:|---|
 | `rf2-reagent` | **13.696×** | **FAIL** |
-| `rf2-hicasso` | **13.583×** | **FAIL** |
+| `rf2-fresco` | **13.583×** | **FAIL** |
 | `rf2-uix` | **13.112×** | **FAIL** |
 
 All three above the band, by 1–5%. The registered prediction named this direction
@@ -522,7 +522,7 @@ The band is not widened after the fact. It is recorded as failed.
 
 **And the control is not stable across runs, which the 2026-08-07 re-take
 exposed** (`rf2-rguy1`). That run — same box, same bundles, same instrument on
-this gate — measured `rf2-reagent` **14.638×**, `rf2-hicasso` **12.883×** and
+this gate — measured `rf2-reagent` **14.638×**, `rf2-fresco` **12.883×** and
 `rf2-uix` **14.367×**, so two arms failed the `8 – 13×` band and **one passed
 it**. The verdict for an arm therefore flipped between two runs of the same
 experiment. The figures above are not restated on the strength of one re-take and
@@ -545,9 +545,9 @@ strengthens the case for.
 | Runtime, ours | Chromium `147.0.7727.15` headless, Playwright 1.59.1, node v24.13.0, `hardware-concurrency` 24, `device-memory` 32 |
 | Runtime, theirs | Chrome **150.0.7871.186** (system), puppeteer-core 25.3.0 via `webdriver-ts`, headless, chromedriver 150.0.1 present and version-matched |
 | Benchmark revision | `krausest/js-framework-benchmark` at commit **`247fafa22c1f2caeb4cad179aa64cf444398cbc7`** (*"incremental run"*, 2026-07-28), read back from the surviving clone rather than recalled. It was reached as a shallow clone of `master` taken 2026-08-01, and `master` alone is not a pin — the branch has moved since. The clone is kept at `%LOCALAPPDATA%\Temp\jsfb-rguy1\repo`, **outside this repository, never committed**. That SHA belongs to the benchmark's repository, not to this one, so it resolves there and nowhere else — canonically at [github.com/krausest/js-framework-benchmark/commit/247fafa22c1f2caeb4cad179aa64cf444398cbc7](https://github.com/krausest/js-framework-benchmark/commit/247fafa22c1f2caeb4cad179aa64cf444398cbc7) |
-| Build | `:hicasso-bench`, `:advanced`, `goog.DEBUG false`, via `--config-merge` only — no build id added, `implementation/shadow-cljs.edn` untouched |
-| Bundles | `rf2-reagent` `300a273bd20d44fcc9a6ef6718a2366faf73d691b2a2122c43003d4fc0ce8ac6` · `rf2-hicasso` `1cc9fef3bca6a6a85602361f807ff95d8338ffefba0dcad9ed04dc8ff343814f` · `rf2-uix` `4594e3f11222a16e7ef47f3fb7c6827854ff3cd9e3fa4ea07682482adea1abc1`. One set of three, shared by both runs below — the re-take measured the published bundles rather than a rebuild, which is what isolates the parity question from five days of implementation drift |
-| Retained datasets | `implementation/hicasso/test/re_frame/bench/hicasso/data/jsfb-rguy1/` — both runs, **byte-exact as the instrument wrote them**, so a fresh clone can read this page's parity object, gate counts and per-round figures out of the tree instead of taking them on trust. `ours3.json`, the 2026-08-02 run, 6,124 bytes, SHA-256 `eacd43ed782ac7a80d3b47bb4f92a4e1dfa46f8d0f68eee6f757442cbe84f136`; `ours4.json`, the 2026-08-07 re-take, 35,553 bytes, SHA-256 `3e31fae2e408a2745b70bde6aa96cd242f9f9d17f8abf17af8e6e795577c5093`. Both carry `provenance.bundles: {}` — `jsfb_ours_run.cjs` declared the field and never filled it, so neither run binds itself to the three digests above; `provenance.json` beside them does it instead, and from `rf2-rguy1` (2026-08-08) the instrument does it itself. The benchmark clone and the run logs are **not** vendored |
+| Build | `:fresco-bench`, `:advanced`, `goog.DEBUG false`, via `--config-merge` only — no build id added, `implementation/shadow-cljs.edn` untouched |
+| Bundles | `rf2-reagent` `300a273bd20d44fcc9a6ef6718a2366faf73d691b2a2122c43003d4fc0ce8ac6` · `rf2-fresco` `1cc9fef3bca6a6a85602361f807ff95d8338ffefba0dcad9ed04dc8ff343814f` · `rf2-uix` `4594e3f11222a16e7ef47f3fb7c6827854ff3cd9e3fa4ea07682482adea1abc1`. One set of three, shared by both runs below — the re-take measured the published bundles rather than a rebuild, which is what isolates the parity question from five days of implementation drift |
+| Retained datasets | `implementation/fresco/test/re_frame/bench/fresco/data/jsfb-rguy1/` — both runs, **byte-exact as the instrument wrote them**, so a fresh clone can read this page's parity object, gate counts and per-round figures out of the tree instead of taking them on trust. `ours3.json`, the 2026-08-02 run, 6,124 bytes, SHA-256 `eacd43ed782ac7a80d3b47bb4f92a4e1dfa46f8d0f68eee6f757442cbe84f136`; `ours4.json`, the 2026-08-07 re-take, 35,553 bytes, SHA-256 `3e31fae2e408a2745b70bde6aa96cd242f9f9d17f8abf17af8e6e795577c5093`. Both carry `provenance.bundles: {}` — `jsfb_ours_run.cjs` declared the field and never filled it, so neither run binds itself to the three digests above; `provenance.json` beside them does it instead, and from `rf2-rguy1` (2026-08-08) the instrument does it itself. The benchmark clone and the run logs are **not** vendored |
 | Their run | started 2026-08-01 23:55:03 AUSEST, ended 00:00:55, **exit 0**, driver's own PlausibilityCheck `successful run` |
 | Our run | started 2026-08-02 00:01:09 AUSEST, ended 00:06:59, **exit 1**. Unverified writes and page errors cleared; the positive control failed ([§5](#5-the-control-failed-and-here-is-what-that-does-and-does-not-touch)) and **so did the DOM parity gate** — `parity.identical: false`. The earlier claim that parity cleared here is **withdrawn** (`rf2-rguy1`, 2026-08-07): this run predates the attribute-sorting gate, so the gate it is quoted as passing did not yet exist ([§1.3](#13-the-one-deliberate-deviation-and-why-it-strengthens-the-comparison)) |
 | Our DOM-parity re-take | started 2026-08-07 18:33:08 AUSEST, ended 18:39:47, **exit 1** — scoped to the positive control alone. **DOM parity IDENTICAL**, `firstDiff: null`, canonical and raw lengths `216,066` on all three arms; 0 unverified of 1,000 writes; 0 page errors. Landed harness at `851961adc6`, whose `jsfb_ours_run.cjs` differs from the pinned blob below only in `rf2-emvod`'s raw-`TaskDuration` reporting and `JSFB_ONLY` — the canonicalisation and the exit gate are byte-identical, so this is the same instrument on the parity question. Run against the three bundles above, digests re-verified before the run. **This re-take establishes the DOM gate only**; the ratios on this page are unchanged and remain those of the 2026-08-02 run |
@@ -558,13 +558,13 @@ rebase:
 
 | file | blob |
 |---|---|
-| `implementation/freehand/test/re_frame/bench/hicasso/jsfb_model.cljs` | `3c186ba5636859a01cb98586dad05a3d4138557d` |
-| `implementation/freehand/test/re_frame/bench/hicasso/jsfb_reagent_app.cljs` | `32126d9e8c5e095a3a1c803297a8358e824adea1` |
-| `implementation/freehand/test/re_frame/bench/hicasso/jsfb_uix_app.cljs` | `3b8ef3230c91ca9ba726949624c936050734f94b` |
-| `implementation/freehand/test/re_frame/bench/hicasso/jsfb_hicasso_app.cljs` | `6ad2e6ae097357f6336762a3edb22d7972b83ac6` |
-| `implementation/freehand/test/re_frame/bench/hicasso/jsfb_build.cjs` | `b0aee6935b019a6303bc1ccf8088709c0ccb4cdb` |
-| `implementation/freehand/test/re_frame/bench/hicasso/jsfb_ours_run.cjs` | `8f4c8c7657ffe34d63de0b6fccc944021e088259` |
-| `implementation/freehand/test/re_frame/bench/hicasso/jsfb_compare.cjs` | `6af3eb23b86b512f0c25dd8020099f8364cd63fa` |
+| `implementation/freehand/test/re_frame/bench/fresco/jsfb_model.cljs` | `3c186ba5636859a01cb98586dad05a3d4138557d` |
+| `implementation/freehand/test/re_frame/bench/fresco/jsfb_reagent_app.cljs` | `32126d9e8c5e095a3a1c803297a8358e824adea1` |
+| `implementation/freehand/test/re_frame/bench/fresco/jsfb_uix_app.cljs` | `3b8ef3230c91ca9ba726949624c936050734f94b` |
+| `implementation/freehand/test/re_frame/bench/fresco/jsfb_fresco_app.cljs` | `6ad2e6ae097357f6336762a3edb22d7972b83ac6` |
+| `implementation/freehand/test/re_frame/bench/fresco/jsfb_build.cjs` | `b0aee6935b019a6303bc1ccf8088709c0ccb4cdb` |
+| `implementation/freehand/test/re_frame/bench/fresco/jsfb_ours_run.cjs` | `8f4c8c7657ffe34d63de0b6fccc944021e088259` |
+| `implementation/freehand/test/re_frame/bench/fresco/jsfb_compare.cjs` | `6af3eb23b86b512f0c25dd8020099f8364cd63fa` |
 
 Reproduction — the clone is not vendored, so step one fetches it. Every figure
 above was taken at the revision and the schedule this command names, and both
@@ -580,24 +580,24 @@ cd /tmp/jsfb && npm --prefix server install && npm --prefix webdriver-ts ci \
 (cd server && npm start &)                      # serves :8080
 
 cd <re-frame2>/implementation && npm ci
-node hicasso/test/re_frame/bench/hicasso/jsfb_build.cjs --dest /tmp/jsfb
+node fresco/test/re_frame/bench/fresco/jsfb_build.cjs --dest /tmp/jsfb
 
 cd /tmp/jsfb/webdriver-ts                        # THEIRS
 node dist/benchmarkRunner.js \
-  --framework keyed/rf2-reagent keyed/rf2-hicasso keyed/rf2-uix \
+  --framework keyed/rf2-reagent keyed/rf2-fresco keyed/rf2-uix \
   --benchmark 01_ 02_ 03_ 05_ 09_ --count 10 --headless true --nothrottling true
 
 cd <re-frame2>/implementation                    # OURS — 5 rounds, as published
 JSFB_ROUNDS=5 JSFB_OURS_JSON=/tmp/ours.json \
-  node hicasso/test/re_frame/bench/hicasso/jsfb_ours_run.cjs
+  node fresco/test/re_frame/bench/fresco/jsfb_ours_run.cjs
 
-node hicasso/test/re_frame/bench/hicasso/jsfb_compare.cjs \
+node fresco/test/re_frame/bench/fresco/jsfb_compare.cjs \
   --theirs /tmp/jsfb/webdriver-ts/results --ours /tmp/ours.json
 ```
 
 The comparator **fails closed** and its exit code is therefore worth reading:
 `0` only when all **10** expected cells — the five benchmarks the driver runs,
-crossed with `rf2-hicasso` and `rf2-uix` — were measured by both instruments;
+crossed with `rf2-fresco` and `rf2-uix` — were measured by both instruments;
 `1` when the table is short, naming every missing cell and the side that lacks
 it; `2` when an input was not named, is not present, or will not parse. It used
 to exit `0` on an absent results directory, reporting *0 of 0 comparable rows*

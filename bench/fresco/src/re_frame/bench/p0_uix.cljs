@@ -32,7 +32,7 @@
   `(rf/subscribe …)` once. Neither is doing the other's work.
 
   Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
-  2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
+  2026-08-10, enumerated once in `docs/design/fresco/studio/README.md`;
   this arm rf2-2rtt6.4."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.p0-fixture :as rf.bench.p0-fixture]

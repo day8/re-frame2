@@ -61,7 +61,7 @@ talking about the delta, not a finding reading it.) *(ii)* **Both tree-wide cens
 parent.** The donor `:require` census of [§2.12](#212-bullet-17--donor-independence) reads **six**
 forms across three files at `e04a026749` exactly as at `09d4d84a80` — all under
 `docs/design/freehand/`, none in any `.clj`, `.cljs` or `.cljc` source — and
-`spec/009-Instrumentation.md` carries the same **74** distinct `:rf.*/hicasso-*` ids at both, so
+`spec/009-Instrumentation.md` carries the same **74** distinct `:rf.*/fresco-*` ids at both, so
 [§4](#4-quality)'s three traced complaint ids each still resolve to a Spec 009 row. *(iii)* **The
 one `spec/009` edit in the delta is a single in-place row rewrite** of `:rf.error/frame-destroyed`
 — PR #9179 dropping the unproduced `:op :capture` realm — which is not one of the ids §4 traces
@@ -164,7 +164,7 @@ it.**
 
 ### 2.1 Bullet 1 — package independence and release policy
 
-**Independence: established, mechanically.** `implementation/hicasso/deps.edn`
+**Independence: established, mechanically.** `implementation/fresco/deps.edn`
 carries two production dependencies, both in-repo (`day8/re-frame2` and
 `day8/re-frame2-ssr`), and no benchmark coordinate. Nothing under `src/` or
 `test_kit/src/` `:require`s a `re-frame.bench` namespace — nine textual mentions
@@ -179,7 +179,7 @@ captured exit 0** — see [§3](#3-correctness--what-was-run).
 fourteen-row compatibility matrix, a versioning scheme and an upgrade policy. It
 also states, in its own words, that three of the gates it cites were deleted on
 2026-08-30, that the coordinate it documents is **not the one that will ship**
-(*"the first tag therefore cuts on `io.github.day8/re-frame2-hicasso`"*, a string
+(*"the first tag therefore cuts on `io.github.day8/re-frame2-fresco`"*, a string
 that appears nowhere in the tree), and that **no version has been cut of
 anything** — `VERSION` reads `0.0.1.alpha` and the repository carries no release
 tag. Its own §1.1 acceptance is recorded as *blocked*, not merely unexecuted.
@@ -221,7 +221,7 @@ does not mistake it for a census. `rf2-87iu` carries the disposition.
 One substantive thing did move and is worth stating, because it discharges what
 held this bead for three weeks: **naming-ledger row 18 is executed, not
 stopped.** `rf2-t32wg` was ruled by the operator on 2026-08-30 and `hframe` is
-gone — zero occurrences under `implementation/hicasso/src/`.
+gone — zero occurrences under `implementation/fresco/src/`.
 
 ### 2.3 Bullet 3 — substrate and shell
 
@@ -269,7 +269,7 @@ that rescoped mismatch attribution landed as `137bd927db` on 2026-08-21, and a
 search of that page for the amendment's commit, PR number or bead ids returns
 nothing at all. The same page still records `rf2-s52w` as *open* and its cause as
 *"a missing door … the door is the operator's call"* — a root cause the ledger row
-itself records as overtaken on both clauses, since `re-frame.hicasso.server/render`
+itself records as overtaken on both clauses, since `re-frame.fresco.server/render`
 landed as `30317bfe0e` on 2026-08-14. `rf2-l67a` carries the currency repair.
 
 ### 2.5 Bullet 5 — public-surface-only witnesses
@@ -280,17 +280,17 @@ that could say so; and the positive witness was retired.**
 The representative app (`examples/slice/`), the controlled grid
 (`examples/grid/`) and the virtualizer (`examples/ledger/`) use only public
 surfaces. Every `ns` form in all nine example packages was read: the complete set
-of non-sibling namespaces they name is `re-frame.hicasso`, `re-frame.core`,
+of non-sibling namespaces they name is `re-frame.fresco`, `re-frame.core`,
 `re-frame.routing`, `re-frame.resources`, `re-frame.adapter.uix`,
 `clojure.string` and `["react"]`. The `rf2-hic-078` editor and grid applications
 are in the tree.
 
 The compound host and the imperative SDK each `:require`
-`re-frame.hicasso.impl.codec`, `.impl.collector` and `.impl.mount`, and the SDK
+`re-frame.fresco.impl.codec`, `.impl.collector` and `.impl.mount`, and the SDK
 additionally requires the test kit. **Their subjects are built on public
 surfaces** — the internals are the harness's, for mounting and observation — so
 this is not read as a breach. What it is: the bullet's two hardest witnesses sit
-outside `re-frame.hicasso.examples.fence-cljs-test`'s population twice over, being
+outside `re-frame.fresco.examples.fence-cljs-test`'s population twice over, being
 outside `examples/` and being suites.
 
 **The positive claim lost its instrument.** The `*surface-cljs-test*` suites that
@@ -307,9 +307,9 @@ tree: `specification.md` §13 itself.
 **This is the audit's most consequential completeness finding, and it is a fact
 about the artefact rather than a judgement.**
 
-`implementation/hicasso/src/re_frame/hicasso/native.cljc` is **82 lines** and
+`implementation/fresco/src/re_frame/fresco/native.cljc` is **82 lines** and
 defines **two** public names, `use-frame` and `use-sub`. Its own docstring states
-the end state: *"The two React hooks that join a React island to the Hicasso frame
+the end state: *"The two React hooks that join a React island to the Fresco frame
 it is mounted in … and nothing else. An island is a UIx `defui` or a raw React
 function component, mounted through `h/defhost` or `[:>]`."* That is `rf2-6c12m.3`
 executed. **`n/$`, `n/props`, `n/defcomponent`, `n/memo` and `n/lazy` do not
@@ -342,12 +342,12 @@ rows. Checkpoint 4's conjunct B is NOT MET on `HS-33`, `HS-17`, `HS-18` and
 | `HS-33` | *"NEITHER POLICY HOLDS TODAY — measured, and this is the one row in the table that is out of the matrix rather than merely unproved"* |
 | `HS-17` | Client-only; a `:slots`-declared named position is *"witnessed neither way"* |
 | `HS-18` | Client-only; *"`h/as-element` has no server-render row anywhere in the tree"* |
-| `HS-34` | *"THERE IS NO MODULE"* — no `re-frame.hicasso.routing` namespace exists |
+| `HS-34` | *"THERE IS NO MODULE"* — no `re-frame.fresco.routing` namespace exists |
 
 `HS-21` sits behind the `137bd927db` rescoping and is the subject of `rf2-nf8w`;
 whether it still fails conjunct B is a §2 re-run's to say, and nobody has said.
 
-The teaching corpus is already clean — `docs/core/hicasso/` carries **zero**
+The teaching corpus is already clean — `docs/core/fresco/` carries **zero**
 occurrences of the retired names, and so does `dispositions.md`. The drift is
 confined to the specification and the two lane tables, which is the small end of
 the repair and the load-bearing end of the harm. `rf2-aunp`.
@@ -368,7 +368,7 @@ bullet names *user-visible, regression, mount, update, and heap* budgets by name
 | `U4` | dragging and animation inside the frame budget | `UNPINNED` |
 | `C1` | ≤ 5% regression on the same witness and instrument | `UNPINNED` |
 | `C3` | ≤ 1.25x the best relevant adapter on broad updates | `UNPINNED` |
-| `C4` | no sustained 1.5x as ordinary Hicasso | `UNPINNED` |
+| `C4` | no sustained 1.5x as ordinary Fresco | `UNPINNED` |
 | `S3` / `C6` | ≤ 10% per-read regression | `UNRESOLVED` — 1,417 vs Reagent 948 per read |
 | `S6` / `C2` | 1.10x cold mount | `BREACH` — 1.1718x [1.1263–1.2190] |
 
@@ -405,12 +405,12 @@ stated rather than resolving in either direction.
 **Amber.** The ladder ships as a machine-readable contract with an honest
 self-declared coverage flag — `:here?` reads `false` for L0, L3 and L4 — mirrored
 in the published chapter and the API reference. Opacity is executable rather than
-prose: four distinct `hicasso-test-*-is-opaque` refusal ids plus an opaque marker,
+prose: four distinct `fresco-test-*-is-opaque` refusal ids plus an opaque marker,
 each pointing at the tier that can witness the claim. That half is green and is
 better than the bullet asks for.
 
 **"Browser coverage for browser laws" is the qualified half.** Every
-`*_dom_cljs_test.cljs` suite under `implementation/hicasso/test/` runs in headless
+`*_dom_cljs_test.cljs` suite under `implementation/fresco/test/` runs in headless
 Chromium, and the nightly is Chromium-only. Firefox and WebKit are reached by
 exactly two gates — the controlled-input and HMR jobs — and both are conditional
 on the changed-surface classifier, so neither runs on a pull request the
@@ -567,7 +567,7 @@ falsify the claim.
 
 **Green.** The 2026-08-12 operator amendment removed the *"when a named caller
 exists"* condition and made the bounded Node service a v0 deliverable in its own
-right. `re-frame.hicasso.server` exists in the shipped package with four public
+right. `re-frame.fresco.server` exists in the shipped package with four public
 names — `render`, `render-body`, `document`, `payload-script` — landed as
 `30317bfe0e`, and `impl/roots.cljs` names it one of two minters of the adoption
 window. The paragraph's own carve-out holds: building it is the obligation,
@@ -582,7 +582,7 @@ on the same command line; the number quoted is the captured one.
 | Gate | Captured exit | Result |
 |---|---|---|
 | `scripts/assert-worker-worktree.sh` | **0** | guard passed |
-| `npm run test:hicasso-invariants` | **0** | reachability self-test OK, then OK; guide-sample self-test *"the rule fires"*, then 74 distinct verbs at 401 sites across 29 pages resolve |
+| `npm run test:fresco-invariants` | **0** | reachability self-test OK, then OK; guide-sample self-test *"the rule fires"*, then 74 distinct verbs at 401 sites across 29 pages resolve |
 | `check_production_erasure.cjs --self-test` | **0** | *"self-test OK (5 sentinels, 3 positive controls)"* — the erasure positive control this bead's protocol names |
 | `scripts/check_doc_slugs.py` | **0** | baseline, then again over this page and the ledger rows |
 | `scripts/check_provenance_pins.py --changed-since origin/main` | **0** | 2 pages, 77 cited pins — 76 landed, **0 stranded, 1 unresolvable** and accompanied in scope, 0 findings |
@@ -598,7 +598,7 @@ landed as `ff79cc1a2d`. It prints (line-wrapped here; the tool writes each on on
 ```
 check_provenance_pins: 2 pages inspected, 77 cited pins — 76 landed, 0 stranded, 1 unresolvable,
 0 foreign; 1 accompanied in scope; 0 findings.
-  accompanied: docs/design/hicasso/product/correction-ledger.md:90  4d7453ac4e [UNRESOLVABLE]
+  accompanied: docs/design/fresco/product/correction-ledger.md:90  4d7453ac4e [UNRESOLVABLE]
   — not a finding: 369d843ead on line 90 is in the same block and is an ancestor of origin/main
 ```
 
@@ -622,17 +622,17 @@ unchanged.
 
 ### 3.1 The sabotage control, and the proof it read this tree
 
-`test:hicasso-invariants` prints no root, so its provenance was established the
+`test:fresco-invariants` prints no root, so its provenance was established the
 other way: **by a planted fault that exists only in this checkout.** One `h/sub`
-call in a fenced block of `docs/core/hicasso/03-events-as-data.md` was replaced
+call in a fenced block of `docs/core/fresco/03-events-as-data.md` was replaced
 with a verb the package does not define; the anchor was confirmed to match exactly
 once before the plant, so the edit could not silently no-op.
 
 The gate went **red at captured exit 1**, naming the plant:
 
 ```
-FAIL: the Hicasso guide names a verb the package does not define
-  re-frame.hicasso/dodaudit-sabotage-verb: named at 03-events-as-data.md block 2, defined nowhere in re-frame.hicasso
+FAIL: the Fresco guide names a verb the package does not define
+  re-frame.fresco/dodaudit-sabotage-verb: named at 03-events-as-data.md block 2, defined nowhere in re-frame.fresco
 ```
 
 The file was then restored and verified by **git blob hash**, identical to the
@@ -694,9 +694,9 @@ stating its meaning, its payload and an explicit `:recovery` value.
 
 | Id | Emitted in | Spec 009 row | Guide chapter |
 |---|---|---|---|
-| `:rf.error/hicasso-test-missing-read-fixture` | the test kit | yes, with `:no-recovery` and four payload keys | `—` |
-| `:rf.error/hicasso-generation-fence-exhausted` | `impl/collector.cljs` | yes, with the fence's full reasoning | `—` |
-| `:rf.error/hicasso-test-react-is-opaque` | the test kit | yes | `—` |
+| `:rf.error/fresco-test-missing-read-fixture` | the test kit | yes, with `:no-recovery` and four payload keys | `—` |
+| `:rf.error/fresco-generation-fence-exhausted` | `impl/collector.cljs` | yes, with the fence's full reasoning | `—` |
+| `:rf.error/fresco-test-react-is-opaque` | the test kit | yes | `—` |
 
 **The docs-anchor leg is where the trace stops, and it is a documented
 convention rather than a defect.** The catalogue says `—` means *no page names it

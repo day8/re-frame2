@@ -4,7 +4,7 @@
 
 > **How to check the ordering.** The reading rules below, the address in the evidence that decides each criterion, and the consequences of *both* outcomes were committed first, in this branch's opening commit, with every label reading `NOT YET APPLIED` and the verdict section empty. The readings arrived in the second commit and the labels in the third. A rebase rewrites a hash and does not rewrite an order, so it is the ordering rather than any hash that shows the rules were not chosen to fit the answer.
 
-`rf2-hic-050` decides the flagship experiment of the Hicasso programme: whether a committed `sub` that reads a resource may also declare demand for it, so that acquisition and release follow read liveness instead of hand-written correlation.
+`rf2-hic-050` decides the flagship experiment of the Fresco programme: whether a committed `sub` that reads a resource may also declare demand for it, so that acquisition and release follow read liveness instead of hand-written correlation.
 
 The decision is not this page's to invent. It was frozen in [`resource-demand-criteria.md`](resource-demand-criteria.md) before any data existed, and it is applied here to [`resource-demand-witness.md`](resource-demand-witness.md) and to nothing else. This page's whole job is to carry out four steps someone else wrote down.
 
@@ -24,7 +24,7 @@ Under the operator ruling `rf2-xpq9` of 2026-08-12 17:36 AUSEST, a decision-shap
 
 **The ordering is structural, not a claim about dates.** `afbb58febc` is an ancestor of every `rf2-hic-044` commit — of the report at `53a747ae6a` and of the witness application at `bade358ae5` alike, both checked with `git merge-base --is-ancestor`. A rebase rewrites a hash; it cannot make a descendant precede its own ancestor. So the criteria demonstrably predate the data whatever the timestamps say, which is the property pre-registration actually needs.
 
-**The criteria text has not moved since that revision.** `git diff afbb58febc HEAD -- docs/design/hicasso/product/resource-demand-criteria.md` returns two hunks: the pre-registration record rows with the prose immediately around them, and the Provenance paragraph, where `rf2-hic-091` replaced a link to an unpublished lane with prose naming it. C1 through C7, the glance table, *What is not a criterion*, the amendment rule, the verdict procedure, the consequences and the reopen conditions are byte-identical. The file's own [amendment rule](resource-demand-criteria.md#amendment-rule) says a provenance back-fill is not an amendment, and the diff is the check rather than the assurance. The file's blob today is `b7dc0f3e3448e49f56fdcfcc360ef04d8f281bda`.
+**The criteria text has not moved since that revision.** `git diff afbb58febc HEAD -- docs/design/fresco/product/resource-demand-criteria.md` returns two hunks: the pre-registration record rows with the prose immediately around them, and the Provenance paragraph, where `rf2-hic-091` replaced a link to an unpublished lane with prose naming it. C1 through C7, the glance table, *What is not a criterion*, the amendment rule, the verdict procedure, the consequences and the reopen conditions are byte-identical. The file's own [amendment rule](resource-demand-criteria.md#amendment-rule) says a provenance back-fill is not an amendment, and the diff is the check rather than the assurance. The file's blob today is `b7dc0f3e3448e49f56fdcfcc360ef04d8f281bda`.
 
 ## What this branch's own ordering proves, and what it does not
 
@@ -209,7 +209,7 @@ Every class claimed is one of the six registered in advance, and **no unregister
 
 **The acquisition point is stated post-commit, with render pure** — the report's own framing of what it establishes.
 
-**The second mechanism the criterion names is not counted here.** React abandonment and retry, along with Suspense retry, transition abort, error-boundary throw-and-retry and the render-to-commit gap, is exhibited at the runtime seam by `re-frame.hicasso.kernel-commit-owns-dom-cljs-test`, which the report cites rather than re-derives. That suite asserts its premise before its claim — `collector/body-runs` moved, so React really ran the body it discarded — but **this report publishes no population figure for it**, on the witness or anywhere else.
+**The second mechanism the criterion names is not counted here.** React abandonment and retry, along with Suspense retry, transition abort, error-boundary throw-and-retry and the render-to-commit gap, is exhibited at the runtime seam by `re-frame.fresco.kernel-commit-owns-dom-cljs-test`, which the report cites rather than re-derives. That suite asserts its premise before its claim — `collector/body-runs` moved, so React really ran the body it discarded — but **this report publishes no population figure for it**, on the witness or anywhere else.
 
 **The report's own flag, transcribed unanswered:** *"Whether that satisfies C3's 'on the witness' is a judgement the verdict owns, and it is flagged here rather than assumed."*
 
@@ -228,7 +228,7 @@ Every class claimed is one of the six registered in advance, and **no unregister
 
 ### C5 — the retained structures
 
-The exact per-read and per-boundary structures of the status quo are the five counters `re-frame.hicasso.test.mounted/census` publishes, read at three named moments:
+The exact per-read and per-boundary structures of the status quo are the five counters `re-frame.fresco.test.mounted/census` publishes, read at three named moments:
 
 | moment | cells | cell-refs | boundaries | edges | entries |
 |---|---|---|---|---|---|

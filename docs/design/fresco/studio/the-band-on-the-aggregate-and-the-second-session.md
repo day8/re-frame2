@@ -417,7 +417,7 @@ page.
 Chromium via Playwright at build **`chromium/147.0.7727.15`**, Node **v24.13.0**,
 `win32/x64/10.0.26200` — all recorded by the run itself (`rf2-24o2z`), and the
 same Chromium build phase 3 ran on, so the two windows are not two V8s.
-shadow-cljs `release` on build id `:hicasso-bench`, `:optimizations :advanced`,
+shadow-cljs `release` on build id `:fresco-bench`, `:optimizations :advanced`,
 `goog.DEBUG false`, `--expose-gc`, `:init-fn re-frame.bench.p0-app/-main`. Every
 run's build reports **195 files, 140 compiled, 0 warnings**, and every run's
 `shadow-cljs - config:` line names this worktree's own
@@ -472,8 +472,8 @@ Read before run 1 and again after run 8, with the same command:
 | file | blob hash, before and after |
 |---|---|
 | `implementation/core/test/re_frame/bench/p0_run.cjs` | the identical blob `ebb08f9f10171d8b67cecee98cb7e85c0a5b9e42` |
-| `implementation/hicasso/test/re_frame/bench/hicasso/alloc_pass_position.cjs` | the identical blob `787ffde48a07ae539d0868feec2718c0727310d5` |
-| `implementation/hicasso/test/re_frame/bench/hicasso/alloc_pass_design.cjs` | the identical blob `ccfa3057b3c38ab1b3610f7dd3e4e5264571a171` |
+| `implementation/fresco/test/re_frame/bench/fresco/alloc_pass_position.cjs` | the identical blob `787ffde48a07ae539d0868feec2718c0727310d5` |
+| `implementation/fresco/test/re_frame/bench/fresco/alloc_pass_design.cjs` | the identical blob `ccfa3057b3c38ab1b3610f7dd3e4e5264571a171` |
 
 **The rig is byte-identical to `origin/main` and to the blob phase 3 ran its own
 four runs against**, so phase 3's session and this window's two are the same
@@ -594,18 +594,18 @@ and the adjudication, which needs no browser and reads the pre-registration
 committed before run 1:
 
 ```
-node hicasso/test/re_frame/bench/hicasso/alloc_pass_design.cjs --controls
-node hicasso/test/re_frame/bench/hicasso/alloc_pass_position.cjs --self-test
-node hicasso/test/re_frame/bench/hicasso/alloc_pass_position.cjs \
-  --declared hicasso/test/re_frame/bench/hicasso/data/alloc-legorder/pre-registration.json \
-  hicasso/test/re_frame/bench/hicasso/data/alloc-legorder/run1.json ... run8.json
+node fresco/test/re_frame/bench/fresco/alloc_pass_design.cjs --controls
+node fresco/test/re_frame/bench/fresco/alloc_pass_position.cjs --self-test
+node fresco/test/re_frame/bench/fresco/alloc_pass_position.cjs \
+  --declared fresco/test/re_frame/bench/fresco/data/alloc-legorder/pre-registration.json \
+  fresco/test/re_frame/bench/fresco/data/alloc-legorder/run1.json ... run8.json
 ```
 
 Section D's re-adjudication of phase 3 substitutes
 `data/alloc-legorder/phase3-re-adjudication.json` and phase 3's own four run
 files.
 
-Datasets: `implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-legorder/`.
+Datasets: `implementation/fresco/test/re_frame/bench/fresco/data/alloc-legorder/`.
 Pre-registration and its prose: the same directory's `pre-registration.json` and
 `README.md`. **Producing commit**: authored on `worker/legorder-fk6pj`, branched
 from the landed commit `79471c9db9`, which is the anchor to resolve this page

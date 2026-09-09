@@ -8,9 +8,9 @@ These recipes assume you've already built something — the [introduction](../in
 
 The recipes are grouped by where they sit in the life of an app — **build it**, then, when something's off, **debug it**, and finally **ship it**. (Testing has grown into [its own section](../testing/index.md) — handlers, subscriptions, views, and whole pipeline runs, one page each.) You don't read the recipes in order; drop into the group that matches what's in front of you. Each is self-contained, so jumping straight to "Report errors in production" without having read "Build a form" costs you nothing.
 
-!!! note "If your views are Hicasso"
+!!! note "If your views are Fresco"
 
-    The view code in these recipes is written on a React substrate adapter and registered `reg-view` views — the adapter's `client-root` / `render!` to mount, `@(subscribe …)` to read, `^{:key}` metadata on list items, and Form-2 views where a value has to stay stable across renders. [Hicasso](../hicasso/index.md) accepts none of those spellings, so a recipe's view code will not run as written. What does carry over is everything below the view: the events, effects, subscriptions and frames are ordinary re-frame2 on either. For the view and the mount, read [Installation](../hicasso/00-installation.md) and [Views and reads](../hicasso/02-views-and-reads.md); for the debugging recipes, [Diagnostics](../hicasso/16-diagnostics.md) and [Performance](../hicasso/19-performance.md).
+    The view code in these recipes is written on a React substrate adapter and registered `reg-view` views — the adapter's `client-root` / `render!` to mount, `@(subscribe …)` to read, `^{:key}` metadata on list items, and Form-2 views where a value has to stay stable across renders. [Fresco](../fresco/index.md) accepts none of those spellings, so a recipe's view code will not run as written. What does carry over is everything below the view: the events, effects, subscriptions and frames are ordinary re-frame2 on either. For the view and the mount, read [Installation](../fresco/00-installation.md) and [Views and reads](../fresco/02-views-and-reads.md); for the debugging recipes, [Diagnostics](../fresco/16-diagnostics.md) and [Performance](../fresco/19-performance.md).
 
 ## Build it
 

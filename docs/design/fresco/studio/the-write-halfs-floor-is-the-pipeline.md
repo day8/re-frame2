@@ -229,13 +229,13 @@ the windows are larger than forecast:
 
 | run | arm | window `rise` range | falls |
 |---|---|---|---|
-| `all` | reagent-subs \| hicasso R20 | 920,386 – 1,172,582 | 7 |
+| `all` | reagent-subs \| fresco R20 | 920,386 – 1,172,582 | 7 |
 | `all` | reagent-subs \| reagent R20 | 983,866 – 1,510,710 | 9 |
-| `all` | uix-subs \| hicasso R20 | 903,386 – 1,494,586 | 8 |
+| `all` | uix-subs \| fresco R20 | 903,386 – 1,494,586 | 8 |
 | `all` | uix-subs \| uix R20 | 912,926 – 933,082 | **0** |
-| `page` | reagent-subs \| hicasso R20 | 908,454 – 1,095,490 | 7 |
+| `page` | reagent-subs \| fresco R20 | 908,454 – 1,095,490 | 7 |
 | `page` | reagent-subs \| reagent R20 | 976,130 – 1,013,450 | 7 |
-| `page` | uix-subs \| hicasso R20 | 897,054 – 1,412,554 | 5 |
+| `page` | uix-subs \| fresco R20 | 897,054 – 1,412,554 | 5 |
 | `page` | uix-subs \| uix R20 | 904,014 – 1,030,330 | 1 |
 
 The R = 20 windows run **1.5× to 2.5× the onset**, not the predicted 1.05×, so
@@ -267,18 +267,18 @@ six rounds:
 | reagent-subs \| reagent R3 | 8,451 | 8,420 | 0.4% |
 | reagent-subs \| reagent R7 | 16,680 | 16,692 | 0.1% |
 | reagent-subs \| reagent R20 | 43,204 | 43,263 | 0.1% |
-| reagent-subs \| hicasso R1 | 3,766 | 3,752 | 0.4% |
-| reagent-subs \| hicasso R3 | 7,089 | 6,922 | 2.4% |
-| reagent-subs \| hicasso R7 | 14,488 | 14,402 | 0.6% |
-| reagent-subs \| hicasso R20 | 40,338 | 40,180 | 0.4% |
+| reagent-subs \| fresco R1 | 3,766 | 3,752 | 0.4% |
+| reagent-subs \| fresco R3 | 7,089 | 6,922 | 2.4% |
+| reagent-subs \| fresco R7 | 14,488 | 14,402 | 0.6% |
+| reagent-subs \| fresco R20 | 40,338 | 40,180 | 0.4% |
 | uix-subs \| uix R1 | 2,269 | 2,244 | 1.1% |
 | uix-subs \| uix R3 | 5,376 | 5,419 | 0.8% |
 | uix-subs \| uix R7 | 11,734 | 11,700 | 0.3% |
 | uix-subs \| uix R20 | 32,095 | 32,058 | 0.1% |
-| uix-subs \| hicasso R1 | 3,673 | 3,644 | 0.8% |
-| uix-subs \| hicasso R3 | 6,886 | 6,883 | 0.0% |
-| uix-subs \| hicasso R7 | 13,962 | 14,076 | 0.8% |
-| uix-subs \| hicasso R20 | 39,443 | 40,236 | 2.0% |
+| uix-subs \| fresco R1 | 3,673 | 3,644 | 0.8% |
+| uix-subs \| fresco R3 | 6,886 | 6,883 | 0.0% |
+| uix-subs \| fresco R7 | 13,962 | 14,076 | 0.8% |
+| uix-subs \| fresco R20 | 39,443 | 40,236 | 2.0% |
 
 The floor drops as the equivalence argument requires — 23,116 → 21,428 B on
 reagent-subs and 23,627 → 21,908 B on uix-subs, a fall of 1,688 / 1,719 B (7.3%).

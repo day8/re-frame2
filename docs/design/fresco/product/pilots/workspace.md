@@ -36,20 +36,20 @@ The published installation chapter tells a reader to clone the monorepo *beside*
 
 **The app is the pilot's. The framework is documented.**
 
-That is the whole rule, and it decides every case cleanly. Everything under `app/` is the pilot's own code, to read, run and rewrite. Hicasso — what it is, how it works, what to type, why it broke — comes from the published documentation and from nothing else.
+That is the whole rule, and it decides every case cleanly. Everything under `app/` is the pilot's own code, to read, run and rewrite. Fresco — what it is, how it works, what to type, why it broke — comes from the published documentation and from nothing else.
 
-The checkout in `re-frame2/` exists because there is no published *coordinate* yet ([gap G1](README.md#what-the-published-documentation-does-not-answer)). It is a build input, not a reference work, and there is no reading exception: the documentation is published at <https://day8.github.io/re-frame2/>, so that is where the pilot reads it, and nothing inside the checkout is a reference for how Hicasso works — its own copy of those pages included. The exception `rf2-lpfz` added, when the documentation had nowhere else to live, is retired; `rf2-pug6` retired it in the two briefs and this page follows.
+The checkout in `re-frame2/` exists because there is no published *coordinate* yet ([gap G1](README.md#what-the-published-documentation-does-not-answer)). It is a build input, not a reference work, and there is no reading exception: the documentation is published at <https://day8.github.io/re-frame2/>, so that is where the pilot reads it, and nothing inside the checkout is a reference for how Fresco works — its own copy of those pages included. The exception `rf2-lpfz` added, when the documentation had nowhere else to live, is retired; `rf2-pug6` retired it in the two briefs and this page follows.
 
-**Gap G1 is about the coordinate and only the coordinate**, and conflating it with the documentation is what kept the stale claim here. The [installation page](../../../../core/hicasso/00-installation.md)'s warning box says `day8/re-frame2-hicasso` is not published, which is why `deps.edn` still resolves from the checkout; it says nothing about where the documentation lives, and the site has been publishing that page — warning box and all — throughout. Amended under `rf2-9w7h`.
+**Gap G1 is about the coordinate and only the coordinate**, and conflating it with the documentation is what kept the stale claim here. The [installation page](../../../../core/fresco/00-installation.md)'s warning box says `day8/re-frame2-fresco` is not published, which is why `deps.edn` still resolves from the checkout; it says nothing about where the documentation lives, and the site has been publishing that page — warning box and all — throughout. Amended under `rf2-9w7h`.
 
 | Allowed | Not allowed |
 | --- | --- |
-| Reading the published documentation at <https://day8.github.io/re-frame2/> — the Hicasso guide's 29 pages, the Xray manual and the staged `spec/` pages all on the same footing | Opening the checkout as a reference — `implementation/`, `spec/`, `docs/`, `examples/` — including its own copy of a page the site publishes |
+| Reading the published documentation at <https://day8.github.io/re-frame2/> — the Fresco guide's 29 pages, the Xray manual and the staged `spec/` pages all on the same footing | Opening the checkout as a reference — `implementation/`, `spec/`, `docs/`, `examples/` — including its own copy of a page the site publishes |
 | Resolving dependencies from the checkout via `:local/root` | Reading anything the site does not serve: `docs/design/` and the `examples/` tree among them |
-| Running a tool a published page names, at the path that page gives — the migration reporter under `migration/reagent-to-hicasso/codemod` is the one that matters | Reading the tracker, `git log`, or any branch |
+| Running a tool a published page names, at the path that page gives — the migration reporter under `migration/reagent-to-fresco/codemod` is the one that matters | Reading the tracker, `git log`, or any branch |
 | Reading error text and stack traces the build emits, including the file paths in them | Opening a source file named in a stack trace to see what it does |
 
-**Which pages those are is decided by the site build, not by a list kept here.** Anything the published site serves is documentation and is readable; anything it leaves out is not. That is `mkdocs.yml`'s `docs_dir` as the build scans it, minus its `exclude_docs` block, and it is worth stating as a mechanism rather than as an inventory, because an inventory drifts and this one would be read on every task. It settles the awkward case without needing a second sentence: `docs/design/` — this page among them — is excluded from the site, so it stays out of bounds by the same rule that lets `docs/core/hicasso/` in, and the site answers 404 for it.
+**Which pages those are is decided by the site build, not by a list kept here.** Anything the published site serves is documentation and is readable; anything it leaves out is not. That is `mkdocs.yml`'s `docs_dir` as the build scans it, minus its `exclude_docs` block, and it is worth stating as a mechanism rather than as an inventory, because an inventory drifts and this one would be read on every task. It settles the awkward case without needing a second sentence: `docs/design/` — this page among them — is excluded from the site, so it stays out of bounds by the same rule that lets `docs/core/fresco/` in, and the site answers 404 for it.
 
 **Two trees reach the site from outside `docs/`, and the rule covers them without an exception.** `mkdocs_hooks.py` stages `spec/` and `migration/` into `docs_dir` before MkDocs scans it, so the site serves both even though neither sits under `docs/` in the repository — `https://day8.github.io/re-frame2/spec/Conventions/` answers 200. Both are therefore published documentation and both are readable *at the site*, which is what [`rf2-hic-063`](README.md#what-governs-this-directory) settled in ruling that the fence is the site build and that narrower wording elsewhere is the defect rather than the contract. The checkout's own `spec/` is a different act and stays barred with every other tree in it, by the row above; and both pilot briefs say the site is readable in full, so a corpus exception here would put this page at odds with the instructions the pilot actually holds.
 
@@ -63,7 +63,7 @@ The table's last row is the one that will actually come up, and it is deliberate
 
 Each pilot's `README.md` is copied in with the source, and the pilot may read it. It explains what the application does and which re-frame2 patterns it is built from — the app's HTTP handling, its state machines, its routing. That is the pilot's own codebase and a real adopter would have exactly this.
 
-Its outward links are a different matter, and [step 2b](#assemble-a-workspace) has already dealt with them: the ones into `docs/` are repointed at the published site and resolve there; the ones into `spec/` and into sibling examples have had their links removed, because as written every one of them pointed into the checkout, which is a build input and not a reference work. Their names are still in the prose, so the rule is worth stating anyway. Knowing how *your app* works is yours; knowing how *Hicasso* works must come from the published documentation, because that is the only thing under measurement — and opening a named `spec/` file in the checkout is a logged leak whether or not the README still links it, exactly as opening the checkout's copy of a guide page would be. What the site's own copy of such a page is worth is [the fence](#the-read-fence)'s question and not this file's: de-linking here removes a dead pointer into the checkout, it does not bar a corpus. Amended under `rf2-vfmb`, and under `rf2-0yoa` for the site address.
+Its outward links are a different matter, and [step 2b](#assemble-a-workspace) has already dealt with them: the ones into `docs/` are repointed at the published site and resolve there; the ones into `spec/` and into sibling examples have had their links removed, because as written every one of them pointed into the checkout, which is a build input and not a reference work. Their names are still in the prose, so the rule is worth stating anyway. Knowing how *your app* works is yours; knowing how *Fresco* works must come from the published documentation, because that is the only thing under measurement — and opening a named `spec/` file in the checkout is a logged leak whether or not the README still links it, exactly as opening the checkout's copy of a guide page would be. What the site's own copy of such a page is worth is [the fence](#the-read-fence)'s question and not this file's: de-linking here removes a dead pointer into the checkout, it does not bar a corpus. Amended under `rf2-vfmb`, and under `rf2-0yoa` for the site address.
 
 ## Assemble a workspace
 
@@ -93,8 +93,8 @@ cp re-frame2/examples/real-apps/realworld_http/default-avatar.svg app/public/
 cp re-frame2/examples/real-apps/realworld_http/index.html         app/public/
 cp -r re-frame2/examples/_shared                                  app/public/_shared
 cp re-frame2/examples/real-apps/realworld_http/README.md          app/
-cp re-frame2/docs/design/hicasso/product/pilots/baseline/realworld_http/baseline_test.cljs app/test/realworld_http/
-cp re-frame2/docs/design/hicasso/product/pilots/page-check.cjs    app/
+cp re-frame2/docs/design/fresco/product/pilots/baseline/realworld_http/baseline_test.cljs app/test/realworld_http/
+cp re-frame2/docs/design/fresco/product/pilots/page-check.cjs    app/
 ```
 
 Pilot 2 — LinearLite:
@@ -105,8 +105,8 @@ cp re-frame2/examples/capabilities/resources/linearlite/core.cljs  app/src/linea
 cp re-frame2/examples/capabilities/resources/linearlite/index.html app/public/
 cp -r re-frame2/examples/_shared                                   app/public/_shared
 cp re-frame2/examples/capabilities/resources/linearlite/README.md  app/
-cp re-frame2/docs/design/hicasso/product/pilots/baseline/linearlite/baseline_test.cljs app/test/linearlite/
-cp re-frame2/docs/design/hicasso/product/pilots/page-check.cjs     app/
+cp re-frame2/docs/design/fresco/product/pilots/baseline/linearlite/baseline_test.cljs app/test/linearlite/
+cp re-frame2/docs/design/fresco/product/pilots/page-check.cjs     app/
 ```
 
 The last two lines of each manifest are the two files that do not come from the app's own directory. The first is the app's behavioural baseline. The examples tree is test-free by policy, so each app's behavioural suite lives in the Reagent adapter's test tree and runs on the in-repo harness; [`baseline/`](baseline/README.md) carries the subset that exercises the nominated screens, rewritten as the app's own test namespace so that it stands on `cljs.test`, the core test support and the canned HTTP replies — all of which the `:local/root` route resolves — and on nothing the workspace cannot see. The pilot may read it, since it is under `app/`, which is why it names no in-tree path, bead or spec: the fence holds inside the test file as it does inside the brief. Added under `rf2-xkhul`. The second is `page-check.cjs`, which [step 5](#assemble-a-workspace) runs and the pilot keeps; it is under `app/` on the same terms and names no in-tree path either. Added under `rf2-ek1a`.
@@ -118,7 +118,7 @@ sed -E -e 's#\]\((\.\./)+docs/#](@@D@@#g' \
        -e 's#\[([^]]*)\]\(\.\.[^)]*\)#\1#g' \
        -e 's#(@@D@@[^)]*)\.md#\1/#g' \
        -e 's#@@D@@#https://day8.github.io/re-frame2/#g' app/README.md > app/README.tmp
-cat re-frame2/docs/design/hicasso/product/pilots/readme-note.md app/README.tmp > app/README.md
+cat re-frame2/docs/design/fresco/product/pilots/readme-note.md app/README.tmp > app/README.md
 rm app/README.tmp
 ```
 
@@ -229,19 +229,19 @@ Pilot 1 — RealWorld/Conduit:
          day8/re-frame2-flows    {:local/root "../re-frame2/implementation/flows"}
          day8/re-frame2-schemas  {:local/root "../re-frame2/implementation/schemas"}
          day8/re-frame2-ssr      {:local/root "../re-frame2/implementation/ssr"}
-         day8/re-frame2-hicasso  {:local/root "../re-frame2/implementation/hicasso"}
+         day8/re-frame2-fresco  {:local/root "../re-frame2/implementation/fresco"}
          io.github.nextjournal/markdown {:mvn/version "0.7.225"}}
 
  :aliases
  {:shadow {:extra-deps {thheller/shadow-cljs {:mvn/version "3.4.10"}}}
   :test   {:extra-paths ["test"]
-           :extra-deps  {day8/re-frame2-hicasso-test-kit
-                         {:local/root "../re-frame2/implementation/hicasso/test_kit"}}}}}
+           :extra-deps  {day8/re-frame2-fresco-test-kit
+                         {:local/root "../re-frame2/implementation/fresco/test_kit"}}}}}
 ```
 
 Pilot 2 — LinearLite: the same file with the `machines`, `flows`, `schemas`, `ssr` and `markdown` rows dropped and `day8/re-frame2-resources {:local/root "../re-frame2/implementation/resources"}` added.
 
-The `:test` alias follows the published testing chapter's `:local/root` route, where the Hicasso test kit lives on its own source root outside the artefact's `:paths` and has to be named explicitly — as a second `:local/root` coordinate, which is what keeps it inside a project boundary and off the Clojure CLI's external-path deprecation. Both pilots need it from the first hour, because outcome 1 is to preserve the app's behavioural tests. `"test"` on the same alias is the app's own test root: the baseline lands there in step 2, and the tests the pilot ports or adds go beside it.
+The `:test` alias follows the published testing chapter's `:local/root` route, where the Fresco test kit lives on its own source root outside the artefact's `:paths` and has to be named explicitly — as a second `:local/root` coordinate, which is what keeps it inside a project boundary and off the Clojure CLI's external-path deprecation. Both pilots need it from the first hour, because outcome 1 is to preserve the app's behavioural tests. `"test"` on the same alias is the app's own test root: the baseline lands there in step 2, and the tests the pilot ports or adds go beside it.
 
 ### `app/shadow-cljs.edn`
 
@@ -299,6 +299,6 @@ The copied `index.html` already carries each app's markup and stylesheet links. 
 
 ## Why the adapter does not change
 
-Both applications run on the Reagent adapter today, and both keep it. Hicasso is a view layer and needs *some* substrate adapter; which one is the adopter's choice and the only line that differs between substrates.
+Both applications run on the Reagent adapter today, and both keep it. Fresco is a view layer and needs *some* substrate adapter; which one is the adopter's choice and the only line that differs between substrates.
 
-Holding it fixed is deliberate. The pilot measures one migration — Reagent views to Hicasso views — and swapping the substrate at the same time would put two changes behind every result, including every performance and hot-reload observation. If a published page turns out to assume UIx somewhere it should not, that is friction worth logging, and logging it is more valuable than working around it.
+Holding it fixed is deliberate. The pilot measures one migration — Reagent views to Fresco views — and swapping the substrate at the same time would put two changes behind every result, including every performance and hot-reload observation. If a published page turns out to assume UIx somewhere it should not, that is friction worth logging, and logging it is more valuable than working around it.

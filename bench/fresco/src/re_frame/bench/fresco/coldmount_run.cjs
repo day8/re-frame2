@@ -2,7 +2,7 @@
 // THE COLD-MOUNT DOUBLE BUILD, PRICED AGAINST THE MOUNT RED-ZONE — driver
 // (rf2-2rtt6.15; decision input for the rf2-2rtt6.14 ruling).
 //
-//   node implementation/hicasso/test/re_frame/bench/hicasso/coldmount_run.cjs
+//   node implementation/fresco/test/re_frame/bench/fresco/coldmount_run.cjs
 //   COLDMOUNT_ONLY=M1L1,M1L2 node .../coldmount_run.cjs      # a subset of rows
 //
 // Build once, serve once, load the page ONE ROW AT A TIME, and refuse a
@@ -15,7 +15,7 @@
 // ## No new build id
 //
 // `implementation/shadow-cljs.edn` is not touched. This rides
-// `:hicasso-bench` with an output directory and an `:init-fn` merged in at
+// `:fresco-bench` with an output directory and an `:init-fn` merged in at
 // the CLI — HD-017's seam, the same one every driver in this directory
 // uses. The lane's one cache rule runs first (`lane_cache.cjs`,
 // rf2-2rtt6.20): one build id means one build cache, so it is cleared
@@ -82,9 +82,9 @@ const { shadowBuild } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
 
-const BUILD_ID = 'hicasso-bench';
-const OUT_DIR = process.env.COLDMOUNT_OUT_DIR || 'out/hicasso-coldmount';
-const INIT_FN = 're-frame.bench.hicasso.coldmount-app/-main';
+const BUILD_ID = 'fresco-bench';
+const OUT_DIR = process.env.COLDMOUNT_OUT_DIR || 'out/fresco-coldmount';
+const INIT_FN = 're-frame.bench.fresco.coldmount-app/-main';
 const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.COLDMOUNT_PORT || 8143);
 
@@ -102,7 +102,7 @@ const ALL_ROWS = [
 ];
 
 // `COLDMOUNT_ONLY=M1L2` re-takes a subset over the SAME bundle and the same
-// gates — `p0_converge_run.cjs`'s `HICASSO_ONLY`, for that driver's reasons.
+// gates — `p0_converge_run.cjs`'s `FRESCO_ONLY`, for that driver's reasons.
 const ONLY = (process.env.COLDMOUNT_ONLY || '').trim();
 const ROWS = ONLY ? ALL_ROWS.filter((r) => ONLY.split(',').includes(r.id)) : ALL_ROWS;
 if (ROWS.length === 0) {
@@ -141,7 +141,7 @@ const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'applicat
 function serve() {
   fs.writeFileSync(
     path.join(OUT, 'index.html'),
-    '<!doctype html><html><head><meta charset="utf-8"><title>Hicasso cold-mount double build</title></head>' +
+    '<!doctype html><html><head><meta charset="utf-8"><title>Fresco cold-mount double build</title></head>' +
       '<body><div id="app"></div><script src="main.js"></script></body></html>'
   );
   return http
@@ -175,19 +175,19 @@ async function runRow(browser, row) {
     await navigate(page, `http://127.0.0.1:${PORT}/?row=${row.id}`, {
       waitUntil: 'commit',
       timeoutMs: NAV_TIMEOUT_MS,
-      budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.HICASSO_DONE`,
+      budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.FRESCO_DONE`,
     });
-    await watch.race('window.HICASSO_DONE === true || window.HICASSO_ERROR', {
+    await watch.race('window.FRESCO_DONE === true || window.FRESCO_ERROR', {
       timeoutMs: SENTINEL_TIMEOUT_MS,
-      budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.HICASSO_DONE`,
+      budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.FRESCO_DONE`,
     });
 
-    const err = await page.evaluate('window.HICASSO_ERROR || null');
-    const refused = await page.evaluate('window.HICASSO_GUARD_REFUSED === true');
-    const controlFailed = await page.evaluate('window.HICASSO_CONTROL_FAILED === true');
-    const orderRefused = await page.evaluate('window.HICASSO_ORDER_REFUSED === true');
-    const claimFailed = await page.evaluate('window.HICASSO_CLAIM_FAILED === true');
-    const results = await page.evaluate('window.HICASSO_RESULTS || {}');
+    const err = await page.evaluate('window.FRESCO_ERROR || null');
+    const refused = await page.evaluate('window.FRESCO_GUARD_REFUSED === true');
+    const controlFailed = await page.evaluate('window.FRESCO_CONTROL_FAILED === true');
+    const orderRefused = await page.evaluate('window.FRESCO_ORDER_REFUSED === true');
+    const claimFailed = await page.evaluate('window.FRESCO_CLAIM_FAILED === true');
+    const results = await page.evaluate('window.FRESCO_RESULTS || {}');
     return {
       row, err, refused, controlFailed, orderRefused, claimFailed, results,
       pageErrors: watch.failures.map((f) => `${f.kind}: ${f.detail}`),
@@ -226,17 +226,17 @@ async function runRow(browser, row) {
     process.exit(1);
   }
 
-  console.log(`;; ==== HICASSO RUNTIME ====`);
+  console.log(`;; ==== FRESCO RUNTIME ====`);
   console.log(`;; chromium ${version} (playwright), :advanced, goog.DEBUG false`);
   console.log(`;; one row per page; ${ROWS.length} pages; 4 rounds (balanced 2:2 segment order)`);
   console.log(
     `;; reproduce  ${ONLY ? `COLDMOUNT_ONLY=${ONLY} ` : ''}node ` +
-      `implementation/hicasso/test/re_frame/bench/hicasso/coldmount_run.cjs`
+      `implementation/fresco/test/re_frame/bench/fresco/coldmount_run.cjs`
   );
   console.log(`;; rows       ${ROWS.map((r) => r.id).join(', ')}${ONLY ? `  (COLDMOUNT_ONLY=${ONLY})` : ''}`);
   for (const o of outcomes) {
     for (const [k, v] of Object.entries(o.results)) {
-      console.log(`;; ==== HICASSO ${o.row.id} / ${k} ====`);
+      console.log(`;; ==== FRESCO ${o.row.id} / ${k} ====`);
       console.log(v);
     }
   }

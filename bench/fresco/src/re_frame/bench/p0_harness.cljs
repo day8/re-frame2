@@ -53,7 +53,7 @@
   as a winner.
 
   Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
-  2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
+  2026-08-10, enumerated once in `docs/design/fresco/studio/README.md`;
   this arm rf2-2rtt6.4."
   (:require ["react-dom" :as react-dom]
             [clojure.string :as str]

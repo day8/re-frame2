@@ -560,9 +560,9 @@
 
   NO registration in the tree needs that today, and the one that did is
   worth recording because it is what the indirection was built for.
-  Hicasso's authoring-time `:view` alias
-  (`re-frame.hicasso.impl.collector/publish-view-alias!`, rf2-5qaf4) used
-  to carry its minted head at a private `:hicasso/component` with NO
+  Fresco's authoring-time `:view` alias
+  (`re-frame.fresco.impl.collector/publish-view-alias!`, rf2-5qaf4) used
+  to carry its minted head at a private `:fresco/component` with NO
   `:handler-fn`, on the reasoning that a boundary is a React component
   rather than a hiccup-returning render fn. Comparing `:handler-fn` on
   that shape compares nil with nil, which reports `:different-fn? false`

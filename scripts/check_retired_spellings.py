@@ -27,14 +27,14 @@ so six retired spellings are now lintable:
       query state across routes is application policy spelled as a pure
       function over the destination address.
 
-  (d) A hicasso BENCH-TREE coordinate — `front.<ns>/<name>` or
+  (d) A fresco BENCH-TREE coordinate — `front.<ns>/<name>` or
       `arm1.<ns>/<name>` (rf2-hic-007, rf2-r4jy). The shipped
-      `implementation/hicasso` package was measured as the prototype
-      `re-frame.bench.hicasso.{front,arm1}.*` and carries that tree's
+      `implementation/fresco` package was measured as the prototype
+      `re-frame.bench.fresco.{front,arm1}.*` and carries that tree's
       provenance all through its prose, but the prototype is NOT in this
       repo and no consumer can follow a coordinate into it. rf2-hic-007
       moved 42 `:where` coordinates onto the package's own
-      `re-frame.hicasso.impl.*` namespaces; a coordinate naming `front.*`
+      `re-frame.fresco.impl.*` namespaces; a coordinate naming `front.*`
       or `arm1.*` is retired.
 
   (e) The facade fn `machine-has-tag?` (rf2-il99l3, reversing rf2-2cmcas).
@@ -144,7 +144,7 @@ retired SHAPES:
           `front.dogfood`, `front.intent`), which name a retired MODULE in
           provenance prose and resolve to nothing executable.
         * Token start denies a preceding `.`, so the honest fully-qualified
-          `re-frame.bench.hicasso.front.slot-cljs-test` stays green: that
+          `re-frame.bench.fresco.front.slot-cljs-test` stays green: that
           spelling names the prototype tree truthfully and is not a coordinate
           anyone could mistake for a shipped one.
         * Token start denies a preceding BACKTICK **in Markdown only**, so
@@ -243,7 +243,7 @@ retired SHAPES:
       `ARROW_SCAN_DIRS`, which is `DEFAULT_SCAN_DIRS` PLUS `bench/`; the bench
       tree is added to this rule's roster rather than to the shared default so
       widening it does not re-scope rules (a)-(e) as a side effect. It matters
-      here specifically: `bench/hicasso` is a hand-run project that no per-PR
+      here specifically: `bench/fresco` is a hand-run project that no per-PR
       lane compiles (rf2-6c12m.1), so a retired registration there goes SILENT
       rather than red, and silent is the worse shape.
 
@@ -380,11 +380,11 @@ spelling is correct, not drift. Pass `--include-tests` to scan them too
 Rule (d) has its OWN surface (`COORD_SCAN_PATHS`) and its own suffix filter,
 and both differences are load-bearing:
 
-  * It scans `implementation/hicasso/test/**` — with no `--include-tests` opt,
+  * It scans `implementation/fresco/test/**` — with no `--include-tests` opt,
     unconditionally. The demonstrated regression WAS a test assertion, so a
     coordinate rule that skipped test trees would be a rule that skips the only
     place the failure has ever occurred. The other rules' reason for excluding
-    tests does not transfer: a hicasso test has no reason to assert that a
+    tests does not transfer: a fresco test has no reason to assert that a
     refusal still names the prototype, which is precisely what rf2-hic-007
     found one doing.
   * It adds `.md`, for the single file `spec/009-Instrumentation.md` — the spec
@@ -393,9 +393,9 @@ and both differences are load-bearing:
     comment/string masking (it has neither), so on `.md` the backtick token
     boundary is the entire prose defence, which is why rule (d)'s symbol
     pattern denies a preceding backtick everywhere rather than only there.
-  * It does NOT scan the whole repo. `docs/design/hicasso/**` is a working
+  * It does NOT scan the whole repo. `docs/design/fresco/**` is a working
     design record of the prototype and names `front.*` / `arm1.*` throughout
-    on purpose; so does `implementation/hicasso`'s own freeze manifest. The
+    on purpose; so does `implementation/fresco`'s own freeze manifest. The
     subject here is a coordinate a SHIPPED refusal can carry, and that is the
     package's source, its tests, its test-kit and its spec.
 
@@ -481,26 +481,26 @@ DEFAULT_SCAN_DIRS = (
 
 _SOURCE_SUFFIXES = (".clj", ".cljc", ".cljs")
 
-# Rule (d)'s surface — the four paths a shipped hicasso refusal's `:where` can
+# Rule (d)'s surface — the four paths a shipped fresco refusal's `:where` can
 # reach: the package source, its tests (where rf2-hic-007's regression lived),
 # its test-kit, and the spec that owns the coordinate contract. Deliberately NOT
 # the whole repo; see SCAN SURFACE in the module docstring. Rostered paths are
 # required to exist for the same reason `DEFAULT_SCAN_DIRS` are: a skipped tree
 # reports success for a surface it never opened.
 COORD_SCAN_PATHS = (
-    "implementation/hicasso/src",
-    "implementation/hicasso/test",
-    "implementation/hicasso/test_kit",
+    "implementation/fresco/src",
+    "implementation/fresco/test",
+    "implementation/fresco/test_kit",
     "spec/009-Instrumentation.md",
 )
 
 # ...minus the PROTOTYPE ITSELF, which since rf2-0yp7w P0 lives inside
-# `implementation/hicasso/test`: the hicasso benchmark harness was re-homed out
+# `implementation/fresco/test`: the fresco benchmark harness was re-homed out
 # of `implementation/freehand/test/` to sit beside what it measures.
 #
 # Rule (d)'s subject is a SHIPPED refusal whose `:where` names a coordinate the
 # consumer cannot reach — `front.codec/realize-deep` resolves to nothing,
-# because the package is `re-frame.hicasso.impl.*` and the prototype it was
+# because the package is `re-frame.fresco.impl.*` and the prototype it was
 # measured as is somewhere else. The prototype naming its OWN coordinates is
 # not that. It is the definition of them, in the files that carry them, and
 # `front.state/reg-state` inside `front/state.cljc` is simply that function's
@@ -512,7 +512,7 @@ COORD_SCAN_PATHS = (
 # is still scanned: the package source, the package's own tests (where
 # rf2-hic-007's regression lived), the test kit, and Spec 009.
 COORD_EXCLUDE_PATHS = (
-    "implementation/hicasso/test/re_frame/bench",
+    "implementation/fresco/test/re_frame/bench",
 )
 
 _COORD_SUFFIXES = _SOURCE_SUFFIXES + (".md",)
@@ -520,7 +520,7 @@ _COORD_SUFFIXES = _SOURCE_SUFFIXES + (".md",)
 # Rule (f)'s SOURCE surface — every tree `DEFAULT_SCAN_DIRS` covers, plus
 # `bench/`. The bench tree is added HERE and not to `DEFAULT_SCAN_DIRS`
 # deliberately: widening the default would re-scope rules (a)-(e) as a side
-# effect of this one, and `bench/hicasso` is a hand-run project that no
+# effect of this one, and `bench/fresco` is a hand-run project that no
 # per-PR lane compiles (rf2-6c12m.1) — which is exactly why a retired
 # registration there would go SILENT rather than red, and exactly why this
 # rule wants it.
@@ -558,7 +558,7 @@ ARROW_PROSE_SCAN_DIRS = ("spec", "skills", "migration", "docs")
 #     SOURCE trees, so scanning the copies would report every finding twice —
 #     the second time at a path that exists in no checkout git knows about,
 #     which is a fix hint pointing at a file the author cannot edit.
-#   * `docs/design` is the dated design record: `docs/design/hicasso/studio/`
+#   * `docs/design` is the dated design record: `docs/design/fresco/studio/`
 #     and its siblings are measurement write-ups pinned to the day they were
 #     taken, and a design record quoting the shape it decided against is doing
 #     its job. This is the audit's stated intent and it is DELIBERATELY not
@@ -695,7 +695,7 @@ _RETIRED_MACHINE_HAS_TAG_DEF_RE = re.compile(
 )
 
 
-# (d) A retired hicasso bench-tree coordinate, in its TWO shapes.
+# (d) A retired fresco bench-tree coordinate, in its TWO shapes.
 #
 # SYMBOL. `front.<ns>/<name>` or `arm1.<ns>/<name>` as a delimited Clojure
 # symbol token. The namespace dot and the `/` are both mandatory (the member
@@ -708,7 +708,7 @@ _COORD_SYMBOL_BODY = (
 )
 
 # Token start, and it is SOURCE-KIND AWARE in exactly one character. Both kinds
-# deny a preceding `.` (the honest fully-qualified `re-frame.bench.hicasso.*`
+# deny a preceding `.` (the honest fully-qualified `re-frame.bench.fresco.*`
 # spelling stays green) and admit the reader macros that can legitimately
 # precede a coordinate.
 #
@@ -1070,7 +1070,7 @@ def scan(scan_root: Path, include_tests: bool = False) -> list[Finding]:
 
 
 def _scan_coordinates(path: Path, text: str) -> list[Finding]:
-    """Return rule (d) findings — retired hicasso bench coordinates.
+    """Return rule (d) findings — retired fresco bench coordinates.
 
     Rule (d) is the one rule in this gate that reads INSIDE string literals, so
     it cannot share `_scan_text`'s single masked view. It takes two:
@@ -1191,7 +1191,7 @@ def _arrow_prose_excluded(path: Path) -> bool:
     """True when `path` sits inside an `ARROW_PROSE_EXCLUDE_PATHS` subtree.
 
     Every ANCESTOR is tested, not just the immediate parent: the excluded trees
-    are roots, and `docs/design/hicasso/studio/x.md` is as excluded as
+    are roots, and `docs/design/fresco/studio/x.md` is as excluded as
     `docs/design/x.md`. The walk in `scan_arrow_prose` gets this by pruning at
     the exclusion root; direct-file mode has no walk, so it asks here.
     """
@@ -1289,13 +1289,13 @@ _FIX_HINTS = {
         "in-place `:query` / `:query-merge` request."
     ),
     "retired-bench-coordinate": (
-        "A hicasso BENCH-TREE coordinate — `front.*` / `arm1.*` — was retired "
+        "A fresco BENCH-TREE coordinate — `front.*` / `arm1.*` — was retired "
         "by rf2-hic-007. The shipped package was measured as the prototype "
-        "`re-frame.bench.hicasso.{front,arm1}.*`, which is NOT in this repo: a "
+        "`re-frame.bench.fresco.{front,arm1}.*`, which is NOT in this repo: a "
         "refusal whose `:where` names it points a consumer at nothing. Raise "
         "from the package's own namespace — e.g. "
-        "`:where 're-frame.hicasso.impl.collector/shell` — and "
-        "assert against the PACKAGE prefix `\"re-frame.hicasso.impl.\"` rather "
+        "`:where 're-frame.fresco.impl.collector/shell` — and "
+        "assert against the PACKAGE prefix `\"re-frame.fresco.impl.\"` rather "
         "than one file's, so the next move of a guard between `impl` "
         "namespaces does not red the row. If you are writing PROSE about the "
         "prototype: in Markdown, backtick it (`` `front.codec/realize-deep` "
@@ -1374,7 +1374,7 @@ def main(argv: list[str]) -> int:
         description=(
             "EP-0007 §Enforcement: fail on a retired spelling reappearing in "
             "repo source (the bare :frame coeffect; redirect :url/:to; "
-            "route :query-retain; a hicasso front.*/arm1.* bench coordinate, "
+            "route :query-retain; a fresco front.*/arm1.* bench coordinate, "
             "as a symbol OR as a string; the retired facade fn "
             "machine-has-tag?, qualified or redefined)."
         ),
@@ -1402,7 +1402,7 @@ def main(argv: list[str]) -> int:
         help=(
             "Scan test/ trees too. Off by default — tests legitimately name "
             "the retired spelling to assert it is gone / rejected. Does not "
-            "apply to rule (d), which scans hicasso tests unconditionally."
+            "apply to rule (d), which scans fresco tests unconditionally."
         ),
     )
     parser.add_argument(
@@ -1447,7 +1447,7 @@ def main(argv: list[str]) -> int:
     # a tree it never opened, which is the whole defect class rf2-kqxe6.25 is
     # about. Same posture as the test-lane bijection gate's phantom-path rule.
     # Rule (d)'s roster gets the identical treatment, and needs it more: three
-    # of its four entries are hicasso subtrees, and a package reorganisation
+    # of its four entries are fresco subtrees, and a package reorganisation
     # that renamed one would otherwise silently unratchet the rule.
     missing = [r for r in scan_roots + coord_roots + arrow_roots
                + arrow_prose_roots if not r.exists()]
@@ -1685,7 +1685,7 @@ _ARROW_PROSE_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
     # --- the staged copies and the dated design records MUST NOT be ---
     ("docs/spec/002-Frames.md",                      0),
     ("docs/migration/from-re-frame-v1/README.md",    0),
-    ("docs/design/hicasso/studio/measurement.md",    0),
+    ("docs/design/fresco/studio/measurement.md",    0),
 )
 
 
@@ -1732,7 +1732,7 @@ def _run_self_tests(verbose: bool = False) -> int:
     A third phase runs `_COORD_SELF_TEST_CASES` through `scan_coordinates`.
     Rule (d) needs its own phase because it needs its own scanner: it reads
     INSIDE string literals and it accepts `.md`. Its negatives are reproduced
-    verbatim from the shipped hicasso corpus, so a future widening of the rule
+    verbatim from the shipped fresco corpus, so a future widening of the rule
     that would red real files fails here first, in this repo, rather than in
     someone else's PR.
 

@@ -1,7 +1,7 @@
-(ns re-frame.bench.hicasso.arm1.dogfood-dom-cljs-test
+(ns re-frame.bench.fresco.arm1.dogfood-dom-cljs-test
   "THE DOGFOOD SCREEN, MOUNTED — AND THE SIX-WEEK CLOCK (rf2-2rtt6.9).
 
-  **HD-014 starts the K7 clock at the first Hicasso-arm commit that
+  **HD-014 starts the K7 clock at the first Fresco-arm commit that
   mounts the dogfood screen. This is that mount.** The operator is on
   record accepting it (rf2-2rtt6, 2026-07-31); K7 is never extended
   silently.
@@ -10,7 +10,7 @@
   reads, written in three renderings — the collector surface, the grouped
   `use-subs` surface, and raw UIx — \"judged on diff and preference by
   its authors\". The written judgement is
-  `docs/design/hicasso/studio/arm1-lean-react-dogfood-judgement.md`. What
+  `docs/design/fresco/studio/arm1-lean-react-dogfood-judgement.md`. What
   is asserted here is the half a judgement cannot supply: that the three
   renderings build **the same page**, so the comparison is about the
   reading surface and nothing else.
@@ -46,7 +46,7 @@
      and witnesses it coming out ([[pin-is-adapters-default!]]), so the
      comparison names its own subject.
   2. **The narrow write touches one row.** A toggle re-renders the row it
-     names and no other, on both Hicasso renderings — which is the index
+     names and no other, on both Fresco renderings — which is the index
      doing its job through React rather than a claim about it.
   3. **The controlled field echoes in the caller's turn** (HD-019's
      synchronous door), and the collector's conditional read means a
@@ -60,14 +60,14 @@
   stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.dogfood-collector :as rf.bench.hicasso.arm1.dogfood-collector]
-            [re-frame.bench.hicasso.arm1.dogfood-grouped :as rf.bench.hicasso.arm1.dogfood-grouped]
-            [re-frame.bench.hicasso.arm1.dogfood-script :as rf.bench.hicasso.arm1.dogfood-script]
-            [re-frame.bench.hicasso.arm1.dogfood-uix :as rf.bench.hicasso.arm1.dogfood-uix]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.fresco.arm1.dogfood-collector :as rf.bench.fresco.arm1.dogfood-collector]
+            [re-frame.bench.fresco.arm1.dogfood-grouped :as rf.bench.fresco.arm1.dogfood-grouped]
+            [re-frame.bench.fresco.arm1.dogfood-script :as rf.bench.fresco.arm1.dogfood-script]
+            [re-frame.bench.fresco.arm1.dogfood-uix :as rf.bench.fresco.arm1.dogfood-uix]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.front.dogfood :as rf.bench.fresco.front.dogfood]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.core :as rf]
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.test-support :as rf.test-support]
@@ -75,7 +75,7 @@
             [uix.core :refer [$ defui]]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Pinning the input implementation
@@ -143,7 +143,7 @@
      ;; and entry reapers are macrotasks, so the residue a React unmount
      ;; leaves is not readable inside one synchronous test body.
      :async?  true
-     :init-fn (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
+     :init-fn (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!))}))
 
 (use-fixtures :each
   {:before (fn []
@@ -165,19 +165,19 @@
   for an id that already exists, and `reseed!` is the front half's own
   door for returning a live frame to its seeded state."
   []
-  (rf.bench.hicasso.lane/leave-act-environment!)
-  (rf.bench.hicasso.front.dogfood/make-frame! frame-id todo-count)
-  (rf.bench.hicasso.front.dogfood/reseed! frame-id todo-count)
+  (rf.bench.fresco.lane/leave-act-environment!)
+  (rf.bench.fresco.front.dogfood/make-frame! frame-id todo-count)
+  (rf.bench.fresco.front.dogfood/reseed! frame-id todo-count)
   frame-id)
 
 ;; ---------------------------------------------------------------------------
 ;; The three mounts
 ;; ---------------------------------------------------------------------------
 
-(defn- hicasso-mount!
-  "Either Hicasso rendering, on the arm's own root."
+(defn- fresco-mount!
+  "Either Fresco rendering, on the arm's own root."
   [screen]
-  (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [screen {}]))
+  (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [screen {}]))
 
 (defn- uix-mount!
   "The comparator, on its own React root and its own `frame-provider`.
@@ -185,9 +185,9 @@
   candidate's plumbing, or a plumbing bug would hide inside the parity
   gate it is supposed to expose."
   []
-  (let [container (rf.bench.hicasso.arm1.mount/fresh-container!)
+  (let [container (rf.bench.fresco.arm1.mount/fresh-container!)
         root      (react-dom-client/createRoot container)]
-    (react-dom/flushSync (fn [] (.render root (rf.bench.hicasso.arm1.dogfood-uix/root frame-id))))
+    (react-dom/flushSync (fn [] (.render root (rf.bench.fresco.arm1.dogfood-uix/root frame-id))))
     {:root root :container container :uix? true}))
 
 (defn- release-uix! [handle]
@@ -209,13 +209,13 @@
                  :data-explicit (str (rf.adapter.uix/use-sub [:dogfood/remaining] {:frame frame-id}))}))
 
 (deftest the-comparator-reads-the-frame-this-test-seeded
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (is (= todo-count (rf/with-frame frame-id (deref (rf/subscribe [:dogfood/remaining]))))
           "the frame itself is seeded")
-      (let [container (rf.bench.hicasso.arm1.mount/fresh-container!)
+      (let [container (rf.bench.fresco.arm1.mount/fresh-container!)
             root      (react-dom-client/createRoot container)]
         (react-dom/flushSync
           (fn [] (.render root ($ rf.adapter.uix/frame-provider {:frame frame-id}
@@ -235,7 +235,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-three-renderings-build-the-same-page
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     ;; The comparator goes FIRST, on the freshest possible frame. If it
     ;; went last, a parity miss could be read either as a rendering
@@ -243,24 +243,24 @@
     ;; gate would not be able to tell a reader which.
     (let [_ (fresh!)
           c (uix-mount!)
-          c-dom (rf.bench.hicasso.lane/canonical (:container c))
+          c-dom (rf.bench.fresco.lane/canonical (:container c))
           _ (release-uix! c)
           _ (fresh!)
-          a (hicasso-mount! rf.bench.hicasso.arm1.dogfood-collector/screen)
-          a-dom (rf.bench.hicasso.lane/canonical (:container a))
-          _ (rf.bench.hicasso.arm1.mount/release! a)
+          a (fresco-mount! rf.bench.fresco.arm1.dogfood-collector/screen)
+          a-dom (rf.bench.fresco.lane/canonical (:container a))
+          _ (rf.bench.fresco.arm1.mount/release! a)
           _ (fresh!)
-          b (hicasso-mount! rf.bench.hicasso.arm1.dogfood-grouped/screen)
-          b-dom (rf.bench.hicasso.lane/canonical (:container b))
-          _ (rf.bench.hicasso.arm1.mount/release! b)]
+          b (fresco-mount! rf.bench.fresco.arm1.dogfood-grouped/screen)
+          b-dom (rf.bench.fresco.lane/canonical (:container b))
+          _ (rf.bench.fresco.arm1.mount/release! b)]
       (is (= a-dom b-dom) "collector and grouped build the same page")
       (is (= a-dom c-dom) "and so does raw UIx")
       (testing "the comparison can answer false, so it is not passing vacuously"
         (fresh!)
-        (let [d     (hicasso-mount! rf.bench.hicasso.arm1.dogfood-collector/screen)
-              _     (rf.bench.hicasso.arm1.mount/dispatch! d [:dogfood/toggle 0])
-              moved (rf.bench.hicasso.lane/canonical (:container d))]
-          (rf.bench.hicasso.arm1.mount/release! d)
+        (let [d     (fresco-mount! rf.bench.fresco.arm1.dogfood-collector/screen)
+              _     (rf.bench.fresco.arm1.mount/dispatch! d [:dogfood/toggle 0])
+              moved (rf.bench.fresco.lane/canonical (:container d))]
+          (rf.bench.fresco.arm1.mount/release! d)
           (is (not= a-dom moved))))
       (testing "and the page is the screen validation.md asked for — a list
                and a controlled field"
@@ -281,31 +281,31 @@
   "Every read is inside the lazy seq. Nothing outside it reads a row."
   [_]
   [:ul.lazy
-   (for [id (rf.bench.hicasso.arm1.runtime/sub [:dogfood/visible-ids])]
+   (for [id (rf.bench.fresco.arm1.runtime/sub [:dogfood/visible-ids])]
      [:li.lazy-row {:key id :data-id id}
-      (str (:title (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo id])))])])
+      (str (:title (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo id])))])])
 
 (deftest reads-inside-a-lazy-for-update-the-dom-on-a-later-write
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [lazy-rows {}])]
+      (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [lazy-rows {}])]
         (try
           (let [cell (fn [id] (some-> (.querySelector (:container handle)
                                                       (str ".lazy-row[data-id=\"" id "\"]"))
                                       (.-textContent)))]
             (is (= todo-count (.-length (.querySelectorAll (:container handle) ".lazy-row"))))
             (is (= "todo 2" (cell 2)) "the first paint is right — which proves nothing on its own")
-            (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:dogfood/edit-draft 2 "ignored"])
-            (rf.bench.hicasso.arm1.mount/settle!)
-            (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:dogfood/commit 2])
-            (rf.bench.hicasso.arm1.mount/settle!)
+            (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/edit-draft 2 "ignored"])
+            (rf.bench.fresco.arm1.mount/settle!)
+            (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/commit 2])
+            (rf.bench.fresco.arm1.mount/settle!)
             (is (= "ignored" (cell 2))
                 "and a later write to a query the lazy seq produced reaches the
                  DOM — the half a first render cannot tell you")
             (is (= "todo 1" (cell 1)) "while its neighbour is untouched"))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1c — the same intents on the same interactions (rf2-2rtt6.67)
@@ -360,16 +360,16 @@
                            (fn [record]
                              (when (= frame-id (:frame record))
                                (swap! log conj (:event record)))))
-    (rf.bench.hicasso.arm1.dogfood-script/run-steps!
-      (rf.bench.hicasso.arm1.dogfood-script/interaction-steps handle)
+    (rf.bench.fresco.arm1.dogfood-script/run-steps!
+      (rf.bench.fresco.arm1.dogfood-script/interaction-steps handle)
       (fn []
-        (let [result {:intents @log :dom (rf.bench.hicasso.lane/canonical (:container handle))}]
+        (let [result {:intents @log :dom (rf.bench.fresco.lane/canonical (:container handle))}]
           (rf.event-emit/unregister-event-listener! ::intent-parity)
           (release-fn handle)
           (k result))))))
 
 (deftest the-two-live-renderings-dispatch-the-same-intents-on-the-same-interactions
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     ;; The control first, on the freshest frame — same reasoning as the
     ;; DOM-parity gate above.
@@ -378,12 +378,12 @@
         uix-mount! release-uix!
         (fn [uix-run]
           (capture-run!
-            (fn [] (hicasso-mount! rf.bench.hicasso.arm1.dogfood-collector/screen)) rf.bench.hicasso.arm1.mount/release!
+            (fn [] (fresco-mount! rf.bench.fresco.arm1.dogfood-collector/screen)) rf.bench.fresco.arm1.mount/release!
             (fn [collector-run]
-              (is (= rf.bench.hicasso.arm1.dogfood-script/interaction-intents (:intents uix-run))
+              (is (= rf.bench.fresco.arm1.dogfood-script/interaction-intents (:intents uix-run))
                   "raw UIx dispatches exactly the stated intents — and
                    nothing for the two composing keystrokes")
-              (is (= rf.bench.hicasso.arm1.dogfood-script/interaction-intents (:intents collector-run))
+              (is (= rf.bench.fresco.arm1.dogfood-script/interaction-intents (:intents collector-run))
                   "and so does the collector, so the two renderings mean
                    the same page as well as building it")
               (is (= (:dom uix-run) (:dom collector-run))
@@ -405,50 +405,50 @@
           (.getAttribute "data-done")))
 
 (deftest a-toggle-moves-exactly-the-row-it-names
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
-    (doseq [[label screen] [["collector" rf.bench.hicasso.arm1.dogfood-collector/screen] ["grouped" rf.bench.hicasso.arm1.dogfood-grouped/screen]]]
+    (doseq [[label screen] [["collector" rf.bench.fresco.arm1.dogfood-collector/screen] ["grouped" rf.bench.fresco.arm1.dogfood-grouped/screen]]]
       (fresh!)
-      (let [handle (hicasso-mount! screen)]
+      (let [handle (fresco-mount! screen)]
         (try
           (is (= "false" (row-done handle 1)) label)
-          (rf.bench.hicasso.arm1.mount/dispatch! handle [:dogfood/toggle 1])
+          (rf.bench.fresco.arm1.mount/dispatch! handle [:dogfood/toggle 1])
           (is (= "true" (row-done handle 1)) (str label ": the named row moved"))
           (is (= "false" (row-done handle 0)) (str label ": and its neighbour did not"))
           (is (= "false" (row-done handle 2)) (str label ": nor the one after"))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 (deftest a-broad-write-rebuilds-the-list
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (hicasso-mount! rf.bench.hicasso.arm1.dogfood-collector/screen)]
+      (let [handle (fresco-mount! rf.bench.fresco.arm1.dogfood-collector/screen)]
         (try
-          (rf.bench.hicasso.arm1.mount/dispatch! handle [:dogfood/toggle 1])
+          (rf.bench.fresco.arm1.mount/dispatch! handle [:dogfood/toggle 1])
           (is (= todo-count (.-length (.querySelectorAll (:container handle) ".row"))))
-          (rf.bench.hicasso.arm1.mount/dispatch! handle [:dogfood/set-filter :done])
+          (rf.bench.fresco.arm1.mount/dispatch! handle [:dogfood/set-filter :done])
           (is (= 1 (.-length (.querySelectorAll (:container handle) ".row")))
               "the filter is a broad write: the visible-ids subscription
                moved and the list rebuilt")
           (is (= "todo 1" (row-text handle 1)))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 (deftest keyed-rows-keep-their-identity-across-a-reorder
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (hicasso-mount! rf.bench.hicasso.arm1.dogfood-collector/screen)]
+      (let [handle (fresco-mount! rf.bench.fresco.arm1.dogfood-collector/screen)]
         (try
           (let [node-before (.querySelector (:container handle) "[data-id=\"3\"]")]
-            (rf.bench.hicasso.arm1.mount/dispatch! handle [:dogfood/move 3 0])
+            (rf.bench.fresco.arm1.mount/dispatch! handle [:dogfood/move 3 0])
             (let [rows (array-seq (.querySelectorAll (:container handle) ".row"))]
               (is (= "3" (.getAttribute (first rows) "data-id"))
                   "the moved row is first")
               (is (identical? node-before (.querySelector (:container handle) "[data-id=\"3\"]"))
                   "and it is the SAME node — identity follows the key")))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — the controlled field, and what the collector's conditional read buys
@@ -457,55 +457,55 @@
 (defn- new-input [handle] (.querySelector (:container handle) ".new-input"))
 
 (deftest the-controlled-field-echoes-in-the-callers-turn
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (hicasso-mount! rf.bench.hicasso.arm1.dogfood-collector/screen)]
+      (let [handle (fresco-mount! rf.bench.fresco.arm1.dogfood-collector/screen)]
         (try
           (let [input (new-input handle)]
             (is (= "" (.-value input)))
             ;; The intent's own path: dispatch through the arm's
             ;; synchronous door, exactly as the lowered `:on-input`
             ;; closure does, and read the DOM on the next line.
-            (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key "milk"])
-            (rf.bench.hicasso.arm1.mount/settle!)
+            (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/edit-draft rf.bench.fresco.front.dogfood/new-draft-key "milk"])
+            (rf.bench.fresco.arm1.mount/settle!)
             (is (= "milk" (.-value (new-input handle)))
                 "the echo landed without waiting for a later turn"))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 (deftest the-submit-intent-creates-and-clears-the-draft
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (hicasso-mount! rf.bench.hicasso.arm1.dogfood-collector/screen)]
+      (let [handle (fresco-mount! rf.bench.fresco.arm1.dogfood-collector/screen)]
         (try
-          (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key "milk"])
-          (rf.bench.hicasso.arm1.mount/settle!)
-          (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:dogfood/create])
-          (rf.bench.hicasso.arm1.mount/settle!)
+          (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/edit-draft rf.bench.fresco.front.dogfood/new-draft-key "milk"])
+          (rf.bench.fresco.arm1.mount/settle!)
+          (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/create])
+          (rf.bench.fresco.arm1.mount/settle!)
           (is (= (inc todo-count) (.-length (.querySelectorAll (:container handle) ".row"))))
           (is (= "milk" (row-text handle todo-count)))
           (is (= "" (.-value (new-input handle)))
               "and the draft cleared by explicit caller revision, never by
                value equality")
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 (deftest the-collectors-conditional-read-costs-fewer-edges-than-the-declaration
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [collector-edges (let [h (hicasso-mount! rf.bench.hicasso.arm1.dogfood-collector/screen)]
-                              (rf.bench.hicasso.arm1.mount/dispatch! h [:dogfood/toggle 0])
-                              (rf.bench.hicasso.arm1.mount/dispatch! h [:dogfood/toggle 1])
-                              (let [e (:edges (rf.bench.hicasso.arm1.runtime/stats))] (rf.bench.hicasso.arm1.mount/release! h) e))
+      (let [collector-edges (let [h (fresco-mount! rf.bench.fresco.arm1.dogfood-collector/screen)]
+                              (rf.bench.fresco.arm1.mount/dispatch! h [:dogfood/toggle 0])
+                              (rf.bench.fresco.arm1.mount/dispatch! h [:dogfood/toggle 1])
+                              (let [e (:edges (rf.bench.fresco.arm1.runtime/stats))] (rf.bench.fresco.arm1.mount/release! h) e))
             _ (fresh!)
-            grouped-edges   (let [h (hicasso-mount! rf.bench.hicasso.arm1.dogfood-grouped/screen)]
-                              (rf.bench.hicasso.arm1.mount/dispatch! h [:dogfood/toggle 0])
-                              (rf.bench.hicasso.arm1.mount/dispatch! h [:dogfood/toggle 1])
-                              (let [e (:edges (rf.bench.hicasso.arm1.runtime/stats))] (rf.bench.hicasso.arm1.mount/release! h) e))]
+            grouped-edges   (let [h (fresco-mount! rf.bench.fresco.arm1.dogfood-grouped/screen)]
+                              (rf.bench.fresco.arm1.mount/dispatch! h [:dogfood/toggle 0])
+                              (rf.bench.fresco.arm1.mount/dispatch! h [:dogfood/toggle 1])
+                              (let [e (:edges (rf.bench.fresco.arm1.runtime/stats))] (rf.bench.fresco.arm1.mount/release! h) e))]
         (is (< collector-edges grouped-edges)
             (str "two completed rows drop their draft edge under the collector "
                  "and keep it under the declaration (" collector-edges " vs "
@@ -518,7 +518,7 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The reading is taken between the root unmount and any reset, because
-;; `rf.bench.hicasso.arm1.mount/release!` resets the runtime and a reading taken after that is a
+;; `rf.bench.fresco.arm1.mount/release!` resets the runtime and a reading taken after that is a
 ;; reading of an emptied table — zero however badly teardown went. That
 ;; ordering is what made these two gates unable to fail (rf2-2rtt6.48),
 ;; and `the-residue-reading-can-answer-false` below is the demonstration
@@ -543,32 +543,32 @@
   the reaper horizon is what React's own cleanup failed to release."
   [label screen done]
   (fresh!)
-  (let [handle (hicasso-mount! screen)]
-    (rf.bench.hicasso.arm1.mount/dispatch! handle [:dogfood/toggle 0])
-    (rf.bench.hicasso.arm1.mount/dispatch! handle [:dogfood/set-filter :all])
-    (is (pos? (:cell-refs (rf.bench.hicasso.arm1.runtime/stats)))
+  (let [handle (fresco-mount! screen)]
+    (rf.bench.fresco.arm1.mount/dispatch! handle [:dogfood/toggle 0])
+    (rf.bench.fresco.arm1.mount/dispatch! handle [:dogfood/set-filter :all])
+    (is (pos? (:cell-refs (rf.bench.fresco.arm1.runtime/stats)))
         (str label ": the mounted screen holds references, so the reading "
              "below is a reading of something"))
-    (rf.bench.hicasso.arm1.mount/unmount! handle)
+    (rf.bench.fresco.arm1.mount/unmount! handle)
     (js/setTimeout (fn []
-                     (is (= nothing-retained (rf.bench.hicasso.arm1.runtime/residue))
+                     (is (= nothing-retained (rf.bench.fresco.arm1.runtime/residue))
                          (str label ": React's own cleanup released every edge, "
                               "reference and cached entry"))
-                     (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+                     (rf.bench.fresco.arm1.runtime/reset-runtime!)
                      (done))
                    reaper-horizon-ms)))
 
 (deftest the-collector-screen-leaves-no-residue
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done (assert-react-teardown-releases-everything!
-                  "collector" rf.bench.hicasso.arm1.dogfood-collector/screen done))))
+                  "collector" rf.bench.fresco.arm1.dogfood-collector/screen done))))
 
 (deftest the-grouped-screen-leaves-no-residue
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done (assert-react-teardown-releases-everything!
-                  "grouped" rf.bench.hicasso.arm1.dogfood-grouped/screen done))))
+                  "grouped" rf.bench.fresco.arm1.dogfood-grouped/screen done))))
 
 (deftest the-residue-reading-can-answer-false
   (testing "two roots, one unmounted: the reading the gates above take is
@@ -576,19 +576,19 @@
            what they acquired. This is the property the pre-repair gates
            lacked — `release!` resets the runtime, so it would report zero
            here too, with a whole screen still mounted"
-    (if-not (rf.bench.hicasso.arm1.mount/browser?)
+    (if-not (rf.bench.fresco.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (async done
         (fresh!)
-        (let [survivor (hicasso-mount! rf.bench.hicasso.arm1.dogfood-collector/screen)
-              doomed   (hicasso-mount! rf.bench.hicasso.arm1.dogfood-collector/screen)]
-          (rf.bench.hicasso.arm1.mount/unmount! doomed)
+        (let [survivor (fresco-mount! rf.bench.fresco.arm1.dogfood-collector/screen)
+              doomed   (fresco-mount! rf.bench.fresco.arm1.dogfood-collector/screen)]
+          (rf.bench.fresco.arm1.mount/unmount! doomed)
           (js/setTimeout (fn []
-                           (is (not= nothing-retained (rf.bench.hicasso.arm1.runtime/residue))
+                           (is (not= nothing-retained (rf.bench.fresco.arm1.runtime/residue))
                                "a live screen is visible to the residue reading")
-                           (is (pos? (:cell-refs (rf.bench.hicasso.arm1.runtime/residue)))
+                           (is (pos? (:cell-refs (rf.bench.fresco.arm1.runtime/residue)))
                                "and it is visible as held references, which is
                                 the quantity the gates assert to be zero")
-                           (rf.bench.hicasso.arm1.mount/release! survivor)
+                           (rf.bench.fresco.arm1.mount/release! survivor)
                            (done))
                          reaper-horizon-ms))))))

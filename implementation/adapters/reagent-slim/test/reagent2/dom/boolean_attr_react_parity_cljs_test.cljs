@@ -95,7 +95,7 @@
 ;; Node seam
 ;;
 ;; `js/require` for node built-ins is established in this repo's
-;; :node-test suites (re-frame.hicasso.examples.fence-cljs-test,
+;; :node-test suites (re-frame.fresco.examples.fence-cljs-test,
 ;; re-frame.test-quiet.shadow-node). react-dom's root is found by
 ;; walking up from the compiled test's directory rather than through
 ;; `require.resolve`, so the probe does not depend on how the build

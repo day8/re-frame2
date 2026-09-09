@@ -247,7 +247,7 @@ a reviewer should treat one as a red flag without needing to reason about React.
 Second, subtler, and worth the most care on this page: **the escape does not preserve
 X2's body-run equality, and must not be expected to.** X2(c) reads "boundary bodies
 run to adopt, 13; boundary bodies run by the server for the same screen, 13". Put a
-`:client-only` crossing containing Hicasso boundaries on that page and the numbers
+`:client-only` crossing containing Fresco boundaries on that page and the numbers
 part company — the server runs none of the crossing's boundary bodies, the hydration
 pass runs none of them either (equal, and that is the invariant that matters), and
 the **post-adoption** re-render runs each of them once, on the client only. That is
@@ -296,7 +296,7 @@ a branch. Four consequences follow mechanically, and none of them is invented he
 
 | Written at a `[:>]` prop | What happens | Why |
 |---|---|---|
-| intent vector or key-map at an **event-spelled** slot (`on-x` / `onX`) | `:rf.error/hicasso-host-undeclared-callback` — **loud refusal** | `refuse-undeclared-host-event!`; no contract is ever inferred from an `on*` name |
+| intent vector or key-map at an **event-spelled** slot (`on-x` / `onX`) | `:rf.error/fresco-host-undeclared-callback` — **loud refusal** | `refuse-undeclared-host-event!`; no contract is ever inferred from an `on*` name |
 | intent vector at a **non-event-spelled** slot | `clj->js` — crosses as data | the position is the only discriminator; see below |
 | `h/fn` | crosses by identity, as an ordinary callable function | `host-prop-value` passes `fn?` through; `h/fn` *is* the function |
 | `:ref` | `check-ref!` — callback ref, vector refused | O5, on the canonical slot |
@@ -344,7 +344,7 @@ at an undeclared `defhost` slot, where the behaviour today is to accept. See
 `defhost`: accept, and state in the guide that at a `[:>]` crossing `h/fn` and a plain
 `fn` are the same value, because no declaration reads the mark.
 
-**Witness.** A refusal row asserting the **id** `:rf.error/hicasso-host-undeclared-callback`
+**Witness.** A refusal row asserting the **id** `:rf.error/fresco-host-undeclared-callback`
 for a vector at `:on-pick`; a data row proving a vector at a non-event slot arrives as a
 JS array (the fail-open, positively asserted so it is a documented fact rather than a
 surprise); an `h/fn` row proving the function is called by the library and its return
@@ -394,7 +394,7 @@ the structural rows actually use, not a fixture-local one written for this test.
 
 ### Edge 4 — the legal Component-value boundary
 
-**Decision.** Refuse the values a Hicasso author plausibly writes that are definitely not
+**Decision.** Refuse the values a Fresco author plausibly writes that are definitely not
 components. Pass everything else to React and let React judge.
 
 | Value in Component position | Answer |
@@ -417,7 +417,7 @@ acceptable **once the author-caused cases are intercepted**, which is what the r
 do.
 
 So `memo`, `lazy`, `forwardRef`, a class, a context object, a provider, `Suspense`, and
-whatever React ships next all cross without the codec having an opinion. The two Hicasso
+whatever React ships next all cross without the codec having an opinion. The two Fresco
 refusals are the interesting ones: they are mistakes a reasonable programmer **will**
 make, they cost one own-property read each behind a nil guard (`boundary-head?` and
 `host-head?` are already exactly that shape), and React's error for either would name
@@ -457,7 +457,7 @@ exists for:
 1. An intent written inside a `[:>]` child is lowered inside the caller's window, so it
    captures that boundary's frame-locked dispatch and dispatches to the right frame.
 2. A `[:>]` written outside any boundary raises
-   `:rf.error/hicasso-intent-outside-boundary` at its first intent, unchanged.
+   `:rf.error/fresco-intent-outside-boundary` at its first intent, unchanged.
 3. The crossing's children do not run on the server (edge 1's body-run divergence).
 4. **The escape cannot carry a `:render` contract, and that is fail-closed rather than
    fail-open.** `rf2-2rtt6.74` made render-position enforcement invocation-scoped, with
@@ -466,7 +466,7 @@ exists for:
    **declared** `:render` contract. `[:>]` declares nothing, so no wrapper is installed,
    so the gate is never armed. A function prop supplied through `[:>]` that converts an
    interactive row to an element is therefore lowering with **no ambient frame**, and
-   raises `:rf.error/hicasso-intent-outside-boundary`.
+   raises `:rf.error/fresco-intent-outside-boundary`.
 
 That fourth fact is loud, not silent, and it lands at the library's call rather than at a
 user's click — which is the fail-closed side of the .74 defect rather than a return of it.
@@ -489,7 +489,7 @@ belongs in the guide's troubleshooting row beside the error id.
 **Witness.** Two rows. First, a **two-frame** page — the shape `rf2-2rtt6.74` used — where
 an intent inside a `[:>]` child dispatches into the writing boundary's frame and **not**
 into the other. Second, a hiccup→element conversion inside a function prop at a `[:>]`
-crossing raising `:rf.error/hicasso-intent-outside-boundary`, asserted by id.
+crossing raising `:rf.error/fresco-intent-outside-boundary`, asserted by id.
 
 **The second row cannot be written from the authoring surface today, and that is a
 finding rather than a fixture detail (`rf2-2rtt6.120`).** What raises is the *lowering*,

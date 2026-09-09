@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.arm1.mount
+(ns re-frame.bench.fresco.arm1.mount
   "ARM 1's ROOT — one operation, an idempotent teardown (HD-021(b)).
 
   `root!` associates a DOM node, a frame, and a hiccup tree, and returns
@@ -8,7 +8,7 @@
 
   The frame reaches the tree through the substrate's single internal
   React context — the same object every React-shaped adapter reads
-  (`re-frame.adapter.context/frame-context`), so a Hicasso subtree and a
+  (`re-frame.adapter.context/frame-context`), so a Fresco subtree and a
   UIx subtree under one provider resolve the same frame. That is what
   lets the dogfood screen's three renderings sit side by side in one page
   and be compared on authoring rather than on plumbing.
@@ -31,8 +31,8 @@
   door returns before the tree is adopted, and a witness for it waits for
   the closer instead of for a flush."
   (:require [re-frame.adapter.context :as rf.adapter.context]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
             [re-frame.interop :as rf.interop]
             [re-frame.trace :as rf.trace]
             ["react" :as react]
@@ -75,10 +75,10 @@
   An ordinary root gets no wrapper at all, which keeps the tree the whole
   bench lane measures exactly what it was — no extra fiber, no extra
   passive effect, and nothing new in
-  `re-frame.bench.hicasso.arm1.runtime/retained-inventory`."
+  `re-frame.bench.fresco.arm1.runtime/retained-inventory`."
   [handle hiccup]
   (let [app (provider (:frame handle)
-                      (rf.bench.hicasso.front.codec/root-element (:frame handle) hiccup))]
+                      (rf.bench.fresco.front.codec/root-element (:frame handle) hiccup))]
     (if (:hydrated? handle)
       (react/createElement (.-Fragment react) nil
                            (react/createElement adoption-window-closer nil)
@@ -89,7 +89,7 @@
   "Render `hiccup` into an existing root, synchronously.
 
   The root hiccup is interpreted through
-  [[re-frame.bench.hicasso.front.codec/root-element]] rather than
+  [[re-frame.bench.fresco.front.codec/root-element]] rather than
   `as-element`, because the root is the one creator with no ancestor body
   to inherit the frame from — the case rf2-2rtt6.39's frame-as-a-prop
   variant needs named. The context provider is installed regardless: it
@@ -121,11 +121,11 @@
   adds nothing for `hydrateRoot` to match and cannot itself mismatch.
 
   Public because that is what makes adoption OBSERVABLE without a probe:
-  `(rf.bench.hicasso.arm1.runtime/adopting?)` answering false is this effect having run, which is
+  `(rf.bench.fresco.arm1.runtime/adopting?)` answering false is this effect having run, which is
   the completion signal a witness waits on in place of the `flushSync`
   [[hydrate-root!]] refuses to perform."
   [_props]
-  (react/useEffect (fn close-window [] (rf.bench.hicasso.arm1.runtime/close-adoption-window!) js/undefined)
+  (react/useEffect (fn close-window [] (rf.bench.fresco.arm1.runtime/close-adoption-window!) js/undefined)
                    #js [])
   nil)
 
@@ -134,8 +134,8 @@
 ;; happens not to enforce. Both emit the same `(x["displayName"] = ...)`,
 ;; and it is the STRING key that keeps the property off Closure's renamer
 ;; under `:advanced` — the reason the arm's other stamps
-;; (`runtime/mint-view!`, `rf.bench.hicasso.front.codec/memoize-boundary!`) are spelled this way.
-(unchecked-set adoption-window-closer "displayName" "hicasso/adoption-window-closer")
+;; (`runtime/mint-view!`, `rf.bench.fresco.front.codec/memoize-boundary!`) are spelled this way.
+(unchecked-set adoption-window-closer "displayName" "fresco/adoption-window-closer")
 
 ;; ---------------------------------------------------------------------------
 ;; The recoverable-error reporter (rf2-2rtt6.97)
@@ -189,7 +189,7 @@
   [error]
   (rf.trace/emit! :warning :rf.ssr/hydration-mismatch
                {:error    (some-> error .-message)
-                :where    're-frame.bench.hicasso.arm1.mount/hydrate-root!
+                :where    're-frame.bench.fresco.arm1.mount/hydrate-root!
                 :recovery :warned-and-replaced}))
 
 (defn hydration-reporter
@@ -211,7 +211,7 @@
   across the window boundary rather than a copy of it — the spine's own
   reason for publishing `native-hydration-reporter`."
   [error _error-info]
-  (when (rf.bench.hicasso.arm1.runtime/adopting?)
+  (when (rf.bench.fresco.arm1.runtime/adopting?)
     (emit-hydration-mismatch! error))
   (report-recoverable-default! error))
 
@@ -281,7 +281,7 @@
   the adopted tree down and rebuilds it. [[tree]] is the one place that
   decision is made and `:hydrated?` is what it reads."
   [container frame-kw hiccup]
-  (rf.bench.hicasso.arm1.runtime/open-adoption-window!)
+  (rf.bench.fresco.arm1.runtime/open-adoption-window!)
   (let [handle  {:frame frame-kw :container container :hydrated? true}
         element (tree handle hiccup)
         opts    (hydrate-root-options)]
@@ -319,7 +319,7 @@
   **Not the door a residue assertion takes** — see [[unmount!]]."
   [handle]
   (unmount! handle)
-  (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+  (rf.bench.fresco.arm1.runtime/reset-runtime!)
   nil)
 
 (defn dispatch!
@@ -327,7 +327,7 @@
   witness door; an intent written in a view reaches
   `runtime/dispatch!` on its own."
   [handle event]
-  (rf.bench.hicasso.arm1.runtime/dispatch! (:frame handle) event)
+  (rf.bench.fresco.arm1.runtime/dispatch! (:frame handle) event)
   (settle!)
   nil)
 

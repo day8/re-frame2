@@ -17,7 +17,7 @@
 //
 // whose `:main-opts` are `["-e" "(require 'app.stories)" "-m"
 // "re-frame.story-mcp.server"]`. `clojure.main` runs `-e` init-opts in
-// order before `-m`, so the project's Hicasso-substrate `.cljc` story
+// order before `-m`, so the project's Fresco-substrate `.cljc` story
 // namespace is loaded — and its registrations landed — before the server
 // takes the stdio loop.
 //
@@ -178,13 +178,13 @@ runWithWatchdog(
         'get-story text payload missing the pre-authored :doc; got: ' + storyText.slice(0, 300),
       );
     }
-    if (!/:hicasso/.test(storyText)) {
+    if (!/:fresco/.test(storyText)) {
       throw new Error(
-        'get-story body should carry the Hicasso substrate declaration; got: ' +
+        'get-story body should carry the Fresco substrate declaration; got: ' +
           storyText.slice(0, 300),
       );
     }
-    console.log('OK   get-story -> pre-authored body reads back (:doc + #{:hicasso})');
+    console.log('OK   get-story -> pre-authored body reads back (:doc + #{:fresco})');
 
     // 4. get-variant — the pre-authored variant, never register-variant'd
     // over MCP.

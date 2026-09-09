@@ -152,7 +152,7 @@
 ;;   2. Three producers emit records with NO resolvable frame owner, so no
 ;;      frame policy can ever route them: `:rf.error/no-frame-context` (by
 ;;      construction there is no frame), the pre-frame SSR hydration-parse
-;;      arm of `:rf.error/malformed-hydration-payload`, and hicasso's
+;;      arm of `:rf.error/malformed-hydration-payload`, and fresco's
 ;;      compute-sub `:rf.error/sub-exception` (stamped `:frame nil` BY
 ;;      CONSTRUCTION). Before this default those records reached only the
 ;;      corpus-wide `register-listener!` `:errors` stream — the door
@@ -543,7 +543,7 @@
 
   This is the route the THREE FRAMELESS PRODUCERS reach (rf2-kuky.67):
   `:rf.error/no-frame-context`, the pre-frame SSR hydration-parse arm of
-  `:rf.error/malformed-hydration-payload`, and hicasso's compute-sub
+  `:rf.error/malformed-hydration-payload`, and fresco's compute-sub
   `:rf.error/sub-exception` — all stamped `:frame nil` BY CONSTRUCTION, so no
   frame policy can ever route them. They go to the PROCESS DEFAULT
   ([[configure!]]) under an explicitly nil governing frame, which fails

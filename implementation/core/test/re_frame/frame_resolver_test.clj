@@ -181,7 +181,7 @@
 ;; to rot unnoticed: the carried tier survives the refusal, and the two
 ;; absences report as two different errors. The CLJS half — tier 2 genuinely
 ;; withdrawn under a live context publication — is
-;; `re-frame.bench.hicasso.arm1.ambient-refusal-cljs-test`.
+;; `re-frame.bench.fresco.arm1.ambient-refusal-cljs-test`.
 
 (defn- refused-id
   "The `:rf.error/id` of whatever `f` threw, or ::no-throw."

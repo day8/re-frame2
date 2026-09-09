@@ -87,16 +87,16 @@ npx playwright install --with-deps chromium firefox webkit
 Then build the testbed and serve it:
 
 ```bash
-npx shadow-cljs compile :hicasso/testbed
-cp hicasso/testbed/index.html out/hicasso-testbed/index.html
-npx http-server out/hicasso-testbed -p 8065 -c-1
+npx shadow-cljs compile :fresco/testbed
+cp fresco/testbed/index.html out/fresco-testbed/index.html
+npx http-server out/fresco-testbed -p 8065 -c-1
 ```
 
 The page to open is **`http://127.0.0.1:8065/`**. Leave the server running in its own terminal.
 
 These are the same three steps the gate's own launcher
-(`implementation/scripts/serve-and-run-hicasso-controlled-testbed.cjs`) performs before it drives anything — compile
-the `:hicasso/testbed` build, stage the HTML beside the bundle, serve the directory — done by hand so the page stays up
+(`implementation/scripts/serve-and-run-fresco-controlled-testbed.cjs`) performs before it drives anything — compile
+the `:fresco/testbed` build, stage the HTML beside the bundle, serve the directory — done by hand so the page stays up
 for as long as the session needs it. The launcher is not modified and is not used here; running the gate would drive
 its own automated spec and tear the server down.
 
@@ -117,7 +117,7 @@ pins. Measured on this repo:
 | repository root | 1.62.1 — resolved from npx's own cache |
 
 This is the same pin the CI lane carries; see the `Install pinned Chromium + Firefox + WebKit` step of the
-`cljs-hicasso-controlled` job in `.github/workflows/test.yml`, and `rf2-ga8m`.
+`cljs-fresco-controlled` job in `.github/workflows/test.yml`, and `rf2-ga8m`.
 
 ### 3.2 The two launch commands
 
@@ -207,7 +207,7 @@ trace row before committing.
 the row's **intents arrived** count climbs and **committed** stays `123`. Every composing update reached the store and
 the model refused every one of them.
 
-*Not a pass criterion: a still store.* Hicasso does not withhold composing updates from the handler you wrote; it
+*Not a pass criterion: a still store.* Fresco does not withhold composing updates from the handler you wrote; it
 withholds the **write-back to the screen**. Compose in `plain`, whose model accepts, and its committed cell moves with
 every composing keystroke. That is correct, and it is what #7815 measured
 (`an-accepting-model-during-a-composition`). A tester who expects a frozen store here will read a working

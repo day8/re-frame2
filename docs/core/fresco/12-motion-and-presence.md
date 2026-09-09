@@ -1,18 +1,18 @@
 # Motion and presence
 
-Hicasso does not ship an animation system. CSS owns transitions and keyframes.
+Fresco does not ship an animation system. CSS owns transitions and keyframes.
 The compositor interpolates them. A native host owns high-rate mechanics such as
 drag positions and spring integrators. Exactly one gap remains: **React removes
 a node as soon as its data leaves app-db**, and a node that is gone cannot
 finish an exit animation.
 
-`re-frame.hicasso.motion` closes that gap. It is an optional module. An
+`re-frame.fresco.motion` closes that gap. It is an optional module. An
 application that never requires it carries none of its code.
 
 ```clojure
 (ns app.toasts
-  (:require [re-frame.hicasso :as h]
-            [re-frame.hicasso.motion :as motion]))
+  (:require [re-frame.fresco :as h]
+            [re-frame.fresco.motion :as motion]))
 ```
 
 ## The problem in one example
@@ -114,7 +114,7 @@ On a native element child, write overrides with the motion markers:
 | `::motion/mounting` | While the child is entering (first paint of a new key) |
 | `::motion/unmounting` | While the child is retained after its key left the live set |
 
-These markers live in the `re-frame.hicasso.motion` keyword namespace
+These markers live in the `re-frame.fresco.motion` keyword namespace
 (`::motion/...` when you alias the module as `motion`): the module owns its
 vocabulary, and the door's `::h/...` markers are a separate roster.
 
@@ -189,7 +189,7 @@ reserved key to know about.
 | Fading toast still takes focus or clicks | Exit class changes appearance only | Add `:inert true` and `:aria-hidden true` under `::motion/unmounting` — on the element, or from the prop the view's override declares |
 | Override on a view head has no visible effect | The map was merged into the view's props, and the view's body does not read the prop it names | Destructure the prop in the view and branch on it |
 | Exit restarts on every parent re-render | Unstable keys | Key by domain id, not index |
-| Bundle still contains motion code when unused | Something required the module | Require `re-frame.hicasso.motion` only where Presence is used |
+| Bundle still contains motion code when unused | Something required the module | Require `re-frame.fresco.motion` only where Presence is used |
 
 ## When not to use Presence
 
@@ -202,9 +202,9 @@ reserved key to know about.
 
 ### Optional module reachability
 
-`re-frame.hicasso` does not import `re-frame.hicasso.motion`. That keeps the
+`re-frame.fresco` does not import `re-frame.fresco.motion`. That keeps the
 retention machine out of applications that never ask for it. A check in the
-Hicasso package fails if the public door re-acquires a hard dependency on the
+Fresco package fails if the public door re-acquires a hard dependency on the
 module.
 
 ### Phase vocabulary

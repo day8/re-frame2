@@ -85,7 +85,7 @@ const { test, run } = createPolicyTestSuite('navigation-ceiling-policy');
  * the lane's own timeout so the fix reached for is a bigger lane timeout,
  * which cannot move it". A bare element-wait is that, exactly, and unlike the
  * three hypothetical names above it has actually cost a run: a webkit mount
- * after a re-navigation in `hicasso/testbed/spec.cjs`, two lines under a
+ * after a re-navigation in `fresco/testbed/spec.cjs`, two lines under a
  * `goto` that carried the ceiling correctly. Three call sites were bare when
  * this was added and all three were fixed in the same change; the sweep is
  * what stops a fourth.

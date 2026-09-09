@@ -114,7 +114,7 @@ Agent:            <identifier>
 Workspace:        <pilot-root>
 Checkout pin:     <sha>
 Baseline:         npm test → exit <code>, with the app still on Reagent
-Docs read from:   re-frame2/docs/core/hicasso/ — the checkout's copy of the
+Docs read from:   re-frame2/docs/core/fresco/ — the checkout's copy of the
                   published documentation; there is no published site yet
 Started / ended:  <date> / <date>
 

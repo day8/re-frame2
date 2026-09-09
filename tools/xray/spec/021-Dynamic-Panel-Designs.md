@@ -756,14 +756,14 @@ sat at top-level `:deps` only because that consumer was in `src`.
 
 They RETIRED rather than MIGRATED, and the difference is the whole record.
 Spec SN §12 Phase 6 requires every live Xray consumer onto the adapter-neutral
-Hicasso evidence provider before the donor tool surfaces are disposed of. For
+Fresco evidence provider before the donor tool surfaces are disposed of. For
 these two sections that could not be carried out (rf2-jkdy, against the
 rf2-hic-076 census rows X1/X2/X4/X5; re-verified at source under rf2-l86mm).
 
 Donor 1 → donor 2 had been a rename: `re-frame.ui.tool` and
 `re-frame.freehand.tool` publish the same five reads, so the earlier crossing
 cost this panel its `:require` lines and nothing else. The target was not a
-rename. `re-frame.hicasso.tool` publishes FOUR reads —
+rename. `re-frame.fresco.tool` publishes FOUR reads —
 `read-mounted-boundaries`, `read-read-attribution`, `read-intents`,
 `explain-render` — over a runtime that mints no boundary identity and ships no
 manifest (the runtime's former `impl.evidence` sink seam stated it — *"No
@@ -771,11 +771,11 @@ evidence subsystem ships: no manifest, no registry, no buffering"* — and
 rf2-6c12m.17 removed that seam outright, since the projection never attached
 to it). Only `explain-render` even shared a name.
 
-| What §3.4 asked | Freehand field | On `re-frame.hicasso.tool` |
+| What §3.4 asked | Freehand field | On `re-frame.fresco.tool` |
 |---|---|---|
 | Which VIEW is mounted | `:view-id` | **none.** `:view` and `:source` are `:unknown` under an `:opaque` naming projection whose own `:why` states that naming a boundary would need a registry this producer will not levy — not a gap awaiting closure |
 | Which OCCURRENCE of it | `:occurrence` | **none.** A boundary is keyed by its READ SET, so two boundaries reading alike are indistinguishable and collapse into one row carrying `:instances` |
-| Compiled or interpreted | `:lowering` | **none.** There is no execution-mode axis to state (spec SN §13); "lowering" in Hicasso names intent lowering, a different thing |
+| Compiled or interpreted | `:lowering` | **none.** There is no execution-mode axis to state (spec SN §13); "lowering" in Fresco names intent lowering, a different thing |
 | When, at which generation, under which cascade | `:at`, `:generation`, `:dispatch-id` | **none per row.** `:generation` is one runtime-wide number on the envelope, a boundary row carries no clock reading, and the commit seam records no cascade id |
 | What it read | `:reads`, the selected commit's staged set | `:reads` — the closest counterpart, but the boundary's LIVE edge set rather than one commit's |
 | Over which frame | `:frame` | `:frame`, or `:unknown` where the read set spans frames |
@@ -785,7 +785,7 @@ to it). Only `explain-render` even shared a name.
 Two of the eight carried across, one degraded, and five — including the
 sections' whole subject — had no answer. A §3.4 re-pointed at the target would
 have rendered a mounted roster that can name no view, beside
-[`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md)'s tab, which already
+[`027-Fresco-Evidence.md`](027-Fresco-Evidence.md)'s tab, which already
 renders all four of those envelopes whole. That is a second rendering of one
 runtime's evidence and a strictly smaller panel, which is not what *move the
 consumer onto the provider* asks for.
@@ -795,8 +795,8 @@ reason: they publish no tool tier at all. There is no `tool` or `evidence`
 namespace anywhere under `implementation/adapters/`, for Reagent, reagent-slim
 or UIx — no mounted roster, no manifest, no evidence schema, nothing to read.
 
-**Nothing is stranded.** A Hicasso host's boundaries, reads, intents and
-explanations are answered in full by the Hicasso tab; what disappeared is
+**Nothing is stranded.** A Fresco host's boundaries, reads, intents and
+explanations are answered in full by the Fresco tab; what disappeared is
 exactly the set of questions only a view registry and a compiler manifest could
 have answered, and both go with the substrate that had them.
 
@@ -828,11 +828,11 @@ subject, because a populated roster IS identity plus declaration.
 The other four were not in that column, and the record must not say they were:
 the frame carried across, the commit's reads degraded to the boundary's live
 edge set, the absent schema banner tested a Freehand-door version stamp the
-four-read Hicasso door does not publish at all, and the reactively-driven
+four-read Fresco door does not publish at all, and the reactively-driven
 repaint (rf2-2t126) was a substrate fact about a Freehand `ViewCell` being
 notified through `:adapter/activate-derived-value!` rather than one of §3.4's
 questions. None of the four rescued the deck — the frame and the read set are
-already rendered whole by the Hicasso tab.
+already rendered whole by the Fresco tab.
 
 **Its retirement is split across two passes, and the split is deliberate.**
 rf2-l86mm took the two artefacts that would otherwise RED — the
@@ -853,7 +853,7 @@ artefact-by-artefact record.
 
 One asserted fact OUTLIVES the deck and is worth naming, because it is the
 only browser-level proof that `:adapter/activate-derived-value!` holds end to
-end in a real DOM, and `re-frame.hicasso.impl.collector` calls that hook as
+end in a real DOM, and `re-frame.fresco.impl.collector` calls that hook as
 well as the Freehand observation port did. Its witness needs re-homing onto the
 surviving caller rather than retiring with the Freehand cells.
 
@@ -869,8 +869,8 @@ Every read on this panel is epoch-scoped. The three view-substrate reads that
 were not (`:rf.xray/mounted-views`, `:rf.xray/mounted-view-sites`,
 `:rf.xray/mounted-views-schema`, over `re-frame.freehand.tool`) retired with
 their substrate — §3.4.1. The panel therefore has no cumulative content and no
-dependency on any view substrate; a Hicasso host's live evidence is the
-Hicasso tab's subject ([`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md)).
+dependency on any view substrate; a Fresco host's live evidence is the
+Fresco tab's subject ([`027-Fresco-Evidence.md`](027-Fresco-Evidence.md)).
 
 Recompute edges resolve from `:rf.sub/run`: **`:rf.sub/cause-sub`** is the sub→sub edge
 (nil ⇒ Level-1, non-nil ⇒ Level-2) and **`:rf.sub/reader-render-key`** is the sub→view edge;
@@ -5261,7 +5261,7 @@ What the panel design needs from the substrate (per §1.4 captured-not-replayed)
 | Sub-decision | Pick | Notes |
 |---|---|---|
 | Unchanged subs in cascade | **Dim, collapsed by default with "Show N unchanged"** | §3.4. Toggle in Settings → View. |
-| Meta-epoch section ordering | **Fixed order: the L3 tab `:order` — Epoch > app-db > Views > Trace > Machine > Routes > Resources > Graph > Frames > Hicasso** | Matches the L3 tab order. Predictable beats dynamic. (rf2-4v67l — Chrome A11y removed in favour of Story's shipped panel.) |
+| Meta-epoch section ordering | **Fixed order: the L3 tab `:order` — Epoch > app-db > Views > Trace > Machine > Routes > Resources > Graph > Frames > Fresco** | Matches the L3 tab order. Predictable beats dynamic. (rf2-4v67l — Chrome A11y removed in favour of Story's shipped panel.) |
 | Epoch panel section default-expansion | **All cascade steps expanded by default; collapsible per-step via header click; collapse-all keyboard `[`** | The Epoch panel IS the handling-pipeline view — collapsing by default would hide the punch. |
 | Dispatch-origin display on L2 rows | **Short text label prefix** (`user · :checkout/submit`) | No icon-only or coloured chip — keeps L2 row scannable. Matches the existing L1 ribbon density. |
 | Pattern view (4th lens) | **Post-v1, untracked note** (see trigger below) | The 3-lens model (handling / reactive / state) is sufficient for MVP. |

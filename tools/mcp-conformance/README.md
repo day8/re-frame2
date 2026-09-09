@@ -36,7 +36,7 @@ absent and rejected; it does not exercise a live recorder bridge.
 `test/end-to-end-project-stories.cjs` starts story-mcp through a
 consumer project's own launch alias (`clojure -M:story-mcp` from the
 fixture project in `test/fixtures/project-stories/`), whose
-`:main-opts` require the project's pre-authored Hicasso-substrate
+`:main-opts` require the project's pre-authored Fresco-substrate
 `.cljc` story namespace before the server takes the stdio loop. With no
 write surface open, it proves the first connect discovers, reads, and
 runs the project's story, and that a launch requiring a missing

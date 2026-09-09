@@ -1,12 +1,12 @@
-(ns re-frame.bench.hicasso.clock-views
-  "THE CANDIDATE'S CLOCK WITNESSES — Hicasso Arm 1 on rf2-2rtt6.2's
+(ns re-frame.bench.fresco.clock-views
+  "THE CANDIDATE'S CLOCK WITNESSES — Fresco Arm 1 on rf2-2rtt6.2's
   witness shapes, plus the per-keystroke witness for every arm (rf2-0qj9w).
 
   ## Why this namespace exists
 
   Every clock figure the programme has published is about the DONORS.
   `p0_converge_app` builds `:reagent-subs` and `:uix-subs` segments and a
-  floor; `p0_arms` builds the same three; the Hicasso candidate appears in
+  floor; `p0_arms` builds the same three; the Fresco candidate appears in
   neither. The candidate's only measured axes are hook count (2, at
   React's own dispatcher) and per-read retained heap. This namespace is the
   view half of closing that: the candidate rendering the SAME page the
@@ -20,7 +20,7 @@
   gates canonical-DOM equality across every arm before it reads a clock,
   so this docstring is not what proves it.
 
-  `into` rather than a lazy `for` in [[m1]], for `p0-hicasso/lad-grid`'s
+  `into` rather than a lazy `for` in [[m1]], for `p0-fresco/lad-grid`'s
   reason: the codec is eager either way, but a witness should not be the
   thing that depends on it.
 
@@ -56,14 +56,14 @@
   HD-012 states the bar over VIEW WORK; rf2-2rtt6.3 measured the event
   drain at 11–16% of a write on this substrate. Routing the candidate
   through `runtime/dispatch!` while the donors write `replace-app-db!`
-  directly would price Hicasso's event pipeline against the donors' bare
+  directly would price Fresco's event pipeline against the donors' bare
   write and then call the difference view work. So all three substrate
-  arms share one handler, [[write-draft!]] — Hicasso's behind
-  `rf.bench.hicasso.front.intent/callback`, HD-024's one callback form, which returns the
+  arms share one handler, [[write-draft!]] — Fresco's behind
+  `rf.bench.fresco.front.intent/callback`, HD-024's one callback form, which returns the
   function itself.
 
-  React's `onChange` fires on the native `input` event, and Hicasso's
-  `:on-change` lowers to the same prop: `rf.bench.hicasso.front.intent/lower-prop` claims every
+  React's `onChange` fires on the native `input` event, and Fresco's
+  `:on-change` lowers to the same prop: `rf.bench.fresco.front.intent/lower-prop` claims every
   `^on-` position and `slot/prop-name` camelCases it to `onChange`. Same
   prop, same event, same handler.
 
@@ -87,14 +87,14 @@
   Owner: rf2-2rtt6.1 (standard); these witnesses rf2-0qj9w."
   (:require ["react" :as react]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
-            [re-frame.bench.hicasso.p0-reagent-views :as rf.bench.hicasso.p0-reagent-views]
-            [re-frame.bench.hicasso.p0-uix-views :as rf.bench.hicasso.p0-uix-views]
+            [re-frame.bench.fresco.arm1.runtime :refer [sub]]
+            [re-frame.bench.fresco.front.intent :as rf.bench.fresco.front.intent]
+            [re-frame.bench.fresco.p0-reagent-views :as rf.bench.fresco.p0-reagent-views]
+            [re-frame.bench.fresco.p0-uix-views :as rf.bench.fresco.p0-uix-views]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [uix.core :refer [$ defui]])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]
                    [re-frame.core :refer [reg-view]]))
 
 ;; ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@
   `p0-reagent-views/register!` because the census has to see it: the grid
   is 100 of the 104 subscriptions a keystroke recomputes, and a census
   that could only see the fields would answer the easy quarter of
-  validation.md's question. It delegates to `rf.bench.hicasso.p0-reagent-views/cell-value`, so there is
+  validation.md's question. It delegates to `rf.bench.fresco.p0-reagent-views/cell-value`, so there is
   still exactly one body for that computation.
 
   `:p0/draft` is INDEXED and keeps a query id of its own rather than
@@ -169,7 +169,7 @@
   an adapter once per segment and re-registers on every segment entry,
   and a re-register overwrites with the identical handler."
   []
-  (rf/reg-sub :p0/cell  (fn [db [_ i]] (tick! "p0/cell")  (rf.bench.hicasso.p0-reagent-views/cell-value db i)))
+  (rf/reg-sub :p0/cell  (fn [db [_ i]] (tick! "p0/cell")  (rf.bench.fresco.p0-reagent-views/cell-value db i)))
   (rf/reg-sub :p0/draft (fn [db [_ i]] (tick! "p0/draft") (get-in db [:draft i] "")))
   nil)
 
@@ -178,7 +178,7 @@
 (defn seed
   "The keystroke witness's app-db — the grid's cells plus empty drafts."
   [n]
-  (assoc (rf.bench.hicasso.p0-reagent-views/seed-cells n 0) :draft (vec (repeat kb-fields-n ""))))
+  (assoc (rf.bench.fresco.p0-reagent-views/seed-cells n 0) :draft (vec (repeat kb-fields-n ""))))
 
 (defn write-draft!
   "THE ONE HANDLER, shared by all three substrate arms.
@@ -200,18 +200,18 @@
   rather than a footnote."
   [i e]
   (let [s      (.. e -target -value)
-        drafts (or (:draft (rf/app-db-value rf.bench.hicasso.p0-reagent-views/subs-frame))
+        drafts (or (:draft (rf/app-db-value rf.bench.fresco.p0-reagent-views/subs-frame))
                    (vec (repeat kb-fields-n "")))]
-    (rf.frame/replace-app-db! rf.bench.hicasso.p0-reagent-views/subs-frame
+    (rf.frame/replace-app-db! rf.bench.fresco.p0-reagent-views/subs-frame
                            (assoc (seed kb-cells-n) :draft (assoc drafts i s))))
   nil)
 
 ;; ---------------------------------------------------------------------------
-;; HICASSO — the candidate
+;; FRESCO — the candidate
 ;; ---------------------------------------------------------------------------
 
 (defview m1-cell
-  "One Hicasso boundary, one `sub` read. `p0-reagent-views/m1-cell`'s
+  "One Fresco boundary, one `sub` read. `p0-reagent-views/m1-cell`'s
   page, through the ambient collector."
   [{:keys [i]}]
   (let [v (sub [:p0/cell i])]
@@ -221,7 +221,7 @@
 
 (defn m1
   "The list, as a PLAIN FUNCTION returning hiccup rather than a `defview`
-  — `p0-hicasso/lad-grid`'s rule, for its reason: a `defview` here would
+  — `p0-fresco/lad-grid`'s rule, for its reason: a `defview` here would
   mint one more boundary per root that reads nothing, and every boundary
   census in this lane would answer `B + roots`. `mount/root!` takes hiccup
   and the codec walks it."
@@ -237,7 +237,7 @@
   [:input.draft {:type      "text"
                  :data-i    (str "draft-" i)
                  :value     (sub [:p0/draft i])
-                 :on-change (rf.bench.hicasso.front.intent/callback (fn [e] (write-draft! i e)))}])
+                 :on-change (rf.bench.fresco.front.intent/callback (fn [e] (write-draft! i e)))}])
 
 (defn kb-form
   "The keystroke page: four fields above the grid."
@@ -261,10 +261,10 @@
   [n]
   (into [:form.kbform]
         (conj (mapv (fn [i] ^{:key i} [r-kb-field i]) (range kb-fields-n))
-              [rf.bench.hicasso.p0-reagent-views/m1-subs n])))
+              [rf.bench.fresco.p0-reagent-views/m1-subs n])))
 
 (defn r-kb-root [n]
-  [rf/frame-provider {:frame rf.bench.hicasso.p0-reagent-views/subs-frame} [r-kb-form n]])
+  [rf/frame-provider {:frame rf.bench.fresco.p0-reagent-views/subs-frame} [r-kb-form n]])
 
 ;; ---------------------------------------------------------------------------
 ;; UIx — the co-instrumented comparator
@@ -284,10 +284,10 @@
   ;; the canonical-DOM gate checks rather than takes on trust.
   ($ :form.kbform
      (into-array (mapv (fn [i] ($ u-kb-field {:key i :i i})) (range kb-fields-n)))
-     ($ rf.bench.hicasso.p0-uix-views/m1 {:n n})))
+     ($ rf.bench.fresco.p0-uix-views/m1 {:n n})))
 
 (defn u-kb-root [n]
-  ($ rf.adapter.uix/frame-provider {:frame rf.bench.hicasso.p0-reagent-views/subs-frame}
+  ($ rf.adapter.uix/frame-provider {:frame rf.bench.fresco.p0-reagent-views/subs-frame}
      ($ u-kb-form {:n n})))
 
 ;; ---------------------------------------------------------------------------
@@ -336,7 +336,7 @@
           drafts (aget state 0)
           put!   (aget state 1)]
       ;; Children as VARARGS rather than as an array: an array child needs
-      ;; a `key` per entry and `rf.bench.hicasso.p0-reagent-views/m1-floor` — which is the M1 floor
+      ;; a `key` per entry and `rf.bench.fresco.p0-reagent-views/m1-floor` — which is the M1 floor
       ;; unchanged, so that the two floors are one page — does not carry
       ;; one. Varargs is React's own escape from that and costs the page
       ;; nothing.
@@ -357,7 +357,7 @@
                                                                (aset nx i s)
                                                                nx)))))}))
                      (range kb-fields-n))
-               (rf.bench.hicasso.p0-reagent-views/m1-floor (vec (repeat n 0))))))))
+               (rf.bench.fresco.p0-reagent-views/m1-floor (vec (repeat n 0))))))))
 
 (defn kb-floor-element
   "The floor's element, at `n` boundaries and `busy` milliseconds of

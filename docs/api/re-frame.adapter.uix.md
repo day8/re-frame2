@@ -94,12 +94,12 @@ Three things hold for that head, and they are the point of using the registry ra
   (use-sub query-v)                  → current sub value
   (use-sub query-v {:frame target})  → current sub value, from `target`
   ```
-- **Description**: Subscribe inside a UIx component. This is the hook-shaped equivalent of `subscribe`, and it carries the same name `re-frame.hicasso.native` publishes for a React island under Hicasso: one value-hook name for every React function component. The verb `subscribe` returns a subscription; this noun returns its value.
+- **Description**: Subscribe inside a UIx component. This is the hook-shaped equivalent of `subscribe`, and it carries the same name `re-frame.fresco.native` publishes for a React island under Fresco: one value-hook name for every React function component. The verb `subscribe` returns a subscription; this noun returns its value.
 
   Returns the current sub value and re-renders the calling component when the value changes.
 
   - The 1-arg form resolves the frame from **React context only**: the surrounding `frame-provider` (SCOPE) / `frame-root` (ENSURE), and nothing else. It raises `:rf.error/no-frame-context` when there is no boundary above it (there is no `:rf/default` floor).
-  - A `with-frame` / `bind-fn` dynamic scope around a synchronous render does **not** reach a hook — not under `act()`, not under `flushSync`, not under a server render. That is the one rule the whole React hook family follows, `re-frame.hicasso.native`'s hooks included, and the reason is that a hook runs when React renders, by which time the block's extent has unwound: the same component tree must resolve the same frame however the flush was driven. To pin a hook to a frame explicitly, wrap it in a `frame-provider` — or pass `{:frame …}` on this read.
+  - A `with-frame` / `bind-fn` dynamic scope around a synchronous render does **not** reach a hook — not under `act()`, not under `flushSync`, not under a server render. That is the one rule the whole React hook family follows, `re-frame.fresco.native`'s hooks included, and the reason is that a hook runs when React renders, by which time the block's extent has unwound: the same component tree must resolve the same frame however the flush was driven. To pin a hook to a frame explicitly, wrap it in a `frame-provider` — or pass `{:frame …}` on this read.
   - The opts form pins ONE read to an explicit frame, bypassing the chain — the same `{:frame target}` opts map `subscribe` takes, where `target` is a frame-id keyword or a live frame value. `:frame` is **required** there: the opts form is the explicit read and the 1-arity is the ambient one. Where a whole subtree shares a frame, scope it with `frame-provider {:frame target}` and read with the 1-arity instead.
 - **Example**:
   ```clojure

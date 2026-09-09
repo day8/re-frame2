@@ -1,5 +1,5 @@
-(ns re-frame.story.hicasso-substrate-cljs-test
-  "rf2-2dbpd — `:hicasso` on Story's AUTHORING-LAYER axis, proved on the
+(ns re-frame.story.fresco-substrate-cljs-test
+  "rf2-2dbpd — `:fresco` on Story's AUTHORING-LAYER axis, proved on the
   paths that carry a substrate keyword through data rather than through a
   render.
 
@@ -7,7 +7,7 @@
 
   `re-frame.story.schemas/SubstrateSet` was `[:set [:enum :reagent :uix]]`
   — the ONE closed substrate enum in the repository — so a variant
-  declaring `:substrates #{:hicasso}` could not be REGISTERED, let alone
+  declaring `:substrates #{:fresco}` could not be REGISTERED, let alone
   rendered: `registrar/validate-shape!` threw `:rf.error/variant-shape`
   before any renderer was consulted. Widening it is one line; the rows
   below are what say the widen actually reaches the four places a
@@ -23,12 +23,12 @@
      `list-variants` / read tools relay to an agent, and a keyword that
      did not round-trip would strand the agent on a story it can see and
      cannot describe.
-  4. **Snapshot identity** — two hicasso views must be two baselines. The
+  4. **Snapshot identity** — two fresco views must be two baselines. The
      ruling asks for this by name because it is the one that could
      silently collapse: `fingerprint.cljc` folds every FUNCTION to the
      `:rf/opaque-fn` sentinel, so had `:component` been widened to accept
      a component VALUE (rf2-1gy4e's rejected option (a)) two distinct
-     hicasso views would have hashed identically. It stayed a keyword, and
+     fresco views would have hashed identically. It stayed a keyword, and
      these rows are what says so.
 
   ## Both arms, deliberately
@@ -37,10 +37,10 @@
   from `tools/story`) and the shadow `:node-test` build (`npm run
   test:cljs`, whose `cljs-test$` regex matches) each run every row. Every
   claim here is about DATA — schema, plan, EDN, hash — so neither arm
-  needs a renderer, and nothing here requires `re-frame.hicasso`: that is
+  needs a renderer, and nothing here requires `re-frame.fresco`: that is
   what keeps `tools/story/deps.edn` untouched, per rf2-1gy4e's placement
   ruling. The renderer itself is proved in
-  `re-frame.story.ui.hicasso-substrate-dom-cljs-test`."
+  `re-frame.story.ui.fresco-substrate-dom-cljs-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.frame :as rf.frame]
@@ -66,13 +66,13 @@
 ;; 1 · the enum — widened, and still CLOSED
 ;; ===========================================================================
 
-(deftest substrate-set-admits-hicasso
-  (testing "rf2-2dbpd — `#{:hicasso}` is a legal substrate set. Before the
+(deftest substrate-set-admits-fresco
+  (testing "rf2-2dbpd — `#{:fresco}` is a legal substrate set. Before the
             widen this was the whole blocker: the schema rejected it, so
-            no hicasso variant could be registered at all."
-    (is (m/validate rf.story.schemas/SubstrateSet #{:hicasso}))
-    (is (m/validate rf.story.schemas/SubstrateSet #{:reagent :hicasso}))
-    (is (m/validate rf.story.schemas/SubstrateSet #{:reagent :uix :hicasso})))
+            no fresco variant could be registered at all."
+    (is (m/validate rf.story.schemas/SubstrateSet #{:fresco}))
+    (is (m/validate rf.story.schemas/SubstrateSet #{:reagent :fresco}))
+    (is (m/validate rf.story.schemas/SubstrateSet #{:reagent :uix :fresco})))
 
   (testing "and the members that were already legal still are — the widen
             is additive, not a replacement"
@@ -89,26 +89,26 @@
     (is (not (m/validate rf.story.schemas/SubstrateSet #{:reagent-slim})))
     (is (not (m/validate rf.story.schemas/SubstrateSet #{:helix})))
     (is (not (m/validate rf.story.schemas/SubstrateSet #{:reagent :helix})))
-    (is (not (m/validate rf.story.schemas/SubstrateSet #{:hicasso :typo})))
-    (is (not (m/validate rf.story.schemas/SubstrateSet [:hicasso]))
+    (is (not (m/validate rf.story.schemas/SubstrateSet #{:fresco :typo})))
+    (is (not (m/validate rf.story.schemas/SubstrateSet [:fresco]))
         "a VECTOR is not a set — the slot's shape is unchanged too")))
 
 ;; ===========================================================================
 ;; 2 · registration — the closed body shapes take it, on both bodies
 ;; ===========================================================================
 
-(deftest a-hicasso-variant-registers
+(deftest a-fresco-variant-registers
   (testing "rf2-2dbpd — `reg-variant*` validates the body against
             `VariantBody` and throws `:rf.error/variant-shape` on a miss
             (`re-frame.story.registrar/validate-shape!`). Pre-widen THIS
             call threw; the registration landing is the user-visible half
             of the enum change."
-    (rf.story/reg-story* :story.hic {:doc "hicasso authoring-layer fixture"})
+    (rf.story/reg-story* :story.hic {:doc "fresco authoring-layer fixture"})
     (rf.story/reg-variant* :story.hic/card
-      {:doc        "A variant whose subject is a hicasso boundary."
+      {:doc        "A variant whose subject is a fresco boundary."
        :component  :my.app.views/article-card
-       :substrates #{:hicasso}})
-    (is (= #{:hicasso} (:substrates (rf.story/variant->edn :story.hic/card)))))
+       :substrates #{:fresco}})
+    (is (= #{:fresco} (:substrates (rf.story/variant->edn :story.hic/card)))))
 
   (testing "and the STORY body takes it too — `StoryBody` is closed
             independently of `VariantBody`, so a whole story can declare
@@ -118,9 +118,9 @@
     (rf.story/reg-story* :story.hic-all
       {:doc        "story-level declaration"
        :component  :my.app.views/article-card
-       :substrates #{:hicasso}})
+       :substrates #{:fresco}})
     (rf.story/reg-variant* :story.hic-all/v {:doc "child"})
-    (is (= #{:hicasso}
+    (is (= #{:fresco}
            (:substrates (rf.story.registrar/handler-meta :story :story.hic-all))))))
 
 (deftest an-unknown-substrate-is-still-refused-at-registration
@@ -151,33 +151,33 @@
 ;; renderer-side fallback at all) with the canvas's own variant-then-story
 ;; precedence. The witness is
 ;; `re-frame.story.story-scope-world-keys-cljs-test`; the rows below stay
-;; scoped to what a HICASSO declaration carries.
+;; scoped to what a FRESCO declaration carries.
 
-(deftest the-plan-carries-the-hicasso-declaration
+(deftest the-plan-carries-the-fresco-declaration
   (testing "rf2-3afns routed `canonical/render-host-scope` at the COMPILED
             PLAN's `[:world :substrates]` instead of a literal `:reagent`,
-            so that slot is the one a hicasso variant has to reach. It is
+            so that slot is the one a fresco variant has to reach. It is
             folded by `rf.story.plan/variant-plan`, already `:extends`-merged."
     (rf.story/reg-story* :story.hicplan {:doc "fixture"})
     (rf.story/reg-variant* :story.hicplan/v
       {:doc        "declares the native authoring layer"
        :component  :my.app.views/article-card
-       :substrates #{:hicasso}})
+       :substrates #{:fresco}})
     (let [p (rf.story.plan/variant-plan :story.hicplan/v)]
-      (is (= #{:hicasso} (get-in p [:world :substrates])))
+      (is (= #{:fresco} (get-in p [:world :substrates])))
       (is (= :my.app.views/article-card (get-in p [:world :component]))
           "and the subject rides beside it — the two slots the renderer
            needs are both on the plan")))
 
-  (testing "`:extends` inheritance carries it, so a hicasso base story's
+  (testing "`:extends` inheritance carries it, so a fresco base story's
             children do not each re-declare the layer"
     (rf.story/reg-story* :story.hicext {:doc "fixture"})
     (rf.story/reg-variant* :story.hicext/base
       {:doc "base" :component :my.app.views/article-card
-       :substrates #{:hicasso}})
+       :substrates #{:fresco}})
     (rf.story/reg-variant* :story.hicext/child
       {:doc "child" :extends :story.hicext/base})
-    (is (= #{:hicasso}
+    (is (= #{:fresco}
            (get-in (rf.story.plan/variant-plan :story.hicext/child)
                    [:world :substrates])))))
 
@@ -189,46 +189,46 @@
   (testing "`variant->edn` returns the registered body as serialisable EDN
             — the shape `re-frame.story-mcp`'s read tools relay to an
             agent. A keyword that did not survive here would leave an
-            agent able to list a hicasso story and unable to say what it
+            agent able to list a fresco story and unable to say what it
             renders under."
     (rf.story/reg-story* :story.hicedn {:doc "fixture"})
-    (let [body {:doc        "a hicasso variant"
+    (let [body {:doc        "a fresco variant"
                 :component  :my.app.views/article-card
-                :substrates #{:hicasso}
+                :substrates #{:fresco}
                 :args       {:label "one"}}]
       (rf.story/reg-variant* :story.hicedn/v body)
       (let [edn (rf.story/variant->edn :story.hicedn/v)]
-        (is (= #{:hicasso} (:substrates edn)))
+        (is (= #{:fresco} (:substrates edn)))
         (is (= :my.app.views/article-card (:component edn))
             "and `:component` is still a KEYWORD — the whole reason
-             rf2-1gy4e ruled hicasso-side registration rather than
+             rf2-1gy4e ruled fresco-side registration rather than
              widening `:component` to accept a value")
         (is (= body (select-keys edn (keys body)))
             "the body round-trips verbatim; `:source` is the registrar's
              own stamp and is the only addition")))))
 
 ;; ===========================================================================
-;; 5 · snapshot identity — two hicasso views are two baselines
+;; 5 · snapshot identity — two fresco views are two baselines
 ;; ===========================================================================
 
-(deftest two-hicasso-view-ids-are-two-identities
+(deftest two-fresco-view-ids-are-two-identities
   (testing "rf2-1gy4e's decisive ground for ruling against a component
             VALUE in `:component`: `fingerprint.cljc` canonicalises every
-            fn to the `:rf/opaque-fn` sentinel, so two distinct hicasso
+            fn to the `:rf/opaque-fn` sentinel, so two distinct fresco
             heads would have been INDISTINGUISHABLE to snapshot identity —
             one visual-regression baseline for two views. Naming them with
             keywords is what keeps them apart, and this is the row that
             would have caught it."
     (rf.story/reg-story* :story.hicid {:doc "fixture"})
     (rf.story/reg-variant* :story.hicid/card
-      {:doc "one" :component :my.app.views/article-card :substrates #{:hicasso}})
+      {:doc "one" :component :my.app.views/article-card :substrates #{:fresco}})
     (rf.story/reg-variant* :story.hicid/panel
-      {:doc "one" :component :my.app.views/side-panel :substrates #{:hicasso}})
+      {:doc "one" :component :my.app.views/side-panel :substrates #{:fresco}})
     (let [a (:content-hash (rf.story.identity/snapshot-identity :story.hicid/card))
           b (:content-hash (rf.story.identity/snapshot-identity :story.hicid/panel))]
       (is (string? a))
       (is (not= a b)
-          "two hicasso view ids, differing in NOTHING but `:component`,
+          "two fresco view ids, differing in NOTHING but `:component`,
            get distinct content hashes")))
 
   (testing "and the authoring layer is identity-bearing in its own right —
@@ -236,16 +236,16 @@
             because the two renderers paint two trees"
     (rf.story/reg-story* :story.hiclayer {:doc "fixture"})
     (rf.story/reg-variant* :story.hiclayer/hic
-      {:doc "x" :component :my.app.views/article-card :substrates #{:hicasso}})
+      {:doc "x" :component :my.app.views/article-card :substrates #{:fresco}})
     (rf.story/reg-variant* :story.hiclayer/rea
       {:doc "x" :component :my.app.views/article-card :substrates #{:reagent}})
     (is (not= (:content-hash (rf.story.identity/snapshot-identity :story.hiclayer/hic))
               (:content-hash (rf.story.identity/snapshot-identity :story.hiclayer/rea)))))
 
-  (testing "the hash is STABLE for one hicasso variant across calls — the
+  (testing "the hash is STABLE for one fresco variant across calls — the
             distinctions above are the tuple's, not run-to-run noise"
     (rf.story/reg-story* :story.hicstable {:doc "fixture"})
     (rf.story/reg-variant* :story.hicstable/v
-      {:doc "x" :component :my.app.views/article-card :substrates #{:hicasso}})
+      {:doc "x" :component :my.app.views/article-card :substrates #{:fresco}})
     (is (= (:content-hash (rf.story.identity/snapshot-identity :story.hicstable/v))
            (:content-hash (rf.story.identity/snapshot-identity :story.hicstable/v))))))

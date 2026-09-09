@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.todo.subs
+(ns re-frame.fresco.examples.todo.subs
   "THE DERIVATION GRAPH.
 
   Layers, and every one of them a pure function of the layer below. The
@@ -20,11 +20,11 @@
   `[:rf.route/id]` and `[:rf.route/params]` — registered by the routing
   artefact, reached by ID rather than by dependency, so this namespace
   requires only `re-frame.core` and its own routes — and answers a
-  keyword. A URL is user input, so `/hicasso-todo/banana` and an
+  keyword. A URL is user input, so `/fresco-todo/banana` and an
   unmatched URL both coerce to `:all` rather than producing a filter
   nothing can render."
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso.examples.todo.routes :as rf.hicasso.examples.todo.routes]))
+            [re-frame.fresco.examples.todo.routes :as rf.fresco.examples.todo.routes]))
 
 ;; ---------------------------------------------------------------------------
 ;; What is on the page
@@ -44,7 +44,7 @@
          asks one question and `app-db` holds no copy of the answer."
    :inputs [[:rf.route/id] [:rf.route/params]]}
   (fn [[route-id params] _]
-    (if (= rf.hicasso.examples.todo.routes/filtered route-id)
+    (if (= rf.fresco.examples.todo.routes/filtered route-id)
       (case (:filter params)
         "active"    :active
         "completed" :completed

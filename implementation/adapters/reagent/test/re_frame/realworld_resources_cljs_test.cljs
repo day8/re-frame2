@@ -170,7 +170,7 @@
    no BLOCKING resource; add one and it reproduces rf2-k4oe exactly, silently.
    Registering everything first and making the frame last removes the
    dependence entirely, and matches the committed pilot baseline
-   (`docs/design/hicasso/product/pilots/baseline/linearlite/baseline_test.cljs`,
+   (`docs/design/fresco/product/pilots/baseline/linearlite/baseline_test.cljs`,
    which documents \"the frame is made last\")."
   []
   (reset! last-managed-args nil)

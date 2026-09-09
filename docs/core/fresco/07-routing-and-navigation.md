@@ -1,7 +1,7 @@
 # Routing and navigation
 
 The core routing artefact defines route registration, navigation events, and
-route subscriptions. This page covers the Hicasso view side: route links,
+route subscriptions. This page covers the Fresco view side: route links,
 prefetch, scroll and focus policy, and unsaved-change guards.
 
 ## Register routes
@@ -29,7 +29,7 @@ beyond it:
 
 ```clojure
 (ns app.views.articles
-  (:require [re-frame.hicasso :as h]))
+  (:require [re-frame.fresco :as h]))
 ```
 
 ## Boot a routed application
@@ -39,8 +39,8 @@ the frame option rides `h/frame-root` with every other `rf/make-frame` option,
 and there is no routing key on the root door at all.
 
 ```clojure
-;; deps.edn — beside the Hicasso coordinate
-{:deps {day8/re-frame2-hicasso {:local/root "../re-frame2/implementation/hicasso"}
+;; deps.edn — beside the Fresco coordinate
+{:deps {day8/re-frame2-fresco {:local/root "../re-frame2/implementation/fresco"}
         day8/re-frame2-routing {:local/root "../re-frame2/implementation/routing"}}}
 ```
 
@@ -48,8 +48,8 @@ and there is no routing key on the root door at all.
 (ns app.core
   (:require [re-frame.core :as rf]
             [re-frame.routing]                  ;; loads the routing artefact
-            [re-frame.hicasso.substrate :as substrate]
-            [re-frame.hicasso :as h]
+            [re-frame.fresco.substrate :as substrate]
+            [re-frame.fresco :as h]
             [app.routes]                        ;; the reg-route table above
             [app.views :as views]))
 
@@ -69,7 +69,7 @@ and there is no routing key on the root door at all.
 
 Three things in that shape are load-bearing:
 
-- **`re-frame.routing` is a separate coordinate, and Hicasso does not bring it
+- **`re-frame.routing` is a separate coordinate, and Fresco does not bring it
   in.** Require it before anything renders a route link, or `h/route-link` raises
   `:rf.error/routing-artefact-missing`.
 - **A frame owns the browser URL only by carrying `:url-bound? true`.** There is
@@ -114,7 +114,7 @@ rather than constructing a URL:
 
 The result is a real anchor. The router builds `:href`, so hover preview,
 copy-link, middle-click, and browser link menus continue to work. The helper
-inlines into its caller; it does not create another Hicasso view or
+inlines into its caller; it does not create another Fresco view or
 subscription.
 
 The generated Hiccup carries the click decision as data at `:on-click` — a
@@ -135,7 +135,7 @@ vector headed by a keyword the implementation owns, wrapping a map:
 ```
 
 This form remains comparable with `=` and visible to structural tests, which
-read it through `re-frame.hicasso.impl.intent/navigate-head?`. It is not an
+read it through `re-frame.fresco.impl.intent/navigate-head?`. It is not an
 authoring spelling: `route-link` owns its shape, and there is nothing to write.
 
 Click conduct is browser-compatible:
@@ -242,8 +242,8 @@ input). Application code may dispatch the event directly.
 
 **Do not write both.** `:prefetch :intent` *claims* `:on-mouse-enter`,
 `:on-focus` and `:on-touch-start`, and a value of your own at any of them
-raises `:rf.error/hicasso-route-link-claimed-intent-position` at render.
-Hicasso carries one intent per position, so there is nothing to compose with,
+raises `:rf.error/fresco-route-link-claimed-intent-position` at render.
+Fresco carries one intent per position, so there is nothing to compose with,
 and half-applying the warm-up would leave a link that prefetches at two
 positions out of three — indistinguishable from a working one until you
 measure. Pick a side per link: the sugar, or the explicit vectors.
@@ -310,7 +310,7 @@ The key remounts `<main>` when page identity changes, causing the ref to run.
 `:tab-index -1` allows programmatic focus without adding the region to normal
 tab order. `preventScroll` lets the router's scroll policy remain authoritative.
 
-The boundary sits inside `<main>` on purpose. Every Hicasso refusal is a throw,
+The boundary sits inside `<main>` on purpose. Every Fresco refusal is a throw,
 and React unmounts a root whose tree throws with nothing above it to catch, so a
 single refused head anywhere in a page takes the whole application to a blank
 screen with the error only in the console. Catching at the page keeps the
@@ -442,7 +442,7 @@ and activation pipeline as route links:
 | Links change the page but the address bar never moves, and a refresh loses the route | No frame carries `:url-bound? true`, so nothing owns the browser URL | Declare it on the frame — [Boot a routed application](#boot-a-routed-application) |
 | The page loads and behaves but is unstyled after a deep link or a refresh | Relative asset paths in the host page resolve against the current route | Make host-page asset paths absolute, or add `<base href="/">` |
 | `route-link` rejects a bare `:on-click` vector | The click would produce two semantic events | Use `[::h/prevent [:app/event]]`, `h/event`, or a plain function according to the intended veto |
-| A link carrying `:prefetch :intent` raises `:rf.error/hicasso-route-link-claimed-intent-position` | The link also supplies `:on-mouse-enter`, `:on-focus` or `:on-touch-start`, and `:prefetch` claims all three | Drop `:prefetch` and dispatch `[:rf.route/prefetch address]` by hand from the positions you are not otherwise using |
+| A link carrying `:prefetch :intent` raises `:rf.error/fresco-route-link-claimed-intent-position` | The link also supplies `:on-mouse-enter`, `:on-focus` or `:on-touch-start`, and `:prefetch` claims all three | Drop `:prefetch` and dispatch `[:rf.route/prefetch address]` by hand from the positions you are not otherwise using |
 | Every attempt to leave is rejected and the guard is named | `:rf.error/can-leave-non-boolean` | Return strict `true` or `false` from the guard subscription |
 | Back/Forward restores to the top | Scroll restoration ran before content restored page height | Block activation on required resources or keep previous content visible |
 | Focus stays on the old navigation link | Main region was not keyed/focusable or its ref did not run | Key by page identity, add `:tab-index -1`, and focus from the callback ref |

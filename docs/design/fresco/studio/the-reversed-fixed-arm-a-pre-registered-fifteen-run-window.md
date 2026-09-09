@@ -89,7 +89,7 @@ wedge rather than fail:
 ```bash
 P0_PORT=8491 P0_ALLOC_PLAN=floor P0_ALLOC_WRITE=all \
 P0_ROOTS=4 P0_ALLOC_CELLS=6 P0_ALLOC_ROUNDS=18 P0_ALLOC_SEG_ORDER=fixed-reversed \
-P0_RAW_OUT=implementation/hicasso/test/re_frame/bench/hicasso/data/revarm-csca8/reversed-1.json \
+P0_RAW_OUT=implementation/fresco/test/re_frame/bench/fresco/data/revarm-csca8/reversed-1.json \
   node implementation/core/test/re_frame/bench/p0_run.cjs --only alloc
 ```
 
@@ -99,7 +99,7 @@ output name following it.
 Every measured figure below is re-derived from the committed records by:
 
 ```bash
-node implementation/hicasso/test/re_frame/bench/hicasso/alloc_cluster_carrier.cjs --corpus
+node implementation/fresco/test/re_frame/bench/fresco/alloc_cluster_carrier.cjs --corpus
 ```
 
 ## The answer, first

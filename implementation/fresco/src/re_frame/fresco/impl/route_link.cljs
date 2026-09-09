@@ -1,5 +1,5 @@
-(ns re-frame.hicasso.impl.route-link
-  "`route-link` — the fifth tier-1 shape's Hicasso spelling (the census
+(ns re-frame.fresco.impl.route-link
+  "`route-link` — the fifth tier-1 shape's Fresco spelling (the census
   counts **106** route-links across 85 idiomatic files and the charter
   names the form tier-1).
 
@@ -15,11 +15,11 @@
 
   ## A plain function, deliberately — not a boundary
 
-  A Hicasso boundary costs two hooks and a row in every
+  A Fresco boundary costs two hooks and a row in every
   boundary count, and the census's 106 links live INSIDE rows that are
   already boundaries — an author byline is not a unit of re-render. So
   `route-link` is a plain function like
-  `re-frame.bench.hicasso.shapes.card/card`: called from a body it
+  `re-frame.bench.fresco.shapes.card/card`: called from a body it
   inlines, mints no boundary, adds no hook, and reads no subscription at
   all (the link model is a pure calculation), so the ≤2-hook budget and
   every page's boundary arithmetic are untouched by links.
@@ -30,11 +30,11 @@
     payload and the click decision come from the substrate-neutral
     late-bound seams routing publishes for exactly this consumer class —
     `:routing/link-model` here at render, `:routing/activate-link!` in
-    the lowered closure (`re-frame.hicasso.impl.intent`). This
+    the lowered closure (`re-frame.fresco.impl.intent`). This
     file restates NO routing law: `rf/route-link` and this one both run
     the same two
     definitions, and the packaging graph stays
-    `hicasso -> core late-bind <- routing` (Conventions §Packaging).
+    `fresco -> core late-bind <- routing` (Conventions §Packaging).
   - **Owned here: render-time capture and render-time
     refusal.** The frame is captured at RENDER (a click fires after the
     render scope has unwound); a missing routing artefact fails at the
@@ -43,7 +43,7 @@
     routing intent, see `on-click-roster!`.
     **(Declined:** a fn-only `:on-click` roster. That narrowing is only
     forced on a surface with no in-band spelling for
-    \"cancel-and-replace\"; Hicasso has one — `[::h/prevent [:app/event]]`
+    \"cancel-and-replace\"; Fresco has one — `[::h/prevent [:app/event]]`
     is the declarative veto, and it is admitted.**)**
   - **From Replicant (taken, via HD-026): behaviour as a
     namespaced-keyword-headed vector.** The anchor's click carries a
@@ -81,8 +81,8 @@
   One click, one semantic event — the navigation, or the app intent that
   cancelled it. See intent.cljs §The navigate head for the click-time
   half."
-  (:require [re-frame.hicasso.impl.error :refer [fail!]]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+  (:require [re-frame.fresco.impl.error :refer [fail!]]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
             [re-frame.late-bind :as rf.late-bind]))
 
 (def ^:private routing-artefact
@@ -90,12 +90,12 @@
   reports, carried here so the diagnostic names the missing artefact AT
   THE LINK SITE. Every link surface that consumes the seam keeps its own
   private copy of this map, for the same reason — see HD-027's prior-art
-  ledger in docs/design/hicasso/decisions.md for the roster."
+  ledger in docs/design/fresco/decisions.md for the roster."
   {:error-keyword :rf.error/routing-artefact-missing
    :maven         "day8/re-frame2-routing"
    :require-ns    "re-frame.routing"})
 
-;; `fail!` is `re-frame.hicasso.impl.error`'s — one constructor for the whole
+;; `fail!` is `re-frame.fresco.impl.error`'s — one constructor for the whole
 ;; package, and the ambient view and source coordinate come with it.
 
 (def control-keys
@@ -124,18 +124,18 @@
   — the route-click one-intent law."
   [on-click]
   (when-not (or (nil? on-click)
-                (rf.hicasso.impl.intent/prevent-head? on-click)
-                (rf.hicasso.impl.intent/callback? on-click)
+                (rf.fresco.impl.intent/prevent-head? on-click)
+                (rf.fresco.impl.intent/callback? on-click)
                 (fn? on-click))
-    (fail! :rf.error/hicasso-route-link-bad-on-click
-           're-frame.hicasso.impl.route-link/route-link
+    (fail! :rf.error/fresco-route-link-bad-on-click
+           're-frame.fresco.impl.route-link/route-link
            (str "route-link's :on-click is the pre-navigation veto; it takes nil, "
-                "[" (pr-str rf.hicasso.impl.intent/prevent-head) " [:my-event …]] (cancel the "
+                "[" (pr-str rf.fresco.impl.intent/prevent-head) " [:my-event …]] (cancel the "
                 "navigation and dispatch this instead), h/event, or a plain function — "
                 "never " (pr-str on-click) ". A bare intent vector is refused "
                 "because the click already produces the one routing intent; an "
                 "application reaction belongs behind the routing event, or inside "
-                (pr-str rf.hicasso.impl.intent/prevent-head) " if it replaces the navigation.")
+                (pr-str rf.fresco.impl.intent/prevent-head) " if it replaces the navigation.")
            {:on-click on-click}))
   on-click)
 
@@ -146,7 +146,7 @@
 
   The same law as `on-click-roster!`, one position along: the click already
   produces the one routing intent, and here the hover already produces the
-  one prefetch intent — Hicasso's in-band grammar carries ONE intent per
+  one prefetch intent — Fresco's in-band grammar carries ONE intent per
   position, so there is no composition to fall back on and nothing to
   merge. An author who needs a position to carry something else omits the
   sugar and spells the prefetch by hand at the positions they are not
@@ -168,8 +168,8 @@
   means only \"the value is good and the position is taken\"."
   [props prefetch-keys]
   (when-let [claimed (seq (filter #(contains? props %) prefetch-keys))]
-    (fail! :rf.error/hicasso-route-link-claimed-intent-position
-           're-frame.hicasso.impl.route-link/route-link
+    (fail! :rf.error/fresco-route-link-claimed-intent-position
+           're-frame.fresco.impl.route-link/route-link
            (str "route-link was given :prefetch :intent, which claims "
                 (pr-str (vec prefetch-keys))
                 ", and also a value at " (pr-str (vec claimed))
@@ -196,9 +196,9 @@
     {}))
 
 (defn- require-frame! [to]
-  (or rf.hicasso.impl.intent/*frame*
-      (fail! :rf.error/hicasso-route-link-outside-boundary
-             're-frame.hicasso.impl.route-link/route-link
+  (or rf.fresco.impl.intent/*frame*
+      (fail! :rf.error/fresco-route-link-outside-boundary
+             're-frame.fresco.impl.route-link/route-link
              (str "route-link {:to " (pr-str to) "} was rendered with no ambient "
                   "frame; a link is only legal inside a boundary's render, because "
                   "the navigation must be pinned to the frame that rendered it.")
@@ -239,7 +239,7 @@
         attrs    (-> (apply dissoc props control-keys)
                      (merge (prefetch-attrs prefetch prefetch-keys))
                      (assoc :href href
-                            :on-click [rf.hicasso.impl.intent/navigate-head
+                            :on-click [rf.fresco.impl.intent/navigate-head
                                        {:frame    frame-kw
                                         :payload  payload
                                         :native?  native?

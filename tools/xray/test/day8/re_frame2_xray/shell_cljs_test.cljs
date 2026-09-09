@@ -22,7 +22,7 @@
 
     3. The L3 tab bar renders one button per registered Dynamic tab
        (Epoch / app-db / Views / Trace / Machine / Routes / Resources /
-       Graph / Frames / Hicasso) and clicking a tab updates
+       Graph / Frames / Fresco) and clicking a tab updates
        `:rf.xray/selected-tab` so the L4 detail panel rebinds.
 
     4. The L2 event list reads `:rf.xray/event-bundles` and clicking a
@@ -677,19 +677,19 @@
   Static Machines sub-tab. Resources — Spec 016 §Xray and AI tooling —
   earns its own L3 tab after Routing per Mike's cohesive-sub-domain
   ruling. rf2-9ett2d added Graph per EP-0014; rf2-wtg9z4 added Frames
-  per EP-0013; rf2-hic-023 added Hicasso.)"
+  per EP-0013; rf2-hic-023 added Fresco.)"
   [:epoch :app-db :views :trace :machines :routing :resources
-   :derivation-graph :module-view :hicasso])
+   :derivation-graph :module-view :fresco])
 
 (deftest tab-bar-renders-every-registered-dynamic-tab
   (testing "spec/018 §5 — Epoch / app-db / Views / Trace / Machine /
-            Routes / Resources / Graph / Frames / Hicasso (Epoch
+            Routes / Resources / Graph / Frames / Fresco (Epoch
             supersedes the retired Event/Handler tab per rf2-5gl5r;
             rf2-gbz39 removed the Issues tab per Option (c)). rf2-4v67l
             removed the Chrome A11y dogfood in favour of Story's
             shipped panel; rf2-ga16q removed the Machines Canvas tab
             (relocated to Static); Resources added per Spec 016; Graph
-            / Frames / Hicasso per EP-0014 / EP-0013 / rf2-hic-023."
+            / Frames / Fresco per EP-0014 / EP-0013 / rf2-hic-023."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree     (shell/shell-view)
@@ -719,7 +719,7 @@
         ;; `expected-tab-ids`, so the count was computed from the
         ;; whitelist and could never disagree with it: a tab REGISTERED
         ;; but not whitelisted was filtered out before it was counted.
-        ;; Three shipped that way (Graph / Frames / Hicasso) and this
+        ;; Three shipped that way (Graph / Frames / Fresco) and this
         ;; deftest stayed green throughout (rf2-gui26). Comparing the
         ;; rendered set against the expected set fails in BOTH
         ;; directions — a tab dropped from the bar, and a tab added to

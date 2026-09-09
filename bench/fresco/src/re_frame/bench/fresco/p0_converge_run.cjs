@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // THE CONVERGED P0 CLOCK TABLE — driver (rf2-a4x1o).
 //
-//   node implementation/hicasso/test/re_frame/bench/hicasso/p0_converge_run.cjs
+//   node implementation/fresco/test/re_frame/bench/fresco/p0_converge_run.cjs
 //
 // Build once, serve once, load the page ONE ROW AT A TIME, and refuse a
 // figure that moves with its position in the plan.
@@ -10,7 +10,7 @@
 //
 // `implementation/shadow-cljs.edn` is not touched. rf2-2rtt6.2 owns the
 // measurement lane and HD-017 makes a build-id addition a hot-zone,
-// sequenced edit; this rides `:hicasso-bench` with an output directory and
+// sequenced edit; this rides `:fresco-bench` with an output directory and
 // an `:init-fn` merged in at the CLI, which is the seam that arm's own
 // driver established for exactly this.
 //
@@ -77,11 +77,11 @@ const { shadowBuild } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
 
-const BUILD_ID = 'hicasso-bench';
-const OUT_DIR = process.env.HICASSO_OUT_DIR || 'out/hicasso-converge';
-const INIT_FN = 're-frame.bench.hicasso.p0-converge-app/-main';
+const BUILD_ID = 'fresco-bench';
+const OUT_DIR = process.env.FRESCO_OUT_DIR || 'out/fresco-converge';
+const INIT_FN = 're-frame.bench.fresco.p0-converge-app/-main';
 const OUT = path.join(PROJECT, OUT_DIR);
-const PORT = Number(process.env.HICASSO_PORT || 8134);
+const PORT = Number(process.env.FRESCO_PORT || 8134);
 
 // One row, one page, one fresh heap. The order is the order the studio
 // page reports them in; each is self-contained, so it is not load-bearing.
@@ -92,7 +92,7 @@ const ALL_ROWS = [
   { id: 'narrow', why: 'k commits each read by exactly one boundary — localisation' },
 ];
 
-// `HICASSO_ONLY=narrow` drives one row instead of four, over the SAME bundle
+// `FRESCO_ONLY=narrow` drives one row instead of four, over the SAME bundle
 // and the same gates. Not a shortcut, and it is `hd8_run.cjs`'s `HD8_ONLY`
 // for the same reason that one has it: re-taking ONE row whose window moved
 // must not re-take the three whose windows did not, because that would mint a
@@ -104,16 +104,16 @@ const ALL_ROWS = [
 // published numbers with different ones for no reason.
 //
 // Unset is all four, so the published shape is the default.
-const ONLY = (process.env.HICASSO_ONLY || '').trim();
+const ONLY = (process.env.FRESCO_ONLY || '').trim();
 const ROWS = ONLY ? ALL_ROWS.filter((r) => ONLY.split(',').includes(r.id)) : ALL_ROWS;
 if (ROWS.length === 0) {
   console.error(
-    `[converge] HICASSO_ONLY=${ONLY} selects no row; known ids: ${ALL_ROWS.map((r) => r.id).join(', ')}`
+    `[converge] FRESCO_ONLY=${ONLY} selects no row; known ids: ${ALL_ROWS.map((r) => r.id).join(', ')}`
   );
   process.exit(1);
 }
 
-// `HICASSO_START=reagent|uix` names the segment that leads round 0; the
+// `FRESCO_START=reagent|uix` names the segment that leads round 0; the
 // order alternates from there. Default reagent — the only schedule any run
 // before rf2-6i0i2 had. A fixed start confounds segment order with temporal
 // position (Reagent-first was always rounds 0/2/4), so the segment-order
@@ -121,13 +121,13 @@ if (ROWS.length === 0) {
 // launched runs — separate invocations of this driver, half each way — and
 // adjudicating at the run level. One invocation, whatever its start, is one
 // run and is never more than one trial.
-const START = (process.env.HICASSO_START || 'reagent').trim();
+const START = (process.env.FRESCO_START || 'reagent').trim();
 if (!['reagent', 'uix'].includes(START)) {
-  console.error(`[converge] HICASSO_START=${START} is not a segment; known starts: reagent, uix`);
+  console.error(`[converge] FRESCO_START=${START} is not a segment; known starts: reagent, uix`);
   process.exit(1);
 }
 
-// `HICASSO_RATOM=on` puts the SECOND AUTHOR'S `:reagent-ratom` arm in the
+// `FRESCO_RATOM=on` puts the SECOND AUTHOR'S `:reagent-ratom` arm in the
 // Reagent segment of the `M1` and `broad` rows, so `reagent-subs / ratom` —
 // rf2-2rtt6.2's headline 1, the price of the reactive system — can be formed
 // a second way on a second page (rf2-2rtt6.21). Default OFF, and the default
@@ -137,12 +137,12 @@ if (!['reagent', 'uix'].includes(START)) {
 // measured under. An unflagged invocation is still that instrument; a flagged
 // one is a different plan and says so on every record it writes.
 //
-// It composes with HICASSO_ONLY rather than implying it: `M2` and `narrow`
+// It composes with FRESCO_ONLY rather than implying it: `M2` and `narrow`
 // carry no ratom arm in either mode, so the useful pairing is
-// `HICASSO_RATOM=on HICASSO_ONLY=M1,broad`.
-const RATOM = (process.env.HICASSO_RATOM || 'off').trim();
+// `FRESCO_RATOM=on FRESCO_ONLY=M1,broad`.
+const RATOM = (process.env.FRESCO_RATOM || 'off').trim();
 if (!['on', 'off'].includes(RATOM)) {
-  console.error(`[converge] HICASSO_RATOM=${RATOM} is not on|off`);
+  console.error(`[converge] FRESCO_RATOM=${RATOM} is not on|off`);
   process.exit(1);
 }
 
@@ -177,7 +177,7 @@ const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'applicat
 function serve() {
   fs.writeFileSync(
     path.join(OUT, 'index.html'),
-    '<!doctype html><html><head><meta charset="utf-8"><title>Hicasso P0 converged</title></head>' +
+    '<!doctype html><html><head><meta charset="utf-8"><title>Fresco P0 converged</title></head>' +
       '<body><div id="app"></div><script src="main.js"></script></body></html>'
   );
   return http
@@ -206,7 +206,7 @@ async function runRow(browser, row) {
   });
   // Watching starts BEFORE the navigation. `pageerror` used to be pushed onto
   // an array that nothing read until after the sentinel wait, so a throw
-  // before HICASSO_DONE — which is every throw, since a page that threw never
+  // before FRESCO_DONE — which is every throw, since a page that threw never
   // reaches its own `done!` — cost the FULL twenty-minute budget before the
   // driver looked at the answer it had held all along (rf2-f5roa, from the PR
   // #7268 audit).
@@ -219,18 +219,18 @@ async function runRow(browser, row) {
     await navigate(page, `http://127.0.0.1:${PORT}/?row=${row.id}&start=${START}&ratom=${RATOM}`, {
       waitUntil: 'commit',
       timeoutMs: NAV_TIMEOUT_MS,
-      budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.HICASSO_DONE`,
+      budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.FRESCO_DONE`,
     });
-    await watch.race('window.HICASSO_DONE === true || window.HICASSO_ERROR', {
+    await watch.race('window.FRESCO_DONE === true || window.FRESCO_ERROR', {
       timeoutMs: SENTINEL_TIMEOUT_MS,
-      budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.HICASSO_DONE`,
+      budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.FRESCO_DONE`,
     });
 
-    const err = await page.evaluate('window.HICASSO_ERROR || null');
-    const refused = await page.evaluate('window.HICASSO_GUARD_REFUSED === true');
-    const controlFailed = await page.evaluate('window.HICASSO_CONTROL_FAILED === true');
-    const orderRefused = await page.evaluate('window.HICASSO_ORDER_REFUSED === true');
-    const results = await page.evaluate('window.HICASSO_RESULTS || {}');
+    const err = await page.evaluate('window.FRESCO_ERROR || null');
+    const refused = await page.evaluate('window.FRESCO_GUARD_REFUSED === true');
+    const controlFailed = await page.evaluate('window.FRESCO_CONTROL_FAILED === true');
+    const orderRefused = await page.evaluate('window.FRESCO_ORDER_REFUSED === true');
+    const results = await page.evaluate('window.FRESCO_RESULTS || {}');
     // Kept as a BACKSTOP for an error arriving in the same tick as the
     // sentinel, which the race cannot order.
     return { row, err, refused, controlFailed, orderRefused, results, pageErrors: watch.failures.map((f) => `${f.kind}: ${f.detail}`) };
@@ -271,21 +271,21 @@ async function runRow(browser, row) {
     process.exit(1);
   }
 
-  console.log(`;; ==== HICASSO RUNTIME ====`);
+  console.log(`;; ==== FRESCO RUNTIME ====`);
   console.log(`;; chromium ${version} (playwright), :advanced, goog.DEBUG false`);
   console.log(`;; one row per page; ${ROWS.length} pages`);
   // The repro line carries the environment it was actually run with, not the
   // bare command: a published figure whose repro command does not reproduce
   // it is a figure nobody can check.
   console.log(
-    `;; reproduce  ${ONLY ? `HICASSO_ONLY=${ONLY} ` : ''}${START !== 'reagent' ? `HICASSO_START=${START} ` : ''}` +
-      `${RATOM !== 'off' ? `HICASSO_RATOM=${RATOM} ` : ''}node ` +
-      `implementation/hicasso/test/re_frame/bench/hicasso/p0_converge_run.cjs`
+    `;; reproduce  ${ONLY ? `FRESCO_ONLY=${ONLY} ` : ''}${START !== 'reagent' ? `FRESCO_START=${START} ` : ''}` +
+      `${RATOM !== 'off' ? `FRESCO_RATOM=${RATOM} ` : ''}node ` +
+      `implementation/fresco/test/re_frame/bench/fresco/p0_converge_run.cjs`
   );
-  console.log(`;; rows       ${ROWS.map((r) => r.id).join(', ')}${ONLY ? `  (HICASSO_ONLY=${ONLY})` : ''}`);
-  console.log(`;; start      round 0 led by ${START} (HICASSO_START), alternating`);
+  console.log(`;; rows       ${ROWS.map((r) => r.id).join(', ')}${ONLY ? `  (FRESCO_ONLY=${ONLY})` : ''}`);
+  console.log(`;; start      round 0 led by ${START} (FRESCO_START), alternating`);
   console.log(
-    `;; ratom      ${RATOM} (HICASSO_RATOM)` +
+    `;; ratom      ${RATOM} (FRESCO_RATOM)` +
       (RATOM === 'on'
         ? ' — the second author\'s :reagent-ratom arm is in the Reagent segment of M1 and broad;' +
           ' this run\'s cross-segment red-zone is NOT the published threshold'
@@ -293,7 +293,7 @@ async function runRow(browser, row) {
   );
   for (const o of outcomes) {
     for (const [k, v] of Object.entries(o.results)) {
-      console.log(`;; ==== HICASSO ${o.row.id} / ${k} ====`);
+      console.log(`;; ==== FRESCO ${o.row.id} / ${k} ====`);
       console.log(v);
     }
   }

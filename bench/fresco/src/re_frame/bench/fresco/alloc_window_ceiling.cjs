@@ -2,12 +2,12 @@
 // WHAT SEPARATES A CERTIFYING R = 20 WINDOW FROM A REFUSING ONE — rf2-onozm,
 // and the same constraint under its other name, rf2-2rtt6.140.
 //
-//     node hicasso/test/re_frame/bench/hicasso/alloc_window_ceiling.cjs
-//     node hicasso/test/re_frame/bench/hicasso/alloc_window_ceiling.cjs --self-test
+//     node fresco/test/re_frame/bench/fresco/alloc_window_ceiling.cjs
+//     node fresco/test/re_frame/bench/fresco/alloc_window_ceiling.cjs --self-test
 //
 // Records:
-//   docs/design/hicasso/studio/the-window-total-is-the-ceiling.md
-//   docs/design/hicasso/studio/the-fixed-cost-binds-on-one-rung.md
+//   docs/design/fresco/studio/the-window-total-is-the-ceiling.md
+//   docs/design/fresco/studio/the-fixed-cost-binds-on-one-rung.md
 //
 // ## WHAT THIS IS AND IS NOT
 //
@@ -104,7 +104,7 @@ const RUNS = ['paired-run1', 'paired-run2'];
 // the observed leg witness, and DELETED `ALLOC_MASK_BUDGET_B` and
 // `allocMaxWrites` -- an ancestral, gated fact rather than a proposal:
 // `p0_ladder_structural.test.cjs` pins `lacks(/const ALLOC_MASK_BUDGET_B/)`, and
-// `docs/design/hicasso/allocation-instrument-rework.md` carries the reasoning
+// `docs/design/fresco/allocation-instrument-rework.md` carries the reasoning
 // under "Constraint semantics -- what is retired and what stands".
 //
 // It survives here as a HISTORICAL YARDSTICK and nothing more: `rf2-2rtt6.140`'s

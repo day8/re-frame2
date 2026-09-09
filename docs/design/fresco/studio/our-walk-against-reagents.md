@@ -42,20 +42,20 @@ every `route-link` href is a plain string before any clock starts. No timed
 window here contains a `route-url` synthesis. Windows were coordinated with
 `worker/linkterm-cno31` on both beads before either run opened.
 
-**THE PLAIN WITNESS.** Hicasso's markup carries intent VECTORS at its event
+**THE PLAIN WITNESS.** Fresco's markup carries intent VECTORS at its event
 positions; Reagent has no such surface and would `clj->js` them. An arm doing
 different work is not an arm (`rf2-2rtt6.62`), so the compared value is the
 realized page with every event position replaced by one shared plain function —
 legal, and identical work, for all three interpreters. A fourth arm,
-`hicasso-native`, then walks the page's OWN markup, so the authoring surface's
+`fresco-native`, then walks the page's OWN markup, so the authoring surface's
 term is named rather than hidden inside the comparison.
 
 > **The exemption above covers `route-url`, and not the navigate vector's
 > lowering.** Every `route-link` mints an `:on-click [::h/navigate {…}]` as well
 > as an `href`, and the href is indeed a plain string before any clock starts —
 > but `codec/as-element` lowers the navigate vector *inside* every timed window
-> of the `hicasso-native` arm, 207 times, where `plainify` has replaced all 207
-> with `noop` on the plain one. So the `hicasso-native` − `hicasso` gap is
+> of the `fresco-native` arm, 207 times, where `plainify` has replaced all 207
+> with `noop` on the plain one. So the `fresco-native` − `fresco` gap is
 > three-quarters route-link and one-quarter the 71 author-written intents §2
 > attributes the whole of it to. Measured, attributed to a commit, and costed
 > against a repair in
@@ -66,16 +66,16 @@ term is named rather than hidden inside the comparison.
 Every arm's element tree is rendered into a fresh container and its canonical
 DOM read (`lane/canonical`, attribute names sorted). Identical on both runs:
 
-| arm | elements | canonical bytes | vs hicasso |
+| arm | elements | canonical bytes | vs fresco |
 |---|---|---|---|
-| `hicasso` | 1,202 | 58,474 | — |
-| `hicasso-native` | 1,202 | 58,474 | **identical** |
+| `fresco` | 1,202 | 58,474 | — |
+| `fresco-native` | 1,202 | 58,474 | **identical** |
 | `slim` | 1,202 | 58,529 | differs, 55 bytes |
 | `reagent` | 1,202 | 58,529 | differs, 55 bytes |
 
 **The 55 bytes are fully explained and are whitespace only.** The census card
 writes `:class (cond-> "" favorited (str " active") pending? (str " optimistic"))`,
-so an unfavourited, non-pending card carries a declared class of `""`. Hicasso's
+so an unfavourited, non-pending card carries a declared class of `""`. Fresco's
 `class-names` drops an empty class (`(when (seq class) class)`); Reagent's treats
 `""` as truthy and joins it, producing a trailing space in `className`. 55 of the
 69 cards are in that state. Zero elements differ, zero attributes differ, and the
@@ -96,11 +96,11 @@ both by predecessor and by phase, all within 10%**:
 | arm | ms/walk p50 [min – max] | ns/element |
 |---|---|---|
 | `reagent` (stock 2.0.1) | 0.6375 [0.6000 – 0.9000] | 530 |
-| **`hicasso`** | **0.6750 [0.6250 – 0.8000]** | **562** |
-| `hicasso-native` (intent markup) | 0.7250 [0.6625 – 0.9000] | 603 |
+| **`fresco`** | **0.6750 [0.6250 – 0.8000]** | **562** |
+| `fresco-native` (intent markup) | 0.7250 [0.6625 – 0.9000] | 603 |
 | `slim` (`reagent2.impl.template`) | 1.2125 [1.1125 – 1.4500] | 1,009 |
 
-`hicasso/reagent` **1.0588** · `hicasso/slim` 0.5567 · **`slim/reagent` 1.9020**
+`fresco/reagent` **1.0588** · `fresco/slim` 0.5567 · **`slim/reagent` 1.9020**
 
 **AFTER** — codec blob `0304f489bb`, instrument blob byte-identical to the
 before run's, guard verdict **reportable**:
@@ -108,16 +108,16 @@ before run's, guard verdict **reportable**:
 | arm | ms/walk p50 [min – max] | ns/element |
 |---|---|---|
 | `reagent` (stock 2.0.1) | 0.6875 [0.5000 – 122.6625] | 572 |
-| **`hicasso`** | **0.6625 [0.4750 – 1.2875]** | **551** |
-| `hicasso-native` (intent markup) | 0.7125 [0.5125 – 16.9000] | 593 |
+| **`fresco`** | **0.6625 [0.4750 – 1.2875]** | **551** |
+| `fresco-native` (intent markup) | 0.7125 [0.5125 – 16.9000] | 593 |
 | `slim` (`reagent2.impl.template`) | 1.1875 [0.9000 – 1.9750] | 988 |
 
-`hicasso/reagent` **0.9636** · `hicasso/slim` 0.5579 · **`slim/reagent` 1.7273**
+`fresco/reagent` **0.9636** · `fresco/slim` 0.5579 · **`slim/reagent` 1.7273**
 
 **Read the ratios, not the absolutes, across the two runs.** This is a shared
 fleet box (§6) and the two runs sat in different pockets of it; the arm ratios
 are same-run interleaved against donors measured in the same windows, which is
-what makes them comparable. The `reagent` and `hicasso-native` maxima in the
+what makes them comparable. The `reagent` and `fresco-native` maxima in the
 after run (122.66 ms, 16.90 ms) are single scheduler stalls; the p50s are over 60
 samples and the guard passed on both partitions.
 
@@ -128,11 +128,11 @@ samples and the guard passed on both partitions.
   walk. The bead's premise, that ours is the slower interpreter, is refuted by
   direct measurement.
 - **The donor is the slow one.** `slim/reagent` reads **1.90× / 1.73×** across
-  the two runs. The donor rungs and the pre-Hicasso candidate all ride
+  the two runs. The donor rungs and the pre-Fresco candidate all ride
   `reagent2.impl.template`'s `:f>` walk, and this is where their 1.33–1.5×
-  comes from. Hicasso extracted that plumbing and then cheapened it: we read
+  comes from. Fresco extracted that plumbing and then cheapened it: we read
   **0.56×** the donor we were built from.
-- **Hicasso's own authoring surface costs 41 ns/element** (562 → 603 before,
+- **Fresco's own authoring surface costs 41 ns/element** (562 → 603 before,
   551 → 593 after) — 71 intent vectors lowered across 1,202 elements, about 7%
   of the walk. That is the price of the intent surface, stated rather than
   buried.
@@ -145,7 +145,7 @@ samples and the guard passed on both partitions.
 > codec has itself moved on. Both are re-taken in one process on current `main`
 > in [the 2026-08-04 re-take](#2026-08-04-re-take-of-the-arms-on-current-main).
 >
-> **A third bullet was wrong when it was written.** "Hicasso's own authoring
+> **A third bullet was wrong when it was written.** "Fresco's own authoring
 > surface costs 41 ns/element … 71 intent vectors lowered across 1,202
 > elements" — the 41 is right for this tree and the attribution is not: 207 of
 > the page's event positions carry an `[::h/navigate {…}]` that `route-link`
@@ -171,7 +171,7 @@ so the nesting is visible.
 
 **BEFORE** (ns/op):
 
-| stage | hicasso | slim | reagent | ours − Reagent's |
+| stage | fresco | slim | reagent | ours − Reagent's |
 |---|---|---|---|---|
 | tag lookup (cached) | 21.2 | — | 29.5 | **−8.3** |
 | **whole prop pipeline / element** | **209.2** | — | **182.2** | **+27.0** |
@@ -182,7 +182,7 @@ so the nesting is visible.
 | `createElement` (shared floor) | 54.9 | 54.9 | 54.9 | — |
 
 **Two rows are NESTED, and the sum must not count them twice.**
-`convert-props-hicasso` and `convert-props-reagent` invoke each interpreter's
+`convert-props-fresco` and `convert-props-reagent` invoke each interpreter's
 **whole** `convert-props` over every element, and that pipeline already performs
 the cached prop-name lookup and the value conversion for every prop it emits.
 The two are priced separately so the pipeline has named parts — the same
@@ -231,7 +231,7 @@ any of this.
 
 **AFTER** (ns/op, same instrument):
 
-| stage | hicasso | slim | reagent | ours − Reagent's |
+| stage | fresco | slim | reagent | ours − Reagent's |
 |---|---|---|---|---|
 | tag lookup (cached) | 20.4 | — | 34.9 | −14.5 |
 | **whole prop pipeline / element** | **207.6** | — | **186.8** | **+20.8** |
@@ -320,14 +320,14 @@ cheaper.
   measurement makes it look backwards anyway: the donor's walk is 1.73–1.90×
   stock Reagent's and 1.8× ours.
 - **A compiler or analyzer** (UIx's answer). Fenced, unchanged.
-- **Closing the remaining `convert-props` term.** See §5 — it is Hicasso's
+- **Closing the remaining `convert-props` term.** See §5 — it is Fresco's
   semantics, and it is reported as the floor rather than attacked.
 
 ## 5. The floor reached, stated plainly
 
 **The walk's remaining cost over stock Reagent's is one stage: the prop
 pipeline, +20.8 ns/element after the change (+27.0 before).** That is what
-Hicasso's `convert-props` does that Reagent's does not, and every item of it is a
+Fresco's `convert-props` does that Reagent's does not, and every item of it is a
 shipped semantic rather than an inefficiency: the `:&` remainder probe and its
 owned-literal law (HD-023), the `:ref` reserved-value refusal (HD-022), the
 event-position classification that makes intent vectors work at all, the
@@ -403,8 +403,8 @@ Consequences, declared:
 | | |
 |---|---|
 | **Producing commit** | `90cc9ab338` on `worker/walkdecomp-2rtt6-63` (the after run); the before run is the same tree with `front/codec.cljs` at its pre-change blob. **Authored, and rebase-merged, so this SHA is on no branch and will not resolve in a fresh clone.** It landed as **`02a440a4d1`** (same patch — identical `git patch-id --stable`), but **the rebase moved `front/codec.cljs` itself** — the one file this decomposition turns on — so the landed commit is not the measured tree and must not be read as one. The blob hashes below are what pin this run |
-| **Reproduction** | `HICASSO_INIT_FN=re-frame.bench.hicasso.walk-vs-reagent-app/-main HICASSO_OUT_DIR=out/hicasso-walkcmp HICASSO_PORT=8171 node implementation/freehand/test/re_frame/bench/hicasso/run.cjs` |
-| **Build** | `:hicasso-bench` (`--config-merge` entry swap), `:advanced`, `goog.DEBUG false`, lane cache cleared per `rf2-2rtt6.20`; **0 warnings** on every build |
+| **Reproduction** | `FRESCO_INIT_FN=re-frame.bench.fresco.walk-vs-reagent-app/-main FRESCO_OUT_DIR=out/fresco-walkcmp FRESCO_PORT=8171 node implementation/freehand/test/re_frame/bench/fresco/run.cjs` |
+| **Build** | `:fresco-bench` (`--config-merge` entry swap), `:advanced`, `goog.DEBUG false`, lane cache cleared per `rf2-2rtt6.20`; **0 warnings** on every build |
 | **Runtime** | chromium `147.0.7727.15` (playwright), node `v24.13.0`, Windows NT 10.0 x64, 24 threads |
 | **Design** | 4 arms × 6 rounds × (4 warm-up + 10 samples), 8 whole-page walks per timing window |
 | **Clock** | in-page `performance.now`, **diagnostic**; the clock of record is `census_clock_run.cjs` and is untouched here |
@@ -430,8 +430,8 @@ row above. Since §2 was taken, **two fixes landed in that shipped interpreter**
 `rf2-lhdp0` (PR #7405) and `rf2-e7zxb` (PR #7427), the second closing on
 `slim/reagent` 0.9762 and 0.9649. The HD-013 creative advisory pass
 (2026-08-04, recorded on `rf2-2rtt6.1`) drew the obvious inference — that
-Hicasso's published 0.9636× and slim's 0.9762×/0.9649× are **parity**, so §2's
-`hicasso/slim` **0.56×** is stale — and then said in terms that this was a
+Fresco's published 0.9636× and slim's 0.9762×/0.9649× are **parity**, so §2's
+`fresco/slim` **0.56×** is stale — and then said in terms that this was a
 **hypothesis until one run put both arms in the same windows**, because the two
 figures come from different sessions on a shared box, which is exactly what
 this instrument's ratios are not for. This is that run.
@@ -446,11 +446,11 @@ the run opened.
 | arm | ms/walk p50 [min – max] | ns/element |
 |---|---|---|
 | `reagent` (stock 2.0.1) | 0.4750 [0.3875 – 0.9000] | 395 |
-| **`hicasso`** | **0.4000 [0.3250 – 0.5125]** | **333** |
+| **`fresco`** | **0.4000 [0.3250 – 0.5125]** | **333** |
 | `slim` (`reagent2.impl.template`) | 0.4625 [0.4125 – 0.7125] | 385 |
-| `hicasso-native` (intent markup) | 0.5500 [0.4625 – 0.8875] | 458 |
+| `fresco-native` (intent markup) | 0.5500 [0.4625 – 0.8875] | 458 |
 
-`hicasso/reagent` **0.8421** · `hicasso/slim` **0.8649** · `slim/reagent` 0.9737
+`fresco/reagent` **0.8421** · `fresco/slim` **0.8649** · `slim/reagent` 0.9737
 
 ### The quantisation floor, applied before any sign is read
 
@@ -463,9 +463,9 @@ resolved as to sign**:
 
 | pair | Δ ms/walk | grid steps | verdict |
 |---|---|---|---|
-| `hicasso` vs `reagent` | 0.0750 | 6 | resolved |
-| `hicasso` vs `slim` | 0.0625 | 5 | resolved |
-| `hicasso` vs `hicasso-native` | 0.1500 | 12 | resolved |
+| `fresco` vs `reagent` | 0.0750 | 6 | resolved |
+| `fresco` vs `slim` | 0.0625 | 5 | resolved |
+| `fresco` vs `fresco-native` | 0.1500 | 12 | resolved |
 | `slim` vs `reagent` | 0.0125 | **1** | **NOT RESOLVED as to sign** |
 
 So `slim/reagent` 0.9737 reproduces `rf2-e7zxb`'s 0.9762 / 0.9649 in magnitude,
@@ -477,7 +477,7 @@ itself the finding: it was 1.90×/1.73× on this page's own two runs.
 ### The rider the pass raised, answered
 
 **The codec advantage over the donor has NOT evaporated — but it has collapsed
-from 0.56× to 0.86×.** `hicasso/slim` reads **0.8649** here, five grid steps,
+from 0.56× to 0.86×.** `fresco/slim` reads **0.8649** here, five grid steps,
 same run, same process, same witness, guard reportable on both arms. The pass's
 hypothesis was reasonable and is refuted only by the thing it asked for: put the
 two in one process and the codec is still measurably ahead of the interpreter it
@@ -497,15 +497,15 @@ The donor arm is quotable across sessions and the candidate arm is not:
 - **`front/codec.cljs` does not.** It is **593 insertions / 114 deletions**
   different from the `0304f489bb` blob that produced §2's 0.9636×, across seven
   commits including `rf2-2rtt6.39`, `rf2-2rtt6.65`, `rf2-2rtt6.36` and
-  `rf2-digtt`. `hicasso/reagent` 0.8421 therefore **does not reproduce** §2's
+  `rf2-digtt`. `fresco/reagent` 0.8421 therefore **does not reproduce** §2's
   published 0.9636× and is not evidence about it: it is a different codec. The
-  same-run `hicasso/slim` ratio is unaffected by this, which is why the rider
+  same-run `fresco/slim` ratio is unaffected by this, which is why the rider
   above can be answered and a cross-session candidate comparison cannot.
 
 ### One thing nobody asked for, recorded because it is resolved
 
 **The intent surface now costs 125 ns/element, where §2 measured 41.** The
-`hicasso-native` arm walks the page's own intent markup; here it reads 458
+`fresco-native` arm walks the page's own intent markup; here it reads 458
 ns/element against the plain arm's 333, twelve grid steps apart. As a same-run
 ratio the authoring surface has gone from ~1.075× the plain walk (603/562 and
 593/551) to **1.375×**. This is the price of the surface the P2 fork is about,
@@ -534,7 +534,7 @@ and not because the re-take is outstanding.
 |---|---|
 | arm-order guard self-test (12 cases) | all `ok` before any arm ran |
 | twin parity gate (fatal) | **OK** — 1,202 elements, 58,474 canonical bytes, identical to `lt/page` |
-| workload match | `hicasso` / `hicasso-native` 58,474 B; `slim` / `reagent` 58,529 B — the same **55-byte** whitespace-only difference §1 explains and prices *against* Reagent |
+| workload match | `fresco` / `fresco-native` 58,474 B; `slim` / `reagent` 58,529 B — the same **55-byte** whitespace-only difference §1 explains and prices *against* Reagent |
 | arm-order guard verdict | **reportable** — every one of the four arms `[ok]` by predecessor **and** by phase, tolerance 10% |
 | candidate agreement failures | `[]` |
 | `SLIM DECOMPOSED` agreement failures | `[]` |
@@ -557,8 +557,8 @@ across runs.
 | | |
 |---|---|
 | **Producing commit** | `77a92185ea` (`origin/main`), branch `worker/nullwalk` |
-| **Reproduction** | `HICASSO_INIT_FN=re-frame.bench.hicasso.walk-vs-reagent-app/-main HICASSO_OUT_DIR=out/hicasso-walkcmp HICASSO_PORT=8171 node implementation/freehand/test/re_frame/bench/hicasso/run.cjs` |
-| **Build** | `:hicasso-bench`, `:advanced`, `goog.DEBUG false`, **0 warnings** (200 files, 145 compiled, 19.35 s) |
+| **Reproduction** | `FRESCO_INIT_FN=re-frame.bench.fresco.walk-vs-reagent-app/-main FRESCO_OUT_DIR=out/fresco-walkcmp FRESCO_PORT=8171 node implementation/freehand/test/re_frame/bench/fresco/run.cjs` |
+| **Build** | `:fresco-bench`, `:advanced`, `goog.DEBUG false`, **0 warnings** (200 files, 145 compiled, 19.35 s) |
 | **Runtime** | chromium `147.0.7727.15` (playwright), node `v24.13.0`, Windows NT 10.0 x64, 24 threads |
 | **Design** | 4 arms × 6 rounds × (4 warm-up + 10 samples), 8 whole-page walks per window — unchanged |
 | **Clock** | in-page `performance.now`, **diagnostic**; the clock of record is untouched here |
@@ -623,7 +623,7 @@ are the shipping code. Run B is run C's tree with **one line** of
 roster it is compared against, which deletes the allocation and leaves every
 other line of the lowering standing.
 
-| run | `hicasso` ns/el | `hicasso-native` ns/el | gap ns/el | grid steps | `hicasso-native`/`hicasso` |
+| run | `fresco` ns/el | `fresco-native` ns/el | gap ns/el | grid steps | `fresco-native`/`fresco` |
 |---|---|---|---|---|---|
 | A — shipping | 447 | 655 | 208 | 20 | **1.4651** |
 | B — one line ablated | 364 | 406 | 42 | 4 | **1.1143** |
@@ -696,7 +696,7 @@ walk on this page.
 
 | | |
 |---|---|
-| **Commit** | `69678caee6` — `fix(hicasso): route-link's navigate grammar is closed, and prefetch is refused (rf2-2rtt6.54)`, committed 2026-08-03 15:52 AUSEST |
+| **Commit** | `69678caee6` — `fix(fresco): route-link's navigate grammar is closed, and prefetch is refused (rf2-2rtt6.54)`, committed 2026-08-03 15:52 AUSEST |
 | **Not** in §2's tree | `git merge-base --is-ancestor 69678caee6 02a440a4d1` → **1**. At `02a440a4d1` the line reads `(map? m)` |
 | **In** the re-take's tree | `git merge-base --is-ancestor 69678caee6 77a92185ea` → **0** |
 | **Unchanged since** | `unwrap-navigate` is byte-identical at `77a92185ea` and at this run's tree, so runs A–C measure the re-take's own code for this term |
@@ -739,7 +739,7 @@ one `let` binding moved into the failure branch and is filed as such.
 
 §2's rows, the re-take's rows and their arm ratios all stand: each is correct
 for the tree that produced it, and the two trees differ by a commit that is now
-named. §2's **sentence** is the thing that does not survive — "Hicasso's own
+named. §2's **sentence** is the thing that does not survive — "Fresco's own
 authoring surface costs 41 ns/element … 71 intent vectors lowered across 1,202
 elements". The 41 was never 71 intent vectors: on that tree it was ~12
 ns/element of authored intent and ~29 of route-link's minted navigate carrier,
@@ -770,8 +770,8 @@ read against run C at all.
 | | |
 |---|---|
 | **Producing commit** | `ea04769e09` on `worker/intentprice-vw412`, merge-base `2cf3a48037` (`origin/main`) |
-| **Reproduction** | `HICASSO_INIT_FN=re-frame.bench.hicasso.walk-vs-reagent-app/-main HICASSO_OUT_DIR=out/hicasso-walkcmp HICASSO_PORT=8171 node implementation/freehand/test/re_frame/bench/hicasso/run.cjs` |
-| **Build** | `:hicasso-bench`, `:advanced`, `goog.DEBUG false`, **0 warnings** on all three builds |
+| **Reproduction** | `FRESCO_INIT_FN=re-frame.bench.fresco.walk-vs-reagent-app/-main FRESCO_OUT_DIR=out/fresco-walkcmp FRESCO_PORT=8171 node implementation/freehand/test/re_frame/bench/fresco/run.cjs` |
+| **Build** | `:fresco-bench`, `:advanced`, `goog.DEBUG false`, **0 warnings** on all three builds |
 | **Runtime** | chromium `147.0.7727.15` (playwright), node `v24.13.0`, Windows NT 10.0 x64, 24 threads |
 | **Design** | 4 arms × 6 rounds × (4 warm-up + 10 samples), 8 whole-page walks per window — unchanged |
 | **Clock** | in-page `performance.now`, **diagnostic**; the clock of record is untouched here |
@@ -823,7 +823,7 @@ Three runs of the unchanged driver, 2026-08-07, bracketing the repair between
 two runs of the shape it replaces — D and F are `origin/main` at `c495a5e2df`,
 E is that tree with the one binding moved.
 
-| run | `hicasso` ns/el | `hicasso-native` ns/el | gap ns/el | grid steps | `hicasso-native`/`hicasso` |
+| run | `fresco` ns/el | `fresco-native` ns/el | gap ns/el | grid steps | `fresco-native`/`fresco` |
 |---|---|---|---|---|---|
 | D — before | 385 | 572 | 187 | 18 | **1.4865** |
 | E — after | 437 | 510 | 73 | 7 | **1.1667** |
@@ -836,7 +836,7 @@ ablation at 1.1143; what remains above §2 is the rest of the navigate lowering,
 not the key check.
 
 **The bracket is the control, and it runs the wrong way for a sceptic.** The box
-got monotonically busier across the three runs — D's `hicasso` arm reads 385
+got monotonically busier across the three runs — D's `fresco` arm reads 385
 ns/el, E's 437, F's 499 — so the repaired run sits *between* the two shipping
 runs in absolute terms while carrying a *third* of either one's gap. A quiet box
 cannot be the explanation, because E's box was demonstrably busier than D's.
@@ -887,7 +887,7 @@ were made to fail on purpose:
 |---|---|
 | **Witnesses** | `route_link_cljs_test`, 16 tests / 39 assertions, **0 failures, 0 errors** — including `the-navigate-map-is-a-closed-key-set` and, inside it, the two shapes `rf2-2rtt6.54` added: the map missing `:veto` and the map carrying a fifth key |
 | **The mutation** | `(== 4 (count m))` deleted from `unwrap-navigate`, leaving the four `contains?` — the fail-open shape the commit was fixing |
-| **What it did** | `the-navigate-map-is-a-closed-key-set` **FAILED** at `route_link_cljs_test.cljs:190`, on `{:frame … :payload [:x] :native? false :veto nil :replace? true}`: `expected: (thrown-with-msg? … #"hicasso-malformed-navigate" …)`, `actual: nil`. Runner exit `1`, exactly one failure |
+| **What it did** | `the-navigate-map-is-a-closed-key-set` **FAILED** at `route_link_cljs_test.cljs:190`, on `{:frame … :payload [:x] :native? false :veto nil :replace? true}`: `expected: (thrown-with-msg? … #"fresco-malformed-navigate" …)`, `actual: nil`. Runner exit `1`, exactly one failure |
 | **Blast radius** | the other four bad shapes in that witness — missing `:frame`, `:payload`, `:native?`, `:veto` — stayed green under the mutation, which is right: the `contains?` tests catch those, and only the fifth key needs the count |
 
 So the count is doing work no other line does, and the suite can see it go.
@@ -897,8 +897,8 @@ So the count is doing work no other line does, and the suite can see it go.
 | | |
 |---|---|
 | **Producing commit** | `70304283e3` on `worker/navkeys-jr0tg`, merge-base `c495a5e2df` (`origin/main`) |
-| **Reproduction** | `HICASSO_INIT_FN=re-frame.bench.hicasso.walk-vs-reagent-app/-main HICASSO_OUT_DIR=out/hicasso-walkcmp HICASSO_PORT=8177 node implementation/freehand/test/re_frame/bench/hicasso/run.cjs` |
-| **Build** | `:hicasso-bench`, `:advanced`, `goog.DEBUG false`, **0 warnings** on all three builds |
+| **Reproduction** | `FRESCO_INIT_FN=re-frame.bench.fresco.walk-vs-reagent-app/-main FRESCO_OUT_DIR=out/fresco-walkcmp FRESCO_PORT=8177 node implementation/freehand/test/re_frame/bench/fresco/run.cjs` |
+| **Build** | `:fresco-bench`, `:advanced`, `goog.DEBUG false`, **0 warnings** on all three builds |
 | **Runtime** | chromium `147.0.7727.15` (playwright), node `v24.13.0`, Windows NT 10.0 x64, 24 threads |
 | **Design** | 4 arms × 6 rounds × (4 warm-up + 10 samples), 8 whole-page walks per window — unchanged |
 | **Clock** | in-page `performance.now`, **diagnostic**; the clock of record is untouched here |

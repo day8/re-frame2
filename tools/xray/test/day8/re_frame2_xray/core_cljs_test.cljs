@@ -146,7 +146,7 @@
     ;; First call wires registry + trace-cb + epoch-cb + browser-API
     ;; exports + keybinding. There is no view-evidence acquire step and
     ;; none is missing (rf2-l86mm): the Views panel's reads over the
-    ;; Freehand tool door retired with that substrate, and the Hicasso
+    ;; Freehand tool door retired with that substrate, and the Fresco
     ;; tab's door is a pure reader with no registry to claim, so startup
     ;; has nothing to acquire for either.
     ;; The keybinding listener requires js/window which the node-test

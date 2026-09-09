@@ -1,8 +1,8 @@
-(ns re-frame.bench.hicasso.ssr.instance-key
+(ns re-frame.bench.fresco.ssr.instance-key
   "THE PAGE THE PAYLOAD OBLIGATION IS WITNESSED ON (rf2-2rtt6.99).
 
   One screen, two disclosure panels, and one `h/reg-state` concern
-  (`re-frame.bench.hicasso.front.state`). The server's boot events open
+  (`re-frame.bench.fresco.front.state`). The server's boot events open
   the first panel — `[::open? \"billing\" true]`, the ordinary setter
   `reg-state` mints — so the page this namespace describes is a page
   whose APPEARANCE depends on instance state a server-side event wrote.
@@ -33,10 +33,10 @@
   structural — did the instance state cross the wire, and what did React
   say when it did not — so every element on the page is either the thing
   being measured or the sibling that proves the page rendered at all."
-  (:require [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.front.state :as rf.bench.hicasso.front.state]
+  (:require [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.front.state :as rf.bench.fresco.front.state]
             [re-frame.core :as rf])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 ;; ---------------------------------------------------------------------------
 ;; The concern, and the authored roster
@@ -67,7 +67,7 @@
   "Where the opened panel's flag sits — `[:ui ::open? \"billing\"]`, the
   documented tier. Written out so the witness asserts on the same vector
   the sugar writes rather than on a hand-spelled copy of it."
-  [rf.bench.hicasso.front.state/ui-root open? open-key])
+  [rf.bench.fresco.front.state/ui-root open? open-key])
 
 (defn seed-db
   "The domain half of the app-db: the roster and nothing else. The
@@ -91,7 +91,7 @@
 ;; registrations and a naming convention. Re-registration with the same
 ;; `:default` is the no-op-shaped refresh `reg-state` documents, so a
 ;; reload of this namespace is safe.
-(rf.bench.hicasso.front.state/reg-state open? {:default false})
+(rf.bench.fresco.front.state/reg-state open? {:default false})
 
 ;; ---------------------------------------------------------------------------
 ;; The screen
@@ -107,7 +107,7 @@
   be measuring React's SSR text-separator behaviour (rf2-2rtt6.88)
   alongside the thing under test."
   [{:keys [ikey title]}]
-  (let [shown? (rf.bench.hicasso.arm1.runtime/sub [open? ikey])]
+  (let [shown? (rf.bench.fresco.arm1.runtime/sub [open? ikey])]
     [:section.panel {:data-ikey ikey}
      [:button.panel-toggle {:on-click [open? ikey (not shown?)]} title]
      (when shown?
@@ -120,8 +120,8 @@
   [:div.instance-key-page
    [:h1.title "instance state across the wire"]
    [:div.panels
-    (for [id (rf.bench.hicasso.arm1.runtime/sub [::panel-ids])]
-      [panel {:key id :ikey id :title (rf.bench.hicasso.arm1.runtime/sub [::panel-title id])}])]])
+    (for [id (rf.bench.fresco.arm1.runtime/sub [::panel-ids])]
+      [panel {:key id :ikey id :title (rf.bench.fresco.arm1.runtime/sub [::panel-title id])}])]])
 
 ;; ---------------------------------------------------------------------------
 ;; The two requests, minus their payload policies

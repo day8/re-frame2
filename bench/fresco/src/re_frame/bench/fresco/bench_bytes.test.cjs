@@ -2,7 +2,7 @@
 'use strict';
 // THE PAGE-SIDE BYTE REPAIR IS WIRED — rf2-2rtt6.121.
 //
-//     node hicasso/test/re_frame/bench/hicasso/bench_bytes.test.cjs
+//     node fresco/test/re_frame/bench/fresco/bench_bytes.test.cjs
 //
 // Runs in `test:script-helpers`, beside `ssr/bake_bytes.test.cjs` — which is
 // this file's sibling and its precedent. `rf2-2rtt6.114` repaired five sites
@@ -14,8 +14,8 @@
 // ## Why the wiring pins are HERE and the arithmetic is in CLJS
 //
 // Because they need `fs`, and A LANE NAMESPACE MAY NOT REQUIRE `fs`. Every
-// `.cljs` in this directory is compiled by `npm run test:hicasso-compile`,
-// which rides `:hicasso-bench` — a BROWSER build — so a Node module in a lane
+// `.cljs` in this directory is compiled by `npm run test:fresco-compile`,
+// which rides `:fresco-bench` — a BROWSER build — so a Node module in a lane
 // namespace refuses all 129 of them. (That is not a hypothetical: this file
 // exists because the first draft of `lane_bytes_cljs_test.cljs` carried the
 // pins itself and the compile gate refused the lane. The gate was right.
@@ -25,7 +25,7 @@
 //
 // So the split is by RUNTIME and not by taste:
 //
-//   lane_bytes_cljs_test.cljs   what `rf.bench.hicasso.lane/utf8-bytes` computes — browser-safe,
+//   lane_bytes_cljs_test.cljs   what `rf.bench.fresco.lane/utf8-bytes` computes — browser-safe,
 //                               discriminating fixtures, both directions
 //   THIS FILE                   that every repaired site calls it — Node, source
 //                               text, both polarities
@@ -43,7 +43,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const HICASSO = __dirname;
+const FRESCO = __dirname;
 
 let failed = 0;
 let passed = 0;
@@ -70,7 +70,7 @@ function assert(cond, msg) {
  * bead is about.
  */
 function src(rel) {
-  const p = path.join(HICASSO, rel);
+  const p = path.join(FRESCO, rel);
   assert(fs.existsSync(p), `the repaired source must be at ${p}`);
   const text = fs.readFileSync(p, 'utf8');
   assert(text.length > 0, `${rel} is empty`);
@@ -85,19 +85,19 @@ function src(rel) {
 // the alignment, so a half-edit that left `(count …)` in one arm of a `#js`
 // literal cannot satisfy it.
 const CONVERTED = {
-  'clock_app.cljs': ':bytes (rf.bench.hicasso.lane/utf8-bytes s)',
-  'hd8_clock_app.cljs': ':bytes   (rf.bench.hicasso.lane/utf8-bytes s)',
-  'shapes/census_clock_app.cljs': ':bytes   (rf.bench.hicasso.lane/utf8-bytes s)',
-  'walk_profile_app.cljs': ':bytes (rf.bench.hicasso.lane/utf8-bytes canon-real)',
-  'walk_vs_reagent_app.cljs': ':bytes    (rf.bench.hicasso.lane/utf8-bytes canon)',
-  'ssr/spike_cljs_test.cljs': ':bytes        (rf.bench.hicasso.lane/utf8-bytes (:document a))',
-  'ssr/spike_dom_cljs_test.cljs': ':canonical-bytes  (rf.bench.hicasso.lane/utf8-bytes hydrated-dom)',
+  'clock_app.cljs': ':bytes (rf.bench.fresco.lane/utf8-bytes s)',
+  'hd8_clock_app.cljs': ':bytes   (rf.bench.fresco.lane/utf8-bytes s)',
+  'shapes/census_clock_app.cljs': ':bytes   (rf.bench.fresco.lane/utf8-bytes s)',
+  'walk_profile_app.cljs': ':bytes (rf.bench.fresco.lane/utf8-bytes canon-real)',
+  'walk_vs_reagent_app.cljs': ':bytes    (rf.bench.fresco.lane/utf8-bytes canon)',
+  'ssr/spike_cljs_test.cljs': ':bytes        (rf.bench.fresco.lane/utf8-bytes (:document a))',
+  'ssr/spike_dom_cljs_test.cljs': ':canonical-bytes  (rf.bench.fresco.lane/utf8-bytes hydrated-dom)',
   'ssr/instance_key_payload_dom_cljs_test.cljs':
-    ':green-edn-bytes (rf.bench.hicasso.lane/utf8-bytes (:payload-edn green))',
+    ':green-edn-bytes (rf.bench.fresco.lane/utf8-bytes (:payload-edn green))',
 };
 
 for (const [file, expr] of Object.entries(CONVERTED)) {
-  test(`${file} publishes its byte figure through rf.bench.hicasso.lane/utf8-bytes`, () => {
+  test(`${file} publishes its byte figure through rf.bench.fresco.lane/utf8-bytes`, () => {
     assert(src(file).includes(expr), `${file} must read \`${expr}\``);
   });
 }
@@ -105,7 +105,7 @@ for (const [file, expr] of Object.entries(CONVERTED)) {
 test('instance_key_payload also converts the RED arm, not just the green one', () => {
   assert(
     src('ssr/instance_key_payload_dom_cljs_test.cljs').includes(
-      ':red-edn-bytes   (rf.bench.hicasso.lane/utf8-bytes (:payload-edn red))',
+      ':red-edn-bytes   (rf.bench.fresco.lane/utf8-bytes (:payload-edn red))',
     ),
     'the red row is half of the obligation witness and is measured the same way',
   );
@@ -140,9 +140,9 @@ test('parity_probe states code units, beside the code-unit offset it prints', ()
   // under a true name is the repair here.
   const probe = src('parity_probe_app.cljs');
   assert(probe.includes('uix-code-units'), 'uix arm relabelled');
-  assert(probe.includes('hicasso-code-units'), 'hicasso arm relabelled');
+  assert(probe.includes('fresco-code-units'), 'fresco arm relabelled');
   assert(!probe.includes('uix-bytes'), 'the old bytes claim is gone');
-  assert(!probe.includes('hicasso-bytes'), 'the old bytes claim is gone');
+  assert(!probe.includes('fresco-bytes'), 'the old bytes claim is gone');
 });
 
 test('inpage_ladder states code units for its same-against-same refusal', () => {
@@ -174,7 +174,7 @@ test('keywarn_elision asks the FILE for its size, not the decoded string', () =>
 // The helper itself
 // ---------------------------------------------------------------------------
 
-test('rf.bench.hicasso.lane/utf8-bytes is TextEncoder, which carries no encoding to drop', () => {
+test('rf.bench.fresco.lane/utf8-bytes is TextEncoder, which carries no encoding to drop', () => {
   // `driver.cjs`'s `utf8Bytes` has to name `'utf8'` explicitly and
   // `bake_bytes.test.cjs` pins that spelling, because `Buffer.byteLength`
   // takes an encoding a later edit could silently change. `TextEncoder`
@@ -190,12 +190,12 @@ test('rf.bench.hicasso.lane/utf8-bytes is TextEncoder, which carries no encoding
 });
 
 test('the lane helper is reachable from every file that claims to use it', () => {
-  // A require check, so a converted site cannot read `rf.bench.hicasso.lane/utf8-bytes` while
+  // A require check, so a converted site cannot read `rf.bench.fresco.lane/utf8-bytes` while
   // aliasing some other namespace to `lane`.
   for (const file of Object.keys(CONVERTED)) {
     assert(
-      /\[re-frame\.bench\.hicasso\.lane :as rf\.bench\.hicasso\.lane\]/.test(src(file)),
-      `${file} must alias the lane namespace as \`rf.bench.hicasso.lane\``,
+      /\[re-frame\.bench\.fresco\.lane :as rf\.bench\.fresco\.lane\]/.test(src(file)),
+      `${file} must alias the lane namespace as \`rf.bench.fresco.lane\``,
     );
   }
 });

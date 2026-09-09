@@ -1,13 +1,13 @@
-(ns re-frame.hicasso.tool
+(ns re-frame.fresco.tool
   "The tool-tier reader door — the four reads Xray and the AI pair consume,
   and the only door either of them has.
 
-  Each read takes no argument and answers a `re-frame.hicasso.evidence`
+  Each read takes no argument and answers a `re-frame.fresco.evidence`
   envelope projected from state the runtime already retains: the read-set
   entry cache, the cell table and its reader lists, the frame-ops table,
   and Spec 009's per-frame retained-event ring, folded at read time and
   kept by nobody. Every read answers nil under `:advanced` +
-  `goog.DEBUG=false`, and nothing in `re-frame.hicasso` requires this
+  `goog.DEBUG=false`, and nothing in `re-frame.fresco` requires this
   namespace, so a production application never loads it.
 
   A boundary's identity is its read set, projected: a registration is
@@ -28,13 +28,13 @@
   Why one door with no consumer discriminator: two consumers handed two
   shapes drift, and a roster that could be emitted without its loss
   eventually is. The contract is
-  docs/design/hicasso/product/lanes/testing-xray.md §Evidence contract."
+  docs/design/fresco/product/lanes/testing-xray.md §Evidence contract."
   (:require [re-frame.elision :as rf.elision]
-            [re-frame.hicasso.evidence :as rf.hicasso.evidence]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.error :as rf.hicasso.impl.error]
-            [re-frame.hicasso.impl.frames :as rf.hicasso.impl.frames]
-            [re-frame.hicasso.impl.generation :as rf.hicasso.impl.generation]
+            [re-frame.fresco.evidence :as rf.fresco.evidence]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.error :as rf.fresco.impl.error]
+            [re-frame.fresco.impl.frames :as rf.fresco.impl.frames]
+            [re-frame.fresco.impl.generation :as rf.fresco.impl.generation]
             [re-frame.interop :as rf.interop]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
@@ -89,7 +89,7 @@
   [query-v]
   (cond (keyword? query-v)                    query-v
         (and (vector? query-v) (seq query-v)) (nth query-v 0)
-        :else                                 rf.hicasso.evidence/unknown))
+        :else                                 rf.fresco.evidence/unknown))
 
 (defn- read-identity
   "One read edge's EXPORTED identity: `[frame-id sub-id projected-query]`.
@@ -144,9 +144,9 @@
     {:sub-id   (sub-id-of query-v)
      :query    (projected-query frame-id query-v)
      :frame-id frame-id
-     :epoch    (if-some [^js cell (get @rf.hicasso.impl.collector/!cells sub-key)]
+     :epoch    (if-some [^js cell (get @rf.fresco.impl.collector/!cells sub-key)]
                  (.-epoch cell)
-                 rf.hicasso.evidence/unknown)}))
+                 rf.fresco.evidence/unknown)}))
 
 ;; ---------------------------------------------------------------------------
 ;; The view names — the dev-only stamp, resolved to a coordinate
@@ -163,9 +163,9 @@
   (if (seq names)
     (mapv (fn [view-name]
             {:view view-name
-             :source (or (rf.hicasso.impl.error/source-of view-name) rf.hicasso.evidence/unknown)})
+             :source (or (rf.fresco.impl.error/source-of view-name) rf.fresco.evidence/unknown)})
           (sort names))
-    rf.hicasso.evidence/unknown))
+    rf.fresco.evidence/unknown))
 
 (defn- views-by-read-set
   "A `js/Map` from each entry's key SET — the object a registration's
@@ -174,11 +174,11 @@
   through a second registry."
   []
   (let [views-by-read-set-map (js/Map.)]
-    (doseq [[_ bucket] @rf.hicasso.impl.collector/!entries
+    (doseq [[_ bucket] @rf.fresco.impl.collector/!entries
             ^js entry  bucket]
       (.set views-by-read-set-map
             (.-set entry)
-            (view-rows (rf.hicasso.impl.collector/entry-views entry))))
+            (view-rows (rf.fresco.impl.collector/entry-views entry))))
     views-by-read-set-map))
 
 ;; ---------------------------------------------------------------------------
@@ -200,7 +200,7 @@
   entries, which the same subscribe/cleanup pair that moves `refs`
   keeps."
   []
-  (let [live-entries (for [[_ bucket] @rf.hicasso.impl.collector/!entries
+  (let [live-entries (for [[_ bucket] @rf.fresco.impl.collector/!entries
                            ^js entry  bucket
                            :when      (pos? (.-refs entry))]
                        entry)]
@@ -230,7 +230,7 @@
                                         entries)))]
                   ^{::one-raw-readset? one-raw-readset?}
                   {:boundary    {:parent nil :key projected-boundary-key}
-                   :views       (view-rows (into #{} (mapcat rf.hicasso.impl.collector/entry-views) entries))
+                   :views       (view-rows (into #{} (mapcat rf.fresco.impl.collector/entry-views) entries))
                    :instances   (reduce + 0 (map (fn [^js entry]
                                                   (.-refs entry))
                                                 entries))
@@ -241,17 +241,17 @@
                                             projected-boundary-key)]
                                   (if (= 1 (count frame-ids))
                                     (first frame-ids)
-                                    rf.hicasso.evidence/unknown))
+                                    rf.fresco.evidence/unknown))
                    :reads       (mapv read-row raw-read-keys)})))
          (ordered (comp :key :boundary)))))
 
 (defn read-mounted-boundaries
-  "Every Hicasso boundary mounted right now, one row per distinct edge
+  "Every Fresco boundary mounted right now, one row per distinct edge
   set. `nil` in a production build.
 
       (tool/read-mounted-boundaries)
-      ;; => {:schema     :re-frame.hicasso.evidence/v3
-      ;;     :producer   :re-frame/hicasso
+      ;; => {:schema     :re-frame.fresco.evidence/v3
+      ;;     :producer   :re-frame/fresco
       ;;     :read       :mounted-boundaries
       ;;     :complete?  true
       ;;     :loss       nil
@@ -276,9 +276,9 @@
   visibility."
   []
   (when rf.interop/debug-enabled?
-    (rf.hicasso.evidence/envelope :mounted-boundaries true nil
+    (rf.fresco.evidence/envelope :mounted-boundaries true nil
                        {:boundaries (entry-rows)
-                        :generation (rf.hicasso.impl.generation/generation)})))
+                        :generation (rf.fresco.impl.generation/generation)})))
 
 ;; ---------------------------------------------------------------------------
 ;; Read 2 — read attribution (sub → boundary)
@@ -306,7 +306,7 @@
                                       :key    (boundary-key (.-reads registration))
                                       :views  (or (.get views-by-read-set-map
                                                         (.-reads registration))
-                                                  rf.hicasso.evidence/unknown)}))
+                                                  rf.fresco.evidence/unknown)}))
                               readers))}))
 
 (defn read-read-attribution
@@ -330,24 +330,24 @@
   []
   (when rf.interop/debug-enabled?
     (let [views-by-read-set-map (views-by-read-set)]
-      (rf.hicasso.evidence/envelope :read-attribution true nil
+      (rf.fresco.evidence/envelope :read-attribution true nil
                          ;; Ordered by SUB-KEY before the row is built, never
                          ;; by a field on the row: the sub-key carries the raw
                          ;; query vector, and a sort key that rode on the row
                          ;; would be a second egress path for its arguments.
                          {:edges (mapv (fn [[sub-key cell]]
                                         (edge-row views-by-read-set-map sub-key cell))
-                                       (ordered key @rf.hicasso.impl.collector/!cells))}))))
+                                       (ordered key @rf.fresco.impl.collector/!cells))}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Read 3 — the intent stream
 ;; ---------------------------------------------------------------------------
 
-(defn- hicasso-frames
+(defn- fresco-frames
   "The frames this runtime dispatches through — the frame-ops table's
-  keys, which is where every Hicasso intent's dispatch was captured."
+  keys, which is where every Fresco intent's dispatch was captured."
   []
-  (vec (sort-by pr-str (keys @rf.hicasso.impl.frames/!frame-ops))))
+  (vec (sort-by pr-str (keys @rf.fresco.impl.frames/!frame-ops))))
 
 (defn- intent-row
   "One retained run, as an intent row: WHICH event, and how many arguments
@@ -360,7 +360,7 @@
   REGISTRATION declared, and EP-0025's model is fail-open: an event that
   declared nothing ships its arguments raw. A seeded secret dispatched
   under an unclassified event id would reach this envelope verbatim, and
-  `re-frame.hicasso.tool-reads-cljs-test/no-read-carries-a-value` pins
+  `re-frame.fresco.tool-reads-cljs-test/no-read-carries-a-value` pins
   that it does not.
 
   An id and an arity are enough for the question this read answers —
@@ -381,8 +381,8 @@
   (let [event (:event bundle)]
     {:frames      #{frame-id}
      :dispatch-id (:dispatch-id bundle)
-     :event-id    (if (vector? event) (nth event 0) rf.hicasso.evidence/unknown)
-     :arg-count   (if (vector? event) (dec (count event)) rf.hicasso.evidence/unknown)
+     :event-id    (if (vector? event) (nth event 0) rf.fresco.evidence/unknown)
+     :arg-count   (if (vector? event) (dec (count event)) rf.fresco.evidence/unknown)
      :sub-ids     (into #{} (keep #(get-in % [:tags :rf.sub/id])) (:subs bundle))}))
 
 (defn- merge-fragments
@@ -439,7 +439,7 @@
                  (-> row
                      (update :frames #(vec (sort-by pr-str %)))
                      (update :sub-ids #(vec (sort-by pr-str %)))
-                     (update :dispatch-id #(if (number? %) % rf.hicasso.evidence/unknown))))))))
+                     (update :dispatch-id #(if (number? %) % rf.fresco.evidence/unknown))))))))
 
 (defn read-intents
   "What was dispatched inside Spec 009's retained window, oldest first,
@@ -466,9 +466,9 @@
   here."
   []
   (when rf.interop/debug-enabled?
-    (let [frame-ids (hicasso-frames)
+    (let [frame-ids (fresco-frames)
           windows   (into {} (map (fn [fid] [fid (rf.trace.tooling/trace-buffer fid)])) frame-ids)]
-      (rf.hicasso.evidence/envelope :intents false {:reason :cap :dropped rf.hicasso.evidence/unknown}
+      (rf.fresco.evidence/envelope :intents false {:reason :cap :dropped rf.fresco.evidence/unknown}
                          {:frames  frame-ids
                           :intents (intent-rows windows frame-ids)}))))
 
@@ -532,8 +532,8 @@
                     :retained-runs retained-runs}
      :snapshot     (if (and (seq epochs) (::one-raw-readset? (meta boundary-row) true))
                      (reduce + epochs)
-                     rf.hicasso.evidence/unknown)
-     :peak-epoch   (or peak-epoch rf.hicasso.evidence/unknown)
+                     rf.fresco.evidence/unknown)
+     :peak-epoch   (or peak-epoch rf.fresco.evidence/unknown)
      ;; The READ IDENTITY, not the bare sub-id: `[:row 1]` and `[:row 2]`
      ;; are one sub-id and two different reads, and a Why view that
      ;; collapsed them would answer "`:row` moved" to a developer looking
@@ -544,11 +544,11 @@
                            (comp (filter #(= peak-epoch (:epoch %)))
                                  (map #(select-keys % [:sub-id :query :frame-id])))
                            boundary-reads)
-                     rf.hicasso.evidence/unknown)
+                     rf.fresco.evidence/unknown)
      :loss         (if searched-window?
-                     {:reason :uncorrelated :dropped rf.hicasso.evidence/unknown}
-                     {:reason :cap :dropped rf.hicasso.evidence/unknown})
-     :candidates   (if searched-window? candidate-leads rf.hicasso.evidence/unknown)}))
+                     {:reason :uncorrelated :dropped rf.fresco.evidence/unknown}
+                     {:reason :cap :dropped rf.fresco.evidence/unknown})
+     :candidates   (if searched-window? candidate-leads rf.fresco.evidence/unknown)}))
 
 (defn explain-render
   "Which reads changed, and which boundaries hold them — the honest half
@@ -583,7 +583,7 @@
           ;; frame-ops table does not name still has a window, and scoping
           ;; the search per boundary is only honest if that window is in it.
           frame-ids (vec (sort-by pr-str
-                                  (into (set (hicasso-frames))
+                                  (into (set (fresco-frames))
                                         (mapcat (fn [boundary-row]
                                                   (map :frame-id (:reads boundary-row))))
                                         rows)))
@@ -610,6 +610,6 @@
                     (update candidates candidate-key (fnil conj #{}) lead))
                   {}
                   leads)]
-      (rf.hicasso.evidence/envelope :explain-render false {:reason :uncorrelated :dropped rf.hicasso.evidence/unknown}
+      (rf.fresco.evidence/envelope :explain-render false {:reason :uncorrelated :dropped rf.fresco.evidence/unknown}
                          {:explanations (mapv #(explanation windows by-frame-sub %) rows)
                           :window       {:frames frame-ids :retained-runs runs}}))))

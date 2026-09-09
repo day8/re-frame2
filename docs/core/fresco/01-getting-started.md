@@ -1,13 +1,13 @@
 # Getting started
 
 re-frame2 already defines how events update app-db and how subscriptions derive
-values. A view adapter decides how those values become React UI. Hicasso is the
+values. A view adapter decides how those values become React UI. Fresco is the
 adapter for applications that want the view tree to remain ordinary
 ClojureScript data.
 
-## What Hicasso is
+## What Fresco is
 
-[Hicasso](glossary.md#hicasso) interprets
+[Fresco](glossary.md#fresco) interprets
 [Hiccup](../glossary.md#hiccup) and produces React
 function-component elements. You write vectors for markup, maps for props, and
 event vectors in handler attributes. Where a view needs a subscription value,
@@ -24,10 +24,10 @@ it calls [`h/sub`](glossary.md#hsub).
 Nothing outside the view layer changes. App-db, event handlers, subscriptions,
 effects, and frames use the normal re-frame2 APIs.
 
-Hicasso is not the only supported adapter. Reagent and UIx remain valid choices
+Fresco is not the only supported adapter. Reagent and UIx remain valid choices
 that applications can keep using.
 
-## What changes in a Hicasso view
+## What changes in a Fresco view
 
 ### Markup and common handlers remain data
 
@@ -42,7 +42,7 @@ handler needs imperative work or direct access to callback arguments;
 
 ### Read subscriptions where they are used
 
-`h/sub` is an ordinary function call inside a Hicasso view. It can appear in a
+`h/sub` is an ordinary function call inside a Fresco view. It can appear in a
 `let`, conditional, loop, or plain helper. You do not have to subscribe in a
 parent simply to pass the value down.
 
@@ -75,33 +75,33 @@ second meaning for `[...]`.
 [Performance](19-performance.md) defines the measurement method and
 [Islands](10-native-tier.md) defines the crossing.
 
-## Hicasso, Reagent, and UIx
+## Fresco, Reagent, and UIx
 
 **Reagent** remains a sensible choice for an existing application whose view
-layer already works. Hicasso will look familiar because both use Hiccup, but
-the state and component models differ: Hicasso does not use reaction-local
+layer already works. Fresco will look familiar because both use Hiccup, but
+the state and component models differ: Fresco does not use reaction-local
 state or Form-2 components. The migration guide explains the mechanical and
 behavioural differences.
 
 **UIx** is usually the better choice when React itself organises the view
 layer: hooks are common, a React design system dominates the tree, and the
-team thinks in React component lifecycles. Hicasso can still host foreign React
+team thinks in React component lifecycles. Fresco can still host foreign React
 through [`h/defhost`](09-interop.md), and a measured region can use the native
 tier, but it does not try to replace a React-first authoring model.
 
-Choose Hicasso when the application is primarily a re-frame2 application and
+Choose Fresco when the application is primarily a re-frame2 application and
 you want markup, reads, and ordinary interactions to retain the same
 inspectable data model.
 
 ## Costs and limits
 
 Interpreting Hiccup has a runtime cost. Cold mount can be slower than a
-hand-written UIx equivalent, and each Hicasso view pays a small fixed cost for
+hand-written UIx equivalent, and each Fresco view pays a small fixed cost for
 tracked reads and its re-render boundary. Measure before moving code: a React
 island is for the small part of a real screen that profiling identifies, not
 the default authoring style.
 
-Hicasso also does not provide a second application-visible reactive store
+Fresco also does not provide a second application-visible reactive store
 inside the view layer. State that other views, tests, tools, routing, or SSR
 must observe belongs in app-db. The limited cases for DOM-owned or local UI
 state are covered in [Ephemeral state](11-ephemeral-state.md).
@@ -110,13 +110,13 @@ state are covered in [Ephemeral state](11-ephemeral-state.md).
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Calling a `defview` as `(todo-row {:id 7})` refuses and names the view | A Hicasso view is a React/Hiccup head, not an inline function | Mount it as `[todo-row {:id 7}]`; use a plain `defn` for an inline helper |
-| A plain helper written as `[row-icon props]` raises `:rf.error/hicasso-bad-head` | A plain function appeared in Hiccup head position | Call it as `(row-icon props)`, or define it with `h/defview` when it needs its own re-render boundary |
-| `h/sub` raises `:rf.error/hicasso-sub-outside-render` | The read ran outside the direct synchronous execution of a Hicasso view | Read inside the view body and pass or close over the realised value |
-| An event vector raises `:rf.error/hicasso-intent-outside-boundary` | The intent was lowered without a view/frame boundary | Keep it in Hiccup produced by a view, or use `h/event` at an explicit foreign callback edge |
-| A controlled field drops characters or moves the caret | The write path became asynchronous, or the field left Hicasso's controlled path | Dispatch the edit synchronously and follow [Controlled inputs](04-controlled-inputs.md) |
+| Calling a `defview` as `(todo-row {:id 7})` refuses and names the view | A Fresco view is a React/Hiccup head, not an inline function | Mount it as `[todo-row {:id 7}]`; use a plain `defn` for an inline helper |
+| A plain helper written as `[row-icon props]` raises `:rf.error/fresco-bad-head` | A plain function appeared in Hiccup head position | Call it as `(row-icon props)`, or define it with `h/defview` when it needs its own re-render boundary |
+| `h/sub` raises `:rf.error/fresco-sub-outside-render` | The read ran outside the direct synchronous execution of a Fresco view | Read inside the view body and pass or close over the realised value |
+| An event vector raises `:rf.error/fresco-intent-outside-boundary` | The intent was lowered without a view/frame boundary | Keep it in Hiccup produced by a view, or use `h/event` at an explicit foreign callback edge |
+| A controlled field drops characters or moves the caret | The write path became asynchronous, or the field left Fresco's controlled path | Dispatch the edit synchronously and follow [Controlled inputs](04-controlled-inputs.md) |
 
-## When not to use Hicasso
+## When not to use Fresco
 
 Stay with **Reagent** when migration cost is the dominant fact and the existing
 application is healthy.
@@ -124,6 +124,6 @@ application is healthy.
 Choose **UIx** when hooks and React component libraries are the product's
 normal language rather than isolated integrations.
 
-Use Hicasso when data-first views are the normal case and foreign React is a
+Use Fresco when data-first views are the normal case and foreign React is a
 boundary you can name. It is not intended to be the best pure-React
 ClojureScript library.

@@ -152,7 +152,7 @@ read-only.
 Two rules the required namespaces must obey:
 
 - **JVM-loadable.** They must be CLJ/CLJC-loadable in this headless
-  JVM. Hicasso-substrate stories qualify (`:component` is a view-id
+  JVM. Fresco-substrate stories qualify (`:component` is a view-id
   keyword; the body is pure data). Reagent/UIx `.cljs` story files are
   browser-side registrations: a running browser's CLJS registry is
   reached through re-frame2-pair's `eval-cljs`

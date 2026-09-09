@@ -11,11 +11,11 @@
 // and never executed.
 const path = require('node:path');
 const { resetLaneBuildCache } = require('../lane_cache.cjs');
-const { shadowBuild } = require('../../../../../../bench/hicasso/src/re_frame/bench/hicasso/lane_build.cjs');
+const { shadowBuild } = require('../../../../../../bench/fresco/src/re_frame/bench/fresco/lane_build.cjs');
 
-const PROJECT = path.resolve(__dirname, '..', '..', '..', '..', '..', '..', 'bench', 'hicasso');
-const CLEAR_BUILD = 'hicasso-bench';
-const RELEASE_BUILD = 'hicasso-bench-arm';
+const PROJECT = path.resolve(__dirname, '..', '..', '..', '..', '..', '..', 'bench', 'fresco');
+const CLEAR_BUILD = 'fresco-bench';
+const RELEASE_BUILD = 'fresco-bench-arm';
 
 if (resetLaneBuildCache(PROJECT, CLEAR_BUILD)) {
   console.error(`[fixture] cleared .shadow-cljs/builds/${CLEAR_BUILD}`);

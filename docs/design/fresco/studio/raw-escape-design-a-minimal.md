@@ -143,8 +143,8 @@ off its own props and renders it behind the same `useSyncExternalStore` snapshot
   the component comes from.
 
 **The one wrinkle, priced.** The component travels to the gate as a prop —
-`"hicassoRawComponent"`, following the codec's existing marker convention
-(`hicassoHost`, `hicassoBoundary`, `hicassoFn`) — and the gate must remove it before
+`"frescoRawComponent"`, following the codec's existing marker convention
+(`frescoHost`, `frescoBoundary`, `frescoFn`) — and the gate must remove it before
 forwarding, or a DOM-spreading component turns it into a React unknown-prop warning at
 exactly the boundary where the author is already confused. Removing it means one
 shallow copy per crossing per render (`Object.assign` into a fresh object, then
@@ -219,7 +219,7 @@ placeholder flash.
 ### What it costs
 
 1. **One fiber and one hook per crossing.** Identical to `defhost` since
-   `rf2-2rtt6.85`. HD-020(b)'s ≤2-hook budget is a statement about Hicasso
+   `rf2-2rtt6.85`. HD-020(b)'s ≤2-hook budget is a statement about Fresco
    *boundaries* and is untouched: the gate holds no subscription, reads no frame, runs
    no body.
 2. **No fallback is spellable.** The sharpest SSR cost. A layout-sensitive foreign
@@ -272,7 +272,7 @@ choice; it is what running the foreign path with no contracts produces today.
 
 | Value at a `[:>]` prop | At an event-spelled slot (`:on-*`) | At any other slot |
 |---|---|---|
-| intent vector `[:evt …]` | refused — `:rf.error/hicasso-host-undeclared-callback` | `clj->js` — crosses as an inert array |
+| intent vector `[:evt …]` | refused — `:rf.error/fresco-host-undeclared-callback` | `clj->js` — crosses as an inert array |
 | key-map `{"Enter" [:evt]}` | refused — same id | `clj->js` — crosses as an inert object |
 | `h/fn` | crosses by identity as a plain function | crosses by identity as a plain function |
 | plain `fn` | crosses by identity | crosses by identity |
@@ -312,7 +312,7 @@ is the one that currently gets through. Crossing by identity means an `h/fn` ret
 `[:save]` hands the library a vector it discards, and nothing anywhere says so — the
 silent class again, arriving through the marker that exists to prevent it.
 
-Proposed id: `:rf.error/hicasso-raw-escape-callback-undeclared`. Recovery: hand a plain
+Proposed id: `:rf.error/fresco-raw-escape-callback-undeclared`. Recovery: hand a plain
 `fn` if the function is a value the library calls, or declare the component with
 `defhost` and name the slot's contract.
 
@@ -372,11 +372,11 @@ table ("a `[:>]` node has reduced structural identity — prefer `defhost`, or a
 around the node"). It has never been cashed out, and cashing it out needs one fact
 stated first, because it reframes the whole edge:
 
-> **Hicasso's headless structural render does not exist.** `draft-guide/08-testing.md`'s
+> **Fresco's headless structural render does not exist.** `draft-guide/08-testing.md`'s
 > `### Full headless render (not built)` calls the `h/render` block a sketch — *"Nothing
 > implements that yet"* — and its names are marked `[unfrozen]`. The built structural
 > surface in this repo is Freehand's (`re-frame.freehand.test`), whose node schema
-> (`spec/004B-UI-Tree-and-Conversion.md`) carries a `:rf.ui/host` variant. Hicasso's is
+> (`spec/004B-UI-Tree-and-Conversion.md`) carries a `:rf.ui/host` variant. Fresco's is
 > designed, not built.
 
 And one more, which is the sharpest thing on this edge and cuts *against* the phrase's
@@ -405,7 +405,7 @@ assertable with the `lane/canonical` comparator X1(b) already uses, and it tells
 author what still works: every DOM-level test, every canonical-parity row, every
 screen-level assertion.
 
-**2. At the element altitude — the only Hicasso structural surface that exists today,
+**2. At the element altitude — the only Fresco structural surface that exists today,
 `front/codec_cljs_test`'s `.type` / `.props` / `.key` reads — the node is fully
 assertable and the type is one constant.** Every raw crossing has the same `.type`
 (the shared gate), so `.type` discriminates *raw from declared* but not *which
@@ -420,7 +420,7 @@ lost is that naming `C` at all requires the JS import, so any test that names th
 is `.cljs`-only and coupled to that import — which is HD-011's `.cljs`-only clause
 restated at the test.
 
-**4. The forward obligation, recorded and not built.** When Hicasso's headless render
+**4. The forward obligation, recorded and not built.** When Fresco's headless render
 lands, a `defhost` crossing has a declared name to project as a node identity — the
 shape Freehand already ships as `{:rf.ui/host ::date-picker, :rf.ui/host-ssr
 :client-only, :props {…}}`. **A `[:>]` node has no name to project.** Its props and
@@ -473,7 +473,7 @@ of its scope for the declared form too.
 - `spec/008-Testing.md` (~line 770) still says a foreign boundary is opaque to the
   structural render because "the v1 node set carries no host variant", which
   `spec/004B` and the shipped `node-kind` host arm contradict. That is outside this
-  bead's fence and outside Hicasso, but it is a stale sentence a reader of this edge
+  bead's fence and outside Fresco, but it is a stale sentence a reader of this edge
   will trip over. Recorded as a finding, not actioned.
 
   > **Fixed 2026-08-05 (`rf2-whfte`) — the finding was right, and 008 now says so.**
@@ -497,12 +497,12 @@ check happens at the crossing, and it has to name the confusions people actually
 ### Decision
 
 **One predicate, one error id, several discriminating reasons.** Proposed id:
-`:rf.error/hicasso-raw-escape-not-a-component`.
+`:rf.error/fresco-raw-escape-not-a-component`.
 
 **Accept**, with no ceremony, because HD-011 names most of these as the reason the
 escape exists:
 
-- any `fn?` that is not a Hicasso head — function components, and classes, since a JS
+- any `fn?` that is not a Fresco head — function components, and classes, since a JS
   class is a function;
 - any JS object carrying `$$typeof` that is not a React *element* — `memo`, `lazy`,
   `forwardRef`, context providers and consumers, and whatever React adds next;
@@ -515,15 +515,15 @@ escape exists:
 |---|---|
 | `nil` | the classic broken-import symptom — `:default` against a library with no default export |
 | a string, keyword or number | that is a native tag — write `[:div …]` or `[:my-widget …]` |
-| a Hicasso **view** head | write it in head position: `[my-view …]` |
-| a Hicasso **host** head | that already *is* a declaration — write `[my-host …]` |
+| a Fresco **view** head | write it in head position: `[my-view …]` |
+| a Fresco **host** head | that already *is* a declaration — write `[my-host …]` |
 | a React **element** | an element is a legal *child*, not a type — pass it as a child |
 | `React.Fragment` | the fragment spelling is `[:<> …]` |
 | any other object without `$$typeof` | not a React element type |
 
 *(7 rows, 2 columns.)*
 
-The two Hicasso-head refusals earn their keep. A `defview` head is `fn?`-true, so a
+The two Fresco-head refusals earn their keep. A `defview` head is `fn?`-true, so a
 bare "is it a function" test would accept `[:> my-view {…}]` and cross it as a foreign
 component — silently losing the frame prop, the memo wrapper and the props map's shape.
 That is a dangerous accept, and it is the kind a migration produces.
@@ -563,8 +563,8 @@ above is the one to overturn.
   message names the fix, so the cost is a confused minute rather than a wall — but it
   is a refusal of something React would have accepted, which is the category to be
   careful in.
-- The Hicasso-head refusals assume a view head should never be crossed as a foreign
-  component. If someone genuinely wants a Hicasso view rendered *by* a foreign
+- The Fresco-head refusals assume a view head should never be crossed as a foreign
+  component. If someone genuinely wants a Fresco view rendered *by* a foreign
   component through the escape, the refusal blocks it. The remedy is a native head, so
   the cost looks bounded — but "I did not imagine it" is exactly the claim a hatch
   design should be suspicious of.
@@ -587,7 +587,7 @@ frame — and the render-prop case is a refusal, not a feature.**
 writing body's render**, where `intent/*frame*` and `intent/*dispatch*` are bound. So a
 child's intent lowers against the boundary that *wrote* the `[:>]`, exactly as at a
 native tag and exactly as at a `defhost`. A `[:>]` written outside any boundary raises
-the existing `:rf.error/hicasso-intent-outside-boundary` when it lowers an intent. This
+the existing `:rf.error/fresco-intent-outside-boundary` when it lowers an intent. This
 edge closes with zero new code, because the crossing reuses `host-element` and
 `host-element` reuses `make-element`.
 
@@ -600,7 +600,7 @@ arises the other way, and the honest answer is a refusal:
 > carrying an intent, lowers with `*dispatch*` bound to `nil` — because React renders
 > the foreign component in a later fiber pass, long after the writing body's `binding`
 > extent has unwound. That is the existing loud
-> `:rf.error/hicasso-intent-outside-boundary`, and at `[:>]` it stays loud.
+> `:rf.error/fresco-intent-outside-boundary`, and at `[:>]` it stays loud.
 
 PR #7449 fixed this for the *declared* form by making render-position enforcement
 invocation-scoped and rebinding the supplying boundary's frame around the invocation.
@@ -641,7 +641,7 @@ mechanical one.
 ### How it could be wrong
 
 - **The diagnostic is written for the wrong reading.**
-  `:rf.error/hicasso-intent-outside-boundary` currently says event vectors are only
+  `:rf.error/fresco-intent-outside-boundary` currently says event vectors are only
   legal inside a boundary's render, recovery
   `:lower-intents-inside-a-boundary-render`. At `[:>]` the author *is* inside a
   boundary's render as far as they can see — the crossing is written in a body — so the
@@ -731,7 +731,7 @@ edge-specific additions this design implies.
   asserting zero across the same three channels X2 uses, with a mutation proving the
   capture can speak. Plus a `createRoot` row showing no placeholder pass.
 - **The gate's internal prop.** A row asserting the foreign component's received props
-  do **not** contain `hicassoRawComponent`. A leak here is a React warning the author
+  do **not** contain `frescoRawComponent`. A leak here is a React warning the author
   cannot explain.
 - **Edge 2.** The event-slot refusal; the `h/fn` refusal with its named id; a plain
   `fn` crossing with **identity preserved** — assert `identical?`, not merely callable.
@@ -757,12 +757,12 @@ an HD-004 question — a third cache, keyed by a runtime value rather than an au
 literal — that the shared gate makes moot.
 
 **Minting the head onto the component object.** `unchecked-set component
-"hicassoRawHead"` would be cache-free and stable. Rejected: it mutates a third-party
+"frescoRawHead"` would be cache-free and stable. Rejected: it mutates a third-party
 value, fails on anything frozen, cannot touch a symbol at all, and `React.lazy`'s
 product is React's object, not ours.
 
 **Forwarding the gate's own props unstripped.** Saves the shallow copy and leaves an
-internal `hicassoRawComponent` prop on the foreign component — a React unknown-prop
+internal `frescoRawComponent` prop on the foreign component — a React unknown-prop
 warning at any component that spreads onto a DOM node, at exactly the boundary where
 the author is already confused.
 
@@ -806,18 +806,18 @@ up clause 5's named refusal for the plain-object case.
   clause (d), HD-020(b) and its reversed clause (d), HD-024.
 - [The SSR spike witness](ssr-spike-witness.md) — X1–X5, and X2's zero-mismatch
   obligation, which edge 1 must not break.
-- `implementation/freehand/test/re_frame/bench/hicasso/front/codec.cljs` — the "Left
+- `implementation/freehand/test/re_frame/bench/fresco/front/codec.cljs` — the "Left
   behind, by ruling and on purpose" docstring naming the escape as deliberately
   unbuilt, the Host-heads section, `mint-host!`, `mint-host-gate!`, `host-element`,
   `host-entry`, `host-prop-value`, `merge-caller`, `check-ref!`, `make-element`,
   `vec->element`.
-- `implementation/freehand/test/re_frame/bench/hicasso/front/intent.cljs` — `callback` /
+- `implementation/freehand/test/re_frame/bench/fresco/front/intent.cljs` — `callback` /
   `callback?`, `*frame*` / `*dispatch*`, `event-callback`, `render-callback`,
   `lower-declared-prop`.
-- `implementation/freehand/test/re_frame/bench/hicasso/arm1/host_ssr_dom_cljs_test.cljs`
+- `implementation/freehand/test/re_frame/bench/fresco/arm1/host_ssr_dom_cljs_test.cljs`
   — the declared form's first-pass hydration row, whose shape edge 1 borrows.
-- `docs/design/hicasso/draft-guide/08-testing.md` — its `### Full headless render (not
-  built)` section, which establishes that Hicasso's headless render is a sketch and (as
+- `docs/design/fresco/draft-guide/08-testing.md` — its `### Full headless render (not
+  built)` section, which establishes that Fresco's headless render is a sketch and (as
   the file read before `aa9ea1b698`) that the foreign region is out of its scope for both
   forms.
 - `spec/004B-UI-Tree-and-Conversion.md` — the shipped node schema's `:rf.ui/host`

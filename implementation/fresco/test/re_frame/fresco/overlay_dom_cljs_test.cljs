@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.overlay-dom-cljs-test
+(ns re-frame.fresco.overlay-dom-cljs-test
   "THE OVERLAY POSTURE, WITNESSED.
 
   > The top layer, the focus trap, the inertness, the LIFO stack, the
@@ -6,7 +6,7 @@
   > module owns exactly one thing about them, and that thing is the
   > imperative call.
   >
-  > — [[re-frame.hicasso.overlay]]
+  > — [[re-frame.fresco.overlay]]
 
   A posture is only worth stating if something would go red when it stops
   being true, and for an overlay the thing that stops being true is never
@@ -56,7 +56,7 @@
   keyboard in it — but
   [[a-real-escape-dismisses-the-modal-and-a-synthetic-one-does-nothing]]
   now presses a REAL Escape through the browser gate's trusted-input
-  bridge (`re-frame.hicasso.trusted-input-support`, whose other half is
+  bridge (`re-frame.fresco.trusted-input-support`, whose other half is
   `scripts/run-browser-tests.cjs`), and carries the synthetic arm beside
   it so the difference is measured rather than asserted. A real outside
   click is still not driven; light dismiss is witnessed through the auto
@@ -121,15 +121,15 @@
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.hook-probe :as rf.hicasso.hook-probe]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.impl.overlay :as rf.hicasso.impl.overlay]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
-            [re-frame.hicasso.overlay :as rf.hicasso.overlay]
-            [re-frame.hicasso.test :as rf.hicasso.test]
-            [re-frame.hicasso.trusted-input-support :as rf.hicasso.trusted-input-support]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.hook-probe :as rf.fresco.hook-probe]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.impl.overlay :as rf.fresco.impl.overlay]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
+            [re-frame.fresco.overlay :as rf.fresco.overlay]
+            [re-frame.fresco.test :as rf.fresco.test]
+            [re-frame.fresco.trusted-input-support :as rf.fresco.trusted-input-support]
             [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::overlay)
@@ -179,7 +179,7 @@
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The headless half — the one part of this module that is a value
@@ -187,31 +187,31 @@
 
 (deftest a-compass-word-is-a-position-area-and-an-unknown-one-passes-through
   (testing "the taught compass words all resolve, and to distinct areas"
-    (is (= "block-end span-inline-end" (rf.hicasso.impl.overlay/position-area :bottom-start)))
-    (is (= "block-end span-inline-start" (rf.hicasso.impl.overlay/position-area :bottom-end)))
-    (is (= "block-start span-inline-end" (rf.hicasso.impl.overlay/position-area :top-start)))
-    (is (= "inline-end" (rf.hicasso.impl.overlay/position-area :right)))
-    (is (= (count rf.hicasso.impl.overlay/position-areas)
-           (count (set (vals rf.hicasso.impl.overlay/position-areas))))
+    (is (= "block-end span-inline-end" (rf.fresco.impl.overlay/position-area :bottom-start)))
+    (is (= "block-end span-inline-start" (rf.fresco.impl.overlay/position-area :bottom-end)))
+    (is (= "block-start span-inline-end" (rf.fresco.impl.overlay/position-area :top-start)))
+    (is (= "inline-end" (rf.fresco.impl.overlay/position-area :right)))
+    (is (= (count rf.fresco.impl.overlay/position-areas)
+           (count (set (vals rf.fresco.impl.overlay/position-areas))))
         "twelve words, twelve areas — a duplicate would be two names for one place"))
 
   (testing "no placement is no declaration, rather than a default one"
-    (is (nil? (rf.hicasso.impl.overlay/position-area nil))))
+    (is (nil? (rf.fresco.impl.overlay/position-area nil))))
 
   (testing "the escape hatch: a raw `position-area` string is emitted verbatim"
     (is (= "block-end span-inline-start"
-           (rf.hicasso.impl.overlay/position-area "block-end span-inline-start"))))
+           (rf.fresco.impl.overlay/position-area "block-end span-inline-start"))))
 
   (testing "and a misspelt compass word is emitted verbatim too — invalid CSS
             the engine drops, rather than a silent substitution of some
             other placement"
-    (is (= "botom-start" (rf.hicasso.impl.overlay/position-area :botom-start)))
-    (is (not (contains? (set (vals rf.hicasso.impl.overlay/position-areas)) "botom-start")))))
+    (is (= "botom-start" (rf.fresco.impl.overlay/position-area :botom-start)))
+    (is (not (contains? (set (vals rf.fresco.impl.overlay/position-areas)) "botom-start")))))
 
-(rf.hicasso/defview menu-page [_]
+(rf.fresco/defview menu-page [_]
   [:div
    [:button#trigger {:aria-haspopup "menu"} "Filter"]
-   [rf.hicasso.overlay/popover {:open?      (rf.hicasso/sub [::open? :m])
+   [rf.fresco.overlay/popover {:open?      (rf.fresco/sub [::open? :m])
                      :on-dismiss [::dismissed :m]
                      :anchor     "trigger"
                      :placement  :bottom-start}
@@ -219,9 +219,9 @@
      [:li [:button "Unread"]]
      [:li [:button "Flagged"]]]]])
 
-(rf.hicasso/defview unnamed-menu-page [_]
+(rf.fresco/defview unnamed-menu-page [_]
   [:div
-   [rf.hicasso.overlay/popover {:open?      (rf.hicasso/sub [::open? :m])
+   [rf.fresco.overlay/popover {:open?      (rf.fresco/sub [::open? :m])
                      :on-dismiss [::dismissed :m]}
     [:ul {:role "menu"}
      [:li [:button "Unread"]]
@@ -231,14 +231,14 @@
      [:li [:button.icon]]]]])
 
 (deftest an-overlays-contents-are-ordinary-markup-and-the-a11y-kit-reads-them
-  (let [t    (rf.hicasso.test/tree [menu-page {}] {:subs {[::open? :m] true}})
-        menu (rf.hicasso.test/find t #(= :menu (rf.hicasso.test/role %)))]
+  (let [t    (rf.fresco.test/tree [menu-page {}] {:subs {[::open? :m] true}})
+        menu (rf.fresco.test/find t #(= :menu (rf.fresco.test/role %)))]
     (testing "premise: an overlay is a BOUNDARY CALL in the L2 tree. Its body
               does not run — no hooks, no top layer, no refusal — so the kit
               sees the author's own children and claims nothing whatever about
               what the module renders around them"
       (is (some? menu) "the author's own menu list is in the tree")
-      (is (nil? (rf.hicasso.test/role (rf.hicasso.test/find t #(= "hicasso/popover" (:view-id %)))))
+      (is (nil? (rf.fresco.test/role (rf.fresco.test/find t #(= "fresco/popover" (:view-id %)))))
           "and the overlay boundary itself has no role, because it is not an
            element — which is `role`'s own stated answer for a view-boundary"))
 
@@ -246,12 +246,12 @@
               decidable HEADLESS, on rf2-hic-043's projections, and needs none
               of this suite's browser lane"
       (is (= ["Filter" "Unread" "Flagged"]
-             (mapv #(rf.hicasso.test/accessible-name t %)
-                   (rf.hicasso.test/find-all t #(= :button (rf.hicasso.test/role %)))))
+             (mapv #(rf.fresco.test/accessible-name t %)
+                   (rf.fresco.test/find-all t #(= :button (rf.fresco.test/role %)))))
           "every control names itself from its own content — and the TRIGGER is
            in the same list as the panel's items, which is the other half of
            what the top layer buys: paint order changed, the tree did not")
-      (is (= [] (rf.hicasso.test/unnamed-controls t))))
+      (is (= [] (rf.fresco.test/unnamed-controls t))))
 
     (testing "and the instrument can say otherwise: the same panel with one
               icon-only button reports it. Without this arm the `[]` above is
@@ -259,10 +259,10 @@
               nothing at all — which it WAS, on the first draft, because
               `:menuitem` is outside `interactive-roles` and every control in
               the panel wore one"
-      (let [u     (rf.hicasso.test/tree [unnamed-menu-page {}] {:subs {[::open? :m] true}})
-            found (rf.hicasso.test/unnamed-controls u)]
+      (let [u     (rf.fresco.test/tree [unnamed-menu-page {}] {:subs {[::open? :m] true}})
+            found (rf.fresco.test/unnamed-controls u)]
         (is (= 1 (count found)) (str "expected one unnamed control, got " (pr-str found)))
-        (is (= :button (rf.hicasso.test/role (first found))))))))
+        (is (= :button (rf.fresco.test/role (first found))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The DOM half
@@ -281,7 +281,7 @@
 
 (defn- go! [event]
   (rf/with-frame frame-id (rf/dispatch-sync event))
-  (rf.hicasso.impl.mount/settle!)
+  (rf.fresco.impl.mount/settle!)
   nil)
 
 (defn- db [] (rf/app-db-value frame-id))
@@ -310,7 +310,7 @@
 ;; than rethrowing — read off `react-dom` 19.2's `defaultOnUncaughtError`
 ;; rather than assumed — so nothing lands on the stack `cljs.test` watches
 ;; and `(is (thrown? …))` would be RED over a working refusal. It is the
-;; trap [[re-frame.hicasso.portal-dom-cljs-test]]'s `watch-errors!`
+;; trap [[re-frame.fresco.portal-dom-cljs-test]]'s `watch-errors!`
 ;; records.
 ;;
 ;; An `h/error-boundary` is the right reader for two reasons rather than
@@ -333,7 +333,7 @@
    :transform "translateZ(0)"
    :z-index   0})
 
-(rf.hicasso/defview clipped-page [_]
+(rf.fresco/defview clipped-page [_]
   [:div
    [:button#outside {:type "button"} "Outside"]
    [:div#clip {:style clip-style}
@@ -342,20 +342,20 @@
     [:div#ladder {:style {:position "fixed" :top "300px" :left "0px"
                           :width "120px" :height "120px" :z-index 2147483647
                           :background "rgb(255 0 0)"}}]
-    [rf.hicasso.overlay/modal {:open?      (rf.hicasso/sub [::open? :m])
+    [rf.fresco.overlay/modal {:open?      (rf.fresco/sub [::open? :m])
                     :on-dismiss [::dismissed :m]
                     :label      "Confirm deletion"}
      [:p "in the top layer"]
      [:button#inside {:type "button"} "Inside"]]]])
 
 (deftest an-overlay-escapes-an-ancestor-that-clips-and-out-stacks-it
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no top layer, so nothing paints and nothing hit-tests")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [clipped-page {}])]
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [clipped-page {}])]
         (try
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           (go! [::opened :m])
           (let [dialog ($ "dialog")
                 ladder ($ "#ladder")]
@@ -383,16 +383,16 @@
                     (str "its painted box is not contained by the 20px box that "
                          "clips it. dialog=[" (.-top d) "," (.-bottom d) "] "
                          "clip=[" (.-top c) "," (.-bottom c) "]")))))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 (deftest a-modal-makes-the-document-behind-it-unfocusable
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no inertness, because it has no modal dialog")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [clipped-page {}])]
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [clipped-page {}])]
         (try
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           (let [outside ($ "#outside")]
             (testing "premise: with no modal open the same control takes focus —
                       so the claim below is about the modal and not about the
@@ -416,27 +416,27 @@
               (go! [::closed :m])
               (.focus outside)
               (is (identical? outside (.-activeElement js/document)))))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; --- focus restore ---------------------------------------------------------
 
-(rf.hicasso/defview trigger-page [_]
+(rf.fresco/defview trigger-page [_]
   [:div
    [:button#trigger {:type "button" :on-click [::opened :m]} "Open"]
-   [rf.hicasso.overlay/modal {:open?      (rf.hicasso/sub [::open? :m])
+   [rf.fresco.overlay/modal {:open?      (rf.fresco/sub [::open? :m])
                    :on-dismiss [::dismissed :m]
                    :label      "Confirm"}
     [:button#first {:type "button"} "First"]
     [:button#chosen {:type "button" :auto-focus true} "Chosen"]]])
 
 (deftest closing-through-the-platform-door-returns-focus-to-the-trigger
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test restores nothing, because nothing was ever focused")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [trigger-page {}])]
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [trigger-page {}])]
         (try
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           (let [trigger ($ "#trigger")]
             (.focus trigger)
             (is (identical? trigger (.-activeElement js/document))
@@ -455,16 +455,16 @@
               (is (identical? trigger (.-activeElement js/document))
                   "and focus is back on the trigger, with no restore handler
                    anywhere in the application")))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 (deftest the-focus-one-shot-is-the-platforms-focus-delegate-and-not-reacts-autofocus
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test runs no dialog focusing steps")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [trigger-page {}])]
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [trigger-page {}])]
         (try
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           (go! [::opened :m])
           (testing "THE ONE-SHOT, as the engine actually performs it: opening
                     runs the platform's own dialog-focusing steps, which take
@@ -485,16 +485,16 @@
                      "`Invalid DOM property autofocus. Did you mean autoFocus?`, "
                      "and emits no attribute either. So NEITHER spelling reaches "
                      "the platform, and the recipe is tree order.")))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 (deftest a-close-request-on-a-modal-arrives-as-an-intent
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no dialog to make a close request of")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [trigger-page {}])]
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [trigger-page {}])]
         (try
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           (go! [::opened :m])
           (let [dialog ($ "dialog")]
             (if-not (fn? (.-requestClose dialog))
@@ -507,7 +507,7 @@
                         author's own intent, which is what closes the overlay"
                 (is (zero? (get-in (db) [:dismissed :m] 0)) "premise: nothing yet")
                 (.requestClose dialog)
-                (rf.hicasso.impl.mount/settle!)
+                (rf.fresco.impl.mount/settle!)
                 (is (= 1 (get-in (db) [:dismissed :m]))
                     "the intent landed exactly once")
                 (is (false? (get-in (db) [:open :m]))
@@ -526,7 +526,7 @@
               (is (nil? ($ "dialog")))
               (is (= before (get-in (db) [:dismissed :m] 0))
                   "the count did not move")))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 (deftest a-real-escape-dismisses-the-modal-and-a-synthetic-one-does-nothing
   ;; BOTH ARMS, ON ONE MOUNT, IN ONE ROW — which is the only arrangement
@@ -539,18 +539,18 @@
   ;; nothing else.
   ;;
   ;; Async because the press happens in another process. See
-  ;; `re-frame.hicasso.trusted-input-support`, and the fixture note above
+  ;; `re-frame.fresco.trusted-input-support`, and the fixture note above
   ;; for why this file's fixtures are maps.
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no dialog, and no engine to press a key at")
-    (if-not (rf.hicasso.trusted-input-support/bridge?)
-      (rf.hicasso.trusted-input-support/unwitnessed! "the modal's conduct under a real Escape")
+    (if-not (rf.fresco.trusted-input-support/bridge?)
+      (rf.fresco.trusted-input-support/unwitnessed! "the modal's conduct under a real Escape")
       (async done
         (fresh!)
-        (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [trigger-page {}])
-              finish (fn [] (rf.hicasso.impl.mount/release! handle) (done))]
+        (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [trigger-page {}])
+              finish (fn [] (rf.fresco.impl.mount/release! handle) (done))]
           (try
-            (rf.hicasso.impl.mount/settle!)
+            (rf.fresco.impl.mount/settle!)
             (go! [::opened :m])
             (is (some? ($ "dialog")) "premise: the modal is open")
             (is (= 1 (.-length (.querySelectorAll js/document ":modal")))
@@ -571,7 +571,7 @@
                 (is (true? delivered)
                     "the event was dispatched and nothing called preventDefault")
                 (is (false? (.-isTrusted ev)) "and it is untrusted, by construction")
-                (rf.hicasso.impl.mount/settle!)
+                (rf.fresco.impl.mount/settle!)
                 (is (some? ($ "dialog")) "the dialog is still in the document")
                 (is (= 1 (.-length (.querySelectorAll js/document ":modal")))
                     "still modal, still in the top layer")
@@ -580,11 +580,11 @@
                      close request is a DEFAULT ACTION and a page may not
                      forge one")))
 
-            (rf.hicasso.trusted-input-support/press-once!
+            (rf.fresco.trusted-input-support/press-once!
               "Escape"
               (fn []
                 (try
-                  (rf.hicasso.impl.mount/settle!)
+                  (rf.fresco.impl.mount/settle!)
                   (testing "TRUSTED: the same key, the same page, pressed by the
                             engine. It takes the platform's `cancel` path — the
                             one `[[a-close-request-on-a-modal-arrives-as-an-intent]]`
@@ -603,25 +603,25 @@
 
 ;; --- the stack -------------------------------------------------------------
 
-(rf.hicasso/defview two-modals-page [_]
+(rf.fresco/defview two-modals-page [_]
   ;; Written SECOND-first in the DOM, so a row that passed on DOM order
   ;; would fail here.
   [:div
-   [rf.hicasso.overlay/modal {:open? (rf.hicasso/sub [::open? :b]) :on-dismiss [::dismissed :b]
+   [rf.fresco.overlay/modal {:open? (rf.fresco/sub [::open? :b]) :on-dismiss [::dismissed :b]
                    :label "B" :id "modal-b"}
     [:p "B"]]
-   [rf.hicasso.overlay/modal {:open? (rf.hicasso/sub [::open? :a]) :on-dismiss [::dismissed :a]
+   [rf.fresco.overlay/modal {:open? (rf.fresco/sub [::open? :a]) :on-dismiss [::dismissed :a]
                    :label "A" :id "modal-a"}
     [:p "A"]]])
 
 (deftest the-top-layer-stacks-last-in-first-out-not-in-dom-order
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no top layer to stack in")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [two-modals-page {}])]
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [two-modals-page {}])]
         (try
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           (go! [::opened :a])
           (go! [::opened :b])
           (let [a ($ "#modal-a") b ($ "#modal-b")]
@@ -641,14 +641,14 @@
               (is (within? a (at-centre a))
                   "A is the top of the stack again — the stack popped rather
                    than collapsed")))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; --- the popover's LIFO dismissal, and the manual arm ----------------------
 
-(rf.hicasso/defview two-popovers-page [_]
+(rf.fresco/defview two-popovers-page [_]
   [:div
    [:button#anchor-a {:type "button"} "A"]
-   [rf.hicasso.overlay/popover {:open?      (rf.hicasso/sub [::open? :pa])
+   [rf.fresco.overlay/popover {:open?      (rf.fresco/sub [::open? :pa])
                      ;; NOTE: `::noted` does not clear the flag, so the
                      ;; element survives its own dismissal and the row below
                      ;; can attribute a SECOND dispatch to the teardown.
@@ -657,23 +657,23 @@
                      :placement  :bottom-start
                      :id         "pop-a"}
     [:ul {:role "menu"} [:li "one"]]]
-   [rf.hicasso.overlay/popover {:open?      (rf.hicasso/sub [::open? :pb])
+   [rf.fresco.overlay/popover {:open?      (rf.fresco/sub [::open? :pb])
                      :on-dismiss [::dismissed :pb]
                      :id         "pop-b"}
     [:p "B"]]
    ;; The same panel with NO `:on-dismiss` — `popover="manual"`, and
    ;; therefore not a member of the auto stack at all.
-   [rf.hicasso.overlay/popover {:open? (rf.hicasso/sub [::open? :pm]) :id "pop-m"}
+   [rf.fresco.overlay/popover {:open? (rf.fresco/sub [::open? :pm]) :id "pop-m"}
     [:p "M"]]])
 
 (deftest an-unrelated-auto-popover-dismisses-the-open-one-and-a-manual-one-is-immune
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no popover API and no auto stack")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [two-popovers-page {}])]
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [two-popovers-page {}])]
         (try
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           (go! [::opened :pa])
           (is (.matches ($ "#pop-a") ":popover-open")
               "premise: A is open and in the top layer")
@@ -682,7 +682,7 @@
                     dismisses the open one — the same engine path an outside
                     click takes, and the reason the module does not own one"
             (go! [::opened :pb])
-            (rf.hicasso.impl.mount/settle!)
+            (rf.fresco.impl.mount/settle!)
             (is (.matches ($ "#pop-b") ":popover-open"))
             (is (not (.matches ($ "#pop-a") ":popover-open"))
                 "A was dismissed by the platform, not by this module")
@@ -704,16 +704,16 @@
             (is (.matches ($ "#pop-a") ":popover-open"))
             (is (.matches ($ "#pop-m") ":popover-open")
                 "the auto popover joining the stack did not disturb it"))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 (deftest the-platform-dismissal-arrives-as-an-intent-and-the-teardown-does-not
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test dismisses nothing, because nothing opened")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [two-popovers-page {}])]
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [two-popovers-page {}])]
         (try
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           (go! [::opened :pa])
           (go! [::opened :pb])
           (is (= 1 (get-in (db) [:dismissed :pa]))
@@ -749,7 +749,7 @@
             (is (zero? (get-in (db) [:dismissed :pb] 0))
                 "and no dismissal was reported for a close the application asked
                  for itself"))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; --- a frameless overlay: legal until it carries `:on-dismiss` -------------
 ;;
@@ -768,10 +768,10 @@
   "A root whose provider carries the **no-provider sentinel** — the React
   context default, so exactly an overlay with no frame above it."
   [hiccup]
-  (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) rf.adapter.context/no-provider-sentinel hiccup))
+  (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) rf.adapter.context/no-provider-sentinel hiccup))
 
 (deftest a-frameless-overlay-is-legal-until-it-carries-on-dismiss
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no top layer")
     (do
       (fresh!)
@@ -780,41 +780,41 @@
                 the flag that opened them is their only owner"
         (let [handle (frameless-root!
                        [:div
-                        [rf.hicasso.overlay/popover {:open? true :id "free-p"} [:p "quiet"]]
-                        [rf.hicasso.overlay/modal {:open? true :id "free-m"} [:p "quiet"]]])]
+                        [rf.fresco.overlay/popover {:open? true :id "free-p"} [:p "quiet"]]
+                        [rf.fresco.overlay/modal {:open? true :id "free-m"} [:p "quiet"]]])]
           (try
-            (rf.hicasso.impl.mount/settle!)
+            (rf.fresco.impl.mount/settle!)
             (is (.matches ($ "#free-p") ":popover-open"))
             (is (= "manual" (.getAttribute ($ "#free-p") "popover")))
             (is (true? (.-open ($ "#free-m"))))
             (is (= "none" (.getAttribute ($ "#free-m") "closedby")))
-            (finally (rf.hicasso.impl.mount/release! handle)))))
-      (doseq [[head tag] [[rf.hicasso.overlay/popover "popover"] [rf.hicasso.overlay/modal "modal"]]]
+            (finally (rf.fresco.impl.mount/release! handle)))))
+      (doseq [[head tag] [[rf.fresco.overlay/popover "popover"] [rf.fresco.overlay/modal "modal"]]]
         (testing (str "REFUSAL: an open " tag " with `:on-dismiss` and no frame
                        is the existing loud error, naming the intent, rather
                        than an element the platform may dismiss with nothing
                        listening")
           (reset! !frameless-refusal nil)
           (let [handle (frameless-root!
-                         [rf.hicasso/error-boundary {:fallback [:p.frameless-refused "refused"]
+                         [rf.fresco/error-boundary {:fallback [:p.frameless-refused "refused"]
                                             :on-error (fn [e] (reset! !frameless-refusal e))}
                           [head {:open? true :on-dismiss [::dismissed :x] :id "free-x"}
                            [:p "loud"]]])]
             (try
-              (rf.hicasso.impl.mount/settle!)
+              (rf.fresco.impl.mount/settle!)
               (is (some? ($ ".frameless-refused"))
                   "the overlay failed rather than rendering with a dead dismissal")
               (is (nil? ($ "#free-x")) "and no element reached the top layer")
-              (is (= :rf.error/hicasso-intent-outside-boundary
+              (is (= :rf.error/fresco-intent-outside-boundary
                      (:rf.error/id (ex-data @!frameless-refusal)))
                   (str "the existing id, no new vocabulary: " (pr-str (ex-data @!frameless-refusal))))
               (is (= [::dismissed :x] (:intent (ex-data @!frameless-refusal)))
                   "and it named the intent")
-              (finally (rf.hicasso.impl.mount/release! handle)))))))))
+              (finally (rf.fresco.impl.mount/release! handle)))))))))
 
 ;; --- the dismissal closure is the CURRENT render's --------------------------
 
-(rf.hicasso/defview swap-dismiss-page [_]
+(rf.fresco/defview swap-dismiss-page [_]
   ;; The subject popover's `:on-dismiss` carries a tag read from app-db,
   ;; so a `::retag` dispatch re-renders it wired to a DIFFERENT intent
   ;; while it stays open. `pop-u` is the dismissal driver: an unrelated
@@ -824,11 +824,11 @@
   ;; identical event and the row above already proves THAT one routes
   ;; nowhere.
   [:div
-   [rf.hicasso.overlay/popover {:open?      (rf.hicasso/sub [::open? :ps])
-                     :on-dismiss [::dismissed (rf.hicasso/sub [::dismiss-tag])]
+   [rf.fresco.overlay/popover {:open?      (rf.fresco/sub [::open? :ps])
+                     :on-dismiss [::dismissed (rf.fresco/sub [::dismiss-tag])]
                      :id         "pop-s"}
     [:p "S"]]
-   [rf.hicasso.overlay/popover {:open?      (rf.hicasso/sub [::open? :pu])
+   [rf.fresco.overlay/popover {:open?      (rf.fresco/sub [::open? :pu])
                      :on-dismiss [::noted :pu]
                      :id         "pop-u"}
     [:p "U"]]])
@@ -841,13 +841,13 @@
   ;; would cost a wrong event. That sentence had no witness: every other
   ;; row keeps one `:on-dismiss` for the life of its overlay, so a handler
   ;; cached on first render would pass all of them.
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no popover API and no auto stack")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [swap-dismiss-page {}])]
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [swap-dismiss-page {}])]
         (try
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           (go! [::retag :old])
           (go! [::opened :ps])
           (is (.matches ($ "#pop-s") ":popover-open")
@@ -872,7 +872,7 @@
               "and the previous render's intent did not fire: a handler
                cached at first render — or a closure over the first
                render's props — would have dispatched :old here")
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; --- the census ------------------------------------------------------------
 
@@ -982,13 +982,13 @@
     (clear!)))
 
 (deftest an-open-overlay-adds-nothing-to-window-document-or-body
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test attaches nothing because it mounts nothing")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [two-popovers-page {}])]
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [two-popovers-page {}])]
         (try
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           ;; Instrumented AFTER the root exists, so React's own root-level
           ;; wiring is outside the window and the delta is the overlay's.
           (let [{:keys [log restore!] :as census} (install-census!)]
@@ -997,7 +997,7 @@
               (go! [::opened :pa])
               (.scrollTo js/window 0 40)
               (.dispatchEvent js/window (js/Event. "resize"))
-              (rf.hicasso.impl.mount/settle!)
+              (rf.fresco.impl.mount/settle!)
               (let [open-log @log]
                 (testing "premise: the instrument sees listeners at all —
                           React's own `beforetoggle`/`toggle` on the element"
@@ -1037,25 +1037,25 @@
                         (str "and still nothing global, on the way out either: "
                              (pr-str (:global closed-log)))))))
               (finally (restore!))))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; --- zero cost when closed -------------------------------------------------
 
-(rf.hicasso/defview closed-page [_]
+(rf.fresco/defview closed-page [_]
   [:div
-   [rf.hicasso.overlay/modal {:open? (rf.hicasso/sub [::open? :m]) :on-dismiss [::dismissed :m]}
-    [:p (str "body read: " (rf.hicasso/sub [::body-read]))]]
-   [rf.hicasso.overlay/popover {:open? (rf.hicasso/sub [::open? :p]) :on-dismiss [::dismissed :p]}
+   [rf.fresco.overlay/modal {:open? (rf.fresco/sub [::open? :m]) :on-dismiss [::dismissed :m]}
+    [:p (str "body read: " (rf.fresco/sub [::body-read]))]]
+   [rf.fresco.overlay/popover {:open? (rf.fresco/sub [::open? :p]) :on-dismiss [::dismissed :p]}
     [:p "p"]]])
 
 (deftest a-closed-overlay-has-no-element-no-listener-and-no-rendered-body
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test cannot tell an absent element from an absent DOM")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [closed-page {}])]
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [closed-page {}])]
         (try
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           ;; Instrumented AFTER the root, deliberately: creating a React root
           ;; attaches React's own `selectionchange` listener to the document,
           ;; and a census that had to whitelist it would be a census with an
@@ -1089,43 +1089,43 @@
                 (is (seq (filterv #{"cancel" "close" "toggle" "beforetoggle"}
                                   (:element @log)))))
               (finally (restore!))))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; --- intents inside an overlay --------------------------------------------
 
-(rf.hicasso/defview intent-page [_]
+(rf.fresco/defview intent-page [_]
   [:div
-   [rf.hicasso.overlay/modal {:open? (rf.hicasso/sub [::open? :m]) :on-dismiss [::dismissed :m]}
+   [rf.fresco.overlay/modal {:open? (rf.fresco/sub [::open? :m]) :on-dismiss [::dismissed :m]}
     [:button#act {:type "button" :on-click [::clicked :m]} "Act"]]])
 
 (deftest an-intent-on-an-overlay-child-dispatches-in-the-frame-above-it
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test cannot click a node it does not have")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [intent-page {}])]
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [intent-page {}])]
         (try
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           (go! [::opened :m])
           (testing "an overlay's children are hiccup DATA lowered in the
                     overlay component's own render, one render after the body
                     that wrote them unwound. Without the frame re-bound there,
-                    this button raises `:rf.error/hicasso-intent-outside-boundary`
+                    this button raises `:rf.error/fresco-intent-outside-boundary`
                     at render rather than dispatching"
             (is (nil? (get-in (db) [:clicked :m])) "premise: nothing clicked yet")
             (.click ($ "#act"))
-            (rf.hicasso.impl.mount/settle!)
+            (rf.fresco.impl.mount/settle!)
             (is (true? (get-in (db) [:clicked :m]))
                 "the intent landed, in the frame the overlay was mounted under"))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; --- the anchor ------------------------------------------------------------
 
-(rf.hicasso/defview anchored-page [_]
+(rf.fresco/defview anchored-page [_]
   [:div
    ;; An author-written `anchor-name` the module must hand back untouched.
    [:button#anchor-a {:type "button" :style {:anchor-name "--mine"}} "A"]
-   [rf.hicasso.overlay/popover {:open?      (rf.hicasso/sub [::open? :pa])
+   [rf.fresco.overlay/popover {:open?      (rf.fresco/sub [::open? :pa])
                      :on-dismiss [::dismissed :pa]
                      :anchor     "anchor-a"
                      :placement  :bottom-start
@@ -1138,16 +1138,16 @@
    ;; route a dismissal. That is also what lets it be open at the same time
    ;; as the auto panel above: an auto popover joining the stack does not
    ;; disturb a manual one.
-   [rf.hicasso.overlay/popover {:open?     (rf.hicasso/sub [::open? :pt])
+   [rf.fresco.overlay/popover {:open?     (rf.fresco/sub [::open? :pt])
                      :anchor    "anchor-a"
                      :placement :top-start
                      :id        "pop-t"}
     [:p "tip"]]
    ;; The dangling `:anchor`, under a boundary that is BOTH how the refusal
    ;; is read and what keeps a deliberate one from reding the suite.
-   [rf.hicasso/error-boundary {:fallback [:p.anchor-refused "the overlay refused"]
+   [rf.fresco/error-boundary {:fallback [:p.anchor-refused "the overlay refused"]
                       :on-error (fn [e] (reset! !anchor-refusal e))}
-    [rf.hicasso.overlay/popover {:open?      (rf.hicasso/sub [::open? :px])
+    [rf.fresco.overlay/popover {:open?      (rf.fresco/sub [::open? :px])
                       :on-dismiss [::dismissed :px]
                       :anchor     "no-such-element"
                       :placement  :bottom-start
@@ -1163,13 +1163,13 @@
    [:div {:style {:height "1200px"}}]])
 
 (deftest the-anchor-is-claimed-while-open-and-handed-back-on-teardown
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test resolves no anchors, because it computes no style")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [anchored-page {}])]
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [anchored-page {}])]
         (try
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           (let [trigger ($ "#anchor-a")]
             (is (= "--mine" (.. trigger -style -anchorName))
                 "premise: the trigger carries the author's own anchor name")
@@ -1265,11 +1265,11 @@
 
             (go! [::opened :px])
             (let [data (some-> @!anchor-refusal ex-data)]
-              (is (= :rf.error/hicasso-overlay-anchor-missing
+              (is (= :rf.error/fresco-overlay-anchor-missing
                      (:rf.error/id data))
                   (str "THIS complaint, by id rather than by message. saw "
                        (pr-str data)))
-              (is (= 're-frame.hicasso.impl.overlay/claim-anchor!
+              (is (= 're-frame.fresco.impl.overlay/claim-anchor!
                      (:where data))
                   "tagged with the site that refused")
               (is (= "no-such-element" (:anchor data))
@@ -1282,11 +1282,11 @@
             ;; the top layer — an overlay cannot be both refused and open.
             (is (not (some-> ($ "#pop-x") (.matches ":popover-open")))
                 "and the panel never opened"))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; --- the anchor that MOVES -------------------------------------------------
 
-(rf.hicasso/defview moving-anchor-page [_]
+(rf.fresco/defview moving-anchor-page [_]
   [:div
    ;; TWO persistent triggers with distinct stable ids, both mounted for the
    ;; whole row, each carrying an author-written `anchor-name` the module
@@ -1297,14 +1297,14 @@
    ;; No `:on-dismiss`, so `popover="manual"`: this row is about the anchor,
    ;; and a light dismiss firing mid-row would close the panel for a reason
    ;; that has nothing to do with what is being measured.
-   [rf.hicasso.overlay/popover {:open?     (rf.hicasso/sub [::open? :mv])
-                     :anchor    (rf.hicasso/sub [::anchor])
+   [rf.fresco.overlay/popover {:open?     (rf.fresco/sub [::open? :mv])
+                     :anchor    (rf.fresco/sub [::anchor])
                      :placement :bottom-start
                      :id        "pop-mv"
                      ;; Read but unused — the churn control's re-render
                      ;; arrives through the same boundary and must reach
                      ;; this component's props without moving the claim.
-                     :data-tick (str (rf.hicasso/sub [::tick]))}
+                     :data-tick (str (rf.fresco/sub [::tick]))}
     [:p "Menu"]]
    ;; Room below the triggers, for the reason `anchored-page` gives.
    [:div {:style {:height "1200px"}}]])
@@ -1321,15 +1321,15 @@
   ;; panel's `position-anchor` resolves, and where the engine actually put
   ;; the box. An attribute the module just wrote would be green for a
   ;; runtime that wrote it and anchored nothing.
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test resolves no anchors, because it computes no style")
     (do
       (fresh!)
       (rf/with-frame frame-id (rf/dispatch-sync [::anchored "move-a"]))
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!)
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!)
                                                 frame-id [moving-anchor-page {}])]
         (try
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           (let [a ($ "#move-a")
                 b ($ "#move-b")]
             (is (and (= "--mine-a" (.. a -style -anchorName))
@@ -1412,27 +1412,27 @@
               (go! [::closed :mv])
               (is (= "--mine-a" (.. a -style -anchorName)))
               (is (= "--mine-b" (.. b -style -anchorName)))))
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; --- the budget ------------------------------------------------------------
 
-(rf.hicasso/defview budget-page [_]
-  [rf.hicasso.overlay/modal {:open? (rf.hicasso/sub [::open? :m]) :on-dismiss [::dismissed :m]}
+(rf.fresco/defview budget-page [_]
+  [rf.fresco.overlay/modal {:open? (rf.fresco/sub [::open? :m]) :on-dismiss [::dismissed :m]}
    [:p "cost"]])
 
 (deftest an-overlay-costs-three-hooks-and-the-shell-still-costs-two
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test does not run this suite's mount")
-    (if-not (rf.hicasso.hook-probe/install!)
+    (if-not (rf.fresco.hook-probe/install!)
       (unwitnessed! "React's internals slot was not found, so the hook counts
                      are UNWITNESSED on this build.")
       (do
         (fresh!)
         (let [handle (volatile! nil)
-              names  (rf.hicasso.hook-probe/record!
+              names  (rf.fresco.hook-probe/record!
                        (fn []
                          (vreset! handle
-                                  (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!)
+                                  (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!)
                                                frame-id [budget-page {}]))))]
           (try
             (testing "premise: the instrument can report more than two — the
@@ -1440,7 +1440,7 @@
                       declares them"
               (is (= ["useContext" "useSyncExternalStore"] (vec (take 2 names)))
                   (str "raw: " (pr-str names)))
-              (is (= (count rf.hicasso.test.runtime/shell-hook-ledger) 2)
+              (is (= (count rf.fresco.test.runtime/shell-hook-ledger) 2)
                   "and the declared shell ledger is still two"))
 
             (let [tail (vec (distinct (drop 2 names)))]
@@ -1461,4 +1461,4 @@
                      unavoidable is a LAYOUT effect, because the thing it
                      corrects is a position (`impl.overlay/reconcile-anchor!`,
                      rf2-kx9f)")))
-            (finally (when @handle (rf.hicasso.impl.mount/release! @handle)))))))))
+            (finally (when @handle (rf.fresco.impl.mount/release! @handle)))))))))

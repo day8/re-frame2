@@ -1,5 +1,5 @@
-(ns re-frame.hicasso.client-root-lifecycle-dom-cljs-test
-  "THE CLIENT-ROOT GRAMMAR — Spec 006 §The client root, Hicasso's
+(ns re-frame.fresco.client-root-lifecycle-dom-cljs-test
+  "THE CLIENT-ROOT GRAMMAR — Spec 006 §The client root, Fresco's
   realisation (rf2-kuky.59).
 
   What is under test is the SHAPE all four React view adapters now share:
@@ -7,32 +7,32 @@
   creates or adopts and whose later calls update, and an idempotent
   `h/unmount!`. The rows below mirror
   `implementation/adapters/reagent/test/re_frame/adapter_client_root_{,dom_}cljs_test.cljs`
-  claim for claim, so a divergence between Hicasso's own root path and the
+  claim for claim, so a divergence between Fresco's own root path and the
   spine's shows up as a red here rather than as a difference nobody reads.
 
-  ## Why Hicasso needs its own copy of those rows
+  ## Why Fresco needs its own copy of those rows
 
-  Hicasso does NOT ride `spine/make-client-root-fns`. Its roots carry
+  Fresco does NOT ride `spine/make-client-root-fns`. Its roots carry
   ownership the shared factory has no place for — a `flushSync` commit on
   every update, a per-root adoption window, a per-root recoverable-error
   reporter, and the stable wrapper tree `impl.mount/tree` puts over every
   post-hydration render so the client and
-  `re-frame.hicasso.server/render` agree about `useId` — and it may not
+  `re-frame.fresco.server/render` agree about `useId` — and it may not
   `:require` the spine at all, because that would put core's React-hook
-  machinery into every Hicasso bundle (the optional-module invariant
-  `hicasso/scripts/check_optional_module_reachability.py` guards). So the
+  machinery into every Fresco bundle (the optional-module invariant
+  `fresco/scripts/check_optional_module_reachability.py` guards). So the
   semantics are pinned by TEST rather than by a shared call, and this file
   is where.
 
   ## Which adapter, and why the teardown rows install more than one
 
-  A Hicasso root is created by Hicasso's own door whatever adapter is
+  A Fresco root is created by Fresco's own door whatever adapter is
   installed — `h/render!` never routes through the substrate contract's
-  `render` slot — so a Hicasso application may perfectly well install UIx
+  `render` slot — so a Fresco application may perfectly well install UIx
   or Reagent. `rf/destroy-adapter!` reaches the package's root drain
-  through core's `:hicasso/drain-client-roots!` late-bind hook, which is
+  through core's `:fresco/drain-client-roots!` late-bind hook, which is
   the PROCESS teardown boundary and therefore adapter-independent. W4
-  reads that guarantee with Hicasso's own adapter installed and W7 reads
+  reads that guarantee with Fresco's own adapter installed and W7 reads
   it with UIx and with Reagent; the rest of the file installs UIx, as the
   rest of this package's suites do.
 
@@ -50,11 +50,11 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
-            [re-frame.hicasso.substrate :as rf.hicasso.substrate]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
+            [re-frame.fresco.substrate :as rf.fresco.substrate]
             [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-a ::frame-a)
@@ -76,13 +76,13 @@
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The app
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview panel
+(rf.fresco/defview panel
   "One read, one tag the caller supplies, and an UNCONTROLLED input.
 
   The input is the state witness: it names no `:value`, so React never
@@ -90,7 +90,7 @@
   preserving. A reconcile keeps it; a second `createRoot` cannot."
   [{:keys [tag]}]
   [:div.panel {:data-tag tag}
-   [:span.label (rf.hicasso/sub label-q)]
+   [:span.label (rf.fresco/sub label-q)]
    [:input.draft {:type "text"}]])
 
 ;; A `useId` probe, rendered as TEXT for `identifier_prefix_ssr_dom_cljs_test`'s
@@ -100,9 +100,9 @@
   [_props]
   (react/createElement "b" #js {:className "probe"} (react/useId)))
 
-(rf.hicasso/defhost id-host id-probe {:server :render})
+(rf.fresco/defhost id-host id-probe {:server :render})
 
-(rf.hicasso/defview id-panel
+(rf.fresco/defview id-panel
   [_]
   [:div.panel [id-host {}]])
 
@@ -110,15 +110,15 @@
 ;; Harness
 ;; ---------------------------------------------------------------------------
 
-(defn- skip! [why] (rf.hicasso.roots-frames-support/skip! why))
+(defn- skip! [why] (rf.fresco.roots-frames-support/skip! why))
 
 (defn- fresh!
   "One frame, seeded, and an empty runtime."
   []
-  (rf.hicasso.roots-frames-support/leave-act-environment!)
+  (rf.fresco.roots-frames-support/leave-act-environment!)
   (rf/make-frame {:id frame-a})
   (rf/with-frame frame-a (rf/dispatch-sync [::seed "alpha"]))
-  (rf.hicasso.impl.collector/reset-runtime!)
+  (rf.fresco.impl.collector/reset-runtime!)
   nil)
 
 (defn- node-at [container sel] (.querySelector container sel))
@@ -141,13 +141,13 @@
 ;; loaded the namespace on Node.
 
 (deftest client-root-allocates-an-inert-handle
-  (let [handle (rf.hicasso/client-root)]
+  (let [handle (rf.fresco/client-root)]
     (testing "a fresh handle holds no root — no `createRoot`, no DOM work,
               nothing to undo"
       (is (nil? @handle)))
     (testing "and tearing down a never-rendered handle is a no-op that
               answers nil rather than throwing"
-      (is (nil? (rf.hicasso/unmount! handle)))
+      (is (nil? (rf.fresco/unmount! handle)))
       (is (nil? @handle)))))
 
 ;; ---------------------------------------------------------------------------
@@ -160,12 +160,12 @@
 ;; across a reconcile and cannot preserve across a second `createRoot`.
 
 (deftest the-first-render-creates-and-every-later-render-updates
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_  (fresh!)
-          ca (rf.hicasso.impl.mount/fresh-container!)
-          a  (rf.hicasso/client-root)]
-      (rf.hicasso/render! a [rf.hicasso/frame-root {:id frame-a} [panel {:tag "first"}]] ca)
+          ca (rf.fresco.impl.mount/fresh-container!)
+          a  (rf.fresco/client-root)]
+      (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "first"}]] ca)
       (try
         (let [node  (node-at ca ".panel")
               input (node-at ca ".draft")]
@@ -179,8 +179,8 @@
 
           (testing "the second render UPDATES the same root: the same DOM
                     nodes, and the uncontrolled input's value with them"
-            (rf.hicasso/render! a
-                                [rf.hicasso/frame-root {:id frame-a} [panel {:tag "second"}]]
+            (rf.fresco/render! a
+                                [rf.fresco/frame-root {:id frame-a} [panel {:tag "second"}]]
                                 ca)
             (is (= "second" (.getAttribute (node-at ca ".panel") "data-tag"))
                 "the update did not reach the page")
@@ -195,31 +195,31 @@
           (testing "`render!` answers nil rather than the handle — the
                     Reagent/UIx trio's shape, and what stops a caller
                     threading a root value it is not meant to hold"
-            (is (nil? (rf.hicasso/render! a
-                                          [rf.hicasso/frame-root {:id frame-a}
+            (is (nil? (rf.fresco/render! a
+                                          [rf.fresco/frame-root {:id frame-a}
                                            [panel {:tag "third"}]]
                                           ca))))
 
           (testing "the root is still wired — a dispatch reaches its paint"
-            (rf.hicasso.impl.mount/dispatch! frame-a [::relabel "alpha-again"])
+            (rf.fresco.impl.mount/dispatch! frame-a [::relabel "alpha-again"])
             (is (= "alpha-again" (text-at ca ".label")))))
 
         (finally
-          (rf.hicasso/unmount! a)
+          (rf.fresco/unmount! a)
           (detach! ca)
-          (rf.hicasso.impl.collector/reset-runtime!))))))
+          (rf.fresco.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W3 — UNMOUNT is idempotent, and a later render mounts afresh
 ;; ---------------------------------------------------------------------------
 
 (deftest unmount-is-idempotent-and-a-later-render-mounts-afresh
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_  (fresh!)
-          ca (rf.hicasso.impl.mount/fresh-container!)
-          a  (rf.hicasso/client-root)]
-      (rf.hicasso/render! a [rf.hicasso/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
+          ca (rf.fresco.impl.mount/fresh-container!)
+          a  (rf.fresco/client-root)]
+      (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
       (try
         (testing "premise: the root is live and painted"
           (is (some? @a))
@@ -227,7 +227,7 @@
 
         (testing "unmount releases the root, returns the handle to inert, and
                   answers nil"
-          (is (nil? (rf.hicasso/unmount! a)))
+          (is (nil? (rf.fresco/unmount! a)))
           (is (nil? @a))
           (is (= "" (.-innerHTML ca))
               "React did not empty the container"))
@@ -235,7 +235,7 @@
         (testing "a SECOND unmount is a no-op rather than a second host
                   unmount — liveness is the active set's to say, and the
                   handle is already inert"
-          (is (nil? (rf.hicasso/unmount! a)))
+          (is (nil? (rf.fresco/unmount! a)))
           (is (nil? @a)))
 
         (testing "and the container survives: it was the CALLER's node, and a
@@ -243,25 +243,25 @@
           (is (true? (.-isConnected ca))))
 
         (testing "a later render through the same handle MOUNTS AFRESH"
-          (rf.hicasso/render! a [rf.hicasso/frame-root {:id frame-a} [panel {:tag "b"}]] ca)
+          (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "b"}]] ca)
           (is (some? @a))
           (is (= "b" (.getAttribute (node-at ca ".panel") "data-tag")))
           (is (= "alpha" (text-at ca ".label"))
               "the re-mounted root did not read its frame"))
 
         (finally
-          (rf.hicasso/unmount! a)
+          (rf.fresco/unmount! a)
           (detach! ca)
-          (rf.hicasso.impl.collector/reset-runtime!))))))
+          (rf.fresco.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
-;; W4 — `rf/destroy-adapter!` RELEASES a live Hicasso root
+;; W4 — `rf/destroy-adapter!` RELEASES a live Fresco root
 ;; ---------------------------------------------------------------------------
 ;;
-;; The behaviour rf2-kuky.59 added rather than moved: before it, Hicasso's
+;; The behaviour rf2-kuky.59 added rather than moved: before it, Fresco's
 ;; `createRoot` sat outside every active-root set and `rf/destroy-adapter!`
-;; released no Hicasso root at all. This row reads the guarantee with HICASSO's
-;; own adapter installed — the composition an all-Hicasso application has — and
+;; released no Fresco root at all. This row reads the guarantee with FRESCO's
+;; own adapter installed — the composition an all-Fresco application has — and
 ;; W7 reads the same guarantee under UIx and under Reagent.
 ;;
 ;; `exactly once` is the half a count cannot show, so it is read the way Spec
@@ -270,19 +270,19 @@
 ;; `root.unmount()` no second time, and a `render!` afterwards mounts afresh.
 
 (deftest destroy-adapter-releases-a-live-handle-once-and-a-later-render-mounts-afresh
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
-    (let [ca (rf.hicasso.impl.mount/fresh-container!)
-          a  (rf.hicasso/client-root)]
+    (let [ca (rf.fresco.impl.mount/fresh-container!)
+          a  (rf.fresco/client-root)]
       (try
-        ;; The fixture seated UIx; this row is the all-Hicasso composition,
-        ;; so it seats Hicasso's own adapter.
+        ;; The fixture seated UIx; this row is the all-Fresco composition,
+        ;; so it seats Fresco's own adapter.
         (rf/destroy-adapter!)
-        (rf/init! rf.hicasso.substrate/adapter)
+        (rf/init! rf.fresco.substrate/adapter)
         (fresh!)
-        (rf.hicasso/render! a [rf.hicasso/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
+        (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
 
-        (testing "premise: a live Hicasso root, painted, under the Hicasso
+        (testing "premise: a live Fresco root, painted, under the Fresco
                   adapter"
           (is (some? @a))
           (is (= "alpha" (text-at ca ".label"))))
@@ -292,29 +292,29 @@
         (testing "the adapter teardown released this root: React emptied the
                   container, and the caller's node is still in the document"
           (is (= "" (.-innerHTML ca))
-              "`rf/destroy-adapter!` left a live Hicasso root mounted — the
-               defect rf2-kuky.59 fixed, in which Hicasso's `createRoot` sat
+              "`rf/destroy-adapter!` left a live Fresco root mounted — the
+               defect rf2-kuky.59 fixed, in which Fresco's `createRoot` sat
                outside every active-root set")
           (is (true? (.-isConnected ca))))
 
         (testing "and the handle's own `unmount!` finds nothing left to do, so
                   the host unmount is reached exactly ONCE per root whichever
                   caller gets there first"
-          (is (nil? (rf.hicasso/unmount! a)))
+          (is (nil? (rf.fresco/unmount! a)))
           (is (nil? @a)))
 
         (testing "a render after the release mounts afresh"
-          (rf/init! rf.hicasso.substrate/adapter)
+          (rf/init! rf.fresco.substrate/adapter)
           (rf/make-frame {:id frame-a})
           (rf/with-frame frame-a (rf/dispatch-sync [::seed "beta"]))
-          (rf.hicasso/render! a [rf.hicasso/frame-root {:id frame-a} [panel {:tag "b"}]] ca)
+          (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "b"}]] ca)
           (is (= "b" (.getAttribute (node-at ca ".panel") "data-tag")))
           (is (= "beta" (text-at ca ".label"))))
 
         (finally
-          (rf.hicasso/unmount! a)
+          (rf.fresco/unmount! a)
           (detach! ca)
-          (rf.hicasso.impl.collector/reset-runtime!)
+          (rf.fresco.impl.collector/reset-runtime!)
           ;; Hand the page back to the fixture's adapter, whatever this row did.
           (try (rf/destroy-adapter!) (catch :default _ nil)))))))
 
@@ -332,23 +332,23 @@
 ;; and RE-RENDERED, and `innerHTML` cannot see it.
 
 (deftest a-hydrating-first-render-adopts-once-and-later-renders-update
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done
       (let [_         (fresh!)
-            html      (rf.hicasso.roots-frames-support/server-html! frame-a [rf.hicasso/frame-provider {:frame frame-a}
+            html      (rf.fresco.roots-frames-support/server-html! frame-a [rf.fresco/frame-provider {:frame frame-a}
                                                  [panel {:tag "server"}]])
-            container (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
-            watch     (rf.hicasso.roots-frames-support/watch-mismatches!)
-            a         (rf.hicasso/client-root)]
+            container (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))
+            watch     (rf.fresco.roots-frames-support/watch-mismatches!)
+            a         (rf.fresco/client-root)]
         (is (str/includes? html "alpha")
             "premise: the server bytes carry the seeded label")
-        (rf.hicasso/render! a
-                            [rf.hicasso/frame-provider {:frame frame-a}
+        (rf.fresco/render! a
+                            [rf.fresco/frame-provider {:frame frame-a}
                              [panel {:tag "server"}]]
                             container
                             {:hydrate? true})
-        (-> (rf.hicasso.roots-frames-support/adopted! a)
+        (-> (rf.fresco.roots-frames-support/adopted! a)
             (.then (fn [shut?]
                      (testing "the root's OWN adoption window shut — the
                                completion signal a hydrating first render has
@@ -356,7 +356,7 @@
                        (is (true? shut?)))
                      (testing "it ADOPTED rather than replaced: the server's
                                own nodes are still the page's nodes"
-                       (is (rf.hicasso.roots-frames-support/every-server-node? container ".panel")))
+                       (is (rf.fresco.roots-frames-support/every-server-node? container ".panel")))
                      (testing "and the framework reported no mismatch"
                        (is (= [] ((:stop! watch)))))
 
@@ -368,37 +368,37 @@
                                  tree where the Fragment stood would be a
                                  different top element, and React would
                                  discard every node the adoption established"
-                         (rf.hicasso/render! a
-                                             [rf.hicasso/frame-provider {:frame frame-a}
+                         (rf.fresco/render! a
+                                             [rf.fresco/frame-provider {:frame frame-a}
                                               [panel {:tag "client"}]]
                                              container)
                          (is (= "client" (.getAttribute (node-at container ".panel") "data-tag")))
                          (is (identical? node (node-at container ".panel"))
                              "the post-hydration update remounted the adopted
                               subtree instead of reconciling it")
-                         (is (rf.hicasso.roots-frames-support/every-server-node? container ".panel")))
+                         (is (rf.fresco.roots-frames-support/every-server-node? container ".panel")))
 
                        (testing "and `{:hydrate? true}` on a LATER call is
                                  IGNORED rather than hydrating a second time
                                  — the first-call rule. A second `hydrateRoot`
                                  on a live root would build a new root and
                                  throw the adopted nodes away"
-                         (rf.hicasso/render! a
-                                             [rf.hicasso/frame-provider {:frame frame-a}
+                         (rf.fresco/render! a
+                                             [rf.fresco/frame-provider {:frame frame-a}
                                               [panel {:tag "again"}]]
                                              container
                                              {:hydrate? true})
                          (is (= "again" (.getAttribute (node-at container ".panel") "data-tag")))
                          (is (identical? node (node-at container ".panel"))
                              "a later `{:hydrate? true}` hydrated a second time")
-                         (is (rf.hicasso.roots-frames-support/every-server-node? container ".panel"))))))
-            (rf.hicasso.roots-frames-support/settle-row! {:row      "the hydrate-once row"
+                         (is (rf.fresco.roots-frames-support/every-server-node? container ".panel"))))))
+            (rf.fresco.roots-frames-support/settle-row! {:row      "the hydrate-once row"
                               :done     done
                               :release! (fn []
                                           ((:stop! watch))
-                                          (rf.hicasso/unmount! a)
+                                          (rf.fresco/unmount! a)
                                           (detach! container)
-                                          (rf.hicasso.impl.collector/reset-runtime!))}))))))
+                                          (rf.fresco.impl.collector/reset-runtime!))}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W6 — `:identifier-prefix` reaches the CONSTRUCTOR
@@ -406,21 +406,21 @@
 ;;
 ;; A pass-through with no default and no coercion, and the reason it is worth a
 ;; row at the PUBLIC door rather than only at the impl one: it is the option a
-;; hydrating root must share with `re-frame.hicasso.server/render`, so a door
+;; hydrating root must share with `re-frame.fresco.server/render`, so a door
 ;; that dropped it would turn every `useId` in an SSR tree into a mismatch and
 ;; nothing else on the page would say so.
 
 (deftest identifier-prefix-reaches-create-root
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_  (fresh!)
-          ca (rf.hicasso.impl.mount/fresh-container!)
-          cb (rf.hicasso.impl.mount/fresh-container!)
-          a  (rf.hicasso/client-root)
-          b  (rf.hicasso/client-root)]
-      (rf.hicasso/render! a [rf.hicasso/frame-provider {:frame frame-a} [id-panel {}]] ca
+          ca (rf.fresco.impl.mount/fresh-container!)
+          cb (rf.fresco.impl.mount/fresh-container!)
+          a  (rf.fresco/client-root)
+          b  (rf.fresco/client-root)]
+      (rf.fresco/render! a [rf.fresco/frame-provider {:frame frame-a} [id-panel {}]] ca
                           {:identifier-prefix "pfx-a-"})
-      (rf.hicasso/render! b [rf.hicasso/frame-provider {:frame frame-a} [id-panel {}]] cb
+      (rf.fresco/render! b [rf.fresco/frame-provider {:frame frame-a} [id-panel {}]] cb
                           {:identifier-prefix "pfx-b-"})
       (try
         (let [id-a (text-at ca ".probe")
@@ -440,31 +440,31 @@
             (is (not= id-a id-b))))
 
         (finally
-          (rf.hicasso/unmount! a)
-          (rf.hicasso/unmount! b)
+          (rf.fresco/unmount! a)
+          (rf.fresco/unmount! b)
           (detach! ca)
           (detach! cb)
-          (rf.hicasso.impl.collector/reset-runtime!))))))
+          (rf.fresco.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
-;; W7 — `rf/destroy-adapter!` releases a Hicasso root under a NON-Hicasso adapter
+;; W7 — `rf/destroy-adapter!` releases a Fresco root under a NON-Fresco adapter
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The composition W4 cannot cover, and the one the merged-PR audit of #9459
 ;; named: `h/render!` reaches `createRoot` through
-;; `re-frame.hicasso.impl.mount` whatever adapter is installed, so a Hicasso
-;; root is the PACKAGE's rather than any adapter's. Hicasso over UIx or over
+;; `re-frame.fresco.impl.mount` whatever adapter is installed, so a Fresco
+;; root is the PACKAGE's rather than any adapter's. Fresco over UIx or over
 ;; Reagent is supported use, not malformed input — the migrated HMR testbed
 ;; installs UIx, Story's own-root control installs Reagent, and the migration
 ;; skill deliberately preserves an app's existing Reagent adapter.
 ;;
-;; The defect this row pins: while the drain hung off the HICASSO adapter's
+;; The defect this row pins: while the drain hung off the FRESCO adapter's
 ;; own `dispose-adapter!`, `rf/destroy-adapter!` under any other adapter
-;; invoked that adapter's disposer alone, the Hicasso Root stayed mounted with
+;; invoked that adapter's disposer alone, the Fresco Root stayed mounted with
 ;; its `:live?` closure still true, and a `render!` through the retained handle
 ;; UPDATED that never-released Root instead of mounting afresh. The repair
 ;; moves the drain to the process teardown boundary — core's
-;; `:hicasso/drain-client-roots!` late-bind hook, invoked by
+;; `:fresco/drain-client-roots!` late-bind hook, invoked by
 ;; `re-frame.substrate.adapter/dispose-adapter!` before the installed
 ;; adapter's own disposer — so the guarantee no longer carries an adapter
 ;; qualifier, which is what the public `h/client-root` / `h/unmount!` docs
@@ -476,8 +476,8 @@
 ;; unreleased Root leaves the container painted where a released one empties
 ;; it.
 
-(defn- destroy-adapter-releases-hicasso-roots!
-  "W7's body for one non-Hicasso adapter. `label` names it in the failure
+(defn- destroy-adapter-releases-fresco-roots!
+  "W7's body for one non-Fresco adapter. `label` names it in the failure
   messages; `adapter` is the spec map to install.
 
   Two handles, because the two claims cannot share one: `a` takes the
@@ -486,21 +486,21 @@
   show the host unmount is reached exactly once per root whichever caller
   gets there first."
   [label adapter]
-  (let [ca (rf.hicasso.impl.mount/fresh-container!)
-        cb (rf.hicasso.impl.mount/fresh-container!)
-        a  (rf.hicasso/client-root)
-        b  (rf.hicasso/client-root)]
+  (let [ca (rf.fresco.impl.mount/fresh-container!)
+        cb (rf.fresco.impl.mount/fresh-container!)
+        a  (rf.fresco/client-root)
+        b  (rf.fresco/client-root)]
     (try
       ;; The fixture seated UIx; seat the adapter this pass is about.
       (rf/destroy-adapter!)
       (rf/init! adapter)
       (fresh!)
-      (rf.hicasso/render! a [rf.hicasso/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
-      (rf.hicasso/render! b [rf.hicasso/frame-root {:id frame-a} [panel {:tag "b"}]] cb)
+      (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
+      (rf.fresco/render! b [rf.fresco/frame-root {:id frame-a} [panel {:tag "b"}]] cb)
 
       (let [node-a (node-at ca ".panel")]
         (testing (str "premise: " label " is the installed adapter, and two
-                       Hicasso roots are live and painted under it")
+                       Fresco roots are live and painted under it")
           (is (= (:kind adapter) (:kind (rf/current-adapter)))
               (str "this pass did not seat " label))
           (is (some? node-a))
@@ -509,12 +509,12 @@
 
         (rf/destroy-adapter!)
 
-        (testing (str "adapter teardown released BOTH Hicasso roots with "
+        (testing (str "adapter teardown released BOTH Fresco roots with "
                       label " installed: React emptied each container, and the
                       caller's nodes are still in the document")
           (is (= "" (.-innerHTML ca))
-              (str "`rf/destroy-adapter!` left a live Hicasso root mounted
-                    under " label " — the Hicasso root is the PACKAGE's, so
+              (str "`rf/destroy-adapter!` left a live Fresco root mounted
+                    under " label " — the Fresco root is the PACKAGE's, so
                     the drain may not hang off one adapter's disposer"))
           (is (= "" (.-innerHTML cb))
               (str "the drain stopped at the first root under " label))
@@ -528,7 +528,7 @@
         (testing "the retained handle mounts AFRESH with NO intervening
                   `h/unmount!` — a leaked Root would have taken the update
                   path and kept its own DOM"
-          (rf.hicasso/render! a [rf.hicasso/frame-root {:id frame-a} [panel {:tag "a2"}]] ca)
+          (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "a2"}]] ca)
           (is (= "a2" (.getAttribute (node-at ca ".panel") "data-tag")))
           (is (not (identical? node-a (node-at ca ".panel")))
               (str "the render after `rf/destroy-adapter!` UPDATED the root
@@ -541,22 +541,22 @@
         (testing "and the untouched handle's own `unmount!` finds nothing left
                   to do, so the host unmount is reached exactly ONCE per root
                   whichever caller gets there first"
-          (is (nil? (rf.hicasso/unmount! b)))
+          (is (nil? (rf.fresco/unmount! b)))
           (is (nil? @b))
           (is (= "" (.-innerHTML cb)))))
 
       (finally
-        (rf.hicasso/unmount! a)
-        (rf.hicasso/unmount! b)
+        (rf.fresco/unmount! a)
+        (rf.fresco/unmount! b)
         (detach! ca)
         (detach! cb)
-        (rf.hicasso.impl.collector/reset-runtime!)
+        (rf.fresco.impl.collector/reset-runtime!)
         ;; Hand the page back to the fixture's adapter, whatever this pass did.
         (try (rf/destroy-adapter!) (catch :default _ nil))))))
 
-(deftest destroy-adapter-releases-hicasso-roots-under-uix-and-reagent
-  (if-not (rf.hicasso.impl.mount/browser?)
+(deftest destroy-adapter-releases-fresco-roots-under-uix-and-reagent
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
-      (destroy-adapter-releases-hicasso-roots! "the UIx adapter" rf.adapter.uix/adapter)
-      (destroy-adapter-releases-hicasso-roots! "the Reagent adapter" rf.adapter.reagent/adapter))))
+      (destroy-adapter-releases-fresco-roots! "the UIx adapter" rf.adapter.uix/adapter)
+      (destroy-adapter-releases-fresco-roots! "the Reagent adapter" rf.adapter.reagent/adapter))))

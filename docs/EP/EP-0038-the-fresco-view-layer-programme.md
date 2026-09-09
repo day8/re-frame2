@@ -1,9 +1,9 @@
-# EP-0038: The Hicasso View-Layer Programme
+# EP-0038: The Fresco View-Layer Programme
 
 Status: accepted
 Type: standards-track
 Created: 2026-07-30
-Resolution: accepted 2026-07-30 (HD-001–HD-021 resolved under delegated authority; operator-overturnable); HD-022–HD-028 resolved under that same authority; P2 fork ruled by the operator directly 2026-08-13 (HD-029 — Hicasso graduates, as a success)
+Resolution: accepted 2026-07-30 (HD-001–HD-021 resolved under delegated authority; operator-overturnable); HD-022–HD-028 resolved under that same authority; P2 fork ruled by the operator directly 2026-08-13 (HD-029 — Fresco graduates, as a success)
 
 > **Status-bookkeeping erratum — 2026-08-31.** The Go-path text below says
 > EP-0036 would be marked superseded by this EP. EP-0036 was already in the
@@ -11,11 +11,11 @@ Resolution: accepted 2026-07-30 (HD-001–HD-021 resolved under delegated author
 > the historical Freehand outcome; a reciprocal successor note now points here.
 > The non-terminal donor records actually absorbed by Freehand — EP-0030,
 > EP-0033, and EP-0034 — are `superseded-by EP-0036`. This corrects lifecycle
-> bookkeeping only; HD-029 and Hicasso's successful graduation are unchanged.
+> bookkeeping only; HD-029 and Fresco's successful graduation are unchanged.
 
 ## Abstract
 
-**Hicasso** (`re-frame.hicasso`, alias `h`) is re-frame2's third and final native
+**Fresco** (`re-frame.fresco`, alias `h`) is re-frame2's third and final native
 view-layer attempt: **interpreted Hiccup on a UIx-class React function-component
 host, optimised for re-frame2** — a better UIx with hiccup interpretation, not a
 better Reagent. The programme is a bounded product experiment, not a rewrite
@@ -25,9 +25,9 @@ clock with pre-registered kill criteria, and an operator fork ruling that
 graduates exactly one arm — or stops, with "adapters + sugar" recorded as a
 *successful* outcome. On a win, the public Freehand and re-frame.ui surfaces are
 deleted (no absorption programme); on a loss, the adapters stand. The durable
-design record is `docs/design/hicasso/` (excluded from the published site, read
+design record is `docs/design/fresco/` (excluded from the published site, read
 in the source tree — the EP-0036 precedent); every design decision is resolved
-in `docs/design/hicasso/decisions.md` (HD-001–HD-029).
+in `docs/design/fresco/decisions.md` (HD-001–HD-029).
 
 ## Motivation
 
@@ -37,7 +37,7 @@ failures ever recorded — and failed on runtime economics, discovering their
 deficits after the build (bulk re-render ~10× Reagent in the browser;
 per-boundary retained memory multiples of both Reagent and UIx). The measured
 post-mortems attribute the cost to two mechanisms (a per-read dependency ledger
-and a per-boundary shell) whose residual costs Hicasso re-prices under explicit
+and a per-boundary shell) whose residual costs Fresco re-prices under explicit
 budgets with tripwires, and identify the fastest measured arm in the repo — a
 UIx-class React FC — as the correct runtime parent. What users demonstrably
 miss on that parent is precisely hiccup-as-data and intent-as-data: that is the
@@ -48,7 +48,7 @@ fast SSR or fast test lanes.
 
 The programme runs as three waves of beads under one epic. Authority and detail
 live in the design record: `charter.md`, `architecture.md`, `validation.md`,
-`authoring.md`, and `decisions.md` under `docs/design/hicasso/`. Where this EP
+`authoring.md`, and `decisions.md` under `docs/design/fresco/`. Where this EP
 and those pages ever differ, decisions.md governs, then validation.md.
 
 Glossary for this EP: **"donor arm"** = the composed spike built from parts the
@@ -76,7 +76,7 @@ whole tournament as the adapters-plus-sugar null hypothesis — the referent of
   carries ≈2.99–3.08× floor / ≈1.9–2.0× Reagent into the baseline table; the
   residual dominance-attribution question rides its own existing bead.
 - **The draft user guide** (parallel, operator-requested): first-cut guide
-  pages into `docs/design/hicasso/draft-guide/`, written per `docs/AUTHORING.md`
+  pages into `docs/design/fresco/draft-guide/`, written per `docs/AUTHORING.md`
   against the designed authoring surface (the grouped default *and* the
   collector-contingent sketch, clearly caveated) — explicitly disposable, to be
   redone properly after P2 against the real implementation; excluded from the
@@ -98,8 +98,8 @@ whole tournament as the adapters-plus-sugar null hypothesis — the referent of
   disposable slice, not the shared build. The dogfood screen's shared app/state
   code lives with the bench trees per HD-017.
 - **The tournament** (HD-007; the six-week clock starts at the first
-  Hicasso-arm commit that mounts the dogfood screen, HD-014): Hicasso
-  lean-React and Hicasso/PATCH arms on the shared front half and identical
+  Fresco-arm commit that mounts the dogfood screen, HD-014): Fresco
+  lean-React and Fresco/PATCH arms on the shared front half and identical
   witnesses, Adapter-Prime riding every measurement; the HD-002 sub-read tiers
   instrumented; the dogfood screen written in **three renderings** (collector,
   grouped, raw UIx) as the ergonomics half of the verdict; witness set,
@@ -110,7 +110,7 @@ whole tournament as the adapters-plus-sugar null hypothesis — the referent of
 - **P2 ruling** (HD-013): **the decider is the operator**; one adversarial and
   one creative review pass over the P0/P1 evidence are prepared and recorded on
   the standard bead to advise the ruling. Outcomes: graduate exactly one arm
-  into a tracked `implementation/hicasso/` artefact and build v0 (five tier-1
+  into a tracked `implementation/fresco/` artefact and build v0 (five tier-1
   shapes, controlled input R-A1/R-A2, one host hatch, the short guide — charter
   §Use cases), or stop with adapters-as-success.
 - On a go, wave 3 is filed only then: donor-surface deletion per HD-018, the
@@ -129,7 +129,7 @@ the programme's measurement apparatus and accepts instrument-only merges
 (HD-017). Runtime skeletons stay off `main` until the P2 graduation; arms
 needing new build ids or dev-http ports touch the hot-zone
 `implementation/shadow-cljs.edn` and are sequenced, never parallel. Results
-publish to beads and `docs/design/hicasso/studio/`. The programme does not
+publish to beads and `docs/design/fresco/studio/`. The programme does not
 contend with the release train.
 
 ## Rationale
@@ -157,12 +157,12 @@ below). On a stop, the repo's shipped surface is exactly what it was.
 ## Resolved Decisions
 
 The twenty-one design decisions resolved at acceptance are in
-`docs/design/hicasso/decisions.md`; dispositions in brief: HD-001 name/alias ·
+`docs/design/fresco/decisions.md`; dispositions in brief: HD-001 name/alias ·
 HD-002 sub-read tiers (grouped default / collector challenger / scalar
 comparator; both-fail→null) · HD-003 hooks placement rule (taught, not policed)
 · HD-004 accelerants arm-scoped · HD-005 evidence seam only · HD-006 no default
 memoization · HD-007 two equal-class arms · HD-008 donor stop-gate · HD-009 no
-`local`, sugar unfrozen · HD-010 theming laws, no Hicasso context · HD-011
+`local`, sugar unfrozen · HD-010 theming laws, no Fresco context · HD-011
 `defhost` + the one `[:>]` escape · HD-012 clock-only ship bar, UIx red-zones ·
 HD-013 deciders (operator at P2; delegated advisory at the donor gate) · HD-014
 the clock · HD-015 start now · HD-016 invocation + component ABI · HD-017 code
@@ -183,9 +183,9 @@ Each entry carries its own rationale and reopen condition in `decisions.md`.
 ruling — are recorded here when made** (per EP-0009 rule 2), with their evidence
 on the standard bead. The P2 fork ruling is the 2026-08-13 addendum below.
 
-### Addendum, 2026-07-31 — Hicasso is a React adapter; Arm 2 (PATCH) is dropped
+### Addendum, 2026-07-31 — Fresco is a React adapter; Arm 2 (PATCH) is dropped
 
-**Operator ruling (Mike), verbatim:** *"I want hicasso to be an adaptor for React
+**Operator ruling (Mike), verbatim:** *"I want fresco to be an adaptor for React
 that is optimised for re-frame2, user ergonomics and performance. I don't want
 ARM 2 (PATCH)."*
 
@@ -213,13 +213,13 @@ proposal that was accepted and the tournament it describes did run.
   evidence of what correct input behaviour looks like.
 
 Evidence and full text on `rf2-2rtt6`. Design record updated in
-`docs/design/hicasso/` (`rf2-m6if4`).
+`docs/design/fresco/` (`rf2-m6if4`).
 
 ### Addendum, 2026-07-31 — Surface B (the ambient collector) is the only ergonomically acceptable read surface; HD-002's outcome 2 is closed
 
 **Operator ruling (Mike), verbatim:** *"Only surface B is acceptable from an
 ergonomics point of view"* (citing
-`docs/design/hicasso/draft-guide/02-views-and-reads.md`), **reinforced,
+`docs/design/fresco/draft-guide/02-views-and-reads.md`), **reinforced,
 verbatim:** *"use-subs (Surface A) is not sufficiently ergonomic for a
 programmer to use."*
 
@@ -248,30 +248,30 @@ accepted and the adjudication it describes did run.
   (b) the exact allowed edge-diff operation vs. the forbidden ledger class,
   (c) two pre-registered strategy hypotheses each counted only by a
   benchmarked commit, (d) the survival metric); and
-  `docs/design/hicasso/hd-002-adjudication.md` stands as written. This
+  `docs/design/fresco/hd-002-adjudication.md` stands as written. This
   ruling was decided on **ergonomics, not on HD-002's own benchmarked-win
   condition** — no bar row for the survival metric existed at ruling time
   (H1 implemented, H2 untried), so grouped is superseded without having lost
   a bench it was never run against; the distinction is carried in
-  `implementation/freehand/test/re_frame/bench/hicasso/arm1/runtime.cljs`'s
+  `implementation/freehand/test/re_frame/bench/fresco/arm1/runtime.cljs`'s
   docstring, next to the code that implements the ruled surface.
 - **The consequence.** HD-002's outcome 2 — "collector loses and grouped
   stays the default" — is **closed**. If the ambient collector trips its
   ledger tripwire or fails its survival metric, the outcome is **null** (no
-  Hicasso read surface ships), or a mechanism not currently on the table
+  Fresco read surface ships), or a mechanism not currently on the table
   must earn its way in. Shipping grouped `use-subs` as the product read
   surface is ruled out on ergonomics, independently of any measurement.
 
 Evidence and full text on `rf2-2rtt6.1` ("RULING — HD-002 FORK, ERGONOMICS
-HALF"). Design record: `docs/design/hicasso/decisions.md` HD-002 (superseded
+HALF"). Design record: `docs/design/fresco/decisions.md` HD-002 (superseded
 blockquote),
-`docs/design/hicasso/studio/arm1-lean-react-dogfood-judgement.md` §2.
+`docs/design/fresco/studio/arm1-lean-react-dogfood-judgement.md` §2.
 
-### Addendum, 2026-08-04 — SSR + hydration is required Hicasso scope; the programme rides Spec 011
+### Addendum, 2026-08-04 — SSR + hydration is required Fresco scope; the programme rides Spec 011
 
 **Operator ruling (Mike), verbatim:** *"SSR is an important part of re-frame2.
-If hicasso is to be the re-frame native view layer then it has to be used with
-SSR"* — **and, earlier the same day, verbatim:** *"hicasso is useless unless it
+If fresco is to be the re-frame native view layer then it has to be used with
+SSR"* — **and, earlier the same day, verbatim:** *"fresco is useless unless it
 does SSR."*
 
 Recorded here per rule 2, and as an addendum rather than an edit per EP-0009
@@ -279,14 +279,14 @@ rule 3 — the wave text and the Non-goals section below are left as written.
 HD-020(d) ("SSR is out of v0") carried its own reopening clause — "at product
 phase (SSR, richer boundary API) by ordinary ruling" — and this is that ruling,
 taken by the operator. The design record carries the matching HD-020 addendum
-(`docs/design/hicasso/decisions.md`).
+(`docs/design/fresco/decisions.md`).
 
 - **The requirement set, R0–R8.**
-  - **R0 — one SSR story.** Hicasso participates in re-frame2's *existing*
+  - **R0 — one SSR story.** Fresco participates in re-frame2's *existing*
     Spec 011 (`spec/011-SSR.md`) mechanism — the payload policy, the
     `#__rf_payload` EDN embed, the `hydrate!` boot helper and the reserved
     `:rf/hydrate` db adoption before first render, the hydration-mismatch
-    machinery, `ssr-ring` as the HTTP host — **never a parallel Hicasso-only
+    machinery, `ssr-ring` as the HTTP host — **never a parallel Fresco-only
     mechanism**.
   - **R1 — pure server render.** A server render is produced purely from a db
     snapshot.
@@ -324,7 +324,7 @@ taken by the operator. The design record carries the matching HD-020 addendum
   times: the spine passes its snapshot fn as both the 2nd and 3rd arguments
   (`implementation/core/src/re_frame/substrate/spine.cljs:3031`); the arm-1
   shells do likewise
-  (`implementation/freehand/test/re_frame/bench/hicasso/arm1/runtime.cljs:1540`,
+  (`implementation/freehand/test/re_frame/bench/fresco/arm1/runtime.cljs:1540`,
   `:1595`); and the `{:hydrate? true}` adoption-reporter tier ships with DOM
   tests (`implementation/ssr/src/re_frame/ssr/boot.cljc:202-213`). **No core
   code change is needed for hydration snapshots.**
@@ -340,7 +340,7 @@ nothing has landed at the time of this addendum. Evidence and full text on
 `> ~8 public concepts or > ~8 guide pages to ship CRUD` — is removed as an
 operative kill criterion. No verbatim text of the ruling is on the record; its
 authoritative statement is the dated note beside the kill-criteria table in
-`docs/design/hicasso/validation.md`.
+`docs/design/fresco/validation.md`.
 
 Recorded here per rule 2, and as an addendum rather than an edit per EP-0009
 rule 3 — the wave-0 line above ("the budgets, kill criteria K1–K7") is left as
@@ -357,11 +357,11 @@ wave 0 pre-registered, and nothing was renumbered.
   left intact and reads as historical — it says why a shape was chosen while the
   criterion stood.
 
-Design record: `docs/design/hicasso/validation.md` (the dated note),
+Design record: `docs/design/fresco/validation.md` (the dated note),
 `charter.md` item 4, and the note heading the HD-022 … HD-026 block in
 `decisions.md`. This addendum answers `rf2-825ft`.
 
-### Addendum, 2026-08-13 — the P2 fork is ruled: Hicasso graduates, as a success
+### Addendum, 2026-08-13 — the P2 fork is ruled: Fresco graduates, as a success
 
 **Operator ruling (Mike), verbatim:** *"Make it graduate" … "as success"* — given
 directly in chat on 2026-08-13 at 04:57 AUSEST. That is the decider HD-013
@@ -374,13 +374,13 @@ are the proposal that was accepted and the programme they describe did run. Open
 issue 2 is annotated below in the dated style the two prior addenda used, since
 that list states what is open *now*.
 
-- **What is ruled: the Graduation section's "Go" exit.** Hicasso graduates and
+- **What is ruled: the Graduation section's "Go" exit.** Fresco graduates and
   the programme's outcome is recorded as a **success**. v0 proceeds in
-  `implementation/hicasso/`, which is already the live tree, so HD-017's
+  `implementation/fresco/`, which is already the live tree, so HD-017's
   graduation clause is executed by this ruling rather than pending it. **The
-  adapters remain first-class alongside it** — graduating Hicasso is not a
+  adapters remain first-class alongside it** — graduating Fresco is not a
   demotion of Reagent, reagent-slim or UIx, which stay supported and stay the
-  standing comparator every Hicasso measurement is taken against (HD-012). Wave
+  standing comparator every Fresco measurement is taken against (HD-012). Wave
   3 — donor-surface deletion per HD-018, the real guide superseding the wave-0
   draft, skill/migration work, and the product-phase roster — becomes fileable
   from here, on its own stated conditions, which this ruling does not discharge.
@@ -391,11 +391,11 @@ that list states what is open *now*.
   acceptance of a price is not a pass, the registered gate is untouched, and no
   evidence row may cite this ruling to colour K1 green. The accepted price, the
   use cases it buys, the escape route and the reconsideration trigger are in
-  `docs/design/hicasso/product/k1-price-acceptance.md`, which records this ruling
+  `docs/design/fresco/product/k1-price-acceptance.md`, which records this ruling
   as the ratifying act; the figures are cited from their own record rather than
   restated here.
 - **The K7 clock closes, satisfied.** The six-week clock (HD-014) ran from the
-  first Hicasso-arm commit that mounted the dogfood screen and the fork was ruled
+  first Fresco-arm commit that mounted the dogfood screen and the fork was ruled
   well inside its boundary — satisfied on its own terms rather than extended, and
   no extension was sought or given. Both endpoints are recorded once, in
   `validation.md`.
@@ -448,7 +448,7 @@ that list states what is open *now*.
   stays `accepted`; the fork ruling starts that work rather than completing it.
 
 Evidence and full text on the epic `rf2-2rtt6` (the dated ruling note). Design
-record written by `rf2-2rtt6.144`: `docs/design/hicasso/decisions.md` HD-029,
+record written by `rf2-2rtt6.144`: `docs/design/fresco/decisions.md` HD-029,
 `validation.md` §"The kill table at graduation", `product/k1-price-acceptance.md`,
 `product/decision-brief.md`, `production-server-arm.md`. This addendum answers
 `rf2-k6bv`.
@@ -463,9 +463,9 @@ rather than a rewrite of the frozen text:
 
 - **§Sequencing law's bench carve-out** names
   `implementation/freehand/test/.../bench/` as the programme's measurement
-  apparatus. That lane moved to `implementation/hicasso/test/re_frame/bench/hicasso/`
+  apparatus. That lane moved to `implementation/fresco/test/re_frame/bench/fresco/`
   ahead of the cut and is kept as evidence, so every
-  `implementation/freehand/test/…/bench/hicasso/…` path cited above reads
+  `implementation/freehand/test/…/bench/fresco/…` path cited above reads
   against the same tree at its new root.
 - **§Backwards Compatibility's freeze** — *"the Freehand and re-frame.ui trees
   are frozen except the bench/test measurement lane"* — was a wave-0..2 rule.
@@ -473,8 +473,8 @@ rather than a rewrite of the frozen text:
 
 §Graduation's other go-condition is **not** discharged, and should not be read
 as a plan in flight. `spec/004D` was ruled DELETED rather than re-aimed at
-Hicasso (`rf2-0yp7w.11`), precisely so donor-era normative text is not laundered
-into Hicasso's contract, and the disposition of `spec/004`, `spec/004C` and the
+Fresco (`rf2-0yp7w.11`), precisely so donor-era normative text is not laundered
+into Fresco's contract, and the disposition of `spec/004`, `spec/004C` and the
 S3/S4/S5 conformance profiles is an open operator question (`rf2-h89ri`). This
 EP therefore stays `accepted`.
 
@@ -482,13 +482,13 @@ EP therefore stays `accepted`.
 
 1. The donor-gate ruling (delegated advisory; expected days after P0 publishes).
 2. The P2 fork ruling (operator; end of the tournament). **Narrowed 2026-07-31**
-   by the addendum above: the choice between the two Hicasso arms is settled, so
+   by the addendum above: the choice between the two Fresco arms is settled, so
    what remains is the surviving arm against the null. **Amended 2026-08-04** by
    the SSR addendum above: the sitting additionally takes the X1–X5 SSR spike
    witness (`rf2-2rtt6.87`) as a required feasibility input, and prices + rules
    the production-server-arm choice (`rf2-2rtt6.88`) at the same sitting — one
    sitting, no separate gate. **Resolved 2026-08-13** by the addendum above: the
-   operator ruled the fork directly in chat, pre-empting the sitting — Hicasso
+   operator ruled the fork directly in chat, pre-empting the sitting — Fresco
    graduates, as a success (HD-029).
 3. The HD-002 read-mechanism adjudication (resolved by P1 instrumentation).
    **Narrowed 2026-07-31** by the addendum above: the ergonomics half is
@@ -503,7 +503,7 @@ EP therefore stays `accepted`.
 Standards-track terminal states, made explicit per exit:
 
 - **Go**: v0 lands; the winning public contract graduates narrowly — the
-  `spec/004` view-family re-homes from Freehand-voiced text to Hicasso, and
+  `spec/004` view-family re-homes from Freehand-voiced text to Fresco, and
   EP-0036 is marked superseded by this EP for the view-layer surface; guide
   impact is assessed then (the wave-0 draft guide is replaced by real
   `docs/core/…` pages under the sample gates). This EP goes `final` when v0 and
@@ -517,7 +517,7 @@ Standards-track terminal states, made explicit per exit:
 ## Non-goals
 
 A compiler or analyzer; a second authoring mode; a ViewCell-class per-boundary
-runtime; a component-local state system; a Hicasso context abstraction;
+runtime; a component-local state system; a Fresco context abstraction;
 batteries, overlay, SSR-identity, or devtools-glass programmes before the P2
 gate; any absorption/migration programme over the donor trees; SSR/JVM render
 speed as a bar input. The anti-regression fence and banned vocabulary in
@@ -525,7 +525,7 @@ charter §Constraints are normative for every brief filed under this EP.
 
 ## References
 
-- Design record: `docs/design/hicasso/` (README · charter · decisions ·
+- Design record: `docs/design/fresco/` (README · charter · decisions ·
   architecture · validation · authoring; `studio/` and `draft-guide/` minted by
   wave-0/1 workers).
 - Predecessor EPs: [EP-0030](EP-0030-the-compiled-view-substrate-program.md),

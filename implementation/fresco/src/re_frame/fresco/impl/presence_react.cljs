@@ -1,8 +1,8 @@
-(ns re-frame.hicasso.impl.presence-react
+(ns re-frame.fresco.impl.presence-react
   "PRESENCE, DRIVEN BY REACT (HD-025). The impure half:
   a component that owns the retained-children list and a clock. The
   machine and the phase transform are
-  `re-frame.hicasso.impl.presence`, and they are pure.
+  `re-frame.fresco.impl.presence`, and they are pure.
 
   ## What this costs, stated rather than buried
 
@@ -30,7 +30,7 @@
   render later, after that body's dynamic extent has unwound. So
   `intent/*dispatch*` is unbound at the moment the codec walks it, and
   without this hook an intent at an event position on ANY presence
-  child would raise `:rf.error/hicasso-intent-outside-boundary` at
+  child would raise `:rf.error/fresco-intent-outside-boundary` at
   render, and an `h/event` at one would raise it at invocation. Loud,
   never silent — but it would mean the tray this whole ruling is sold on,
 
@@ -61,7 +61,7 @@
   every pass and the terminal bound stops being terminal. But a value
   derived from props does not need an effect to store it: React's own
   guidance is to adjust state *while rendering* when a prop changes, and
-  that is what happens here — `re-frame.hicasso.impl.presence/step` is
+  that is what happens here — `re-frame.fresco.impl.presence/step` is
   idempotent, so the comparison converges after one extra pass and never
   loops. An
   effect would cost a paint with the wrong tree in it.
@@ -88,28 +88,28 @@
   tray would skip its enter transition for a hydration it had nothing to
   do with. The window this reads can only be its own root's."
   (:require [re-frame.adapter.context :as rf.adapter.context]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
-            [re-frame.hicasso.impl.presence :as rf.hicasso.impl.presence]
-            [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
+            [re-frame.fresco.impl.presence :as rf.fresco.impl.presence]
+            [re-frame.fresco.impl.roots :as rf.fresco.impl.roots]
             ["react" :as react]))
 
 (defn- now [] (js/Date.now))
 
 (defn- presence-body [js-props]
   (let [props      (or (unchecked-get js-props "rfProps") {})
-        timeout-ms (rf.hicasso.impl.presence/check-timeout! (:timeout-ms props))
+        timeout-ms (rf.fresco.impl.presence/check-timeout! (:timeout-ms props))
         children   (:children props)
         ;; The frame hook. Classified through the shared reader the whole
         ;; substrate uses, so the no-provider sentinel resolves to nil
         ;; ("no scope") rather than being mistaken for a frame keyword.
         frame-kw   (rf.adapter.context/context-value->current-frame
                      (react/useContext rf.adapter.context/frame-context))
-        hook       (react/useState rf.hicasso.impl.presence/initial)
+        hook       (react/useState rf.fresco.impl.presence/initial)
         state      (aget hook 0)
         set-state  (aget hook 1)
-        stepped    (rf.hicasso.impl.presence/step state children (now) timeout-ms)
+        stepped    (rf.fresco.impl.presence/step state children (now) timeout-ms)
         ;; BORN PRESENT UNDER ADOPTION. A child a render
         ;; meets for the first time is `:mounting`, which is right for a
         ;; child that is genuinely appearing and wrong for one that is
@@ -120,7 +120,7 @@
         ;; (`opacity: 0`, typically) over DOM that carries none.
         ;;
         ;; The fix is the machine's own
-        ;; `re-frame.hicasso.impl.presence/settle`, the
+        ;; `re-frame.fresco.impl.presence/settle`, the
         ;; function the enter flip already uses, applied one render
         ;; earlier. So this is ADOPTION BEHAVIOUR — a different starting
         ;; phase for a tree that is being adopted — and not a second
@@ -136,7 +136,7 @@
         ;; branch exists to avoid.
         ;;
         ;; THE SERVER HALF EXISTS ON ONE PATH.
-        ;; `re-frame.hicasso.server/render` opens a
+        ;; `re-frame.fresco.server/render` opens a
         ;; window per request and renders through `impl.mount/tree`, so
         ;; `adopting-here?` reads a real open window on the server, this
         ;; line settles, and the tray's children are `present` in the
@@ -148,29 +148,29 @@
         ;; reads `nil` there and the tray still emits `:mounting`
         ;; children that the hydrating client renders `:present`. Both
         ;; paths are measured in
-        ;; `re-frame.hicasso.presence-ssr-seam-dom-cljs-test`: §1 the
+        ;; `re-frame.fresco.presence-ssr-seam-dom-cljs-test`: §1 the
         ;; windowless one, §5 the product door.
-        next       (if (rf.hicasso.impl.roots/adopting-here?) (rf.hicasso.impl.presence/settle stepped) stepped)]
+        next       (if (rf.fresco.impl.roots/adopting-here?) (rf.fresco.impl.presence/settle stepped) stepped)]
     ;; Adjusting state while rendering — React's own answer to "a value
     ;; derived from props that must persist". `step` is idempotent, so the
     ;; equality test converges rather than looping.
     (when-not (= next state) (set-state next))
     (react/useEffect
       (fn []
-        (let [expiry (when-some [d (rf.hicasso.impl.presence/next-deadline next)]
+        (let [expiry (when-some [d (rf.fresco.impl.presence/next-deadline next)]
                        (js/setTimeout
-                         (fn [] (set-state (fn [s] (rf.hicasso.impl.presence/expire s (now)))))
+                         (fn [] (set-state (fn [s] (rf.fresco.impl.presence/expire s (now)))))
                          (max 0 (- d (now)))))
               ;; The enter flip lands on a macrotask rather than a layout
               ;; effect: a class flip that beats the browser's first paint
               ;; of the mounting styles animates nothing, and this is the
               ;; weak half the guide teaches around.
-              enter  (when (rf.hicasso.impl.presence/mounting? next)
-                       (js/setTimeout (fn [] (set-state rf.hicasso.impl.presence/settle)) 0))]
+              enter  (when (rf.fresco.impl.presence/mounting? next)
+                       (js/setTimeout (fn [] (set-state rf.fresco.impl.presence/settle)) 0))]
           (fn []
             (when expiry (js/clearTimeout expiry))
             (when enter (js/clearTimeout enter)))))
-      #js [(rf.hicasso.impl.presence/pending-signature next)])
+      #js [(rf.fresco.impl.presence/pending-signature next)])
     ;; THE LOWERING, inside the frame. These children were
     ;; written in the parent's body and are walked here, so the ambient
     ;; frame the codec's intent lowering reads has to be re-established
@@ -178,8 +178,8 @@
     ;; the tray — the binding is unconditional so the branch does not
     ;; exist, and an intent written under a frameless tray still lands on
     ;; the existing loud error naming the intent.
-    (rf.hicasso.impl.intent/with-frame frame-kw (when frame-kw (rf.hicasso.impl.collector/frame-dispatch frame-kw))
-      (fn [] (rf.hicasso.impl.codec/as-element (into [:<>] (rf.hicasso.impl.presence/render next)))))))
+    (rf.fresco.impl.intent/with-frame frame-kw (when frame-kw (rf.fresco.impl.collector/frame-dispatch frame-kw))
+      (fn [] (rf.fresco.impl.codec/as-element (into [:<>] (rf.fresco.impl.presence/render next)))))))
 
 (def presence
   "`h/presence` — a boundary that retains exiting keyed children for
@@ -195,8 +195,8 @@
           (:message t)])]
 
   A legal hiccup head, marked the same way a `defview` product is —
-  though it is not a Hicasso *reactive* boundary: it reads no
+  though it is not a Fresco *reactive* boundary: it reads no
   subscription and holds no cell. It inserts no wrapper node and stamps
   no `data-*`; every child it renders is the author's own node with the
   author's own attributes merged."
-  (rf.hicasso.impl.codec/mark-boundary! (doto presence-body (aset "displayName" "hicasso/presence"))))
+  (rf.fresco.impl.codec/mark-boundary! (doto presence-body (aset "displayName" "fresco/presence"))))

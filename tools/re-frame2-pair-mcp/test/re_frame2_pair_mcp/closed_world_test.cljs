@@ -43,7 +43,7 @@
   ;; connection and hand it a nil conn.
   (doseq [tool ["discover-app" "eval-cljs" "dispatch" "snapshot" "get-path"
                 "restore-epoch" "replay-epoch" "replace-app-db"
-                ;; The re-frame.hicasso.tool reads eval over nREPL in the
+                ;; The re-frame.fresco.tool reads eval over nREPL in the
                 ;; browser runtime — NOT server-local.
                 "read-mounted-boundaries" "read-read-attribution" "explain-render"]]
     (is (false? (registry/closed-world-tool? tool))

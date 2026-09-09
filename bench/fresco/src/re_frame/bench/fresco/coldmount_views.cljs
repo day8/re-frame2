@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.coldmount-views
+(ns re-frame.bench.fresco.coldmount-views
   "THE COLD-MOUNT DOUBLE BUILD, PRICED ON THE CLOCK — the views, the sub
   layers, the hook transcriptions and the counting witnesses
   (rf2-2rtt6.15, epic rf2-2rtt6 / EP-0038; decision input for the
@@ -42,7 +42,7 @@
   period. The commit-owned `subscribe-fn` then missed the cache and
   REBUILT. Two reactions per cold read; the COUNT was exact and landed
   (`bodyRuns = 2.00N` vs Reagent's `1.00N`, rf2-2rtt6.12,
-  `docs/design/hicasso/studio/uix-spine-per-read-decomposition.md`), and
+  `docs/design/fresco/studio/uix-spine-per-read-decomposition.md`), and
   this instrument priced the CLOCK of that second construction — the
   second sub-body run, the declared-input re-deref, and the reaction
   allocation on the commit-phase rebuild — at >= 20% of the mount
@@ -143,12 +143,12 @@
   must agree.
 
   Driven by `coldmount_app.cljs` / `coldmount_run.cjs` on the
-  `:hicasso-bench` lane. Markup is byte-for-byte the converged set's
+  `:fresco-bench` lane. Markup is byte-for-byte the converged set's
   (`p0_reagent_views.cljs` / `p0_uix_views.cljs`); the canonical-DOM
   parity gate proves it rather than this docstring."
   (:require ["react" :as react]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.p0-reagent-views :as rf.bench.hicasso.p0-reagent-views]
+            [re-frame.bench.fresco.p0-reagent-views :as rf.bench.fresco.p0-reagent-views]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.subs :as rf.subs]
@@ -182,12 +182,12 @@
 
 (defn register!
   "The full sub graph for one segment: the converged set's layer-1
-  `:p0/cell` (via `rf.bench.hicasso.p0-reagent-views/register!`, unchanged), the identity input chain the
+  `:p0/cell` (via `rf.bench.fresco.p0-reagent-views/register!`, unchanged), the identity input chain the
   layer-2/3 rows read, and the counter-instrumented witness chain.
   Re-registering overwrites with identical handlers, so the per-segment
   re-register is idempotent (the converged arm's own pattern)."
   []
-  (rf.bench.hicasso.p0-reagent-views/register!)
+  (rf.bench.fresco.p0-reagent-views/register!)
   ;; Parametric `:inputs` producers — the index rides the query vector, which
   ;; the static literal `:inputs` form cannot express. A parametric single
   ;; input is delivered as `[value]` (Spec 006 §Single input contract).
@@ -201,7 +201,7 @@
   (rf/reg-sub :cm/w1
     (fn [db [_ i]]
       (aset witness-counters "body1" (inc (aget witness-counters "body1")))
-      (nth (:cells db) (mod i rf.bench.hicasso.p0-reagent-views/cells-n))))
+      (nth (:cells db) (mod i rf.bench.fresco.p0-reagent-views/cells-n))))
   (rf/reg-sub :cm/w2
     {:inputs (fn [qv] [[:cm/w1 (second qv)]])}
     (fn [[cell] _]
@@ -381,37 +381,37 @@
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui x-m1-l1 [{:keys [i]}]
-  (let [cell (use-sub-xcript rf.bench.hicasso.p0-reagent-views/subs-frame [:p0/cell i])]
+  (let [cell (use-sub-xcript rf.bench.fresco.p0-reagent-views/subs-frame [:p0/cell i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui x-m1-l2 [{:keys [i]}]
-  (let [cell (use-sub-xcript rf.bench.hicasso.p0-reagent-views/subs-frame [:cm/l2 i])]
+  (let [cell (use-sub-xcript rf.bench.fresco.p0-reagent-views/subs-frame [:cm/l2 i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui x-m1-l3 [{:keys [i]}]
-  (let [cell (use-sub-xcript rf.bench.hicasso.p0-reagent-views/subs-frame [:cm/l3 i])]
+  (let [cell (use-sub-xcript rf.bench.fresco.p0-reagent-views/subs-frame [:cm/l3 i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui h-m1-l1 [{:keys [i]}]
-  (let [cell (use-sub-handoff rf.bench.hicasso.p0-reagent-views/subs-frame [:p0/cell i])]
+  (let [cell (use-sub-handoff rf.bench.fresco.p0-reagent-views/subs-frame [:p0/cell i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui h-m1-l2 [{:keys [i]}]
-  (let [cell (use-sub-handoff rf.bench.hicasso.p0-reagent-views/subs-frame [:cm/l2 i])]
+  (let [cell (use-sub-handoff rf.bench.fresco.p0-reagent-views/subs-frame [:cm/l2 i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
 
 (defui h-m1-l3 [{:keys [i]}]
-  (let [cell (use-sub-handoff rf.bench.hicasso.p0-reagent-views/subs-frame [:cm/l3 i])]
+  (let [cell (use-sub-handoff rf.bench.fresco.p0-reagent-views/subs-frame [:cm/l3 i])]
     ($ :li.row
        ($ :span.lbl "cell ")
        ($ :span.cell {:data-i i} (str cell)))))
@@ -427,9 +427,9 @@
        ($ :input.inp {:id        (str "f" i)
                       :name      (str "f" i)
                       :type      "text"
-                      :value     (rf.bench.hicasso.p0-reagent-views/field-value i cell)
+                      :value     (rf.bench.fresco.p0-reagent-views/field-value i cell)
                       :read-only true})
-       ($ :p.err (rf.bench.hicasso.p0-reagent-views/field-error i)))))
+       ($ :p.err (rf.bench.fresco.p0-reagent-views/field-error i)))))
 
 (defui s-m2-l2 [{:keys [i]}]
   (let [cell (rf.adapter.uix/use-sub [:cm/l2 i])]
@@ -438,53 +438,53 @@
        ($ :input.inp {:id        (str "f" i)
                       :name      (str "f" i)
                       :type      "text"
-                      :value     (rf.bench.hicasso.p0-reagent-views/field-value i cell)
+                      :value     (rf.bench.fresco.p0-reagent-views/field-value i cell)
                       :read-only true})
-       ($ :p.err (rf.bench.hicasso.p0-reagent-views/field-error i)))))
+       ($ :p.err (rf.bench.fresco.p0-reagent-views/field-error i)))))
 
 (defui x-m2-l1 [{:keys [i]}]
-  (let [cell (use-sub-xcript rf.bench.hicasso.p0-reagent-views/subs-frame [:p0/cell i])]
+  (let [cell (use-sub-xcript rf.bench.fresco.p0-reagent-views/subs-frame [:p0/cell i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
                       :name      (str "f" i)
                       :type      "text"
-                      :value     (rf.bench.hicasso.p0-reagent-views/field-value i cell)
+                      :value     (rf.bench.fresco.p0-reagent-views/field-value i cell)
                       :read-only true})
-       ($ :p.err (rf.bench.hicasso.p0-reagent-views/field-error i)))))
+       ($ :p.err (rf.bench.fresco.p0-reagent-views/field-error i)))))
 
 (defui x-m2-l2 [{:keys [i]}]
-  (let [cell (use-sub-xcript rf.bench.hicasso.p0-reagent-views/subs-frame [:cm/l2 i])]
+  (let [cell (use-sub-xcript rf.bench.fresco.p0-reagent-views/subs-frame [:cm/l2 i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
                       :name      (str "f" i)
                       :type      "text"
-                      :value     (rf.bench.hicasso.p0-reagent-views/field-value i cell)
+                      :value     (rf.bench.fresco.p0-reagent-views/field-value i cell)
                       :read-only true})
-       ($ :p.err (rf.bench.hicasso.p0-reagent-views/field-error i)))))
+       ($ :p.err (rf.bench.fresco.p0-reagent-views/field-error i)))))
 
 (defui h-m2-l1 [{:keys [i]}]
-  (let [cell (use-sub-handoff rf.bench.hicasso.p0-reagent-views/subs-frame [:p0/cell i])]
+  (let [cell (use-sub-handoff rf.bench.fresco.p0-reagent-views/subs-frame [:p0/cell i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
                       :name      (str "f" i)
                       :type      "text"
-                      :value     (rf.bench.hicasso.p0-reagent-views/field-value i cell)
+                      :value     (rf.bench.fresco.p0-reagent-views/field-value i cell)
                       :read-only true})
-       ($ :p.err (rf.bench.hicasso.p0-reagent-views/field-error i)))))
+       ($ :p.err (rf.bench.fresco.p0-reagent-views/field-error i)))))
 
 (defui h-m2-l2 [{:keys [i]}]
-  (let [cell (use-sub-handoff rf.bench.hicasso.p0-reagent-views/subs-frame [:cm/l2 i])]
+  (let [cell (use-sub-handoff rf.bench.fresco.p0-reagent-views/subs-frame [:cm/l2 i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
        ($ :input.inp {:id        (str "f" i)
                       :name      (str "f" i)
                       :type      "text"
-                      :value     (rf.bench.hicasso.p0-reagent-views/field-value i cell)
+                      :value     (rf.bench.fresco.p0-reagent-views/field-value i cell)
                       :read-only true})
-       ($ :p.err (rf.bench.hicasso.p0-reagent-views/field-error i)))))
+       ($ :p.err (rf.bench.fresco.p0-reagent-views/field-error i)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The UIx grids and root
@@ -508,7 +508,7 @@
   ignore it) and renders no DOM of its own, so it cannot move the parity
   gate."
   [grid cell n]
-  ($ rf.adapter.uix/frame-provider {:frame rf.bench.hicasso.p0-reagent-views/subs-frame}
+  ($ rf.adapter.uix/frame-provider {:frame rf.bench.fresco.p0-reagent-views/subs-frame}
      ($ grid {:cell cell :n n})))
 
 (def uix-m1-cells
@@ -562,9 +562,9 @@
      [:input.inp {:id        (str "f" i)
                   :name      (str "f" i)
                   :type      "text"
-                  :value     (rf.bench.hicasso.p0-reagent-views/field-value i cell)
+                  :value     (rf.bench.fresco.p0-reagent-views/field-value i cell)
                   :read-only true}]
-     [:p.err (rf.bench.hicasso.p0-reagent-views/field-error i)]]))
+     [:p.err (rf.bench.fresco.p0-reagent-views/field-error i)]]))
 
 (reg-view ^{:rf/id :cm/m2-l2} rg-m2-l2
   [fields]
@@ -574,8 +574,8 @@
       ^{:key i} [rg-m2-field-l2 i])]
    [:button.submit {:type "submit" :disabled true} "Submit"]])
 
-(def reagent-m1-views {1 rf.bench.hicasso.p0-reagent-views/m1-subs 2 rg-m1-l2 3 rg-m1-l3})
-(def reagent-m2-views {1 rf.bench.hicasso.p0-reagent-views/m2-subs 2 rg-m2-l2})
+(def reagent-m1-views {1 rf.bench.fresco.p0-reagent-views/m1-subs 2 rg-m1-l2 3 rg-m1-l3})
+(def reagent-m2-views {1 rf.bench.fresco.p0-reagent-views/m2-subs 2 rg-m2-l2})
 
 ;; ---------------------------------------------------------------------------
 ;; THE COUNTING WITNESS — the same claim, settled exactly
@@ -687,39 +687,39 @@
 (defn- wq [layer i] [(case layer 1 :cm/w1 2 :cm/w2 3 :cm/w3) i])
 
 (defui wx-cell-1 [{:keys [base]}]
-  (let [a (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 1 (+ base 0)))
-        b (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 1 (+ base 1)))
-        c (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 1 (+ base 2)))]
+  (let [a (use-sub-witness-xcript rf.bench.fresco.p0-reagent-views/subs-frame (wq 1 (+ base 0)))
+        b (use-sub-witness-xcript rf.bench.fresco.p0-reagent-views/subs-frame (wq 1 (+ base 1)))
+        c (use-sub-witness-xcript rf.bench.fresco.p0-reagent-views/subs-frame (wq 1 (+ base 2)))]
     ($ :span.wcell {:data-i base} (str (+ a b c)))))
 
 (defui wx-cell-2 [{:keys [base]}]
-  (let [a (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 2 (+ base 0)))
-        b (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 2 (+ base 1)))
-        c (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 2 (+ base 2)))]
+  (let [a (use-sub-witness-xcript rf.bench.fresco.p0-reagent-views/subs-frame (wq 2 (+ base 0)))
+        b (use-sub-witness-xcript rf.bench.fresco.p0-reagent-views/subs-frame (wq 2 (+ base 1)))
+        c (use-sub-witness-xcript rf.bench.fresco.p0-reagent-views/subs-frame (wq 2 (+ base 2)))]
     ($ :span.wcell {:data-i base} (str (+ a b c)))))
 
 (defui wx-cell-3 [{:keys [base]}]
-  (let [a (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 3 (+ base 0)))
-        b (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 3 (+ base 1)))
-        c (use-sub-witness-xcript rf.bench.hicasso.p0-reagent-views/subs-frame (wq 3 (+ base 2)))]
+  (let [a (use-sub-witness-xcript rf.bench.fresco.p0-reagent-views/subs-frame (wq 3 (+ base 0)))
+        b (use-sub-witness-xcript rf.bench.fresco.p0-reagent-views/subs-frame (wq 3 (+ base 1)))
+        c (use-sub-witness-xcript rf.bench.fresco.p0-reagent-views/subs-frame (wq 3 (+ base 2)))]
     ($ :span.wcell {:data-i base} (str (+ a b c)))))
 
 (defui wh-cell-1 [{:keys [base]}]
-  (let [a (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 1 (+ base 0)))
-        b (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 1 (+ base 1)))
-        c (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 1 (+ base 2)))]
+  (let [a (use-sub-witness-handoff rf.bench.fresco.p0-reagent-views/subs-frame (wq 1 (+ base 0)))
+        b (use-sub-witness-handoff rf.bench.fresco.p0-reagent-views/subs-frame (wq 1 (+ base 1)))
+        c (use-sub-witness-handoff rf.bench.fresco.p0-reagent-views/subs-frame (wq 1 (+ base 2)))]
     ($ :span.wcell {:data-i base} (str (+ a b c)))))
 
 (defui wh-cell-2 [{:keys [base]}]
-  (let [a (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 2 (+ base 0)))
-        b (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 2 (+ base 1)))
-        c (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 2 (+ base 2)))]
+  (let [a (use-sub-witness-handoff rf.bench.fresco.p0-reagent-views/subs-frame (wq 2 (+ base 0)))
+        b (use-sub-witness-handoff rf.bench.fresco.p0-reagent-views/subs-frame (wq 2 (+ base 1)))
+        c (use-sub-witness-handoff rf.bench.fresco.p0-reagent-views/subs-frame (wq 2 (+ base 2)))]
     ($ :span.wcell {:data-i base} (str (+ a b c)))))
 
 (defui wh-cell-3 [{:keys [base]}]
-  (let [a (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 3 (+ base 0)))
-        b (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 3 (+ base 1)))
-        c (use-sub-witness-handoff rf.bench.hicasso.p0-reagent-views/subs-frame (wq 3 (+ base 2)))]
+  (let [a (use-sub-witness-handoff rf.bench.fresco.p0-reagent-views/subs-frame (wq 3 (+ base 0)))
+        b (use-sub-witness-handoff rf.bench.fresco.p0-reagent-views/subs-frame (wq 3 (+ base 1)))
+        c (use-sub-witness-handoff rf.bench.fresco.p0-reagent-views/subs-frame (wq 3 (+ base 2)))]
     ($ :span.wcell {:data-i base} (str (+ a b c)))))
 
 ;; -- the SHIPPED witness: the real hook, counted off observable state -------
@@ -737,7 +737,7 @@
   boundary more than once, and only the first render is the cold one."
   (atom {}))
 
-(defn- sub-cache-atom [] (:sub-cache (rf.frame/frame rf.bench.hicasso.p0-reagent-views/subs-frame)))
+(defn- sub-cache-atom [] (:sub-cache (rf.frame/frame rf.bench.fresco.p0-reagent-views/subs-frame)))
 
 (defn- tenant-of [query-v]
   (get-in @(sub-cache-atom) [query-v :reaction]))
@@ -746,7 +746,7 @@
   "The shipped hook, plus one render-phase observation. Reading an atom during
   render is a bench affordance, not a pattern: it records, it does not decide."
   [query-v]
-  (let [value (rf.adapter.uix/use-sub query-v {:frame rf.bench.hicasso.p0-reagent-views/subs-frame})]
+  (let [value (rf.adapter.uix/use-sub query-v {:frame rf.bench.fresco.p0-reagent-views/subs-frame})]
     (swap! shipped-render-observed
            (fn [m] (if (contains? m query-v) m (assoc m query-v (tenant-of query-v)))))
     value))
@@ -801,7 +801,7 @@
                 (if (< k 3)
                   (recur (inc k)
                          (+ acc @(rf/subscribe (wq layer (+ base k))
-                                               {:frame rf.bench.hicasso.p0-reagent-views/subs-frame})))
+                                               {:frame rf.bench.fresco.p0-reagent-views/subs-frame})))
                   acc))]
     [:span.wcell {:data-i base} (str total)]))
 

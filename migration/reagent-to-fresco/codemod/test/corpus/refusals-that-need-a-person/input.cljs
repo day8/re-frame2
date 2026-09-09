@@ -5,7 +5,7 @@
   (:require [reagent.core :as r]))
 
 (defn an-intent-vector-at-an-event-slot []
-  ;; Silently dead under Reagent; throws at render under Hicasso.
+  ;; Silently dead under Reagent; throws at render under Fresco.
   [:> C {:on-click [:save!]}])
 
 (defn a-key-map-at-an-event-slot []

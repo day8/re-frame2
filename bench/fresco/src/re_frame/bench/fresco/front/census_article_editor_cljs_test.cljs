@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.front.census-article-editor-cljs-test
+(ns re-frame.bench.fresco.front.census-article-editor-cljs-test
   "THE `:&` MERGE, DEMONSTRATED ON A CENSUS-REAL SCREEN (rf2-2rtt6.36).
 
   The design review that produced HD-023 carried its own stated risk, and
@@ -52,11 +52,11 @@
   compared. If the ported screen were not the same screen, the diff in
   the PR would be measuring two different things."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
-            [re-frame.bench.hicasso.front.controlled :as rf.bench.hicasso.front.controlled]
-            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]))
+            [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
+            [re-frame.bench.fresco.front.controlled :as rf.bench.fresco.front.controlled]
+            [re-frame.bench.fresco.front.intent :as rf.bench.fresco.front.intent]))
 
-(use-fixtures :each {:before (fn [] (rf.bench.hicasso.front.codec/reset-caches!))})
+(use-fixtures :each {:before (fn [] (rf.bench.fresco.front.codec/reset-caches!))})
 
 (def ^:private draft
   {:title "A title" :description "A description" :body "A body" :tagList "a,b"})
@@ -79,7 +79,7 @@
      {:type "text" :name "title" :placeholder "Article Title" :data-testid "editor-title"
       :value (:title draft) :disabled busy?
       :on-blur  [:editor/blur-field :title]
-      :on-input [:editor/edit-field :title :re-frame.hicasso/value]}]
+      :on-input [:editor/edit-field :title :re-frame.fresco/value]}]
     (when (:title errors) [:div.error-messages (:title errors)])]
    [:fieldset.form-group
     [:input.form-control
@@ -87,7 +87,7 @@
       :data-testid "editor-description"
       :value (:description draft) :disabled busy?
       :on-blur  [:editor/blur-field :description]
-      :on-input [:editor/edit-field :description :re-frame.hicasso/value]}]
+      :on-input [:editor/edit-field :description :re-frame.fresco/value]}]
     (when (:description errors) [:div.error-messages (:description errors)])]
    [:fieldset.form-group
     [:input.form-control
@@ -95,7 +95,7 @@
       :data-testid "editor-body"
       :value (:body draft) :disabled busy?
       :on-blur  [:editor/blur-field :body]
-      :on-input [:editor/edit-field :body :re-frame.hicasso/value]}]
+      :on-input [:editor/edit-field :body :re-frame.fresco/value]}]
     (when (:body errors) [:div.error-messages (:body errors)])]
    [:fieldset.form-group
     [:input.form-control
@@ -103,7 +103,7 @@
       :data-testid "editor-tags"
       :value (:tagList draft) :disabled busy?
       :on-blur  [:editor/blur-field :tagList]
-      :on-input [:editor/edit-field :tagList :re-frame.hicasso/value]}]
+      :on-input [:editor/edit-field :tagList :re-frame.fresco/value]}]
     (when (:tagList errors) [:div.error-messages (:tagList errors)])]])
 
 ;; ---------------------------------------------------------------------------
@@ -121,7 +121,7 @@
                          :value    (get draft id)
                          :disabled busy?
                          :on-blur  [:editor/blur-field id]
-                         :on-input [:editor/edit-field id :re-frame.hicasso/value]}]
+                         :on-input [:editor/edit-field id :re-frame.fresco/value]}]
    (when-some [e (get errors id)] [:div.error-messages e])])
 
 (defn- merged-fieldset [busy?]
@@ -150,7 +150,7 @@
 (defn- inputs
   "Every `<input>` element in a rendered fieldset, in document order.
 
-  Read through [[re-frame.bench.hicasso.front.controlled/element-tag]]
+  Read through [[re-frame.bench.fresco.front.controlled/element-tag]]
   rather than `.-type`, because a controlled field's element type is the
   composition shadow's component and the tag it renders is what this
   question is about (rf2-digtt). Every prop these rows go on to read —
@@ -158,7 +158,7 @@
   unchanged; only the type moved."
   [e]
   (into [] (mapcat (fn [group] (filter #(and (some? %)
-                                             (= "input" (rf.bench.hicasso.front.controlled/element-tag %)))
+                                             (= "input" (rf.bench.fresco.front.controlled/element-tag %)))
                                        (children-of group))))
         (children-of e)))
 
@@ -171,8 +171,8 @@
         (js->clj (.-props e))))
 
 (defn- render [hiccup dispatched]
-  (rf.bench.hicasso.front.intent/with-frame (fn [ev] (swap! dispatched conj ev))
-                     (fn [] (rf.bench.hicasso.front.codec/as-element hiccup))))
+  (rf.bench.fresco.front.intent/with-frame (fn [ev] (swap! dispatched conj ev))
+                     (fn [] (rf.bench.fresco.front.codec/as-element hiccup))))
 
 ;; ---------------------------------------------------------------------------
 ;; The port is the same screen

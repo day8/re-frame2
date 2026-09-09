@@ -15,11 +15,11 @@
 ```
 
 **The pipeline ships, so this is a decision rather than a hold.**
-`re-frame.hicasso.server` is Hicasso's optional server module and `render` is
+`re-frame.fresco.server` is Fresco's optional server module and `render` is
 its product door; both halves of the client boot exist too —
 `re-frame.ssr/hydrate!` for state and `h/render!` with `{:hydrate? true}` for
 the DOM. Read them at
-`implementation/hicasso/src/re_frame/hicasso/server.cljs` and
+`implementation/fresco/src/re_frame/fresco/server.cljs` and
 `implementation/ssr/src/re_frame/ssr.cljc`.
 
 **The decision is infrastructure, not spelling.** React renders the server
@@ -48,7 +48,7 @@ request.**
 (ns app.server
   (:require [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
-            [re-frame.hicasso.server :as server]))
+            [re-frame.fresco.server :as server]))
 
 (rf/init! ssr/adapter)   ;; once, at process startup — never per request
 
@@ -72,8 +72,8 @@ order is the contract.** The install is boot, not a fourth hydration step:
 keep the migrating app's existing `(rf/init! reagent-adapter/adapter)` —
 MIG-15's line — ahead of the three calls. Adapter selection is not part of
 this migration, so do not silently switch a part-migrated app to another
-adapter (a Hicasso-only app may deliberately choose
-`re-frame.hicasso.substrate/adapter`, but that is its own decision). Skip the
+adapter (a Fresco-only app may deliberately choose
+`re-frame.fresco.substrate/adapter`, but that is its own decision). Skip the
 install in a cold client entry and the first `rf/make-frame` raises the same
 `:rf.error/no-adapter-installed`, so `ssr/hydrate!` and the adopting
 `h/render!` never run.
@@ -121,7 +121,7 @@ a page with several gives each a distinct prefix.
 **Still out of scope:** streaming, React Server Components, islands and
 no-JavaScript progressive enhancement. And a body that reads a clock, a random
 value or a browser global mismatches on either substrate — that is determinism,
-not a Hicasso limit; `:rf.ssr/hydration-mismatch` names the offending root.
+not a Fresco limit; `:rf.ssr/hydration-mismatch` names the offending root.
 
 (`h/portal` takes a `:fallback` for its tree position on a server render — a
 portal's own policy, not a hydration path.)

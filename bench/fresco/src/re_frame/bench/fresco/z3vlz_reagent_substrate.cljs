@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.z3vlz-reagent-substrate
+(ns re-frame.bench.fresco.z3vlz-reagent-substrate
   "The stock-Reagent substrate (rf2-z3vlz) — the bead's positive control,
   and the thing whose PRESENCE IN THE BUNDLE is candidate (b).
 
@@ -18,17 +18,17 @@
   the bundle the bead describes."
   (:require ["react-dom" :as react-dom]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.bench.hicasso.z3vlz-probe :as rf.bench.hicasso.z3vlz-probe]
+            [re-frame.bench.fresco.z3vlz-probe :as rf.bench.fresco.z3vlz-probe]
             [reagent.core :as r]
             [reagent.dom.client :as rdc]
             [reagent.ratom :as reagent-ratom]))
 
-(defonce ^:private raw-cells (r/atom (vec (repeat rf.bench.hicasso.z3vlz-probe/cells-n 0))))
+(defonce ^:private raw-cells (r/atom (vec (repeat rf.bench.fresco.z3vlz-probe/cells-n 0))))
 
 (defn- raw-list []
   (let [cells @raw-cells]
     [:ul.grid {:role "list"}
-     (for [i (range rf.bench.hicasso.z3vlz-probe/cells-n)]
+     (for [i (range rf.bench.fresco.z3vlz-probe/cells-n)]
        ^{:key i} [:li.row
                   [:span.lbl "cell "]
                   [:span.cell {:data-i i} (str (get cells i))]])]))
@@ -50,4 +50,4 @@
    ;; it passed 78 of 78 in HD-008 beside a slim arm that failed 78 of 78.
    :drain-with! (fn [f] (react-dom/flushSync (fn [] (f) (reagent-ratom/flush!) (r/flush))))
    :raw-element (fn [] [raw-list])
-   :raw-write!  (fn [v] (reset! raw-cells (vec (repeat rf.bench.hicasso.z3vlz-probe/cells-n v))))})
+   :raw-write!  (fn [v] (reset! raw-cells (vec (repeat rf.bench.fresco.z3vlz-probe/cells-n v))))})

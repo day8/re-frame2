@@ -126,7 +126,7 @@ const candidateStamp = (R) => ({
   entries: R === 0 ? 1 : B,
 });
 
-// A donor arm runs no Hicasso runtime at all, so every field is zero.
+// A donor arm runs no Fresco runtime at all, so every field is zero.
 const donorStamp = () => ({ cells: 0, cellRefs: 0, boundaries: 0, edges: 0, entries: 0 });
 
 function armsOfRound(mutate) {
@@ -146,18 +146,18 @@ function armsOfRound(mutate) {
           arm: `lad/${donor}`,
           rung: `R${R}`,
           reads: R,
-          verify: { hicasso: donorStamp() },
+          verify: { fresco: donorStamp() },
           structural: { ...NO_RESIDUE },
         };
       }
     }
     for (const R of RUNGS) {
-      arms[`${segment}|lad/hicasso#R${R}`] = {
+      arms[`${segment}|lad/fresco#R${R}`] = {
         segment,
-        arm: 'lad/hicasso',
+        arm: 'lad/fresco',
         rung: `R${R}`,
         reads: R,
-        verify: { hicasso: candidateStamp(R) },
+        verify: { fresco: candidateStamp(R) },
         structural: { ...NO_RESIDUE },
       };
     }
@@ -192,23 +192,23 @@ test('THE DEFECT — a boundary retained at R=0 fails, on both segments, every r
   // being retained by a runtime that should be holding none of them.
   const fails = ladderStructuralFailures(
     rowWith((arms) => {
-      for (const segment of SEGMENTS) arms[`${segment}|lad/hicasso#R0`].verify.hicasso.boundaries = B;
+      for (const segment of SEGMENTS) arms[`${segment}|lad/fresco#R0`].verify.fresco.boundaries = B;
     })
   );
   assert.strictEqual(fails.length, 4, '2 segments x 2 rounds');
-  for (const f of fails) assert.match(f, /hicasso boundaries 1200, expected 0/);
-  assert.ok(fails.some((f) => f.includes('reagent-subs|lad/hicasso#R0')));
-  assert.ok(fails.some((f) => f.includes('uix-subs|lad/hicasso#R0')));
+  for (const f of fails) assert.match(f, /fresco boundaries 1200, expected 0/);
+  assert.ok(fails.some((f) => f.includes('reagent-subs|lad/fresco#R0')));
+  assert.ok(fails.some((f) => f.includes('uix-subs|lad/fresco#R0')));
 });
 
 test('any non-zero reading at R=0 refuses, not just the pre-fusion 1200', () => {
   const fails = ladderStructuralFailures(
     rowWith((arms) => {
-      arms['reagent-subs|lad/hicasso#R0'].verify.hicasso.boundaries = 1;
+      arms['reagent-subs|lad/fresco#R0'].verify.fresco.boundaries = 1;
     })
   );
   assert.strictEqual(fails.length, 2, 'one per round');
-  for (const f of fails) assert.match(f, /hicasso boundaries 1, expected 0/);
+  for (const f of fails) assert.match(f, /fresco boundaries 1, expected 0/);
 });
 
 // --- direction 2: the check is still a check at R > 0 ----------------------
@@ -220,22 +220,22 @@ test('THE OTHER DIRECTION — a reading rung reporting 0 boundaries still fails'
   for (const R of RUNGS.filter((r) => r !== 0)) {
     const fails = ladderStructuralFailures(
       rowWith((arms) => {
-        arms[`uix-subs|lad/hicasso#R${R}`].verify.hicasso.boundaries = 0;
+        arms[`uix-subs|lad/fresco#R${R}`].verify.fresco.boundaries = 0;
       })
     );
     assert.strictEqual(fails.length, 2, `R=${R}: one per round`);
-    for (const f of fails) assert.match(f, new RegExp(`#R${R}: hicasso boundaries 0, expected 1200`));
+    for (const f of fails) assert.match(f, new RegExp(`#R${R}: fresco boundaries 0, expected 1200`));
   }
 });
 
 test('a reading rung short by ONE boundary still fails', () => {
   const fails = ladderStructuralFailures(
     rowWith((arms) => {
-      arms['uix-subs|lad/hicasso#R3'].verify.hicasso.boundaries = B - 1;
+      arms['uix-subs|lad/fresco#R3'].verify.fresco.boundaries = B - 1;
     })
   );
   assert.strictEqual(fails.length, 2);
-  for (const f of fails) assert.match(f, /hicasso boundaries 1199, expected 1200/);
+  for (const f of fails) assert.match(f, /fresco boundaries 1199, expected 1200/);
 });
 
 // --- the fields either side of it, so the R=0 carve-out stayed narrow ------
@@ -248,11 +248,11 @@ test('R=0 exempts NOTHING but `boundaries` — edges, cells and entries still ga
   ]) {
     const fails = ladderStructuralFailures(
       rowWith((arms) => {
-        arms['reagent-subs|lad/hicasso#R0'].verify.hicasso[field] = wrong;
+        arms['reagent-subs|lad/fresco#R0'].verify.fresco[field] = wrong;
       })
     );
     assert.strictEqual(fails.length, 2, `${field} at R=0 must still be gated`);
-    for (const f of fails) assert.match(f, new RegExp(`hicasso ${field} ${wrong}, expected ${expected}`));
+    for (const f of fails) assert.match(f, new RegExp(`fresco ${field} ${wrong}, expected ${expected}`));
   }
 });
 
@@ -260,45 +260,45 @@ test('`entries` at R=0 is 1 and not 0 — the empty read-set is still an entry',
   assert.deepStrictEqual(ladderStructuralFailures(rowWith(null)), []);
   const fails = ladderStructuralFailures(
     rowWith((arms) => {
-      arms['reagent-subs|lad/hicasso#R0'].verify.hicasso.entries = B;
+      arms['reagent-subs|lad/fresco#R0'].verify.fresco.entries = B;
     })
   );
-  assert.ok(fails.every((f) => /hicasso entries 1200, expected 1/.test(f)));
+  assert.ok(fails.every((f) => /fresco entries 1200, expected 1/.test(f)));
 });
 
 // --- the donor arms, and the residue half of the witness -------------------
 
-test('a donor arm holding ANY Hicasso boundary fails — R=0 included', () => {
+test('a donor arm holding ANY Fresco boundary fails — R=0 included', () => {
   for (const R of RUNGS) {
     const fails = ladderStructuralFailures(
       rowWith((arms) => {
-        arms[`reagent-subs|lad/reagent#R${R}`].verify.hicasso.boundaries = 1;
+        arms[`reagent-subs|lad/reagent#R${R}`].verify.fresco.boundaries = 1;
       })
     );
     assert.strictEqual(fails.length, 2, `donor at R=${R} must be all-zero`);
-    for (const f of fails) assert.match(f, /lad\/reagent#R\d+: hicasso boundaries 1, expected 0/);
+    for (const f of fails) assert.match(f, /lad\/reagent#R\d+: fresco boundaries 1, expected 0/);
   }
 });
 
 test('residue after teardown is gated on every field, independently of the rung', () => {
   const fails = ladderStructuralFailures(
     rowWith((arms) => {
-      arms['uix-subs|lad/hicasso#R0'].structural.boundaries = 7;
+      arms['uix-subs|lad/fresco#R0'].structural.boundaries = 7;
     })
   );
   assert.strictEqual(fails.length, 2);
   for (const f of fails) {
-    assert.match(f, /residue after teardown — hicasso boundaries 7, expected 0/);
+    assert.match(f, /residue after teardown — fresco boundaries 7, expected 0/);
   }
 });
 
 test('an arm with no stamp at all is skipped, not silently passed as zero', () => {
-  // `verify.hicasso` absent means the mount was not read back; the
+  // `verify.fresco` absent means the mount was not read back; the
   // verification gate upstream owns that case and this one must not
   // manufacture a pass for it.
   const fails = ladderStructuralFailures(
     rowWith((arms) => {
-      delete arms['reagent-subs|lad/hicasso#R7'].verify;
+      delete arms['reagent-subs|lad/fresco#R7'].verify;
     })
   );
   assert.deepStrictEqual(fails, []);
@@ -338,8 +338,8 @@ test('the printed legend states the R=0 zero rather than the old flat `boundarie
 // ===========================================================================
 //
 // THE DEFECT THIS PINS. The heap ladder's candidate arm read
-// `re-frame.bench.hicasso.arm1.*` — the frozen PROTOTYPE that
-// `implementation/hicasso/src` was moved from, and whose own docstring says
+// `re-frame.bench.fresco.arm1.*` — the frozen PROTOTYPE that
+// `implementation/fresco/src` was moved from, and whose own docstring says
 // it lives "off every production source path". So every retained-heap figure
 // the ladder ever produced priced a bench-tree copy, and rf2-hic-006 could
 // not re-pin S1-S5 on the package because no heap instrument pointed at the
@@ -347,7 +347,7 @@ test('the printed legend states the R=0 zero rather than the old flat `boundarie
 // and permanent, which is exactly why a repoint cannot be left to drift back:
 // nothing about a compiling arm says which of the two it compiled against.
 //
-// WHY IT IS PINNED HERE RATHER THAN LEFT TO THE COMPILER. `:hicasso-bench`
+// WHY IT IS PINNED HERE RATHER THAN LEFT TO THE COMPILER. `:fresco-bench`
 // compiles both trees, so an arm re-pointed at the prototype tomorrow builds
 // green and reads plausibly — the number simply describes a different piece
 // of software. The compile gate proves the requires RESOLVE; only a source
@@ -357,11 +357,11 @@ test('the printed legend states the R=0 zero rather than the old flat `boundarie
 // prototype in prose — the provenance is worth keeping — so a whole-file
 // grep for `arm1` would fail on a docstring that is doing its job. This
 // reads the `:require` / `:require-macros` forms and nothing else, the same
-// rule `hicasso/scripts/check_optional_module_reachability.py` follows one
+// rule `fresco/scripts/check_optional_module_reachability.py` follows one
 // tree over.
 
 const HEAP = path.join(__dirname, 'p0_heap.cljs');
-const CANDIDATE = path.join(__dirname, 'p0_hicasso.cljs');
+const CANDIDATE = path.join(__dirname, 'p0_fresco.cljs');
 
 // `;`-to-end-of-line comments removed, and `"strings"` kept. String-aware,
 // because the heap arm's require form carries both — `"react-dom"` beside a
@@ -446,25 +446,25 @@ const countOf = (hay, needle) => hay.split(needle).length - 1;
 
 test('THE CANDIDATE ARM READS THE PACKAGE — its two doors are the facade', () => {
   const req = nsRequires(CANDIDATE);
-  assert.match(req, /\[re-frame\.hicasso :refer \[sub\]\]/, 'the ambient collector is the package facade');
+  assert.match(req, /\[re-frame\.fresco :refer \[sub\]\]/, 'the ambient collector is the package facade');
   assert.match(
     req,
-    /\(:require-macros \[re-frame\.hicasso :refer \[defview\]\]\)/,
+    /\(:require-macros \[re-frame\.fresco :refer \[defview\]\]\)/,
     'and boundaries are minted by the package macro'
   );
   assert.ok(
-    !/re-frame\.bench\.hicasso\.arm1/.test(req),
-    'p0_hicasso.cljs must not REQUIRE the frozen prototype (naming it in prose is fine)'
+    !/re-frame\.bench\.fresco\.arm1/.test(req),
+    'p0_fresco.cljs must not REQUIRE the frozen prototype (naming it in prose is fine)'
   );
 });
 
 test('THE HEAP RIG READS THE PACKAGE — all three doors, none of them arm1', () => {
   const req = nsRequires(HEAP);
-  assert.match(req, /\[re-frame\.hicasso\.impl\.mount :as rf\.hicasso\.impl\.mount\]/, 'the mount door');
-  assert.match(req, /\[re-frame\.hicasso\.impl\.collector :as rf\.hicasso\.impl\.collector\]/, 'the runtime reset');
-  assert.match(req, /\[re-frame\.hicasso\.test\.runtime :as rf\.hicasso\.test\.runtime\]/, 'the structural census');
+  assert.match(req, /\[re-frame\.fresco\.impl\.mount :as rf\.fresco\.impl\.mount\]/, 'the mount door');
+  assert.match(req, /\[re-frame\.fresco\.impl\.collector :as rf\.fresco\.impl\.collector\]/, 'the runtime reset');
+  assert.match(req, /\[re-frame\.fresco\.test\.runtime :as rf\.fresco\.test\.runtime\]/, 'the structural census');
   assert.ok(
-    !/re-frame\.bench\.hicasso\.arm1/.test(req),
+    !/re-frame\.bench\.fresco\.arm1/.test(req),
     'p0_heap.cljs must not REQUIRE the frozen prototype (naming it in prose is fine)'
   );
 });
@@ -474,9 +474,9 @@ test('THE FOUR SEAMS CALL THROUGH THOSE ALIASES, and no fifth one is hiding', ()
   // site keeps the old one. These are the four sites rf2-fe0l enumerated,
   // counted in the code and not in the commentary.
   const code = codeOf(HEAP);
-  assert.strictEqual(countOf(code, 'rf.hicasso.impl.mount/root!'), 1, 'the mount door, once');
-  assert.strictEqual(countOf(code, 'rf.hicasso.impl.collector/reset-runtime!'), 1, 'the runtime reset, once');
-  assert.strictEqual(countOf(code, 'rf.hicasso.test.runtime/residue'), 2, 'the live census and the post-unmount read');
+  assert.strictEqual(countOf(code, 'rf.fresco.impl.mount/root!'), 1, 'the mount door, once');
+  assert.strictEqual(countOf(code, 'rf.fresco.impl.collector/reset-runtime!'), 1, 'the runtime reset, once');
+  assert.strictEqual(countOf(code, 'rf.fresco.test.runtime/residue'), 2, 'the live census and the post-unmount read');
   // The prototype's alias. Its absence is what says no seam was missed.
   assert.strictEqual(countOf(code, 'hic-rt/'), 0, 'no call site left on the old alias');
 });
@@ -1187,7 +1187,7 @@ test('THE REPORT RUNS — the mode is not merely defined', () => {
       {
         round: 1,
         controls: { idle: witnessOf({ primeAt: 'dispatch', excessAt: null, excess: 0 }) },
-        arms: { 'hicasso|floor': { ...witnessOf({ primeAt: 'dispatch', excessAt: 'drain' }), tick0: 22, tick: 29 } },
+        arms: { 'fresco|floor': { ...witnessOf({ primeAt: 'dispatch', excessAt: 'drain' }), tick0: 22, tick: 29 } },
       },
     ],
   };
@@ -1195,7 +1195,7 @@ test('THE REPORT RUNS — the mode is not merely defined', () => {
   assert.ok(lines.length > 0, 'the mode armed must print something');
   const text = lines.join('\n');
   assert.match(text, /dispatch/, 'the site names appear');
-  assert.match(text, /hicasso\|floor/, 'and the window is named');
+  assert.match(text, /fresco\|floor/, 'and the window is named');
   assert.match(text, /22–29/, 'with the tick range that places it in the page`s work-unit sequence');
   assert.match(text, /AGREE in 0 of 1/, 'and the hypothesis is answered on the data');
   // OFF THE MODE IT IS SILENT, so a published run's summary is unchanged to
@@ -1603,7 +1603,7 @@ const allocRowWith = (windows, rounds = 2) => ({
     arms: Object.fromEntries(
       Object.entries(windows).map(([key, legs]) => [
         key,
-        { segment: 'reagent-subs', arm: 'lad/hicasso', reads: 7, ...allocSteps(legs) },
+        { segment: 'reagent-subs', arm: 'lad/fresco', reads: 7, ...allocSteps(legs) },
       ])
     ),
   })),
@@ -1614,7 +1614,7 @@ const MASKED = stream([200000, 200000, 200000, 200000], [0, 0, 200000, 0]);
 
 test('a row of small clean windows is not a failure', () => {
   assert.deepStrictEqual(
-    allocRefusedWindows(allocRowWith({ 'reagent-subs|lad/hicasso#R7': SMALL })),
+    allocRefusedWindows(allocRowWith({ 'reagent-subs|lad/fresco#R7': SMALL })),
     []
   );
 });
@@ -1626,13 +1626,13 @@ test('a row with no rounds at all is not a failure', () => {
 test('every REFUSED window is named, on every round, with its reason', () => {
   const fails = allocRefusedWindows(
     allocRowWith({
-      'reagent-subs|lad/hicasso#R7': MASKED,
+      'reagent-subs|lad/fresco#R7': MASKED,
       'reagent-subs|lad/reagent#R7': SMALL,
     })
   );
   assert.strictEqual(fails.length, 2, 'one per round, and only the refused arm');
   for (const f of fails) {
-    assert.match(f, /lad\/hicasso#R7/);
+    assert.match(f, /lad\/fresco#R7/);
     assert.match(f, /leg 3 of 4 read 0 B against a cohort median of 200000 B/);
     assert.match(f, /leg BELOW its cohort/, 'and it says what a low leg means');
   }
@@ -1681,7 +1681,7 @@ test('THE RATIO IS POSSIBLE — refusal REASONS are not counted against WINDOWS'
   assert.strictEqual(three.refusals.length, 3, 'one window, three deviant legs');
 
   const row = allocRowWith(
-    { 'reagent-subs|lad/hicasso#R7': THREE_BAD, 'reagent-subs|lad/reagent#R7': SMALL },
+    { 'reagent-subs|lad/fresco#R7': THREE_BAD, 'reagent-subs|lad/reagent#R7': SMALL },
     2
   );
   const reasons = allocRefusedWindows(row);
@@ -2324,12 +2324,12 @@ test('THE PAIRED SELECTION — `paired` names BOTH writes and is not a third one
   assert.strictEqual(allocWindowKey('reagent-subs|grid/floor', 'page', false), 'reagent-subs|grid/floor');
   assert.strictEqual(allocWindowKey('reagent-subs|grid/floor', 'all', false), 'reagent-subs|grid/floor');
   assert.strictEqual(
-    allocWindowKey('reagent-subs|lad/hicasso#R3', 'page', true),
-    'reagent-subs|lad/hicasso#R3@page'
+    allocWindowKey('reagent-subs|lad/fresco#R3', 'page', true),
+    'reagent-subs|lad/fresco#R3@page'
   );
   assert.strictEqual(
-    allocWindowKey('reagent-subs|lad/hicasso#R3', 'all', true),
-    'reagent-subs|lad/hicasso#R3@all'
+    allocWindowKey('reagent-subs|lad/fresco#R3', 'all', true),
+    'reagent-subs|lad/fresco#R3@all'
   );
 });
 
@@ -3191,7 +3191,7 @@ test('the FULL plan still makes every claim the narrowed plans may not', () => {
   assert.match(out, /THE PLAN IS `full` — controls, floor and every rung, fitted\./);
   assert.match(out, /THE FITTED LINES/);
   assert.match(out, /---- reagent-subs ----/);
-  assert.match(out, /^;; hicasso {8}20 /m, 'the R=20 rung is in the arm table');
+  assert.match(out, /^;; fresco {8}20 /m, 'the R=20 rung is in the arm table');
   // And it says none of the narrowed plans' absence lines.
   assert.doesNotMatch(out, /NO ARM WAS MOUNTED/);
   assert.doesNotMatch(out, /NO WRITE EVENT WAS DRIVEN/);
@@ -3254,7 +3254,7 @@ test("V1's FLOOR-ONLY summary RUNS, prints the floor, and prints no rung", () =>
   assert.doesNotMatch(out, /NO ARM WAS MOUNTED/);
   assert.match(out, /---- reagent-subs ----/, 'the arm table is printed');
   assert.match(out, /;; floor /, 'and the floor is in it');
-  assert.doesNotMatch(out, /hicasso\s+\d/, 'but no rung row is');
+  assert.doesNotMatch(out, /fresco\s+\d/, 'but no rung row is');
   assert.match(out, /NO FITTED LINE/, 'and nothing is regressed through one arm');
   assert.match(out, /THE PLAN IS `floor`/);
   // THE PRIME LEG IS PRINTED, not merely excluded (rf2-oiy1). This is what
@@ -3446,7 +3446,7 @@ test('a PAIRED record names every window\'s write and every pair is WHOLE', () =
   assert.strictEqual(Object.keys(arms).length, 44, '22 arms x 2 writes');
   assert.ok(arms['reagent-subs|grid/floor@page'], 'the FLOOR is paired too — that is the point');
   assert.ok(arms['reagent-subs|grid/floor@all'], 'under both writes, in the same round');
-  assert.ok(arms['uix-subs|lad/hicasso#R20@page'] && arms['uix-subs|lad/hicasso#R20@all']);
+  assert.ok(arms['uix-subs|lad/fresco#R20@page'] && arms['uix-subs|lad/fresco#R20@all']);
 
   const prov = allocWriteProvenance(row);
   assert.deepStrictEqual(prov.unnamed, [], 'every window names its own write');
@@ -3521,7 +3521,7 @@ test('and it refuses a HALF PAIR, which is well-formed window by window', () => 
   // one leg of a pair is simply missing. An estimator differencing this would
   // be back to comparing unmatched populations without anything saying so.
   const arms = FULL_ARMS(['page', 'all']);
-  delete arms['reagent-subs|lad/hicasso#R7@all'];
+  delete arms['reagent-subs|lad/fresco#R7@all'];
   const row = {
     ...PAIRED_ROW,
     perRound: [1, 2].map((round) => ({ round, arms })),
@@ -3529,7 +3529,7 @@ test('and it refuses a HALF PAIR, which is well-formed window by window', () => 
   const prov = allocWriteProvenance(row);
   assert.deepStrictEqual(prov.unnamed, [], 'nothing is unnamed — that is what makes it dangerous');
   assert.strictEqual(prov.incomplete.length, 2, 'one incomplete pair, on each of two rounds');
-  assert.match(prov.incomplete[0], /reagent-subs\|lad\/hicasso#R7: page — this run drives page \+ all/);
+  assert.match(prov.incomplete[0], /reagent-subs\|lad\/fresco#R7: page — this run drives page \+ all/);
   assert.strictEqual(prov.ok, false);
 });
 
@@ -3588,8 +3588,8 @@ test('THE PAIRED SUMMARY runs, prints a table per write, and claims no single on
   assert.doesNotMatch(out, /It rebuilds the grid at 24 cells/);
   assert.doesNotMatch(out, /NO WRITE EVENT WAS DRIVEN/, 'both writes fired');
   // The fits are per write as well, so no slope is a line over a mixture.
-  assert.match(out, /reagent-subs\|hicasso@page /);
-  assert.match(out, /reagent-subs\|hicasso@all /);
+  assert.match(out, /reagent-subs\|fresco@page /);
+  assert.match(out, /reagent-subs\|fresco@all /);
   assert.match(out, /\(under `:p0\/write-page`\)/, "and HD-002's difference is stated per write");
 });
 

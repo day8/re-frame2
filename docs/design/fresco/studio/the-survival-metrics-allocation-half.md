@@ -252,11 +252,11 @@ measured a page that did not move.
 | UIx | 3 | 2,497 [2,172–2,995] | 749,217 |
 | UIx | 7 | 7,821 [5,599–8,863] | 2,346,252 |
 | UIx | 20 | 13,155 [12,346–14,238] | 3,946,403 |
-| Hicasso | 0 | 102 [101–105] | 30,725 |
-| Hicasso | 1 | 3,007 [2,890–3,085] | 902,065 |
-| Hicasso | 3 | 3,178 [2,831–3,352] | 953,289 |
-| Hicasso | 7 | 3,840 [3,092–4,137] | 1,152,061 |
-| Hicasso | 20 | 2,461 [2,165–3,150] | 738,225 |
+| Fresco | 0 | 102 [101–105] | 30,725 |
+| Fresco | 1 | 3,007 [2,890–3,085] | 902,065 |
+| Fresco | 3 | 3,178 [2,831–3,352] | 953,289 |
+| Fresco | 7 | 3,840 [3,092–4,137] | 1,152,061 |
+| Fresco | 20 | 2,461 [2,165–3,150] | 738,225 |
 
 The R = 0 rung is the anchor on both tables and is regressed nowhere. It is
 also, on this row, a boundary that *cannot* re-render — it reads nothing,
@@ -274,9 +274,9 @@ whose self-test feeds it a quadratic page and requires a refusal.
 |---|---:|---:|---|---:|
 | Reagent | 262 B/read [54–411] | 0.75279 | **NOT A LINE** | 0 of 4 |
 | UIx | 589 B/read [549–645] | 0.93851 | **NOT A LINE** | 1 of 4 |
-| Hicasso, UIx substrate | −37 B/read [−56–−6] | 0.31140 | **NOT A LINE** | 0 of 4 |
+| Fresco, UIx substrate | −37 B/read [−56–−6] | 0.31140 | **NOT A LINE** | 0 of 4 |
 
-**The "Hicasso, Reagent substrate" fit is struck rather than refused.** It
+**The "Fresco, Reagent substrate" fit is struck rather than refused.** It
 read 0 B/read at r² 0.283, and a fit over four rungs of an arm that never
 re-rendered is a fit over the floor. A refusal on this table invites a
 re-run on a quieter box, and no box will ever help this one — the repair
@@ -301,20 +301,20 @@ fit has nothing to fit.
 The row's warm-write read-back is what caught this, and it is the reason
 that gate exists. At R reads of a page whose cells were all written to `v`,
 a ladder boundary's text is `R·v`. On the Reagent-adapter segment the
-Hicasso arm's text is stale by **exactly the number of writes the window
+Fresco arm's text is stale by **exactly the number of writes the window
 drove** — three, every time, at every rung, in every round:
 
 | arm (Reagent-adapter segment) | read back | expected |
 |---|---:|---:|
-| `lad/hicasso#R1` | 21 | 24 |
-| `lad/hicasso#R3` | 72 | 81 |
-| `lad/hicasso#R7` | 189 | 210 |
-| `lad/hicasso#R20` | 600 | 660 |
+| `lad/fresco#R1` | 21 | 24 |
+| `lad/fresco#R3` | 72 | 81 |
+| `lad/fresco#R7` | 189 | 210 |
+| `lad/fresco#R20` | 600 | 660 |
 
 Sixteen such failures across four rounds, all of them on that one arm. Its
 allocation column sits flat on ~100 B/boundary — the same figure the
 *floor* reads, and the floor has no subscription and cannot re-render. The
-UIx-adapter segment's Hicasso arm re-renders normally and reads 2,461 to
+UIx-adapter segment's Fresco arm re-renders normally and reads 2,461 to
 3,840 B/boundary.
 
 **That is why those rows are struck above rather than refused.** The
@@ -346,8 +346,8 @@ not merely the fix.
 Nothing else on the page moves with it. The clock bench gives the candidate
 a segment that installs the UIx adapter on purpose, and every `p0-heap` row
 is mount–hold–release with no write at all, so **this row is the first time
-in the P0 programme that a write was driven at `lad/hicasso` with the
-Reagent adapter installed**. No previously published Hicasso figure is
+in the P0 programme that a write was driven at `lad/fresco` with the
+Reagent adapter installed**. No previously published Fresco figure is
 invalidated.
 
 Note what it would have done unnoticed. A candidate arm that never
@@ -392,7 +392,7 @@ Before building anything it re-ran the published witness unchanged, at
 **One thing did change, and it is good news.** This is the first allocation
 run since `rf2-2kshh` landed, and the warm-write read-back is now clean:
 **0 unverified across all 44 windows**, where `rf2-2rtt6.137` recorded 16
-failures on the Reagent segment's `lad/hicasso` arm. That arm now reads
+failures on the Reagent segment's `lad/fresco` arm. That arm now reads
 544–1,655 B/boundary/write instead of sitting on the floor's ~20. The deaf
 arm is fixed and the Reagent segment is being exercised again.
 
@@ -566,9 +566,9 @@ first evidence either way:
 | arm | r² (mean of 6 rounds) | 0.98 floor | rounds linear |
 |---|---|---|---|
 | `reagent-subs` \| reagent (donor) | 0.99456 | clears | 3 of 6 |
-| `reagent-subs` \| hicasso (candidate) | 0.98648 | clears | 5 of 6 |
+| `reagent-subs` \| fresco (candidate) | 0.98648 | clears | 5 of 6 |
 | `uix-subs` \| uix (donor) | 0.98240 | clears | 3 of 6 |
-| `uix-subs` \| hicasso (candidate) | **0.58995** | **fails** | 1 of 6 |
+| `uix-subs` \| fresco (candidate) | **0.58995** | **fails** | 1 of 6 |
 
 Against 0 of 4 clearing the floor at B = 300 with one write, 3 of 4 is a
 large move and it is the averaging that bought it. But the fits do not
@@ -683,7 +683,7 @@ All three live under `implementation/core/test/re_frame/bench/`.
 >
 > | what | where, and what it says |
 > |---|---|
-> | **Retained dataset** | `implementation/freehand/test/re_frame/bench/hicasso/data/alloc-2rtt6-138/run1.json` — the whole run, every window's samples, from which every figure in [The small-witness arm, measured](#the-small-witness-arm-measured) recomputes |
+> | **Retained dataset** | `implementation/freehand/test/re_frame/bench/fresco/data/alloc-2rtt6-138/run1.json` — the whole run, every window's samples, from which every figure in [The small-witness arm, measured](#the-small-witness-arm-measured) recomputes |
 > | **Box** | Processor Queue Length **0 / 0 / 0 / 0 / 0** on the five samples before the run and **0 / 0 / 0 / 0 / 0** after, with a single **1** on one intermediate sample taken while the worktree was being prepared; `\Processor(_Total)\% Processor Time` 9–26% before and 5–13% after, of 24 logical cores. Zero `java.exe`, no shadow-cljs server, no other bench work. The only other processes on the box were idle MCP stdio servers under two of the operator's own CLI sessions, which drew **13.3 s of CPU in total** across the run — about 0.06 of one core — and were left alone |
 
 Measured

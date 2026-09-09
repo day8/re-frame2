@@ -1,7 +1,7 @@
 # The cold-read mount term, profiled and cheapened
 
 rf2-y1jkm cheapened the interpreter walk and its closing decomposition moved
-the surviving mount gap off the walk: hicasso in-page 3.300 ms against uix
+the surviving mount gap off the walk: fresco in-page 3.300 ms against uix
 1.900 ms on the acceptance shape, concentrated in the **141 per-instance
 collector reads** — each a cold `subs/subscribe-once`, subscribe + deref +
 unsubscribe per read per mount, because cells only exist after commit
@@ -352,7 +352,7 @@ window — a quarter of the shape above, which is part of why its shares differ)
 > box was busier.
 >
 > Raw driver output for all three runs is committed beside the instrument at
-> `implementation/hicasso/test/re_frame/bench/hicasso/data/readprofile-07rnj/`
+> `implementation/fresco/test/re_frame/bench/fresco/data/readprofile-07rnj/`
 > (`run1.txt`, `run2.txt`, `run3.txt` — `.txt` because the repo ignores
 > `*.log`). Verbatim **except for one line per file**: the `shadow-cljs -
 > config:` banner, whose absolute path is replaced by `<worktree>` and marked
@@ -360,9 +360,9 @@ window — a quarter of the shape above, which is part of why its shares differ)
 > home path and is right to. No figure, guard verdict or exit line was touched;
 > the directory's `README.md` states the redaction, and re-running the
 > reproduction above prints the banner with the reader's own checkout in it.
-> Reproduction: `HICASSO_INIT_FN=re-frame.bench.hicasso.read-profile-app/-main
-> HICASSO_OUT_DIR=out/hicasso-readprof node
-> implementation/hicasso/test/re_frame/bench/hicasso/run.cjs`.
+> Reproduction: `FRESCO_INIT_FN=re-frame.bench.fresco.read-profile-app/-main
+> FRESCO_OUT_DIR=out/fresco-readprof node
+> implementation/fresco/test/re_frame/bench/fresco/run.cjs`.
 
 > **THE INSTRUMENT NOW HAS A MEASURED NULL, AND READER MEMBERSHIP STILL DOES
 > NOT RESOLVE** (`rf2-3l6hf`, 2026-08-16, authored head `926dd471d3` on
@@ -465,7 +465,7 @@ window — a quarter of the shape above, which is part of why its shares differ)
 > compiles.
 >
 > Raw driver output for all three runs is committed beside the instrument at
-> `implementation/hicasso/test/re_frame/bench/hicasso/data/readprofile-3l6hf/`
+> `implementation/fresco/test/re_frame/bench/fresco/data/readprofile-3l6hf/`
 > (`run1.txt`, `run2.txt`, `run3.txt`), verbatim except for the one
 > `shadow-cljs - config:` banner line per file, whose absolute path is
 > replaced by `<worktree>` and marked inline as redacted — the portability
@@ -572,7 +572,7 @@ window — a quarter of the shape above, which is part of why its shares differ)
 > worker were in flight.
 >
 > Raw driver output for all three runs is committed beside the instrument at
-> `implementation/hicasso/test/re_frame/bench/hicasso/data/readprofile-lo7uy/`
+> `implementation/fresco/test/re_frame/bench/fresco/data/readprofile-lo7uy/`
 > (`run1.txt`, `run2.txt`, `run3.txt`), verbatim except for the one
 > `shadow-cljs - config:` banner line per file, whose absolute path is replaced
 > by `<worktree>` and marked inline as redacted — the portability gate refuses
@@ -721,7 +721,7 @@ window — a quarter of the shape above, which is part of why its shares differ)
 > flight, derived at start-up and re-derived before the edit.
 >
 > Raw driver output for all three runs is committed beside the instrument at
-> `implementation/hicasso/test/re_frame/bench/hicasso/data/readprofile-07rnj-retake/`
+> `implementation/fresco/test/re_frame/bench/fresco/data/readprofile-07rnj-retake/`
 > (`run1.txt`, `run2.txt`, `run3.txt`), verbatim except for the one
 > `shadow-cljs - config:` banner line per file, whose absolute path is replaced by
 > `<worktree>` and marked inline as redacted — the portability gate refuses a
@@ -740,7 +740,7 @@ sub-cache peek 18; the sub-key mint 53.
 **Reading it.** Three convictions and one acquittal:
 
 1. **The render-side term is the target, and it is the substrate churn, not
-   the shell.** One cold read costs 6.21 µs, of which the Hicasso shell —
+   the shell.** One cold read costs 6.21 µs, of which the Fresco shell —
    key mint, scratch push, cells probe, entry-hit compare — is 0.13 µs
    (2.1%). The rest is `subscribe-once`'s round trip: a reaction built, a
    cache entry inserted, an in-tick evict and a dispose cascade, per read,
@@ -828,7 +828,7 @@ shape; re-openable the day a deep-shared-chain shape prices it the other way.
 - **The observation port** (`re-frame.substrate.observation/probe`): the
   live-node deref-only read, the frame-state cold compute, the seeded memo's
   error contract — taken wholesale; this change is that discipline consumed
-  at Hicasso's cold branch.
+  at Fresco's cold branch.
 - **Reagent** (deref-capture): the floor named by the bead — a first deref
   inside a watched computation IS the registration, so a cold read pays no
   acquire/release round trip at all and near-zero time beyond the compute.
@@ -909,7 +909,7 @@ that is the SHA to check these rows against:
 (this run's box was globally faster than the before-run's — `local` itself
 read 0.59 vs 0.875 — which is why the in-process ratio is the quoted figure
 and the cross-run one is not). The shipping path sits 0.27 µs/read above the
-bare probe arm — the Hicasso shell plus the door, the same 2–6% the before
+bare probe arm — the Fresco shell plus the door, the same 2–6% the before
 profile priced. What remains of the read term is 90% the substrate's own
 pure-compute machinery (`probe − floor`: the per-read `compute-sub-with-memo`
 walk, the fresh seeded memo, the resolution wrap at 0.17 µs, the record
@@ -944,14 +944,14 @@ window a quarter the width; the figures to carry forward are §1's.
 
 The first re-take attempt never reached a clock: the census driver's boot
 parity gate refused every row with `:canonical-dom-disagreement` for the
-`:hicasso` arm. A diff probe (`parity_probe_app.cljs`, committed as lane
-tooling) showed the exact divergence — hicasso rendered `href="/profile/…"`
+`:fresco` arm. A diff probe (`parity_probe_app.cljs`, committed as lane
+tooling) showed the exact divergence — fresco rendered `href="/profile/…"`
 where the uix/reagent/floor twins carry the census's `href="#/profile/…"`,
 207 bytes of missing `#` on the 207-link acceptance page — and a bisect run
 with `read-key!`'s cold branch toggled back to `subscribe-once` reproduced
 the disagreement byte-for-byte, so **the probe is not the cause**.
 
-The cause is a gap rf2-2rtt6.54 left: the migration moved Hicasso's anchors
+The cause is a gap rf2-2rtt6.54 left: the migration moved Fresco's anchors
 onto routing's `link-model`, whose strategy consult defaults to the HISTORY
 strategy when a frame declares none — path-form hrefs — while the
 hand-ported twins kept the census markup's hash form. PR #7383's published
@@ -989,7 +989,7 @@ below are read with that stated rather than smoothed over.
 
 `uix` run — the gated run:
 
-| row | floor abs p50 (tared) | hicasso abs | uix abs | **hicasso / uix** | band | **verdict vs 1.10×** |
+| row | floor abs p50 (tared) | fresco abs | uix abs | **fresco / uix** | band | **verdict vs 1.10×** |
 |---|---|---|---|---|---|---|
 | large-template | 13.936 ms (12.664) | 20.199 ms | 14.175 ms | **1.4759× [1.3281 – 1.6302]** (taskNet 1.0004× · in-page 2.9989×) | **6.1%** | **FAILS THE LINE** — whole range above 1.10, margin 34.2% clears the band |
 | feed | 54.547 ms (51.360) | 89.537 ms | 67.850 ms | **1.3311× [1.2357 – 1.4195]** (taskNet 1.0203× · in-page 1.9980×) | **3.9%** | **FAILS THE LINE** — margin 21.0% clears the band |
@@ -997,7 +997,7 @@ below are read with that stated rather than smoothed over.
 
 `reagent` run — co-instrumented, never a second gate:
 
-| row | hicasso / uix | hicasso / reagent | uix / reagent | band |
+| row | fresco / uix | fresco / reagent | uix / reagent | band |
 |---|---|---|---|---|
 | large-template | 1.4591× [1.2455 – 1.6205] | **1.3000× [1.2318 – 1.3820]** | 0.8927× [STRADDLES 1.0] | 4.5% |
 | feed | (margin 29.8% above the line) | 1.3813× [1.3009 – 1.5323] | 0.9679× [STRADDLES 1.0] | 9.1% |
@@ -1015,7 +1015,7 @@ below are read with that stated rather than smoothed over.
   routing term the twins do not pay.**
 - **The attribution is in the rows' own decomposition.** taskNet reads
   1.00–1.02× on the gated pair everywhere — the gap is 100% in-page. On
-  the acceptance row hicasso's in-page is 9.249 ms against uix's 3.114;
+  the acceptance row fresco's in-page is 9.249 ms against uix's 3.114;
   at y1jkm (pre-migration) it was 3.300 against 1.900. A dedicated
   diagnostic (`link_term_probe_app.cljs`, guard clean, 2× control PASS)
   prices the migration's term directly: **8.21 µs per `link-model` call —
@@ -1032,7 +1032,7 @@ below are read with that stated rather than smoothed over.
   where its move came from: 300 cards is 900 `link-model` calls per mount
   — ≥ 7.4 ms at the probe's 8.21 µs/link floor against a 21 ms in-page
   delta — while its 603 cold reads got cheaper, not dearer.
-- **hicasso/reagent tells the same story from the other side**: 1.0303×
+- **fresco/reagent tells the same story from the other side**: 1.0303×
   (straddling 1.0) at y1jkm, 1.3000× here — stock Reagent's twin also
   hand-writes its anchors, so the migration term moved this ratio by the
   same mechanism.
@@ -1042,7 +1042,7 @@ below are read with that stated rather than smoothed over.
   fairness gap is rf2-2rtt6.54's to close, filed with the mayor rather
   than patched here. **Both were closed by `rf2-cno31` —
   [the route-link term page](the-route-link-render-term-priced.md)**: the
-  8.21 µs is decomposed there (77% of it routing's, not Hicasso's), the
+  8.21 µs is decomposed there (77% of it routing's, not Fresco's), the
   seam call halved, and the twins now pay the routing term through the
   same two published seams the candidate's `route-link` takes. The rows
   below are superseded by that page's.
@@ -1058,8 +1058,8 @@ story — and the published run is the repaired page's.
 | | |
 |---|---|
 | **Producing commit** | `ac09504d74` on `worker/readopt-6c237` — the stamped code blobs are the commit's (the studio page and two diagnostic probe apps were uncommitted at run time; none is on the measured path). **Authored, and rebase-merged, so this SHA is on no branch and will not resolve in a fresh clone**; it landed on main as **`fd01c070a7`** (same patch — identical `git patch-id --stable`), where every blob it contributed is unchanged. The landed SHA is the one to check out; it sits on a later base, so it carries the change rather than the whole measured tree |
-| **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/shapes/census_clock_run.cjs` with `C56CLOCK_DATA_DIR` → `data/censusclock-6c237/` (the y1jkm and 2rtt6.56 datasets stay intact) |
-| **Build** | `:hicasso-bench` (`--config-merge` entry swap), `:advanced`, `goog.DEBUG false`, lane cache cleared per rf2-2rtt6.20; 0 warnings |
+| **Reproduction** | `node implementation/freehand/test/re_frame/bench/fresco/shapes/census_clock_run.cjs` with `C56CLOCK_DATA_DIR` → `data/censusclock-6c237/` (the y1jkm and 2rtt6.56 datasets stay intact) |
+| **Build** | `:fresco-bench` (`--config-merge` entry swap), `:advanced`, `goog.DEBUG false`, lane cache cleared per rf2-2rtt6.20; 0 warnings |
 | **Runtime** | `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), node `v24.13.0`, hardware-concurrency 24, device-memory 32 |
 | **Design** | 6 rounds × 3 blocks × (4 warmup + 10 samples) per arm per row — the published shape, nothing overridden |
 | **Clock / door / tare** | as the before-run: raw `TaskDuration` frame-settled, one door (`page.evaluate → C56CLOCK.sample`), plumb-tared per block |
@@ -1079,7 +1079,7 @@ the y1jkm row's blobs are exactly the two this page describes:
 | `…/shapes/census_clock_{arms,app,run}` | `1e38b1a7a4…` / `b077ad6a11…` / `1f2a7e1c8b…` |
 | `…/arm1/lang.clj` · `…/lane.cljs` · `core …/substrate/spine.cljs` | `0151ddafb4…` · `0642815dc2…` · `ad7b19d9d8…` |
 
-Compact datasets: `implementation/freehand/test/re_frame/bench/hicasso/data/censusclock-6c237/`.
+Compact datasets: `implementation/freehand/test/re_frame/bench/fresco/data/censusclock-6c237/`.
 
 **The other commits this page pins.** Three of its runs were taken before the
 published one, at authored heads on branches this repo rebase-merged, so none

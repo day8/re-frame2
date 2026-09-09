@@ -1,9 +1,9 @@
-(ns re-frame.hicasso.error-source-coord-elision-prod-test
+(ns re-frame.fresco.error-source-coord-elision-prod-test
   "PRODUCTION ERASURE OF THE SOURCE COORDINATE.
 
   `defview` and `defhost` capture `:ns` / `:file` / `:line` / `:column` at
   macro-expansion time and hand them to
-  `re-frame.hicasso.impl.error/declaring!`. Both halves sit inside
+  `re-frame.fresco.impl.error/declaring!`. Both halves sit inside
   `(when re-frame.interop/debug-enabled? …)`, and `debug-enabled?` is
   `^boolean goog.DEBUG` — so under `:advanced` + `goog.DEBUG=false` the
   Closure compiler removes the call AND the map literal it would have
@@ -13,10 +13,10 @@
   the declaration also publishes a `:view` registrar entry carrying the
   coordinate and the minted head, and it is emitted inside the identical
   `when`. So the same constant-fold that erases the coordinate erases the
-  registration, which is what makes Hicasso's *no registry at runtime*
+  registration, which is what makes Fresco's *no registry at runtime*
   stance a production fact rather than a claim about the dev build. The
   dev-side shape is
-  `re-frame.hicasso.view-alias-registry-cljs-test`'s; only the ABSENCE is
+  `re-frame.fresco.view-alias-registry-cljs-test`'s; only the ABSENCE is
   assertable here.
 
   This file compiles under `:browser-test-prod-elision`, the dedicated
@@ -28,12 +28,12 @@
   Naming convention: `-elision-prod-test$` is the `:ns-regexp` of that one
   build. `:node-test` (`cljs-test$`) and `:browser-test` (`-cljs-test$`)
   do not reach this file, which is why it can assert the opposite of what
-  `re-frame.hicasso.error-shape-cljs-test` asserts about the same macros.
+  `re-frame.fresco.error-shape-cljs-test` asserts about the same macros.
 
   ## The runtime half of a two-part proof
 
   This file proves the coordinate is not REACHABLE in a production build.
-  `implementation/hicasso/scripts/check_source_coord_elision.cjs` proves
+  `implementation/fresco/scripts/check_source_coord_elision.cjs` proves
   the stronger thing — that the file-path string is not PRESENT in the
   release bundle at all — by scanning the artefact this build produces.
   A behavioural assertion cannot see a string Closure kept but nothing
@@ -42,7 +42,7 @@
 
   ## The declarations are next door, and that is not tidiness
 
-  They live in `re-frame.hicasso.coord-sentinel-source` because
+  They live in `re-frame.fresco.coord-sentinel-source` because
   `cljs.test` stamps `:file` into the report map of every `deftest` and
   every `is` — so a test namespace's own file name is in the release
   bundle dozens of times over, and a scan for it reds on a build whose
@@ -50,9 +50,9 @@
   the only thing that can put its file name in an artefact is the
   coordinate this bead erases."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.hicasso.coord-sentinel-source :as rf.hicasso.coord-sentinel-source]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.error :as rf.hicasso.impl.error]
+            [re-frame.fresco.coord-sentinel-source :as rf.fresco.coord-sentinel-source]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.error :as rf.fresco.impl.error]
             [re-frame.registrar :as rf.registrar]))
 
 ;; ---------------------------------------------------------------------------
@@ -63,11 +63,11 @@
   (testing "the `(when debug-enabled? (declaring! …))` the `defview`
             expansion emits DCEs whole, so the ledger has no entry and the
             absolute file path the macro read never reached the bundle"
-    (is (nil? (rf.hicasso.impl.error/source-of rf.hicasso.coord-sentinel-source/view-name)))))
+    (is (nil? (rf.fresco.impl.error/source-of rf.fresco.coord-sentinel-source/view-name)))))
 
 (deftest no-coordinate-is-registered-for-a-host-declared-under-prod
   (testing "`defhost` opens the same extent under the same gate"
-    (is (nil? (rf.hicasso.impl.error/source-of rf.hicasso.coord-sentinel-source/host-name)))))
+    (is (nil? (rf.fresco.impl.error/source-of rf.fresco.coord-sentinel-source/host-name)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Nor was the authoring-time alias
@@ -76,10 +76,10 @@
 (deftest no-view-registrar-entry-is-published-for-a-view-declared-under-prod
   (testing "`defview`'s registrar alias rides the SAME `(when
             debug-enabled? …)` gate as the coordinate above, so a production
-            bundle publishes no entry and Hicasso's *no registry at runtime*
+            bundle publishes no entry and Fresco's *no registry at runtime*
             stance holds where it is claimed. The entry serves tools; there
             are none here"
-    (is (nil? (rf.registrar/lookup :view rf.hicasso.coord-sentinel-source/view-id))))
+    (is (nil? (rf.registrar/lookup :view rf.fresco.coord-sentinel-source/view-id))))
 
   (testing "and NO entry anywhere in the `:view` kind holds a minted
             boundary — a build-wide absence rather than one id's.
@@ -88,10 +88,10 @@
             alias now publishes under `:handler-fn`, the same key every
             `reg-view` writes, so a filter on the key would answer
             non-empty for the Reagent adapter's views and prove nothing
-            about Hicasso. `boundary-head?` reads the `hicassoBoundary`
+            about Fresco. `boundary-head?` reads the `frescoBoundary`
             own-property `mint-view!` stamps, so it names exactly the
             entries this gate is supposed to have erased"
-    (is (empty? (filter (comp rf.hicasso.impl.codec/boundary-head? :handler-fn)
+    (is (empty? (filter (comp rf.fresco.impl.codec/boundary-head? :handler-fn)
                         (vals (rf.registrar/registrations :view)))))))
 
 (deftest the-view-kind-is-populated-under-prod-so-the-absence-above-is-real
@@ -109,16 +109,16 @@
 
 (deftest a-refusal-under-prod-carries-no-view-and-no-source
   (let [data (try
-               (rf.hicasso.impl.error/fail! :rf.error/hicasso-empty-vector
-                            're-frame.hicasso.impl.codec/vec->element
+               (rf.fresco.impl.error/fail! :rf.error/fresco-empty-vector
+                            're-frame.fresco.impl.codec/vec->element
                             "A hiccup vector must have a head."
                             {})
                (catch :default e (ex-data e)))]
 
     (testing "the four required fields survive — production loses the
               coordinate, never the diagnostic"
-      (is (= {:rf.error/id :rf.error/hicasso-empty-vector
-              :where       're-frame.hicasso.impl.codec/vec->element
+      (is (= {:rf.error/id :rf.error/fresco-empty-vector
+              :where       're-frame.fresco.impl.codec/vec->element
               :reason      "A hiccup vector must have a head."
               :recovery    :no-recovery}
              data)))
@@ -143,8 +143,8 @@
   ;; `goog.DEBUG=false`, so there was no ambient value to overwrite it with
   ;; and the forgery merged through untouched.
   (let [data (try
-               (rf.hicasso.impl.error/fail! :rf.error/hicasso-empty-vector
-                            're-frame.hicasso.impl.codec/vec->element
+               (rf.fresco.impl.error/fail! :rf.error/fresco-empty-vector
+                            're-frame.fresco.impl.codec/vec->element
                             "A hiccup vector must have a head."
                             {:view   "app.impostor/not-a-view"
                              :source {:ns 'app.impostor :file "app/impostor.cljs"
@@ -155,8 +155,8 @@
     (testing "the class's own slot rides through and the forged ambient pair
               does not — production absence is the constructor's answer, not
               a property of well-behaved call sites"
-      (is (= {:rf.error/id :rf.error/hicasso-empty-vector
-              :where       're-frame.hicasso.impl.codec/vec->element
+      (is (= {:rf.error/id :rf.error/fresco-empty-vector
+              :where       're-frame.fresco.impl.codec/vec->element
               :reason      "A hiccup vector must have a head."
               :recovery    :no-recovery
               :head        :the-class-s-own-slot}
@@ -173,8 +173,8 @@
 (deftest the-boundary-and-the-host-are-still-minted-under-prod
   (testing "a positive control, and the reason this file cannot pass by the
             macros having compiled to nothing at all"
-    (is (true? (rf.hicasso.impl.codec/boundary-head? rf.hicasso.coord-sentinel-source/sentinel-row)))
-    (is (true? (rf.hicasso.impl.codec/host-head? rf.hicasso.coord-sentinel-source/sentinel-host)))
-    (is (= rf.hicasso.coord-sentinel-source/view-name (.-displayName rf.hicasso.coord-sentinel-source/sentinel-row))
+    (is (true? (rf.fresco.impl.codec/boundary-head? rf.fresco.coord-sentinel-source/sentinel-row)))
+    (is (true? (rf.fresco.impl.codec/host-head? rf.fresco.coord-sentinel-source/sentinel-host)))
+    (is (= rf.fresco.coord-sentinel-source/view-name (.-displayName rf.fresco.coord-sentinel-source/sentinel-row))
         "the view name is NOT elided — it is the measure id and the
          React DevTools label, and it is a name rather than a coordinate")))

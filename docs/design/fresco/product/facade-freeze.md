@@ -74,10 +74,10 @@ reviewed as at this page's date rather than enforced.]** `rf2-6c12m.10` (2026-08
 deleted the per-package `*surface-cljs-test*` suites together with the shared
 `examples/require_graph.clj` macro they read the ClojureScript analyzer through, and with
 `check_example_fence_coverage.py`, the checker that policed each package having a fence at all. The
-successor is one `:node-test` suite, `re-frame.hicasso.examples.fence-cljs-test`, and it is the
+successor is one `:node-test` suite, `re-frame.fresco.examples.fence-cljs-test`, and it is the
 inverse of the mechanism this section describes on both axes: it reads each `ns` form with
 `cljs.tools.reader` at **run** time rather than the analyzer's dependency graph at
-macro-expansion time, and it is a four-family **blocklist** — no `re-frame.hicasso.impl.*`, no
+macro-expansion time, and it is a four-family **blocklist** — no `re-frame.fresco.impl.*`, no
 `re-frame.bench.*`, no development-tool namespace, no test kit — rather than a positive roster of
 permitted doors, so a name outside those four families passes. Its population is every package
 under `examples/`, derived from the directory on every run. What survives mechanically is therefore
@@ -126,7 +126,7 @@ application's `views.cljs` contains no callback at all. It is frozen as part of 
 **One member is frozen conditionally.** `reg-state` is on this list because two independent ordinary
 applications reached it, which is the evidence this freeze weighs. But
 [`naming-ledger.md`](naming-ledger.md) row 3 carries a live recommendation to *remove `h/reg-state`
-from the adaptor core and reconsider it in forms*, and `re-frame.hicasso.forms` has since shipped.
+from the adaptor core and reconsider it in forms*, and `re-frame.fresco.forms` has since shipped.
 That is a membership question, not a spelling, and it is `rf2-hic-065`'s sitting to settle. **This
 freeze records the demand and does not pre-empt the removal**: if the sitting removes it, `::h/clear`
 and the `[:ui ::concern ikey]` tier go with it, and the two witnesses acquire a draft key each.
@@ -138,17 +138,17 @@ disagree the owner governs and this row is the defect.
 
 | # | Law | Source | Witnessed by |
 |---|---|---|---|
-| 1 | A `defview` is always a boundary; an ordinary `defn` is always inline composition. A direct Clojure call refuses. | ergonomics-api authoring law 1; §4 row 1 | both apps; `:rf.error/hicasso-view-called-directly`, lint `direct-view-call` (error) |
+| 1 | A `defview` is always a boundary; an ordinary `defn` is always inline composition. A direct Clojure call refuses. | ergonomics-api authoring law 1; §4 row 1 | both apps; `:rf.error/fresco-view-called-directly`, lint `direct-view-call` (error) |
 | 2 | A body is pure and may run, retry or be abandoned. Render owns nothing. | authoring law 2; §3.2 | Phase 1 kernel rows 3 and 4 |
 | 3 | `sub` is ambient only during the active synchronous body. A helper may donate reads; a callback, promise, timer or lazy escape may not. | authoring law 3; §3.3 | Phase 1 kernel row 4's nine scenarios; lint `deferred-read`, `parked-read` (warnings) |
 | 4 | Reads in branches and loops are legal, and a branch not taken contributes no edge. `use-subs` is the control: it declares its edge set, so an untaken branch still costs its edge. | §3.3; the facade's own two docstrings | slice `editor` (ambient, branching) vs `article-row` (grouped) |
 | 5 | React owns keys, refs, hooks, effects, errors, concurrency, hydration and component identity. | authoring law 4; §3.2 | Todo N4 (`:ref` identity); §4 hooks-not-in-a-body |
 | 6 | Event vectors are data. One explicit callback form. Ordinary `fn` values keep ordinary JavaScript callback semantics, and **position selects the contract**. | authoring law 5; §3.5; §4.1 | `impl.intent`'s position table; neither app needed the callback form once |
 | 7 | A value at an `on-*` prop takes one of four shapes: an intent vector, a key map, the one callback form, or a plain function passed through. | §4.1; ergonomics-api §Surface boundaries | Todo N1 — **and the door did not say so when this page was written (`rf2-lu0s`, since fixed and closed)** |
-| 8 | Key maps are composition-gated centrally, so an IME's Enter commits nothing. | §4.1 *must make IME composition behavior explicit* | `impl.intent` `composing?`; `test:hicasso-controlled`, three engines |
-| 9 | Controlled fields are a framework law, not an application pattern: same-turn convergence, committed echo, rejection/normalization, caret and selection preservation, composition safety, and identity-preserving reset through an explicit revision. | §4.2; authoring law 6 | `test:hicasso-controlled` — 190 checks × 25 sections × 3 engines (97 × 13 when this row was written; `rf2-hic-040` added the control/DOM conformance matrix). **The revision half is witnessed there and by NEITHER ordinary application (`rf2-36bd`, closed); [§5](#5-what-is-not-in-the-ordinary-surface) states its real population.** |
+| 8 | Key maps are composition-gated centrally, so an IME's Enter commits nothing. | §4.1 *must make IME composition behavior explicit* | `impl.intent` `composing?`; `test:fresco-controlled`, three engines |
+| 9 | Controlled fields are a framework law, not an application pattern: same-turn convergence, committed echo, rejection/normalization, caret and selection preservation, composition safety, and identity-preserving reset through an explicit revision. | §4.2; authoring law 6 | `test:fresco-controlled` — 190 checks × 25 sections × 3 engines (97 × 13 when this row was written; `rf2-hic-040` added the control/DOM conformance matrix). **The revision half is witnessed there and by NEITHER ordinary application (`rf2-36bd`, closed); [§5](#5-what-is-not-in-the-ordinary-surface) states its real population.** |
 | 10 | Owned control attributes beat forwarded attributes by presence, not truthiness. | authoring law 7 | testbed `empty` arm (`""` is falsy and still wins) |
-| 11 | Buffered drafts, touched/submit-attempt validation and mutation status are **not** in the boundary shell. | §4.2 final paragraph | `re-frame.hicasso.forms`, separately reachable and proven unreachable from the door |
+| 11 | Buffered drafts, touched/submit-attempt validation and mutation status are **not** in the boundary shell. | §4.2 final paragraph | `re-frame.fresco.forms`, separately reachable and proven unreachable from the door |
 | 12 | Every refusal carries a stable id, source coordinate, view, position, offending value, expected shape and a recovery. | §3.6; ergonomics-api §Editor and diagnostic ergonomics | 74 live complaint rows, each emitted and rowed in Spec 009 |
 | 13 | No public option selects an execution mode. | authoring law 9 | Phase 0 exit clause, already discharged |
 | 14 | Optional capabilities live in named namespaces with bundle-reachability proofs, and the door names none of them. | §4 final paragraph; ergonomics-api §Recommendation | `check_optional_module_reachability.py` — motion, overlay, native, forms all unreachable from the door |
@@ -162,7 +162,7 @@ against their standing witnesses. What each measurement was is
 [`specification.md` §4](specification.md#4-target-programming-model) fixes it at four — *event value,
 checked value, explicit prevention, and controlled-value revision* — and
 [`dispositions.md`](dispositions.md) HS-07 carries the same four with a server-side refusal arm.
-The runtime's marker list (`re-frame.hicasso`, ns docstring) names eight. The difference is
+The runtime's marker list (`re-frame.fresco`, ns docstring) names eight. The difference is
 accounted for and no part of it is a finding:
 
 | Marker | Status |
@@ -192,7 +192,7 @@ here as they stood before 2026-08-13, because both have since been amended:
   *"Prevention is explicit everywhere; there is no submit-only auto-prevention."*
 
 The shipped surface has a submit-only auto-prevention
-(`implementation/hicasso/src/re_frame/hicasso/impl/intent.cljs:841-843`), states it as a
+(`implementation/fresco/src/re_frame/fresco/impl/intent.cljs:841-843`), states it as a
 census-weighted policy default at `:175-178`, and the Todo application depends on it — *Enter adds a
 to-do* is `{:on-submit [::events/add]}` with no key test, no `preventDefault` and no callback
 (`authoring-report-todo.md` N5, recorded as a positive).

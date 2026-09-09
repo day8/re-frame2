@@ -2,13 +2,13 @@
 """Run CI's clj-kondo gate LOCALLY — same version, same paths, same flags.
 
 WHY THIS EXISTS (rf2-x1mz).  A worker edited
-`implementation/hicasso/src/re_frame/hicasso/impl/overlay.cljs`, ran the local
+`implementation/fresco/src/re_frame/fresco/impl/overlay.cljs`, ran the local
 spine, got green, pushed, and CI's `clj-kondo` job went red.  No local gate in
 this repo could have caught it, for TWO INDEPENDENT REASONS — either one
 sufficient on its own:
 
   1. VERSION SKEW.  The only local lane that ran clj-kondo at all
-     (`implementation/hicasso/scripts/check_lint_export.py`) resolved the
+     (`implementation/fresco/scripts/check_lint_export.py`) resolved the
      binary off `PATH`, whatever version that happened to be.  Measured on the
      exact defect: clj-kondo 2025.10.23 reports `errors: 0, exit 0`; the pinned
      2026.04.15 reports `Expected: array, received: function` and exits 3.  And
@@ -18,9 +18,9 @@ sufficient on its own:
      provisioning half below.
 
   2. PATH COVERAGE.  That lane's `--lint` targets are two fixture files and
-     `hicasso/testbed`.  It never linted `hicasso/src/`, so the file was
+     `fresco/testbed`.  It never linted `fresco/src/`, so the file was
      outside every local lane REGARDLESS of version — and even had it been
-     inside, that gate reads only findings in the `re-frame.hicasso/*`
+     inside, that gate reads only findings in the `re-frame.fresco/*`
      namespace, so a built-in kondo ERROR like this one is invisible to it.
 
 WHAT THE DEFECT COST, so the stakes are concrete rather than stylistic: two
@@ -367,13 +367,13 @@ def self_test() -> int:
     # --- the arming predicate ----------------------------------------------
     roots = ["implementation", "tools/story"]
     check("a source file under a --lint root arms the lane",
-          arms(["implementation/hicasso/src/re_frame/hicasso/impl/overlay.cljs"], roots))
+          arms(["implementation/fresco/src/re_frame/fresco/impl/overlay.cljs"], roots))
     check("the shared kondo config arms the lane",
           arms([".clj-kondo/config.edn"], roots))
     check("the workflow carrying the pin arms the lane",
           arms([".github/workflows/lint.yml"], roots))
     check("a doc-only change does not",
-          not arms(["docs/design/hicasso/product/specification.md", "README.md"], roots))
+          not arms(["docs/design/fresco/product/specification.md", "README.md"], roots))
     check("a near-miss prefix does not arm the lane",
           not arms(["implementation-notes/x.cljs"], roots))
 
@@ -408,18 +408,18 @@ def self_test() -> int:
         exe = None
 
     if exe is not None:
-        victim = (REPO_ROOT / "implementation" / "hicasso" / "src" / "re_frame"
-                  / "hicasso" / "impl" / "overlay.cljs")
+        victim = (REPO_ROOT / "implementation" / "fresco" / "src" / "re_frame"
+                  / "fresco" / "impl" / "overlay.cljs")
         original = victim.read_bytes()
         before = hashlib.sha256(original).hexdigest()
-        anchor = b'(unchecked-set "displayName" "hicasso/modal")'
+        anchor = b'(unchecked-set "displayName" "fresco/modal")'
         if original.count(anchor) != 1:
             check("the planted-defect control has its anchor", False,
                   "%d occurrences of %r in %s"
                   % (original.count(anchor), anchor.decode(), victim.name))
         else:
             planted = original.replace(
-                anchor, b'(aset "displayName" "hicasso/modal")', 1)
+                anchor, b'(aset "displayName" "fresco/modal")', 1)
             try:
                 victim.write_bytes(planted)
                 proc = subprocess.run(

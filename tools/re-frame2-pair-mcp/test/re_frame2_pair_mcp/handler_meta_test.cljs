@@ -37,7 +37,7 @@
   `re-frame.machines`, per spec/API.md's front-porch boundary), and both
   `:machine` reads returned an eval error against every running app
   while this suite passed. Point (5) is the both-sides witness that
-  closes it, in the shape `hicasso_wire_test.cljs` established for the
+  closes it, in the shape `fresco_wire_test.cljs` established for the
   same class of string coupling."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [clojure.string :as str]
@@ -876,7 +876,7 @@
 ;; See the ns docstring for why this reads another artefact's source. In one
 ;; line: the coupling is a string, so nothing in this build can see it, and a
 ;; suite that only reads the emitter back to itself stays green over a var that
-;; exists nowhere. `hicasso_wire_test.cljs` established the shape for the same
+;; exists nowhere. `fresco_wire_test.cljs` established the shape for the same
 ;; class of coupling; this is its registry-introspection twin.
 ;;
 ;; The symbols are extracted from ACTUAL EMITTED FORMS rather than from a

@@ -1,8 +1,8 @@
-(ns re-frame.bench.hicasso.front.presence
+(ns re-frame.bench.fresco.front.presence
   "PRESENCE AS DATA — the retention machine and the phase transform
   (rf2-2rtt6.37, HD-025). The **pure half**: a value in, a value out, no
   React, no clock, no ambient read. The React component that drives it is
-  `re-frame.bench.hicasso.arm1.presence`.
+  `re-frame.bench.fresco.arm1.presence`.
 
   ## The trap this deletes
 
@@ -42,7 +42,7 @@
   render scope, it appears in a structural test's props map, and a
   headless test can supply it with no clock.
 
-  The consequence worth recording: `presence-phase` has no Hicasso
+  The consequence worth recording: `presence-phase` has no Fresco
   equivalent. One fewer public concept against K5. (K5 — the ergonomics
   kill criterion — was removed by operator ruling on 2026-08-04; this
   records the reason the shape was chosen, not a live gate.)
@@ -85,7 +85,7 @@
   spend an effect on it. Deadlines are absolute instants stored when a
   key starts exiting, so a timer re-armed for an unrelated reason cannot
   extend a child's retention past its terminal bound."
-  (:require [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]))
+  (:require [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]))
 
 ;; ---------------------------------------------------------------------------
 ;; The reserved keys
@@ -94,12 +94,12 @@
 (def mounting-key
   "`::h/mounting` — the attribute overrides applied while a child is
   entering."
-  :re-frame.hicasso/mounting)
+  :re-frame.fresco/mounting)
 
 (def unmounting-key
   "`::h/unmounting` — the attribute overrides applied while a child is
   being retained on its way out."
-  :re-frame.hicasso/unmounting)
+  :re-frame.fresco/unmounting)
 
 (def override-keys #{mounting-key unmounting-key})
 
@@ -148,7 +148,7 @@
   runs on — an unkeyed child has no way to be the same child next render."
   [child]
   (when-not (vector? child)
-    (fail! :rf.error/hicasso-presence-child-not-hiccup
+    (fail! :rf.error/fresco-presence-child-not-hiccup
            'front.presence/child-key
            (str "A presence child must be a keyed hiccup vector; it was "
                 (pr-str child) ".")
@@ -156,7 +156,7 @@
            {:child child}))
   (let [k (:key (props-of child))]
     (when (nil? k)
-      (fail! :rf.error/hicasso-presence-child-unkeyed
+      (fail! :rf.error/fresco-presence-child-unkeyed
              'front.presence/child-key
              (str "A presence child has no :key. Presence retains children by "
                   "key, so an unkeyed child cannot be recognised across a "
@@ -185,7 +185,7 @@
   removed, so an override never reaches the DOM as an attribute.
 
   **The exclusion is on the canonical SLOT, through the filter
-  [[re-frame.bench.hicasso.front.codec/without-structural]] that `:&`
+  [[re-frame.bench.fresco.front.codec/without-structural]] that `:&`
   uses.** It has to be: an override carrying `\"key\"` or `:x/key`
   survives a raw `#{:key :ref}` dissoc and canonicalises straight onto
   React's key, which would remount the very node presence exists to
@@ -202,10 +202,10 @@
   failure this whole ruling exists to delete."
   [child phase]
   (let [props (props-of child)]
-    (if (rf.bench.hicasso.front.codec/boundary-head? (nth child 0))
+    (if (rf.bench.fresco.front.codec/boundary-head? (nth child 0))
       (do
         (when (some #(contains? props %) override-keys)
-          (fail! :rf.error/hicasso-presence-override-on-a-view
+          (fail! :rf.error/fresco-presence-override-on-a-view
                  'front.presence/with-phase
                  (str "A presence attribute override was written on a VIEW head. "
                       "Presence merges overrides into nodes it can see; a view is "
@@ -218,7 +218,7 @@
             base     (when props (apply dissoc props override-keys))]
         (cond
           (map? override)
-          (with-props child (merge base (rf.bench.hicasso.front.codec/without-structural override)))
+          (with-props child (merge base (rf.bench.fresco.front.codec/without-structural override)))
 
           ;; Nothing to strip and nothing to merge: the child is already
           ;; exactly what it should render as, so it comes back untouched
@@ -354,7 +354,7 @@
   fails or is disabled."
   [timeout-ms]
   (when-not (and (number? timeout-ms) (pos? timeout-ms))
-    (fail! :rf.error/hicasso-presence-timeout-required
+    (fail! :rf.error/fresco-presence-timeout-required
            'front.presence/check-timeout!
            (str "presence needs a positive :timeout-ms; it was "
                 (pr-str timeout-ms) ". It is the retention length and the hard "

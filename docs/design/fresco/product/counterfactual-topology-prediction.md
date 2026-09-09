@@ -14,7 +14,7 @@ So the usual weakness of a blinded prediction — that the predictor could have 
 
 ## Basis vocabulary
 
-Borrowed from [the causal slice](../../../../tools/xray/src/day8/re_frame2_xray/panels/hicasso_causal.cljc)'s discipline, because a worksheet that mixed the two would be read as measurement throughout:
+Borrowed from [the causal slice](../../../../tools/xray/src/day8/re_frame2_xray/panels/fresco_causal.cljc)'s discipline, because a worksheet that mixed the two would be read as measurement throughout:
 
 | basis | meaning here |
 |---|---|

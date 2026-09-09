@@ -74,7 +74,7 @@ const SCANNED = ['implementation', 'examples', 'tools', 'scripts', '.github'];
  * THE BOUNDARIES ARE NOT DECORATION. A bare `ssr-node` substring is a
  * FALSE POSITIVE generator, and it fired on the first run: the SSR spike
  * driver's header explains at length that it deliberately did NOT mint a
- * `:hicasso-ssr-node` build id, and a substring scan reads that sentence
+ * `:fresco-ssr-node` build id, and a substring scan reads that sentence
  * as the very coupling it is disclaiming. So the pattern refuses a
  * preceding word character, colon or hyphen, and a following word
  * character or hyphen — which still matches every form that would be a
@@ -847,7 +847,7 @@ const BUILD_CONFIGS = ['implementation/shadow-cljs.edn', 'implementation/deps.ed
  * failure message states: "the package would be on a build's source path"
  * is a claim about `:source-paths`, `:deps` and their siblings, and a `;;`
  * comment is none of them. `implementation/shadow-cljs.edn` earned the red
- * by explaining, in a comment above `:examples/login-hicasso-server`,
+ * by explaining, in a comment above `:examples/login-fresco-server`,
  * which sidecar loads the module that build emits — prose about the
  * package, in the file where prose about a build belongs.
  *

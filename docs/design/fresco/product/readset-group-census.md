@@ -6,7 +6,7 @@ The order in the row is the design. The census runs first, and if the census say
 
 **Everything above the *Result* heading was written and committed before the instrument existed.** That ordering is the whole value of a pre-registration, so it is checkable rather than asserted: the criteria landed in their own commit on `worker/readset-hic083`, and the census code landed after it. Measured on a tree based at `8f1234311551e70b9825071e5317441922e56489`.
 
-**[Amended 2026-08-29, `rf2-6c12m.17`.]** The landmark this page calibrates against is named below as `re-frame.hicasso.impl.inventory/stats`, the spelling it had when the criteria were frozen. PR #8745 moved that reader, unchanged, to the test kit's runtime door: it is `re-frame.hicasso.test.runtime/stats` now, `impl.inventory` is deleted, and the census reads `impl.collector`'s tables and the kit's readers from the test tree. The pre-registered text keeps its words.
+**[Amended 2026-08-29, `rf2-6c12m.17`.]** The landmark this page calibrates against is named below as `re-frame.fresco.impl.inventory/stats`, the spelling it had when the criteria were frozen. PR #8745 moved that reader, unchanged, to the test kit's runtime door: it is `re-frame.fresco.test.runtime/stats` now, `impl.inventory` is deleted, and the census reads `impl.collector`'s tables and the kit's readers from the test tree. The pre-registered text keeps its words.
 
 ## What is proposed
 
@@ -16,7 +16,7 @@ The order in the row is the design. The census runs first, and if the census say
 
 ## The unit being counted
 
-A **membership** is one slot in a cell's `.-readers` array. Since `rf2-dabt3` that one slot is simultaneously the sub-key's reverse edge and the boundary's reference to that key's cell, which is why `re-frame.hicasso.impl.inventory/stats` reports it once under two names (`:cell-refs` and `:edges`) rather than counting two structures. It is the quantity the proposal proposes to reduce, so it is the quantity the census counts, and it is counted in the runtime's own table rather than inferred from source.
+A **membership** is one slot in a cell's `.-readers` array. Since `rf2-dabt3` that one slot is simultaneously the sub-key's reverse edge and the boundary's reference to that key's cell, which is why `re-frame.fresco.impl.inventory/stats` reports it once under two names (`:cell-refs` and `:edges`) rather than counting two structures. It is the quantity the proposal proposes to reduce, so it is the quantity the census counts, and it is counted in the runtime's own table rather than inferred from source.
 
 Two derived quantities, both per read-set entry:
 
@@ -61,7 +61,7 @@ A census is believed, so it is the instrument most worth attacking. Four proofs,
 1. **NON-EMPTY.** It answers a positive membership count on a real population, asserted explicitly. A reporter that is structurally incapable of returning a row reports "clean" and "nothing ran" identically.
 2. **POSITIVE CONTROL.** On a population deliberately built to coalesce — several boundaries, identical multi-key read set — it reports a *positive* saving. A census that cannot detect coalescence when coalescence is present has not measured its absence anywhere else.
 3. **OVER-REPORT CONTROL.** On a legal population that must not coalesce — every boundary a distinct read set — it reports exactly zero coalesced memberships and a negative saving. Two of this programme's recent reporter defects were over-reports.
-4. **CALIBRATION against a landmark.** `Σ B·R` taken entry-side must equal `re-frame.hicasso.impl.inventory/stats`'s `:cell-refs`, which is walked cell-side. The two walks share no code and no table traversal: one sums `refs × |set|` over the entry cache, the other sums `readers.length` over the cell table. The landmark is reproduced exactly before any new number is believed.
+4. **CALIBRATION against a landmark.** `Σ B·R` taken entry-side must equal `re-frame.fresco.impl.inventory/stats`'s `:cell-refs`, which is walked cell-side. The two walks share no code and no table traversal: one sums `refs × |set|` over the entry cache, the other sums `readers.length` over the cell table. The landmark is reproduced exactly before any new number is believed.
 
 ## What it REPORTS rather than skips
 
@@ -77,7 +77,7 @@ A sub-key is `[frame-kw query-v]` — the frame's public keyword, not its incarn
 
 ## Result
 
-First measured 2026-08-12 20:29 AUSEST on a tree based at `8f1234311551e70b9825071e5317441922e56489`, by `re-frame.hicasso.readset-group-census-dom-cljs-test` on the browser lane: seven witness applications, each mounted on a real React root, each censused while mounted. React decides how many boundaries exist; the census only counts them.
+First measured 2026-08-12 20:29 AUSEST on a tree based at `8f1234311551e70b9825071e5317441922e56489`, by `re-frame.fresco.readset-group-census-dom-cljs-test` on the browser lane: seven witness applications, each mounted on a real React root, each censused while mounted. React decides how many boundaries exist; the census only counts them.
 
 Re-measured 2026-08-13 08:31 AUSEST on a tree based at `c48f75a0d259f8e43359921553fc2cb077a97694` with `rf2-hic-074`'s changes applied. The slice grew a pager, a digest region and five block renderers, so the corpus moved and the pinned row in the test went red — which is what it is for. The verdict did not move: `coalesced` went from −79.1% to −77.6% and `shareable` from 6.0% to 5.6%, both further from the trigger rather than nearer it. The extension contributed seven read-set entries — four `[1 1]`, two `[1 5]` and one `[2 0]` — and not one of them is the `B ≥ 2, R ≥ 2` shape grouping needs. That is the [*Why it is structural*](#why-and-why-it-is-structural-rather-than-a-property-of-these-seven-applications) section's prediction meeting an application written months after it: the new boundaries with several reads are singletons (a pager, a digest region), and the new boundary the corpus shares is read-free (two block renderers that take their block as a prop). An independent confirmation, not a correction.
 
@@ -147,7 +147,7 @@ Meanwhile the boundaries with the largest read sets are all singletons. `example
 
 The remaining 145 entries are the shape a real application is mostly made of: `[1 1]` and `[1 2]` — one boundary, its own parameterised key. `examples.grid`'s hundred cells and ten row totals are 110 of them, each reading `[::subs/cell r c]` or `[::subs/row-total r]`. Those are precisely the boundaries a fan-out scheme would want to be about, and their read sets are distinct **because** they are per-row — the parameter that makes a row independent is the same parameter that makes its read set unshareable.
 
-This is not a finding about seven applications. It is what *fine row reads for sparse independent updates* — [specification §Rung 2](specification.md#rung-2--tune-hicasso-topology)'s first recommended topology — costs and buys. An application that produced material identical-set fan-out would be one whose rows all read the same page-wide keys, which is the coarse topology Rung 2 recommends *against* for independent updates.
+This is not a finding about seven applications. It is what *fine row reads for sparse independent updates* — [specification §Rung 2](specification.md#rung-2--tune-fresco-topology)'s first recommended topology — costs and buys. An application that produced material identical-set fan-out would be one whose rows all read the same page-wide keys, which is the coarse topology Rung 2 recommends *against* for independent updates.
 
 ### The fences, checked rather than assumed
 

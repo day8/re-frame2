@@ -89,15 +89,15 @@ The shape is identical; the registration surface differs by adapter (cross-ref t
 
 The `reg-view` macro (and its injected locals) is **Reagent-only** — it does not cover UIx ([`spec/006-ReactiveSubstrate.md` §CLJS reference: UIx as alternative substrate](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate), decision 4). On the hooks adapter a UIx component is an ordinary `defui`: it reads subs through the adapter's `use-sub` hook (no injected `subscribe`) and carries the frame — for dispatch, and for any async callback that fires after render — through the **`use-frame`** hook (the hook-position spelling of `capture-frame`, reading the surrounding `frame-provider` / `frame-root` from React context). `reg-view*` on this adapter is optional, only when a component needs registry-keyed view addressing — never the source of the frame wiring.
 
-## Hicasso — the re-frame-native peer
+## Fresco — the re-frame-native peer
 
 Everything above is the **adapter** story: re-frame2 drives a React view layer someone else wrote (Reagent, reagent-slim, UIx), and each adapter has its own spelling for frame awareness — `reg-view` on Reagent, the `use-sub` / `use-frame` hooks on UIx. Those adapters are first-class and stay that way.
 
-**Hicasso** (`re-frame.hicasso`, conventionally aliased `h`) is the other option — a view layer re-frame2 owns, so the view tier stays in the same data story as the rest of the app. A view is an `h/defview` mounted in brackets and never called; subscriptions are read with `(h/sub …)`, which returns the value rather than something to deref; and handlers lift to event vectors as data, so a structural test can assert what a button does with `=`.
+**Fresco** (`re-frame.fresco`, conventionally aliased `h`) is the other option — a view layer re-frame2 owns, so the view tier stays in the same data story as the rest of the app. A view is an `h/defview` mounted in brackets and never called; subscriptions are read with `(h/sub …)`, which returns the value rather than something to deref; and handlers lift to event vectors as data, so a structural test can assert what a button does with `=`.
 
 Everything upstream of the view is unchanged — the same `reg-event`, `reg-sub`, app-db, effects, frames, machines and routing this skill teaches. Only the view spelling and its host move.
 
-Writing Hicasso views is not this skill's surface. Porting existing Reagent views across is the [`reagent-migration`](https://github.com/day8/re-frame2/tree/main/skills/reagent-migration) skill, which carries the verb roster, the judgment calls and the cases Hicasso does not yet handle. Check a verb against that skill's roster before writing it, because the design corpus describes several that are not exported.
+Writing Fresco views is not this skill's surface. Porting existing Reagent views across is the [`reagent-migration`](https://github.com/day8/re-frame2/tree/main/skills/reagent-migration) skill, which carries the verb roster, the judgment calls and the cases Fresco does not yet handle. Check a verb against that skill's roster before writing it, because the design corpus describes several that are not exported.
 
 ## Common gotchas
 

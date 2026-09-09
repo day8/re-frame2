@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.grid.row-total-layer2-dom-cljs-test
+(ns re-frame.fresco.examples.grid.row-total-layer2-dom-cljs-test
   "L3 — THE LAYER-1 / LAYER-2 CONTRAST THE PER-KEYSTROKE CENSUS NAMES AND
   DECLINES TO CLAIM.
 
@@ -9,7 +9,7 @@
   > measured that contrast yet, and this page does not claim it — it is
   > named as the next question rather than as an answer.
   >
-  > — `docs/design/hicasso/product/per-keystroke.md` §4
+  > — `docs/design/fresco/product/per-keystroke.md` §4
 
   This file measures it. Nothing else about the grid changes: the
   application's `::subs/row-total` is a LAYER-1 reader over the whole of
@@ -69,12 +69,12 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.grid.app :as rf.hicasso.examples.grid.app]
-            [re-frame.hicasso.examples.grid.events :as rf.hicasso.examples.grid.events]
-            [re-frame.hicasso.examples.grid.subs :as rf.hicasso.examples.grid.subs]
-            [re-frame.hicasso.examples.grid.views :as rf.hicasso.examples.grid.views]
-            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.grid.app :as rf.fresco.examples.grid.app]
+            [re-frame.fresco.examples.grid.events :as rf.fresco.examples.grid.events]
+            [re-frame.fresco.examples.grid.subs :as rf.fresco.examples.grid.subs]
+            [re-frame.fresco.examples.grid.views :as rf.fresco.examples.grid.views]
+            [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.registrar :as rf.registrar]
             [re-frame.test-support :as rf.test-support]))
 
@@ -97,37 +97,37 @@
   docstring. `input-fn` is pure in the query vector and cannot read
   `app-db`, so the row's width has to be told to it."
    :inputs (fn [[_ row cols]]
-    (mapv (fn [col] [::rf.hicasso.examples.grid.subs/cell row col]) (range cols)))}
+    (mapv (fn [col] [::rf.fresco.examples.grid.subs/cell row col]) (range cols)))}
   (fn [cell-values _]
     (transduce (map (fn [s] (if (seq s) (js/parseInt s 10) 0)))
                +
                0
                cell-values)))
 
-(rf.hicasso/defview row-total-l2
+(rf.fresco/defview row-total-l2
   "`views/row-total` with its subscription restated. Same markup, same
   `.total` class, same `data-total` — so the same selector reads it and
   the arms differ in exactly one expression."
   [{:keys [row cols]}]
-  [:td.total {:data-total (str row)} (str (rf.hicasso/sub [::row-total-l2 row cols]))])
+  [:td.total {:data-total (str row)} (str (rf.fresco/sub [::row-total-l2 row cols]))])
 
-(rf.hicasso/defview grid-row-l2
+(rf.fresco/defview grid-row-l2
   "`views/grid-row` with [[row-total-l2]] in place of `views/row-total`.
 
   The cells are the APPLICATION's `views/cell`, required and used
   unchanged: the contrast is one subscription's spelling, and a re-typed
   cell would put a second difference into a two-arm measurement."
   [{:keys [row]}]
-  (let [{:keys [cols]} (rf.hicasso/sub [::rf.hicasso.examples.grid.subs/dimensions])]
+  (let [{:keys [cols]} (rf.fresco/sub [::rf.fresco.examples.grid.subs/dimensions])]
     [:tr {:data-row (str row)}
      (for [col (range cols)]
-       [rf.hicasso.examples.grid.views/cell {:key (str col) :row row :col col}])
+       [rf.fresco.examples.grid.views/cell {:key (str col) :row row :col col}])
      [row-total-l2 {:key "total" :row row :cols cols}]]))
 
-(rf.hicasso/defview grid-l2
+(rf.fresco/defview grid-l2
   "`views/grid` over [[grid-row-l2]]."
   [_]
-  (let [{:keys [rows]} (rf.hicasso/sub [::rf.hicasso.examples.grid.subs/dimensions])]
+  (let [{:keys [rows]} (rf.fresco/sub [::rf.fresco.examples.grid.subs/dimensions])]
     [:main#hundred-cell-grid
      [:h1 "Grid"]
      [:table
@@ -198,10 +198,10 @@
 (def ^:private counted-sub-ids
   "Both arms count the same four ids, so an arm that never ran its own
   total shows up as an ABSENT key rather than as a smaller sum."
-  [::rf.hicasso.examples.grid.subs/cell ::rf.hicasso.examples.grid.subs/dimensions ::rf.hicasso.examples.grid.subs/row-total ::row-total-l2])
+  [::rf.fresco.examples.grid.subs/cell ::rf.fresco.examples.grid.subs/dimensions ::rf.fresco.examples.grid.subs/row-total ::row-total-l2])
 
 (defn- grid-node [m row col]
-  (.querySelector (:container m) (str "#" (rf.hicasso.examples.grid.events/cell-id row col))))
+  (.querySelector (:container m) (str "#" (rf.fresco.examples.grid.events/cell-id row col))))
 
 (defn- total-text [m row]
   (.-textContent (.querySelector (:container m) (str "[data-total='" row "']"))))
@@ -227,12 +227,12 @@
   [form dimensions]
   (with-counted-subs counted-sub-ids
     (fn [sub-runs reset-subs!]
-      (let [m (rf.hicasso.test.mounted/mount! form {:initial-events (rf.hicasso.examples.grid.app/initial-events dimensions)})
+      (let [m (rf.fresco.test.mounted/mount! form {:initial-events (rf.fresco.examples.grid.app/initial-events dimensions)})
             n (grid-node m 3 4)]
-        (rf.hicasso.test.mounted/settle! m)
+        (rf.fresco.test.mounted/settle! m)
         (let [before (total-text m 3)]
           (reset-subs!)
-          (let [bodies (rf.hicasso.test.mounted/bodies-run (fn [] (type-into! n "1") (rf.hicasso.test.mounted/settle! m)))
+          (let [bodies (rf.fresco.test.mounted/bodies-run (fn [] (type-into! n "1") (rf.fresco.test.mounted/settle! m)))
                 runs   (sub-runs)]
             (try
               {:sub-runs     (total runs)
@@ -241,7 +241,7 @@
                :total-before before
                :total-after  (total-text m 3)
                :cell-value   (.-value (grid-node m 3 4))}
-              (finally (rf.hicasso.test.mounted/unmount! m)))))))))
+              (finally (rf.fresco.test.mounted/unmount! m)))))))))
 
 (def ^:private small {:rows 5 :cols 5})
 (def ^:private full {:rows 10 :cols 10})
@@ -256,16 +256,16 @@
   ;; measuring the wrong thing.
   (if-not (browser?)
     (skip! "the faithfulness premise")
-    (let [l1 (rf.hicasso.test.mounted/mount! [rf.hicasso.examples.grid.views/grid {}] {:initial-events (rf.hicasso.examples.grid.app/initial-events full)})
-          l2 (rf.hicasso.test.mounted/mount! [grid-l2 {}] {:initial-events (rf.hicasso.examples.grid.app/initial-events full)})]
+    (let [l1 (rf.fresco.test.mounted/mount! [rf.fresco.examples.grid.views/grid {}] {:initial-events (rf.fresco.examples.grid.app/initial-events full)})
+          l2 (rf.fresco.test.mounted/mount! [grid-l2 {}] {:initial-events (rf.fresco.examples.grid.app/initial-events full)})]
       (is (= (mapv #(total-text l1 %) (range 10))
              (mapv #(total-text l2 %) (range 10)))
           "every row's total, both spellings, at 10x10")
       (is (= "345" (total-text l1 3))
           "and the value is the seeded row's real sum (30+31+…+39), so the
            row above is not two spellings agreeing on nil")
-      (rf.hicasso.test.mounted/unmount! l1)
-      (rf.hicasso.test.mounted/unmount! l2))))
+      (rf.fresco.test.mounted/unmount! l1)
+      (rf.fresco.test.mounted/unmount! l2))))
 
 ;; ---------------------------------------------------------------------------
 ;; The contrast
@@ -274,9 +274,9 @@
 (deftest the-layer-2-row-total-recomputes-once-where-the-layer-1-one-recomputes-per-row
   (if-not (browser?)
     (skip! "the contrast")
-    (let [l1-100 (census-of [rf.hicasso.examples.grid.views/grid {}] full)
+    (let [l1-100 (census-of [rf.fresco.examples.grid.views/grid {}] full)
           l2-100 (census-of [grid-l2 {}] full)
-          l1-25  (census-of [rf.hicasso.examples.grid.views/grid {}] small)
+          l1-25  (census-of [rf.fresco.examples.grid.views/grid {}] small)
           l2-25  (census-of [grid-l2 {}] small)]
 
       (testing "the arm is live — the one run produced the new number"
@@ -303,7 +303,7 @@
              recomputation saving below meaningless."))
 
       (testing "the layer-1 arm — the census's own figures, re-read here"
-        (is (= {::rf.hicasso.examples.grid.subs/cell 100 ::rf.hicasso.examples.grid.subs/row-total 10 ::rf.hicasso.examples.grid.subs/dimensions 1}
+        (is (= {::rf.fresco.examples.grid.subs/cell 100 ::rf.fresco.examples.grid.subs/row-total 10 ::rf.fresco.examples.grid.subs/dimensions 1}
                (:by-sub l1-100))
             "10x10: every mounted cell, every row total, and the
              dimensions cell that nothing moved. Identical to the
@@ -311,12 +311,12 @@
              same counter — so this file's subtraction is between two
              readings it took itself")
         (is (= 111 (:sub-runs l1-100)))
-        (is (= {::rf.hicasso.examples.grid.subs/cell 25 ::rf.hicasso.examples.grid.subs/row-total 5 ::rf.hicasso.examples.grid.subs/dimensions 1}
+        (is (= {::rf.fresco.examples.grid.subs/cell 25 ::rf.fresco.examples.grid.subs/row-total 5 ::rf.fresco.examples.grid.subs/dimensions 1}
                (:by-sub l1-25)))
         (is (= 31 (:sub-runs l1-25))))
 
       (testing "the layer-2 arm — the row-total term collapses to ONE"
-        (is (= {::rf.hicasso.examples.grid.subs/cell 100 ::row-total-l2 1 ::rf.hicasso.examples.grid.subs/dimensions 1}
+        (is (= {::rf.fresco.examples.grid.subs/cell 100 ::row-total-l2 1 ::rf.fresco.examples.grid.subs/dimensions 1}
                (:by-sub l2-100))
             "10x10: ONE row-total body where the layer-1 spelling ran ten.
              The nine that did not run are the nine rows whose cells did
@@ -324,22 +324,22 @@
              and finds them `=`, where the layer-1 memo compares the whole
              of `app-db` and finds it moved")
         (is (= 102 (:sub-runs l2-100)))
-        (is (= {::rf.hicasso.examples.grid.subs/cell 25 ::row-total-l2 1 ::rf.hicasso.examples.grid.subs/dimensions 1}
+        (is (= {::rf.fresco.examples.grid.subs/cell 25 ::row-total-l2 1 ::rf.fresco.examples.grid.subs/dimensions 1}
                (:by-sub l2-25))
             "and at 5x5 the same ONE — the term is flat in the grid, where
              the layer-1 spelling's was linear in `rows`")
         (is (= 27 (:sub-runs l2-25))))
 
       (testing "the contrast, stated as the two shapes"
-        (is (= [10 5] [(::rf.hicasso.examples.grid.subs/row-total (:by-sub l1-100))
-                       (::rf.hicasso.examples.grid.subs/row-total (:by-sub l1-25))])
+        (is (= [10 5] [(::rf.fresco.examples.grid.subs/row-total (:by-sub l1-100))
+                       (::rf.fresco.examples.grid.subs/row-total (:by-sub l1-25))])
             "layer-1 row-total runs = rows: 10 at 10x10, 5 at 5x5 — it
              GROWS with the page")
         (is (= [1 1] [(::row-total-l2 (:by-sub l2-100))
                       (::row-total-l2 (:by-sub l2-25))])
             "layer-2 row-total runs = 1 at both sizes — it does NOT")
 
-        (is (= 100 (::rf.hicasso.examples.grid.subs/cell (:by-sub l1-100)) (::rf.hicasso.examples.grid.subs/cell (:by-sub l2-100)))
+        (is (= 100 (::rf.fresco.examples.grid.subs/cell (:by-sub l1-100)) (::rf.fresco.examples.grid.subs/cell (:by-sub l2-100)))
             "AND THE LINEAR TERM SURVIVES, which is the half of this
              measurement a reader is likeliest to misread. `::cell` is a
              layer-1 reader in BOTH arms and there are a hundred of them

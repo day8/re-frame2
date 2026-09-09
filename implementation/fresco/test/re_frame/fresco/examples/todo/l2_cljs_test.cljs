@@ -1,7 +1,7 @@
-(ns re-frame.hicasso.examples.todo.l2-cljs-test
+(ns re-frame.fresco.examples.todo.l2-cljs-test
   "L2 — THE BODIES, AS SEMANTIC TREES.
 
-  `re-frame.hicasso.test/tree` runs one hook-free body under injected
+  `re-frame.fresco.test/tree` runs one hook-free body under injected
   read fixtures and answers the Spec 004B structural tree it returned. No
   React, no element, no hook, no DOM — so a row here proves what a body
   MEANS, and nothing about what a user sees. The mounted suite is the
@@ -25,45 +25,45 @@
   body."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.hicasso.examples.todo.db :as rf.hicasso.examples.todo.db]
-            [re-frame.hicasso.examples.todo.events :as rf.hicasso.examples.todo.events]
-            [re-frame.hicasso.examples.todo.routes :as rf.hicasso.examples.todo.routes]
-            [re-frame.hicasso.examples.todo.subs :as rf.hicasso.examples.todo.subs]
-            [re-frame.hicasso.examples.todo.views :as rf.hicasso.examples.todo.views]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
-            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.fresco.examples.todo.db :as rf.fresco.examples.todo.db]
+            [re-frame.fresco.examples.todo.events :as rf.fresco.examples.todo.events]
+            [re-frame.fresco.examples.todo.routes :as rf.fresco.examples.todo.routes]
+            [re-frame.fresco.examples.todo.subs :as rf.fresco.examples.todo.subs]
+            [re-frame.fresco.examples.todo.views :as rf.fresco.examples.todo.views]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
+            [re-frame.fresco.test :as rf.fresco.test]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       rf.hicasso.examples.todo.routes/register!}))
+     :init-fn       rf.fresco.examples.todo.routes/register!}))
 
-(defn- tagged [tree tag] (rf.hicasso.test/find tree #(= tag (:tag %))))
+(defn- tagged [tree tag] (rf.fresco.test/find tree #(= tag (:tag %))))
 
 (defn- classed
   "The first node carrying exactly `class` — the same hook the mounted
   suite selects on, so the two tiers talk about the same parts of the
   page."
   [tree class]
-  (rf.hicasso.test/find tree #(= class (:class (rf.hicasso.test/attrs %)))))
+  (rf.fresco.test/find tree #(= class (:class (rf.fresco.test/attrs %)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The header — a form, and the whole of "Enter adds a to-do"
 ;; ---------------------------------------------------------------------------
 
 (deftest the-new-todo-box-commits-through-the-form
-  (let [tree  (rf.hicasso.test/tree [rf.hicasso.examples.todo.views/new-todo-box {}] {:subs {[::rf.hicasso.examples.todo.subs/new-todo] "eg"}})
+  (let [tree  (rf.fresco.test/tree [rf.fresco.examples.todo.views/new-todo-box {}] {:subs {[::rf.fresco.examples.todo.subs/new-todo] "eg"}})
         form  (tagged tree :form)
         field (tagged tree :input)]
-    (is (= [::rf.hicasso.examples.todo.events/add] (:on-submit (rf.hicasso.test/attrs form)))
+    (is (= [::rf.fresco.examples.todo.events/add] (:on-submit (rf.fresco.test/attrs form)))
         "Enter in a text field submits its form, and :on-submit
          AUTO-PREVENTS — so there is no key test and no .preventDefault
          anywhere in this application's header")
-    (is (= "eg" (:value (rf.hicasso.test/attrs field)))
+    (is (= "eg" (:value (rf.fresco.test/attrs field)))
         "controlled: the text is the subscription's, not the element's")
-    (is (= [::rf.hicasso.examples.todo.events/typed :re-frame.hicasso/value] (:on-input (rf.hicasso.test/attrs field)))
+    (is (= [::rf.fresco.examples.todo.events/typed :re-frame.fresco/value] (:on-input (rf.fresco.test/attrs field)))
         "and the write is an intent vector with the marker at its TOP
          LEVEL — the only position the materializer substitutes at")))
 
@@ -74,17 +74,17 @@
 (def ^:private row-props {:id 7 :title "milk" :done? false})
 
 (defn- row-tree [props draft]
-  (rf.hicasso.test/tree [rf.hicasso.examples.todo.views/todo-row props] {:subs {[rf.hicasso.examples.todo.db/draft (:id props)] draft}}))
+  (rf.fresco.test/tree [rf.fresco.examples.todo.views/todo-row props] {:subs {[rf.fresco.examples.todo.db/draft (:id props)] draft}}))
 
 (deftest a-row-carries-its-three-intents-and-no-editor
   (let [tree (row-tree row-props nil)]
-    (is (= "milk" (rf.hicasso.test/text (classed tree "todo-title"))))
-    (is (= [::rf.hicasso.examples.todo.events/toggle 7 :re-frame.hicasso/checked]
-           (:on-change (rf.hicasso.test/attrs (classed tree "toggle"))))
+    (is (= "milk" (rf.fresco.test/text (classed tree "todo-title"))))
+    (is (= [::rf.fresco.examples.todo.events/toggle 7 :re-frame.fresco/checked]
+           (:on-change (rf.fresco.test/attrs (classed tree "toggle"))))
         "::h/checked hands the handler what the box IS, so the model and
          the checkbox cannot drift apart through a negation")
-    (is (= [::rf.hicasso.examples.todo.events/destroy 7] (:on-click (rf.hicasso.test/attrs (classed tree "destroy")))))
-    (is (= [rf.hicasso.examples.todo.db/draft 7 "milk"] (:on-double-click (rf.hicasso.test/attrs (classed tree "todo-title"))))
+    (is (= [::rf.fresco.examples.todo.events/destroy 7] (:on-click (rf.fresco.test/attrs (classed tree "destroy")))))
+    (is (= [rf.fresco.examples.todo.db/draft 7 "milk"] (:on-double-click (rf.fresco.test/attrs (classed tree "todo-title"))))
         "opening the editor and filling it are ONE write — h/reg-state's
          setter, with the row's own id as the instance key")
     (is (nil? (classed tree "edit"))
@@ -95,11 +95,11 @@
   ;; `:class` prop; L2 folds the two, in that order, because the author
   ;; cannot see the sugar otherwise. Everything after the first name is
   ;; this body's.
-  (is (= "todo-row" (:class (rf.hicasso.test/attrs (row-tree row-props nil)))))
+  (is (= "todo-row" (:class (rf.fresco.test/attrs (row-tree row-props nil)))))
   (is (= "todo-row completed"
-         (:class (rf.hicasso.test/attrs (row-tree (assoc row-props :done? true) nil)))))
+         (:class (rf.fresco.test/attrs (row-tree (assoc row-props :done? true) nil)))))
   (is (= "todo-row completed editing"
-         (:class (rf.hicasso.test/attrs (row-tree (assoc row-props :done? true) "milk"))))
+         (:class (rf.fresco.test/attrs (row-tree (assoc row-props :done? true) "milk"))))
       "a completed to-do can still be edited"))
 
 ;; ---------------------------------------------------------------------------
@@ -109,22 +109,22 @@
 (deftest the-editor-is-a-key-map-and-a-stable-ref
   (let [tree  (row-tree row-props "sourdough")
         field (classed tree "edit")
-        attrs (rf.hicasso.test/attrs field)]
+        attrs (rf.fresco.test/attrs field)]
     (is (some? field) "a draft, so the editor is on the page")
     (is (= "sourdough" (:value attrs)))
-    (is (= [rf.hicasso.examples.todo.db/draft 7 :re-frame.hicasso/value] (:on-input attrs))
+    (is (= [rf.fresco.examples.todo.db/draft 7 :re-frame.fresco/value] (:on-input attrs))
         "every keystroke writes h/reg-state's own slot; there is no
          bespoke typing event in this application")
 
     (testing "Enter and Escape are DATA — the map shape at an :on-* prop"
-      (is (= {"Enter"  [::rf.hicasso.examples.todo.events/commit-edit 7]
-              "Escape" [:re-frame.hicasso/clear rf.hicasso.examples.todo.db/draft 7]}
+      (is (= {"Enter"  [::rf.fresco.examples.todo.events/commit-edit 7]
+              "Escape" [:re-frame.fresco/clear rf.fresco.examples.todo.db/draft 7]}
              (:on-key-down attrs))
           "one .key lookup per event, composition-gated centrally so an
            IME's Enter commits nothing — and no callback anywhere"))
 
     (testing "blur commits too, and is safe after Escape"
-      (is (= [::rf.hicasso.examples.todo.events/commit-edit 7] (:on-blur attrs))
+      (is (= [::rf.fresco.examples.todo.events/commit-edit 7] (:on-blur attrs))
           "the same intent as Enter: the handler reads the draft from
            app-db, so a blur that lands after Escape finds nothing"))
 
@@ -137,19 +137,19 @@
 (deftest the-rows-intent-inventory-includes-both-key-branches
   ;; `ht/intents` unpacks a key-map into its branches, which is the one
   ;; place the tier knows the shape is not an ordinary vector.
-  (let [offered (set (rf.hicasso.test/intents (row-tree row-props "sourdough")))]
-    (is (contains? offered [::rf.hicasso.examples.todo.events/commit-edit 7]))
-    (is (contains? offered [:re-frame.hicasso/clear rf.hicasso.examples.todo.db/draft 7]))
-    (is (contains? offered [::rf.hicasso.examples.todo.events/destroy 7]))))
+  (let [offered (set (rf.fresco.test/intents (row-tree row-props "sourdough")))]
+    (is (contains? offered [::rf.fresco.examples.todo.events/commit-edit 7]))
+    (is (contains? offered [:re-frame.fresco/clear rf.fresco.examples.todo.db/draft 7]))
+    (is (contains? offered [::rf.fresco.examples.todo.events/destroy 7]))))
 
 ;; ---------------------------------------------------------------------------
 ;; The list — the keyed identity claim, at the tier where the key is data
 ;; ---------------------------------------------------------------------------
 
 (defn- list-tree [visible all-done?]
-  (rf.hicasso.test/tree [rf.hicasso.examples.todo.views/todo-list {}]
-           {:subs {[::rf.hicasso.examples.todo.subs/visible]   visible
-                   [::rf.hicasso.examples.todo.subs/all-done?] all-done?}}))
+  (rf.fresco.test/tree [rf.fresco.examples.todo.views/todo-list {}]
+           {:subs {[::rf.fresco.examples.todo.subs/visible]   visible
+                   [::rf.fresco.examples.todo.subs/all-done?] all-done?}}))
 
 (def ^:private three
   [{:id 1 :title "milk" :done? false}
@@ -179,33 +179,33 @@
 
 (deftest toggle-all-reads-and-writes-the-same-fact
   (let [tree (list-tree three true)
-        box  (rf.hicasso.test/attrs (classed tree "toggle-all"))]
+        box  (rf.fresco.test/attrs (classed tree "toggle-all"))]
     (is (true? (:checked box)))
-    (is (= [::rf.hicasso.examples.todo.events/toggle-all :re-frame.hicasso/checked] (:on-change box)))))
+    (is (= [::rf.fresco.examples.todo.events/toggle-all :re-frame.fresco/checked] (:on-change box)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The footer — three routed tabs, a count, and conditional chrome
 ;; ---------------------------------------------------------------------------
 
 (defn- footer-tree [left done showing]
-  (rf.hicasso.test/tree [rf.hicasso.examples.todo.views/footer {}]
-           {:subs {[::rf.hicasso.examples.todo.subs/active-count]    left
-                   [::rf.hicasso.examples.todo.subs/completed-count] done
-                   [::rf.hicasso.examples.todo.subs/showing]         showing}}))
+  (rf.fresco.test/tree [rf.fresco.examples.todo.views/footer {}]
+           {:subs {[::rf.fresco.examples.todo.subs/active-count]    left
+                   [::rf.fresco.examples.todo.subs/completed-count] done
+                   [::rf.fresco.examples.todo.subs/showing]         showing}}))
 
 (deftest the-tabs-are-links-routing-built-and-this-file-names-no-url
   (let [tree (footer-tree 2 1 :active)
-        as   (rf.hicasso.test/find-all tree #(= :a (:tag %)))]
-    (is (= ["/hicasso-todo" "/hicasso-todo/active" "/hicasso-todo/completed"]
-           (mapv (comp :href rf.hicasso.test/attrs) as))
+        as   (rf.fresco.test/find-all tree #(= :a (:tag %)))]
+    (is (= ["/fresco-todo" "/fresco-todo/active" "/fresco-todo/completed"]
+           (mapv (comp :href rf.fresco.test/attrs) as))
         "the href is the routing artefact's own synthesis — `views` names
          no URL anywhere, and every path is under this application's own
          prefix because route paths are a PROCESS-GLOBAL registry")
-    (is (= ["All" "Active" "Completed"] (mapv rf.hicasso.test/text as)))
-    (is (= [nil "selected" nil] (mapv (comp :class rf.hicasso.test/attrs) as))
+    (is (= ["All" "Active" "Completed"] (mapv rf.fresco.test/text as)))
+    (is (= [nil "selected" nil] (mapv (comp :class rf.fresco.test/attrs) as))
         "the highlighted tab is derived from the URL, so it cannot
          disagree with the address bar")
-    (is (every? #(rf.hicasso.impl.intent/navigate-head? (:on-click (rf.hicasso.test/attrs %))) as)
+    (is (every? #(rf.fresco.impl.intent/navigate-head? (:on-click (rf.fresco.test/attrs %))) as)
         "the click decision is DATA — a vector headed by the intent
          namespace's own keyword, which `=` can see and which is what
          makes two renders of one link equal")))
@@ -213,37 +213,37 @@
 (deftest the-count-is-pluralised-and-the-clear-button-is-conditional
   (testing "one left"
     (let [tree (footer-tree 1 0 :all)]
-      (is (= "1 item left" (rf.hicasso.test/text (classed tree "todo-count"))))
+      (is (= "1 item left" (rf.fresco.test/text (classed tree "todo-count"))))
       (is (nil? (classed tree "clear-completed"))
           "nothing completed, so there is nothing to clear and no button
            to explain")))
 
   (testing "none left, two done"
     (let [tree (footer-tree 0 2 :all)]
-      (is (= "0 items left" (rf.hicasso.test/text (classed tree "todo-count"))))
-      (is (= "Clear completed (2)" (rf.hicasso.test/text (classed tree "clear-completed"))))
-      (is (= [::rf.hicasso.examples.todo.events/clear-completed]
-             (:on-click (rf.hicasso.test/attrs (classed tree "clear-completed"))))))))
+      (is (= "0 items left" (rf.fresco.test/text (classed tree "todo-count"))))
+      (is (= "Clear completed (2)" (rf.fresco.test/text (classed tree "clear-completed"))))
+      (is (= [::rf.fresco.examples.todo.events/clear-completed]
+             (:on-click (rf.fresco.test/attrs (classed tree "clear-completed"))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The page — the conditional chrome
 ;; ---------------------------------------------------------------------------
 
 (deftest an-empty-page-is-the-header-and-nothing-else
-  (let [tree (rf.hicasso.test/tree [rf.hicasso.examples.todo.views/app {}] {:subs {[::rf.hicasso.examples.todo.subs/any?] false}})
+  (let [tree (rf.fresco.test/tree [rf.fresco.examples.todo.views/app {}] {:subs {[::rf.fresco.examples.todo.subs/any?] false}})
         kids (:children tree)]
-    (is (= ["re-frame.hicasso.examples.todo.views/new-todo-box"]
+    (is (= ["re-frame.fresco.examples.todo.views/new-todo-box"]
            (into [] (comp (filter :view-id) (map :view-id)) kids))
         "no list and no footer: the whole of the Todo class's conditional
          chrome, decided by one boolean read rather than by a count")))
 
 (deftest a-populated-page-carries-the-list-and-the-footer
-  (let [tree  (rf.hicasso.test/tree [rf.hicasso.examples.todo.views/app {}] {:subs {[::rf.hicasso.examples.todo.subs/any?] true}})
+  (let [tree  (rf.fresco.test/tree [rf.fresco.examples.todo.views/app {}] {:subs {[::rf.fresco.examples.todo.subs/any?] true}})
         views (into [] (comp (filter :view-id) (map :view-id))
                     (tree-seq map? :children tree))]
-    (is (= ["re-frame.hicasso.examples.todo.views/new-todo-box"
-            "re-frame.hicasso.examples.todo.views/todo-list"
-            "re-frame.hicasso.examples.todo.views/footer"]
+    (is (= ["re-frame.fresco.examples.todo.views/new-todo-box"
+            "re-frame.fresco.examples.todo.views/todo-list"
+            "re-frame.fresco.examples.todo.views/footer"]
            views)
         "the two conditional boundaries sit inside a fragment, which is
          React's own Fragment there and carries no element of its own")))

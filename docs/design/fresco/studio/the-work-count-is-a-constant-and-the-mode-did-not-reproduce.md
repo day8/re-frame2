@@ -46,7 +46,7 @@ bead names:
 |---|---|---|
 | `events` | each `:p0/write-all`, `:p0/write-page`, `:p0/write-one` handler body | `p0-fixture` |
 | `subs` | each `:p0/row`, `:p0/field`, `:p0/cell`, `:p0/fan` computation fn | `p0-fixture` |
-| `renders` | each subscribing boundary body, and the floor's own per-cell builder | `p0-reagent`, `p0-uix`, `p0-hicasso`, `p0-floor` |
+| `renders` | each subscribing boundary body, and the floor's own per-cell builder | `p0-reagent`, `p0-uix`, `p0-fresco`, `p0-floor` |
 
 Read in `p0-heap/alloc-window!` at the window's open — in the `let`, before the
 first sample — and again after the last leg's closing sample. Both readings sit
@@ -105,7 +105,7 @@ a subscribing arm must render **24 × 7 = 168** boundary bodies and recompute
 | `lad/*#R20` | 7 | 3360 | 168 |
 
 Every cell is the predicted number, on all four substrate columns
-(`lad/reagent`, `lad/uix`, `lad/hicasso` in both segments). The `R0` and floor
+(`lad/reagent`, `lad/uix`, `lad/fresco` in both segments). The `R0` and floor
 rows are the ones that matter for this bead: an arm that reads nothing
 recomputes nothing and renders nothing, and the census says so rather than the
 docstring saying so.
@@ -227,14 +227,14 @@ From the **repository root**. The census is the only thing added to
 # runs 1-2, at HEAD
 P0_WORK_COUNT=1 P0_PORT=8449 P0_ALLOC_PLAN=floor P0_ALLOC_WRITE=all \
 P0_ROOTS=4 P0_ALLOC_CELLS=6 P0_ALLOC_ROUNDS=18 \
-P0_RAW_OUT=implementation/hicasso/test/re_frame/bench/hicasso/data/workcount-n1b9h/run1-head.json \
+P0_RAW_OUT=implementation/fresco/test/re_frame/bench/fresco/data/workcount-n1b9h/run1-head.json \
   node implementation/core/test/re_frame/bench/p0_run.cjs --only alloc
 
 # runs 3-5, with the substrate at the revision the mode was seen at
 git checkout 4a1537cb71 -- implementation/core/src
 P0_WORK_COUNT=1 P0_PORT=8451 P0_ALLOC_PLAN=floor P0_ALLOC_WRITE=all \
 P0_ROOTS=4 P0_ALLOC_CELLS=6 P0_ALLOC_ROUNDS=18 \
-P0_RAW_OUT=implementation/hicasso/test/re_frame/bench/hicasso/data/workcount-n1b9h/run3-a4a1537cb71.json \
+P0_RAW_OUT=implementation/fresco/test/re_frame/bench/fresco/data/workcount-n1b9h/run3-a4a1537cb71.json \
   node implementation/core/test/re_frame/bench/p0_run.cjs --only alloc
 git checkout HEAD -- implementation/core/src
 ```
@@ -264,7 +264,7 @@ is the census table above, which is not a measurement and does not need a
 certified window.
 
 The six datasets are committed beside this page under
-`implementation/hicasso/test/re_frame/bench/hicasso/data/workcount-n1b9h/`, on
+`implementation/fresco/test/re_frame/bench/fresco/data/workcount-n1b9h/`, on
 the convention `rf2-2rtt6.138` set and `rf2-erre5` wrote down. Each retains
 every window's raw sample stream **and its work census**, so both can be
 re-derived without a browser.

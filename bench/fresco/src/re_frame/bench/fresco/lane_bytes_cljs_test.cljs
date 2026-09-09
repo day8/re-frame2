@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.lane-bytes-cljs-test
+(ns re-frame.bench.fresco.lane-bytes-cljs-test
   "THE LANE'S BYTE COUNT, WITNESSED (rf2-2rtt6.121).
 
   `rf2-2rtt6.114` repaired five sites in `ssr/driver.cjs` that published
@@ -6,7 +6,7 @@
   pinned the repair with `ssr/bake_bytes.test.cjs`. This is that witness's
   counterpart for the CLJS half of the lane: the same defect lived in eight
   page-side instruments, they now share
-  [[re-frame.bench.hicasso.lane/utf8-bytes]], and this file is what stops the
+  [[re-frame.bench.fresco.lane/utf8-bytes]], and this file is what stops the
   ruler going soft again.
 
   ## Why an ASCII-only test cannot see the bug
@@ -35,14 +35,14 @@
   In `bench_bytes.test.cjs`, a Node harness, because it reads the repaired
   sources off disk and **a lane namespace may not require `fs`**. Every
   namespace in this directory is also compiled by `npm run
-  test:hicasso-compile`, which rides `:hicasso-bench` — a BROWSER build — so a
+  test:fresco-compile`, which rides `:fresco-bench` — a BROWSER build — so a
   Node module here refuses the whole lane (`ssr/node.cljs` states the rule;
   `ssr/spike_cljs_test/sha256-hex` is why that entry reaches for
   `crypto.subtle` rather than `node:crypto`). This file therefore holds only
   what a browser can run: the behaviour of the helper itself."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]))
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]))
 
 ;; ---------------------------------------------------------------------------
 ;; The fixtures
@@ -78,10 +78,10 @@
            way: on ASCII the two MUST agree, which is exactly why an
            ASCII-only suite could never have caught this."
     (doseq [{:keys [what s]} (rest cases)]
-      (is (not= (count s) (rf.bench.hicasso.lane/utf8-bytes s))
+      (is (not= (count s) (rf.bench.fresco.lane/utf8-bytes s))
           (str what ": cannot distinguish the defect")))
     (let [ascii (:s (first cases))]
-      (is (= (count ascii) (rf.bench.hicasso.lane/utf8-bytes ascii))
+      (is (= (count ascii) (rf.bench.fresco.lane/utf8-bytes ascii))
           "and on pure ASCII the old expression and the new one agree"))))
 
 (deftest utf8-bytes-answers-bytes-and-count-answers-code-units
@@ -93,7 +93,7 @@
     (doseq [{:keys [what s units bytes] cps :codepoints} cases]
       (is (= units (count s)) (str what ": the fixture is not the string this row describes"))
       (is (= cps (codepoints s)) (str what ": codepoints"))
-      (is (= bytes (rf.bench.hicasso.lane/utf8-bytes s)) (str what ": bytes")))))
+      (is (= bytes (rf.bench.fresco.lane/utf8-bytes s)) (str what ": bytes")))))
 
 (deftest the-error-grows-with-the-content
   (testing "**why this is not a rounding difference.** The gap is not a
@@ -103,10 +103,10 @@
            an instrument understating by a growing margin reads plausible for
            ever."
     (let [dashes (str/join (repeat 1000 "\u2014"))]
-      (is (= 3 (rf.bench.hicasso.lane/utf8-bytes "\u2014")))
+      (is (= 3 (rf.bench.fresco.lane/utf8-bytes "\u2014")))
       (is (= 1000 (count dashes)))
-      (is (= 3000 (rf.bench.hicasso.lane/utf8-bytes dashes)))
-      (is (= 2000 (- (rf.bench.hicasso.lane/utf8-bytes dashes) (count dashes)))
+      (is (= 3000 (rf.bench.fresco.lane/utf8-bytes dashes)))
+      (is (= 2000 (- (rf.bench.fresco.lane/utf8-bytes dashes) (count dashes)))
           "the understatement is 2 bytes per em dash and there are a thousand"))))
 
 (deftest utf8-bytes-is-total-over-the-degenerate-inputs
@@ -115,8 +115,8 @@
            still answers a number rather than throwing. `TextEncoder`
            substitutes U+FFFD, three bytes, which is what a UTF-8 encoder
            writing that string to a socket would also do."
-    (is (= 0 (rf.bench.hicasso.lane/utf8-bytes "")))
-    (is (= 3 (rf.bench.hicasso.lane/utf8-bytes "\uD834")) "an unpaired high surrogate encodes as U+FFFD")))
+    (is (= 0 (rf.bench.fresco.lane/utf8-bytes "")))
+    (is (= 3 (rf.bench.fresco.lane/utf8-bytes "\uD834")) "an unpaired high surrogate encodes as U+FFFD")))
 
 (deftest utf8-bytes-agrees-with-the-encoder-the-lane-already-trusts
   (testing "**a second derivation, not a second call to the same function.**
@@ -131,5 +131,5 @@
       (let [^js buf (.encode (js/TextEncoder.) s)]
         (is (= bytes (.-byteLength buf))
             (str what ": the encoder the digest rows use agrees"))
-        (is (= (rf.bench.hicasso.lane/utf8-bytes s) (.-byteLength buf))
+        (is (= (rf.bench.fresco.lane/utf8-bytes s) (.-byteLength buf))
             (str what ": and utf8-bytes agrees with it"))))))

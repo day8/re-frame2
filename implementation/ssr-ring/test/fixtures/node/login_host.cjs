@@ -5,18 +5,18 @@
 //
 // It carries NO policy of its own. The entry id, the build id and both
 // per-partition allowlists arrive in the environment, and the test sets them
-// from `hicasso.login.policy` — the same Vars `examples/substrates/hicasso/
+// from `fresco.login.policy` — the same Vars `examples/substrates/fresco/
 // login/server.cljs` derives the real bundle's entry table from. So the
 // sidecar in this witness enforces the application's own list rather than a
 // second copy of it, and a host that drifted off that list is refused here
 // exactly as it would be against the shipped bundle.
 //
-// What it is NOT is the login application's render. That is a Hicasso render
+// What it is NOT is the login application's render. That is a Fresco render
 // on React, witnessed in CLJS by
-// `re-frame.hicasso.login-server-crossing-ssr-dom-cljs-test`, which drives
+// `re-frame.fresco.login-server-crossing-ssr-dom-cljs-test`, which drives
 // the real views, the real `login.model` registrations and this module's
 // published entry table. What THIS module witnesses is the other half — the
-// JVM host: that `hicasso.login.host` loads on a Clojure classpath, that its
+// JVM host: that `fresco.login.host` loads on a Clojure classpath, that its
 // handler projects the settled frame under the shared policy, and that a
 // complete JVM-owned document comes back around Node's body bytes over a
 // real socket.
@@ -35,11 +35,11 @@ const readJsonListEnv = (environmentKey) => {
   return JSON.parse(rawValue);
 };
 
-const entry = process.env.RF2_LOGIN_ENTRY || 'hicasso.login/root';
+const entry = process.env.RF2_LOGIN_ENTRY || 'fresco.login/root';
 
 module.exports = {
   protocol: 1,
-  buildId: process.env.RF2_LOGIN_BUILD_ID || 'login-hicasso-dev',
+  buildId: process.env.RF2_LOGIN_BUILD_ID || 'login-fresco-dev',
   entries: {
     [entry]: {
       stateAllowlist: readJsonListEnv('RF2_LOGIN_STATE_ALLOWLIST'),

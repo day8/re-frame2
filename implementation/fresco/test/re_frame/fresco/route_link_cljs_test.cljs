@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.route-link-cljs-test
+(ns re-frame.fresco.route-link-cljs-test
   "ROUTE-LINK'S GRAMMAR, tested as data.
 
   Everything here is the node-provable half: that a route-link render is
@@ -12,8 +12,8 @@
   the real page re-render are `shapes/route_link_dom_cljs_test`'s."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
-            [re-frame.hicasso.impl.route-link :as rf.hicasso.impl.route-link]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
+            [re-frame.fresco.impl.route-link :as rf.fresco.impl.route-link]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.routing :as rf.routing]
@@ -36,8 +36,8 @@
   [[intent/with-frame]] — and answer the hiccup value."
   [props & children]
   (fresh!)
-  (rf.hicasso.impl.intent/with-frame frame-id (fn [_] nil)
-    (fn [] (apply rf.hicasso.impl.route-link/route-link props children))))
+  (rf.fresco.impl.intent/with-frame frame-id (fn [_] nil)
+    (fn [] (apply rf.fresco.impl.route-link/route-link props children))))
 
 (defn- ev
   "A stand-in click event: `:button`/`:metaKey` select the click class,
@@ -75,7 +75,7 @@
 (deftest the-click-decision-is-readable-off-the-tree
   (let [[_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}} "jane")
         on-click  (:on-click attrs)]
-    (is (rf.hicasso.impl.intent/navigate-head? on-click) "the click position carries the navigate head")
+    (is (rf.fresco.impl.intent/navigate-head? on-click) "the click position carries the navigate head")
     (let [{:keys [frame payload native? veto]} (second on-click)]
       (is (= frame-id frame) "the frame was captured at render, as data")
       (is (= [:rf.route/url-requested {:url "/profile/jane"}]
@@ -106,9 +106,9 @@
 
 (deftest a-prevent-veto-rides-the-vector-as-data
   (let [[_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}
-                             :on-click [rf.hicasso.impl.intent/prevent-head [:conduit/track "jane"]]}
+                             :on-click [rf.fresco.impl.intent/prevent-head [:conduit/track "jane"]]}
                             "jane")]
-    (is (= [rf.hicasso.impl.intent/prevent-head [:conduit/track "jane"]]
+    (is (= [rf.fresco.impl.intent/prevent-head [:conduit/track "jane"]]
            (:veto (second (:on-click attrs))))
         "the declarative veto is visible to `=` on the rendered tree")))
 
@@ -118,7 +118,7 @@
 
 (deftest a-bare-intent-vector-at-on-click-is-refused-at-render
   (is (thrown-with-msg?
-        js/Error #"hicasso-route-link-bad-on-click"
+        js/Error #"fresco-route-link-bad-on-click"
         (rendered {:to :conduit.profile/show :params {:username "jane"}
                    :on-click [:conduit/track "jane"]}
                   "jane"))
@@ -127,7 +127,7 @@
 
 (deftest a-key-map-at-on-click-is-refused-at-render
   (is (thrown-with-msg?
-        js/Error #"hicasso-route-link-bad-on-click"
+        js/Error #"fresco-route-link-bad-on-click"
         (rendered {:to :conduit.profile/show :params {:username "jane"}
                    :on-click {"Enter" [:conduit/track]}}
                   "jane"))))
@@ -135,8 +135,8 @@
 (deftest a-link-outside-a-boundary-is-loud
   (fresh!)
   (is (thrown-with-msg?
-        js/Error #"hicasso-route-link-outside-boundary"
-        (rf.hicasso.impl.route-link/route-link {:to :conduit.profile/show :params {:username "jane"}} "jane"))))
+        js/Error #"fresco-route-link-outside-boundary"
+        (rf.fresco.impl.route-link/route-link {:to :conduit.profile/show :params {:username "jane"}} "jane"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Prefetch on intent — the sugar, and the one refusal it brings
@@ -193,7 +193,7 @@
 
 (deftest the-prefetch-intent-lowers-and-dispatches-on-the-render-frame
   (testing "the rendered vector is not merely well-shaped data — lowered
-           through Hicasso's own intent lowering and fired, it DISPATCHES,
+           through Fresco's own intent lowering and fired, it DISPATCHES,
            and it dispatches on the frame captured at RENDER (the same frame
            `require-frame!` pinned the click to). Reading the vector alone
            would pass on a link that warms nothing, which is the defect this
@@ -202,9 +202,9 @@
           [_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}
                                :prefetch :intent}
                               "jane")
-          h         (rf.hicasso.impl.intent/with-frame frame-id
+          h         (rf.fresco.impl.intent/with-frame frame-id
                       (fn [ev] (swap! !seen conj ev) nil)
-                      (fn [] (rf.hicasso.impl.intent/lower-prop
+                      (fn [] (rf.fresco.impl.intent/lower-prop
                                :on-mouse-enter (:on-mouse-enter attrs))))]
       (is (fn? h) "the intent lowered to a closure, like any other in-band intent")
       (h (ev {}))
@@ -221,7 +221,7 @@
            working link until you measure"
     (doseq [position prefetch-positions]
       (is (thrown-with-msg?
-            js/Error #"hicasso-route-link-claimed-intent-position"
+            js/Error #"fresco-route-link-claimed-intent-position"
             (rendered {:to       :conduit.profile/show
                        :params   {:username "jane"}
                        :prefetch :intent
@@ -242,7 +242,7 @@
 (deftest a-bad-prefetch-value-is-still-routings-refusal
   (testing "unchanged by the wiring: a PRESENT `:prefetch` that is not
            `:intent` is routing's `:rf.error/route-link-bad-prefetch`, raised
-           from inside the seam before Hicasso's claimed-position check is
+           from inside the seam before Fresco's claimed-position check is
            reached. The two ids stay distinct — that one means the value is
            bad, this bead's means the value is good and the position is taken"
     (doseq [bad [:render :viewport true false nil]]
@@ -256,8 +256,8 @@
 (defn- lower-navigate
   "Lower `[intent/navigate-head m]` at an event position and answer the closure."
   [m]
-  (rf.hicasso.impl.intent/with-frame frame-id (fn [_] nil)
-    (fn [] (rf.hicasso.impl.intent/lower-prop :on-click [rf.hicasso.impl.intent/navigate-head m]))))
+  (rf.fresco.impl.intent/with-frame frame-id (fn [_] nil)
+    (fn [] (rf.fresco.impl.intent/lower-prop :on-click [rf.fresco.impl.intent/navigate-head m]))))
 
 (deftest the-navigate-map-lowers-to-a-closure
   (testing "HD-027's four keys — :frame, :payload, :native? and :veto — lower
@@ -270,12 +270,12 @@
 
 (deftest prevent-does-not-wrap-a-navigate
   (is (thrown-with-msg?
-        js/Error #"hicasso-malformed-prevent"
-        (rf.hicasso.impl.intent/with-frame frame-id (fn [_] nil)
-          (fn [] (rf.hicasso.impl.intent/lower-prop
+        js/Error #"fresco-malformed-prevent"
+        (rf.fresco.impl.intent/with-frame frame-id (fn [_] nil)
+          (fn [] (rf.fresco.impl.intent/lower-prop
                    :on-click
-                   [rf.hicasso.impl.intent/prevent-head
-                    [rf.hicasso.impl.intent/navigate-head {:frame frame-id :payload [:x]
+                   [rf.fresco.impl.intent/prevent-head
+                    [rf.fresco.impl.intent/navigate-head {:frame frame-id :payload [:x]
                                            :native? false :veto nil}]]))))
       "decorators do not nest, in either order"))
 
@@ -289,14 +289,14 @@
   [props]
   (let [!seen  (atom [])
         [_ attrs] (rendered props "jane")
-        h      (rf.hicasso.impl.intent/with-frame frame-id
+        h      (rf.fresco.impl.intent/with-frame frame-id
                  (fn [ev] (swap! !seen conj ev) nil)
-                 (fn [] (rf.hicasso.impl.intent/lower-prop :on-click (:on-click attrs))))]
+                 (fn [] (rf.fresco.impl.intent/lower-prop :on-click (:on-click attrs))))]
     [h !seen]))
 
 (deftest a-prevent-veto-cancels-the-navigation-and-dispatches-instead
   (let [[h !seen] (lowered-click {:to :conduit.profile/show :params {:username "jane"}
-                                  :on-click [rf.hicasso.impl.intent/prevent-head [:conduit/track "jane"]]})
+                                  :on-click [rf.fresco.impl.intent/prevent-head [:conduit/track "jane"]]})
         !prevented (atom false)]
     (h (ev {:prevented !prevented}))
     (is (true? @!prevented)
@@ -356,7 +356,7 @@
   (testing "and the lowered click hands that same function to routing's
            `activate-link!` as the veto argument, the rest of the navigate
            map beside it. The composition itself — veto first, stand down
-           on defaultPrevented — is routing's own tested law; hicasso's
+           on defaultPrevented — is routing's own tested law; fresco's
            half, pinned here, is that the imperative veto arrives at the
            seam intact"
     (let [veto  (fn a-veto [_e] nil)
@@ -404,7 +404,7 @@
            routing artefact's absence, which is what keeps the degrade a
            navigation policy rather than a lost click"
     (let [[h !seen]  (lowered-click {:to :conduit.profile/show :params {:username "jane"}
-                                     :on-click [rf.hicasso.impl.intent/prevent-head [:conduit/track "jane"]]})
+                                     :on-click [rf.fresco.impl.intent/prevent-head [:conduit/track "jane"]]})
           !prevented (atom false)]
       (with-activate-link nil #(h (ev {:prevented !prevented})))
       (is (true? @!prevented))

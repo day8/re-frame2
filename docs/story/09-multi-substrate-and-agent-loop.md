@@ -22,19 +22,19 @@ body independent from the renderer:
 The tutorial and the scaffolded path are Reagent-focused because that is where
 most readers start, but the substrate set is not a Reagent set. A member of
 `:substrates` names which registered render fn embeds the subject — the
-authoring layer — and not which adapter `rf/init!` installed. `:hicasso` is
+authoring layer — and not which adapter `rf/init!` installed. `:fresco` is
 the member that makes the difference visible: a deck declaring
-`:substrates #{:hicasso}` runs in a Reagent-hosted shell — the installed
-adapter is Reagent's, the authoring is Hicasso's — resolves its own frame
-through React context, and responds to writes into it. Hicasso does ship an
+`:substrates #{:fresco}` runs in a Reagent-hosted shell — the installed
+adapter is Reagent's, the authoring is Fresco's — resolves its own frame
+through React context, and responds to writes into it. Fresco does ship an
 adapter of its own, so the two spellings coincide often enough to be worth
 separating out loud: which adapter is installed is a different question from
 which render fn embeds the subject. There is a worked one at
-`tools/story/testbeds/hicasso_counter/`, and it rides the same PR-path play
+`tools/story/testbeds/fresco_counter/`, and it rides the same PR-path play
 gate every Reagent deck does.
 
 Story installs the `:reagent` render fn itself and leaves `:uix` and
-`:hicasso` to the host application, because each one's only dependency is
+`:fresco` to the host application, because each one's only dependency is
 the host's — five lines at boot, and Story core never names them. The design
 reason is still worth understanding: a variant should describe a state and
 behaviour, not smuggle a renderer-specific render function into the artifact.

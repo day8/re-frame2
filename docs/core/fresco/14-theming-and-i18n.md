@@ -1,6 +1,6 @@
 # Theming and internationalisation
 
-Hicasso does not add a theme provider or an i18n context. CSS owns design
+Fresco does not add a theme provider or an i18n context. CSS owns design
 tokens. Translated strings are ordinary values. The current theme and locale
 are app-db facts read through ordinary subscriptions.
 
@@ -40,7 +40,7 @@ The user's choice is application state:
 ```clojure
 (ns app.theme
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso :as h]))
+            [re-frame.fresco :as h]))
 
 (rf/reg-sub :theme/current
   (fn [db _query]
@@ -216,7 +216,7 @@ host ([Interop](09-interop.md)):
 ```clojure
 (ns app.vendor-theme
   (:require ["@acme/ui" :refer [ThemeProvider createTheme]]
-            [re-frame.hicasso :as h]))
+            [re-frame.fresco :as h]))
 
 (def light-theme
   (createTheme #js {:mode "light"}))

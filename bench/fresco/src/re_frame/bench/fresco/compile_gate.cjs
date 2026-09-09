@@ -2,8 +2,8 @@
 'use strict';
 // THE BENCH PROJECT'S COMPILE CHECK — rf2-2rtt6.73, re-homed by rf2-6c12m.1.
 //
-//     npm run check        # from bench/hicasso/ — this, then the .cjs self-tests
-//     node src/re_frame/bench/hicasso/compile_gate.cjs --list
+//     npm run check        # from bench/fresco/ — this, then the .cjs self-tests
+//     node src/re_frame/bench/fresco/compile_gate.cjs --list
 //
 // ## The gap this closes
 //
@@ -11,12 +11,12 @@
 // rf2-2rtt6.32 call-convention discipline), so they drift by construction, and
 // nothing test-shaped requires them: `:node-test` and `:browser-test` select by
 // namespace suffix and never see an arm. Before this gate the only compiler
-// that ever saw one was `:hicasso-bench`, driven BY HAND through drivers that
+// that ever saw one was `:fresco-bench`, driven BY HAND through drivers that
 // passed on warnings — an arm could stop compiling and no run could go red.
 //
 // ## The shape
 //
-// One `shadow-cljs compile` of every namespace under `bench/hicasso/src/`,
+// One `shadow-cljs compile` of every namespace under `bench/fresco/src/`,
 // judged by `lane_build.cjs` (a warning is a failure). `compile`, not
 // `release`: the classes this closes — a deleted def, a renamed require, a
 // dropped arity, an undeclared var, an un-externable property access — are
@@ -35,15 +35,15 @@
 // filename-shaped exclusion is one more thing that can silently drop the file
 // you cared about. Since rf2-6c12m.1 the whole lane lives under this one
 // source root — the four riders that used to sit beside the artefacts they
-// measure (`p0_app`, `p0_pageerror_probe`, `hicasso_narrow`,
-// `hicasso_narrow_app`) moved in with it — so the walk IS the lane and no
+// measure (`p0_app`, `p0_pageerror_probe`, `fresco_narrow`,
+// `fresco_narrow_app`) moved in with it — so the walk IS the lane and no
 // stated roster is needed any more.
 //
 // The optional-module and re-homed-core-instrument entry sources this gate
 // used to carry are PRODUCT concerns, not the lane's, and they stayed in the
-// package when the lane left it: `implementation/hicasso/scripts/
-// check_modules_compile.cjs`, run by `npm run test:hicasso-compile` on every
-// PR. Nothing here reaches `implementation/hicasso/src/` on purpose.
+// package when the lane left it: `implementation/fresco/scripts/
+// check_modules_compile.cjs`, run by `npm run test:fresco-compile` on every
+// PR. Nothing here reaches `implementation/fresco/src/` on purpose.
 //
 // ## What it cannot see
 //
@@ -60,9 +60,9 @@ const { resetLaneBuildCache } = require('../../../../../../implementation/core/t
 
 const PROJECT = path.resolve(__dirname, '../../../..');
 const LANE_DIR = path.join(PROJECT, 'src');
-const BUILD_ID = 'hicasso-bench';
-const OUT_DIR = 'out/hicasso-compile-gate';
-const TAG = 'hicasso-compile';
+const BUILD_ID = 'fresco-bench';
+const OUT_DIR = 'out/fresco-compile-gate';
+const TAG = 'fresco-compile';
 
 // The lane is ~100 namespaces today. A derivation that silently recovers a
 // handful has broken, and a gate that compiles three namespaces while

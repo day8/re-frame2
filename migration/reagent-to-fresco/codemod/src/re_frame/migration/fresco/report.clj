@@ -1,4 +1,4 @@
-(ns re-frame.migration.hicasso.report
+(ns re-frame.migration.fresco.report
   "The report (§7), which the design calls the first-class HALF of the tool
   rather than its residue.
 
@@ -31,7 +31,7 @@
   (:require [clojure.java.io :as io]
             [clojure.pprint :as pp]
             [clojure.string :as str]
-            [re-frame.migration.hicasso.dest :as rf.migration.hicasso.dest]))
+            [re-frame.migration.fresco.dest :as rf.migration.fresco.dest]))
 
 (def ^:private class-order
   "Report ordering within one site. Blockers first, then the refusals that
@@ -65,7 +65,7 @@
                 entries)))
 
 (def ^:private suggestion-caution
-  (str "THE USUAL CASE NEEDS NO :callbacks AT ALL — Hicasso infers the contract from the "
+  (str "THE USUAL CASE NEEDS NO :callbacks AT ALL — Fresco infers the contract from the "
        "spelling, exactly as on a native tag: an on* prop is an event position, anything else a "
        "render position, and a plain function crosses untouched. These slots are listed because "
        "their NAMES look like event positions or because they carry a function, and a name is "
@@ -104,11 +104,11 @@
     (if (and seg (re-matches simple-name seg)) seg "your-host")))
 
 (defn- contract-roster
-  "`\":event or :render\"` — generated from [[rf.migration.hicasso.dest/callback-contracts]]
+  "`\":event or :render\"` — generated from [[rf.migration.fresco.dest/callback-contracts]]
   rather than transcribed beside it, so the sentence the report prints and
   the roster the door enforces cannot drift apart in prose."
   []
-  (let [ss (mapv pr-str rf.migration.hicasso.dest/callback-contracts)]
+  (let [ss (mapv pr-str rf.migration.fresco.dest/callback-contracts)]
     (str (str/join ", " (pop ss)) " or " (peek ss))))
 
 (defn- defhost-sketch
@@ -118,12 +118,12 @@
   and out of scope.
 
   **The sketch names no contract, because the tool does not know one —
-  and the door usually needs none.** Hicasso infers the contract from the
+  and the door usually needs none.** Fresco infers the contract from the
   spelling, so `:callbacks` is an override for the on*-named render prop
   the spelling gets wrong. The sketch used to print `:fn` at every
   position, which is not a contract the door accepts, so a migrator who
   pasted what the tool suggested was refused at mint by
-  `:rf.error/hicasso-unknown-callback-contract` (rf2-vi11). A diagnostic
+  `:rf.error/fresco-unknown-callback-contract` (rf2-vi11). A diagnostic
   that tells you what to write and is wrong is worse than one that says
   nothing.
 
@@ -160,8 +160,8 @@
                       (map (fn [[k v]] [k (count v)]))
                       (sort-by first)
                       (into (sorted-map)))]
-    {:tool    "reagent-to-hicasso/codemod (fixer)"
-     :design  "docs/design/hicasso/studio/reagent-codemod-against-the-landed-escape.md"
+    {:tool    "reagent-to-fresco/codemod (fixer)"
+     :design  "docs/design/fresco/studio/reagent-codemod-against-the-landed-escape.md"
 
      ;; THE RECOGNITION VERDICT, HOISTED. It is the census's measurement and
      ;; it is repeated here on purpose: a migrator who reads the top of this

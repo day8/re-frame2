@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.smoke-cljs-test
+(ns re-frame.fresco.smoke-cljs-test
   "THE PACKAGE SMOKE — a `defview` reads a `sub`, through the public door.
 
   This is the one test the extraction bead owes, and it is deliberately
@@ -8,7 +8,7 @@
   What is genuinely NEW here — and therefore the only thing that can be
   newly broken — is the PACKAGING:
 
-  - `re-frame.hicasso` resolves, and hands a consumer the three macros
+  - `re-frame.fresco` resolves, and hands a consumer the three macros
     through a plain `:require` (a CLJS namespace cannot re-export a macro,
     so this is the property most likely to be quietly wrong);
   - the renamed `impl.*` graph loads, with the bench tree nowhere on the
@@ -28,17 +28,17 @@
   The three harness namespaces reached below the door (`impl.mount`'s
   provider, `impl.codec`'s root element, `impl.collector`'s reset) are the
   server-render harness, not authoring surface. Mounting is
-  [[re-frame.hicasso/render!]]'s job and needs a DOM; wiring a consumer app
+  [[re-frame.fresco/render!]]'s job and needs a DOM; wiring a consumer app
   and an SSR entry to the package is the consumer app's."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.test-support :as rf.test-support]
             ["react-dom/server" :as react-dom-server]))
 
@@ -59,18 +59,18 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The consumer's whole source file
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview greeting-line
+(rf.fresco/defview greeting-line
   "A boundary declared exactly as a consumer declares one: the macro off
   the public door, the read off the public door, and nothing imported from
   below it."
   [{:keys [tag]}]
-  [:p {:class tag} (rf.hicasso/sub [:smoke/greeting])])
+  [:p {:class tag} (rf.fresco/sub [:smoke/greeting])])
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -90,7 +90,7 @@
 (defn- html
   [hiccup]
   (react-dom-server/renderToString
-    (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup))))
+    (rf.fresco.impl.mount/provider frame-id (rf.fresco.impl.codec/root-element frame-id hiccup))))
 
 ;; ---------------------------------------------------------------------------
 ;; The round-trip
@@ -100,8 +100,8 @@
   (testing "the door hands over a real minted boundary, not a plain fn —
             which is what `defview` expanding correctly through the
             self-required macro namespace looks like"
-    (is (true? (rf.hicasso.impl.codec/boundary-head? greeting-line))
-        "greeting-line should be a Hicasso boundary head"))
+    (is (true? (rf.fresco.impl.codec/boundary-head? greeting-line))
+        "greeting-line should be a Fresco boundary head"))
 
   (testing "a boundary's body reads its subscription and the value reaches
             the markup"
@@ -134,4 +134,4 @@
     (seeded! "hello")
     (html [greeting-line {:tag "greet"}])
     (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
-           (dissoc (rf.hicasso.test.runtime/residue) :entries)))))
+           (dissoc (rf.fresco.test.runtime/residue) :entries)))))

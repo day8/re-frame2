@@ -35,8 +35,8 @@ live** — the second was discharged on 2026-08-15 and its row says so:
 
 | Remainder | Where it stands | Why it blocks certification |
 |---|---|---|
-| Naming-ledger **row 18** — retire `hframe` | Ruled by the operator (2026-08-11); **still unexecuted at 2026-08-15**. The seam it retires in favour of is `rf2-t32wg`, which on that date was **open and awaiting an operator spec ruling** — zero-arity `rf/capture-frame` refuses inside a Hicasso body, and admitting it contradicts two normative sentences in `spec/002-Frames.md`. It has since been **ruled and closed on 2026-08-30**: the operator admitted the pure identity and capture doors inside a refusing extent and retired `h/hframe` with no alias, and execution landed under `rf2-6c12m.13` ([§6.6](#66-what-this-still-does-not-certify)). | **142 `hframe` occurrences across 40 files at `f167edd4bc`** stay put by `rf2-t32wg`'s own instruction — the count is anchored to that commit rather than to "the landed tree", because writing it down moved it: on the head this page landed as, the same command reads **143/40**, and it reads 143/40 again at `7304e825c9` ([§6](#6-the-re-run-2026-08-16-after-the-donor-retire)). Measured by line count of `git grep -o -h -E '\bhframe\b' -- . ':(exclude).beads'` (the row first recorded 152/39, on a differently-scoped count). That is the ledger's header rule working, not drift — and it means the public surface is not final. |
-| Four `:recovery` keywords still spelling `h-fn` — **DISCHARGED 2026-08-15** | `rf2-15bqc`'s **PR #8311 merged at 08:23:16Z**. `grep -rn 'h-fn' implementation/hicasso/src/` returns nothing. | This remainder was the *source-coordinate / error-shape* family's blocker, and it is gone: family 4 was re-run against the landed tree in §5 below. |
+| Naming-ledger **row 18** — retire `hframe` | Ruled by the operator (2026-08-11); **still unexecuted at 2026-08-15**. The seam it retires in favour of is `rf2-t32wg`, which on that date was **open and awaiting an operator spec ruling** — zero-arity `rf/capture-frame` refuses inside a Fresco body, and admitting it contradicts two normative sentences in `spec/002-Frames.md`. It has since been **ruled and closed on 2026-08-30**: the operator admitted the pure identity and capture doors inside a refusing extent and retired `h/hframe` with no alias, and execution landed under `rf2-6c12m.13` ([§6.6](#66-what-this-still-does-not-certify)). | **142 `hframe` occurrences across 40 files at `f167edd4bc`** stay put by `rf2-t32wg`'s own instruction — the count is anchored to that commit rather than to "the landed tree", because writing it down moved it: on the head this page landed as, the same command reads **143/40**, and it reads 143/40 again at `7304e825c9` ([§6](#6-the-re-run-2026-08-16-after-the-donor-retire)). Measured by line count of `git grep -o -h -E '\bhframe\b' -- . ':(exclude).beads'` (the row first recorded 152/39, on a differently-scoped count). That is the ledger's header rule working, not drift — and it means the public surface is not final. |
+| Four `:recovery` keywords still spelling `h-fn` — **DISCHARGED 2026-08-15** | `rf2-15bqc`'s **PR #8311 merged at 08:23:16Z**. `grep -rn 'h-fn' implementation/fresco/src/` returns nothing. | This remainder was the *source-coordinate / error-shape* family's blocker, and it is gone: family 4 was re-run against the landed tree in §5 below. |
 
 **No score on any checkpoint page was recomputed by this bead, and no
 [`correction-ledger.md`](correction-ledger.md) row was transitioned.** Checkpoint 4 stands where it
@@ -88,7 +88,7 @@ the status column now carries those results; §5 records the captured exit codes
 
 | # | Family | Where it runs | Needs | Status |
 |---|---|---|---|---|
-| 1 | bundle-isolation / rent sentinels | `npm run build:hicasso-release` (bundle half: `check_production_erasure.cjs`, `check_bundle_isolation.cjs`); `implementation/hicasso/scripts/check_optional_module_reachability.py` (source half) | bundle half: `node_modules` + JVM | **RE-RUN 2026-08-15, both halves green.** (Was: source half only.) |
+| 1 | bundle-isolation / rent sentinels | `npm run build:fresco-release` (bundle half: `check_production_erasure.cjs`, `check_bundle_isolation.cjs`); `implementation/fresco/scripts/check_optional_module_reachability.py` (source half) | bundle half: `node_modules` + JVM | **RE-RUN 2026-08-15, both halves green.** (Was: source half only.) |
 | 2 | SSR server bytes + hydration witnesses | `npm run test:cljs`, `npm run test:browser`, `cd implementation/ssr && clojure -M:test` | `node_modules` + JVM; browser arm Chromium | **RE-RUN 2026-08-15, all three arms green.** (Was: not run, `#8308` mid-flight — `#8308` has merged.) |
 | 3 | native macro-expansion parity | `three_way_parity_cljs_test.cljs` and `expansion_probe.clj`, via `npm run test:cljs` / `test:browser` | `node_modules` + JVM | **RE-RUN 2026-08-15, green.** `expansion_probe.clj` has no JVM lane by design — it is a macro namespace `native_grammar_cljs_test` and `native_surface_cljs_test` consume via `:require-macros`, so the Node lane *is* where it runs. (Was: not run.) |
 | 4 | source-coordinate capture | `error_shape_cljs_test.cljs` (dev, coordinate present); `npm run test:browser-prod-elision` → `check_source_coord_elision.cjs` (coordinate erased) | `node_modules` + JVM + Chromium | **RE-RUN 2026-08-15, both arms green**, against a tree that carries `#8311`'s four moved `:recovery` keywords. (Was: not run, `#8311` mid-flight.) |
@@ -104,9 +104,9 @@ threshold. It was repointed to `rf2-85og2`. The nearest re-runnable gates are th
 
 | Gate | Self-test | Gate | Result |
 |---|---|---|---|
-| `implementation/hicasso/scripts/check_freeze.py` | `0` | `0` | 1 frozen row matches; each package file is its donor moved. **Read the caveat below.** |
-| `implementation/hicasso/scripts/check_budget_ledger.py` | `0` | `0` | 49 rows — 31 MET, 5 BREACH, 3 UNRESOLVED, 10 UNPINNED. **Identical to the pre-sweep tally**, so the rename moved no budget row. |
-| `implementation/hicasso/scripts/check_optional_module_reachability.py` | — | `0` | motion, overlay, native, forms and server all unreachable from the public door; UIx required by no `src/` namespace. |
+| `implementation/fresco/scripts/check_freeze.py` | `0` | `0` | 1 frozen row matches; each package file is its donor moved. **Read the caveat below.** |
+| `implementation/fresco/scripts/check_budget_ledger.py` | `0` | `0` | 49 rows — 31 MET, 5 BREACH, 3 UNRESOLVED, 10 UNPINNED. **Identical to the pre-sweep tally**, so the rename moved no budget row. |
+| `implementation/fresco/scripts/check_optional_module_reachability.py` | — | `0` | motion, overlay, native, forms and server all unreachable from the public door; UIx required by no `src/` namespace. |
 
 **The freeze gate's green is narrower than it looks, and must not be quoted as certifying the rename.**
 `check_freeze.py` is the gate a repo-wide rename is most likely to redden, because it reconstructs each
@@ -135,7 +135,7 @@ builds share one cache — and each exit code captured from the runner rather th
 | 2, 3, 4 (source half) | `npm run test:cljs` | `0` | Ran **13944 tests / 70239 assertions, 0 failures, 0 errors**. Carries `three_way_parity_cljs_test`, `error_shape_cljs_test`, and the two `expansion-probe` consumers. |
 | 2, 3 (browser arm) | `npm run test:browser` | `0` | Ran **1552 tests / 9850 assertions, 0 failures, 0 errors**. |
 | 2 (SSR JVM arm) | `cd implementation/ssr && clojure -M:test` | `0` | Ran **618 tests / 2971 assertions, 0 failures, 0 errors**. |
-| 1 (bundle half) | `npm run build:hicasso-release` | `0` | Release build 162 files / 107 compiled / 0 warnings. Production erasure: self-test OK, **5 sentinels absent, 3 positive controls present**. Bundle isolation: self-test OK, **8 sentinels absent, 4 positive controls present**. |
+| 1 (bundle half) | `npm run build:fresco-release` | `0` | Release build 162 files / 107 compiled / 0 warnings. Production erasure: self-test OK, **5 sentinels absent, 3 positive controls present**. Bundle isolation: self-test OK, **8 sentinels absent, 4 positive controls present**. |
 | 4 (elision arm) | `npm run test:browser-prod-elision` | `0` | **No `defview`/`defhost` source coordinate in the advanced bundle, positive control present**; 129 tests / 547 assertions, 0 failures, 0 errors. |
 
 **What this re-run does and does not certify.** It certifies the four runnable families against the
@@ -190,13 +190,13 @@ never a status reported about the run by something else.
 
 | Family | Command | Captured exit | What it reported, at `7304e825c9` |
 |---|---|---|---|
-| 1 — bundle isolation / rent sentinels (bundle half) | `npm run build:hicasso-release` | `0` | Release build **162 files / 107 compiled / 0 warnings / 22.62s**. Production erasure: self-test OK, **5 sentinels absent, 3 positive controls present**. Bundle isolation: self-test OK, **8 sentinels absent, 4 positive controls present**. |
-| 1 — (source half) | `implementation/hicasso/scripts/check_optional_module_reachability.py` (`--self-test`, then live) | `0`, `0` | motion, overlay, native, forms and server all unreachable from the public door; UIx required by no `src/` namespace and named by no production coordinate. |
+| 1 — bundle isolation / rent sentinels (bundle half) | `npm run build:fresco-release` | `0` | Release build **162 files / 107 compiled / 0 warnings / 22.62s**. Production erasure: self-test OK, **5 sentinels absent, 3 positive controls present**. Bundle isolation: self-test OK, **8 sentinels absent, 4 positive controls present**. |
+| 1 — (source half) | `implementation/fresco/scripts/check_optional_module_reachability.py` (`--self-test`, then live) | `0`, `0` | motion, overlay, native, forms and server all unreachable from the public door; UIx required by no `src/` namespace and named by no production coordinate. |
 | 2, 3, 4 — source half | `npm run test:cljs` | `0` | Compile **1985 files / 1984 compiled / 0 warnings / 114.67s**, then **11771 tests / 59589 assertions, 0 failures, 0 errors**. Carries `three_way_parity_cljs_test`, `error_shape_cljs_test` and the two `expansion_probe` consumers. |
 | 2, 3 — browser arm | `npm run test:browser` | `0` | Compile **1075 files / 1074 compiled / 4 warnings / 71.71s**, then **1015 tests / 5724 assertions, 0 failures, 0 errors**. The four warnings are read below. |
 | 2 — SSR JVM arm | `cd implementation/ssr && clojure -M:test` | `0` | **599 tests / 2925 assertions, 0 failures, 0 errors**. |
 | 4 — elision arm | `npm run test:browser-prod-elision` | `0` | Release build **312 files / 252 compiled / 0 warnings / 41.89s**. **No `defview`/`defhost` source coordinate in the `:advanced` bundle, positive control present**; then **92 tests / 295 assertions, 0 failures, 0 errors**. |
-| — the hicasso invariant block | `npm run test:hicasso-invariants` | `0` | 8 gates, each with its self-test: freeze 1 frozen row; **budget ledger 49 rows — 31 MET, 5 BREACH, 3 UNRESOLVED, 10 UNPINNED**, the same tally §4 recorded, so the retire moved no budget row; complaint catalogue 77 live; facade inventory 16 door names over 43 rows, `h/hframe` still on the door at `HS-43`; guide samples 217 fenced blocks over 29 pages. |
+| — the fresco invariant block | `npm run test:fresco-invariants` | `0` | 8 gates, each with its self-test: freeze 1 frozen row; **budget ledger 49 rows — 31 MET, 5 BREACH, 3 UNRESOLVED, 10 UNPINNED**, the same tally §4 recorded, so the retire moved no budget row; complaint catalogue 77 live; facade inventory 16 door names over 43 rows, `h/hframe` still on the door at `HS-43`; guide samples 217 fenced blocks over 29 pages. |
 
 **Verdict: the four runnable families are green at `7304e825c9`, and family 5 still does not exist.**
 That is the same shape of answer §4 and §5 returned, reached on a tree 607 files smaller. Nothing was
@@ -204,7 +204,7 @@ filed in [`correction-ledger.md`](correction-ledger.md), because a ledger row re
 there was none to record — every captured exit above is the runner's own `0`.
 
 **The browser lane's four warnings, read rather than counted.** All four are `:infer-warning`, all four
-are in one **test** file — `implementation/hicasso/test/re_frame/hicasso/native_ssr_dom_cljs_test.cljs`
+are in one **test** file — `implementation/fresco/test/re_frame/fresco/native_ssr_dom_cljs_test.cljs`
 at `652:21`, `653:26`, `658:26` and `666:26` — and all four are the same expression shape,
 `(.-server (n/marker …))`. They are recorded here because the *production* version of exactly this
 shape was a real defect once (`rf2-9zz0y`: four `:infer-warning`s on `(.. el -style -anchorName)` sat
@@ -251,9 +251,9 @@ a different way, by printing their `shadow-cljs.edn` root on line 1.
 
 | Step | Content hash | Result |
 |---|---|---|
-| baseline `src/re_frame/hicasso.cljc` | `4bc4160cc47d9f9976ee321e0760ec48f99a5c28` | identical to the committed object at `7304e825c9` |
-| plant: one `:require` of `re-frame.hicasso.motion` added to the door's `ns` form | `91ef67b83f86f685105fcd7c3b7f55e8c40ce3d9` | hash changed, so the patch was **applied** and not a silent no-op |
-| gate re-run under the plant | — | **exit `1`** — *"`re-frame.hicasso` requires `re-frame.hicasso.motion`, which belongs to the OPTIONAL `motion` module"* |
+| baseline `src/re_frame/fresco.cljc` | `4bc4160cc47d9f9976ee321e0760ec48f99a5c28` | identical to the committed object at `7304e825c9` |
+| plant: one `:require` of `re-frame.fresco.motion` added to the door's `ns` form | `91ef67b83f86f685105fcd7c3b7f55e8c40ce3d9` | hash changed, so the patch was **applied** and not a silent no-op |
+| gate re-run under the plant | — | **exit `1`** — *"`re-frame.fresco` requires `re-frame.fresco.motion`, which belongs to the OPTIONAL `motion` module"* |
 | restore | `4bc4160cc47d9f9976ee321e0760ec48f99a5c28` | **hash-matches the committed object** — verified by content hash, not by reading a diff |
 
 The other families carry their own weaker version of the same control, and it is worth naming because

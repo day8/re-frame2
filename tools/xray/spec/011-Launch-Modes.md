@@ -597,7 +597,7 @@ Two predecessors sat at exactly this position: the first claimed the
 donor `re-frame.ui` single-owner evidence registry, and the second was
 no step at all, `re-frame.freehand.tool` being a READER with no registry
 to claim. Both are gone with the substrates they read — see spec/021
-§3.4.1. The Hicasso tab's door is a reader on the same terms and
+§3.4.1. The Fresco tab's door is a reader on the same terms and
 acquires nothing here either.
 
 The preload MUST NOT mount the shell synchronously during namespace
@@ -605,17 +605,17 @@ load. It MAY schedule a bounded adapter-ready retry. Once the adapter
 is ready, it MUST find the configured layout host and mount the shell
 there. If the host is missing, it MUST emit the diagnostic described in
 §Layout host contract and leave the app running. If the installed
-adapter is a React-element substrate (UIx / Hicasso — hosts whose
+adapter is a React-element substrate (UIx / Fresco — hosts whose
 `:render` cannot take the hiccup shell, per
 [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Adapter
 resolution), it MUST refuse the mount with the
 `:unsupported-substrate` diagnostic (status API + one `console.warn`)
-and leave the app running (rf2-qgfo4). **A Hicasso host is refused on its
-OWN kind (rf2-zkjd5)**: `re-frame.hicasso.substrate` ships
-`:kind :rf.adapter/hicasso` and the install chapter teaches it as the
-default, so the refusal fires on `:rf.adapter/hicasso`. A Hicasso app that
+and leave the app running (rf2-qgfo4). **A Fresco host is refused on its
+OWN kind (rf2-zkjd5)**: `re-frame.fresco.substrate` ships
+`:kind :rf.adapter/fresco` and the install chapter teaches it as the
+default, so the refusal fires on `:rf.adapter/fresco`. A Fresco app that
 installs UIx instead reports `:rf.adapter/uix` and is refused on that
-entry. This supersedes rf2-wtznc, which recorded a Hicasso that minted no
+entry. This supersedes rf2-wtznc, which recorded a Fresco that minted no
 adapter kind at all.
 
 **The foundation side-effects fire on the preload path only (rf2-5w06uu).**

@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.arm1.boundary-crossing-dom-cljs-test
+(ns re-frame.bench.fresco.arm1.boundary-crossing-dom-cljs-test
   "A READ DEFERRED ACROSS A BOUNDARY CROSSING, IN A REAL BROWSER
   (rf2-2rtt6.45).
 
@@ -33,18 +33,18 @@
   stated skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.front.dogfood :as rf.bench.fresco.front.dogfood]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.test-support :as rf.test-support])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
+     :init-fn (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::arm1-boundary-crossing-dom)
 (def ^:private todo-count 6)
@@ -52,9 +52,9 @@
 (defn- skip! [why] (is true (str "a boundary-crossing claim needs a real React DOM — " why)))
 
 (defn- fresh! []
-  (rf.bench.hicasso.lane/leave-act-environment!)
-  (rf.bench.hicasso.front.dogfood/make-frame! frame-id todo-count)
-  (rf.bench.hicasso.front.dogfood/reseed! frame-id todo-count)
+  (rf.bench.fresco.lane/leave-act-environment!)
+  (rf.bench.fresco.front.dogfood/make-frame! frame-id todo-count)
+  (rf.bench.fresco.front.dogfood/reseed! frame-id todo-count)
   frame-id)
 
 (defn- cell-text [handle id]
@@ -67,10 +67,10 @@
 (defn- retitle!
   "Move one row's `:dogfood/todo` query, through the arm's own door."
   [id title]
-  (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:dogfood/edit-draft id title])
-  (rf.bench.hicasso.arm1.mount/settle!)
-  (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:dogfood/commit id])
-  (rf.bench.hicasso.arm1.mount/settle!)
+  (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/edit-draft id title])
+  (rf.bench.fresco.arm1.mount/settle!)
+  (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/commit id])
+  (rf.bench.fresco.arm1.mount/settle!)
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -91,21 +91,21 @@
   defers every row read into the seq it hands across the crossing."
   [_]
   [crossing-child
-   {:rows (for [id (rf.bench.hicasso.arm1.runtime/sub [:dogfood/visible-ids])]
-            [id (:title (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo id]))])}])
+   {:rows (for [id (rf.bench.fresco.arm1.runtime/sub [:dogfood/visible-ids])]
+            [id (:title (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo id]))])}])
 
 (deftest a-read-deferred-across-a-boundarys-props-still-moves-the-dom
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [crossing-parent {}])]
+      (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [crossing-parent {}])]
         (try
           (is (= todo-count (cell-count handle)))
           (is (= "todo 2" (cell-text handle 2))
               "the first paint is right — which is exactly what the broken
                runtime also gives you, and why this row proves nothing alone")
-          (let [edges-at-mount (:edges (rf.bench.hicasso.arm1.runtime/stats))]
+          (let [edges-at-mount (:edges (rf.bench.fresco.arm1.runtime/stats))]
             (retitle! 2 "crossed")
             (is (= "crossed" (cell-text handle 2))
                 "**the second half.** A write to a row query the PARENT
@@ -113,14 +113,14 @@
                  boundary that can rebuild the seq, and it did")
             (is (= "todo 1" (cell-text handle 1))
                 "while its neighbour is untouched")
-            (is (= edges-at-mount (:edges (rf.bench.hicasso.arm1.runtime/stats)))
+            (is (= edges-at-mount (:edges (rf.bench.fresco.arm1.runtime/stats)))
                 "and the edges survived the re-render — the failure mode was
                  that the wrong reader re-rendered ONCE, read nothing the
                  second time, and left the row with no edge at all"))
           (testing "and it is not a one-shot correction: the value keeps moving"
             (retitle! 2 "crossed again")
             (is (= "crossed again" (cell-text handle 2))))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Carrier (b) — a nested seq in the CHILDREN position
@@ -138,16 +138,16 @@
   outer spine and hands each inner seq on as an element."
   [_]
   [nested-child
-   (for [chunk (partition-all 2 (rf.bench.hicasso.arm1.runtime/sub [:dogfood/visible-ids]))]
+   (for [chunk (partition-all 2 (rf.bench.fresco.arm1.runtime/sub [:dogfood/visible-ids]))]
      (for [id chunk]
-       [:li.cell {:key id :data-id id} (str (:title (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo id])))]))])
+       [:li.cell {:key id :data-id id} (str (:title (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo id])))]))])
 
 (deftest a-read-deferred-into-a-boundarys-nested-children-still-moves-the-dom
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [nested-parent {}])]
+      (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [nested-parent {}])]
         (try
           (is (= todo-count (cell-count handle)))
           (is (= "todo 4" (cell-text handle 4)) "the first paint is right")
@@ -157,4 +157,4 @@
                parent too, and its write reaches the DOM")
           (is (= "todo 3" (cell-text handle 3))
               "while its chunk-mate is untouched")
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))

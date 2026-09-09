@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.grid.events
+(ns re-frame.fresco.examples.grid.events
   "THE 100-CELL CONTROLLED GRID'S MODEL — ordinary re-frame2.
 
   The editor is evidence about a form's SHAPE; this is evidence about
@@ -90,7 +90,7 @@
   {:doc "Write one cell, through the digits-only policy."}
   ;; POSITIONAL, and not by preference. `::h/value` substitutes at the
   ;; intent vector's TOP LEVEL only, so `[::edit {:row r :col c :value
-  ;; ::h/value}]` would put the keyword `:re-frame.hicasso/value` into
+  ;; ::h/value}]` would put the keyword `:re-frame.fresco/value` into
   ;; app-db and render it as text — silently, unrefused and unlinted.
   ;; See the namespace docstring.
   (fn [{:keys [db]} [_ row col typed]]

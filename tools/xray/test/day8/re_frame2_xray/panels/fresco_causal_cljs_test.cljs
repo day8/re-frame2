@@ -1,4 +1,4 @@
-(ns day8.re-frame2-xray.panels.hicasso-causal-cljs-test
+(ns day8.re-frame2-xray.panels.fresco-causal-cljs-test
   "ONE causal slice on a REAL interaction, with every evidenced link
   mutation-tested (rf2-hic-037).
 
@@ -27,20 +27,20 @@
   could be talked out of stamping a trace tag would be a different bead.
   The events they carry are otherwise the runtime's own.
 
-  Normative owner: `tools/xray/spec/028-Hicasso-Advisor.md`."
+  Normative owner: `tools/xray/spec/028-Fresco-Advisor.md`."
   (:require [cljs.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as string]
-            [day8.re-frame2-xray.panels.hicasso :as hicasso]
-            [day8.re-frame2-xray.panels.hicasso-advisor :as advisor]
-            [day8.re-frame2-xray.panels.hicasso-causal :as causal]
-            [day8.re-frame2-xray.panels.hicasso-helpers :as hh]
-            [day8.re-frame2-xray.panels.hicasso-reads :as reads]
+            [day8.re-frame2-xray.panels.fresco :as fresco]
+            [day8.re-frame2-xray.panels.fresco-advisor :as advisor]
+            [day8.re-frame2-xray.panels.fresco-causal :as causal]
+            [day8.re-frame2-xray.panels.fresco-helpers :as hh]
+            [day8.re-frame2-xray.panels.fresco-reads :as reads]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (def ^:private app-frame ::causal-app)
@@ -50,8 +50,8 @@
 (rf/reg-event :hcaus/seed (fn [_ [_ db]] {:db db}))
 (rf/reg-event :hcaus/bump (fn [{:keys [db]} _] {:db (update db :left inc)}))
 
-;; See `hicasso_cljs_test`'s fixture note: the UIx adapter is required
-;; because Hicasso's cell wiring calls `add-watch` on the substrate's
+;; See `fresco_cljs_test`'s fixture note: the UIx adapter is required
+;; because Fresco's cell wiring calls `add-watch` on the substrate's
 ;; derived value, and the `:once` restore is load-bearing because
 ;; `install-adapter!` is process-global.
 (use-fixtures :once
@@ -62,7 +62,7 @@
 (use-fixtures :each
   (xray-test-support/make-xray-runtime-fixture
     {:adapter    rf.adapter.uix/adapter
-     :post-reset (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :post-reset (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -106,8 +106,8 @@
 (defn- mount!
   "A real boundary, rendered and committed through the real commit seam."
   [body-fn]
-  (rf.hicasso.impl.collector/render-body app-frame body-fn {})
-  (rf.hicasso.impl.collector/commit-boundary! (rf.hicasso.impl.collector/last-reads) (fn [])))
+  (rf.fresco.impl.collector/render-body app-frame body-fn {})
+  (rf.fresco.impl.collector/commit-boundary! (rf.fresco.impl.collector/last-reads) (fn [])))
 
 (defn- interact!
   "One real user interaction: a dispatch through the real router, which
@@ -139,9 +139,9 @@
 (defn- show!
   [view]
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray.hicasso/set-view view])
+    (rf/dispatch-sync [:rf.xray.fresco/set-view view])
     (rf/clear-sub-cache! :rf/xray)
-    (hicasso/Panel)))
+    (fresco/Panel)))
 
 ;; ---------------------------------------------------------------------------
 ;; The positive control — the whole chain, on a real interaction
@@ -149,7 +149,7 @@
 
 (deftest the-chain-is-seven-links-and-only-its-prefix-is-evidenced
   (setup!)
-  (let [release (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
+  (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
         _       (interact!)
         s       (slice!)]
     (is (= 7 (:total s)))
@@ -185,11 +185,11 @@
 (deftest the-2-to-3-join-is-UNCORRELATED-even-when-both-links-are-solid
   ;; THE FINDING. A sub really recomputed and a cell's epoch really moved,
   ;; and nothing joins them: an epoch stamp carries no dispatch id and
-  ;; Hicasso's commit seam records no cascade id. A chain of green links
+  ;; Fresco's commit seam records no cascade id. A chain of green links
   ;; with the join left implicit is exactly the adjacency-as-cause the
   ;; producer refuses one layer down.
   (setup!)
-  (let [release (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
+  (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
         _       (interact!)
         s       (slice!)]
     (is (true? (:evidenced? (link s :subs-recomputed))))
@@ -214,7 +214,7 @@
 
 (deftest breaking-the-ring-stops-the-event-link-being-evidenced
   (setup!)
-  (let [release (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
+  (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
         _       (interact!)
         before  (slice!)]
     (is (true? (:evidenced? (link before :event)))
@@ -257,7 +257,7 @@
 
 (deftest an-untagged-recompute-is-UNKNOWN-and-never-an-empty-roster
   (setup!)
-  (let [release   (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
+  (let [release   (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
         _         (interact!)
         envelopes (evidence!)
         windows   (windows! envelopes)
@@ -290,7 +290,7 @@
 
 (deftest a-boundary-with-no-epoch-cannot-have-values-that-changed
   (setup!)
-  (let [reading (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
+  (let [reading (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
         silent  (mount! (fn [_] nil))
         _       (interact!)
         e       (evidence!)
@@ -333,7 +333,7 @@
   ;; assembled from it — and it would be the FORWARD edge, printed under
   ;; the reverse edge's name.
   (setup!)
-  (let [release (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
+  (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
         _       (interact!)
         e       (evidence!)
         w       (windows! e)
@@ -365,32 +365,32 @@
 
 (deftest every-unevidenced-link-renders-a-distinguishable-loss-on-the-page
   (setup!)
-  (let [release (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
+  (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
         _       (interact!)
         tree    (show! :causal)
         ids     (testids tree)]
-    (is (contains? ids "rf-xray-hicasso-causal"))
+    (is (contains? ids "rf-xray-fresco-causal"))
     (doseq [id ["event" "subs-recomputed" "values-changed" "boundaries-notified"
                 "bodies-run" "react-commit" "paint"]]
-      (is (contains? ids (str "rf-xray-hicasso-causal-link-" id))
+      (is (contains? ids (str "rf-xray-fresco-causal-link-" id))
           (str "link " id " must render")))
 
     (testing "the three host-opaque links carry the host-opaque chip, by testid"
       (doseq [id ["bodies-run" "react-commit" "paint"]]
-        (is (contains? ids (str "rf-xray-hicasso-causal-link-" id "-loss-host-opaque"))
+        (is (contains? ids (str "rf-xray-fresco-causal-link-" id "-loss-host-opaque"))
             (str id " must render its loss under a testid a browser assertion "
                  "can select — `…-loss-host-opaque` can never match "
                  "`…-loss-cap`"))))
 
     (testing "the join is its own row, never folded into the link's own basis"
-      (is (contains? ids "rf-xray-hicasso-causal-link-values-changed-join"))
+      (is (contains? ids "rf-xray-fresco-causal-link-values-changed-join"))
       (is (string/includes? (text-of tree) "CANNOT be joined")))
 
     (testing "and a capped ring renders the cap chip instead"
       (rf.trace.tooling/clear-trace-buffer! app-frame)
       (let [ids' (testids (show! :causal))]
-        (is (contains? ids' "rf-xray-hicasso-causal-link-event-loss-cap"))
-        (is (not (contains? ids' "rf-xray-hicasso-causal-link-event-loss-host-opaque"))
+        (is (contains? ids' "rf-xray-fresco-causal-link-event-loss-cap"))
+        (is (not (contains? ids' "rf-xray-fresco-causal-link-event-loss-host-opaque"))
             "two genuinely different window states, two different testids")))
     (release)))
 
@@ -403,7 +403,7 @@
   ;; real ring — and the advice is still not `extract this to native`,
   ;; because nothing on this host measured lowering, React or layout.
   (setup!)
-  (let [release (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) (rf.hicasso/sub [:hcaus/right]) nil))
+  (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) (rf.fresco/sub [:hcaus/right]) nil))
         _       (interact!)
         _       (interact!)
         e       (evidence!)
@@ -420,13 +420,13 @@
     (testing "and the tab renders it, refusal and working loop included"
       (let [tree (show! :advisor)
             ids  (testids tree)]
-        (is (contains? ids "rf-xray-hicasso-advisor"))
-        (is (contains? ids (str "rf-xray-hicasso-advice-" (:slug row))))
-        (is (contains? ids (str "rf-xray-hicasso-advice-" (:slug row) "-class")))
-        (is (contains? ids (str "rf-xray-hicasso-advice-" (:slug row) "-route")))
-        (is (contains? ids "rf-xray-hicasso-advisor-unmeasured"))
+        (is (contains? ids "rf-xray-fresco-advisor"))
+        (is (contains? ids (str "rf-xray-fresco-advice-" (:slug row))))
+        (is (contains? ids (str "rf-xray-fresco-advice-" (:slug row) "-class")))
+        (is (contains? ids (str "rf-xray-fresco-advice-" (:slug row) "-route")))
+        (is (contains? ids "rf-xray-fresco-advisor-unmeasured"))
         (doseq [c ["lowering" "react" "layout"]]
-          (is (contains? ids (str "rf-xray-hicasso-advisor-unmeasured-" c))
+          (is (contains? ids (str "rf-xray-fresco-advisor-unmeasured-" c))
               (str c " must be named on the page as unmeasured — the reason "
                    "the top row is not a verdict")))
         (is (string/includes? (text-of tree) "React DevTools"))))
@@ -437,11 +437,11 @@
   ;; drawn from a second turn could describe a boundary the ranking no
   ;; longer holds.
   (setup!)
-  (let [release (mount! (fn [_] (rf.hicasso/sub [:hcaus/left]) nil))
+  (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
         _       (interact!)
         data    (rf/with-frame :rf/xray
                   (rf/clear-sub-cache! :rf/xray)
-                  @(rf/subscribe [:rf.xray.hicasso/data]))
+                  @(rf/subscribe [:rf.xray.fresco/data]))
         top     (first (get-in data [:advice :rows]))]
     (is (some? top))
     (is (= (:key (:boundary top)) (get-in data [:slice :scope :boundary]))

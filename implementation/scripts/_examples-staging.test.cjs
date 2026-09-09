@@ -14,7 +14,7 @@
  *   - each parsed build recovers its :output-dir and :init-fn.
  *   - the real-repo derivation is non-vacuous (the project ships well over a
  *     dozen example builds) and every DOCUMENTED build — core, capability and
- *     substrate (the three UIx examples plus the Hicasso login) — resolves to a
+ *     substrate (the three UIx examples plus the Fresco login) — resolves to a
  *     runnable entry with a colocated index.html on disk.
  *
  * Standalone node-runnable suite — no external test framework. Discovered by `npm run test:scripts`.
@@ -297,9 +297,9 @@ const DOCUMENTED_SUBSTRATE_BUILDS = [
   'examples/counter-uix',
   'examples/login-uix',
   'examples/dashboard-uix',
-  // rf2-fmns2 — the Hicasso login, the third arm of the one-model
+  // rf2-fmns2 — the Fresco login, the third arm of the one-model
   // three-view-layer comparison examples/substrates/README.md documents.
-  'examples/login-hicasso',
+  'examples/login-fresco',
 ];
 
 it('the documented rosters are non-vacuous (a roster emptied by an edit cannot pass silently)', () => {

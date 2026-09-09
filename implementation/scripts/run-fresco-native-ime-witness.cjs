@@ -6,9 +6,9 @@
  * script, in Playwright's pinned Firefox and WebKit with Chromium as the
  * control (rf2-hic-016).
  *
- *   node implementation/scripts/run-hicasso-native-ime-witness.cjs --dry-run
- *   node implementation/scripts/run-hicasso-native-ime-witness.cjs --inject
- *   npm run witness:hicasso-native-ime            (from implementation/)
+ *   node implementation/scripts/run-fresco-native-ime-witness.cjs --dry-run
+ *   node implementation/scripts/run-fresco-native-ime-witness.cjs --inject
+ *   npm run witness:fresco-native-ime            (from implementation/)
  *
  * ============================ WHAT THIS IS NOT ============================
  *
@@ -16,9 +16,9 @@
  * Japanese IME, a visible desktop session, and the physical keyboard focus of
  * the machine it runs on. There is no hosted runner with those things. The
  * recurring three-engine regression net is and remains the SYNTHETIC witness
- * — `implementation/hicasso/testbed/spec.cjs`, driven by
- * `serve-and-run-hicasso-controlled-testbed.cjs` in the required
- * `cljs-hicasso-controlled` job. This script replaces the HUMAN in the
+ * — `implementation/fresco/testbed/spec.cjs`, driven by
+ * `serve-and-run-fresco-controlled-testbed.cjs` in the required
+ * `cljs-fresco-controlled` job. This script replaces the HUMAN in the
  * bounded native-IME session; it does not replace that gate, and a green run
  * here is not continuous coverage of anything.
  *
@@ -126,23 +126,23 @@ const {
 } = require('./lib/local-browser-harness.cjs');
 const { enforcePolicy, DEFAULT_OUT_ROOT } = require('./_path-policy.cjs');
 
-const W = require(path.join(__dirname, '..', 'hicasso', 'testbed', 'native-ime-witness.cjs'));
+const W = require(path.join(__dirname, '..', 'fresco', 'testbed', 'native-ime-witness.cjs'));
 
 const IMPL_ROOT = path.resolve(__dirname, '..');
-const BUILD_ID = 'hicasso/testbed';
+const BUILD_ID = 'fresco/testbed';
 const ROOT = enforcePolicy(
-  'HICASSO_TESTBED_ROOT',
-  path.join(IMPL_ROOT, 'out', 'hicasso-testbed'),
+  'FRESCO_TESTBED_ROOT',
+  path.join(IMPL_ROOT, 'out', 'fresco-testbed'),
   { allowedRoots: [DEFAULT_OUT_ROOT] },
 );
-const HTML_SRC = path.join(IMPL_ROOT, 'hicasso', 'testbed', 'index.html');
+const HTML_SRC = path.join(IMPL_ROOT, 'fresco', 'testbed', 'index.html');
 const DRIVER_PS1 = path.join(__dirname, 'lib', 'windows-ime-driver.ps1');
 
 const DEFAULT_PORT = 8066;
 const READY_TIMEOUT_MS = 30000;
 const NAV_TIMEOUT_MS = 60000;
 const MOUNT_TIMEOUT_MS = 60000;
-// The testbed's armed edges fire at 5s (`hicasso_testbed.core/arm-delay-ms`).
+// The testbed's armed edges fire at 5s (`fresco_testbed.core/arm-delay-ms`).
 // The ceiling here is that plus slack, and it is a CEILING rather than a
 // sleep: the wait polls the on-screen `armed` readout and returns the moment
 // it goes idle.
@@ -1210,12 +1210,12 @@ async function driveEngine(engine, baseUrl, driver, args) {
 
     await page.addInitScript(W.pageObserver);
     await page.goto(baseUrl, { waitUntil: 'commit', timeout: NAV_TIMEOUT_MS });
-    await page.waitForSelector('[data-testid="hicasso-controlled-testbed"]',
+    await page.waitForSelector('[data-testid="fresco-controlled-testbed"]',
       { timeout: MOUNT_TIMEOUT_MS });
 
     const reload = async () => {
       await page.reload({ waitUntil: 'commit', timeout: NAV_TIMEOUT_MS });
-      await page.waitForSelector('[data-testid="hicasso-controlled-testbed"]',
+      await page.waitForSelector('[data-testid="fresco-controlled-testbed"]',
         { timeout: MOUNT_TIMEOUT_MS });
     };
     const keys = async (tokens) => {
@@ -1235,7 +1235,7 @@ async function driveEngine(engine, baseUrl, driver, args) {
     let refusal = null;
     try {
       // A nonce in the document title is how the OS side finds THIS window.
-      // Matching on "Hicasso" would match this terminal, an editor with the
+      // Matching on "Fresco" would match this terminal, an editor with the
       // file open, or a second engine still on screen.
       const nonce = `RF2-IME-${engine}-${Date.now().toString(36)}`;
       await page.evaluate((t) => { document.title = t; }, nonce);
@@ -1505,7 +1505,7 @@ async function main() {
     }
 
     console.log(
-      '\nRecord the cells above in docs/design/hicasso/product/dispositions.md §2.3\n' +
+      '\nRecord the cells above in docs/design/fresco/product/dispositions.md §2.3\n' +
       '(native-IME block), and file ONE BEAD PER CROSS with the engine name on it.\n' +
       'A cross is a finding, not a reason to re-run until it passes.');
     if (incomplete > 0) {

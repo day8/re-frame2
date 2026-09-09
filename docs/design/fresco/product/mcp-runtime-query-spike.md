@@ -1,6 +1,6 @@
 # The MCP-queryable runtime — criteria, then verdict (rf2-hic-059)
 
-`rf2-hic-059` asks whether an AI pair should be able to interrogate a *running* Hicasso application through MCP, and what that surface should be. This page carries the criteria that decide it, frozen before anything was measured, and — below them, appended later — the measurement and the verdict.
+`rf2-hic-059` asks whether an AI pair should be able to interrogate a *running* Fresco application through MCP, and what that surface should be. This page carries the criteria that decide it, frozen before anything was measured, and — below them, appended later — the measurement and the verdict.
 
 **The spike's completion is the verdict, not adoption.** The operator ruling of 2026-08-12 17:36 AUSEST (`rf2-xpq9`) puts every Phase-5 decision-shaped item in v0 scope on exactly those terms: *the spike RUNS and its pre-registered verdict is MADE within v0; adoption follows its own criteria. A ruled STOP still completes the item.* A STOP here is therefore a completed bead, not a deferred one.
 
@@ -8,7 +8,7 @@
 
 | Field | Value |
 |---|---|
-| Subject | An MCP-queryable runtime for the AI pair: which reads of a running Hicasso application an agent may call over MCP |
+| Subject | An MCP-queryable runtime for the AI pair: which reads of a running Fresco application an agent may call over MCP |
 | Registered by | `rf2-hic-059`, on the specification, the tool catalogue and the shipped source alone |
 | Frozen | 2026-08-12 20:06 AUSEST, before any read was driven and before any source was read for an answer rather than for the question |
 | Evidence source | The `rf2-hic-025` slice application, driven through the real commit seam, and the shipped `tools/re-frame2-pair-mcp` descriptor set |
@@ -26,10 +26,10 @@ Three candidates are therefore live, and they are decided separately because the
 | Id | Candidate | Why it is a question |
 |---|---|---|
 | Q0 | The runtime reads that **already ship** as MCP tools | The bead's acceptance demands the surface be shown to work, and a read that only answers what a fixture told it has shown nothing |
-| Q1 | `re-frame.hicasso.tool/read-intents` as a **fourth** MCP tool | The door has this read; the wire deliberately does not ship it |
+| Q1 | `re-frame.fresco.tool/read-intents` as a **fourth** MCP tool | The door has this read; the wire deliberately does not ship it |
 | Q2 | A runtime **complaint** query as a fifth | The complaint catalogue is a static document; nothing asks a running application what it has refused |
 
-Out of scope, and not evidence for or against: the Xray Hicasso panels, which consume the same door and are decided elsewhere; the evidence projection's own shape (`rf2-hic-023`); the production-erasure law (`rf2-hic-024`), which is a standing gate this spike may not move; any latency or token figure, which this spike does not measure and does not need.
+Out of scope, and not evidence for or against: the Xray Fresco panels, which consume the same door and are decided elsewhere; the evidence projection's own shape (`rf2-hic-023`); the production-erasure law (`rf2-hic-024`), which is a standing gate this spike may not move; any latency or token figure, which this spike does not measure and does not need.
 
 ## The criteria
 
@@ -96,11 +96,11 @@ The criteria were frozen at authored head `d699c430f1`, the first commit on this
 
 This repository rebase-merges, so the authored head is re-minted the moment the PR lands and is then reachable from no ref — which is why the landed base is cited beside it, and why the landed hash of the freeze is back-filled here afterwards, exactly as [`resource-demand-criteria.md`](resource-demand-criteria.md) records its own.
 
-The evidence is `implementation/hicasso/test/re_frame/hicasso/mcp_runtime_query_spike_cljs_test.cljs`, which drives the four `re-frame.hicasso.tool` reads against the `rf2-hic-025` slice application — booted through the application's own `make-frame!`, its six bodies reached with `codec/retained-body` and run through the real commit seam. The suite registers no subscription, no event and no view.
+The evidence is `implementation/fresco/test/re_frame/fresco/mcp_runtime_query_spike_cljs_test.cljs`, which drives the four `re-frame.fresco.tool` reads against the `rf2-hic-025` slice application — booted through the application's own `make-frame!`, its six bodies reached with `codec/retained-body` and run through the real commit seam. The suite registers no subscription, no event and no view.
 
 ### The premise this bead was written on did not hold
 
-**The MCP-queryable runtime already ships.** `tools/re-frame2-pair-mcp` exposes three of the four door reads as wire tools today — `read-mounted-boundaries`, `read-read-attribution` and `explain-render` — each an eval of `re-frame.hicasso.tool` that resolves the door at runtime — `cljs.core/find-ns-obj` on the namespace, since `rf2-t2ec` replaced the original `exists?` guard, whose `:evidence-tier-unavailable` rung was unreachable in any app that had never loaded the door — gated against a consumer-owned evidence-schema literal, with `hicasso_wire_test.cljs` holding the wire names and the provider's fn names in agreement. The bead asks for a surface that was built while it sat in the queue.
+**The MCP-queryable runtime already ships.** `tools/re-frame2-pair-mcp` exposes three of the four door reads as wire tools today — `read-mounted-boundaries`, `read-read-attribution` and `explain-render` — each an eval of `re-frame.fresco.tool` that resolves the door at runtime — `cljs.core/find-ns-obj` on the namespace, since `rf2-t2ec` replaced the original `exists?` guard, whose `:evidence-tier-unavailable` rung was unreachable in any app that had never loaded the door — gated against a consumer-owned evidence-schema literal, with `fresco_wire_test.cljs` holding the wire names and the provider's fn names in agreement. The bead asks for a surface that was built while it sat in the queue.
 
 So the spike's live question is not *should there be one* but *what is missing from the one there is*, and the answer decides three candidates rather than one.
 
@@ -159,16 +159,16 @@ This confirms rather than re-decides: the tool catalogue already ruled `read-int
 
 **The one live argument for revisiting is recorded rather than dismissed.** `read-intents` carries an *absolute* promise — an id and an arity, never the vector, under any classification — while `trace-window`'s event-vector redaction is keyed to what a registration declared, and EP-0025's model is fail-open, so an undeclared event ships its arguments. That is a difference in kind, not degree. It is not adopted here because it is a difference in **posture**, not a different question, and no evidence exists that a pairing session ever needed the absolute form. What would change the verdict: a session where the intent ORDER was the needed fact and the sensitive-reads posture refused the tools that carry it.
 
-**Q2 — a runtime complaint query: STOP on S3.** Hicasso refusals are thrown by `impl.error/fail!` and **retained by nobody** — the constructor mints the `ex-info` and throws it. A census of *what has this application refused* therefore requires the runtime to start retaining refusals, and this bead forbids new retention in terms, so the candidate is refused by its own specification rather than by a judgement call.
+**Q2 — a runtime complaint query: STOP on S3.** Fresco refusals are thrown by `impl.error/fail!` and **retained by nobody** — the constructor mints the `ex-info` and throws it. A census of *what has this application refused* therefore requires the runtime to start retaining refusals, and this bead forbids new retention in terms, so the candidate is refused by its own specification rather than by a judgement call.
 
 The two halves that already have answers are worth naming so the STOP is not read as a gap:
 
 - a refusal raised **inside an event or effect cascade** is a `:rf.error/*` trace op and rides `trace-window`'s `:errors` slot already — S1;
 - a refusal raised **during render or mint** is outside any cascade and is retained nowhere, which is S3 in its sharpest form: the finding is *the runtime does not retain that*, not *the read is broken*;
-- the **static** half — id, meaning, payload shape, recovery ladder — is [`complaints.md`](../../../../implementation/hicasso/spec/complaints.md), round-tripped against the runtime by `check_complaint_catalogue.py`, and an agent reads it directly.
+- the **static** half — id, meaning, payload shape, recovery ladder — is [`complaints.md`](../../../../implementation/fresco/spec/complaints.md), round-tripped against the runtime by `check_complaint_catalogue.py`, and an agent reads it directly.
 
 ### What this spike did not need, and did not touch
 
-No new public export. No `implementation/` → `tools/` `:require` edge. No npm dependency. No hot-zone file. No new retention, no parallel graph or history. No hook added to the boundary shell, so I9 and the two-hook ceiling are untouched. No change to what a production build erases: the witness is a test namespace, and `re-frame.hicasso.tool`'s dev-only gating is `rf2-hic-024`'s and was not moved.
+No new public export. No `implementation/` → `tools/` `:require` edge. No npm dependency. No hot-zone file. No new retention, no parallel graph or history. No hook added to the boundary shell, so I9 and the two-hook ceiling are untouched. No change to what a production build erases: the witness is a test namespace, and `re-frame.fresco.tool`'s dev-only gating is `rf2-hic-024`'s and was not moved.
 
 The bead's own acceptance also asks that the privacy projection be verified. It is, and by the suite that owns it rather than a second copy here: `tool-reads-cljs-test`'s seeded-value rows prove the cells demonstrably hold a secret and that none of the four envelopes carries it. This spike adds the population that suite could not have — a real application — and repeats none of its assertions.

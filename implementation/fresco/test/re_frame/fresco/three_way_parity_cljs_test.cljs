@@ -1,25 +1,25 @@
-(ns re-frame.hicasso.three-way-parity-cljs-test
+(ns re-frame.fresco.three-way-parity-cljs-test
   "TWO-ARM PARITY — handwritten React against UIx, both through
   `h/defhost`.
 
   > A native island should be within 5% or 1 ms of the same component
   > mounted directly through its chosen React route, excluding the single
-  > explicit crossing. **The Hicasso-native surface is co-instrumented
+  > explicit crossing. **The Fresco-native surface is co-instrumented
   > against both handwritten React construction and UIx so the
   > convenience layer cannot define its own floor.**
   >
-  > — `docs/design/hicasso/product/specification.md` §6
+  > — `docs/design/fresco/product/specification.md` §6
 
   The native authoring tier this file used to measure as a third arm was
   retired by the rf2-6c12m.3 ruling: an island is now a raw React
   component or a UIx `defui`, mounted through `h/defhost`, using
-  `n/use-sub` / `n/use-frame` when it needs Hicasso state. What survives
+  `n/use-sub` / `n/use-frame` when it needs Fresco state. What survives
   here is the FLOOR that ruling kept — handwritten `react/createElement`
   is the only arm with no convenience in it, so it is the arm that
   decides what a crossing costs, and UIx is measured against it rather
   than against itself.
 
-  The file keeps its name because `docs/design/hicasso/product/budgets.md`
+  The file keeps its name because `docs/design/fresco/product/budgets.md`
   rows D14 and D16 name it as their witness.
 
   ## The corpus, and why the rows are thunks
@@ -56,7 +56,7 @@
   ## The island band, and the row this file does not pretend to be
 
   The island-performance deliverable is `C7` in
-  `docs/design/hicasso/product/budgets.md` §9, and it is `UNPINNED`, its
+  `docs/design/fresco/product/budgets.md` §9, and it is `UNPINNED`, its
   authority resting with the budget gates. That page's §9.2 says why in
   terms: the 5% rule has no same-instrument anchor until the ladder is
   re-pinned, no package-resident clock instrument exists, and §7 forbids
@@ -85,14 +85,14 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
-            [re-frame.hicasso.hook-probe :as rf.hicasso.hook-probe]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
-            [re-frame.hicasso.native :as rf.hicasso.native]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
+            [re-frame.fresco.hook-probe :as rf.fresco.hook-probe]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
+            [re-frame.fresco.native :as rf.fresco.native]
             [re-frame.test-support :as rf.test-support]
             [uix.core :as uix :refer-macros [defui]]
             ["react" :as react]
@@ -109,8 +109,8 @@
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :init-fn       (fn []
-                      (rf.hicasso.checkpoint-support/leave-act-environment!)
-                      (rf.hicasso.impl.collector/reset-runtime!))}))
+                      (rf.fresco.checkpoint-support/leave-act-environment!)
+                      (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The two routes, as components
@@ -141,8 +141,8 @@
   [^js props]
   (uix/$ uix-cell {:label (.-label props)}))
 
-(rf.hicasso/defhost react-cell-host react-cell {:server :render})
-(rf.hicasso/defhost uix-cell-host uix-cell-arm {:server :render})
+(rf.fresco/defhost react-cell-host react-cell {:server :render})
+(rf.fresco/defhost uix-cell-host uix-cell-arm {:server :render})
 
 ;; ---------------------------------------------------------------------------
 ;; The corpus
@@ -389,7 +389,7 @@
             builds has the author's own function as its type and the
             author's own slot as its props — zero wrappers, which is
             budgets.md row D14"
-    (let [^js el (rf.hicasso.impl.codec/as-element [react-cell-host {:label "42"}])]
+    (let [^js el (rf.fresco.impl.codec/as-element [react-cell-host {:label "42"}])]
       (is (identical? react-cell (.-type el)))
       (is (= ["label"] (slots el))))))
 
@@ -426,7 +426,7 @@
   (testing "and through the crossing the same hop is visible: the UIx arm's
             host hands React a plain shim as the element type, and it is the
             shim — not the door — that opens `argv` one level down"
-    (let [^js el (rf.hicasso.impl.codec/as-element [uix-cell-host {:label "42"}])]
+    (let [^js el (rf.fresco.impl.codec/as-element [uix-cell-host {:label "42"}])]
       (is (identical? uix-cell-arm (.-type el)))
       (is (= ["label"] (slots el)))))
 
@@ -450,9 +450,9 @@
   Client-only crossing would leave the premise row reading two arms and
   calling it three."
   [^js _props]
-  (react/createElement "b" #js {:className "island"} (str (rf.hicasso.native/use-sub [::price]))))
+  (react/createElement "b" #js {:className "island"} (str (rf.fresco.native/use-sub [::price]))))
 
-(rf.hicasso/defhost island-host island {:server :render})
+(rf.fresco/defhost island-host island {:server :render})
 
 (defui uix-reader
   "The UIx route's read, through the adapter's own hook, in the EXPLICIT
@@ -470,7 +470,7 @@
 
   What that costs the row is nothing: the claim is that all three doors
   read ONE frame and agree, not that all three discover it by the same
-  mechanism — they demonstrably do not, since the Hicasso doors resolve
+  mechanism — they demonstrably do not, since the Fresco doors resolve
   through `impl/collector`'s own context read. The ambient UIx form is
   the browser lane's to exercise, and `re-frame.adapter.uix`'s own
   `uix_use_sub_dom_cljs_test` is where it already is."
@@ -483,7 +483,7 @@
   [_props]
   (uix/$ uix-reader))
 
-(rf.hicasso/defhost uix-reader-host
+(rf.fresco/defhost uix-reader-host
   "The UIx arm's crossing into the tree, through the named door.
 
   `{:server :render}` and not the default, and the reason belongs in the
@@ -496,12 +496,12 @@
   uix-reader-arm
   {:server :render})
 
-(rf.hicasso/defview boundary
+(rf.fresco/defview boundary
   "The interpreted route's read: `h/sub`, the ambient collector."
   [_]
-  [:i.boundary (str (rf.hicasso/sub [::price]))])
+  [:i.boundary (str (rf.fresco/sub [::price]))])
 
-(rf.hicasso/defview page
+(rf.fresco/defview page
   "One tree holding all three doors, so the reads are of the same frame
   in the same render rather than three separate renders that happen to
   agree."
@@ -523,17 +523,17 @@
   order."
   [hiccup]
   (let [!html (volatile! nil)
-        hooks (rf.hicasso.hook-probe/record!
+        hooks (rf.fresco.hook-probe/record!
                 (fn []
                   (vreset! !html
                            (react-dom-server/renderToString
-                             (rf.hicasso.impl.mount/provider frame-id
-                                             (rf.hicasso.impl.codec/root-element frame-id hiccup))))))]
+                             (rf.fresco.impl.mount/provider frame-id
+                                             (rf.fresco.impl.codec/root-element frame-id hiccup))))))]
     {:html @!html :hooks hooks}))
 
 (deftest the-three-doors-read-one-frame-and-agree
   (seeded!)
-  (is (true? (rf.hicasso.hook-probe/install!))
+  (is (true? (rf.fresco.hook-probe/install!))
       "React's client-internals dispatcher slot was not found — the hook
        counts below are UNWITNESSED, not satisfied")
   (let [{:keys [html hooks]} (server-render! [page {}])]
@@ -549,7 +549,7 @@
               application"
       (is (= 3 (count (re-seq #">191<" html)))))
 
-    (testing "the six hooks Hicasso owns, in the order React ran them: the
+    (testing "the six hooks Fresco owns, in the order React ran them: the
               page's own shell, the nested boundary's shell, and the
               island's `n/use-sub`. THREE readers, TWO hooks each — and the
               island's pair is indistinguishable from a boundary shell's,
@@ -563,10 +563,10 @@
     (testing "I9 holds at two, read off the ledger the shell declares — the
               tree above added a raw-React island and a foreign UIx subtree
               and moved it by nothing"
-      (is (= 2 (count rf.hicasso.test.runtime/shell-hook-ledger))))
+      (is (= 2 (count rf.fresco.test.runtime/shell-hook-ledger))))
 
     (testing "and neither `useRef` nor `useState` is among them: HD-020(b)'s
-              two named prohibitions, over every hook Hicasso spent on this
+              two named prohibitions, over every hook Fresco spent on this
               page. The UIx arm below DOES call `useRef` — three times — and
               that is its own affair and not charged here, exactly as
               `hook_budget_cljs_test` establishes for a hosted component's

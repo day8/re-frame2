@@ -1,4 +1,4 @@
-(ns day8.re-frame2-xray.panels.hicasso-advisor
+(ns day8.re-frame2-xray.panels.fresco-advisor
   "The cause-aware hot-view advisor (rf2-hic-037) — rank, classify,
   recommend, and REFUSE.
 
@@ -32,8 +32,8 @@
   inflate a boundary in proportion to its attempt COUNT rather than its
   true cost, so two boundaries close in true self time and far apart in
   attempt count invert. Commit, paint and attempt outcome are React's —
-  `re-frame.hicasso.tool` carries no field for them, and this advisor
-  states them `:host-opaque` every time. Hicasso emits no
+  `re-frame.fresco.tool` carries no field for them, and this advisor
+  states them `:host-opaque` every time. Fresco emits no
   `:rf.view/render` trace, and its User-Timing
   `:render` measures ride an independently-gated channel that is off by
   default and observer-first.
@@ -67,11 +67,11 @@
 
   Every function here is data → data, so the algebra runs under the JVM
   unit-test target beside the CLJS one. The live reads are
-  `hicasso_reads.cljs`; the rendering is `hicasso.cljs`.
+  `fresco_reads.cljs`; the rendering is `fresco.cljs`.
 
-  Normative owner: `tools/xray/spec/028-Hicasso-Advisor.md`."
+  Normative owner: `tools/xray/spec/028-Fresco-Advisor.md`."
   (:require [clojure.string :as string]
-            [day8.re-frame2-xray.panels.hicasso-helpers :as hh]))
+            [day8.re-frame2-xray.panels.fresco-helpers :as hh]))
 
 ;; ---------------------------------------------------------------------------
 ;; The advisor's own version pin
@@ -80,11 +80,11 @@
 (def advice-schema
   "The schema this namespace STAMPS on its own output.
 
-  Deliberately not `re-frame.hicasso.evidence`'s: the advice is a
+  Deliberately not `re-frame.fresco.evidence`'s: the advice is a
   derivation Xray performs over three producers' envelopes, and stamping
-  the producer's schema on it would tell a reader that Hicasso vouched
-  for a ranking Hicasso has never seen. Xray owns this shape and says so."
-  :day8.re-frame2-xray.hicasso-advisor/v1)
+  the producer's schema on it would tell a reader that Fresco vouched
+  for a ranking Fresco has never seen. Xray owns this shape and says so."
+  :day8.re-frame2-xray.fresco-advisor/v1)
 
 (def advice-producer
   "Xray, because Xray is what produced it. See [[advice-schema]]."
@@ -94,13 +94,13 @@
   "The schema the [[sub-timing]] digest stamps.
 
   A second schema rather than a field on the advice, because the digest
-  has a different PRODUCER (Spec 009's retained ring, not the Hicasso
+  has a different PRODUCER (Spec 009's retained ring, not the Fresco
   door) and therefore a different loss story: the ring is always a cap,
   and its `:rf.sub/elapsed-ms` tag is present on the reactive recompute
   path and absent on the pure `compute-sub` form. A reader who cannot
   see those two facts separately cannot tell a fast subscription from an
   untimed one."
-  :day8.re-frame2-xray.hicasso-advisor.timing/v1)
+  :day8.re-frame2-xray.fresco-advisor.timing/v1)
 
 (def timing-producer
   "Spec 009's per-frame retained ring, read through
@@ -149,7 +149,7 @@
 ;; ---------------------------------------------------------------------------
 
 ;; The recompute predicate is `hh/sub-recompute?` and lives in the shared
-;; algebra rather than here, because `hicasso-causal`'s link-2 roster asks
+;; algebra rather than here, because `fresco-causal`'s link-2 roster asks
 ;; the same question of the same events and the two answers must be one
 ;; answer (rf2-hic-037, audit #8027). `:rf.sub/skip` is a memo hit — the
 ;; cell answered without running, so it is not work and must not be summed
@@ -174,7 +174,7 @@
   ahead of `hh/sub-recompute?` and every untagged `:subs` event became an
   unnamed RUN — an untagged `:rf.sub/skip` and an untagged
   `:rf.sub/dispose` alike were reported as work that happened, while
-  `hicasso-causal`'s link 2 (which filters on operation first) reported
+  `fresco-causal`'s link 2 (which filters on operation first) reported
   no recompute for the same window. One event, two public answers, and
   the shared predicate was bypassed on exactly the path where identity is
   absent. What an event IS does not depend on whether it carried a tag,
@@ -282,7 +282,7 @@
      ;; in the first, because a reader deciding what to do next needs to
      ;; know whether the untagged half of this window was work or was the
      ;; absence of work — which is the very distinction the fold above
-     ;; collapsed (audit #8063). `hicasso-causal`'s link 2 states the same
+     ;; collapsed (audit #8063). `fresco-causal`'s link 2 states the same
      ;; pair as a `:skipped :count` its `:sub-ids` cannot account for.
      :unnamed-skips unnamed-sk
      :unnamed-skip-loss (when (pos? unnamed-sk)
@@ -428,12 +428,12 @@
   §10 and `lanes/testing-xray.md` already point at; none of them is Xray."
   [{:class     :lowering
     :label     "Hiccup lowering"
-    :authority "the User-Timing `:render` measures Hicasso emits under `re-frame.performance/enabled?` — an independently gated, observer-first channel that is off by default"
-    :why       "Hicasso publishes no per-boundary lowering clock. Boundary self time was killed as a decision, not deferred: the 0.1 ms timer grain is coarser than the quantity, so a ranking built on it orders noise."}
+    :authority "the User-Timing `:render` measures Fresco emits under `re-frame.performance/enabled?` — an independently gated, observer-first channel that is off by default"
+    :why       "Fresco publishes no per-boundary lowering clock. Boundary self time was killed as a decision, not deferred: the 0.1 ms timer grain is coarser than the quantity, so a ranking built on it orders noise."}
    {:class     :react
     :label     "React reconciliation and commit"
     :authority "the React DevTools Profiler"
-    :why       "Whether a notified boundary re-ran, retried, was abandoned, was bailed out by its memo comparator, or committed is decided above this runtime. The Hicasso door states it `:host-opaque` on every envelope."}
+    :why       "Whether a notified boundary re-ran, retried, was abandoned, was bailed out by its memo comparator, or committed is decided above this runtime. The Fresco door states it `:host-opaque` on every envelope."}
    {:class     :layout
     :label     "DOM layout and paint"
     :authority "the browser's own performance tools"
@@ -598,7 +598,7 @@
    2 "Correlate event, changed reads, invalidated boundaries, body work, commit, and paint."
    3 "Tune read and boundary topology first."
    4 "If codec work dominates, compare direct React output in the same boundary."
-   5 "If hooks, reconciliation, vendor behavior, or high-rate local work dominate, isolate a named native component and choose Hicasso-native, UIx, or raw React according to its needs."
+   5 "If hooks, reconciliation, vendor behavior, or high-rate local work dominate, isolate a named native component and choose Fresco-native, UIx, or raw React according to its needs."
    6 "Run behavioral parity, focus/selection, frame routing, SSR/hydration, cleanup, and performance scripts."
    7 "Keep the escape only if it clears a declared budget."})
 
@@ -615,7 +615,7 @@
   **unreachable from [[classify]]** — this door measures none of them.
   They are here because the refusal below has to be a statement about the
   EVIDENCE, and a refusal emitted by a table with no native arm would be
-  a statement about the table. `hicasso-advisor-cljs-test`'s non-vacuity
+  a statement about the table. `fresco-advisor-cljs-test`'s non-vacuity
   row drives them directly."
   {:computation
    {:route    :narrow-the-subscription
@@ -638,7 +638,7 @@
                    "chunked or visible-window subscriptions to match the "
                    "workload; virtualize genuinely large collections. Do not "
                    "split per element mechanically — each boundary retains a "
-                   "React fiber, a memo wrapper and a Hicasso shell.")
+                   "React fiber, a memo wrapper and a Fresco shell.")
     :steps    [1 3 6 7]}
 
    :lowering
@@ -662,7 +662,7 @@
     :says     (str "For a virtualizer, editor, animation surface, canvas/WebGL "
                    "coordinator, retained vendor widget or hook-intensive hot "
                    "collection. A UIx defui or a raw React function component "
-                   "mounted through `h/defhost`, reading Hicasso state through "
+                   "mounted through `h/defhost`, reading Fresco state through "
                    "`n/use-sub` and `n/use-frame` when it needs to; JavaScript "
                    "enters through the same host bridge. Same React root, same "
                    "frame contract.")
@@ -676,7 +676,7 @@
     :says     (str "Only for an intrinsically React-first surface. A local "
                    "view-implementation choice under the single installed "
                    "adapter, root and frame contract — not another adapter or "
-                   "Hicasso mode.")
+                   "Fresco mode.")
     :steps    [1 5 6 7]}})
 
 (defn- measure-first
@@ -797,8 +797,8 @@
               (sub-timing windows))
 
   Returns the advisor's own envelope, carrying the same seven axes the
-  Hicasso door's do — under [[advice-schema]], because Xray derived it and
-  Hicasso did not.
+  Fresco door's do — under [[advice-schema]], because Xray derived it and
+  Fresco did not.
 
   `:complete?` is false unconditionally and the loss is `:host-opaque`: the
   roster covers every mounted boundary, but the QUESTION is *where is the
@@ -832,7 +832,7 @@
   "One muted line stating what the roster is and is not.
 
   Rendered on every advice, including the ones with a confident top row,
-  for the reason `hicasso-helpers/read-summary` states: a reader who only
+  for the reason `fresco-helpers/read-summary` states: a reader who only
   sees a qualification when it is bad learns to read its absence as good
   news."
   [advice]

@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.coldmount-app
+(ns re-frame.bench.fresco.coldmount-app
   "THE COLD-MOUNT DOUBLE BUILD, PRICED AGAINST THE MOUNT RED-ZONE — the
   run (rf2-2rtt6.15; decision input for the rf2-2rtt6.14 ruling).
 
@@ -46,7 +46,7 @@
   ## Method, inherited rather than restated
 
   The converged arm's method, on its witnesses, on its lane: three-plus
-  arms a segment interleaved under `rf.bench.hicasso.lane/slot-order` (rotating AND
+  arms a segment interleaved under `rf.bench.fresco.lane/slot-order` (rotating AND
   reflecting), two segments a round with the floor in both, segment order
   alternating with the round, canonical-DOM parity before any clock,
   every mount read back at the arm's own arithmetic, `:ctl-2x` predicted
@@ -70,7 +70,7 @@
       mean and the order-balanced mean coincide BY CONSTRUCTION, which is
       a design property and needs no effect to justify it. This entry
       re-derives its own denominator, so no published row moves.
-    * A RESIDUE GATE per segment-round (`rf.bench.hicasso.lane/residue` back to baseline
+    * A RESIDUE GATE per segment-round (`rf.bench.fresco.lane/residue` back to baseline
       after a settle). The `handoff` arm holds a provisional +1 between
       render and commit; a plan in which every render commits must drive
       the census back to zero, and a leak here would silently convert
@@ -127,16 +127,16 @@
   segment-order direction refusal. The records are written to the console
   before any refusal, so the evidence survives it.
 
-  Driven by `coldmount_run.cjs` on the `:hicasso-bench` build id through
+  Driven by `coldmount_run.cjs` on the `:fresco-bench` build id through
   `--config-merge` — no new build id, no `implementation/shadow-cljs.edn`
   edit."
   (:require ["react-dom/client" :as react-dom-client]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.coldmount-views :as rf.bench.hicasso.coldmount-views]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.p0-converge-app :as rf.bench.hicasso.p0-converge-app]
-            [re-frame.bench.hicasso.p0-reagent-views :as rf.bench.hicasso.p0-reagent-views]
+            [re-frame.bench.fresco.coldmount-views :as rf.bench.fresco.coldmount-views]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.p0-converge-app :as rf.bench.fresco.p0-converge-app]
+            [re-frame.bench.fresco.p0-reagent-views :as rf.bench.fresco.p0-reagent-views]
             [re-frame.bench.order-guard :as rf.bench.order-guard]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -176,7 +176,7 @@
 
   See the namespace docstring's \"Which schedule these rows speak for\"."
   {:mount-schedule :forced-synchronous
-   :how            "react-dom/flushSync around every mount — the timed ones in rf.bench.hicasso.lane/mount-arm! and rf.bench.hicasso.lane/mount-batch!, the counted ones in coldmount-views/witness!"
+   :how            "react-dom/flushSync around every mount — the timed ones in rf.bench.fresco.lane/mount-arm! and rf.bench.fresco.lane/mount-batch!, the counted ones in coldmount-views/witness!"
    :arm            "the shipped hook's hand-off MECHANISM, measured where it is allowed to run to completion"
    :not            (str "NOT a shipped-mount-performance claim, and still not one after rf2-2rtt6.71. "
                         "Every mount here is forced with flushSync, and every published row was taken "
@@ -221,21 +221,21 @@
 
 (defn- enter-segment!
   "The converged arm's seam, unchanged: tear down, install this segment's
-  adapter, re-register the sub graph (`rf.bench.hicasso.coldmount-views/register!` — the converged
+  adapter, re-register the sub graph (`rf.bench.fresco.coldmount-views/register!` — the converged
   layer-1 sub plus the input chain and the witness chain) and stand the
   frame back up seeded. All outside every measured window; a teardown
   that throws is recorded and adjudicated, never swallowed."
   [{:keys [adapter]}]
-  (try (rf/destroy-frame! rf.bench.hicasso.p0-reagent-views/subs-frame)
-       (catch :default e (rf.bench.hicasso.lane/teardown-failure! "enter-segment! destroy-frame!" e)))
+  (try (rf/destroy-frame! rf.bench.fresco.p0-reagent-views/subs-frame)
+       (catch :default e (rf.bench.fresco.lane/teardown-failure! "enter-segment! destroy-frame!" e)))
   (when (rf/current-adapter)
     (try (rf/destroy-adapter!)
-         (catch :default e (rf.bench.hicasso.lane/teardown-failure! "enter-segment! destroy-adapter!" e))))
+         (catch :default e (rf.bench.fresco.lane/teardown-failure! "enter-segment! destroy-adapter!" e))))
   (rf/init! adapter)
-  (rf.bench.hicasso.coldmount-views/register!)
-  (rf/make-frame {:id rf.bench.hicasso.p0-reagent-views/subs-frame})
-  (rf.frame/replace-app-db! rf.bench.hicasso.p0-reagent-views/subs-frame (rf.bench.hicasso.p0-reagent-views/seed-cells rf.bench.hicasso.p0-reagent-views/cells-n 0))
-  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.fresco.coldmount-views/register!)
+  (rf/make-frame {:id rf.bench.fresco.p0-reagent-views/subs-frame})
+  (rf.frame/replace-app-db! rf.bench.fresco.p0-reagent-views/subs-frame (rf.bench.fresco.p0-reagent-views/seed-cells rf.bench.fresco.p0-reagent-views/cells-n 0))
+  (rf.bench.fresco.lane/leave-act-environment!)
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -279,13 +279,13 @@
 
 (defn- verify-m1 [n]
   (fn [container]
-    (and (= "0" (rf.bench.hicasso.lane/text-at container 0))
-         (= "0" (rf.bench.hicasso.lane/text-at container (dec n))))))
+    (and (= "0" (rf.bench.fresco.lane/text-at container 0))
+         (= "0" (rf.bench.fresco.lane/text-at container (dec n))))))
 
 (defn- verify-m2 [n]
   (fn [container]
-    (and (= (rf.bench.hicasso.p0-reagent-views/field-value 0 0) (input-value container "#f0"))
-         (= (rf.bench.hicasso.p0-reagent-views/field-value (dec n) 0)
+    (and (= (rf.bench.fresco.p0-reagent-views/field-value 0 0) (input-value container "#f0"))
+         (= (rf.bench.fresco.p0-reagent-views/field-value (dec n) 0)
             (input-value container (str "#f" (dec n)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -293,28 +293,28 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private shapes
-  {:M1 {:elements-of rf.bench.hicasso.p0-reagent-views/m1-elements
+  {:M1 {:elements-of rf.bench.fresco.p0-reagent-views/m1-elements
         :verify-of   verify-m1
-        :props       {:n rf.bench.hicasso.p0-reagent-views/cells-n}
-        :grid        rf.bench.hicasso.coldmount-views/m1-grid
-        :uix-cells   rf.bench.hicasso.coldmount-views/uix-m1-cells
-        :reagent     rf.bench.hicasso.coldmount-views/reagent-m1-views
-        :floor       rf.bench.hicasso.p0-reagent-views/m1-floor
-        :control     {:predicted (/ (double (rf.bench.hicasso.p0-reagent-views/m1-elements (* 2 rf.bench.hicasso.p0-reagent-views/cells-n)))
-                                    (double (rf.bench.hicasso.p0-reagent-views/m1-elements rf.bench.hicasso.p0-reagent-views/cells-n)))
-                      :basis     (str "element count: " (rf.bench.hicasso.p0-reagent-views/m1-elements (* 2 rf.bench.hicasso.p0-reagent-views/cells-n))
-                                      " / " (rf.bench.hicasso.p0-reagent-views/m1-elements rf.bench.hicasso.p0-reagent-views/cells-n))}}
-   :M2 {:elements-of rf.bench.hicasso.p0-reagent-views/m2-elements
+        :props       {:n rf.bench.fresco.p0-reagent-views/cells-n}
+        :grid        rf.bench.fresco.coldmount-views/m1-grid
+        :uix-cells   rf.bench.fresco.coldmount-views/uix-m1-cells
+        :reagent     rf.bench.fresco.coldmount-views/reagent-m1-views
+        :floor       rf.bench.fresco.p0-reagent-views/m1-floor
+        :control     {:predicted (/ (double (rf.bench.fresco.p0-reagent-views/m1-elements (* 2 rf.bench.fresco.p0-reagent-views/cells-n)))
+                                    (double (rf.bench.fresco.p0-reagent-views/m1-elements rf.bench.fresco.p0-reagent-views/cells-n)))
+                      :basis     (str "element count: " (rf.bench.fresco.p0-reagent-views/m1-elements (* 2 rf.bench.fresco.p0-reagent-views/cells-n))
+                                      " / " (rf.bench.fresco.p0-reagent-views/m1-elements rf.bench.fresco.p0-reagent-views/cells-n))}}
+   :M2 {:elements-of rf.bench.fresco.p0-reagent-views/m2-elements
         :verify-of   verify-m2
-        :props       {:n rf.bench.hicasso.p0-reagent-views/fields-n}
-        :grid        rf.bench.hicasso.coldmount-views/m2-grid
-        :uix-cells   rf.bench.hicasso.coldmount-views/uix-m2-cells
-        :reagent     rf.bench.hicasso.coldmount-views/reagent-m2-views
-        :floor       rf.bench.hicasso.p0-reagent-views/m2-floor
-        :control     {:predicted (/ (double (rf.bench.hicasso.p0-reagent-views/m2-elements (* 2 rf.bench.hicasso.p0-reagent-views/fields-n)))
-                                    (double (rf.bench.hicasso.p0-reagent-views/m2-elements rf.bench.hicasso.p0-reagent-views/fields-n)))
-                      :basis     (str "element count: " (rf.bench.hicasso.p0-reagent-views/m2-elements (* 2 rf.bench.hicasso.p0-reagent-views/fields-n))
-                                      " / " (rf.bench.hicasso.p0-reagent-views/m2-elements rf.bench.hicasso.p0-reagent-views/fields-n))}}})
+        :props       {:n rf.bench.fresco.p0-reagent-views/fields-n}
+        :grid        rf.bench.fresco.coldmount-views/m2-grid
+        :uix-cells   rf.bench.fresco.coldmount-views/uix-m2-cells
+        :reagent     rf.bench.fresco.coldmount-views/reagent-m2-views
+        :floor       rf.bench.fresco.p0-reagent-views/m2-floor
+        :control     {:predicted (/ (double (rf.bench.fresco.p0-reagent-views/m2-elements (* 2 rf.bench.fresco.p0-reagent-views/fields-n)))
+                                    (double (rf.bench.fresco.p0-reagent-views/m2-elements rf.bench.fresco.p0-reagent-views/fields-n)))
+                      :basis     (str "element count: " (rf.bench.fresco.p0-reagent-views/m2-elements (* 2 rf.bench.fresco.p0-reagent-views/fields-n))
+                                      " / " (rf.bench.fresco.p0-reagent-views/m2-elements rf.bench.fresco.p0-reagent-views/fields-n))}}})
 
 (defn- arms-for [shape layer segment-id]
   (let [{:keys [floor grid uix-cells reagent]} (get shapes shape)]
@@ -322,17 +322,17 @@
         (into (case segment-id
                 :reagent-subs
                 [(reagent-mount-arm :reagent-subs
-                   (fn [{:keys [n]}] [rf.bench.hicasso.p0-reagent-views/subs-root (get reagent layer) n]))]
+                   (fn [{:keys [n]}] [rf.bench.fresco.p0-reagent-views/subs-root (get reagent layer) n]))]
                 :uix-subs
                 [(uix-mount-arm :uix-subs
                    (fn [{:keys [n]}]
-                     (rf.bench.hicasso.coldmount-views/uix-root grid (get-in uix-cells [:uix-subs layer]) n)))
+                     (rf.bench.fresco.coldmount-views/uix-root grid (get-in uix-cells [:uix-subs layer]) n)))
                  (uix-mount-arm :uix-xcript
                    (fn [{:keys [n]}]
-                     (rf.bench.hicasso.coldmount-views/uix-root grid (get-in uix-cells [:uix-xcript layer]) n)))
+                     (rf.bench.fresco.coldmount-views/uix-root grid (get-in uix-cells [:uix-xcript layer]) n)))
                  (uix-mount-arm :uix-handoff
                    (fn [{:keys [n]}]
-                     (rf.bench.hicasso.coldmount-views/uix-root grid (get-in uix-cells [:uix-handoff layer]) n)))]))
+                     (rf.bench.fresco.coldmount-views/uix-root grid (get-in uix-cells [:uix-handoff layer]) n)))]))
         (conj (floor-mount-arm :ctl-2x floor
                                (fn [{:keys [n]}] (zeros (* 2 n))) 2)))))
 
@@ -376,12 +376,12 @@
 (defn- parity-of-segment!
   [{:keys [row-key props arms-for] :as spec} segment-id]
   (let [{:keys [mounts agree? disagree reference]}
-        (rf.bench.hicasso.lane/parity (arms-for segment-id) props)
+        (rf.bench.fresco.lane/parity (arms-for segment-id) props)
         wrong (into {}
                     (comp (map (fn [{:keys [arm container]}]
                                  [(:id arm)
                                   {:expected (:elements (expectation spec arm))
-                                   :got      (rf.bench.hicasso.lane/element-count container)}]))
+                                   :got      (rf.bench.fresco.lane/element-count container)}]))
                           (remove (fn [[_ {:keys [expected got]}]] (= expected got))))
                     mounts)]
     (try
@@ -394,7 +394,7 @@
                     (seq wrong)
                     (conj {:segment segment-id :row row-key
                            :problem :element-count :arms wrong}))}
-      (finally (doseq [m mounts] (rf.bench.hicasso.lane/release! m))))))
+      (finally (doseq [m mounts] (rf.bench.fresco.lane/release! m))))))
 
 (defn- parity! [spec]
   (let [by-seg (reduce (fn [acc {:keys [id] :as segment}]
@@ -420,13 +420,13 @@
             (assoc acc id
                    (case id
                      :reagent-subs
-                     [(rf.bench.hicasso.coldmount-views/witness! :reagent layer witness-boundaries 0)
-                      (rf.bench.hicasso.coldmount-views/witness! :reagent layer witness-boundaries 900)]
+                     [(rf.bench.fresco.coldmount-views/witness! :reagent layer witness-boundaries 0)
+                      (rf.bench.fresco.coldmount-views/witness! :reagent layer witness-boundaries 900)]
                      :uix-subs
-                     [(rf.bench.hicasso.coldmount-views/witness! :xcript  layer witness-boundaries 0)
-                      (rf.bench.hicasso.coldmount-views/witness! :xcript  layer witness-boundaries 900)
-                      (rf.bench.hicasso.coldmount-views/witness! :handoff layer witness-boundaries 1800)
-                      (rf.bench.hicasso.coldmount-views/witness! :handoff layer witness-boundaries 2700)
+                     [(rf.bench.fresco.coldmount-views/witness! :xcript  layer witness-boundaries 0)
+                      (rf.bench.fresco.coldmount-views/witness! :xcript  layer witness-boundaries 900)
+                      (rf.bench.fresco.coldmount-views/witness! :handoff layer witness-boundaries 1800)
+                      (rf.bench.fresco.coldmount-views/witness! :handoff layer witness-boundaries 2700)
                       ;; rf2-2rtt6.25 — the FORCED-SYNCHRONOUS MECHANISM arm.
                       ;; `witness!` mounts inside `flushSync`, and on THAT
                       ;; schedule the shipped hook runs the hand-off to
@@ -434,8 +434,8 @@
                       ;; `createRoot().render()` path it reads the `xcript` row
                       ;; instead — ns docstring, "Which schedule these rows
                       ;; speak for". Own disjoint cell ranges.
-                      (rf.bench.hicasso.coldmount-views/witness! :shipped layer witness-boundaries 3600)
-                      (rf.bench.hicasso.coldmount-views/witness! :shipped layer witness-boundaries 4500)])))
+                      (rf.bench.fresco.coldmount-views/witness! :shipped layer witness-boundaries 3600)
+                      (rf.bench.fresco.coldmount-views/witness! :shipped layer witness-boundaries 4500)])))
           {}
           segments))
 
@@ -499,21 +499,21 @@
         expect (into {} (map (juxt :id #(expectation spec %))) arms)
         acc    (atom (zipmap (map :id arms) (repeat [])))]
     (dotimes [s (+ (:warmup mount-sampling) (:samples mount-sampling))]
-      (doseq [j (rf.bench.hicasso.lane/slot-order n s)]
+      (doseq [j (rf.bench.fresco.lane/slot-order n s)]
         (let [arm (nth arms j)
-              {:keys [ms mounts]} (rf.bench.hicasso.lane/mount-batch! arm props 1)
+              {:keys [ms mounts]} (rf.bench.fresco.lane/mount-batch! arm props 1)
               {exp-elements :elements verify :verify} (get expect (:id arm))]
           (doseq [m mounts]
-            (let [ok? (and (= exp-elements (rf.bench.hicasso.lane/element-count (:container m)))
+            (let [ok? (and (= exp-elements (rf.bench.fresco.lane/element-count (:container m)))
                            (verify (:container m)))]
               (swap! t (fn [{:keys [of bad]}]
                          {:of (inc of) :bad (if ok? bad (inc bad))}))))
-          (doseq [m mounts] (rf.bench.hicasso.lane/release! m))
+          (doseq [m mounts] (rf.bench.fresco.lane/release! m))
           (let [label (str (name row-key) "/" (name segment-id) "/" (name (:id arm)))]
             (if (>= s (:warmup mount-sampling))
-              (do (rf.bench.hicasso.lane/collect! coll label ms)
+              (do (rf.bench.fresco.lane/collect! coll label ms)
                   (swap! acc update (:id arm) conj ms))
-              (rf.bench.hicasso.lane/observe! coll label))))))
+              (rf.bench.fresco.lane/observe! coll label))))))
     @acc))
 
 (defn- run-round!
@@ -521,25 +521,25 @@
   gate around its mount round. Answers a promise of
   `{segment-id {arm-id [ms …]}}`."
   [spec r coll t]
-  (rf.bench.hicasso.lane/chain
+  (rf.bench.fresco.lane/chain
     {}
     (segment-order r)
     (fn [acc {:keys [id] :as segment}]
       (enter-segment! segment)
-      (rf.bench.hicasso.lane/assert-teardown-clean! (str "entering segment " (name id)))
-      (-> (rf.bench.hicasso.lane/settle!)
+      (rf.bench.fresco.lane/assert-teardown-clean! (str "entering segment " (name id)))
+      (-> (rf.bench.fresco.lane/settle!)
           (.then
             (fn [_]
-              (let [baseline (rf.bench.hicasso.lane/residue rf.bench.hicasso.p0-reagent-views/subs-frame)
+              (let [baseline (rf.bench.fresco.lane/residue rf.bench.fresco.p0-reagent-views/subs-frame)
                     rd       (mount-round! coll t spec id)]
-                (-> (rf.bench.hicasso.lane/settle!)
+                (-> (rf.bench.fresco.lane/settle!)
                     (.then
                       (fn [_]
-                        (rf.bench.hicasso.lane/assert-residue!
-                          baseline rf.bench.hicasso.p0-reagent-views/subs-frame
+                        (rf.bench.fresco.lane/assert-residue!
+                          baseline rf.bench.fresco.p0-reagent-views/subs-frame
                           (str "mount round, row " (name (:row-key spec))
                                ", segment " (name id)))
-                        (rf.bench.hicasso.lane/assert-teardown-clean!
+                        (rf.bench.fresco.lane/assert-teardown-clean!
                           (str "mount round, segment " (name id)))
                         (assoc acc id rd)))))))))))
 
@@ -547,13 +547,13 @@
 ;; Aggregation — the two numbers, per round, and their ratio
 ;; ---------------------------------------------------------------------------
 
-(defn- p50-of [xs] (:p50 (rf.bench.hicasso.lane/summarise xs)))
+(defn- p50-of [xs] (:p50 (rf.bench.fresco.lane/summarise xs)))
 
 (defn- range-of [vs]
-  {:mean (rf.bench.hicasso.lane/round4 (/ (reduce + 0.0 vs) (count vs)))
-   :min  (rf.bench.hicasso.lane/round4 (apply min vs))
-   :max  (rf.bench.hicasso.lane/round4 (apply max vs))
-   :per-round (mapv rf.bench.hicasso.lane/round4 vs)})
+  {:mean (rf.bench.fresco.lane/round4 (/ (reduce + 0.0 vs) (count vs)))
+   :min  (rf.bench.fresco.lane/round4 (apply min vs))
+   :max  (rf.bench.fresco.lane/round4 (apply max vs))
+   :per-round (mapv rf.bench.fresco.lane/round4 vs)})
 
 (defn- strata-of
   "The per-round vector split by which segment ran first. Even rounds are
@@ -624,7 +624,7 @@
     {:shipped-uix    a
      :copy-handoff   b
      :ranges-overlap? ovl
-     :medians-apart  (rf.bench.hicasso.lane/round4 rel)
+     :medians-apart  (rf.bench.fresco.lane/round4 rel)
      :band           fidelity-band
      :ok?            (and (js/isFinite rel) (or ovl (<= rel fidelity-band)))}))
 
@@ -661,18 +661,18 @@
         resolved? (fn [vs] (not-any? nil? vs))
         fid       (fidelity-of (pick :uix) (pick :handoff))
         rz        (pick :rz)
-        order     (rf.bench.hicasso.p0-converge-app/segment-order-verdict rz rounds start-segment)
-        c-rg      (rf.bench.hicasso.lane/control-verdict (:predicted control)
+        order     (rf.bench.fresco.p0-converge-app/segment-order-verdict rz rounds start-segment)
+        c-rg      (rf.bench.fresco.lane/control-verdict (:predicted control)
                                         (select-keys (range-of (pick :ctl-ratio-reagent))
                                                      [:min :max :mean])
                                         control-slack)
-        c-ux      (rf.bench.hicasso.lane/control-verdict (:predicted control)
+        c-ux      (rf.bench.fresco.lane/control-verdict (:predicted control)
                                         (select-keys (range-of (pick :ctl-ratio-uix))
                                                      [:min :max :mean])
                                         control-slack)
         verdict   (rule-verdict fractions fractions-seam)]
-    (rf.bench.hicasso.lane/record! (name row-key)
-                  {:benchmark   (keyword "hicasso.coldmount" (name row-key))
+    (rf.bench.fresco.lane/record! (name row-key)
+                  {:benchmark   (keyword "fresco.coldmount" (name row-key))
                    :bead        "rf2-2rtt6.15 (instrument); re-run for rf2-2rtt6.25 as the forced-synchronous MECHANISM arm"
                    :doc         doc
                    :grade       grade
@@ -690,12 +690,12 @@
                                      "delta is measured against")
                    :rounds      rounds
                    :balanced-design? (even? rounds)
-                   :per-round   {:floor-reagent (mapv rf.bench.hicasso.lane/round4 (pick :floor-reagent))
-                                 :floor-uix     (mapv rf.bench.hicasso.lane/round4 (pick :floor-uix))
-                                 :reagent-subs  (mapv rf.bench.hicasso.lane/round4 (pick :reagent))
-                                 :uix-subs      (mapv rf.bench.hicasso.lane/round4 (pick :uix))
-                                 :uix-xcript    (mapv rf.bench.hicasso.lane/round4 (pick :xcript))
-                                 :uix-handoff   (mapv rf.bench.hicasso.lane/round4 (pick :handoff))}
+                   :per-round   {:floor-reagent (mapv rf.bench.fresco.lane/round4 (pick :floor-reagent))
+                                 :floor-uix     (mapv rf.bench.fresco.lane/round4 (pick :floor-uix))
+                                 :reagent-subs  (mapv rf.bench.fresco.lane/round4 (pick :reagent))
+                                 :uix-subs      (mapv rf.bench.fresco.lane/round4 (pick :uix))
+                                 :uix-xcript    (mapv rf.bench.fresco.lane/round4 (pick :xcript))
+                                 :uix-handoff   (mapv rf.bench.fresco.lane/round4 (pick :handoff))}
                    :double-build-ms {:doc "xcript − handoff, per round (ms, UIx segment): the build/dispose/rebuild churn of the cold-mount double build over the row's N cold reads"
                                      :summary (range-of (pick :delta))}
                    :red-zone-excess-ms {:doc "uix-subs − reagent-subs, per round (ms, cross-seam, same run): the mount red-zone excess this row's fraction is priced against"
@@ -710,7 +710,7 @@
                                                 :magnitude :direction-only))
                    :segment-order-control order
                    :status      :evidence})
-    (rf.bench.hicasso.lane/record! "coldmount-fraction"
+    (rf.bench.fresco.lane/record! "coldmount-fraction"
                   {:row row-key
                    :layer layer
                    :grade grade
@@ -727,8 +727,8 @@
                               ">= 20% on representative layer-1 AND layer-2/3 mounts -> "
                               "reopen for a hook-scoped provisional hand-off design pass only")
                    :row-verdict verdict})
-    (rf.bench.hicasso.lane/record! "fidelity" (assoc fid :row row-key :schedule schedule-provenance))
-    (rf.bench.hicasso.lane/record! "witness-counts"
+    (rf.bench.fresco.lane/record! "fidelity" (assoc fid :row row-key :schedule schedule-provenance))
+    (rf.bench.fresco.lane/record! "witness-counts"
                   {:row row-key :layer layer
                    :schedule schedule-provenance
                    :predictions {:xcript  "commits N, rebuilt N, bodyRuns 2N at every layer <= L"
@@ -737,34 +737,34 @@
                                  :reagent "commits 0, rebuilt 0, bodyRuns N at every layer <= L"}
                    :results witness-results
                    :failures wfails})
-    (rf.bench.hicasso.lane/record! "positive-control"
+    (rf.bench.fresco.lane/record! "positive-control"
                   {:row row-key
                    :predicted (:predicted control)
                    :basis     (:basis control)
                    :reagent-segment c-rg
                    :uix-segment     c-ux})
-    (rf.bench.hicasso.lane/record! "verification" {row-key (rf.bench.hicasso.lane/tally-value t)})
-    (let [vd (rf.bench.hicasso.lane/guard! (:samples @coll)
-                          (str "Hicasso cold-mount double build — " (name row-key)))]
-      (rf.bench.hicasso.lane/record! "arm-order-guard"
+    (rf.bench.fresco.lane/record! "verification" {row-key (rf.bench.fresco.lane/tally-value t)})
+    (let [vd (rf.bench.fresco.lane/guard! (:samples @coll)
+                          (str "Fresco cold-mount double build — " (name row-key)))]
+      (rf.bench.fresco.lane/record! "arm-order-guard"
                     {:row row-key
                      :tolerance (:tolerance vd)
                      :contaminated? (:contaminated? vd)
                      :unchecked? (:unchecked? vd)
                      :refuse? (:refuse? vd)
                      :arms (:arms vd)})
-      (when (:refuse? vd) (set! (.-HICASSO_GUARD_REFUSED js/window) true)))
+      (when (:refuse? vd) (set! (.-FRESCO_GUARD_REFUSED js/window) true)))
     (when (some (complement :ok?) [c-rg c-ux])
-      (set! (.-HICASSO_CONTROL_FAILED js/window) true))
+      (set! (.-FRESCO_CONTROL_FAILED js/window) true))
     (when (:refuse? order)
-      (set! (.-HICASSO_ORDER_REFUSED js/window) true))
+      (set! (.-FRESCO_ORDER_REFUSED js/window) true))
     ;; The claims this table is published on: the counting witness and the
     ;; clock fidelity control. A mismatch or a non-fidelitous transcription
     ;; voids every delta; the records above are already on the console, and
     ;; the driver exits 4.
     (when (or (seq wfails) (not (:ok? fid)))
-      (set! (.-HICASSO_CLAIM_FAILED js/window) true))
-    (rf.bench.hicasso.lane/assert-verified! t (str "row " (name row-key)))
+      (set! (.-FRESCO_CLAIM_FAILED js/window) true))
+    (rf.bench.fresco.lane/assert-verified! t (str "row " (name row-key)))
     nil))
 
 ;; ---------------------------------------------------------------------------
@@ -786,27 +786,27 @@
 (defn ^:export -main
   []
   (try
-    (rf.bench.hicasso.lane/leave-act-environment!)
+    (rf.bench.fresco.lane/leave-act-environment!)
     (cond
-      (not (rf.bench.hicasso.lane/self-test!))
-      (do (rf.bench.hicasso.lane/fail! (str "the arm-order guard's SELF-TEST failed — this copy of the rule "
+      (not (rf.bench.fresco.lane/self-test!))
+      (do (rf.bench.fresco.lane/fail! (str "the arm-order guard's SELF-TEST failed — this copy of the rule "
                            "no longer behaves like the one the .cjs drivers use, so nothing "
                            "was measured"))
-          (rf.bench.hicasso.lane/done!))
+          (rf.bench.fresco.lane/done!))
 
       (not (every? slot-order-varies-at? [2 3 5]))
-      (do (rf.bench.hicasso.lane/fail! (str "rf.bench.hicasso.lane/slot-order emits ONE order at a plan size this entry runs "
+      (do (rf.bench.fresco.lane/fail! (str "rf.bench.fresco.lane/slot-order emits ONE order at a plan size this entry runs "
                            "(or at the k=2 canary) — the rf2-ouwh8 degeneracy class. Nothing "
                            "is measured until the schedule is repaired; the repair belongs "
                            "to the schedule, never to the tolerance"))
-          (rf.bench.hicasso.lane/done!))
+          (rf.bench.fresco.lane/done!))
 
       :else
       (let [row-key (query-row)
             spec    (row-spec row-key)
             {:keys [problems]} (parity! spec)]
-        (js/console.log (str ";; HICASSO coldmount row " (name row-key)))
-        (rf.bench.hicasso.lane/record! "parity"
+        (js/console.log (str ";; FRESCO coldmount row " (name row-key)))
+        (rf.bench.fresco.lane/record! "parity"
                       {:row row-key :problems problems :ok? (empty? problems)
                        :note (str "canonical DOM with attribute names sorted, inside each "
                                   "segment AND across the seam, over the judged arms "
@@ -815,34 +815,34 @@
                                   (base-elements spec) " for " (name row-key)
                                   ", and the arm's OWN scale for the 2x control")})
         (if (seq problems)
-          (do (rf.bench.hicasso.lane/fail! (str "the arms do not build the same page under :advanced — "
+          (do (rf.bench.fresco.lane/fail! (str "the arms do not build the same page under :advanced — "
                                (pr-str problems)))
-              (rf.bench.hicasso.lane/done!))
+              (rf.bench.fresco.lane/done!))
           (let [wit    (witness-sweep! spec)
                 wfails (witness-failures wit (:layer spec))]
             (if (seq wfails)
-              (do (rf.bench.hicasso.lane/record! "witness-counts"
+              (do (rf.bench.fresco.lane/record! "witness-counts"
                                 {:row row-key :layer (:layer spec)
                                  :results wit :failures wfails})
-                  (set! (.-HICASSO_CLAIM_FAILED js/window) true)
-                  (rf.bench.hicasso.lane/fail! (str "THE COUNTING WITNESS FALSIFIED A PREDICTION — the "
+                  (set! (.-FRESCO_CLAIM_FAILED js/window) true)
+                  (rf.bench.fresco.lane/fail! (str "THE COUNTING WITNESS FALSIFIED A PREDICTION — the "
                                    "construction counts this ablation is built on did not "
                                    "hold, so no clock taken over these arms is attributable: "
                                    (pr-str wfails)))
-                  (rf.bench.hicasso.lane/done!))
-              (let [coll (rf.bench.hicasso.lane/sample-collector)
-                    t    (rf.bench.hicasso.lane/tally)]
-                (-> (rf.bench.hicasso.lane/chain [] (range rounds)
+                  (rf.bench.fresco.lane/done!))
+              (let [coll (rf.bench.fresco.lane/sample-collector)
+                    t    (rf.bench.fresco.lane/tally)]
+                (-> (rf.bench.fresco.lane/chain [] (range rounds)
                                 (fn [acc r]
                                   (-> (run-round! spec r coll t)
                                       (.then (fn [slice] (conj acc slice))))))
                     (.then (fn [slices]
                              (publish! spec slices t coll wit wfails)
-                             (rf.bench.hicasso.lane/done!)
+                             (rf.bench.fresco.lane/done!)
                              nil))
                     (.catch (fn [e]
-                              (rf.bench.hicasso.lane/fail! (str "the run rejected: " e))
-                              (rf.bench.hicasso.lane/done!))))))))))
+                              (rf.bench.fresco.lane/fail! (str "the run rejected: " e))
+                              (rf.bench.fresco.lane/done!))))))))))
     (catch :default e
-      (rf.bench.hicasso.lane/fail! (str "the run threw: " e))
-      (rf.bench.hicasso.lane/done!))))
+      (rf.bench.fresco.lane/fail! (str "the run threw: " e))
+      (rf.bench.fresco.lane/done!))))

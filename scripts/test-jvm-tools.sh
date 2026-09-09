@@ -40,7 +40,7 @@ tools=(
   # was built to be listed here; nobody listed it. Runs last because it is the
   # slowest of the set even with the emitted slice skipped.
   tools/template
-  # rf2-2rtt6.143 — the Reagent `[:>]` → Hicasso codemod, and the only entry
+  # rf2-2rtt6.143 — the Reagent `[:>]` → Fresco codemod, and the only entry
   # here outside `tools/`. It is dev tooling by every other measure: a
   # standalone JVM artefact that reads consumer SOURCE TEXT through rewrite-clj
   # and loads no re-frame2 runtime, which is precisely what this roster
@@ -49,7 +49,7 @@ tools=(
   # roster would be invisible to both gates; of the two that exist, a codemod
   # is a tool and is not an implementation artefact. Listed after tools/template
   # because it is seconds and that one is minutes.
-  migration/reagent-to-hicasso/codemod
+  migration/reagent-to-fresco/codemod
   # rf2-0qzh — the v1 `reg-event-db/-fx/-ctx` → `reg-event` codemod (EP-0018
   # Slice E), here for exactly the reasons the entry above is: a standalone
   # JVM artefact reading consumer SOURCE TEXT through rewrite-clj, loading no

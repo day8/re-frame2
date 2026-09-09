@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.impl.intent
+(ns re-frame.fresco.impl.intent
   "Intent lowering: the front half turns what an author writes at an
   `on-*` prop into the closure the browser calls. It dispatches on the
   SHAPE of the value, so there is no roster of DOM event names to keep in
@@ -23,8 +23,8 @@
   reserved heads (`::h/prevent`, and the navigate head `route-link` mints);
   the composition gate; and the lowering doors `lower-prop`,
   `lower-declared-prop` and `lower-props`. It does not implement the
-  `defhost` / `[:>]` crossing (`re-frame.hicasso.impl.codec`, HD-011) or
-  the controlled-value restore (`re-frame.hicasso.impl.controlled`, HD-019),
+  `defhost` / `[:>]` crossing (`re-frame.fresco.impl.codec`, HD-011) or
+  the controlled-value restore (`re-frame.fresco.impl.controlled`, HD-019),
   which wraps the handler produced here after it has been produced.
 
   Three laws every var below assumes. The frame is read ONCE, at lowering
@@ -36,11 +36,11 @@
   vector where `=` can see it — a reserved head, never metadata (HD-026,
   HD-027).
 
-  Design record: docs/design/hicasso/decisions.md HD-020, HD-024, HD-026
-  and HD-027; the authoring surface in docs/design/hicasso/authoring.md
+  Design record: docs/design/fresco/decisions.md HD-020, HD-024, HD-026
+  and HD-027; the authoring surface in docs/design/fresco/authoring.md
   §Event intent as data."
   (:require [re-frame.frame :as rf.frame]
-            [re-frame.hicasso.impl.error :refer [fail!]]
+            [re-frame.fresco.impl.error :refer [fail!]]
             [re-frame.late-bind :as rf.late-bind]))
 
 ;; ---------------------------------------------------------------------------
@@ -56,7 +56,7 @@
 (def ^:dynamic *frame*
   "The frame KEYWORD for the boundary currently rendering, bound for the
   render's dynamic extent beside `*dispatch*`; `nil` outside a render.
-  `re-frame.hicasso.impl.route-link/route-link` reads it at render time,
+  `re-frame.fresco.impl.route-link/route-link` reads it at render time,
   because a browser click fires after the extent has unwound and the
   frame must travel as data."
   nil)
@@ -70,8 +70,8 @@
   operation has — the collector for a read, an intent for a dispatch —
   and says that a carry needs neither, because core admits the pure
   doors to the declared frame (spec/002-Frames.md §The refusal tier)."
-  {:substrate :hicasso
-   :extent    'hicasso/boundary-render
+  {:substrate :fresco
+   :extent    'fresco/boundary-render
    :recovery  :read-through-the-boundary-collector
    :reason    (str "Read through the boundary's own collector (`sub`), which is what "
                    "makes a read an EDGE the boundary re-renders on, and dispatch "
@@ -112,7 +112,7 @@
   — a body, the error boundary's fallback, the presence tray's retained
   children — since an ambient read is exactly as invisible to the
   collector in each. Contract: spec/002-Frames.md §The refusal tier;
-  docs/design/hicasso/decisions.md HD-020(a)."
+  docs/design/fresco/decisions.md HD-020(a)."
   ([dispatch body-fn] (with-frame nil dispatch body-fn))
   ([frame-kw dispatch body-fn]
    (binding [*frame*                       frame-kw
@@ -123,7 +123,7 @@
 
 (defn- require-dispatch
   "The frame-locked dispatch this lowering needs, or
-  `:rf.error/hicasso-intent-outside-boundary`. The message offers TWO
+  `:rf.error/fresco-intent-outside-boundary`. The message offers TWO
   readings because a nil `*dispatch*` cannot tell them apart and they
   want opposite repairs: the form was lowered outside any boundary (lower
   it in a body), or inside a function a foreign component invokes after
@@ -134,8 +134,8 @@
   framework bug."
   [intent]
   (or *dispatch*
-      (fail! :rf.error/hicasso-intent-outside-boundary
-             're-frame.hicasso.impl.intent/lower-prop
+      (fail! :rf.error/fresco-intent-outside-boundary
+             're-frame.fresco.impl.intent/lower-prop
              (str "No frame-locked dispatch is bound for this render. Intent "
                   (pr-str intent) " was lowered with no ambient frame. Either the "
                   "form is outside any boundary's render — a declaration, a "
@@ -152,7 +152,7 @@
 ;; The one callback form (HD-024)
 ;; ---------------------------------------------------------------------------
 
-(def ^:private callback-marker "hicassoFn")
+(def ^:private callback-marker "frescoFn")
 
 (defn callback
   "The one callback form, `h/event`: marks `f` so the position it is
@@ -161,7 +161,7 @@
   can fail to be callable, which is HD-024's deletion of the roster.
   Marking mutates the function object, which is safe because a callback
   written in a body is minted fresh per render, and costs one own-property
-  read to test. Design record: docs/design/hicasso/decisions.md HD-024."
+  read to test. Design record: docs/design/fresco/decisions.md HD-024."
   [f]
   (unchecked-set f callback-marker true)
   f)
@@ -183,16 +183,16 @@
   the loud error naming the position. The data spelling's policy defaults
   do not apply, because a callback holds the event and so owns
   `.preventDefault` (HD-026, Scope). Design record:
-  docs/design/hicasso/decisions.md HD-024."
+  docs/design/fresco/decisions.md HD-024."
   [k f]
   (let [dispatch *dispatch*]
-    (fn hicasso-event-callback [& args]
+    (fn fresco-event-callback [& args]
       (let [result (apply f args)]
         (when (vector? result)
           (if dispatch
             (dispatch result)
-            (fail! :rf.error/hicasso-intent-outside-boundary
-                   're-frame.hicasso.impl.intent/lower-prop
+            (fail! :rf.error/fresco-intent-outside-boundary
+                   're-frame.fresco.impl.intent/lower-prop
                    (str "A callback at " (pr-str k) " returned the intent "
                         (pr-str result) " with no frame-locked dispatch in scope. "
                         "Callbacks that dispatch are only legal at a position "
@@ -204,7 +204,7 @@
   "Render position: invoked by whatever holds it DURING a render, so the
   return is render output, is not dispatched, and crosses back
   UNCONVERTED — the author makes the element with
-  `re-frame.hicasso.impl.codec/as-element` (`h/as-element`):
+  `re-frame.fresco.impl.codec/as-element` (`h/as-element`):
 
       (h/event [i]
         (h/as-element
@@ -220,15 +220,15 @@
   rather than resolving the foreign component's context and contributing
   no edge. Lowered with no owner in scope it rebinds nil for each, and a
   handler lowered inside raises the ordinary
-  `:rf.error/hicasso-intent-outside-boundary`. A dispatch from INSIDE the
+  `:rf.error/fresco-intent-outside-boundary`. A dispatch from INSIDE the
   call is not policed; React's render-phase warnings are the report
-  (rf2-6c12m.20). Design record: docs/design/hicasso/decisions.md HD-024,
+  (rf2-6c12m.20). Design record: docs/design/fresco/decisions.md HD-024,
   its 2026-08-03 and 2026-08-30 addenda."
   [_k f]
   (let [owner-dispatch *dispatch*
         owner-frame    *frame*
         owner-refusal  rf.frame/*ambient-frame-refusal*]
-    (fn hicasso-render-callback [& args]
+    (fn fresco-render-callback [& args]
       (binding [*frame*                       owner-frame
                 *dispatch*                    owner-dispatch
                 rf.frame/*ambient-frame-refusal* owner-refusal]
@@ -241,7 +241,7 @@
 (defn- event-arg!
   "Answer `e` when it carries `slot` — the one property the closure is
   about to read (`preventDefault`, `target`, `key`) — and raise
-  `:rf.error/hicasso-intent-needs-the-event`, naming the position, the
+  `:rf.error/fresco-intent-needs-the-event`, naming the position, the
   intent and what arrived, when it does not. The check is the read that
   was going to happen anyway; what it buys is that a value-first invoker
   produces THIS error, pointing at `h/event`, instead of the engine's
@@ -249,8 +249,8 @@
   [k form e slot]
   (if (and (some? e) (some? (unchecked-get e slot)))
     e
-    (fail! :rf.error/hicasso-intent-needs-the-event
-           're-frame.hicasso.impl.intent/lower-prop
+    (fail! :rf.error/fresco-intent-needs-the-event
+           're-frame.fresco.impl.intent/lower-prop
            (str "The intent " (pr-str form) " at " (pr-str k) " reads the DOM "
                 "event's `" slot "`, but the first argument its invoker passed "
                 "was " (pr-str e) ", which has none. The vector spelling is "
@@ -268,26 +268,26 @@
 
 (def value-marker
   "authoring.md's `::h/value` — the event target's current value."
-  :re-frame.hicasso/value)
+  :re-frame.fresco/value)
 
 (def checked-marker
   "`::h/checked` — the event target's current checked state."
-  :re-frame.hicasso/checked)
+  :re-frame.fresco/checked)
 
 (def prevent-head
   "`::h/prevent` — the FIRST reserved intent HEAD. `[::h/prevent [:app/go]]`
   at an event position calls `.preventDefault` and dispatches `[:app/go]`;
   `unwrap-prevent` holds the closed grammar. A head rather than metadata
   because metadata does not participate in `=` (HD-026)."
-  :re-frame.hicasso/prevent)
+  :re-frame.fresco/prevent)
 
 (def navigate-head
   "The SECOND reserved intent HEAD: `[navigate-head {:frame :payload
   :native? :veto}]` at an event position is a route-link's whole click
   decision as data. An implementation keyword, not a public marker,
-  because `re-frame.hicasso.impl.route-link/route-link` mints the form
+  because `re-frame.fresco.impl.route-link/route-link` mints the form
   and no author writes it; a structural test reads it through
-  `navigate-head?`. Design record: docs/design/hicasso/decisions.md
+  `navigate-head?`. Design record: docs/design/fresco/decisions.md
   HD-027."
   ::navigate)
 
@@ -299,12 +299,12 @@
   control's current value, so this is a correction; fed back as `:value`
   it round-trips, because the codec hands React an array. An
   `<input type=\"file\">` is refused
-  (`:rf.error/hicasso-file-input-value-marker`): `.value` there is the
+  (`:rf.error/fresco-file-input-value-marker`): `.value` there is the
   `C:\\fakepath\\` fiction naming one file of many, and the guide keeps
   file inputs off the marker's surface on purpose, so answering with a
   `FileList` would widen the marker onto a control the design excludes.
   The asymmetry is argued at spec/009-Instrumentation.md, the row for that
-  id, and docs/design/hicasso/product/dispositions.md (Select (multiple),
+  id, and docs/design/fresco/product/dispositions.md (Select (multiple),
   File input).
 
   `.files` is asked FIRST because it is the platform's own discriminator —
@@ -317,8 +317,8 @@
   one extra property read and no allocation."
   [target]
   (when (.-files target)
-    (fail! :rf.error/hicasso-file-input-value-marker
-           're-frame.hicasso.impl.intent/target-value
+    (fail! :rf.error/fresco-file-input-value-marker
+           're-frame.fresco.impl.intent/target-value
            (str "::h/value on a file input reads C:\\fakepath\\ followed by the "
                 "FIRST selected file's name — a path nothing can open, naming "
                 "one file out of however many were chosen. A file input has no "
@@ -370,7 +370,7 @@
   is all it sends. Both are read off the NATIVE event: React's synthetic
   keyboard event copies an enumerated interface that omits `isComposing`,
   so a gate reading the synthetic event is dead on its modern half
-  (docs/design/hicasso/studio/the-dogfood-preference-case.md). A raw DOM
+  (docs/design/fresco/studio/the-dogfood-preference-case.md). A raw DOM
   event has no `nativeEvent` and falls back to itself."
   [e]
   (let [native (or (.-nativeEvent e) e)]
@@ -420,19 +420,19 @@
   "Answer the intent inside the `::h/prevent` decorator `v`, refusing
   anything that is not exactly `[::h/prevent INTENT]` with a non-empty
   inner vector that is not itself a decorator
-  (`:rf.error/hicasso-malformed-prevent`, naming the position). The
+  (`:rf.error/fresco-malformed-prevent`, naming the position). The
   grammar is closed and this is all of it. Not a walker: the
   classification is taken once per render at the one position lowering
   already holds, and the inner vector stays ordinary data all the way to
-  `dispatch`. Design record: docs/design/hicasso/decisions.md HD-026."
+  `dispatch`. Design record: docs/design/fresco/decisions.md HD-026."
   [k v]
   (let [inner (nth v 1 nil)]
     (when-not (and (= 2 (count v))
                    (vector? inner)
                    (seq inner)
                    (not (reserved-head? inner)))
-      (fail! :rf.error/hicasso-malformed-prevent
-             're-frame.hicasso.impl.intent/lower-prop
+      (fail! :rf.error/fresco-malformed-prevent
+             're-frame.fresco.impl.intent/lower-prop
              (str "The " (pr-str prevent-head) " decorator at " (pr-str k)
                   " wraps EXACTLY ONE intent vector; this one "
                   (cond
@@ -458,7 +458,7 @@
   veto — whoever holds the event owns it (HD-024). The roster is closed
   at RENDER by `route-link`'s `on-click-roster!`, which mints the only
   navigate vector there is, so nothing is re-checked here. Design record:
-  docs/design/hicasso/decisions.md, HD-027."
+  docs/design/fresco/decisions.md, HD-027."
   [k veto]
   (cond
     (nil? veto)          nil
@@ -467,7 +467,7 @@
 
 (defn- unwrap-navigate
   "The map inside `[navigate-head {…}]` — `:frame`, `:payload`, `:native?`
-  and `:veto` (docs/design/hicasso/decisions.md HD-027). Not validated:
+  and `:veto` (docs/design/fresco/decisions.md HD-027). Not validated:
   `route-link` mints this form and nothing else writes it, so a render
   pays nothing per link to re-read a map the library constructed. Not a
   walker — the payload stays ordinary data all the way to routing."
@@ -484,11 +484,11 @@
   the veto and otherwise stands aside, so the browser follows the anchor's
   real `href` rather than throwing at a detached click; `route-link`
   proved routing present at RENDER, so absence here is transient. Design
-  record: docs/design/hicasso/decisions.md HD-027."
+  record: docs/design/fresco/decisions.md HD-027."
   [k v]
   (let [{:keys [frame payload native? veto]} (unwrap-navigate k v)
         veto-fn (lower-veto k veto)]
-    (fn hicasso-navigate [e]
+    (fn fresco-navigate [e]
       (if-some [activate (rf.late-bind/get-fn :routing/activate-link!)]
         (activate e veto-fn frame payload native?)
         (when veto-fn (veto-fn e)))
@@ -544,7 +544,7 @@
           (h e))))))
 
 (defn ref-position?
-  "`:ref` is the one prop position whose contract is not Hicasso's to
+  "`:ref` is the one prop position whose contract is not Fresco's to
   select: React invokes it in the COMMIT phase with the node, and its
   return is the detach cleanup. Excluded from callback lowering entirely
   (HD-016 callback refs, HD-022's reserved vector) — wrapping it would
@@ -556,7 +556,7 @@
 (defn position-contract
   "The contract a prop position imposes on the one callback form. An
   event position is the only one the attribute grammar can name by
-  itself; everything else Hicasso walks is a render position, and a
+  itself; everything else Fresco walks is a render position, and a
   `defhost` declaration overrides this by saying so
   (`lower-declared-prop`)."
   [k]
@@ -593,7 +593,7 @@
   crosses as data. The contract is one of the two by construction:
   `mint-host!` refuses any other at the declaration. The override exists
   because an event wrapper returns nil, which blanks an on*-named render
-  prop silently; docs/design/hicasso/decisions.md, HD-024's 2026-08-29
+  prop silently; docs/design/fresco/decisions.md, HD-024's 2026-08-29
   addendum."
   [k v contract]
   (if (keyword-identical? :event contract)

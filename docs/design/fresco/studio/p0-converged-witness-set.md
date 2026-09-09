@@ -127,7 +127,7 @@ and are not a replication in the strict sense.
    onto the same rows — a rule about where a candidate sits relative to UIx — so
    it must be derived on the pages the denominator lives on, not the reverse.
 2. **rf2-2rtt6.2 is on main and owns the measurement lane.**
-   [HD-017](../decisions.md) gives `:hicasso-bench` and its driver to that arm;
+   [HD-017](../decisions.md) gives `:fresco-bench` and its driver to that arm;
    rf2-2rtt6.4's tree rides `:freehand-release`'s compiler settings through a
    `--config-merge` precisely because the lane had not landed when it was built.
    Running the frontier arm on the lane retires that workaround, and this entry
@@ -146,7 +146,7 @@ commit"* — asserted without the hashes, so a reader could not perform the chec
 that was the whole point of making it. Here they are, with the landed commit
 the rebase produced:
 
-| file (`implementation/freehand/test/re_frame/bench/hicasso/`) | blob at `44900cd4fd` **and** `4c3f7189c4` | on main `32cb224d6e` |
+| file (`implementation/freehand/test/re_frame/bench/fresco/`) | blob at `44900cd4fd` **and** `4c3f7189c4` | on main `32cb224d6e` |
 |---|---|---|
 | `p0_converge_app.cljs` | `9b5c0d63db5528d8b9790111f9bc53cda052106f` | `f4b09dc20712…` — **moved** (#7275) |
 | `p0_converge_run.cjs` | `9e620cdeb3a7643c74c321a358cdadaabf186465` | `253b468a6b3a…` — **moved** (#7270) |
@@ -156,7 +156,7 @@ the rebase produced:
 | `order_guard.cljc` *(`implementation/core/test/re_frame/bench/`)* | `adf59ca03cfe8e2639de97c031c138838f2d34b7` | `e42450ef1c77…` — **moved** (#7267) |
 
 ```bash
-P=implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs
+P=implementation/freehand/test/re_frame/bench/fresco/p0_converge_app.cljs
 git rev-parse 4c3f7189c4:$P   # 9b5c0d63db5528d8b9790111f9bc53cda052106f
 git merge-base --is-ancestor 4c3f7189c4 origin/main && echo on-main
 ```
@@ -169,9 +169,9 @@ where the instrument is the **current** one and every published range is met.
 | | |
 |---|---|
 | **Producing commit** | `44900cd4fd35815b3e2462ae7752242efcb296b9` — **off main.** Its landed equivalent is **`4c3f7189c4`**, whose instrument tree is byte-identical (the table above prints the hashes); this page landed as **`a987caca26`**. The rebase onto PR #7265 **rewrote the id without touching the instrument**, so the reproduction command was unaffected. Nothing was re-measured at the time. |
-| **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` — **verified to run at main `32cb224d6e`, exit 0.** It did not, for the window between PR #7267 and PR #7275; that is recorded below and is now closed |
+| **Reproduction** | `node implementation/freehand/test/re_frame/bench/fresco/p0_converge_run.cjs` — **verified to run at main `32cb224d6e`, exit 0.** It did not, for the window between PR #7267 and PR #7275; that is recorded below and is now closed |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), Windows 11 x64, sibling agents live on the box |
-| **Build** | `:hicasso-bench` — `:browser`, `:advanced`, `goog.DEBUG false`. **No new build id; `implementation/shadow-cljs.edn` untouched** |
+| **Build** | `:fresco-bench` — `:browser`, `:advanced`, `goog.DEBUG false`. **No new build id; `implementation/shadow-cljs.edn` untouched** |
 | **Adapters** | `:rf.adapter/reagent` and `:rf.adapter/uix`, one per segment. Reagent 2.0.1 · UIx 1.4.4 · React 19.2.0 |
 | **Schedule** | 5 rounds × 2 segments × (8 warm-up + 12 samples) per arm; three arms interleaved at the sample level, order rotating **and reflecting** on the sample index; segment order alternating with the round; **one row per page** |
 | **Arm-order guard** | **reportable on every row**, both factors, no refusal. Self-test 8/8 before anything was measured; driver exit **0** |
@@ -188,7 +188,7 @@ supersede the ones in the table above.
 moved this branch's SHAs between the run and the merge; the blobs did not move
 at all, and were verified byte-identical afterwards.
 
-| file (`implementation/freehand/test/re_frame/bench/hicasso/`) | blob |
+| file (`implementation/freehand/test/re_frame/bench/fresco/`) | blob |
 |---|---|
 | `p0_converge_app.cljs` | `f4b09dc20712e45f44f9ec9339f8dd00ce51e8f7` |
 | `lane.cljs` | `885592cf9fdd79f701d6353fc5d3dae0868d74f1` |
@@ -199,14 +199,14 @@ at all, and were verified byte-identical afterwards.
 | | |
 |---|---|
 | **Producing commit** | `ec30ae12ef` on `worker/bench-tail-cluster` — an authored head the rebase merge stranded, so it is in no fresh clone; it landed on `main` as `1912fc849c`, established by identical `git patch-id --stable` rather than by matching subjects. Here the landed anchor costs this section nothing: all five blobs above are byte-identical at both. **If a SHA does not resolve, a rebase moved it and the blobs above are what to trust.** |
-| **Reproduction** | `HICASSO_ONLY=narrow node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` — **run twice at this instrument, exit 0 both times** |
+| **Reproduction** | `FRESCO_ONLY=narrow node implementation/freehand/test/re_frame/bench/fresco/p0_converge_run.cjs` — **run twice at this instrument, exit 0 both times** |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), Windows 11 x64, 24 logical CPUs |
 | **Schedule** | unchanged — 5 rounds × 2 segments × (8 warm-up + 12 samples), three arms interleaved, **10 writes per timed window** |
 | **Arm-order guard** | **no refusal on either run**, tolerance 0.10, `contaminated? false`, `unchecked? false` |
 | **Verification** | **0 unverified of 6,030 writes, on each run** |
 | **Positive control** | predicted `1801 / 901 = 1.9989×` **before** the run; four measured ranges, all inside ±25%, all inside on **every round** |
 
-`HICASSO_ONLY` re-takes one row rather than four, deliberately: the mount rows
+`FRESCO_ONLY` re-takes one row rather than four, deliberately: the mount rows
 and the broad row are untouched by the batching — the broad row passes a batch
 of one, which is the pre-batch window exactly — so re-taking them would replace
 sound published numbers with different ones for nothing. It is `hd8_run.cjs`'s
@@ -215,14 +215,14 @@ sound published numbers with different ones for nothing. It is `hd8_run.cjs`'s
 To confirm a candidate commit carries this instrument:
 
 ```bash
-P=implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs
+P=implementation/freehand/test/re_frame/bench/fresco/p0_converge_app.cljs
 git rev-parse <candidate>:$P   # must print f4b09dc20712e45f44f9ec9339f8dd00ce51e8f7
 ```
 
 **The reproduction command was run at this instrument, on a clean working tree
 — and it produced the NARROW row and nothing else.** This paragraph used to say
 *"the figures below are that run's"*, unqualified, which is not what happened:
-`HICASSO_ONLY=narrow` re-took one row of four, exactly as the paragraph above
+`FRESCO_ONLY=narrow` re-took one row of four, exactly as the paragraph above
 says it should. Three of the four rows below therefore come off a **different
 instrument**, and a provenance block that does not partition its own table is
 the blur such a block exists to prevent.
@@ -438,7 +438,7 @@ is not a restatement.
 `p0_converge_app.cljs` moved between the published ensemble
 (`5a727706fc…`) and this re-take (`a5177d3f0b…`), because PR #7310 added the
 `:reagent-ratom` arm. **That arm is default OFF and the default is plan-identity,
-not politeness.** With `HICASSO_RATOM` unset the driver appends `&ratom=off`, the
+not politeness.** With `FRESCO_RATOM` unset the driver appends `&ratom=off`, the
 page's `query-ratom` returns false, and `arms-for` builds
 `[floor, <segment arm>, ctl-2x]` — the same three arms in the same order the
 ensemble ran. This is confirmed empirically rather than by reading the diff: the
@@ -460,7 +460,7 @@ The other five instrument files are **byte-identical** to the ensemble's:
 |---|---|
 | **Whole-tree anchor** | `7f54c67d5a6f25d5bdd2d74e71e4e61ab966b663` — `origin/main`. All eight instrument and spine blobs at the measuring tree are byte-identical to it, checked by `git rev-parse` |
 | **Spine under test** | `8d20218fd18282265cce1f931d019ca1f4d88b41` — **post-`.13` (`9df5094816`) and post-`.25` (`f784ab0adb`)**, both verified ancestors |
-| **Reproduction** | `HICASSO_START=reagent node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs`, and the same with `HICASSO_START=uix` |
+| **Reproduction** | `FRESCO_START=reagent node implementation/freehand/test/re_frame/bench/fresco/p0_converge_run.cjs`, and the same with `FRESCO_START=uix` |
 | **Schedule** | unchanged — 6 rounds × 2 segments × 3 arms interleaved, one row per page, start counterbalanced across independently launched runs |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), `:advanced`, `goog.DEBUG false`, Windows 11 x64, 24 logical CPUs |
 
@@ -512,7 +512,7 @@ repository.
 
 **The table is below.** Every ensemble figure in this section is now derived from
 it by
-`implementation/freehand/test/re_frame/bench/hicasso/p0_converge_order_cljs_test.cljs`
+`implementation/freehand/test/re_frame/bench/fresco/p0_converge_order_cljs_test.cljs`
 rather than asserted here — both the four-run figures PR #7315 published and the
 five-run figures that replace them.
 
@@ -737,7 +737,7 @@ never once reproduced against a driver that runs.**
 They have now been. One full four-row sweep at main `32cb224d6e`:
 
 ```bash
-node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs   # exit 0
+node implementation/freehand/test/re_frame/bench/fresco/p0_converge_run.cjs   # exit 0
 ```
 
 **This is a reproduction check, not a re-publication.** Ranges are min–max
@@ -1192,7 +1192,7 @@ of the leg and produce exactly the shift measured above without any harness
 being involved.
 
 The control is one command: **run the first author's own instrument on this
-tree, in this session.** `npm run bench:hicasso` drives `p0_reagent_app`, which
+tree, in this session.** `npm run bench:fresco` drives `p0_reagent_app`, which
 publishes its own reactive leg on the same two rows.
 
 **Pre-registered, before it was run:**
@@ -1214,7 +1214,7 @@ patch by identical `git patch-id --stable`. What this line claims is *when the
 text was written*, not a tree it was measured on, and the patch is the whole of
 that claim — so here the landed commit carries it entire.
 
-**The control was then run twice, `npm run bench:hicasso`, exit 0 both times,
+**The control was then run twice, `npm run bench:fresco`, exit 0 both times,
 guard clean, `0 unverified of 1,220` on each, residue back to
 `{:body-children 2, :sub-entries 0, :sub-ref-count 0, :ratom-watches 0}`:**
 
@@ -1241,29 +1241,29 @@ becomes a falsehood.
 
 | file | blob |
 |---|---|
-| `implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs` | `a5177d3f0bf764917075d2a247af0ddc4684a719` — **changed by this bead** |
-| `implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` | `82977240c0fcf983b286918105140f40f2a1dbc7` — **changed by this bead** |
-| `implementation/freehand/test/re_frame/bench/hicasso/p0_reagent_views.cljs` | `bf79bf304d62f679be5fca69dd7880360a1a0631` — unchanged; the ratom components are the first author's, by construction |
-| `implementation/freehand/test/re_frame/bench/hicasso/p0_reagent_app.cljs` | `cd8e7c7f3313c08e6b670a3d5acf406a04a7a2e1` — unchanged; the first author's instrument, used as the control above |
-| `implementation/freehand/test/re_frame/bench/hicasso/lane.cljs` | `0642815dc234c1544d1f97bd9e1e4dd24365c027` — unchanged |
-| `implementation/freehand/test/re_frame/bench/hicasso/p0_uix_views.cljs` | `34e0e89d532f2af3b3289525509cf033bb03bc05` — unchanged |
-| `implementation/freehand/test/re_frame/bench/hicasso/lane_cache.cjs` | `dd85cc8bd9133b659718e1f54f286f7314420ffd` — unchanged |
+| `implementation/freehand/test/re_frame/bench/fresco/p0_converge_app.cljs` | `a5177d3f0bf764917075d2a247af0ddc4684a719` — **changed by this bead** |
+| `implementation/freehand/test/re_frame/bench/fresco/p0_converge_run.cjs` | `82977240c0fcf983b286918105140f40f2a1dbc7` — **changed by this bead** |
+| `implementation/freehand/test/re_frame/bench/fresco/p0_reagent_views.cljs` | `bf79bf304d62f679be5fca69dd7880360a1a0631` — unchanged; the ratom components are the first author's, by construction |
+| `implementation/freehand/test/re_frame/bench/fresco/p0_reagent_app.cljs` | `cd8e7c7f3313c08e6b670a3d5acf406a04a7a2e1` — unchanged; the first author's instrument, used as the control above |
+| `implementation/freehand/test/re_frame/bench/fresco/lane.cljs` | `0642815dc234c1544d1f97bd9e1e4dd24365c027` — unchanged |
+| `implementation/freehand/test/re_frame/bench/fresco/p0_uix_views.cljs` | `34e0e89d532f2af3b3289525509cf033bb03bc05` — unchanged |
+| `implementation/freehand/test/re_frame/bench/fresco/lane_cache.cjs` | `dd85cc8bd9133b659718e1f54f286f7314420ffd` — unchanged |
 | `implementation/core/test/re_frame/bench/order_guard.cljc` | `6c4097afff5afa6d64903c3be2f2f4fd6f145050` — unchanged |
 | `implementation/core/src/re_frame/substrate/spine.cljs` | `8d20218fd18282265cce1f931d019ca1f4d88b41` — **carries both of today's spine fixes**, which is the tree the control above exists to price |
 
 ```bash
 git merge-base --is-ancestor 3a250838a2 origin/main && echo tree-anchor-on-main
-P=implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs
+P=implementation/freehand/test/re_frame/bench/fresco/p0_converge_app.cljs
 git rev-parse <candidate>:$P   # must print a5177d3f0bf764917075d2a247af0ddc4684a719
 ```
 
 | | |
 |---|---|
 | **Authoring commit** | `bcf80f1979170d4d16d6e7679051de0018d410c5` on `worker/ratom2-2rtt6-21` — *the converged witness gets a reagent-ratom arm*. **The rebase-merge did mint a new SHA, and it landed as `129a9f3df7`** — established by identical `git patch-id --stable`, not by matching subjects. It anchors the **patch** and not this **tree**, and the difference is real here: two of the blobs above are not byte-identical at it, because the rebase carried a sibling landing (`rf2-9smjn`) that moved `lane_cache.cjs` into the shared bench-helper directory — `p0_converge_run.cjs` differs by that one `require` path, and `lane_cache.cjs` by one comment line. Neither is on a measured path, and the instrument blob `a5177d3f0b…` is byte-identical at both; but the two are not interchangeable, so the blobs above remain what identify the instrument, and a rebase cannot move a blob. The commit is also where the five predictions are written down, before the first sample existed |
-| **Reproduction** | `HICASSO_RATOM=on HICASSO_ONLY=M1,broad HICASSO_START=reagent node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` — and the same with `HICASSO_START=uix`. **Six invocations, exit 0 on all six**, launched one at a time, none re-run and none discarded |
-| **The control** | `cd implementation && npm run bench:hicasso` — the first author's instrument, unmodified, on this tree. **Two invocations, exit 0 both**, guard `refuse? false / contaminated? false / unchecked? false`, `0 unverified of 1,220` each, residue back to `{:body-children 2, :sub-entries 0, :sub-ref-count 0, :ratom-watches 0}` after both the parity phase and the bulk row |
+| **Reproduction** | `FRESCO_RATOM=on FRESCO_ONLY=M1,broad FRESCO_START=reagent node implementation/freehand/test/re_frame/bench/fresco/p0_converge_run.cjs` — and the same with `FRESCO_START=uix`. **Six invocations, exit 0 on all six**, launched one at a time, none re-run and none discarded |
+| **The control** | `cd implementation && npm run bench:fresco` — the first author's instrument, unmodified, on this tree. **Two invocations, exit 0 both**, guard `refuse? false / contaminated? false / unchecked? false`, `0 unverified of 1,220` each, residue back to `{:body-children 2, :sub-entries 0, :sub-ref-count 0, :ratom-watches 0}` after both the parity phase and the bulk row |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), `:advanced`, `goog.DEBUG false`, Windows 11 x64, sibling agents live on the box |
-| **Build** | `:hicasso-bench`, one build id, cold — `lane_cache.cjs` clears `.shadow-cljs/builds/hicasso-bench` before every invocation. `implementation/shadow-cljs.edn` untouched |
+| **Build** | `:fresco-bench`, one build id, cold — `lane_cache.cjs` clears `.shadow-cljs/builds/fresco-bench` before every invocation. `implementation/shadow-cljs.edn` untouched |
 | **Schedule** | **6 rounds** × 2 segments × (8 warm-up + 12 samples), one row per page, start counterbalanced 3/3. **Four arms in the Reagent segment** — floor, `reagent-subs`, `reagent-ratom`, `ctl-2x` — and three in the UIx segment |
 | **Budget** | **840 mounts** on the `M1` page, **882 writes** on the `broad` page, per run |
 | **Arm-order guard** | **no refusal on any of the 12 row-runs** — `refuse? false`, `contaminated? false`, `unchecked? false`, tolerance 0.10, every one |
@@ -1556,7 +1556,7 @@ ensemble is ten runs and not sixteen.
   measure if the assertion fails.
 - **A counterbalanced start, across independently launched runs.** Which segment
   leads round 0 is a per-run parameter (`?start=reagent` / `?start=uix`,
-  `HICASSO_START`). Inside one run, *Reagent led* and *the even rounds* are the
+  `FRESCO_START`). Inside one run, *Reagent led* and *the even rounds* are the
   same set of rounds however many rounds there are, so an order effect and a
   temporal drift are the same partition and no single run can separate them. Half
   the runs start each way, and the inference is made **across** runs.
@@ -1597,7 +1597,7 @@ separately:
 
 | claim | rule | consequence |
 |---|---|---|
-| **direction** — *UIx slower / faster / indistinguishable* | **FAIL-CLOSED.** Two strata pointing opposite ways across 1.0 sets `HICASSO_ORDER_REFUSED`; `p0_converge_run.cjs` exits **1** | the row has no direction to publish, and the figure is a measurement of the schedule |
+| **direction** — *UIx slower / faster / indistinguishable* | **FAIL-CLOSED.** Two strata pointing opposite ways across 1.0 sets `FRESCO_ORDER_REFUSED`; `p0_converge_run.cjs` exits **1** | the row has no direction to publish, and the figure is a measurement of the schedule |
 | **magnitude** — the single number a candidate is judged against | reportable **only** when the two strata **overlap**. `:magnitude-resolved?` starts false and the overlap has to earn it | a disjoint split publishes `:claim :direction-only`; silence is not a pass |
 
 ### The partition, and what one run's split can and cannot say
@@ -1816,7 +1816,7 @@ PR #7303 audit's finding was that the table itself was never committed** — wha
 landed was group means, intervals, ranges and *p* values, summaries with nothing
 behind them a reader could reach. **The table is below, all forty cells**, and
 every figure in both views is now derived from it by
-`implementation/freehand/test/re_frame/bench/hicasso/p0_converge_order_cljs_test.cljs`
+`implementation/freehand/test/re_frame/bench/fresco/p0_converge_order_cljs_test.cljs`
 rather than asserted here.
 
 !!! warning "Provenance — recovered, not re-run"
@@ -2118,7 +2118,7 @@ direction, and the row stays **diagnostic**.
 ### The corrected instrument's own run
 
 Four rows, five rounds, both segments, at this branch's instrument.
-`node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` —
+`node implementation/freehand/test/re_frame/bench/fresco/p0_converge_run.cjs` —
 **exit 0**.
 
 | row | the five-round publication *(superseded)* | corrected instrument | overlap | verdict |
@@ -2161,23 +2161,23 @@ below as well.
 
 | file | blob at `9737ed5cf8` |
 |---|---|
-| `implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs` | `7d62bb6f4c4ce90a930bef94060ecc89772f42f1` |
-| `implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` | `f9c8c36ca58ccf2986f9946aee62a4666297924e` |
-| `implementation/freehand/test/re_frame/bench/hicasso/lane.cljs` | `73b382cbfc17acf767e744313e60ec33c35fe6e5` |
-| `implementation/freehand/test/re_frame/bench/hicasso/p0_reagent_views.cljs` | `4032e39779ce55fee1e1cd4f7a8e9561237e2cfd` |
-| `implementation/freehand/test/re_frame/bench/hicasso/p0_uix_views.cljs` | `34e0e89d532f2af3b3289525509cf033bb03bc05` |
+| `implementation/freehand/test/re_frame/bench/fresco/p0_converge_app.cljs` | `7d62bb6f4c4ce90a930bef94060ecc89772f42f1` |
+| `implementation/freehand/test/re_frame/bench/fresco/p0_converge_run.cjs` | `f9c8c36ca58ccf2986f9946aee62a4666297924e` |
+| `implementation/freehand/test/re_frame/bench/fresco/lane.cljs` | `73b382cbfc17acf767e744313e60ec33c35fe6e5` |
+| `implementation/freehand/test/re_frame/bench/fresco/p0_reagent_views.cljs` | `4032e39779ce55fee1e1cd4f7a8e9561237e2cfd` |
+| `implementation/freehand/test/re_frame/bench/fresco/p0_uix_views.cljs` | `34e0e89d532f2af3b3289525509cf033bb03bc05` |
 | `implementation/core/test/re_frame/bench/order_guard.cljc` | `6c4097afff5afa6d64903c3be2f2f4fd6f145050` |
 
 ```bash
 git merge-base --is-ancestor 9737ed5cf815817d856c49eefb6824856df51668 origin/main && echo on-main
-P=implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs
+P=implementation/freehand/test/re_frame/bench/fresco/p0_converge_app.cljs
 git rev-parse 9737ed5cf8:$P   # 7d62bb6f4c4ce90a930bef94060ecc89772f42f1
 ```
 
 | | |
 |---|---|
-| **Producing commit** | `9737ed5cf815817d856c49eefb6824856df51668` — *bench(hicasso): warrant the segment-order threshold, verify the doubled control (rf2-a4x1o)*, on `origin/main`. Measured on `worker/control-verify` before the merge; the rebase rewrote the id and left every blob above untouched |
-| **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` — **exit 0** |
+| **Producing commit** | `9737ed5cf815817d856c49eefb6824856df51668` — *bench(fresco): warrant the segment-order threshold, verify the doubled control (rf2-a4x1o)*, on `origin/main`. Measured on `worker/control-verify` before the merge; the rebase rewrote the id and left every blob above untouched |
+| **Reproduction** | `node implementation/freehand/test/re_frame/bench/fresco/p0_converge_run.cjs` — **exit 0** |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), Windows 11 x64, 24 logical CPUs |
 | **Arm-order guard** | **no refusal on any of the four rows** — `refuse? false`, `contaminated? false`, `unchecked? false`, tolerance 0.10 |
 | **Canonical-DOM parity** | clean in both segments and across the seam, every row — `{:problems [] :ok? true}` |
@@ -2202,7 +2202,7 @@ from the repository rather than merely stated by it.
 | | |
 |---|---|
 | **Authored anchor** | `2a97274c0fd50dd3145ba60a33f73f663bec94b9` on `worker/balance-6i0i2` — the last commit that touches the instrument. **The rebase-merge did mint a new SHA, and it landed as `4e4a68fa1f`** — established by identical `git patch-id --stable`, not by matching subjects, and it is the same landed SHA the re-take table above already names for this ensemble. Here the landed anchor costs the section nothing: all six blobs below are byte-identical at both. This line is still not rewritten to it, because the authored head is the true provenance of the run: the blobs below are what identify the instrument, and a rebase cannot move a blob. An audit mapping this page to `main` should expect the authored anchor to resolve to a commit that is *not* an ancestor of `main`, and should check the blobs |
-| **Reproduction** | `HICASSO_START=reagent node implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` — and the same with `HICASSO_START=uix`. **Ten invocations, exit 0 on all ten** |
+| **Reproduction** | `FRESCO_START=reagent node implementation/freehand/test/re_frame/bench/fresco/p0_converge_run.cjs` — and the same with `FRESCO_START=uix`. **Ten invocations, exit 0 on all ten** |
 | **Runtime** | HeadlessChrome **147.0.7727.15** (Chromium via Playwright), `:advanced`, `goog.DEBUG false`, Windows 11 x64, 24 logical CPUs, sibling agents live on the box |
 | **Schedule** | **6 rounds** × 2 segments × 3 arms interleaved, **one row per page**, start counterbalanced 5/5 across the ten launches. Sampling 8 warm-up + 12 samples on M1, broad and narrow; **4 + 10 on M2** ([why](#3-the-sixth-round-broke-the-m2-row-and-the-lever-was-the-mount-budget)) |
 | **Arm-order guard** | **no refusal on any of the 40 row-runs** — `refuse? false`, `contaminated? false`, `unchecked? false`, tolerance 0.10, every one |
@@ -2216,15 +2216,15 @@ was measured at:
 
 | file | blob |
 |---|---|
-| `implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs` | `5a727706fcd3268027b1d1b640658ca0be7ab86f` |
-| `implementation/freehand/test/re_frame/bench/hicasso/p0_converge_run.cjs` | `9542c1167435e06727a28bb8af89c055bb4e4682` |
-| `implementation/freehand/test/re_frame/bench/hicasso/lane.cljs` | `0642815dc234c1544d1f97bd9e1e4dd24365c027` |
-| `implementation/freehand/test/re_frame/bench/hicasso/p0_reagent_views.cljs` | `bf79bf304d62f679be5fca69dd7880360a1a0631` |
-| `implementation/freehand/test/re_frame/bench/hicasso/p0_uix_views.cljs` | `34e0e89d532f2af3b3289525509cf033bb03bc05` |
+| `implementation/freehand/test/re_frame/bench/fresco/p0_converge_app.cljs` | `5a727706fcd3268027b1d1b640658ca0be7ab86f` |
+| `implementation/freehand/test/re_frame/bench/fresco/p0_converge_run.cjs` | `9542c1167435e06727a28bb8af89c055bb4e4682` |
+| `implementation/freehand/test/re_frame/bench/fresco/lane.cljs` | `0642815dc234c1544d1f97bd9e1e4dd24365c027` |
+| `implementation/freehand/test/re_frame/bench/fresco/p0_reagent_views.cljs` | `bf79bf304d62f679be5fca69dd7880360a1a0631` |
+| `implementation/freehand/test/re_frame/bench/fresco/p0_uix_views.cljs` | `34e0e89d532f2af3b3289525509cf033bb03bc05` |
 | `implementation/core/test/re_frame/bench/order_guard.cljc` | `6c4097afff5afa6d64903c3be2f2f4fd6f145050` |
 
 ```bash
-P=implementation/freehand/test/re_frame/bench/hicasso/p0_converge_app.cljs
+P=implementation/freehand/test/re_frame/bench/fresco/p0_converge_app.cljs
 git rev-parse <candidate>:$P   # must print 5a727706fcd3268027b1d1b640658ca0be7ab86f
 ```
 

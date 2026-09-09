@@ -12,12 +12,12 @@ is removed from production builds.
 1. Load Xray through the development preload. [The coordinate, the host
    element, and the preload namespace](#load-xray) are below.
 2. Reproduce the click, keystroke, or update.
-3. Open Xray's **Hicasso** tab and select the view occurrence that ran.
+3. Open Xray's **Fresco** tab and select the view occurrence that ran.
 4. Read its cause, fan-out, and attribution.
 
 Steps 3 and 4 — and the read topology, advisor, and explain-render sections
-below — all happen in one place: Xray's **Hicasso** tab, in Dynamic mode. [11.
-The Hicasso tab](../../xray/11-hicasso-tab.md) is its reference chapter: what
+below — all happen in one place: Xray's **Fresco** tab, in Dynamic mode. [11.
+The Fresco tab](../../xray/11-fresco-tab.md) is its reference chapter: what
 each of its views asks, how to read an empty one, and why the advisor refuses to
 recommend a native route. This chapter covers the same ground from the
 application side — which cause you are looking at, which pressure owns it, and
@@ -114,7 +114,7 @@ When it cannot, it reports that limitation instead of guessing.
 
 ## Read topology and fan-out
 
-The Hicasso tab's **Reads** view maps subscriptions to the currently committed
+The Fresco tab's **Reads** view maps subscriptions to the currently committed
 views that read them. Four measurements usually identify the shape:
 
 | Measurement | What it reveals |
@@ -138,7 +138,7 @@ windowed collection reads as described in
 
 ## Use attribution before choosing a fix
 
-The Hicasso tab's **Advisor** view ranks views by time, frequency, read churn,
+The Fresco tab's **Advisor** view ranks views by time, frequency, read churn,
 and fan-out. It first identifies where the time is going:
 
 | Pressure | Cost owner | Smallest credible fix |
@@ -186,7 +186,7 @@ evidence is an empty result:
 
 ## Complaint IDs
 
-Hicasso errors and warnings use stable identifiers:
+Fresco errors and warnings use stable identifiers:
 
 - `:rf.error/*` for errors;
 - `:rf.warning/*` for recoverable misuse.
@@ -199,13 +199,13 @@ Examples from the guide:
 
 | ID | Meaning | Recovery |
 | --- | --- | --- |
-| `:rf.error/hicasso-sub-outside-render` | A subscription read ran after every render context had ended | Read during the body and close over the value; handlers declare state as coeffects |
-| `:rf.error/hicasso-deferred-read-at-boundary` | An unforced `delay` carrying a read tried to leave a view | Force it in the body or pass the realised value |
-| `:rf.error/hicasso-bad-head` | A plain `defn` appeared in Hiccup head position | Call it inline or define a view with `h/defview` |
-| `:rf.error/hicasso-intent-outside-boundary` | An event intent reached a position with no frame | Keep it under a view boundary; use `h/event` at a foreign callback edge |
-| `:rf.error/hicasso-host-unclaimed-callback` | `h/event` was passed to a host prop declared a ReactNode slot | Write markup there, or take the prop out of `:slots` |
-| `:rf.error/hicasso-revision-not-controlled` | `::h/revision` appeared on a non-controlled field | Control the text field or remove the revision |
-| `:rf.warning/hicasso-entity-key` | A boundary-headed sequence child's `:key` is a map, collection, date or other entity value React would coerce by content | Key on a stable primitive identifier |
+| `:rf.error/fresco-sub-outside-render` | A subscription read ran after every render context had ended | Read during the body and close over the value; handlers declare state as coeffects |
+| `:rf.error/fresco-deferred-read-at-boundary` | An unforced `delay` carrying a read tried to leave a view | Force it in the body or pass the realised value |
+| `:rf.error/fresco-bad-head` | A plain `defn` appeared in Hiccup head position | Call it inline or define a view with `h/defview` |
+| `:rf.error/fresco-intent-outside-boundary` | An event intent reached a position with no frame | Keep it under a view boundary; use `h/event` at a foreign callback edge |
+| `:rf.error/fresco-host-unclaimed-callback` | `h/event` was passed to a host prop declared a ReactNode slot | Write markup there, or take the prop out of `:slots` |
+| `:rf.error/fresco-revision-not-controlled` | `::h/revision` appeared on a non-controlled field | Control the text field or remove the revision |
+| `:rf.warning/fresco-entity-key` | A boundary-headed sequence child's `:key` is a map, collection, date or other entity value React would coerce by content | Key on a stable primitive identifier |
 | `:rf.error/frame-destroyed` | An operation captured from a destroyed frame incarnation fired later | Drop the stale handle and capture from the current frame |
 
 Follow the named recovery before changing unrelated code.
@@ -228,7 +228,7 @@ When testing a refusal, assert the stable id rather than the message:
       (:rf.error/id (ex-data e)))))
 
 (deftest plain-defn-child-head-refuses
-  (is (= :rf.error/hicasso-test-plain-fn-head
+  (is (= :rf.error/fresco-test-plain-fn-head
          (refusal-id
           #(ht/tree [card {}] {:subs {}})))))
 ```
@@ -238,8 +238,8 @@ complaint contract.
 
 At L2, the test kit accepts a plain body function as the **root** because that
 is the function it is deliberately running. A plain function reached as a
-child head raises `:rf.error/hicasso-test-plain-fn-head`. The equivalent
-mounted mistake raises the runtime's `:rf.error/hicasso-bad-head`.
+child head raises `:rf.error/fresco-test-plain-fn-head`. The equivalent
+mounted mistake raises the runtime's `:rf.error/fresco-bad-head`.
 
 ## Verify production erasure
 
@@ -296,9 +296,9 @@ When the question is correctness rather than cause, write a test
 
 ### Explain-render envelope
 
-The Hicasso tab's **Why** view, tests, and an AI pair all read one versioned
+The Fresco tab's **Why** view, tests, and an AI pair all read one versioned
 evidence envelope, produced by
-[`re-frame.hicasso.tool/explain-render`](api-reference.md#re-framehicassotool).
+[`re-frame.fresco.tool/explain-render`](api-reference.md#re-framefrescotool).
 Read it through the Why view; calling the reader yourself is for scripted
 diagnosis, and every read on that door answers `nil` in a release build. A
 representative occurrence:

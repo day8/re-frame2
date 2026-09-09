@@ -1,13 +1,13 @@
-(ns day8.re-frame2-xray.panels.hicasso-live-panel-dom-cljs-test
-  "The Hicasso tab is LIVE under real React — the running panel's own DOM
+(ns day8.re-frame2-xray.panels.fresco-live-panel-dom-cljs-test
+  "The Fresco tab is LIVE under real React — the running panel's own DOM
   (rf2-r98a, merged-PR audit of #7881).
 
   ## The claim this row exists to carry, and the one it replaces
 
-  `hicasso_cljs_test/the-populated-roster-arrives-on-the-TRACE-TICK-and-not-on-a-cache-clear`
-  proves that `:rf.xray.hicasso/data` INVALIDATES and RECOMPUTES on a
+  `fresco_cljs_test/the-populated-roster-arrives-on-the-TRACE-TICK-and-not-on-a-cache-clear`
+  proves that `:rf.xray.fresco/data` INVALIDATES and RECOMPUTES on a
   `:rf.xray/trace-buffer` tick. That is real and it stays. But it reaches
-  the panel by CALLING `hicasso/Panel` a second time itself and reading the
+  the panel by CALLING `fresco/Panel` a second time itself and reading the
   hiccup that comes back: no React root is mounted, nothing commits, and
   no DOM is asserted. A panel wired to a live subscription and a panel
   whose sub happens to recompute when something calls it are not the same
@@ -23,10 +23,10 @@
   ## The three phases, and which one is the control
 
   1. **Mounted, empty.** The committed DOM carries
-     `rf-xray-hicasso-empty-mounted`, so the panel really did render its
+     `rf-xray-fresco-empty-mounted`, so the panel really did render its
      empty arm before anything moved.
   2. **A real boundary mounts, and the panel does NOT move.** This is the
-     load-bearing control. Hicasso's tables are process-global rather than
+     load-bearing control. Fresco's tables are process-global rather than
      part of Xray's app-db, so a mount invalidates nothing the panel's
      reaction watches — a tab wired to no tick at all would sit on an
      empty roster forever while the application it inspects mounts
@@ -40,7 +40,7 @@
      and after it the committed DOM carries a boundary ROW naming the
      read the boundary really holds.
 
-  The row testid, not the section wrapper: `rf-xray-hicasso-mounted` is
+  The row testid, not the section wrapper: `rf-xray-fresco-mounted` is
   what `mounted-view` renders in EVERY arm, with the empty note inside it,
   so a selector for the wrapper would match the stale empty roster this
   row exists to catch.
@@ -56,7 +56,7 @@
   ## Substrate
 
   The Reagent adapter, because a real React commit is the whole point and
-  because Hicasso's cell wiring calls `add-watch` on the substrate's
+  because Fresco's cell wiring calls `add-watch` on the substrate's
   derived value — under the ratom family that value IS a
   `reagent.ratom/Reaction` (`impl/collector.cljs` §`wire-cell!`), while
   plain-atom's is not `IWatchable`.
@@ -85,13 +85,13 @@
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [day8.re-frame2-xray.panels.hicasso :as hicasso]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [day8.re-frame2-xray.panels.fresco :as fresco]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
-(def ^:private app-frame ::hicasso-live-app)
+(def ^:private app-frame ::fresco-live-app)
 
 (rf/reg-sub :hlive/left (fn [db _] (:left db)))
 (rf/reg-event :hlive/seed (fn [_ [_ db]] {:db db}))
@@ -102,11 +102,11 @@
      :ambient-frame nil
      :init-fn       (fn []
                       (xray-test-support/reset-all!)
-                      ;; Hicasso's tables are process-global `defonce`s that
+                      ;; Fresco's tables are process-global `defonce`s that
                       ;; the core fixture knows nothing about; without this a
                       ;; neighbour's boundary is still in the entry cache and
                       ;; the empty arm of phase 1 is not empty.
-                      (rf.hicasso.impl.collector/reset-runtime!))}))
+                      (rf.fresco.impl.collector/reset-runtime!))}))
 
 (defn- browser?
   "True only under the real-DOM `:browser-test` build. The `:node-test`
@@ -147,16 +147,16 @@
     (react-dom/flushSync
       (fn []
         (rdc/render root [rf/frame-provider {:frame :rf/xray}
-                          [hicasso/Panel]])))
+                          [fresco/Panel]])))
     {:container container :root root}))
 
 (defn- mount-boundary!
-  "A real Hicasso boundary, rendered and committed through the runtime's
+  "A real Fresco boundary, rendered and committed through the runtime's
   own seam — the same `subscribe` closure React calls. Returns the
   release fn."
   []
-  (rf.hicasso.impl.collector/render-body app-frame (fn [_] (rf.hicasso/sub [:hlive/left]) nil) {})
-  (rf.hicasso.impl.collector/commit-boundary! (rf.hicasso.impl.collector/last-reads) (fn [])))
+  (rf.fresco.impl.collector/render-body app-frame (fn [_] (rf.fresco/sub [:hlive/left]) nil) {})
+  (rf.fresco.impl.collector/commit-boundary! (rf.fresco.impl.collector/last-reads) (fn [])))
 
 (defn- tick-trace!
   "One trace-buffer tick, delivered the way the collector delivers it:
@@ -180,14 +180,14 @@
   an unqualified prefix selector would count one boundary three times."
   [container]
   (vec (js/Array.from
-         (.querySelectorAll container "li[data-testid^=\"rf-xray-hicasso-boundary-\"]"))))
+         (.querySelectorAll container "li[data-testid^=\"rf-xray-fresco-boundary-\"]"))))
 
 (deftest the-mounted-panel-picks-up-a-new-boundary-on-the-trace-tick
-  (testing "rf2-r98a — a REAL React root holding the Hicasso tab re-renders
+  (testing "rf2-r98a — a REAL React root holding the Fresco tab re-renders
             itself on a `:rf.xray/trace-buffer` tick and commits the
             populated roster to the DOM. Nothing here calls `Panel` a second
             time; the roster arrives because the panel is live. Reddens if
-            `:rf.xray.hicasso/data` stops composing off `:rf.xray/trace-buffer`."
+            `:rf.xray.fresco/data` stops composing off `:rf.xray/trace-buffer`."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_          (setup!)
@@ -195,10 +195,10 @@
             release    (volatile! nil)]
         (try
           ;; ---- phase 1: mounted, and rendering its empty arm --------------
-          (let [section (q container "[data-testid=\"rf-xray-hicasso\"]")]
+          (let [section (q container "[data-testid=\"rf-xray-fresco\"]")]
             (is (some? section)
-                "the Hicasso Panel committed a real DOM root under React")
-            (is (some? (q container "[data-testid=\"rf-xray-hicasso-empty-mounted\"]"))
+                "the Fresco Panel committed a real DOM root under React")
+            (is (some? (q container "[data-testid=\"rf-xray-fresco-empty-mounted\"]"))
                 "the live panel rendered the EMPTY mounted census — nothing is
                  mounted yet, so the roster this test drives in cannot already
                  be on screen")
@@ -209,9 +209,9 @@
             ;; The render queue is drained here too, so what is asserted is a
             ;; reaction that never invalidated — not a commit that never ran.
             (flush-render! (fn [] (vreset! release (mount-boundary!))))
-            (is (some? (q container "[data-testid=\"rf-xray-hicasso-empty-mounted\"]"))
+            (is (some? (q container "[data-testid=\"rf-xray-fresco-empty-mounted\"]"))
                 "CONTROL: a real mount moves nothing the panel's reaction
-                 watches — Hicasso's tables are process-global, not Xray
+                 watches — Fresco's tables are process-global, not Xray
                  app-db — so the committed DOM still shows the empty note.
                  Without this the last phase would pass on a panel that had
                  simply never rendered before the tick")
@@ -233,10 +233,10 @@
                   (str "and the row names the read the boundary really holds, so "
                        "the assertion above cannot pass on a row projected from "
                        "nothing. row text: " (pr-str row-text))))
-            (is (nil? (q container "[data-testid=\"rf-xray-hicasso-empty-mounted\"]"))
+            (is (nil? (q container "[data-testid=\"rf-xray-fresco-empty-mounted\"]"))
                 "the empty note is gone from the DOM — the roster REPLACED it
                  rather than rendering beside it")
-            (is (identical? section (q container "[data-testid=\"rf-xray-hicasso\"]"))
+            (is (identical? section (q container "[data-testid=\"rf-xray-fresco\"]"))
                 "and it is the SAME <section> node — React reconciled the live
                  tree in place, so the roster did not arrive by the panel being
                  remounted from scratch, which would not be liveness"))

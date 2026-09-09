@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.ledger.app
+(ns re-frame.fresco.examples.ledger.app
   "THE LEDGER'S ENTRY POINT — an adapter, a frame, a root.
 
   `examples.grid.app`'s shape, with the model size as [[initial-events]]'
@@ -11,9 +11,9 @@
   application in this tree registers none."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.ledger.events :as rf.hicasso.examples.ledger.events]
-            [re-frame.hicasso.examples.ledger.views :as rf.hicasso.examples.ledger.views]))
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.ledger.events :as rf.fresco.examples.ledger.events]
+            [re-frame.fresco.examples.ledger.views :as rf.fresco.examples.ledger.views]))
 
 (def frame-id
   "This application's frame. Namespaced, so two applications in one
@@ -22,14 +22,14 @@
 
 (defn initial-events
   "What seeds a fresh frame holding `total` records."
-  ([] (initial-events rf.hicasso.examples.ledger.events/default-total))
-  ([total] [[::rf.hicasso.examples.ledger.events/seed {:total total}]]))
+  ([] (initial-events rf.fresco.examples.ledger.events/default-total))
+  ([total] [[::rf.fresco.examples.ledger.events/seed {:total total}]]))
 
 (defonce ^:private app-root
   ;; `defonce`, because a reload re-evaluates this namespace and a plain
   ;; `def` would replace the handle the reload exists to render through.
   ;; Inert until the first render — no DOM work at allocation.
-  (rf.hicasso/client-root))
+  (rf.fresco/client-root))
 
 (defn ^:dev/after-load mount!
   "Render the application through its one client-root handle — the boot
@@ -37,9 +37,9 @@
   React root; every later one updates that same root, so the DOM, the
   subscriptions and every scrap of component state survive a reload."
   []
-  (rf.hicasso/render! app-root
-    [rf.hicasso/frame-root {:id frame-id}
-     [rf.hicasso.examples.ledger.views/ledger {}]]
+  (rf.fresco/render! app-root
+    [rf.fresco/frame-root {:id frame-id}
+     [rf.fresco.examples.ledger.views/ledger {}]]
     (js/document.getElementById "app")))
 
 (defn ^:export -main

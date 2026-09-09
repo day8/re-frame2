@@ -37,7 +37,7 @@ Warm-allocation evidence is deliberately absent from the release suites until it
 ### Browser and platform
 
 - Chromium, Firefox and WebKit control/IME behavior; structural accessibility assertions plus browser focus checks over names, roles, keyboard and virtualized/overlay focus. No automated axe sweep: `rf2-5q8o` ruled DECLINE because no acceptance column asks for one, so it is not a witness to re-add here.
-- Lazy load, fallback, error, retry and HMR through the Hicasso boundary-ABI bridge.
+- Lazy load, fallback, error, retry and HMR through the Fresco boundary-ABI bridge.
 - The complete public-surface SSR/hydration inventory, including deliberate mismatch and overlapping-root witnesses.
 
 ### Bulk and economic
@@ -53,11 +53,11 @@ Warm-allocation evidence is deliberately absent from the release suites until it
 
 ## Boundary facts
 
-- Hicasso mints React functions; it has no late-bound view-id registry. Code splitting uses a small `React.lazy` adapter for the private boundary props ABI, declared outside render and composed with Suspense/error handling.
+- Fresco mints React functions; it has no late-bound view-id registry. Code splitting uses a small `React.lazy` adapter for the private boundary props ABI, declared outside render and composed with Suspense/error handling.
 - Read-free does not imply hydration-free. Zero-hydration islands require a separate island/root architecture.
 - A full server or JVM renderer is a second implementation. The semantic assertion harness remains intentionally restricted and React server bytes remain authoritative.
 - Progressive Suspense SSR requires React streaming APIs. A `renderToString` proof supports only a non-streaming first product.
-- Hicasso-specific User Timing does not replace adapter-neutral lifecycle/read/source evidence.
+- Fresco-specific User Timing does not replace adapter-neutral lifecycle/read/source evidence.
 - Native semantics and rent are governed only by the [native-boundary design law](design-laws.md#native-boundary); this proof lane applies its canonical checklist without restating it.
 
 ## Explicit refusals

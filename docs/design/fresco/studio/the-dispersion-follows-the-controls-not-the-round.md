@@ -3,7 +3,7 @@
 Seat: RE-ANALYSIS RECORD, EP-0038. Bead `rf2-rs8q6`, read against `rf2-n1b9h`'s
 work census once it landed. **No window was taken, no browser was launched, no
 rig file was touched.** Every figure below is computed from datasets already
-committed under `implementation/hicasso/test/re_frame/bench/hicasso/data/`,
+committed under `implementation/fresco/test/re_frame/bench/fresco/data/`,
 at landed base `20ec8ba59d`.
 
 The corpora read here, and nothing else:

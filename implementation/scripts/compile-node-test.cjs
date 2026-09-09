@@ -36,7 +36,7 @@
 //   2. When invoked with `--config-merge`, ALSO clear the build's on-disk
 //      shadow-cljs cache directory before AND after compiling — the other
 //      fix shadow-cljs.edn's `:node-test` build comment names, and the same
-//      rule `lane_cache.cjs` already enforces for the hicasso bench lane:
+//      rule `lane_cache.cjs` already enforces for the fresco bench lane:
 //      one build id driven with N different configs shares ONE cache entry,
 //      so a focused/config-merged compile against a SHARED id (like
 //      `:node-test`, which the always-on full compile also drives) must
@@ -81,7 +81,7 @@
 // THE TALLY IS THE GATE, and it needs no bookkeeping to stay honest.  Every
 // `:node-test`-family lane compiles warning-free today, measured before arming
 // this: node-test 2395 files, node-test-security 216, node-test-testbed-support
-// 693, node-test-ui 343, node-test-freehand 488, node-test-hicasso 457,
+// 693, node-test-ui 343, node-test-freehand 488, node-test-fresco 457,
 // node-test-perf-nightly 159 — 0 warnings in all seven.  A floor of zero is
 // therefore the bound that cannot go stale, in the same spirit as
 // `RF2_MIN_TESTS`'s default of 1, and it carries no knob: a warning in a test
@@ -117,7 +117,7 @@
 //
 //     implementation/scripts/check-examples-compile.cjs   :examples/* + :testbeds/*
 //     implementation/scripts/compile-node-test.cjs        :node-test-family (this)
-//     bench/hicasso/src/re_frame/bench/hicasso/lane_build.cjs  :hicasso-bench (repo root)
+//     bench/fresco/src/re_frame/bench/fresco/lane_build.cjs  :fresco-bench (repo root)
 //
 // THE COUNT WAS STILL THE WRONG TRIGGER, so it is replaced rather than
 // incremented.  MEASURED at three, against the live parsers: no single pattern

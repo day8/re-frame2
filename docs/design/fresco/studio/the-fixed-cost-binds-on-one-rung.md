@@ -10,10 +10,10 @@ first-hand from committed datasets, on `main` at `ca0abf8971`.
 Corpus, runtime and provenance are the same as
 [the window total is the ceiling](the-window-total-is-the-ceiling.md): the two
 paired runs at
-`implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-0gjqi/`, committed
+`implementation/fresco/test/re_frame/bench/fresco/data/alloc-0gjqi/`, committed
 at `e77c4969e9`, taken 2026-08-18 on branch `worker/pairedwin-0gjqi` built at
 `1f004b15ff` — Chromium via Playwright, shadow-cljs `release` on
-`:hicasso-bench`, `:optimizations :advanced`, `goog.DEBUG false`, `--expose-gc`.
+`:fresco-bench`, `:optimizations :advanced`, `goog.DEBUG false`, `--expose-gc`.
 Both runs' positive control passed at **8.00 B/double**; both captured **exit 1**
 on the falls gate, so **no slope is quoted**. B = 4, W = 6 measured writes after
 one prime, six rounds, 96 windows per rung across the two runs and 48 on the
@@ -22,7 +22,7 @@ floor.
 Reproduction, from `implementation/`:
 
 ```bash
-node hicasso/test/re_frame/bench/hicasso/alloc_window_ceiling.cjs
+node fresco/test/re_frame/bench/fresco/alloc_window_ceiling.cjs
 ```
 
 ## The answer, first
@@ -306,13 +306,13 @@ falls in a gap no family occupies.
 | family | `T0` (B) | projected max B, R = 1 | R = 3 | R = 7 | R = 20 |
 |---|---|---|---|---|---|
 | `reagent-subs \| lad/reagent @page` | 105,816 | 32 | 17 | 8 | **3** |
-| `reagent-subs \| lad/hicasso @page` | 105,816 | 36 | 19 | 9 | **3** |
+| `reagent-subs \| lad/fresco @page` | 105,816 | 36 | 19 | 9 | **3** |
 | `reagent-subs \| lad/reagent @all` | 115,728 | 31 | 16 | 8 | **3** |
-| `reagent-subs \| lad/hicasso @all` | 115,728 | 35 | 19 | 9 | **3** |
+| `reagent-subs \| lad/fresco @all` | 115,728 | 35 | 19 | 9 | **3** |
 | `uix-subs \| lad/uix @page` | 108,480 | 60 | 25 | 11 | **4** |
-| `uix-subs \| lad/hicasso @page` | 108,480 | 37 | 20 | 9 | **3** |
+| `uix-subs \| lad/fresco @page` | 108,480 | 37 | 20 | 9 | **3** |
 | `uix-subs \| lad/uix @all` | 118,392 | 59 | 24 | 11 | **4** |
-| `uix-subs \| lad/hicasso @all` | 118,392 | 36 | 19 | 9 | **3** |
+| `uix-subs \| lad/fresco @all` | 118,392 | 36 | 19 | 9 | **3** |
 
 A ladder holds **one B across all rungs and all families**, so the binding cell
 decides — **under the cap assumption above, and only there**:

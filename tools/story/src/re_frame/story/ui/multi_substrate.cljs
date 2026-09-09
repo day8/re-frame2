@@ -12,18 +12,18 @@
 
   Story doesn't add a new framework registry — substrate-rendering hooks
   are looked up in `substrate->render-fn` here. Story installs `:reagent`;
-  hosts that load UIx, Hicasso or another authoring layer register its
+  hosts that load UIx, Fresco or another authoring layer register its
   renderer with `register-substrate!`.
 
   A substrate here is an AUTHORING LAYER — which registered render fn
   embeds the subject — and not the adapter `rf/init!` installed. The two
   are different axes, which `re-frame.story.schemas/SubstrateSet`'s
-  docstring sets out; `:hicasso` is the member that makes the difference
-  visible, because a Hicasso deck's authoring layer is Hicasso's whichever
-  adapter sits beneath it — Hicasso's own `re-frame.hicasso.substrate`
-  (`:kind :rf.adapter/hicasso`, rf2-hvr5h), or Reagent's, or UIx's.
+  docstring sets out; `:fresco` is the member that makes the difference
+  visible, because a Fresco deck's authoring layer is Fresco's whichever
+  adapter sits beneath it — Fresco's own `re-frame.fresco.substrate`
+  (`:kind :rf.adapter/fresco`, rf2-hvr5h), or Reagent's, or UIx's.
 
-  ## The `:hicasso` recipe (rf2-2dbpd)
+  ## The `:fresco` recipe (rf2-2dbpd)
 
   Story ships no installer for it, for exactly the reason it ships none
   for `:uix`: the renderer's one dependency is the HOST's, and Story core
@@ -31,30 +31,30 @@
 
       (ns my.app.story-boot
         (:require [re-frame.core :as rf]
-                  [re-frame.hicasso :as h]
+                  [re-frame.fresco :as h]
                   [re-frame.story :as story]))
 
-      (story/register-substrate! :hicasso
+      (story/register-substrate! :fresco
         (fn [_variant-id view-id args]
           (if-let [head (rf/view view-id)]
             (h/as-element [head args])
             [:div (str \":component \" (pr-str view-id)
-                       \" is not registered as a hicasso view\")])))
+                       \" is not registered as a fresco view\")])))
 
   Four facts about those lines, and each is a reason there are so few.
 
   **`h/defview` publishes the keyword a story names** (rf2-5qaf4). The
   declaration registers one `:view` entry under `(keyword \"<ns>\" \"<sym>\")`
   carrying the minted head at `:handler-fn` — the one executable slot every
-  substrate's `:view` entry uses — so `rf/view` resolves a Hicasso view
+  substrate's `:view` entry uses — so `rf/view` resolves a Fresco view
   exactly as it resolves a Reagent or a UIx one (rf2-kuky.60). This recipe
-  used to read a private `:hicasso/component` off `rf/handler-meta`,
+  used to read a private `:fresco/component` off `rf/handler-meta`,
   because the entry deliberately carried no `:handler-fn` and `rf/view`
   answered nil; that is why the line above is now the framework's own
   lookup rather than a second descriptor shape a host has to know. The
-  alias stays debug-gated, so `rf/view` answers nil for a Hicasso view in a
+  alias stays debug-gated, so `rf/view` answers nil for a Fresco view in a
   release build — the documented answer, and no concern for a Story deck,
-  which is a dev artefact. A story therefore names a Hicasso view exactly
+  which is a dev artefact. A story therefore names a Fresco view exactly
   as it names a Reagent one, and `:component` stays a keyword everywhere.
 
   **Resolution is LATE, per render, and that is not incidental to the
@@ -66,7 +66,7 @@
   **The element is minted fresh and its TYPE is stable, so there is no
   cache to keep.** `h/defview` already mints ONE `React.memo` wrapper per
   head at definition time and every element made from that head rides it
-  (`re-frame.hicasso.impl.codec/memoize-boundary!` + `element-type`), so a
+  (`re-frame.fresco.impl.codec/memoize-boundary!` + `element-type`), so a
   fresh element per pass re-renders the boundary and never remounts it.
   `h/as-component` is the wrong door here on both counts: it allocates a
   component per call — a new element type every render, which React
@@ -78,12 +78,12 @@
   already wraps the subject in `[rf/frame-provider {:frame variant-id} …]`
   (`re-frame.story.ui.canvas`), whose provider is
   `re-frame.adapter.context/frame-context` — the single React context
-  every React-shaped adapter reads. A Hicasso boundary spliced into that
+  every React-shaped adapter reads. A Fresco boundary spliced into that
   Reagent tree resolves the VARIANT's frame from it, with no second root,
   no second state owner and no props ABI. (`h/render!` is likewise the
   wrong door: it makes a root, and the canvas is already inside one.)
 
-  Hicasso stories hand-author `:argtypes`. Auto-derivation reads the
+  Fresco stories hand-author `:argtypes`. Auto-derivation reads the
   view's `[:rf/props :schema]` `reg-view` metadata and `defview` carries
   no props-schema slot — deferred by rf2-1gy4e until someone asks for
   auto-Controls, rather than invented here.
@@ -91,25 +91,25 @@
   ### The limit that WAS here is gone, and it was never the crossing
   ### (rf2-phabt)
 
-  This section used to record a live limit: *a Hicasso boundary crossed
+  This section used to record a live limit: *a Fresco boundary crossed
   into from a Reagent parent — which is what the canvas is — paints once
   and does not re-render on a write into its own frame.* Read literally
-  that said a hicasso story could render and not respond to its own
+  that said a fresco story could render and not respond to its own
   dispatches, which would have made the substrate a demo rather than a
   place to author.
 
   It was an artefact of the measurement, not a defect in the bridge. The
   original comparison varied the mounting route AND the frame id at once;
-  the actual cause was `re-frame.hicasso.impl.collector/acquire-cell!`
+  the actual cause was `re-frame.fresco.impl.collector/acquire-cell!`
   REUSING a cell without rebuilding its attachment, so the notification
   never reached a body that had already painted correctly. Fixed in
-  Hicasso, and both outward doors — `h/as-element` and a memoized
+  Fresco, and both outward doors — `h/as-element` and a memoized
   `h/as-component` — repaint on a write today. The two rows that measured
   it are back, green, in
-  `re-frame.story.ui.hicasso-substrate-dom-cljs-test`
+  `re-frame.story.ui.fresco-substrate-dom-cljs-test`
   ([[a-write-repaints-a-crossed-boundary]] and its `as-component` pair).
 
-  So a hicasso story renders, takes its args, resolves its variant frame,
+  So a fresco story renders, takes its args, resolves its variant frame,
   reads it AND responds to writes into it. Nothing here works around
   anything: there is no second reactivity path for one substrate, because
   none was ever needed.
@@ -196,8 +196,8 @@
          the named substrate, threading `args` into the component.
 
          Pre-populated with `:reagent` which uses `re-frame.core/view`
-         + plain reagent. `:uix` and `:hicasso` entries plug in via
-         `register-substrate!` from the host app — the `:hicasso`
+         + plain reagent. `:uix` and `:fresco` entries plug in via
+         `register-substrate!` from the host app — the `:fresco`
          renderer is written out in this namespace's ns docstring."}
   substrate->render-fn
   (atom {}))
@@ -210,7 +210,7 @@
 
   `render-fn` takes `(variant-id view-id args)` and returns a hiccup
   vector (Reagent) or a `react/createElement`-style React element (UIx,
-  and Hicasso via `h/as-element`). Story's grid renders the result inside
+  and Fresco via `h/as-element`). Story's grid renders the result inside
   a `:div` cell, and the single pane splices it into the canvas tree —
   Reagent passes a React element in child position through untouched, so
   the two return shapes are interchangeable at every call site."
@@ -236,21 +236,21 @@
   tree cannot mount; nil when the head is Reagent-mountable.
 
   Each React-shaped authoring layer stamps an own-property on the head it
-  mints — Hicasso's `mint-view!` sets `hicassoBoundary`, the UIx adapter's
+  mints — Fresco's `mint-view!` sets `frescoBoundary`, the UIx adapter's
   shell sets `uix-component?`. Two property reads, and Story core keeps
   its independence from both: requiring either namespace to ask a
   yes/no question would put the host's dependency in Story itself, which
   is the same reason no installer ships for those substrates.
 
-  This became necessary when Hicasso started publishing its boundary
+  This became necessary when Fresco started publishing its boundary
   under `:handler-fn` (rf2-kuky.60). Before that, `rf/view` answered nil
-  for a Hicasso view and the diagnostic below fell out for free. Now the
+  for a Fresco view and the diagnostic below fell out for free. Now the
   lookup succeeds and the head is a React component type, so splicing it
   into a Reagent tree would call a plain function with the wrong ABI —
   the failure this guard converts into a sentence."
   [head]
   (cond
-    (gobj/get head "hicassoBoundary") :hicasso
+    (gobj/get head "frescoBoundary") :fresco
     (gobj/get head "uix-component?")  :uix))
 
 (defn- reagent-render

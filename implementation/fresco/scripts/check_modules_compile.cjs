@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 'use strict';
-// THE HICASSO PACKAGE'S WARNINGS-FATAL COMPILE — rf2-okhdf, rf2-peorl; its own
+// THE FRESCO PACKAGE'S WARNINGS-FATAL COMPILE — rf2-okhdf, rf2-peorl; its own
 // script since rf2-6c12m.1 moved the bench lane out of the package.
 //
-//     npm run test:hicasso-compile        # from implementation/
-//     node hicasso/scripts/check_modules_compile.cjs --list
+//     npm run test:fresco-compile        # from implementation/
+//     node fresco/scripts/check_modules_compile.cjs --list
 //
 // ## What it compiles, and why nothing else does
 //
@@ -15,7 +15,7 @@
 //      unreachable from the public door BY CONSTRUCTION (the invariant
 //      `check_optional_module_reachability.py` enforces), so no compile that
 //      starts at the door sees them. Their own tests do compile them — under
-//      `:node-test-hicasso`, which sets `:infer-externs false`, and under
+//      `:node-test-fresco`, which sets `:infer-externs false`, and under
 //      `:browser-test`, which infers and then exits 0 on the warnings like
 //      every other shadow build. Compiled in two places and JUDGED in none:
 //      four `:infer-warning`s on `(.. el -style -anchorName)` in
@@ -46,7 +46,7 @@
 //
 // ## The build
 //
-// `:hicasso-modules-compile` in `implementation/shadow-cljs.edn` — a plain
+// `:fresco-modules-compile` in `implementation/shadow-cljs.edn` — a plain
 // `:browser` module with `:infer-externs :auto`, entries merged in through
 // `--config-merge`. `:browser` is MEASURED rather than assumed: the
 // instruments' closure reads DOM-element properties in core's `spine.cljs`
@@ -78,18 +78,18 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const IMPL = path.resolve(__dirname, '../..');
-const BUILD_ID = 'hicasso-modules-compile';
-const OUT_DIR = 'out/hicasso-modules-compile';
-const TAG = 'hicasso-compile';
+const BUILD_ID = 'fresco-modules-compile';
+const OUT_DIR = 'out/fresco-modules-compile';
+const TAG = 'fresco-compile';
 
 // rf2-wlga — the SAME roster again under `:advanced`. Two gates looked as
 // though they already covered this and neither did: the pass above is a dev
-// `compile`, and `npm run build:hicasso-release` starts at the PUBLIC DOOR,
+// `compile`, and `npm run build:fresco-release` starts at the PUBLIC DOOR,
 // which by construction cannot reach an optional module (the invariant
 // `check_optional_module_reachability.py` enforces is exactly that no
 // door-rooted graph contains one — verified at source: the release build's
-// entry `re-frame.hicasso.consumer-app` requires `re-frame.core`,
-// `re-frame.adapter.uix` and `re-frame.hicasso`, and nothing reachable from
+// entry `re-frame.fresco.consumer-app` requires `re-frame.core`,
+// `re-frame.adapter.uix` and `re-frame.fresco`, and nothing reachable from
 // the door requires `impl.overlay`). So the modules were compiled twice and
 // OPTIMISED never, and `:advanced` is where a different class lives from the
 // analyser's: Closure renames a property no extern declares, DCE drops a
@@ -104,7 +104,7 @@ const TAG = 'hicasso-compile';
 // `shadow-cljs.edn` would be one more thing to keep in step for no coverage
 // this does not give. `goog.DEBUG false` mirrors the release build, so what
 // is judged is the code a consumer would actually ship.
-const RELEASE_OUT_DIR = 'out/hicasso-modules-release';
+const RELEASE_OUT_DIR = 'out/fresco-modules-release';
 
 /**
  * The two core attribution instruments — see the header. `file` is relative
@@ -126,7 +126,7 @@ const REHOMED_BENCH_ENTRIES = [
 
 // The optional modules' roster, and the flag that makes it answer. It is the
 // SAME file that forbids anything outside a module from requiring it.
-const MODULE_ROSTER = 'hicasso/scripts/check_optional_module_reachability.py';
+const MODULE_ROSTER = 'fresco/scripts/check_optional_module_reachability.py';
 const MODULE_ROSTER_FLAG = '--module-namespaces';
 
 // Five optional modules today, eight namespaces between them. The floor is a
@@ -385,7 +385,7 @@ if (require.main === module) {
   console.error(`[${TAG}] ok — ${namespaces.length} namespaces compiled with zero warnings`);
 
   // rf2-wlga — the same roster under `:advanced`. See RELEASE_OUT_DIR above
-  // for why this is not reachable from `build:hicasso-release`.
+  // for why this is not reachable from `build:fresco-release`.
   console.error(`[${TAG}] compiling the same ${namespaces.length} namespaces under :advanced -> ${RELEASE_OUT_DIR}`);
 
   const releaseConfigMerge =

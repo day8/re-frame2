@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.jsfb-reagent-app
+(ns re-frame.bench.fresco.jsfb-reagent-app
   "THE DENOMINATOR ARM — js-framework-benchmark's app in Reagent, reading
   re-frame2 subscriptions (rf2-rguy1).
 
@@ -29,7 +29,7 @@
 
   Owner: rf2-rguy1."
   (:require [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.bench.hicasso.jsfb-model :as rf.bench.hicasso.jsfb-model]
+            [re-frame.bench.fresco.jsfb-model :as rf.bench.fresco.jsfb-model]
             [re-frame.core :as rf]
             [reagent.dom.client :as rdc])
   (:require-macros [re-frame.core :refer [reg-view with-frame]]))
@@ -42,7 +42,7 @@
   boundary resolves `subscribe` through React context during render, but
   a click handler is a closure that fires AFTER that render returned, so
   there is no ambient frame when it runs — `with-frame`'s own docstring
-  names this case. The Hicasso arm writes `[:jsfb/select id]` and its
+  names this case. The Fresco arm writes `[:jsfb/select id]` and its
   runtime carries the frame for it.
 
   `dispatch-sync` and not `dispatch`, so both arms drain the event inside
@@ -51,7 +51,7 @@
   then differ in WHEN they did the work as well as in how, and the ratio
   would stop being a substrate ratio."
   [event]
-  (with-frame rf.bench.hicasso.jsfb-model/frame-id (rf/dispatch-sync event)))
+  (with-frame rf.bench.fresco.jsfb-model/frame-id (rf/dispatch-sync event)))
 
 (reg-view ^{:rf/id :jsfb/row-view} row
   "One row boundary — two subscription reads, one `<tr>`.
@@ -111,8 +111,8 @@
 (defn ^:export -main
   []
   (rf/init! rf.adapter.reagent/adapter)
-  (rf.bench.hicasso.jsfb-model/reset-seed!)
-  (rf.bench.hicasso.jsfb-model/register!)
-  (rf.bench.hicasso.jsfb-model/make-frame!)
+  (rf.bench.fresco.jsfb-model/reset-seed!)
+  (rf.bench.fresco.jsfb-model/register!)
+  (rf.bench.fresco.jsfb-model/make-frame!)
   (let [root (rdc/create-root (js/document.getElementById "main"))]
-    (rdc/render root [rf/frame-provider {:frame rf.bench.hicasso.jsfb-model/frame-id} [app]])))
+    (rdc/render root [rf/frame-provider {:frame rf.bench.fresco.jsfb-model/frame-id} [app]])))

@@ -9,7 +9,7 @@
   invisible to every manifest-derived gate at once. The drift-check reported
   `in sync (494 public vars)` while three public namespaces
   (`re-frame.ssr.ring.node`, `re-frame.ssr.render-state`,
-  `re-frame.hicasso.server`) carried genuinely public vars, no `^:no-doc`
+  `re-frame.fresco.server`) carried genuinely public vars, no `^:no-doc`
   markers, and zero manifest rows. A completeness check keyed on the roster
   cannot see what the roster omits.
 
@@ -79,13 +79,13 @@
 (deftest a-cljs-only-sidecar-row-accounts-for-a-namespace
   (testing "a namespace the JVM cannot require is accounted for by its
             sidecar :cljs-only rows — the path a CLJS-only surface takes"
-    (let [present #{'re-frame.hicasso.server}
+    (let [present #{'re-frame.fresco.server}
           bare    (rf.api-manifest.gen/roster-drift present no-cljs-sidecar)
           carried (rf.api-manifest.gen/roster-drift
                     present
-                    {:cljs-only [{:namespace "re-frame.hicasso.server"
+                    {:cljs-only [{:namespace "re-frame.fresco.server"
                                   :var       "render-body"}]})]
-      (is (= '[re-frame.hicasso.server] (:unaccounted bare))
+      (is (= '[re-frame.fresco.server] (:unaccounted bare))
           "unaccounted without the row")
       (is (empty? (:unaccounted carried))
           "accounted for with it"))))

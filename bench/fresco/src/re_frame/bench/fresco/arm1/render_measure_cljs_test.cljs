@@ -1,9 +1,9 @@
-(ns re-frame.bench.hicasso.arm1.render-measure-cljs-test
+(ns re-frame.bench.fresco.arm1.render-measure-cljs-test
   "SPEC 009's `:render` BUCKET — THE OFF HALF, AND THE ID RULE
   (rf2-2rtt6.125).
 
   `defview` boundaries now report through Spec 009's Performance
-  channel: [[re-frame.bench.hicasso.arm1.runtime/mint-view!]] wraps the
+  channel: [[re-frame.bench.fresco.arm1.runtime/mint-view!]] wraps the
   component fn React calls in `(rf.performance/mark-and-measure :render
   view-name …)`, so a build that flips
   `re-frame.performance/enabled?` gets one `rf:render:<view-id>`
@@ -28,13 +28,13 @@
 
   \"No `rf:` measures landed\" is trivially true of a page that never
   rendered, so every off-path assertion below is paired with a
-  [[re-frame.bench.hicasso.arm1.runtime/body-runs]] delta and a markup
+  [[re-frame.bench.fresco.arm1.runtime/body-runs]] delta and a markup
   assertion. A regression that broke the render would otherwise read as
   a pass.
 
   ## Where the ON half lives
 
-  `re-frame.bench.hicasso.arm1.render-measure-emit-nightly-test`, which
+  `re-frame.bench.fresco.arm1.render-measure-emit-nightly-test`, which
   runs under the `:node-test-perf-nightly` shadow-cljs build (both perf
   goog-defines flipped true) — the same runner and the same naming
   convention core's `re-frame.performance-emit-nightly-test` uses. Perf
@@ -46,20 +46,20 @@
   The claim is about the component fn React invokes, and React's server
   renderer invokes it exactly as the DOM renderer does — the shell's
   `useSyncExternalStore` answers from its server snapshot
-  ([[re-frame.bench.hicasso.ssr.entry]]). That keeps the row in the
+  ([[re-frame.bench.fresco.ssr.entry]]). That keeps the row in the
   headless `:node-test` build rather than behind a browser, and it
   doubles as the bead's SSR clause: a server pass leaves no durable
   registration behind a bracket."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
             [re-frame.core :as rf]
             [re-frame.performance :as rf.performance :include-macros true]
             [re-frame.test-support :as rf.test-support]
             ["react-dom/server" :as react-dom-server])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 (def ^:private frame-id ::render-measure-off)
 
@@ -75,7 +75,7 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!) (rf.bench.hicasso.arm1.runtime/reset-body-runs!))}))
+     :init-fn       (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!) (rf.bench.fresco.arm1.runtime/reset-body-runs!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The page — two boundaries, so "one measure per boundary" has something
@@ -85,7 +85,7 @@
 (defview title-row
   "A boundary that reads, so its body is a real body and not a constant."
   [_]
-  [:h1.title (rf.bench.hicasso.arm1.runtime/sub [:rm/title])])
+  [:h1.title (rf.bench.fresco.arm1.runtime/sub [:rm/title])])
 
 (defview measured-page
   "The outer boundary. Two heads render per pass, which is what makes the
@@ -122,7 +122,7 @@
   renderer calls, minus the browser."
   [hiccup]
   (react-dom-server/renderToString
-    (rf.bench.hicasso.arm1.mount/provider frame-id (rf.bench.hicasso.front.codec/root-element frame-id hiccup))))
+    (rf.bench.fresco.arm1.mount/provider frame-id (rf.bench.fresco.front.codec/root-element frame-id hiccup))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the id rule (no flag needed; it is a property of the mint)
@@ -134,13 +134,13 @@
             so the identifier a consumer filters the User-Timing stream on
             and the identifier React DevTools shows are one string, not two
             that happen to agree (Spec 009 §Naming convention)."
-    (is (= "re-frame.bench.hicasso.arm1.render-measure-cljs-test/title-row"
+    (is (= "re-frame.bench.fresco.arm1.render-measure-cljs-test/title-row"
            (.-displayName title-row)))
-    (is (= "re-frame.bench.hicasso.arm1.render-measure-cljs-test/measured-page"
+    (is (= "re-frame.bench.fresco.arm1.render-measure-cljs-test/measured-page"
            (.-displayName measured-page)))
-    (is (= "rf:render:re-frame.bench.hicasso.arm1.render-measure-cljs-test/title-row"
+    (is (= "rf:render:re-frame.bench.fresco.arm1.render-measure-cljs-test/title-row"
            (rf.performance/build-name :render (.-displayName title-row))))
-    (is (= "rf:render:re-frame.bench.hicasso.arm1.render-measure-cljs-test/measured-page"
+    (is (= "rf:render:re-frame.bench.fresco.arm1.render-measure-cljs-test/measured-page"
            (rf.performance/build-name :render (.-displayName measured-page))))))
 
 (deftest the-id-rule-holds-for-a-mint-view-name-without-a-namespace
@@ -149,7 +149,7 @@
             it verbatim, so the shape stays `rf:render:<id>` with no
             namespace invented — the same contract a non-namespaced
             `reg-view` keyword id gets."
-    (let [head (rf.bench.hicasso.arm1.runtime/mint-view! "bare-row" (fn [_] [:span "x"]))]
+    (let [head (rf.bench.fresco.arm1.runtime/mint-view! "bare-row" (fn [_] [:span "x"]))]
       (is (= "bare-row" (.-displayName head)))
       (is (= "rf:render:bare-row"
              (rf.performance/build-name :render (.-displayName head)))))))
@@ -168,13 +168,13 @@
     (when-not rf.performance/enabled?
       (fresh!)
       (clear-measures!)
-      (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
+      (rf.bench.fresco.arm1.runtime/reset-body-runs!)
       (let [html (server-html [measured-page {}])]
         (is (re-find #"quarterly" html)
             "the page rendered its subscription value — the render is real")
         (is (re-find #"class=\"page\"" html)
             "and its markup is the ordinary markup")
-        (is (= 2 (rf.bench.hicasso.arm1.runtime/body-runs))
+        (is (= 2 (rf.bench.fresco.arm1.runtime/body-runs))
             "two boundary bodies ran — the page and the row")
         (is (= [] (rf-measure-names))
             "and NOTHING reached the User-Timing stream")))))
@@ -188,10 +188,10 @@
     (when-not rf.performance/enabled?
       (fresh!)
       (clear-measures!)
-      (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
+      (rf.bench.fresco.arm1.runtime/reset-body-runs!)
       (dotimes [_ 5]
         (server-html [measured-page {}]))
-      (is (= 10 (rf.bench.hicasso.arm1.runtime/body-runs)) "five passes over two boundaries")
+      (is (= 10 (rf.bench.fresco.arm1.runtime/body-runs)) "five passes over two boundaries")
       (is (= [] (rf-measure-names))
           "and the retained buffer is still empty"))))
 
@@ -206,7 +206,7 @@
       (fresh!)
       (clear-measures!)
       (server-html [measured-page {}])
-      (is (zero? (:boundaries (rf.bench.hicasso.arm1.runtime/stats)))
+      (is (zero? (:boundaries (rf.bench.fresco.arm1.runtime/stats)))
           "a server pass committed nothing — no registration holds a reader slot")
       (is (= [] (rf-measure-names))
           "and left no User-Timing entry either"))))

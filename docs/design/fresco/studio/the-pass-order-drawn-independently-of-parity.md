@@ -292,7 +292,7 @@ budget constant was touched.
 ## Runtime, beside every figure
 
 Chromium via Playwright at build **`chromium/147.0.7727.15`** (recorded by the
-run, `rf2-24o2z`), shadow-cljs `release` on build id `:hicasso-bench`,
+run, `rf2-24o2z`), shadow-cljs `release` on build id `:fresco-bench`,
 `:optimizations :advanced`, `goog.DEBUG false`, `--expose-gc`,
 `:init-fn re-frame.bench.p0-app/-main`. Run 1's build reports **195 files, 140
 compiled, 0 warnings**. Both runs' `shadow-cljs - config:` line names this
@@ -452,20 +452,20 @@ number of rounds in which all four windows certified.
 
 | run | segment \| arm | rung | n | `all` | `page` | ratio-of-medians | median-of-ratios |
 |---|---|---|---|---|---|---|---|
-| 1 | `reagent-subs` \| hicasso | R3 | 4 | 6,556 | 6,595 | +0.59% | +0.63% |
-| 1 | `reagent-subs` \| hicasso | R7 | 5 | 13,795 | 13,660 | −0.98% | −0.98% |
+| 1 | `reagent-subs` \| fresco | R3 | 4 | 6,556 | 6,595 | +0.59% | +0.63% |
+| 1 | `reagent-subs` \| fresco | R7 | 5 | 13,795 | 13,660 | −0.98% | −0.98% |
 | 1 | `reagent-subs` \| reagent | R3 | 5 | 7,561 | 7,563 | +0.03% | +0.03% |
 | 1 | `reagent-subs` \| reagent | R7 | 4 | 15,056 | 15,083 | +0.18% | +0.40% |
-| 1 | `uix-subs` \| hicasso | R3 | 5 | 6,435 | 6,531 | +1.48% | +0.70% |
-| 1 | `uix-subs` \| hicasso | R7 | 4 | 13,757 | 13,658 | −0.72% | −0.32% |
+| 1 | `uix-subs` \| fresco | R3 | 5 | 6,435 | 6,531 | +1.48% | +0.70% |
+| 1 | `uix-subs` \| fresco | R7 | 4 | 13,757 | 13,658 | −0.72% | −0.32% |
 | 1 | `uix-subs` \| uix | R3 | 6 | 5,140 | 5,144 | +0.07% | +0.35% |
 | 1 | `uix-subs` \| uix | R7 | 6 | 11,160 | 11,195 | +0.32% | +0.08% |
-| 2 | `reagent-subs` \| hicasso | R3 | 5 | 6,878 | 6,764 | −1.66% | −1.66% |
-| 2 | `reagent-subs` \| hicasso | R7 | 5 | 14,307 | 14,337 | +0.21% | +0.06% |
+| 2 | `reagent-subs` \| fresco | R3 | 5 | 6,878 | 6,764 | −1.66% | −1.66% |
+| 2 | `reagent-subs` \| fresco | R7 | 5 | 14,307 | 14,337 | +0.21% | +0.06% |
 | 2 | `reagent-subs` \| reagent | R3 | 4 | 8,312 | 8,281 | −0.37% | −0.85% |
 | 2 | `reagent-subs` \| reagent | R7 | 5 | 16,585 | 16,433 | −0.92% | −0.92% |
-| 2 | `uix-subs` \| hicasso | R3 | 6 | 6,722 | 6,640 | −1.21% | −1.04% |
-| 2 | `uix-subs` \| hicasso | R7 | 6 | 14,125 | 14,000 | −0.89% | −0.92% |
+| 2 | `uix-subs` \| fresco | R3 | 6 | 6,722 | 6,640 | −1.21% | −1.04% |
+| 2 | `uix-subs` \| fresco | R7 | 6 | 14,125 | 14,000 | −0.89% | −0.92% |
 | 2 | `uix-subs` \| uix | R3 | 4 | 5,245 | 5,156 | −1.71% | −1.74% |
 | 2 | `uix-subs` \| uix | R7 | 4 | 11,349 | 11,432 | +0.73% | +0.90% |
 

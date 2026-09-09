@@ -45,7 +45,7 @@
   **The runtime's own stale fence is not re-witnessed.** A reply
   superseded within one mutation instance never reaches `:reply-to` at
   all, and that is the runtime's, proved in
-  `re-frame.hicasso.examples.forms.l0-cljs-test` and in the typeahead's
+  `re-frame.fresco.examples.forms.l0-cljs-test` and in the typeahead's
   `a-late-reply-cannot-clobber-a-newer-term`. What [[article-arrived]]
   guards is the half the runtime explicitly does not: CROSS-ENTRY
   lateness, a reply for an article the editor has since navigated away
@@ -63,7 +63,7 @@
   ## Standing answer, not a stop-gap
 
   `rf2-hic-050` returned STOP on committed-read resource demand
-  (`docs/design/hicasso/product/resource-demand-verdict.md`), so these
+  (`docs/design/fresco/product/resource-demand-verdict.md`), so these
   recipes are the standing answer for acquiring and releasing resources
   against read liveness rather than the residual one. Their future
   shape is therefore an ordinary evolution of these doors, not a

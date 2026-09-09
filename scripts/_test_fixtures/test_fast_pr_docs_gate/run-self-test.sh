@@ -453,7 +453,7 @@ assert "AB1 an ordinary scripts/ change does NOT arm the spine self-test" \
   "PLAN-SELFTEST skip" "$(plan_selftest "$r")"
 
 # AB2 — rf2-kqac1.  The provenance-pin gate runs in the documentation tier and
-# reads `docs/design/hicasso/**`, so a change to the CHECKER has to arm that
+# reads `docs/design/fresco/**`, so a change to the CHECKER has to arm that
 # tier — otherwise the one diff most likely to break the gate is the one diff
 # that never runs it.  Sits beside its neighbours above rather than being
 # swept in by a `scripts/*` widening, which case AB pins against.
@@ -632,10 +632,10 @@ plan_kondo() {
 # AF — the exact file the bead was found on: source under a `--lint` root that
 # no local lane read before this one existed.
 r="$tmp_root/kondo-src"; mkrepo "$r"
-mkdir -p "$r/implementation/hicasso/src/re_frame/hicasso/impl"
-printf 'x\n' > "$r/implementation/hicasso/src/re_frame/hicasso/impl/overlay.cljs"
+mkdir -p "$r/implementation/fresco/src/re_frame/fresco/impl"
+printf 'x\n' > "$r/implementation/fresco/src/re_frame/fresco/impl/overlay.cljs"
 git -C "$r" add -A; git -C "$r" commit -q -m src
-assert "AF hicasso source → the pinned kondo lane is armed" \
+assert "AF fresco source → the pinned kondo lane is armed" \
   "PLAN-KONDO run" "$(plan_kondo "$r")"
 
 # AF1 — a root NO runtime tier owns.  `examples/` arms neither implementation_jvm
@@ -665,8 +665,8 @@ assert "AF3 lint.yml itself → armed" \
 # AF4 — the counterweight.  A docs-only diff must not pay ~70s of linting; a
 # lane that runs on everything is as useless as one that runs on nothing.
 r="$tmp_root/kondo-docs"; mkrepo "$r"
-mkdir -p "$r/docs/design/hicasso/product"
-printf '# b\n' > "$r/docs/design/hicasso/product/budgets.md"
+mkdir -p "$r/docs/design/fresco/product"
+printf '# b\n' > "$r/docs/design/fresco/product/budgets.md"
 git -C "$r" add -A; git -C "$r" commit -q -m docs
 assert "AF4 a docs-only diff does NOT arm the kondo lane" \
   "PLAN-KONDO skip" "$(plan_kondo "$r")"

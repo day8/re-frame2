@@ -8,7 +8,7 @@ segment-order MODE.
 
 **No allocation window was taken for this page, and no rig file was edited.**
 Every figure this page DERIVES is re-derived from datasets already committed
-under `implementation/hicasso/test/re_frame/bench/hicasso/data/`. Figures QUOTED
+under `implementation/fresco/test/re_frame/bench/fresco/data/`. Figures QUOTED
 from
 [the reversed fixed arm](the-reversed-fixed-arm-a-pre-registered-fifteen-run-window.md)
 are that record's rather than this one's, and every paragraph carrying one says
@@ -599,15 +599,15 @@ Every measured figure this page DERIVES — every window and leg count, byte val
 rate, ordinal and `p` — was re-derived from the committed records by:
 
 ```bash
-node implementation/hicasso/test/re_frame/bench/hicasso/alloc_cluster_carrier.cjs --corpus
+node implementation/fresco/test/re_frame/bench/fresco/alloc_cluster_carrier.cjs --corpus
 ```
 
 and the same-session subset, which is the only place this page's `p` = 0.1344
 comes from, by:
 
 ```bash
-node implementation/hicasso/test/re_frame/bench/hicasso/alloc_cluster_carrier.cjs \
-  implementation/hicasso/test/re_frame/bench/hicasso/data/segorder-rs8q6/*.json
+node implementation/fresco/test/re_frame/bench/fresco/alloc_cluster_carrier.cjs \
+  implementation/fresco/test/re_frame/bench/fresco/data/segorder-rs8q6/*.json
 ```
 
 **The first of those two sweeps has since WIDENED, and re-running it today does

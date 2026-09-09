@@ -3,9 +3,9 @@
 // this window is about to run let the estimator it is about to be read on
 // SEPARATE the pass column from the parity column at all?
 //
-//     node hicasso/test/re_frame/bench/hicasso/alloc_pass_design.cjs --controls
-//     node hicasso/test/re_frame/bench/hicasso/alloc_pass_design.cjs --select [rounds] [runs]
-//     node hicasso/test/re_frame/bench/hicasso/alloc_pass_design.cjs --schedule <rounds> <seed>
+//     node fresco/test/re_frame/bench/fresco/alloc_pass_design.cjs --controls
+//     node fresco/test/re_frame/bench/fresco/alloc_pass_design.cjs --select [rounds] [runs]
+//     node fresco/test/re_frame/bench/fresco/alloc_pass_design.cjs --schedule <rounds> <seed>
 //
 // ## WHY THIS EXISTS, AND IT IS NOT A REFINEMENT
 //

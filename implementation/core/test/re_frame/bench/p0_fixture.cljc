@@ -71,7 +71,7 @@
 
   Owner: the operator-owned governance set that superseded the standard bead
   rf2-2rtt6.1 on 2026-08-10, enumerated once in
-  `docs/design/hicasso/studio/README.md`; this arm rf2-2rtt6.4."
+  `docs/design/fresco/studio/README.md`; this arm rf2-2rtt6.4."
   (:require [re-frame.bench.p0-workcount :as rf.bench.p0-workcount]
             [re-frame.core :as rf]))
 

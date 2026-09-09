@@ -1,15 +1,15 @@
-(ns hicasso.login.server
+(ns fresco.login.server
   "The login example's SERVER BUNDLE — the module `implementation/ssr-node`'s
   sidecar loads, and the Node half of the ssr-node crossing.
 
   This is the whole of what an application writes to render on Node. It is
-  short on purpose: the framework owns the render (`re-frame.hicasso.server/
+  short on purpose: the framework owns the render (`re-frame.fresco.server/
   render-body`), the state install (`re-frame.ssr.render-state/restore!`) and
   the wire domain, so what is left here is an ENTRY TABLE and a boot.
 
-      npx shadow-cljs compile :examples/login-hicasso-server
+      npx shadow-cljs compile :examples/login-fresco-server
       node implementation/ssr-node/bin/serve.cjs \\
-        --module implementation/out/examples/login-hicasso-server/server.js
+        --module implementation/out/examples/login-fresco-server/server.js
 
   ## What crosses, and what does not
 
@@ -27,7 +27,7 @@
   declares no list for a partition cannot be rendered at all — absence is a
   refusal, never a licence to read everything.
 
-  They are derived from `hicasso.login.policy/render-state-policy` — the
+  They are derived from `fresco.login.policy/render-state-policy` — the
   SAME Var `host.clj` hands the Node renderer as `:render-state`, in a
   `.cljc` namespace precisely so both halves can read it. ONE list, two
   readers, one file. The two processes are deployed separately, so nothing
@@ -49,14 +49,14 @@
   which the contract calls \"a sentence someone wrote\" and refuses along
   with every other value."
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso.server :as rf.hicasso.server]
-            [re-frame.hicasso.substrate :as rf.hicasso.substrate]
+            [re-frame.fresco.server :as rf.fresco.server]
+            [re-frame.fresco.substrate :as rf.fresco.substrate]
             [re-frame.ssr.render-state :as rf.ssr.render-state]
             ;; The views, the SSR coordinates and every `auth.login`
             ;; registration (the model rides in through this one require).
-            [hicasso.login.core :as views]
+            [fresco.login.core :as views]
             ;; The one render-state list, shared with `host.clj`.
-            [hicasso.login.policy :as policy]
+            [fresco.login.policy :as policy]
             [login.model :as model]))
 
 ;; ---------------------------------------------------------------------------
@@ -68,21 +68,21 @@
 ;; sidecar refuses a mismatched request, the adapter refuses a mismatched
 ;; answer). A `goog-define` so a release stamps the real thing:
 ;;
-;;     shadow-cljs release examples/login-hicasso-server \
-;;       --config-merge '{:closure-defines {hicasso.login.server/build-id "2026-09-02-a1b2c3"}}'
+;;     shadow-cljs release examples/login-fresco-server \
+;;       --config-merge '{:closure-defines {fresco.login.server/build-id "2026-09-02-a1b2c3"}}'
 ;;
 ;; The default is deliberately a DEV marker rather than a plausible version:
 ;; a host that never stamped one and a bundle that never stamped one agree by
 ;; accident, and a value that says so is the honest way to make that visible.
 ;; (`goog-define` takes a name and a default and no docstring, which is why
 ;; this one is written as a comment.)
-(goog-define build-id "login-hicasso-dev")
+(goog-define build-id "login-fresco-dev")
 
 ;; ---------------------------------------------------------------------------
 ;; The render-state policy — the one list both halves read
 ;; ---------------------------------------------------------------------------
 ;;
-;; It is NOT written here. `hicasso.login.policy/render-state-policy` owns it,
+;; It is NOT written here. `fresco.login.policy/render-state-policy` owns it,
 ;; in a `.cljc` namespace both this bundle and the JVM `host.clj` require, and
 ;; that namespace's docstring is where the per-key reasoning lives.
 
@@ -103,14 +103,14 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- boot!
-  "Once per isolate, before the first render: seat the substrate. Hicasso
+  "Once per isolate, before the first render: seat the substrate. Fresco
   ships its own, so this is the same one line the browser boot runs.
 
   Nothing else. No frame is made here — a frame made at boot would be
   shared by every request in this isolate, which is the one thing a
   per-request renderer must not do."
   []
-  (rf/init! rf.hicasso.substrate/adapter)
+  (rf/init! rf.fresco.substrate/adapter)
   js/undefined)
 
 (defn- render!
@@ -125,7 +125,7 @@
   (let [partitions (rf.ssr.render-state/deserialize
                      {:rf/app-db     (js->clj (.-state call))
                       :rf/runtime-db (js->clj (.-runtime call))})]
-    (emit (rf.hicasso.server/render-body
+    (emit (rf.fresco.server/render-body
             {:hiccup            [views/root-view]
              :render-state      partitions
              :identifier-prefix views/identifier-prefix
@@ -141,7 +141,7 @@
 
 (def module
   "`module.exports` for the sidecar. Named in `shadow-cljs.edn` as the
-  `:examples/login-hicasso-server` build's `:exports-var`."
+  `:examples/login-fresco-server` build's `:exports-var`."
   #js {:protocol 1
        :buildId  build-id
        :entries  (js-obj root-entry

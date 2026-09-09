@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso-narrow
+(ns re-frame.bench.fresco-narrow
   "EP-0038 P0 — the RATOM-SPINE NARROW-WRITE leg, write + flush SUMMED.
 
   ## The mistake this instrument exists to prevent
@@ -127,7 +127,7 @@
 
   ## Two instruments, one method (rf2-uhw11)
 
-  `re-frame.bench.hicasso.lane` is the other P0 harness, and it is not a
+  `re-frame.bench.fresco.lane` is the other P0 harness, and it is not a
   rival: a mount is ONE timed commit and a narrow write is write,
   microtask, flush, verify, so the two windows genuinely differ and
   neither subsumes the other. What must not differ is the METHOD, and it
@@ -135,7 +135,7 @@
   verification tally all existed here and there.
 
   So the shared parts are TAKEN from the lane rather than restated:
-  [[summarise]] and `chain` are `rf.bench.hicasso.lane/`'s, and the schedule is
+  [[summarise]] and `chain` are `rf.bench.fresco.lane/`'s, and the schedule is
   `rf.bench.order-guard/slot-order`, which the lane also merely holds. What stays local
   is what is genuinely this window's — the clock (`(js/performance.now)`
   with no branch inside a timed leg), the six-leg accumulator, and the
@@ -146,15 +146,15 @@
   on returning a single order for two-arm plans until the guard refused
   four rows (rf2-ouwh8).
 
-  Authority: `docs/EP/EP-0038-the-hicasso-view-layer-programme.md`;
+  Authority: `docs/EP/EP-0038-the-fresco-view-layer-programme.md`;
   the bar and the P0 table are operator-owned on the governance set that
   superseded bead rf2-2rtt6.1 on 2026-08-10, enumerated once in
-  `docs/design/hicasso/studio/README.md`.
+  `docs/design/fresco/studio/README.md`.
   Spec donor: rf2-ssn1o (closed, do-not-refile)."
   (:require ["react-dom" :as react-dom]
             [goog.object :as gobj]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.bench.order-guard :as rf.bench.order-guard]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -526,8 +526,8 @@
 
 (def ^:private chain
   "Fold `xs` into a serial promise chain, threading an accumulator —
-  `rf.bench.hicasso.lane/chain`, not a restatement of it (rf2-uhw11)."
-  rf.bench.hicasso.lane/chain)
+  `rf.bench.fresco.lane/chain`, not a restatement of it (rf2-uhw11)."
+  rf.bench.fresco.lane/chain)
 
 (defn- timed-write!
   "One narrow write, clocked at every leg boundary, then verified at the
@@ -659,13 +659,13 @@
   mean alone. Overlapping ranges mean indistinguishable, and a report that
   quotes a central value without its range cannot say that.
 
-  `rf.bench.hicasso.lane/summarise`, not a restatement of it. This lane and the mount lane
+  `rf.bench.fresco.lane/summarise`, not a restatement of it. This lane and the mount lane
   are two INSTRUMENTS — a mount is one timed commit, a narrow write is
   write, microtask, flush, verify — but they are one METHOD, and the
   method must not be written down twice (rf2-uhw11). The `slot-order`
   degeneracy this repository has just finished repairing was a method
   written down three times and fixed in one of them (rf2-ouwh8)."
-  rf.bench.hicasso.lane/summarise)
+  rf.bench.fresco.lane/summarise)
 
 (defn per-write
   "Divide a per-SAMPLE leg figure by the writes it contains."

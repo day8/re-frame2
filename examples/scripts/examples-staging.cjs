@@ -250,7 +250,7 @@ function stripEdnComments(edn) {
 // the `<ns>/run` symbol the build mounts.
 //
 // `target` is what separates a PAGE build from a server-side one. Not every
-// `:examples/*` build is a page: a `:node-library` (the Hicasso login arm's
+// `:examples/*` build is a page: a `:node-library` (the Fresco login arm's
 // SSR bundle, rf2-8arzr.5) publishes an `:exports-var` for a Node sidecar to
 // `require` and correctly carries no `:init-fn` and no colocated index.html.
 // Such a build is still parsed — it IS an example build, and

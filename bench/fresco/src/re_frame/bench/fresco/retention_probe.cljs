@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.retention-probe
+(ns re-frame.bench.fresco.retention-probe
   "rf2-flqpd — WHAT HOLDS THE 12 MB. A diagnostic, not a row.
 
   ## The observation this exists to explain

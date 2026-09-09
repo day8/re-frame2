@@ -1,11 +1,11 @@
-(ns re-frame.hicasso.forms
+(ns re-frame.fresco.forms
   "The optional forms module: one view, `buffered-field`, that keeps an
   app-db DRAFT in front of a committed value and decides at commit time
   whether the commit still belongs to the edit the user made.
 
       (ns my.app
-        (:require [re-frame.hicasso :as h]
-                  [re-frame.hicasso.forms :as forms]))
+        (:require [re-frame.fresco :as h]
+                  [re-frame.fresco.forms :as forms]))
 
       [forms/buffered-field
        {:control     [:todo id :title]
@@ -17,32 +17,32 @@
   Nothing new underneath: the draft is an `h/reg-state` concern
   (`drafts`), the reset is `::h/revision`, the protocol is three ordinary
   events (`::edit`, `::commit`, `::cancel` — named for tests by
-  `re-frame.hicasso.test.forms`) and the field is one `h/defview`
+  `re-frame.fresco.test.forms`) and the field is one `h/defview`
   boundary. So it costs no hook beyond the shell's two and the
   controlled `<input>`'s own; it mints no refusal id — a bad `:control` is
-  `reg-state`'s `:rf.error/hicasso-state-bad-argument` at the field's first
+  `reg-state`'s `:rf.error/fresco-state-bad-argument` at the field's first
   render, and `::h/revision` on a non-text field is
-  `:rf.error/hicasso-revision-not-controlled`; and an application that
+  `:rf.error/fresco-revision-not-controlled`; and an application that
   never requires this namespace carries none of it
-  (`implementation/hicasso/scripts/check_optional_module_reachability.py`,
-  `implementation/hicasso/scripts/check_bundle_isolation.cjs`).
+  (`implementation/fresco/scripts/check_optional_module_reachability.py`,
+  `implementation/fresco/scripts/check_bundle_isolation.cjs`).
 
-  The chapter `docs/core/hicasso/05-forms.md` governs the surface and the
+  The chapter `docs/core/fresco/05-forms.md` governs the surface and the
   buffered/draft/revision law is D016
   (`docs/design/freehand/decisions/D016-buffered-and-revision-controls.md`).
   The scope ruling is naming-ledger row 16
-  (`docs/design/hicasso/product/naming-ledger.md`); the recipes the module
+  (`docs/design/fresco/product/naming-ledger.md`); the recipes the module
   is written on, and the validation and submit orchestration it
   deliberately leaves to them, are
-  `docs/design/hicasso/product/forms-recipes.md`."
+  `docs/design/fresco/product/forms-recipes.md`."
   (:require [re-frame.events :as rf.events]
             ;; Side-effecting: registers `:dispatch`, which the commit and
             ;; cancel handlers emit. Named here so the module is correct
             ;; standing alone rather than through `re-frame.core`.
             [re-frame.fx]
-            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.fresco :as rf.fresco]
             ;; For `ui-root` alone — see `draft-path`.
-            [re-frame.hicasso.impl.state :as rf.hicasso.impl.state]))
+            [re-frame.fresco.impl.state :as rf.fresco.impl.state]))
 
 ;; ---------------------------------------------------------------------------
 ;; The draft's home
@@ -62,11 +62,11 @@
   reply.
 
   Spelled in full rather than as `::drafts` because
-  `implementation/hicasso/scripts/check_bundle_isolation.cjs` scans a
+  `implementation/fresco/scripts/check_bundle_isolation.cjs` scans a
   release bundle for this exact string; a namespace rename would move a
   `::drafts` keyword while the scan went on matching nothing
   (`forms-cljs-test/the-concern-is-what-the-bundle-gate-pins`)."
-  (rf.hicasso/reg-state :re-frame.hicasso.forms/drafts {:default nil}))
+  (rf.fresco/reg-state :re-frame.fresco.forms/drafts {:default nil}))
 
 (defn- draft-path
   "`reg-state`'s `[:ui <concern> <ikey>]` layout for `control`. The
@@ -76,7 +76,7 @@
   shows a field whose session has ended and whose draft has not. The `:ui`
   tier is app-space by `reg-state`'s own contract."
   [control]
-  [rf.hicasso.impl.state/ui-root drafts control])
+  [rf.fresco.impl.state/ui-root drafts control])
 
 (defn- record-of [db control] (get-in db (draft-path control)))
 
@@ -104,7 +104,7 @@
 ;; ---------------------------------------------------------------------------
 ;; The protocol — three events, and every one of them idempotent. The ids
 ;; are this namespace's own keywords, written into the field's intents
-;; below; `re-frame.hicasso.test.forms` names them for a test that drives
+;; below; `re-frame.fresco.test.forms` names them for a test that drives
 ;; the field by hand.
 ;; ---------------------------------------------------------------------------
 
@@ -168,9 +168,9 @@
   "The props `buffered-field` consumes rather than forwards to the
   `<input>`; `:key` is here because it would be actively wrong on a DOM
   node."
-  [:control :value :on-commit :on-cancel :key ::rf.hicasso/revision])
+  [:control :value :on-commit :on-cancel :key ::rf.fresco/revision])
 
-(rf.hicasso/defview buffered-field
+(rf.fresco/defview buffered-field
   "A controlled `<input>` with an app-db draft in front of the committed
   value. Takes a stable `:control` address, the committed `:value`, its
   `::h/revision`, and the `:on-commit` event that receives a candidate:
@@ -203,7 +203,7 @@
   fields sharing one address share one draft, which is usually a bug and
   the one thing about the address this module cannot decide. A `nil` or
   unusable address is refused by name at the first read
-  (`reg-state`'s `:rf.error/hicasso-state-bad-argument`).
+  (`reg-state`'s `:rf.error/fresco-state-bad-argument`).
 
   Ownership: `:control`, `:value`, `:on-commit`, `:on-cancel`, `:key` and
   `::h/revision` are the field's; everything else reaches the `<input>`
@@ -214,16 +214,16 @@
   changes when the domain value moves, not where the draft lives, which
   is what keeps the edit visible to tests, snapshots and Xray; for a dense
   grid where that is too much, use an uncontrolled input or a native
-  island. Chapter: `docs/core/hicasso/05-forms.md`."
+  island. Chapter: `docs/core/fresco/05-forms.md`."
   [{:keys [control value on-commit on-cancel] :as props}]
-  (let [revision (::rf.hicasso/revision props)
-        record   (rf.hicasso/sub [drafts control])]
+  (let [revision (::rf.fresco/revision props)
+        record   (rf.fresco/sub [drafts control])]
     [:input
      (merge {:type "text"}
             (apply dissoc props module-props)
             {:value       (if (live? record revision) (:draft record) value)
-             ::rf.hicasso/revision revision
-             :on-input    [::edit control revision ::rf.hicasso/value]
+             ::rf.fresco/revision revision
+             :on-input    [::edit control revision ::rf.fresco/value]
              :on-blur     [::commit control revision on-commit]
              ;; The key MAP rather than a callback reading `.key`: the
              ;; substrate's composition gate answers a key event there, so

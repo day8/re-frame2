@@ -2,7 +2,7 @@
 'use strict';
 // THE ADOPTION WITNESS — driver (rf2-2rtt6.80).
 //
-//     node implementation/hicasso/test/re_frame/bench/hicasso/adoption_witness_run.cjs
+//     node implementation/fresco/test/re_frame/bench/fresco/adoption_witness_run.cjs
 //
 // Does the commit adopt the render-phase build on a PUBLIC mount schedule —
 // `re-frame.substrate.adapter/render`, no `act`, no `flushSync` — on a page
@@ -23,8 +23,8 @@
 //
 // ## ON DEMAND. NOTHING GATES.
 //
-// No CI workflow invokes this and none should (rf2-2rtt6.80). The hicasso
-// lane's only required check is `test:hicasso-compile`, which compiles this
+// No CI workflow invokes this and none should (rf2-2rtt6.80). The fresco
+// lane's only required check is `test:fresco-compile`, which compiles this
 // page along with every other lane namespace and executes none of them.
 //
 // RE-RUN IT WHEN THE PINS MOVE: `react`, `react-dom` and `playwright` are
@@ -98,9 +98,9 @@ const { shadowBuild } = require('./lane_build.cjs');
 const PROJECT = path.resolve(__dirname, '../../../..');
 const IMPL = path.resolve(PROJECT, '../../implementation');
 
-const BUILD_ID = 'hicasso-bench';
-const OUT_DIR = process.env.ADOPTWIT_OUT_DIR || 'out/hicasso-adoption-witness';
-const INIT_FN = 're-frame.bench.hicasso.adoption-witness-app/-main';
+const BUILD_ID = 'fresco-bench';
+const OUT_DIR = process.env.ADOPTWIT_OUT_DIR || 'out/fresco-adoption-witness';
+const INIT_FN = 're-frame.bench.fresco.adoption-witness-app/-main';
 const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.ADOPTWIT_PORT || 8149);
 const TAG = 'adoptwit';
@@ -188,7 +188,7 @@ const MIME = { '.js': 'text/javascript', '.html': 'text/html', '.map': 'applicat
 function serve() {
   fs.writeFileSync(
     path.join(OUT, 'index.html'),
-    '<!doctype html><html><head><meta charset="utf-8"><title>Hicasso adoption witness</title></head>' +
+    '<!doctype html><html><head><meta charset="utf-8"><title>Fresco adoption witness</title></head>' +
       '<body><div id="app"></div><script src="main.js"></script></body></html>',
   );
   return http
@@ -224,16 +224,16 @@ async function runPage(browser, horizonMs, ceilingMs) {
     await navigate(page, `http://127.0.0.1:${PORT}/?horizon=${horizonMs}&ceiling=${ceilingMs}`, {
       waitUntil: 'commit',
       timeoutMs: NAV_TIMEOUT_MS,
-      budget: `the ${SENTINEL_TIMEOUT_MS / 1000}-second wait for window.HICASSO_DONE`,
+      budget: `the ${SENTINEL_TIMEOUT_MS / 1000}-second wait for window.FRESCO_DONE`,
     });
-    await watch.race('window.HICASSO_DONE === true || window.HICASSO_ERROR', {
+    await watch.race('window.FRESCO_DONE === true || window.FRESCO_ERROR', {
       timeoutMs: SENTINEL_TIMEOUT_MS,
-      budget: `the ${SENTINEL_TIMEOUT_MS / 1000}-second wait for window.HICASSO_DONE`,
+      budget: `the ${SENTINEL_TIMEOUT_MS / 1000}-second wait for window.FRESCO_DONE`,
     });
     return {
-      err: await page.evaluate('window.HICASSO_ERROR || null'),
+      err: await page.evaluate('window.FRESCO_ERROR || null'),
       verdict: await page.evaluate('window.ADOPTWIT_VERDICT || null'),
-      results: await page.evaluate('window.HICASSO_RESULTS || {}'),
+      results: await page.evaluate('window.FRESCO_RESULTS || {}'),
       pageErrors: watch.failures.map((f) => `${f.kind}: ${f.detail}`),
     };
   } finally {
@@ -276,7 +276,7 @@ async function runPage(browser, horizonMs, ceilingMs) {
   console.log(`;; chromium ${version} (playwright), :advanced, goog.DEBUG false`);
   console.log(`;; horizon ${horizonMs} ms   qualifying ceiling ${ceilingMs} ms`);
   console.log(
-    `;; reproduce  node implementation/hicasso/test/re_frame/bench/hicasso/adoption_witness_run.cjs`,
+    `;; reproduce  node implementation/fresco/test/re_frame/bench/fresco/adoption_witness_run.cjs`,
   );
   for (const [k, v] of Object.entries(outcome.results)) {
     console.log(`;; ==== ADOPTION WITNESS ${k} ====`);

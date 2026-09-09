@@ -1501,27 +1501,27 @@ cells independently.
   {:substrates #{:reagent :uix}})
 
 (story/reg-variant :story.ui.card/native
-  {:substrates #{:hicasso}})
+  {:substrates #{:fresco}})
 ```
 
 A member of `:substrates` names **which registered render fn embeds the
 subject** — the authoring layer — and not which adapter `rf/init!`
 installed. The two axes coincided while the members were `:reagent` and
-`:uix`; `:hicasso` separates them, because a Hicasso deck runs perfectly
+`:uix`; `:fresco` separates them, because a Fresco deck runs perfectly
 well under a Reagent-hosted shell, whose installed adapter is Reagent's.
-Hicasso does ship an adapter of its own — the optional
-`re-frame.hicasso.substrate` module, `:kind :rf.adapter/hicasso` (rf2-hvr5h)
+Fresco does ship an adapter of its own — the optional
+`re-frame.fresco.substrate` module, `:kind :rf.adapter/fresco` (rf2-hvr5h)
 — so the separation has to be stated rather than read off the absence of a
 kind; it never rested on that absence. See
 `re-frame.story.schemas/SubstrateSet`'s docstring.
 
-Story installs `:reagent` itself and leaves `:uix` and `:hicasso` to the
+Story installs `:reagent` itself and leaves `:uix` and `:fresco` to the
 host, for the same reason in both cases: the render fn's one dependency
 is the application's, so registering it in Story core would put that
 dependency on every consumer's classpath. Five lines at boot are the whole
-of the `:hicasso` recipe, written out in
+of the `:fresco` recipe, written out in
 `re-frame.story.ui.multi-substrate`'s namespace docstring and worked in
-`tools/story/testbeds/hicasso_counter/`.
+`tools/story/testbeds/fresco_counter/`.
 
 The multi-substrate pane (render shell) renders each substrate
 side-by-side. Substrate-specific failures render inline; see

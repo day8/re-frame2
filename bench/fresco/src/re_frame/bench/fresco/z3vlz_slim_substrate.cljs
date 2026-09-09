@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.z3vlz-slim-substrate
+(ns re-frame.bench.fresco.z3vlz-slim-substrate
   "The reagent-slim substrate under test (rf2-z3vlz).
 
   THE `:require` LIST OF THIS NAMESPACE IS THE EXPERIMENT. It names
@@ -18,12 +18,12 @@
       load-bearing and this is the same drain HD-008's arm used, so a
       difference between the two runs cannot be the drain."
   (:require [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
-            [re-frame.bench.hicasso.z3vlz-probe :as rf.bench.hicasso.z3vlz-probe]
+            [re-frame.bench.fresco.z3vlz-probe :as rf.bench.fresco.z3vlz-probe]
             [reagent2.core :as r2]
             [reagent2.dom.client :as rdc2]
             [reagent2.ratom :as ratom2]))
 
-(defonce ^:private raw-cells (r2/atom (vec (repeat rf.bench.hicasso.z3vlz-probe/cells-n 0))))
+(defonce ^:private raw-cells (r2/atom (vec (repeat rf.bench.fresco.z3vlz-probe/cells-n 0))))
 
 (defn- raw-list
   "The positive control's component: plain reagent-slim reading a plain
@@ -37,7 +37,7 @@
   []
   (let [cells @raw-cells]
     [:ul.grid {:role "list"}
-     (for [i (range rf.bench.hicasso.z3vlz-probe/cells-n)]
+     (for [i (range rf.bench.fresco.z3vlz-probe/cells-n)]
        ^{:key i} [:li.row
                   [:span.lbl "cell "]
                   [:span.cell {:data-i i} (str (get cells i))]])]))
@@ -59,4 +59,4 @@
    ;; adapter's own `reagent_slim_flush_render_dom_cljs_test` pins it.
    :drain-with! (fn [f] (rdc2/flush-render! (fn [] (f) (ratom2/flush!))))
    :raw-element (fn [] [raw-list])
-   :raw-write!  (fn [v] (reset! raw-cells (vec (repeat rf.bench.hicasso.z3vlz-probe/cells-n v))))})
+   :raw-write!  (fn [v] (reset! raw-cells (vec (repeat rf.bench.fresco.z3vlz-probe/cells-n v))))})

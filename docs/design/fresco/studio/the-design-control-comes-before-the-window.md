@@ -184,8 +184,8 @@ node core/test/re_frame/bench/p0_run.cjs --only alloc
 and the design control itself, which needs none of that:
 
 ```
-node hicasso/test/re_frame/bench/hicasso/alloc_pass_design.cjs --controls
-node hicasso/test/re_frame/bench/hicasso/alloc_pass_design.cjs --select
+node fresco/test/re_frame/bench/fresco/alloc_pass_design.cjs --controls
+node fresco/test/re_frame/bench/fresco/alloc_pass_design.cjs --select
 ```
 
 **Every other parameter is phase 2's, unchanged**, so the two windows are read
@@ -400,7 +400,7 @@ touched.
 
 Chromium via Playwright at build **`chromium/147.0.7727.15`**, Node **v24.13.0**,
 `win32/x64/10.0.26200` (all recorded by the run, `rf2-24o2z`). shadow-cljs
-`release` on build id `:hicasso-bench`, `:optimizations :advanced`,
+`release` on build id `:fresco-bench`, `:optimizations :advanced`,
 `goog.DEBUG false`, `--expose-gc`, `:init-fn re-frame.bench.p0-app/-main`. Every
 run's build reports **195 files, 140 compiled, 0 warnings**, and every run's
 `shadow-cljs - config:` line names this worktree's own
@@ -453,8 +453,8 @@ Read before the first run and again after the last, with the same command:
 | file | blob hash, before and after |
 |---|---|
 | `implementation/core/test/re_frame/bench/p0_run.cjs` | the identical blob hash `ddc4f137bc2b5ee5ac7952dcb4f2cded7fcd0ca0` |
-| `implementation/hicasso/test/re_frame/bench/hicasso/alloc_pass_position.cjs` | the identical blob hash `0d5b2c5f9df3d216f3aef4370b15557ba350e741` |
-| `implementation/hicasso/test/re_frame/bench/hicasso/alloc_pass_design.cjs` | the identical blob hash `cffd220eb74f18ed9d9088b3b90774311440f5f5` |
+| `implementation/fresco/test/re_frame/bench/fresco/alloc_pass_position.cjs` | the identical blob hash `0d5b2c5f9df3d216f3aef4370b15557ba350e741` |
+| `implementation/fresco/test/re_frame/bench/fresco/alloc_pass_design.cjs` | the identical blob hash `cffd220eb74f18ed9d9088b3b90774311440f5f5` |
 
 The rig and both readers are byte-identical across the window. `p0_run.cjs` was
 not edited by this window at all.

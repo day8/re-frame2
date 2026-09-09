@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.todo-support
+(ns re-frame.fresco.todo-support
   "THE SHARED TO-DO FRAME the ported `arm1/*` witnesses read from.
 
   A boundary that reads nothing proves nothing about the read, so the
@@ -11,7 +11,7 @@
   ## Why this is not the bench tree's `front.dogfood`
 
   The suites that became these witnesses read
-  `re-frame.bench.hicasso.front.dogfood`, and this namespace is
+  `re-frame.bench.fresco.front.dogfood`, and this namespace is
   deliberately NOT that file moved. Two reasons, and both are about the
   boundary between the package and the benchmark rather than about
   taste.
@@ -21,16 +21,16 @@
      filter, the reorder, the per-instance drafts and the commit/cancel
      reset law exist to make that comparison measurable. The package
      asserts none of it, and a support namespace that carries a
-     benchmark's design rationale into `implementation/hicasso/test/`
+     benchmark's design rationale into `implementation/fresco/test/`
      invites the next reader to maintain it against a screen that lives
      somewhere else.
   2. **The ids would collide.** `implementation/shadow-cljs.edn` puts
-     `freehand/test` and `hicasso/test` on ONE `:node-test`
+     `freehand/test` and `fresco/test` on ONE `:node-test`
      `:source-paths`, so both trees register into the same global
      handler registry in the same build. A second `(rf/reg-event
      :dogfood/toggle …)` would silently redefine the benchmark's, and
      whichever namespace loaded last would decide what the other one
-     measured. The `:hicasso.todo/*` prefix here cannot reach it.
+     measured. The `:fresco.todo/*` prefix here cannot reach it.
 
   So this is the SLICE the package's own witnesses read — one seed, one
   toggle, one `done?` — under ids the package owns."
@@ -51,11 +51,11 @@
 ;; The narrow read and the narrow write
 ;; ---------------------------------------------------------------------------
 
-(rf/reg-sub :hicasso.todo/done? (fn [db [_ id]] (get-in db [:todos id :done?])))
+(rf/reg-sub :fresco.todo/done? (fn [db [_ id]] (get-in db [:todos id :done?])))
 
-(rf/reg-event :hicasso.todo/seed (fn [_ [_ n]] {:db (seed-db n)}))
+(rf/reg-event :fresco.todo/seed (fn [_ [_ n]] {:db (seed-db n)}))
 
-(rf/reg-event :hicasso.todo/toggle
+(rf/reg-event :fresco.todo/toggle
   (fn [{:keys [db]} [_ id]] {:db (update-in db [:todos id :done?] not)}))
 
 ;; ---------------------------------------------------------------------------
@@ -66,12 +66,12 @@
   "Create (or idempotently replace) `frame-id`'s frame, seeded with `n`
   to-dos. Runs outside any measured window."
   [frame-id n]
-  (rf/make-frame {:id frame-id :initial-events [[:hicasso.todo/seed n]]})
+  (rf/make-frame {:id frame-id :initial-events [[:fresco.todo/seed n]]})
   frame-id)
 
 (defn reseed!
   "Return the frame to its seeded state, so one witness never reads a
   page a previous one already mutated."
   [frame-id n]
-  (rf/with-frame frame-id (rf/dispatch-sync [:hicasso.todo/seed n]))
+  (rf/with-frame frame-id (rf/dispatch-sync [:fresco.todo/seed n]))
   nil)

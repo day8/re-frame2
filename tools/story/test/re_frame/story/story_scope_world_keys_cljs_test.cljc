@@ -18,7 +18,7 @@
     `[:world :substrates]` (rf2-3afns) and feeds it to
     `multi-substrate/single-render-substrate`, which answers the `:reagent`
     host default for an absent set. So a story declaring `#{:uix}` or
-    `#{:hicasso}` painted correctly on the live canvas — which resolves
+    `#{:fresco}` painted correctly on the live canvas — which resolves
     variant-then-story through `multi-substrate/resolve-substrate-set` —
     and rendered under REAGENT through `render-variant`. Exactly the
     disagreement rf2-3afns closed, one level up.
@@ -89,9 +89,9 @@
     (rf.story.registrar/reg-story* :story.scope-sub
       {:doc "declares the authoring layer once, for every variant"
        :component  :views/probe
-       :substrates #{:hicasso}})
+       :substrates #{:fresco}})
     (rf.story.registrar/reg-variant* :story.scope-sub/child {:doc "declares nothing"})
-    (is (= #{:hicasso}
+    (is (= #{:fresco}
            (get-in (rf.story.plan/variant-plan :story.scope-sub/child)
                    [:world :substrates]))))
 
@@ -99,7 +99,7 @@
             `:story-lookup` was threaded above. A fix that only worked
             through an injected test double would leave the production path
             exactly as broken as it was."
-    (is (= #{:hicasso}
+    (is (= #{:fresco}
            (:substrates (rf.story.registrar/handler-meta :story :story.scope-sub))))))
 
 (deftest the-variant-still-wins-over-its-story

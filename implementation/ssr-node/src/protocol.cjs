@@ -29,7 +29,7 @@
 //
 // This is the ruled topology rather than a simplification, and it is what
 // keeps the field lists below as short as they are.
-// `docs/design/hicasso/production-server-arm.md` §5 sets the compliant
+// `docs/design/fresco/production-server-arm.md` §5 sets the compliant
 // shape out arrow by arrow: `ssr-ring` drains the boot events and holds
 // the request frame on the JVM; Node resolves an entry identifier against
 // the table its own bundle publishes, seeds a per-request frame from the

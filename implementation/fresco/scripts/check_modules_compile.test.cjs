@@ -2,9 +2,9 @@
 'use strict';
 // THE OPTIONAL-MODULE ENTRY SOURCE, PINNED — rf2-okhdf.
 //
-//     node hicasso/scripts/check_modules_compile.test.cjs
+//     node fresco/scripts/check_modules_compile.test.cjs
 //
-// `check_modules_compile.cjs` compiles the Hicasso optional modules because
+// `check_modules_compile.cjs` compiles the Fresco optional modules because
 // nothing else in this repository compiles them anywhere warnings are fatal,
 // and it learns which namespaces those are by asking
 // `check_optional_module_reachability.py --module-namespaces`. (It was the
@@ -53,13 +53,13 @@ function emitted(namespaces) {
 }
 
 const SEVEN = [
-  're-frame.hicasso.forms',
-  're-frame.hicasso.impl.overlay',
-  're-frame.hicasso.impl.presence',
-  're-frame.hicasso.impl.presence-react',
-  're-frame.hicasso.motion',
-  're-frame.hicasso.native',
-  're-frame.hicasso.overlay',
+  're-frame.fresco.forms',
+  're-frame.fresco.impl.overlay',
+  're-frame.fresco.impl.presence',
+  're-frame.fresco.impl.presence-react',
+  're-frame.fresco.motion',
+  're-frame.fresco.native',
+  're-frame.fresco.overlay',
 ];
 
 const cases = [];
@@ -81,15 +81,15 @@ test('a clean emission becomes the entry list', () => {
 
 test('duplicates collapse and order is normalised', () => {
   const d = decideModuleNamespaces(
-    emitted(['re-frame.hicasso.overlay', 're-frame.hicasso.forms', 're-frame.hicasso.overlay',
-      're-frame.hicasso.motion', 're-frame.hicasso.native']),
+    emitted(['re-frame.fresco.overlay', 're-frame.fresco.forms', 're-frame.fresco.overlay',
+      're-frame.fresco.motion', 're-frame.fresco.native']),
   );
   assert.equal(d.ok, true);
   assert.deepEqual(d.namespaces, [
-    're-frame.hicasso.forms',
-    're-frame.hicasso.motion',
-    're-frame.hicasso.native',
-    're-frame.hicasso.overlay',
+    're-frame.fresco.forms',
+    're-frame.fresco.motion',
+    're-frame.fresco.native',
+    're-frame.fresco.overlay',
   ]);
 });
 
@@ -155,10 +155,10 @@ test('REFUSAL 4 — a token that is not a namespace', () => {
   // resolution error naming a file nobody wrote, which sends the reader
   // somewhere this gate can already say is wrong.
   for (const bad of [
-    'hicasso optional-module reachability: OK',  // the banner, on the wrong stream
+    'fresco optional-module reachability: OK',  // the banner, on the wrong stream
     'notanamespace',                             // no dot: a word, not a namespace
-    're-frame.hicasso.overlay)',                 // punctuation from a half-parse
-    '"re-frame.hicasso.overlay"',                // quoted, e.g. printed as a repr
+    're-frame.fresco.overlay)',                 // punctuation from a half-parse
+    '"re-frame.fresco.overlay"',                // quoted, e.g. printed as a repr
   ]) {
     const d = decideModuleNamespaces(emitted([...SEVEN, bad]));
     assert.equal(d.ok, false, bad);
@@ -182,11 +182,11 @@ test('the real roster still answers, and answers namespaces', () => {
   );
   assert.ok(d.namespaces.length >= MIN_MODULE_NAMESPACES);
   for (const ns of d.namespaces) {
-    assert.match(ns, /^re-frame\.hicasso\./, ns);
+    assert.match(ns, /^re-frame\.fresco\./, ns);
   }
   // The overlay module is the one rf2-okhdf was filed off. Naming it pins the
   // live arm to a subject rather than to a count.
-  assert.ok(d.namespaces.includes('re-frame.hicasso.impl.overlay'), d.namespaces.join(', '));
+  assert.ok(d.namespaces.includes('re-frame.fresco.impl.overlay'), d.namespaces.join(', '));
 });
 
 // ---------------------------------------------------------------------------

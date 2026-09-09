@@ -20,7 +20,7 @@ job's `clojure -M:test` and nothing else, so the tier was not skipped, the step
 was not a suite, and a worker reading the red went looking for a failing test
 that did not exist.  That job was deleted with the Freehand tree (rf2-0yp7w.6);
 the CLASS outlived it, and the witness this gate's self-test pins in its place is
-the `cljs` job's Hicasso `:advanced` release build, which the spine's `cljs` lane
+the `cljs` job's Fresco `:advanced` release build, which the spine's `cljs` lane
 matches through its node-test run and never builds.  Job-granularity comparison
 cannot see either.  This gate compares at STEP granularity, and it names the
 CHECK rather than the job.
@@ -313,14 +313,14 @@ SPINE_LANES = (
         "spine node tier: 'per-ns test isolation'",
     ),
     Lane(
-        "hicasso-compile",
-        r"^npm run test:hicasso-compile$",
-        "spine node tier: 'hicasso bench-lane compile'",
+        "fresco-compile",
+        r"^npm run test:fresco-compile$",
+        "spine node tier: 'fresco bench-lane compile'",
     ),
     Lane(
-        "hicasso-invariants",
-        r"^npm run test:hicasso-invariants$",
-        "spine node tier: 'hicasso invariants gate'",
+        "fresco-invariants",
+        r"^npm run test:fresco-invariants$",
+        "spine node tier: 'fresco invariants gate'",
     ),
     # rf2-x1mz — the lint gate itself, which had NO local lane at all until
     # `scripts/lint_kondo.py` landed.  The signature is deliberately anchored
@@ -343,12 +343,12 @@ SPINE_LANES = (
     # `lint_kondo.py` too, which is what makes this lane an honest claim rather
     # than the over-report it would have been a commit earlier.
     Lane(
-        "hicasso-lint-export",
-        r"^npm run test:hicasso-lint$",
-        "spine node tier: 'hicasso lint export gate', at lint.yml's pin",
+        "fresco-lint-export",
+        r"^npm run test:fresco-lint$",
+        "spine node tier: 'fresco lint export gate', at lint.yml's pin",
         working_dir="implementation",
     ),
-    # rf2-r5iy7 — the guide-sample gate's own unconditional job: `docs/core/hicasso/**`
+    # rf2-r5iy7 — the guide-sample gate's own unconditional job: `docs/core/fresco/**`
     # is HALF this checker's input and arms no classifier output whatsoever (all
     # thirty-two measure false), so the npm chain alone left every guide-only
     # PR running it nowhere.  The spine covers both homes through the chain, so
@@ -357,11 +357,11 @@ SPINE_LANES = (
     # budget-ledger, facade-inventory and naming-census lanes that stood beside
     # this one retired with their checkers and jobs on 2026-08-30, rf2-6c12m.8.)
     Lane(
-        "hicasso-guide-samples",
-        r"^python implementation/hicasso/scripts/check_guide_samples\.py"
+        "fresco-guide-samples",
+        r"^python implementation/fresco/scripts/check_guide_samples\.py"
         r"(?: --self-test)?$",
-        "spine node tier: 'hicasso invariants gate' chains this checker "
-        "(`npm run test:hicasso-invariants`), both modes",
+        "spine node tier: 'fresco invariants gate' chains this checker "
+        "(`npm run test:fresco-invariants`), both modes",
     ),
     Lane(
         "mkdocs-strict",
@@ -1301,13 +1301,13 @@ def run_self_tests(verbose: bool) -> int:
         # one step, inside a job the spine DOES run, that the spine does not.
         # This was the EP-0036 donor `git grep` inside `jvm-freehand` until
         # rf2-0yp7w.6 deleted that job with the Freehand tree. The `cljs` job's
-        # Hicasso `:advanced` release build is the same shape and stands in its
+        # Fresco `:advanced` release build is the same shape and stands in its
         # place: `test-fast-pr.sh` matches the `cljs` lane through its node-test
         # run and never builds that bundle.
         "real repo: an unrun STEP inside a spine-run job is reported (item-3 class)",
         any(
             job.job_id == "cljs"
-            and any("build:hicasso-release" in s.command for s in uncovered)
+            and any("build:fresco-release" in s.command for s in uncovered)
             for job, uncovered in real.partial
         ),
     )

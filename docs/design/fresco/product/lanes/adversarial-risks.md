@@ -1,4 +1,4 @@
-# Hicasso adversarial risk register
+# Fresco adversarial risk register
 
 A missing witness is not a confirmed defect. Each risk has a required contract, a deciding witness, and a remedy if the witness is red.
 
@@ -24,7 +24,7 @@ These eight risks block the trustworthy-kernel exit. Native-surface risks enter 
 | Native-language leakage | Clauses 2–3 of the [native-boundary law](design-laws.md#native-boundary) | Native-form grammar row of the [canonical checklist](hot-path-architecture.md#canonical-native-tier-acceptance-checklist) | Refuse ambiguous mixing with a source-located recovery; keep the namespaces and syntax visibly distinct |
 | Native boundary ABI drift | Clause 5 of the native-boundary law | Component-ABI, same-root and server rows of the canonical checklist | Shrink the one ABI and remove helpers that cannot prove parity |
 | Optional native-tier rent | Clause 6 of the native-boundary law | Dependency-and-rent row of the canonical checklist | Split the namespace/module boundary until tree shaking is deterministic; refuse universal helper state |
-| Hook-semantics fork | Clause 4 of the native-boundary law | Frame-and-store-lifecycle row of the canonical checklist | Factor and reuse the shared React seams before publishing the namespace; do not maintain a Hicasso-specific copy |
+| Hook-semantics fork | Clause 4 of the native-boundary law | Frame-and-store-lifecycle row of the canonical checklist | Factor and reuse the shared React seams before publishing the namespace; do not maintain a Fresco-specific copy |
 
 ## Programme and evidence risks
 
@@ -33,7 +33,7 @@ These eight risks block the trustworthy-kernel exit. Native-surface risks enter 
 | Instrument self-flattery | An instrument qualifies before product data publishes; controls detect the named failure class and the estimator/population are pinned | Sabotage the clock, floor, population and masking assumptions and observe a refusal rather than a result | Withdraw the row, fix the instrument, and rerun without carrying forward its previous number |
 | Comparator mismatch | Controls are tuned and behavior/read topology is equal, or every deliberate capability difference is stated beside the ratio | Canonical DOM, intent, read-shape and host-crossing audit before clock/heap comparison | Rebuild the control or reframe the claim as a priced capability comparison |
 | Equality substitution | Each gate names authored-data, semantic-tree, DOM, intent, server-byte, hydration, commit or paint equality without treating one as another | Adjacent-text hydration sabotage and an L2-vs-mounted lifecycle counterexample | Replace the oracle with the platform-authoritative equality; keep the weaker result under its honest name |
-| Experimental residue becomes architecture | One taught public story; no primary product/tool path relies on re-frame.ui or Freehand after Hicasso evidence is live | Dependency graph, namespace/doc census, production sentinels and Xray/Story/Pair consumer audit | Migrate consumers first, retain only named compatibility fixtures, then archive or remove the donor surface |
+| Experimental residue becomes architecture | One taught public story; no primary product/tool path relies on re-frame.ui or Freehand after Fresco evidence is live | Dependency graph, namespace/doc census, production sentinels and Xray/Story/Pair consumer audit | Migrate consumers first, retain only named compatibility fixtures, then archive or remove the donor surface |
 
 ## Gate construction
 

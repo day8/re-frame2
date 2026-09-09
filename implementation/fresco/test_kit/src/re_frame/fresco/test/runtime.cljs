@@ -1,16 +1,16 @@
-(ns re-frame.hicasso.test.runtime
+(ns re-frame.fresco.test.runtime
   "THE TEST KIT'S DOOR ONTO THE RUNTIME — what a witness reads off the
   collector's tables, and the one seam it drives (rf2-6c12m.17).
 
-  Every reader here is a pure read of state `re-frame.hicasso.impl.collector`
+  Every reader here is a pure read of state `re-frame.fresco.impl.collector`
   owns and exposes for exactly this purpose — `!cells`, `!entries`,
-  `rstate` and its reap horizon — plus `re-frame.hicasso.impl.frames`'s op
+  `rstate` and its reap horizon — plus `re-frame.fresco.impl.frames`'s op
   table and the codec's cache sizes. They used to live beside the tables
   they count, on production namespaces; a consumer's bundle never ran
   one, and a witness reading the runtime should reach it through the
-  kit, as `re-frame.hicasso.test` and `re-frame.hicasso.test.mounted`
+  kit, as `re-frame.fresco.test` and `re-frame.fresco.test.mounted`
   already do. This namespace lives in the kit's own source root
-  (`hicasso/test_kit/src`), outside the artefact's published `:paths`,
+  (`fresco/test_kit/src`), outside the artefact's published `:paths`,
   so nothing a shipped page runs can require it.
 
   Three kinds of door:
@@ -29,10 +29,10 @@
   place — stays on the collector: it is the runtime's own seam rather
   than an instrument, and Xray's suites drive it through the artefact's
   published paths, which this source root is outside of."
-  (:require [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.frames :as rf.hicasso.impl.frames]
-            [re-frame.hicasso.impl.generation :as rf.hicasso.impl.generation]))
+  (:require [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.frames :as rf.fresco.impl.frames]
+            [re-frame.fresco.impl.generation :as rf.fresco.impl.generation]))
 
 ;; ---------------------------------------------------------------------------
 ;; What a DOM comparison must not see
@@ -73,17 +73,17 @@
   whose body read nothing retains nothing in this table, so it is
   correctly absent (its read-set entry is still counted by `:entries`)."
   []
-  (let [cells       @rf.hicasso.impl.collector/!cells
+  (let [cells       @rf.fresco.impl.collector/!cells
         memberships (reduce-kv (fn [acc _ ^js c] (+ acc (alength (.-readers c)))) 0 cells)
         boundaries  (reduce-kv (fn [acc _ ^js c] (into acc (.-readers c))) #{} cells)]
     {:cells      (count cells)
      :cell-refs  memberships
      :edges      memberships
      :boundaries (count boundaries)
-     :entries    (reduce + 0 (map (fn [[_ v]] (count v)) @rf.hicasso.impl.collector/!entries))
-     :generation (rf.hicasso.impl.generation/generation)
-     :frames     (count @rf.hicasso.impl.frames/!frame-ops)
-     :codec      (rf.hicasso.impl.codec/cache-sizes)}))
+     :entries    (reduce + 0 (map (fn [[_ v]] (count v)) @rf.fresco.impl.collector/!entries))
+     :generation (rf.fresco.impl.generation/generation)
+     :frames     (count @rf.fresco.impl.frames/!frame-ops)
+     :codec      (rf.fresco.impl.codec/cache-sizes)}))
 
 (defn residue
   "What must be zero after a clean teardown. `:cell-refs` is the standing
@@ -114,8 +114,8 @@
     (fn [resolve]
       ((fn settle []
          (js/setTimeout (fn []
-                          (if (rf.hicasso.impl.collector/reapers-armed?) (settle) (resolve nil)))
-                        (inc rf.hicasso.impl.collector/entry-reap-horizon-ms)))))))
+                          (if (rf.fresco.impl.collector/reapers-armed?) (settle) (resolve nil)))
+                        (inc rf.fresco.impl.collector/entry-reap-horizon-ms)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The cell and entry witnesses
@@ -128,7 +128,7 @@
   The failure the disposal rows pin is what a HELD container answers
   after its disposal, so they have to be able to hold it."
   [sub-key]
-  (some-> ^js (get @rf.hicasso.impl.collector/!cells sub-key) (.-reaction)))
+  (some-> ^js (get @rf.fresco.impl.collector/!cells sub-key) (.-reaction)))
 
 (defn cell-readers
   "The registrations currently reading `sub-key` — the cell's own reader
@@ -145,7 +145,7 @@
   baseline that mutates into the result is a witness that cannot see a
   leak."
   [sub-key]
-  (if-some [^js c (get @rf.hicasso.impl.collector/!cells sub-key)]
+  (if-some [^js c (get @rf.fresco.impl.collector/!cells sub-key)]
     (vec (aclone (.-readers c)))
     []))
 
@@ -188,12 +188,12 @@
   the thing they are measuring, which is why `collector/reset-runtime!`
   deliberately leaves it alone."
   []
-  (.-bodyRuns rf.hicasso.impl.collector/rstate))
+  (.-bodyRuns rf.fresco.impl.collector/rstate))
 
 (defn reset-body-runs!
   "Zero [[body-runs]]. Explicit, and not part of `collector/reset-runtime!`."
   []
-  (set! (.-bodyRuns rf.hicasso.impl.collector/rstate) 0)
+  (set! (.-bodyRuns rf.fresco.impl.collector/rstate) 0)
   nil)
 
 (def shell-hook-ledger

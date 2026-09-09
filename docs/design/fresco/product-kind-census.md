@@ -6,7 +6,7 @@ assigned one of four kinds, with a proportion where a file carries more than one
 counts are the deliverable.
 
 **Why it exists.** [`rf2-ps7ia`](product/README.md#custody-and-amendment) must decide where the
-Hicasso normative set lives, and that decision reads very differently depending on how
+Fresco normative set lives, and that decision reads very differently depending on how
 much of the set is actually normative. The estimate in play was *roughly forty files*.
 The measured population is **64 files and 17,054 lines**, so the estimate was low by
 half — which is the argument for counting before deciding. **This page does not take
@@ -18,7 +18,7 @@ that decision.** It supplies the number it turns on.
 about **1,138 — under 7% — are view specification**, and they do not sit in files of
 their own: they are sections inside **twelve** documents whose remaining bulk is working
 record. The corpus is **89% working record by line**. Nothing here is a whole-file
-substrate contract. The normative core a consumer must obey to write Hicasso views
+substrate contract. The normative core a consumer must obey to write Fresco views
 correctly would fit in roughly **1,100 lines across three or four authored documents**,
 and the largest single contributor is one section range of one file.
 
@@ -64,7 +64,7 @@ have not changed since the first pass; the line total has, from 17,044 to 17,054
 inside two single-kind working records — `correction-ledger.md` 131 → 133 and
 `release-scans.md` 328 → 336. No carrier of any normative kind changed length, so every
 kind-1, kind-2 and kind-3 figure on this page is unmoved and only the kind-4 residual
-absorbed the ten lines. The surrounding tree moved further: `docs/design/hicasso/` as a
+absorbed the ten lines. The surrounding tree moved further: `docs/design/fresco/` as a
 whole is now **135** files against the 131 the bead recorded, that growth being this page
 plus `studio/` additions, none of it under `product/`.
 
@@ -97,51 +97,51 @@ that does not read like the rest of `spec/`.
 ## The four kinds, and what decides one
 
 1. **View specification** — normative statements about how a view is *authored* in
-   Hicasso; what a consumer must obey. This is the kind with no current home.
+   Fresco; what a consumer must obey. This is the kind with no current home.
 2. **Substrate contract** — normative statements about what a *substrate* must provide.
    These already have homes: `004B` (structural render-tree ABI), `004C` (root identity
    and mount grammar), `006` (substrate contract).
-3. **Reader-facing answer** — content a Hicasso user needs, belonging on a guide page
-   under `docs/core/hicasso/`.
+3. **Reader-facing answer** — content a Fresco user needs, belonging on a guide page
+   under `docs/core/fresco/`.
 4. **Working record** — provenance, measurement windows, budgets, decision history.
    These stay exactly where they are.
 
 ## Kind 2 is empty at file granularity, and that is the second finding
 
 **No file under `product/` is a substrate contract.** The distinction that decides it:
-Hicasso is a *view substrate*, so almost everything normative here is a statement about
-what Hicasso provides to a view author (kind 1), not about what a substrate must provide
-to Hicasso (kind 2). The substrate-facing material exists but is fragmentary — three
+Fresco is a *view substrate*, so almost everything normative here is a statement about
+what Fresco provides to a view author (kind 1), not about what a substrate must provide
+to Fresco (kind 2). The substrate-facing material exists but is fragmentary — three
 minority slices, each nameable to its `spec/` neighbour:
 
 | Slice | Lines | Belongs beside |
 |---|---|---|
-| [`substrate-decision.md`](product/substrate-decision.md) — the collector's subscription substrate, the adapter Hicasso installs, the two-hook ceiling | ~82 of 546 | [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) |
+| [`substrate-decision.md`](product/substrate-decision.md) — the collector's subscription substrate, the adapter Fresco installs, the two-hook ceiling | ~82 of 546 | [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) |
 | [`invariants.md`](product/invariants.md) §7 *The two-hook ceiling, and the chosen collector substrate* | ~12 of 179 | [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md) |
 | [`specification.md`](product/specification.md) §4 root-lifecycle and server/hydration contract rows | ~3 of 506 | [`spec/004C-Roots-and-Mount.md`](../../../spec/004C-Roots-and-Mount.md) |
 
-Nothing in the tree is `004B` material as a *statement*: Hicasso's test kit **consumes**
+Nothing in the tree is `004B` material as a *statement*: Fresco's test kit **consumes**
 the structural tree ABI rather than specifying it, which is a consumer relationship and
 not a contract this corpus owns.
 
-## `spec/` already carries Hicasso, and already points here
+## `spec/` already carries Fresco, and already points here
 
 The premise that `spec/` carries no view specification **holds** —
 [`spec/README.md`](../../../spec/README.md) states in terms that *"There is no 004 view
-contract"*. But `spec/` is not Hicasso-free, and the difference matters to the split
+contract"*. But `spec/` is not Fresco-free, and the difference matters to the split
 ruling:
 
-- **`spec/009-Instrumentation.md` carries a Hicasso section**, `#### Hicasso — the
+- **`spec/009-Instrumentation.md` carries a Fresco section**, `#### Fresco — the
   interpreted hiccup substrate (EXPERIMENTAL)`, and it is the **normative statement of the
   meaning, payload and recovery of every live complaint id**. It says so of itself.
 - That section **already contains the pointer** rider B asks about. It reads *"Its design
-  record lives under `docs/design/hicasso/`; it has no normative feature Spec yet … **When
-  a Hicasso Spec lands, these rows gain their link and lose nothing else.**"* — so `spec/`
-  both points into this tree today and has a designed slot reserved for a future Hicasso
+  record lives under `docs/design/fresco/`; it has no normative feature Spec yet … **When
+  a Fresco Spec lands, these rows gain their link and lose nothing else.**"* — so `spec/`
+  both points into this tree today and has a designed slot reserved for a future Fresco
   Spec.
 - The binding runs **both ways and is gated**:
-  `implementation/hicasso/scripts/check_complaint_catalogue.py` requires every live row in
-  [`product/complaints.md`](../../../implementation/hicasso/spec/complaints.md) to have a row in `spec/009`, and every
+  `implementation/fresco/scripts/check_complaint_catalogue.py` requires every live row in
+  [`product/complaints.md`](../../../implementation/fresco/spec/complaints.md) to have a row in `spec/009`, and every
   reserved or retired id to have none.
 
 So one document in this tree — `complaints.md` — is **not homeless at all**. Its normative
@@ -196,7 +196,7 @@ Every one is working record: a prep package, not a contract. The two briefs are 
 | [`invariants.md`](product/invariants.md) | 179 | **VS 53%** | WR 40%; SC 7% (§7 two-hook subsection → `006`) |
 | [`facade-freeze.md`](product/facade-freeze.md) | 247 | **VS 55%** | WR 45% (§1 membership, §4 the amendment, §6 what it is not) |
 | [`dispositions.md`](product/dispositions.md) | 512 | WR 60% | VS 40% (§2's two policies, §2.4 default rule, target-policy column) |
-| [`complaints.md`](../../../implementation/hicasso/spec/complaints.md) | 308 | WR 70% | VS 30% (stability rule, what a complaint carries) — normative half already in `spec/009` |
+| [`complaints.md`](../../../implementation/fresco/spec/complaints.md) | 308 | WR 70% | VS 30% (stability rule, what a complaint carries) — normative half already in `spec/009` |
 | [`globals.md`](product/globals.md) | 240 | WR | — |
 | [`requirements-mine.md`](product/requirements-mine.md) | 130 | WR | — |
 | [`naming-ledger.md`](product/naming-ledger.md) | 75 | WR | — |
@@ -254,13 +254,13 @@ excluded.
 | [`facade-freeze.md`](product/facade-freeze.md) §§2–3, 5 | **VS** | ~136 | Fourteen frozen laws, the four-item reserved-data vocabulary, and what is deliberately *not* on the ordinary surface |
 | [`lanes/ergonomics-api.md`](product/lanes/ergonomics-api.md) | **VS** | ~113 | The public language: core surface, the optional `n` surface and the provisional `n/$` grammar, nine authoring laws, the exclusions, the interop contract |
 | [`invariants.md`](product/invariants.md) §§1–4 | **VS** | ~95 | I1–I15, the capability/rent table, and both provisional facades — all transcribed, with *the owner governs and the row is the defect* stated at the top |
-| [`complaints.md`](../../../implementation/hicasso/spec/complaints.md) §§*What every complaint carries*, *The stability rule*, *Rulings this catalogue owns* | WR | ~92 | The four guaranteed `ex-data` slots and the rule that `:view`/`:source` are context and never branchable; the id-stability rule. **Its normative half already lives in `spec/009` under a bidirectional gate**, which is why this carrier is the least homeless of the twelve |
+| [`complaints.md`](../../../implementation/fresco/spec/complaints.md) §§*What every complaint carries*, *The stability rule*, *Rulings this catalogue owns* | WR | ~92 | The four guaranteed `ex-data` slots and the rule that `:view`/`:source` are context and never branchable; the id-stability rule. **Its normative half already lives in `spec/009` under a bidirectional gate**, which is why this carrier is the least homeless of the twelve |
 | [`lanes/react-compatibility-notes.md`](product/lanes/react-compatibility-notes.md) | **VS** | ~86 | The canonical public-surface SSR/hydration matrix, Activity, Suspense, the external-store ceiling, hydration as a root-level diagnostic contract |
 | [`lanes/testing-xray.md`](product/lanes/testing-xray.md) | **VS** | ~47 | The L0–L4 ladder as a supported product contract, the evidence contract, the failure/privacy contract |
 | [`lanes/design-laws.md`](product/lanes/design-laws.md) §§1–4 | **VS** | ~44 | React and ownership, state and reactivity, language and interop, the native boundary — the canonical owner of the native-tier laws |
 | [`lanes/hot-path-architecture.md`](product/lanes/hot-path-architecture.md) §*Owned native surface and semantic fence*, §*Explicit refusals* | WR | ~21 | The semantic fence: no macro rewrites interpreted Hiccup and only an explicit `n/$` form expands to direct React construction; the standing refusals. The rest of the file is workflow, ladder and acceptance evidence |
 | [`lanes/adversarial-risks.md`](product/lanes/adversarial-risks.md) — *Required contract* column | WR | ~15 | Per-risk required contracts stated normatively: ambient-read extent, controlled-input portability, callback retirement, hydration isolation, speculative-render residue. The other three columns are witnesses and remedies, which are working record |
-| [`lanes/use-cases.md`](product/lanes/use-cases.md) — *Hicasso consequence* column | WR | ~6 | A handful of standing authoring rules stated as consequences — preserve one interpreted mode, keep read-anywhere during direct synchronous boundary execution, add no generic local-state DSL. The *Job* and *Design pressure* columns are requirements-mine material |
+| [`lanes/use-cases.md`](product/lanes/use-cases.md) — *Fresco consequence* column | WR | ~6 | A handful of standing authoring rules stated as consequences — preserve one interpreted mode, keep read-anywhere during direct synchronous boundary execution, add no generic local-state DSL. The *Job* and *Design pressure* columns are requirements-mine material |
 | **Total** | — | **~1,138** | Seven primary carriers hold ~799; the five minority carriers hold ~339 |
 
 **Why the split matters more than either number.** A graduation that took only the seven
@@ -289,7 +289,7 @@ Three structural facts about that list:
   outside it. This is the concrete form of the mixture finding: the tree has no file whose
   boundaries match the contract's boundaries.
 - **The reader-facing half has largely graduated already.** 29 pages stand under
-  `docs/core/hicasso/` and the ladder in `lanes/hot-path-architecture.md` is already
+  `docs/core/fresco/` and the ladder in `lanes/hot-path-architecture.md` is already
   published as `escape-ladder.md`; `05-forms.md` already stands as the draft spec for the
   forms module by operator ruling. The four RF-primary files are recipes and a release
   policy whose reader-facing conclusions have a live home to be *stated on*, which is the
@@ -297,7 +297,7 @@ Three structural facts about that list:
 
 ## Rider A — the gate gap, confirmed at source
 
-**Confirmed. A normative tree at `implementation/hicasso/spec/` would be ungated for
+**Confirmed. A normative tree at `implementation/fresco/spec/` would be ungated for
 links and anchors from day one.**
 
 - `scripts/check_doc_slugs.py:93-98` sets `DEFAULT_ROOTS = ("docs", "spec", "skills",
@@ -308,7 +308,7 @@ links and anchors from day one.**
   of which adds a root.
 - `scripts/check_readme_links.py` covers `README.md` beside source, repo-root markdown and
   `.claude/commands/*.md` (its module docstring and `:210`, `:390`). It walks
-  `rglob("README.md")` at `:253`. So it would reach an `implementation/hicasso/spec/README.md`
+  `rglob("README.md")` at `:253`. So it would reach an `implementation/fresco/spec/README.md`
   and **nothing else in that directory**.
 - `mkdocs.yml`'s `docs_dir` is `docs`, so `implementation/**` was never a candidate for the
   site build either.
@@ -325,14 +325,14 @@ forever if the path were spelled wrong.
 
 ## Rider B — the ruling collision, and there is not one
 
-**`rf2-0yp7w.11` does not forbid a "see hicasso" pointer. It forbids re-aiming retired
-donor material at hicasso, which is a different thing, and it explicitly anticipates a
-future Hicasso spec.** Its ruling text:
+**`rf2-0yp7w.11` does not forbid a "see fresco" pointer. It forbids re-aiming retired
+donor material at fresco, which is a different thing, and it explicitly anticipates a
+future Fresco spec.** Its ruling text:
 
-> Do NOT rename or re-aim it at hicasso: hicasso's actual contract is a different,
+> Do NOT rename or re-aim it at fresco: fresco's actual contract is a different,
 > interpreted-Hiccup native model … and re-aiming would launder donor-era normative text
-> into hicasso's contract — the opposite of the spec-is-the-artefact discipline. Git
-> history is the raw material **if whoever later writes a hicasso-native grammar spec**
+> into fresco's contract — the opposite of the spec-is-the-artefact discipline. Git
+> history is the raw material **if whoever later writes a fresco-native grammar spec**
 > wants it; that judgement is theirs, then.
 
 Three things follow, and the third is decisive:
@@ -340,12 +340,12 @@ Three things follow, and the third is decisive:
 1. The prohibition's subject is the **document** — `spec/004D-Freehand-Compiled-Grammar.md`
    — and the act prohibited is **renaming or re-aiming it**. A pointer telling a reader
    where the view contract lives moves no donor text anywhere.
-2. The ruling **contemplates a hicasso-native grammar spec being written later** and
+2. The ruling **contemplates a fresco-native grammar spec being written later** and
    reserves that judgement rather than foreclosing it. A rule that forbade pointing at a
    future spec could not also invite one.
 3. **A pointer of exactly that kind already exists in `spec/`, landed and gated.**
-   `spec/009-Instrumentation.md`'s Hicasso section points at `docs/design/hicasso/` and
-   names `implementation/hicasso/spec/complaints.md` outright, and it says *"When a Hicasso
+   `spec/009-Instrumentation.md`'s Fresco section points at `docs/design/fresco/` and
+   names `implementation/fresco/spec/complaints.md` outright, and it says *"When a Fresco
    Spec lands, these rows gain their link and lose nothing else."* Whatever `rf2-0yp7w.11`
    forbids, it evidently does not forbid that, because that is on `main` and green.
 
@@ -367,7 +367,7 @@ saying so in `spec/`.
 documents.** The normative core is about 1,138 lines, under 7% of a 17,054-line corpus,
 and it is not distributed across thirty files: **twelve documents carry it, seven of them
 chiefly**, and the top four carriers alone hold ~732 of the 1,138. Those ranges are
-substantially transcriptions of one another, so a de-duplicated statement of the Hicasso
+substantially transcriptions of one another, so a de-duplicated statement of the Fresco
 view contract plausibly lands under a thousand lines — three or four authored documents,
 one pass, not a sequenced programme. **Twelve is the number to plan the reading against
 and three or four is the number to plan the writing against**, and conflating them is the
@@ -381,7 +381,7 @@ beside-amendment history, and **every one of the twelve carriers is mixed** — 
 in this tree is purely view specification — so any file-level move either drags working
 record into `spec/` or tears a document that says of itself that *where a row and its owner
 disagree the owner governs*. The two cheapest facts to act on are that the reader-facing
-half has already largely graduated into the 29 published pages under `docs/core/hicasso/`,
+half has already largely graduated into the 29 published pages under `docs/core/fresco/`,
 and that one of the twelve carriers — `complaints.md` — is not homeless at all, because
 `spec/009` already carries its normative half under a bidirectional gate and already
 reserves the slot for the rest.
@@ -409,7 +409,7 @@ reason only: `specification.md`'s attributed lines are now carried as ~278 — 5
 where the earlier carrier table rounded them to ~275.
 
 **Where this page sits, and why.** `docs/design/` is where working records live and this is
-one; it sits at `docs/design/hicasso/` rather than inside `product/` on purpose, because
+one; it sits at `docs/design/fresco/` rather than inside `product/` on purpose, because
 `product/README.md` enumerates every file in that directory and a 65th file would both
 enlarge the population this page measures and leave that index incomplete. It is gated by
 `scripts/check_doc_slugs.py` for link targets and heading anchors, and by
@@ -417,6 +417,6 @@ enlarge the population this page measures and leave that index incomplete. It is
 commit this page's measurement is pinned to, under *How the population was measured*. That
 commit was on `origin/main` when it was written and stays reachable, so the pin resolves
 rather than stranding. `mkdocs build --strict` does **not** reach it: `mkdocs.yml`'s
-`exclude_docs` block carries `design/hicasso/`. It is not added to
-`docs/design/hicasso/README.md`'s table, which already omits three other top-level pages in
+`exclude_docs` block carries `design/fresco/`. It is not added to
+`docs/design/fresco/README.md`'s table, which already omits three other top-level pages in
 this directory.

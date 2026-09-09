@@ -8,7 +8,7 @@ description: >
   AsyncEffect, StaleDetection, FormAction). **Authoring only.** **Do not use**
   for: live-app inspection (`re-frame2-pair`), greenfield bootstrap
   (`re-frame2-setup`), v1→v2 migration (`re-frame-migration`), porting Reagent
-  views onto Hicasso (`reagent-migration`), or porting re-frame2 itself
+  views onto Fresco (`reagent-migration`), or porting re-frame2 itself
   (`re-frame2-implementor`). Use whenever the user mentions re-frame2,
   reg-event, reg-sub, reg-fx, reg-cofx, reg-flow, reg-view, reg-machine,
   reg-route, reg-resource, reg-mutation, dispatch, subscribe, app-db, flows,
@@ -58,9 +58,9 @@ Authors re-frame2 ClojureScript application code. Router skill: this file carrie
 
 ## When NOT to use
 
-Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source). In brief: not for live-runtime inspection, greenfield bootstrap, v1→v2 migration, porting existing Reagent views onto **Hicasso** (use [`reagent-migration`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/SKILL.md)), porting re-frame2 itself, or spec / API / EP rationale reading.
+Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source). In brief: not for live-runtime inspection, greenfield bootstrap, v1→v2 migration, porting existing Reagent views onto **Fresco** (use [`reagent-migration`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/SKILL.md)), porting re-frame2 itself, or spec / API / EP rationale reading.
 
-This skill's view surface is the **adapters** — Reagent, reagent-slim, UIx. Hicasso is re-frame2's re-frame-native peer view layer; [`references/fundamentals/views.md` §Hicasso](references/fundamentals/views.md#hicasso--the-re-frame-native-peer) carries what it changes and where its contract lives. Everything upstream of the view is the same either way, so the rest of this skill applies unchanged.
+This skill's view surface is the **adapters** — Reagent, reagent-slim, UIx. Fresco is re-frame2's re-frame-native peer view layer; [`references/fundamentals/views.md` §Fresco](references/fundamentals/views.md#fresco--the-re-frame-native-peer) carries what it changes and where its contract lives. Everything upstream of the view is the same either way, so the rest of this skill applies unchanged.
 
 ## Cardinal rules
 

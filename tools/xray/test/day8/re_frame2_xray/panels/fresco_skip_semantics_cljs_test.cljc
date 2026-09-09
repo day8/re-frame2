@@ -1,18 +1,18 @@
-(ns day8.re-frame2-xray.panels.hicasso-skip-semantics-cljs-test
-  "`:rf.sub/skip` means ONE thing, and both Hicasso derivations have to
+(ns day8.re-frame2-xray.panels.fresco-skip-semantics-cljs-test
+  "`:rf.sub/skip` means ONE thing, and both Fresco derivations have to
   say it (rf2-hic-037, merged-PR audit #8027).
 
   ## The defect this namespace exists to keep out
 
   The advisor and the causal slice are two public results derived from
-  ONE window, and they disagreed about the same event. `hicasso-advisor`
+  ONE window, and they disagreed about the same event. `fresco-advisor`
   correctly recorded a skip as a memo hit — calling it *the single most
   informative topology signal there is* — but derived `searched?` from
   recompute runs alone, so a retained window holding nothing but one
   tagged skip reported `:basis :cap`, said *no search happened*, and told
   the programmer to **raise `:rf.trace/events-retained`** — enlarge a
   window that had already retained the evidence. Meanwhile
-  `hicasso-causal`'s link 2 collected every `:subs` item carrying an
+  `fresco-causal`'s link 2 collected every `:subs` item carrying an
   `:rf.sub/id` without filtering the operation, so the same skip appeared
   in a roster labelled *subscriptions recomputed* under an `evidenced`
   chip.
@@ -28,7 +28,7 @@
   ## Why the rows below drive BOTH views from ONE window
 
   Two definitions of *did work happen* is what produced the disagreement,
-  so the repair is one predicate — `hicasso-helpers/sub-recompute?` — and
+  so the repair is one predicate — `fresco-helpers/sub-recompute?` — and
   the pin that keeps it one is a test that reads both public results off
   the same fixture. A row that only checked the advisor would go green
   against a causal slice that had drifted back, and vice versa.
@@ -52,18 +52,18 @@
   the untagged non-work cells cannot be the ones nobody wrote a row for.
 
   Pure data → data, so this runs under the JVM target beside the CLJS
-  one. The live-runtime claims stay in `hicasso_causal_cljs_test`.
+  one. The live-runtime claims stay in `fresco_causal_cljs_test`.
 
-  Normative owner: `tools/xray/spec/028-Hicasso-Advisor.md`."
+  Normative owner: `tools/xray/spec/028-Fresco-Advisor.md`."
   (:require [clojure.string :as string]
             #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer [deftest is testing]])
-            [day8.re-frame2-xray.panels.hicasso-advisor :as advisor]
-            [day8.re-frame2-xray.panels.hicasso-causal :as causal]
-            [day8.re-frame2-xray.panels.hicasso-helpers :as hh]))
+            [day8.re-frame2-xray.panels.fresco-advisor :as advisor]
+            [day8.re-frame2-xray.panels.fresco-causal :as causal]
+            [day8.re-frame2-xray.panels.fresco-helpers :as hh]))
 
 ;; ---------------------------------------------------------------------------
-;; Fixtures — the producers' own shapes, as `hicasso_advisor_cljs_test` builds
+;; Fixtures — the producers' own shapes, as `fresco_advisor_cljs_test` builds
 ;; them
 ;; ---------------------------------------------------------------------------
 
@@ -103,7 +103,7 @@
   "The same event with its `:rf.sub/id` gone — the shape a stripped or
   never-tagged emission actually has. `:tags {}` rather than a missing
   `:tags`, because that is what the seam produces and it is the shape the
-  mutation row in `hicasso_causal_cljs_test` builds too."
+  mutation row in `fresco_causal_cljs_test` builds too."
   [op]
   {:op-type :rf.sub :operation op :tags {}})
 
@@ -222,7 +222,7 @@
 
     (testing "the recompute count and the roster size are the SAME reading"
       (is (= (get-in row [:axes :frequency :runs]) (count (:holds link2)))
-          (str "one predicate, `hicasso-helpers/sub-recompute?`, asked twice — "
+          (str "one predicate, `fresco-helpers/sub-recompute?`, asked twice — "
                "two definitions of `did work happen` is what produced the "
                "disagreement this row exists to prevent")))))
 
@@ -340,7 +340,7 @@
       (is (= {} (:by-read t))))))
 
 (deftest the-shared-predicate-is-the-one-in-the-shared-algebra
-  ;; The predicate is a public var in `hicasso-helpers` precisely so both
+  ;; The predicate is a public var in `fresco-helpers` precisely so both
   ;; derivations can consult it and a reader can see that they do.
   (is (= #{:rf.sub/run :rf.sub/create} hh/sub-recompute-operations))
   (doseq [op [:rf.sub/run :rf.sub/create]]

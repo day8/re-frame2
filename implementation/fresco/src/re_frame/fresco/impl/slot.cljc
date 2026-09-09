@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.impl.slot
+(ns re-frame.fresco.impl.slot
   "THE CANONICAL SLOT RULE — one implementation, two hosts.
 
   A hiccup prop key is written in one of four spellings — a keyword, a
@@ -12,15 +12,15 @@
   `clojure.string`.
 
   `.cljc` rather than a `defn` in the codec because the rule has a second
-  consumer that cannot run in CLJS at all — the Reagent-to-Hicasso codemod,
+  consumer that cannot run in CLJS at all — the Reagent-to-Fresco codemod,
   which decides on the JVM which slot each prop it rewrites will land in —
   and one shared definition is the only thing that pins the tool and the
-  runtime equal: `test/re_frame/hicasso/slot_cljs_test.cljc` asserts one
+  runtime equal: `test/re_frame/fresco/slot_cljs_test.cljc` asserts one
   corpus twice, in Node and on the JVM, and the codemod's `shared_rule_test`
   holds its resolver `identical?` to this one. The caches and the
   prototype-poisoning guard are emission concerns and stay in the codec.
 
-  Design record: docs/design/hicasso/studio/reagent-codemod-against-the-landed-escape.md"
+  Design record: docs/design/fresco/studio/reagent-codemod-against-the-landed-escape.md"
   (:require [clojure.string :as str]))
 
 (def ^:private dont-camel-case
@@ -56,7 +56,7 @@
   above.
 
   **A pure function of the key**, which is what
-  `re-frame.hicasso.impl.codec/canonical-slot` rests on. A slot
+  `re-frame.fresco.impl.codec/canonical-slot` rests on. A slot
   that depended on what the build happened to have converted earlier
   would make the owned-literal law depend on render order.
 

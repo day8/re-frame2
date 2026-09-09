@@ -532,7 +532,7 @@ _FENCE_PREFIX_CHARS = frozenset(">  \t")
 # BEFORE YOU ADD AN ANCHOR HERE, read this (rf2-1cpt).  118 fragment ids across
 # 15 pages are already minted TWICE: an explicit `<a id="x">` stacked with the
 # heading whose generated slug is also `x`.  The concentrations are
-# docs/design/hicasso/draft-guide/glossary.md (50), docs/routing/concepts.md and
+# docs/design/fresco/draft-guide/glossary.md (50), docs/routing/concepts.md and
 # spec/015-Data-Classification.md (18 each), and spec/012-Routing.md (10).  Every
 # one is the same deliberate idiom — an explicit anchor written to outlive a
 # heading rename — and every one is co-located with its heading, so deep-links
@@ -1753,7 +1753,7 @@ def _is_ai_findings_link(path_part: str) -> bool:
 # specs from inside a schema sample, which is a good idiom and not something to
 # legislate away.  Making the assertion corpus-wide would need an allowlist for
 # those, and an allowlist is how a gate stops meaning anything.
-# `docs/design/hicasso/` is a working design record whose fences are Clojure,
+# `docs/design/fresco/` is a working design record whose fences are Clojure,
 # bash and captured output; it measures clean today, so the check lands green.
 #
 # `docs/design/freehand/` measures clean too and is the same class of artefact —
@@ -1806,7 +1806,7 @@ def _is_ai_findings_link(path_part: str) -> bool:
 # refuse.  What the skip costs is written down instead — at the top of this file,
 # and in the prose that nominates this gate — so that an exit 0 on a fence-heavy
 # page is not read as coverage of the fence.
-FENCED_DOC_LINK_TREES = ("docs/design/hicasso", "docs/the-mayor-method")
+FENCED_DOC_LINK_TREES = ("docs/design/fresco", "docs/the-mayor-method")
 
 
 def _is_doc_destination(dest: str) -> bool:
@@ -2556,7 +2556,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("fenced_doc_link_prompt_tree",      1),
         # rf2-1cpt — the same assertion, on a BLOCKQUOTED fence.  The guarded
         # tree writes its samples this way (two files under
-        # docs/design/hicasso/studio/), and the assertion could not see them
+        # docs/design/fresco/studio/), and the assertion could not see them
         # while the scanner read a quoted fence as prose.  The link resolves, so
         # again only the assertion can find it.
         ("fenced_doc_link_blockquoted",      1),

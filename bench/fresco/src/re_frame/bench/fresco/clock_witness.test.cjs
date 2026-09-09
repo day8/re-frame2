@@ -2,7 +2,7 @@
 'use strict';
 // THE PER-KEYSTROKE WITNESS'S FIXTURES, IN A GATE — rf2-0qj9w.
 //
-//     node hicasso/test/re_frame/bench/hicasso/clock_witness.test.cjs
+//     node fresco/test/re_frame/bench/fresco/clock_witness.test.cjs
 //
 // `clock_witness.cjs` decides whether the keystroke row's `n` means anything.
 // Its predecessor did not: it grouped Event Timing entries by
@@ -55,10 +55,10 @@ test('a physical key is identified by segment, arm, round AND sample', () => {
 // by hand-editing the module because a mutation proof somebody performed once
 // and described afterwards is not a proof anybody can repeat.
 
-const SHAPE = { cells: 100, fields: 4, substrate: ['hicasso'], floors: ['floor'] };
-const CENSUS = { 's/hicasso': { 'p0/cell': 100, 'p0/draft': 4 } };
+const SHAPE = { cells: 100, fields: 4, substrate: ['fresco'], floors: ['floor'] };
+const CENSUS = { 's/fresco': { 'p0/cell': 100, 'p0/draft': 4 } };
 
-const keyAt = (round, sampleIndex) => ({ seg: 's', arm: 'hicasso', round, sampleIndex, field: 0 });
+const keyAt = (round, sampleIndex) => ({ seg: 's', arm: 'fresco', round, sampleIndex, field: 0 });
 
 const entriesFor = (k, interactionId, duration) => [
   { seg: k.seg, arm: k.arm, round: k.round, sampleIndex: k.sampleIndex, warm: true, name: 'keydown', interactionId, duration: duration - 8, startTime: 0, processingStart: 1, processingEnd: 2 },
@@ -86,7 +86,7 @@ test('UNMUTATED: two physical keys form two records and the run is clean', () =>
   assert.strictEqual(v.totals.sent, 2);
   // The zero-id entries are counted and are NOT records — the whole defect.
   assert.strictEqual(v.totals.zeroIdEntries, 2);
-  assert.strictEqual(v.perArm['s/hicasso'].observed, 2);
+  assert.strictEqual(v.perArm['s/fresco'].observed, 2);
 });
 
 test('MUTATED (sampleIndex dropped from the key): the collapse is REFUSED by name', () => {
@@ -136,7 +136,7 @@ test('a key that produced no entry is censored and the arm publishes the rate', 
   });
   assert.strictEqual(v.ok, true, JSON.stringify(v.faults));
   assert.strictEqual(v.censored.length, 1);
-  assert.strictEqual(v.perArm['s/hicasso'].censoredPct, 50);
+  assert.strictEqual(v.perArm['s/fresco'].censoredPct, 50);
   const lines = witness.format(v).join('\n');
   assert.match(lines, /censored/);
   assert.match(lines, /CONDITIONAL on clearing 16 ms/);
@@ -152,7 +152,7 @@ test('the published block never claims more interactions than keys pressed', () 
 
 test('the recompute census refuses a substrate arm that did not recompute the stated set', () => {
   const t = twoKeys();
-  const v = witness.adjudicate({ ...t, census: { 's/hicasso': { 'p0/cell': 100 } } });
+  const v = witness.adjudicate({ ...t, census: { 's/fresco': { 'p0/cell': 100 } } });
   assert.strictEqual(v.ok, false);
   const f = v.faults.find((x) => x.code === 'census-mismatch');
   assert.ok(f);

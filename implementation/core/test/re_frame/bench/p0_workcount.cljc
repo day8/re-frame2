@@ -75,7 +75,7 @@
   and after its last.
 
   Owner: rf2-n1b9h, under the operator-owned governance set enumerated once
-  in `docs/design/hicasso/studio/README.md`."
+  in `docs/design/fresco/studio/README.md`."
   #?(:cljs (:require-macros [re-frame.bench.p0-workcount])))
 
 ;; ---------------------------------------------------------------------------

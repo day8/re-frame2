@@ -1,5 +1,5 @@
-(ns re-frame.hicasso.consumer-app
-  "THE CONSUMER APP — the smallest complete Hicasso application, written
+(ns re-frame.fresco.consumer-app
+  "THE CONSUMER APP — the smallest complete Fresco application, written
   the way a consumer writes one.
 
   Phase 0 exits when *a clean consumer can compile and run a minimal view
@@ -20,17 +20,17 @@
     has;
   - `re-frame.adapter.uix`, because the reactive substrate wants an
     adapter installed before the first frame is made (Spec 006 §Adapter
-    selection at boot) and Hicasso deliberately ships none of its own —
+    selection at boot) and Fresco deliberately ships none of its own —
     a consumer picks one, the way they already do for Reagent or UIx
     views;
-  - `re-frame.hicasso`, the public door, for `defview`, `sub` and
+  - `re-frame.fresco`, the public door, for `defview`, `sub` and
     `root!`.
 
   ## Why it is also the release build's entry
 
-  `:hicasso-release` compiles this namespace under `:advanced` with
+  `:fresco-release` compiles this namespace under `:advanced` with
   `goog.DEBUG` false, and until it existed nothing in the repo had ever
-  compiled Hicasso the way a consumer ships it. A namespace that merely
+  compiled Fresco the way a consumer ships it. A namespace that merely
   REQUIRED the door would be no use for that: Closure keeps what is
   reachable and an unused require is not, so the bundle would DCE to
   nearly nothing and report a cost no consumer pays. Everything below is
@@ -40,12 +40,12 @@
 
   ## Why it lives under `test/`
 
-  The package layout decides it: `hicasso/deps.edn` publishes `src` and
+  The package layout decides it: `fresco/deps.edn` publishes `src` and
   `resources` alone, so a fixture that exists to be compiled stays out of
   the artefact a consumer resolves, while shadow-cljs — which carries
-  `hicasso/test` on `:source-paths` — can still build it into a real
+  `fresco/test` on `:source-paths` — can still build it into a real
   production bundle. It is not a test and matches no test regexp:
-  `:node-test-hicasso` selects `^re-frame\\.hicasso\\..+-cljs-test$`, and
+  `:node-test-fresco` selects `^re-frame\\.fresco\\..+-cljs-test$`, and
   this namespace does not end in `-cljs-test`.
 
   ## The reload hook, and why it is here now
@@ -57,7 +57,7 @@
   document. Rather than paper over that with a hook this file could not
   honestly recommend copying, it was reported.
 
-  [[re-frame.hicasso/render!]] is that door now, so the hook below is
+  [[re-frame.fresco/render!]] is that door now, so the hook below is
   three ordinary lines and every one of them is public. It re-renders the
   root React already has, which is what lets the reloaded view code meet
   its own DOM; a fresh handle on reload would `createRoot` again and replace
@@ -68,12 +68,12 @@
   would be replaced by the event it is there to survive.
 
   This is an exemplar, not a gate. The HMR path is still MEASURED by
-  `hicasso/testbed/hmr` under `test:hicasso-hmr`, which drives a real
+  `fresco/testbed/hmr` under `test:fresco-hmr`, which drives a real
   shadow-cljs watch and a real reload; inventing a second gate here would
   add machinery without adding a witness."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]))
+            [re-frame.fresco :as rf.fresco]))
 
 (def ^:private frame-id ::frame)
 
@@ -95,7 +95,7 @@
 ;; The view — one boundary, one read, one intent, one controlled field
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview app
+(rf.fresco/defview app
   "The whole application.
 
   The field is controlled in the substrate's own sense: `:value` is the
@@ -109,13 +109,13 @@
   accessible name reads to a screen reader as an unlabelled control, and
   an exemplar that models one would be a poor first thing to copy."
   [_]
-  [:main#hicasso-consumer-app
-   [:h1 "Hicasso"]
+  [:main#fresco-consumer-app
+   [:h1 "Fresco"]
    [:label {:for "greeting"} "Greeting"]
    [:input#greeting {:type     "text"
-                     :value    (rf.hicasso/sub [::greeting])
-                     :on-input [::typed ::rf.hicasso/value]}]
-   [:p.echo "Committed: " (rf.hicasso/sub [::greeting])]])
+                     :value    (rf.fresco/sub [::greeting])
+                     :on-input [::typed ::rf.fresco/value]}]
+   [:p.echo "Committed: " (rf.fresco/sub [::greeting])]])
 
 ;; ---------------------------------------------------------------------------
 ;; The mount, and the reload
@@ -126,7 +126,7 @@
   ;; `def` would replace the handle the reload exists to render through.
   ;; Allocation is inert — no DOM work, no React call — which is what
   ;; makes a load-time `defonce` the right home for it.
-  (rf.hicasso/client-root))
+  (rf.fresco/client-root))
 
 (defn ^:dev/after-load mount!
   "The boot render and the reload hook, in ONE call — the whole hook, and
@@ -138,13 +138,13 @@
   the DOM, the subscriptions and every scrap of component state survive
   the reload with only the changed view code different."
   []
-  (rf.hicasso/render! app-root
-    [rf.hicasso/frame-root {:id frame-id} [app {}]]
+  (rf.fresco/render! app-root
+    [rf.fresco/frame-root {:id frame-id} [app {}]]
     (js/document.getElementById "app")))
 
 (defn ^:export -main
-  "The `:hicasso-release` build's `:init-fn`, and the three lines that
-  start a Hicasso application.
+  "The `:fresco-release` build's `:init-fn`, and the three lines that
+  start a Fresco application.
 
   `rf/init!` first, because `make-frame` raises
   `:rf.error/no-adapter-installed` until a reactive adapter is installed

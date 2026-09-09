@@ -1,9 +1,9 @@
-(ns re-frame.hicasso.examples.todo.events
+(ns re-frame.fresco.examples.todo.events
   "EVERY WRITE THIS APPLICATION MAKES.
 
   Eight handlers, all pure, none of them knowing that a view substrate
   exists. That is the point of the file: a Todo-class application's model
-  is ordinary re-frame2, and Hicasso is a way of READING it.
+  is ordinary re-frame2, and Fresco is a way of READING it.
 
   ## The two places the substrate does leak in here, and why
 
@@ -26,13 +26,13 @@
          (get-in db [:ui db/draft id])
 
      Both are recorded in the authoring report. Neither is a reach past
-     the door — `re-frame.hicasso` is the door — but both are places
+     the door — `re-frame.fresco` is the door — but both are places
      where the sugar stops one step short of the call site that needed
      it."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.todo.db :as rf.hicasso.examples.todo.db]))
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.todo.db :as rf.fresco.examples.todo.db]))
 
 ;; ---------------------------------------------------------------------------
 ;; Boot
@@ -44,7 +44,7 @@
          on a seeded model rather than on a nil the views have to defend
          against."}
   (fn [_ [_ titles]]
-    {:db (rf.hicasso.examples.todo.db/seed (or titles []))}))
+    {:db (rf.fresco.examples.todo.db/seed (or titles []))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The new-to-do box
@@ -125,10 +125,10 @@
     ;; `[:ui <concern> <ikey>]` is `h/reg-state`'s documented app-db layout
     ;; and an ordinary handler may read it. The `:ui` root has no name on
     ;; the door, so it is written out — see the namespace docstring.
-    (if-some [text (get-in db [:ui rf.hicasso.examples.todo.db/draft id])]
+    (if-some [text (get-in db [:ui rf.fresco.examples.todo.db/draft id])]
       (let [title (str/trim text)]
         {:db (if (str/blank? title)
                (update db :todos dissoc id)
                (assoc-in db [:todos id :title] title))
-         :fx [[:dispatch [::rf.hicasso/clear rf.hicasso.examples.todo.db/draft id]]]})
+         :fx [[:dispatch [::rf.fresco/clear rf.fresco.examples.todo.db/draft id]]]})
       {})))

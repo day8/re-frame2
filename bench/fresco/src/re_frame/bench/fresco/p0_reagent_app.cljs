@@ -1,9 +1,9 @@
-(ns re-frame.bench.hicasso.p0-reagent-app
+(ns re-frame.bench.fresco.p0-reagent-app
   "THE P0 REAGENT-ON-SUBS BASELINE RUN — mount and bulk, browser,
   `:advanced` (rf2-2rtt6.2; EP-0038 P0; the bar is HD-012).
 
-  The `:init-fn` of the `:hicasso-bench` build. Driven by
-  `implementation/hicasso/test/re_frame/bench/hicasso/run.cjs`, which
+  The `:init-fn` of the `:fresco-bench` build. Driven by
+  `implementation/fresco/test/re_frame/bench/fresco/run.cjs`, which
   builds this entry, serves it, drives Chromium, prints every record and
   turns an arm-order refusal into exit code 2.
 
@@ -27,17 +27,17 @@
      every pair. A release that threw is fatal, and so is a release that
      returned normally without releasing — observed twice over: every
      unmount's container is read BEFORE it is detached
-     (`rf.bench.hicasso.lane/container-released!` — a React root's unmount empties its
+     (`rf.bench.fresco.lane/container-released!` — a React root's unmount empties its
      container synchronously, so a populated one is a root that was never
-     released), and `rf.bench.hicasso.lane/residue` reads the attached-container count, the
+     released), and `rf.bench.fresco.lane/residue` reads the attached-container count, the
      frame's subscription ref-counts AND the watch count on
-     `rf.bench.hicasso.p0-reagent-views/ratom-cells` back to the empty-page baseline, because the ratom
+     `rf.bench.fresco.p0-reagent-views/ratom-cells` back to the empty-page baseline, because the ratom
      arms' live references sit on that namespace-level atom where neither
      built-in counter can see them. The settle is not politeness to the
      assertion — a mount row is wholly synchronous and Reagent's disposals
      are queued on a macrotask, so without it row N+1 begins on a page
      still carrying every consumer reaction row N mounted
-     (`rf.bench.hicasso.lane/settle!` carries the three-point measurement).
+     (`rf.bench.fresco.lane/settle!` carries the three-point measurement).
   4. **The positive control's verdict**, then the guard's.
 
   Nothing publishes until the guard has spoken. `run.cjs` prints the
@@ -53,8 +53,8 @@
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.p0-reagent-views :as rf.bench.hicasso.p0-reagent-views]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.p0-reagent-views :as rf.bench.fresco.p0-reagent-views]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [reagent.core :as r]
@@ -128,8 +128,8 @@
   twice the page was the one arm nothing checked past its first half."
   [n]
   (fn [container]
-    (and (= "0" (rf.bench.hicasso.lane/text-at container 0))
-         (= "0" (rf.bench.hicasso.lane/text-at container (dec n))))))
+    (and (= "0" (rf.bench.fresco.lane/text-at container 0))
+         (= "0" (rf.bench.fresco.lane/text-at container (dec n))))))
 
 (defn- verify-m2
   "The first and last field AT THE ARM'S OWN SIZE — `n` fields, so the far
@@ -137,8 +137,8 @@
   PREFIX and could not tell a doubled form from a base one."
   [n]
   (fn [container]
-    (and (= (rf.bench.hicasso.p0-reagent-views/field-value 0 0) (input-value container "#f0"))
-         (= (rf.bench.hicasso.p0-reagent-views/field-value (dec n) 0)
+    (and (= (rf.bench.fresco.p0-reagent-views/field-value 0 0) (input-value container "#f0"))
+         (= (rf.bench.fresco.p0-reagent-views/field-value (dec n) 0)
             (input-value container (str "#f" (dec n)))))))
 
 (defn- expectation
@@ -163,23 +163,23 @@
 (def ^:private mount-witnesses
   [{:id          :M1
     :verify-of   verify-m1
-    :elements-of rf.bench.hicasso.p0-reagent-views/m1-elements
+    :elements-of rf.bench.fresco.p0-reagent-views/m1-elements
     :doc      (str "the 300-boundary sub-reading list — the bulk shape's mount "
                    "counterpart, one subscription read per boundary")
-    :props    {:n rf.bench.hicasso.p0-reagent-views/cells-n}
-    :control  {:predicted (/ (double (rf.bench.hicasso.p0-reagent-views/m1-elements (* 2 rf.bench.hicasso.p0-reagent-views/cells-n)))
-                             (double (rf.bench.hicasso.p0-reagent-views/m1-elements rf.bench.hicasso.p0-reagent-views/cells-n)))
-               :basis     (str "element count: " (rf.bench.hicasso.p0-reagent-views/m1-elements (* 2 rf.bench.hicasso.p0-reagent-views/cells-n)) " / "
-                               (rf.bench.hicasso.p0-reagent-views/m1-elements rf.bench.hicasso.p0-reagent-views/cells-n))}
-    :arms [(floor-mount-arm :floor rf.bench.hicasso.p0-reagent-views/m1-floor (fn [{:keys [n]}] (zeros n)))
+    :props    {:n rf.bench.fresco.p0-reagent-views/cells-n}
+    :control  {:predicted (/ (double (rf.bench.fresco.p0-reagent-views/m1-elements (* 2 rf.bench.fresco.p0-reagent-views/cells-n)))
+                             (double (rf.bench.fresco.p0-reagent-views/m1-elements rf.bench.fresco.p0-reagent-views/cells-n)))
+               :basis     (str "element count: " (rf.bench.fresco.p0-reagent-views/m1-elements (* 2 rf.bench.fresco.p0-reagent-views/cells-n)) " / "
+                               (rf.bench.fresco.p0-reagent-views/m1-elements rf.bench.fresco.p0-reagent-views/cells-n))}
+    :arms [(floor-mount-arm :floor rf.bench.fresco.p0-reagent-views/m1-floor (fn [{:keys [n]}] (zeros n)))
            (reagent-mount-arm :reagent-subs
-                              (fn [{:keys [n]}] [rf.bench.hicasso.p0-reagent-views/subs-root rf.bench.hicasso.p0-reagent-views/m1-subs n]))
-           (reagent-mount-arm :reagent-ratom (fn [{:keys [n]}] [rf.bench.hicasso.p0-reagent-views/m1-ratom n]))
-           (floor-mount-arm :ctl-2x rf.bench.hicasso.p0-reagent-views/m1-floor (fn [{:keys [n]}] (zeros (* 2 n))) 2)]}
+                              (fn [{:keys [n]}] [rf.bench.fresco.p0-reagent-views/subs-root rf.bench.fresco.p0-reagent-views/m1-subs n]))
+           (reagent-mount-arm :reagent-ratom (fn [{:keys [n]}] [rf.bench.fresco.p0-reagent-views/m1-ratom n]))
+           (floor-mount-arm :ctl-2x rf.bench.fresco.p0-reagent-views/m1-floor (fn [{:keys [n]}] (zeros (* 2 n))) 2)]}
 
    {:id          :M2
     :verify-of   verify-m2
-    :elements-of rf.bench.hicasso.p0-reagent-views/m2-elements
+    :elements-of rf.bench.fresco.p0-reagent-views/m2-elements
     ;; ONE mount per sample, and the batching that would have lifted this
     ;; witness clear of Chrome's 100 µs clamp is NOT USED. It was tried —
     ;; eight mounts in one `flushSync` — and THE ARM-ORDER GUARD REFUSED
@@ -207,16 +207,16 @@
                      "form shape shows no LARGE reactive-system penalty on mount.")
     :doc      (str "the ordinary 12-field form on subs — the shape most "
                    "applications are made of")
-    :props    {:n rf.bench.hicasso.p0-reagent-views/fields-n}
-    :control  {:predicted (/ (double (rf.bench.hicasso.p0-reagent-views/m2-elements (* 2 rf.bench.hicasso.p0-reagent-views/fields-n)))
-                             (double (rf.bench.hicasso.p0-reagent-views/m2-elements rf.bench.hicasso.p0-reagent-views/fields-n)))
-               :basis     (str "element count: " (rf.bench.hicasso.p0-reagent-views/m2-elements (* 2 rf.bench.hicasso.p0-reagent-views/fields-n)) " / "
-                               (rf.bench.hicasso.p0-reagent-views/m2-elements rf.bench.hicasso.p0-reagent-views/fields-n))}
-    :arms [(floor-mount-arm :floor rf.bench.hicasso.p0-reagent-views/m2-floor (fn [{:keys [n]}] (zeros n)))
+    :props    {:n rf.bench.fresco.p0-reagent-views/fields-n}
+    :control  {:predicted (/ (double (rf.bench.fresco.p0-reagent-views/m2-elements (* 2 rf.bench.fresco.p0-reagent-views/fields-n)))
+                             (double (rf.bench.fresco.p0-reagent-views/m2-elements rf.bench.fresco.p0-reagent-views/fields-n)))
+               :basis     (str "element count: " (rf.bench.fresco.p0-reagent-views/m2-elements (* 2 rf.bench.fresco.p0-reagent-views/fields-n)) " / "
+                               (rf.bench.fresco.p0-reagent-views/m2-elements rf.bench.fresco.p0-reagent-views/fields-n))}
+    :arms [(floor-mount-arm :floor rf.bench.fresco.p0-reagent-views/m2-floor (fn [{:keys [n]}] (zeros n)))
            (reagent-mount-arm :reagent-subs
-                              (fn [{:keys [n]}] [rf.bench.hicasso.p0-reagent-views/subs-root rf.bench.hicasso.p0-reagent-views/m2-subs n]))
-           (reagent-mount-arm :reagent-ratom (fn [{:keys [n]}] [rf.bench.hicasso.p0-reagent-views/m2-ratom n]))
-           (floor-mount-arm :ctl-2x rf.bench.hicasso.p0-reagent-views/m2-floor (fn [{:keys [n]}] (zeros (* 2 n))) 2)]}])
+                              (fn [{:keys [n]}] [rf.bench.fresco.p0-reagent-views/subs-root rf.bench.fresco.p0-reagent-views/m2-subs n]))
+           (reagent-mount-arm :reagent-ratom (fn [{:keys [n]}] [rf.bench.fresco.p0-reagent-views/m2-ratom n]))
+           (floor-mount-arm :ctl-2x rf.bench.fresco.p0-reagent-views/m2-floor (fn [{:keys [n]}] (zeros (* 2 n))) 2)]}])
 
 ;; ---------------------------------------------------------------------------
 ;; Bulk arms — mounted once, then written to
@@ -233,7 +233,7 @@
      :mount          (fn [container]
                        (let [root (react-dom-client/createRoot container)]
                          (vreset! rt root)
-                         (react-dom/flushSync (fn [] (.render root (rf.bench.hicasso.p0-reagent-views/m1-floor @state))))
+                         (react-dom/flushSync (fn [] (.render root (rf.bench.fresco.p0-reagent-views/m1-floor @state))))
                          root))
      ;; The render lives in `force!`, not in `write!`, and that is not a
      ;; convenience. `root.render` called outside a React event schedules
@@ -244,19 +244,19 @@
      ;; samples ending on a cell that still held its old value.
      :write!         (fn [_i val] (reset! state (vec (repeat n val))))
      :force!         (fn [] (react-dom/flushSync
-                              (fn [] (.render ^js @rt (rf.bench.hicasso.p0-reagent-views/m1-floor @state)))))
+                              (fn [] (.render ^js @rt (rf.bench.fresco.p0-reagent-views/m1-floor @state)))))
      :unmount        (fn [root] (react-dom/flushSync (fn [] (.unmount root))))}))
 
 (defn- subs-bulk-arm []
   {:id      :reagent-subs
-   :cells   rf.bench.hicasso.p0-reagent-views/cells-n
+   :cells   rf.bench.fresco.p0-reagent-views/cells-n
    :mount   (fn [container]
               (let [root (rdc/create-root container)]
                 (react-dom/flushSync
-                  (fn [] (rdc/render root [rf.bench.hicasso.p0-reagent-views/subs-root rf.bench.hicasso.p0-reagent-views/m1-subs rf.bench.hicasso.p0-reagent-views/cells-n])))
+                  (fn [] (rdc/render root [rf.bench.fresco.p0-reagent-views/subs-root rf.bench.fresco.p0-reagent-views/m1-subs rf.bench.fresco.p0-reagent-views/cells-n])))
                 root))
    :write!  (fn [_i val]
-              (rf.frame/replace-app-db! rf.bench.hicasso.p0-reagent-views/subs-frame (rf.bench.hicasso.p0-reagent-views/seed-cells rf.bench.hicasso.p0-reagent-views/cells-n val)))
+              (rf.frame/replace-app-db! rf.bench.fresco.p0-reagent-views/subs-frame (rf.bench.fresco.p0-reagent-views/seed-cells rf.bench.fresco.p0-reagent-views/cells-n val)))
    ;; `reagent.core/flush` is Reagent's own documented synchronous render
    ;; drain, and it is the SAME drain the ratom arm uses. Both Reagent arms
    ;; therefore differ in exactly one thing — where the value came from —
@@ -266,40 +266,40 @@
 
 (defn- ratom-bulk-arm []
   {:id      :reagent-ratom
-   :cells   rf.bench.hicasso.p0-reagent-views/cells-n
+   :cells   rf.bench.fresco.p0-reagent-views/cells-n
    :mount   (fn [container]
               (let [root (rdc/create-root container)]
                 (react-dom/flushSync
-                  (fn [] (rdc/render root [rf.bench.hicasso.p0-reagent-views/m1-ratom rf.bench.hicasso.p0-reagent-views/cells-n])))
+                  (fn [] (rdc/render root [rf.bench.fresco.p0-reagent-views/m1-ratom rf.bench.fresco.p0-reagent-views/cells-n])))
                 root))
-   :write!  (fn [_i val] (reset! rf.bench.hicasso.p0-reagent-views/ratom-cells (vec (repeat rf.bench.hicasso.p0-reagent-views/cells-n val))))
+   :write!  (fn [_i val] (reset! rf.bench.fresco.p0-reagent-views/ratom-cells (vec (repeat rf.bench.fresco.p0-reagent-views/cells-n val))))
    :force!  (fn [] (react-dom/flushSync (fn [] (r/flush))))
    :unmount (fn [root] (react-dom/flushSync (fn [] (rdc/unmount root))))})
 
 (defn- make-bulk-arms []
-  [(floor-bulk-arm :floor rf.bench.hicasso.p0-reagent-views/cells-n)
+  [(floor-bulk-arm :floor rf.bench.fresco.p0-reagent-views/cells-n)
    (subs-bulk-arm)
    (ratom-bulk-arm)
-   (floor-bulk-arm :ctl-2x (* 2 rf.bench.hicasso.p0-reagent-views/cells-n) 2)])
+   (floor-bulk-arm :ctl-2x (* 2 rf.bench.fresco.p0-reagent-views/cells-n) 2)])
 
 (defn- mount-bulk-arms!
   "Mount every bulk arm once and CHECK THE PAGE IT BUILT, before a clock is
   read.
 
-  Every bulk arm declares `:cells`, and `rf.bench.hicasso.p0-reagent-views/m1-elements` turns that into an
+  Every bulk arm declares `:cells`, and `rf.bench.fresco.p0-reagent-views/m1-elements` turns that into an
   element count by written arithmetic — so this one line is what makes the
   bulk `:ctl-2x` arm's doubled page load-bearing. Its far-end read-back
-  already derives from `:cells` (`rf.bench.hicasso.lane/bulk-probes` probes index
+  already derives from `:cells` (`rf.bench.fresco.lane/bulk-probes` probes index
   `cells - 1`), so a control shrunk to the base 300 cells would still have
   probed a cell it owns; the count is the check that cannot be satisfied by
   a smaller page. Outside every timed window: the arms are mounted once and
   written to thereafter."
   [arms]
   (mapv (fn [a]
-          (let [c        (rf.bench.hicasso.lane/fresh-container!)
+          (let [c        (rf.bench.fresco.lane/fresh-container!)
                 handle   ((:mount a) c)
-                expected (rf.bench.hicasso.p0-reagent-views/m1-elements (:cells a))
-                got      (rf.bench.hicasso.lane/element-count c)]
+                expected (rf.bench.fresco.p0-reagent-views/m1-elements (:cells a))
+                got      (rf.bench.fresco.lane/element-count c)]
             (when-not (= expected got)
               (throw (ex-info (str "the bulk arm " (:id a) " built " got
                                    " elements where its own " (:cells a)
@@ -318,19 +318,19 @@
   while every later sample is measured on top of them. The second audit
   then proved the remaining half by mutation: an unmount that RETURNED
   NORMALLY without releasing left the ratom arm's root standing on a
-  detached tree, rooted in `rf.bench.hicasso.p0-reagent-views/ratom-cells` where neither the body census
-  nor the frame's sub-cache could see it — so `rf.bench.hicasso.lane/container-released!`
+  detached tree, rooted in `rf.bench.fresco.p0-reagent-views/ratom-cells` where neither the body census
+  nor the frame's sub-cache could see it — so `rf.bench.fresco.lane/container-released!`
   now reads each container before it is removed, exactly as
-  `rf.bench.hicasso.lane/release!` does. The caller adjudicates with
-  `rf.bench.hicasso.lane/assert-teardown-clean!` and proves the reference census with
-  `rf.bench.hicasso.lane/assert-residue!`."
+  `rf.bench.fresco.lane/release!` does. The caller adjudicates with
+  `rf.bench.fresco.lane/assert-teardown-clean!` and proves the reference census with
+  `rf.bench.fresco.lane/assert-residue!`."
   [mounts]
   (doseq [{:keys [arm handle container]} mounts]
     (when (try ((:unmount arm) handle)
                true
                (catch :default e
-                 (rf.bench.hicasso.lane/teardown-failure! (str "release-bulk-arms! " (:id arm)) e)))
-      (rf.bench.hicasso.lane/container-released! (str "release-bulk-arms! " (:id arm)) container))
+                 (rf.bench.fresco.lane/teardown-failure! (str "release-bulk-arms! " (:id arm)) e)))
+      (rf.bench.fresco.lane/container-released! (str "release-bulk-arms! " (:id arm)) container))
     (.remove container)))
 
 ;; ---------------------------------------------------------------------------
@@ -340,7 +340,7 @@
 (defn- fixture-common []
   {:reagent-version   "2.0.1"
    :adapter           :rf.adapter/reagent
-   :runtime           (rf.bench.hicasso.lane/runtime-label)
+   :runtime           (rf.bench.fresco.lane/runtime-label)
    :denominator       :reagent-subs
    :floor-note        (str "the same DOM built by hand with react/createElement and no "
                            "substrate at all; every ratio is to the floor measured in "
@@ -366,11 +366,11 @@
 (defn- measure-mount!
   [{:keys [id doc props arms control per-sample clock-note] :as witness}]
   (let [k        (or per-sample 1)
-        t        (rf.bench.hicasso.lane/tally)
+        t        (rf.bench.fresco.lane/tally)
         elements (base-elements witness)
         expect   (into {} (map (juxt :id #(expectation witness %))) arms)
         one!  (fn [arm]
-                (let [{:keys [ms mounts]} (rf.bench.hicasso.lane/mount-batch! arm props k)
+                (let [{:keys [ms mounts]} (rf.bench.fresco.lane/mount-batch! arm props k)
                       {exp-elements :elements verify :verify} (get expect (:id arm))]
                   ;; EVERY mount in the batch is read back out of the
                   ;; document, against THIS ARM'S OWN arithmetic. `verify` is
@@ -384,23 +384,23 @@
                   ;; twice the page and a probe fixed at the witness's size
                   ;; cannot tell it from the base one.
                   (doseq [m mounts]
-                    (let [ok? (and (= exp-elements (rf.bench.hicasso.lane/element-count (:container m)))
+                    (let [ok? (and (= exp-elements (rf.bench.fresco.lane/element-count (:container m)))
                                    (verify (:container m)))]
                       (swap! t (fn [{:keys [of bad]}]
                                  {:of (inc of) :bad (if ok? bad (inc bad))}))))
-                  (doseq [m mounts] (rf.bench.hicasso.lane/release! m))
+                  (doseq [m mounts] (rf.bench.fresco.lane/release! m))
                   ms))
-        {:keys [readings samples]} (rf.bench.hicasso.lane/rounds! arms mount-sampling rounds one!
+        {:keys [readings samples]} (rf.bench.fresco.lane/rounds! arms mount-sampling rounds one!
                                                  (fn [arm] (str (name id) "/"
                                                                 (name (:id arm)))))
-        norm  (mapv #(rf.bench.hicasso.lane/normalise % :floor) readings)
+        norm  (mapv #(rf.bench.fresco.lane/normalise % :floor) readings)
         ratios (mapv :ratio norm)
-        summ  (rf.bench.hicasso.lane/across-rounds ratios)
-        ctl   (rf.bench.hicasso.lane/control-verdict (:predicted control)
+        summ  (rf.bench.fresco.lane/across-rounds ratios)
+        ctl   (rf.bench.fresco.lane/control-verdict (:predicted control)
                                     (select-keys (:ctl-2x summ) [:min :max :mean])
                                     control-slack)
         record
-        {:benchmark        (keyword "hicasso.P0" (str "mount-" (name id)))
+        {:benchmark        (keyword "fresco.P0" (str "mount-" (name id)))
          :doc              doc
          :bead             "rf2-2rtt6.2"
          :grade            (if clock-note :diagnostic :bar)
@@ -440,15 +440,15 @@
                                         "checked at its own far end and not at the base "
                                         "page's")})
          :sampling         mount-sampling
-         :verification     (rf.bench.hicasso.lane/tally-value t)
+         :verification     (rf.bench.fresco.lane/tally-value t)
          :positive-control (assoc ctl :basis (:basis control))
          :per-round        {:p50 (mapv :p50 norm) :ratio ratios}
          :ratio-to-floor   summ
-         :bar-row          (rf.bench.hicasso.lane/ratio-between ratios :reagent-subs :floor)
-         :reactive-leg     (rf.bench.hicasso.lane/ratio-between ratios :reagent-subs :reagent-ratom)
+         :bar-row          (rf.bench.fresco.lane/ratio-between ratios :reagent-subs :floor)
+         :reactive-leg     (rf.bench.fresco.lane/ratio-between ratios :reagent-subs :reagent-ratom)
          :status           :evidence}]
-    (rf.bench.hicasso.lane/record! (str "mount-" (name id)) record)
-    (rf.bench.hicasso.lane/assert-verified! t (str "mount row " (name id)))
+    (rf.bench.fresco.lane/record! (str "mount-" (name id)) record)
+    (rf.bench.fresco.lane/assert-verified! t (str "mount row " (name id)))
     {:id id :record record :samples samples :control ctl}))
 
 ;; ---------------------------------------------------------------------------
@@ -462,16 +462,16 @@
   A broad write changes every cell, so the probe rotates with the value
   AND the far end of the grid is checked: a stale page can still carry one
   fresh cell from the previous write, and a single fixed probe would
-  accept it. The rule is `rf.bench.hicasso.lane/bulk-probes`, not a literal here — HD-008's
+  accept it. The rule is `rf.bench.fresco.lane/bulk-probes`, not a literal here — HD-008's
   bulk row probed cell 0 alone while this one probed three (rf2-f5roa)."
   [t mnt]
   (let [n   (:cells (:arm mnt))
         val (next-gen!)]
-    (rf.bench.hicasso.lane/verified-write! t mnt :all val (rf.bench.hicasso.lane/bulk-probes val n))))
+    (rf.bench.fresco.lane/verified-write! t mnt :all val (rf.bench.fresco.lane/bulk-probes val n))))
 
 (defn- seed-bulk! [mounts t]
-  (rf.bench.hicasso.lane/chain nil mounts
-              (fn [_ mnt] (-> (rf.bench.hicasso.lane/verified-write! t mnt :all 0
+  (rf.bench.fresco.lane/chain nil mounts
+              (fn [_ mnt] (-> (rf.bench.fresco.lane/verified-write! t mnt :all 0
                                                     [0 (dec (:cells (:arm mnt)))])
                               (.then (fn [_] nil))))))
 
@@ -484,15 +484,15 @@
   (let [k     (count mounts)
         total (+ (:warmup bulk-sampling) (:samples bulk-sampling))
         acc0  (zipmap (map #(:id (:arm %)) mounts) (repeat []))]
-    (rf.bench.hicasso.lane/chain {:readings acc0}
-                (for [s (range total) j (rf.bench.hicasso.lane/slot-order k s)] [s j])
+    (rf.bench.fresco.lane/chain {:readings acc0}
+                (for [s (range total) j (rf.bench.fresco.lane/slot-order k s)] [s j])
                 (fn [acc [s j]]
                   (let [mnt (nth mounts j)
                         id  (:id (:arm mnt))]
                     (-> (bulk-write! t mnt)
                         (.then (fn [{:keys [ms write-ms gap-ms force-ms]}]
                                  (if (>= s (:warmup bulk-sampling))
-                                   (do (rf.bench.hicasso.lane/collect! coll (str "bulk/" (name id)) ms)
+                                   (do (rf.bench.fresco.lane/collect! coll (str "bulk/" (name id)) ms)
                                        (swap! legs update id (fnil conj [])
                                               {:write write-ms :gap gap-ms :force force-ms})
                                        (update-in acc [:readings id] conj ms))
@@ -501,40 +501,40 @@
 (defn- leg-summary [legs]
   (into {}
         (map (fn [[id xs]]
-               [id {:write-ms (:p50 (rf.bench.hicasso.lane/summarise (map :write xs)))
-                    :gap-ms   (:p50 (rf.bench.hicasso.lane/summarise (map :gap xs)))
-                    :force-ms (:p50 (rf.bench.hicasso.lane/summarise (map :force xs)))}]))
+               [id {:write-ms (:p50 (rf.bench.fresco.lane/summarise (map :write xs)))
+                    :gap-ms   (:p50 (rf.bench.fresco.lane/summarise (map :gap xs)))
+                    :force-ms (:p50 (rf.bench.fresco.lane/summarise (map :force xs)))}]))
         legs))
 
 (defn- measure-bulk!
   [mounts]
-  (let [t    (rf.bench.hicasso.lane/tally)
+  (let [t    (rf.bench.fresco.lane/tally)
         legs (atom {})
-        coll (rf.bench.hicasso.lane/sample-collector)]
-    (-> (rf.bench.hicasso.lane/chain [] (range rounds)
+        coll (rf.bench.fresco.lane/sample-collector)]
+    (-> (rf.bench.fresco.lane/chain [] (range rounds)
                     (fn [acc _]
                       (-> (seed-bulk! mounts t)
                           (.then (fn [_] (bulk-round! mounts t legs coll)))
                           (.then (fn [rd] (conj acc (:readings rd)))))))
         (.then
           (fn [readings]
-            (let [norm   (mapv #(rf.bench.hicasso.lane/normalise % :floor) readings)
+            (let [norm   (mapv #(rf.bench.fresco.lane/normalise % :floor) readings)
                   ratios (mapv :ratio norm)
-                  summ   (rf.bench.hicasso.lane/across-rounds ratios)
-                  predicted (/ (double (rf.bench.hicasso.p0-reagent-views/m1-elements (* 2 rf.bench.hicasso.p0-reagent-views/cells-n)))
-                               (double (rf.bench.hicasso.p0-reagent-views/m1-elements rf.bench.hicasso.p0-reagent-views/cells-n)))
-                  ctl    (rf.bench.hicasso.lane/control-verdict
+                  summ   (rf.bench.fresco.lane/across-rounds ratios)
+                  predicted (/ (double (rf.bench.fresco.p0-reagent-views/m1-elements (* 2 rf.bench.fresco.p0-reagent-views/cells-n)))
+                               (double (rf.bench.fresco.p0-reagent-views/m1-elements rf.bench.fresco.p0-reagent-views/cells-n)))
+                  ctl    (rf.bench.fresco.lane/control-verdict
                            predicted
                            (select-keys (:ctl-2x summ) [:min :max :mean])
                            control-slack)
                   record
-                  {:benchmark        :hicasso.P0/bulk-broad
-                   :doc              (str "one commit that all " rf.bench.hicasso.p0-reagent-views/cells-n
+                  {:benchmark        :fresco.P0/bulk-broad
+                   :doc              (str "one commit that all " rf.bench.fresco.p0-reagent-views/cells-n
                                           " sub-reading boundaries read — the "
                                           "make-or-break row")
                    :bead             "rf2-2rtt6.2"
                    :fixture          (merge (fixture-common)
-                                            {:cells rf.bench.hicasso.p0-reagent-views/cells-n
+                                            {:cells rf.bench.fresco.p0-reagent-views/cells-n
                                              :arms  (mapv #(:id (:arm %)) mounts)
                                              :writes-per-sample 1
                                              :measurement-method
@@ -558,19 +558,19 @@
                                                   "re-render and is NOT a lower bound — a "
                                                   "fine-grained substrate can beat it")})
                    :sampling         bulk-sampling
-                   :verification     (rf.bench.hicasso.lane/tally-value t)
+                   :verification     (rf.bench.fresco.lane/tally-value t)
                    :positive-control (assoc ctl :basis
                                             (str "element count: "
-                                                 (rf.bench.hicasso.p0-reagent-views/m1-elements (* 2 rf.bench.hicasso.p0-reagent-views/cells-n)) " / "
-                                                 (rf.bench.hicasso.p0-reagent-views/m1-elements rf.bench.hicasso.p0-reagent-views/cells-n)))
+                                                 (rf.bench.fresco.p0-reagent-views/m1-elements (* 2 rf.bench.fresco.p0-reagent-views/cells-n)) " / "
+                                                 (rf.bench.fresco.p0-reagent-views/m1-elements rf.bench.fresco.p0-reagent-views/cells-n)))
                    :per-round        {:p50 (mapv :p50 norm) :ratio ratios}
                    :legs             (leg-summary @legs)
                    :ratio-to-floor   summ
-                   :bar-row          (rf.bench.hicasso.lane/ratio-between ratios :reagent-subs :floor)
-                   :reactive-leg     (rf.bench.hicasso.lane/ratio-between ratios :reagent-subs :reagent-ratom)
+                   :bar-row          (rf.bench.fresco.lane/ratio-between ratios :reagent-subs :floor)
+                   :reactive-leg     (rf.bench.fresco.lane/ratio-between ratios :reagent-subs :reagent-ratom)
                    :status           :evidence}]
-              (rf.bench.hicasso.lane/record! "bulk-broad" record)
-              (rf.bench.hicasso.lane/assert-verified! t "the bulk row")
+              (rf.bench.fresco.lane/record! "bulk-broad" record)
+              (rf.bench.fresco.lane/assert-verified! t "the bulk row")
               {:record record :samples (:samples @coll) :control ctl}))))))
 
 ;; ---------------------------------------------------------------------------
@@ -581,7 +581,7 @@
   "Canonical-DOM equality across the judged arms, and the element count of
   EVERY arm — the control included — against its own arithmetic.
 
-  The count used to be checked only over `rf.bench.hicasso.lane/parity`'s `counts` map,
+  The count used to be checked only over `rf.bench.fresco.lane/parity`'s `counts` map,
   which excludes the parity-exempt arms by design, so the one arm building
   a deliberately different page had that page checked nowhere. Exempt from
   the EQUALITY is not exempt from arithmetic: the control is exempt
@@ -590,12 +590,12 @@
   []
   (reduce
     (fn [problems {:keys [id props arms] :as witness}]
-      (let [{:keys [mounts agree? disagree]} (rf.bench.hicasso.lane/parity arms props)
+      (let [{:keys [mounts agree? disagree]} (rf.bench.fresco.lane/parity arms props)
             wrong (into {}
                         (comp (map (fn [{:keys [arm container]}]
                                      [(:id arm)
                                       {:expected (:elements (expectation witness arm))
-                                       :got      (rf.bench.hicasso.lane/element-count container)}]))
+                                       :got      (rf.bench.fresco.lane/element-count container)}]))
                               (remove (fn [[_ {:keys [expected got]}]] (= expected got))))
                         mounts)]
         (try
@@ -605,7 +605,7 @@
 
             (seq wrong)
             (conj {:witness id :problem :element-count :arms wrong}))
-          (finally (doseq [m mounts] (rf.bench.hicasso.lane/release! m))))))
+          (finally (doseq [m mounts] (rf.bench.fresco.lane/release! m))))))
     []
     mount-witnesses))
 
@@ -614,13 +614,13 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private census
-  "This run's additions to `rf.bench.hicasso.lane/residue` — the places its own arms' live
+  "This run's additions to `rf.bench.fresco.lane/residue` — the places its own arms' live
   references sit that the built-in counters cannot see. One entry: the
-  ratom arms' cursor reactions are watches on `rf.bench.hicasso.p0-reagent-views/ratom-cells`, not frame
+  ratom arms' cursor reactions are watches on `rf.bench.fresco.p0-reagent-views/ratom-cells`, not frame
   subscriptions and not attached DOM, so without this count a ratom root
   that survived its unmount was invisible to the whole census
-  (`rf.bench.hicasso.p0-reagent-views/ratom-watch-count` carries the mechanics)."
-  {:ratom-watches rf.bench.hicasso.p0-reagent-views/ratom-watch-count})
+  (`rf.bench.fresco.p0-reagent-views/ratom-watch-count` carries the mechanics)."
+  {:ratom-watches rf.bench.fresco.p0-reagent-views/ratom-watch-count})
 
 (defn- settled!
   "Let the substrate's disposal queue run, then adjudicate the two things a
@@ -630,63 +630,63 @@
   Between rows, never inside a window. A row measured on top of the
   previous row's un-released boundaries is the same class of fault as a
   write that never reached the page, and this is where it is caught — see
-  [[rf.bench.hicasso.lane/settle!]] for why the yield is load-bearing rather than a
+  [[rf.bench.fresco.lane/settle!]] for why the yield is load-bearing rather than a
   courtesy to the assertion. The [[census]] rides both the baseline and
   every assertion, so the ratom family is held to the same equality as
   the subs family."
   [baseline after]
-  (-> (rf.bench.hicasso.lane/settle!)
+  (-> (rf.bench.fresco.lane/settle!)
       (.then (fn [_]
-               (rf.bench.hicasso.lane/assert-teardown-clean! after)
-               (rf.bench.hicasso.lane/assert-residue! baseline rf.bench.hicasso.p0-reagent-views/subs-frame after census)))))
+               (rf.bench.fresco.lane/assert-teardown-clean! after)
+               (rf.bench.fresco.lane/assert-residue! baseline rf.bench.fresco.p0-reagent-views/subs-frame after census)))))
 
 (defn- finish!
   [{:keys [samples controls]}]
-  (let [v (rf.bench.hicasso.lane/guard! samples "Hicasso P0 — Reagent-on-subs")]
-    (rf.bench.hicasso.lane/record! "arm-order-guard"
+  (let [v (rf.bench.fresco.lane/guard! samples "Fresco P0 — Reagent-on-subs")]
+    (rf.bench.fresco.lane/record! "arm-order-guard"
                   {:tolerance (:tolerance v)
                    :contaminated? (:contaminated? v)
                    :unchecked? (:unchecked? v)
                    :refuse? (:refuse? v)
                    :arms (:arms v)})
-    (when (:refuse? v) (set! (.-HICASSO_GUARD_REFUSED js/window) true))
+    (when (:refuse? v) (set! (.-FRESCO_GUARD_REFUSED js/window) true))
     (when (some (complement :ok?) controls)
-      (set! (.-HICASSO_CONTROL_FAILED js/window) true)))
-  (rf.bench.hicasso.lane/done!))
+      (set! (.-FRESCO_CONTROL_FAILED js/window) true)))
+  (rf.bench.fresco.lane/done!))
 
 (defn ^:export -main
   []
   (try
     (rf/init! rf.adapter.reagent/adapter)
-    (rf/make-frame {:id rf.bench.hicasso.p0-reagent-views/subs-frame})
-    (rf.frame/replace-app-db! rf.bench.hicasso.p0-reagent-views/subs-frame (rf.bench.hicasso.p0-reagent-views/seed-cells rf.bench.hicasso.p0-reagent-views/cells-n 0))
-    (reset! rf.bench.hicasso.p0-reagent-views/ratom-cells (:cells (rf.bench.hicasso.p0-reagent-views/seed-cells rf.bench.hicasso.p0-reagent-views/cells-n 0)))
-    (rf.bench.hicasso.lane/leave-act-environment!)
+    (rf/make-frame {:id rf.bench.fresco.p0-reagent-views/subs-frame})
+    (rf.frame/replace-app-db! rf.bench.fresco.p0-reagent-views/subs-frame (rf.bench.fresco.p0-reagent-views/seed-cells rf.bench.fresco.p0-reagent-views/cells-n 0))
+    (reset! rf.bench.fresco.p0-reagent-views/ratom-cells (:cells (rf.bench.fresco.p0-reagent-views/seed-cells rf.bench.fresco.p0-reagent-views/cells-n 0)))
+    (rf.bench.fresco.lane/leave-act-environment!)
 
-    (if-not (rf.bench.hicasso.lane/self-test!)
-      (do (rf.bench.hicasso.lane/fail! (str "the arm-order guard's SELF-TEST failed — this copy of the "
+    (if-not (rf.bench.fresco.lane/self-test!)
+      (do (rf.bench.fresco.lane/fail! (str "the arm-order guard's SELF-TEST failed — this copy of the "
                            "rule no longer behaves like the one the .cjs drivers use, "
                            "so nothing was measured"))
-          (rf.bench.hicasso.lane/done!))
+          (rf.bench.fresco.lane/done!))
       ;; The residue this run must return to after every row. Taken before
       ;; the first mount of the run, so it is the empty-page, empty-cache
       ;; reading and not a reading of whatever the previous row left.
-      (let [baseline (rf.bench.hicasso.lane/residue rf.bench.hicasso.p0-reagent-views/subs-frame census)
+      (let [baseline (rf.bench.fresco.lane/residue rf.bench.fresco.p0-reagent-views/subs-frame census)
             problems (parity-problems)]
-        (rf.bench.hicasso.lane/record! "parity" {:problems problems :ok? (empty? problems)})
-        (rf.bench.hicasso.lane/record! "residue-baseline" baseline)
+        (rf.bench.fresco.lane/record! "parity" {:problems problems :ok? (empty? problems)})
+        (rf.bench.fresco.lane/record! "residue-baseline" baseline)
         (if (seq problems)
-          (do (rf.bench.hicasso.lane/fail! (str "the arms do not build the same page under :advanced — "
+          (do (rf.bench.fresco.lane/fail! (str "the arms do not build the same page under :advanced — "
                                (pr-str problems)))
-              (rf.bench.hicasso.lane/done!))
+              (rf.bench.fresco.lane/done!))
           ;; The rows are CHAINED rather than folded, so a settle point sits
-          ;; between every pair of them. See `rf.bench.hicasso.lane/settle!`: a mount row is
+          ;; between every pair of them. See `rf.bench.fresco.lane/settle!`: a mount row is
           ;; wholly synchronous, Reagent's disposals are on a macrotask
           ;; queue, and without the yield row N+1 begins on a page still
           ;; carrying every consumer reaction row N mounted.
           (-> (settled! baseline "parity")
               (.then (fn [_]
-                       (rf.bench.hicasso.lane/chain []
+                       (rf.bench.fresco.lane/chain []
                                    mount-witnesses
                                    (fn [acc w]
                                      (let [r (measure-mount! w)]
@@ -700,7 +700,7 @@
                                       (release-bulk-arms! bulk)
                                       (-> (settled! baseline "the bulk row")
                                           (.then (fn [res]
-                                                   (rf.bench.hicasso.lane/record! "residue-after-bulk" res)
+                                                   (rf.bench.fresco.lane/record! "residue-after-bulk" res)
                                                    (finish!
                                                      {:samples
                                                       (into (vec (mapcat :samples mounted))
@@ -713,8 +713,8 @@
                                        (release-bulk-arms! bulk)
                                        (throw e)))))))
               (.catch (fn [e]
-                        (rf.bench.hicasso.lane/fail! (str "the run rejected: " e))
-                        (rf.bench.hicasso.lane/done!)))))))
+                        (rf.bench.fresco.lane/fail! (str "the run rejected: " e))
+                        (rf.bench.fresco.lane/done!)))))))
     (catch :default e
-      (rf.bench.hicasso.lane/fail! (str "the run threw: " e))
-      (rf.bench.hicasso.lane/done!))))
+      (rf.bench.fresco.lane/fail! (str "the run threw: " e))
+      (rf.bench.fresco.lane/done!))))

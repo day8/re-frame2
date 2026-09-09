@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.shapes.framework-subs-dom-cljs-test
+(ns re-frame.bench.fresco.shapes.framework-subs-dom-cljs-test
   "**FRAMEWORK SUBS, EXERCISED THROUGH THE ARM** (rf2-2rtt6.53).
 
   The charter counts framework subs at **27% of census read traffic** and
@@ -69,11 +69,11 @@
   stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.hook-probe :as rf.bench.hicasso.arm1.hook-probe]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
+            [re-frame.bench.fresco.arm1.hook-probe :as rf.bench.fresco.arm1.hook-probe]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime :refer [sub]]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.shapes.model :as rf.bench.fresco.shapes.model]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
             [re-frame.http.managed]
@@ -83,7 +83,7 @@
             [re-frame.schemas]
             [re-frame.subs :as rf.subs]
             [re-frame.test-support :as rf.test-support])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures — the shared reset, plus the same capturing transport the
@@ -109,7 +109,7 @@
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))})
+     :init-fn       (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!))})
   capturing-transport-fixture)
 
 (def ^:private frame-id ::shape-framework-subs)
@@ -138,10 +138,10 @@
       {:request {:method :post :url (str "/api/articles/" slug "/favorite")}})))
 
 (defn- fresh! []
-  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.fresco.lane/leave-act-environment!)
   (register-framework!)
-  (rf.bench.hicasso.shapes.model/make-frame! frame-id seed)
-  (rf.bench.hicasso.shapes.model/reseed! frame-id seed)
+  (rf.bench.fresco.shapes.model/make-frame! frame-id seed)
+  (rf.bench.fresco.shapes.model/reseed! frame-id seed)
   frame-id)
 
 ;; ---------------------------------------------------------------------------
@@ -156,7 +156,7 @@
 
 (defn- runs [k] (get @!runs k 0))
 
-(def ^:private slug-0 (:slug (rf.bench.hicasso.shapes.model/article 0)))
+(def ^:private slug-0 (:slug (rf.bench.fresco.shapes.model/article 0)))
 
 (defn- mutation-read
   "The census's per-row status read, verbatim
@@ -217,19 +217,19 @@
 
 (defn- mount! []
   (reset-runs!)
-  (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [fw-page {}]))
+  (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [fw-page {}]))
 
 (defn- text [handle testid]
   (some-> (.querySelector (:container handle) (str "[data-testid=\"" testid "\"]"))
           (.-textContent)))
 
 (defn- execute-favorite! []
-  (rf.bench.hicasso.arm1.runtime/dispatch! frame-id
+  (rf.bench.fresco.arm1.runtime/dispatch! frame-id
                 [:rf.mutation/execute {:mutation :conduit/favorite-remote
                                        :params   {:slug slug-0}
                                        :instance [:favorite slug-0]
                                        :cause    [:test ::witness slug-0]}])
-  (rf.bench.hicasso.arm1.mount/settle!))
+  (rf.bench.fresco.arm1.mount/settle!))
 
 (defn- settle-favorite!
   "Replay the genuine reply-event-append shape the live transport would
@@ -238,34 +238,34 @@
   []
   (let [args (last @!managed)]
     (is (some? (:on-success args)) "the stub transport saw the mutation lowering")
-    (rf.bench.hicasso.arm1.runtime/dispatch! frame-id (conj (:on-success args)
+    (rf.bench.fresco.arm1.runtime/dispatch! frame-id (conj (:on-success args)
                                  {:status :ok :value {:article {:slug slug-0}}}))
-    (rf.bench.hicasso.arm1.mount/settle!)))
+    (rf.bench.fresco.arm1.mount/settle!)))
 
 (defn- ensure-feed! []
-  (rf.bench.hicasso.arm1.runtime/dispatch! frame-id
+  (rf.bench.fresco.arm1.runtime/dispatch! frame-id
                 [:rf.resource/ensure {:resource :conduit/feed
                                       :scope    :rf.scope/global
                                       :params   {:page 1}
                                       :owner    [:app ::witness 1]}])
-  (rf.bench.hicasso.arm1.mount/settle!))
+  (rf.bench.fresco.arm1.mount/settle!))
 
 (defn- settle-feed! [total]
   (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :conduit/feed {:page 1})
         runtime-db (:rf.db/runtime (rf/frame-state-value frame-id))
         work-id    (:current-work (get-in runtime-db (rf.resources.state/entry-path scoped-key)))]
     (is (some? work-id) "ensure minted in-flight work in the frame's runtime-db")
-    (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:rf.resource.internal/succeeded
+    (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:rf.resource.internal/succeeded
                             {:resource/key scoped-key :work/id work-id :generation 1
                              :data {:articlesCount total}}])
-    (rf.bench.hicasso.arm1.mount/settle!)))
+    (rf.bench.fresco.arm1.mount/settle!)))
 
 ;; ===========================================================================
 ;; 1 — the cell table serves a map-arg framework sub under VALUE equality
 ;; ===========================================================================
 
 (deftest the-sub-key-identity-holds-on-a-map-arg-key
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
@@ -273,51 +273,51 @@
         (try
           (testing "the mount is the arithmetic's page"
             (is (= {:boundaries 5 :cells 8 :edges 9}
-                   (select-keys (rf.bench.hicasso.arm1.runtime/stats) [:boundaries :cells :edges]))
+                   (select-keys (rf.bench.fresco.arm1.runtime/stats) [:boundaries :cells :edges]))
                 (str "1 page + " article-count " cards + 1 detail; the detail's "
                      "read SHARES card 0's cell, which is the map-arg dedup")))
           (testing "a freshly constructed value-equal key finds the cell"
-            (is (some? (rf.bench.hicasso.arm1.runtime/cell-reaction [frame-id (mutation-read slug-0)]))
+            (is (some? (rf.bench.fresco.arm1.runtime/cell-reaction [frame-id (mutation-read slug-0)]))
                 "the map arg is a value, not an object identity")
-            (is (some? (rf.bench.hicasso.arm1.runtime/cell-reaction [frame-id resource-read]))
+            (is (some? (rf.bench.fresco.arm1.runtime/cell-reaction [frame-id resource-read]))
                 "and so is the resource read's"))
           (testing "and finds the readers the cell holds for it (rf2-dabt3:
                    the reverse edge is the cell's own reader list now, so
                    this counts memberships on the table rather than a
                    second map's reader set)"
-            (is (= 2 (count (rf.bench.hicasso.arm1.runtime/cell-readers [frame-id (mutation-read slug-0)])))
+            (is (= 2 (count (rf.bench.fresco.arm1.runtime/cell-readers [frame-id (mutation-read slug-0)])))
                 "card 0 and the detail both hold the shared instance's edge")
-            (is (= 1 (count (rf.bench.hicasso.arm1.runtime/cell-readers [frame-id (mutation-read (:slug (rf.bench.hicasso.shapes.model/article 1)))])))
+            (is (= 1 (count (rf.bench.fresco.arm1.runtime/cell-readers [frame-id (mutation-read (:slug (rf.bench.fresco.shapes.model/article 1)))])))
                 "card 1's instance has exactly its own reader")
-            (is (= 0 (count (rf.bench.hicasso.arm1.runtime/cell-readers [frame-id (mutation-read "no-such-slug")])))
+            (is (= 0 (count (rf.bench.fresco.arm1.runtime/cell-readers [frame-id (mutation-read "no-such-slug")])))
                 "law 6: an instance nobody reads has no phantom reader"))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 ;; ===========================================================================
 ;; 2 — the mutation clock: runtime-db installs, never app-db commits
 ;; ===========================================================================
 
 (deftest a-mutation-commit-moves-its-readers-and-only-its-readers
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (let [handle (mount!)]
         (try
           (let [app-db-before (:rf.db/app (rf/frame-state-value frame-id))
-                cells-before  (:cells (rf.bench.hicasso.arm1.runtime/stats))]
+                cells-before  (:cells (rf.bench.fresco.arm1.runtime/stats))]
             (reset-runs!)
             (execute-favorite!)
             (testing "one commit → one body, per reader of the map-arg key"
               (is (= 1 (runs slug-0)) "card 0 re-ran once")
               (is (= 1 (runs :detail)) "law 2: the second reader of the SAME instance re-ran once")
-              (is (= 0 (runs (:slug (rf.bench.hicasso.shapes.model/article 1)))) "card 1 did not")
-              (is (= 0 (runs (:slug (rf.bench.hicasso.shapes.model/article 2)))) "card 2 did not")
+              (is (= 0 (runs (:slug (rf.bench.fresco.shapes.model/article 1)))) "card 1 did not")
+              (is (= 0 (runs (:slug (rf.bench.fresco.shapes.model/article 2)))) "card 2 did not")
               (is (= 0 (runs :page)) "the page did not"))
             (testing "the DOM shows the in-flight instance"
               (is (= "pending" (text handle (str "fw-status-" slug-0))))
               (is (= "saving" (text handle "fw-detail")))
-              (is (= "idle" (text handle (str "fw-status-" (:slug (rf.bench.hicasso.shapes.model/article 1)))))))
+              (is (= "idle" (text handle (str "fw-status-" (:slug (rf.bench.fresco.shapes.model/article 1)))))))
             (testing "the value moved on the runtime-db clock — app-db did not move"
               (is (identical? app-db-before (:rf.db/app (rf/frame-state-value frame-id)))
                   "no app-db write happened; the framework sub moved anyway"))
@@ -330,12 +330,12 @@
               (is (= "settled" (text handle (str "fw-status-" slug-0))))
               (is (= "quiet" (text handle "fw-detail"))))
             (testing "two commits on the same instance reused ONE cell"
-              (is (= cells-before (:cells (rf.bench.hicasso.arm1.runtime/stats)))
+              (is (= cells-before (:cells (rf.bench.fresco.arm1.runtime/stats)))
                   "value-equal map args re-key the same cell — no thrash")))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 (deftest an-app-db-commit-does-not-move-the-runtime-sub
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
@@ -343,8 +343,8 @@
         (try
           (let [fav-before (rf.subs/subscribe-once (mutation-read slug-0) {:frame frame-id})]
             (reset-runs!)
-            (rf.bench.hicasso.arm1.runtime/dispatch! frame-id [:conduit/favorite slug-0])
-            (rf.bench.hicasso.arm1.mount/settle!)
+            (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:conduit/favorite slug-0])
+            (rf.bench.fresco.arm1.mount/settle!)
             (testing "the app-db write reached the app sub's reader and nothing else"
               (is (= 1 (runs slug-0)) "card 0 re-ran — its article moved")
               (is (= 0 (runs :detail))
@@ -356,14 +356,14 @@
                    and its output = cutoff held its reader quiet"))
             (testing "the framework sub's value did not move"
               (is (= fav-before (rf.subs/subscribe-once (mutation-read slug-0) {:frame frame-id})))))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 ;; ===========================================================================
 ;; 3 — the resource clock: the census's list read, ensure → reply
 ;; ===========================================================================
 
 (deftest a-resource-read-follows-the-census-shape-through-the-arm
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
@@ -397,52 +397,52 @@
             (is (= 0 (runs :detail))
                 "its read did not move, so the bail-out held it quiet — this
                  read 1 before the repair, on the cascade rather than the edges"))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 ;; ===========================================================================
 ;; 4 — the hook budget survives framework subs
 ;; ===========================================================================
 
 (deftest framework-subs-cost-no-third-hook
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (rf.bench.hicasso.arm1.hook-probe/install!)
+    (if-not (rf.bench.fresco.arm1.hook-probe/install!)
       (is false (str "React's internals slot was not found, so the ≤2-hook budget "
                      "is UNWITNESSED on the framework-subs page — fix "
-                     (pr-str 're-frame.bench.hicasso.arm1.hook-probe)
+                     (pr-str 're-frame.bench.fresco.arm1.hook-probe)
                      " rather than reading this as a pass."))
       (do
         (fresh!)
-        (let [container (rf.bench.hicasso.arm1.mount/fresh-container!)
+        (let [container (rf.bench.fresco.arm1.mount/fresh-container!)
               handle    (volatile! nil)
-              names     (rf.bench.hicasso.arm1.hook-probe/record!
-                          (fn [] (vreset! handle (rf.bench.hicasso.arm1.mount/root! container frame-id [fw-page {}]))))
-              stats     (rf.bench.hicasso.arm1.runtime/stats)]
+              names     (rf.bench.fresco.arm1.hook-probe/record!
+                          (fn [] (vreset! handle (rf.bench.fresco.arm1.mount/root! container frame-id [fw-page {}]))))
+              stats     (rf.bench.fresco.arm1.runtime/stats)]
           (try
             (is (= 5 (:boundaries stats)))
             (is (= (* 2 (:boundaries stats)) (count names))
                 "two hooks per boundary — a framework sub is a read, and a
                  read cannot reach the hook count")
             (is (= #{"useContext" "useSyncExternalStore"} (set names)))
-            (finally (rf.bench.hicasso.arm1.mount/release! @handle))))))))
+            (finally (rf.bench.fresco.arm1.mount/release! @handle))))))))
 
 ;; ===========================================================================
 ;; Teardown
 ;; ===========================================================================
 
 (deftest the-framework-subs-page-leaves-no-residue
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done
       (fresh!)
       (let [handle (mount!)]
         (execute-favorite!)
         (settle-favorite!)
-        (is (pos? (:cell-refs (rf.bench.hicasso.arm1.runtime/stats))))
-        (rf.bench.hicasso.arm1.mount/unmount! handle)
+        (is (pos? (:cell-refs (rf.bench.fresco.arm1.runtime/stats))))
+        (rf.bench.fresco.arm1.mount/unmount! handle)
         (js/setTimeout (fn []
                          (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                                (rf.bench.hicasso.arm1.runtime/residue)))
-                         (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+                                (rf.bench.fresco.arm1.runtime/residue)))
+                         (rf.bench.fresco.arm1.runtime/reset-runtime!)
                          (done))
                        8)))))

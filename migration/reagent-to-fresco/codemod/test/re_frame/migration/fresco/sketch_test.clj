@@ -1,4 +1,4 @@
-(ns re-frame.migration.hicasso.sketch-test
+(ns re-frame.migration.fresco.sketch-test
   "**The suggested declaration, round-tripped** (rf2-vi11).
 
   The report's `:defhost` sketch is the one thing in the artefact a
@@ -10,7 +10,7 @@
 
   `:fn` is not one of the three contracts `defhost` accepts, so pasting
   what the tool suggested threw
-  `:rf.error/hicasso-unknown-callback-contract` at mint. At a string head
+  `:rf.error/fresco-unknown-callback-contract` at mint. At a string head
   it was worse — `(h/defhost \"button\" \"button\" …)` is not a form the
   READER takes, let alone the door.
 
@@ -27,7 +27,7 @@
 
   1. the sketch READS — one form, no reader error;
   2. it is `(h/defhost <name> <component> …)` with a name `def` will take;
-  3. every contract it names is in [[rf.migration.hicasso.dest/callback-contracts]], which
+  3. every contract it names is in [[rf.migration.fresco.dest/callback-contracts]], which
      `shared-rule-test` holds equal to the door's own roster;
   4. and — the assertion that is not vacuous — FILLING the scaffold
      yields a `:callbacks` map of exactly this site's positions, each
@@ -38,9 +38,9 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.migration.hicasso.codemod :as rf.migration.hicasso.codemod]
-            [re-frame.migration.hicasso.dest :as rf.migration.hicasso.dest]
-            [re-frame.migration.hicasso.report :as rf.migration.hicasso.report]))
+            [re-frame.migration.fresco.codemod :as rf.migration.fresco.codemod]
+            [re-frame.migration.fresco.dest :as rf.migration.fresco.dest]
+            [re-frame.migration.fresco.report :as rf.migration.fresco.report]))
 
 ;; ---------------------------------------------------------------------------
 ;; The corpus, through the REAL report builder
@@ -56,12 +56,12 @@
 
 (defn- corpus-report
   "The artefact the CLI writes, over the whole corpus at once — so this
-  suite exercises `rf.migration.hicasso.report/build` rather than a private helper, and sees
+  suite exercises `rf.migration.fresco.report/build` rather than a private helper, and sees
   the sketches exactly as a migrator does."
   []
-  (let [results (mapv #(rf.migration.hicasso.codemod/scan-string (slurp %) (str "src/app/" (.getName ^java.io.File %)))
+  (let [results (mapv #(rf.migration.fresco.codemod/scan-string (slurp %) (str "src/app/" (.getName ^java.io.File %)))
                       (corpus-inputs))]
-    (rf.migration.hicasso.report/build {:entries          (vec (mapcat :entries results))
+    (rf.migration.fresco.report/build {:entries          (vec (mapcat :entries results))
                    :suggestions      (vec (mapcat :suggestions results))
                    :files-scanned    (count results)
                    :files-changed    0
@@ -70,7 +70,7 @@
 
 (defn- components [] (get-in (corpus-report) [:suggestions :components]))
 
-(def ^:private contracts (set rf.migration.hicasso.dest/callback-contracts))
+(def ^:private contracts (set rf.migration.fresco.dest/callback-contracts))
 
 ;; ---------------------------------------------------------------------------
 ;; The pin is only worth something if it has something to read
@@ -122,12 +122,12 @@
             (is (contains? contracts contract)
                 (str "the sketch declares " (pr-str slot) " as " (pr-str contract)
                      ", which the door refuses; the contracts are "
-                     (str/join ", " (map pr-str rf.migration.hicasso.dest/callback-contracts))))))
+                     (str/join ", " (map pr-str rf.migration.fresco.dest/callback-contracts))))))
 
         (testing "declares no structural slot — `key` and `ref` are
                   refused at mint in every spelling"
           (doseq [slot (keys (:callbacks opts))]
-            (is (not (contains? #{"key" "ref"} (rf.migration.hicasso.dest/canonical-slot slot)))
+            (is (not (contains? #{"key" "ref"} (rf.migration.fresco.dest/canonical-slot slot)))
                 (str "the sketch declares the structural slot " (pr-str slot)))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -148,7 +148,7 @@
 
 (deftest filling-the-scaffold-mints
   (doseq [{:keys [head defhost event-slots fn-slots]} (components)
-          contract rf.migration.hicasso.dest/callback-contracts]
+          contract rf.migration.fresco.dest/callback-contracts]
     (testing (str "the sketch for " head " filled with " contract)
       (let [slots (mapv edn/read-string (distinct (concat event-slots fn-slots)))
             opts  (nth (read-one (fill defhost contract)) 3)]

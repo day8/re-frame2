@@ -5,7 +5,7 @@ criterion 5's permitted witnesses V3 and V1 on the instrument `rf2-oiy1` primed.
 Measured 2026-08-16 12:11–12:17 AUSEST, branch `worker/w-e9wr` off `2cf87aed5e`.
 
 Runtime, beside every figure below: Chromium **147.0.7727.15** via Playwright,
-shadow-cljs `release` on build id `:hicasso-bench`, `:optimizations :advanced`,
+shadow-cljs `release` on build id `:fresco-bench`, `:optimizations :advanced`,
 `goog.DEBUG false`, `--expose-gc`, `:init-fn re-frame.bench.p0-app/-main`.
 
 **No slope is published on this page and none was fitted**; both plans run here

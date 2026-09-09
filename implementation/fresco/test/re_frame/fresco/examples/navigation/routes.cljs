@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.navigation.routes
+(ns re-frame.fresco.examples.navigation.routes
   "THE NAVIGATION WITNESS'S TWO ROUTES — and the three pieces of route
   METADATA that are the whole of its conduct.
 
@@ -49,8 +49,8 @@
   `deftest` runs. A consumer never meets this; a test does, on its first
   row. `reg-route` is idempotent for an unchanged registration, so
   calling both costs nothing."
-  (:require [re-frame.hicasso.examples.navigation.events :as rf.hicasso.examples.navigation.events]
-            [re-frame.hicasso.examples.navigation.subs :as rf.hicasso.examples.navigation.subs]
+  (:require [re-frame.fresco.examples.navigation.events :as rf.fresco.examples.navigation.events]
+            [re-frame.fresco.examples.navigation.subs :as rf.fresco.examples.navigation.subs]
             [re-frame.routing :as rf.routing]))
 
 (def feed
@@ -67,15 +67,15 @@
   []
   (rf.routing/reg-route feed
     {:doc      "The article list."
-     :on-match [[::rf.hicasso.examples.navigation.events/pane-shown]]}
+     :on-match [[::rf.fresco.examples.navigation.events/pane-shown]]}
     "/navigation")
   (rf.routing/reg-route article
     {:doc "One article, with its title editor."
      ;; The guard is on the route being LEFT, which is the article: a
      ;; typed-and-unsaved title is what must not be walked away from. The
      ;; feed carries none — there is nothing on it to lose.
-     :can-leave [::rf.hicasso.examples.navigation.subs/may-leave?]
-     :on-match  [[::rf.hicasso.examples.navigation.events/pane-shown]]}
+     :can-leave [::rf.fresco.examples.navigation.subs/may-leave?]
+     :on-match  [[::rf.fresco.examples.navigation.events/pane-shown]]}
     "/navigation/article/:slug")
   nil)
 

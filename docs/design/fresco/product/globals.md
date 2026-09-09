@@ -1,6 +1,6 @@
 # The mutable-global ledger
 
-Every module-level mutable owner in the Hicasso runtime, enumerated with its disposition. `rf2-hic-017` owns this page; [`invariants.md`](invariants.md) I5 and the [adversarial-risks lane](lanes/adversarial-risks.md)'s *Process-global ownership* row are what it answers to.
+Every module-level mutable owner in the Fresco runtime, enumerated with its disposition. `rf2-hic-017` owns this page; [`invariants.md`](invariants.md) I5 and the [adversarial-risks lane](lanes/adversarial-risks.md)'s *Process-global ownership* row are what it answers to.
 
 The goal the bead states is *no unexplained global survives*, and it allows two ways to satisfy it: scope the owner, or write down why it is correct where it is. **Both are real answers.** Root-scoping something that does not need it buys indirection and spends clarity, so a global that is genuinely process-wide — a build-lifetime intern cache, a monotone counter, a page-wide id namespace — is recorded here rather than wrapped in a root it has no relationship to.
 
@@ -12,11 +12,11 @@ It happened a second time, in the same shape and with the opposite symptom. `rf2
 
 ## Why this page exists at all
 
-The inventory was not missing before this bead — it was **unfindable**. `rf2-hic-012` established the root-scoping pattern and left `rf2-hic-017` the obligation *or each remaining global justified in writing*, and the justification existed only in the ns docstring of `implementation/hicasso/test/re_frame/hicasso/roots_frames_isolation_dom_cljs_test.cljs`, which enumerates the cell table, the entry cache, the scratch buffer, the render-state object, the frame-op memo and the generation counter and says why two roots cannot collide in any of them. A maintainer asking *is this global safe?* does not open a DOM test to find out. Promoting it is most of what this page is; the census is what makes the promotion complete rather than a transcription of whatever the test happened to name.
+The inventory was not missing before this bead — it was **unfindable**. `rf2-hic-012` established the root-scoping pattern and left `rf2-hic-017` the obligation *or each remaining global justified in writing*, and the justification existed only in the ns docstring of `implementation/fresco/test/re_frame/fresco/roots_frames_isolation_dom_cljs_test.cljs`, which enumerates the cell table, the entry cache, the scratch buffer, the render-state object, the frame-op memo and the generation counter and says why two roots cannot collide in any of them. A maintainer asking *is this global safe?* does not open a DOM test to find out. Promoting it is most of what this page is; the census is what makes the promotion complete rather than a transcription of whatever the test happened to name.
 
 ## How the census is taken
 
-Seven searches over `implementation/hicasso/src`, and the roster is their union. They are recorded so the next audit re-runs them rather than re-deriving the method, and so a reviewer can check the roster is closed instead of taking its word.
+Seven searches over `implementation/fresco/src`, and the roster is their union. They are recorded so the next audit re-runs them rather than re-deriving the method, and so a reviewer can check the roster is closed instead of taking its word.
 
 The **Site** column names a file and not a line, deliberately. Every arm below prints `file:line` against the tree the reader actually has, while a line number written into this page starts decaying the moment it is written: seven of the first roster's twenty-six rows carried a wrong line the day the page merged, and `!anchor-seq` moved seventeen lines two days later. The owner's fully-qualified name is in the first column and is what locates it.
 
@@ -25,7 +25,7 @@ The **Site** column names a file and not a line, deliberately. Every arm below p
 #      matters: `\b` after `volatile!` or `js/Map.` never matches, because `!`
 #      and `.` are not word characters, and an earlier draft of this census
 #      silently dropped both generation volatiles and the codec's warn table.
-rg -n --sort path "\((atom|volatile!|js/Map\.|js/WeakMap\.|js/Set\.|empty-cache|react/createContext)[ )]" implementation/hicasso/src
+rg -n --sort path "\((atom|volatile!|js/Map\.|js/WeakMap\.|js/Set\.|empty-cache|react/createContext)[ )]" implementation/fresco/src
 
 # C2 — module-level JS literals. `rstate` and `scratch` are `#js` literals with
 #      no constructor call, so C1 cannot see them. The indent bound trims the
@@ -33,14 +33,14 @@ rg -n --sort path "\((atom|volatile!|js/Map\.|js/WeakMap\.|js/Set\.|empty-cache|
 #      inside functions, and they are NAMED below rather than filtered out. An
 #      earlier draft of this comment claimed the bound separated a def body
 #      from an in-fn literal, and it does not.
-rg -n --sort path "^\s{0,7}#js [\{\[]" implementation/hicasso/src
+rg -n --sort path "^\s{0,7}#js [\{\[]" implementation/fresco/src
 
 # C3 — every writer. A mutable owner with no writer is not one; an owner this
 #      roster missed would surface here as a write to an unlisted name.
-rg -o --sort path "(swap!|reset!|vswap!|vreset!) [!a-z-]+" implementation/hicasso/src | sort -u
+rg -o --sort path "(swap!|reset!|vswap!|vreset!) [!a-z-]+" implementation/fresco/src | sort -u
 
 # C4 — mutation of the module-level JS objects, which no ref-writer search sees.
-rg -n --sort path "(unchecked-set|js-delete) (tag-cache|prop-cache|keywarn|rstate|scratch)|set! \(\.-[a-zA-Z]+ (rstate|scratch)\)" implementation/hicasso/src
+rg -n --sort path "(unchecked-set|js-delete) (tag-cache|prop-cache|keywarn|rstate|scratch)|set! \(\.-[a-zA-Z]+ (rstate|scratch)\)" implementation/fresco/src
 
 # C5 — dynamic vars, which NONE of C1-C4 can see. `(def ^:dynamic *v* nil)` has
 #      no mutable constructor (C1 blind), is not a `#js` literal (C2 blind),
@@ -49,7 +49,7 @@ rg -n --sort path "(unchecked-set|js-delete) (tag-cache|prop-cache|keywarn|rstat
 #      regex missing a spelling: a dynamic var is mutated through a FOURTH
 #      mechanism the searches above do not model, so no amount of widening them
 #      reaches it. Loose on purpose — an arm should over-match.
-rg -n --sort path ":dynamic" implementation/hicasso/src
+rg -n --sort path ":dynamic" implementation/fresco/src
 
 # C6 — the writers for C5's owners, and what closes C5. `cljs.analyzer`'s
 #      `confirm-bindings` REFUSES a `binding` of a var not marked `^:dynamic`,
@@ -57,7 +57,7 @@ rg -n --sort path ":dynamic" implementation/hicasso/src
 #      namespace's C5 — this one's, or another package's, and the two are told
 #      apart by whether the symbol is namespace-qualified. The `set!` half is
 #      the other way a dynamic var is written, and finds nothing today.
-rg -n --sort path "\(binding\b|set! [a-zA-Z./-]*\*[a-zA-Z-]+\*" implementation/hicasso/src
+rg -n --sort path "\(binding\b|set! [a-zA-Z./-]*\*[a-zA-Z-]+\*" implementation/fresco/src
 
 # C7 — every top-level `defonce`, whatever it holds. C1-C6 all ask what
 #      the VALUE is, and a `defonce` is a process-global commitment
@@ -68,7 +68,7 @@ rg -n --sort path "\(binding\b|set! [a-zA-Z./-]*\*[a-zA-Z-]+\*" implementation/h
 #      Anchored, because a process-global commitment is by definition a
 #      top-level form — the one indented `defonce` in this tree is
 #      `mount.cljs`'s docstring example, which has its own section below.
-rg -n --sort path "^\(defonce\b" implementation/hicasso/src
+rg -n --sort path "^\(defonce\b" implementation/fresco/src
 ```
 
 ### What the searches return that is not an owner
@@ -115,11 +115,11 @@ Three, and the middle one is the common case.
 | `impl.codec/tag-cache` | `codec.cljs` | intern cache | Prototype-free JS object, keyed by the literal tag string, valid for the build's life. No ownership semantics: a hit returns a `ParsedTag` describing the *source text*, which cannot differ between frames. |
 | `impl.codec/prop-cache` | `codec.cljs` | intern cache | The same, keyed by prop name, seeded through `seed-prop-cache!` with the three names whose emitted spelling is a rule rather than a memo. `reset-caches!` re-seeds through that same fn, so a suite fixture cannot leave the cache holding a spelling a cold build would not have. |
 | `impl.codec/keywarn` | `codec.cljs` | dev-only dedupe | `nil` in production — every reader sits behind `goog.DEBUG`, so the object, its tables and its message strings fold away under `:advanced`. Per-page dedupe of a console warning is React's own semantics for the same warning, and a full page reload resets it either way. |
-| ~~`impl.evidence/!evidence-sink`~~ | ~~`evidence.cljs`~~ | ~~instrumentation seam~~ | **Retired 2026-08-29 in PR #8745 (`rf2-6c12m.17`)** — `impl/evidence.cljs` and the collector's two taps are deleted, so this owner no longer exists: nothing in src attached to it, and the Xray projection `re-frame.hicasso.evidence` reads the collector's tables directly. The justification it carried, kept for the record: ~~One sink per page, `nil` until a tool attaches, and read as the outermost form of every tap's guard so a detached runtime builds nothing. The events it carries name their frame and their boundaries, so one sink loses no attribution; a per-root sink would make a tool enumerate roots to hear the page.~~ |
+| ~~`impl.evidence/!evidence-sink`~~ | ~~`evidence.cljs`~~ | ~~instrumentation seam~~ | **Retired 2026-08-29 in PR #8745 (`rf2-6c12m.17`)** — `impl/evidence.cljs` and the collector's two taps are deleted, so this owner no longer exists: nothing in src attached to it, and the Xray projection `re-frame.fresco.evidence` reads the collector's tables directly. The justification it carried, kept for the record: ~~One sink per page, `nil` until a tool attaches, and read as the outermost form of every tap's guard so a detached runtime builds nothing. The events it carries name their frame and their boundaries, so one sink loses no attribution; a per-root sink would make a tool enumerate roots to hear the page.~~ |
 | `impl.error/!sources` | `error.cljc` | declaration ledger | `"<ns>/<sym>"` → the coordinate its `defview`/`defhost` captured, written once at namespace load and read only when a refusal is being minted. The key is globally unique by construction, and the map is empty in production. Declaration-time bookkeeping, not runtime state. |
 | `impl.error/!origin` | `error.cljc` | declaration extent | One slot rather than a stack, for the same non-nesting reason `rstate` is one object. `traced-boundary` saves and restores anyway, on the principle that an invariant cheap to survive should be survived rather than relied upon. Dev-only. |
 | `impl.state/!defaults` | `state.cljc` | registration ledger | `concern` → the `:default` it was registered with. It exists so a second `reg-state` for one concern with a *different* default is refused rather than silently changing what every un-set instance reads. This is the same class of thing the sub and event registries are, and they are process-wide too; scoping it per root would let two roots disagree about what an un-set instance reads, which is precisely the refusal's subject. |
-| `impl.mount/active-roots` | `mount.cljs` | root-ownership set | `root` → its handle, for every React Root a `h/client-root` handle currently holds (rf2-kuky.59). MEMBERSHIP IS THE SINGLE LIVENESS FACT — the rf2-k5r9t rule Spec 006 §`render` states — which is exactly why it may not be scoped into the handle: a flag there would be a second fact able to disagree with the set, and the whole point is that `rf/destroy-adapter!`'s drain and a handle's own `unmount!` reach React's `root.unmount()` exactly once per root whichever gets there first. Page-wide rather than per-adapter because a Hicasso root is created by Hicasso's own door whatever adapter is installed — `h/render!` never routes through the substrate contract's `render` slot, so the spine's own per-adapter cell never sees one. It carries no ownership beyond the root's own: every member is addressed by the Root object its handle minted, and `drain-active-roots!` empties it, so nothing in it outlives a teardown. |
+| `impl.mount/active-roots` | `mount.cljs` | root-ownership set | `root` → its handle, for every React Root a `h/client-root` handle currently holds (rf2-kuky.59). MEMBERSHIP IS THE SINGLE LIVENESS FACT — the rf2-k5r9t rule Spec 006 §`render` states — which is exactly why it may not be scoped into the handle: a flag there would be a second fact able to disagree with the set, and the whole point is that `rf/destroy-adapter!`'s drain and a handle's own `unmount!` reach React's `root.unmount()` exactly once per root whichever gets there first. Page-wide rather than per-adapter because a Fresco root is created by Fresco's own door whatever adapter is installed — `h/render!` never routes through the substrate contract's `render` slot, so the spine's own per-adapter cell never sees one. It carries no ownership beyond the root's own: every member is addressed by the Root object its handle minted, and `drain-active-roots!` empties it, so nothing in it outlives a teardown. |
 | `impl.overlay/!anchor-seq` | `overlay.cljs` | id namespace | See [below](#the-page-wide-id-namespace) — the one row where scoping would be a defect rather than a cost. |
 | `impl.intent/*dispatch*` | `intent.cljs` | render-extent binding | The rendering boundary's frame-locked `dispatch`, `nil` outside a render, rebound to the supplying boundary's for the extent of a render callback. See [below](#the-render-context-bound-and-restored): the disposition is the same non-nesting-extent argument `rstate` makes, but the mechanism earns its own paragraph because in ClojureScript `binding` is not what its name suggests. |
 | `impl.intent/*frame*` | `intent.cljs` | render-extent binding | The frame keyword for that same extent, plus the one door `*dispatch*` does not share: `root-element` binds the frame alone for a hiccup form written outside any body. As above. |
@@ -144,11 +144,11 @@ Argued from the extent, it holds, and in the terms the mechanism actually has:
 
 - **Restored on every exit.** The `finally` runs on a normal return and on a throw alike, so a refusal raised inside a body — a designed outcome in this runtime, not an edge — leaves both vars as it found them.
 - **Correct under nesting, which is more than `rstate` claims.** The saved value is the *enclosing* binding's, so a `with-frame` inside a `with-frame` restores to the outer frame rather than to `nil`. `lower-prop` depends on exactly this: it rebinds to the owner's frame for the callback and the enclosing body's frame survives underneath. The non-nesting argument `rstate` and `scratch` rest on is a premise they need and these two do not.
-- **`nil` outside the extent, and that is the whole of the safety property.** The extent is one synchronous call, so anything escaping it — a promise continuation, a timer, a browser click — runs after the restore and reads `nil`. Every reader turns that `nil` into a loud refusal rather than a guess: `require-dispatch` raises `:rf.error/hicasso-intent-outside-boundary`, and `route-link` reads `*frame*` at *render* time precisely because the click fires long after the extent has unwound, so the frame travels as data instead. `intent_cljs_test`'s `an-intent-lowered-outside-a-boundary-is-a-loud-error`, `an-intent-returned-with-no-frame-in-scope-names-the-position` and `a-render-callback-with-no-owner-forwards-to-a-loud-error-never-to-silence` are the standing witnesses for that, and `read_extent_cljs_test`'s `a-promise-continuation-refuses` and `a-timer-callback-refuses` witness the escape from the other side.
+- **`nil` outside the extent, and that is the whole of the safety property.** The extent is one synchronous call, so anything escaping it — a promise continuation, a timer, a browser click — runs after the restore and reads `nil`. Every reader turns that `nil` into a loud refusal rather than a guess: `require-dispatch` raises `:rf.error/fresco-intent-outside-boundary`, and `route-link` reads `*frame*` at *render* time precisely because the click fires long after the extent has unwound, so the frame travels as data instead. `intent_cljs_test`'s `an-intent-lowered-outside-a-boundary-is-a-loud-error`, `an-intent-returned-with-no-frame-in-scope-names-the-position` and `a-render-callback-with-no-owner-forwards-to-a-loud-error-never-to-silence` are the standing witnesses for that, and `read_extent_cljs_test`'s `a-promise-continuation-refuses` and `a-timer-callback-refuses` witness the escape from the other side.
 
 **No isolation defect is claimed and none is known.** Two roots on one page render in two separate synchronous React work loops, so one root's extent cannot be open while the other's body runs, and neither var carries state between them. This bead migrated nothing here, and root-wrapping them would be a defect rather than a cost: a per-root `*frame*` is what `binding` already provides, one extent at a time, and a second mechanism doing the same job is the indirection this page's opening declines to buy.
 
-One name `with-frame` binds is **not** a Hicasso owner and is on neither roster. `re-frame.frame/*ambient-frame-refusal*` is core's var, declared there and merely bound here, so it falls outside the census's stated scope of `implementation/hicasso/src` and belongs to whatever record owns `re-frame.frame`. C6 surfaces it, its namespace qualification is what marks it foreign, and this sentence is where the trail stops.
+One name `with-frame` binds is **not** a Fresco owner and is on neither roster. `re-frame.frame/*ambient-frame-refusal*` is core's var, declared there and merely bound here, so it falls outside the census's stated scope of `implementation/fresco/src` and belongs to whatever record owns `re-frame.frame`. C6 surfaces it, its namespace qualification is what marks it foreign, and this sentence is where the trail stops.
 
 ## Why keying and not scoping
 
@@ -192,7 +192,7 @@ A second roster, recorded because a `def` of a React artefact *is* a process-glo
 
 ## Request scope, now that there is a server render
 
-The adversarial-risks *Process-global ownership* row names *independent roots and SSR requests*. Until 2026-08-14 only the first half had a subject; `re-frame.hicasso.server` landed that day, publishing `server/render` on `react-dom/server`'s `renderToString`, and the second half has one now.
+The adversarial-risks *Process-global ownership* row names *independent roots and SSR requests*. Until 2026-08-14 only the first half had a subject; `re-frame.fresco.server` landed that day, publishing `server/render` on `react-dom/server`'s `renderToString`, and the second half has one now.
 
 The previous edition of this section said that when a server-render entry landed, **all twenty-one owners would become request-scope questions at once, because a Node process serving two requests concurrently shares every one of them.** That was the right thing to expect and it is not what happened, for a reason the page could not have known before the door existed: **the door is `renderToString`, and a server render runs strictly less of this runtime than a client mount does.** Sharing an owner between two requests only makes it a request question if a request ever touches it, and most of this roster a request never reaches.
 
@@ -232,7 +232,7 @@ The previous edition pointed at these as the sharpest row, and it was right to. 
 
 No isolation defect was claimed and none existed — the rows cannot be addressed by another request. It was a **retention** finding, and the first thing on this roster that a page-scoped reading could not have caught.
 
-`rf2-uejlj` repaired it in `implementation/hicasso/src`, and not by making the lazy replacement cleverer. The row belongs to an *incarnation*, so the eviction is frame DESTRUCTION's rather than the server's: `impl.frames` now publishes `:hicasso/on-frame-destroyed!` on core's late-bind registry — the step-7 door Freehand already releases its own frame-keyed ledger through — and `destroy-frame!` drops the row whoever created the frame and however the id was spelled. The per-request `gensym` is bounded as a consequence rather than as a special case. The safety argument is untouched: `frame-row`'s replace branch is still what makes a reincarnation correct, and a row a destroyed incarnation left behind was already unreachable by every branch of that lookup, so dropping it earlier is hygiene and never safety.
+`rf2-uejlj` repaired it in `implementation/fresco/src`, and not by making the lazy replacement cleverer. The row belongs to an *incarnation*, so the eviction is frame DESTRUCTION's rather than the server's: `impl.frames` now publishes `:fresco/on-frame-destroyed!` on core's late-bind registry — the step-7 door Freehand already releases its own frame-keyed ledger through — and `destroy-frame!` drops the row whoever created the frame and however the id was spelled. The per-request `gensym` is bounded as a consequence rather than as a special case. The safety argument is untouched: `frame-row`'s replace branch is still what makes a reincarnation correct, and a row a destroyed incarnation left behind was already unreachable by every branch of that lookup, so dropping it earlier is hygiene and never safety.
 
 ## One thing this page does not cover, and why
 
@@ -240,4 +240,4 @@ No isolation defect was claimed and none existed — the rows cannot be addresse
 
 ## The false positive worth its own section
 
-`implementation/hicasso/src/re_frame/hicasso/impl/mount.cljs` matches C1 with `(defonce ^:private !root (atom nil))`, and it is not a global: it sits **inside the `render!` docstring**, as the consumer's hot-reload example. The `reset! !root` that C3 finds three lines later is the same example. It gets a section rather than a bullet in [the list above](#what-the-searches-return-that-is-not-an-owner) because it is the only census hit in that file, and an audit that took it at face value would open a collision with whichever bead owns `mount.cljs` over a global that does not exist.
+`implementation/fresco/src/re_frame/fresco/impl/mount.cljs` matches C1 with `(defonce ^:private !root (atom nil))`, and it is not a global: it sits **inside the `render!` docstring**, as the consumer's hot-reload example. The `reset! !root` that C3 finds three lines later is the same example. It gets a section rather than a bullet in [the list above](#what-the-searches-return-that-is-not-an-owner) because it is the only census hit in that file, and an audit that took it at face value would open a collision with whichever bead owns `mount.cljs` over a global that does not exist.

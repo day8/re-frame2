@@ -2,8 +2,8 @@
 // THE WITHIN-ROUND PASS-POSITION TERM, AND WHETHER IT IS THE PASS OR THE
 // PARITY — rf2-fk6pj.
 //
-//     node hicasso/test/re_frame/bench/hicasso/alloc_pass_position.cjs <dataset.json>...
-//     node hicasso/test/re_frame/bench/hicasso/alloc_pass_position.cjs --self-test
+//     node fresco/test/re_frame/bench/fresco/alloc_pass_position.cjs <dataset.json>...
+//     node fresco/test/re_frame/bench/fresco/alloc_pass_position.cjs --self-test
 //
 // ## WHAT THIS ADJUDICATES
 //
@@ -169,9 +169,9 @@ const archive = require('./data_archive.cjs');
 // was read over and not a threshold anything is adjudicated against.
 const MID_RUNGS = ['R3', 'R7'];
 const FAMILIES = [
-  { segment: 'reagent-subs', arm: 'lad/hicasso' },
+  { segment: 'reagent-subs', arm: 'lad/fresco' },
   { segment: 'reagent-subs', arm: 'lad/reagent' },
-  { segment: 'uix-subs', arm: 'lad/hicasso' },
+  { segment: 'uix-subs', arm: 'lad/fresco' },
   { segment: 'uix-subs', arm: 'lad/uix' },
 ];
 const FLOOR_ARM = 'grid/floor';

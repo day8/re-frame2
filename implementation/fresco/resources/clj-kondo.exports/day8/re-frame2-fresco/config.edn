@@ -1,4 +1,4 @@
-;; clj-kondo export for day8/re-frame2-hicasso (rf2-hic-022; reduced to
+;; clj-kondo export for day8/re-frame2-fresco (rf2-hic-022; reduced to
 ;; macro-shape analysis under rf2-r3r00).
 ;;
 ;; A consumer picks this up with clj-kondo's ordinary dependency import —
@@ -6,7 +6,7 @@
 ;;
 ;;   clj-kondo --lint "$(clojure -Spath)" --dependencies --copy-configs
 ;;
-;; which copies this directory to `.clj-kondo/day8/re-frame2-hicasso/` and
+;; which copies this directory to `.clj-kondo/day8/re-frame2-fresco/` and
 ;; adds it to the consumer's `:config-paths`. See README.md beside this file.
 ;;
 ;; The hooks give `defview`, `event` and `defhost` their `defn`, `fn` and
@@ -14,11 +14,11 @@
 ;; destructured props are neither unresolved nor unused, arities are checked.
 ;; No custom findings ship — behavior is the runtime's law, refused loudly at
 ;; its execution boundary, not re-derived in a lint layer.
-{;; `re-frame.hicasso.native` is two React hooks, `use-sub` and
+{;; `re-frame.fresco.native` is two React hooks, `use-sub` and
  ;; `use-frame` — ordinary functions, so they need neither a `:lint-as`
  ;; nor a hook (rf2-6c12m.3).
  :hooks
  {:analyze-call
-  {re-frame.hicasso/defview hooks.re-frame.hicasso/defview
-   re-frame.hicasso/event   hooks.re-frame.hicasso/event
-   re-frame.hicasso/defhost hooks.re-frame.hicasso/defhost}}}
+  {re-frame.fresco/defview hooks.re-frame.fresco/defview
+   re-frame.fresco/event   hooks.re-frame.fresco/event
+   re-frame.fresco/defhost hooks.re-frame.fresco/defhost}}}

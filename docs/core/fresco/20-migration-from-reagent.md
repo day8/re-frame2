@@ -1,6 +1,6 @@
 # Migrating from Reagent
 
-This page covers the view-layer migration from Reagent to Hicasso: component
+This page covers the view-layer migration from Reagent to Fresco: component
 definitions, Hiccup differences, local state, and React interop.
 
 It assumes the application already uses re-frame2 events and subscriptions. If
@@ -11,7 +11,7 @@ Use three migration tools in this order:
 1. **Reporter** — classify every foreign React crossing, and census every
    rostered view-substrate API call site, as mechanical rewrites, human
    decisions, and runtime blockers.
-2. **Shadow comparison** — run the Reagent original and Hicasso port side by
+2. **Shadow comparison** — run the Reagent original and Fresco port side by
    side and compare canonical DOM and intent streams.
 3. **Codemod** — apply only source transformations whose behaviour is
    decidable from the code.
@@ -26,31 +26,31 @@ changes no files:
 
 ```bash
 clojure -Srepro \
-  -Sdeps '{:deps {day8/re-frame2-hicasso-codemod
+  -Sdeps '{:deps {day8/re-frame2-fresco-codemod
                   {:git/url   "https://github.com/day8/re-frame2.git"
                    :git/sha   "6a5194c0aa029ac1ad34aaf3a62974fd3e5c0221"
-                   :deps/root "migration/reagent-to-hicasso/codemod"}}}' \
-  -M -m re-frame.migration.hicasso.codemod path/to/your/src/
+                   :deps/root "migration/reagent-to-fresco/codemod"}}}' \
+  -M -m re-frame.migration.fresco.codemod path/to/your/src/
 ```
 
 Run it from your own project. It needs no checkout of re-frame2: the coordinate
 fetches the reporter, and `--report out.edn` chooses where the report goes.
 
 **That coordinate is the reporter's delivery, not a stopgap.** The published
-Hicasso artefact does not carry this tool, so there is no Maven coordinate for
+Fresco artefact does not carry this tool, so there is no Maven coordinate for
 this command to move to later. The `:git/sha` above is the commit it was last
 proved against; pin a newer one whenever you like —
 `git ls-remote https://github.com/day8/re-frame2.git refs/heads/main` prints the
 current head, and a SHA is what makes the run reproducible.
 
 Every run writes one EDN report, a scan that changes no source included.
-Without `--report` it goes to `reagent-to-hicasso-report.edn` beside the first
+Without `--report` it goes to `reagent-to-fresco-report.edn` beside the first
 path scanned — point the tool at `<repo>/src/` and the report lands at
 `<repo>/` — and the run prints the absolute path it used.
 
 Reagent converted props crossing through `[:>]`. Among other behaviours, it
 camel-cased nested keys, converted keyword values to names, wrapped
-`r/partial`, and read metadata keys. Hicasso does not perform that conversion.
+`r/partial`, and read metadata keys. Fresco does not perform that conversion.
 A `[:>]` form may therefore continue rendering while sending different values
 to the component.
 
@@ -60,7 +60,7 @@ The reporter classifies every crossing:
 | --- | --- | --- |
 | Mechanical | W1–W6, described below | The codemod can preserve the previous behaviour from source text alone |
 | Human decision | `:computed-props`, `:computed-value`, `:computed-nested-key`, `:adapt-def-site`, `:cljc-site`, `:parse-error`, `:event-carrier-goes-live`, `:key-conflict`, `:string-tag-unparseable`, `:normalized-key-collision`, `:css-var-repair`, `:named-ref`, `:amp-key` | The source does not contain enough information for a safe rewrite, or the change repairs previously broken behaviour that must be reviewed |
-| Runtime blocker | `:intent-needs-a-declaration`, `:dangerous-html`, `:r>-site`, `:f>-site`, `:as-element-island`, `:reagent-api-residue` | The site will raise or silently misrender until someone chooses the correct Hicasso shape |
+| Runtime blocker | `:intent-needs-a-declaration`, `:dangerous-html`, `:r>-site`, `:f>-site`, `:as-element-island`, `:reagent-api-residue` | The site will raise or silently misrender until someone chooses the correct Fresco shape |
 
 The report is deterministic EDN. Each entry includes:
 
@@ -120,8 +120,8 @@ census carries a recovery note for every class it emits:
 
 | Verdict | Named classes | Meaning |
 | --- | --- | --- |
-| Human decision | `:with-let`, `:cell-disposal`, `:outward-bridge`, `:adapt-react-class`, `:react-create-element`, `:props-helper`, `:reagent-partial`, `:render-control`, `:root-mount`, `:static-markup`, `:substrate-read-hook`, `:substrate-view-seam`, `:substrate-test-seam`, `:substrate-test-harness` | A Hicasso translation exists, but which one depends on intent the source does not carry |
-| Runtime blocker | `:local-reactive-cell`, `:derived-cell`, `:reactive-graph-control`, `:lifecycle-class`, `:as-element`, `:component-introspection` | Hicasso has no equivalent tier, so the site raises or silently misrenders until someone chooses the shape |
+| Human decision | `:with-let`, `:cell-disposal`, `:outward-bridge`, `:adapt-react-class`, `:react-create-element`, `:props-helper`, `:reagent-partial`, `:render-control`, `:root-mount`, `:static-markup`, `:substrate-read-hook`, `:substrate-view-seam`, `:substrate-test-seam`, `:substrate-test-harness` | A Fresco translation exists, but which one depends on intent the source does not carry |
+| Runtime blocker | `:local-reactive-cell`, `:derived-cell`, `:reactive-graph-control`, `:lifecycle-class`, `:as-element`, `:component-introspection` | Fresco has no equivalent tier, so the site raises or silently misrenders until someone chooses the shape |
 | Mechanical | none | The bucket is always emitted, at `:mechanical 0`. Every mechanical rewrite this tool family knows is a W-rule and every W-rule sits at a crossing, so the zero is a measurement rather than an omission |
 
 Two further classes report a resolution failure rather than a translation, both
@@ -176,17 +176,17 @@ length of the migration. Three facts make that work, and none of them asks for
 a second root.
 
 **One frame serves both halves.** Every React-shaped adapter in re-frame2
-publishes the frame through one shared React context, and a Hicasso boundary
+publishes the frame through one shared React context, and a Fresco boundary
 reads that same context. A shell already mounted under `[rf/frame-root {:id
 ...}]` — or under `[rf/frame-provider {:frame ...}]` — therefore supplies the
-frame to any Hicasso subtree beneath it. A ported screen needs no
+frame to any Fresco subtree beneath it. A ported screen needs no
 `h/client-root`, no second frame, and no second React root.
 
 **Keep the adapter you have.** `(rf/init! reagent-adapter/adapter)` stays as it
-is: installing a Reagent, reagent-slim or UIx adapter under a Hicasso tree is
-supported. `re-frame.hicasso.substrate/adapter` is what lets a *finished*
+is: installing a Reagent, reagent-slim or UIx adapter under a Fresco tree is
+supported. `re-frame.fresco.substrate/adapter` is what lets a *finished*
 application drop its view-library dependency; it is not a prerequisite for
-rendering a Hicasso view.
+rendering a Fresco view.
 
 **The unported shell reaches the ported screen through a bridge.** There are
 two doors, and the choice is about who owns the mount:
@@ -194,7 +194,7 @@ two doors, and the choice is about who owns the mount:
 ```clojure
 (ns app.views.shell
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
+            [re-frame.fresco :as h]
             [app.views.feed :as feed]))         ;; the ported screen
 
 ;; Door 1 — h/as-element, called inside the Reagent body. The props never
@@ -216,24 +216,24 @@ two doors, and the choice is about who owns the mount:
 
 Minting the component inside a render would allocate a fresh element type on
 every pass and remount the subtree, which is `React.memo`'s own law rather than
-a Hicasso rule.
+a Fresco rule.
 
 `h/client-root` + `h/render!` ([Installation](00-installation.md)) is the
 whole-application door. It is where the migration ends rather than where it
 starts: when the last screen is ported, the Reagent root gives way to one
-Hicasso client-root handle — the same three-name grammar
+Fresco client-root handle — the same three-name grammar
 (`client-root` / `render!` / `unmount!`) the Reagent adapter already
 publishes — and the `frame-root` wrapper is respelled `h/frame-root` and stays
 exactly where it was.
 
 ### Common translations
 
-| Reagent | Hicasso |
+| Reagent | Fresco |
 | --- | --- |
 | `defn` component returning Hiccup | `h/defview`, mounted as a Hiccup head |
 | `@(rf/subscribe [:q])` | `(h/sub [:q])`, including in branches, loops, and helpers |
 | `#(rf/dispatch [:x])` | the event vector itself; use `h/event` when callback arguments matter |
-| `r/atom` inside a Form-2 closure | app-db or the forms module; Hicasso has no local-state tier |
+| `r/atom` inside a Form-2 closure | app-db or the forms module; Fresco has no local-state tier |
 | `r/with-let` | ordinary `let`; durable state belongs outside render |
 | Form-3 or `r/create-class` lifecycle | callback refs or a named native component |
 | `r/track`, `reaction`, `r/cursor` | layered subscriptions |
@@ -246,7 +246,7 @@ exactly where it was.
 The same table for the second starting point. Every row but the last is a
 spelling change; none of those is a change of shape:
 
-| re-frame2 on the Reagent adapter | Hicasso |
+| re-frame2 on the Reagent adapter | Fresco |
 | --- | --- |
 | `rf/reg-view` | `h/defview`. The view is no longer registered under an id; the var is the head |
 | `subscribe`, injected into a `reg-view` body | `h/sub`. A `h/defview` body binds nothing you did not write |
@@ -270,7 +270,7 @@ rather than an edge
 
 A `reg-view` body's `subscribe` and `dispatch` are lexical bindings the macro
 installs. `h/defview` installs none, so the same source text means something
-different under it: a bare `rf/subscribe` in a Hicasso body throws rather than
+different under it: a bare `rf/subscribe` in a Fresco body throws rather than
 resolving. Translate every read and every dispatch in a body you move, not only
 the ones the compiler complains about.
 
@@ -297,7 +297,7 @@ Port the shared view once, with the first screen that needs it, and bridge it
 back out to the callers that are still Reagent:
 
 ```clojure
-;; app.views.article-preview — now Hicasso
+;; app.views.article-preview — now Fresco
 (h/defview article-preview [{:keys [id]}]
   (let [article (h/sub [:article id])]
     [:article.preview
@@ -342,7 +342,7 @@ each checkpoint it compares canonical DOM and the intent stream.
 
 ### What this step needs first
 
-`hm/shadow!` lives in `re-frame.hicasso.test.mounted`, so it is an L3 door: it
+`hm/shadow!` lives in `re-frame.fresco.test.mounted`, so it is an L3 door: it
 needs the test kit on the classpath and a build target that gives it real React
 and a real DOM. [Testing](15-testing.md) carries the kit setup and the level
 ladder. A project with no L3 lane has to stand one up before this step, not as
@@ -358,7 +358,7 @@ it is three namespaces:
 | Namespace | What it holds | Who renders it |
 | --- | --- | --- |
 | `app.views.article-row-reagent` | the original, moved verbatim and otherwise untouched | the shadow test, as `:reference` |
-| `app.views.article-row` | the Hicasso port | the shell, and the shadow test as `:candidate` |
+| `app.views.article-row` | the Fresco port | the shell, and the shadow test as `:candidate` |
 | `app.views.shell` | the unported shell | the Reagent root |
 
 Move the original into a namespace of its own rather than putting the port
@@ -376,7 +376,7 @@ pointing at it is a screen that never migrates.
 ```clojure
 (ns app.migration.article-row-shadow
   (:require [reagent.core :as r]
-            [re-frame.hicasso.test.mounted :as hm]
+            [re-frame.fresco.test.mounted :as hm]
             [app.views.article-row-reagent :as old]
             [app.views.article-row :as new]))
 
@@ -394,7 +394,7 @@ pointing at it is a screen that never migrates.
 ;; => {:status :green :checkpoints 4}
 ```
 
-Both sides are mounted by Hicasso, so the original arrives the way every
+Both sides are mounted by Fresco, so the original arrives the way every
 foreign component arrives: through a `[:>]` crossing or a declared `h/defhost`,
 the same door the translation table above already sends it through. A Reagent
 `defn` written directly in head position is a loud refusal rather than a
@@ -403,7 +403,7 @@ plain Hiccup head.
 
 Two consequences of that crossing decide how the pair is written.
 
-- **Cross single-word props.** Hicasso camel-cases the key on the way out and
+- **Cross single-word props.** Fresco camel-cases the key on the way out and
   a reactified Reagent component reads back the name React actually carried, so
   `:article-id` reaches the original as `:articleId`. An id both sides agree on
   — and a seeded frame both sides read — avoids the question and makes the
@@ -462,11 +462,11 @@ Reagent copy.
 
 ```bash
 clojure -Srepro \
-  -Sdeps '{:deps {day8/re-frame2-hicasso-codemod
+  -Sdeps '{:deps {day8/re-frame2-fresco-codemod
                   {:git/url   "https://github.com/day8/re-frame2.git"
                    :git/sha   "6a5194c0aa029ac1ad34aaf3a62974fd3e5c0221"
-                   :deps/root "migration/reagent-to-hicasso/codemod"}}}' \
-  -M -m re-frame.migration.hicasso.codemod --rewrite src/
+                   :deps/root "migration/reagent-to-fresco/codemod"}}}' \
+  -M -m re-frame.migration.fresco.codemod --rewrite src/
 ```
 
 The same coordinate as [step 1](#1-generate-the-migration-report), with
@@ -482,12 +482,12 @@ It applies six rewrite families:
 
 | Rewrite | Input | Output | Behaviour preserved |
 | --- | --- | --- | --- |
-| W1 | `^{:key k}` metadata on a vector | `:key k` in the props map | Reagent read metadata; Hicasso reads props |
-| W2 | Literal nested prop maps | The same map with literal keys camel-cased | Reagent deep-camel-cased nested keys; Hicasso passes them by identity |
+| W1 | `^{:key k}` metadata on a vector | `:key k` in the props map | Reagent read metadata; Fresco reads props |
+| W2 | Literal nested prop maps | The same map with literal keys camel-cased | Reagent deep-camel-cased nested keys; Fresco passes them by identity |
 | W3 | Literal keyword or quoted-symbol prop value | Its `name` as a string | Reagent named these values; namespaced keywords lost their namespace there too |
 | W4 | Literal `(r/partial f a ...)` prop | Hygienic `let` capture plus function wrapper | Reagent evaluated the callee and captured args once at construction |
-| W5 | `[(r/adapt-react-class X) ...]` | `[:> X ...]` | Same native React element path in Hicasso syntax |
-| W6 | `[:> "tag" ...]` for a plain HTML tag | `[:tag ...]` | Moves the native element onto Hicasso's normal, controlled-element path |
+| W5 | `[(r/adapt-react-class X) ...]` | `[:> X ...]` | Same native React element path in Fresco syntax |
+| W6 | `[:> "tag" ...]` for a plain HTML tag | `[:tag ...]` | Moves the native element onto Fresco's normal, controlled-element path |
 
 A transformation runs only when both old and new behaviour can be determined
 from the literal source. Event-like prop spelling never authorises a callback
@@ -512,9 +512,9 @@ Examples:
 
 - `:intent-needs-a-declaration`: decide whether the event-shaped prop is an
   event position, or a render prop the vendor named `on*`;
-- `:dangerous-html`: Reagent may have discarded the prop while Hicasso will
+- `:dangerous-html`: Reagent may have discarded the prop while Fresco will
   pass it through, turning dead behaviour live;
-- `:r>-site` and `:f>-site`: Hicasso can interpret these as unknown tag
+- `:r>-site` and `:f>-site`: Fresco can interpret these as unknown tag
   keywords, so port them explicitly;
 - `:as-element-island`: a callback runs outside the original render window,
   so replacing `r/as-element` is not a text substitution.
@@ -536,8 +536,8 @@ tool. The reporter records the site rather than guessing.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| A `[:>]` site renders but behaves differently | Reagent converted the prop dialect and Hicasso passes values by identity | Run the reporter and apply the safe codemod rewrites |
-| A former Reagent crossing starts dispatching at an `on*` prop | An intent vector that crossed as inert data under Reagent is lowered by Hicasso, exactly as on a native tag | Decide whether the handler was ever meant to run; if the prop is a vendor's on*-named render prop, declare the host with `{:callbacks {… :render}}` |
+| A `[:>]` site renders but behaves differently | Reagent converted the prop dialect and Fresco passes values by identity | Run the reporter and apply the safe codemod rewrites |
+| A former Reagent crossing starts dispatching at an `on*` prop | An intent vector that crossed as inert data under Reagent is lowered by Fresco, exactly as on a native tag | Decide whether the handler was ever meant to run; if the prop is a vendor's on*-named render prop, declare the host with `{:callbacks {… :render}}` |
 | Callback runs and raises `:rf.error/no-frame-context` | A hand-written dispatch closure did not capture a frame | Replace it with an intent vector or `h/event` |
 | A keyed list remounts once immediately after migration | A key collision that Reagent normalised now becomes two distinct values | Accept the one-time transition when the new stable key is correct |
 | Codemod refuses a nested map with `:normalized-key-collision` | Keys such as `:foo-bar` and `:fooBar` collapsed onto one Reagent output property | Remove the unintended duplicate and rerun |
@@ -570,7 +570,7 @@ tool. The reporter records the site rather than guessing.
  :detail {:prop :variant
           :was  :contained
           :now  "contained"}
- :note   "Reagent named every keyword prop value; Hicasso keeps the keyword
+ :note   "Reagent named every keyword prop value; Fresco keeps the keyword
           except at HTML-attribute slots."}
 ```
 

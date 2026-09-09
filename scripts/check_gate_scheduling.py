@@ -90,14 +90,14 @@ NPM_RUN_RE = re.compile(r"npm run (?:--silent )?([A-Za-z0-9:._-]+)")
 # (rf2-rbdc).
 #
 # The prefix set approximates "renders a verdict something depends on", and it
-# is deliberately wrong in both directions: `bench:hicasso` is in scope by its
+# is deliberately wrong in both directions: `bench:fresco` is in scope by its
 # name and declared `not-a-gate` below, because a benchmark produces records
 # rather than a verdict. The prefix decides what gets ASKED; `DISPOSITIONS`
 # holds the answers.
 #
 # `build:` was outside the question entirely until rf2-rbdc, and the omission
 # cost precisely what this checker exists to prevent. rf2-hic-008 added the
-# `:hicasso-release` build id — the artefact's only `:advanced` compile, so the
+# `:fresco-release` build id — the artefact's only `:advanced` compile, so the
 # only place Closure renaming, externs inference and DCE-sensitive interop are
 # decided at all — and correctly stopped there, leaving it with no npm script
 # and no job. Nothing complained, because nothing could: a `build:` script was
@@ -268,9 +268,9 @@ DISPOSITIONS: dict[str, dict] = {
     # Closure error exits non-zero), it is simply already rendered elsewhere,
     # and pinning the cover means the day that gate leaves CI these go red
     # instead of quietly becoming the only thing compiling those build ids.
-    # The other two — `build:hicasso-release` (test.yml's `cljs` job) and
+    # The other two — `build:fresco-release` (test.yml's `cljs` job) and
     # `build:machines-viz-viewer` (test.yml) — are scheduled and need no entry.
-    # `test:hicasso-lint` (rf2-hic-022) was declared `unscheduled` here for
+    # `test:fresco-lint` (rf2-hic-022) was declared `unscheduled` here for
     # exactly one commit, and its entry is DELETED rather than kept: the
     # fixture witness now runs as a step of lint.yml's required `clj-kondo`
     # job, which already installs the pinned binary the gate needs. The hole
@@ -283,7 +283,7 @@ DISPOSITIONS: dict[str, dict] = {
     # the last declared hole, and it is DELETED.  The manual-only
     # epoch-delivery witness landed with no CI home because
     # `.github/workflows/**` was fenced to a peer worker on the tick that
-    # built it — the same fence the two hicasso entries below hit — and
+    # built it — the same fence the two fresco entries below hit — and
     # rf2-zwgx landed the missing half: a step of test.yml's `cljs` job.
     # No classifier arm and no job of its own, because every input that can
     # change `:node-test-xray-manual-epoch`'s output
@@ -311,14 +311,14 @@ DISPOSITIONS: dict[str, dict] = {
     # checker asserting its own completeness in prose is the failure mode, not
     # the check.
     #
-    # `test:hicasso-hmr` (rf2-hic-015) was the entry before that, and it is
-    # DELETED too.  The Hicasso HMR gate — the only surface in the repo that
+    # `test:fresco-hmr` (rf2-hic-015) was the entry before that, and it is
+    # DELETED too.  The Fresco HMR gate — the only surface in the repo that
     # drives a REAL hot reload, 36 reloads and 105 checks per engine through
     # `shadow-cljs watch` in Chromium, Firefox and WebKit — landed green under
     # rf2-vsgq and ran nowhere, because rf2-vsgq's fence stopped at the browser
     # test tree.  It declared itself here rather than go silently unrun.
-    # rf2-hic-015 landed the missing half: the required `cljs-hicasso-hmr` job,
-    # its `hicasso_hmr` classifier arm, and the matching
+    # rf2-hic-015 landed the missing half: the required `cljs-fresco-hmr` job,
+    # its `fresco_hmr` classifier arm, and the matching
     # _changed-surfaces.test.cjs rows.
     #
     # TWO THINGS THE DELETED ENTRY KNEW, kept because the job now depends on
@@ -334,17 +334,17 @@ DISPOSITIONS: dict[str, dict] = {
     # scope was the codemod reverse-edge arm.  The reference was simply wrong;
     # the fix is this deletion, not a reopening.
     #
-    # Before that the last one was `test:hicasso-controlled`
-    # (rf2-hic-016): the Hicasso three-engine controlled-input gate, declared
+    # Before that the last one was `test:fresco-controlled`
+    # (rf2-hic-016): the Fresco three-engine controlled-input gate, declared
     # `unscheduled` rather than left silently unrun because the PR that built
     # it was fenced out of .github/workflows/** while rf2-8a6s held that
-    # surface.  rf2-ga8m landed the missing half — the `cljs-hicasso-
-    # controlled` job, its `hicasso_controlled` classifier arm, and the
+    # surface.  rf2-ga8m landed the missing half — the `cljs-fresco-
+    # controlled` job, its `fresco_controlled` classifier arm, and the
     # matching _changed-surfaces.test.cjs rows — so the entry is DELETED.
     # That deletion is the point: a declared hole that outlives its gate's
     # schedule is the same class of lie as an undeclared one, told in the
     # other direction, and this checker would keep asserting the gate runs
-    # nowhere while it ran on every hicasso PR.
+    # nowhere while it ran on every fresco PR.
     #
     # The four this checker found on arrival all have homes: `test:perf-bundle` went
     # per-PR as `cljs-perf-bundle` (rf2-eegpw / #7530), `test:ui-warm-watch` +

@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.state-cljs-test
+(ns re-frame.fresco.state-cljs-test
   "`h/reg-state`, PROVED AGAINST A REAL FRAME.
 
   The sugar's whole claim is that it mints ORDINARY core artefacts, so
@@ -33,10 +33,10 @@
 
   The DOM half — two mounted instances, the hook ledger, and the memo
   bail-out over fresh-but-equal key vectors — is the sibling
-  [[re-frame.hicasso.state-dom-cljs-test]], which is where the
+  [[re-frame.fresco.state-dom-cljs-test]], which is where the
   prototype's `arm1/state-dom-cljs-test` landed."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.hicasso.impl.state :as rf.hicasso.impl.state]
+            [re-frame.fresco.impl.state :as rf.fresco.impl.state]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -103,7 +103,7 @@
 (deftest two-instances-of-one-widget-are-independent
   (testing "the pitfall this sugar deletes: two disclosures on one page,
            one concern, two keys, two values"
-    (rf.hicasso.impl.state/reg-state ::open? {:default false})
+    (rf.fresco.impl.state/reg-state ::open? {:default false})
     (let [f (frame! ::independent)]
       (is (= false (read* f [::open? :billing])) "unwritten reads the default")
       (is (= false (read* f [::open? :shipping])))
@@ -119,7 +119,7 @@
   (testing "two widgets given ONE key are one instance on purpose — a
            master/detail pair that must open together says so by sharing
            the key, and nothing here treats that as an error"
-    (rf.hicasso.impl.state/reg-state ::open? {:default false})
+    (rf.fresco.impl.state/reg-state ::open? {:default false})
     (let [f (frame! ::shared)]
       (send! f [::open? :billing true])
       (is (= true (read* f [::open? :billing])))
@@ -127,13 +127,13 @@
           "one key, one entry, however many widgets read it"))))
 
 (deftest a-default-is-per-concern-and-any-value
-  (rf.hicasso.impl.state/reg-state ::draft {:default ""})
-  (rf.hicasso.impl.state/reg-state ::tab {:default :first})
+  (rf.fresco.impl.state/reg-state ::draft {:default ""})
+  (rf.fresco.impl.state/reg-state ::tab {:default :first})
   (let [f (frame! ::defaults)]
     (is (= "" (read* f [::draft [:order/id 42]])))
     (is (= :first (read* f [::tab :panel])))
     (testing "a concern registered with no options at all defaults to nil"
-      (rf.hicasso.impl.state/reg-state ::no-opts)
+      (rf.fresco.impl.state/reg-state ::no-opts)
       (is (nil? (read* f [::no-opts :x]))))))
 
 ;; ---------------------------------------------------------------------------
@@ -143,21 +143,21 @@
 (deftest clear-restores-the-default-by-removing-the-entry
   (testing "the entry is GONE, not set to the default — one representation
            of unset, and the concern map is pruned once it empties"
-    (rf.hicasso.impl.state/reg-state ::open? {:default false})
+    (rf.fresco.impl.state/reg-state ::open? {:default false})
     (let [f (frame! ::cleared)]
       (send! f [::open? :billing true])
       (is (= {:ui {::open? {:billing true}}} (db-of f)))
-      (send! f [rf.hicasso.impl.state/clear-event-id ::open? :billing])
+      (send! f [rf.fresco.impl.state/clear-event-id ::open? :billing])
       (is (= false (read* f [::open? :billing])) "back to the default")
       (is (= {:ui {}} (db-of f))
           "the entry is removed AND the emptied concern map is pruned"))))
 
 (deftest clear-leaves-its-siblings-alone
-  (rf.hicasso.impl.state/reg-state ::open? {:default false})
+  (rf.fresco.impl.state/reg-state ::open? {:default false})
   (let [f (frame! ::clear-sibling)]
     (send! f [::open? :billing true])
     (send! f [::open? :shipping true])
-    (send! f [rf.hicasso.impl.state/clear-event-id ::open? :billing])
+    (send! f [rf.fresco.impl.state/clear-event-id ::open? :billing])
     (is (= {:ui {::open? {:shipping true}}} (db-of f))
         "one key removed, the concern map kept because it is not empty")
     (is (= false (read* f [::open? :billing])))
@@ -166,9 +166,9 @@
 (deftest clear-of-something-never-written-changes-nothing
   (testing "and in particular does not plant an empty `:ui` root in a db
            that never had one"
-    (rf.hicasso.impl.state/reg-state ::open? {:default false})
+    (rf.fresco.impl.state/reg-state ::open? {:default false})
     (let [f (frame! ::clear-absent)]
-      (send! f [rf.hicasso.impl.state/clear-event-id ::open? :billing])
+      (send! f [rf.fresco.impl.state/clear-event-id ::open? :billing])
       (is (= {} (db-of f)))
       (is (= false (read* f [::open? :billing]))))))
 
@@ -177,9 +177,9 @@
            silent dissoc: a concern whose values are keywords could be set
            to the sentinel by legitimate domain data. Clear is an event, so
            there is no value this concern cannot hold."
-    (rf.hicasso.impl.state/reg-state ::tab {:default :first})
+    (rf.fresco.impl.state/reg-state ::tab {:default :first})
     (let [f (frame! ::sentinel-free)]
-      (doseq [v [:second :re-frame.hicasso/clear ::anything nil false]]
+      (doseq [v [:second :re-frame.fresco/clear ::anything nil false]]
         (send! f [::tab :panel v])
         (is (= v (read* f [::tab :panel]))
             (str "the concern holds " (pr-str v) " as an ordinary value"))
@@ -191,11 +191,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-bad-instance-key-is-refused-at-the-read-naming-the-concern
-  (rf.hicasso.impl.state/reg-state ::open? {:default false})
+  (rf.fresco.impl.state/reg-state ::open? {:default false})
   (let [f (frame! ::bad-read)]
     (testing "nil — what a missing prop, a mistyped destructure and a
              forgotten argument all evaluate to"
-      (is (refused? :rf.error/hicasso-state-bad-argument ::open?
+      (is (refused? :rf.error/fresco-state-bad-argument ::open?
                     #(read* f [::open? nil]))))
     (testing "a map — a whole entity handed over where its id was meant.
              Read ONCE, and every claim about it taken off that one read:
@@ -203,63 +203,63 @@
              second read of the same query is served from the cache and
              fans nothing. Each bad key below therefore appears exactly
              once in this file."
-      (let [d (refusal :rf.error/hicasso-state-bad-argument
+      (let [d (refusal :rf.error/fresco-state-bad-argument
                        #(read* f [::open? {:id 1}]))]
         (is (some? d) "the read refused")
         (is (= ::open? (:concern d)) "and NAMED the concern")
         (is (= {:id 1} (:instance-key d)) "and carried the offending key")
         (is (= :read (:op d)) "and the side it fired on")))
     (testing "and a missing key altogether"
-      (is (refused? :rf.error/hicasso-state-bad-argument ::open?
+      (is (refused? :rf.error/fresco-state-bad-argument ::open?
                     #(read* f [::open?]))))))
 
 (deftest a-bad-instance-key-is-refused-at-the-write-naming-the-concern
-  (rf.hicasso.impl.state/reg-state ::open? {:default false})
+  (rf.fresco.impl.state/reg-state ::open? {:default false})
   (let [f (frame! ::bad-write)]
-    (is (refused? :rf.error/hicasso-state-bad-argument ::open?
+    (is (refused? :rf.error/fresco-state-bad-argument ::open?
                   #(send! f [::open? nil true])))
-    (is (refused? :rf.error/hicasso-state-bad-argument ::open?
+    (is (refused? :rf.error/fresco-state-bad-argument ::open?
                   #(send! f [::open? {:id 1} true])))
     (testing "and nothing was written"
       (is (= {} (db-of f))
           "a refused write is a refused write — the read-side check alone
            would have left this entry in the db"))
     (testing "the refusal names the side it fired on"
-      (is (= :write (:op (refusal :rf.error/hicasso-state-bad-argument
+      (is (= :write (:op (refusal :rf.error/fresco-state-bad-argument
                                   #(send! f [::open? nil true])))))))
 
   (testing "clear refuses a bad key too — it is a write"
-    (rf.hicasso.impl.state/reg-state ::open? {:default false})
+    (rf.fresco.impl.state/reg-state ::open? {:default false})
     (let [f (frame! ::bad-clear)]
-      (is (refused? :rf.error/hicasso-state-bad-argument ::open?
-                    #(send! f [rf.hicasso.impl.state/clear-event-id ::open? nil]))))))
+      (is (refused? :rf.error/fresco-state-bad-argument ::open?
+                    #(send! f [rf.fresco.impl.state/clear-event-id ::open? nil]))))))
 
 (deftest registration-refuses-an-unqualified-concern
-  (is (refused? :rf.error/hicasso-state-bad-argument :open?
-                #(rf.hicasso.impl.state/reg-state :open? {:default false})))
-  (is (refused? :rf.error/hicasso-state-bad-argument "open?"
-                #(rf.hicasso.impl.state/reg-state "open?" {:default false}))))
+  (is (refused? :rf.error/fresco-state-bad-argument :open?
+                #(rf.fresco.impl.state/reg-state :open? {:default false})))
+  (is (refused? :rf.error/fresco-state-bad-argument "open?"
+                #(rf.fresco.impl.state/reg-state "open?" {:default false}))))
 
 (deftest registration-refuses-an-unknown-option
   (testing "an option that is quietly ignored is a setting its author
            believes is in force"
-    (is (refused? :rf.error/hicasso-state-bad-argument ::typo
-                  #(rf.hicasso.impl.state/reg-state ::typo {:default false :defualt true})))
-    (is (refused? :rf.error/hicasso-state-bad-argument ::not-a-map
-                  #(rf.hicasso.impl.state/reg-state ::not-a-map [:default false])))
+    (is (refused? :rf.error/fresco-state-bad-argument ::typo
+                  #(rf.fresco.impl.state/reg-state ::typo {:default false :defualt true})))
+    (is (refused? :rf.error/fresco-state-bad-argument ::not-a-map
+                  #(rf.fresco.impl.state/reg-state ::not-a-map [:default false])))
     (testing "and the refusal names what it did not recognise"
       (is (= [:defualt]
-             (:unknown (refusal :rf.error/hicasso-state-bad-argument
-                                #(rf.hicasso.impl.state/reg-state ::typo2 {:defualt true}))))))))
+             (:unknown (refusal :rf.error/fresco-state-bad-argument
+                                #(rf.fresco.impl.state/reg-state ::typo2 {:defualt true}))))))))
 
 (deftest re-registering-replaces-the-registration-and-the-last-default-wins
   (testing "a namespace reload re-runs the same call, and that must work"
-    (is (= ::reloaded (rf.hicasso.impl.state/reg-state ::reloaded {:default 0})))
-    (is (= ::reloaded (rf.hicasso.impl.state/reg-state ::reloaded {:default 0}))))
+    (is (= ::reloaded (rf.fresco.impl.state/reg-state ::reloaded {:default 0})))
+    (is (= ::reloaded (rf.fresco.impl.state/reg-state ::reloaded {:default 0}))))
   (testing "a DIFFERENT default is the ordinary hot-reload edit: the new
            registration replaces the old, and every un-set instance reads
            the new default"
-    (is (= ::reloaded (rf.hicasso.impl.state/reg-state ::reloaded {:default 1})))
+    (is (= ::reloaded (rf.fresco.impl.state/reg-state ::reloaded {:default 1})))
     (let [f (frame! ::reg-twice)]
       (is (= 1 (read* f [::reloaded :a]))))))
 
@@ -270,45 +270,45 @@
 (deftest instance-key-admits-exactly-the-composable-shapes
   (testing "admitted"
     (doseq [k [:kw ::ns-kw "s" 0 -1 1.5 [:a] [:a 1 "b"] [[:order/id 42] :row] []]]
-      (is (rf.hicasso.impl.state/instance-key? k) (str (pr-str k) " is an instance key"))))
+      (is (rf.fresco.impl.state/instance-key? k) (str (pr-str k) " is an instance key"))))
   (testing "refused"
     (doseq [k [nil false true {} {:id 1} #{:a} '(:a) [:a nil] [:a {}]]]
-      (is (not (rf.hicasso.impl.state/instance-key? k)) (str (pr-str k) " is not an instance key")))))
+      (is (not (rf.fresco.impl.state/instance-key? k)) (str (pr-str k) " is not an instance key")))))
 
 (deftest child-key-nests-and-deep-nests
   (testing "a scalar parent key becomes a two-element vector"
-    (is (= [:panel :row] (rf.hicasso.impl.state/child-key :panel :row)))
-    (is (= ["panel" 0] (rf.hicasso.impl.state/child-key "panel" 0))))
+    (is (= [:panel :row] (rf.fresco.impl.state/child-key :panel :row)))
+    (is (= ["panel" 0] (rf.fresco.impl.state/child-key "panel" 0))))
   (testing "a vector parent key CONJes — so depth costs one element, not
            one level of nesting, and no component needs to know how deep
            it is"
-    (is (= [:panel :row :cell] (rf.hicasso.impl.state/child-key [:panel :row] :cell)))
+    (is (= [:panel :row :cell] (rf.fresco.impl.state/child-key [:panel :row] :cell)))
     (is (= [:panel :row :cell :label]
-           (-> :panel (rf.hicasso.impl.state/child-key :row) (rf.hicasso.impl.state/child-key :cell) (rf.hicasso.impl.state/child-key :label)))))
+           (-> :panel (rf.fresco.impl.state/child-key :row) (rf.fresco.impl.state/child-key :cell) (rf.fresco.impl.state/child-key :label)))))
   (testing "and every key it produces is a legal instance key, which is
            what makes nesting total"
-    (is (rf.hicasso.impl.state/instance-key? (rf.hicasso.impl.state/child-key [[:order/id 42]] :row)))))
+    (is (rf.fresco.impl.state/instance-key? (rf.fresco.impl.state/child-key [[:order/id 42]] :row)))))
 
 (deftest sibling-widgets-nested-under-one-parent-do-not-collide
-  (rf.hicasso.impl.state/reg-state ::open? {:default false})
+  (rf.fresco.impl.state/reg-state ::open? {:default false})
   (let [f    (frame! ::nested)
-        row1 (rf.hicasso.impl.state/child-key :panel 1)
-        row2 (rf.hicasso.impl.state/child-key :panel 2)]
-    (send! f [::open? (rf.hicasso.impl.state/child-key row1 :detail) true])
-    (is (= true  (read* f [::open? (rf.hicasso.impl.state/child-key row1 :detail)])))
-    (is (= false (read* f [::open? (rf.hicasso.impl.state/child-key row2 :detail)])))
+        row1 (rf.fresco.impl.state/child-key :panel 1)
+        row2 (rf.fresco.impl.state/child-key :panel 2)]
+    (send! f [::open? (rf.fresco.impl.state/child-key row1 :detail) true])
+    (is (= true  (read* f [::open? (rf.fresco.impl.state/child-key row1 :detail)])))
+    (is (= false (read* f [::open? (rf.fresco.impl.state/child-key row2 :detail)])))
     (is (= false (read* f [::open? :panel]))
         "the parent's own key is a different key from any child's")))
 
 (deftest a-fresh-but-equal-key-vector-is-the-same-instance
   (testing "keys are compared by VALUE, so a key rebuilt every render
            addresses the entry the previous render wrote"
-    (rf.hicasso.impl.state/reg-state ::draft {:default ""})
+    (rf.fresco.impl.state/reg-state ::draft {:default ""})
     (let [f (frame! ::value-equality)]
       (send! f [::draft [:order/id 42] "hi"])
       (is (= "hi" (read* f [::draft (into [] [:order/id 42])]))
           "a distinct vector object, equal by value")
-      (is (= "hi" (read* f [::draft (rf.hicasso.impl.state/child-key :order/id 42)]))
+      (is (= "hi" (read* f [::draft (rf.fresco.impl.state/child-key :order/id 42)]))
           "and one composed by child-key")
       (is (= 1 (count (get-in (db-of f) [:ui ::draft])))
           "one entry, not two"))))
@@ -320,7 +320,7 @@
 (deftest two-frames-hold-the-same-concern-and-key-independently
   (testing "per-frame isolation costs this namespace NOTHING — app-db is
            per-frame already, and there is not one line about frames in it"
-    (rf.hicasso.impl.state/reg-state ::open? {:default false})
+    (rf.fresco.impl.state/reg-state ::open? {:default false})
     (let [a (frame! ::frame-a)
           b (frame! ::frame-b)]
       (send! a [::open? :billing true])
@@ -330,6 +330,6 @@
       (is (= {} (db-of b)))
       (testing "and clearing in one frame leaves the other"
         (send! b [::open? :billing true])
-        (send! a [rf.hicasso.impl.state/clear-event-id ::open? :billing])
+        (send! a [rf.fresco.impl.state/clear-event-id ::open? :billing])
         (is (= false (read* a [::open? :billing])))
         (is (= true  (read* b [::open? :billing])))))))

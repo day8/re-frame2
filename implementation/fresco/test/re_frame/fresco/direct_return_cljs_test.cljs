@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.direct-return-cljs-test
+(ns re-frame.fresco.direct-return-cljs-test
   "RUNG 3 — THE DIRECT RETURN, AND THE FOUR SURFACES IT WALKS PAST.
 
   A `defview` body may answer an already-constructed React element
@@ -62,7 +62,7 @@
 
   and the entity-key diagnostic, which has no function worth probing
   because its whole observable is the warning it prints, counted at
-  `console.warn` (Hicasso's channel; React's own key warning is a
+  `console.warn` (Fresco's channel; React's own key warning is a
   `console.error` and is not this file's business).
 
   **Every count is read against a FLOOR, not against zero.** Both arms
@@ -102,14 +102,14 @@
 
   *React semantics begin inside the returned element* is the fence: past
   it a callback slot holds an ordinary function and a child is a React
-  node, because nothing of Hicasso's runs there. The rows below
+  node, because nothing of Fresco's runs there. The rows below
   establish the direction a reader has to trust: the codec does not get
   OUT.
 
   ## What a direct return still costs — I9
 
   Exactly two hooks, counted at React's own dispatcher through
-  [[re-frame.hicasso.hook-probe]]. The shell is the React-hook spine and
+  [[re-frame.fresco.hook-probe]]. The shell is the React-hook spine and
   I9 is frozen at two; a boundary that answered an element is still a
   boundary and pays the same two, which is the reason
   Rung 3 is an escape from the CODEC and not from the boundary.
@@ -118,7 +118,7 @@
 
   Spec §5 Rung 3: *hooks do not belong in the dynamically composed
   `defview` body; hook-intensive behavior belongs in a separately
-  defined native component so hook order cannot depend on Hicasso data
+  defined native component so hook order cannot depend on Fresco data
   paths.* There is no runtime refusal for it and this file does not add
   one. `defview` reads no body, by contract (`h/defview`'s own
   docstring), so detecting a hook call inside one needs a compiler that
@@ -147,17 +147,17 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
-            [re-frame.hicasso.hook-probe :as rf.hicasso.hook-probe]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.controlled :as rf.hicasso.impl.controlled]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
-            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
+            [re-frame.fresco.hook-probe :as rf.fresco.hook-probe]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.controlled :as rf.fresco.impl.controlled]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
+            [re-frame.fresco.test :as rf.fresco.test]
             [re-frame.test-support :as rf.test-support]
             [uix.core :as uix]
             ["react" :as react]
@@ -177,7 +177,7 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The pair — one page, written twice
@@ -199,11 +199,11 @@
   a callback slot, and a controlled field — one member of each
   population the four probes below count."
   [{:keys [id]}]
-  (let [label (rf.hicasso/sub [:dr/label id])
-        n     (count (rf.hicasso/sub [:dr/tags id]))]
+  (let [label (rf.fresco/sub [:dr/label id])
+        n     (count (rf.fresco/sub [:dr/tags id]))]
     [:div {:class "row" :on-click [:dr/picked id]}
      [:span {:class "label"} (str label " " n)]
-     [:input {:class "field" :value label :on-input [:dr/edited id ::rf.hicasso/value]}]]))
+     [:input {:class "field" :value label :on-input [:dr/edited id ::rf.fresco/value]}]]))
 
 (defn direct-body
   "The Rung 3 spelling of the same page. The reads are the boundary's,
@@ -215,8 +215,8 @@
   the field's echo is the author's to write. Both are the escape's price
   and both are visible in this source."
   [{:keys [id]}]
-  (let [label (rf.hicasso/sub [:dr/label id])
-        n     (count (rf.hicasso/sub [:dr/tags id]))]
+  (let [label (rf.fresco/sub [:dr/label id])
+        n     (count (rf.fresco/sub [:dr/tags id]))]
     (react/createElement "div" #js {:className "row" :onClick (fn [_] nil)}
       (react/createElement "span" #js {:className "label"} (str label " " n))
       (react/createElement "input" #js {:className "field" :value label :onChange (fn [_] nil)}))))
@@ -226,8 +226,8 @@
   element, so the escape sees it exactly as it sees [[direct-body]]'s —
   which the probes below read rather than assume."
   [{:keys [id]}]
-  (let [label (rf.hicasso/sub [:dr/label id])
-        n     (count (rf.hicasso/sub [:dr/tags id]))]
+  (let [label (rf.fresco/sub [:dr/label id])
+        n     (count (rf.fresco/sub [:dr/tags id]))]
     (uix/$ :div {:class "row" :on-click (fn [_] nil)}
            (uix/$ :span {:class "label"} (str label " " n))
            (uix/$ :input {:class "field" :value label :on-change (fn [_] nil)}))))
@@ -239,10 +239,10 @@
   [_]
   nil)
 
-(rf.hicasso/defview hiccup-arm [props] (hiccup-body props))
-(rf.hicasso/defview direct-arm [props] (direct-body props))
-(rf.hicasso/defview uix-arm    [props] (uix-body props))
-(rf.hicasso/defview floor-arm  [props] (floor-body props))
+(rf.fresco/defview hiccup-arm [props] (hiccup-body props))
+(rf.fresco/defview direct-arm [props] (direct-body props))
+(rf.fresco/defview uix-arm    [props] (uix-body props))
+(rf.fresco/defview floor-arm  [props] (floor-body props))
 
 ;; ---------------------------------------------------------------------------
 ;; The key pair — a seq of boundary members, which is the population the
@@ -257,7 +257,7 @@
 ;; without meaning anything. The members are boundaries, and their React
 ;; counterpart is an ordinary function component rendering the same span.
 
-(rf.hicasso/defview tag-row  [{:keys [label]}] [:span {:class "tag"} label])
+(rf.fresco/defview tag-row  [{:keys [label]}] [:span {:class "tag"} label])
 
 (defn- react-tag-row
   "The same span as a raw React component. The arms compare a key
@@ -265,16 +265,16 @@
   [^js props]
   (react/createElement "span" #js {:className "tag"} (.-label props)))
 
-(rf.hicasso/defview key-hiccup-arm
+(rf.fresco/defview key-hiccup-arm
   [{:keys [id]}]
   [:div {:class "tags"}
-   (for [t (rf.hicasso/sub [:dr/tags id])] [tag-row {:key {:tag t} :label t}])])
+   (for [t (rf.fresco/sub [:dr/tags id])] [tag-row {:key {:tag t} :label t}])])
 
-(rf.hicasso/defview key-direct-arm
+(rf.fresco/defview key-direct-arm
   [{:keys [id]}]
   (react/createElement "div" #js {:className "tags"}
     (into-array (map (fn [t] (react/createElement react-tag-row #js {:key #js {:tag t} :label t}))
-                     (rf.hicasso/sub [:dr/tags id])))))
+                     (rf.fresco/sub [:dr/tags id])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -283,7 +283,7 @@
 (defn- seeded!
   ([] (seeded! seed-db))
   ([db]
-   (rf.hicasso.checkpoint-support/leave-act-environment!)
+   (rf.fresco.checkpoint-support/leave-act-environment!)
    (rf/make-frame {:id frame-id})
    (rf/with-frame frame-id (rf/dispatch-sync [:dr/seed db]))
    frame-id))
@@ -297,12 +297,12 @@
   and it is the same sentence: they are keyed to the DECLARATION, so the
   arms below — which are the same page written three ways — carry three
   different view names and would part on the one difference this file's
-  every comparison exists to exclude. `rf.hicasso.roots-frames-support/without-view-annotations`
+  every comparison exists to exclude. `rf.fresco.roots-frames-support/without-view-annotations`
   carries the argument in full."
   [view]
-  (rf.hicasso.roots-frames-support/without-view-annotations
+  (rf.fresco.roots-frames-support/without-view-annotations
     (react-dom-server/renderToStaticMarkup
-      (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id [view {:id 1}])))))
+      (rf.fresco.impl.mount/provider frame-id (rf.fresco.impl.codec/root-element frame-id [view {:id 1}])))))
 
 (defn- probe
   "Entries into the shipping var `install!` wraps, while `view` renders.
@@ -340,7 +340,7 @@
            "crossing's floor is " floor " and the UIx arm read " uix)))
 
 (defn- warnings-of
-  "Hicasso's warning channel while `view` renders. React's own key
+  "Fresco's warning channel while `view` renders. React's own key
   warning is a `console.error` and does not arrive here."
   [view]
   (let [seen (atom [])
@@ -385,39 +385,39 @@
 
 (deftest a-direct-return-does-not-enter-the-hiccup-walk
   (seeded!)
-  (let [real rf.hicasso.impl.codec/vec->element]
+  (let [real rf.fresco.impl.codec/vec->element]
     (walks-past
       "the hiccup walk (codec/vec->element)"
-      (probes (fn [n] (set! rf.hicasso.impl.codec/vec->element
+      (probes (fn [n] (set! rf.fresco.impl.codec/vec->element
                             (fn [form] (swap! n inc) (real form))))
-              (fn [] (set! rf.hicasso.impl.codec/vec->element real))))))
+              (fn [] (set! rf.fresco.impl.codec/vec->element real))))))
 
 (deftest a-direct-return-does-not-enter-the-prop-pipeline
   (seeded!)
-  (let [real rf.hicasso.impl.codec/convert-props]
+  (let [real rf.fresco.impl.codec/convert-props]
     (walks-past
       "the prop pipeline (codec/convert-props)"
-      (probes (fn [n] (set! rf.hicasso.impl.codec/convert-props
+      (probes (fn [n] (set! rf.fresco.impl.codec/convert-props
                             (fn [& args] (swap! n inc) (apply real args))))
-              (fn [] (set! rf.hicasso.impl.codec/convert-props real))))))
+              (fn [] (set! rf.fresco.impl.codec/convert-props real))))))
 
 (deftest a-direct-return-does-not-enter-event-lowering
   (seeded!)
-  (let [real rf.hicasso.impl.intent/lower-prop]
+  (let [real rf.fresco.impl.intent/lower-prop]
     (walks-past
       "event lowering (intent/lower-prop)"
-      (probes (fn [n] (set! rf.hicasso.impl.intent/lower-prop
+      (probes (fn [n] (set! rf.fresco.impl.intent/lower-prop
                             (fn [& args] (swap! n inc) (apply real args))))
-              (fn [] (set! rf.hicasso.impl.intent/lower-prop real))))))
+              (fn [] (set! rf.fresco.impl.intent/lower-prop real))))))
 
 (deftest a-direct-return-does-not-enter-controlled-repair
   (seeded!)
-  (let [real rf.hicasso.impl.controlled/install!]
+  (let [real rf.fresco.impl.controlled/install!]
     (walks-past
       "controlled repair (controlled/install!)"
-      (probes (fn [n] (set! rf.hicasso.impl.controlled/install!
+      (probes (fn [n] (set! rf.fresco.impl.controlled/install!
                             (fn [& args] (swap! n inc) (apply real args))))
-              (fn [] (set! rf.hicasso.impl.controlled/install! real))))))
+              (fn [] (set! rf.fresco.impl.controlled/install! real))))))
 
 (deftest a-direct-return-is-not-inspected-by-the-key-diagnostic
   (seeded!)
@@ -432,7 +432,7 @@
         direct-warned (warnings-of key-direct-arm)]
 
     (testing "CONTROL — the hiccup arm's entity-keyed boundary members draw
-              Hicasso's warning, naming the member head, so the channel is
+              Fresco's warning, naming the member head, so the channel is
               live and the fixture does carry the population"
       (is (= 1 (count hiccup-warned)))
       (is (re-find #"direct-return-cljs-test/tag-row" (first hiccup-warned))))
@@ -441,7 +441,7 @@
               React's own duplicate-key warning fires for BOTH arms on its
               own channel — a `console.error` — and that is the point:
               whether React likes the key here is React's affair, and
-              Hicasso has not looked"
+              Fresco has not looked"
       (is (= [] direct-warned)))
 
     (testing "and the key pair is a pair — same DOM, so the two rows above
@@ -457,10 +457,10 @@
 
 (deftest a-boundary-that-returns-an-element-still-costs-exactly-two-hooks
   (seeded!)
-  (is (true? (rf.hicasso.hook-probe/install!))
+  (is (true? (rf.fresco.hook-probe/install!))
       "React's client-internals dispatcher slot was not found — the hook
        budget is UNWITNESSED, not satisfied")
-  (let [hooks-of (fn [view] (rf.hicasso.hook-probe/record! (fn [] (render! view))))
+  (let [hooks-of (fn [view] (rf.fresco.hook-probe/record! (fn [] (render! view))))
         hiccup   (hooks-of hiccup-arm)
         direct   (hooks-of direct-arm)]
 
@@ -468,7 +468,7 @@
               subscription/epoch hook, in the order the ledger declares
               them, with the body between"
       (is (= ["useContext" "useSyncExternalStore"] (vec direct)))
-      (is (= (count rf.hicasso.test.runtime/shell-hook-ledger) (count direct))))
+      (is (= (count rf.fresco.test.runtime/shell-hook-ledger) (count direct))))
 
     (testing "the boundary pays the same two on either arm: Rung 3 is an
               escape from the codec, not from the boundary. A third hook
@@ -498,18 +498,18 @@
 (deftest l2-refuses-a-direct-return-as-opaque
   (testing "CONTROL — the hiccup arm's body is exactly what L2 is for, and
             it answers a tree"
-    (is (= :div (:tag (rf.hicasso.test/tree [hiccup-body {:id 1}] l2-fixtures)))))
+    (is (= :div (:tag (rf.fresco.test/tree [hiccup-body {:id 1}] l2-fixtures)))))
 
   (testing "the direct arm's body answers a value only React can
             interpret, so L2 refuses it and points at L3. This is the
             escape's OTHER price and the one an author meets first: a
             boundary moved to Rung 3 leaves the assertion tier that runs
             without a browser"
-    (let [{:keys [refused]} (outcome #(rf.hicasso.test/tree [direct-body {:id 1}] l2-fixtures))]
-      (is (= :rf.error/hicasso-test-react-is-opaque (:rf.error/id refused)))))
+    (let [{:keys [refused]} (outcome #(rf.fresco.test/tree [direct-body {:id 1}] l2-fixtures))]
+      (is (= :rf.error/fresco-test-react-is-opaque (:rf.error/id refused)))))
 
   (testing "and it refuses at the DIRECT-RETURN position specifically —
             the body answered the element itself, with no tree around it
             for the refusal to have come from"
-    (let [{:keys [refused]} (outcome #(rf.hicasso.test/tree [(fn [_] (react/createElement "b" nil "x"))] {}))]
-      (is (= :rf.error/hicasso-test-react-is-opaque (:rf.error/id refused))))))
+    (let [{:keys [refused]} (outcome #(rf.fresco.test/tree [(fn [_] (react/createElement "b" nil "x"))] {}))]
+      (is (= :rf.error/fresco-test-react-is-opaque (:rf.error/id refused))))))

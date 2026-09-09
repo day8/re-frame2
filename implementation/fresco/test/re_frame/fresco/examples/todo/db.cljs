@@ -1,8 +1,8 @@
-(ns re-frame.hicasso.examples.todo.db
+(ns re-frame.fresco.examples.todo.db
   "THE SHAPE, AND THE ONE PIECE OF WIDGET STATE.
 
   The todos, and nothing derived. The active filter is NOT here — it is
-  read off the URL by `re-frame.hicasso.examples.todo.subs`'s
+  read off the URL by `re-frame.fresco.examples.todo.subs`'s
   `::showing`, so the address bar and the highlighted tab cannot
   disagree. Neither is
   \"how many are left\": a count of a map this file already holds is a
@@ -27,7 +27,7 @@
   A `nil` draft means *this row is not being edited* — one representation
   of unset, which is why cancelling an edit is `[::h/clear ::draft id]`
   (removal, back to the default) rather than a write of `nil`."
-  (:require [re-frame.hicasso :as rf.hicasso]))
+  (:require [re-frame.fresco :as rf.fresco]))
 
 ;; ---------------------------------------------------------------------------
 ;; The shape
@@ -73,4 +73,4 @@
   A hand-rolled `[:ui :edit-draft]` path is the bug this deletes: every
   row on the page would share one draft, they would all open together,
   and nothing would complain."
-  (rf.hicasso/reg-state ::draft {:default nil}))
+  (rf.fresco/reg-state ::draft {:default nil}))

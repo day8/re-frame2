@@ -5,7 +5,7 @@ needs to block the page behind it and restore focus when it closes. Building
 that from portals, document listeners, z-index rules, and a custom focus trap
 creates several independent failure modes.
 
-`re-frame.hicasso.overlay` provides two primitives:
+`re-frame.fresco.overlay` provides two primitives:
 
 - `overlay/popover` for anchored, light-dismissable UI
 - `overlay/modal` for blocking dialogs
@@ -21,8 +21,8 @@ Store the open flag in app-db
 ```clojure
 (ns app.views.filters
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.overlay :as overlay]))
+            [re-frame.fresco :as h]
+            [re-frame.fresco.overlay :as overlay]))
 
 (rf/reg-sub :filter-menu/open?
   (fn [db [_ id]]
@@ -298,7 +298,7 @@ load-bearing:
 
 None of the four is visible on screen or reachable by a click-driven test. The
 witness that decides them —
-[`combobox_keyboard_dom_cljs_test.cljs`](../../../implementation/hicasso/test/re_frame/hicasso/combobox_keyboard_dom_cljs_test.cljs)
+[`combobox_keyboard_dom_cljs_test.cljs`](../../../implementation/fresco/test/re_frame/fresco/combobox_keyboard_dom_cljs_test.cljs)
 — audits this markup against the same view with the repair removed, so each
 claim is shown failing as well as passing.
 
@@ -351,8 +351,8 @@ to the next library. The top-layer primitives remove those failure classes.
 | Outside click closes the popover, and the next click on the trigger does nothing | `:on-dismiss` ran but the handler left the app-db flag true. The element is still mounted and closed, `showPopover` runs only when it mounts, and setting a flag that is already true changes nothing | Set the open flag false in the dismiss handler |
 | Escape closes several layers at once | Layers share one address or one dismiss event | Give each overlay its own address and `:on-dismiss` |
 | Focus returns to `<body>` | The opener unmounted while the overlay was open, often because of an unstable list key | Use a stable `:key` for the trigger's row |
-| `:rf.error/hicasso-overlay-anchor-missing` is raised when the overlay opens | `:anchor` names a DOM id no element carries — a typo, or a trigger that renders one commit after the panel. Omitting `:anchor` is legal and silent; naming one that resolves to nothing is not | Generate a unique, stable trigger id from the instance id, and render the trigger in the same tree as the overlay |
-| An open overlay raises `:rf.error/hicasso-intent-outside-boundary` naming its `:on-dismiss` intent | It has `:on-dismiss` but no frame above it — rendered outside `h/frame-root`, `h/frame-provider` or Story — so the dismissal could never be routed, and the module refuses rather than let the platform close a panel app-db still holds open | Mount it under a frame, or drop `:on-dismiss` if it must not be dismissable |
+| `:rf.error/fresco-overlay-anchor-missing` is raised when the overlay opens | `:anchor` names a DOM id no element carries — a typo, or a trigger that renders one commit after the panel. Omitting `:anchor` is legal and silent; naming one that resolves to nothing is not | Generate a unique, stable trigger id from the instance id, and render the trigger in the same tree as the overlay |
+| An open overlay raises `:rf.error/fresco-intent-outside-boundary` naming its `:on-dismiss` intent | It has `:on-dismiss` but no frame above it — rendered outside `h/frame-root`, `h/frame-provider` or Story — so the dismissal could never be routed, and the module refuses rather than let the platform close a panel app-db still holds open | Mount it under a frame, or drop `:on-dismiss` if it must not be dismissable |
 | Panel opens beside the wrong trigger, and nothing is raised | Several instances reuse one id. The id resolves, so there is nothing to refuse — it resolves to the first element in the document carrying it | Include the row id in the trigger id, the same way you do for the open flag |
 | Dialog is visible but the background still scrolls and receives clicks | A hand-written `<dialog open>` uses the non-modal path | Use `overlay/modal`, which calls `showModal` |
 | Popover flashes in the wrong place for one frame | Positioning happens after mount | Supply `:anchor` and `:placement`; the module positions before paint |

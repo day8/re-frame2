@@ -1,9 +1,9 @@
 'use strict';
 // THE FLOOR ARM'S WITHIN-RUN LEVEL WITNESS — rf2-a233t.
 //
-//     node hicasso/test/re_frame/bench/hicasso/alloc_level_witness.cjs <dataset.json>...
-//     node hicasso/test/re_frame/bench/hicasso/alloc_level_witness.cjs --corpus
-//     node hicasso/test/re_frame/bench/hicasso/alloc_level_witness.cjs --self-test
+//     node fresco/test/re_frame/bench/fresco/alloc_level_witness.cjs <dataset.json>...
+//     node fresco/test/re_frame/bench/fresco/alloc_level_witness.cjs --corpus
+//     node fresco/test/re_frame/bench/fresco/alloc_level_witness.cjs --self-test
 //
 // ## THE DEFECT THIS REFUSES
 //
@@ -206,7 +206,7 @@ const path = require('node:path');
 
 // The pinned windows and the bound. Exported so a caller can re-score the
 // corpus under a different definition without editing this file — the record
-// in docs/design/hicasso/studio/ does exactly that to build the table above.
+// in docs/design/fresco/studio/ does exactly that to build the table above.
 const BEFORE_ROUNDS = [1, 5];
 const BEFORE_PRE_RAMP_MAX = 3; // rounds above this are the transition; see the header
 const AFTER_ROUND_MIN = 6;
@@ -560,7 +560,7 @@ function selfTest() {
   // 9. ADMISSIBILITY IS READ OFF THE RECORD. The exit code is not a criterion
   //    and neither is the absence of one.
   {
-    const noAlloc = adjudicate({ generatedAt: 'x', build: 'hicasso-bench' });
+    const noAlloc = adjudicate({ generatedAt: 'x', build: 'fresco-bench' });
     check('a record with no `alloc` object REFUSES', !noAlloc.ok && has(noAlloc, 'no-alloc'));
     const badControl = synth();
     badControl.alloc.controlVerdict.ok = false;

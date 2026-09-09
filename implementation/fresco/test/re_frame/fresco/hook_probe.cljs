@@ -1,9 +1,9 @@
-(ns re-frame.hicasso.hook-probe
+(ns re-frame.fresco.hook-probe
   "COUNTING HOOKS AT REACT'S OWN DISPATCHER.
 
   HD-020(b) makes the ≤2-hook budget a hard architectural line, and **a
   budget a runtime reports about itself is not a witness**. The shell
-  declares its hooks in [[re-frame.hicasso.test.runtime/shell-hook-ledger]];
+  declares its hooks in [[re-frame.fresco.test.runtime/shell-hook-ledger]];
   this counts the calls React actually receives, so the declaration is
   checked rather than believed.
 

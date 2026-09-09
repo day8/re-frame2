@@ -171,7 +171,7 @@ test('Xray feature_matrix testbed .cljs changes trigger story_xray_browser', () 
 // fails. It was not in the runtime-extension predicate, so an HTML-only
 // regression classified as no-surface and skipped the browser gate.
 test('Story testbed .html changes trigger story_xray_browser (the runner serves it — rf2-kttom)', () => {
-  const exemplar = 'tools/story/testbeds/hicasso_counter/index.html';
+  const exemplar = 'tools/story/testbeds/fresco_counter/index.html';
   assert.ok(
     fs.existsSync(path.join(REPO_ROOT, exemplar)),
     `${exemplar} must exist — this row's whole claim is "a real served testbed document"`,
@@ -402,9 +402,9 @@ test('tools/ src reads implementation_jvm false — covered by the unconditional
   }
 });
 
-test('hicasso + ssr-node src read implementation_jvm false — same lane covers them (rf2-cujx)', () => {
+test('fresco + ssr-node src read implementation_jvm false — same lane covers them (rf2-cujx)', () => {
   for (const p of [
-    'implementation/hicasso/src/foo.cljs',
+    'implementation/fresco/src/foo.cljs',
     'implementation/ssr-node/src/foo.cljs',
   ]) {
     assert.equal(classify(p).implementation_jvm, 'false', p);
@@ -439,11 +439,11 @@ test('implementation/core/src still arms implementation_jvm (rf2-cujx control)',
 // source file and nothing else), so both ran only inside `jvm-core`.
 //
 // `late-bind-drift-test` walks `implementation/**/src` — the SAME corpus as the
-// four src-walkers above, so the hicasso / ssr-node rows already asserted here
+// four src-walkers above, so the fresco / ssr-node rows already asserted here
 // are its hole verbatim. `observation-render-law-drift-test` is wider than any
 // of them and needs its own probe: its census is `git ls-files`, so its domain
 // is the whole tracked prose corpus, and rf2-61ar armed `implementation_jvm`
-// for only the pinned SLICE of that prose. `docs/design/hicasso/**` is outside
+// for only the pinned SLICE of that prose. `docs/design/fresco/**` is outside
 // the slice, which the row below measures.
 const REPO_SOURCE_WALK_NAMESPACES = Object.freeze([
   're-frame.no-rf-default-floor-lint-test',
@@ -455,9 +455,9 @@ const REPO_SOURCE_WALK_NAMESPACES = Object.freeze([
   're-frame.observation-render-law-drift-test',
 ]);
 
-test('hicasso + ssr-node TEST trees read implementation_jvm false — the naming-drift walk reads them anyway (rf2-n4a2b)', () => {
+test('fresco + ssr-node TEST trees read implementation_jvm false — the naming-drift walk reads them anyway (rf2-n4a2b)', () => {
   for (const p of [
-    'implementation/hicasso/test/foo_prod_gate_test.clj',
+    'implementation/fresco/test/foo_prod_gate_test.clj',
     'implementation/ssr-node/test/foo_prod_gate_test.clj',
   ]) {
     assert.equal(classify(p).implementation_jvm, 'false', p);
@@ -479,8 +479,8 @@ test('unpinned PROSE reads implementation_jvm false — the render-law census re
   // rest of `docs/` arming nothing. So the census outruns the arm, and a
   // retired render-law claim landing on an unpinned page merged green.
   for (const p of [
-    'docs/design/hicasso/product/foo.md',
-    'docs/core/hicasso/foo.md',
+    'docs/design/fresco/product/foo.md',
+    'docs/core/fresco/foo.md',
   ]) {
     assert.equal(classify(p).implementation_jvm, 'false', p);
   }
@@ -1107,7 +1107,7 @@ test('the new tools JVM lanes arm on their artefact and nowhere else (rf2-wq17m)
   }
 });
 
-// rf2-2rtt6.143 — the Reagent `[:>]` → Hicasso codemod lane, the same
+// rf2-2rtt6.143 — the Reagent `[:>]` → Fresco codemod lane, the same
 // three-part shape one tree over. Its own block rather than a row in
 // NEW_TOOLS_JVM_LANES above because the artefact is not under `tools/`: it is
 // the first `migration/` path to reach test.yml at all. Before it, a
@@ -1116,36 +1116,36 @@ test('the new tools JVM lanes arm on their artefact and nowhere else (rf2-wq17m)
 // and the golden corpus that IS the tool's spec ran in no lane anywhere.
 
 const CODEMOD_LANE = {
-  job: 'jvm-migration-hicasso-codemod',
-  output: 'migration_hicasso_codemod',
-  dir: 'migration/reagent-to-hicasso/codemod',
-  armed: 'migration/reagent-to-hicasso/codemod/src/re_frame/migration/hicasso/rewrite.clj',
+  job: 'jvm-migration-fresco-codemod',
+  output: 'migration_fresco_codemod',
+  dir: 'migration/reagent-to-fresco/codemod',
+  armed: 'migration/reagent-to-fresco/codemod/src/re_frame/migration/fresco/rewrite.clj',
   // The cross-tree `:paths` edge: the codemod puts
-  // `../../../implementation/hicasso/src` on its classpath so it and the
+  // `../../../implementation/fresco/src` on its classpath so it and the
   // runtime door share ONE slot rule (rf2-ani6y), and shared_rule_test.clj
   // pins the two `identical?`.
   //
   // rf2-r4j91 moved it. rf2-ani6y extracted the rule while the runtime still
   // lived in the bench tree, so the path used to be
-  // `implementation/freehand/test/re_frame/bench/hicasso/front/slot.cljc`;
+  // `implementation/freehand/test/re_frame/bench/fresco/front/slot.cljc`;
   // rf2-hic-001 moved the runtime into the package and frozen-sources.edn
   // pins the two files byte-for-byte, so BOTH answer identically today and
   // only one survives Freehand's retirement. `twinSharedRule` below is the
   // other one, kept so the negative can be asserted rather than assumed.
-  sharedRule: 'implementation/hicasso/src/re_frame/hicasso/impl/slot.cljc',
+  sharedRule: 'implementation/fresco/src/re_frame/fresco/impl/slot.cljc',
   // rf2-0yp7w P0 re-homed the harness, so the twin moved with it — this was
-  // `implementation/freehand/test/re_frame/bench/hicasso/front/slot.cljc`
+  // `implementation/freehand/test/re_frame/bench/fresco/front/slot.cljc`
   // when rf2-r4j91 wrote it, and rf2-6c12m.1 then moved the whole harness
-  // out of the package to bench/hicasso/. Pointing a live assertion at a
+  // out of the package to bench/fresco/. Pointing a live assertion at a
   // deleted file is the failure mode this constant was extracted to avoid,
   // so it follows the file.
-  twinSharedRule: 'bench/hicasso/src/re_frame/bench/hicasso/front/slot.cljc',
+  twinSharedRule: 'bench/fresco/src/re_frame/bench/fresco/front/slot.cljc',
   // rf2-erjv — the SECOND cross-tree edge, and a different mechanism. The one
   // above is a classpath entry; this one is source TEXT. shared_rule_test.clj's
   // `the-callback-contracts-are-the-doors` (rf2-vi11) slurps the door's own
   // `.cljs` with a relative `io/file` and asserts the roster the codemod prints
   // into its `defhost` sketch equals the door's `callback-contracts`.
-  door: 'implementation/hicasso/src/re_frame/hicasso/impl/codec.cljs',
+  door: 'implementation/fresco/src/re_frame/fresco/impl/codec.cljs',
 };
 
 test('the codemod JVM job is gated on its own output and runs the artefact (rf2-2rtt6.143)', () => {
@@ -1200,7 +1200,7 @@ test('the codemod lane arms on its own tree and on the shared slot rule (rf2-2rt
   // …and that file keeps every output it already had. The arm is shared with
   // the package's own, so a narrowing here would be silent.
   const shared = classify(CODEMOD_LANE.sharedRule);
-  for (const output of ['cljs_node_test', 'cljs_browser', 'hicasso_controlled']) {
+  for (const output of ['cljs_node_test', 'cljs_browser', 'fresco_controlled']) {
     assert.equal(shared[output], 'true', `${CODEMOD_LANE.sharedRule} must still arm ${output}`);
   }
 });
@@ -1216,9 +1216,9 @@ test('the TWIN shared rule is not what the codemod loads (rf2-r4j91, rf2-0yp7w)'
   // WORTH READING RATHER THAN THE ASSERTION BEING QUIETLY WEAKENED.
   //
   // rf2-r4j91 wrote the negative as "the twin's path must NOT arm
-  // migration_hicasso_codemod", which held while the twin lived under
+  // migration_fresco_codemod", which held while the twin lived under
   // `implementation/freehand/*`. P0 re-homed the harness into
-  // `implementation/hicasso/test/`, and the whole `implementation/hicasso/*`
+  // `implementation/fresco/test/`, and the whole `implementation/fresco/*`
   // arm sets that output — not for the classpath edge this test is about, but
   // for rf2-erjv's SOURCE-TEXT edge on `impl/codec.cljs`. So the twin does arm
   // the lane now, correctly and for an unrelated reason, and re-pointing the
@@ -1296,12 +1296,12 @@ test('the codemod lane arms on the DOOR the roster pin reads (rf2-erjv)', () => 
     'true',
     `${CODEMOD_LANE.door} is read by shared_rule_test.clj and must arm ${CODEMOD_LANE.output}`,
   );
-  // …and the arm WIDENS the hicasso case rather than replacing it. The arm is
-  // shared, `cljs_browser` and `hicasso_controlled` joined it only recently,
+  // …and the arm WIDENS the fresco case rather than replacing it. The arm is
+  // shared, `cljs_browser` and `fresco_controlled` joined it only recently,
   // and trading one output for another here would close this hole by opening
   // others — the same constraint rf2-8a6s pinned one block down.
   const door = classify(CODEMOD_LANE.door);
-  for (const output of ['cljs_node_test', 'cljs_browser', 'hicasso_controlled']) {
+  for (const output of ['cljs_node_test', 'cljs_browser', 'fresco_controlled']) {
     assert.equal(door[output], 'true', `${CODEMOD_LANE.door} must still arm ${output}`);
   }
 });
@@ -1315,7 +1315,7 @@ test('the door the codemod pin reads is the file the arm names (rf2-erjv)', () =
   // file this block arms on. Move the door, or repoint the pin, and the arm
   // becomes a lie; this row is what says so.
   const pin = fs.readFileSync(
-    path.join(REPO_ROOT, CODEMOD_LANE.dir, 'test/re_frame/migration/hicasso/shared_rule_test.clj'),
+    path.join(REPO_ROOT, CODEMOD_LANE.dir, 'test/re_frame/migration/fresco/shared_rule_test.clj'),
     'utf8',
   );
   const form = /\(io\/file\s+((?:"[^"]*"\s*)+)\)/.exec(pin);
@@ -1485,7 +1485,7 @@ test('the v1 codemod lane stays dark for surfaces it does not depend on (rf2-0qz
   for (const file of [
     'migration/from-re-frame-v1/README.md',
     'migration/from-re-frame-v1/http-fx-to-managed-http.md',
-    'migration/reagent-to-hicasso/codemod/deps.edn',
+    'migration/reagent-to-fresco/codemod/deps.edn',
     'implementation/flows/src/re_frame/flows.cljc',
     'spec/006-ReactiveSubstrate.md',
   ]) {
@@ -1510,7 +1510,7 @@ test('a v1 codemod change does NOT fire the rest of the matrix (rf2-0qzh)', () =
     'cljs_node_test',
     'cljs_browser',
     'tools_jvm',
-    'migration_hicasso_codemod',
+    'migration_fresco_codemod',
   ]) {
     assert.equal(result[output], 'false', `a v1 codemod-only diff must not arm ${output}`);
   }
@@ -1679,7 +1679,7 @@ test('the ssr-node lane stays dark for surfaces it does not depend on (rf2-n8vp)
 
 test('an ssr-node change fires that lane and NOTHING else (rf2-n8vp)', () => {
   // THE WHOLE REASON THIS OUTPUT IS ITS OWN. One entry in
-  // implementation/package.json arms eleven expensive lanes — the Hicasso
+  // implementation/package.json arms eleven expensive lanes — the Fresco
   // browser matrix among them — none of which this package's files have any
   // edge into. Folding ssr-node into an existing output, or letting it reach
   // the generic build-config arm, would make every future edit here pay for
@@ -2571,7 +2571,7 @@ test('skills/re-frame2-implementor/ does not inherit the improver arm (rf2-z65e)
 // `:deps` map, and the same four `deps.edn` files the job's cache key hashes.
 //
 // EVERY PATH HERE IS TRACKED, checked with `git ls-files`, not transcribed from
-// prose. The extensions are the trap: the Hicasso server door and the stock
+// prose. The extensions are the trap: the Fresco server door and the stock
 // Reagent adapter are `.cljs`, not `.cljc`, and the reopening audit's own note
 // spelled both `.cljc`. Nothing would have caught it — these arms are pure path
 // patterns, so a phantom file classifies identically to a real one and the
@@ -2581,7 +2581,7 @@ test('skills/re-frame2-implementor/ does not inherit the improver arm (rf2-z65e)
 const MIG23_FIXTURE_LOCAL_ROOTS = pinnedRoster('MIG23_FIXTURE_LOCAL_ROOTS', [
   'implementation/core/src/re_frame/core.cljc',
   'implementation/ssr/src/re_frame/ssr.cljc',
-  'implementation/hicasso/src/re_frame/hicasso/server.cljs',
+  'implementation/fresco/src/re_frame/fresco/server.cljs',
   'implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs',
 ]);
 for (const file of MIG23_FIXTURE_LOCAL_ROOTS) {
@@ -4474,50 +4474,50 @@ test('all-required-passed aggregator needs tenant-switcher-testbed-smoke (rf2-h5
 // artefact's suites + the S1f parity corpus + the G-1/G-14 gates all
 // skipped — a false-green hole).
 
-// rf2-ga8m — the Hicasso three-engine controlled-input gate (rf2-hic-016),
+// rf2-ga8m — the Fresco three-engine controlled-input gate (rf2-hic-016),
 // scheduled at last. It landed green and ran NOWHERE: the PR that built it was
 // fenced out of .github/workflows/** while rf2-8a6s held that surface, so it
 // declared itself a known hole in scripts/check_gate_scheduling.py instead of
 // going quietly unrun. These rows are the other half of closing that hole.
 
-const HICASSO_CONTROLLED = {
-  job: 'cljs-hicasso-controlled',
-  output: 'hicasso_controlled',
+const FRESCO_CONTROLLED = {
+  job: 'cljs-fresco-controlled',
+  output: 'fresco_controlled',
   // The gate's own launcher: it owns the check floor and the cross-engine
   // comparator, so a diff can soften the verdict logic itself.
-  launcher: 'implementation/scripts/serve-and-run-hicasso-controlled-testbed.cjs',
-  spec: 'implementation/hicasso/testbed/spec.cjs',
+  launcher: 'implementation/scripts/serve-and-run-fresco-controlled-testbed.cjs',
+  spec: 'implementation/fresco/testbed/spec.cjs',
   // The gate's actual subject: the element-path converge.
-  src: 'implementation/hicasso/src/re_frame/hicasso/impl/controlled.cljs',
+  src: 'implementation/fresco/src/re_frame/fresco/impl/controlled.cljs',
 };
 
-test('the hicasso controlled-input job is gated on its own output and runs the gate (rf2-ga8m)', () => {
+test('the fresco controlled-input job is gated on its own output and runs the gate (rf2-ga8m)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  const block = jobBlock(workflow, HICASSO_CONTROLLED.job);
+  const block = jobBlock(workflow, FRESCO_CONTROLLED.job);
   assert.match(block, /needs: detect_changed_surfaces/);
   assert.match(
     block,
-    /if: needs\.detect_changed_surfaces\.outputs\.hicasso_controlled == 'true'/,
-    `${HICASSO_CONTROLLED.job} must be gated on ${HICASSO_CONTROLLED.output}`,
+    /if: needs\.detect_changed_surfaces\.outputs\.fresco_controlled == 'true'/,
+    `${FRESCO_CONTROLLED.job} must be gated on ${FRESCO_CONTROLLED.output}`,
   );
-  assert.match(block, /npm run test:hicasso-controlled/);
+  assert.match(block, /npm run test:fresco-controlled/);
   // Plumbed out of detect_changed_surfaces, or the `if:` reads an empty
   // string and the job never runs.
   assert.match(
     workflow,
-    /hicasso_controlled: \$\{\{ steps\.detect\.outputs\.hicasso_controlled \}\}/,
-    `${HICASSO_CONTROLLED.output} must be declared as a detect_changed_surfaces output`,
+    /fresco_controlled: \$\{\{ steps\.detect\.outputs\.fresco_controlled \}\}/,
+    `${FRESCO_CONTROLLED.output} must be declared as a detect_changed_surfaces output`,
   );
   // Required, not advisory: this is the only lane that witnesses I15's caret
   // and composition clauses.
   assert.ok(
-    jobBlock(workflow, 'all-required-passed').includes(`- ${HICASSO_CONTROLLED.job}`),
-    `aggregator must list ${HICASSO_CONTROLLED.job} in needs:`,
+    jobBlock(workflow, 'all-required-passed').includes(`- ${FRESCO_CONTROLLED.job}`),
+    `aggregator must list ${FRESCO_CONTROLLED.job} in needs:`,
   );
 });
 
-test('the hicasso controlled-input job installs the PINNED three engines (rf2-ga8m)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), HICASSO_CONTROLLED.job);
+test('the fresco controlled-input job installs the PINNED three engines (rf2-ga8m)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), FRESCO_CONTROLLED.job);
 
   // All three, by name. Dropping one leaves a gate that still passes and no
   // longer tests what it is for — and the cross-engine comparator in the
@@ -4553,12 +4553,12 @@ test('the hicasso controlled-input job installs the PINNED three engines (rf2-ga
   );
 });
 
-test('the hicasso controlled-input lane arms on its tree, its launcher and the build config (rf2-ga8m)', () => {
+test('the fresco controlled-input lane arms on its tree, its launcher and the build config (rf2-ga8m)', () => {
   for (const file of [
-    HICASSO_CONTROLLED.spec,
-    HICASSO_CONTROLLED.src,
-    HICASSO_CONTROLLED.launcher,
-    // The trio: shadow-cljs.edn declares the `:hicasso/testbed` build the gate
+    FRESCO_CONTROLLED.spec,
+    FRESCO_CONTROLLED.src,
+    FRESCO_CONTROLLED.launcher,
+    // The trio: shadow-cljs.edn declares the `:fresco/testbed` build the gate
     // compiles, and the playwright pin in package.json / the lockfile IS the
     // three engine revisions under test.
     'implementation/shadow-cljs.edn',
@@ -4566,14 +4566,14 @@ test('the hicasso controlled-input lane arms on its tree, its launcher and the b
     'implementation/package-lock.json',
   ]) {
     assert.equal(
-      classify(file)[HICASSO_CONTROLLED.output],
+      classify(file)[FRESCO_CONTROLLED.output],
       'true',
-      `${file} must arm ${HICASSO_CONTROLLED.output}`,
+      `${file} must arm ${FRESCO_CONTROLLED.output}`,
     );
   }
   // The launcher case is placed before the generic implementation/scripts/*
   // case, so it must not narrow what that case already gave the file.
-  const launcher = classify(HICASSO_CONTROLLED.launcher);
+  const launcher = classify(FRESCO_CONTROLLED.launcher);
   for (const output of [
     'cljs_node_test',
     'cljs_browser',
@@ -4584,12 +4584,12 @@ test('the hicasso controlled-input lane arms on its tree, its launcher and the b
     assert.equal(
       launcher[output],
       'true',
-      `${HICASSO_CONTROLLED.launcher} must still arm ${output}`,
+      `${FRESCO_CONTROLLED.launcher} must still arm ${output}`,
     );
   }
 });
 
-test('the hicasso controlled-input lane stays dark for unrelated surfaces (rf2-ga8m)', () => {
+test('the fresco controlled-input lane stays dark for unrelated surfaces (rf2-ga8m)', () => {
   // A rule that matches everything is as useless as one that matches nothing.
   // `implementation/core` matters most here: it fans out to almost every other
   // output, and arming three browser launches from it would put this gate on
@@ -4599,81 +4599,81 @@ test('the hicasso controlled-input lane stays dark for unrelated surfaces (rf2-g
     'implementation/ui/src/re_frame/ui.cljs',
     'spec/006-ReactiveSubstrate.md',
     'tools/xray/src/day8/re_frame2_xray/core.cljs',
-    'migration/reagent-to-hicasso/codemod/deps.edn',
+    'migration/reagent-to-fresco/codemod/deps.edn',
   ]) {
     assert.equal(
-      classify(file)[HICASSO_CONTROLLED.output],
+      classify(file)[FRESCO_CONTROLLED.output],
       'false',
-      `${file} has no edge into the hicasso controlled-input gate`,
+      `${file} has no edge into the fresco controlled-input gate`,
     );
   }
 });
 
-test('a hicasso package change does NOT fire the JVM or prod tiers (rf2-ga8m)', () => {
-  // The hicasso arm stays narrow everywhere it has no suite: the runtime
+test('a fresco package change does NOT fire the JVM or prod tiers (rf2-ga8m)', () => {
+  // The fresco arm stays narrow everywhere it has no suite: the runtime
   // requires React so every suite it owns is CLJS, no `-elision-prod-test$`
   // namespace exists, and it mounts no testbed the ui gates drive.
-  const result = classify(HICASSO_CONTROLLED.spec);
+  const result = classify(FRESCO_CONTROLLED.spec);
   assert.equal(result.cljs_node_test, 'true');
-  assert.equal(result[HICASSO_CONTROLLED.output], 'true');
+  assert.equal(result[FRESCO_CONTROLLED.output], 'true');
   for (const output of ['implementation_jvm', 'cljs_prod', 'bundle_isolation']) {
-    assert.equal(result[output], 'false', `a hicasso-only diff must not arm ${output}`);
+    assert.equal(result[output], 'false', `a fresco-only diff must not arm ${output}`);
   }
 });
 
-// rf2-hic-015 — the Hicasso HMR gate, the repo's LAST declared scheduling
+// rf2-hic-015 — the Fresco HMR gate, the repo's LAST declared scheduling
 // hole, closed. It landed under rf2-vsgq green on three engines and ran
-// nowhere: no workflow invoked `npm run test:hicasso-hmr`, so it declared
+// nowhere: no workflow invoked `npm run test:fresco-hmr`, so it declared
 // itself `unscheduled` in scripts/check_gate_scheduling.py rather than let the
 // absence go unrecorded. These rows are the half that makes the schedule real
 // — an arm with no regression is the same fail-open, one level down.
 
-const HICASSO_HMR = {
-  job: 'cljs-hicasso-hmr',
-  output: 'hicasso_hmr',
+const FRESCO_HMR = {
+  job: 'cljs-fresco-hmr',
+  output: 'fresco_hmr',
   // The gate's own launcher. It owns the `shadow-cljs watch`, the HOT-LINE
   // rewriter that makes a save a save, and the structural coverage floor plus
   // the cross-engine comparator — every one of them softenable by a diff.
-  launcher: 'implementation/scripts/serve-and-run-hicasso-hmr-testbed.cjs',
-  spec: 'implementation/hicasso/testbed/hmr_spec.cjs',
+  launcher: 'implementation/scripts/serve-and-run-fresco-hmr-testbed.cjs',
+  spec: 'implementation/fresco/testbed/hmr_spec.cjs',
   // The file the gate REWRITES, and the page shadow's own :dev-http serves.
-  hotFile: 'implementation/hicasso/testbed/hicasso_hmr_testbed/views.cljs',
-  page: 'implementation/hicasso/testbed/hmr/index.html',
+  hotFile: 'implementation/fresco/testbed/fresco_hmr_testbed/views.cljs',
+  page: 'implementation/fresco/testbed/hmr/index.html',
 };
 
-test('the hicasso HMR job is gated on its own output and runs the gate (rf2-hic-015)', () => {
+test('the fresco HMR job is gated on its own output and runs the gate (rf2-hic-015)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  const block = jobBlock(workflow, HICASSO_HMR.job);
+  const block = jobBlock(workflow, FRESCO_HMR.job);
   assert.match(block, /needs: detect_changed_surfaces/);
   assert.match(
     block,
-    /if: needs\.detect_changed_surfaces\.outputs\.hicasso_hmr == 'true'/,
-    `${HICASSO_HMR.job} must be gated on ${HICASSO_HMR.output}`,
+    /if: needs\.detect_changed_surfaces\.outputs\.fresco_hmr == 'true'/,
+    `${FRESCO_HMR.job} must be gated on ${FRESCO_HMR.output}`,
   );
   // It must EXECUTE the gate, not merely mention it. A job that references a
   // command it never runs is the fail-open this bead exists to close.
   assert.ok(
-    stepRunning(block, 'npm run test:hicasso-hmr'),
-    'the job must run `npm run test:hicasso-hmr` as a step',
+    stepRunning(block, 'npm run test:fresco-hmr'),
+    'the job must run `npm run test:fresco-hmr` as a step',
   );
   // Plumbed out of detect_changed_surfaces, or the `if:` reads an empty string
   // and the job can never run — silently.
   assert.match(
     workflow,
-    /hicasso_hmr: \$\{\{ steps\.detect\.outputs\.hicasso_hmr \}\}/,
-    `${HICASSO_HMR.output} must be declared as a detect_changed_surfaces output`,
+    /fresco_hmr: \$\{\{ steps\.detect\.outputs\.fresco_hmr \}\}/,
+    `${FRESCO_HMR.output} must be declared as a detect_changed_surfaces output`,
   );
   // Required, not advisory: a job absent from the aggregator is advisory
   // whatever its own gate says, and this is the only lane that drives a real
   // hot reload.
   assert.ok(
-    jobBlock(workflow, 'all-required-passed').includes(`- ${HICASSO_HMR.job}`),
-    `aggregator must list ${HICASSO_HMR.job} in needs:`,
+    jobBlock(workflow, 'all-required-passed').includes(`- ${FRESCO_HMR.job}`),
+    `aggregator must list ${FRESCO_HMR.job} in needs:`,
   );
 });
 
-test('the hicasso HMR job installs the PINNED three engines and narrows none (rf2-hic-015)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), HICASSO_HMR.job);
+test('the fresco HMR job installs the PINNED three engines and narrows none (rf2-hic-015)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), FRESCO_HMR.job);
 
   assert.match(
     block,
@@ -4682,7 +4682,7 @@ test('the hicasso HMR job installs the PINNED three engines and narrows none (rf
   );
 
   // THE QUIET WAY TO KEEP THE NAME AND DROP THE CLAIM. Unlike its sibling this
-  // runner takes an engine-narrowing env knob, `HICASSO_HMR_ENGINES`, and its
+  // runner takes an engine-narrowing env knob, `FRESCO_HMR_ENGINES`, and its
   // cross-engine comparator is inert below two engines — so a job that set it
   // would still print a PASS having checked nothing about divergence. The job
   // must pass no engine narrowing at all.
@@ -4706,7 +4706,7 @@ test('the hicasso HMR job installs the PINNED three engines and narrows none (rf
     .filter((line) => !/^\s*#/.test(line))
     .join('\n');
   assert.ok(
-    !/HICASSO_HMR_ENGINES/.test(executable),
+    !/FRESCO_HMR_ENGINES/.test(executable),
     'the CI job must not narrow the engine set — the cross-engine comparator '
       + 'is inert below two engines, so a narrowed run passes having checked '
       + 'nothing it exists to check',
@@ -4740,13 +4740,13 @@ test('the hicasso HMR job installs the PINNED three engines and narrows none (rf
   );
 });
 
-test('the hicasso HMR lane arms on its tree, its launcher and the build config (rf2-hic-015)', () => {
+test('the fresco HMR lane arms on its tree, its launcher and the build config (rf2-hic-015)', () => {
   for (const file of [
-    HICASSO_HMR.spec,
-    HICASSO_HMR.hotFile,
-    HICASSO_HMR.page,
-    HICASSO_HMR.launcher,
-    // The trio: shadow-cljs.edn declares BOTH the `:hicasso/hmr-testbed` build
+    FRESCO_HMR.spec,
+    FRESCO_HMR.hotFile,
+    FRESCO_HMR.page,
+    FRESCO_HMR.launcher,
+    // The trio: shadow-cljs.edn declares BOTH the `:fresco/hmr-testbed` build
     // and the `:dev-http` on 8061 that serves it — this gate is served by
     // shadow's own dev server so the document and the devtools websocket share
     // an origin — and the playwright pin in package.json / the lockfile IS the
@@ -4760,14 +4760,14 @@ test('the hicasso HMR lane arms on its tree, its launcher and the build config (
       `${file} must exist — a row pinning a phantom path is vacuous`,
     );
     assert.equal(
-      classify(file)[HICASSO_HMR.output],
+      classify(file)[FRESCO_HMR.output],
       'true',
-      `${file} must arm ${HICASSO_HMR.output}`,
+      `${file} must arm ${FRESCO_HMR.output}`,
     );
   }
   // The launcher case sits above the generic implementation/scripts/* case, so
   // it must not narrow what that case already gave the file.
-  const launcher = classify(HICASSO_HMR.launcher);
+  const launcher = classify(FRESCO_HMR.launcher);
   for (const output of [
     'cljs_node_test',
     'cljs_browser',
@@ -4778,30 +4778,30 @@ test('the hicasso HMR lane arms on its tree, its launcher and the build config (
     assert.equal(
       launcher[output],
       'true',
-      `${HICASSO_HMR.launcher} must still arm ${output}`,
+      `${FRESCO_HMR.launcher} must still arm ${output}`,
     );
   }
 });
 
-test('a hicasso RUNTIME diff arms the HMR lane (rf2-hic-015)', () => {
+test('a fresco RUNTIME diff arms the HMR lane (rf2-hic-015)', () => {
   // The point of the arm. A reload re-evaluates the package's own namespaces,
   // so the files whose behaviour the contract is ABOUT must reach the only
   // lane that witnesses a real reload — not just the testbed that demonstrates
   // it. Real paths, read off the tree.
   for (const file of [
-    'implementation/hicasso/src/re_frame/hicasso.cljc',
-    'implementation/hicasso/test/re_frame/hicasso/hmr_remount_cljs_test.cljs',
-    'implementation/hicasso/test/re_frame/hicasso/hmr_registry_cljs_test.cljs',
+    'implementation/fresco/src/re_frame/fresco.cljc',
+    'implementation/fresco/test/re_frame/fresco/hmr_remount_cljs_test.cljs',
+    'implementation/fresco/test/re_frame/fresco/hmr_registry_cljs_test.cljs',
   ]) {
     assert.ok(
       fs.existsSync(path.join(REPO_ROOT, file)),
       `${file} must exist — a row pinning a phantom path is vacuous`,
     );
-    assert.equal(classify(file)[HICASSO_HMR.output], 'true', file);
+    assert.equal(classify(file)[FRESCO_HMR.output], 'true', file);
   }
 });
 
-test('the hicasso HMR lane stays dark for unrelated surfaces (rf2-hic-015)', () => {
+test('the fresco HMR lane stays dark for unrelated surfaces (rf2-hic-015)', () => {
   // A rule that matches everything is as useless as one that matches nothing,
   // and this gate is the most expensive one in the matrix: a watch plus three
   // engine sessions. `implementation/core` matters most — it fans out to
@@ -4812,25 +4812,25 @@ test('the hicasso HMR lane stays dark for unrelated surfaces (rf2-hic-015)', () 
     'implementation/ui/src/re_frame/ui.cljs',
     'spec/006-ReactiveSubstrate.md',
     'tools/xray/src/day8/re_frame2_xray/core.cljs',
-    'migration/reagent-to-hicasso/codemod/deps.edn',
+    'migration/reagent-to-fresco/codemod/deps.edn',
   ]) {
     assert.equal(
-      classify(file)[HICASSO_HMR.output],
+      classify(file)[FRESCO_HMR.output],
       'false',
-      `${file} has no edge into the hicasso HMR gate`,
+      `${file} has no edge into the fresco HMR gate`,
     );
   }
-  // …and the two hicasso browser lanes are DISTINCT tiers, not aliases: the
+  // …and the two fresco browser lanes are DISTINCT tiers, not aliases: the
   // controlled-input launcher must not drag the reload gate along with it.
   assert.equal(
-    classify('implementation/scripts/serve-and-run-hicasso-controlled-testbed.cjs')[
-      HICASSO_HMR.output
+    classify('implementation/scripts/serve-and-run-fresco-controlled-testbed.cjs')[
+      FRESCO_HMR.output
     ],
     'false',
     'the controlled-input launcher must not arm the HMR gate',
   );
   assert.equal(
-    classify(HICASSO_HMR.launcher).hicasso_controlled,
+    classify(FRESCO_HMR.launcher).fresco_controlled,
     'false',
     'the HMR launcher must not arm the controlled-input gate',
   );
@@ -4838,7 +4838,7 @@ test('the hicasso HMR lane stays dark for unrelated surfaces (rf2-hic-015)', () 
 
 // rf2-8a6s — the regression that would have caught this arm going stale.
 //
-// rf2-8a6s originally set `cljs_node_test` for `implementation/hicasso/*` and
+// rf2-8a6s originally set `cljs_node_test` for `implementation/fresco/*` and
 // deliberately NOT `cljs_browser`, on a premise that was true when written:
 // the package owned no `-dom-cljs-test$` namespace, so the browser lane would
 // have run not one line of it. That premise EXPIRED when rf2-hic-010 and
@@ -4853,14 +4853,14 @@ test('the hicasso HMR lane stays dark for unrelated surfaces (rf2-hic-015)', () 
 // same namespaces and reported each DOM row as a STATED GREEN SKIP. The
 // surface passed having executed none of its DOM assertions.
 
-const HICASSO_DOM_TESTS = pinnedRoster('HICASSO_DOM_TESTS', [
-  'implementation/hicasso/test/re_frame/hicasso/kernel_commit_owns_dom_cljs_test.cljs',
-  'implementation/hicasso/test/re_frame/hicasso/roots_frames_hydration_dom_cljs_test.cljs',
-  'implementation/hicasso/test/re_frame/hicasso/roots_frames_isolation_dom_cljs_test.cljs',
+const FRESCO_DOM_TESTS = pinnedRoster('FRESCO_DOM_TESTS', [
+  'implementation/fresco/test/re_frame/fresco/kernel_commit_owns_dom_cljs_test.cljs',
+  'implementation/fresco/test/re_frame/fresco/roots_frames_hydration_dom_cljs_test.cljs',
+  'implementation/fresco/test/re_frame/fresco/roots_frames_isolation_dom_cljs_test.cljs',
 ]);
 
-test('a hicasso DOM-test diff lights the browser job (rf2-8a6s)', () => {
-  for (const file of HICASSO_DOM_TESTS) {
+test('a fresco DOM-test diff lights the browser job (rf2-8a6s)', () => {
+  for (const file of FRESCO_DOM_TESTS) {
     assert.equal(
       classify(file).cljs_browser,
       'true',
@@ -4869,20 +4869,20 @@ test('a hicasso DOM-test diff lights the browser job (rf2-8a6s)', () => {
   }
 });
 
-test('widening hicasso to cljs_browser did not cost it the node lane (rf2-8a6s)', () => {
+test('widening fresco to cljs_browser did not cost it the node lane (rf2-8a6s)', () => {
   // The reviewer's constraint, pinned: cljs_browser is IN ADDITION TO
   // cljs_node_test, not instead of it. `cljs_node_test` is the only output
   // that schedules the package smoke and the freeze gate, and the browser
   // lane runs neither, so trading one for the other would close this hole by
   // opening two.
-  for (const file of [...HICASSO_DOM_TESTS, HICASSO_CONTROLLED.spec, HICASSO_CONTROLLED.src]) {
+  for (const file of [...FRESCO_DOM_TESTS, FRESCO_CONTROLLED.spec, FRESCO_CONTROLLED.src]) {
     const result = classify(file);
     assert.equal(result.cljs_node_test, 'true', `${file} must still arm cljs_node_test`);
     assert.equal(result.cljs_browser, 'true', `${file} must arm cljs_browser`);
   }
 });
 
-test('the hicasso DOM suites really are in the browser lane (rf2-8a6s)', () => {
+test('the fresco DOM suites really are in the browser lane (rf2-8a6s)', () => {
   // NON-VACUITY. Arming cljs_browser is worth nothing unless the job it
   // schedules actually selects these namespaces, so this does not assert that
   // in prose: it lifts the SELECTOR out of shadow-cljs.edn and runs it against
@@ -4901,10 +4901,10 @@ test('the hicasso DOM suites really are in the browser lane (rf2-8a6s)', () => {
   // EDN string escaping: `\\.` in the file is one backslash + a dot.
   const selector = new RegExp(m[1].replace(/\\\\/g, '\\'));
 
-  for (const file of HICASSO_DOM_TESTS) {
+  for (const file of FRESCO_DOM_TESTS) {
     assert.ok(fs.existsSync(path.join(REPO_ROOT, file)), `${file} must exist`);
     const ns = file
-      .replace('implementation/hicasso/test/', '')
+      .replace('implementation/fresco/test/', '')
       .replace(/\.cljs$/, '')
       .replace(/_/g, '-')
       .replace(/\//g, '.');
@@ -5445,10 +5445,10 @@ test('test.yml hands the classifier the accepted base via env: (rf2-34yg)', () =
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// rf2-8a6s — the Hicasso artefact surface.
+// rf2-8a6s — the Fresco artefact surface.
 //
-// rf2-hic-001 created implementation/hicasso/ and was fenced out of .github/,
-// so the package landed matching NO classifier case: a hicasso-only diff set
+// rf2-hic-001 created implementation/fresco/ and was fenced out of .github/,
+// so the package landed matching NO classifier case: a fresco-only diff set
 // every output false and every job skipped. TESTING.md §Changed-surface
 // classifier names the shape — a new artefact directory needs a classifier
 // rule AND a workflow gate reading it, and either side missing is a silent
@@ -5456,14 +5456,14 @@ test('test.yml hands the classifier the accepted base via env: (rf2-34yg)', () =
 // later widening is a deliberate edit here rather than a drift.
 // ---------------------------------------------------------------------------
 
-test('implementation/hicasso/** arms cljs_node_test (rf2-8a6s)', () => {
+test('implementation/fresco/** arms cljs_node_test (rf2-8a6s)', () => {
   for (const file of [
-    'implementation/hicasso/src/re_frame/hicasso.cljc',
-    'implementation/hicasso/src/re_frame/hicasso/impl/runtime.cljs',
-    'implementation/hicasso/test/re_frame/hicasso/smoke_cljs_test.cljs',
-    'implementation/hicasso/deps.edn',
-    'implementation/hicasso/frozen-sources.edn',
-    'implementation/hicasso/scripts/check_freeze.py',
+    'implementation/fresco/src/re_frame/fresco.cljc',
+    'implementation/fresco/src/re_frame/fresco/impl/runtime.cljs',
+    'implementation/fresco/test/re_frame/fresco/smoke_cljs_test.cljs',
+    'implementation/fresco/deps.edn',
+    'implementation/fresco/frozen-sources.edn',
+    'implementation/fresco/scripts/check_freeze.py',
   ]) {
     const result = classify(file);
     assert.equal(
@@ -5472,14 +5472,14 @@ test('implementation/hicasso/** arms cljs_node_test (rf2-8a6s)', () => {
       `${file} must arm cljs_node_test — it is the ONLY output whose job runs `
         + 'anything covering this artefact (the :node-test smoke, the '
         + 'invariants gate, the modules compile), and without it a '
-        + 'hicasso-only PR runs none of them',
+        + 'fresco-only PR runs none of them',
     );
   }
 });
 
-test('the hicasso arm is ARTEFACT-ROOT matching, not an enumeration (rf2-8a6s)', () => {
+test('the fresco arm is ARTEFACT-ROOT matching, not an enumeration (rf2-8a6s)', () => {
   // Same reasoning the retired freehand case once carried:
-  // `implementation/hicasso/*)` is
+  // `implementation/fresco/*)` is
   // a POSIX `case` glob whose `*` spans `/`, so the artefact root is covered
   // at any depth. rf2-hic-009 carves the runtime into owned modules, which is
   // exactly the change that would rot an enumeration — silently, because a new
@@ -5488,9 +5488,9 @@ test('the hicasso arm is ARTEFACT-ROOT matching, not an enumeration (rf2-8a6s)',
   // These paths do not exist. They are the shapes the carve-up will add,
   // pinned so a future narrowing of the case reds here instead of in CI.
   for (const file of [
-    'implementation/hicasso/src/re_frame/hicasso/impl/commit/deeply/nested.cljs',
-    'implementation/hicasso/test/re_frame/hicasso/impl/commit_cljs_test.cljs',
-    'implementation/hicasso/README.md',
+    'implementation/fresco/src/re_frame/fresco/impl/commit/deeply/nested.cljs',
+    'implementation/fresco/test/re_frame/fresco/impl/commit_cljs_test.cljs',
+    'implementation/fresco/README.md',
   ]) {
     const result = classify(file);
     assert.equal(
@@ -5501,49 +5501,49 @@ test('the hicasso arm is ARTEFACT-ROOT matching, not an enumeration (rf2-8a6s)',
   }
 });
 
-test('implementation/hicasso/** stays OFF the gates no hicasso suite reaches (rf2-8a6s)', () => {
+test('implementation/fresco/** stays OFF the gates no fresco suite reaches (rf2-8a6s)', () => {
   // Scope guard, and each entry has a named release condition — TESTING.md
   // warns that a coarse rule clutters the matrix with skipping entries, and a
   // gate that runs not one line of the changed surface is worse than none
   // because it reads as coverage.
   //
   //   implementation_jvm — NOT because the artefact has no JVM lane. It has
-  //     one: rf2-ipx7h put `implementation/hicasso` on
+  //     one: rf2-ipx7h put `implementation/fresco` on
   //     scripts/test-jvm-implementation.sh and added the required
-  //     `jvm-hicasso` job, and its `:test` alias dropped `--probe` and took
+  //     `jvm-fresco` job, and its `:test` alias dropped `--probe` and took
   //     the test-count floor. The reason this row survives is that the job is
   //     UNCONDITIONAL, so it needs no arm — and arming this root would be
   //     actively wrong: 22 OTHER jobs read `implementation_jvm`, so every
-  //     hicasso-only diff would schedule all of them to run one five-second
+  //     fresco-only diff would schedule all of them to run one five-second
   //     one-namespace lane. The release condition that used to be written here
   //     ("arm it the same commit a JVM-runnable suite lands") is therefore
   //     RETIRED rather than pending; the pin that replaces it is the
-  //     `jvm-hicasso is UNCONDITIONAL` test below.
+  //     `jvm-fresco is UNCONDITIONAL` test below.
   //   cljs_prod — no `-elision-prod-test$` namespace.
   //   bundle_isolation — no example resolves the
   //     artefact and it mounts no testbed those smokes drive.
   //
   // `cljs_browser` USED TO BE ON THIS LIST, and its removal is the point of
-  // the rf2-8a6s widening. The entry read "hicasso IS on the :browser-test
+  // the rf2-8a6s widening. The entry read "fresco IS on the :browser-test
   // classpath, but that build selects `-dom-cljs-test$` and the package owns
   // no such namespace" — true when written, and false from the moment
   // rf2-hic-010 and rf2-hic-012 landed three such namespaces. This row is
   // where the stale premise was pinned, so this row is where the correction
   // belongs; the arm is now asserted positively by the rf2-8a6s block above.
-  const result = classify('implementation/hicasso/src/re_frame/hicasso.cljc');
+  const result = classify('implementation/fresco/src/re_frame/fresco.cljc');
   for (const key of [
     'implementation_jvm',
     'cljs_prod',
     'bundle_isolation',
   ]) {
-    assert.equal(result[key], 'false', `hicasso must not arm ${key}`);
+    assert.equal(result[key], 'false', `fresco must not arm ${key}`);
   }
 });
 
 // ---------------------------------------------------------------------------
-// rf2-ipx7h — the hicasso JVM lane, and why it carries no surface gate.
+// rf2-ipx7h — the fresco JVM lane, and why it carries no surface gate.
 //
-// `implementation/hicasso/test/re_frame/hicasso/slot_cljs_test.cljc`
+// `implementation/fresco/test/re_frame/fresco/slot_cljs_test.cljc`
 // is the `.cljc` EQUIVALENCE PIN for the canonical slot rule (rf2-ani6y): one
 // corpus asserted twice against ONE implementation, once by `npm run test:cljs`
 // in Node and once by `clojure -M:test` on the JVM. Both arms or no mechanism —
@@ -5560,19 +5560,19 @@ test('implementation/hicasso/** stays OFF the gates no hicasso suite reaches (rf
 // underneath.
 // ---------------------------------------------------------------------------
 
-test('the hicasso JVM lane has classpath inputs that arm NO jvm tier (rf2-ipx7h)', () => {
+test('the fresco JVM lane has classpath inputs that arm NO jvm tier (rf2-ipx7h)', () => {
   for (const file of [
     // the `:test` alias itself — `:extra-paths`, `:extra-deps`, `:main-opts`
-    'implementation/hicasso/deps.edn',
+    'implementation/fresco/deps.edn',
     // also on `:extra-paths`, so also scanned for discovery
-    'implementation/hicasso/test_kit/src/re_frame/hicasso/test.cljs',
+    'implementation/fresco/test_kit/src/re_frame/fresco/test.cljs',
   ]) {
     const result = classify(file);
     assert.equal(
       result.implementation_jvm,
       'false',
-      `${file} is on the hicasso JVM lane's classpath and arms no jvm tier — `
-        + 'which is why jvm-hicasso is unconditional rather than gated on '
+      `${file} is on the fresco JVM lane's classpath and arms no jvm tier — `
+        + 'which is why jvm-fresco is unconditional rather than gated on '
         + 'implementation_jvm',
     );
   }
@@ -5581,7 +5581,7 @@ test('the hicasso JVM lane has classpath inputs that arm NO jvm tier (rf2-ipx7h)
 test('the slot pin arms implementation_jvm only INCIDENTALLY (rf2-ipx7h)', () => {
   // The pin DOES measure true — but through `is_route_path_census_input`, a
   // predicate that exists for the routing route-path census and matches
-  // `implementation/hicasso/test/*` `.cljs`/`.cljc`. The `.clj` control below
+  // `implementation/fresco/test/*` `.cljs`/`.cljc`. The `.clj` control below
   // is what makes that legible: same tree, same artefact, FALSE, because the
   // census filters on the extensions IT cares about. So the arm belongs to
   // another gate's roster and could narrow with it — a second reason this
@@ -5590,31 +5590,31 @@ test('the slot pin arms implementation_jvm only INCIDENTALLY (rf2-ipx7h)', () =>
   // rf2-8a6s block above pins that; since rf2-6c12m.1 the pin requires the
   // package rule directly rather than the bench tree's twin.)
   assert.equal(
-    classify('implementation/hicasso/test/re_frame/hicasso/slot_cljs_test.cljc').implementation_jvm,
+    classify('implementation/fresco/test/re_frame/fresco/slot_cljs_test.cljc').implementation_jvm,
     'true',
   );
   assert.equal(
-    classify('implementation/hicasso/test/re_frame/hicasso/expansion_probe.clj')
+    classify('implementation/fresco/test/re_frame/fresco/expansion_probe.clj')
       .implementation_jvm,
     'false',
     'the .clj control must measure false — the arm is the census predicate, '
-      + 'not a hicasso JVM arm',
+      + 'not a fresco JVM arm',
   );
 });
 
 test('a bench-lane diff is CLASSIFIED to no gate, not left unclassified (rf2-6c12m.1)', () => {
-  // The Hicasso bench lane is a hand-run shadow-cljs project off every per-PR
+  // The Fresco bench lane is a hand-run shadow-cljs project off every per-PR
   // lane by ruling: its suites exercise LOCAL COPIES of the runtime, so
   // running them per PR could not catch a regression in the shipped one. The
   // classifier carries an explicit `bench/*` arm that sets NOTHING, so the
   // silence is stated rather than a hole (TESTING.md §Changed-surface
   // classifier). This pins every output false for the shapes a bench-only
-  // diff takes; the tree's own gate is `npm run check` from bench/hicasso/.
+  // diff takes; the tree's own gate is `npm run check` from bench/fresco/.
   for (const file of [
-    'bench/hicasso/src/re_frame/bench/hicasso/lane.cljs',
-    'bench/hicasso/src/re_frame/bench/hicasso/run.cjs',
-    'bench/hicasso/src/re_frame/bench/hicasso/data/alloc-c4hhk/run01.json',
-    'bench/hicasso/shadow-cljs.edn',
+    'bench/fresco/src/re_frame/bench/fresco/lane.cljs',
+    'bench/fresco/src/re_frame/bench/fresco/run.cjs',
+    'bench/fresco/src/re_frame/bench/fresco/data/alloc-c4hhk/run01.json',
+    'bench/fresco/shadow-cljs.edn',
   ]) {
     const result = classify(file);
     assert.ok(Object.keys(result).length > 0, `${file} produced no outputs at all`);
@@ -5624,26 +5624,26 @@ test('a bench-lane diff is CLASSIFIED to no gate, not left unclassified (rf2-6c1
   }
 });
 
-test('jvm-hicasso is UNCONDITIONAL, rostered and required (rf2-ipx7h)', () => {
+test('jvm-fresco is UNCONDITIONAL, rostered and required (rf2-ipx7h)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  const block = jobBlock(workflow, 'jvm-hicasso');
+  const block = jobBlock(workflow, 'jvm-fresco');
   // Job-level keys sit at exactly four spaces; anchoring there keeps a prose
   // comment mentioning `needs:` from reading as the key itself.
   assert.doesNotMatch(
     block,
     /^ {4}needs:/m,
-    'jvm-hicasso must not depend on detect_changed_surfaces — the lane\'s own '
+    'jvm-fresco must not depend on detect_changed_surfaces — the lane\'s own '
       + 'deps.edn arms no classifier output',
   );
   assert.doesNotMatch(
     block,
     /^ {4}if:/m,
-    'jvm-hicasso must carry no surface gate; implementation_jvm does not cover '
+    'jvm-fresco must carry no surface gate; implementation_jvm does not cover '
       + 'this lane\'s inputs and arming it would schedule 22 other jobs',
   );
   assert.match(
     block,
-    /^ {8}working-directory: implementation\/hicasso$/m,
+    /^ {8}working-directory: implementation\/fresco$/m,
     'the job must run in the artefact directory',
   );
   assert.match(block, /run: clojure -M:test$/m, 'the job must run the JVM lane');
@@ -5652,20 +5652,20 @@ test('jvm-hicasso is UNCONDITIONAL, rostered and required (rf2-ipx7h)', () => {
   // refuses the roster entry without this line.
   assert.match(
     jobBlock(workflow, 'all-required-passed'),
-    /^ {6}- jvm-hicasso$/m,
-    'jvm-hicasso must be in all-required-passed\'s needs',
+    /^ {6}- jvm-fresco$/m,
+    'jvm-fresco must be in all-required-passed\'s needs',
   );
   // The local half of the same bijection. R1/R2 check this too, but a reader
   // of THIS file should not have to run a Python gate to learn that the lane
   // has a local lane as well as a hosted one.
   assert.match(
     fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'test-jvm-implementation.sh'), 'utf8'),
-    /^ {2}implementation\/hicasso$/m,
-    'implementation/hicasso must be on the local JVM roster',
+    /^ {2}implementation\/fresco$/m,
+    'implementation/fresco must be on the local JVM roster',
   );
 });
 
-test('the cljs job runs BOTH hicasso gates the classifier arm schedules (rf2-8a6s)', () => {
+test('the cljs job runs BOTH fresco gates the classifier arm schedules (rf2-8a6s)', () => {
   // The gate half of the classifier rule. The arm above is worthless if the
   // job it lights stops running the artefact's checks, and the invariants
   // gate in particular has no other scheduled home — before rf2-8a6s it ran
@@ -5673,15 +5673,15 @@ test('the cljs job runs BOTH hicasso gates the classifier arm schedules (rf2-8a6
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs');
   assert.match(
     block,
-    /run: npm run test:hicasso-invariants$/m,
-    'the cljs job must run the hicasso invariants gate (optional-module '
+    /run: npm run test:fresco-invariants$/m,
+    'the cljs job must run the fresco invariants gate (optional-module '
       + 'reachability with its no-bench-import row and the other static reads '
       + 'chained there); it runs nowhere else',
   );
   assert.match(
     block,
-    /run: npm run test:hicasso-compile$/m,
-    'the cljs job must keep running the hicasso modules compile (rf2-2rtt6.73, '
+    /run: npm run test:fresco-compile$/m,
+    'the cljs job must keep running the fresco modules compile (rf2-2rtt6.73, '
       + 're-homed into the package by rf2-6c12m.1)',
   );
 });
@@ -5707,7 +5707,7 @@ test('the cljs job runs BOTH hicasso gates the classifier arm schedules (rf2-8a6
 // lane that could execute them. That subject retired with the tree
 // (rf2-0yp7w.6), but the INVARIANT it established did not: arming an output
 // helps only if the lane it arms is still gated on that output and still
-// reachable from the single required context. The mounted hicasso DOM
+// reachable from the single required context. The mounted fresco DOM
 // witnesses now ride `:browser-test` on exactly that basis, so the two pins
 // below stay.
 // ---------------------------------------------------------------------------
@@ -5881,7 +5881,7 @@ const PROSE_PINS_ARMING_JVM = [
   ['docs/api/re-frame.adapter.uix.md', 'scope_ensure_authority_test.clj', 'jvm-core'],
   ['docs/api/re-frame.ssr.md', 'ssr_doc_example_projector_test.clj', 'jvm-ssr'],
   ['docs/ssr/concepts.md', 'ssr_doc_example_node_build_id_test.clj', 'jvm-ssr'],
-  ['docs/design/hicasso/product/async-routing-recipes.md', 'recipes/async_nav_doc_test.clj', 'jvm-routing'],
+  ['docs/design/fresco/product/async-routing-recipes.md', 'recipes/async_nav_doc_test.clj', 'jvm-routing'],
   ['spec/000-Vision.md', 'scope_ensure_authority_test.clj', 'jvm-core'],
   ['spec/005-StateMachines.md', 'transition_geometry_terminology_jvm_test.clj', 'jvm-machines'],
   ['spec/006-ReactiveSubstrate.md', 'slice_memo_lifetime_census_jvm_test.clj', 'jvm-ui'],
@@ -5923,7 +5923,7 @@ test('prose no suite reads still arms NOTHING — the narrowing (rf2-61ar)', () 
   for (const file of [
     'docs/index.md',
     'docs/guide/getting-started.md',
-    'docs/hicasso/concepts.md',
+    'docs/fresco/concepts.md',
     'docs/core/intro.md',
     'docs/api/re-frame.core.md', // 23 of the 25 docs/api pages carry no JVM pin
     // The same narrowing one tree over (rf2-8arzr.6): `concepts.md` carries
@@ -5933,10 +5933,10 @@ test('prose no suite reads still arms NOTHING — the narrowing (rf2-61ar)', () 
     // that says so.
     'docs/ssr/testing.md',
     // A docs/design/** exemplar, which is what the count beside it measures --
-    // so this one does NOT follow the guide to docs/core/hicasso/. The chapter
+    // so this one does NOT follow the guide to docs/core/fresco/. The chapter
     // it used to name left the tree under rf2-0yp7w; REWRITE-NOTES.md is the
     // file that stayed, and it is unpinned like the rest (rf2-2ein1).
-    'docs/design/hicasso/draft-guide/REWRITE-NOTES.md', // 144 docs/design md files, one pinned
+    'docs/design/fresco/draft-guide/REWRITE-NOTES.md', // 144 docs/design md files, one pinned
     'migration/from-re-frame-v1/README.md',
     'README.md',
   ]) {
@@ -5954,7 +5954,7 @@ test('prose arms the JVM tier and NO browser/prod/Playwright tier (rf2-61ar)', (
   // JVM macro extracts its schema forms into the `:node-test` build at
   // COMPILE time, so its own case below states that separately.
   const forbidden = ['cljs_browser', 'cljs_prod', 'bundle_isolation',
-    'adapter_testbed_smokes', 'story_xray_browser', 'hicasso_controlled', 'playground'];
+    'adapter_testbed_smokes', 'story_xray_browser', 'fresco_controlled', 'playground'];
   for (const [file] of PROSE_PINS_ARMING_JVM) {
     const result = classify(file);
     for (const key of forbidden) {
@@ -6314,7 +6314,7 @@ test('the jobs these arms reach are still gated on the armed outputs (rf2-6ng7)'
 // write. The recurring incident in this repo is the arm nobody thought to
 // write: a NEW directory lands, classifies to nothing, and is gated by
 // nothing until an audit goes looking. Five recorded instances —
-// implementation/hicasso (rf2-hic-001), both codemod trees,
+// implementation/fresco (rf2-hic-001), both codemod trees,
 // implementation/ssr-node (rf2-n8vp, which landed in PR #8028 classifying to
 // nothing at all), and the Story feature-load gate (rf2-65ajl) — plus the
 // twelve top-level testbed builds this same patch closes under rf2-in6c4.
@@ -6423,25 +6423,25 @@ const DECLARED_NO_SURFACE_OUTPUT = {
     why: 'clj-kondo macro hooks — real Clojure, but consumed only by the linter, and armed by the same lint.yml surface as the config beside them',
     coveredBy: ['.github/workflows/lint.yml'],
   },
-  // rf2-6c12m.1. The Hicasso bench lane — the measurement harness the
-  // programme's numbers were taken on — left implementation/hicasso/test for
+  // rf2-6c12m.1. The Fresco bench lane — the measurement harness the
+  // programme's numbers were taken on — left implementation/fresco/test for
   // its own hand-run shadow project here, off every per-PR lane BY RULING:
   // its suites exercise LOCAL COPIES of the runtime, so running its 574
   // deftests per PR could not catch a regression in the shipped one, and its
   // 82 MB of committed run records are evidence rather than inputs. The
   // classifier carries an explicit `bench/*` arm that sets nothing, so the
   // silence is stated in the script as well as declared here. The tree's own
-  // gate is `npm run check` from bench/hicasso/ (every namespace compiled
+  // gate is `npm run check` from bench/fresco/ (every namespace compiled
   // warnings-fatal plus the harness self-tests), which the bench README
   // requires before a bench change is published. Two always-on PR jobs still
   // reach the tree without arming anything: verify-readme-links validates
-  // bench/hicasso/README.md, and js-harness-self-tests runs
+  // bench/fresco/README.md, and js-harness-self-tests runs
   // lane_cache_wiring.test.cjs, which scans the drivers as text for the
-  // cache-clear rule (rf2-d19nf) across implementation/ AND bench/hicasso/.
-  'bench/hicasso': {
-    why: "the Hicasso bench lane, a hand-run shadow-cljs project kept off every per-PR lane by ruling (rf2-6c12m.1): its suites run against local copies of the runtime, so no PR gate could learn anything from them. Its gate is `npm run check` from bench/hicasso/; two always-on jobs still read it — verify-readme-links (check_readme_links.py over its README) and js-harness-self-tests (lane_cache_wiring.test.cjs over its drivers)",
+  // cache-clear rule (rf2-d19nf) across implementation/ AND bench/fresco/.
+  'bench/fresco': {
+    why: "the Fresco bench lane, a hand-run shadow-cljs project kept off every per-PR lane by ruling (rf2-6c12m.1): its suites run against local copies of the runtime, so no PR gate could learn anything from them. Its gate is `npm run check` from bench/fresco/; two always-on jobs still read it — verify-readme-links (check_readme_links.py over its README) and js-harness-self-tests (lane_cache_wiring.test.cjs over its drivers)",
     coveredBy: [
-      'bench/hicasso/package.json',
+      'bench/fresco/package.json',
       'scripts/check_readme_links.py',
       'implementation/core/test/re_frame/bench/lane_cache_wiring.test.cjs',
     ],
@@ -6460,19 +6460,19 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   // pointing at a suite that no longer exists.
   //
   // Declared rather than re-armed, and that half was REVIEWED under rf2-7v5vx
-  // rather than inherited: the surviving guide is docs/core/hicasso/**, and
+  // rather than inherited: the surviving guide is docs/core/fresco/**, and
   // rf2-r5iy7 already measured and REJECTED arming it, because the only output
   // that would reach its checker is cljs_node_test — the ~10-minute node
   // build, scheduled on a prose typo. Every gate named below was re-read at
   // its source and holds. The guide-samples gate pins nothing any more: since
-  // rf2-6c12m.9 it checks only that every hicasso verb a sample names resolves.
+  // rf2-6c12m.9 it checks only that every fresco verb a sample names resolves.
   'docs/core': {
-    why: "the human guide. Four PR-time gates read it and none arms a surface output, which is the always-on shape this list exists to record. docs.yml's own docs_surface classifier stages it into the site and runs mkdocs --strict; check_doc_slugs.py validates its links and heading anchors on EVERY PR from test.yml's unconditional verify-readme-links job (rf2-v7fui); and lint.yml runs api-manifest doc-guide-check over docs/core/** minus docs/core/api/**, reconciling every call-position `(rf/<var>` reference against the manifest behind a non-vacuous floor. The Hicasso guide's fenced samples are covered by the unconditional hicasso-guide-samples job (rf2-r5iy7; since rf2-6c12m.9 it checks only that every hicasso verb a sample names resolves to a public def), which is unconditional PRECISELY so that a guide-only PR runs it.",
+    why: "the human guide. Four PR-time gates read it and none arms a surface output, which is the always-on shape this list exists to record. docs.yml's own docs_surface classifier stages it into the site and runs mkdocs --strict; check_doc_slugs.py validates its links and heading anchors on EVERY PR from test.yml's unconditional verify-readme-links job (rf2-v7fui); and lint.yml runs api-manifest doc-guide-check over docs/core/** minus docs/core/api/**, reconciling every call-position `(rf/<var>` reference against the manifest behind a non-vacuous floor. The Fresco guide's fenced samples are covered by the unconditional fresco-guide-samples job (rf2-r5iy7; since rf2-6c12m.9 it checks only that every fresco verb a sample names resolves to a public def), which is unconditional PRECISELY so that a guide-only PR runs it.",
     coveredBy: [
       '.github/workflows/docs.yml',
       'scripts/check_doc_slugs.py',
       'implementation/scripts/api-manifest/src/re_frame/api_manifest/doc_guide_check.clj',
-      'implementation/hicasso/scripts/check_guide_samples.py',
+      'implementation/fresco/scripts/check_guide_samples.py',
     ],
   },
   'docs/images': DOCS_YML,

@@ -1,12 +1,12 @@
-(ns day8.re-frame2-xray.panels.hicasso-reads
-  "Xray's consumer of the Hicasso TOOL-TIER reader door
-  (`re-frame.hicasso.tool`) — the live read seam behind the Hicasso tab
+(ns day8.re-frame2-xray.panels.fresco-reads
+  "Xray's consumer of the Fresco TOOL-TIER reader door
+  (`re-frame.fresco.tool`) — the live read seam behind the Fresco tab
   (rf2-hic-023).
 
   ## A reader, and nothing else
 
   There is no acquire, no install, no owner, no receipt and no revision
-  here, because there is nothing to own. The Hicasso door has no registry
+  here, because there is nothing to own. The Fresco door has no registry
   and no ownership plane — deliberately and permanently — so a consumer
   cannot claim it, cannot be locked out of it by another tool, and cannot
   read a superseded span's data through it. Every read below is a pure
@@ -20,28 +20,28 @@
   four functions on the same runtime and receives the same bytes, because
   the door takes no consumer discriminator and this seam reshapes nothing.
   Shaping into rows happens one layer up, in the pure
-  `hicasso-helpers`, against the envelope a reader can still see whole.
+  `fresco-helpers`, against the envelope a reader can still see whole.
 
-  A witness pins it: `hicasso-reads-cljs-test` asserts the seam's answer is
+  A witness pins it: `fresco-reads-cljs-test` asserts the seam's answer is
   `identical?` to the door's, which a reshaping seam could not be.
 
   ## Fail-soft at read time
 
   Every call is `try`-guarded and degrades to `nil` — the same answer a
-  host that is not running Hicasso gives. A devtools panel must not be
+  host that is not running Fresco gives. A devtools panel must not be
   able to take down the application it is inspecting, and the panel
-  already renders `nil` as the honest \"no Hicasso evidence on this host\"
+  already renders `nil` as the honest \"no Fresco evidence on this host\"
   state rather than as an empty table.
 
   ## DEV-ONLY
 
-  Every read is `nil` in a production build: the Hicasso door nil-gates on
+  Every read is `nil` in a production build: the Fresco door nil-gates on
   `re-frame.interop/debug-enabled?`. That gate is the door's, not this
   ns's — nothing here gates on `goog.DEBUG`. Xray is dev-only by build
   placement (see preload.cljs); the tools/README bundle-isolation
   contract pins that `implementation/` never requires Xray, not that a
   host's release bundle is free of it."
-  (:require [re-frame.hicasso.tool :as rf.hicasso.tool]
+  (:require [re-frame.fresco.tool :as rf.fresco.tool]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (defn- soft
@@ -57,22 +57,22 @@
 (defn mounted-boundaries
   "The producer's `:mounted-boundaries` envelope, verbatim, or nil."
   []
-  (soft rf.hicasso.tool/read-mounted-boundaries))
+  (soft rf.fresco.tool/read-mounted-boundaries))
 
 (defn read-attribution
   "The producer's `:read-attribution` envelope, verbatim, or nil."
   []
-  (soft rf.hicasso.tool/read-read-attribution))
+  (soft rf.fresco.tool/read-read-attribution))
 
 (defn intents
   "The producer's `:intents` envelope, verbatim, or nil."
   []
-  (soft rf.hicasso.tool/read-intents))
+  (soft rf.fresco.tool/read-intents))
 
 (defn explain-render
   "The producer's `:explain-render` envelope, verbatim, or nil."
   []
-  (soft rf.hicasso.tool/explain-render))
+  (soft rf.fresco.tool/explain-render))
 
 (defn evidence
   "All four envelopes in ONE turn, keyed by read.
@@ -89,13 +89,13 @@
    :explain-render     (explain-render)})
 
 (defn trace-windows
-  "Spec 009's retained ring for every frame this Hicasso runtime touches,
+  "Spec 009's retained ring for every frame this Fresco runtime touches,
   as `{frame-id [event-bundle …]}` — the advisor's clock and the causal
   slice's event seam (rf2-hic-037).
 
   ## Why this read exists beside the four, rather than inside them
 
-  The Hicasso door deliberately carries no duration. Its four reads
+  The Fresco door deliberately carries no duration. Its four reads
   project the substrate's own tables, and a clock is not one of them: per
   `lanes/left-field-ideas.md` §Capability receipts, per-boundary self time
   was KILLED as a decision rather than deferred, because the 0.1 ms timer
@@ -105,8 +105,8 @@
   quantity, honestly measured, and the only one of the five pressure
   classes this tab can weigh.
 
-  So this is a SECOND producer, not a fifth Hicasso read, and it is kept
-  separate for that reason: `hicasso-advisor/sub-timing` stamps it with
+  So this is a SECOND producer, not a fifth Fresco read, and it is kept
+  separate for that reason: `fresco-advisor/sub-timing` stamps it with
   its own schema and its own `:cap` loss, and a reader can see at a glance
   which producer vouched for which number.
 
@@ -119,7 +119,7 @@
   process instead would let an unrelated application's activity inflate
   this one's ranking.
 
-  Answers `{}` when Hicasso is absent, which is the same shape an idle
+  Answers `{}` when Fresco is absent, which is the same shape an idle
   runtime gives — and the advisor renders that as a capped window rather
   than as a quiet application."
   [envelopes]

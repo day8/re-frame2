@@ -466,7 +466,7 @@ jobs:
             --lint tools/template/src \
             --lint tools/template/test
 
-      # THE FIXTURE WITNESS FOR HICASSO'S LINT EXPORT (rf2-hic-022).
+      # THE FIXTURE WITNESS FOR FRESCO'S LINT EXPORT (rf2-hic-022).
       #
       # The step above loads that export's hooks against current repository
       # code, which proves they LOAD and stay quiet. It cannot prove they still
@@ -498,9 +498,9 @@ jobs:
       # `EXPECTED` table pins fixture ROWS rather than a total on exactly this
       # reasoning — a check that fires the right NUMBER of times in the wrong
       # PLACE is the collapse a count cannot see.
-      - name: Hicasso lint export — fixture witness
+      - name: Fresco lint export — fixture witness
         working-directory: implementation
-        run: npm run test:hicasso-lint
+        run: npm run test:fresco-lint
 
   splint:
     name: Splint (fail on errors, warnings informational)

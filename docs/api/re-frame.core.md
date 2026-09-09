@@ -754,7 +754,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```
 - **Description**: The installed adapter spec map — the exact value passed to `rf/init!` — or `nil` when no adapter is installed. It carries the adapter contract fns (`:make-state-container`, `:replace-container!`, `:make-derived-value`, …) plus a `:kind` discriminator.
 
-  ONE read, map-shaped. Branch code asks for the discriminator as a KEY: `(:kind (rf/current-adapter))` answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/hicasso` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr`, or `nil` for a custom adapter map that picked no canonical kind — nothing is synthesised for it. (`:rf.adapter/ui` and `:rf.adapter/freehand` stay reserved and are never recycled, but the two donor view substrates were removed on 2026-08-16 and nothing produces either value now.)
+  ONE read, map-shaped. Branch code asks for the discriminator as a KEY: `(:kind (rf/current-adapter))` answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/fresco` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr`, or `nil` for a custom adapter map that picked no canonical kind — nothing is synthesised for it. (`:rf.adapter/ui` and `:rf.adapter/freehand` stay reserved and are never recycled, but the two donor view substrates were removed on 2026-08-16 and nothing produces either value now.)
 
   A PRESENCE check inspects the MAP, never `:kind`: a kind-less adapter is installed and present while `(:kind (rf/current-adapter))` reads `nil`.
 - **Example**:
@@ -762,18 +762,18 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   (rf/current-adapter)          ;; => the adapter spec map passed to (rf/init! …), or nil
   (:kind (rf/current-adapter))  ;; => :rf.adapter/reagent
   ```
-- **On Hicasso**: `(:kind (rf/current-adapter))` asks *which substrate*, and Hicasso is a
+- **On Fresco**: `(:kind (rf/current-adapter))` asks *which substrate*, and Fresco is a
   view layer rather than one — it owns Hiccup interpretation and the render boundary,
   while the reactive container comes from an adapter the application installs. What
-  Hicasso now ships is one of the answers: `re-frame.hicasso.substrate` is an optional
-  module of `day8/re-frame2-hicasso` declaring `:kind :rf.adapter/hicasso`, and the
+  Fresco now ships is one of the answers: `re-frame.fresco.substrate` is an optional
+  module of `day8/re-frame2-fresco` declaring `:kind :rf.adapter/fresco`, and the
   install chapter teaches `(rf/init! substrate/adapter)` as the default, so
-  `(:kind (rf/current-adapter))` normally reads `:rf.adapter/hicasso` in a Hicasso
-  application. Installing Reagent or UIx under a Hicasso tree instead stays supported,
+  `(:kind (rf/current-adapter))` normally reads `:rf.adapter/fresco` in a Fresco
+  application. Installing Reagent or UIx under a Fresco tree instead stays supported,
   and then the kind is that adapter's — either way `current-adapter` itself answers the
   installed adapter map, and the `:kind` on it names the substrate the app booted on,
   never the layer its views are authored in. See
-  [Hicasso needs a substrate adapter](../core/hicasso/00-installation.md#hicasso-needs-a-substrate-adapter).
+  [Fresco needs a substrate adapter](../core/fresco/00-installation.md#fresco-needs-a-substrate-adapter).
 
 ### `configure!`
 

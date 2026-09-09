@@ -1,36 +1,36 @@
 #!/usr/bin/env node
 'use strict';
-// THE HICASSO SSR DRIVER — build once, then BAKE or SERVE (rf2-2rtt6.86
+// THE FRESCO SSR DRIVER — build once, then BAKE or SERVE (rf2-2rtt6.86
 // clauses 3, 4 and 5).
 //
-//     node hicasso/test/re_frame/bench/hicasso/ssr/driver.cjs bake
-//     node hicasso/test/re_frame/bench/hicasso/ssr/driver.cjs serve [--port 8137]
+//     node fresco/test/re_frame/bench/fresco/ssr/driver.cjs bake
+//     node fresco/test/re_frame/bench/fresco/ssr/driver.cjs serve [--port 8137]
 //
 // One renderer, run in two places: `bake` writes the static
 // HTML + payload corpus, `serve` answers real requests with the same
 // entry, and neither has a renderer of its own — both call
-// `re-frame.bench.hicasso.ssr.node`'s API through the compiled bundle.
+// `re-frame.bench.fresco.ssr.node`'s API through the compiled bundle.
 //
 // ## WHICH BUILD ID, and why this one is the lane's own (rf2-0yp7w.9.6)
 //
 // Clause 5 said to carry this on existing node-build infrastructure first
-// and mint `:hicasso-ssr-node` only if needed, so it rode
+// and mint `:fresco-ssr-node` only if needed, so it rode
 // `:freehand-bench-node` — the donor tree's `:node-script` — supplying its
 // own `:main` and `:output-to` through `--config-merge`, exactly as every
-// arm in this lane rides `:hicasso-bench` with its own `:init-fn`. HD-017
+// arm in this lane rides `:fresco-bench` with its own `:init-fn`. HD-017
 // makes a build-id touch a hot-zone, sequenced dispatch, and not paying
 // one was the whole point.
 //
 // PR #8322 then deleted that build with the tree, and this driver named a
-// build that no longer existed: `npm run ssr:hicasso-bake` failed with
+// build that no longer existed: `npm run ssr:fresco-bake` failed with
 // `no build with id: :freehand-bench-node` before a line of ClojureScript
 // was read. Nothing was left to ride — after that retirement there is no
 // `:node-script` build anywhere in `implementation/shadow-cljs.edn` — so
-// the id below is the lane's OWN, minted there beside `:hicasso-bench`
+// the id below is the lane's OWN, minted there beside `:fresco-bench`
 // and shared with `keywarn_clock_run.cjs`, the lane's other Node program.
 // The sequencing law is paid once, for both.
 //
-// `:hicasso-bench` — the lane's browser id — could NOT serve here: it is a
+// `:fresco-bench` — the lane's browser id — could NOT serve here: it is a
 // `:browser` target, and `renderToString` wants Node's `server.node.js`
 // through Node's own conditional exports.
 //
@@ -64,17 +64,17 @@ const { shadowBuild } = require('../lane_build.cjs');
 const { resetLaneBuildCache } = require('../../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../../..');
-const BUILD_ID = 'hicasso-bench-node';
-const OUTPUT_TO = 'out/hicasso-ssr-node.js';
+const BUILD_ID = 'fresco-bench-node';
+const OUTPUT_TO = 'out/fresco-ssr-node.js';
 const BUNDLE = path.join(PROJECT, OUTPUT_TO);
-const BAKE_DIR = path.join(PROJECT, 'out', 'hicasso-ssr-fixtures');
-const TAG = 'hicasso-ssr';
+const BAKE_DIR = path.join(PROJECT, 'out', 'fresco-ssr-fixtures');
+const TAG = 'fresco-ssr';
 
 // ONE LINE, deliberately: shadow-cljs's CLI re-splits `--config-merge` on
 // whitespace once the EDN contains a newline, then reports `EOF while
 // reading` from a fragment.
 const CONFIG_MERGE =
-  `{:main re-frame.bench.hicasso.ssr.node/-main :output-to "${OUTPUT_TO}"}`;
+  `{:main re-frame.bench.fresco.ssr.node/-main :output-to "${OUTPUT_TO}"}`;
 
 function build() {
   if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
@@ -89,11 +89,11 @@ function build() {
 /** The API the compiled bundle publishes. Requiring it IS the boot. */
 function loadApi() {
   require(BUNDLE);
-  const api = globalThis.HICASSO_SSR;
+  const api = globalThis.FRESCO_SSR;
   if (!api) {
     console.error(
-      `[${TAG}] the bundle loaded but published no API on globalThis.HICASSO_SSR — ` +
-        `did :main stop being re-frame.bench.hicasso.ssr.node/-main?`,
+      `[${TAG}] the bundle loaded but published no API on globalThis.FRESCO_SSR — ` +
+        `did :main stop being re-frame.bench.fresco.ssr.node/-main?`,
     );
     process.exit(1);
   }
@@ -239,7 +239,7 @@ function bake(api) {
 
   const manifest = {
     bead: 'rf2-2rtt6.86',
-    generatedBy: 'hicasso/test/re_frame/bench/hicasso/ssr/driver.cjs bake',
+    generatedBy: 'fresco/test/re_frame/bench/fresco/ssr/driver.cjs bake',
     // No timestamp: a manifest that changes on every run cannot be
     // compared to the previous one, which is the only thing it is for.
     rows,
@@ -260,7 +260,7 @@ function bake(api) {
 // PAGE-LEVEL, and explicitly NOT a production host: Spec 011's HTTP
 // response contract — the response accumulator, cookies, redirects, the
 // CRLF fail-fast — stays `ssr-ring`'s. This exists so that live,
-// per-request Hicasso SSR is DEMONSTRABLE at the P2 sitting, the way the
+// per-request Fresco SSR is DEMONSTRABLE at the P2 sitting, the way the
 // adapters' live SSR already is.
 function serve(api, port) {
   const server = http.createServer((req, res) => {
@@ -290,7 +290,7 @@ function serve(api, port) {
       'content-type': 'text/html; charset=utf-8',
       // The frame id on a header, because the demo's whole claim is that
       // each request got its own and it was destroyed before the response.
-      'x-hicasso-ssr-frame': out.frameId,
+      'x-fresco-ssr-frame': out.frameId,
     });
     res.end(out.document);
   });
@@ -307,7 +307,7 @@ if (require.main === module) {
   const argv = process.argv.slice(2);
   const mode = argv.find((a) => !a.startsWith('-')) || 'bake';
   const portArg = argv.indexOf('--port');
-  const port = Number(portArg >= 0 ? argv[portArg + 1] : process.env.HICASSO_SSR_PORT || 8137);
+  const port = Number(portArg >= 0 ? argv[portArg + 1] : process.env.FRESCO_SSR_PORT || 8137);
 
   if (mode !== 'bake' && mode !== 'serve') {
     console.error(`[${TAG}] unknown mode ${JSON.stringify(mode)} — expected 'bake' or 'serve'`);

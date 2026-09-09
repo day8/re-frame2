@@ -29,7 +29,7 @@
 #
 # tools/xray/deps.edn declares TEN in-repo runtime coordinates via
 # `:local/root` for in-tree development — core, epoch, routing,
-# flows, schemas, resources, machines, hicasso, machines-viz and
+# flows, schemas, resources, machines, fresco, machines-viz and
 # reagent-slim — and `clein pom` SILENTLY SKIPS every `:local/root`
 # coordinate it is handed. Whatever this step does not rewrite is
 # simply ABSENT from the published pom, and Clojars has no yank.
@@ -40,20 +40,20 @@
 # revision, `clein pom` printed ten `Skipping coordinate` lines and
 # wrote a pom carrying four third-party artefacts and nothing else.
 #
-# It covered NINE until rf2-gra70. The tenth, `day8/re-frame2-hicasso`,
+# It covered NINE until rf2-gra70. The tenth, `day8/re-frame2-fresco`,
 # was an OPEN OPERATOR DECISION and was deliberately NOT rewritten:
-# implementation/hicasso/deps.edn carried no `:clein/build`, so there
+# implementation/fresco/deps.edn carried no `:clein/build`, so there
 # was no `:mvn/version` to pin it to, and rewriting it anyway would have
 # been WORSE than omitting it — the pom would have named a coordinate
 # that did not and could not exist, and the package preflight below
 # (which asserts presence, not resolvability) would have passed it
 # straight through to Clojars. rf2-gra70 removed the premise rather than
-# routing around it: Hicasso now carries a `:clein/build` and
-# release.yml publishes `day8/re-frame2-hicasso` from its own
-# post-matrix `deploy-hicasso` stage.
+# routing around it: Fresco now carries a `:clein/build` and
+# release.yml publishes `day8/re-frame2-fresco` from its own
+# post-matrix `deploy-fresco` stage.
 #
 # WHAT REPLACES THE REFUSAL IS AN ORDERING OBLIGATION, NOT NOTHING. The
-# rewritten pom names `day8/re-frame2-hicasso:<VERSION>` — and every one
+# rewritten pom names `day8/re-frame2-fresco:<VERSION>` — and every one
 # of the other nine — so an `xray-v*` tag is only shippable once a
 # framework `v*` tag at the SAME lockstep VERSION has published them.
 # That is the ordinary tools-tier ordering docs/release-process.md
@@ -232,7 +232,7 @@ jobs:
       # a live hazard here, not a hypothetical one.
       #
       # ALL TEN of Xray's in-repo coordinates, in deps.edn declaration
-      # order (rf2-gra70 added `../../implementation/hicasso`, the last
+      # order (rf2-gra70 added `../../implementation/fresco`, the last
       # one that had no publishable target). The preflight step below
       # re-derives the required set from the COMMITTED deps.edn and
       # refuses the deploy on any coordinate this list misses, so the
@@ -252,7 +252,7 @@ jobs:
             "../../implementation/schemas" \
             "../../implementation/resources" \
             "../../implementation/machines" \
-            "../../implementation/hicasso" \
+            "../../implementation/fresco" \
             "../machines-viz" \
             "../../implementation/adapters/reagent-slim"
           do

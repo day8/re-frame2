@@ -73,7 +73,7 @@ There is no nested object to walk, which is the point of the wire carrying
 text per key rather than decoded application data.
 
 What the service does NOT guarantee is the per-request frame. That is
-the render module's, and it is the shape the Hicasso render entry already
+the render module's, and it is the shape the Fresco render entry already
 has — a `gensym` frame id per request, seeded through `:rf/set-db`,
 destroyed in a `finally`. The split is the honest one: the service owns the
 process boundary, the module owns the framework.
@@ -175,7 +175,7 @@ unwinds leaving the isolate exactly as free as it was — nothing to clear,
 and nothing that only the deadline could clear.
 
 The qualifier the bead attaches — "until proven otherwise" — is the honest
-state of it, and the reason is source-located. The Hicasso render entry
+state of it, and the reason is source-located. The Fresco render entry
 opens a module-level adoption-window flag around its `renderToString`
 and closes it in a `finally`, and that namespace's own docstring explains
 that a window left open would leave the whole process adopting. Two
@@ -295,7 +295,7 @@ protocol with a different envelope.
 
 This is the ruled topology rather than a simplification, and it is what
 keeps the field list as short as it is.
-`docs/design/hicasso/production-server-arm.md` §5 sets the compliant shape
+`docs/design/fresco/production-server-arm.md` §5 sets the compliant shape
 out arrow by arrow: `ssr-ring` drains the boot events and holds the request
 frame on the JVM; Node resolves an entry identifier against the table its
 own bundle publishes, seeds a per-request frame from the state projection,
@@ -918,7 +918,7 @@ strength:
   this package's path appears at none of them, so it is in no module graph
   and there is no bundle it could be in. A `;;` comment is not one of
   those keys, and `implementation/shadow-cljs.edn` does name the package
-  in one: a comment above the `:examples/login-hicasso-server` build says
+  in one: a comment above the `:examples/login-fresco-server` build says
   which sidecar loads the module that build emits. That is prose about a
   build, in the file where prose about a build belongs, and it is not a
   way into one. This reading was once a raw-text scan of the two configs,
@@ -949,7 +949,7 @@ Each of the 3 is paired with a row that plants exactly that fault in a
 scratch directory and requires the scan to find it. The first of those
 controls earned its keep immediately: a bare `ssr-node` substring scan
 reported the SSR spike driver, whose header explains at length that it
-deliberately did not mint a `:hicasso-ssr-node` build id.
+deliberately did not mint a `:fresco-ssr-node` build id.
 
 The empirical half is that the client gates run green with this package in
 the tree, which is what the PR's quality-gate table records.
@@ -966,9 +966,9 @@ the tree, which is what the PR's quality-gate table records.
 - `rf2-hic-046` — the per-surface SSR/hydration witnesses this builds on.
   The client-side hydration contract is that bead's and is already
   mandatory; nothing here waits on this service.
-- `docs/design/hicasso/production-server-arm.md` — the Arm A / Arm B
+- `docs/design/fresco/production-server-arm.md` — the Arm A / Arm B
   pricing. §5 is the contract this package implements; its B1a, B1b, B2
   and B5 rows are what the entry table, the state allowlist, the isolate
   pool and the build identity discharge.
-- `docs/design/hicasso/studio/ssr-spike-witness.md` — the X1–X5 render
+- `docs/design/fresco/studio/ssr-spike-witness.md` — the X1–X5 render
   evidence this package assumes rather than reproduces.

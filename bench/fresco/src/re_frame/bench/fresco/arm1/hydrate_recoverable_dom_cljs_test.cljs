@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.arm1.hydrate-recoverable-dom-cljs-test
+(ns re-frame.bench.fresco.arm1.hydrate-recoverable-dom-cljs-test
   "THE HYDRATE DOOR'S RECOVERABLE-ERROR REPORTER (rf2-2rtt6.97).
 
   `arm1/mount/hydrate-root!` used to call `hydrateRoot` with no root
@@ -42,15 +42,15 @@
   skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.hydration-support
+            [re-frame.bench.fresco.arm1.hydration-support
              :refer [adopted! open-console-capture! server-dom!]]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.core :as rf]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 (def ^:private frame-id ::arm1-hydrate-recoverable)
 
@@ -59,16 +59,16 @@
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!) (rf.bench.hicasso.arm1.runtime/reset-body-runs!))}))
+     :init-fn       (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!) (rf.bench.fresco.arm1.runtime/reset-body-runs!))}))
 
 (defn- skip! [why]
   (is true (str "a hydration claim needs a real React DOM — " why)))
 
 (defn- fresh! []
-  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.fresco.lane/leave-act-environment!)
   (rf/make-frame {:id frame-id})
-  (rf.bench.hicasso.arm1.runtime/reset-runtime!)
-  (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
+  (rf.bench.fresco.arm1.runtime/reset-runtime!)
+  (rf.bench.fresco.arm1.runtime/reset-body-runs!)
   frame-id)
 
 ;; ---------------------------------------------------------------------------
@@ -101,11 +101,11 @@
   reported) and irrelevant to what it does not (byte identity, which is
   the SSR spike's claim and is made against `react-dom/server`)."
   [label]
-  (rf.bench.hicasso.arm1.runtime/open-adoption-window!)
-  (let [container (rf.bench.hicasso.arm1.mount/fresh-container!)
-        handle    (rf.bench.hicasso.arm1.mount/root! container frame-id [screen {:label label}])
+  (rf.bench.fresco.arm1.runtime/open-adoption-window!)
+  (let [container (rf.bench.fresco.arm1.mount/fresh-container!)
+        handle    (rf.bench.fresco.arm1.mount/root! container frame-id [screen {:label label}])
         html      (.-innerHTML container)]
-    (rf.bench.hicasso.arm1.mount/release! handle)
+    (rf.bench.fresco.arm1.mount/release! handle)
     html))
 
 (defn- watch-mismatches!
@@ -144,7 +144,7 @@
            site — with no root options this emitted NOTHING and the whole
            complaint was an uncaught window error"
     (async done
-      (if-not (rf.bench.hicasso.arm1.mount/browser?)
+      (if-not (rf.bench.fresco.arm1.mount/browser?)
         (do (skip! ":node-test has no DOM") (done))
         (do
           (fresh!)
@@ -154,7 +154,7 @@
                 ;; MANUFACTURED fault, asserted on — see the ns docstring.
                 {:keys [captured close!]} (open-console-capture!
                                             {:swallow-uncaught? true})
-                handle    (rf.bench.hicasso.arm1.mount/hydrate-root! container frame-id
+                handle    (rf.bench.fresco.arm1.mount/hydrate-root! container frame-id
                                                [screen {:label "client"}])]
             (-> (adopted!)
                 (.then
@@ -170,7 +170,7 @@
                       (when-let [mm (first @seen)]
                         (let [tags (tags-of mm)]
                           (is (= :rf.ssr/hydration-mismatch (:operation mm)))
-                          (is (= 're-frame.bench.hicasso.arm1.mount/hydrate-root!
+                          (is (= 're-frame.bench.fresco.arm1.mount/hydrate-root!
                                  (:where tags))
                               "tier-discriminated by :where — this door's site")
                           (is (= :warned-and-replaced (:recovery tags))
@@ -190,7 +190,7 @@
                       (is (seq @captured)
                           (str "the complaint also reached a channel this
                                 witness watches: " (pr-str @captured)))
-                      (finally (rf.bench.hicasso.arm1.mount/release! handle) (done))))))))))))
+                      (finally (rf.bench.fresco.arm1.mount/release! handle) (done))))))))))))
 
 ;; ===========================================================================
 ;; 2 — and it is a READING, not a constant
@@ -203,7 +203,7 @@
            emitted, and nothing is reported on either console channel
            either"
     (async done
-      (if-not (rf.bench.hicasso.arm1.mount/browser?)
+      (if-not (rf.bench.fresco.arm1.mount/browser?)
         (do (skip! ":node-test has no DOM") (done))
         (do
           (fresh!)
@@ -211,7 +211,7 @@
                 container (server-dom! html)
                 {:keys [seen stop!]} (watch-mismatches!)
                 {:keys [captured close!]} (open-console-capture!)
-                handle    (rf.bench.hicasso.arm1.mount/hydrate-root! container frame-id
+                handle    (rf.bench.fresco.arm1.mount/hydrate-root! container frame-id
                                                [screen {:label "agreed"}])]
             (-> (adopted!)
                 (.then
@@ -227,7 +227,7 @@
                       (is (= [] @captured)
                           (str "and React reported nothing on either channel: "
                                (pr-str @captured)))
-                      (finally (rf.bench.hicasso.arm1.mount/release! handle) (done))))))))))))
+                      (finally (rf.bench.fresco.arm1.mount/release! handle) (done))))))))))))
 
 ;; ===========================================================================
 ;; 3 — the reporter COMPOSES over React's default; it does not swallow
@@ -241,17 +241,17 @@
            runner treats as fatal would simply stop happening. Drive the
            REAL callback and read both outcomes: the diagnostic fires AND
            the error is still reported"
-    (if-not (rf.bench.hicasso.arm1.mount/browser?)
+    (if-not (rf.bench.fresco.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (do
         (fresh!)
-        (rf.bench.hicasso.arm1.runtime/open-adoption-window!)
+        (rf.bench.fresco.arm1.runtime/open-adoption-window!)
         (let [{:keys [seen stop!]} (watch-mismatches!)
               ;; MANUFACTURED fault, asserted on — see the ns docstring.
               {:keys [captured close!]} (open-console-capture!
                                           {:swallow-uncaught? true})]
           (try
-            (rf.bench.hicasso.arm1.mount/hydration-reporter (js/Error. "manufactured recoverable") nil)
+            (rf.bench.fresco.arm1.mount/hydration-reporter (js/Error. "manufactured recoverable") nil)
             (is (= 1 (count @seen)) "the diagnostic fired")
             (is (some #(re-find #"manufactured recoverable" %) @captured)
                 (str "and the error was STILL reported — the reporter composes
@@ -260,7 +260,7 @@
             (finally
               (close!)
               (stop!)
-              (rf.bench.hicasso.arm1.runtime/close-adoption-window!))))))))
+              (rf.bench.fresco.arm1.runtime/close-adoption-window!))))))))
 
 ;; ===========================================================================
 ;; 4 — the emit is bounded to the adoption window
@@ -275,7 +275,7 @@
            the closer's passive effect shuts. Drive the REAL callback
            across that boundary: the report happens in BOTH windows, the
            emit in only one"
-    (if-not (rf.bench.hicasso.arm1.mount/browser?)
+    (if-not (rf.bench.fresco.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (do
         (fresh!)
@@ -284,11 +284,11 @@
               {:keys [captured close!]} (open-console-capture!
                                           {:swallow-uncaught? true})]
           (try
-            (rf.bench.hicasso.arm1.runtime/open-adoption-window!)
-            (rf.bench.hicasso.arm1.mount/hydration-reporter (js/Error. "inside the window") nil)
+            (rf.bench.fresco.arm1.runtime/open-adoption-window!)
+            (rf.bench.fresco.arm1.mount/hydration-reporter (js/Error. "inside the window") nil)
             (is (= 1 (count @seen)) "inside the window it is a mismatch")
-            (rf.bench.hicasso.arm1.runtime/close-adoption-window!)
-            (rf.bench.hicasso.arm1.mount/hydration-reporter (js/Error. "after the window") nil)
+            (rf.bench.fresco.arm1.runtime/close-adoption-window!)
+            (rf.bench.fresco.arm1.mount/hydration-reporter (js/Error. "after the window") nil)
             (is (= 1 (count @seen))
                 (str "and after the window it is NOT — no second emit. Saw: "
                      (pr-str @seen)))
@@ -298,4 +298,4 @@
             (finally
               (close!)
               (stop!)
-              (rf.bench.hicasso.arm1.runtime/close-adoption-window!))))))))
+              (rf.bench.fresco.arm1.runtime/close-adoption-window!))))))))

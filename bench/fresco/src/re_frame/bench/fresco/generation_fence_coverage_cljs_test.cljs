@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.generation-fence-coverage-cljs-test
+(ns re-frame.bench.fresco.generation-fence-coverage-cljs-test
   "WHAT THE COMMIT BASIS STILL DOES NOT SEE (rf2-2rtt6.33, re-pointed by
   rf2-2rtt6.43).
 
@@ -10,7 +10,7 @@
   the answer, and the answer was *no* on all three.
 
   **Two of the three have since been closed** — rf2-2rtt6.42 replaced the
-  bare generation with [[re-frame.bench.hicasso.arm1.runtime/commit-basis]]
+  bare generation with [[re-frame.bench.fresco.arm1.runtime/commit-basis]]
   (the flush generation PLUS the frame's own physical-install epoch), and
   the version axis now heals in both windows. Those rows have moved to
   `arm1/staged_read_tear_cljs_test`, against the arm's own runtime,
@@ -114,7 +114,7 @@
   the control half would be as still as the axis it is controlling for."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.live-frame :as rf.live-frame]
@@ -127,7 +127,7 @@
      ;; BEFORE React context, so a fixture-installed ambient frame would
      ;; answer reads for a frame this row never made.
      :ambient-frame nil
-     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!))}))
 
 (def ^:private q [:genfence/v])
 
@@ -144,7 +144,7 @@
   "A boundary whose whole body is one read, so the entry's read set is one
   key and the snapshot arithmetic is one term."
   [seen]
-  (fn [_] (let [v (rf.bench.hicasso.arm1.runtime/sub q)] (vreset! seen v) [:li (str v)])))
+  (fn [_] (let [v (rf.bench.fresco.arm1.runtime/sub q)] (vreset! seen v) [:li (str v)])))
 
 ;; ---------------------------------------------------------------------------
 ;; The registry-epoch axis reaches a staged key and not a held one
@@ -180,21 +180,21 @@
     (rf/reg-sub (first q) (fn [db _] (:v db)))
     (let [seen (volatile! nil)
           f    (make-frame! ::registry {:v 1})]
-      (rf.bench.hicasso.arm1.runtime/render-body f (reader seen) {})
-      (let [entry    (rf.bench.hicasso.arm1.runtime/last-reads)
-            release! (rf.bench.hicasso.arm1.runtime/commit-boundary! entry (fn []))]
+      (rf.bench.fresco.arm1.runtime/render-body f (reader seen) {})
+      (let [entry    (rf.bench.fresco.arm1.runtime/last-reads)
+            release! (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))]
         (is (= 1 @seen) "the render read the value that was true when it ran")
 
         (testing "the CONTROL — the instruments are live on this frame, this
                   boundary and this read set. A real frame-state install
                   moves the basis and moves the number React re-checks."
-          (let [basis    (rf.bench.hicasso.arm1.runtime/commit-basis f)
-                snapshot (rf.bench.hicasso.arm1.runtime/snapshot-of entry)]
+          (let [basis    (rf.bench.fresco.arm1.runtime/commit-basis f)
+                snapshot (rf.bench.fresco.arm1.runtime/snapshot-of entry)]
             (rf.frame/replace-app-db! f {:v 2})
-            (is (> (rf.bench.hicasso.arm1.runtime/commit-basis f) basis)
+            (is (> (rf.bench.fresco.arm1.runtime/commit-basis f) basis)
                 "a physical frame-state install bumps `frame-commit-epoch`,
                  so the basis moves")
-            (is (not= snapshot (rf.bench.hicasso.arm1.runtime/snapshot-of entry))
+            (is (not= snapshot (rf.bench.fresco.arm1.runtime/snapshot-of entry))
                 "and the retained key's watch fired, so the epoch sum moved
                  too — this is what a MOVE looks like on these instruments")))
 
@@ -205,27 +205,27 @@
           ;; mounted boundary is untouched and a shared frame would let one
           ;; claim borrow the other's stillness.
           (let [staged-f     (make-frame! ::registry-staged {:v 1})
-                _            (rf.bench.hicasso.arm1.runtime/render-body staged-f (reader (volatile! nil)) {})
-                staged-entry (rf.bench.hicasso.arm1.runtime/last-reads)
-                staged-snap  (rf.bench.hicasso.arm1.runtime/snapshot-of staged-entry)
-                basis        (rf.bench.hicasso.arm1.runtime/commit-basis f)
-                snapshot     (rf.bench.hicasso.arm1.runtime/snapshot-of entry)
-                generation   (rf.bench.hicasso.arm1.runtime/generation)]
+                _            (rf.bench.fresco.arm1.runtime/render-body staged-f (reader (volatile! nil)) {})
+                staged-entry (rf.bench.fresco.arm1.runtime/last-reads)
+                staged-snap  (rf.bench.fresco.arm1.runtime/snapshot-of staged-entry)
+                basis        (rf.bench.fresco.arm1.runtime/commit-basis f)
+                snapshot     (rf.bench.fresco.arm1.runtime/snapshot-of entry)
+                generation   (rf.bench.fresco.arm1.runtime/generation)]
             (rf/reg-sub (first q) (fn [db _] (* 10 (:v db))))
-            (is (= generation (rf.bench.hicasso.arm1.runtime/generation))
+            (is (= generation (rf.bench.fresco.arm1.runtime/generation))
                 "the flush generation did not move — a re-registration is not
                  a value change on an acquired reaction, so it never reaches
                  `mark-dirty!`")
-            (is (> (rf.bench.hicasso.arm1.runtime/commit-basis f) basis)
+            (is (> (rf.bench.fresco.arm1.runtime/commit-basis f) basis)
                 "but the basis did: `registry-epoch` is its third term, and a
                  registration is the one thing that moves it (rf2-2rtt6.50)")
-            (is (= snapshot (rf.bench.hicasso.arm1.runtime/snapshot-of entry))
+            (is (= snapshot (rf.bench.fresco.arm1.runtime/snapshot-of entry))
                 "and the MOUNTED boundary's number is still exactly the
                  number it was — its key is held, so its contribution is the
                  cell's frozen stamp and not a live basis read. This is the
                  assertion that separates this term from the one
                  rf2-2rtt6.44 declined")
-            (is (not= staged-snap (rf.bench.hicasso.arm1.runtime/snapshot-of staged-entry))
+            (is (not= staged-snap (rf.bench.fresco.arm1.runtime/snapshot-of staged-entry))
                 "while the STAGED boundary's number moved — its key has no
                  cell, so it contributes the basis live, and React's
                  post-`subscribe` re-check will see the tear")))

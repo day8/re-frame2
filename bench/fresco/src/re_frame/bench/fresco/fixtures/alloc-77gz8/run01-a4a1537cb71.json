@@ -1,6 +1,6 @@
 {
   "generatedAt": "2026-08-18T13:52:08.087Z",
-  "build": "hicasso-bench",
+  "build": "fresco-bench",
   "initFn": "re-frame.bench.p0-app/-main",
   "alloc": {
     "benchmark": "P0:steady-state-allocation-slope",

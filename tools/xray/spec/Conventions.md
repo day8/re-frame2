@@ -220,7 +220,7 @@ locks the bare-`Panel` convention.
    switch — see [`018-Event-Spine.md`](./018-Event-Spine.md) §5
    (`:epoch` · `:app-db` · `:views` · `:trace` · `:machines` ·
    `:routing` · `:resources` · `:derivation-graph` · `:module-view` ·
-   `:hicasso` — post rf2-5gl5r after the Event/Handler tab
+   `:fresco` — post rf2-5gl5r after the Event/Handler tab
    retirement, post rf2-gbz39 after the Issues tab removal) per
    [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md).
    The reg-view symbol name is internal plumbing; the tab-key is the

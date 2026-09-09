@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.front.slot
+(ns re-frame.bench.fresco.front.slot
   "THE CANONICAL SLOT RULE — one implementation, two hosts (rf2-ani6y).
 
   A hiccup prop key is written in one of four spellings — a keyword, a
@@ -9,7 +9,7 @@
 
   ## Why it is `.cljc` rather than a `defn` inside the codec
 
-  [[re-frame.bench.hicasso.front.codec]] is `.cljs`, because emission is
+  [[re-frame.bench.fresco.front.codec]] is `.cljs`, because emission is
   `React.createElement`. The slot rule is not: it is a pure function from
   a name to a name, and it has a **second consumer that cannot run in
   CLJS at all** — the `[:>]` migration codemod, which reads a Reagent
@@ -29,7 +29,7 @@
 
   ## What pins the two hosts equal
 
-  `re-frame.bench.hicasso.front.slot-cljs-test` is a **`.cljc` suite**,
+  `re-frame.bench.fresco.front.slot-cljs-test` is a **`.cljc` suite**,
   and this repo's lane bijection (`scripts/check_test_lane_bijection.py`
   rule B2) requires such a file to be selected by a CLJS lane as well as
   the JVM one. So the same corpus of authored keys, with the same
@@ -51,7 +51,7 @@
 
   ## What is NOT here
 
-  The caches, the [[re-frame.bench.hicasso.front.codec/PropSlot]]
+  The caches, the [[re-frame.bench.fresco.front.codec/PropSlot]]
   classifications, the prototype-poisoning guard and every walk are
   emission concerns and stay in the codec. This namespace holds the pure
   rule and its two vocabularies, and requires nothing but
@@ -91,7 +91,7 @@
   above.
 
   **A pure function of the key**, which is what
-  [[re-frame.bench.hicasso.front.codec/canonical-slot]] rests on. A slot
+  [[re-frame.bench.fresco.front.codec/canonical-slot]] rests on. A slot
   that depended on what the build happened to have converted earlier
   would make the owned-literal law depend on render order.
 

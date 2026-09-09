@@ -2,7 +2,7 @@
 
 Two things go wrong, and they arrive differently. A **symptom** is something you
 saw: a view that will not update, a caret that jumps, a fallback that never
-clears. A **complaint** is something Hicasso said: a thrown `ex-info` carrying a
+clears. A **complaint** is something Fresco said: a thrown `ex-info` carrying a
 stable `:rf.error/…` id.
 
 Start from whichever one you have.
@@ -39,7 +39,7 @@ working on:
 
 ## Start from a complaint
 
-A Hicasso complaint is a thrown `ex-info`. Its message is the reason with the id
+A Fresco complaint is a thrown `ex-info`. Its message is the reason with the id
 in brackets, and the id is in `ex-data`:
 
 ```clojure
@@ -76,7 +76,7 @@ Every complaint the shipped package raises today, grouped by the surface that
 raises it. The normative meaning and payload of each id is
 `spec/009-Instrumentation.md`, and this page is the reader's route into it.
 
-An id you cannot find here is either not Hicasso's or not from this version.
+An id you cannot find here is either not Fresco's or not from this version.
 Check the namespace first — core, routing and the resources model raise their
 own — and then check that your application and test-kit versions match. A few
 further spellings are claimed without being raised — reserved for surfaces not
@@ -91,23 +91,23 @@ these are the cases where repairing would mean overruling you.
 
 Taught in [Views and reads](02-views-and-reads.md).
 
-<a id="hicasso-empty-vector"></a>
-#### `:rf.error/hicasso-empty-vector`
+<a id="fresco-empty-vector"></a>
+#### `:rf.error/fresco-empty-vector`
 
 You wrote `[]` where hiccup was expected.
 
 A hiccup vector must have a head.
 
-<a id="hicasso-bad-head"></a>
-#### `:rf.error/hicasso-bad-head`
+<a id="fresco-bad-head"></a>
+#### `:rf.error/fresco-bad-head`
 
 You put something outside the closed head set in hiccup head position.
 
 Named in [Views and reads](02-views-and-reads.md), [Lists and
 collections](06-lists-and-collections.md), [Diagnostics](16-diagnostics.md).
 
-<a id="hicasso-true-child"></a>
-#### `:rf.error/hicasso-true-child`
+<a id="fresco-true-child"></a>
+#### `:rf.error/fresco-true-child`
 
 You let `true` reach child position.
 
@@ -117,8 +117,8 @@ Named in [Views and reads](02-views-and-reads.md).
 #### `:rf.error/ui-tree-malformed`
 
 You let a value outside the structural-tree grammar reach an L2 tree or a
-projection. This is a corpus id rather than a Hicasso one: the wider framework
-defines the spelling and Hicasso reuses it.
+projection. This is a corpus id rather than a Fresco one: the wider framework
+defines the spelling and Fresco reuses it.
 
 Fix the template or the runtime value, which the message names.
 
@@ -131,16 +131,16 @@ do.
 
 Taught in [Views and reads](02-views-and-reads.md).
 
-<a id="hicasso-sub-outside-render"></a>
-#### `:rf.error/hicasso-sub-outside-render`
+<a id="fresco-sub-outside-render"></a>
+#### `:rf.error/fresco-sub-outside-render`
 
 You read a subscription outside a boundary body.
 
 Named in [Views and reads](02-views-and-reads.md), [Testing](15-testing.md),
 [Diagnostics](16-diagnostics.md).
 
-<a id="hicasso-deferred-read-at-boundary"></a>
-#### `:rf.error/hicasso-deferred-read-at-boundary`
+<a id="fresco-deferred-read-at-boundary"></a>
+#### `:rf.error/fresco-deferred-read-at-boundary`
 
 You let an unforced `delay` reach a boundary's props.
 
@@ -150,8 +150,8 @@ and are kept.
 Named in [Views and reads](02-views-and-reads.md), [Testing](15-testing.md),
 [Diagnostics](16-diagnostics.md).
 
-<a id="hicasso-generation-fence-exhausted"></a>
-#### `:rf.error/hicasso-generation-fence-exhausted`
+<a id="fresco-generation-fence-exhausted"></a>
+#### `:rf.error/fresco-generation-fence-exhausted`
 
 You wrote to app-db from a body, on four consecutive runs.
 
@@ -167,9 +167,9 @@ Taught in [Events as data](03-events-as-data.md).
 <a id="no-frame-context"></a>
 #### `:rf.error/no-frame-context`
 
-You rendered a Hicasso boundary whose React context carries no frame. This is a
-corpus id rather than a Hicasso one: the wider framework defines the spelling
-and Hicasso reuses it.
+You rendered a Fresco boundary whose React context carries no frame. This is a
+corpus id rather than a Fresco one: the wider framework defines the spelling
+and Fresco reuses it.
 
 The op fails fast and is NOT routed to a synthesised default; the fix is to
 carry the frame explicitly (capture it as a value at render time and thread it
@@ -187,15 +187,15 @@ nothing is.
 
 Taught in [Events as data](03-events-as-data.md).
 
-<a id="hicasso-intent-outside-boundary"></a>
-#### `:rf.error/hicasso-intent-outside-boundary`
+<a id="fresco-intent-outside-boundary"></a>
+#### `:rf.error/fresco-intent-outside-boundary`
 
 You lowered or fired an intent with no frame-locked dispatch bound.
 
 Named in [Diagnostics](16-diagnostics.md), [Errors](17-errors.md).
 
-<a id="hicasso-intent-needs-the-event"></a>
-#### `:rf.error/hicasso-intent-needs-the-event`
+<a id="fresco-intent-needs-the-event"></a>
+#### `:rf.error/fresco-intent-needs-the-event`
 
 You wrote an event-reading intent at a value-first foreign callback.
 
@@ -203,8 +203,8 @@ The one callback form receives every argument the invoker passed, in order.
 
 Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md).
 
-<a id="hicasso-malformed-prevent"></a>
-#### `:rf.error/hicasso-malformed-prevent`
+<a id="fresco-malformed-prevent"></a>
+#### `:rf.error/fresco-malformed-prevent`
 
 You wrapped something other than exactly one intent vector in the prevent
 decorator.
@@ -219,16 +219,16 @@ that cannot receive it.
 
 Taught in [Controlled inputs](04-controlled-inputs.md).
 
-<a id="hicasso-revision-not-controlled"></a>
-#### `:rf.error/hicasso-revision-not-controlled`
+<a id="fresco-revision-not-controlled"></a>
+#### `:rf.error/fresco-revision-not-controlled`
 
 You put the reset trigger on something that is not a controlled text field.
 
 Named in [Controlled inputs](04-controlled-inputs.md), [Forms](05-forms.md),
 [Diagnostics](16-diagnostics.md).
 
-<a id="hicasso-file-input-value-marker"></a>
-#### `:rf.error/hicasso-file-input-value-marker`
+<a id="fresco-file-input-value-marker"></a>
+#### `:rf.error/fresco-file-input-value-marker`
 
 You read `::h/value` off a file input, where `.value` is the `C:\fakepath\`
 fiction and the first file's name — not the files.
@@ -240,14 +240,14 @@ anything, so its props are a closed roster rather than a suggestion.
 
 Taught in [Errors](17-errors.md).
 
-<a id="hicasso-boundary-unknown-prop"></a>
-#### `:rf.error/hicasso-boundary-unknown-prop`
+<a id="fresco-boundary-unknown-prop"></a>
+#### `:rf.error/fresco-boundary-unknown-prop`
 
 You wrote a key outside `h/error-boundary`'s closed roster — a misspelled
 `:on-error` is an error boundary that reports nothing.
 
-<a id="hicasso-boundary-bad-on-error"></a>
-#### `:rf.error/hicasso-boundary-bad-on-error`
+<a id="fresco-boundary-bad-on-error"></a>
+#### `:rf.error/fresco-boundary-bad-on-error`
 
 You gave `h/error-boundary` an `:on-error` that is neither an intent vector nor
 a function, so nothing could fire it.
@@ -261,13 +261,13 @@ fires at the crossing instead.
 
 Taught in [Interop](09-interop.md).
 
-<a id="hicasso-host-no-component"></a>
-#### `:rf.error/hicasso-host-no-component`
+<a id="fresco-host-no-component"></a>
+#### `:rf.error/fresco-host-no-component`
 
 You declared a `defhost` over `nil`.
 
-<a id="hicasso-bad-host-declaration"></a>
-#### `:rf.error/hicasso-bad-host-declaration`
+<a id="fresco-bad-host-declaration"></a>
+#### `:rf.error/fresco-bad-host-declaration`
 
 You wrote a `defhost` declaration outside its shape, and the reason names
 which: options that are not a map (usually a docstring written after the
@@ -280,16 +280,16 @@ the options map, which is discarded rather than merged.
 
 Named in [Interop](09-interop.md), [SSR and hydration](18-ssr-and-hydration.md).
 
-<a id="hicasso-host-bad-ssr-policy"></a>
-#### `:rf.error/hicasso-host-bad-ssr-policy`
+<a id="fresco-host-bad-ssr-policy"></a>
+#### `:rf.error/fresco-host-bad-ssr-policy`
 
 You gave a `defhost` a `:server` value outside the two it admits, or a
 `:fallback` the policy beside it cannot carry.
 
 Named in [Interop](09-interop.md), [SSR and hydration](18-ssr-and-hydration.md).
 
-<a id="hicasso-host-fallback-boundary-head"></a>
-#### `:rf.error/hicasso-host-fallback-boundary-head`
+<a id="fresco-host-fallback-boundary-head"></a>
+#### `:rf.error/fresco-host-fallback-boundary-head`
 
 You put a `defview` or `defhost` head inside a declared fallback.
 
@@ -298,8 +298,8 @@ the server.
 
 Named in [Interop](09-interop.md), [SSR and hydration](18-ssr-and-hydration.md).
 
-<a id="hicasso-host-unclaimed-callback"></a>
-#### `:rf.error/hicasso-host-unclaimed-callback`
+<a id="fresco-host-unclaimed-callback"></a>
+#### `:rf.error/fresco-host-unclaimed-callback`
 
 You wrote the one callback form at a `defhost` position declared a ReactNode
 slot, where markup lowers and there is no contract to give a function.
@@ -309,11 +309,11 @@ Write the markup there, or take the position out of `:slots`.
 Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md),
 [Diagnostics](16-diagnostics.md).
 
-<a id="hicasso-raw-not-a-component"></a>
-#### `:rf.error/hicasso-raw-not-a-component`
+<a id="fresco-raw-not-a-component"></a>
+#### `:rf.error/fresco-raw-not-a-component`
 
 You handed the raw escape `nil` in component position — usually a `:default`
-import that resolved nothing — or a Hicasso `defview` or `defhost` head, which
+import that resolved nothing — or a Fresco `defview` or `defhost` head, which
 is a head in its own right.
 
 Write `[:> Component props & children]` with the real component, or write the
@@ -328,13 +328,13 @@ asked to be something else.
 
 Taught in [Routing and navigation](07-routing-and-navigation.md).
 
-<a id="hicasso-route-link-outside-boundary"></a>
-#### `:rf.error/hicasso-route-link-outside-boundary`
+<a id="fresco-route-link-outside-boundary"></a>
+#### `:rf.error/fresco-route-link-outside-boundary`
 
 You rendered a route link with no ambient frame.
 
-<a id="hicasso-route-link-bad-on-click"></a>
-#### `:rf.error/hicasso-route-link-bad-on-click`
+<a id="fresco-route-link-bad-on-click"></a>
+#### `:rf.error/fresco-route-link-bad-on-click`
 
 You gave a route link an `:on-click` outside the route-click roster.
 
@@ -342,7 +342,7 @@ You gave a route link an `:on-click` outside the route-click roster.
 #### `:rf.error/routing-artefact-missing`
 
 You rendered a route link with routing absent. This is a corpus id rather than a
-Hicasso one: the wider framework defines the spelling and Hicasso reuses it.
+Fresco one: the wider framework defines the spelling and Fresco reuses it.
 
 Add `day8/re-frame2-routing` to your dependencies and require `re-frame.routing`
 at boot, before frames are constructed.
@@ -357,14 +357,14 @@ to give up.
 
 Taught in [Motion and presence](12-motion-and-presence.md).
 
-<a id="hicasso-presence-child-unkeyed"></a>
-#### `:rf.error/hicasso-presence-child-unkeyed`
+<a id="fresco-presence-child-unkeyed"></a>
+#### `:rf.error/fresco-presence-child-unkeyed`
 
 You gave a presence boundary a child with no `:key` — a child that is not a
 hiccup vector included.
 
-<a id="hicasso-presence-timeout-required"></a>
-#### `:rf.error/hicasso-presence-timeout-required`
+<a id="fresco-presence-timeout-required"></a>
+#### `:rf.error/fresco-presence-timeout-required`
 
 You left a presence boundary's timeout absent or not positive.
 
@@ -375,8 +375,8 @@ thing it cannot do is resolve a name to nothing and say nothing.
 
 Taught in [Overlays and focus](13-overlays-and-focus.md).
 
-<a id="hicasso-overlay-anchor-missing"></a>
-#### `:rf.error/hicasso-overlay-anchor-missing`
+<a id="fresco-overlay-anchor-missing"></a>
+#### `:rf.error/fresco-overlay-anchor-missing`
 
 You gave an overlay an `:anchor` naming a DOM id no element in the document
 carries. Omitting `:anchor` is legal and silent — a modal takes none, and a
@@ -393,8 +393,8 @@ are checked at registration and at use.
 
 Taught in [Ephemeral state](11-ephemeral-state.md).
 
-<a id="hicasso-state-bad-argument"></a>
-#### `:rf.error/hicasso-state-bad-argument`
+<a id="fresco-state-bad-argument"></a>
+#### `:rf.error/fresco-state-bad-argument`
 
 You gave `reg-state` a concern that is not namespace-qualified, or options
 outside `{:default …}`; or you used an instance key outside the accepted set
@@ -408,86 +408,86 @@ the recovery is usually the next level up rather than a different assertion.
 
 Taught in [Testing](15-testing.md).
 
-<a id="hicasso-test-not-a-body"></a>
-#### `:rf.error/hicasso-test-not-a-body`
+<a id="fresco-test-not-a-body"></a>
+#### `:rf.error/fresco-test-not-a-body`
 
 You gave an L2 `tree` form a head that is not a `defview` body.
 
-<a id="hicasso-test-not-a-render-form"></a>
-#### `:rf.error/hicasso-test-not-a-render-form`
+<a id="fresco-test-not-a-render-form"></a>
+#### `:rf.error/fresco-test-not-a-render-form`
 
 You gave an L2 `tree` something other than a hiccup form.
 
-<a id="hicasso-test-plain-fn-head"></a>
-#### `:rf.error/hicasso-test-plain-fn-head`
+<a id="fresco-test-plain-fn-head"></a>
+#### `:rf.error/fresco-test-plain-fn-head`
 
 You put a plain function in a hiccup head inside an L2 tree.
 
 Named in [Diagnostics](16-diagnostics.md).
 
-<a id="hicasso-test-boundary-body-not-retained"></a>
-#### `:rf.error/hicasso-test-boundary-body-not-retained`
+<a id="fresco-test-boundary-body-not-retained"></a>
+#### `:rf.error/fresco-test-boundary-body-not-retained`
 
 You gave an L2 `tree` a minted head in a build that erased its body.
 
-<a id="hicasso-test-bad-option"></a>
-#### `:rf.error/hicasso-test-bad-option`
+<a id="fresco-test-bad-option"></a>
+#### `:rf.error/fresco-test-bad-option`
 
 You gave an L2 `tree` non-map options, or an option outside its closed roster
 `#{:subs}`.
 
-<a id="hicasso-test-bad-reads"></a>
-#### `:rf.error/hicasso-test-bad-reads`
+<a id="fresco-test-bad-reads"></a>
+#### `:rf.error/fresco-test-bad-reads`
 
 You gave an L2 `tree` a `:subs` option that is not a query-to-value map.
 
-<a id="hicasso-test-missing-read-fixture"></a>
-#### `:rf.error/hicasso-test-missing-read-fixture`
+<a id="fresco-test-missing-read-fixture"></a>
+#### `:rf.error/fresco-test-missing-read-fixture`
 
 You let an L2 body read a subscription no fixture answers.
 
-<a id="hicasso-test-host-is-opaque"></a>
-#### `:rf.error/hicasso-test-host-is-opaque`
+<a id="fresco-test-host-is-opaque"></a>
+#### `:rf.error/fresco-test-host-is-opaque`
 
 You let a `defhost` crossing reach the L2 semantic tree.
 
-<a id="hicasso-test-react-is-opaque"></a>
-#### `:rf.error/hicasso-test-react-is-opaque`
+<a id="fresco-test-react-is-opaque"></a>
+#### `:rf.error/fresco-test-react-is-opaque`
 
 You let a raw React element reach the L2 semantic tree.
 
-<a id="hicasso-test-not-a-host"></a>
-#### `:rf.error/hicasso-test-not-a-host`
+<a id="fresco-test-not-a-host"></a>
+#### `:rf.error/fresco-test-not-a-host`
 
 You read the declared server policy off something that is not a `defhost`.
 
-<a id="hicasso-test-not-a-native-form"></a>
-#### `:rf.error/hicasso-test-not-a-native-form`
+<a id="fresco-test-not-a-native-form"></a>
+#### `:rf.error/fresco-test-not-a-native-form`
 
 You gave an L1 projection a form whose head is not a tag keyword.
 
-<a id="hicasso-test-not-an-intent"></a>
-#### `:rf.error/hicasso-test-not-an-intent`
+<a id="fresco-test-not-an-intent"></a>
+#### `:rf.error/fresco-test-not-an-intent`
 
 You gave the L1 marker materializer something other than an intent vector.
 
-<a id="hicasso-test-not-a-dom-node"></a>
-#### `:rf.error/hicasso-test-not-a-dom-node`
+<a id="fresco-test-not-a-dom-node"></a>
+#### `:rf.error/fresco-test-not-a-dom-node`
 
 You gave the canonical-DOM comparator something that is not a DOM node.
 
-<a id="hicasso-test-no-handler-at-position"></a>
-#### `:rf.error/hicasso-test-no-handler-at-position`
+<a id="fresco-test-no-handler-at-position"></a>
+#### `:rf.error/fresco-test-no-handler-at-position`
 
 You fired at a prop position the form does not write.
 
-<a id="hicasso-test-position-is-not-a-handler"></a>
-#### `:rf.error/hicasso-test-position-is-not-a-handler`
+<a id="fresco-test-position-is-not-a-handler"></a>
+#### `:rf.error/fresco-test-position-is-not-a-handler`
 
 You fired at a position that lowers to something other than a function.
 
-<a id="hicasso-test-l1-dispatch"></a>
-#### `:rf.error/hicasso-test-l1-dispatch`
+<a id="fresco-test-l1-dispatch"></a>
+#### `:rf.error/fresco-test-l1-dispatch`
 
 You invoked a handler lowered by a pure L1 projection.
 
@@ -525,16 +525,16 @@ the same change. So a reservation is promoted, never drifted into.
 
 | Reserved | What it will refuse |
 | --- | --- |
-| `:rf.error/hicasso-view-called-directly` | a `defview` invoked as a function instead of mounted as a hiccup head |
-| `:rf.error/hicasso-test-hook-is-opaque` | a React hook reached from a body run at L2, where no React is running |
-| `:rf.error/hicasso-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree, as host and raw-React elements already do |
-| `:rf.error/hicasso-contenteditable-not-controllable` | a controlled `:value` binding on a contenteditable region |
+| `:rf.error/fresco-view-called-directly` | a `defview` invoked as a function instead of mounted as a hiccup head |
+| `:rf.error/fresco-test-hook-is-opaque` | a React hook reached from a body run at L2, where no React is running |
+| `:rf.error/fresco-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree, as host and raw-React elements already do |
+| `:rf.error/fresco-contenteditable-not-controllable` | a controlled `:value` binding on a contenteditable region |
 | `:rf.error/route-link-bad-prefetch` | a route link's `:prefetch` carrying a value no link surface accepts — routing raises it, on both hosts, for `h/route-link` and `rf/route-link` alike |
-| `:rf.error/hicasso-route-link-claimed-intent-position` | a route link supplying `:prefetch :intent` *and* a value of its own at `:on-mouse-enter`, `:on-focus` or `:on-touch-start` — the three positions `:prefetch` claims |
+| `:rf.error/fresco-route-link-claimed-intent-position` | a route link supplying `:prefetch :intent` *and* a value of its own at `:on-mouse-enter`, `:on-focus` or `:on-touch-start` — the three positions `:prefetch` claims |
 
 ### Dead
 
-`:rf.error/hicasso-test-residue-after-quiescence` is tombstoned. It was reserved
+`:rf.error/fresco-test-residue-after-quiescence` is tombstoned. It was reserved
 for a raising clean-state assertion on the mounted test kit, and the kit landed
 choosing to report instead: `hm/assert-clean!` files residue through the test
 runner rather than throwing, because residue is a test failure and not a refusal

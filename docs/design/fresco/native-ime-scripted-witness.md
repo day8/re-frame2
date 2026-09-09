@@ -37,7 +37,7 @@ native-IME session of [`native-ime-manual-witness.md`](native-ime-manual-witness
 | **Is not** | the acceptance path. That went back to the manual session at [`native-ime-manual-witness.md`](native-ime-manual-witness.md) on 2026-08-12, and on 2026-08-13 the operator ruled that session retired and the two cells green — so acceptance is a ruling, and no session is outstanding |
 | **Is not** | a CI gate. It cannot become one |
 | **Was built to need** | Windows, an **installed Japanese IME**, a visible desktop session, and the machine's keyboard focus. All were satisfied, and it still could not compose |
-| **Recurring regression net** | unchanged — the synthetic three-engine gate `implementation/hicasso/testbed/spec.cjs`, driven by `serve-and-run-hicasso-controlled-testbed.cjs` in the required `cljs-hicasso-controlled` job, at **190 checks × 3 engines** per PR (97 when this table was written; `rf2-hic-040` added the control/DOM conformance matrix beside these witnesses without touching them) |
+| **Recurring regression net** | unchanged — the synthetic three-engine gate `implementation/fresco/testbed/spec.cjs`, driven by `serve-and-run-fresco-controlled-testbed.cjs` in the required `cljs-fresco-controlled` job, at **190 checks × 3 engines** per PR (97 when this table was written; `rf2-hic-040` added the control/DOM conformance matrix beside these witnesses without touching them) |
 
 There is no hosted runner with a Japanese IME and a foreground window, so this script runs on a person's desktop, on
 purpose, while they watch. **A green run here is a dated observation, not continuous coverage.** The synthetic gate is
@@ -104,24 +104,24 @@ npx playwright install --with-deps chromium firefox webkit
 
 ```bash
 # 1. Verdict logic only. No browser, no server, no keystroke.
-node scripts/run-hicasso-native-ime-witness.cjs --self-test
+node scripts/run-fresco-native-ime-witness.cjs --self-test
 
 # 2. Full rehearsal. Compiles, serves, launches each engine HEADED, runs every
 #    page-side step of every check — and types nothing.
-npm run witness:hicasso-native-ime
-node scripts/run-hicasso-native-ime-witness.cjs --dry-run
+npm run witness:fresco-native-ime
+node scripts/run-fresco-native-ime-witness.cjs --dry-run
 
 # 3. The witness proper. THIS TAKES THE KEYBOARD.
 #    DO NOT RUN THIS — see §11. Three armed runs established the IME will not
 #    compose for these windows, and no further attempt is sanctioned.
-node scripts/run-hicasso-native-ime-witness.cjs --inject
+node scripts/run-fresco-native-ime-witness.cjs --inject
 ```
 
 Modes 1 and 2 remain useful and remain honest about what they prove; mode 3 is the refused one. Nothing below is
 withdrawn — it is the design as built, and it is why the refusal in [§11](#11-the-outcome-and-the-three-walls) can be
 stated as a fact about the IME rather than a suspicion about the script.
 
-The rehearsal is the default, and it is a real rehearsal rather than a smoke test: it compiles the `:hicasso/testbed`
+The rehearsal is the default, and it is a real rehearsal rather than a smoke test: it compiles the `:fresco/testbed`
 build, serves it, launches each engine headed, installs the observer, reads the trace table back through the DOM,
 and executes **every** page-side step of every check — focus, caret placement, the armed bump, the armed unmount, the
 blur, the reloads, every selector and every read. Because the driver is unarmed, every check then returns
@@ -220,7 +220,7 @@ nothing — the draft stayed**. The engine was not recorded and the underline / 
 answered. Two readings fit that observation and they are opposite:
 
 - the IME never engaged, so `nihongo` went in as seven ASCII letters and ESC had no composition to abort. **Nothing
-  about Hicasso was measured.**
+  about Fresco was measured.**
 - the IME did engage and the abort left the draft standing. **A real defect, in a named engine.**
 
 A checklist read off a screen cannot separate them, which is why the observation went unresolved. A script can, because
@@ -269,8 +269,8 @@ all**, and the answer was to record it and stop, not to route around it.
 
 | Path | What it is |
 |---|---|
-| `implementation/scripts/run-hicasso-native-ime-witness.cjs` | the orchestrator: preflight, teeth, compile, serve, headed launch per engine, report |
-| `implementation/hicasso/testbed/native-ime-witness.cjs` | the eight checks, the page observer, and the pure verdict functions |
+| `implementation/scripts/run-fresco-native-ime-witness.cjs` | the orchestrator: preflight, teeth, compile, serve, headed launch per engine, report |
+| `implementation/fresco/testbed/native-ime-witness.cjs` | the eight checks, the page observer, and the pure verdict functions |
 | `implementation/scripts/lib/windows-ime-driver.ps1` | the OS-level driver: window lookup, IME request/interrogation, `SendInput`, and both interlocks |
 
 All three stay in the tree. None is deprecated; see [§11.6](#116-what-becomes-of-this-rig).

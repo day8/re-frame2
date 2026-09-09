@@ -115,8 +115,8 @@
   An EXPLICIT map rather than the string convention it replaces
   (rf2-ps1u). That convention special-cased a whitelist of leaves under
   `implementation/adapters/<leaf>` and sent everything else to core,
-  which is wrong twice over. `re-frame.hicasso` and
-  `re-frame.hicasso.substrate` are published from `implementation/hicasso`
+  which is wrong twice over. `re-frame.fresco` and
+  `re-frame.fresco.substrate` are published from `implementation/fresco`
   — neither arm reaches them, so the lookup answered nil and
   `audit-framework-symbol!` took its `(is false …)` arm: a HARD FAIL, on
   the first emission that names them, before any API usage is evaluated.
@@ -133,7 +133,7 @@
   [["re-frame.adapter.reagent-slim" "implementation/adapters/reagent-slim/src"]
    ["re-frame.adapter.reagent"      "implementation/adapters/reagent/src"]
    ["re-frame.adapter.uix"          "implementation/adapters/uix/src"]
-   ["re-frame.hicasso"              "implementation/hicasso/src"]
+   ["re-frame.fresco"              "implementation/fresco/src"]
    ;; Core ships everything else, `re-frame.adapter.use-frame` and
    ;; `re-frame.adapter.context` included — the `adapter` segment is not
    ;; itself evidence of a separate coordinate.
@@ -142,8 +142,8 @@
 (defn- framework-source-root
   "The source root publishing `ns-name`, or nil for a namespace outside
   the `re-frame.*` families this audit knows. A family matches the
-  namespace itself (`re-frame.hicasso`) or anything under it
-  (`re-frame.hicasso.substrate`) — never a longer sibling SEGMENT, so
+  namespace itself (`re-frame.fresco`) or anything under it
+  (`re-frame.fresco.substrate`) — never a longer sibling SEGMENT, so
   `re-frame.adapter.reagent` does not claim `…reagent-slim`. The bare
   `re-frame` ns matches nothing, as under the string convention this
   replaced: `rel` below would have nothing to slice."
@@ -329,8 +329,8 @@
             file (rf2-ps1u)"
     ;; Direct coverage, because the emissions above reach only two of these
     ;; families. The two that no emission reaches are exactly the two the
-    ;; string convention this replaced got wrong: `re-frame.hicasso.*`
-    ;; (published from implementation/hicasso, not implementation/adapters)
+    ;; string convention this replaced got wrong: `re-frame.fresco.*`
+    ;; (published from implementation/fresco, not implementation/adapters)
     ;; and `re-frame.adapter.reagent-slim` (whose file carries the CLJS
     ;; underscore the whitelisted leaf spelled with a dash). Under that
     ;; convention both answered nil, and a nil is a HARD FAIL in
@@ -342,8 +342,8 @@
                 [re-frame.adapter.uix           "implementation/adapters/uix/src/re_frame/adapter/uix.cljs"]
                 [re-frame.adapter.reagent       "implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs"]
                 [re-frame.adapter.reagent-slim  "implementation/adapters/reagent-slim/src/re_frame/adapter/reagent_slim.cljs"]
-                [re-frame.hicasso               "implementation/hicasso/src/re_frame/hicasso.cljc"]
-                [re-frame.hicasso.substrate     "implementation/hicasso/src/re_frame/hicasso/substrate.cljs"]
+                [re-frame.fresco               "implementation/fresco/src/re_frame/fresco.cljc"]
+                [re-frame.fresco.substrate     "implementation/fresco/src/re_frame/fresco/substrate.cljs"]
                 ;; `adapter` in the name is not evidence of a separate
                 ;; coordinate: this one really does ship from core.
                 [re-frame.adapter.use-frame     "implementation/core/src/re_frame/adapter/use_frame.cljs"]]]

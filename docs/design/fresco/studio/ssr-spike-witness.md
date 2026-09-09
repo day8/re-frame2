@@ -8,9 +8,9 @@ what, with what command, and what each row could have lied about.
 
 **There is no sitting, and this page's tense is the only thing that changes
 (added 2026-08-13, `rf2-2rtt6.145`).** The P2 fork was ruled by the operator
-directly in chat on 2026-08-13 — *Hicasso graduates, as a success* — which
+directly in chat on 2026-08-13 — *Fresco graduates, as a success* — which
 pre-empts the 2026-08-25 packet freeze and the 2026-08-27 sitting
-([`decisions.md` HD-029](../decisions.md#hd-029--the-p2-fork-hicasso-graduates-as-a-success);
+([`decisions.md` HD-029](../decisions.md#hd-029--the-p2-fork-fresco-graduates-as-a-success);
 [validation.md's graduation section](../validation.md#the-kill-table-at-graduation--the-p2-ruling-of-2026-08-13)).
 So read the header above as naming the forum this evidence was taken for
 rather than one still ahead. **No figure, row, digest or refusal below moves**,
@@ -86,7 +86,7 @@ only to decide whether it is *entitled* to read anything else.
 | **X1(a)** determinism | **PUBLISHES** | `b557ed71f4` | `cd implementation && npm run test:cljs` |
 | **X1(b)** canonical-DOM parity | **PUBLISHES** | `b557ed71f4` | `cd implementation && npm run test:browser` |
 | **X2** adoption is real | **PUBLISHES** | `b557ed71f4` | `cd implementation && npm run test:browser` |
-| **X3** reactivity adopted | **PUBLISHES** | `b557ed71f4` | `node implementation/freehand/test/re_frame/bench/hicasso/adoption_witness_run.cjs` |
+| **X3** reactivity adopted | **PUBLISHES** | `b557ed71f4` | `node implementation/freehand/test/re_frame/bench/fresco/adoption_witness_run.cjs` |
 | **X4** the screen is alive | **PUBLISHES** | `b557ed71f4` | `cd implementation && npm run test:browser` |
 | **X5** teardown clean | **PUBLISHES** | `b557ed71f4` | `cd implementation && npm run test:browser` |
 
@@ -100,7 +100,7 @@ only on failure otherwise).
 |---|---|---|---|
 | X1(a) | Node v24.13.0, `react-dom/server` → `server.node.js` | `:node-test` | true |
 | X1(b), X2, X4, X5 | HeadlessChrome/147.0.7727.15 (Playwright 1.59.1) | `:browser-test`, `:optimizations :none` | true |
-| X3 | Chromium 147.0.7727.15 (Playwright 1.59.1) | `:hicasso-bench`, `:advanced` | **false** |
+| X3 | Chromium 147.0.7727.15 (Playwright 1.59.1) | `:fresco-bench`, `:advanced` | **false** |
 
 X3's is the only `:advanced` reading here, and that is the lane's own
 arrangement rather than this bead's: the on-demand diagnostic has always run on
@@ -441,7 +441,7 @@ ceiling is nowhere near this regime, which is why the published verdict above is
 unaffected.
 
 Repro:
-`ADOPTWIT_CEILING_MS=0.3 node implementation/hicasso/test/re_frame/bench/hicasso/adoption_witness_run.cjs`
+`ADOPTWIT_CEILING_MS=0.3 node implementation/fresco/test/re_frame/bench/fresco/adoption_witness_run.cjs`
 — and expect either outcome.
 
 ## X4 — the screen is alive
@@ -513,7 +513,7 @@ element on the page still the server's own node. With `:ui` omitted — a
 perfectly well-formed allowlist, which is why the fail-closed policy has
 nothing to refuse — the client boots without the entry, reads `reg-state`'s
 `false` default, and the run reads `{:mismatches 1, :warnings 1, :where
-"re-frame.bench.hicasso.arm1.mount/hydrate-root!", :open-after? false}`: the
+"re-frame.bench.fresco.arm1.mount/hydrate-root!", :open-after? false}`: the
 structured diagnostic fires from the arm's own hydrate door, the uncaught
 report is still there beside it (so `rf2-2rtt6.97`'s composing reporter holds
 and `rf2-mwx08` is not softened), and the panel the server rendered open is

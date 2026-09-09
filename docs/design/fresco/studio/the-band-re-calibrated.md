@@ -536,9 +536,9 @@ ladder a measurement of the instrument in force rather than of itself:
 
 | file | blob |
 |---|---|
-| `implementation/freehand/test/re_frame/bench/hicasso/seam_ladder.cjs` | `ae0ddf6e1df15c8d5ad2e90a35154258762a553a` |
-| `implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs` | `0d54998103649cd8479d3a73eca9e8745a026a8c` |
-| `implementation/freehand/test/re_frame/bench/hicasso/seam.cjs` | `0c98377896f95e7d28ac173cb9e17898179e8e84` |
+| `implementation/freehand/test/re_frame/bench/fresco/seam_ladder.cjs` | `ae0ddf6e1df15c8d5ad2e90a35154258762a553a` |
+| `implementation/freehand/test/re_frame/bench/fresco/clock_run.cjs` | `0d54998103649cd8479d3a73eca9e8745a026a8c` |
+| `implementation/freehand/test/re_frame/bench/fresco/seam.cjs` | `0c98377896f95e7d28ac173cb9e17898179e8e84` |
 
 `seam_ladder.cjs` is at the **same blob** as `rf2-cvvb7`'s ladder, unchanged, so
 the load half of the design is identical and not merely equivalent.
@@ -546,16 +546,16 @@ the load half of the design is identical and not merely equivalent.
 ```bash
 cd implementation
 # build once
-HCLOCK_ONLY=bulk300 node hicasso/test/re_frame/bench/hicasso/clock_run.cjs
+HCLOCK_ONLY=bulk300 node fresco/test/re_frame/bench/fresco/clock_run.cjs
 
 # then one rung, three replicates — and issue NO other command while it runs
 for r in 1 2 3; do
-  node hicasso/test/re_frame/bench/hicasso/seam_ladder.cjs \
+  node fresco/test/re_frame/bench/fresco/seam_ladder.cjs \
     --load 12 --label "L12-r$r" --json "out/ladder-ymi6j/L12-r$r.json"
 done
 
 # recompute every figure on this page from the datasets
-node hicasso/test/re_frame/bench/hicasso/ladder_band.cjs out/ladder-ymi6j/L*.json
+node fresco/test/re_frame/bench/fresco/ladder_band.cjs out/ladder-ymi6j/L*.json
 ```
 
 ### 9.1 The dataset survives this time, and that was the point
@@ -593,7 +593,7 @@ gitignored `out/`. Both are closed here.
 - What the compact file does **not** carry is the per-sample distribution
   inside a block. A question about within-block shape needs the raw datasets,
   which are kept beside the run under `out/ladder-ymi6j/`. **Those raw runs are
-  retained outside this repository, and always were**: `bench/hicasso/.gitignore`
+  retained outside this repository, and always were**: `bench/fresco/.gitignore`
   excludes `out/`, so neither they nor the two refused runs kept under
   `out/ladder-ymi6j-refused/` were ever committed, and neither could have been.
   The inspectability this page promises for them therefore rests on a preserved

@@ -7,6 +7,6 @@
 (defn mount-root! [el]
   (fail! :rf.error/no-frame-context
          'arm1.mount/render!
-         "A Hicasso boundary rendered with no frame in scope."
+         "A Fresco boundary rendered with no frame in scope."
          :mount-under-a-frame
          {:el el}))

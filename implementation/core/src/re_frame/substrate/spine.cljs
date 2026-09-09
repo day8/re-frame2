@@ -2598,7 +2598,7 @@
 ;; measured exactly at `bodyRuns = 2.00N` against Reagent's `1.00N`
 ;; (rf2-2rtt6.12) and priced at ≥ 20% of the mount red-zone in every round at
 ;; layers 1, 2 and 3 (rf2-2rtt6.15,
-;; docs/design/hicasso/studio/coldmount-double-build-priced.md).
+;; docs/design/fresco/studio/coldmount-double-build-priced.md).
 ;;
 ;; THE SHAPE, RULED (rf2-2rtt6.14, ADOPT). The render phase stops balancing
 ;; in-render. It subscribes and keeps its +1 in a ONE-SHOT ESCROW TOKEN, so
@@ -2676,7 +2676,7 @@
 ;; environment, and it is NOT evidence about a consumer mount at this horizon
 ;; in either direction. The witness on a representative page now EXISTS —
 ;; committed, one command, and gating nothing (rf2-2rtt6.80):
-;; `bench/hicasso/src/re_frame/bench/hicasso/adoption_witness_run.cjs`, which
+;; `bench/fresco/src/re_frame/bench/fresco/adoption_witness_run.cjs`, which
 ;; measures its own page's gap before it will read an adoption integer.
 ;;
 ;; WHY NO MORE MACHINERY THAN A NUMBER. No new hook and no new public
@@ -2818,7 +2818,7 @@
   THE ADOPTION WITNESS IS A COMMITTED DIAGNOSTIC that nothing invokes on a
   schedule:
 
-      node bench/hicasso/src/re_frame/bench/hicasso/adoption_witness_run.cjs
+      node bench/fresco/src/re_frame/bench/fresco/adoption_witness_run.cjs
 
   It measures a quiet single-mount page's gap FIRST and refuses to read the
   adoption integers at all unless that gap sits comfortably inside this
@@ -3161,7 +3161,7 @@
                 ;; lifetime — `use-memo`'s hook slot held it and `get-snap`'s
                 ;; closure held it — at a measured 769 B `[765–793]` / 23.0
                 ;; objects per read, 22% of every UIx subscription read
-                ;; (docs/design/hicasso/studio/uix-spine-per-read-
+                ;; (docs/design/fresco/studio/uix-spine-per-read-
                 ;; decomposition.md; instrument landed 24e8822d7f). And on the
                 ;; cold path that handle used to be DEAD before the factory
                 ;; returned. So deref while the reaction is live and return the
@@ -3703,7 +3703,7 @@
                                          (set-hiccup-emitter! emitter-cell f)))
      :use-current-frame           use-current-frame
      ;; rf2-kuky.57: the KEY is the public vocabulary (`use-sub` — one
-     ;; value-hook name across UIx and Hicasso islands); the let-bound fn keeps
+     ;; value-hook name across UIx and Fresco islands); the let-bound fn keeps
      ;; its older internal name so rf2-kuky.62 finds this region by its markers.
      :use-sub                     use-subscribe
      :flush-views!                flush-views!
@@ -3861,7 +3861,7 @@
     ;; it is handed and calls it once its adapter is the installed one, so
     ;; routing a nil impl publishes a hook that throws on the first
     ;; registration rather than one that declines. Every React-shaped caller
-    ;; that does NOT need componentization — hicasso, which owns its own view
+    ;; that does NOT need componentization — fresco, which owns its own view
     ;; path, and the spine's own bench/test adapters — passes nothing here, and
     ;; must be left with the hook UNPUBLISHED so `reg-view*`'s absent-hook
     ;; fallback returns the wrapper unchanged, exactly as on Reagent.

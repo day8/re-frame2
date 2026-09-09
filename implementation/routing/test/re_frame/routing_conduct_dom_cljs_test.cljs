@@ -9,9 +9,9 @@
   lifecycle installs. Nothing here is dispatched at the framework in
   place of a browser gesture.
 
-  ## Why this file exists beside the Hicasso navigation witness
+  ## Why this file exists beside the Fresco navigation witness
 
-  `re-frame.hicasso.examples.navigation.conduct-dom-cljs-test` (PR #7970)
+  `re-frame.fresco.examples.navigation.conduct-dom-cljs-test` (PR #7970)
   already measures focus-on-route and scroll restoration in a browser,
   and this file does not repeat what that one proves. The merged-PR audit
   of #7970 found two things it did NOT prove, and both are properties of

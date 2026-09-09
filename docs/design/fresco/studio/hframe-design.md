@@ -27,10 +27,10 @@ primitive:
 (rf/capture-frame (h/frame))
 ```
 
-Hicasso contributes the deterministic frame **read**; core keeps `capture-frame`
+Fresco contributes the deterministic frame **read**; core keeps `capture-frame`
 as what Spec 002 calls *"the ONE public carry primitive"*. The two-step spelling,
 against the adapters' one-step `(rf/capture-frame)`, is the taught asymmetry, and
-it has a one-sentence reason: **ambient frame lookup is what Hicasso's stricter
+it has a one-sentence reason: **ambient frame lookup is what Fresco's stricter
 body discipline withdraws.**
 
 The motivating author is precise, and the design is scoped to them: **someone at
@@ -47,15 +47,15 @@ this primitive's job; see §5.
 matters.** The design pass ran against a tree in which `rf2-2rtt6.122` had not
 landed. The attack's FATAL finding — the one that corrected the design's premise
 and was recorded as *strengthening* the verdict — was that `rf/capture-frame`
-0-arity **did not throw** in a Hicasso body. It *accidentally worked* on the
+0-arity **did not throw** in a Fresco body. It *accidentally worked* on the
 dominant configurations, through a raw React-context read published by the UIx
 and Freehand adapters, and the same one spelling produced **six** behaviours
 across adapter, renderer and timing: correct, throwing, throwing on SSR, and
 silently wrong-frame inside a render callback.
 
 **`rf2-2rtt6.122` has since deleted that accident.** Core gained a refusal tier,
-and the Hicasso arm fused it into `intent/with-frame` — the one binding every
-Hicasso render extent already performs. The refusal detail the arm supplies says
+and the Fresco arm fused it into `intent/with-frame` — the one binding every
+Fresco render extent already performs. The refusal detail the arm supplies says
 so in its own words: *"It used to succeed silently under some adapters and throw
 under others; now it refuses under all of them."*
 
@@ -66,7 +66,7 @@ The consequences for this design, in order of how much they matter:
    the platform's own keystone with one deterministic spelling."* `rf2-2rtt6.122`
    already bought that. Anyone re-reading the ruling should not re-spend it.
 2. **The residual argument is unchanged and is now sharper.** After the refusal,
-   a Hicasso body has **no ambient route to its own frame at all** — the 0-arity
+   a Fresco body has **no ambient route to its own frame at all** — the 0-arity
    keystone refuses deterministically rather than working by luck. The case the
    design was built for, a **reusable view mounted under N frames**, could
    previously capture by accident on a UIx- or Freehand-hosted page. It now
@@ -138,7 +138,7 @@ These are the part that must survive.
   decision to save one `let` binding.
 
 **(d) Bind core's ambient (`frame/*current-frame*`) inside the body, or publish a
-Hicasso `:adapter/current-frame` hook. REJECTED — and `rf2-2rtt6.122` has since
+Fresco `:adapter/current-frame` hook. REJECTED — and `rf2-2rtt6.122` has since
 settled it in the opposite direction.** The ambient scope is **one door with three
 consumers** — `capture-frame`, ambient `rf/dispatch`, and ambient `rf/subscribe`
 all resolve through it, and no per-consumer discrimination exists. Widening it for
@@ -156,7 +156,7 @@ nondeterminism.
 answer, but half of it ships regardless.** The honest-teaching half is not
 optional: the guide's rows get rewritten fx-first under any verdict. What
 docs-only cannot do is serve the reusable-multi-frame foreign edge, which has no
-spelling without `h/frame`; taking it would mean Hicasso ships weaker than the
+spelling without `h/frame`; taking it would mean Fresco ships weaker than the
 adapters on the spec's own keystone affordance, and the `[:>]` dev-warning's
 promised "plain closure" door stays spellable only with app knowledge.
 
@@ -245,7 +245,7 @@ codec/shell/collector changes, no new React hook.
 
 **W10 was inverted, and here is what the row now asserts.** `(rf/capture-frame)`
 0-arity inside a body refuses, with `:operation :capture-frame`,
-`:substrate :hicasso` and `:extent 'hicasso/boundary-render`. The *"under every
+`:substrate :fresco` and `:extent 'fresco/boundary-render`. The *"under every
 adapter"* half is settled **structurally rather than by trying adapters** — Spec
 006 allows one substrate per process, so a row that tried three would still not
 be the claim. Instead the `:adapter/current-frame` hook is wrapped with a counter:
@@ -256,10 +256,10 @@ the answer. The rows live with their siblings in `arm1/ambient_refusal_cljs_test
 because a carry refusing is a fact about the refusal (`rf2-hnrww`) rather than
 about this primitive.
 
-**The error id is `:rf.error/hicasso-frame-outside-boundary`** — §9's
-recommendation, matching the arm's `:rf.error/hicasso-intent-outside-boundary`.
+**The error id is `:rf.error/fresco-frame-outside-boundary`** — §9's
+recommendation, matching the arm's `:rf.error/fresco-intent-outside-boundary`.
 Confirming it against Spec 009 was the instruction, and the answer is that **no
-Hicasso arm error id is catalogued there**: `git grep 'rf.error/hicasso' -- spec/`
+Fresco arm error id is catalogued there**: `git grep 'rf.error/fresco' -- spec/`
 is empty, which is what HD-017's bench-lane residence implies. So no catalogue
 row is owed, and the question reopens if and when the arm graduates.
 
@@ -296,8 +296,8 @@ which one click alone would not catch.
 `rf2-2rtt6.103` dev-warning row"*, and what shipped is not a dev warning — it is
 a pair of hard refusals. `[:>]` carries no declaration, so `raw-crossing`'s
 roster is empty by construction, and an intent vector at an event-spelled prop is
-`:rf.error/hicasso-host-undeclared-callback` while a marked `h/fn` at any prop is
-`:rf.error/hicasso-host-unclaimed-callback`. That strengthens W7 rather than
+`:rf.error/fresco-host-undeclared-callback` while a marked `h/fn` at any prop is
+`:rf.error/fresco-host-unclaimed-callback`. That strengthens W7 rather than
 changing it: the plain closure is not the recommended spelling among two, it is
 the only one the door admits. Both refusals are asserted live at the top of the
 row, so the premise is measured rather than cited — if the escape ever grows a
@@ -340,16 +340,16 @@ it was fenced out of `rf2-zllp8` for the same reason it was fenced out of
 tip, as its own entry now records; (3) stands.*
 
 1. **The error id.** The design pass proposed
-   `:rf.error/hicasso-frame-outside-boundary`; the synthesis comment wrote
-   `:rf.error/hicasso-frame-outside-render`. They are not the same string. The
-   arm's existing sibling is `:rf.error/hicasso-intent-outside-boundary`, so
+   `:rf.error/fresco-frame-outside-boundary`; the synthesis comment wrote
+   `:rf.error/fresco-frame-outside-render`. They are not the same string. The
+   arm's existing sibling is `:rf.error/fresco-intent-outside-boundary`, so
    **`-outside-boundary` is the spelling that matches the tree** and is the
    recommendation — but the implementer should have it confirmed rather than pick
    silently, because error ids are catalogued in Spec 009.
 2. **`:rf.error/ambient-frame-refused` is SETTLED**, and this design may be
    built on that spelling. It is rowed in `spec/009-Instrumentation.md`'s error
    catalogue and raised by `re-frame.frame/emit-ambient-frame-refused!`, and the
-   stability rule in `implementation/hicasso/spec/complaints.md` closes the
+   stability rule in `implementation/fresco/spec/complaints.md` closes the
    question outright: an id names one refusal and is never re-spelled or reused.
    Guide text naming it is no longer blocked. *(This item previously held the id
    PROVISIONAL pending a rename under `rf2-k0rbk`. That marker was a DISCHARGED
@@ -394,7 +394,7 @@ in §5. The two can land in either order.
 - **Witnesses** W1–W9 above, plus the **inverted** W10 and re-grounded W11.
 - **Guide** rides the same PR: the troubleshooting row rewritten fx-first, with
   `(h/frame)` taught as the *foreign-edge* affordance; the sentence with contract
-  force that **ambient `rf/*` forms are non-contractual in Hicasso bodies**; and
+  force that **ambient `rf/*` forms are non-contractual in Fresco bodies**; and
   the `[:>]` dev-warning's promised "plain closure" door given its spelling.
 - **Reject on sight**: any `h/bound` wrapper, any second carry primitive, any
   binding of core's ambient inside the render extent, any tracked-read or

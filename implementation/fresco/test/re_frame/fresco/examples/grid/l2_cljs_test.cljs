@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.grid.l2-cljs-test
+(ns re-frame.fresco.examples.grid.l2-cljs-test
   "L2 — THE GRID'S BODIES, AND THE READ TOPOLOGY THE SCALING CLAIM RESTS
   ON.
 
@@ -23,11 +23,11 @@
   which is the earliest a topology regression can be caught."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.grid.events :as rf.hicasso.examples.grid.events]
-            [re-frame.hicasso.examples.grid.subs :as rf.hicasso.examples.grid.subs]
-            [re-frame.hicasso.examples.grid.views :as rf.hicasso.examples.grid.views]
-            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.grid.events :as rf.fresco.examples.grid.events]
+            [re-frame.fresco.examples.grid.subs :as rf.fresco.examples.grid.subs]
+            [re-frame.fresco.examples.grid.views :as rf.fresco.examples.grid.views]
+            [re-frame.fresco.test :as rf.fresco.test]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
@@ -35,18 +35,18 @@
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil}))
 
-(defn- tagged [tree tag] (rf.hicasso.test/find tree #(= tag (:tag %))))
+(defn- tagged [tree tag] (rf.fresco.test/find tree #(= tag (:tag %))))
 
 ;; ---------------------------------------------------------------------------
 ;; The cell — the whole of the typing surface
 ;; ---------------------------------------------------------------------------
 
 (deftest a-cell-reads-one-address-and-writes-one-intent
-  (let [tree  (rf.hicasso.test/tree [rf.hicasso.examples.grid.views/cell {:row 3 :col 4}]
-                       {:subs {[::rf.hicasso.examples.grid.subs/cell 3 4] "34"}})
-        attrs (rf.hicasso.test/attrs (tagged tree :input))]
+  (let [tree  (rf.fresco.test/tree [rf.fresco.examples.grid.views/cell {:row 3 :col 4}]
+                       {:subs {[::rf.fresco.examples.grid.subs/cell 3 4] "34"}})
+        attrs (rf.fresco.test/attrs (tagged tree :input))]
     (is (= "34" (:value attrs)))
-    (is (= [::rf.hicasso.examples.grid.events/edit 3 4 ::rf.hicasso/value] (:on-input attrs))
+    (is (= [::rf.fresco.examples.grid.events/edit 3 4 ::rf.fresco/value] (:on-input attrs))
         "a THREE-argument positional intent. It is positional for the
          reason the editor's two-argument ones are — a marker below the
          top level of an intent vector is not substituted — and the
@@ -65,40 +65,40 @@
   ;; subscription and an intent vector at `:on-input`, and the difference
   ;; between one field and a hundred is the loop that writes them.
   (let [form [:input {:type "text" :value "34"
-                      :on-input [::rf.hicasso.examples.grid.events/edit 3 4 ::rf.hicasso/value]}]]
-    (is (true? (rf.hicasso.test/controlled? form))
+                      :on-input [::rf.fresco.examples.grid.events/edit 3 4 ::rf.fresco/value]}]]
+    (is (true? (rf.fresco.test/controlled? form))
         "the hundredth cell installs the same converge shadow as the
          first, and there is no second way of writing a field for when
          there are a hundred of them")
-    (is (nil? (rf.hicasso.test/revision form))
+    (is (nil? (rf.fresco.test/revision form))
         "and the grid carries no reset trigger anywhere — it has no
          discard, so `::h/revision` never appears in this application")))
 
 (deftest the-row-total-reads-its-own-row-and-nothing-else
-  (let [tree (rf.hicasso.test/tree [rf.hicasso.examples.grid.views/row-total {:row 2}]
-                      {:subs {[::rf.hicasso.examples.grid.subs/row-total 2] 42}})]
-    (is (= "42" (rf.hicasso.test/text tree)))
-    (is (= "2" (:data-total (rf.hicasso.test/attrs tree))))))
+  (let [tree (rf.fresco.test/tree [rf.fresco.examples.grid.views/row-total {:row 2}]
+                      {:subs {[::rf.fresco.examples.grid.subs/row-total 2] 42}})]
+    (is (= "42" (rf.fresco.test/text tree)))
+    (is (= "2" (:data-total (rf.fresco.test/attrs tree))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The layout bodies — the half of the topology that is an ABSENCE
 ;; ---------------------------------------------------------------------------
 
 (deftest a-row-body-reads-the-dimensions-and-no-cell
-  (let [tree  (rf.hicasso.test/tree [rf.hicasso.examples.grid.views/grid-row {:row 2}]
-                       {:subs {[::rf.hicasso.examples.grid.subs/dimensions] {:rows 10 :cols 4}}})
-        cells (rf.hicasso.test/find-all tree #(= "re-frame.hicasso.examples.grid.views/cell"
+  (let [tree  (rf.fresco.test/tree [rf.fresco.examples.grid.views/grid-row {:row 2}]
+                       {:subs {[::rf.fresco.examples.grid.subs/dimensions] {:rows 10 :cols 4}}})
+        cells (rf.fresco.test/find-all tree #(= "re-frame.fresco.examples.grid.views/cell"
                                     (:view-id %)))]
     (is (= 4 (count cells))
         "one call per column — and a CALL, so the child's body did not run
          and its read is not on this fixture map")
     (is (= [[2 0] [2 1] [2 2] [2 3]]
-           (mapv (fn [c] [(:row (rf.hicasso.test/attrs c)) (:col (rf.hicasso.test/attrs c))]) cells)))
+           (mapv (fn [c] [(:row (rf.fresco.test/attrs c)) (:col (rf.fresco.test/attrs c))]) cells)))
     (is (= ["0" "1" "2" "3"] (mapv :key cells))
         "keyed by column. A list keyed by anything that moves reuses the
          wrong element the moment the order changes, and on a page of
          controlled fields that is a caret landing in another cell")
-    (is (= 1 (count (rf.hicasso.test/find-all tree #(= "re-frame.hicasso.examples.grid.views/row-total"
+    (is (= 1 (count (rf.fresco.test/find-all tree #(= "re-frame.fresco.examples.grid.views/row-total"
                                           (:view-id %)))))
         "and one total, at the end of the row")))
 
@@ -108,12 +108,12 @@
   ;; keystroke cannot reach this body. A `[::subs/all-cells]` here — the
   ;; guide's named anti-shape — would put the parent, and a props compare
   ;; over every row, on every keystroke's path.
-  (let [tree (rf.hicasso.test/tree [rf.hicasso.examples.grid.views/grid {}]
-                      {:subs {[::rf.hicasso.examples.grid.subs/dimensions] {:rows 3 :cols 3}}})
-        rows (rf.hicasso.test/find-all tree #(= "re-frame.hicasso.examples.grid.views/grid-row"
+  (let [tree (rf.fresco.test/tree [rf.fresco.examples.grid.views/grid {}]
+                      {:subs {[::rf.fresco.examples.grid.subs/dimensions] {:rows 3 :cols 3}}})
+        rows (rf.fresco.test/find-all tree #(= "re-frame.fresco.examples.grid.views/grid-row"
                                    (:view-id %)))]
     (is (= 3 (count rows)))
-    (is (= [0 1 2] (mapv (comp :row rf.hicasso.test/attrs) rows)))
+    (is (= [0 1 2] (mapv (comp :row rf.fresco.test/attrs) rows)))
     (is (= ["0" "1" "2"] (mapv :key rows)))
     (is (some? (tagged tree :table)))))
 
@@ -130,14 +130,14 @@
         rows  (range (:rows dims))
         cells (into []
                     (mapcat (fn [row]
-                              (let [tree (rf.hicasso.test/tree [rf.hicasso.examples.grid.views/grid-row {:row row}]
-                                                  {:subs {[::rf.hicasso.examples.grid.subs/dimensions] dims}})]
-                                (->> (rf.hicasso.test/find-all
+                              (let [tree (rf.fresco.test/tree [rf.fresco.examples.grid.views/grid-row {:row row}]
+                                                  {:subs {[::rf.fresco.examples.grid.subs/dimensions] dims}})]
+                                (->> (rf.fresco.test/find-all
                                        tree
-                                       #(= "re-frame.hicasso.examples.grid.views/cell"
+                                       #(= "re-frame.fresco.examples.grid.views/cell"
                                            (:view-id %)))
-                                     (mapv (fn [c] [(:row (rf.hicasso.test/attrs c))
-                                                    (:col (rf.hicasso.test/attrs c))]))))))
+                                     (mapv (fn [c] [(:row (rf.fresco.test/attrs c))
+                                                    (:col (rf.fresco.test/attrs c))]))))))
                     rows)]
     (is (= 100 (count cells)))
     (is (= 100 (count (set cells))))

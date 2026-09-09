@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.arm1.dogfood-uix
+(ns re-frame.bench.fresco.arm1.dogfood-uix
   "THE DOGFOOD SCREEN — RAW UIx, THE CONTROL (HD-002 tier 1; the charter's
   v0 gate 'a dogfood list+form screen preferred over raw UIx by its
   authors' names this file as the thing preference is measured against).
@@ -11,7 +11,7 @@
   authors can make it, deliberately — a comparator quoted from memory, or
   written as a strawman, would invalidate the preference case it anchors
   (rf2-2rtt6.67). The one shared piece is the state layer
-  (`re-frame.bench.hicasso.front.dogfood`): the events and subscriptions
+  (`re-frame.bench.fresco.front.dogfood`): the events and subscriptions
   are identical by construction, so what differs between the renderings
   is the view layer and nothing else. The intents are NOT shared — each
   rendering writes its own event positions, and that they agree is
@@ -33,7 +33,7 @@
      conditionally — the hook is then unconditional inside it. The value
      is obtainable; the branch has to become a component boundary, with
      its own element, fiber and reconciliation. This is the same trade
-     the grouped rendering's docstring prices on the Hicasso side (\"a
+     the grouped rendering's docstring prices on the Fresco side (\"a
      conditional *child boundary* owning the draft — buys the edge back
      and costs a second `defview`\"), so the two surfaces are being
      charged symmetrically.
@@ -68,7 +68,7 @@
   What the rendering needs beyond React itself: nothing. No macro, no
   codec, no lowering — which is raw UIx's own half of the preference
   case, stated in
-  `docs/design/hicasso/studio/the-dogfood-preference-case.md` beside the
+  `docs/design/fresco/studio/the-dogfood-preference-case.md` beside the
   costs above.
 
   Not a third runtime: this comparator spine's substrate is the one the
@@ -76,7 +76,7 @@
   asserted identical to the collector's — elements AND dispatched
   intents — by `arm1_dogfood_dom_cljs_test`."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
+            [re-frame.bench.fresco.front.dogfood :as rf.bench.fresco.front.dogfood]
             [uix.core :refer [$ defui]]))
 
 (defn- ime-gated
@@ -101,7 +101,7 @@
        ($ :span.remaining {:data-remaining remaining} (str remaining " left")))))
 
 (defui new-item [_props]
-  (let [draft              (rf.adapter.uix/use-sub [:dogfood/draft rf.bench.hicasso.front.dogfood/new-draft-key])
+  (let [draft              (rf.adapter.uix/use-sub [:dogfood/draft rf.bench.fresco.front.dogfood/new-draft-key])
         {:keys [dispatch]} (rf.adapter.uix/use-frame)]
     ($ :form.new {:on-submit (fn [e]
                                (.preventDefault e)
@@ -109,11 +109,11 @@
        ($ :input.new-input
           {:type        "text"
            :value       draft
-           :on-change   #(dispatch [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key
+           :on-change   #(dispatch [:dogfood/edit-draft rf.bench.fresco.front.dogfood/new-draft-key
                                     (.. % -target -value)])
            :on-key-down (ime-gated dispatch
                                    {"Enter"  [:dogfood/create]
-                                    "Escape" [:dogfood/cancel rf.bench.hicasso.front.dogfood/new-draft-key]})})
+                                    "Escape" [:dogfood/cancel rf.bench.fresco.front.dogfood/new-draft-key]})})
        ($ :button.add {:type "submit"} "Add"))))
 
 (defn- filter-button [id label current dispatch]

@@ -1,4 +1,4 @@
-# The release policy — what Hicasso ships, and what an upgrade costs
+# The release policy — what Fresco ships, and what an upgrade costs
 
 **Published by `rf2-hic-061`.** This page owns three things
 [`specification.md` §12 Phase 6](specification.md#phase-6--adoption-and-release) states and
@@ -28,15 +28,15 @@ than only the number.
 | How a release is actually cut — deploy DAG, recovery, pre-flight | [`docs/release-process.md`](../../../release-process.md) |
 | Which public surfaces exist, and their server/hydration disposition | [`dispositions.md` §2.1](dispositions.md#21-surface-inventory-and-dispositions) and [§2.2](dispositions.md#22-public-surfaces-with-no-server-render-behavior) |
 | What each React-version obligation is, per surface class | [`lanes/react-compatibility-notes.md`](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) |
-| Which refusal ids exist and what stability they carry | [`complaints.md` §The stability rule](../../../../implementation/hicasso/spec/complaints.md#the-stability-rule) |
+| Which refusal ids exist and what stability they carry | [`complaints.md` §The stability rule](../../../../implementation/fresco/spec/complaints.md#the-stability-rule) |
 | Which spellings changed, and under whose ruling | [`naming-packet.md`](naming-packet.md#21-operator-rulings-mike-2026-08-11), [`naming-ledger.md`](naming-ledger.md) |
 | Which laws the ordinary facade is frozen under — and that names are not among them | [`facade-freeze.md`](facade-freeze.md#1-the-membership-and-how-it-was-decided) |
 | What ships as an artefact, and what does not | this file |
 
 ## 1. What the artefact is
 
-The coordinate is spelled **`day8/re-frame2-hicasso`**, and it is spelled in two places that agree:
-[`implementation/hicasso/deps.edn`](../../../../implementation/hicasso/deps.edn)'s opening line, and the
+The coordinate is spelled **`day8/re-frame2-fresco`**, and it is spelled in two places that agree:
+[`implementation/fresco/deps.edn`](../../../../implementation/fresco/deps.edn)'s opening line, and the
 `TOOLS_LOCAL_ROOTS` inventory in
 [`.github/scripts/verify-version-lockstep.sh`](../../../../.github/scripts/verify-version-lockstep.sh),
 where Xray declares its dependency on it.
@@ -45,20 +45,20 @@ where Xray declares its dependency on it.
 rather than pending"* until that bead landed, and each of the three measurements it cited has been inverted
 by the same change:
 
-1. `implementation/hicasso/deps.edn` carries a **`:clein/build` alias** naming `day8/re-frame2-hicasso`,
+1. `implementation/fresco/deps.edn` carries a **`:clein/build` alias** naming `day8/re-frame2-fresco`,
    with `:version "../../VERSION"` and `:src-dirs ["src" "resources" "test_kit/src"]` — the second entry
    because the clj-kondo export reaches a consumer over the classpath, the third because `:src-dirs` is the
    only key that decides jar content and the testing kit would otherwise ship in no jar at all (rf2-rxf49).
 2. It is **in the lockstep inventory**. `verify-version-lockstep.sh`'s `ARTEFACTS` array now names fourteen
-   artefacts and Hicasso is one of them. The array is not decorative: the same script fails the build when a
+   artefacts and Fresco is one of them. The array is not decorative: the same script fails the build when a
    directory declares a `:clein/build` without a matching inventory entry, so the presence is enforced in
    both directions.
-3. It is **in the release workflow**, in a stage of its own — `deploy-hicasso`, gated on `deploy-core` and
+3. It is **in the release workflow**, in a stage of its own — `deploy-fresco`, gated on `deploy-core` and
    the whole `deploy-leaf` matrix, for the reason §2 gives.
 
-So Hicasso is **wired to publish**. It is not yet *consumable* from a released coordinate, and §1.1 is the
+So Fresco is **wired to publish**. It is not yet *consumable* from a released coordinate, and §1.1 is the
 difference: `:local/root` from this repository remains the only path a consumer has, and the spelling above
-is not the spelling the first release will carry. The knock-on for Xray went with the wiring: Hicasso was
+is not the spelling the first release will carry. The knock-on for Xray went with the wiring: Fresco was
 **the one coordinate `release-xray.yml` deliberately left at `:local/root`** while rewriting the other nine,
 and `preflight-xray-package.sh` refused an `xray-v*` deploy over it. All ten are rewritten now, and what
 remains is tag ORDER — `v*` before `xray-v*`, at the same VERSION.
@@ -66,7 +66,7 @@ remains is tag ORDER — `v*` before `xray-v*`, at the same VERSION.
 ### 1.1 Three ruled prerequisites stand in front of the first tag
 
 **An earlier reading of this section said only a tag was missing. That was wrong in the direction that costs
-a reader most**, because it invites them to write `day8/re-frame2-hicasso` into a `deps.edn` and wait for it
+a reader most**, because it invites them to write `day8/re-frame2-fresco` into a `deps.edn` and wait for it
 to resolve. Three things stand in front of the first tag, none of them wiring and none of them a worker's:
 
 1. **The group is not verified, so the coordinate cannot be created.** Clojars requires a NEW project to
@@ -79,12 +79,12 @@ to resolve. Three things stand in front of the first tag, none of them wiring an
 2. **The coordinate is scheduled to be renamed, so today's spelling is not the one that ships.** A held
    campaign renames all nineteen `day8/*` Maven coordinates to `io.github.day8/*` — the reverse-domain group
    verification (1) needs — and it is deliberately held until the verification lands. **The first tag
-   therefore cuts on `io.github.day8/re-frame2-hicasso`, not on the `day8/re-frame2-hicasso` committed
+   therefore cuts on `io.github.day8/re-frame2-fresco`, not on the `day8/re-frame2-fresco` committed
    today**, and a tag pushed before that campaign merges would 403 on every coordinate rather than on one.
 3. **The deploy token is scoped to the new group and is minted only when a tag is imminent.**
 
 **What this page will not do is pre-write the new spelling into §1's opening line.** The committed tree says
-`day8/re-frame2-hicasso` in both places §1 names, and a page disagreeing with the tree it documents is a
+`day8/re-frame2-fresco` in both places §1 names, and a page disagreeing with the tree it documents is a
 second defect rather than a fix. The spelling changes here when it changes in `deps.edn`, under the campaign
 that owns it — which is also why the naming record still carries the two group ids as an open question
 rather than a settled one.
@@ -112,16 +112,16 @@ is normative and [`docs/release-process.md`](../../../release-process.md) is the
 restated here.
 
 **Joining that train took four edits, three of them hot-zone**, and they are all in the tree now
-(`rf2-gra70`): a `:clein/build` alias in `implementation/hicasso/deps.edn`; entries in
+(`rf2-gra70`): a `:clein/build` alias in `implementation/fresco/deps.edn`; entries in
 `verify-version-lockstep.sh`'s arrays; a deploy stage in `release.yml`; and the release-notes row. The
 lockstep verifier refuses the first without the rest, which is the right failure direction and is why none
 of it could be done piecemeal.
 
-**Hicasso does not fit the leaf matrix, and the resolution was to not put it there.** Its published `:deps`
-name a **second in-repo artefact besides core** — `day8/re-frame2-ssr`, for the `re-frame.hicasso.server`
+**Fresco does not fit the leaf matrix, and the resolution was to not put it there.** Its published `:deps`
+name a **second in-repo artefact besides core** — `day8/re-frame2-ssr`, for the `re-frame.fresco.server`
 module — and that is precisely the property that put `ssr-ring` in a stage of its own after the matrix
 instead of inside it. Under the matrix's `fail-fast: false`, a leaf with such a dependency can publish a pom
-that does not resolve while the leaf it names is red. So Hicasso ships from `deploy-hicasso`, a post-matrix
+that does not resolve while the leaf it names is red. So Fresco ships from `deploy-fresco`, a post-matrix
 stage **beside** `deploy-ssr-ring` rather than inside it — a separate job, not a second value of ssr-ring's
 matrix, because two values of one matrix cannot be ordered against each other and a stage that cannot be
 ordered is the shape this whole split exists to avoid. The two are siblings: neither names the other in its
@@ -142,26 +142,26 @@ renamed without something going red.
 
 | Surface | Where it is enumerated | The gate that keeps it honest | Measured 2026-08-18 |
 |---|---|---|---|
-| The ordinary authoring door, `re-frame.hicasso` | [`dispositions.md` §2.1](dispositions.md#21-surface-inventory-and-dispositions) and [§2.2](dispositions.md#22-public-surfaces-with-no-server-render-behavior) | ~~`implementation/hicasso/scripts/check_facade_inventory.py`, CI job `hicasso-facade-inventory`~~ — **[amended 2026-08-30, `rf2-6c12m.8`: retired in PR #8775 with the ledger it policed; `dispositions.md` is design history and the 43-row table beside the code is `implementation/hicasso/spec/server-policy.md`, which nothing gates]** | **16 names on the door, 43 inventory rows** — 13 attributed by name, 3 by declaration |
-| The native tier, `re-frame.hicasso.native` | the `native.cljc` namespace docstring, rowed in [`naming-ledger.md`](naming-ledger.md) | `native_surface_cljs_test.cljs` on the CLJS lane | **10 SURFACE + 4 INTERNAL** public vars |
-| Refusal ids | [`complaints.md`](../../../../implementation/hicasso/spec/complaints.md#the-stability-rule) | ~~`implementation/hicasso/scripts/check_complaint_catalogue.py`, CI job `hicasso-complaint-catalogue`~~ — **[amended 2026-08-29: retired in PR #8753; the ids are now held against Spec 009 and the emitters by the repo-wide `scripts/check_keyword_catalogue_drift.py`]** | **77 live, 5 reserved, 1 pending retirement, 1 retired** |
-| Optional modules — forms, motion, native, overlay, server | the `MODULES` roster in the script beside it | `implementation/hicasso/scripts/check_optional_module_reachability.py` | five modules, each proving zero reachable production code when absent |
-| The testing kit, `re-frame.hicasso.test` | `implementation/hicasso/test_kit/src`, on `:src-dirs` so the jar carries it, deliberately outside the artefact's `:paths` | the kit's own witnesses on the CLJS lane, plus the `rf.error/hicasso-test-` sentinel in `check_production_erasure.cjs` | reachable only from a test, by reachability — no shipping namespace requires it (rf2-rxf49) |
+| The ordinary authoring door, `re-frame.fresco` | [`dispositions.md` §2.1](dispositions.md#21-surface-inventory-and-dispositions) and [§2.2](dispositions.md#22-public-surfaces-with-no-server-render-behavior) | ~~`implementation/fresco/scripts/check_facade_inventory.py`, CI job `fresco-facade-inventory`~~ — **[amended 2026-08-30, `rf2-6c12m.8`: retired in PR #8775 with the ledger it policed; `dispositions.md` is design history and the 43-row table beside the code is `implementation/fresco/spec/server-policy.md`, which nothing gates]** | **16 names on the door, 43 inventory rows** — 13 attributed by name, 3 by declaration |
+| The native tier, `re-frame.fresco.native` | the `native.cljc` namespace docstring, rowed in [`naming-ledger.md`](naming-ledger.md) | `native_surface_cljs_test.cljs` on the CLJS lane | **10 SURFACE + 4 INTERNAL** public vars |
+| Refusal ids | [`complaints.md`](../../../../implementation/fresco/spec/complaints.md#the-stability-rule) | ~~`implementation/fresco/scripts/check_complaint_catalogue.py`, CI job `fresco-complaint-catalogue`~~ — **[amended 2026-08-29: retired in PR #8753; the ids are now held against Spec 009 and the emitters by the repo-wide `scripts/check_keyword_catalogue_drift.py`]** | **77 live, 5 reserved, 1 pending retirement, 1 retired** |
+| Optional modules — forms, motion, native, overlay, server | the `MODULES` roster in the script beside it | `implementation/fresco/scripts/check_optional_module_reachability.py` | five modules, each proving zero reachable production code when absent |
+| The testing kit, `re-frame.fresco.test` | `implementation/fresco/test_kit/src`, on `:src-dirs` so the jar carries it, deliberately outside the artefact's `:paths` | the kit's own witnesses on the CLJS lane, plus the `rf.error/fresco-test-` sentinel in `check_production_erasure.cjs` | reachable only from a test, by reachability — no shipping namespace requires it (rf2-rxf49) |
 | Server/hydration policy, per surface | [`lanes/react-compatibility-notes.md`](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) | each `dispositions.md` inventory id points at its policy row | see §4 — the Phase 4 exit this rests on is **NOT MET** |
 
 The first and third rows were reproduced by running
-~~`implementation/hicasso/scripts/check_facade_inventory.py`~~ and
-~~`implementation/hicasso/scripts/check_complaint_catalogue.py`~~. **[Struck 2026-09-04, `rf2-87iu`.]**
+~~`implementation/fresco/scripts/check_facade_inventory.py`~~ and
+~~`implementation/fresco/scripts/check_complaint_catalogue.py`~~. **[Struck 2026-09-04, `rf2-87iu`.]**
 **Neither script exists, so this is a record of how the numbers were taken and not an instruction.** It
 was a runnable `sh` block until this pass, which is a real hazard in this tree rather than untidiness:
-fenced blocks under `docs/design/hicasso/` are pasteable deliverables and are held to a stricter rule
+fenced blocks under `docs/design/fresco/` are pasteable deliverables and are held to a stricter rule
 than the rest of the corpus for exactly that reason, and a reader who pasted this one got two
 `No such file` errors and no counts. The two amendments below say when each command went and why;
 they are unchanged.
 
-**[Amended 2026-08-29, `rf2-6c12m.17`.]** The second command no longer runs: PR #8753 (`rf2-6c12m.7`) deleted `check_complaint_catalogue.py` and its `hicasso-complaint-catalogue` job, and with them the reserved, pending-retirement and tombstone sections of `complaints.md`. Which refusal ids exist and which are retired is now Spec 009's rows alone — a struck-through row is the tombstone — reconciled against the emitters by `scripts/check_keyword_catalogue_drift.py` in both directions. The 2026-08-18 count in the table stands as the measurement it was.
+**[Amended 2026-08-29, `rf2-6c12m.17`.]** The second command no longer runs: PR #8753 (`rf2-6c12m.7`) deleted `check_complaint_catalogue.py` and its `fresco-complaint-catalogue` job, and with them the reserved, pending-retirement and tombstone sections of `complaints.md`. Which refusal ids exist and which are retired is now Spec 009's rows alone — a struck-through row is the tombstone — reconciled against the emitters by `scripts/check_keyword_catalogue_drift.py` in both directions. The 2026-08-18 count in the table stands as the measurement it was.
 
-**[Amended 2026-08-30, `rf2-6c12m.8`.]** Neither command runs now: PR #8775 deleted `check_facade_inventory.py` and its `hicasso-facade-inventory` job as well, with `check_budget_ledger.py`, `check_naming_census.py` and their jobs, because the ledgers they policed were closed programme records gated as if live. `dispositions.md`, `budgets.md`, `naming-ledger.md` and the full `invariants.md` are design history in this directory; beside the code stay the 15-row `invariants.md` and the 43-row `server-policy.md`, ungated. The first row's 2026-08-18 count stands as the measurement it was.
+**[Amended 2026-08-30, `rf2-6c12m.8`.]** Neither command runs now: PR #8775 deleted `check_facade_inventory.py` and its `fresco-facade-inventory` job as well, with `check_budget_ledger.py`, `check_naming_census.py` and their jobs, because the ledgers they policed were closed programme records gated as if live. `dispositions.md`, `budgets.md`, `naming-ledger.md` and the full `invariants.md` are design history in this directory; beside the code stay the 15-row `invariants.md` and the 43-row `server-policy.md`, ungated. The first row's 2026-08-18 count stands as the measurement it was.
 
 Both printed their own counts, which is where the numbers above came from. While they existed the rule
 was that if a figure on this page and a figure a script printed ever disagreed, **the script was
@@ -177,10 +177,10 @@ Every row carries either the CI job that backs it or an explicit **untested-but-
 `rf2-hic-061`'s acceptance. A row with neither would be a claim, and this page makes none.
 
 **This table has a consumer-facing abridgement, and the two must agree.** `mkdocs.yml`'s `exclude_docs`
-keeps `docs/design/hicasso/` out of the published site, so a consumer reading the guide cannot reach this
-page at all — which is how the guide came to tell readers Hicasso *"needs 18 or newer"* while this table
+keeps `docs/design/fresco/` out of the published site, so a consumer reading the guide cannot reach this
+page at all — which is how the guide came to tell readers Fresco *"needs 18 or newer"* while this table
 said React 18 is **NOT SUPPORTED**. The abridgement now lives in
-[`docs/core/hicasso/00-installation.md` §Supported versions](../../../core/hicasso/00-installation.md#supported-versions),
+[`docs/core/fresco/00-installation.md` §Supported versions](../../../core/fresco/00-installation.md#supported-versions),
 carries the React, browser-engine, ClojureScript and core-pairing rows in the same tested-versus-expected
 terms, and names this page as the full matrix without linking to it. **A change to a version row here is
 therefore a two-file change**, and nothing gates it: the site build never sees this page, and no gate
@@ -188,19 +188,19 @@ compares the two. Whoever re-measures §3 and §4 re-reads that section in the s
 
 | Combination | Pinned where | Backed by | Status |
 |---|---|---|---|
-| React 19.2.0 and react-dom 19.2.0 | `implementation/package.json` | the CLJS node lane in job `cljs`; `cljs-hicasso-controlled`; `cljs-hicasso-hmr` | **TESTED** — every Hicasso claim in this repository is a claim about this pair |
+| React 19.2.0 and react-dom 19.2.0 | `implementation/package.json` | the CLJS node lane in job `cljs`; `cljs-fresco-controlled`; `cljs-fresco-hmr` | **TESTED** — every Fresco claim in this repository is a claim about this pair |
 | Any other React 19.x | — | nothing | **UNTESTED-BUT-EXPECTED** for the boundary shell and the two-hook contract, which write no version-conditional code. Not expected below 19.2 for the `Activity` lifecycle rows, whose subject shipped in 19.2 |
 | React 18 or earlier | — | nothing | **NOT SUPPORTED** |
-| Chromium 147.0.7727.15, on Playwright 1.59.1 | `implementation/package.json` | `cljs-browser`, which runs Hicasso's `*_dom_cljs_test` suites headless | **TESTED** — the broadest browser coverage Hicasso has, and it is one engine |
-| Firefox 148.0.2 and WebKit 26.4, on Playwright 1.59.1 | `implementation/package.json`; the runner prints the triple it launched | `cljs-hicasso-controlled` — three real engines, comparing recorded rows across engines rather than running one spec three times; `cljs-hicasso-hmr` — three engines, real shadow reloads | **TESTED, BUT ARMED RATHER THAN UNIVERSAL** — both jobs are conditional on the changed-surface classifier and both are declared holes in the nightly sweep. §4.2 states what that does and does not buy |
+| Chromium 147.0.7727.15, on Playwright 1.59.1 | `implementation/package.json` | `cljs-browser`, which runs Fresco's `*_dom_cljs_test` suites headless | **TESTED** — the broadest browser coverage Fresco has, and it is one engine |
+| Firefox 148.0.2 and WebKit 26.4, on Playwright 1.59.1 | `implementation/package.json`; the runner prints the triple it launched | `cljs-fresco-controlled` — three real engines, comparing recorded rows across engines rather than running one spec three times; `cljs-fresco-hmr` — three engines, real shadow reloads | **TESTED, BUT ARMED RATHER THAN UNIVERSAL** — both jobs are conditional on the changed-surface classifier and both are declared holes in the nightly sweep. §4.2 states what that does and does not buy |
 | Any other engine or engine version | — | nothing | **UNTESTED-BUT-EXPECTED** — the substrate targets React's DOM contract, not a browser's |
-| Linux (`ubuntu-latest`), JDK 21 (temurin), Node 24 | the `runs-on` and `setup-java`/`setup-node` pins on every Hicasso job | all of them; there is no matrix on any of these three axes | **TESTED, and singly** |
-| Windows or macOS, any other JDK or Node | — | nothing | **UNTESTED-BUT-EXPECTED.** No Hicasso job runs off `ubuntu-latest`, and `portability.yml` names Hicasso nowhere. The substrate is browser and JVM code with no platform-conditional branch, but nothing measures that |
-| `day8/re-frame2` and `day8/re-frame2-ssr` **at the same commit** | `implementation/hicasso/deps.edn`, both at `:local/root` | `jvm-hicasso`; the CLJS node lane in `cljs` | **TESTED**, and the only supported combination there is — see the row below |
-| Hicasso against any *released* core version | — | nothing yet | **NOT APPLICABLE, PENDING A FIRST RELEASE** — `rf2-gra70` landed the wiring, so both sides of the pair are publishable coordinates on one lockstep train (§1). What is missing is not only a version to name but the ability to create the coordinates at all: see [§1.1](#11-three-ruled-prerequisites-stand-in-front-of-the-first-tag). The row goes green on the first `v*` tag and its install witness, not on the wiring |
+| Linux (`ubuntu-latest`), JDK 21 (temurin), Node 24 | the `runs-on` and `setup-java`/`setup-node` pins on every Fresco job | all of them; there is no matrix on any of these three axes | **TESTED, and singly** |
+| Windows or macOS, any other JDK or Node | — | nothing | **UNTESTED-BUT-EXPECTED.** No Fresco job runs off `ubuntu-latest`, and `portability.yml` names Fresco nowhere. The substrate is browser and JVM code with no platform-conditional branch, but nothing measures that |
+| `day8/re-frame2` and `day8/re-frame2-ssr` **at the same commit** | `implementation/fresco/deps.edn`, both at `:local/root` | `jvm-fresco`; the CLJS node lane in `cljs` | **TESTED**, and the only supported combination there is — see the row below |
+| Fresco against any *released* core version | — | nothing yet | **NOT APPLICABLE, PENDING A FIRST RELEASE** — `rf2-gra70` landed the wiring, so both sides of the pair are publishable coordinates on one lockstep train (§1). What is missing is not only a version to name but the ability to create the coordinates at all: see [§1.1](#11-three-ruled-prerequisites-stand-in-front-of-the-first-tag). The row goes green on the first `v*` tag and its install witness, not on the wiring |
 | ClojureScript 1.12.145 and shadow-cljs 3.4.10 | `implementation/core/deps.edn`; `implementation/package.json` | every CLJS job | **TESTED** |
-| Production build, `:advanced` with `goog.DEBUG` false | the `hicasso-release` build id in `implementation/shadow-cljs.edn` | the `build:hicasso-release` step in job `cljs`, which chains production-erasure and bundle-isolation checks | **TESTED** |
-| The optional Node service, `re-frame.hicasso.server` | `implementation/hicasso/deps.edn`'s one `day8/re-frame2-ssr` entry | `server_render_ssr_dom_cljs_test.cljs` on the CLJS lane | **TESTED as a render witness.** The per-surface SSR/hydration policy it serves is the next row |
+| Production build, `:advanced` with `goog.DEBUG` false | the `fresco-release` build id in `implementation/shadow-cljs.edn` | the `build:fresco-release` step in job `cljs`, which chains production-erasure and bundle-isolation checks | **TESTED** |
+| The optional Node service, `re-frame.fresco.server` | `implementation/fresco/deps.edn`'s one `day8/re-frame2-ssr` entry | `server_render_ssr_dom_cljs_test.cljs` on the CLJS lane | **TESTED as a render witness.** The per-surface SSR/hydration policy it serves is the next row |
 | Every inventoried public surface against its SSR/hydration policy row | [`lanes/react-compatibility-notes.md`](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) | the witnesses each policy row names | **OPEN.** [`checkpoint-4-coverage.md`](checkpoint-4-coverage.md) returned **NOT MET** on the Phase 4 exit, and nothing here softens that. This row is not green and must not be read as green |
 
 ### 4.1 The recheck obligation, per supported React version
@@ -220,7 +220,7 @@ assumed.
 **A row backed by a conditional job is backed more weakly than a row backed by an unconditional one, and
 this section exists so the table does not have to pretend otherwise.** The two three-engine gates are the
 only place Firefox and WebKit run at all, and each carries an `if:` on the changed-surface classifier
-arming its surface. On a change the classifier does not arm for Hicasso, they do not run — and
+arming its surface. On a change the classifier does not arm for Fresco, they do not run — and
 [`expensive-tests.yml`](../../../../.github/workflows/expensive-tests.yml) names both as **DECLARED HOLES**
 in the nightly sweep in its own words, because it installs neither Firefox nor WebKit. So there is no second
 schedule that catches what an unarmed PR missed.
@@ -228,12 +228,12 @@ schedule that catches what an unarmed PR missed.
 **This is a real property of the coverage rather than a criticism of it**: the reason is stated where the
 holes are declared, and a named hole is the honest form. What follows for a reader of §4 is narrow and
 worth stating exactly. The Firefox and WebKit rows mean *these engines have been exercised on this
-substrate, and are re-exercised whenever the classifier sees Hicasso move*. They do not mean *every change
+substrate, and are re-exercised whenever the classifier sees Fresco move*. They do not mean *every change
 that reaches this substrate was proven on three engines*. Chromium is the engine with unconditional-in-kind
 coverage, through `cljs-browser`.
 
 **The recheck obligation in §4.1 therefore has a second trigger.** A React bump arms it, and so does a
-change to the classifier's own Hicasso arming rules: narrowing what arms `hicasso_controlled` silently
+change to the classifier's own Fresco arming rules: narrowing what arms `fresco_controlled` silently
 narrows two rows of this matrix, and no gate here would go red.
 
 ## 5. The upgrade policy — no shims, and what that buys
@@ -260,12 +260,12 @@ forward, which is exactly what a shim does carry forward.
 ### 5.1 What is stable today — the honest list
 
 **One thing, and it is genuinely promised: refusal ids.**
-[`complaints.md` §The stability rule](../../../../implementation/hicasso/spec/complaints.md#the-stability-rule) states it in four rules — an id never
+[`complaints.md` §The stability rule](../../../../implementation/fresco/spec/complaints.md#the-stability-rule) states it in four rules — an id never
 changes meaning, an id never changes spelling, a retired id is tombstoned and never reused, a reserved id
 means only the sentence in its row — and rules 3 and 4 are mechanised, so a reserved or retired id that
 acquires an emitter reds the gate. A consumer's stored errors, a monitor's grouping rule and a page of prose
 all outlive the code, and that is what the promise is for. This page does not restate those rules; it
-records that they are the compatibility promise Hicasso currently makes.
+records that they are the compatibility promise Fresco currently makes.
 
 **Everything else on the door is provisional, and the documents say so in their own words.**
 [`specification.md` §4](specification.md#4-target-programming-model) opens by calling the names *"a
@@ -284,12 +284,12 @@ item below is enforced by something that runs:
 - **A row recording the question and its disposition**, in [`naming-ledger.md`](naming-ledger.md) or the
   packet that consolidates it. Nobody renames mid-flow; the ledger's own header rule is what stops it.
 - **The sweep applied to the whole corpus in the same change.** The guide's verb use-sites are resolved
-  against the sources by `check_guide_samples.py` (CI job `hicasso-guide-samples`), so a rename that misses
+  against the sources by `check_guide_samples.py` (CI job `fresco-guide-samples`), so a rename that misses
   a guide page reds rather than shipping a page that teaches a name nobody can type.
 - **An inventory row for any surface added or renamed.** `check_facade_inventory.py` refuses a door name
   with no row in `dispositions.md`, in either direction, so the surface cannot grow silently.
   **[Amended 2026-08-30, `rf2-6c12m.8`: the checker is deleted and `dispositions.md` is history; the row
-  now goes in `implementation/hicasso/spec/server-policy.md` by hand, and nothing refuses its absence.]**
+  now goes in `implementation/fresco/spec/server-policy.md` by hand, and nothing refuses its absence.]**
 - **A Spec 009 row for any new refusal id, and a tombstone for any retired one** — §5.1's rules, mechanised.
 - **Nothing else.** In particular: no alias, no deprecation shim, no compatibility namespace, no
   version-conditional branch in the runtime.
@@ -311,7 +311,7 @@ reason those gates were written before there was anything to release.
 **The release wiring landed under `rf2-gra70`.** It touched `.github/workflows/release.yml`,
 `.github/workflows/release-xray.yml`, `.github/scripts/verify-version-lockstep.sh`,
 `implementation/shadow-cljs.edn` and `spec/Conventions.md` — hot-zone and sequential — and it answered the
-design question §2 names: Hicasso's second in-repo dependency keeps it out of the `deploy-leaf` matrix, so
+design question §2 names: Fresco's second in-repo dependency keeps it out of the `deploy-leaf` matrix, so
 it ships from a post-matrix stage of its own beside `ssr-ring`.
 
 Three consequences, and this page states them rather than working around them:
@@ -322,7 +322,7 @@ Three consequences, and this page states them rather than working around them:
   as a claim that a release has happened.
 - §4's *any released core version* row stays **NOT APPLICABLE** until that tag exists, for want of a version
   rather than for want of wiring.
-- Xray's publishability is no longer blocked. Hicasso was the one coordinate `release-xray.yml` left at
+- Xray's publishability is no longer blocked. Fresco was the one coordinate `release-xray.yml` left at
   `:local/root`; all ten are rewritten now, and `preflight-xray-package.sh` refuses nothing — what is left
   is tag ORDER, `v*` before `xray-v*` at the same VERSION.
 
@@ -333,15 +333,15 @@ promise a green its own evidence page declines to give, so it does not.
 ### 6.1 The consumer app exists, and it does not yet consume an artefact
 
 **There is a tiny consumer app, and it is exercised on every armed PR — from source, never from a jar.**
-`implementation/hicasso/test/re_frame/hicasso/consumer_app.cljs` is the `:init-fn` of the `hicasso-release`
+`implementation/fresco/test/re_frame/fresco/consumer_app.cljs` is the `:init-fn` of the `fresco-release`
 build, and job `cljs` compiles it under `:advanced` and then runs the production-erasure and
 bundle-isolation checks over the resulting bundle. That is real coverage of the *build*, and §4 rows it as
 such.
 
 **What it is not is the acceptance criterion.** That criterion turns on *from the artefact (not the repo)*,
-and the compile resolves Hicasso from `:source-paths` in `implementation/shadow-cljs.edn` — no
+and the compile resolves Fresco from `:source-paths` in `implementation/shadow-cljs.edn` — no
 `:mvn/version` coordinate is involved anywhere. Nor does the deploy stage close the gap from the other
-side: `deploy-hicasso` runs checkout, JDK, Clojure CLI, cache, install core, install ssr, rewrite
+side: `deploy-fresco` runs checkout, JDK, Clojure CLI, cache, install core, install ssr, rewrite
 `:local/root` to `:mvn/version`, deploy. There is no preflight step between the rewrite and the publish.
 The one published-package preflight in the release workflow is `reagent-slim`'s, guarded to that leaf.
 

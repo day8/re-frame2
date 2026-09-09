@@ -1,4 +1,4 @@
-# Hicasso server policy, per public surface
+# Fresco server policy, per public surface
 
 Every public surface carries a permanent inventory id (`HS-nn`, minted once, never
 reused or renumbered) and one of two server policies:
@@ -20,9 +20,9 @@ carry no policy and say so.
 
 This is the table and nothing gates it. The reasoning, every witness and every dated
 amendment behind each cell is design history at
-[`docs/design/hicasso/product/dispositions.md`](../../../docs/design/hicasso/product/dispositions.md)
+[`docs/design/fresco/product/dispositions.md`](../../../docs/design/fresco/product/dispositions.md)
 §2 (demoted 2026-08-30, `rf2-6c12m.8`), and the two-policy matrix itself is
-[`lanes/react-compatibility-notes.md`](../../../docs/design/hicasso/product/lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix).
+[`lanes/react-compatibility-notes.md`](../../../docs/design/fresco/product/lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix).
 
 | Id | Surface | Server policy |
 |---|---|---|
@@ -36,19 +36,19 @@ amendment behind each cell is design history at
 | HS-08 | Controlled DOM fields as a class | Render for the server half; per-control support is a client axis |
 | HS-09 | `h/error-boundary` | Render on the succeeding arm; a throwing child is not caught server-side and reaches the caller's `renderToString` |
 | HS-10 | `h/render!` | No policy — a client lifecycle command, not a node of the tree |
-| HS-11 | `h/render!` `{:hydrate? true}` | Client-only — the adoption half of every Render row; adopts `re-frame.hicasso.server/render`'s bytes under a matching `:identifier-prefix` (`server-render-ssr-dom-cljs-test` §4, §4b) |
+| HS-11 | `h/render!` `{:hydrate? true}` | Client-only — the adoption half of every Render row; adopts `re-frame.fresco.server/render`'s bytes under a matching `:identifier-prefix` (`server-render-ssr-dom-cljs-test` §4, §4b) |
 | HS-12 | `h/render!` | No policy — a lifecycle command |
 | HS-13 | `h/unmount!` | No policy — a lifecycle command; idempotent, silent on a rootless handle |
-| HS-14 | Root and frame-provider element, including `identifierPrefix` | Render on bytes from `re-frame.hicasso.server/render` — `server-render-ssr-dom-cljs-test` §1, §2, §4, §4b and `identifier-prefix-ssr-dom-cljs-test`; hand-rolled `renderToString` bytes are outside the claim (§4b-3) |
+| HS-14 | Root and frame-provider element, including `identifierPrefix` | Render on bytes from `re-frame.fresco.server/render` — `server-render-ssr-dom-cljs-test` §1, §2, §4, §4b and `identifier-prefix-ssr-dom-cljs-test`; hand-rolled `renderToString` bytes are outside the claim (§4b-3) |
 | HS-15 | Attribute-merge helper | Render — no separate public spelling |
 | HS-16 | `h/defhost` declaration | Render on `:server :render`; Client-only by default, with an optional `:fallback` |
 | HS-17 | Declared ReactNode positions and named `:slots` | Client-only — named positions unwitnessed on the server |
 | HS-18 | Render-prop callback lowered through `h/as-element` | Client-only — unmeasured on the server |
 | HS-19 | Raw React element head (`[:>]`) | Client-only — carries no declaration, so the enclosing boundary decides; renders nothing server-side |
 | HS-20 | Portal helper | Client-only — the portalled subtree is absent from the bytes; a `:fallback` stands at the position |
-| HS-21 | Outward bridge: a Hicasso view under a native React parent | Client-only — mismatch attribution is scoped to roots the package itself adopts (Spec 011) |
+| HS-21 | Outward bridge: a Fresco view under a native React parent | Client-only — mismatch attribution is scoped to roots the package itself adopts (Spec 011) |
 | HS-22 | `React.lazy` bridge and Hiccup-aware Suspense host | Client-only — a bare lazy head writes nothing and never calls its loader; a declared fallback writes the skeleton |
-| HS-23 | Activity-hosted subtree | Client-only at the declaration; through a raw React element there is no Hicasso policy and React's own server semantics govern |
+| HS-23 | Activity-hosted subtree | Client-only at the declaration; through a raw React element there is no Fresco policy and React's own server semantics govern |
 | HS-24 | ~~native intrinsic element form~~ | Struck 2026-08-29 (`rf2-6c12m.3`) — the native grammar is deleted |
 | HS-25 | ~~native component-headed element form~~ | Struck 2026-08-29 (`rf2-6c12m.3`) |
 | HS-26 | ~~native dynamic-props marker~~ | Struck 2026-08-29 (`rf2-6c12m.3`) |
