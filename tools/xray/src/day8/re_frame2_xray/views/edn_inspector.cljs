@@ -3072,9 +3072,25 @@
   the teardown claim this widget makes is that unmounting releases the
   observer, the width debounce and the projection cache together, and the
   honest way to assert that is to read the store rather than to trust that
-  a teardown path ran. Zero after every mount has unmounted."
+  a teardown path ran.
+
+  MEASURE A DELTA, not an absolute. A mount that never reaches a DOM never
+  gets its `:ref` called with nil and so is never released — which is
+  every unit test that renders this widget to hiccup and inspects it. That
+  is not a leak in the running tool, where a mounted widget always
+  unmounts, but it does mean this count is not zero in a shared test page."
   []
   (count @mount-state))
+
+(defn mount-state-held
+  "The set of state keys mount `mount-id` currently holds, or nil when the
+  store holds nothing for it. A TEST SURFACE, and the precise one: the
+  teardown claim is about the observer, the width debounce and the
+  projection cache going TOGETHER, which a count cannot express and which
+  `nil` here does."
+  [mount-id]
+  (when-let [entry (get @mount-state mount-id)]
+    (set (keys entry))))
 
 (defn- release-mount!
   "Tear down everything mount `mount-id` holds: disconnect its
