@@ -48,8 +48,8 @@ The file bodies between the markers are **derived, not hand-written**: `tests/fi
     "shadow-cljs": "3.4.10"
   },
   "dependencies": {
-    "react":     "19.2.0",
-    "react-dom": "19.2.0"
+    "react":     "19.3.0",
+    "react-dom": "19.3.0"
   }
 }
 ```
