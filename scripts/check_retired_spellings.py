@@ -313,9 +313,13 @@ Clojure source. The rename moved 24,312 lowercase / 2,995 capitalised / 391
 upper-case occurrences AND 741 PATHS, across `.md`, `.edn`, `.json`, `.cjs`,
 `.yml`, `.html` and `.sh` as well as `.clj*`. A rule scoped to
 `DEFAULT_SCAN_DIRS` and `_SOURCE_SUFFIXES` would have been blind to most of the
-sweep it exists to protect, so rule (g) scans THE WHOLE REPO WITH NO SUFFIX
-FILTER AT ALL. A suffix roster is a list that silently narrows when a new file
-type arrives; the absence of one cannot.
+sweep it exists to protect, so rule (g) scans THE WHOLE REPO WITH NO ROSTER OF
+SCANNABLE SUFFIXES AT ALL. Such a roster is a list that silently narrows when a
+new file type arrives; the absence of one cannot. Read that as the argument
+against an INCLUSION list specifically: `PRODUCT_EXCLUDE_SUFFIXES` subtracts
+`.log`, and a subtraction has the opposite failure mode — a new file type is
+still scanned — which is the same reason the trees are stated as subtractions
+below.
 
 TWO CARRIERS, and the second is not redundant. A file's CONTENT is the obvious
 one. A file's PATH is the other, and a content-only rule cannot see it: an
@@ -326,11 +330,11 @@ report under the same `retired-product-name` family, so one fix hint serves.
 THE MECHANICS THE WIDTH FORCES are three, all small, and each is argued where
 it lives: a NUL sniff instead of a suffix roster and a raw-bytes prefilter
 instead of a line walk (on the patterns, below), and PRUNING instead of a
-roster of trees (`PRODUCT_EXCLUDE_DIR_NAMES` + `PRODUCT_EXCLUDE_PATHS`). Note
-the shape of that last one: rule (g) states what it does NOT scan, where rules
-(a)-(f) state what they DO. That is the honest form for a whole-repo rule — a
-subtraction is visible and has to justify itself, where an omission from a
-roster is invisible.
+roster of trees (`PRODUCT_EXCLUDE_DIR_NAMES` + `PRODUCT_EXCLUDE_PATHS` +
+`PRODUCT_EXCLUDE_SUFFIXES`). Note the shape of that last one: rule (g) states
+what it does NOT scan, where rules (a)-(f) state what they DO. That is the
+honest form for a whole-repo rule — a subtraction is visible and has to justify
+itself, where an omission from a roster is invisible.
 
 THE ONE EXEMPTION is `docs/design/fresco/decisions.md`'s HD-001 supersession
 block, which quotes the superseded ruling VERBATIM because a decisions log
@@ -462,9 +466,10 @@ and both differences are load-bearing:
     package's source, its tests, its test-kit and its spec.
 
 Rule (g)'s surface is THE WHOLE REPO — every file under `--repo-root`, with no
-suffix filter — minus `PRODUCT_EXCLUDE_DIR_NAMES` and `PRODUCT_EXCLUDE_PATHS`.
-See WHY RULE (g) IS THE ONLY WIDE ONE above for why width is the right answer
-for a product name where it is the wrong answer for a code shape.
+roster of scannable suffixes — minus `PRODUCT_EXCLUDE_DIR_NAMES`,
+`PRODUCT_EXCLUDE_PATHS` and `PRODUCT_EXCLUDE_SUFFIXES`. See WHY RULE (g) IS THE
+ONLY WIDE ONE above for why width is the right answer for a product name where
+it is the wrong answer for a code shape.
 
 Two contrasts with the rules above are deliberate and will look like mistakes
 until read as decisions:
@@ -741,6 +746,15 @@ PRODUCT_EXTRA_EXCLUDE_DIR_NAMES = frozenset({
 #     makes exactly this carve-out for exactly this reason, and it is CLOSED by
 #     the same construction — a SECOND file in `scripts/` naming the retired
 #     product is the reintroduction this rule exists to catch.
+#   * `.clj-kondo/.cache` — clj-kondo's per-machine analysis cache
+#     (`.gitignore:81`). Its transit JSON carries the interned namespace names
+#     of every file the linter has ever seen, PRE-RENAME ones included, so a
+#     checkout that has run clj-kondo reports the lot. Subtracted as a PATH and
+#     deliberately NOT as a directory name on `PRODUCT_EXTRA_EXCLUDE_DIR_NAMES`:
+#     `.clj-kondo/` also holds `config.edn` and `hooks/re_frame/core.clj`, which
+#     are TRACKED, are exactly where a stale namespace name would do real
+#     damage, and stay in scope. That distinction is the whole of rf2-20h4, and
+#     both halves are pinned in `_PRODUCT_ROSTER_SELF_TEST_CASES`.
 PRODUCT_EXCLUDE_PATHS = (
     ".git",
     "ai",
@@ -748,7 +762,35 @@ PRODUCT_EXCLUDE_PATHS = (
     "docs/migration",
     "scripts/_test_fixtures",
     "scripts/check_retired_spellings.py",
+    ".clj-kondo/.cache",
 )
+
+# ...and the SUFFIX subtractions, matched on the final suffix of the file name.
+#
+# THIS IS NOT THE SUFFIX ROSTER THE MODULE DOCSTRING REJECTS, and the shape is
+# the reason: that argument is against an INCLUSION roster, which silently
+# narrows the surface every time a new file type arrives. A subtraction cannot
+# do that — an unfamiliar suffix is still scanned — and it has to justify itself
+# in the open, which is the same standard `PRODUCT_EXCLUDE_PATHS` is held to.
+#
+#   * `.log` — a captured run transcript, never source. `*.log` is gitignored
+#     repo-wide (`.gitignore:14`), and NO tracked file wears the suffix, so
+#     nothing this gate exists to grade can arrive as one.
+#
+#     The subtraction is load-bearing rather than tidy, because this repo
+#     MANUFACTURES these files by its own standing convention: every gate is run
+#     with its output redirected to a `.log` (never piped, so the runner's exit
+#     code survives), and the merge-audit harness writes one per PR into the
+#     checkout root. A gate transcript quotes the retired name back — that is
+#     what a finding line IS — so on any checkout that has been worked in, rule
+#     (g) re-reads its own prior output as if it were source and reports every
+#     line of it. Measured at rf2-20h4 on a built checkout: 36,388 of 36,423
+#     findings came from 83 such transcripts, and 0 from any tracked file, so
+#     this subtraction and the `.clj-kondo/.cache` one above account for the
+#     whole of that count between them.
+PRODUCT_EXCLUDE_SUFFIXES = frozenset({
+    ".log",
+})
 
 # The exemption roster: (repo-relative path, line regex, reason).
 #
@@ -1524,10 +1566,13 @@ def _product_exempt(rel_posix: str, line: str) -> bool:
 def _iter_product_files(repo_root: Path) -> Iterable[Path]:
     """Yield every file under `repo_root`, repo-relative, minus the subtractions.
 
-    NO SUFFIX FILTER, deliberately — see WHY RULE (g) IS THE ONLY WIDE ONE in
+    NO SUFFIX ROSTER, deliberately — see WHY RULE (g) IS THE ONLY WIDE ONE in
     the module docstring. Pruning is done in `os.walk`'s dirnames IN PLACE, by
     name (`_PRODUCT_EXCLUDE_DIR_NAMES`) and by root-anchored path
     (`PRODUCT_EXCLUDE_PATHS`), so an excluded tree is never descended into.
+    Individual files are dropped by the same path roster and by suffix
+    (`PRODUCT_EXCLUDE_SUFFIXES`) — a subtraction, not the inclusion roster the
+    docstring rejects; the constant carries the distinction.
     """
     matches: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(repo_root):
@@ -1539,6 +1584,8 @@ def _iter_product_files(repo_root: Path) -> Iterable[Path]:
         ]
         for name in filenames:
             rel = rel_dir / name
+            if rel.suffix in PRODUCT_EXCLUDE_SUFFIXES:
+                continue
             if not _product_excluded(rel):
                 matches.append(rel)
     return sorted(matches)
@@ -1847,7 +1894,9 @@ def main(argv: list[str]) -> int:
         p = sum(1 for _ in _iter_product_files(repo_root))
         sys.stderr.write(
             f"scanning {p} file(s) under the whole repo (minus "
-            f"{', '.join(PRODUCT_EXCLUDE_PATHS)} and the generated trees) "
+            f"{', '.join(PRODUCT_EXCLUDE_PATHS)}, "
+            f"{', '.join('*' + s for s in sorted(PRODUCT_EXCLUDE_SUFFIXES))} "
+            "and the generated trees) "
             "for the retired product name, in content and in paths...\n"
         )
 
@@ -2117,6 +2166,14 @@ _PRODUCT_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
 # the name to creep back unobserved — the same argument that put `bench` on
 # `ARROW_SCAN_DIRS`. Legitimate historical occurrences there belong in
 # `PRODUCT_EXEMPTIONS` with a reason, not in a hole cut through the tree.
+#
+# The `.clj-kondo` PAIR is the point of rf2-20h4 and is stated as a pair on
+# purpose: the cache below it is subtracted, the two TRACKED config files beside
+# it are not, and a future repair that reached for a directory NAME instead of a
+# path would pass the first three rows and fail these two. The `notes.log.md`
+# row is the matching near-miss for `PRODUCT_EXCLUDE_SUFFIXES` — it proves the
+# `.log` subtraction is a SUFFIX rather than a substring, so a real document
+# cannot be hidden by having the token in its name.
 _PRODUCT_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
     # --- the whole repo MUST be reached, including the trees no lane compiles ---
     ("implementation/core/src/re_frame/example.cljc", 1),
@@ -2124,11 +2181,17 @@ _PRODUCT_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
     ("docs/design/fresco/notes.md",                   1),
     ("examples/todomvc/README.md",                    1),
     ("package.json",                                  1),
+    (".clj-kondo/config.edn",                         1),
+    (".clj-kondo/hooks/re_frame/core.clj",            1),
+    ("docs/design/fresco/notes.log.md",               1),
     # --- and every subtraction MUST hold ---
     ("ai/findings/rename-notes.md",                   0),
     ("docs/spec/002-Frames.md",                       0),
     ("docs/migration/from-re-frame-v1/README.md",     0),
     ("scripts/_test_fixtures/planted.md",             0),
+    (".clj-kondo/.cache/v1/cljs/re-frame.transit.json", 0),
+    ("audit-pr9568-push-1.log",                       0),
+    ("implementation/pr7662-retained-read.log",       0),
 )
 
 
