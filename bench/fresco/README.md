@@ -62,14 +62,13 @@ node bench/fresco/src/re_frame/bench/fresco/data_archive.cjs --restore
 
 It is a script rather than a bare `git restore` because the archive is older than the
 rename that gave this tree its name (rf2-d1nr.2), so inside that commit the corpus sits
-under the tree's former name — `ARCHIVE_PATH` in `data_archive.cjs` is the one place that
-path is written down, and it is written down once for the same reason the restore command
-is. A rename on main cannot rename a path inside an older commit, and
+under the tree's former name. `ARCHIVE_PATH` in `data_archive.cjs` is the one place that
+path is spelled — a rename on main cannot rename a path inside an older commit, and
 `git restore --source=<sha> -- <path>` has no source/destination split to bridge the two.
 `data_archive.cjs` reads the archived path, writes the current one, and touches only the
-working tree. That string is the ONE spelling of
-the operation: the module header and the printed skip line quote the same constant, and
-`data_archive.test.cjs` holds all three together.
+working tree. The fenced command above is the ONE spelling of the operation: the module
+header and the printed skip line quote the same constant, and `data_archive.test.cjs`
+holds all three together.
 
 `data/` is git-ignored, so a restored corpus (or a run record a driver has just written
 there) never lands in a commit by accident. With the corpus absent, `npm run check` still
