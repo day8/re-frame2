@@ -955,11 +955,22 @@
       `[:rf.machine/spawn ...]` from an action instead — the hand-emitted
       allocator's counter is the FRAME-wide slot at
       `[:rf.runtime/machines :spawn-counter <id-prefix>]`
-      (`allocate-actor-id-in-runtime-db` above), so siblings get `#1` and `#2`.
+      (`allocate-actor-id-in-runtime-db` above), so siblings get `#1` and `#2`
+      — WITHIN THAT ALLOCATION STREAM, which is not the same thing as an
+      unconditional escape from this reject. The two counters are SEPARATE:
+      the frame-wide one is not advanced by declarative spawns and does not
+      skip an occupied address, so where a declarative child already holds
+      `<child>#1` the BARE hand-emitted form re-mints exactly that address and
+      is refused again — on every retry, since a rejected allocation is not
+      committed either (rf2-1sip, merged-PR audit of #9563, measured). The
+      recovery therefore carries its OWN `:id-prefix`, naming an address
+      namespace no declarative spawn allocates into, so the frame-wide counter
+      starts from an empty one.
 
   Naming an escape that the shape in front of the author cannot use is worse
   than naming none: the `:fixed-actor-id` advice, followed on the third shape,
-  destroys a live actor."
+  destroys a live actor — and an escape that works only from an EMPTY address
+  namespace must say so, or the author retries it forever."
   [frame-id args spawned-id]
   (let [machine-id (:machine-id args)
         parent-id  (:rf/parent-id args)
@@ -984,9 +995,16 @@
                           "the instances share, and a shared :fixed-actor-id "
                           "makes the second instance REPLACE the first's child — "
                           "so spawn the child by emitting [:rf.machine/spawn "
-                          "{:machine-id " machine-id "}] from an action instead, "
-                          "which allocates on the frame-wide counter and cannot "
-                          "collide."))]
+                          "{:machine-id " machine-id " :id-prefix "
+                          "<unused-prefix>}] from an action instead, which "
+                          "allocates on the frame-wide counter. That counter is "
+                          "a SEPARATE stream, not a higher one: it sequences its "
+                          "own spawns #1, #2, ... but declarative spawns do not "
+                          "advance it and it does not skip an occupied address, "
+                          "so the BARE form re-mints " spawned-id " and is "
+                          "refused again on every retry. Name an :id-prefix no "
+                          "declarative spawn uses, so the hand-emitted spawn "
+                          "allocates into an EMPTY address namespace."))]
     (rf.trace/emit-error! :rf.error/machine-spawn-all-duplicate-id
                        {:machine-id machine-id
                         :failing-id spawned-id

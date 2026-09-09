@@ -3078,10 +3078,19 @@ instances of ONE parent type share ONE spec**, so neither key can separate them:
 both are static literals read off that one shared spec, and pointing both
 instances at a single fixed address makes the second REPLACE the first's child
 under the occupied-`:fixed-actor-id` rule above. That shape spawns its child by
-emitting `[:rf.machine/spawn {:machine-id <child>}]` from an action instead — the
-hand-emitted allocator's counter is the frame-wide one described under
+emitting `[:rf.machine/spawn {:machine-id <child> :id-prefix <unused-prefix>}]`
+from an action instead — the hand-emitted allocator's counter is the frame-wide
+one described under
 [§Spawn-id allocator — counter location](#spawn-id-allocator--counter-location),
-so sibling instances receive `#1` and `#2` and cannot collide. One case
+so sibling instances receive `#1` and `#2`. **That uniqueness holds WITHIN the
+hand-emitted allocation stream; it is not an unconditional escape from the
+reject.** The two counters are separate, so the frame-wide one is not advanced by
+declarative spawns and does not skip an occupied address: where a declarative
+child already holds `<child>#1`, a BARE hand-emitted spawn re-mints that same
+address and is rejected again — on every retry, because a rejected allocation is
+not committed. The `:id-prefix` is what makes the recovery usable in the live
+frame; it names an address namespace no declarative spawn allocates into, so the
+frame-wide counter starts from an empty one. One case
 is deliberately outside the guard: an **admitted `:spawn-all` child** is never
 rejected here, because the invoke-level preflight is that child's sole verdict
 (a second per-child reject would strand a live join naming a child that never
