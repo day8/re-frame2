@@ -17,12 +17,6 @@
 
     - reagent/reagent          ↔ `implementation/adapters/reagent/deps.edn` :deps
     - com.pitch/uix.core       ↔ `implementation/adapters/uix/deps.edn` :deps
-    - com.pitch/uix.dom        ↔ `implementation/adapters/uix/deps.edn`
-                                  :test alias :extra-deps (the shipped
-                                  uix adapter does NOT require uix.dom, so
-                                  the impl pin lives in the test/testbed
-                                  classpath; the template's :app needs it
-                                  for its DOM mount)
     - org.clojure/clojure      ↔ `implementation/core/deps.edn` :deps
     - org.clojure/clojurescript ↔ `implementation/core/deps.edn` :deps
 
@@ -256,30 +250,23 @@
         (finally (delete-recursively tmp))))
 
     ;; com.pitch/uix.core — impl source of truth is adapters/uix/deps.edn :deps.
-    ;; com.pitch/uix.dom — the shipped uix adapter does NOT require uix.dom,
-    ;; so the impl pin lives in the :test alias's :extra-deps;
-    ;; the template's :app build needs it for the DOM mount, so the template
-    ;; pins it in :deps. Both must ride the same impl pin.
+    ;; com.pitch/uix.dom has NO lockstep row, and that is the point rather
+    ;; than an omission (rf2-j908): the emitted app mounts through
+    ;; `rf.adapter.uix/client-root` + `render!`, so uix.dom is not on its
+    ;; classpath and there is nothing to keep in step. `template_test.clj`
+    ;; carries the absence assertion, in `retired-coords`.
     (let [impl-uix-core (read-impl-deps-pin "implementation/adapters/uix/deps.edn"
                                             'com.pitch/uix.core)
-          impl-uix-dom  (read-impl-deps-pin "implementation/adapters/uix/deps.edn"
-                                            'com.pitch/uix.dom)
           tmp           (tmp-dir "rf2-template-lockstep-uix-")]
       (try
         (let [root         (run-template! tmp "acme/my-app" :uix)
               tpl-deps     (read-edn (io/file root "deps.edn"))
-              tpl-uix-core (get-in tpl-deps [:deps 'com.pitch/uix.core :mvn/version])
-              tpl-uix-dom  (get-in tpl-deps [:deps 'com.pitch/uix.dom :mvn/version])]
+              tpl-uix-core (get-in tpl-deps [:deps 'com.pitch/uix.core :mvn/version])]
           (is (= impl-uix-core tpl-uix-core)
               (str "Template com.pitch/uix.core pin (" tpl-uix-core ") must "
                    "match implementation/adapters/uix/deps.edn (" impl-uix-core
                    ") — P5 lockstep. Bump uix.core in the _uix/deps.edn "
-                   "template resource."))
-          (is (= impl-uix-dom tpl-uix-dom)
-              (str "Template com.pitch/uix.dom pin (" tpl-uix-dom ") must "
-                   "match implementation/adapters/uix/deps.edn :test alias ("
-                   impl-uix-dom ") — P5 lockstep. Bump uix.dom in the "
-                   "_uix/deps.edn template resource.")))
+                   "template resource.")))
         (finally (delete-recursively tmp))))))
 
 (deftest clojure-version-lockstep

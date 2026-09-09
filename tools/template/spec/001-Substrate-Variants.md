@@ -9,7 +9,7 @@
 | Substrate | Default? | View library | Generated `core.cljs` shape |
 |---|---|---|---|
 | `:reagent` | yes | Reagent | `rf/frame-root` rendered through the adapter's `client-root` |
-| `:uix` | no | UIx | `rf.adapter.uix/frame-root` rendered through `uix.dom` |
+| `:uix` | no | UIx | `rf.adapter.uix/frame-root` rendered through the adapter's `client-root` |
 
 Reagent is the default — the substrate every re-frame and re-frame2
 example targets first. UIx is equally supported; the choice is the
@@ -70,19 +70,18 @@ Both variants emit the same project shape. The substrate choice swaps:
 
 - `deps.edn` — the adapter coordinate (`day8/re-frame2-reagent` or
   `day8/re-frame2-uix`) and the view library (`reagent/reagent`, or
-  `com.pitch/uix.core` + `com.pitch/uix.dom`). `day8/re-frame2` (core)
-  rides both.
-- `core.cljs` — the entry point, and the one place the two substrates
-  differ on who owns the React root. Reagent holds an inert
-  `rf.adapter.reagent/client-root` handle and renders `[rf/frame-root …]`
-  through `rf.adapter.reagent/render!`: the adapter creates (or hydrates)
+  `com.pitch/uix.core`). `day8/re-frame2` (core) rides both.
+- `core.cljs` — the entry point. Both substrates own the React root the
+  same way: an inert `<adapter>/client-root` handle in a `defonce`,
+  rendered through `<adapter>/render!`. The adapter creates (or hydrates)
   the underlying React Root on that first render, reuses it across hot
   reloads, and releases it from `rf/destroy-adapter!` — direct
-  `reagent.dom.client` construction is encapsulated, so the emitted
-  scaffold never names it. UIx owns its root itself, with
-  `uix.dom/create-root` + `render-root` around
-  `($ rf.adapter.uix/frame-root …)`. Both carry the same
-  `^:dev/after-load mount!` hook and the same `init`.
+  `reagent.dom.client` / `uix.dom/create-root` construction is
+  encapsulated, so neither emitted scaffold names it. What still differs
+  is the tree the handle is handed: Reagent renders the hiccup vector
+  `[rf/frame-root …]`, UIx a React element `($ rf.adapter.uix/frame-root
+  …)`. Both carry the same `^:dev/after-load mount!` hook and the same
+  `init`.
 - `views.cljs` — the counter view. Reagent uses `rf/reg-view` and
   hiccup; UIx uses `defui` with `$`, `use-sub` and `use-frame`.
 

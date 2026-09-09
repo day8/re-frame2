@@ -105,29 +105,71 @@
       forms)
     @acc))
 
+(def ^:private framework-source-roots
+  "Namespace family → the source root of the coordinate that publishes it,
+  relative to the repo root. MOST SPECIFIC FIRST: `framework-ns-file`
+  takes the first family that matches, and matching is on a namespace
+  SEGMENT boundary so `re-frame.adapter.reagent` cannot swallow
+  `re-frame.adapter.reagent-slim`.
+
+  An EXPLICIT map rather than the string convention it replaces
+  (rf2-ps1u). That convention special-cased a whitelist of leaves under
+  `implementation/adapters/<leaf>` and sent everything else to core,
+  which is wrong twice over. `re-frame.hicasso` and
+  `re-frame.hicasso.substrate` are published from `implementation/hicasso`
+  — neither arm reaches them, so the lookup answered nil and
+  `audit-framework-symbol!` took its `(is false …)` arm: a HARD FAIL, on
+  the first emission that names them, before any API usage is evaluated.
+  And the whitelist spelled the reagent-slim file with the ns's dash
+  (`adapter/reagent-slim.cljs`) where the file on disk carries the CLJS
+  underscore (`adapter/reagent_slim.cljs`), so that arm could only ever
+  have answered nil too. Deriving the rel path once, from the namespace,
+  fixes both.
+
+  This map describes where the FRAMEWORK's own source lives, so it is
+  complete for every family in `implementation/` — independent of which
+  substrates the template happens to emit. The substrate-keyed sibling
+  lives in `emitted_test_run_test.clj` as `substrate-local-roots`."
+  [["re-frame.adapter.reagent-slim" "implementation/adapters/reagent-slim/src"]
+   ["re-frame.adapter.reagent"      "implementation/adapters/reagent/src"]
+   ["re-frame.adapter.uix"          "implementation/adapters/uix/src"]
+   ["re-frame.hicasso"              "implementation/hicasso/src"]
+   ;; Core ships everything else, `re-frame.adapter.use-frame` and
+   ;; `re-frame.adapter.context` included — the `adapter` segment is not
+   ;; itself evidence of a separate coordinate.
+   ["re-frame"                      "implementation/core/src"]])
+
+(defn- framework-source-root
+  "The source root publishing `ns-name`, or nil for a namespace outside
+  the `re-frame.*` families this audit knows. A family matches the
+  namespace itself (`re-frame.hicasso`) or anything under it
+  (`re-frame.hicasso.substrate`) — never a longer sibling SEGMENT, so
+  `re-frame.adapter.reagent` does not claim `…reagent-slim`. The bare
+  `re-frame` ns matches nothing, as under the string convention this
+  replaced: `rel` below would have nothing to slice."
+  [^String ns-name]
+  (when (string/starts-with? ns-name "re-frame.")
+    (some (fn [[family src-root]]
+            (when (or (= ns-name family)
+                      (string/starts-with? ns-name (str family ".")))
+              src-root))
+          framework-source-roots)))
+
 (defn- framework-ns-file
   "Map a `re-frame.*` namespace symbol to its source file under
-  `implementation/`: core ships everything except the per-substrate
-  adapters, which live in their own coordinates. Returns nil for a
+  `implementation/`, via `framework-source-roots`. Returns nil for a
   namespace this audit does not know (the app's own nses, `uix.*`,
   `reagent.*`)."
   [root ns-sym]
   (let [name- (name ns-sym)]
-    (when (string/starts-with? name- "re-frame.")
-      (let [rel     (-> name-
-                        (subs (count "re-frame."))
-                        (string/replace "-" "_")
-                        (string/replace "." "/"))
-            adapter (when (string/starts-with? name- "re-frame.adapter.")
-                      (let [leaf (subs name- (count "re-frame.adapter."))]
-                        (when (#{"uix" "reagent" "reagent-slim"} leaf)
-                          leaf)))
-            candidates (cond-> [(io/file root "implementation/core/src/re_frame" (str rel ".cljc"))
-                                (io/file root "implementation/core/src/re_frame" (str rel ".cljs"))]
-                         adapter
-                         (conj (io/file root "implementation/adapters" adapter
-                                        "src/re_frame/adapter" (str adapter ".cljs"))))]
-        (some (fn [f] (when (.isFile f) f)) candidates)))))
+    (when-let [src-root (framework-source-root name-)]
+      (let [rel (-> name-
+                    (subs (count "re-frame."))
+                    (string/replace "-" "_")
+                    (string/replace "." "/"))]
+        (some (fn [f] (when (.isFile f) f))
+              [(io/file root src-root "re_frame" (str rel ".cljc"))
+               (io/file root src-root "re_frame" (str rel ".cljs"))])))))
 
 (def ^:private ^java.util.regex.Pattern def-pattern
   ;; Reader conditionals are not stripped — raw source text is scanned, so
@@ -282,6 +324,44 @@
   (testing "the UIx emission has well-formed ns requires and no surface drift"
     (run-for-substrate! :uix)))
 
+(deftest framework-ns-file-resolves-every-family-test
+  (testing "`framework-source-roots` resolves each framework family to a real
+            file (rf2-ps1u)"
+    ;; Direct coverage, because the emissions above reach only two of these
+    ;; families. The two that no emission reaches are exactly the two the
+    ;; string convention this replaced got wrong: `re-frame.hicasso.*`
+    ;; (published from implementation/hicasso, not implementation/adapters)
+    ;; and `re-frame.adapter.reagent-slim` (whose file carries the CLJS
+    ;; underscore the whitelisted leaf spelled with a dash). Under that
+    ;; convention both answered nil, and a nil is a HARD FAIL in
+    ;; `audit-framework-symbol!` — so the first emission naming one would
+    ;; have died on the lookup rather than on anything it was auditing.
+    (let [root (repo-root)]
+      (doseq [[ns-sym expected-suffix]
+              '[[re-frame.core                  "implementation/core/src/re_frame/core.cljc"]
+                [re-frame.adapter.uix           "implementation/adapters/uix/src/re_frame/adapter/uix.cljs"]
+                [re-frame.adapter.reagent       "implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs"]
+                [re-frame.adapter.reagent-slim  "implementation/adapters/reagent-slim/src/re_frame/adapter/reagent_slim.cljs"]
+                [re-frame.hicasso               "implementation/hicasso/src/re_frame/hicasso.cljc"]
+                [re-frame.hicasso.substrate     "implementation/hicasso/src/re_frame/hicasso/substrate.cljs"]
+                ;; `adapter` in the name is not evidence of a separate
+                ;; coordinate: this one really does ship from core.
+                [re-frame.adapter.use-frame     "implementation/core/src/re_frame/adapter/use_frame.cljs"]]]
+        (let [f (framework-ns-file root ns-sym)]
+          (is (some? f)
+              (str ns-sym " must resolve to a framework source file — add its "
+                   "family to `framework-source-roots`"))
+          (is (and f (string/ends-with? (string/replace (.getPath ^java.io.File f) "\\" "/")
+                                        expected-suffix))
+              (str ns-sym " must resolve to " expected-suffix
+                   " — got " (some-> f .getPath))))))
+    ;; A namespace outside every family stays nil rather than throwing: the
+    ;; audit calls this for the app's own nses and for `uix.*` / `reagent.*`.
+    (is (nil? (framework-ns-file (repo-root) 'acme.my-app.views))
+        "a non-framework ns resolves to nil, not a fabricated path")
+    (is (nil? (framework-ns-file (repo-root) 'uix.core))
+        "a view-library ns resolves to nil, not a fabricated path")))
+
 ;; --- The hot-reload lifecycle (rf2-r0kk7) ----------------------------------
 ;;
 ;; MEASURED on shadow-cljs 3.4.10: a `:browser` build whose only entry point
@@ -291,10 +371,12 @@
 ;; called once, at bundle load. So every emitted entry namespace carries a
 ;; `^:dev/after-load` hook that renders, `init` delegates to it, and the React
 ;; root is created exactly once and retained across reloads. These are the
-;; facts pinned here, on the emitted `core.cljs` itself. On Reagent the
-;; retained root is the adapter-owned client root (rf2-k5r9t): one
-;; `rf.adapter.reagent/client-root` allocation, rendered through with
-;; `rf.adapter.reagent/render!`; UIx holds a `uix-dom` root itself.
+;; facts pinned here, on the emitted `core.cljs` itself. On BOTH substrates
+;; the retained root is the adapter-owned client root (rf2-k5r9t): one
+;; `<adapter>/client-root` allocation, rendered through with
+;; `<adapter>/render!`. UIx joined that shape in rf2-j908 — it used to hold
+;; a raw `uix-dom/create-root` Root itself, which is the pre-`client-root`
+;; recipe the adapter's own door replaced.
 
 (defn- hook-body
   "The source text of the `^:dev/after-load <hook>` form: from its metadata
@@ -310,9 +392,9 @@
   (testing "every emitted core.cljs carries one ^:dev/after-load mount! that
             renders, an init that delegates to it, and exactly one retained
             React root (rf2-r0kk7)"
-    (doseq [[substrate renders create-root]
+    (doseq [[substrate renders client-root]
             [[:reagent "rf.adapter.reagent/render!" "rf.adapter.reagent/client-root"]
-             [:uix     "uix-dom/render-root"     "uix-dom/create-root"]]]
+             [:uix     "rf.adapter.uix/render!"     "rf.adapter.uix/client-root"]]]
       (let [tmp (tmp-dir "rf2-emission-after-load-")]
         (try
           (let [core (slurp (io/file (run-template! tmp "acme/my-app" substrate)
@@ -327,8 +409,8 @@
                      " — it is what repaints an edited view"))
             (is (re-find #"(?s)\^:export\s+init[\s\S]*?\(mount!\)" core)
                 (str substrate ": init calls (mount!) so boot and reload share one render path"))
-            (is (= 1 (count (re-seq (re-pattern (java.util.regex.Pattern/quote create-root)) core)))
-                (str substrate ": exactly one " create-root " call — one retained root"))
+            (is (= 1 (count (re-seq (re-pattern (java.util.regex.Pattern/quote client-root)) core)))
+                (str substrate ": exactly one " client-root " call — one retained root"))
             (is (string/includes? core "defonce")
                 (str substrate ": the React root is held in a defonce cell"))
             (is (re-find #"frame-root\s+\{:id\s+app-frame\s+:initial-events\s+\[\[:counter/initialise\]\]\}" core)

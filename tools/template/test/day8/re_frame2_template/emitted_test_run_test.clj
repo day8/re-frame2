@@ -107,6 +107,51 @@
 
 ;; --- deps.edn local-root rewrite ------------------------------------------
 
+(def ^:private substrate-local-roots
+  "Substrate → the in-repo directory that publishes its framework
+  coordinate, relative to the repo root.
+
+  An EXPLICIT map rather than a string convention, because the directory
+  is not derivable from the substrate name and the derivation that looked
+  like it was fails in the dangerous direction (rf2-ps1u). Two of the
+  three substrates the template contemplates live under
+  `implementation/adapters/<name>`; `:hicasso` does not — Hicasso ships
+  its own view layer from `implementation/hicasso`, so
+  `(str \"implementation/adapters/\" (name substrate))` would hand
+  `:local/root` a directory that does not exist, or — the worse mode —
+  point the smoke at a package that is not the one under test.
+
+  Keyed on the TEMPLATE's substrates, so it carries exactly the values
+  `hooks.clj`'s `substrate-registry` emits; a substrate added there adds
+  its row here. `rewrite-deps-for-local-run!` throws naming this map on a
+  key it does not hold, so the next substrate fails loud at the rewrite
+  instead of silently mis-resolving.
+
+  (The sibling namespace-family lookup in `template_emission_test.clj`
+  answers the same question for framework SOURCE roots, and is keyed on
+  the namespace rather than the substrate.)"
+  {:reagent "implementation/adapters/reagent"
+   :uix     "implementation/adapters/uix"})
+
+(defn- substrate-local-root
+  "The `substrate-local-roots` entry for `substrate`, verified to exist on
+  disk under `root`. Throws — rather than returning a path that will be
+  written into a `:local/root` — when the substrate has no row, or when
+  its row names a directory that has moved."
+  [^java.io.File root substrate]
+  (let [rel (or (get substrate-local-roots substrate)
+                (throw (ex-info (str "No local root registered for substrate "
+                                     substrate " — add its row to "
+                                     "`substrate-local-roots`.")
+                                {:substrate substrate
+                                 :known     (set (keys substrate-local-roots))})))]
+    (when-not (.isDirectory (io/file root rel))
+      (throw (ex-info (str "`substrate-local-roots` maps " substrate " to "
+                           rel ", which is not a directory under " root
+                           " — the framework package has moved.")
+                      {:substrate substrate :expected rel})))
+    rel))
+
 (defn- rewrite-deps-for-local-run!
   "Swap the two `day8/re-frame2*` :mvn/version coords in a project's
   deps.edn for `:local/root` paths into the in-repo source tree, then
@@ -127,8 +172,10 @@
                                      (.toPath (.getCanonicalFile (io/file root target))))
                         .toString
                         (string/replace "\\" "/")))
+        ;; The COORDINATE is derivable — `day8/re-frame2-<substrate>` holds
+        ;; for every substrate. The PATH is not; see `substrate-local-roots`.
         adapter-coord (symbol "day8" (str "re-frame2-" (name substrate)))
-        adapter-path  (str "implementation/adapters/" (name substrate))
+        adapter-path  (substrate-local-root root substrate)
         rewritten
         (-> deps
             (assoc-in [:deps 'day8/re-frame2]
@@ -612,6 +659,32 @@
            "(template_emission_test.clj).")))
 
 ;; --- Tests -----------------------------------------------------------------
+
+(deftest substrate-local-roots-test
+  (testing "`substrate-local-roots` answers a real directory per substrate and
+            fails LOUD on one it does not hold (rf2-ps1u)"
+    ;; Ungated on RF2_TEMPLATE_RUN_EMITTED_TESTS: this compiles nothing. It is
+    ;; the fast-tier proof that the `:local/root` rewrite can no longer be
+    ;; handed a path derived from the substrate NAME — the mode that pointed
+    ;; at an absent directory, or, worse, at a package that is not the one
+    ;; under test.
+    (let [root (repo-root)]
+      (doseq [substrate (keys substrate-local-roots)]
+        (is (string? (substrate-local-root root substrate))
+            (str substrate " resolves to a directory that exists")))
+      ;; `:hicasso` is the value the retired string convention got wrong: it
+      ;; would have produced `implementation/adapters/hicasso`, which does not
+      ;; exist, while the package sits at `implementation/hicasso`. It has no
+      ;; row yet (the variant itself is rf2-8urba), so the rewrite must refuse
+      ;; it by name rather than fabricate a path.
+      (is (not (.isDirectory (io/file root "implementation/adapters/hicasso")))
+          "implementation/adapters/hicasso does not exist — the string
+           convention's answer for :hicasso was never a real directory")
+      (is (.isDirectory (io/file root "implementation/hicasso"))
+          "implementation/hicasso does — that is where the package lives")
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (substrate-local-root root :hicasso))
+          "an unregistered substrate throws, naming the map to extend"))))
 
 ;; One deftest per substrate the generator can emit. That set is DERIVED —
 ;; `hooks.clj`'s `substrate-registry` is the single roster, `valid-substrates`

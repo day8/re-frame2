@@ -1,16 +1,17 @@
 ;; {{name}} — re-frame2 application (UIx).
 ;;
 ;; The two day8/re-frame2 coordinates ride one version; bump them together.
-;; uix.dom is a direct dependency: the adapter ships uix.core only, and
-;; mounting the React root is the application's call.
+;; uix.core is a direct dependency because the views author with `$` and
+;; `defui`. uix.dom is NOT: the adapter's own `client-root` / `render!`
+;; mint and drive the React Root through the shared React spine, so the
+;; application never names `uix.dom/create-root`.
 {:paths ["src"]
 
  :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
          org.clojure/clojurescript {:mvn/version "1.12.145"}
          day8/re-frame2            {:mvn/version "{{rf2-version}}"}
          day8/re-frame2-uix        {:mvn/version "{{rf2-version}}"}
-         com.pitch/uix.core        {:mvn/version "1.4.4"}
-         com.pitch/uix.dom         {:mvn/version "1.4.4"}}
+         com.pitch/uix.core        {:mvn/version "1.4.4"}}
 
  ;; shadow-cljs.edn reads its classpath from this alias. Deps only — the
  ;; `npx shadow-cljs` wrapper supplies its own `-m`, so no :main-opts here.
