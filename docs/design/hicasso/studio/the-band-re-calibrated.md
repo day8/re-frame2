@@ -582,13 +582,23 @@ gitignored `out/`. Both are closed here.
   repository. So `--emit` writes the reduced quantities every statistic is a
   function of — the eighteen per-block tared `floor` and `ctl-2x` cells on each
   clock, the pooled floor medians per segment, the bar row's per-round legs —
-  and **`data/ladder-ymi6j.json` is committed**. `ladder_band.cjs --from` that
-  file reproduces every band, every `ctl-2x / floor` and every bar row exactly;
-  a floor absolute and the odd seam move in the fourth significant figure,
-  which is the file's stated rounding.
+  and **`data/ladder-ymi6j.json` was committed at commit `30ed97e389`**, from
+  which it remains recoverable. **It is not at tip**: the path went with
+  `implementation/freehand/` when freehand was retired, so a fresh checkout does
+  not carry it and `ladder_band.cjs --from` needs the file read back out of
+  history first. Read back, it reproduces every band, every `ctl-2x / floor` and
+  every bar row exactly; a floor absolute and the odd seam move in the fourth
+  significant figure, which is the file's stated rounding. Every "committed
+  dataset" this page cites above means that object, on that reading.
 - What the compact file does **not** carry is the per-sample distribution
   inside a block. A question about within-block shape needs the raw datasets,
-  which are kept beside the run under `out/ladder-ymi6j/`.
+  which are kept beside the run under `out/ladder-ymi6j/`. **Those raw runs are
+  retained outside this repository, and always were**: `bench/hicasso/.gitignore`
+  excludes `out/`, so neither they nor the two refused runs kept under
+  `out/ladder-ymi6j-refused/` were ever committed, and neither could have been.
+  The inspectability this page promises for them therefore rests on a preserved
+  copy held outside the working tree — an artefact version control cannot carry
+  — rather than on a path a reader can check out.
 
 ---
 
