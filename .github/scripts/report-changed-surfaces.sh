@@ -2112,10 +2112,46 @@ else
         # rf2-os0c1 + rf2-40vmd — tools/template is a deps-new template
         # that scaffolds new projects (migrated from clj-new in rf2-dolpf
         # §2); it does not share runtime with xray/story/story-mcp/
-        # mcp-base. The template_expensive gate fires jvm-tools-template
-        # (its only PR-time job); tools_jvm would unnecessarily fire the
-        # four sibling jvm-tools-* probes.
+        # mcp-base. The template_expensive gate fires jvm-tools-template;
+        # tools_jvm would unnecessarily fire the four sibling jvm-tools-*
+        # probes.
         template_expensive=true
+        # rf2-q4s8 (from the rf2-v37n post-mortem) — the reverse edge, and it
+        # is a REAL file read rather than a runtime coupling. The comment
+        # above used to call jvm-tools-template this directory's "only
+        # PR-time job", which stopped being true when rf2-5x1xt landed
+        # implementation/adapters/uix/test/re_frame/adapter/
+        # uix_consumer_deps_recipe_test.clj: that suite slurps
+        # tools/template/resources/day8/re_frame2_template/_uix/deps.edn as
+        # the single VERSION SOURCE for the UIx recipe, so a template-only
+        # diff can red a job in the adapter tree. It did. PR #9543 dropped
+        # com.pitch/uix.dom from the template, the recipe test still asserted
+        # the pin, and jvm-uix was never scheduled — trunk stayed red until an
+        # unrelated PR armed the surface and wore the failure.
+        #
+        # The counter-argument is that the template's OWN suite already
+        # covers today's failure modes twice over: version_lockstep_test.clj
+        # pins the template's com.pitch/uix.core against the adapter's
+        # deps.edn, and template_test.clj's `retired-coords` refuses
+        # com.pitch/uix.dom's return. Both run in jvm-tools-template, which is
+        # armed above. That is true, and it is exactly why this arm is worth
+        # having anyway: the cover is INCIDENTAL — two sibling suites that
+        # happen to overlap — and nothing enforces the overlap, so it lapses
+        # silently the day either suite is edited. The classifier's job is to
+        # model the edge that exists, not to rely on a coincidence holding.
+        #
+        # Cost, measured rather than assumed (run 34319107860, all jobs live):
+        # the four adapter_diagnostic jobs are short probes — jvm-uix 21s,
+        # jvm-reagent 14s, jvm-reagent-slim 22s, jvm-adapters-test-react 20s —
+        # and they run in PARALLEL behind jvm-tools-template's 5m38s, which
+        # every template change already pays for. So this adds ~77s of runner
+        # time and no wall-clock at all. Three of those four probes cannot
+        # reach a template file, which by the tools_jvm reasoning above would
+        # argue for a narrow per-job output instead (cf. test_react_jvm,
+        # tools_jvm_machines_viz); at 20s a probe that precision is not worth
+        # a new output plus a test.yml `if:` edit, and it was ruled out of
+        # scope under rf2-q4s8.
+        adapter_diagnostic=true
         ;;
       tools/story/*|tools/xray/*)
         # rf2-os0c1 + rf2-k9ekz + rf2-t5slp + rf2-f79t8 — Story / Xray

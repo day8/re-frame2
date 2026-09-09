@@ -2100,6 +2100,59 @@ test('tools/template change still arms template_expensive (regression) (rf2-jdj1
   assert.equal(result.template_expensive, 'true');
 });
 
+// ---------------------------------------------------------------------------
+// rf2-q4s8 (from the rf2-v37n post-mortem) — the template -> adapter reverse
+// edge. `uix_consumer_deps_recipe_test.clj` lives in the UIx ADAPTER tree but
+// slurps a file out of the TEMPLATE tree as its version source, so a
+// template-only diff can red a job the classifier was not scheduling. PR #9543
+// dropped com.pitch/uix.dom from the template, the recipe test still asserted
+// the pin, jvm-uix read SKIPPED, and trunk stayed red until an unrelated PR
+// armed the surface and wore the failure.
+//
+// Three assertions, and the third is what keeps the other two honest: an arm
+// pinned by path alone would survive the recipe test being rewritten to stop
+// reading the template at all, leaving a fan-out nothing justifies.
+
+const UIX_RECIPE_TEST_REL =
+  'implementation/adapters/uix/test/re_frame/adapter/uix_consumer_deps_recipe_test.clj';
+
+test('tools/template arms adapter_diagnostic, which is what schedules jvm-uix (rf2-q4s8)', () => {
+  for (const file of [
+    'tools/template/resources/day8/re_frame2_template/_uix/deps.edn',
+    'tools/template/src/day8/re_frame2_template/hooks.clj',
+  ]) {
+    assert.equal(
+      classify(file).adapter_diagnostic,
+      'true',
+      `${file} must arm adapter_diagnostic: jvm-uix runs ${UIX_RECIPE_TEST_REL}, which reads the template's _uix/deps.edn as its version source`,
+    );
+  }
+});
+
+test('jvm-uix is gated on adapter_diagnostic, so the template arm reaches it (rf2-q4s8)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'jvm-uix');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.adapter_diagnostic == 'true'/,
+    'jvm-uix must ride adapter_diagnostic — the arm added under rf2-q4s8 schedules nothing otherwise',
+  );
+});
+
+test('the UIx recipe test still reads a tools/template path that arms adapter_diagnostic (rf2-q4s8)', () => {
+  const source = fs.readFileSync(path.join(REPO_ROOT, UIX_RECIPE_TEST_REL), 'utf8');
+  const m = source.match(/"(tools\/template\/[^"]+)"/);
+  assert.ok(
+    m,
+    `${UIX_RECIPE_TEST_REL} no longer reads any tools/template path. If that cross-tree read is genuinely gone, the tools/template -> adapter_diagnostic arm in report-changed-surfaces.sh has lost its justification and should be retired rather than left firing three unrelated adapter probes.`,
+  );
+  assert.equal(
+    classify(m[1]).adapter_diagnostic,
+    'true',
+    `${UIX_RECIPE_TEST_REL} reads ${m[1]}, so that path must arm adapter_diagnostic`,
+  );
+});
+
 test('Core change still arms template_expensive (regression) (rf2-jdj17.1)', () => {
   const result = classify('implementation/core/src/re_frame/core.cljc');
   assert.equal(result.template_expensive, 'true');
