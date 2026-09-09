@@ -276,7 +276,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest uix-leaf-deps-pins-match-template
-  (testing "the UIx deps.edn in entry-namespace.md pins uix.core / uix.dom exactly as the template does"
+  (testing "the UIx deps.edn in entry-namespace.md pins uix.core exactly as the template does, and neither names uix.dom"
     (let [tmpl-core (mvn-version @uix-template-deps "com.pitch/uix.core")
           tmpl-dom  (mvn-version @uix-template-deps "com.pitch/uix.dom")
           leaf-deps (get @uix-files "deps.edn" "")
@@ -284,20 +284,26 @@
           leaf-dom  (mvn-version leaf-deps "com.pitch/uix.dom")]
       (is (some? tmpl-core)
           "Could not read com.pitch/uix.core pin from the template _uix/deps.edn.")
-      (is (some? tmpl-dom)
-          "Could not read com.pitch/uix.dom pin from the template _uix/deps.edn.")
       (is (= tmpl-core leaf-core)
           (str "entry-namespace.md's com.pitch/uix.core pin (" (pr-str leaf-core)
                ") diverged from the template (" (pr-str tmpl-core) "). The manual "
                "setup path must generate the same known-good deps as the generator "
                "template (rf2-0qkyn). " regenerate-hint))
-      (is (= tmpl-dom leaf-dom)
-          (str "entry-namespace.md's com.pitch/uix.dom pin (" (pr-str leaf-dom)
-               ") diverged from the template (" (pr-str tmpl-dom) "). " regenerate-hint))
-      (is (= tmpl-core tmpl-dom)
-          (str "Template uix.core (" tmpl-core ") and uix.dom (" tmpl-dom
-               ") pins are no longer equal — UIx ships core+dom in "
-               "lockstep; update the template's paired pins accordingly.")))))
+      ;; rf2-j908 — the paired core+dom lockstep this lock used to assert is
+      ;; GONE, and what replaces it is an ABSENCE rather than nothing: the UIx
+      ;; scaffold mounts through `rf.adapter.uix/client-root` + `render!`, so
+      ;; `com.pitch/uix.dom` is on NEITHER side. Asserting the pins are equal
+      ;; would now pass vacuously on two nils, which is why the parity clause
+      ;; is replaced instead of deleted.
+      (is (nil? tmpl-dom)
+          (str "The template's _uix/deps.edn pins com.pitch/uix.dom ("
+               (pr-str tmpl-dom) "). The emitted app mounts through the "
+               "adapter's client-root / render!, so it must not carry a "
+               "direct DOM-mount dependency (rf2-j908)."))
+      (is (nil? leaf-dom)
+          (str "entry-namespace.md's UIx deps.edn pins com.pitch/uix.dom ("
+               (pr-str leaf-dom) "), which the template no longer emits. "
+               regenerate-hint)))))
 
 (deftest uix-version-target-divergence-is-flagged
   (testing "the spec-006 UIx-2.x vs template-1.4.4 divergence carries a heads-up"

@@ -242,9 +242,12 @@ ADAPTER_KEY_DRIFT = re.compile(r"(?<![:`\w-])`state-container`")
 # choice and has moved once already (rf2-qtmt). It
 # must live in EXACTLY ONE place — first-counter.md — so the setup skill has a
 # single copy-complete entry source. entry-namespace.md explains the boot
-# lifecycle keyed to it (retaining the UIx/Helix substrate deltas, which mount
-# via uix-dom / react-dom, not the Reagent client root) rather than carrying a
-# duplicate Reagent skeleton.
+# lifecycle keyed to it (retaining the UIx substrate delta) rather than
+# carrying a duplicate Reagent skeleton. Since rf2-j908 the UIx delta mounts
+# through ITS OWN adapter's client root, `rf.adapter.uix/render!` — so what
+# separates it from a Reagent core block is the ADAPTER NAMESPACE and nothing
+# else. The `/render!` half of the match no longer discriminates between the
+# substrates; only the `re-frame.adapter.reagent` require does.
 FENCED_CLOJURE = re.compile(r"(?s)```clojure\r?\n(.*?)```")
 
 # MALLI-REQUIRE (rf2-qzrkek). Requiring `re-frame.schemas` alone wires Malli —
@@ -423,9 +426,13 @@ def _reagent_core_blocks(text: str) -> list[str]:
     """Fenced `clojure` blocks that are a copy-complete Reagent core.cljs —
     they require `re-frame.adapter.reagent` AND mount through the adapter's
     client root with a `/render!` call (rf2-k5r9t; the entry ns no
-    longer touches `reagent.dom.client` itself). UIx/Helix snippets
-    (uix-dom / react-dom) never match: their `render-root` is not
-    `/render!`, and they require a different adapter namespace.
+    longer touches `reagent.dom.client` itself). The UIx snippet never
+    matches because it requires a DIFFERENT ADAPTER NAMESPACE — and since
+    rf2-j908 that is the only reason. It used to be two reasons: UIx
+    mounted through `uix-dom/render-root`, so the `/render!` clause
+    excluded it as well. It now mounts through `rf.adapter.uix/render!`,
+    so the `/render!` clause matches it and the adapter-namespace clause
+    is carrying this check alone.
 
     THE REQUIRE-ALIAS IS DELIBERATELY NOT PART OF THE MATCH (rf2-qtmt).
     This pinned the literal `reagent-adapter/render!` until the scaffold
@@ -755,9 +762,13 @@ def _self_test() -> int:
         failures += 1
 
     # Case H — CANONICAL-SOURCE clean: the copy-complete Reagent core.cljs
-    # lives ONLY in first-counter.md; entry-namespace.md's UIx snippet mounts
-    # via uix-dom (its `render-root` is not `/render!`), so it is not a
-    # Reagent core block.
+    # lives ONLY in first-counter.md, and a second block that is not a Reagent
+    # core block does not count as a duplicate. The fixture below is the
+    # pre-rf2-j908 UIx shape, kept deliberately: it exercises BOTH exclusion
+    # clauses at once (wrong adapter namespace AND no `/render!`). The shape
+    # entry-namespace.md actually ships today satisfies `/render!` and is
+    # excluded on the adapter namespace alone; that narrower path is covered
+    # by the `--ci` arm, which runs this same check over the real leaves.
     good_fc_block = (
         "```clojure\n"
         "(ns your-app.core\n"

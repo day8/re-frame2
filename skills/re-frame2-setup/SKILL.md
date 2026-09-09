@@ -99,7 +99,7 @@ You're done when all of these hold:
 - [ ] `npx shadow-cljs compile app` exits 0 — the skill ran it; no missing-namespace or classpath errors — and `npx shadow-cljs watch app` is serving the URL it printed (`http://localhost:8280/` unless the port was already taken and you moved it).
 - [ ] The browser shows the heading — the project coordinate verbatim, `acme/my-app` on the default — a `+1` button and `0`, and the button advances the number — the author confirms this in the open page; compile success alone does not prove the mount.
 
-On the **UIx route** the same criteria apply with `day8/re-frame2-uix` + `com.pitch/uix.core` / `uix.dom` in place of the Reagent pair; npm is still just `shadow-cljs` / `react` / `react-dom` (cardinal rule 3).
+On the **UIx route** the same criteria apply with `day8/re-frame2-uix` + `com.pitch/uix.core` in place of the Reagent pair — `com.pitch/uix.dom` is **not** day-one, because the app mounts through the adapter's own `client-root` / `render!` rather than a React Root of its own; npm is still just `shadow-cljs` / `react` / `react-dom` (cardinal rule 3).
 
 Hand off with the facts first: the files written, the verification command that succeeded (`npx shadow-cljs compile app`), and the URL being served — the one the watch printed, not the one in `shadow-cljs.edn` — asking the author to open it and click `+1` (don't claim the mount from the compile). Then: *"Setup is done. Switch to **`re-frame2`** for events / subs / machines / schemas / frames / fx. The generated `README.md`'s Next steps names the optional attachments — Xray, the in-app devtools panel (`re-frame2-xray` tours it once it is in), and Story — and for live REPL inspection install **`re-frame2-pair`**."*
 
