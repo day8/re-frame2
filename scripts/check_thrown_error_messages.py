@@ -1730,61 +1730,93 @@ def _scan_where_syms(path: Path, text: str, raw_lines: list[str]) -> list[WhereS
     return found
 
 
+# The five DISPOSITIONS this gate can take on one where-sym. Three mean it was
+# GRADED against the oracle; two mean it was let past ungraded, and the summary
+# has to say which is which.
+_WHERE_SYM_CHECKED_DISPOSITIONS = ("public-var", "event-id", "namespace")
+_WHERE_SYM_SKIPPED_DISPOSITIONS = ("bare", "outside-tree")
+
+# How `--verbose` names each disposition, in the order it reports them.
+_WHERE_SYM_DISPOSITION_LABELS = {
+    "public-var": "public var",
+    "namespace": "full namespace",
+    "event-id": "reserved event id",
+    "bare": "unqualified",
+    "outside-tree": "outside this tree",
+}
+
+
+def _grade_where_sym(
+    symbol: str, index: PublicVarIndex
+) -> tuple[str, str | None]:
+    """How this gate DISPOSES of one where-sym: the shape it was graded as, and
+    the finding kind it earned, if any (`None` when it passed or was skipped).
+
+    ONE classifier, consulted by BOTH `where_sym_findings` and `--verbose`, and
+    that is the whole point of its existing. They used to answer "is this
+    checked?" separately — the grader by resolving the symbol, the summary by
+    looking for a `/` — and the summary was wrong about 30 of 193 sites in both
+    directions at once (rf2-uewm, audit of PR #9550): it called the 23
+    full-namespace locations "unqualified and therefore uncheckable" when they
+    are checked, and counted 7 third-party names among the "qualified" when they
+    are skipped. A summary that RE-DERIVES the answer can drift from the grader
+    again; one that reports the grader's own verdict cannot.
+    """
+    if symbol in _SANCTIONED_EVENT_ID_WHERE_SYMS:
+        # FORM 2 — a reserved public event id. Not a var; see the set.
+        return ("event-id", None)
+    if "/" not in symbol:
+        if "." not in symbol:
+            # An UNQUALIFIED where-sym names no namespace to check it
+            # against, and inventing one would be guessing. Two exist on
+            # trunk (`'defwrapper`, `'defreg-macro`); both name a macro a
+            # reader can still grep for. Counted, never a finding — and
+            # reported as SKIPPED, because that is what it is.
+            return ("bare", None)
+        # FORM 3 — a REAL NAMESPACE SPELLED IN FULL (`'re-frame.ssr.emit`).
+        # A slash-free DOTTED symbol names a namespace rather than a var,
+        # so it is graded against the namespace index directly — no alias
+        # expansion, which is the whole point: `'rf.ssr.emit` is the
+        # require-alias spelling, quoting does not expand an alias, and
+        # `(namespace 'rf.ssr.emit)` is nil. Only the full name resolves,
+        # and the reader who most needs this slot is an off-box agent with
+        # no checkout, which can grep a full namespace onto its `ns` form.
+        #
+        # `publics_of` is reused precisely because it separates "namespace
+        # exists but exports nothing" (a set) from "no such namespace"
+        # (None). A namespace that exports nothing is still a place to
+        # land, so only None is a finding.
+        if not _is_framework_family(symbol, symbol):
+            # A genuinely third-party namespace cannot be checked from this
+            # tree; saying so is honest where a green would not be.
+            return ("outside-tree", None)
+        if index.publics_of(symbol) is None:
+            return ("namespace", "where-sym-unknown-namespace")
+        return ("namespace", None)
+    qualifier, name = symbol.rsplit("/", 1)
+    namespace = _namespace_of_where_sym(qualifier)
+    publics = index.publics_of(namespace)
+    if publics is None:
+        if _is_framework_family(qualifier, namespace):
+            return ("public-var", "where-sym-unknown-namespace")
+        # A genuinely third-party namespace cannot be checked from this
+        # tree; saying so is honest where a green would not be.
+        return ("outside-tree", None)
+    if name not in publics:
+        return ("public-var", "where-sym-unresolvable")
+    return ("public-var", None)
+
+
 def where_sym_findings(
     observed: list[WhereSym], index: PublicVarIndex
 ) -> list[Finding]:
     """The where-syms that name no place a reader can land on."""
     findings: list[Finding] = []
     for site in observed:
-        if site.symbol in _SANCTIONED_EVENT_ID_WHERE_SYMS:
-            # FORM 2 — a reserved public event id. Not a var; see the set.
-            continue
-        if "/" not in site.symbol:
-            if "." not in site.symbol:
-                # An UNQUALIFIED where-sym names no namespace to check it
-                # against, and inventing one would be guessing. Two exist on
-                # trunk (`'defwrapper`, `'defreg-macro`); both name a macro a
-                # reader can still grep for. Counted, never a finding.
-                continue
-            # FORM 3 — a REAL NAMESPACE SPELLED IN FULL (`'re-frame.ssr.emit`).
-            # A slash-free DOTTED symbol names a namespace rather than a var,
-            # so it is graded against the namespace index directly — no alias
-            # expansion, which is the whole point: `'rf.ssr.emit` is the
-            # require-alias spelling, quoting does not expand an alias, and
-            # `(namespace 'rf.ssr.emit)` is nil. Only the full name resolves,
-            # and the reader who most needs this slot is an off-box agent with
-            # no checkout, which can grep a full namespace onto its `ns` form.
-            #
-            # `publics_of` is reused precisely because it separates "namespace
-            # exists but exports nothing" (a set) from "no such namespace"
-            # (None). A namespace that exports nothing is still a place to
-            # land, so only None is a finding.
-            if not _is_framework_family(site.symbol, site.symbol):
-                # A genuinely third-party namespace cannot be checked from this
-                # tree; saying so is honest where a green would not be.
-                continue
-            if index.publics_of(site.symbol) is None:
-                findings.append(Finding(
-                    site.path, site.line, "where-sym-unknown-namespace",
-                    site.snippet, site.symbol,
-                ))
-            continue
-        qualifier, name = site.symbol.rsplit("/", 1)
-        namespace = _namespace_of_where_sym(qualifier)
-        publics = index.publics_of(namespace)
-        if publics is None:
-            if _is_framework_family(qualifier, namespace):
-                findings.append(Finding(
-                    site.path, site.line, "where-sym-unknown-namespace",
-                    site.snippet, site.symbol,
-                ))
-            # A genuinely third-party namespace cannot be checked from this
-            # tree; saying so is honest where a green would not be.
-            continue
-        if name not in publics:
+        _, kind = _grade_where_sym(site.symbol, index)
+        if kind is not None:
             findings.append(Finding(
-                site.path, site.line, "where-sym-unresolvable",
-                site.snippet, site.symbol,
+                site.path, site.line, kind, site.snippet, site.symbol,
             ))
     return sorted(findings, key=lambda f: (str(f.path), f.line, f.detail))
 
@@ -2026,6 +2058,71 @@ def grade_where_syms(
                 + f" in {WHERE_SYM_BASELINE_REL}."
             )
     return WhereSymVerdict(violations, notes, unusable)
+
+
+# --------------------------------------------------------------------------
+# What `--verbose` SAYS it did (rf2-uewm)
+# --------------------------------------------------------------------------
+#
+# Both strings below are the gate's account of its own coverage, and a wrong
+# one is worse than none: it is read by whoever is deciding whether a where-sym
+# shape is enforced, and it reads as authoritative because it comes from the
+# instrument itself. The audit of PR #9550 caught both lying — the summary
+# inferred "checkable" from the presence of a `/`, which had been true before
+# form 3 was accepted and was false the moment it was, and the success line
+# still promised a "reachable var" after two NON-var forms had been ruled
+# acceptable. Neither was a fault in the validation; both were the OUTPUT
+# describing an older gate.
+#
+# So the summary is rendered from `_grade_where_sym` — the same classifier that
+# produces the findings — rather than from a second guess at the same question.
+
+_WHERE_SYM_SUCCESS = (
+    "no bare-keyword thrown-error messages in framework source, and every "
+    "checked where-sym over its baseline floor names a place a reader can land "
+    "on: a public var, a reserved event id, or a full namespace."
+)
+
+
+def _where_sym_summary(
+    observed: list[WhereSym],
+    index: PublicVarIndex,
+    findings: list[Finding],
+    baseline: WhereSymBaseline,
+) -> str:
+    """The `--verbose` coverage line — what was GRADED, what was let past, and
+    how the population sits against its floors.
+
+    The checked/skipped split is taken from `_grade_where_sym`, so it cannot
+    disagree with the grading. The population total (`len(observed)`) and the
+    `:min-where-syms` floor are reported unchanged: they answer a different
+    question — whether the scan is still SEEING the corpus — and the
+    anti-blindness guard is defined over the whole population, graded or not.
+    """
+    counts: dict[str, int] = {}
+    for site in observed:
+        disposition, _ = _grade_where_sym(site.symbol, index)
+        counts[disposition] = counts.get(disposition, 0) + 1
+
+    def breakdown(dispositions: tuple[str, ...]) -> tuple[int, str]:
+        total = sum(counts.get(d, 0) for d in dispositions)
+        parts = [
+            f"{counts[d]} {_WHERE_SYM_DISPOSITION_LABELS[d]}"
+            for d in dispositions if counts.get(d)
+        ]
+        return total, ", ".join(parts)
+
+    checked, checked_parts = breakdown(_WHERE_SYM_CHECKED_DISPOSITIONS)
+    skipped, skipped_parts = breakdown(_WHERE_SYM_SKIPPED_DISPOSITIONS)
+    return (
+        f"where-sym: {len(observed)} quoted where-sym(s) observed, floor "
+        f"{baseline.min_where_syms}; {checked} checked"
+        + (f" ({checked_parts})" if checked_parts else "")
+        + f", {skipped} skipped"
+        + (f" ({skipped_parts})" if skipped_parts else "")
+        + f"; {len(findings)} name nothing reachable, "
+        f"{len(baseline.sites)} symbol(s) baselined.\n"
+    )
 
 
 # --------------------------------------------------------------------------
@@ -2575,14 +2672,9 @@ def main(argv: list[str]) -> int:
         return 2
 
     if args.verbose:
-        qualified = sum(1 for w in observed if "/" in w.symbol)
-        sys.stderr.write(
-            f"where-sym: {len(observed)} quoted where-sym(s) observed "
-            f"({qualified} qualified, {len(observed) - qualified} unqualified "
-            f"and therefore uncheckable), floor {baseline.min_where_syms}; "
-            f"{len(ws_findings)} name nothing reachable, "
-            f"{len(baseline.sites)} symbol(s) baselined.\n"
-        )
+        sys.stderr.write(_where_sym_summary(
+            observed, index, ws_findings, baseline,
+        ))
         for note in verdict.notes:
             sys.stderr.write(f"  RATCHET DOWN: {note}\n")
 
@@ -2595,10 +2687,7 @@ def main(argv: list[str]) -> int:
     if findings or verdict.violations:
         return 1
     if args.verbose:
-        sys.stderr.write(
-            "no bare-keyword thrown-error messages in framework source, and "
-            "every where-sym over its baseline floor names a reachable var.\n"
-        )
+        sys.stderr.write(_WHERE_SYM_SUCCESS + "\n")
     return 0
 
 
@@ -3294,6 +3383,113 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
             sys.stderr.write(f"where-sym self-test PASS: reader mask — {name}\n")
 
     failures += _run_where_sym_baseline_self_tests(verbose=verbose)
+    failures += _run_where_sym_summary_self_tests(verbose=verbose)
+    return failures
+
+
+# --------------------------------------------------------------------------
+# THE SUMMARY'S OWN HONESTY (rf2-uewm, audit of PR #9550)
+# --------------------------------------------------------------------------
+#
+# These pin what `--verbose` SAYS about its coverage, which is a different
+# assertion from the findings pinned above and was the half nothing covered.
+# The gate validated the three ruled forms correctly and then described two of
+# them as unchecked — a green run reporting less coverage than it had, which no
+# findings test can see, because the findings were right.
+#
+# THE PIN IS THE CHECKED/SKIPPED SPLIT, NOT THE PROSE. Wording may be improved;
+# what may not drift is a shape the grader GRADES being reported as let past.
+
+def _run_where_sym_summary_self_tests(verbose: bool = False) -> int:
+    """Every disposition must be reported in the half it is actually in."""
+    failures = 0
+
+    def fail(msg: str) -> None:
+        nonlocal failures
+        failures += 1
+        sys.stderr.write(f"where-sym summary self-test FAIL: {msg}\n")
+
+    index = _fixture_where_sym_index()
+
+    # One representative per disposition, each graded by the real classifier.
+    # `re-frame.fixture` is FORM 3 against the fixture oracle: a slash-free
+    # dotted symbol naming a namespace that exists. Before this repair it was
+    # counted "unqualified and therefore uncheckable" while being checked.
+    cases = (
+        ("public-var", "rf.fixture/known-public"),
+        ("event-id", "rf.resource/invalidate-tags"),
+        ("namespace", "re-frame.fixture"),
+        ("bare", "defwrapper"),
+        ("outside-tree", "reagent2.template/as-element"),
+    )
+    baseline = WhereSymBaseline(0, {})
+    for expected, symbol in cases:
+        got, _ = _grade_where_sym(symbol, index)
+        if got != expected:
+            fail(f"{symbol!r}: expected disposition {expected!r}, got {got!r}")
+            continue
+        # …and the summary must put that one site in the matching half. A
+        # one-site population makes the assertion unambiguous: the count `1`
+        # appears beside exactly one of "checked" / "skipped".
+        site = WhereSym(Path("<probe>"), 1, symbol, "where-slot", "")
+        line = _where_sym_summary([site], index, [], baseline)
+        want_checked = expected in _WHERE_SYM_CHECKED_DISPOSITIONS
+        half = "checked" if want_checked else "skipped"
+        label = _WHERE_SYM_DISPOSITION_LABELS[expected]
+        if f"1 {half} (1 {label})" not in line:
+            fail(
+                f"{symbol!r} is {half.upper()} but the summary did not say so: "
+                f"{line!r}"
+            )
+        elif verbose:
+            sys.stderr.write(
+                f"where-sym summary self-test PASS: {symbol} reported {half} "
+                f"as {label!r}\n"
+            )
+
+    # EVERY observed site lands in one half or the other. Without this a new
+    # disposition could be graded and reported nowhere, which is the original
+    # defect wearing a different shape.
+    sites = [
+        WhereSym(Path("<probe>"), n, symbol, "where-slot", "")
+        for n, (_, symbol) in enumerate(cases, start=1)
+    ]
+    line = _where_sym_summary(sites, index, [], baseline)
+    checked = sum(
+        1 for _, s in cases
+        if _grade_where_sym(s, index)[0] in _WHERE_SYM_CHECKED_DISPOSITIONS
+    )
+    skipped = len(cases) - checked
+    if f"{len(sites)} quoted where-sym(s) observed" not in line:
+        fail(f"the summary lost its observed population: {line!r}")
+    if f"{checked} checked" not in line or f"{skipped} skipped" not in line:
+        fail(
+            f"the halves must sum to the population ({checked} + {skipped} = "
+            f"{len(sites)}); got {line!r}"
+        )
+    missing = [
+        d for d in _WHERE_SYM_CHECKED_DISPOSITIONS + _WHERE_SYM_SKIPPED_DISPOSITIONS
+        if d not in _WHERE_SYM_DISPOSITION_LABELS
+    ]
+    if missing:
+        fail(f"disposition(s) with no `--verbose` label: {missing}")
+
+    # THE SUCCESS SENTENCE. It promised a "reachable var" for a contract that
+    # accepts two non-var forms, so it is pinned against the ruling's own three
+    # spellings rather than against its exact prose.
+    for phrase in ("public var", "reserved event id", "full namespace"):
+        if phrase not in _WHERE_SYM_SUCCESS:
+            fail(f"the success line does not name the accepted form {phrase!r}")
+    if "reachable var" in _WHERE_SYM_SUCCESS:
+        fail(
+            "the success line still promises a 'reachable var'; the ruled "
+            "contract is public var | reserved event id | full namespace"
+        )
+    if verbose and not failures:
+        sys.stderr.write(
+            "where-sym summary self-test PASS: the success line names all "
+            "three ruled forms\n"
+        )
     return failures
 
 
