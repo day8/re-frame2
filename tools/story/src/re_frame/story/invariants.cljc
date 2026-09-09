@@ -100,7 +100,7 @@
           :else
           (rf.error/throw-error!
             :rf.error/story-bad-invariant
-            'rf.story/with-invariants
+            'rf.story.invariants/with-invariants
             (str "re-frame2-story :db invariant shorthand must be "
                  "[:db path pred] or [:db path = expected]; correct the "
                  "shorthand to one of those forms.")
@@ -140,7 +140,7 @@
       (when-not (fn? check)
         (rf.error/throw-error!
           :rf.error/story-bad-invariant
-          'rf.story/with-invariants
+          'rf.story.invariants/with-invariants
           (str "re-frame2-story invariant map needs a `:check` (or `:pred`) "
                "fn; add a `:check` fn (epoch → boolean / {:ok? …}) to the "
                "invariant map.")
@@ -151,7 +151,7 @@
     :else
     (rf.error/throw-error!
       :rf.error/story-bad-invariant
-      'rf.story/with-invariants
+      'rf.story.invariants/with-invariants
       (str "re-frame2-story invariant must be a fn, a `[:db path …]` vector, "
            "or a map; pass one of those shapes as an invariant spec.")
       {:recovery :use-a-fn-vector-or-map-invariant
@@ -450,7 +450,7 @@
      (when-not (vector? invariants)
        (rf.error/throw-error!
          :rf.error/story-bad-invariants-vector
-         'rf.story/with-invariants
+         'rf.story.invariants/with-invariants
          (str "with-invariants expects a vector of invariant specs as its "
               "first form; pass `[invariant-spec …]` before the body.")
          {:recovery :supply-a-vector-of-invariant-specs
