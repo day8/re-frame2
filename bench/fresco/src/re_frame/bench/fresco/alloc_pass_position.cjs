@@ -1907,8 +1907,15 @@ if (require.main === module) {
     console.error('usage: alloc_pass_position.cjs [--declared <pre-registration.json>] <dataset.json>... | --self-test');
     process.exit(2);
   }
+  // THE DATASET INGRESS GOES THROUGH THE ARCHIVE BOUNDARY (rf2-d1nr.2). These
+  // are run records, and the ones this report was published from are archived
+  // in the pre-rename vocabulary — a raw parse reads 27 of the record's 55
+  // certified cells, drops the native arm entirely, and prints a plausible
+  // number over what is left. `readRecord` is the identity on a record a driver
+  // wrote today, so this is the right door for BOTH. The declaration read above
+  // is not a corpus record and stays as it is.
   const rows = files.map((f, i) => {
-    const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+    const j = archive.readRecord(f);
     return { label: String(i + 1), row: j.alloc, box: j.box };
   });
   const { lines, refused } = report(rows, declared);
