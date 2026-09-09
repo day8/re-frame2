@@ -71,7 +71,7 @@
   `tools/xray/test`. The `:node-test` build's `cljs-test$` regex also
   matches, so it LOADS under Node — where every row short-circuits
   through [[browser?]] and reports the skip rather than passing silently."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -82,6 +82,7 @@
             [re-frame.live-frame :as rf.live-frame]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            [day8.re-frame2-xray.panels.image-view-reads :as image-reads]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
@@ -91,6 +92,13 @@
   frame-targeting claim, and W3 mounts INSIDE it so the evidence claim
   cannot be carried by `:rf/xray`'s trace-disabled gate."
   ::app)
+
+(def ^:private imaged-frame
+  "The image-loaded frame W2 creates. NAMESPACED, so it cannot collide with
+  a frame any other suite in this one browser page has registered — which
+  matters because `rf.frame/frames` is process-global and the runtime
+  fixture does not clear it."
+  ::imaged)
 
 (def ^:private image-view-q
   "The panel's one read. Named once because three rows key off it — the
@@ -131,6 +139,12 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil
+     ;; `:async? true` because W4 is an `async` row, and `cljs.test` refuses a
+     ;; FUNCTION fixture in any namespace that carries one — "Async tests
+     ;; require fixtures to be specified as maps. Testing aborted." The flag is
+     ;; what makes `make-reset-runtime-fixture` hand back the `{:before :after}`
+     ;; map form.
+     :async?        true
      :init-fn       (fn []
                       (xray-test-support/reset-all!)
                       ;; Fresco's collector tables are process-global
@@ -147,13 +161,28 @@
   (and (exists? js/document)
        (some? (.-createElement js/document))))
 
-(defn- flush-render!
-  "Run `thunk`, then SYNCHRONOUSLY commit whatever re-render it scheduled —
-  the adapter's own `:flush-render!` contract slot (Spec 006), not a
-  test-only mechanism. Without it the committed DOM lags each phase by an
-  animation frame and every assertion below would be about timing."
-  [thunk]
-  ((:flush-render! rf.adapter.reagent/adapter) thunk))
+;; NO `flush-render!` HELPER HERE, and its absence is a finding rather than an
+;; omission. Every neighbouring panel row reaches for the adapter's
+;; `:flush-render!` slot to commit a phase synchronously, and for a `reg-view`
+;; panel that is exactly right. A Fresco boundary is NOT in Reagent's render
+;; queue — its update is scheduled by the collector through React — so draining
+;; Reagent's queue commits nothing of this panel's, and a row written that way
+;; reads a DOM that has not moved and reports a live panel as dead. Measured
+;; here before this comment existed. Mount is committed with `flushSync`
+;; (React's own door) and everything after it is polled.
+
+(defn- settle
+  "A promise resolving once every render pipeline on the page has had a
+  real chance to commit — two animation frames and a macrotask. It exists
+  for the CONTROL in W2: an absence asserted immediately after an event is
+  a race, and an absence asserted after this is a decision."
+  []
+  (js/Promise.
+    (fn [resolve]
+      (js/requestAnimationFrame
+        (fn [_]
+          (js/requestAnimationFrame
+            (fn [_] (js/setTimeout resolve 20))))))))
 
 (defn- setup!
   "Register Xray's handlers (which is what registers `:rf.xray/image-view`
@@ -262,51 +291,76 @@
             happened yet."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
-      (let [_ (setup!)
-            {:keys [container root]} (mount-panel! :rf/xray)]
-        (try
-          ;; ---- phase 1: mounted, and rendering its empty arm --------------
-          (let [section (q container "[data-testid=\"rf-xray-module-view\"]")]
-            (is (some? (q container "[data-testid=\"rf-xray-module-view-frames-empty\"]"))
-                "the panel rendered the honest no-image caption — no
-                 image-loaded frame exists yet, so the list this row drives in
-                 cannot already be on screen")
-            (is (nil? (q container "[data-testid=\"rf-xray-module-view-frames-list\"]"))
-                "NON-VACUITY: no frames list is in the DOM before one arrives")
+      (async done
+        (setup!)
+        ;; The claim is RELATIVE — this frame arriving — rather than absolute
+        ;; ("the panel is empty"). `rf.frame/frames` is a process-global
+        ;; registry the runtime fixture does not clear, and the `:browser-test`
+        ;; build runs every `-dom-cljs-test` namespace in ONE page, so whatever
+        ;; image-loaded frames a neighbour left are on screen at mount.
+        ;; Measured: the first draft asserted the no-image caption and read a
+        ;; populated list. A relative claim is also the better one — it is
+        ;; about a specific value reaching the DOM.
+        ;;
+        ;; The row is ASYNCHRONOUS, and that is the second thing measured here.
+        ;; A Fresco boundary is not in Reagent's render queue, so the adapter's
+        ;; `:flush-render!` — which is exactly the right instrument for the
+        ;; `reg-view` panels beside this one — does NOT commit this panel's
+        ;; update. The first draft used it and read a DOM that had not moved,
+        ;; which would have been reported as the panel being DEAD. The correct
+        ;; instrument for "it updates" is a bounded poll of the committed DOM,
+        ;; and the control below is given a real settling window so its
+        ;; absence is a decision and not a race.
+        (let [{:keys [container root]} (mount-panel! :rf/xray)
+              section  (q container "[data-testid=\"rf-xray-module-view\"]")
+              imaged-q (str "[data-testid=\"rf-xray-module-view-frame-"
+                            imaged-frame "\"]")
+              row?     (fn [] (some? (q container imaged-q)))]
+          (is (not (row?))
+              "NON-VACUITY: the frame this row drives in is NOT on screen
+               before it exists")
 
-            ;; ---- phase 2: the world moves, and the panel is deaf ----------
-            ;; `:rf.xray/image-view` is a db-derived sub over PROCESS-GLOBAL
-            ;; state: creating an image-loaded frame changes what it WOULD
-            ;; compute while invalidating nothing it watches. The render queue
-            ;; is drained here too, so what phase 3 proves is a reaction that
-            ;; re-ran — not a commit that had merely been pending.
-            (flush-render!
-              (fn []
-                (rf.live-frame/make-frame {:id :app/main :images [target-image]}
-                                          target-pool)))
-            (is (some? (q container "[data-testid=\"rf-xray-module-view-frames-empty\"]"))
-                "CONTROL: the committed DOM still shows the empty caption. A
-                 panel that re-rendered here would make phase 3 pass for a
-                 reason that is not liveness")
-
-            ;; ---- phase 3: app-db moves, the reaction re-runs, DOM follows --
-            (flush-render! (fn [] (rf/dispatch-sync [::bump 1] {:frame :rf/xray})))
-            (is (some? (q container "[data-testid=\"rf-xray-module-view-frames-list\"]"))
-                (str "the panel re-rendered on a real invalidation of its own "
-                     "read and committed the frames list. DOM: "
-                     (.-textContent container)))
-            (is (some? (q container "[data-testid=\"rf-xray-module-view-frame-:app/main\"]"))
-                "and the row names the frame that actually arrived, so the
-                 assertion above cannot pass on a list projected from nothing")
-            (is (nil? (q container "[data-testid=\"rf-xray-module-view-frames-empty\"]"))
-                "the empty caption is gone — the list REPLACED it rather than
-                 rendering beside it")
-            (is (identical? section (q container "[data-testid=\"rf-xray-module-view\"]"))
-                "and it is the SAME <section> node: React reconciled the live
-                 tree in place, so the list did not arrive by the panel being
-                 remounted from scratch, which would not be liveness"))
-          (finally
-            (teardown! root container)))))))
+          ;; ---- phase 2: the world moves, and the panel is deaf ------------
+          ;; `:rf.xray/image-view` is a db-derived sub over PROCESS-GLOBAL
+          ;; state: creating an image-loaded frame changes what it WOULD
+          ;; compute while invalidating nothing it watches.
+          (rf.live-frame/make-frame {:id imaged-frame :images [target-image]}
+                                    target-pool)
+          (is (some? (first (filter #(= imaged-frame (:frame-id %))
+                                    (:frames (image-reads/image-view-data)))))
+              "PRECONDITION: the read's UNDERLYING data now carries the new
+               frame — so a missing row below is the panel failing to
+               re-render, and not the frame failing to exist")
+          (-> (settle)
+              (.then
+                (fn [_]
+                  (is (not (row?))
+                      "CONTROL: given a full settling window, the committed DOM
+                       still does NOT carry the row. A panel that re-rendered
+                       here would make phase 3 pass for a reason that is not
+                       liveness")
+                  ;; ---- phase 3: app-db moves, the read re-runs, DOM follows
+                  (rf/dispatch-sync [::bump 1] {:frame :rf/xray})
+                  (rf.test-support/poll-until row?
+                    {:label "the panel committed the new frame's row"})))
+              (.then
+                (fn [_]
+                  (is (row?)
+                      (str "the panel re-rendered on a real invalidation of its "
+                           "own read and committed the new frame's row"))
+                  (is (identical? section
+                                  (q container "[data-testid=\"rf-xray-module-view\"]"))
+                      "and it is the SAME <section> node: React reconciled the
+                       live tree in place, so the row did not arrive by the
+                       panel being remounted from scratch, which would not be
+                       liveness")))
+              (.catch (fn [e]
+                        (is false (str "W2 never settled: " (.-message e)
+                                       " — DOM: " (.-textContent container)))
+                        nil))
+              (.then (fn [_]
+                       (teardown! root container)
+                       (done)))))))))
 
 ;; ===========================================================================
 ;; W3 — the tool's own render is not application view evidence
@@ -368,36 +422,67 @@
 ;; W4 — clean teardown: the read is released, and reopening is not growth
 ;; ===========================================================================
 
+(defn- released?
+  "The panel's read is fully released from `:rf/xray`'s sub-cache."
+  []
+  (zero? (ref-count-of :rf/xray image-view-q)))
+
 (deftest w4-unmount-releases-the-read-and-reopen-does-not-grow-it
   (testing "rf2-k97c.3 — unmounting the panel releases its subscription
             reference completely, and mounting it again returns to the SAME
             count rather than a higher one. Epic criterion 6, and the number
-            the spike caught Arm A on: with a four-call interop binding the
-            `:rf/xray` ref-count climbed 22 → 25 → 32 across renders and never
-            fell on unmount."
+            the spike caught the rejected design on: with a four-call interop
+            binding the `:rf/xray` ref-count climbed 22 → 25 → 32 across
+            renders and never fell on unmount.
+
+            THE RELEASE IS ASYNCHRONOUS BY DESIGN, and this row polls rather
+            than reading once. `impl.collector`'s `cell-reapers` gives a cell
+            whose last reader unmounts ONE MACROTASK OF GRACE, so that a keyed
+            reorder which unmounts and remounts a row within a single turn
+            reuses the reaction instead of rebuilding it. Measured here: a
+            synchronous read immediately after `flushSync(root.unmount)`
+            returns 1, and the same read after one macrotask returns 0. A
+            synchronous assertion would therefore have reported a LEAK against
+            a collector that was behaving exactly as documented — which is why
+            this note is longer than the row."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
-      (let [_ (setup!)]
-        (is (zero? (ref-count-of :rf/xray image-view-q))
-            "precondition: nothing holds the panel's read before the first mount")
-        (let [{:keys [container root]} (mount-panel! :rf/xray)
-              mounted (ref-count-of :rf/xray image-view-q)]
-          (is (pos? mounted)
-              "the mount took a reference — otherwise the release below is
-               vacuous")
-          (teardown! root container)
-          (is (zero? (ref-count-of :rf/xray image-view-q))
-              (str "the unmount released it COMPLETELY. Cache after unmount: "
-                   (pr-str (keys (cache-of :rf/xray)))))
-
-          ;; ---- reopen: the same count, not a higher one -------------------
-          (let [{c2 :container r2 :root} (mount-panel! :rf/xray)
-                remounted (ref-count-of :rf/xray image-view-q)]
-            (is (= mounted remounted)
-                (str "reopening returns to the same reference count (" mounted
-                     ") rather than accumulating — the growth-per-cycle
-                     signature of a binding whose release the substrate's
-                     reaction lifecycle cannot see. Got: " remounted))
-            (teardown! r2 c2)
-            (is (zero? (ref-count-of :rf/xray image-view-q))
-                "and the second unmount releases it too")))))))
+      (async done
+        (setup!)
+        ;; The starting point is polled, not asserted: a neighbouring row's
+        ;; teardown grace may still be in flight when this one begins.
+        (-> (rf.test-support/poll-until released?
+              {:label "no reference held before the first mount"})
+            (.then
+              (fn [_]
+                (let [{:keys [container root]} (mount-panel! :rf/xray)
+                      mounted (ref-count-of :rf/xray image-view-q)]
+                  (is (pos? mounted)
+                      "the mount took a reference — otherwise the release
+                       below is vacuous")
+                  (teardown! root container)
+                  (-> (rf.test-support/poll-until released?
+                        {:label "the first unmount released the read"})
+                      (.then
+                        (fn [_]
+                          (is (released?)
+                              (str "the unmount released it COMPLETELY, within "
+                                   "the collector's grace macrotask. Cache: "
+                                   (pr-str (keys (cache-of :rf/xray)))))
+                          ;; ---- reopen: the same count, not a higher one ----
+                          (let [{c2 :container r2 :root} (mount-panel! :rf/xray)
+                                remounted (ref-count-of :rf/xray image-view-q)]
+                            (is (= mounted remounted)
+                                (str "reopening returns to the SAME reference "
+                                     "count (" mounted ") rather than "
+                                     "accumulating — accumulation across "
+                                     "open/close cycles is the signature of a "
+                                     "release the substrate's own reaction "
+                                     "lifecycle cannot see. Got: " remounted))
+                            (teardown! r2 c2)
+                            (rf.test-support/poll-until released?
+                              {:label "the second unmount released it too"}))))))))
+            (.then (fn [_] (is (released?)
+                               "and the second unmount releases it too")))
+            (.catch (fn [e] (is false (str "poll timed out: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
