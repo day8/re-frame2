@@ -363,6 +363,23 @@ reason, which is exactly what the mechanism is for — not in a hole cut through
 the tree that needs them most. That case arrived (rf2-d1nr.2) and is on the
 roster: three entries, four constructs, two files, and no prose.
 
+AND THE LINE THAT SEPARATES THAT FROM THE ONE HOLE UNDER `bench/`, because the
+paragraph above rules against a hole and `PRODUCT_EXCLUDE_PATHS` now carries
+one (rf2-20h4). The distinction is SOURCE against RESTORED ARCHIVE, and it is
+not a softening of the rule. What the paragraph anticipated is tracked bench
+SOURCE that must NAME the archive — the recovery command's pre-rename path, the
+translation table's left column, the assertion that reads an archived record's
+raw bytes. That is three entries in two files, it stays exempted per line and
+per construct, and the whole bench source tree stays scanned. What arrived
+beside it is the archive ITSELF: `data_archive.cjs --restore` writes 237 whole
+files of pre-rename bytes into a gitignored tree, and 41,106 lines of them are
+not a construct anything can name. An exemption is a PATH plus a LINE CONSTRUCT
+matched exactly, so exempting them means 237 path entries — which is the
+inclusion roster this rule refuses, arrived at from the other end. The bytes
+cannot move either: the corpus is the measured evidence and `data_archive.cjs`
+says it is never rewritten. So the archive is subtracted where the source that
+names it is exempted, and the two mechanisms stay for the two different things.
+
 WHERE A SHAPE IS TOO AMBIGUOUS TO LINT WITHOUT NOISE (documented, not shipped)
 
 EP-0007 §Enforcement says "where shapes allow"; two shapes are deliberately
@@ -761,6 +778,40 @@ PRODUCT_EXTRA_EXCLUDE_DIR_NAMES = frozenset({
 #     are TRACKED, are exactly where a stale namespace name would do real
 #     damage, and stay in scope. That distinction is the whole of rf2-20h4, and
 #     both halves are pinned in `_PRODUCT_ROSTER_SELF_TEST_CASES`.
+#   * `bench/fresco/src/re_frame/bench/fresco/data` — the Fresco run corpus,
+#     restored on demand and never on main (`bench/fresco/.gitignore:7`;
+#     `git ls-files` reads 0 under it). It is the THIRD carrier of the same
+#     defect as the two above, and the one that makes it a workflow problem
+#     rather than a housekeeping one: `data_archive.cjs --restore` is the
+#     project's own ADVERTISED command, quoted in `bench/fresco/README.md`, and
+#     it writes 237 files that are byte-identical to blobs archived BEFORE the
+#     rename. So every record names the product as it was named when the run
+#     was taken, and the walk grades those historical bytes as current source.
+#     Measured at rf2-20h4 on a restored corpus: exit 1 with 41,106 findings,
+#     EVERY one inside this tree and 0 from any tracked file. Since
+#     `scripts/test-fast-pr.sh` runs this gate unconditionally, following the
+#     documented restore made the local pre-checkin spine unusable.
+#
+#     THE BYTES CANNOT BE THE THING THAT CHANGES. The corpus is the measured
+#     evidence the Fresco verdicts were taken from, `data_archive.cjs` says in
+#     terms that it "is never rewritten", and the reader translates the
+#     archived vocabulary on the way IN rather than on disk (rf2-d1nr.2). A
+#     record renamed to please this gate is a record that no longer matches its
+#     archived blob hash, so the only correct move is to stop reading it as
+#     source — the same conclusion as the two subtractions above, reached from
+#     immutability instead of from regeneration.
+#
+#     Subtracted as a PATH and deliberately NOT as a directory name `data` on
+#     `PRODUCT_EXTRA_EXCLUDE_DIR_NAMES`, for the reason the `.clj-kondo` bullet
+#     gives: a NAME is repo-wide, so it would silently hide any future tracked
+#     `data/` tree anywhere in the repo, which is precisely the narrowing this
+#     roster's whole shape exists to refuse. The path form leaves the live
+#     readers beside the hole in scope — `data_archive.cjs` and
+#     `data_archive.test.cjs` share its final component and are NOT under it
+#     (`_product_excluded` matches whole path segments, never a substring) — as
+#     it does the tracked `fixtures/` sibling, `bench/fresco/README.md` and
+#     `bench/fresco/package.json`. Both halves are pinned as pairs in
+#     `_PRODUCT_ROSTER_SELF_TEST_CASES`.
 PRODUCT_EXCLUDE_PATHS = (
     ".git",
     "ai",
@@ -769,6 +820,7 @@ PRODUCT_EXCLUDE_PATHS = (
     "scripts/_test_fixtures",
     "scripts/check_retired_spellings.py",
     ".clj-kondo/.cache",
+    "bench/fresco/src/re_frame/bench/fresco/data",
 )
 
 # ...and the SUFFIX subtractions, matched on the final suffix of the file name.
@@ -2238,6 +2290,38 @@ _PRODUCT_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
 # row is the matching near-miss for `PRODUCT_EXCLUDE_SUFFIXES` — it proves the
 # `.log` subtraction is a SUFFIX rather than a substring, so a real document
 # cannot be hidden by having the token in its name.
+#
+# THE RUN-CORPUS ROWS pin a hole whose edge four different wrong repairs would
+# each put somewhere else, so there is one row per wrong repair. Three of them
+# are stated as pairs sharing a path shape, and each pair was RUN in both
+# directions against the wrong repair it names, not merely reasoned about:
+#
+#   * `data_archive.cjs` against a record under `data/` — the near-miss for a
+#     SUBSTRING or bare-prefix match. The reader's name begins with the
+#     subtracted path's final component, so a repair that dropped
+#     `_product_excluded`'s segment boundary would silently blind the gate to
+#     the very file that carries `ARCHIVE_PATH`.
+#   * `fixtures/alloc-legorder/pre-registration.json` against
+#     `data/alloc-legorder/pre-registration.json` — the sharpest pair, because
+#     the two share every path segment but the tree they hang off. Both files
+#     really exist: the tracked one is a fixture a self-test reads in its own
+#     right, the other is the archived record it was taken from. This is what a
+#     repair reaching for `alloc-legorder`, or for any record-directory name,
+#     fails.
+#   * `bench/fresco/README.md` against a `README.md` inside the corpus — the
+#     near-miss for a SUFFIX or file-name match, and the one the audit of
+#     PR #9571 actually planted in: a retired-name line added to the tracked
+#     README raised the live count by exactly one and named that line.
+#   * `implementation/core/src/re_frame/data/registry.cljc` — the one row with
+#     no partner, and the one that costs the most to get right. A repair that
+#     put `data` on `PRODUCT_EXTRA_EXCLUDE_DIR_NAMES` instead of the path here
+#     passes ALL SIX rows above (measured: the three subtracted rows go green
+#     under it, because in the synthetic tree the only `data/` directory is the
+#     corpus one), so without this row the name/path distinction — which is the
+#     whole of the `.clj-kondo` precedent — would be pinned by nothing. No
+#     tracked file sits under any directory named `data` today; that is what
+#     makes the wrong repair invisible now and expensive later, so the row is
+#     representative rather than real, exactly as the eight rows above it are.
 _PRODUCT_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
     # --- the whole repo MUST be reached, including the trees no lane compiles ---
     ("implementation/core/src/re_frame/example.cljc", 1),
@@ -2248,6 +2332,11 @@ _PRODUCT_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
     (".clj-kondo/config.edn",                         1),
     (".clj-kondo/hooks/re_frame/core.clj",            1),
     ("docs/design/fresco/notes.log.md",               1),
+    ("bench/fresco/README.md",                        1),
+    ("bench/fresco/src/re_frame/bench/fresco/data_archive.cjs", 1),
+    ("bench/fresco/src/re_frame/bench/fresco/fixtures/alloc-legorder/"
+     "pre-registration.json",                         1),
+    ("implementation/core/src/re_frame/data/registry.cljc", 1),
     # --- and every subtraction MUST hold ---
     ("ai/findings/rename-notes.md",                   0),
     ("docs/spec/002-Frames.md",                       0),
@@ -2256,6 +2345,12 @@ _PRODUCT_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
     (".clj-kondo/.cache/v1/cljs/re-frame.transit.json", 0),
     ("audit-pr9568-push-1.log",                       0),
     ("implementation/pr7662-retained-read.log",       0),
+    ("bench/fresco/src/re_frame/bench/fresco/data/"
+     "workcount-n1b9h/run5-a4a1537cb71.json",         0),
+    ("bench/fresco/src/re_frame/bench/fresco/data/"
+     "alloc-legorder/pre-registration.json",          0),
+    ("bench/fresco/src/re_frame/bench/fresco/data/"
+     "alloc-legorder/README.md",                      0),
 )
 
 
