@@ -95,7 +95,7 @@
 //   0  every gate cleared.
 //   1  a gate did not, or the run threw. The report above names which.
 
-const crypto = require('node:crypto');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs');
 
