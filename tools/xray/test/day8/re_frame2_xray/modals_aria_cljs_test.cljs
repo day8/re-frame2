@@ -162,6 +162,23 @@
 ;; macro defs the symbol; invoking it directly under `with-frame`
 ;; resolves subscribes against `:rf/xray` the same way the shell
 ;; mount does.
+;;
+;; EXCEPT the cancellation-cascade popover, which since rf2-k97c.3 is a
+;; FRESCO BOUNDARY behind an `as-component` bridge: the var answers an
+;; interop vector, not a tree to walk. The helper below reproduces the
+;; boundary's own gate and reads exactly - same gate, same query vectors -
+;; so both rows below assert on the same hiccup they did before.
+
+(defn- cancellation-cascade-popover-tree
+  "The cancellation-cascade popover's markup for the current state:
+  nil while closed, the dialog otherwise. Mirrors
+  `cancellation-cascade/PopoverView`'s gate and reads."
+  []
+  (when @(rf/subscribe [:rf.xray/cancellation-cascade-popover-open?])
+    (cancellation-cascade/popover-tree
+      {:cascade     @(rf/subscribe [:rf.xray/cancellation-cascade-for-focused-event])
+       :positioning @(rf/subscribe [:rf.xray/modal-positioning])
+       :expanded?   @(rf/subscribe [:rf.xray/cancellation-cascade-expanded?])})))
 
 (deftest cancellation-cascade-popover-carries-dialog-contract
   (testing "rf2-7389r — the cancellation-cascade popover (audit
@@ -171,7 +188,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/cancellation-cascade-open
                          {:dispatch-id :test-dispatch-id}]))
-    (let [tree (rf/with-frame :rf/xray (cancellation-cascade/Popover))]
+    (let [tree (rf/with-frame :rf/xray (cancellation-cascade-popover-tree))]
       (is (some? tree) "Popover renders when open")
       (when tree
         (assert-dialog-contract!
@@ -235,7 +252,7 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/cancellation-cascade-open
                        {:dispatch-id :test-dispatch-id}]))
-  (let [tree (rf/with-frame :rf/xray (cancellation-cascade/Popover))]
+  (let [tree (rf/with-frame :rf/xray (cancellation-cascade-popover-tree))]
     (is (some? tree) "Popover renders when open")
     (when tree
       (assert-dialog-focus-ref!

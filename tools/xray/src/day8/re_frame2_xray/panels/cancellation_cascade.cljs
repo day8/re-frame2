@@ -39,8 +39,67 @@
 
   Same contract as every other Xray panel — no Reagent / UIx /
   references. Frame isolation comes from the enclosing
-  `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`."
+  `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
+
+  ## THE TWO VIEWS ARE FRESCO BOUNDARIES (rf2-k97c.3)
+
+  [[SidePanelView]] and [[PopoverView]] are `rf.fresco/defview`s — real
+  React function components minted by the re-frame-native view layer —
+  rather than `rf/reg-view`s, following `panels/module_view.cljs`,
+  increment 1's merged template, under the epic's ruled design
+  (rf2-k97c.2, Design B).
+
+  ### The reads
+
+  Every read is `rf.fresco/sub`, which the collector wires, activates,
+  and re-wires AND NOTIFIES on invalidation. Mandatory rather than
+  stylistic: `re-frame.fresco.impl.intent/with-frame` binds core's
+  refusal tier for the extent of a body, so a left-behind ambient
+  `@(rf/subscribe …)` REFUSES rather than quietly reading elsewhere.
+
+  The reads stay CONDITIONAL, which is why the popover's dormant cost
+  is unchanged. `rf.fresco/sub` records its edge WHERE THE READ HAPPENS,
+  so a branch not taken contributes no edge — a closed popover still
+  costs one subscription and a gate, exactly as it did.
+
+  ### The dispatches — and the ONE that had to move
+
+  The row handlers are unchanged and deliberately so. `rf.fresco/defview`
+  passes a PLAIN FUNCTION at an `on-*` prop through untouched, reaching
+  React by identity; and the rf2-nesy9 render-time capture these rows
+  already do is exactly right, because `with-frame`'s refusal deletes the
+  ambient FIND and not the CARRYING — an explicit `{:frame <id>}` still
+  answers — while `rf/current-frame-id` answers the declared frame,
+  reading and dispatching nothing.
+
+  What DID have to move is `reg-view`'s LEXICALLY INJECTED bare
+  `dispatch`, which the popover used. A `defview` binds no name inside
+  its body, so an injected name is simply unresolved — a loud compile
+  error rather than a silent misfire. It is now `rf/dispatch` carrying
+  the same captured frame every row already carries.
+
+  ### The bridges own the PUBLIC names, and that inverts the template
+
+  `module_view` is an L4-only tab whose own `install!` is the sole thing
+  naming it, so there the boundary kept the name and the bridge was
+  private. These two are named from OUTSIDE: `shell.cljs` mounts
+  `[cancellation-cascade/Popover]` as a hiccup head, and `panels.cljs`'s
+  `render-panel!` chokepoint takes both vars — files this bead may not
+  edit (they are step 3). So the mechanism is the template's and the
+  assignment is inverted: [[SidePanel]] and [[Popover]] stay the public
+  callables those sites already hold and are now the
+  `rf.fresco/as-component` bridges, with the boundaries private behind
+  them. Same one door, same defined end.
+
+  ### The markup stays a pure projection
+
+  [[render-cascade]] takes the `expanded?` flag as an ARGUMENT rather
+  than reading it, so the whole waterfall remains a value → hiccup
+  function drivable from the node lane with no React commit. Same split
+  `cancellation_cascade_helpers.cljc` already makes for the data
+  algebra, one layer up."
   (:require [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.panels.cancellation-cascade-events :as events]
             [day8.re-frame2-xray.panels.cancellation-cascade-helpers :as h]
             [day8.re-frame2-xray.panels.cancellation-cascade-subs :as subs]
@@ -385,11 +444,12 @@
 
 (defn- body
   "Render the waterfall body — decision + teardown rows + abort rows.
-  Reads `:rf.xray/cancellation-cascade-expanded?` to decide whether
-  the abort list is collapsed."
-  [cascade]
+  `expanded?` is the `:rf.xray/cancellation-cascade-expanded?` VALUE,
+  passed in rather than read here (rf2-k97c.3): the read moved up into
+  the boundary so this whole projection stays value → hiccup and runs
+  outside a React commit."
+  [cascade expanded?]
   (let [{:keys [parent-decision child-teardowns effect-aborts]} cascade
-        expanded? @(rf/subscribe [:rf.xray/cancellation-cascade-expanded?])
         collapse? (h/should-collapse? cascade)
         visible-aborts (cond
                          (not collapse?) effect-aborts
@@ -449,11 +509,18 @@
 (defn render-cascade
   "Render the cascade as a self-contained block. `cascade` is the
   helpers/extract-cascade record; `close-fn` is optional (popover
-  mount passes a close handler; side-panel mount passes nil).
+  mount passes a close handler; side-panel mount passes nil);
+  `expanded?` is the `:rf.xray/cancellation-cascade-expanded?` VALUE.
 
   Always renders SOMETHING — the empty-state branches still render
-  so the mount point can place this unconditionally."
-  [cascade close-fn]
+  so the mount point can place this unconditionally.
+
+  rf2-k97c.3 — `expanded?` became an ARGUMENT when the views became
+  Fresco boundaries. It used to be read inside [[body]], which made
+  this whole projection reactive and callable only under a substrate
+  render; taking it as a value keeps the waterfall a pure function that
+  the node-lane view rows can drive directly."
+  [cascade close-fn expanded?]
   [:section {:data-testid    "rf-xray-cancellation-cascade"
              :data-empty-kind (when (:empty-kind cascade)
                                 (name (:empty-kind cascade)))
@@ -461,21 +528,30 @@
    (header cascade close-fn)
    (if (:empty-kind cascade)
      (empty-state cascade)
-     (body cascade))])
+     (body cascade expanded?))])
 
-(rf/reg-view SidePanel
-  "Machines-tab side-panel mount. Reads
-  `:rf.xray/cancellation-cascade-for-focused-machine` and renders
-  only when the cascade is non-empty (i.e. the focused machine had a
-  destroy in the trace window). Closed-state cost is one subscribe
-  + a when-gate."
-  []
-  (let [cascade @(rf/subscribe [:rf.xray/cancellation-cascade-for-focused-machine])]
+(rf.fresco/defview ^:private SidePanelView
+  "Machines-tab side-panel mount — a FRESCO BOUNDARY (rf2-k97c.3), not
+  an `rf/reg-view`. Reads
+  `:rf.xray/cancellation-cascade-for-focused-machine` and renders only
+  when the cascade is non-empty (i.e. the focused machine had a destroy
+  in the trace window).
+
+  DORMANT COST IS UNCHANGED — still one subscription and a gate. The
+  `expanded?` read sits INSIDE the `when-not`, and `rf.fresco/sub`
+  records its edge where the read happens, so the branch not taken
+  contributes no edge.
+
+  PRIVATE; [[SidePanel]] in front of it is the public name — see the ns
+  docstring's section on the inverted bridge."
+  [_props]
+  (let [cascade (rf.fresco/sub [:rf.xray/cancellation-cascade-for-focused-machine])]
     ;; The bead's contract: mount in the side-rail WHEN a destroy
     ;; lands. Empty `:no-trigger` cascades render nothing so the
     ;; mount stays dormant most of the time.
     (when-not (= :no-trigger (:empty-kind cascade))
-      (render-cascade cascade nil))))
+      (render-cascade cascade nil
+                      (rf.fresco/sub [:rf.xray/cancellation-cascade-expanded?])))))
 
 ;; ---- popover (overlay) ---------------------------------------------------
 ;;
@@ -514,7 +590,13 @@
 
 (defn- handle-popover-keydown
   "Build the popover Esc-closes keydown handler, closing over the
-  captured frame-aware `dispatch` (rf2-nesy9)."
+  captured frame-aware `dispatch` (rf2-nesy9).
+
+  The argument is a PARAMETER and always was — it never depended on
+  `reg-view`'s lexical injection, which is why this fn survived the
+  Fresco migration untouched. [[popover-tree]] now hands it a
+  `rf/dispatch` closed over the frame captured at render time; the
+  contract is identical."
   [dispatch]
   (fn [^js e]
     (when (= "Escape" (.-key e))
@@ -522,45 +604,140 @@
       (.stopPropagation e)
       (dispatch [:rf.xray/cancellation-cascade-close]))))
 
-(rf/reg-view Popover
-  "Overlay popover mount. Reads
-  `:rf.xray/cancellation-cascade-popover-open?` and short-circuits to
-  nil when closed (one subscribe + when-gate). When open, reads
-  `:rf.xray/cancellation-cascade-for-focused-event` and renders the
-  cascade body inside the dialog."
+(defn popover-tree
+  "The OPEN popover's markup, as a pure function of the values it is
+  handed — `:cascade`, `:positioning` and `:expanded?`. The open/closed
+  gate is the CALLER's, so this never answers nil.
+
+  rf2-k97c.3 — split out of the view when the view became a Fresco
+  boundary, so the dialog stays drivable from the node lane without a
+  React commit.
+
+  THE DISPATCHES ARE FRAME-CARRYING, captured here at render time
+  (rf2-nesy9), which is what makes them correct under BOTH substrates.
+  `rf/current-frame-id` answers the declared frame inside a Fresco
+  body — it neither reads nor dispatches, so the boundary's refusal
+  tier does not touch it — and an explicitly carried `{:frame <id>}`
+  still answers, because that tier deletes the ambient FIND and not the
+  carrying. This is what replaced `reg-view`'s lexically injected bare
+  `dispatch`, which a `defview` body does not bind."
+  [{:keys [cascade positioning expanded?]}]
+  (let [frame     (rf/current-frame-id)
+        dispatch* (fn [ev] (rf/dispatch ev {:frame frame}))
+        close     (fn [_] (dispatch* [:rf.xray/cancellation-cascade-close]))]
+    ;; rf2-7oxvd — shared backdrop + dialog scaffold. This popover keeps
+    ;; its own `backdrop-style` / `dialog-style`, the backdrop -1 /
+    ;; dialog 0 tab-index split, and its `:label` accessible name (no
+    ;; visible title id — unlike the labelled-by modals). `modal-chrome`
+    ;; owns the positioning attribute, the click-outside dismiss,
+    ;; `a11y/dialog-attrs` + the `a11y/dialog-ref` focus trap. It is
+    ;; CALLED, never used as a hiccup head, so Fresco's "a plain fn in
+    ;; head position is a loud error" rule never meets it; and the
+    ;; `:ref` it installs crosses Fresco's codec untouched.
+    ;;
+    ;; Both the backdrop and the dialog get the BUILT keydown handler
+    ;; `(handle-popover-keydown dispatch*)` (rf2-op8c7). The dialog
+    ;; previously received the bare 1-arity builder, so React called the
+    ;; builder with the keydown event and discarded the handler fn it
+    ;; returned — making the dialog-level Esc a no-op. With the focus
+    ;; trap keeping focus inside the dialog, a dialog-focused Esc never
+    ;; reached the backdrop's handler, so Esc-on-dialog did not close.
+    (modal-chrome/modal-chrome
+      {:positioning          positioning
+       :backdrop-style       (backdrop-style positioning)
+       :dialog-style         (dialog-style)
+       :on-dismiss           #(dispatch* [:rf.xray/cancellation-cascade-close])
+       :label                "Cancellation cascade"
+       :backdrop-testid      "rf-xray-cancellation-cascade-popover-backdrop"
+       :dialog-testid        "rf-xray-cancellation-cascade-popover-dialog"
+       :on-backdrop-key-down (handle-popover-keydown dispatch*)
+       :on-dialog-key-down   (handle-popover-keydown dispatch*)
+       :backdrop-tab-index   -1
+       :dialog-tab-index     0}
+      (render-cascade cascade close expanded?))))
+
+(rf.fresco/defview ^:private PopoverView
+  "Overlay popover mount — a FRESCO BOUNDARY (rf2-k97c.3), not an
+  `rf/reg-view`. Reads `:rf.xray/cancellation-cascade-popover-open?`
+  and short-circuits to nil when closed. When open, reads the focused
+  event's cascade, the modal positioning and the expand flag, and hands
+  them to [[popover-tree]].
+
+  CLOSED-STATE COST IS UNCHANGED — one subscription and a gate. The
+  other three reads sit inside the `when`, and `rf.fresco/sub` records
+  its edge where the read happens, so a branch not taken contributes no
+  edge. That is Fresco's documented behaviour rather than an accident,
+  and it is why the short-circuit survived the migration intact.
+
+  PRIVATE; [[Popover]] in front of it is the public name — see the ns
+  docstring's section on the inverted bridge."
+  [_props]
+  (when (rf.fresco/sub [:rf.xray/cancellation-cascade-popover-open?])
+    (popover-tree
+      {:cascade     (rf.fresco/sub [:rf.xray/cancellation-cascade-for-focused-event])
+       :positioning (rf.fresco/sub [:rf.xray/modal-positioning])
+       :expanded?   (rf.fresco/sub [:rf.xray/cancellation-cascade-expanded?])})))
+
+;; ---- the migration bridges (rf2-k97c.3) ----------------------------------
+;;
+;; Xray's shell is still a `reg-view` tree rendered by the installed
+;; adapter. `shell.cljs` mounts `[cancellation-cascade/Popover]` as a
+;; hiccup head, and `panels.cljs`'s `render-panel!` takes both vars and
+;; mounts them the same way — neither of which a React component is, and
+;; both of those files belong to step 3 rather than to this bead.
+;;
+;; `rf.fresco/as-component` is Fresco's own outward door for exactly
+;; this: it answers a real React component for a boundary, which a React
+;; parent (UIx, Reagent or plain JavaScript) mounts UNDER THE FRAME IT IS
+;; ALREADY IN, taking the frame from React context rather than from a
+;; second root. So there is no second root here, no adapter-kind branch,
+;; and no props ABI.
+;;
+;; THIS IS SCAFFOLDING WITH A DEFINED END. When the shell is itself a
+;; Fresco tree, the two `*View` boundaries take these names directly,
+;; `[:>]` goes, and the four defs below are deleted.
+
+(def ^:private SidePanel-component
+  "The React component [[SidePanelView]] presents as, for a non-Fresco
+  parent. Declared once at top level beside the view, as
+  `rf.fresco/as-component`'s contract requires — deriving it per render
+  would mint a new component type every time and remount the panel."
+  (rf.fresco/as-component SidePanelView))
+
+(def ^:private Popover-component
+  "The React component [[PopoverView]] presents as, for a non-Fresco
+  parent. Declared once at top level, for the same reason as
+  [[SidePanel-component]]."
+  (rf.fresco/as-component PopoverView))
+
+(defn SidePanel
+  "The cancellation-cascade side panel's public callable — what
+  `panels.cljs`'s `render-panel!` chokepoint and its
+  `mount-cancellation-cascade-side-panel!` facade already hold.
+
+  Since rf2-k97c.3 it is the migration bridge rather than the view:
+  Reagent-shaped hiccup interoping to the React component
+  [[SidePanelView]] presents as. The enclosing `rf/frame-provider` is
+  what puts the frame in React context for it.
+
+  Callers wanting the MARKUP as data — the node-lane view rows — build
+  it from [[render-cascade]] with the composite's value instead; this
+  returns an interop vector, not a tree to walk."
   []
-  (when @(rf/subscribe [:rf.xray/cancellation-cascade-popover-open?])
-    (let [cascade     @(rf/subscribe [:rf.xray/cancellation-cascade-for-focused-event])
-          positioning @(rf/subscribe [:rf.xray/modal-positioning])
-          close       (fn [_]
-                        (dispatch [:rf.xray/cancellation-cascade-close]))]
-      ;; rf2-7oxvd — shared backdrop + dialog scaffold. This popover keeps
-      ;; its own `backdrop-style` / `dialog-style`, the backdrop -1 /
-      ;; dialog 0 tab-index split, and its `:label` accessible name (no
-      ;; visible title id — unlike the labelled-by modals). `modal-chrome`
-      ;; owns the positioning attribute, the click-outside dismiss,
-      ;; `a11y/dialog-attrs` + the `a11y/dialog-ref` focus trap.
-      ;;
-      ;; Both the backdrop and the dialog get the BUILT keydown handler
-      ;; `(handle-popover-keydown dispatch)` (rf2-op8c7). The dialog
-      ;; previously received the bare 1-arity builder, so React called the
-      ;; builder with the keydown event and discarded the handler fn it
-      ;; returned — making the dialog-level Esc a no-op. With the focus
-      ;; trap keeping focus inside the dialog, a dialog-focused Esc never
-      ;; reached the backdrop's handler, so Esc-on-dialog did not close.
-      (modal-chrome/modal-chrome
-        {:positioning          positioning
-         :backdrop-style       (backdrop-style positioning)
-         :dialog-style         (dialog-style)
-         :on-dismiss           #(dispatch [:rf.xray/cancellation-cascade-close])
-         :label                "Cancellation cascade"
-         :backdrop-testid      "rf-xray-cancellation-cascade-popover-backdrop"
-         :dialog-testid        "rf-xray-cancellation-cascade-popover-dialog"
-         :on-backdrop-key-down (handle-popover-keydown dispatch)
-         :on-dialog-key-down   (handle-popover-keydown dispatch)
-         :backdrop-tab-index   -1
-         :dialog-tab-index     0}
-        (render-cascade cascade close)))))
+  [:> SidePanel-component {}])
+
+(defn Popover
+  "The cancellation-cascade popover's public callable — what
+  `shell.cljs` mounts as a hiccup head and what `panels.cljs`'s
+  `mount-cancellation-cascade-popover!` facade holds.
+
+  Since rf2-k97c.3 it is the migration bridge rather than the view; see
+  [[SidePanel]], which says the same thing at more length. The
+  open/closed gate is inside [[PopoverView]], so this is always mounted
+  and renders nothing while the popover is closed — the same shape a
+  mounted `reg-view` returning nil had."
+  []
+  [:> Popover-component {}])
 
 ;; ---- registration entry --------------------------------------------------
 
@@ -568,9 +745,11 @@
   "Idempotent install for the visualiser's sub/event registrations.
   Called from `registry.cljs`'s `register-xray-handlers!` fan-out.
 
-  The view-side `reg-view`s above are picked up at ns-load (the
-  `reg-view` macro registers eagerly); this `install!` only registers
-  the subs + events under the orchestrator's idempotency sentinel."
+  The two view boundaries above are minted at ns-load (rf2-k97c.3 —
+  `rf.fresco/defview` mints its React component at definition, as
+  `rf/reg-view` registered eagerly before it); this `install!` only
+  registers the subs + events under the orchestrator's idempotency
+  sentinel."
   []
   (subs/install!)
   (events/install!)

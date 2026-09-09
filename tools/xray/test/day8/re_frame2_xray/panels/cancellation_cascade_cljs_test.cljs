@@ -69,6 +69,45 @@
                          (.startsWith prefix))))
           (hiccup-seq tree)))
 
+;; ---- the two views, as trees (rf2-k97c.3) --------------------------------
+;;
+;; `cc/SidePanel` and `cc/Popover` are now `rf.fresco/as-component`
+;; bridges and answer an interop vector, not a tree to walk. The markup
+;; is `cc/render-cascade` / `cc/popover-tree`, pure fns of the values the
+;; boundary reads.
+;;
+;; The two helpers below reproduce each boundary's gate and reads
+;; EXACTLY — same gate, same order, same query vectors — so every row in
+;; this file asserts on the same hiccup it did before, and a boundary
+;; that stopped reading one of these subs would diverge from its own
+;; test helper rather than silently agreeing with it.
+;;
+;; These are deliberately the AMBIENT `rf/subscribe`, because these rows
+;; run under `rf/with-frame :rf/xray` in the node lane with no React
+;; commit at all. What each boundary's own read resolves to — the frame
+;; React context names, not the ambient one — is the subject of
+;; `cancellation_cascade_fresco_boundary_dom_cljs_test`, which mounts
+;; for real.
+
+(defn- side-panel-tree
+  "What calling the SidePanel var directly returned before the
+  migration: nil while dormant, the cascade block otherwise."
+  []
+  (let [cascade @(rf/subscribe [:rf.xray/cancellation-cascade-for-focused-machine])]
+    (when-not (= :no-trigger (:empty-kind cascade))
+      (cc/render-cascade
+        cascade nil @(rf/subscribe [:rf.xray/cancellation-cascade-expanded?])))))
+
+(defn- popover-tree
+  "What calling the Popover var directly returned before the migration:
+  nil while closed, the dialog otherwise."
+  []
+  (when @(rf/subscribe [:rf.xray/cancellation-cascade-popover-open?])
+    (cc/popover-tree
+      {:cascade     @(rf/subscribe [:rf.xray/cancellation-cascade-for-focused-event])
+       :positioning @(rf/subscribe [:rf.xray/modal-positioning])
+       :expanded?   @(rf/subscribe [:rf.xray/cancellation-cascade-expanded?])})))
+
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray}))
@@ -123,7 +162,7 @@
             nil (mount stays dormant)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      (let [out (cc/SidePanel)]
+      (let [out (side-panel-tree)]
         (is (nil? out)
             "no rendered hiccup when no cancellation cascade is present")))))
 
@@ -131,7 +170,7 @@
   (testing "Popover short-circuits to nil when the open? slot is false"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      (is (nil? (cc/Popover))))))
+      (is (nil? (popover-tree))))))
 
 (deftest popover-renders-empty-state-when-open-with-no-cascade
   (testing "Popover renders the no-trigger empty state when open but
@@ -139,7 +178,7 @@
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
-      (let [tree (cc/Popover)]
+      (let [tree (popover-tree)]
         (is (some? (find-by-testid tree "rf-xray-cancellation-cascade-popover-dialog")))
         (is (some? (find-by-testid tree "rf-xray-cancellation-cascade-empty-no-trigger")))))))
 
@@ -153,7 +192,7 @@
       (seed-trace! cancel-cascade-buffer)
       ;; Pick the machine that had the destroy
       (rf/dispatch-sync [:rf.xray/select-machine-id :user-session])
-      (let [tree (cc/SidePanel)]
+      (let [tree (side-panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-cancellation-cascade"))
             "section root rendered")
         (is (some? (find-by-testid tree "rf-xray-cancellation-cascade-decision-row"))
@@ -184,7 +223,7 @@
       (seed-trace! cancel-cascade-buffer)
       (rf/dispatch-sync [:rf.xray/cancellation-cascade-open
                          {:kind :dispatch-id :id 7}])
-      (let [tree (cc/Popover)]
+      (let [tree (popover-tree)]
         (is (some? (find-by-testid tree "rf-xray-cancellation-cascade-popover-dialog")))
         (is (some? (find-by-testid tree "rf-xray-cancellation-cascade-decision-row")))
         (is (= 2 (count (find-all-by-testid-prefix
@@ -297,7 +336,7 @@
         (seed-trace! (concat [decision destroy] many-aborts))
         (rf/dispatch-sync [:rf.xray/cancellation-cascade-open
                            {:kind :dispatch-id :id 9}])
-        (let [tree (cc/Popover)]
+        (let [tree (popover-tree)]
           (is (some? (find-by-testid tree "rf-xray-cancellation-cascade-expander"))
               "expander present when collapsed-by-default kicks in")
           (let [shown-when-collapsed
@@ -331,7 +370,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil]))
     (rf/with-frame :rf/xray
-      (let [tree     (cc/Popover)
+      (let [tree     (popover-tree)
             backdrop (find-by-testid tree "rf-xray-cancellation-cascade-popover-backdrop")
             style    (:style (second backdrop))]
         (is (some? backdrop))
@@ -349,7 +388,7 @@
       (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
       (rf/dispatch-sync [:rf.xray/set-modal-positioning :absolute]))
     (rf/with-frame :rf/xray
-      (let [tree     (cc/Popover)
+      (let [tree     (popover-tree)
             backdrop (find-by-testid tree "rf-xray-cancellation-cascade-popover-backdrop")
             style    (:style (second backdrop))]
         (is (some? backdrop))
@@ -390,7 +429,7 @@
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
-      (let [tree     (cc/Popover)
+      (let [tree     (popover-tree)
             dialog   (find-by-testid tree "rf-xray-cancellation-cascade-popover-dialog")
             on-key   (:on-key-down (second dialog))
             captured (atom nil)]
@@ -407,7 +446,7 @@
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
-      (let [tree     (cc/Popover)
+      (let [tree     (popover-tree)
             dialog   (find-by-testid tree "rf-xray-cancellation-cascade-popover-dialog")
             on-key   (:on-key-down (second dialog))
             captured (atom nil)]
@@ -464,7 +503,7 @@
       (seed-trace! cancel-cascade-buffer)
       (rf/dispatch-sync [:rf.xray/cancellation-cascade-open
                          {:kind :dispatch-id :id 7}])
-      (let [tree         (cc/Popover)
+      (let [tree         (popover-tree)
             teardowns    (raw-find-by-testid tree "rf-xray-cancellation-cascade-teardowns")
             aborts       (raw-find-by-testid tree "rf-xray-cancellation-cascade-aborts")
             keyed-children (fn [container]
