@@ -2829,11 +2829,12 @@ The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-State
    ;; [005 §State tags §Snapshot shape change]
    ;; (005-StateMachines.md#snapshot-shape-change)).
    [:tags     {:optional true} [:set :keyword]]
-   ;; :rf/spawn-counter is the per-machine-id integer map the runtime uses
+   ;; :rf/spawn-counter is the per-id-prefix integer map the runtime uses
    ;; to deterministically allocate spawned-actor ids inside a pure
    ;; machine-transition call. Each declarative `:spawn` bump increments
-   ;; the slot under the spawned child's `:machine-id`; the bumped value
-   ;; is the suffix on the allocated id (`<machine-id>#<n>`). The slot is
+   ;; the slot under the spawn-spec's `:id-prefix` — which defaults to the
+   ;; spawned child's `:machine-id` when the spec supplies none; the bumped
+   ;; value is the suffix on the allocated id (`<id-prefix>#<n>`). The slot is
    ;; runtime-owned (`:rf/`-namespaced) — user code MUST NOT write to it.
    ;; Seeded as `{}` by the runtime when a machine first comes into being
    ;; (`synthesise-initial-snapshot`); pure-call snapshots (the conformance

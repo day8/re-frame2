@@ -67,8 +67,13 @@
   "Hand-emitted-spawn fallback allocator. When the spawn args
   carry no pre-allocated id (no `:fixed-actor-id`, no `:rf/spawned-id`), this
   fn bumps the frame's runtime-db counter at
-  `[:rf.runtime/machines :spawn-counter <machine-id>]` and returns
-  `[new-runtime-db spawned-id]`. The allocator lives where the side-effect
+  `[:rf.runtime/machines :spawn-counter <id-prefix>]` and returns
+  `[new-runtime-db spawned-id]`, where `<id-prefix>` is the spawn args'
+  `:id-prefix` and `:machine-id` is only its FALLBACK — `spawn-fx` resolves
+  the pair with `(or (:id-prefix args) (:machine-id args))` and passes the
+  winner in as this fn's `machine-id` parameter. So a hand-emitted spawn
+  carrying an `:id-prefix` is sequenced under that prefix, not under its
+  machine-id. The allocator lives where the side-effect
   belongs — inside the fx-handler's runtime-db swap — so the pure transition
   layer stays effect-free. The counter sits under the
   `:rf.runtime/machines` sub-container of the durable runtime-db partition

@@ -15,7 +15,7 @@
     - Declarative :spawn that desugars into [:rf.machine/spawn args]
       on entry and [:rf.machine/destroy actor-id] on exit; deterministic
       actor ids via the in-snapshot :rf/spawn-counter (declarative) / the
-      frame's runtime-db [:rf.runtime/machines :spawn-counter <machine-id>]
+      frame's runtime-db [:rf.runtime/machines :spawn-counter <id-prefix>]
       slot (hand-emitted) — no process-global state.
     - Declarative :spawn-all — spawn-and-join sugar over N parallel
       :spawn's plus a closed two-member join condition (:all / :any).
@@ -78,7 +78,7 @@
 
 ;; Declarative spawns allocate ids in the parent snapshot's
 ;; `:rf/spawn-counter`; hand-emitted spawns use the frame's runtime-db
-;; `[:rf.runtime/machines :spawn-counter <machine-id>]` slot.
+;; `[:rf.runtime/machines :spawn-counter <id-prefix>]` slot.
 
 (def reg-machine*           rf.machines.lifecycle-fx.registration/reg-machine*)
 (def make-machine-handler rf.machines.lifecycle-fx.registration/make-machine-handler)
@@ -222,7 +222,7 @@
 
   Spawn-id allocation lives inside the parent snapshot's
   `:rf/spawn-counter` slot (declarative `:spawn`) or the frame's
-  runtime-db at `[:rf.runtime/machines :spawn-counter <machine-id>]`
+  runtime-db at `[:rf.runtime/machines :spawn-counter <id-prefix>]`
   (hand-emitted spawn); both reset automatically with the registrar
   snapshot/restore + frame reset, so this hook only handles the
   frame-scoped wall-clock timer table. The 0-arity / 1-arity split
