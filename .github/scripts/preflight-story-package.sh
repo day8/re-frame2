@@ -36,6 +36,17 @@
 #      A rewrite that fired with the wrong value is as broken as one that
 #      did not fire — and per spec/Conventions.md §Packaging conventions
 #      every published artefact ships at the repo-root VERSION.
+#   4. the Xray edge still EXCLUDES day8/reagent-slim (rf2-qvyr / rf2-iz4x).
+#      Without it a published Story consumer resolves TWO providers of the
+#      canonical `re-frame.adapter.reagent` ns — stock day8/re-frame2-reagent
+#      direct, and reagent-slim transitively through Xray, which
+#      transform-reagent-slim-ns.sh renames onto that same path at
+#      publication — and classpath order picks the adapter. Nothing else in
+#      the tree can see this: `clojure -Stree` exits 0 over the colliding
+#      graph and a complete pom is equally consistent with it, so the
+#      instruments that look authoritative are the blind ones. The exclusion
+#      reads as tidy-up to anyone meeting it cold, so this is the assertion
+#      that keeps it in place across a release.
 #
 # Third-party versions (clojure, reagent, malli) are asserted NON-EMPTY
 # but never equal to a literal: org.clojure/clojure floats with whatever
@@ -113,6 +124,13 @@ THIRD_PARTY = {
 
 EXPECTED = IN_REPO | THIRD_PARTY
 
+# Exclusions that MUST survive onto an edge of the published pom. See
+# assertion 4 in the header, and the load-bearing comment on the
+# day8/re-frame2-xray coordinate in tools/story/deps.edn.
+REQUIRED_EXCLUSIONS = {
+    ("day8", "re-frame2-xray"): ("day8", "reagent-slim"),
+}
+
 MISSING_HINT = {
     coord: (
         " NB: `clein pom` SKIPS :local/root coordinates outright, so this is"
@@ -149,6 +167,20 @@ def child_text(parent, name):
     return ""
 
 
+def child_exclusions(dep):
+    """The (groupId, artifactId) set named by this <dependency>'s
+    <exclusions> block, empty when it has none."""
+    found = set()
+    for container in dep:
+        if localname(container.tag) != "exclusions":
+            continue
+        for el in container:
+            if localname(el.tag) == "exclusion":
+                found.add((child_text(el, "groupId"),
+                           child_text(el, "artifactId")))
+    return found
+
+
 errors = []
 
 try:
@@ -168,6 +200,7 @@ for container in root:
     )
 
 declared = {}
+excluded = {}
 for index, dep in enumerate(dependencies, start=1):
     gav = {name: child_text(dep, name)
            for name in ("groupId", "artifactId", "version")}
@@ -182,6 +215,7 @@ for index, dep in enumerate(dependencies, start=1):
             )
     if gav["groupId"] and gav["artifactId"]:
         declared[(gav["groupId"], gav["artifactId"])] = gav["version"]
+        excluded[(gav["groupId"], gav["artifactId"])] = child_exclusions(dep)
 
 declared_set = set(declared)
 
@@ -212,6 +246,23 @@ for coord in sorted(IN_REPO & declared_set):
             % (coord[0], coord[1], found, version)
         )
 
+# The Xray edge keeps its reagent-slim exclusion. Only checked on edges the
+# pom actually declares — an absent one is already reported above.
+for coord, unwanted in sorted(REQUIRED_EXCLUSIONS.items()):
+    if coord in declared_set and unwanted not in excluded[coord]:
+        errors.append(
+            "dependency %s/%s does not EXCLUDE %s/%s. That exclusion is"
+            " LOAD-BEARING (rf2-qvyr): without it a consumer whose only tool"
+            " coordinate is day8/re-frame2-story resolves TWO providers of"
+            " re-frame.adapter.reagent — day8/re-frame2-reagent directly, and"
+            " reagent-slim transitively, which transform-reagent-slim-ns.sh"
+            " renames onto that same canonical namespace at publication — so"
+            " nothing but classpath order decides which adapter the app gets."
+            " Restore the :exclusions on the day8/re-frame2-xray coordinate in"
+            " tools/story/deps.edn; it is not tidy-up."
+            % (coord[0], coord[1], unwanted[0], unwanted[1])
+        )
+
 for message in errors:
     print("::error::preflight: %s" % message)
 
@@ -222,6 +273,8 @@ print("preflight: pom declares exactly the expected dependency set")
 print("  in-repo (at lockstep %s): %s"
       % (version, ", ".join("%s/%s" % c for c in sorted(IN_REPO))))
 print("  third-party: %s" % ", ".join("%s/%s" % c for c in sorted(THIRD_PARTY)))
+for coord, unwanted in sorted(REQUIRED_EXCLUSIONS.items()):
+    print("  %s/%s excludes %s/%s" % (coord + unwanted))
 PYTHON
 then
   echo "::error::preflight: Story published-package verification FAILED — ABORTING before clein deploy touches Clojars"

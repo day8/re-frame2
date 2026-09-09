@@ -52,12 +52,24 @@ function test(name, fn) {
 
 // ── Pom fixtures ────────────────────────────────────────────────────────
 
-function dep(groupId, artifactId, version) {
+// `exclusions` is a list of [groupId, artifactId] pairs. The emitted shape
+// is verbatim what `clein pom` writes for a deps.edn `:exclusions` vector.
+function dep(groupId, artifactId, version, exclusions = []) {
   return [
     '    <dependency>',
     `      <groupId>${groupId}</groupId>`,
     `      <artifactId>${artifactId}</artifactId>`,
     `      <version>${version}</version>`,
+    ...(exclusions.length === 0 ? [] : [
+      '      <exclusions>',
+      ...exclusions.flatMap(([g, a]) => [
+        '        <exclusion>',
+        `          <groupId>${g}</groupId>`,
+        `          <artifactId>${a}</artifactId>`,
+        '        </exclusion>',
+      ]),
+      '      </exclusions>',
+    ]),
     '    </dependency>',
   ].join('\n');
 }
@@ -92,8 +104,23 @@ const IN_REPO_NAMES = [
   're-frame2-xray',
 ];
 
+// Story excludes reagent-slim from its Xray edge (rf2-qvyr). It is
+// load-bearing — without it a published Story consumer resolves TWO
+// providers of re-frame.adapter.reagent — so the preflight asserts it and
+// the CORRECT fixture must carry it.
+const XRAY_EXCLUSIONS = [['day8', 'reagent-slim']];
+
+// Pass `{ exclusions: [...] }` to override; by default the Xray coordinate
+// carries its exclusion and every other in-repo coordinate carries none.
+function inRepoDep(name, version = VERSION, { exclusions } = {}) {
+  const excl = exclusions !== undefined
+    ? exclusions
+    : (name === 're-frame2-xray' ? XRAY_EXCLUSIONS : []);
+  return dep('day8', name, version, excl);
+}
+
 function inRepoDeps(version = VERSION) {
-  return IN_REPO_NAMES.map((name) => dep('day8', name, version));
+  return IN_REPO_NAMES.map((name) => inRepoDep(name, version));
 }
 
 // What a CORRECTLY rewritten deps.edn produces: all five in-repo
@@ -211,7 +238,7 @@ test('a pom missing ONLY Xray fails — the rf2-r8trk edge at the package bounda
   // never extended to the new coordinate produces exactly this pom.
   const deps = [...THIRD_PARTY, ...IN_REPO_NAMES
     .filter((n) => n !== 're-frame2-xray')
-    .map((n) => dep('day8', n, VERSION))];
+    .map((n) => inRepoDep(n))];
   expectFail(
     makeFixture({ pom: pomWith(deps) }),
     'pom missing only Xray',
@@ -223,7 +250,7 @@ test('a pom missing ONLY Xray fails — the rf2-r8trk edge at the package bounda
 
 test('an in-repo dep at the WRONG version fails', () => {
   const deps = [...THIRD_PARTY, ...IN_REPO_NAMES.map(
-    (n) => dep('day8', n, n === 're-frame2-http' ? '0.0.0.stale' : VERSION),
+    (n) => inRepoDep(n, n === 're-frame2-http' ? '0.0.0.stale' : VERSION),
   )];
   expectFail(
     makeFixture({ pom: pomWith(deps) }),
@@ -232,11 +259,45 @@ test('an in-repo dep at the WRONG version fails', () => {
   );
 });
 
+// ── The reagent-slim exclusion on the Xray edge (rf2-iz4x) ──────────────
+//
+// The deletion this guards against looks like tidy-up to anyone meeting the
+// exclusion cold, and the failure it prevents is silent at build time: the
+// consumer just gets the wrong adapter. `clojure -Stree` and a complete pom
+// are both entirely consistent with the colliding graph (rf2-qvyr), so this
+// assertion is the only thing standing over it.
+
+test('an Xray edge that has LOST its reagent-slim exclusion fails', () => {
+  const deps = [...THIRD_PARTY, ...IN_REPO_NAMES.map(
+    (n) => inRepoDep(n, VERSION, { exclusions: [] }),
+  )];
+  expectFail(
+    makeFixture({ pom: pomWith(deps) }),
+    'xray edge without its exclusion',
+    /day8\/re-frame2-xray does not EXCLUDE day8\/reagent-slim.*LOAD-BEARING/s,
+  );
+});
+
+test('the exclusion must sit on the XRAY edge, not merely somewhere in the pom', () => {
+  // An exclusion parked on the wrong coordinate excludes nothing that
+  // matters — Maven scopes <exclusions> to the dependency carrying them.
+  const deps = [...THIRD_PARTY, ...IN_REPO_NAMES.map((n) => {
+    if (n === 're-frame2-xray') return inRepoDep(n, VERSION, { exclusions: [] });
+    if (n === 're-frame2-machines') return inRepoDep(n, VERSION, { exclusions: XRAY_EXCLUSIONS });
+    return inRepoDep(n);
+  })];
+  expectFail(
+    makeFixture({ pom: pomWith(deps) }),
+    'exclusion on the wrong edge',
+    /day8\/re-frame2-xray does not EXCLUDE day8\/reagent-slim/,
+  );
+});
+
 // ── Incomplete + unexpected coordinates ─────────────────────────────────
 
 test('an empty <version> fails — an incomplete GAV is unresolvable', () => {
   const deps = [...THIRD_PARTY, ...IN_REPO_NAMES.map(
-    (n) => dep('day8', n, n === 're-frame2-machines' ? '' : VERSION),
+    (n) => inRepoDep(n, n === 're-frame2-machines' ? '' : VERSION),
   )];
   expectFail(
     makeFixture({ pom: pomWith(deps) }),
