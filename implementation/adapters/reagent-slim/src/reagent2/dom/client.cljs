@@ -104,7 +104,7 @@
 ;; Implementation note on `react/act`: `act` is a top-level export of
 ;; `react` from 18.3 onward, and the repository's React floor is 19
 ;; (`implementation/package.json` + its lock pin react / react-dom
-;; 19.2.0; generated consumers are pinned to the same version by
+;; 19.3.0; generated consumers are pinned to the same version by
 ;; `tools/template/src/day8/re_frame2_template/hooks.clj`, held in
 ;; lockstep by `version_lockstep_test.clj`). So `(.-act react)` is the
 ;; ONE lookup on every supported tree, and the pre-18.3
@@ -127,7 +127,7 @@
   next `flush-views!`.
 
   React-19 floor (rf2-uuzkp, rf2-6r9j.35). `(.-act react)` is the ONE
-  lookup: the repository pins react / react-dom 19.2.0 and generated
+  lookup: the repository pins react / react-dom 19.3.0 and generated
   consumers with it, so the pre-18.3 `react-dom/test-utils` location is
   below the floor and probing it would buy nothing. A nil result therefore
   means React's PRODUCTION bundle (which omits `act` by design), and

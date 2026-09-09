@@ -46,7 +46,7 @@
     - `boolean-attr-class` /
       `boolean-attrs` /
       `booleanish-attrs` /
-      `overloaded-boolean-attrs`  — the react-dom 19.2.0 boolean
+      `overloaded-boolean-attrs`  — the react-dom 19.3.0 boolean
                                     attribute-value classes (Spec 004B
                                     §Booleans and their neighbours). ONE
                                     roster, read by BOTH the hiccup
@@ -595,7 +595,7 @@
 
 (def boolean-attrs
   "HTML boolean attributes: `true` → presence, `false`/absent → omitted.
-  Tracks react-dom 19.2.0 (004B §Booleans and their neighbours); keyed by
+  Tracks react-dom 19.3.0 (004B §Booleans and their neighbours); keyed by
   the hyphen-collapsed lowercase author name.
 
   Pinned against react-dom's measured output, not against a restatement of
@@ -611,7 +611,7 @@
 
 (def booleanish-attrs
   "`true`/`false` → `\"true\"`/`\"false\"`, never omitted. Tracks react-dom
-  19.2.0.
+  19.3.0.
 
   Beyond the three HTML names, react-dom stringifies four SVG attributes the
   same way — `autoReverse`, `externalResourcesRequired`, `focusable`,
@@ -625,7 +625,7 @@
 
 (def overloaded-boolean-attrs
   "`true` → bare presence, `false` → omitted, any other value stringifies.
-  Tracks react-dom 19.2.0."
+  Tracks react-dom 19.3.0."
   #{"download" "capture"})
 
 (defn presence-value-truthy?

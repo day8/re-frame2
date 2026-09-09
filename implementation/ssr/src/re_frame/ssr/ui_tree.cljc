@@ -109,7 +109,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def standard-names
-  "react-dom 19.2.0 `possibleStandardNames`, reduced to non-identity
+  "react-dom 19.3.0 `possibleStandardNames`, reduced to non-identity
   entries and keyed by both the kebab and the hyphen-collapsed lowercase
   form. Lookup rule (`react-prop-name`): data-*/aria-* verbatim; exact key
   hit; collapsed-key hit; else verbatim (React's unrecognized-name
@@ -263,6 +263,7 @@
    "markerunits" "markerUnits"
    "markerwidth" "markerWidth"
    "maskcontentunits" "maskContentUnits"
+   "masktype" "maskType"
    "maskunits" "maskUnits"
    "maxlength" "maxLength"
    "mediagroup" "mediaGroup"
@@ -474,17 +475,17 @@
 ;; each serialiser keeps its own attribute-name handling and escape.
 (def boolean-attrs
   "HTML boolean attributes: true -> presence (attr=\"\"), false/absent ->
-  omitted. Tracks react-dom 19.2.0; keyed by the hyphen-collapsed
+  omitted. Tracks react-dom 19.3.0; keyed by the hyphen-collapsed
   lowercase author name."
   rf.ssr.html-helpers/boolean-attrs)
 
 (def booleanish-attrs
-  "true/false -> \"true\"/\"false\", never omitted. Tracks react-dom 19.2.0."
+  "true/false -> \"true\"/\"false\", never omitted. Tracks react-dom 19.3.0."
   rf.ssr.html-helpers/booleanish-attrs)
 
 (def overloaded-boolean-attrs
   "true -> bare presence, false -> omitted, other values stringify.
-  Tracks react-dom 19.2.0."
+  Tracks react-dom 19.3.0."
   rf.ssr.html-helpers/overloaded-boolean-attrs)
 
 (def property-only-attrs
