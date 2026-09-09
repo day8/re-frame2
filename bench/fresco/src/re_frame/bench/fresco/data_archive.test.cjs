@@ -4,11 +4,11 @@
 // Run it:
 //     node src/re_frame/bench/fresco/data_archive.test.cjs
 //
-// The corpus lives outside the working tree, at a commit older than the
-// Hicasso → Fresco rename, and BOTH things it fixes about itself — the path it
-// sits at, and the vocabulary its records are written in — are beyond the
-// reach of any commit on main. PR #9568 renamed the pointer at both and left
-// the target where it was, which is how two failures shipped green:
+// The corpus lives outside the working tree, at a commit older than the rename
+// that gave this tree its name (rf2-d1nr.2), and BOTH things it fixes about
+// itself — the path it sits at, and the vocabulary its records are written in —
+// are beyond the reach of any commit on main. PR #9568 renamed the pointer at
+// both and left the target where it was, which is how two failures shipped green:
 //
 //   1. The advertised restore command named a path that does not exist in the
 //      archived commit and exited 1. Nothing ran it, so nothing said so.
@@ -125,7 +125,9 @@ corpusTest('the archived alloc-0gjqi record reads its FULL published population'
 corpusTest('the archived corpus really is in the OLD vocabulary — so the translation is doing work', () => {
   // The control for the check above: without this, a corpus that had somehow
   // been rewritten in the current vocabulary would pass it while proving
-  // nothing about the boundary.
+  // nothing about the boundary. It has to spell the archived arm key as the
+  // archived bytes spell it, so the assertion line is carried by
+  // `PRODUCT_EXEMPTIONS` in `scripts/check_retired_spellings.py`.
   const raw = fs.readFileSync(path.join(archive.DATA, 'alloc-0gjqi', 'paired-run1.json'), 'utf8');
   assert.ok(raw.includes('lad/hicasso'), 'the archived record names the arm as it was named when the run was taken');
   assert.ok(!raw.includes('lad/fresco'), 'and does not name it as it is named now');

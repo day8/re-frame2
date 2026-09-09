@@ -21,14 +21,15 @@
 // corpus were fixed on the day it was archived and cannot be changed by any
 // commit on main:
 //
-//   * ITS PATH. The corpus was archived BEFORE the Hicasso → Fresco rename, so
-//     inside `ARCHIVE_SHA` it sits under `ARCHIVE_PATH` below. A directory
-//     rename on main cannot rename a path inside an older commit, and
-//     `git restore --source=<sha> -- <path>` has no source/destination split
-//     to bridge the two — it resolves the path in the OLD tree and fails with
-//     `pathspec ... did not match any file(s) known to git`. So the restore
-//     reads the archived path and writes the current one, which is what
-//     `restore()` does.
+//   * ITS PATH. The corpus was archived BEFORE the rename that gave this tree
+//     its name, so inside `ARCHIVE_SHA` it sits under the former name —
+//     `ARCHIVE_PATH` below, which is the one place that path is spelled. A
+//     directory rename on main cannot rename a path inside an older commit,
+//     and `git restore --source=<sha> -- <path>` has no source/destination
+//     split to bridge the two — it resolves the path in the OLD tree and
+//     fails with `pathspec ... did not match any file(s) known to git`. So
+//     the restore reads the archived path and writes the current one, which
+//     is what `restore()` does.
 //
 //   * ITS VOCABULARY. Every record in it names the product as it was named
 //     when the run was taken. A reader that addresses an arm, a segment or a
@@ -59,7 +60,10 @@ const ARCHIVE_SHA = '7b492b98cb';
 
 /**
  * The corpus's path INSIDE that commit. Pre-rename, and necessarily so: the
- * commit is older than the rename. See the header.
+ * commit is older than the rename. See the header. The retired name is load
+ * bearing here and cannot be spelled any other way, so this line is carried by
+ * `PRODUCT_EXEMPTIONS` in `scripts/check_retired_spellings.py` — the construct,
+ * not the file, so new prose around it is still graded.
  */
 const ARCHIVE_PATH = 'bench/hicasso/src/re_frame/bench/hicasso/data';
 
@@ -132,13 +136,17 @@ const restore = () => {
 };
 
 /**
- * THE ARCHIVED VOCABULARY, TRANSLATED. The corpus predates the Hicasso →
- * Fresco rename, so its arm keys (`reagent-subs|lad/hicasso#R7@page`), its
- * segment names, its `arm`/`pairKey`/`build` values and its env-var mentions
- * all carry the old token. This is the same three-form token substitution the
- * rename applied to source, applied to an archived record on the way in — so a
- * reader written against the current vocabulary reads the whole population,
- * and a record a driver wrote TODAY passes through unchanged.
+ * THE ARCHIVED VOCABULARY, TRANSLATED. The corpus predates the rename that gave
+ * this tree its name, so its arm keys (the `lad/…` segment of a key spelled
+ * `reagent-subs|lad/…#R7@page`), its segment names, its `arm`/`pairKey`/`build`
+ * values and its env-var mentions all carry the old token. This is the same
+ * three-form token substitution the rename applied to source, applied to an
+ * archived record on the way in — so a reader written against the current
+ * vocabulary reads the whole population, and a record a driver wrote TODAY
+ * passes through unchanged.
+ *
+ * The three rows below ARE the retired spellings, so they too are carried by
+ * `PRODUCT_EXEMPTIONS` in `scripts/check_retired_spellings.py`, per construct.
  */
 const LEGACY_TOKENS = [
   ['hicasso', 'fresco'],

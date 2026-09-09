@@ -61,11 +61,13 @@ node bench/fresco/src/re_frame/bench/fresco/data_archive.cjs --restore
 ```
 
 It is a script rather than a bare `git restore` because the archive is older than the
-Hicasso to Fresco rename (rf2-d1nr.2), so inside that commit the corpus sits at
-`bench/hicasso/src/re_frame/bench/hicasso/data` — a rename on main cannot rename a path
-inside an older commit, and `git restore --source=<sha> -- <path>` has no source/
-destination split to bridge the two. `data_archive.cjs` reads the archived path, writes
-the current one, and touches only the working tree. That string is the ONE spelling of
+rename that gave this tree its name (rf2-d1nr.2), so inside that commit the corpus sits
+under the tree's former name — `ARCHIVE_PATH` in `data_archive.cjs` is the one place that
+path is written down, and it is written down once for the same reason the restore command
+is. A rename on main cannot rename a path inside an older commit, and
+`git restore --source=<sha> -- <path>` has no source/destination split to bridge the two.
+`data_archive.cjs` reads the archived path, writes the current one, and touches only the
+working tree. That string is the ONE spelling of
 the operation: the module header and the printed skip line quote the same constant, and
 `data_archive.test.cjs` holds all three together.
 
