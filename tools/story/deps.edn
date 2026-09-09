@@ -64,7 +64,37 @@
          ;; neither reaches a production bundle, so bundle-isolation is
          ;; unaffected (that gate forbids `implementation/` → `tools/`,
          ;; not `tools/story` → `tools/xray`).
-         day8/re-frame2-xray     {:local/root "../xray"}
+         ;;
+         ;; THE :exclusions IS LOAD-BEARING — do not drop it (rf2-qvyr).
+         ;; Xray declares `day8/reagent-slim` as its default transitive
+         ;; adapter (tools/xray/deps.edn, "Reagent Slim supplies the default
+         ;; transitive adapter"), and at PUBLICATION
+         ;; .github/scripts/transform-reagent-slim-ns.sh renames the slim
+         ;; adapter onto the CANONICAL `re-frame.adapter.reagent` ns — the
+         ;; very path `day8/re-frame2-reagent` (line 16 above) already ships.
+         ;; Without this exclusion a consumer whose only tool coordinate is
+         ;; `day8/re-frame2-story` resolves BOTH jars, both carrying
+         ;; `re_frame/adapter/reagent.cljs`, and nothing but classpath order
+         ;; decides which adapter the app gets. That is exactly the
+         ;; assumption release.yml states it relies on — "downstream apps
+         ;; depend on EXACTLY ONE of {day8/re-frame2-reagent,
+         ;; day8/reagent-slim} so the adapter ns is single-source per app".
+         ;; Resolution cannot see this: `clojure -P` / `-Stree` and a
+         ;; complete pom all go green on the colliding graph, because they
+         ;; prove the GAVs exist, not that they provide disjoint namespaces.
+         ;;
+         ;; THE STATED REPLACEMENT (this is a re-point, not a silent drop):
+         ;; Story supplies the substrate adapter for its embedded Xray
+         ;; itself, through the `day8/re-frame2-reagent` coordinate on line
+         ;; 16. Xray renders through `re-frame.substrate.adapter` and the
+         ;; adapter the HOST installs governs the runtime path, so Xray is
+         ;; fully served by Story's stock-Reagent adapter; Xray's src
+         ;; requires neither `reagent2.*` nor the adapter ns. Xray's own
+         ;; deps.edn is deliberately UNTOUCHED, so a standalone
+         ;; `day8/re-frame2-xray` consumer still gets reagent-slim by
+         ;; default — this narrows Story's edge only.
+         day8/re-frame2-xray     {:local/root "../xray"
+                                  :exclusions [day8/reagent-slim]}
 
          ;; Malli drives Story's three-level args / argtypes auto-derivation
          ;; from Spec 010 schemas (see IMPL-SPEC §4 + §5.2). Malli is
