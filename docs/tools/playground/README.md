@@ -127,7 +127,7 @@ The Phase-3 re-frame2 eval bundle (`sci/`) pins:
 | `day8/re-frame2` (core) | `:local/root` | the public API exposed to cells (`re-frame.core` v2) |
 | `day8/reagent-slim` | `:local/root` | reagent2 (the render substrate) + the `reagent-slim` adapter |
 | `day8/re-frame2-machines` | `:local/root` | Spec 005 state-machine artefact (rf2-ldgpd) — activates `reg-machine` / `subscribe [:rf/machine …]` (and the `[:rf.machine/has-tag? …]` sub) for ch12 live cells |
-| `react` + `react-dom` | 19.2.0 | **bundled** into `playground-rf2.js` (React 19 has no UMD) |
+| `react` + `react-dom` | 19.3.0 | **bundled** into `playground-rf2.js` (React 19 has no UMD) |
 | `shadow-cljs` | 3.4.10 | the CLJS → `:advanced` browser bundler |
 
 ## Build

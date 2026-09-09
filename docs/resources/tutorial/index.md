@@ -77,7 +77,7 @@ conduit/
 {"name": "conduit",
  "private": true,
  "scripts": {"dev": "shadow-cljs watch app"},
- "dependencies": {"react": "19.2.0", "react-dom": "19.2.0"},
+ "dependencies": {"react": "19.3.0", "react-dom": "19.3.0"},
  "devDependencies": {"shadow-cljs": "3.4.10",
                      "@xyflow/react": "12.4.2",
                      "elkjs": "^0.11.1"}}
