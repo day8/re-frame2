@@ -68,10 +68,13 @@ const CASES = [
   { what: 'an ellipsis', s: `loading${ELLIPSIS}`, units: 8, bytes: 10 },
   { what: 'an astral-plane character', s: `a${CLEF}b`, units: 4, bytes: 6 },
   {
+    // COUNTED FROM THE STRING BELOW, not from a remembered figure: the
+    // title carries the product name, so a rename moves both numbers
+    // (rf2-d1nr.2 — `Hicasso` to `Fresco` cost one code unit and one byte).
     what: 'the corpus mix — a title, a fallback and a clef',
     s: `<title>Fresco SSR ${EM_DASH} defhost</title><span>loading${ELLIPSIS}</span>${CLEF}`,
-    units: 59,
-    bytes: 65,
+    units: 58,
+    bytes: 64,
   },
 ];
 
