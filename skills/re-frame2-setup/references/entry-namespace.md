@@ -69,9 +69,9 @@ src/acme/my_app/
 
 ## UIx greenfield
 
-This skill scaffolds against **Reagent**. An explicit UIx request is the **same twelve-file project with three files swapped** — the template's `:substrate :uix` emission. `deps.edn` trades the Reagent adapter + `reagent/reagent` for the UIx adapter + `com.pitch/uix.core` / `uix.dom`; `core.cljs` mounts through `uix.dom`'s root API with the adapter's `frame-root` as a `$` element; `views.cljs` is `defui` + `$`, because UIx has **no auto-injection** — components read subscriptions through the adapter's `use-sub` hook and get `dispatch` off `use-frame` (capture-frame in hook position, destructured once per render). The other nine files — `package.json`, `shadow-cljs.edn`, `.gitignore`, `index.html`, `app.css`, `events.cljs`, `subs.cljs`, `events_test.cljs`, `README.md` — are identical to the Reagent scaffold, bar the display label: the generator writes `UIx` where `package.json`'s `description` and the README's first sentence say `Reagent`, and that one-word swap is the whole difference. The dataflow is a framework concern, not a substrate one, and no Xray, schema or devtools piece rides either route. Do **not** reach for the Reagent `rf/reg-view` views on a UIx app, and do not re-derive the events or subs per substrate.
+This skill scaffolds against **Reagent**. An explicit UIx request is the **same twelve-file project with three files swapped** — the template's `:substrate :uix` emission. `deps.edn` trades the Reagent adapter + `reagent/reagent` for the UIx adapter + `com.pitch/uix.core` (no `uix.dom`); `core.cljs` boots identically — `client-root` + `render!` — with `frame-root` as a `$` element; `views.cljs` is `defui` + `$`, because UIx has **no auto-injection** — components read subscriptions through the adapter's `use-sub` hook and get `dispatch` off `use-frame` (capture-frame in hook position, destructured once per render). The other nine files — `package.json`, `shadow-cljs.edn`, `.gitignore`, `index.html`, `app.css`, `events.cljs`, `subs.cljs`, `events_test.cljs`, `README.md` — are identical to the Reagent scaffold, bar the display label: the generator writes `UIx` where `package.json`'s `description` and the README's first sentence say `Reagent`. The dataflow is a framework concern, not a substrate one, and no Xray, schema or devtools piece rides either route. Do **not** reach for the Reagent `rf/reg-view` views on a UIx app, and do not re-derive the events or subs per substrate.
 
-> **Heads-up on the UIx version target.** `spec/006-ReactiveSubstrate.md` names **UIx 2.x** (hooks-based) as the design target, but the template pins **`com.pitch/uix` `1.4.4`** — the **known-good, tested** set. Use the template pin; treat UIx 2.x as an unverified manual override to test before relying on it. The pins below are read off the template's `_uix/deps.edn` by derivation, so they follow a template bump automatically.
+> **Heads-up on the UIx version target.** `spec/006-ReactiveSubstrate.md` names **UIx 2.x** (hooks-based) as the design target, but the template pins **`com.pitch/uix` `1.4.4`** — the **known-good, tested** set. Use the template pin; treat UIx 2.x as an unverified manual override to test before relying on it. The pin below is read off the template's `_uix/deps.edn`, so it follows a template bump automatically.
 
 > **Pre-publish coordinate shape.** The two `day8/re-frame2*` coords below carry the template's forward-correct `:mvn/version`; until the framework is on Clojars, point them at a checkout (`:local/root "<RE_FRAME2>/implementation/core"` and `…/implementation/adapters/uix`) exactly as `SKILL.md` step 2 does for Reagent. The `com.pitch/uix.*` deps are on Clojars and keep `:mvn/version`.
 
@@ -85,16 +85,15 @@ The three files, derived from the template's `_uix/` tree by `tests/first_counte
 ;; acme/my-app — re-frame2 application (UIx).
 ;;
 ;; The two day8/re-frame2 coordinates ride one version; bump them together.
-;; uix.dom is a direct dependency: the adapter ships uix.core only, and
-;; mounting the React root is the application's call.
+;; uix.core is direct: the views author with `$` and `defui`. uix.dom is
+;; NOT — the adapter's `client-root` / `render!` own the React Root.
 {:paths ["src"]
 
  :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
          org.clojure/clojurescript {:mvn/version "1.12.145"}
          day8/re-frame2            {:mvn/version "0.0.1.alpha"}
          day8/re-frame2-uix        {:mvn/version "0.0.1.alpha"}
-         com.pitch/uix.core        {:mvn/version "1.4.4"}
-         com.pitch/uix.dom         {:mvn/version "1.4.4"}}
+         com.pitch/uix.core        {:mvn/version "1.4.4"}}
 
  ;; shadow-cljs.edn reads its classpath from this alias. Deps only — the
  ;; `npx shadow-cljs` wrapper supplies its own `-m`, so no :main-opts here.
@@ -109,7 +108,6 @@ The three files, derived from the template's `_uix/` tree by `tests/first_counte
 (ns acme.my-app.core
   "Entry point: installs the UIx adapter and mounts the app."
   (:require [uix.core             :refer [$]]
-            [uix.dom              :as uix-dom]
             [re-frame.core        :as rf]
             [re-frame.adapter.uix :as rf.adapter.uix]
             ;; Requiring these installs their registrations.
@@ -117,10 +115,12 @@ The three files, derived from the template's `_uix/` tree by `tests/first_counte
             [acme.my-app.subs]
             [acme.my-app.views :as views]))
 
-;; One React root for the life of the page: React must not get a second
-;; `create-root` for a live DOM node, and a hot reload has to render into
-;; the root that already owns #app.
-(defonce ^:private react-root (atom nil))
+;; One React root for the life of the page, owned by the adapter: the first
+;; `render!` through this handle creates it, every later one renders into
+;; it. React must not get a second `create-root` for a live DOM node, and a
+;; hot reload has to render into the root that already owns #app — the
+;; handle keeps both true, and allocating it touches no DOM.
+(defonce ^:private app-root (rf.adapter.uix/client-root))
 
 (def app-frame :rf/default)
 
@@ -133,13 +133,11 @@ The three files, derived from the template's `_uix/` tree by `tests/first_counte
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (uix-dom/create-root el)))
-    (uix-dom/render-root
+    (rf.adapter.uix/render! app-root
       ($ rf.adapter.uix/frame-root {:id             app-frame
                                     :initial-events [[:counter/initialise]]}
          ($ views/counter-app))
-      @react-root)))
+      el)))
 
 ;; Called ONCE by shadow-cljs (:init-fn in shadow-cljs.edn) when the bundle
 ;; loads. `init!` installs the adapter; it does not create a frame — the

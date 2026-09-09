@@ -1,10 +1,8 @@
 ;; {{name}} — re-frame2 application (UIx).
 ;;
 ;; The two day8/re-frame2 coordinates ride one version; bump them together.
-;; uix.core is a direct dependency because the views author with `$` and
-;; `defui`. uix.dom is NOT: the adapter's own `client-root` / `render!`
-;; mint and drive the React Root through the shared React spine, so the
-;; application never names `uix.dom/create-root`.
+;; uix.core is direct: the views author with `$` and `defui`. uix.dom is
+;; NOT — the adapter's `client-root` / `render!` own the React Root.
 {:paths ["src"]
 
  :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
