@@ -87,7 +87,6 @@
 // both `alloc-0gjqi` runs pass at 8.00 B/double. The check is therefore inert
 // here and is present so that it CANNOT become fail-open if the corpus grows.
 
-const fs = require('fs');
 const path = require('path');
 
 const archive = require('./data_archive.cjs');
