@@ -1,3 +1,4 @@
+'use strict';
 // NEGATIVE fixture (rule g) — the archived-vocabulary CONTROL assertion
 //
 // Reproduced from
@@ -12,9 +13,18 @@
 // attributed to a second file in the same tree and expects a finding, because a
 // second file spelling the retired name is the reintroduction rule (g) exists
 // to catch.
+//
+// Self-contained CommonJS rather than a bare fragment, because `eslint .`
+// reaches this tree and a fixture with undeclared bindings reds `lint:js`.
 
-corpusTest('the archived corpus really is in the OLD vocabulary', () => {
+const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const archive = require('./data_archive.cjs');
+
+exports.archivedVocabularyIsOld = () => {
   const raw = fs.readFileSync(path.join(archive.DATA, 'alloc-0gjqi', 'paired-run1.json'), 'utf8');
   assert.ok(raw.includes('lad/hicasso'), 'the archived record names the arm as it was named when the run was taken');
   assert.ok(!raw.includes('lad/fresco'), 'and does not name it as it is named now');
-});
+};
