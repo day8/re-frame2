@@ -39,14 +39,14 @@
 
   ## THE VIEW IS A FRESCO BOUNDARY (rf2-k97c.3)
 
-  `Panel` is an `h/defview` — a real React function component minted by
+  `Panel` is an `rf.fresco/defview` — a real React function component minted by
   the re-frame-native view layer — rather than an `rf/reg-view`. It is the
   FIRST panel migrated under the epic's ruled design (rf2-k97c.2, Design
   B): Xray's views are re-authored in Fresco and read through Fresco's
   shipped collector, so their observation no longer depends on whichever
   view build the installed adapter happens to supply.
 
-  Concretely, the body's one read is `h/sub`, which the collector wires,
+  Concretely, the body's one read is `rf.fresco/sub`, which the collector wires,
   activates, and re-wires AND NOTIFIES on invalidation
   (`re-frame.fresco.impl.collector`). A `reg-view` body's
   `@(rf/subscribe …)` is tracked only by the INSTALLED adapter's reaction
@@ -66,7 +66,7 @@
   Fresco tree, the L4 registry takes `Panel` directly and the bridge goes."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.fresco :as h]
+            [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.image-view-helpers :as ih]
             [day8.re-frame2-xray.panels.image-view-reads :as image-reads]
@@ -207,7 +207,7 @@
 
 ;; ---- public view ---------------------------------------------------------
 
-(h/defview Panel
+(rf.fresco/defview Panel
   "The Module-view tab's root. Renders the EP-0023 PUBLIC model — the
   FRAMES/IMAGES section (`image -> frame -> event stream`: every live
   image-loaded frame as an execution context carrying its resolved image's
@@ -218,7 +218,7 @@
   A FRESCO BOUNDARY (rf2-k97c.3), not an `rf/reg-view`. Two differences
   matter and neither is cosmetic.
 
-  The READ is `h/sub`, a plain call the collector records an edge for —
+  The READ is `rf.fresco/sub`, a plain call the collector records an edge for —
   no deref, no reaction owned by the installed adapter, and a re-wire
   that NOTIFIES when the substrate disposes the underlying derived value.
   That is the third of the epic's three couplings, and it is the one a
@@ -226,7 +226,7 @@
 
   The FRAME the read resolves against comes from React context, which the
   enclosing frame boundary writes — `rf/frame-provider` and
-  `h/frame-provider` write the SAME context (core's
+  `rf.fresco/frame-provider` write the SAME context (core's
   `re-frame.adapter.context/frame-context`), so this boundary resolves
   `:rf/xray` identically under today's Reagent-rendered shell and under
   the Fresco root Xray will own. It never consults
@@ -238,7 +238,7 @@
   takes. This panel reads nothing from props — the L4 registry mounts it
   with none — so it is destructured away."
   [_props]
-  (let [{:keys [frame-count] :as image-view} (h/sub [:rf.xray/image-view])]
+  (let [{:keys [frame-count] :as image-view} (rf.fresco/sub [:rf.xray/image-view])]
     [:section {:data-testid "rf-xray-module-view"
                :style       panel-root-style}
      [:div {:style panel-scroll-container-style}
@@ -259,7 +259,7 @@
 ;; `[(:panel tab)]`, and `panel-registry/reg-l4-tab!`'s `:pre` requires
 ;; `:panel` to be CALLABLE — neither of which a React component is.
 ;;
-;; `h/as-component` is Fresco's own outward door for exactly this: it
+;; `rf.fresco/as-component` is Fresco's own outward door for exactly this: it
 ;; answers a real React component for a boundary, which a React parent
 ;; (UIx, Reagent or plain JavaScript) mounts UNDER THE FRAME IT IS
 ;; ALREADY IN, taking the frame from React context rather than from a
@@ -273,10 +273,10 @@
 
 (def ^:private Panel-component
   "The React component `Panel` presents as, for a non-Fresco parent.
-  Declared once at top level beside the view, as `h/as-component`'s
+  Declared once at top level beside the view, as `rf.fresco/as-component`'s
   contract requires — deriving it per render would mint a new component
   type every time and remount the panel on each parent render."
-  (h/as-component Panel))
+  (rf.fresco/as-component Panel))
 
 (defn ^:private Panel-bridge
   "The callable the L4 tab registry stores. Returns Reagent-shaped hiccup
