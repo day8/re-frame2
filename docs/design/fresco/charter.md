@@ -11,9 +11,9 @@ the programmer-facing surface in [authoring.md](authoring.md).
 
 | | |
 |---|---|
-| **Product** | **Fresco** — Hiccup + Picasso, one letter apart |
+| **Product** | **Fresco** — a painting that must be finished in one pass |
 | **Namespace** | `re-frame.fresco` · artifact `io.github.day8/re-frame2-fresco` |
-| **Alias** | `h` (deliberately not Freehand's `v`, not `ui`) |
+| **Alias** | `h` — for *hiccup* (deliberately not Freehand's `v`, not `ui`) |
 | **One-liner** | *Fresco — Hiccup views for re-frame2.* |
 
 ```clojure
@@ -21,11 +21,22 @@ the programmer-facing surface in [authoring.md](authoring.md).
 (h/defview cart-badge [_] [:span.badge (sub [:cart/count])])
 ```
 
-The wordplay is the product claim: Picasso's single-line freehand drawings — a
-complete figure in one unbroken pass — are one-pass interpreted rendering; Cubism's
-decomposition into primitive forms is hiccup's decomposition of UI into vectors and
-maps. Verified unclaimed on Clojars, GitHub, and npm; single-c spelling is
-canonical.
+A fresco is painted onto wet plaster and must be finished in one continuous pass,
+before the plaster sets — no going back over it, no second layer. That is one-pass
+interpreted rendering stated by the medium itself: the name says what the runtime
+does, without borrowing a person to say it. The alias is `h` for *hiccup* — the
+universal hiccup/hyperscript spelling, never an abbreviation of the product name,
+which is why every `h/defview` and `h/…` call site reads the same after the rename
+as before it.
+
+The name was cleared before it was adopted, not after (`rf2-d1nr.1`, 2026-09-09).
+`io.github.day8/re-frame2-fresco` is free on Clojars; no party holds a bare FRESCO
+mark in the software or developer-tools classes on the USPTO register; and nothing
+in the Clojure ecosystem is called Fresco. One collision is knowingly accepted, and
+written down so nobody re-discovers it and assumes it was missed: Facebook's
+`com.facebook.fresco`, a well-known Android image library, shares the artifact id
+`fresco` under a different group in a different ecosystem — a search-results
+nuisance, never a resolver conflict.
 
 ## Product identity
 
