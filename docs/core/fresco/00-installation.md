@@ -50,7 +50,7 @@ launcher come from npm:
 
 ```json
 {
-  "dependencies":    {"react": "19.2.0", "react-dom": "19.2.0"},
+  "dependencies":    {"react": "19.3.0", "react-dom": "19.3.0"},
   "devDependencies": {"shadow-cljs": "3.4.10"}
 }
 ```
@@ -119,7 +119,7 @@ is checked and what is not.
 
 | Combination | Tested | Expected, but unmeasured |
 | --- | --- | --- |
-| React and react-dom | 19.2.0, on every browser and Node lane Fresco runs | Later 19.x, for the render boundary and the two-hook contract. Below 19.2 the `<Activity>` lifecycle rows have nothing to run on, and 18 and earlier is not supported at all |
+| React and react-dom | 19.3.0, on every browser and Node lane Fresco runs | Later 19.x, for the render boundary and the two-hook contract. Below 19.2 the `<Activity>` lifecycle rows have nothing to run on, and 18 and earlier is not supported at all |
 | Browser engine | Chromium, on the headless DOM lane. Firefox and WebKit, whenever a change touches the Fresco surface | Any other engine or version — the substrate targets React's DOM contract rather than any one browser's |
 | ClojureScript and shadow-cljs | 1.12.145 and 3.4.10 | Nothing else is measured |
 | re-frame2 core and `re-frame2-ssr` | the same checkout as Fresco, which `:local/root` is what guarantees | There is no released coordinate yet, so no released-version pair exists to be compatible with |
