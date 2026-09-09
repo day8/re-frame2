@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.file-input-value-dom-cljs-test
+(ns re-frame.fresco.file-input-value-dom-cljs-test
   "A FILE INPUT HAS NO VALUE SURFACE.
 
   The guide rules it out in one sentence — chapter 04, supported controls:
@@ -24,7 +24,7 @@
     name — a plausible non-empty string naming one file out of however
     many were chosen, over a path nothing can open. No throw, no warning,
     no shape difference from an honest answer, so it is REFUSED with
-    `:rf.error/hicasso-file-input-value-marker` (its Spec 009 row).
+    `:rf.error/fresco-file-input-value-marker` (its Spec 009 row).
 
   The marker reads a LIVE element on an event, where the platform has
   already resolved the type, and asks `.files` — a property of the
@@ -36,8 +36,8 @@
   document; the real-control rows are skipped there rather than faked,
   the same shape `controlled_dom_cljs_test` uses for its caret rows."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]))
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]))
 
 (defn- browser? []
   (and (exists? js/document) (some? js/document) (some? (.-body js/document))))
@@ -113,14 +113,14 @@
     (let [n (file-input!)]
       (try
         (testing "a non-empty assignment throws — the platform's own report
-                  on a controlled :value, which Hicasso leaves to it"
+                  on a controlled :value, which Fresco leaves to it"
           (let [t (thrown-by #(set! (.-value n) "budget.csv"))]
             (is (some? t)
                 "if this ever stops throwing, a controlled :value on a file
                  input has become legal and this file's premise is gone")
             (is (nil? (id-of t))
                 "the engine's exception carries no :rf.error/id — it is the
-                 platform's report, not Hicasso's")))
+                 platform's report, not Fresco's")))
         (testing "the empty string is accepted — it CLEARS the control"
           (is (nil? (thrown-by #(set! (.-value n) "")))
               "the one legal write: the reset idiom")
@@ -136,10 +136,10 @@
            model, and a file input with no :value at all is the supported
            path — uncontrolled, with the selection read off `.files` in an
            h/event. The codec lowers both without comment."
-    (is (nil? (thrown-by #(rf.hicasso.impl.codec/as-element
+    (is (nil? (thrown-by #(rf.fresco.impl.codec/as-element
                            [:input {:type :file :value ""
                                     :on-change noop-change}]))))
-    (is (nil? (thrown-by #(rf.hicasso.impl.codec/as-element
+    (is (nil? (thrown-by #(rf.fresco.impl.codec/as-element
                            [:input {:type :file :on-change noop-change}]))))))
 
 (deftest every-other-controlled-field-is-untouched
@@ -154,7 +154,7 @@
                      :on-change noop-change}]]
            ["a textarea" [:textarea {:value "x" :on-input noop-change}]]
            ["a select" [:select {:value "x" :on-change noop-change}]]]]
-    (is (nil? (thrown-by #(rf.hicasso.impl.codec/as-element hiccup))) what)))
+    (is (nil? (thrown-by #(rf.fresco.impl.codec/as-element hiccup))) what)))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — THE MARKER
@@ -166,17 +166,17 @@
     (let [target (file-stand-in ["budget.csv"])]
       (is (= "C:\\fakepath\\budget.csv" (.-value target))
           "the stand-in is the platform's rule written down")
-      (is (= :rf.error/hicasso-file-input-value-marker
+      (is (= :rf.error/fresco-file-input-value-marker
              (id-of (thrown-by
-                     #(rf.hicasso.impl.intent/materialize [:app/upload :re-frame.hicasso/value]
+                     #(rf.fresco.impl.intent/materialize [:app/upload :re-frame.fresco/value]
                                           (ev target)))))
           "the marker used to lower to that string")))
   (testing "three files picked: it names the FIRST, and discards the rest"
     (let [target (file-stand-in ["a.csv" "b.csv" "c.csv"])]
       (is (= "C:\\fakepath\\a.csv" (.-value target)))
-      (is (= :rf.error/hicasso-file-input-value-marker
+      (is (= :rf.error/fresco-file-input-value-marker
              (id-of (thrown-by
-                     #(rf.hicasso.impl.intent/materialize [:app/upload :re-frame.hicasso/value]
+                     #(rf.fresco.impl.intent/materialize [:app/upload :re-frame.fresco/value]
                                           (ev target))))))))
   (testing "nothing picked is refused too — the control is the wrong one
            for this marker whatever it currently holds, and a refusal that
@@ -184,9 +184,9 @@
            than the author's mistake"
     (let [target (file-stand-in [])]
       (is (= "" (.-value target)))
-      (is (= :rf.error/hicasso-file-input-value-marker
+      (is (= :rf.error/fresco-file-input-value-marker
              (id-of (thrown-by
-                     #(rf.hicasso.impl.intent/materialize [:app/upload :re-frame.hicasso/value]
+                     #(rf.fresco.impl.intent/materialize [:app/upload :re-frame.fresco/value]
                                           (ev target)))))))))
 
 (deftest the-checked-marker-is-not-the-value-marker
@@ -194,7 +194,7 @@
            this reader and is not refused by it"
     (let [target #js {:files (array) :checked true}]
       (is (= [:app/pick true]
-             (rf.hicasso.impl.intent/materialize [:app/pick :re-frame.hicasso/checked]
+             (rf.fresco.impl.intent/materialize [:app/pick :re-frame.fresco/checked]
                                  (ev target)))))))
 
 (deftest the-marker-is-untouched-on-every-other-control
@@ -213,7 +213,7 @@
               ["a" "c"]]
              ["a single <select>" #js {:value "urgent"} "urgent"]]]
       (is (= [:app/pick expected]
-             (rf.hicasso.impl.intent/materialize [:app/pick :re-frame.hicasso/value]
+             (rf.fresco.impl.intent/materialize [:app/pick :re-frame.fresco/value]
                                  (ev target)))
           what))))
 
@@ -227,10 +227,10 @@
                  mistake rather than on the user's first selection"
           (is (some? (.-files n)))
           (is (= 0 (.-length (.-files n))))
-          (is (= :rf.error/hicasso-file-input-value-marker
+          (is (= :rf.error/fresco-file-input-value-marker
                  (id-of (thrown-by
-                         #(rf.hicasso.impl.intent/materialize
-                           [:app/upload :re-frame.hicasso/value] (ev n)))))))
+                         #(rf.fresco.impl.intent/materialize
+                           [:app/upload :re-frame.fresco/value] (ev n)))))))
         (testing "and with a file selected, the engine's own answer is the
                  fakepath fiction the spec mandates"
           (if-not (select-file! n "budget.csv")
@@ -241,10 +241,10 @@
               (is (= 1 (.-length (.-files n)))
                   "while the answer they wanted was here all along, on
                    `.files`, which is what an h/event reads")
-              (is (= :rf.error/hicasso-file-input-value-marker
+              (is (= :rf.error/fresco-file-input-value-marker
                      (id-of (thrown-by
-                             #(rf.hicasso.impl.intent/materialize
-                               [:app/upload :re-frame.hicasso/value]
+                             #(rf.fresco.impl.intent/materialize
+                               [:app/upload :re-frame.fresco/value]
                                (ev n)))))))))
         (finally (drop! n))))))
 
@@ -269,10 +269,10 @@
               "and the IDL answers the platform's, which is the whole asymmetry")
           (is (some? (.-files n))
               "so the discriminator the marker reads is present, unshouted")
-          (is (= :rf.error/hicasso-file-input-value-marker
+          (is (= :rf.error/fresco-file-input-value-marker
                  (id-of (thrown-by
-                         #(rf.hicasso.impl.intent/materialize
-                           [:app/upload :re-frame.hicasso/value] (ev n)))))
+                         #(rf.fresco.impl.intent/materialize
+                           [:app/upload :re-frame.fresco/value] (ev n)))))
               "and the marker refusal fires at this spelling exactly as at
                the lowercase one — it always did")
           (finally (drop! n)))))))

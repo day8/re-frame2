@@ -1,17 +1,17 @@
-(ns re-frame.hicasso.impl.boundary
+(ns re-frame.fresco.impl.boundary
   "`h/error-boundary` — THE RUNTIME'S OWN ERROR BOUNDARY (HD-020(c)).
 
   HD-020(c) rules that \"the runtime ships one internal class-based
   boundary exposed as `h/boundary` (`:fallback`/`:reset-key`/`:on-error`);
   it is the P1 witness's *real error boundary*\". The P1 witness roster
-  (`re-frame.bench.hicasso.front.witnesses`) names it by that
+  (`re-frame.bench.fresco.front.witnesses`) names it by that
   description, in its `:foreign/host-and-error-boundary` row.
   This is it, and it is deliberately the smallest thing that satisfies
   the three keys. The decision's words are quoted as it wrote them; the
   export is spelled `h/error-boundary`, which is what the naming ledger
   rules (row 12). The var HERE keeps the short name — it is
   `impl.boundary`'s own, an implementation detail no consumer types, and
-  it is what the `:rf.error/hicasso-boundary-*` ids and their Spec 009
+  it is what the `:rf.error/fresco-boundary-*` ids and their Spec 009
   rows are named after.
 
       [boundary {:fallback  [:p.oops \"that did not work\"]
@@ -36,7 +36,7 @@
   React's dispatcher. `arm1_lifecycle_dom_cljs_test` counts a healthy
   page there and `boundary_intent_dom_cljs_test` counts one in its
   ERROR state, rather than either asserting it here: a page wrapping a
-  Hicasso boundary in one of these still reads two.
+  Fresco boundary in one of these still reads two.
 
   ## The three keys
 
@@ -107,7 +107,7 @@
   every run — it is a declaration fault caught at the first moment the
   declaration is reachable, not a conditional error path that waits for
   bad luck. The codec already raises
-  `:rf.error/hicasso-intent-outside-boundary` out of this same render for
+  `:rf.error/fresco-intent-outside-boundary` out of this same render for
   the same reason, so the precedent is inside this class rather than
   beside it.
 
@@ -139,7 +139,7 @@
   `intent/*dispatch*` is unbound at the moment the codec reaches them,
   and without the binding below an intent at an event position on the
   fallback or on a native child raises
-  `:rf.error/hicasso-intent-outside-boundary` at render, while an `h/event`
+  `:rf.error/fresco-intent-outside-boundary` at render, while an `h/event`
   at one raises the same id at invocation.
 
   The fallback half is the sharp one, because it is the half the decision
@@ -151,7 +151,7 @@
   it takes the *next* boundary up, turning an application's error path
   into an application-wide failure.
 
-  The mechanism is `re-frame.hicasso.impl.presence-react`'s, one
+  The mechanism is `re-frame.fresco.impl.presence-react`'s, one
   component along, and **cheaper here**: presence buys a `useContext` to
   find its frame and pays for it in HD-025's stated cost, while this
   class already has `frame-of` through `contextType`. So there is no
@@ -188,10 +188,10 @@
   throws lands in the browser's error channel, not here. That is React's
   boundary, not this runtime's, and the runtime inherits it exactly."
   (:require [re-frame.adapter.context :as rf.adapter.context]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.error :refer [fail!]]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.error :refer [fail!]]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
             ["react" :as react]))
 
 (defn- props-of
@@ -235,8 +235,8 @@
   [props frame-kw]
   (doseq [k (keys props)]
     (when-not (contains? prop-roster k)
-      (fail! :rf.error/hicasso-boundary-unknown-prop
-             're-frame.hicasso.impl.boundary/boundary
+      (fail! :rf.error/fresco-boundary-unknown-prop
+             're-frame.fresco.impl.boundary/boundary
              (str "h/error-boundary was given " (pr-str k) ", which is not "
                   "one of its props. It carries :fallback, :reset-key and "
                   ":on-error, and its :children are the trailing forms rather "
@@ -246,8 +246,8 @@
              {:prop k :props prop-roster})))
   (let [on-error (:on-error props)]
     (when-not (or (nil? on-error) (vector? on-error) (fn? on-error))
-      (fail! :rf.error/hicasso-boundary-bad-on-error
-             're-frame.hicasso.impl.boundary/boundary
+      (fail! :rf.error/fresco-boundary-bad-on-error
+             're-frame.fresco.impl.boundary/boundary
              (str "h/error-boundary's :on-error was " (pr-str on-error)
                   ", which nothing can fire. It takes an INTENT VECTOR, "
                   "dispatched with the error appended into the frame the "
@@ -266,8 +266,8 @@
     ;; failure. `impl.overlay/dismissal-handler` refuses an `:on-dismiss`
     ;; the same way and under this same id.
     (when (and (vector? on-error) (nil? frame-kw))
-      (fail! :rf.error/hicasso-intent-outside-boundary
-             're-frame.hicasso.impl.boundary/check-props!
+      (fail! :rf.error/fresco-intent-outside-boundary
+             're-frame.fresco.impl.boundary/check-props!
              (str "h/error-boundary carries the intent " (pr-str on-error)
                   " at :on-error, but no frame is in scope, so nothing could "
                   "dispatch it when the boundary caught — the region would "
@@ -307,7 +307,7 @@
   [^js this error]
   (let [on-error (:on-error (props-of this))]
     (cond
-      (vector? on-error) (rf.hicasso.impl.collector/dispatch! (frame-of this) (conj on-error error))
+      (vector? on-error) (rf.fresco.impl.collector/dispatch! (frame-of this) (conj on-error error))
       (fn? on-error)     (on-error error)
       :else              nil))
   nil)
@@ -317,9 +317,9 @@
   product is, and a React **class** so React will hand it a render-phase
   throw from anything below.
 
-  It is not a Hicasso *reactive* boundary: it reads no subscription,
+  It is not a Fresco *reactive* boundary: it reads no subscription,
   holds no cell and spends no hook."
-  (let [ctor  (fn hicasso-boundary-ctor [props]
+  (let [ctor  (fn fresco-boundary-ctor [props]
                 (this-as ^js this
                   (.call ^js react/Component this props)
                   (set! (.-state this) #js {"error" nil})
@@ -335,7 +335,7 @@
         proto ^js (js/Object.create (.-prototype ^js react/Component))]
     (set! (.-prototype ^js ctor) proto)
     (set! (.-constructor proto) ctor)
-    (set! (.-displayName ^js ctor) "hicasso/boundary")
+    (set! (.-displayName ^js ctor) "fresco/boundary")
     (set! (.-contextType ^js ctor) rf.adapter.context/frame-context)
     ;; React 19 requires the static marker for the boundary to catch at
     ;; all. It cannot reach the instance, so it only flips the render
@@ -379,9 +379,9 @@
                 ;; binding is unconditional so the branch does not exist, and
                 ;; an intent written under a frameless boundary still lands on
                 ;; the existing loud error naming the intent.
-                (rf.hicasso.impl.intent/with-frame frame-kw (when frame-kw (rf.hicasso.impl.collector/frame-dispatch frame-kw))
+                (rf.fresco.impl.intent/with-frame frame-kw (when frame-kw (rf.fresco.impl.collector/frame-dispatch frame-kw))
                   (fn []
                     (if (some? error)
-                      (rf.hicasso.impl.codec/as-element (if (fn? fallback) (fallback error) fallback))
-                      (rf.hicasso.impl.codec/as-element (into [:<>] children)))))))))
-    (rf.hicasso.impl.codec/mark-boundary! ctor)))
+                      (rf.fresco.impl.codec/as-element (if (fn? fallback) (fallback error) fallback))
+                      (rf.fresco.impl.codec/as-element (into [:<>] children)))))))))
+    (rf.fresco.impl.codec/mark-boundary! ctor)))

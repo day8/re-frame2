@@ -27,7 +27,7 @@
  *      (carries an `:aliases -> :clein/build`), and assert release-xray.yml
  *      rewrites every publishable one and NO unpublishable one.
  *   2. THE UNPUBLISHABLE EDGE — pin the operator decision that is
- *      deliberately open (rf2-hic-023 for Hicasso), so it cannot be closed by
+ *      deliberately open (rf2-hic-023 for Fresco), so it cannot be closed by
  *      accident in either direction. It was two until rf2-l86mm; rf2-5dut1's
  *      Freehand edge was answered by deleting the coordinate.
  *   3. VERDICT — the script's pom parsing and verdict, against fixture poms.
@@ -72,11 +72,11 @@ const VERSION = '0.0.1.alpha';
 //
 // EMPTY as of rf2-gra70, and the emptiness is asserted rather than assumed —
 // see the ledger test below. It was two under rf2-5dut1
-// (day8/re-frame2-freehand, day8/re-frame2-hicasso), then one when rf2-l86mm
+// (day8/re-frame2-freehand, day8/re-frame2-fresco), then one when rf2-l86mm
 // removed the Freehand coordinate from tools/xray/deps.edn along with the
 // Views panel's Freehand tool-door sections, then none when rf2-gra70
-// published day8/re-frame2-hicasso.
-const HICASSO = 'day8/re-frame2-hicasso';
+// published day8/re-frame2-fresco.
+const FRESCO = 'day8/re-frame2-fresco';
 const UNPUBLISHABLE = [];
 
 const tests = [];
@@ -198,10 +198,10 @@ test('NO coordinate is unpublishable — the ledger is empty (rf2-gra70)', () =>
   // EP-0036 F6 publication or move the edge to late-bind; the edge was
   // deleted instead, which answers it.
   //
-  // One -> none (rf2-gra70): `${HICASSO}` is published. rf2-5dut1 posed the
+  // One -> none (rf2-gra70): `${FRESCO}` is published. rf2-5dut1 posed the
   // same question of it that it posed of Freehand, and this time the answer
   // was the first branch — the artefact ships, from release.yml's
-  // post-matrix `deploy-hicasso` stage, so the coordinate is rewritable and
+  // post-matrix `deploy-fresco` stage, so the coordinate is rewritable and
   // release-xray.yml rewrites it. What Xray's publishability now depends on
   // is release ORDER (a framework `v*` tag before an `xray-v*` one), which
   // `clojure -P` enforces at classpath resolution, not a ruling.
@@ -265,7 +265,7 @@ const DERIVED_ALL = [
   'day8/re-frame2',
   'day8/re-frame2-epoch',
   'day8/re-frame2-flows',
-  HICASSO,
+  FRESCO,
   'day8/re-frame2-machines',
   'day8/re-frame2-machines-viz',
   'day8/re-frame2-resources',
@@ -287,10 +287,10 @@ function inRepoDeps(libs, version = VERSION) {
 const COMPLETE_POM = pomWith([...THIRD_PARTY, ...inRepoDeps(DERIVED_ALL)]);
 
 // The shape the gate produced while ONE coordinate had no publishable target
-// — nine rewritten, Hicasso skipped. Kept as a negative-control fixture: it
+// — nine rewritten, Fresco skipped. Kept as a negative-control fixture: it
 // is now a plain incomplete pom and must be refused like any other, with the
 // generic hint, since the reason to tolerate it is gone.
-const NINE = DERIVED_ALL.filter((lib) => lib !== HICASSO);
+const NINE = DERIVED_ALL.filter((lib) => lib !== FRESCO);
 const NINE_POM = pomWith([...THIRD_PARTY, ...inRepoDeps(NINE)]);
 
 // ── Fixture construction ────────────────────────────────────────────────
@@ -426,9 +426,9 @@ test('the two-coordinate rewrite fails — the shipping state rf2-5dut1 found', 
 
 // ── The shape that used to be tolerated, and no longer is ───────────────
 
-test('the nine-coordinate rewrite fails — Hicasso is a coordinate like any other', () => {
+test('the nine-coordinate rewrite fails — Fresco is a coordinate like any other', () => {
   // Until rf2-gra70 this was the SHIPPING state and the refusal carried a
-  // coordinate-specific hint saying "not a mechanical fix". Hicasso is
+  // coordinate-specific hint saying "not a mechanical fix". Fresco is
   // published now, so a pom missing it is an ordinary hole and gets the
   // ordinary advice: add it to the rewrite step. The assertion runs the other
   // way too — the operator-decision hint must be GONE, because following it
@@ -436,10 +436,10 @@ test('the nine-coordinate rewrite fails — Hicasso is a coordinate like any oth
   const out = expectFail(
     makeFixture({ pom: NINE_POM }),
     'nine-of-ten pom',
-    /1 of 10 in-repo coordinate\(s\) are absent from the pom: day8\/re-frame2-hicasso/,
+    /1 of 10 in-repo coordinate\(s\) are absent from the pom: day8\/re-frame2-fresco/,
   );
   assert.match(
-    out, new RegExp(`MISSING the in-repo dependency ${HICASSO.replace('/', '\\/')},`),
+    out, new RegExp(`MISSING the in-repo dependency ${FRESCO.replace('/', '\\/')},`),
     `a skipped coordinate must be reported missing\n${out}`,
   );
   assert.match(
@@ -448,7 +448,7 @@ test('the nine-coordinate rewrite fails — Hicasso is a coordinate like any oth
   );
   assert.doesNotMatch(
     out, /NOT A MECHANICAL FIX/,
-    `the retired operator-decision hint must not come back — Hicasso publishes (rf2-gra70)\n${out}`,
+    `the retired operator-decision hint must not come back — Fresco publishes (rf2-gra70)\n${out}`,
   );
   assert.doesNotMatch(
     out, /MISSING the in-repo dependency day8\/re-frame2-epoch/,

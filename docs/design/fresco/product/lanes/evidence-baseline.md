@@ -1,12 +1,12 @@
-# Hicasso evidence baseline
+# Fresco evidence baseline
 
 This baseline records the current product facts that constrain implementation. Quantitative rows remain pinned to their named witnesses and instruments; they are not universal adapter ratios.
 
 ## Product state
 
-- Hicasso is the selected native adapter design.
+- Fresco is the selected native adapter design.
 - The `1.25x` K1 product ceiling is **ratified and operative from 2026-08-13**, by operator ruling rather than by the 2026-08-27 sitting its scoped record was held for. **It changes no measurement here**: the registered `1.10x` gate remains the only adjudicated K1 line, the cold-mount row below is still a decisive miss against it, and no row may cite the accepted ceiling to mark K1 green. The operative status is [`k1-price-acceptance.md`](../k1-price-acceptance.md)'s.
-- The implementation is the `implementation/hicasso` artefact (`day8/re-frame2-hicasso`); the benchmark tree's `re-frame.bench.hicasso.arm1.*` is the frozen prototype it was moved from, and the two diverge permanently by design. **Every heap row in this baseline is measured on the package as of 2026-08-12**; rows sourced elsewhere say so.
+- The implementation is the `implementation/fresco` artefact (`day8/re-frame2-fresco`); the benchmark tree's `re-frame.bench.fresco.arm1.*` is the frozen prototype it was moved from, and the two diverge permanently by design. **Every heap row in this baseline is measured on the package as of 2026-08-12**; rows sourced elsewhere say so.
 - Public names are provisional until the ordinary application and host/hot-path witnesses pass.
 - The interpreted React-function-component path is the ordinary product path. An explicitly native element/component surface is the local escape; compiled Hiccup, own-renderer and second-emitter paths are outside the design.
 - React-library interop and SSR/hydration correctness are core product obligations; UIx, library-specific wrappers, and the deployable Node service are optional.
@@ -18,10 +18,10 @@ This baseline records the current product facts that constrain implementation. Q
 - A [mutation-proved dogfood screen](../../studio/the-dogfood-preference-case.md) reaches the same canonical DOM and 15-intent behavior through a 17-step script in 47 counted lines versus UIx's 72, with eight data event positions versus eight closures.
 - The [revision-pinned requirements census](../../charter.md) records 231 reads across 85 files, about 97% of 183 handler sites one value placeholder from data, 77 controlled fields, 106 route links, zero view-local reactive cells, and one ref site.
 - Controlled input demonstrates same-turn convergence, caret repair, revision reset and live composition behavior in Chromium.
-- Hicasso and UIx can share the same frame provider in one React root.
-- A Hicasso boundary can return an existing React element, enabling a narrow direct-output comparison without another runtime mode.
+- Fresco and UIx can share the same frame provider in one React root.
+- A Fresco boundary can return an existing React element, enabling a narrow direct-output comparison without another runtime mode.
 
-The proposed Hicasso-native namespace is not demonstrated value yet. It remains a Phase 3 product hypothesis until every row of the [canonical native-tier checklist](hot-path-architecture.md#canonical-native-tier-acceptance-checklist) passes.
+The proposed Fresco-native namespace is not demonstrated value yet. It remains a Phase 3 product hypothesis until every row of the [canonical native-tier checklist](hot-path-architecture.md#canonical-native-tier-acceptance-checklist) passes.
 
 ## Pinned economic evidence
 
@@ -30,9 +30,9 @@ The proposed Hicasso-native namespace is not demonstrated value yet. It remains 
 | Cold mount | `1.1718x [1.1263–1.2190]`, n=8; `1.1976x [1.1504–1.2468]`, n=6 against direct UIx-on-subs on the final K1 estimator | [`rf2-diaud`; `clock-emvod` / `clock-w3yxd`](../../studio/rows-re-adjudicated-on-the-corrected-clock.md) | The registered `1.10x` gate is missed; the `1.25x` scoped amendment is ratified and operative from 2026-08-13, and it prices that miss rather than clearing it |
 | Interpreted lowering | At or below stock Reagent on the measured walk rows | [`rf2-2rtt6.63`](../../studio/our-walk-against-reagents.md) | Do not assume Hiccup interpretation is the dominant pressure |
 | Narrow update | Workload-specific parity/win evidence | [Corrected-clock rows](../../studio/rows-re-adjudicated-on-the-corrected-clock.md) | Require changed-work scaling; make no universal “narrow is faster” claim |
-| Broad update | Governed Hicasso/Reagent intervals remain instrument-limited; no general magnitude | [`rf2-vp0j7` evidence lineage](../../studio/bulk-broad-re-taken.md) | Do not optimize from a refused or non-governed comparator |
+| Broad update | Governed Fresco/Reagent intervals remain instrument-limited; no general magnitude | [`rf2-vp0j7` evidence lineage](../../studio/bulk-broad-re-taken.md) | Do not optimize from a refused or non-governed comparator |
 | Boundary shell | Current pinned `R=0` shells are `1,100 B` on the Reagent segment and `1,095 B` on the UIx segment, **measured on the package**, above the frozen `1,024 B` paper-fail line in every round | [Current heap ladder](../../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l) | The row is red, and the breach survived the move off the prototype, so it is a property of the design; the byte-exact line is frozen, so what remains is to remediate it or require a separate prospective operator disposition before ABI freeze |
-| Retained reads | Hicasso `1,417 B/read` versus Reagent `948 B/read`; Hicasso `2,115 B/read` versus UIx `2,980 B/read`, **measured on the package** | [Current heap ladder](../../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l) | Choose the under-collector substrate explicitly; keep governed shipped-path viability, parent-relative architecture progress, and author preference as separate scoreboards |
+| Retained reads | Fresco `1,417 B/read` versus Reagent `948 B/read`; Fresco `2,115 B/read` versus UIx `2,980 B/read`, **measured on the package** | [Current heap ladder](../../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l) | Choose the under-collector substrate explicitly; keep governed shipped-path viability, parent-relative architecture progress, and author preference as separate scoreboards |
 | Warm allocation | No fitted series clears the registered quality floor | [Allocation survival metric](../../studio/the-survival-metrics-allocation-half.md) and [instrument contract](../../allocation-instrument-rework.md) | Publish no allocation claim yet |
 | Teardown | Zero retained objects and retained bytes indistinguishable from zero on the pinned heap arms, **measured on the package** — the object counts are exact, the byte bands straddle zero | [Current heap ladder](../../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l) | Preserve as an absolute invariant |
 | SSR/hydration | Node/React spike produces deterministic hydratable fixtures | [SSR spike witness](../../studio/ssr-spike-witness.md) | Product service, isolation and operations remain to build |
@@ -70,7 +70,7 @@ Representative bulk evidence remains unresolved while the comparator is instrume
 - Publish editor/grid per-keystroke mechanics and qualified bulk evidence; publish warm-allocation evidence only if its instrument qualifies and a product claim is sought.
 - Complete the core server/hydration contract independently of deployment demand; turn the Node spike into a bounded service, built in v0 — its *"only for a named caller"* condition is REMOVED (amended 2026-08-12 by operator ruling, Mike in session 17:36 AUSEST, `rf2-xpq9`).
 - Complete every row of the canonical native-tier checklist; partial element, hook, server, dependency or performance parity is not a substitute.
-- Move live Xray/Story/Pair consumers to the adapter-neutral Hicasso evidence provider before disposing of experimental donor tool surfaces.
+- Move live Xray/Story/Pair consumers to the adapter-neutral Fresco evidence provider before disposing of experimental donor tool surfaces.
 
 ## Measurement posture
 

@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.reaper-coalescing-cljs-test
+(ns re-frame.fresco.reaper-coalescing-cljs-test
   "THE REAPERS ARM ONE TIMER PER HORIZON PER TURN — not one per cell and
   one per entry (rf2-6c12m.18).
 
@@ -30,8 +30,8 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::reaper-coalescing)
@@ -46,7 +46,7 @@
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 (defn- counting-timers
   "Run `f` with every `setTimeout` counted and passed through to the real
@@ -67,8 +67,8 @@
   its own key. Answers the release fns."
   []
   (mapv (fn [i]
-          (rf.hicasso.impl.collector/render-body frame-id (fn [_] (rf.hicasso.impl.collector/sub [:reap/row i])) {})
-          (rf.hicasso.impl.collector/commit-boundary! (rf.hicasso.impl.collector/last-reads) (fn [])))
+          (rf.fresco.impl.collector/render-body frame-id (fn [_] (rf.fresco.impl.collector/sub [:reap/row i])) {})
+          (rf.fresco.impl.collector/commit-boundary! (rf.fresco.impl.collector/last-reads) (fn [])))
         (range rows)))
 
 (deftest a-cold-mount-of-300-distinct-read-boundaries-arms-one-timer-per-horizon
@@ -79,22 +79,22 @@
           armed     (counting-timers #(vreset! !releases (mount-rows!)))]
       (is (= 1 armed)
           (str "timers armed by mounting " rows " rows: " armed))
-      (.then (rf.hicasso.test.runtime/quiesced!)
+      (.then (rf.fresco.test.runtime/quiesced!)
              (fn [_]
                (testing "past the horizon, the claimed entries and the held
                          cells are exactly what a mount retains"
                  (is (= {:cells rows :cell-refs rows :boundaries rows
                          :edges rows :entries rows}
-                        (rf.hicasso.test.runtime/residue))))
+                        (rf.fresco.test.runtime/residue))))
                (let [armed (counting-timers #(doseq [release @!releases] (release)))]
                  (is (= 2 armed)
                      (str "timers armed by unmounting " rows " rows: " armed)))
-               (.then (rf.hicasso.test.runtime/quiesced!)
+               (.then (rf.fresco.test.runtime/quiesced!)
                       (fn [_]
                         (testing "and past the horizon every cell, membership
                                   and entry has been reaped — the coalescing
                                   changed how many timers, never what runs"
                           (is (= {:cells 0 :cell-refs 0 :boundaries 0
                                   :edges 0 :entries 0}
-                                 (rf.hicasso.test.runtime/residue))))
+                                 (rf.fresco.test.runtime/residue))))
                         (done))))))))

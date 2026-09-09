@@ -2,16 +2,16 @@
   "The DONOR half of the M4 contract row (rf2-d2mwk).
 
   The `[:>]` migration codemod — designed at
-  `docs/design/hicasso/studio/reagent-codemod-against-the-landed-escape.md`
+  `docs/design/fresco/studio/reagent-codemod-against-the-landed-escape.md`
   — rewrites a consumer's Reagent sources so that a codebase whose
-  `[:> …]` sites are about to be read by Hicasso keeps behaving the way
+  `[:> …]` sites are about to be read by Fresco keeps behaving the way
   Reagent made it behave. Every rewrite in that design is argued from a
   proof sketch, and every proof sketch is a claim about what **Reagent
   2.0.1** does. The obligation is therefore two-sided.
 
-  The Hicasso side already landed, as
+  The Fresco side already landed, as
   `conversion-parity-with-the-door-on-one-prop-corpus` in
-  `implementation/hicasso/test/re_frame/hicasso/codec_cljs_test.cljs`
+  `implementation/fresco/test/re_frame/fresco/codec_cljs_test.cljs`
   (it was written in the prototype's `front/codec_cljs_test.cljs`, which
   rf2-3ewp moved into the package).
   This file is the other half: **the same sixteen-prop corpus, through
@@ -48,7 +48,7 @@
   "Stands in for a library's component — anything React would accept as
   an element type. Nothing renders here; every question below is about
   what Reagent's conversion BUILT. Deliberately the same stand-in the
-  Hicasso-side witness uses."
+  Fresco-side witness uses."
   [_js-props]
   nil)
 
@@ -291,7 +291,7 @@
   (testing "W4's proof sketch: `convert-prop-value` ends with an `ifn?`
             arm returning `(fn [& args] (apply x args))`. `r/partial`
             builds a `PartialFn` deftype — an object, so `js-val?` is
-            false — and it reaches that arm. Hicasso has no such arm, so
+            false — and it reaches that arm. Fresco has no such arm, so
             the object crosses opaque and a working handler stops firing;
             W4 spells the donor's own wrapper at the call site."
     (let [plain-fn          (fn [a b] [a b])
@@ -339,7 +339,7 @@
       (is (not (fn? converted-keymap)))
       (is (= {"Enter" ["boom"]} (js->clj converted-keymap)))))
   (testing "which is what makes the migration an IMPROVEMENT and a
-            hazard at once: Hicasso refuses these loudly at render, so a
+            hazard at once: Fresco refuses these loudly at render, so a
             silently dead handler becomes a page that throws — possibly
             in a branch the migration's smoke test never reaches"
     (is (= ["boom"] (js->clj (donor-prop :on-click [:boom] "onClick"))))))
@@ -381,7 +381,7 @@
             CONTROLLED-INPUT wrapper, because `native-element` asks
             `input-component?` on this exact path and it matches \"input\"
             and \"textarea\". Rewriting the site to `[:input …]` lands it
-            on Hicasso's own controlled door, which is the taught form."
+            on Fresco's own controlled door, which is the taught form."
     (is (not= "input" (.-type (r/as-element [:> "input" {:value "x"}])))
         "not a bare host element — the wrapper class stands in front of it")
     (is (not= "textarea" (.-type (r/as-element [:> "textarea" {:value "x"}])))))
@@ -403,7 +403,7 @@
 (deftest codemod-contract-donor-dangerously-set-inner-html-is-deleted
   (testing "THE `:dangerous-html` BLOCKER (§5.3). `convert-props` ends by
             DELETING `dangerouslySetInnerHTML` unless the value is an
-            `UnsafeHTML` instance. Hicasso passes the prop through, so the
+            `UnsafeHTML` instance. Fresco passes the prop through, so the
             migration RESURRECTS a prop the donor had been silently
             dropping — which is a decision for a person, not a rewrite."
     (let [react-props (emitted-props
@@ -420,7 +420,7 @@
 (deftest codemod-contract-donor-the-ampersand-key-is-just-a-prop
   (testing "THE `:amp-key` REFUSAL (§5.2). `dash-to-prop-name` leaves `:&`
             alone, so the donor emitted a prop LITERALLY NAMED \"&\";
-            Hicasso reads the same key as its one attribute merge. Two
+            Fresco reads the same key as its one attribute merge. Two
             unrelated meanings for one literal, and the author's intent is
             unrecoverable from the text — so the design refuses the site."
     (let [react-props (emitted-props
@@ -442,7 +442,7 @@
   (testing "so a collection under ANY OTHER SPELLING was never coerced —
             it reached React as a `clj->js` array and the DOM wrote it as
             \"a,b\". §5.4's first bullet: a divergence the codemod
-            deliberately does not repair, because Hicasso is simply better
+            deliberately does not repair, because Fresco is simply better
             here."
     (is (array? (donor-prop :className ["a" "b"] "className")))
     (is (array? (donor-prop :x/class ["a" "b"] "className"))

@@ -6,7 +6,7 @@ These are small, complete apps you can run and read top to bottom — each one c
 - Capabilities — one framework subsystem per folder (each has its own `docs/<capability>/` guide)
 - Patterns — composition recipes built from the capabilities (the `spec/Pattern-*` docs)
 - Real-apps — full applications that put it all together
-- Substrates — the same apps rendered through another view layer or package (UIx, Hicasso, reagent-slim) — start at [`substrates/README.md`](substrates/README.md)
+- Substrates — the same apps rendered through another view layer or package (UIx, Fresco, reagent-slim) — start at [`substrates/README.md`](substrates/README.md)
 
 They range from the counter (the smallest app the pattern admits) to RealWorld (the widest surface in the repo).
 
@@ -69,7 +69,7 @@ examples/
       counter/
       login/
       dashboard/
-    hicasso/
+    fresco/
       login/
     reagent_slim/
       counter/
@@ -152,14 +152,14 @@ Both apps share read-only helpers (avatars, markdown rendering) from `real-apps/
 
 ## Substrates
 
-The same dataflow, rendered through a different view layer — the proof the adapter swaps cleanly. **[`substrates/README.md`](substrates/README.md) is the entry point**: it sorts these into the two comparisons they actually make (same authoring language / different package, versus one model / three view languages) and says what each holds constant. The headline is the **login triple** — Reagent, UIx and Hicasso over one substrate-free [`login.model`](core/login/model.cljc), where diffing any two entry points shows the view layer and nothing else.
+The same dataflow, rendered through a different view layer — the proof the adapter swaps cleanly. **[`substrates/README.md`](substrates/README.md) is the entry point**: it sorts these into the two comparisons they actually make (same authoring language / different package, versus one model / three view languages) and says what each holds constant. The headline is the **login triple** — Reagent, UIx and Fresco over one substrate-free [`login.model`](core/login/model.cljc), where diffing any two entry points shows the view layer and nothing else.
 
 | Example | What it demonstrates |
 |---|---|
 | [`substrates/uix/counter/`](substrates/uix/counter/) — `examples/counter-uix` | The [`core/counter/`](core/counter/) dataflow through UIx — same events, subs, and `app-db`; views are `defui` components consuming subs via the `use-sub` hook. |
 | [`substrates/uix/login/`](substrates/uix/login/) — `examples/login-uix` | The [`core/login/`](core/login/) example through UIx — schemas, machine, and HTTP stub unchanged; only the view layer differs. |
 | [`substrates/uix/dashboard/`](substrates/uix/dashboard/) — `examples/dashboard-uix` | Design-led: UIx driving a substantive multi-pane layout. Shares the "Editorial Warm" identity from [`_shared/css/style.css`](_shared/css/style.css) with `core/notebook/`. |
-| [`substrates/hicasso/login/`](substrates/hicasso/login/) — `examples/login-hicasso` | The same login through [Hicasso](../docs/core/hicasso/index.md), re-frame2's own native view layer — the third arm over the identical `login.model`. Views are `h/defview` boundaries reading with `h/sub`, and handlers are stated as data (`{:on-change [:auth.login/edit-field :email ::h/value]}`). **Also the ssr-node crossing's application arm**: `server.cljs` (build `examples/login-hicasso-server`) publishes the render module a Node sidecar loads, and its CLJS product witness renders these real views on Node from a projected frame. The companion `host.clj` is a runnable JVM Ring handler (`make-handler`): the shared `login.model` is `.cljc`, so the JVM holds the application's state the same way the browser does, and the handler is driven end to end over a real socket against the real sidecar launcher by `re-frame.ssr.ring.login-host-crossing-test` (`implementation/ssr-ring/test/`). Recipe: [Render on Node](../docs/ssr/concepts.md#render-on-node). |
+| [`substrates/fresco/login/`](substrates/fresco/login/) — `examples/login-fresco` | The same login through [Fresco](../docs/core/fresco/index.md), re-frame2's own native view layer — the third arm over the identical `login.model`. Views are `h/defview` boundaries reading with `h/sub`, and handlers are stated as data (`{:on-change [:auth.login/edit-field :email ::h/value]}`). **Also the ssr-node crossing's application arm**: `server.cljs` (build `examples/login-fresco-server`) publishes the render module a Node sidecar loads, and its CLJS product witness renders these real views on Node from a projected frame. The companion `host.clj` is a runnable JVM Ring handler (`make-handler`): the shared `login.model` is `.cljc`, so the JVM holds the application's state the same way the browser does, and the handler is driven end to end over a real socket against the real sidecar launcher by `re-frame.ssr.ring.login-host-crossing-test` (`implementation/ssr-ring/test/`). Recipe: [Render on Node](../docs/ssr/concepts.md#render-on-node). |
 | [`substrates/reagent_slim/counter/`](substrates/reagent_slim/counter/) — `examples/counter-slim-and-fast` | The [`core/counter/`](core/counter/) dataflow on `day8/reagent-slim` (a ground-up `reagent2.*` rewrite; every `reagent.*` import → `reagent2.*`; `rf/init!` takes the slim adapter Var). The interest is in what the bundle does *not* contain. **Specs:** [006 ReactiveSubstrate](../spec/006-ReactiveSubstrate.md), [Conventions §Adapter test matrix](../spec/Conventions.md#adapter-test-matrix-policy). |
 
 > Auxiliary Story showcases. Two examples ship a Story showcase layered over the example itself: [`core/login/`](core/login/) (`examples/login-with-stories`) and [`patterns/nine_states/`](patterns/nine_states/) (`examples/nine-states-with-stories`) — a `stories.cljs` + `stories_host.cljs` + `stories.index.html` trio that sources the example's real machine and views and enumerates its states as Story variants. See each example's README for the run command.

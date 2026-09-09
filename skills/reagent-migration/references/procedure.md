@@ -9,17 +9,17 @@
 
 Confirm all three, or stop:
 
-1. **The app is already on re-frame2.** Hicasso is a re-frame2 view layer. If
+1. **The app is already on re-frame2.** Fresco is a re-frame2 view layer. If
    the app is still on re-frame v1, the events/subs/db migration comes first —
    route to [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration), and note that it
    *finishes*: it leaves the views on the first-class Reagent adapter and the
    app is fully migrated at that point.
-2. **The author specifically wants Hicasso, knowing they do not have to.** They
+2. **The author specifically wants Fresco, knowing they do not have to.** They
    are on a supported configuration already. Put the trade in front of them —
    [`../SKILL.md`](../SKILL.md) §Read this first carries it as a table — and
    take an explicit yes. Don't migrate views because you can.
-3. **Hicasso is actually reachable from the target project's build.** It is
-   **pre-publication**: `day8/re-frame2-hicasso` is not published and there is
+3. **Fresco is actually reachable from the target project's build.** It is
+   **pre-publication**: `day8/re-frame2-fresco` is not published and there is
    no date at which it will be, so there is no released Maven coordinate to
    depend on — the installation page says so itself and resolves the artefact
    by `:local/root` from a checkout.
@@ -31,18 +31,18 @@ Confirm all three, or stop:
 
 ```bash
 clojure -Srepro \
-  -Sdeps '{:deps {day8/re-frame2-hicasso-codemod
+  -Sdeps '{:deps {day8/re-frame2-fresco-codemod
                   {:git/url   "https://github.com/day8/re-frame2.git"
                    :git/sha   "6a5194c0aa029ac1ad34aaf3a62974fd3e5c0221"
-                   :deps/root "migration/reagent-to-hicasso/codemod"}}}' \
-  -M -m re-frame.migration.hicasso.codemod path/to/consumer/src/ --report out.edn
+                   :deps/root "migration/reagent-to-fresco/codemod"}}}' \
+  -M -m re-frame.migration.fresco.codemod path/to/consumer/src/ --report out.edn
 ```
 
 This is the inventory the whole plan is built on, and it is cheap: a bare JVM,
 no re-frame2 loaded, no files touched.
 
 Run it from the consumer's project. It needs no re-frame2 checkout and creates
-none — the published Hicasso artefact does not carry the reporter, so this
+none — the published Fresco artefact does not carry the reporter, so this
 coordinate is the tool's delivery rather than a pre-publication detour. Pin a
 newer `:git/sha` from
 `git ls-remote https://github.com/day8/re-frame2.git refs/heads/main` if you
@@ -139,7 +139,7 @@ Two things to do *before* you call a view converted:
 
 ## Step 4 — Fix requires and the root last
 
-- **Requires (MIG-24):** add `[re-frame.hicasso :as h]`; drop `reagent.*`
+- **Requires (MIG-24):** add `[re-frame.fresco :as h]`; drop `reagent.*`
   requires **only** when the namespace has zero remaining uses (a held view
   keeps them). The `h` alias is load-bearing — `::h/value`, `::h/checked` and
   `::h/prevent` auto-resolve through it, so a different alias silently writes
@@ -148,7 +148,7 @@ Two things to do *before* you call a view converted:
   that is the point of them.
 - **Root (MIG-15):** once per root, and in this order — `rf/init!` (nothing
   installs an adapter for you, and the app's existing one keeps working under
-  Hicasso, so it stays), then `h/render!` with root options only, wrapping the
+  Fresco, so it stays), then `h/render!` with root options only, wrapping the
   root view in `[h/frame-root {:id … :initial-events …}]`, which ensures and
   seeds the frame — a rename of the Reagent tree's own `rf/frame-root`. Add the
   `defonce` `h/client-root` handle and put `^:dev/after-load` on the one
@@ -163,7 +163,7 @@ compile/test command (`npx shadow-cljs compile …`, `npm test`,
 booting a dev build and eyeballing the render — stays with the programmer when
 there is no connected runtime to drive.
 
-**"Compiles" is necessary, not sufficient.** Hicasso moves most view errors to
+**"Compiles" is necessary, not sufficient.** Fresco moves most view errors to
 run time by design, and the three that bite hardest all compile clean: a
 surviving `#(dispatch …)`, a surviving `^{:key …}`, and a Reagent introspection
 call (MIG-35). So the done-bar for a subtree is:
@@ -180,8 +180,8 @@ Handler slots hold event vectors **as data**, so "what does this button do" is
 an equality check with no browser. The test kit ships in two layers, and both
 are real:
 
-- **`re-frame.hicasso.test`** (conventionally `ht`) — the value-level tiers.
-- **`re-frame.hicasso.test.mounted`** (conventionally `hm`) — the mounted tier:
+- **`re-frame.fresco.test`** (conventionally `ht`) — the value-level tiers.
+- **`re-frame.fresco.test.mounted`** (conventionally `hm`) — the mounted tier:
   `mount!`, `rerender!`, `settle!`, `dispatch-and-settle!`, `unmount!`,
   `assert-clean!` and the residue checks. Note `rerender!`, not `render!`: the
   hot-reload door on the `h` namespace is `h/render!`, but the test kit's
@@ -194,7 +194,7 @@ test never carries it. Wire it in through the project's test alias / build.
 
 **`hm/shadow!` is the migration's own instrument**, and it is the one worth
 reaching for on a screen that must not change behaviour: it mounts the Reagent
-original and the Hicasso candidate against isolated copies of the same seeded
+original and the Fresco candidate against isolated copies of the same seeded
 frame, drives one interaction script through both, and compares canonical DOM
 and the intent stream at each checkpoint.
 
@@ -230,11 +230,11 @@ that must not change.
 
 ```bash
 clojure -Srepro \
-  -Sdeps '{:deps {day8/re-frame2-hicasso-codemod
+  -Sdeps '{:deps {day8/re-frame2-fresco-codemod
                   {:git/url   "https://github.com/day8/re-frame2.git"
                    :git/sha   "6a5194c0aa029ac1ad34aaf3a62974fd3e5c0221"
-                   :deps/root "migration/reagent-to-hicasso/codemod"}}}' \
-  -M -m re-frame.migration.hicasso.codemod --rewrite src/
+                   :deps/root "migration/reagent-to-fresco/codemod"}}}' \
+  -M -m re-frame.migration.fresco.codemod --rewrite src/
 ```
 
 The same coordinate as step 0, with `--rewrite` added. As written it is a dry

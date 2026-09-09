@@ -10,17 +10,17 @@
   `front.`/`arm1.` specifically.")
 
 (defn- fail-here! [id reason]
-  (fail! id 're-frame.hicasso.impl.error/fail! reason :none {}))
+  (fail! id 're-frame.fresco.impl.error/fail! reason :none {}))
 
 (defn hydrate-root! [el]
   (fail! :rf.error/no-frame-context
-         're-frame.hicasso.impl.mount/hydrate-root!
-         "A Hicasso boundary rendered with no frame in scope."
+         're-frame.fresco.impl.mount/hydrate-root!
+         "A Fresco boundary rendered with no frame in scope."
          :mount-under-a-frame
          {:el el}))
 
 (deftest a-shared-row-is-raised-by-the-runtimes-own-guard
   (is (seq (filter #(str/starts-with? (str (:where (:refuses %)))
-                                      "re-frame.hicasso.impl.")
+                                      "re-frame.fresco.impl.")
                    shared))
       "at least one row's refusal is raised by the runtime's own guard"))

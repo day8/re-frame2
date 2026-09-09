@@ -1,7 +1,7 @@
 # Accessibility
 
 Start with semantic HTML. Native elements already provide names, roles,
-keyboard activation, focus behaviour, and platform integration. Hicasso does
+keyboard activation, focus behaviour, and platform integration. Fresco does
 not replace those contracts with an accessibility subsystem.
 
 Then derive ARIA state from the same application values that control the UI,
@@ -118,7 +118,7 @@ the page.
 
 ## Keyboard and focus ownership
 
-Native controls already own their keyboard bindings. Hicasso's keyboard map
+Native controls already own their keyboard bindings. Fresco's keyboard map
 expresses additional key-to-intent behaviour and suppresses mappings during IME
 composition ([Events as data](03-events-as-data.md)).
 

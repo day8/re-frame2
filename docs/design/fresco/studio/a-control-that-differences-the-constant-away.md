@@ -338,9 +338,9 @@ Two further constraints on any future attempt:
 
 | artefact | blob |
 |---|---|
-| `implementation/freehand/test/re_frame/bench/hicasso/clock_app.cljs` | `703f5074e14839460984542597e031bd632662b4` |
-| `implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs` | `46b34911fd4e9a70d218dadaa503731e29e4fa52` |
-| `implementation/freehand/test/re_frame/bench/hicasso/clock_views.cljs` | `7e48dbc0b3a974cd61a5c61e606333848877a31f` |
+| `implementation/freehand/test/re_frame/bench/fresco/clock_app.cljs` | `703f5074e14839460984542597e031bd632662b4` |
+| `implementation/freehand/test/re_frame/bench/fresco/clock_run.cjs` | `46b34911fd4e9a70d218dadaa503731e29e4fa52` |
+| `implementation/freehand/test/re_frame/bench/fresco/clock_views.cljs` | `7e48dbc0b3a974cd61a5c61e606333848877a31f` |
 
 These are the blobs **that produced the figures above**, and they are what a
 reproduction needs. The table names the blobs that **ran** rather than the blobs
@@ -375,20 +375,20 @@ Reproduce the published run:
 
 ```bash
 HCLOCK_ONLY=bulk300,bulk100,narrow HCLOCK_SAMPLES=20 \
-  node implementation/hicasso/test/re_frame/bench/hicasso/clock_run.cjs
+  node implementation/fresco/test/re_frame/bench/fresco/clock_run.cjs
 ```
 
 Reproduce the falsification, which exits 1 naming the control:
 
 ```bash
 HCLOCK_ONLY=bulk300 HCLOCK_SAMPLES=20 HCLOCK_CTL3_SABOTAGE=140 \
-  node implementation/hicasso/test/re_frame/bench/hicasso/clock_run.cjs
+  node implementation/fresco/test/re_frame/bench/fresco/clock_run.cjs
 ```
 
 Reproduce the adjudicators' fixtures, with no browser and in under a second:
 
 ```bash
-node implementation/hicasso/test/re_frame/bench/hicasso/clock_run.cjs --self-test
+node implementation/fresco/test/re_frame/bench/fresco/clock_run.cjs --self-test
 ```
 
 Every figure on this page is recomputable from the dataset the run writes when

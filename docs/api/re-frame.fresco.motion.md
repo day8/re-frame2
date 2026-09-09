@@ -1,11 +1,11 @@
-# re-frame.hicasso.motion
+# re-frame.fresco.motion
 
 The optional motion module. One head, and the module owns exactly one thing about
 an animation: **retention**.
 
 ```clojure
-(:require [re-frame.hicasso :as h]
-          [re-frame.hicasso.motion :as motion])
+(:require [re-frame.fresco :as h]
+          [re-frame.fresco.motion :as motion])
 ```
 
 Motion belongs to CSS, to the compositor and to the host. CSS declares the
@@ -23,7 +23,7 @@ one.
 
 This page is the manifest-tracked index of the module's public vars; the marker
 keywords and the phase table are taught in
-[Motion and presence](../core/hicasso/12-motion-and-presence.md).
+[Motion and presence](../core/fresco/12-motion-and-presence.md).
 
 ## The head
 
@@ -59,7 +59,7 @@ keywords and the phase table are taught in
 
 ## See also
 
-- [Motion and presence](../core/hicasso/12-motion-and-presence.md) — the chapter
+- [Motion and presence](../core/fresco/12-motion-and-presence.md) — the chapter
   that governs the surface, and the marker keywords
-- [Hicasso API reference](../core/hicasso/api-reference.md) — the full contract
-- [`re-frame.hicasso`](re-frame.hicasso.md) — the door
+- [Fresco API reference](../core/fresco/api-reference.md) — the full contract
+- [`re-frame.fresco`](re-frame.fresco.md) — the door

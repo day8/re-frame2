@@ -10,7 +10,7 @@
 > [§3](#3-what-was-re-run-and-what-it-measures), whose path set and line count are both stale — and
 > it is amended beside itself there rather than rewritten. **This page cites none of the retired
 > native surfaces**: probing it for the fixed strings `n/$`, `n/props`, `n/defcomponent`,
-> `prop-slots`, `native_` and `hicasso.native` returns 0 for each, against a control of 4 for
+> `prop-slots`, `native_` and `fresco.native` returns 0 for each, against a control of 4 for
 > `2026-08` on the same file. No other cell was re-read.
 
 **Verdict: the Phase 2 exit is MET, and the ordinary authoring facade is frozen** —
@@ -77,7 +77,7 @@ doors it may name. The slice's roster is four doors; the Todo class's is five, a
 `clojure.string`.
 
 Both files carry a real sabotage row: each fence predicate is shown one name it must catch and two it
-must not — including `re-frame.hicasso` itself, because a fence that swallowed the public door would
+must not — including `re-frame.fresco` itself, because a fence that swallowed the public door would
 fail every application rather than protect one. Both ran green here.
 
 The **boundaries** half was read rather than measured, because no instrument decides *artificial*. The
@@ -119,12 +119,12 @@ bead's close note:
 | Deliverable | Where it landed | Checked here by |
 |---|---|---|
 | The application flow — routing, keyed list, edit, async mutation, controlled fields, errors, reset | `examples/slice/*`, 7 namespaces + 8 suites | reading all seven; every row of the seven is present, and pagination, runtime-selected content and a nested error region were added later by `rf2-hic-074` |
-| L0–L3 testing facade | `test_kit/src/re_frame/hicasso/test/{core,mounted}.cljs` | `mounted.cljs` read in full — 12 public doors, 1998 lines · **[Amended 2026-09-04, `rf2-l67a`: both halves of this citation are stale, and one of them was never right.** There is no `test/core.cljs` at tip and `git log --all` finds none at that path in the whole history, so the brace was wrong when written — the L0–L2 pure kit is `test_kit/src/re_frame/hicasso/test.cljs`, one directory up, beside `test/{forms,mounted,runtime,server}.cljs`. And `mounted.cljs` is **2,147 lines with 13 top-level `defn` forms** at `main`@`4f54988b07`, not 1,998 and 12. **The 2026-08-13 reading is kept as written**: it records what was read on the day, and this note records what has moved since, which is the only thing that makes the difference legible. Nothing here re-scores the row.**]** |
+| L0–L3 testing facade | `test_kit/src/re_frame/fresco/test/{core,mounted}.cljs` | `mounted.cljs` read in full — 12 public doors, 1998 lines · **[Amended 2026-09-04, `rf2-l67a`: both halves of this citation are stale, and one of them was never right.** There is no `test/core.cljs` at tip and `git log --all` finds none at that path in the whole history, so the brace was wrong when written — the L0–L2 pure kit is `test_kit/src/re_frame/fresco/test.cljs`, one directory up, beside `test/{forms,mounted,runtime,server}.cljs`. And `mounted.cljs` is **2,147 lines with 13 top-level `defn` forms** at `main`@`4f54988b07`, not 1,998 and 12. **The 2026-08-13 reading is kept as written**: it records what was read on the day, and this note records what has moved since, which is the only thing that makes the difference legible. Nothing here re-scores the row.**]** |
 | First versioned evidence projection | `impl/evidence.cljs` | present, adapter-neutral, owned by `rf2-hic-023` |
-| Xray mounted / read / intent / explain-render views | `tools/xray/src/day8/re_frame2_xray/panels/hicasso.cljs` | four view fns and the four-way dispatch at `:555-558`, under the `:hicasso` L4 tab |
-| The complaint catalogue | [`complaints.md`](../../../../implementation/hicasso/spec/complaints.md) + `check_complaint_catalogue.py` | gate run: 74 live, 6 reserved, 1 pending retirement, 1 retired; every live row emitted and rowed in Spec 009, every anchor resolving |
-| First bounded clj-kondo checks | `hicasso/resources/clj-kondo.exports/day8/re-frame2-hicasso/` | gate run: 6 checks fire on their fixtures, correct code silent, the artefact's own testbeds quiet |
-| Production-erasure proof | `hicasso/scripts/check_production_erasure.cjs`, chained into `build:hicasso-release` | build run: 5 sentinels absent, 3 positive controls present — and the chaining re-read in `package.json`, so the bundle cannot be produced unchecked |
+| Xray mounted / read / intent / explain-render views | `tools/xray/src/day8/re_frame2_xray/panels/fresco.cljs` | four view fns and the four-way dispatch at `:555-558`, under the `:fresco` L4 tab |
+| The complaint catalogue | [`complaints.md`](../../../../implementation/fresco/spec/complaints.md) + `check_complaint_catalogue.py` | gate run: 74 live, 6 reserved, 1 pending retirement, 1 retired; every live row emitted and rowed in Spec 009, every anchor resolving |
+| First bounded clj-kondo checks | `fresco/resources/clj-kondo.exports/day8/re-frame2-fresco/` | gate run: 6 checks fire on their fixtures, correct code silent, the artefact's own testbeds quiet |
+| Production-erasure proof | `fresco/scripts/check_production_erasure.cjs`, chained into `build:fresco-release` | build run: 5 sentinels absent, 3 positive controls present — and the chaining re-read in `package.json`, so the bundle cannot be produced unchecked |
 
 The second witness application (`rf2-hic-086`, the Todo class) is not a Phase 2 deliverable and is the
 reason the freeze reads two applications rather than one.
@@ -154,14 +154,14 @@ the harness's report.
 
 | Suite | Result | Captured exit |
 |---|---|---|
-| `compile-node-test.cjs node-test-hicasso` | 451 files, 0 warnings | **0** |
-| `node out/node-test-hicasso.js` | **1129 tests, 4611 assertions, 0 failures, 0 errors** | **0** |
+| `compile-node-test.cjs node-test-fresco` | 451 files, 0 warnings | **0** |
+| `node out/node-test-fresco.js` | **1129 tests, 4611 assertions, 0 failures, 0 errors** | **0** |
 | `npm run test:browser` | **1475 tests, 9159 assertions, 0 failures, 0 errors** | **0** |
-| `npm run test:hicasso-invariants` | freeze 1 row; motion / overlay / native / forms unreachable from the door; 74 live complaints; budget ledger 38 rows — 21 MET, 5 BREACH, 2 UNRESOLVED, 10 UNPINNED | **0** |
-| `npm run test:hicasso-lint` | 6 checks fire on their fixtures, correct code silent, testbeds quiet | **0** |
-| `npm run build:hicasso-release` | erasure: 5 sentinels absent, 3 positive controls present. Isolation: 4 absent, 4 present | **0** |
+| `npm run test:fresco-invariants` | freeze 1 row; motion / overlay / native / forms unreachable from the door; 74 live complaints; budget ledger 38 rows — 21 MET, 5 BREACH, 2 UNRESOLVED, 10 UNPINNED | **0** |
+| `npm run test:fresco-lint` | 6 checks fire on their fixtures, correct code silent, testbeds quiet | **0** |
+| `npm run build:fresco-release` | erasure: 5 sentinels absent, 3 positive controls present. Isolation: 4 absent, 4 present | **0** |
 
-`npm run test:hicasso-hmr` was **not** run: it binds `:dev-http` 8061 and this machine had concurrent
+`npm run test:fresco-hmr` was **not** run: it binds `:dev-http` 8061 and this machine had concurrent
 workers. Checkpoint 1 ran it green two days ago and nothing in this checkpoint's scope touches it.
 
 The budget-ledger line is quoted for completeness and is **not** a pass: seventeen of its
@@ -170,7 +170,7 @@ record.
 
 ### 3.1 The two lanes measure different halves, and both were needed
 
-`:node-test-hicasso`'s `ns-regexp` matches `-dom-cljs-test`, so the DOM namespaces compile into the
+`:node-test-fresco`'s `ns-regexp` matches `-dom-cljs-test`, so the DOM namespaces compile into the
 node lane and are counted in the 1129 — and in that lane every DOM claim degrades to a stated skip.
 Both witness applications' flow suites open with `(if-not (browser?) (skip! ":node-test has no React
 DOM") …)`. A green assertion whose reason is *there is no DOM here* answers no question about the DOM,
@@ -220,7 +220,7 @@ the revision.
 (`slice/subs.cljs:126-129` → `slice/db.cljs:183-191`), and `::edit` writes every keystroke into the
 draft, so React's last rendered `:value` is the typed text and the discard moves the model to a
 *different* string. React updates the DOM on its own. The slice's editor is an **accepting** field,
-and `implementation/hicasso/testbed/hicasso_testbed/core.cljs:32` recorded exactly this against its
+and `implementation/fresco/testbed/fresco_testbed/core.cljs:32` recorded exactly this against its
 own accepting `revision` arm after the #7815 audit — which is why the testbed also carries a
 `revision-strict` arm, a **rejecting** field whose model can diverge from the DOM. The slice
 reproduced the shape that audit had already indicted.
@@ -231,7 +231,7 @@ work without bookkeeping"* and the Todo report's bounding *"the reset door for a
 its reset"*. Both reports ask for a guide row teaching authors *you will need a counter*; written from
 either as it stands, that row teaches a counter to the population that does not need one.
 
-**The runtime is not indicted.** The reset law itself is witnessed by `test:hicasso-controlled` — 97
+**The runtime is not indicted.** The reset law itself is witnessed by `test:fresco-controlled` — 97
 checks × 13 sections × three engines — re-run green by Checkpoint 1 on 2026-08-13.
 
 ### 4.2 What happened next, and the closure re-run
@@ -247,7 +247,7 @@ sabotage against the landed fix. It wrote none of that fix.
 
 | Re-run, at `main`@`7ae053c73d` | Result | Captured exit |
 |---|---|---|
-| `node out/node-test-hicasso.js` | 1129 tests, 4611 assertions, 0 failures | **0** |
+| `node out/node-test-fresco.js` | 1129 tests, 4611 assertions, 0 failures | **0** |
 | `npm run test:browser` | 1475 tests, 9158 assertions, 0 failures | **0** |
 | the replacement L3 rows, with the draft `dissoc` deleted from `::discard` | **RED** — `discarding-moves-the-model-back-without-remounting-the-field` at `:411`, `:419`, `:420` and `a-discard-repairs-a-field-the-model-never-agreed-to` at `:454` | **1** |
 
@@ -293,7 +293,7 @@ the remedy's home by two reports both written on 2026-08-11; it now has an open 
 witnesses *reach past* the L3 facade to `re-frame.test-support/poll-until`, which implies an
 unsupported reach-around. It is not one: `poll-until` is a sibling **public** door on core's published
 `:paths`, with its own Spec 008 audience-split section, and **fourteen** files under
-`implementation/hicasso/` already use it rather than the two this checkpoint counted. That makes the
+`implementation/fresco/` already use it rather than the two this checkpoint counted. That makes the
 second-caller evidence stronger than either report states and the *authors have nowhere to go* half
 weaker — what is missing is facade **vocabulary**, not capability. It is recorded here rather than
 quietly absorbed, because a checkpoint that files a finding on a wrong premise owes the correction as
@@ -321,8 +321,8 @@ silently dropped. Both reports, in their own order:
 
 | Rough edge | Disposition |
 |---|---|
-| slice 1 / todo 1 — `::h/value` and the canonical event-vector shape are incompatible, silently | **Facade decision, and it is against the convention.** `materialize` and `markers?` are `mapv`/`some` over the intent's top level (`impl/intent.cljs:782-795`), for a stated cost reason: a deep walk paid on every keystroke of every controlled field. `spec/Conventions.md`'s canonical shape is a nudge with a lint, not a law, and Hicasso's positional spelling is the one that works. **No bead**: a lowering-time deep walk buys a diagnostic at the price the design refused, and a lint check for a marker below the top level is a check for one keyword in one position — nag-diagnostic territory. The redaction consequence the report names is real and is EP-0025's, not the facade's. What *was* filed is that the door did not say which shapes it accepts at all when this record was written (`rf2-lu0s`), which was the larger half of the same gap — since fixed and closed by PR #8088, as [§5](#5-the-misses) and the `todo N1` row below already record. |
-| slice 2 / todo 2 — `route-link` is called; everything else that makes markup is a head | **Accepted as designed.** A link is not a unit of re-render, and a boundary at each of the corpus's 106 link sites would cost two hooks apiece. The mistake is loud (`:rf.error/hicasso-function-in-head-position`, and the lint export flags it at `:error` before the build), and both reports record it as a one-time cost paid once. No bead. |
+| slice 1 / todo 1 — `::h/value` and the canonical event-vector shape are incompatible, silently | **Facade decision, and it is against the convention.** `materialize` and `markers?` are `mapv`/`some` over the intent's top level (`impl/intent.cljs:782-795`), for a stated cost reason: a deep walk paid on every keystroke of every controlled field. `spec/Conventions.md`'s canonical shape is a nudge with a lint, not a law, and Fresco's positional spelling is the one that works. **No bead**: a lowering-time deep walk buys a diagnostic at the price the design refused, and a lint check for a marker below the top level is a check for one keyword in one position — nag-diagnostic territory. The redaction consequence the report names is real and is EP-0025's, not the facade's. What *was* filed is that the door did not say which shapes it accepts at all when this record was written (`rf2-lu0s`), which was the larger half of the same gap — since fixed and closed by PR #8088, as [§5](#5-the-misses) and the `todo N1` row below already record. |
+| slice 2 / todo 2 — `route-link` is called; everything else that makes markup is a head | **Accepted as designed.** A link is not a unit of re-render, and a boundary at each of the corpus's 106 link sites would cost two hooks apiece. The mistake is loud (`:rf.error/fresco-function-in-head-position`, and the lint export flags it at `:error` before the build), and both reports record it as a one-time cost paid once. No bead. |
 | slice 3 / todo 3 — top-level `reg-route` does not survive the supported test fixture | **Not the facade's.** `re-frame.test-support/make-reset-runtime-fixture` restores a baseline captured when the `use-fixtures` form is evaluated; this is a Spec 008 finding with two independent reports. Out of Phase 2's scope and out of this freeze's. Recorded here so it is not lost when this page is read as the disposition of record. |
 | slice 4 / todo 4 — `use-subs` reads well at two reads and badly at four | **Accepted.** Consistent with the operator's standing ruling that grouped `use-subs` sits below the ergonomics bar; one grouped read between two applications. Frozen as [`facade-freeze.md`](facade-freeze.md) law 4 — the ambient collector is the default and the grouped door is the control. No bead. |
 | slice 5 / todo 5 — `::h/revision` and the counter the author has to invent | **`rf2-36bd`, filed and since closed** — [§4.1](#41-the-l3-plant-and-why-green-was-the-finding) found it, [§4.2](#42-what-happened-next-and-the-closure-re-run) re-ran it against the landed fix. Both reports have withdrawn finding 5 with the reason, and the inert bookkeeping is out of the slice. |
@@ -330,7 +330,7 @@ silently dropped. Both reports, in their own order:
 | slice 7 / todo 7 — the virtual clock and `poll-until` cannot be used together | **Accepted, and it is a consequence of slice 6 rather than a defect of its own.** The clock deliberately does not drive macrotasks and its docstring is about durations; what a mutation witness waits for is a reply, not a duration. Folded into the slice-6 finding, since a door for *let the router land* is what would dissolve it, and it is recorded in `rf2-6m4w`'s own statement of the question. No separate bead. |
 | slice 8 / todo 8 — route paths are global and route ids are not | **Already filed and landed** as `rf2-wqnl`, which made the prefix a written convention for the whole bundle and put a census gate behind it. The Todo report's one-step extension — `:rf.route/not-found` is itself a process-global route id — belongs with that bead. No new bead. |
 | slice 9a — `reg-sub`'s two-fn form puts a one-argument fn beside a two-argument one | **Not the facade's** (core's `reg-sub`), and both applications avoided it by using the `:<-` chain, which is what the reports recommend. Minutiae; closed rather than actioned. |
-| slice 9b / todo 9c — `false` attributes are recorded and `nil` ones dropped; `.class` sugar folds into `:class` in that order | **Two lines in `ht/attrs`'s docstring.** Both reports ask for the same thing. Folded into `rf2-lu0s`'s scope? **No** — `ht` is the test kit, not the door, and `rf2-lu0s` is fenced to `re-frame.hicasso.cljc`. Closed as minutiae: both facts are discoverable in one red row costing a minute, both reports say so, and neither is a defect. |
+| slice 9b / todo 9c — `false` attributes are recorded and `nil` ones dropped; `.class` sugar folds into `:class` in that order | **Two lines in `ht/attrs`'s docstring.** Both reports ask for the same thing. Folded into `rf2-lu0s`'s scope? **No** — `ht` is the test kit, not the door, and `rf2-lu0s` is fenced to `re-frame.fresco.cljc`. Closed as minutiae: both facts are discoverable in one red row costing a minute, both reports say so, and neither is a defect. |
 | slice 9c — the `h/boundary` fallback can only be asserted as data | **Accepted, and correctly.** Driving it needs something to throw and testbeds hold no deliberate bugs. The slice states the limit rather than inventing a crash — and `rf2-hic-074` has since given the digest region a *real* thrown render (`list-block` refuses a payload with no items), so the limit no longer binds. No bead. |
 | slice 9d — `assert-clean!`'s page-wide residue message | **Recorded as a positive.** The one place the instrument was better than the author. |
 | todo N1 — the key map is why the application has no callback, and the door never mentions it | **`rf2-lu0s`, filed and since closed.** The door now carries a *FOUR shapes* section in `defview`'s docstring, naming the central composition gate. |
@@ -338,12 +338,12 @@ silently dropped. Both reports, in their own order:
 | todo N3 — an event handler is on neither side of `reg-state`'s pair | **Naming/mint question** — C2-2, **held for the same reason**, and recorded with its measured non-cost: the `:dispatch`-shaped clear costs no turn, because `dispatch-sync!` drains a seed handler's `:fx` to fixed point. |
 | todo N4 — a `:ref` must be a stable function and nothing on the door says so | **Accepted, and not filed.** `:ref` is React's contract and [`facade-freeze.md`](facade-freeze.md) law 5 freezes *React owns refs*. The door restating React's identity rule would be the facade taking ownership of a contract it deliberately does not own, and a lint for it would need to know what a ref closes over. The report's own hoisting example is the answer and belongs in the guide. |
 | todo N5 — `:on-submit`'s auto-prevent is exactly right | **`rf2-j6fn`** — recorded by the report as a positive, and it is the one thing in either report that both pre-resolved dispositions forbid. |
-| todo N6 — what the mounted tier cannot drive, stated rather than papered over | **Recorded as a positive**, and not a Hicasso finding. A synthetic `KeyboardEvent` is untrusted so implicit form submission cannot be driven; the suite calls `requestSubmit` and states the boundary in its own docstring. |
+| todo N6 — what the mounted tier cannot drive, stated rather than papered over | **Recorded as a positive**, and not a Fresco finding. A synthetic `KeyboardEvent` is untrusted so implicit form submission cannot be driven; the suite calls `requestSubmit` and states the boundary in its own docstring. |
 
 ## 7. Checked, and found sound
 
 - **Both surface tests are real controls, not assertions.** `every-fence-predicate-fires` shows each
-  predicate one name it must catch **and two it must not** — `re-frame.hicasso` and `re-frame.core` —
+  predicate one name it must catch **and two it must not** — `re-frame.fresco` and `re-frame.core` —
   because a fence that swallowed the public door would fail every application rather than protect
   one. `the-graph-is-populated` closes the vacuous-pass hole first, in as many words: *"a namespace
   the analyzer has not analysed answers an empty edge set, and an empty edge set passes every check
@@ -355,7 +355,7 @@ silently dropped. Both reports, in their own order:
   stated reason: no roster of blessed prop names to keep in step with the DOM. The outcome the
   restriction exists for is delivered anyway, and more generally: `key-map-handler` runs the argument
   law before it looks anything up (`:1097`), so `{:on-click {"Enter" …}}` raises
-  `:rf.error/hicasso-intent-needs-the-event` naming the position, the form and the missing `key`
+  `:rf.error/fresco-intent-needs-the-event` naming the position, the form and the missing `key`
   slot, with a recovery. A divergence of mechanism where the outcome is the disposition's own.
   **Not filed.**
 - **The stale-reply check is present where it is needed and deliberately absent where it is not.**
@@ -380,7 +380,7 @@ silently dropped. Both reports, in their own order:
   live in the guide. Not filed: the prose is comments, it changes no code shape, and it is the
   evidence record the authoring reports were written from. The rule it brushes against is about
   teaching *layers* — deliberate bugs, anti-patterns, staged mistakes — and there are none.
-- **The slice's `expected-doors` roster describes `re-frame.hicasso` as carrying `boundary`.** The
+- **The slice's `expected-doors` roster describes `re-frame.fresco` as carrying `boundary`.** The
   shipped name is `error-boundary` and the slice's own source uses it. A stale string in a comment
   inside a test's roster map; recorded in
   [`naming-findings-cp2.md`](naming-findings-cp2.md) so `rf2-hic-065`'s sweep does not read it as a

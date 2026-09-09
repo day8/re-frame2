@@ -1,7 +1,7 @@
-(ns re-frame.hicasso.test
-  "`ht` — HICASSO'S SUPPORTED TESTING SURFACE, L0 to L2 (rf2-hic-020).
+(ns re-frame.fresco.test
+  "`ht` — FRESCO'S SUPPORTED TESTING SURFACE, L0 to L2 (rf2-hic-020).
 
-  The machinery a Hicasso witness needs was, until this namespace, private
+  The machinery a Fresco witness needs was, until this namespace, private
   to the benchmark tree: the canonical-DOM comparator that made two
   renderings comparable, the intent capture that said what a page MEANS,
   and the body-run door the read-extent matrix asserts through. All three
@@ -9,12 +9,12 @@
   that machinery, extracted, named and documented — the same instruments,
   now a product surface.
 
-      (:require [re-frame.hicasso :as h]
-                [re-frame.hicasso.test :as ht])
+      (:require [re-frame.fresco :as h]
+                [re-frame.fresco.test :as ht])
 
   ## The ladder, and why the tier is the first decision
 
-  A Hicasso test's hardest question is not *what do I assert* but *what
+  A Fresco test's hardest question is not *what do I assert* but *what
   can this tier honestly prove*. [[ladder]] is that answer as data, and
   every refusal in this namespace cites it rather than restating it:
 
@@ -25,7 +25,7 @@
             [[materialize]], [[controlled?]], [[revision]], [[boundary?]],
             [[host?]], [[callback?]], [[view-name]], [[host-policy]],
             [[canonical-dom]], [[capture-intents]], [[fire!]].
-      L2  one hook-free Hicasso body, run for its semantic tree
+      L2  one hook-free Fresco body, run for its semantic tree
           → [[tree]] + [[find]] / [[find-all]] / [[attrs]] / [[text]] /
             [[intents]], and the accessibility trio [[role]] /
             [[accessible-name]] / [[unnamed-controls]].
@@ -48,7 +48,7 @@
   L0 is *pure re-frame*. An event handler is a function of `db` and an
   event vector; a subscription is a function of its inputs; a state
   transition is the pair. None of that needs a view substrate, so none of
-  it needs a Hicasso helper, and shipping one would be a shim in front of
+  it needs a Fresco helper, and shipping one would be a shim in front of
   doors core already publishes:
 
       (deftest toggling-a-todo-flips-its-done-flag
@@ -71,7 +71,7 @@
   [`spec/004B-UI-Tree-and-Conversion.md`](../../../../../../spec/004B-UI-Tree-and-Conversion.md)
   §The node schema already pins — the same closed node set, the same
   discrimination order, the same `:rf.ui/tree-version` root gate, the
-  same `{:rf.ui/opaque :fn}` sentinel — so the tree a Hicasso body answers
+  same `{:rf.ui/opaque :fn}` sentinel — so the tree a Fresco body answers
   is 004B's own VALUE KIND, read with 004B's vocabulary rather than one
   invented here. That was a CROSS-SUBSTRATE claim when it was written: a
   tree from a Freehand declaration was the same kind, until rf2-0yp7w
@@ -93,21 +93,21 @@
   ### The scope of the claim: TREES EMITTED, not forms accepted
 
   004B version 1 governs the tree this namespace **emits**. It does not
-  govern which author forms Hicasso accepts, and the two are different
-  questions with different owners: the grammar is Hicasso's (spec SN, the
+  govern which author forms Fresco accepts, and the two are different
+  questions with different owners: the grammar is Fresco's (spec SN, the
   HD rulings), the tree schema is 004B's, and this walk is both stages in
   one pass because it takes author hiccup and answers a node.
 
   The distinction is load-bearing at exactly one row. 004B §Child
   normalization says `nil`/`false`/`true` children are dropped **at tree
-  build**; Hicasso raises `:rf.error/hicasso-true-child` for a `true`
-  child (HD-016). There is no contradiction: Hicasso's grammar refuses
+  build**; Fresco raises `:rf.error/fresco-true-child` for a `true`
+  child (HD-016). There is no contradiction: Fresco's grammar refuses
   the value upstream of tree build, so a `true` never reaches the rule
   that would drop it, and every tree this namespace emits satisfies 004B
   as written. What a reader must not conclude from *\"the tree is 004B
-  version 1\"* is that a form 004B tolerates is a form Hicasso accepts —
+  version 1\"* is that a form 004B tolerates is a form Fresco accepts —
   the schema describes the output, and the refusals are the substrate's.
-  `re-frame.hicasso.test-kit-runtime-parity-cljs-test` drives both sides
+  `re-frame.fresco.test-kit-runtime-parity-cljs-test` drives both sides
   of that row so the two never drift apart quietly.
 
   ## What L2 runs, and what it refuses
@@ -131,7 +131,7 @@
 
   **The minted `h/defview` head is accepted too, at the ROOT of the
   form**, and either spelling runs the body AS WRITTEN.
-  `re-frame.hicasso.impl.collector/mint-view!` attaches the body to the
+  `re-frame.fresco.impl.collector/mint-view!` attaches the body to the
   head it mints under one dev-only own property (`codec/retain-body!`,
   rf2-kjf5) — no registry and no map, just a second own property beside
   the boundary marker `boundary-head?` already reads — so a harness
@@ -151,15 +151,15 @@
   same two doors `codec/as-element` and `codec/vec->element` dispatch on
   — so a keyword child is the text the runtime renders it as, `[:<> …]`
   is a fragment because it is React's Fragment there, and a `true` child
-  raises `:rf.error/hicasso-true-child` because the runtime raises it.
+  raises `:rf.error/fresco-true-child` because the runtime raises it.
   rf2-hic-020's audit found nine places where this walk had its own
   opinion; a branch that exists twice agrees once.
 
   **A form the runtime REFUSES is refused here with the runtime's own
   id.** `codec/vector-kind` is the preflight and not merely the head
   discrimination, so an empty vector raises
-  `:rf.error/hicasso-empty-vector` and a malformed escape — `[:>]`,
-  `[:> nil]` — raises `:rf.error/hicasso-raw-not-a-component`, carrying
+  `:rf.error/fresco-empty-vector` and a malformed escape — `[:>]`,
+  `[:> nil]` — raises `:rf.error/fresco-raw-not-a-component`, carrying
   the runtime's reason rather than one of this namespace's. **Opacity is a claim
   about a form L2 cannot read, and it is honest only where the runtime
   CAN read it**: a second audit found `[:> :div]` answered with a
@@ -167,7 +167,7 @@
   a form that will not mount anywhere.
 
   - A **nested body function** is refused: a plain function in head
-    position is a loud error in Hicasso itself (HD-016), and a kit that
+    position is a loud error in Fresco itself (HD-016), and a kit that
     accepted one would teach a spelling the runtime rejects.
   - A **minted boundary head** records a **view-boundary node** — its
     `:view-id`, the props the call site passed, and the call site's own
@@ -178,7 +178,7 @@
     **raw React element** and anything else the codec hands to React
     untouched are **opaque** and refuse with a pointer to L3. An
     unforced `delay` is NOT among them, for the reason a MALFORMED
-    escape is not: Hicasso itself refuses it at a boundary crossing, so
+    escape is not: Fresco itself refuses it at a boundary crossing, so
     it carries the runtime's id and the runtime's own reason — hand a
     function, or deref the delay in the body that wrote it — rather
     than a pointer to a tier where the identical refusal is waiting
@@ -218,7 +218,7 @@
   ## Scope
 
   Dev/test only. Nothing in a production bundle may `:require` this
-  namespace — it is its own source root (`hicasso/test_kit/src`) and is
+  namespace — it is its own source root (`fresco/test_kit/src`) and is
   absent from the artefact's published `:paths`, so it is reachable when
   used and unreachable otherwise."
   (:refer-clojure :exclude [find])
@@ -226,11 +226,11 @@
             [re-frame.core :as rf]
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.error :as rf.error]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.controlled :as rf.hicasso.impl.controlled]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]))
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.controlled :as rf.fresco.impl.controlled]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]))
 
 ;; ---------------------------------------------------------------------------
 ;; Refusals — one constructor, so every refusal has the same identity shape
@@ -238,13 +238,13 @@
 
 (def ^:private where
   "The raising site every refusal in this namespace names."
-  're-frame.hicasso.test)
+  're-frame.fresco.test)
 
 (defn- refuse!
   "Raise a structured refusal in the runtime's own shape: ex-data is
   `{:rf.error/id id :where where :reason reason :recovery :no-recovery}`
   merged OVER `extra`, built through `re-frame.error/ex-info-from-data`
-  exactly as `impl.error/fail!` builds every Hicasso throw.
+  exactly as `impl.error/fail!` builds every Fresco throw.
 
   The ex-data is the ASSERTABLE identity, because `(is (thrown? …))` is
   green for a throw from any layer with any id. `extra` carries the
@@ -273,8 +273,8 @@
       :mechanism  the tool that tier is written with
       :here?      whether THIS namespace ships that tier
 
-  Spec 009 §9 of the Hicasso specification and
-  `docs/design/hicasso/product/lanes/testing-xray.md` are the normative
+  Spec 009 §9 of the Fresco specification and
+  `docs/design/fresco/product/lanes/testing-xray.md` are the normative
   owners; this is their table, readable from a test."
   [{:tier :l0 :here? false
     :proves    "event handlers, subscriptions, state transitions"
@@ -283,8 +283,8 @@
     :proves    "codecs, intents, controlled/revision laws, the boundary ABI"
     :mechanism "pure data and property assertions"}
    {:tier :l2 :here? true
-    :proves    "one hook-free Hicasso body, as a semantic tree"
-    :mechanism "re-frame.hicasso.test/tree under injected read fixtures"}
+    :proves    "one hook-free Fresco body, as a semantic tree"
+    :mechanism "re-frame.fresco.test/tree under injected read fixtures"}
    {:tier :l3 :here? false
     :proves    "React lifecycle, context, hooks, refs, errors, foreign hosts"
     :mechanism "the mounted React DOM facade (rf2-hic-027) with Testing Library"}
@@ -314,28 +314,28 @@
 ;; declarations can be held to it.
 
 (defn boundary?
-  "Is `v` a minted Hicasso boundary — the value `h/defview` defines?
+  "Is `v` a minted Fresco boundary — the value `h/defview` defines?
 
   One own-property read (`codec/boundary-head?`). True for a `defview`
   var, false for the plain function its body is, which is the
   discrimination that makes this an assertion rather than a restatement
   of `fn?`."
   [v]
-  (rf.hicasso.impl.codec/boundary-head? v))
+  (rf.fresco.impl.codec/boundary-head? v))
 
 (defn host?
   "Is `v` a minted host crossing — the value `h/defhost` defines? False
   for the foreign component the declaration named, which is the point:
   the crossing is a distinct value with a policy of its own."
   [v]
-  (rf.hicasso.impl.codec/host-head? v))
+  (rf.fresco.impl.codec/host-head? v))
 
 (defn callback?
   "Is `v` the one callback form — the value `h/event` expands to? False for
   an identically-written plain `fn`, so a position that imposes a
   contract can tell them apart and so can a test."
   [v]
-  (rf.hicasso.impl.intent/callback? v))
+  (rf.fresco.impl.intent/callback? v))
 
 (defn view-name
   "The `\"<ns>/<sym>\"` name a minted boundary or host carries — the same
@@ -348,18 +348,18 @@
 (defn host-policy
   "The `:server` policy a `defhost` crossing was declared with —
   `:client-only` or `:render` — read back as data. Refuses anything that
-  is not a minted crossing with `:rf.error/hicasso-test-not-a-host`
+  is not a minted crossing with `:rf.error/fresco-test-not-a-host`
   rather than answering nil, because a nil here would read as
   `:client-only`'s neighbour. A declared `:fallback` is markup rather
   than policy and is not part of this answer. The two policies and the
-  default are HD-011's, in docs/design/hicasso/decisions.md."
+  default are HD-011's, in docs/design/fresco/decisions.md."
   [v]
   (when-not (host? v)
-    (refuse! :rf.error/hicasso-test-not-a-host
+    (refuse! :rf.error/fresco-test-not-a-host
              (str "host-policy reads the `:server` policy off a minted `h/defhost` "
                   "crossing; it was given " (pr-str (type v)) ".")
              {:value v}))
-  (rf.hicasso.impl.codec/host-server v))
+  (rf.fresco.impl.codec/host-server v))
 
 ;; ---------------------------------------------------------------------------
 ;; L1 — the codec, projected
@@ -380,7 +380,7 @@
   anything calls it, which is louder than a no-op that would make a
   handler look wired."
   (fn [event-v]
-    (refuse! :rf.error/hicasso-test-l1-dispatch
+    (refuse! :rf.error/fresco-test-l1-dispatch
              (str "A handler lowered by an L1 projection was invoked. "
                   "L1 reads the codec's emission as data; firing a handler is "
                   "behaviour. " (tier-pointer :l3))
@@ -425,14 +425,14 @@
   other than a tag keyword is refused — there are no props to emit."
   [form]
   (when-not (and (vector? form) (keyword? (nth form 0 nil)))
-    (refuse! :rf.error/hicasso-test-not-a-native-form
+    (refuse! :rf.error/fresco-test-not-a-native-form
              (str "element-props projects ONE native hiccup form — a vector "
                   "whose head is a tag keyword. It was given " (pr-str form) ".")
              {:value form}))
-  (let [parsed (rf.hicasso.impl.codec/cached-parse (nth form 0))
+  (let [parsed (rf.fresco.impl.codec/cached-parse (nth form 0))
         props  (form-props form)
-        js-props (rf.hicasso.impl.intent/with-frame l1-frame probe-dispatch
-                   (fn [] (rf.hicasso.impl.codec/convert-props props parsed)))]
+        js-props (rf.fresco.impl.intent/with-frame l1-frame probe-dispatch
+                   (fn [] (rf.fresco.impl.codec/convert-props props parsed)))]
     (persistent!
       (reduce (fn [m k] (assoc! m k (opaque-value (unchecked-get js-props k))))
               (transient {})
@@ -446,7 +446,7 @@
       ;; => [:filter/set \"done\"]
 
   `target` is `{:value … :checked …}` — the two facts `::h/value` and
-  `::h/checked` read. This is `re-frame.hicasso.impl.intent/materialize`
+  `::h/checked` read. This is `re-frame.fresco.impl.intent/materialize`
   itself, not a re-derivation, so the substitution rule under test is the
   one the browser path runs. Top level only, exactly as the runtime's is.
 
@@ -454,33 +454,33 @@
   nothing is prevented, no handler runs."
   [intent-v {:keys [value checked]}]
   (when-not (vector? intent-v)
-    (refuse! :rf.error/hicasso-test-not-an-intent
+    (refuse! :rf.error/fresco-test-not-an-intent
              (str "materialize takes an intent VECTOR; it was given "
                   (pr-str intent-v) ".")
              {:value intent-v}))
-  (rf.hicasso.impl.intent/materialize intent-v #js {"target" #js {"value" value "checked" checked}}))
+  (rf.fresco.impl.intent/materialize intent-v #js {"target" #js {"value" value "checked" checked}}))
 
 (defn controlled?
   "Does the codec install the **controlled shadow** for this native form —
   HD-019's synchronous door, and Invariant I15's subject?
 
-  True exactly when `re-frame.hicasso.impl.controlled/install!` selects a
+  True exactly when `re-frame.fresco.impl.controlled/install!` selects a
   component other than the tag itself, which is the runtime's own
   decision rather than a re-derivation of it: a field is controlled
   because the emitted element is, not because the author wrote something
   that looks controlled."
   [form]
   (when-not (and (vector? form) (keyword? (nth form 0 nil)))
-    (refuse! :rf.error/hicasso-test-not-a-native-form
+    (refuse! :rf.error/fresco-test-not-a-native-form
              (str "controlled? asks about ONE native hiccup form — a vector "
                   "whose head is a tag keyword. It was given " (pr-str form) ".")
              {:value form}))
-  (let [parsed   (rf.hicasso.impl.codec/cached-parse (nth form 0))
+  (let [parsed   (rf.fresco.impl.codec/cached-parse (nth form 0))
         props    (form-props form)
-        js-props (rf.hicasso.impl.intent/with-frame l1-frame probe-dispatch
-                   (fn [] (rf.hicasso.impl.codec/convert-props props parsed)))
+        js-props (rf.fresco.impl.intent/with-frame l1-frame probe-dispatch
+                   (fn [] (rf.fresco.impl.codec/convert-props props parsed)))
         tag      (.-tag parsed)]
-    (not (identical? tag (rf.hicasso.impl.controlled/install! tag js-props)))))
+    (not (identical? tag (rf.fresco.impl.controlled/install! tag js-props)))))
 
 (defn revision
   "The `::h/revision` value a native form carries, or nil.
@@ -490,7 +490,7 @@
   law). It is read **pre-conversion**, off the author's own attribute
   map, which is where the codec reads it — here as there."
   [form]
-  (get (form-props form) rf.hicasso.impl.codec/revision-key))
+  (get (form-props form) rf.fresco.impl.codec/revision-key))
 
 ;; ---------------------------------------------------------------------------
 ;; L1 — the canonical DOM comparator
@@ -535,7 +535,7 @@
   which is the whole reason a comparison needs a canonical form at all.
 
   Extracted from the measurement lane's own gate
-  (`re-frame.bench.hicasso.lane/canonical`), which it now differs from in
+  (`re-frame.bench.fresco.lane/canonical`), which it now differs from in
   one respect: **the data a node carries is escaped, so it cannot imitate
   the serialiser's own structure** (rf2-kovp). A text node reading
   `<p>x</p>` and a real `<p>` element holding `x` are visibly different
@@ -570,11 +570,11 @@
   `value` is `defaultValue`, `checked` is `defaultChecked`, an option's
   `selected` is `defaultSelected` — while the live values are properties
   no serialiser can reach, so two byte-identical pages can be showing
-  different selections to a user. `re-frame.hicasso.test.mounted/shadow!`
+  different selections to a user. `re-frame.fresco.test.mounted/shadow!`
   compares those slots beside this equality for exactly that reason."
   [node]
   (when-not (and (some? node) (number? (.-nodeType node)))
-    (refuse! :rf.error/hicasso-test-not-a-dom-node
+    (refuse! :rf.error/fresco-test-not-a-dom-node
              (str "canonical-dom serialises a DOM node's subtree; it was given "
                   (pr-str node) ". " (tier-pointer :l2)
                   " A semantic tree is compared with ordinary `=`.")
@@ -584,7 +584,7 @@
               (case (.-nodeType n)
                 1 (let [tag   (str/lower-case (.-tagName n))
                         attrs (->> (array-seq (.-attributes n))
-                                   (remove (fn [a] (contains? rf.hicasso.test.runtime/annotation-attributes
+                                   (remove (fn [a] (contains? rf.fresco.test.runtime/annotation-attributes
                                                               (.-name a))))
                                    (map (fn [a] [(.-name a) (.-value a)]))
                                    (sort-by first))]
@@ -612,7 +612,7 @@
   The capture is taken at **`re-frame.event-emit`, the substrate's own
   event-observation registry**, so the witness holds no hook into the
   rendering under test and reads the same events whichever substrate
-  produced them. That is what let one script judge a Hicasso rendering, a
+  produced them. That is what let one script judge a Fresco rendering, a
   raw UIx rendering and a hydrated page against ONE stated expectation.
   The registry is implementation-tier since rf2-kuky.69 retired `:events`
   from the public `rf/register-listener!` vocabulary — a spelling change
@@ -636,7 +636,7 @@
   (rf2-hic-027), and this is the port that one arms too."
   [frame-kw f]
   (let [log (atom [])
-        k   (keyword "re-frame.hicasso.test"
+        k   (keyword "re-frame.fresco.test"
                      (str "intent-capture-" (swap! !capture-seq inc)))]
     (rf.event-emit/register-event-listener!
       k
@@ -658,7 +658,7 @@
   Native and not React's synthetic event, and that is the point rather
   than a shortcut: React's synthetic keyboard event DROPS `isComposing`,
   so a witness that read the synthetic event would be deaf to the
-  composing law it exists to assert. These are the properties Hicasso's
+  composing law it exists to assert. These are the properties Fresco's
   own handlers read — `target.value`, `target.checked`, `key`,
   `isComposing`, `keyCode` — and nothing else is invented."
   [{:keys [value checked key composing? key-code]} !prevented]
@@ -701,22 +701,22 @@
   make loud."
   [frame-kw form prop event]
   (when-not (and (vector? form) (keyword? (nth form 0 nil)))
-    (refuse! :rf.error/hicasso-test-not-a-native-form
+    (refuse! :rf.error/fresco-test-not-a-native-form
              (str "fire! drives ONE native hiccup form — a vector whose head "
                   "is a tag keyword. It was given " (pr-str form) ".")
              {:value form}))
   (let [props (form-props form)]
     (when-not (contains? props prop)
-      (refuse! :rf.error/hicasso-test-no-handler-at-position
+      (refuse! :rf.error/fresco-test-no-handler-at-position
                (str "the form carries no value at " (pr-str prop)
                     ". A handler position that is silently absent is exactly "
                     "the fault this door exists to make loud; the positions "
                     "written are " (pr-str (vec (keys props))) ".")
                {:position prop :written (vec (keys props))}))
-    (let [handler (rf.hicasso.impl.intent/with-frame frame-kw (rf.hicasso.impl.collector/frame-dispatch frame-kw)
-                    (fn [] (rf.hicasso.impl.intent/lower-prop prop (get props prop))))]
+    (let [handler (rf.fresco.impl.intent/with-frame frame-kw (rf.fresco.impl.collector/frame-dispatch frame-kw)
+                    (fn [] (rf.fresco.impl.intent/lower-prop prop (get props prop))))]
       (when-not (fn? handler)
-        (refuse! :rf.error/hicasso-test-position-is-not-a-handler
+        (refuse! :rf.error/fresco-test-position-is-not-a-handler
                  (str (pr-str prop) " lowered to " (pr-str handler)
                       " rather than to a function — it is not a handler "
                       "position, so there is nothing to fire.")
@@ -863,7 +863,7 @@
   native element's attributes and handlers, and the two differ over
   exactly one non-data value. A boundary's props are the one position
   `codec/realize-deep` walks, and it **refuses** an unforced `delay`
-  reachable from them (`:rf.error/hicasso-deferred-read-at-boundary`,
+  reachable from them (`:rf.error/fresco-deferred-read-at-boundary`,
   Spec 009) rather than forcing an author's explicit deferral. A native
   attribute is not walked and the runtime refuses nothing there. So the
   crossing borrows the runtime's id and the runtime's reason, and the
@@ -882,12 +882,12 @@
     {:rf.ui/opaque :fn}
     (do (when-some [[path bad] (non-data v)]
           (if (and (= :crossing site) (delay? bad) (not (realized? bad)))
-            (refuse! :rf.error/hicasso-deferred-read-at-boundary
+            (refuse! :rf.error/fresco-deferred-read-at-boundary
                      (str "an unforced `delay` is at the boundary prop "
                           (pr-str k)
                           (when (seq path)
                             (str ", at " (pr-str path) " within it"))
-                          ". Hicasso refuses it at the crossing rather than "
+                          ". Fresco refuses it at the crossing rather than "
                           "forcing it, because forcing an author's explicit "
                           "deferral would change what their program means: it "
                           "would be forced inside the CHILD's render, so any "
@@ -1011,7 +1011,7 @@
   (into []
         (remove #(= "" %))
         (reduce (fn add [out x]
-                  (let [kind (rf.hicasso.impl.codec/child-kind x)]
+                  (let [kind (rf.fresco.impl.codec/child-kind x)]
                     (case kind
                       :nothing out
                       :splice  (reduce add out x)
@@ -1021,18 +1021,18 @@
 
 (defn- element-node
   [form ns-ctx]
-  (let [parsed  (rf.hicasso.impl.codec/cached-parse (nth form 0))
+  (let [parsed  (rf.fresco.impl.codec/cached-parse (nth form 0))
         tag     (keyword (.-tag parsed))
         props   (form-props form)
         ;; The codec's own two shorthand rules, taken from it rather than
         ;; restated: an explicit id WINS over `#id`, and the shorthand
         ;; class is PREPENDED to a declared one
         ;; (`codec/fold-shorthand!`).
-        classes (rf.hicasso.impl.codec/class-names (.-className parsed) (:class props))
+        classes (rf.fresco.impl.codec/class-names (.-className parsed) (:class props))
         id      (or (:id props) (.-id parsed))
         events  (persistent!
                   (reduce-kv (fn [m k v]
-                               (if (rf.hicasso.impl.intent/event-prop? k)
+                               (if (rf.fresco.impl.intent/event-prop? k)
                                  (assoc! m k (opaque-prop :attr k v))
                                  m))
                              (transient {})
@@ -1040,7 +1040,7 @@
         attrs   (persistent!
                   (reduce-kv (fn [m k v]
                                (cond
-                                 (rf.hicasso.impl.intent/event-prop? k) m
+                                 (rf.fresco.impl.intent/event-prop? k) m
                                  (= :key k)             m
                                  (= :class k)           m
                                  (= :id k)              m
@@ -1125,7 +1125,7 @@
   malformed HEAD, and `[:> :div]` with a pointer to L3: an instruction to
   go mount, in a browser, a form that cannot mount anywhere."
   [form ns-ctx]
-  (case (rf.hicasso.impl.codec/vector-kind form)
+  (case (rf.fresco.impl.codec/vector-kind form)
     :tag      (element-node form ns-ctx)
     :fragment (fragment-node form ns-ctx)
     :boundary (boundary-node form ns-ctx)
@@ -1145,17 +1145,17 @@
 
     :host
     (let [head (nth form 0)]
-      (refuse-opaque! :rf.error/hicasso-test-host-is-opaque
+      (refuse-opaque! :rf.error/fresco-test-host-is-opaque
                       (str "a `h/defhost` crossing (" (pr-str (view-name head))
                            ") reached the semantic tree. What a foreign React "
                            "component renders is React's answer, not "
-                           "Hicasso's, and L2 has no way to ask it.")
+                           "Fresco's, and L2 has no way to ask it.")
                       {:host (view-name head) :value form}))
 
     ;; Reached only for a WELL-FORMED escape: `codec/vector-kind` has run
     ;; the escape's own grammar and a malformed one never gets here.
     :raw
-    (refuse-opaque! :rf.error/hicasso-test-react-is-opaque
+    (refuse-opaque! :rf.error/fresco-test-react-is-opaque
                     (str "the raw escape `[:> …]` reached the semantic tree. "
                          "It hands its component to React untouched (HD-011), "
                          "so what it renders is React's answer and L2 has no "
@@ -1167,8 +1167,8 @@
     ;; headless vector under its own id.
     (let [head (nth form 0)]
       (if (fn? head)
-        (refuse! :rf.error/hicasso-test-plain-fn-head
-                 (str "a plain function is in hiccup head position. Hicasso "
+        (refuse! :rf.error/fresco-test-plain-fn-head
+                 (str "a plain function is in hiccup head position. Fresco "
                       "refuses that outright (HD-016) rather than embedding it "
                       "silently, so this kit refuses it too. Mint the boundary "
                       "with `h/defview`, or — to run this body at L2 — pass it "
@@ -1201,14 +1201,14 @@
     :markup (walk-vector x ns-ctx)
 
     :true-child
-    (refuse! :rf.error/hicasso-true-child
+    (refuse! :rf.error/fresco-true-child
              (str "a `true` child reached the semantic tree. `nil` and `false` "
                   "render nothing; `true` is an error (HD-016), and the runtime "
                   "raises this same id for it rather than dropping it.")
              {:value x})
 
     :react-element
-    (refuse-opaque! :rf.error/hicasso-test-react-is-opaque
+    (refuse-opaque! :rf.error/fresco-test-react-is-opaque
                     (str "a raw React element reached the semantic tree. L2 "
                          "reads the hiccup a body wrote; a value React alone "
                          "can interpret has no semantic form here.")
@@ -1221,9 +1221,9 @@
       ;; namespace's opacity. Opacity is honest only where the runtime CAN
       ;; read the form; a pointer to L3 would send the programmer to
       ;; mount, in a browser, a crossing where the same refusal is waiting.
-      (refuse! :rf.error/hicasso-deferred-read-at-boundary
+      (refuse! :rf.error/fresco-deferred-read-at-boundary
                (str "an unforced `delay` reached a boundary crossing. "
-                    "Hicasso refuses it there rather than forcing it, "
+                    "Fresco refuses it there rather than forcing it, "
                     "because forcing an author's explicit deferral would "
                     "change what their program means. Hand a FUNCTION "
                     "instead — the child calls it on every render, so its "
@@ -1255,7 +1255,7 @@
   live cell, and [[tree]] removes every one of them on the way out."
   [frame-kw fixtures]
   (let [keys' (mapv (fn [[query-v _]] [frame-kw query-v]) fixtures)]
-    (swap! rf.hicasso.impl.collector/!cells
+    (swap! rf.fresco.impl.collector/!cells
            (fn [cells]
              (reduce-kv (fn [m query-v v]
                           ;; `epoch` alongside the reaction because a
@@ -1282,9 +1282,9 @@
   correctly present."
   [frame-kw fixtures entry]
   (let [supplied (into #{} (map (fn [[q _]] [frame-kw q])) fixtures)
-        missing  (remove supplied (rf.hicasso.test.runtime/reads-of entry))]
+        missing  (remove supplied (rf.fresco.test.runtime/reads-of entry))]
     (when (seq missing)
-      (refuse! :rf.error/hicasso-test-missing-read-fixture
+      (refuse! :rf.error/fresco-test-missing-read-fixture
                (str "the body read " (count missing) " subscription"
                     (when (> (count missing) 1) "s")
                     " no fixture answers: "
@@ -1298,7 +1298,7 @@
                 :phase     :after-body-run}))))
 
 (defn tree
-  "Run one hook-free Hicasso **body** under injected read fixtures, and
+  "Run one hook-free Fresco **body** under injected read fixtures, and
   answer its versioned semantic tree.
 
       (ht/tree [todo-row-body {:id 1}]
@@ -1319,14 +1319,14 @@
   `{:reads …}`, the spelling this option carried until naming-ledger row
   23 settled it — was accepted in silence: a body with no reads rendered
   outright, and a reading body ignored the fixtures it was handed and
-  refused with `:rf.error/hicasso-test-missing-read-fixture`, naming the
+  refused with `:rf.error/fresco-test-missing-read-fixture`, naming the
   wrong problem. Pre-alpha there is no alias and no deprecation path; the
   retired spelling is simply an unknown key, and it is refused as one.
 
   ## What it is
 
   The body runs on the runtime's own body-run path
-  (`re-frame.hicasso.impl.collector/render-body`), so the generation
+  (`re-frame.fresco.impl.collector/render-body`), so the generation
   fence, the ambient-read extent (I7) and the read-set accounting are the
   real ones — a read escaping into a callback or a timer refuses here
   exactly as it refuses in a browser. The hiccup that body returned is
@@ -1348,7 +1348,7 @@
 
   The retention is **dev only**. In an `:advanced` + `goog.DEBUG=false`
   build the property was never written, and a minted head refuses with
-  `:rf.error/hicasso-test-boundary-body-not-retained` pointing at L3 —
+  `:rf.error/fresco-test-boundary-body-not-retained` pointing at L3 —
   which costs nothing, because a production bundle may not `:require`
   this namespace at all.
 
@@ -1369,7 +1369,7 @@
   ([form] (tree form {}))
   ([form {fixtures :subs :or {fixtures {}} :as opts}]
    (when-not (and (vector? form) (seq form))
-     (refuse! :rf.error/hicasso-test-not-a-render-form
+     (refuse! :rf.error/fresco-test-not-a-render-form
               (str "tree takes a hiccup form `[body-fn props & children]`; "
                    "it was given " (pr-str form) ".")
               {:value form}))
@@ -1380,11 +1380,11 @@
    ;; a body with no reads. `:where` and the tier are the same door's;
    ;; only the roster is new.
    (when-not (map? opts)
-     (refuse! :rf.error/hicasso-test-bad-option
+     (refuse! :rf.error/fresco-test-bad-option
               (str "tree's options are a map; they were " (pr-str opts) ".")
               {:value opts}))
    (when-let [unknown (seq (disj (set (keys opts)) :subs))]
-     (refuse! :rf.error/hicasso-test-bad-option
+     (refuse! :rf.error/fresco-test-bad-option
               (str "tree accepts :subs and nothing else; it was given "
                    (pr-str (vec (sort-by str unknown)))
                    ". An option that is quietly ignored is a setting its "
@@ -1396,13 +1396,13 @@
          ;; property (rf2-kjf5). Substituting it here is the whole of L2's
          ;; support for `[some-view …]`: everything below then reads the
          ;; body function, and the view runs AS WRITTEN.
-         head   (if (rf.hicasso.impl.codec/boundary-head? minted)
-                  (or (rf.hicasso.impl.codec/retained-body minted)
+         head   (if (rf.fresco.impl.codec/boundary-head? minted)
+                  (or (rf.fresco.impl.codec/retained-body minted)
                       ;; Reachable in one build only — `:advanced` with
                       ;; `goog.DEBUG=false`, where the property was never
                       ;; written. There is genuinely nothing to run, so the
                       ;; refusal stands exactly as it did.
-                      (refuse! :rf.error/hicasso-test-boundary-body-not-retained
+                      (refuse! :rf.error/fresco-test-boundary-body-not-retained
                                (str "`" (view-name minted) "` is a minted boundary "
                                     "and this is a production build, where a "
                                     "boundary does not retain its body — the mint "
@@ -1414,47 +1414,47 @@
                                     (tier-pointer :l3))
                                {:view (view-name minted)}))
                   minted)]
-     (when (rf.hicasso.impl.codec/host-head? head)
-       (refuse-opaque! :rf.error/hicasso-test-host-is-opaque
+     (when (rf.fresco.impl.codec/host-head? head)
+       (refuse-opaque! :rf.error/fresco-test-host-is-opaque
                        (str "`" (view-name head) "` is a `h/defhost` crossing. "
                             "What a foreign React component renders is React's "
-                            "answer, not Hicasso's.")
+                            "answer, not Fresco's.")
                        {:host (view-name head)}))
      (when-not (fn? head)
-       (refuse! :rf.error/hicasso-test-not-a-body
+       (refuse! :rf.error/fresco-test-not-a-body
                 (str "tree's head is the BODY FUNCTION a `h/defview` is "
                      "minted from — `(fn [props] …)`. It was given "
                      (pr-str head) ".")
                 {:value head}))
      (when-not (map? fixtures)
-       (refuse! :rf.error/hicasso-test-bad-reads
+       (refuse! :rf.error/fresco-test-bad-reads
                 (str ":subs is the fixture map from query vector to value; it "
                      "was given " (pr-str fixtures) ".")
                 {:value fixtures}))
-     (let [frame-kw (keyword "re-frame.hicasso.test"
+     (let [frame-kw (keyword "re-frame.fresco.test"
                              (str "probe-" (swap! !probe-seq inc)))
            has-props? (map? (nth form 1 nil))
            props    (if has-props? (nth form 1) {})
            ;; The children a call site writes reach a body as the
-           ;; `:children` PROP — hicasso's own crossing shape
+           ;; `:children` PROP — fresco's own crossing shape
            ;; (`codec/boundary-element`) — and they reach it as HICCUP,
            ;; unwalked, because the body may render them, wrap them or
            ;; drop them. `codec/realize-children` is the flatten, so the
            ;; one-level seq splice is the runtime's rather than a second
            ;; rule with the same name.
-           props    (if-some [cs (rf.hicasso.impl.codec/realize-children form (if has-props? 2 1))]
+           props    (if-some [cs (rf.fresco.impl.codec/realize-children form (if has-props? 2 1))]
                       (assoc props :children cs)
                       props)
            !tree    (volatile! nil)
            keys'    (install-fixtures! frame-kw fixtures)]
        (try
-         (rf.hicasso.impl.collector/render-body
+         (rf.fresco.impl.collector/render-body
            frame-kw
-           (fn hicasso-test-body [p]
+           (fn fresco-test-body [p]
              (vreset! !tree (canonical-children [(head p)] nil))
              nil)
            props)
-         (verify-fixtures! frame-kw fixtures (rf.hicasso.impl.collector/last-reads))
+         (verify-fixtures! frame-kw fixtures (rf.fresco.impl.collector/last-reads))
          ;; 004B §Versioning — the emitter returns the ROOT NODE, always a
          ;; map, carrying the version. A body that answered ONE node roots
          ;; in it; a body that answered text, several nodes, or NOTHING
@@ -1468,7 +1468,7 @@
              (assoc (nth children 0) tree-version-key tree-version)
              {tree-version-key tree-version :children children}))
          (finally
-           (swap! rf.hicasso.impl.collector/!cells (fn [cells] (apply dissoc cells keys')))))))))
+           (swap! rf.fresco.impl.collector/!cells (fn [cells] (apply dissoc cells keys')))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — the projections (004B §Projections; `re-frame.freehand.test`'s
@@ -1856,7 +1856,7 @@
 
   This is a claim about markup, and a browser is what decides whether the
   markup means it. Its L4 counterpart is
-  `re-frame.hicasso.examples.slice.a11y-focus-dom-cljs-test`, which reads
+  `re-frame.fresco.examples.slice.a11y-focus-dom-cljs-test`, which reads
   the engine's own `HTMLInputElement.labels` and its own
   `document.activeElement` back for the same page."
   [tree node]

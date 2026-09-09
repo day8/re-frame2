@@ -1,10 +1,10 @@
-(ns re-frame.bench.hicasso.front.controlled
+(ns re-frame.bench.fresco.front.controlled
   "FROZEN — the MEASURED PROTOTYPE, not the shipped element path. What ships
-  is `re-frame.hicasso.impl.controlled`, which rf2-hic-001 copied out of this
+  is `re-frame.fresco.impl.controlled`, which rf2-hic-001 copied out of this
   file and has moved on without ever since.
 
   **The divergence is expected and permanent, and back-porting into this file
-  is refused.** `implementation/hicasso/frozen-sources.edn` is the authority
+  is refused.** `implementation/fresco/frozen-sources.edn` is the authority
   for both halves, and it is executable rather than prose: its header rules
   that a fix landing in the PACKAGE leaves the bench tree the stale copy, and
   its third retirement dropped this file's digest row rather than re-pin it —
@@ -18,7 +18,7 @@
   package. The divergence is not summarised here, because a summary rots —
   it is read off git, which cannot:
 
-      git log --oneline 93ec92d491.. -- implementation/hicasso/src/re_frame/hicasso/impl/controlled.cljs
+      git log --oneline 93ec92d491.. -- implementation/fresco/src/re_frame/fresco/impl/controlled.cljs
 
   Every commit listed is a package change this file deliberately does not
   carry. They are refusals and diagnostics: where the package now complains,
@@ -39,12 +39,12 @@
   owes its user. React converges inside the discrete event and throws the
   caret to the end of the control; UIx's port of Reagent's workaround
   keeps the caret and arrives one animation frame late. The matrix is on
-  `docs/design/hicasso/studio/controlled-input-two-implementations.md`.
+  `docs/design/fresco/studio/controlled-input-two-implementations.md`.
 
   This is the third behaviour, and it lives in **the element path**
   rather than in a component — which is the whole reason it is cheap.
   [[install!]] is called from
-  [[re-frame.bench.hicasso.front.codec/native-element]] on the elements
+  [[re-frame.bench.fresco.front.codec/native-element]] on the elements
   it applies to, and wraps the change handler the author already wrote.
   The view is unchanged: an ordinary `:value` / `:on-input` pair, no
   ref, no effect, no escape hatch, and **nothing added to the boundary
@@ -218,7 +218,7 @@
   ## The composition carve-out (rf2-digtt), and why it is two halves
 
   A composing IME produces exactly the `input` events this wrapper runs
-  on. `bench/hicasso/ime_run.cjs` drives real CDP composition at it
+  on. `bench/fresco/ime_run.cjs` drives real CDP composition at it
   beside plain React and the UIx port, and what it measured is the whole
   reason the carve-out exists: on a field whose model **refuses or
   normalises** the composition text, the value written back lands
@@ -393,7 +393,7 @@
   "Did this change event arrive in the middle of a live IME composition?
 
   Read off the **native** event, for the reason
-  [[re-frame.bench.hicasso.front.intent/composing?]] states at length:
+  [[re-frame.bench.fresco.front.intent/composing?]] states at length:
   React hands a handler a synthetic event built by copying an enumerated
   interface, and what is not on the list is not on the event.
 
@@ -574,10 +574,10 @@
   "Where [[shadow-component]] records the tag it renders, so
   [[element-tag]] can answer for an emitted element without knowing
   this namespace exists."
-  "hicassoNativeTag")
+  "frescoNativeTag")
 
 (def revision-slot
-  "The private slot [[re-frame.bench.hicasso.front.codec/native-element]]
+  "The private slot [[re-frame.bench.fresco.front.codec/native-element]]
   stashes a `::h/revision` on, and [[install!]] deletes as it reads.
 
   It exists for exactly the length of one `install!` call. The codec
@@ -586,7 +586,7 @@
   the name so the codec cannot drift from it, and the delete is what
   makes \"never a DOM attribute\" true by construction rather than by a
   strip at each of the three exits (React, the DOM, the server bytes)."
-  "hicassoRevision")
+  "frescoRevision")
 
 (defn- shadowed-props
   "The props the native tag is rendered with while `shadow` is held —
@@ -633,21 +633,21 @@
     (when (some? shadow)
       (unchecked-set out "value" shadow))
     (unchecked-set out slot
-                   (fn hicasso-composition-shadow [e]
+                   (fn fresco-composition-shadow [e]
                      (if (composing-input? e)
                        (set-shadow (some-> (.-target e) (.-value)))
                        (release!))
                      (inner e)
                      nil))
     (unchecked-set out "onCompositionEnd"
-                   (fn hicasso-composition-end [e]
+                   (fn fresco-composition-end [e]
                      (release!)
                      (when (fn? ended) (ended e))
                      (when-some [node (.-target e)]
                        (converge! node))
                      nil))
     (unchecked-set out "onBlur"
-                   (fn hicasso-composition-release [e]
+                   (fn fresco-composition-release [e]
                      (release!)
                      (when (fn? blurred) (blurred e))
                      nil))
@@ -681,7 +681,7 @@
                        (if (convergeable? tag props)
                          (shadowed-props props shadow set-shadow)
                          props))))]
-    (unchecked-set component "displayName" (str "hicasso/controlled-" tag))
+    (unchecked-set component "displayName" (str "fresco/controlled-" tag))
     (unchecked-set component native-tag-key tag)
     component))
 
@@ -733,7 +733,7 @@
   needs to: the reset rides React's own per-commit controlled re-assert
   off the fresh props object the codec mints per render, so there is no
   hook, no ref, no comparison record and **no third `flushSync` site**
-  here. See [[re-frame.bench.hicasso.front.codec/revision-key]].
+  here. See [[re-frame.bench.fresco.front.codec/revision-key]].
 
   The acceptance predicate is [[controlled-text-tag?]] — the one that
   already chooses the shadow component, reused rather than duplicated —
@@ -750,10 +750,10 @@
     (js-delete js-props revision-slot)
     (when-not (controlled-text-tag? tag js-props)
       (throw (ex-info (str "A revision belongs on a controlled text field, and this is not one. "
-                           "[:rf.error/hicasso-revision-not-controlled]")
-                      {:rf.error/id :rf.error/hicasso-revision-not-controlled
+                           "[:rf.error/fresco-revision-not-controlled]")
+                      {:rf.error/id :rf.error/fresco-revision-not-controlled
                        :where       'front.controlled/install!
-                       :reason      (str ":re-frame.hicasso/revision re-baselines a controlled "
+                       :reason      (str ":re-frame.fresco/revision re-baselines a controlled "
                                          "<input> or <textarea> to its model, so it needs both "
                                          "of those: an `input`/`textarea` tag, and a non-nil "
                                          ":value to re-baseline TO. This is a " (pr-str tag)
@@ -764,7 +764,7 @@
     (let [slot    (change-slot js-props)
           handler (unchecked-get js-props slot)]
       (unchecked-set js-props slot
-                     (fn hicasso-converging-change [e]
+                     (fn fresco-converging-change [e]
                        (handler e)
                        (when-not (composing-input? e)
                          (when-some [node (.-target e)]

@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.editor.views
+(ns re-frame.fresco.examples.editor.views
   "THE FOUR-FIELD EDITOR — every control written the way the guide writes
   one.
 
@@ -13,7 +13,7 @@
   [[text-field]] is the unit of re-render. Four controls means four
   boundaries, each reading its own address, so a keystroke in the title
   notifies the title's boundary and no other
-  (`docs/core/hicasso/19-performance.md` §Trace one
+  (`docs/core/fresco/19-performance.md` §Trace one
   controlled keystroke). [[editor]] itself reads NOTHING: it is a layout
   body that runs at mount and, thereafter, only when a prop of its own
   changes. That absence is the load-bearing part, and
@@ -41,10 +41,10 @@
   recorded rather than complained about: the alternative spellings
   (a wrapper, a second argument, a metadata carrier) all cost more than
   the ambiguity does, and the marker keywords already read
-  `:re-frame.hicasso/…` in every other position."
-  (:require [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.editor.events :as rf.hicasso.examples.editor.events]
-            [re-frame.hicasso.examples.editor.subs :as rf.hicasso.examples.editor.subs]))
+  `:re-frame.fresco/…` in every other position."
+  (:require [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.editor.events :as rf.fresco.examples.editor.events]
+            [re-frame.fresco.examples.editor.subs :as rf.fresco.examples.editor.subs]))
 
 (def field-labels
   "The four accessible names, as data.
@@ -64,7 +64,7 @@
 ;; The controls
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview text-field
+(rf.fresco/defview text-field
   "One controlled `<input type=text>`: the title and the slug.
 
   Two reads, both its own — the field's value and the reset counter. The
@@ -78,11 +78,11 @@
      [:input {:id          id
               :type        "text"
               :data-field  id
-              ::rf.hicasso/revision (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/revision])
-              :value       (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/field field])
-              :on-input    [::rf.hicasso.examples.editor.events/edit field ::rf.hicasso/value]}]]))
+              ::rf.fresco/revision (rf.fresco/sub [::rf.fresco.examples.editor.subs/revision])
+              :value       (rf.fresco/sub [::rf.fresco.examples.editor.subs/field field])
+              :on-input    [::rf.fresco.examples.editor.events/edit field ::rf.fresco/value]}]]))
 
-(rf.hicasso/defview body-field
+(rf.fresco/defview body-field
   "The same law on the other convergeable tag. Identical in every respect
   a reader would care about, which is the claim — `<textarea>` is not a
   second controlled-input story."
@@ -91,16 +91,16 @@
    [:label {:for "body"} label]
    [:textarea {:id          "body"
                :data-field  "body"
-               ::rf.hicasso/revision (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/revision])
-               :value       (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/field :body])
-               :on-input    [::rf.hicasso.examples.editor.events/edit :body ::rf.hicasso/value]}]])
+               ::rf.fresco/revision (rf.fresco/sub [::rf.fresco.examples.editor.subs/revision])
+               :value       (rf.fresco/sub [::rf.fresco.examples.editor.subs/field :body])
+               :on-input    [::rf.fresco.examples.editor.events/edit :body ::rf.fresco/value]}]])
 
-(rf.hicasso/defview published-box
+(rf.fresco/defview published-box
   "The owned `::h/checked` pair.
 
   It carries NO `::h/revision`, and the omission is not a choice: a
   revision on a value-less checkbox is REFUSED with
-  `:rf.error/hicasso-revision-not-controlled`, because the trigger
+  `:rf.error/fresco-revision-not-controlled`, because the trigger
   re-baselines a controlled `<input>`/`<textarea>` to a `:value` and a
   checkbox written idiomatically has none. Nor does it want one — there
   is no free draft between the click and the dispatch, so
@@ -113,14 +113,14 @@
    [:input {:id         "published"
             :type       "checkbox"
             :data-field "published"
-            :checked    (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/field :published?])
-            :on-change  [::rf.hicasso.examples.editor.events/set-published ::rf.hicasso/checked]}]])
+            :checked    (rf.fresco/sub [::rf.fresco.examples.editor.subs/field :published?])
+            :on-change  [::rf.fresco.examples.editor.events/set-published ::rf.fresco/checked]}]])
 
 ;; ---------------------------------------------------------------------------
 ;; The form's other two boundaries
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview buttons
+(rf.fresco/defview buttons
   "Save and Discard, in their own boundary reading their own one value.
 
   Separate from the fields on purpose: `::subs/dirty?` moves on the
@@ -129,20 +129,20 @@
   buttons in with a field would have put that read on the field's edge
   set and re-run the field on every change to it."
   [_]
-  (let [dirty? (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/dirty?])]
+  (let [dirty? (rf.fresco/sub [::rf.fresco.examples.editor.subs/dirty?])]
     [:p.buttons
      [:button {:id       "save"
                :type     "button"
                :disabled (not dirty?)
-               :on-click [::rf.hicasso.examples.editor.events/save]}
+               :on-click [::rf.fresco.examples.editor.events/save]}
       "Save"]
      [:button {:id       "discard"
                :type     "button"
                :disabled (not dirty?)
-               :on-click [::rf.hicasso.examples.editor.events/discard]}
+               :on-click [::rf.fresco.examples.editor.events/discard]}
       "Discard"]]))
 
-(rf.hicasso/defview readout
+(rf.fresco/defview readout
   "The COMMITTED article, on the page.
 
   Its own boundary reading the committed addresses, so a keystroke — which
@@ -151,17 +151,17 @@
   not move while you type, and moves when you save."
   [_]
   [:dl.committed
-   [:dt "title"] [:dd {:data-committed "title"} (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/committed :title])]
-   [:dt "slug"] [:dd {:data-committed "slug"} (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/committed :slug])]
-   [:dt "body"] [:dd {:data-committed "body"} (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/committed :body])]
+   [:dt "title"] [:dd {:data-committed "title"} (rf.fresco/sub [::rf.fresco.examples.editor.subs/committed :title])]
+   [:dt "slug"] [:dd {:data-committed "slug"} (rf.fresco/sub [::rf.fresco.examples.editor.subs/committed :slug])]
+   [:dt "body"] [:dd {:data-committed "body"} (rf.fresco/sub [::rf.fresco.examples.editor.subs/committed :body])]
    [:dt "published"] [:dd {:data-committed "published"}
-                      (str (boolean (rf.hicasso/sub [::rf.hicasso.examples.editor.subs/committed :published?])))]])
+                      (str (boolean (rf.fresco/sub [::rf.fresco.examples.editor.subs/committed :published?])))]])
 
 ;; ---------------------------------------------------------------------------
 ;; The form
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview editor
+(rf.fresco/defview editor
   "The whole application, and it reads nothing.
 
   Every value on this page comes from a child's own body, so this body

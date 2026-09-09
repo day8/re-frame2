@@ -1,5 +1,5 @@
-(ns re-frame.hicasso.server-render-recovered-error-ssr-cljs-test
-  "`re-frame.hicasso.server/render` — the whole-page DOCUMENT door — FAILS a
+(ns re-frame.fresco.server-render-recovered-error-ssr-cljs-test
+  "`re-frame.fresco.server/render` — the whole-page DOCUMENT door — FAILS a
   render the runtime recorded a recovered error during (rf2-ypom, rf2-ct24:
   one defect reached from two directions).
 
@@ -16,7 +16,7 @@
   `error-emit-projection-listener`, and that listener buffers a record only
   when THREE things hold: the category is outside the
   recoverable-degradation skip set, the record carries a non-nil `:frame`,
-  and that frame is a registered `:platform :server` frame. Hicasso's cold
+  and that frame is a registered `:platform :server` frame. Fresco's cold
   reads go through pure `compute-sub`, whose `:rf.error/sub-exception` is
   stamped `:frame nil` BY CONSTRUCTION — a pure fn has no frame in scope to
   stamp — so the second drops it; and `render` does not set
@@ -48,7 +48,7 @@
      can observe the live listener registry at the one moment both windows
      would be open if they shared an id.
 
-  Runtime: `-cljs-test`, so the focused `:node-test-hicasso` build and the
+  Runtime: `-cljs-test`, so the focused `:node-test-fresco` build and the
   always-on `:node-test`. Every row renders to a string; none needs a DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
@@ -56,9 +56,9 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.server :as rf.hicasso.server]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.server :as rf.fresco.server]
             [re-frame.test-support :as rf.test-support]))
 
 ;; Registered ABOVE `use-fixtures`, for the sibling suites' reason: the reset
@@ -102,7 +102,7 @@
     ;; Re-enter the SAME door. Under the fixed-key form this REPLACED the outer
     ;; listener, and the inner `finally` then removed it outright.
     (reset! !inner-outcome
-            (try (rf.hicasso.server/render {:hiccup   [:div.inner "inner"]
+            (try (rf.fresco.server/render {:hiccup   [:div.inner "inner"]
                                  :snapshot {:label "inner"}
                                  :payload  [:label]})
                  :returned
@@ -125,13 +125,13 @@
      ;; request is not rendering. The sibling `server_render_body_ssr` and
      ;; `frame_doors_ssr` suites opt out for the same reason.
      :ambient-frame nil
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The listener keys, spelled out
 ;; ---------------------------------------------------------------------------
 ;;
-;; `re-frame.hicasso.server` keeps these private, and §3, §4 and §5 are the
+;; `re-frame.fresco.server` keeps these private, and §3, §4 and §5 are the
 ;; only readers of them in the corpus: proving a listener was RELEASED needs a
 ;; name to look for, and proving the doors cannot collide needs all of them.
 ;; Renaming a tag in the source breaks these rows and nothing else — which is
@@ -142,8 +142,8 @@
 ;; door tag alone is no longer a registry key, so these rows match on the tag
 ;; half and count the windows carrying it.
 
-(def ^:private render-listener-tag      :re-frame.hicasso.server/render-recovered-error)
-(def ^:private render-body-listener-tag :re-frame.hicasso.server/render-body-recovered-error)
+(def ^:private render-listener-tag      :re-frame.fresco.server/render-recovered-error)
+(def ^:private render-body-listener-tag :re-frame.fresco.server/render-body-recovered-error)
 
 (defn- door-keys
   "Every live `:errors` registry key belonging to `tag` — one per render of
@@ -168,31 +168,31 @@
 ;; The probes
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview page
+(rf.fresco/defview page
   "Reads one ordinary sub. The tree the control renders and the tree the
   refusal renders differ in the SUB and nothing else."
   [_]
-  [:div.page [:p.label (str (rf.hicasso/sub [::label]))]])
+  [:div.page [:p.label (str (rf.fresco/sub [::label]))]])
 
-(rf.hicasso/defview detonating
+(rf.fresco/defview detonating
   "Reads the sub that throws. The framework recovers it to `nil`, so this
   body returns normally and the render produces markup — which is exactly
   the hazard §1 is about."
   [_]
-  [:div.page [:p.label (str (rf.hicasso/sub [::detonates]))]])
+  [:div.page [:p.label (str (rf.fresco/sub [::detonates]))]])
 
 (def ^:private !listeners-mid-render
   "What the `:errors` registry held while a render was in flight. §4's
   whole instrument."
   (atom ::unset))
 
-(rf.hicasso/defview watching
+(rf.fresco/defview watching
   "Reads the live `:errors` listener registry from INSIDE the render — a
   view body is a callback React runs during `renderToString`, so this is
   the one moment the door's window is observably open."
   [_]
   (reset! !listeners-mid-render (live-error-listener-ids))
-  [:div.page [:p.label (str (rf.hicasso/sub [::label]))]])
+  [:div.page [:p.label (str (rf.fresco/sub [::label]))]])
 
 ;; ---------------------------------------------------------------------------
 ;; The request
@@ -216,13 +216,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-recovered-render-error-fails-the-whole-page-render
-  (let [thrown (try (rf.hicasso.server/render (request :hiccup [detonating {}]))
+  (let [thrown (try (rf.fresco.server/render (request :hiccup [detonating {}]))
                     (catch :default e e))]
     (is (instance? ExceptionInfo thrown)
         "a sub that throws mid-render must not answer a document with a hole in the page")
     (let [data (ex-data thrown)]
       (is (= :rf.error/ssr-render-failed (:rf.error/id data)))
-      (is (= 're-frame.hicasso.server/render (:where data))
+      (is (= 're-frame.fresco.server/render (:where data))
           "the WHOLE-PAGE door names itself — the sibling entry's row pins
            `render-body`, and a shared raiser symbol would let one row pass
            for the other")
@@ -237,14 +237,14 @@
             refusal mask the render's. Omitting `:payload` from a
             DETONATING request must still answer the render's verdict, not
             the policy's"
-    (let [data (try (rf.hicasso.server/render (dissoc (request :hiccup [detonating {}]) :payload))
+    (let [data (try (rf.fresco.server/render (dissoc (request :hiccup [detonating {}]) :payload))
                     (catch :default e (ex-data e)))]
       (is (= :rf.error/ssr-render-failed (:rf.error/id data))
           "the render's verdict wins"))
     (testing "control: the same omission on a CLEAN render does reach the
               policy, so the row above is about ordering and not about
               `:payload` being optional"
-      (let [data (try (rf.hicasso.server/render (dissoc (request) :payload))
+      (let [data (try (rf.fresco.server/render (dissoc (request) :payload))
                       (catch :default e (ex-data e)))]
         (is (= :rf.error/ssr-missing-payload-policy (:rf.error/id data)))))))
 
@@ -254,7 +254,7 @@
 
 (deftest the-control-a-tree-with-no-recovered-error-returns-the-existing-shape
   (let [{:keys [frame-id html payload payload-edn payload-script document] :as result}
-        (rf.hicasso.server/render (request))]
+        (rf.fresco.server/render (request))]
     (is (= #{:frame-id :html :payload :payload-edn :payload-script :document}
            (set (keys result)))
         "the response map's keys are exactly the six the door has always answered")
@@ -289,26 +289,26 @@
          the `finally` doing its job and not a vacuous never-registered")
 
     (testing "success"
-      (rf.hicasso.server/render (request))
+      (rf.fresco.server/render (request))
       (is (= frames-before (live-frame-ids))    "no frame left behind")
       (is (= listeners-before (live-error-listener-ids)) "and no listener"))
 
     (testing "recovered-error refusal"
-      (is (thrown? :default (rf.hicasso.server/render (request :hiccup [detonating {}]))))
+      (is (thrown? :default (rf.fresco.server/render (request :hiccup [detonating {}]))))
       (is (= frames-before (live-frame-ids)))
       (is (= listeners-before (live-error-listener-ids))))
 
     (testing "a direct render throw — the view takes the render down, so the
               verdict is never reached and only the `finally` can clean up"
       (is (thrown? :default
-                   (rf.hicasso.server/render (request :hiccup [(fn [] (throw (js/Error. "boom")))]))))
+                   (rf.fresco.server/render (request :hiccup [(fn [] (throw (js/Error. "boom")))]))))
       (is (= frames-before (live-frame-ids)))
       (is (= listeners-before (live-error-listener-ids))))
 
     (testing "and the runtime is not left mid-render: the next request still
               renders, which is what makes the three rows above evidence of
               cleanup rather than of a door that stopped working"
-      (is (str/includes? (:html (rf.hicasso.server/render (request))) "alpha")))))
+      (is (str/includes? (:html (rf.fresco.server/render (request))) "alpha")))))
 
 ;; ---------------------------------------------------------------------------
 ;; §4 — the doors do not share a listener key
@@ -324,7 +324,7 @@
 (deftest each-door-arms-its-own-listener-and-only-its-own
   (testing "`render`'s window, observed from inside `render`"
     (reset! !listeners-mid-render ::unset)
-    (rf.hicasso.server/render (request :hiccup [watching {}]))
+    (rf.fresco.server/render (request :hiccup [watching {}]))
     (let [live @!listeners-mid-render]
       (is (set? live) "the probe ran inside the render")
       (is (= 1 (count (door-keys render-listener-tag live)))
@@ -335,7 +335,7 @@
 
   (testing "`render-body`'s window, observed from inside `render-body`"
     (reset! !listeners-mid-render ::unset)
-    (rf.hicasso.server/render-body {:hiccup       [watching {}]
+    (rf.fresco.server/render-body {:hiccup       [watching {}]
                          :render-state {:rf/app-db {:label "alpha"} :rf/runtime-db {}}})
     (let [live @!listeners-mid-render]
       (is (set? live))
@@ -376,7 +376,7 @@
 ;; Re-entering from a VIEW instead does not work as an instrument, and the way
 ;; it fails is worth recording: a nested render tears down the OUTER render's
 ;; collector extent, so the next `h/sub` in the outer view raises
-;; `:rf.error/hicasso-sub-outside-render` from `impl.collector/read-key!` before
+;; `:rf.error/fresco-sub-outside-render` from `impl.collector/read-key!` before
 ;; any recovered error can be emitted. The outer render then fails for a reason
 ;; that has nothing to do with the listener, and the row would pass against the
 ;; fixed-key form for the wrong reason — a green that measures the wrong thing.
@@ -389,7 +389,7 @@
         ;; Two boot events, in order: the first re-enters the door and returns,
         ;; the second emits the recovered error the outer listener must still be
         ;; alive to see.
-        thrown           (try (rf.hicasso.server/render
+        thrown           (try (rf.fresco.server/render
                                 (request :initial-events [[::re-enter-then-recover]
                                                           [no-handler-event]]))
                               (catch :default e e))]
@@ -404,7 +404,7 @@
           "the recovered error was SEEN — under the fixed-key form the inner
            `finally` had already removed this render's listener, so nothing
            recorded it and the door answered a document instead")
-      (is (= 're-frame.hicasso.server/render (:where data))
+      (is (= 're-frame.fresco.server/render (:where data))
           "and the refusal is the OUTER invocation's"))
     (testing "the registry baseline is restored — every window opened by the
               nesting is closed, the inner one included"
@@ -418,15 +418,15 @@
             door gaining the same verdict, and running one after the other
             leaves nothing behind"
     (let [listeners-before (live-error-listener-ids)
-          data             (try (rf.hicasso.server/render-body
+          data             (try (rf.fresco.server/render-body
                                   {:hiccup       [detonating {}]
                                    :render-state {:rf/app-db {:label "alpha"} :rf/runtime-db {}}})
                                 (catch :default e (ex-data e)))]
       (is (= :rf.error/ssr-render-failed (:rf.error/id data)))
-      (is (= 're-frame.hicasso.server/render-body (:where data))
+      (is (= 're-frame.fresco.server/render-body (:where data))
           "still the body-only door's own symbol")
       (is (= listeners-before (live-error-listener-ids)))
-      (is (thrown? :default (rf.hicasso.server/render (request :hiccup [detonating {}])))
+      (is (thrown? :default (rf.fresco.server/render (request :hiccup [detonating {}])))
           "and the whole-page door refuses right after it")
       (is (= listeners-before (live-error-listener-ids))
           "with both registries back where they started"))))

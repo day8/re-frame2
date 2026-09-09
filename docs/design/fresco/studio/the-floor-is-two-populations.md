@@ -24,8 +24,8 @@ already existed, by a reader that launches no browser, builds no bundle and
 writes nothing. Every figure below is printed by
 
 ```
-node hicasso/test/re_frame/bench/hicasso/alloc_null_floor.cjs
-node hicasso/test/re_frame/bench/hicasso/alloc_null_floor.cjs --tables
+node fresco/test/re_frame/bench/fresco/alloc_null_floor.cjs
+node fresco/test/re_frame/bench/fresco/alloc_null_floor.cjs --tables
 ```
 
 from `implementation/`, and **every table on this page is that second command's
@@ -77,7 +77,7 @@ That single fact reorganises everything the bead observed:
 ## The corpus, and that it is the whole of it
 
 The reader discovers the corpus rather than assuming it: it walks every committed
-run record under `implementation/hicasso/test/re_frame/bench/hicasso/data/` and
+run record under `implementation/fresco/test/re_frame/bench/fresco/data/` and
 keeps the ones that yield a null-arm cell. Eight runs do. **There are no others**,
 and the self-test insists on that in both directions.
 

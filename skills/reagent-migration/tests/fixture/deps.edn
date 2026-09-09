@@ -10,7 +10,7 @@
 ;;
 ;; The fixture needs core (rf/init!, rf/make-frame, the adapter
 ;; lifecycle), ssr (re-frame.ssr/adapter — the server-side install the
-;; corrected MIG-23 server half shows), hicasso (re-frame.hicasso.server's
+;; corrected MIG-23 server half shows), fresco (re-frame.fresco.server's
 ;; render — the server product door), and the stock Reagent adapter (the
 ;; migrating app's EXISTING client adapter, which MIG-15/MIG-23 keep).
 ;;
@@ -21,7 +21,7 @@
 {:paths ["test"]
  :deps  {day8/re-frame2         {:local/root "../../../../implementation/core"}
          day8/re-frame2-ssr     {:local/root "../../../../implementation/ssr"}
-         day8/re-frame2-hicasso {:local/root "../../../../implementation/hicasso"}
+         day8/re-frame2-fresco {:local/root "../../../../implementation/fresco"}
          day8/re-frame2-reagent {:local/root "../../../../implementation/adapters/reagent"}
          reagent/reagent        {:mvn/version "2.0.1"}
          thheller/shadow-cljs   {:mvn/version "3.4.10"}}}

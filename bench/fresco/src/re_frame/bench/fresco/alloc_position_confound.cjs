@@ -2,9 +2,9 @@
 // THE POSITION / SUBSTRATE CONFOUND, READ OFF A SCHEDULE THAT BREAKS IT —
 // rf2-rs8q6.
 //
-//     node hicasso/test/re_frame/bench/hicasso/alloc_position_confound.cjs <dataset.json>...
-//     node hicasso/test/re_frame/bench/hicasso/alloc_position_confound.cjs --corpus
-//     node hicasso/test/re_frame/bench/hicasso/alloc_position_confound.cjs --self-test
+//     node fresco/test/re_frame/bench/fresco/alloc_position_confound.cjs <dataset.json>...
+//     node fresco/test/re_frame/bench/fresco/alloc_position_confound.cjs --corpus
+//     node fresco/test/re_frame/bench/fresco/alloc_position_confound.cjs --self-test
 //
 // ## WHAT THIS ADJUDICATES
 //
@@ -892,12 +892,12 @@ function synthSlot(controlSlot, rounds, riderAt, primeAt) {
 // two groups the other way round the magnitude is unchanged and only the sign's
 // reading is, which is why the pages now state the convention beside the table.
 const PUBLISHED_Z = [
-  // docs/design/hicasso/studio/the-rider-follows-the-position-not-the-substrate.md
+  // docs/design/fresco/studio/the-rider-follows-the-position-not-the-substrate.md
   ['position record: `parity`, position 0 against position 1', 25, 40, 3, 49, 5.7],
   ['position record: `fixed`, position 0 against position 1', 21, 43, 1, 38, 4.67],
   ['position record: position 0, `fixed` against `parity`', 21, 43, 25, 40, -1.25],
   ['position record: position 1, `fixed` against `parity`', 1, 38, 3, 49, -0.77],
-  // docs/design/hicasso/studio/the-rider-follows-the-controls-not-the-round-boundary.md
+  // docs/design/fresco/studio/the-rider-follows-the-controls-not-the-round-boundary.md
   ['control-slot record: `first`, after the controls against the rest', 18, 39, 2, 46, 4.53],
   ['control-slot record: `last`, after the controls against the rest', 26, 43, 3, 44, 5.31],
   ['control-slot record: `mid`, after the controls against the rest', 9, 37, 3, 44, 2.21],

@@ -35,7 +35,7 @@ There are 2 top-level groupings:
   `re-frame.late-bind` hook table per
   [Conventions §Independence rule](../spec/Conventions.md#independence-rule).
 
-The `hicasso/` artefact sits beside `core/` and `adapters/` as re-frame2's own
+The `fresco/` artefact sits beside `core/` and `adapters/` as re-frame2's own
 native view substrate. Reagent, reagent-slim and UIx live on as first-class,
 actively-supported adapters. The 2 earlier view substrates — the `ui/` donor
 ([EP-0030](../docs/EP/EP-0030-the-compiled-view-substrate-program.md)) and
@@ -156,29 +156,29 @@ implementation/
     test/re_frame/                 CLJS surface/wiring smoke + runtime behaviour tests
                                    (ensure/refetch, work ledger, invalidation/GC, hydration).
 
-  hicasso/                   day8/re-frame2-hicasso — the Hicasso view substrate: a
+  fresco/                   day8/re-frame2-fresco — the Fresco view substrate: a
                              boundary is a real React function component minted by
                              `defview`, and the runtime owns only what React does not.
                              Extracted by rf2-hic-001 as a mechanical copy of the
                              measured prototype. That prototype — the benchmark
-                             harness — now lives at the repo root as bench/hicasso/,
+                             harness — now lives at the repo root as bench/fresco/,
                              its own hand-run shadow project off this classpath
                              (rf2-6c12m.1).
     deps.edn                 :local/root deps on ../core and ../ssr (the server module);
                              own :test alias, and the :clein + :clein/build deploy
-                             aliases — published as day8/re-frame2-hicasso since rf2-gra70.
+                             aliases — published as day8/re-frame2-fresco since rf2-gra70.
     scripts/check_optional_module_reachability.py
                              No optional module is reachable from the public door, and
                              nothing in the package requires UIx or the bench tree.
     scripts/check_modules_compile.cjs
                              The optional modules and the two core attribution
-                             instruments compile warnings-fatal (test:hicasso-compile).
-    src/re_frame/hicasso.cljc      Public door — the three macros (defview, event, defhost)
+                             instruments compile warnings-fatal (test:fresco-compile).
+    src/re_frame/fresco.cljc      Public door — the three macros (defview, event, defhost)
                                    and the author-facing vars, each an alias.
-    src/re_frame/hicasso/impl/     The copied runtime: codec, controlled, intent, slot,
+    src/re_frame/fresco/impl/     The copied runtime: codec, controlled, intent, slot,
                                    state, presence, route-link, runtime, boundary, mount.
     test/re_frame/                 Package smoke: a defview reads a sub through the door
-                                   (shadow-cljs build :node-test-hicasso).
+                                   (shadow-cljs build :node-test-fresco).
 
   ssr-ring/                  day8/re-frame2-ssr-ring — Ring host adapter for the SSR pipeline
                              (rf2-ny6v7).
@@ -420,9 +420,9 @@ preserving first-seen order.
 | `:examples/counter-with-stories` | http://localhost:8042/ · `/#/stories` |
 | `:examples/login-form` | http://localhost:8043/ · `/#/stories` |
 | `:examples/linearlite` | http://localhost:8044/ |
-| `:examples/hicasso-counter` | http://localhost:8045/ · `/#/stories` |
+| `:examples/fresco-counter` | http://localhost:8045/ · `/#/stories` |
 | `:testbeds/tenant-switcher` | http://localhost:8060/ |
-| `:hicasso/hmr-testbed` | http://localhost:8061/ |
+| `:fresco/hmr-testbed` | http://localhost:8061/ |
 
 The build→port table mirrors the `:dev-http` map in `shadow-cljs.edn`.
 

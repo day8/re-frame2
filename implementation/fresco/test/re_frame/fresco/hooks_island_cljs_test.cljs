@@ -1,10 +1,10 @@
-(ns re-frame.hicasso.hooks-island-cljs-test
+(ns re-frame.fresco.hooks-island-cljs-test
   "THE TWO HOOKS, WHERE NO DOM IS NEEDED.
 
-  `re-frame.hicasso.native` is two React hooks — `n/use-sub` and
+  `re-frame.fresco.native` is two React hooks — `n/use-sub` and
   `n/use-frame` — and nothing else, by the rf2-6c12m.3 ruling. An
   island is an ordinary React component, raw or UIx, and it reaches
-  Hicasso state through these two. Most of what is true about them is
+  Fresco state through these two. Most of what is true about them is
   true only once React is driving a real fiber — identity across
   re-renders, StrictMode's double mount, teardown, the crossing through
   `h/defhost` — and that is `hooks_island_dom_cljs_test`'s subject.
@@ -41,15 +41,15 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.native :as rf.hicasso.native]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.native :as rf.fresco.native]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.test-support :as rf.test-support]
             [uix.core :as uix :refer-macros [defui]]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server])
-  (:require-macros [re-frame.hicasso.expansion-probe :as rf.hicasso.expansion-probe]))
+  (:require-macros [re-frame.fresco.expansion-probe :as rf.fresco.expansion-probe]))
 
 (def ^:private frame-id ::hooks-island)
 
@@ -64,7 +64,7 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The islands
@@ -79,12 +79,12 @@
 (defn- reader
   "Reads one subscription, and nothing else. Raw React."
   [^js props]
-  (react/createElement "span" nil (str (rf.hicasso.native/use-sub [::price (.-sym props)]))))
+  (react/createElement "span" nil (str (rf.fresco.native/use-sub [::price (.-sym props)]))))
 
 (defn- framed
   "Takes the frame-locked ops and reports the frame it was locked to."
   [^js _props]
-  (let [ops (rf.hicasso.native/use-frame)]
+  (let [ops (rf.fresco.native/use-frame)]
     (reset! !observed-ops ops)
     (react/createElement "span" nil (str (:frame ops)))))
 
@@ -92,7 +92,7 @@
   "The same read in a UIx `defui`: the hook does not know which dialect
   called it."
   [{:keys [sym]}]
-  (uix/$ :span (str (rf.hicasso.native/use-sub [::price sym]))))
+  (uix/$ :span (str (rf.fresco.native/use-sub [::price sym]))))
 
 (defn- uix-arm
   "The plain React shim every crossing into UIx needs — UIx's ABI is a
@@ -118,7 +118,7 @@
   through a hand-built context wrapper this suite would then be pinning
   instead of the product."
   [element]
-  (react-dom-server/renderToStaticMarkup (rf.hicasso.impl.mount/provider frame-id element)))
+  (react-dom-server/renderToStaticMarkup (rf.fresco.impl.mount/provider frame-id element)))
 
 (defn- render-frameless!
   "Render `element` with NO provider above it. The island in a portal
@@ -142,7 +142,7 @@
   "The census with the entry cache projected out — the four counts a
   cold read must leave at zero."
   []
-  (dissoc (rf.hicasso.test.runtime/residue) :entries))
+  (dissoc (rf.fresco.test.runtime/residue) :entries))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. The cold tier — a read before any commit
@@ -179,7 +179,7 @@
             render React discards leaves exactly the same one, and the
             hook seam mints through the same door precisely so there is
             one story"
-    (is (= 1 (:entries (rf.hicasso.test.runtime/residue)))))
+    (is (= 1 (:entries (rf.fresco.test.runtime/residue)))))
 
   (testing "the UIx arm is the same hook and the same reading: the value
             is right, and nothing was committed"
@@ -200,7 +200,7 @@
             failure the hooks must not have"
     (let [data (refusal #(render-frameless! (react/createElement reader #js {:sym "AAPL"})))]
       (is (= :rf.error/no-frame-context (:rf.error/id data)))
-      (is (= 're-frame.hicasso.native/use-sub (:where data)))))
+      (is (= 're-frame.fresco.native/use-sub (:where data)))))
 
   (testing "`n/use-frame` refuses identically, and names ITSELF. The two
             `:where` values are the reason the shell's resolution takes
@@ -208,13 +208,13 @@
             refusal to the boundary shell, which is not what refused"
     (let [data (refusal #(render-frameless! (react/createElement framed nil)))]
       (is (= :rf.error/no-frame-context (:rf.error/id data)))
-      (is (= 're-frame.hicasso.native/use-frame (:where data)))))
+      (is (= 're-frame.fresco.native/use-frame (:where data)))))
 
   (testing "and a UIx island refuses the same way: the dialect the body is
             written in does not change where the frame comes from"
     (let [data (refusal #(render-frameless! (react/createElement uix-arm #js {:sym "AAPL"})))]
       (is (= :rf.error/no-frame-context (:rf.error/id data)))
-      (is (= 're-frame.hicasso.native/use-sub (:where data))))))
+      (is (= 're-frame.fresco.native/use-sub (:where data))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2b. The one hook frame-resolution rule, stated adversarially
@@ -227,7 +227,7 @@
             body on THIS stack, so a `with-frame` wrapped around it is
             genuinely live while the body runs — which is the only condition
             under which a dynamic-var tier could ever answer, and therefore
-            the only shape in which this claim can be tested at all. Hicasso's
+            the only shape in which this claim can be tested at all. Fresco's
             native tier already followed the rule; these rows are what stop it
             drifting back, and what make the UIx family's move onto it a
             SHARED statement rather than one adapter's private choice."
@@ -258,11 +258,11 @@
                              (render-frameless!
                                (react/createElement reader #js {:sym "AAPL"}))))]
         (is (= :rf.error/no-frame-context (:rf.error/id data)))
-        (is (= 're-frame.hicasso.native/use-sub (:where data))))
+        (is (= 're-frame.fresco.native/use-sub (:where data))))
       (let [data (refusal #(rf/with-frame frame-id
                              (render-frameless! (react/createElement framed nil))))]
         (is (= :rf.error/no-frame-context (:rf.error/id data)))
-        (is (= 're-frame.hicasso.native/use-frame (:where data)))))))
+        (is (= 're-frame.fresco.native/use-frame (:where data)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. `use-frame` is the runtime's row, not a second capture
@@ -293,17 +293,17 @@
               incarnation's bundle out forever. `hooks_island_dom_cljs_test`
               drives the reincarnation itself; this row is where the
               structural reason lives"
-      (is (identical? (:ops (rf.hicasso.impl.collector/frame-row frame-id)) ops)))))
+      (is (identical? (:ops (rf.fresco.impl.collector/frame-row frame-id)) ops)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4. The membership pin
 ;; ---------------------------------------------------------------------------
 
 (def ^:private publics
-  "Every public var name in `re-frame.hicasso.native`, read from the
+  "Every public var name in `re-frame.fresco.native`, read from the
   compiler at expansion — the analyser's public defs for the runtime
   half, the JVM namespace's public vars for the macro half."
-  (set (rf.hicasso.expansion-probe/public-vars re-frame.hicasso.native)))
+  (set (rf.fresco.expansion-probe/public-vars re-frame.fresco.native)))
 
 (deftest the-namespace-is-the-two-hooks
   (testing "the census is not vacuous: the probe really read a namespace.
@@ -315,8 +315,8 @@
   (testing "the two hooks are there, and they resolve"
     (is (contains? publics "use-sub"))
     (is (contains? publics "use-frame"))
-    (is (fn? rf.hicasso.native/use-sub))
-    (is (fn? rf.hicasso.native/use-frame)))
+    (is (fn? rf.fresco.native/use-sub))
+    (is (fn? rf.fresco.native/use-frame)))
 
   (testing "and they are the whole namespace — a third public var reds
             here at the diff that adds it (rf2-6c12m.3)"

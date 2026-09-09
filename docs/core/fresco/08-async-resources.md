@@ -1,7 +1,7 @@
 # Async resources
 
 The core resources model owns registered reads, cache identity, causes,
-mutation status, invalidation, and managed transport. Hicasso views consume
+mutation status, invalidation, and managed transport. Fresco views consume
 those facts with `h/sub`. This page covers the view-facing race patterns:
 merging a late reply into a newer draft, per-instance mutation state,
 optimistic updates, cancellation, and causing a view-scoped read from an event.
@@ -362,7 +362,7 @@ blocking can see it.
 ??? info "For readers coming from TanStack Query"
     The closest analogy is a query, but the acquisition is not the same: a
     TanStack query fetches because a component rendered `useQuery`, whereas
-    a Hicasso subscription only projects the cache and an event causes the
+    a Fresco subscription only projects the cache and an event causes the
     fetch. Debounce remains event policy, staleness and GC stay on the
     registration, and supersession follows explicit identities. Mutations
     invalidate declared causal tags rather than depending on a later call-site

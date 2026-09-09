@@ -1,14 +1,14 @@
-# Hicasso budgets: named reference profiles and pinned baselines
+# Fresco budgets: named reference profiles and pinned baselines
 
 > **Design history since 2026-08-30 (`rf2-6c12m.8`, PR #8775).** This page was gated
-> operative contract at `implementation/hicasso/spec/budgets.md` from 2026-08-21
+> operative contract at `implementation/fresco/spec/budgets.md` from 2026-08-21
 > (`rf2-ps7ia`) until the demotion, which deleted `check_budget_ledger.py`, its
-> `hicasso-budget-ledger` CI job and its `test:hicasso-invariants` chain entry in the
+> `fresco-budget-ledger` CI job and its `test:fresco-invariants` chain entry in the
 > same pull request. Nothing polices §9's reconciliation ledger any more and its rows
 > are not maintained; the deterministic rows' witnesses still run as ordinary suites
 > on their lanes, except `per_keystroke_dom_cljs_test` (D17–D25), which retired with
 > the gate. What stays beside the code is the invariant table at
-> [`implementation/hicasso/spec/invariants.md`](../../../../implementation/hicasso/spec/invariants.md).
+> [`implementation/fresco/spec/invariants.md`](../../../../implementation/fresco/spec/invariants.md).
 
 This page prepares [specification §6](specification.md#6-performance-contract)
 for ratification. It does not ratify anything. **Ratification authority is the
@@ -122,7 +122,7 @@ have opposite operational rules:
 | Machine sensitivity | **none** — a counter reads the same on a loaded box | high — needs a quiet window |
 | Where it belongs | ordinary blocking PR gates | pinned interleaved evidence runs |
 | Profile needed | any | P-DEV-1 only |
-| Anchored on `implementation/hicasso` today? | **yes** | **the heap rows S1–S5, yes** — since 2026-08-12, §6; the clock rows, no |
+| Anchored on `implementation/fresco` today? | **yes** | **the heap rows S1–S5, yes** — since 2026-08-12, §6; the clock rows, no |
 
 The practical consequence, and the reason it is worth naming: **the
 deterministic family did not need this measurement window at all.** A body
@@ -135,9 +135,9 @@ had to be taken later, alone, in a window of its own.
 
 ## 3. Deterministic rows, pinned on the moved package
 
-`D1`–`D25` are pinned **on `implementation/hicasso`** — the moved package
+`D1`–`D25` are pinned **on `implementation/fresco`** — the moved package
 itself, not a donor — at commit `0c0aa22898`, through the supported test-kit
-facade `re-frame.hicasso.test.mounted`. No `impl/` reach-through is involved.
+facade `re-frame.fresco.test.mounted`. No `impl/` reach-through is involved.
 **`D26` is the one row in this section taken on the bench tree**, and the note
 below it says why that is the only place it can be taken.
 
@@ -146,7 +146,7 @@ handle-free, and takes its reading as a delta on the runtime's monotone
 counter. Its docstring names specification §6's narrow-update row as the budget
 it exists to make assertable.
 
-[kit]: ../../../../implementation/hicasso/test_kit/src/re_frame/hicasso/test/mounted.cljs
+[kit]: ../../../../implementation/fresco/test_kit/src/re_frame/fresco/test/mounted.cljs
 
 | # | Estimand | Figure | Witness | Control that moves it |
 |---|---|---:|---|---|
@@ -347,7 +347,7 @@ no traversal — on all 48 cells.
 
 **`D26` is a `bench-tree` figure, and that is the honest population rather than
 a convenience.** The tournament's four arms are written on
-`re-frame.bench.hicasso.arm1`, the prototype runtime, whose own docstring
+`re-frame.bench.fresco.arm1`, the prototype runtime, whose own docstring
 places it *"off every production source path"*; the package ships one topology
 and cannot mount four. So the subject is the bench tree, and this column names
 the subject. **The package's own witness reaches the same limit from the other
@@ -382,7 +382,7 @@ from* zero, which is the strongest form a distributional reading takes.
 ## 4. Distributional rows — S1–S5 re-pinned on the package, S6–S7 carried
 
 **S1–S5 are package figures as of 2026-08-12.** They were re-measured on
-`implementation/hicasso` in one solo quiet-window run, on the same P0 ladder
+`implementation/fresco` in one solo quiet-window run, on the same P0 ladder
 `rf2-hic-006` had to refuse — repointed at the package by PR #7939 and read
 through by `rf2-fe0l`. **S6 and S7 are still carried unchanged** from
 [the evidence baseline](lanes/evidence-baseline.md#pinned-economic-evidence)
@@ -399,8 +399,8 @@ allocation instrument, and neither has been re-taken. `S6` and `S7` stay
 |---|---|---|---|---|
 | S1 | R=0 boundary shell, Reagent segment | `1,100 B` [1,091–1,107] | P0 ladder, **package** candidate arm | **package figure** — over the frozen `1,024 B` line in every round |
 | S2 | R=0 boundary shell, UIx segment | `1,095 B` [1,087–1,101] | as S1 | **package figure** — over `1,024 B` in every round |
-| S3 | Per-read retained, Hicasso vs Reagent | `1,417` vs `948 B/read` | as S1 | **package figure**; K3 scoreboard (a) — dispositioned by [`rf2-hic-070`](k3-disposition.md#3-scoreboard-a--governed-viability-against-the-best-shipped-path) |
-| S4 | Per-read retained, Hicasso vs UIx | `2,115` vs `2,980 B/read` | as S1 | **package figure**; K3 scoreboard (b) — dispositioned by [`rf2-hic-070`](k3-disposition.md#4-scoreboard-b--architecture-progress-against-the-uix-parent) |
+| S3 | Per-read retained, Fresco vs Reagent | `1,417` vs `948 B/read` | as S1 | **package figure**; K3 scoreboard (a) — dispositioned by [`rf2-hic-070`](k3-disposition.md#3-scoreboard-a--governed-viability-against-the-best-shipped-path) |
+| S4 | Per-read retained, Fresco vs UIx | `2,115` vs `2,980 B/read` | as S1 | **package figure**; K3 scoreboard (b) — dispositioned by [`rf2-hic-070`](k3-disposition.md#4-scoreboard-b--architecture-progress-against-the-uix-parent) |
 | S5 | Teardown, retained **bytes** | indistinguishable from zero — all ten candidate rungs' bands straddle 0 | as S1 | **package figure** |
 | S6 | Cold mount vs direct UIx-on-subs | `1.1718x` [1.1263–1.2190] n=8; `1.1976x` [1.1504–1.2468] n=6 | final K1 estimator | **bench-tree figure** — registered `1.10x` gate missed; `1.25x` is the *accepted price* for that miss (ratified 2026-08-13), never a line this row is judged on |
 | S7 | Warm allocation | no publishable claim | allocation instrument | **bench-tree** — no fitted series clears the quality floor |
@@ -794,16 +794,16 @@ beside it — point here rather than restating it, on §3's own rule that a seco
 source for one number is a second thing to drift.
 
 **Two clock drivers have landed, and one of them is pointed at the package.**
-`re-frame.bench.hicasso.direct-return-clock-app` requires `re-frame.hicasso`
+`re-frame.bench.fresco.direct-return-clock-app` requires `re-frame.fresco`
 itself, and it is the arm behind `S8` above — a row this page already calls a
 **package figure**, which is the same statement from the other side. The other,
-`re-frame.bench.hicasso.topo.clock-app` (`rf2-w01c`, window taken 2026-08-18),
-requires `re-frame.bench.hicasso.arm1.runtime` and is a **bench-tree**
+`re-frame.bench.fresco.topo.clock-app` (`rf2-w01c`, window taken 2026-08-18),
+requires `re-frame.bench.fresco.arm1.runtime` and is a **bench-tree**
 instrument. The axis is what each driver is *pointed at* and never where its
 own code ships — the test §9.4 spells out, and the one this section's
 *package figure* / *bench-tree figure* column already sorts readings on.
 
-**The estimator has landed too.** `re-frame.bench.hicasso.lane/summarise`
+**The estimator has landed too.** `re-frame.bench.fresco.lane/summarise`
 answered `{:n :min :max :p50}` and computed no tail quantile anywhere on the
 lane, which is why `U1`–`U4` — every one of them registered at a `p95` or a
 `p99` — could not be pinned even by a driver aimed correctly. It now carries
@@ -823,7 +823,7 @@ bracketed by `flushSync` on a synthetic bench page, which is a **mount and not
 a paint**. A `p95` taken over that window would be a `p95` of a mount published
 against a line written about a paint, and that is worse than no `p95` at all
 because it is quotable. So the correct statement of what these six rows need is
-no longer *a clock instrument pointed at `implementation/hicasso`* — they have
+no longer *a clock instrument pointed at `implementation/fresco`* — they have
 one — but **a driver whose window is one discrete interaction through to the
 paint that follows it, on a witness application, taken in its own quiet
 window**. `U1`–`U4` and `C3`/`C4` stay `UNPINNED`, and
@@ -834,16 +834,16 @@ carries the full record of both gaps and which of them closed.
 nothing here is a figure.]** The population gap has closed for two of those six
 rows and stands for the other four. `rf2-xa8wo`'s second deliverable landed as
 PR #8589:
-`implementation/hicasso/test/re_frame/bench/hicasso/slice_echo_clock_app.cljs`,
+`implementation/fresco/test/re_frame/bench/fresco/slice_echo_clock_app.cljs`,
 whose `window!` starts at a real DOM event on a node the application rendered
 and stops in the first task after the frame carrying the echo has been through
 its rendering steps — a `requestAnimationFrame` callback with a `setTimeout 0`
 inside it — with no `flushSync` anywhere in its code. It mounts the slice
-through `re-frame.hicasso`'s own `h/mount!`, with the application's own views
+through `re-frame.fresco`'s own `h/mount!`, with the application's own views
 and its own initial events, so it is pointed at the package on the test
 [§9.4](#94-what-rf2-hic-071-has-taken-so-far-and-what-it-still-cannot-take)
 spells out, and its population is a witness application under
-`implementation/hicasso/test/re_frame/hicasso/examples/` rather than a synthetic
+`implementation/fresco/test/re_frame/fresco/examples/` rather than a synthetic
 bench page. **So the paragraph above is a true record of the two drivers it
 names and is no longer a true statement about this lane.**
 
@@ -858,7 +858,7 @@ navigation row would leave, and `U4` is a run of consecutive frames whose
 estimator is a distribution over frame intervals rather than over window
 lengths. Both want another driver on the same mechanism. `C3` and `C4` are
 comparative against the best relevant adapter and this driver carries no donor
-arm at all — its four rows are a floor, two Hicasso interactions and a positive
+arm at all — its four rows are a floor, two Fresco interactions and a positive
 control. **All six rows keep `UNPINNED`, and nothing here decides one.**
 
 **[Window taken 2026-08-22, `rf2-85og2`, on a drained fleet. `U2` MOVES TO
@@ -975,10 +975,10 @@ and its verdict is recorded there.
 
 | # | Rule | Disposition |
 |---|---|---|
-| C1 | Pinned ordinary-Hicasso benchmark does not regress > 5% on same witness and instrument | same-instrument regression **blocks** until the benchmark owner validates the instrument and the adapter owner fixes or reverts |
+| C1 | Pinned ordinary-Fresco benchmark does not regress > 5% on same witness and instrument | same-instrument regression **blocks** until the benchmark owner validates the instrument and the adapter owner fixes or reverts |
 | C2 | Cold mount ≤ 1.25x direct UIx (ratified 2026-08-13) | accepted price, not a gate; the `1.10x` registered line stands and C2 is judged on it |
 | C3 | Broad updates ≤ 1.25x best relevant adapter after topology tuning | 1.25–1.5x is a **warning band**: attribute cause, one bounded topology pass, test a local island |
-| C4 | Sustained > 1.5x | cannot graduate as ordinary Hicasso until fixed or deliberately classified a native-host use case |
+| C4 | Sustained > 1.5x | cannot graduate as ordinary Fresco until fixed or deliberately classified a native-host use case |
 | C5 | R=0 shell meets the frozen byte-exact `1,024 B` line | **not** governed by baseline-plus-10%; see §5 |
 | C6 | Per-read retained ≤ 10% regression on same pinned witness | governed by the K3 disposition (`rf2-hic-070`) |
 | C7 | ~~Native island within 5% or 1 ms of the same component mounted directly~~ | **RETIRED 2026-08-29 (`rf2-6c12m.3`)** — its subject no longer exists: an island IS the component mounted directly, so there is no second measurement to take. The row stays in §9's table under this ledger's closed status vocabulary and is judged by nothing |
@@ -1071,7 +1071,7 @@ and its verdict is recorded there.
 
 ### What the package reading does to this row
 
-The shell has now been measured on `implementation/hicasso` itself
+The shell has now been measured on `implementation/fresco` itself
 ([the run](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l)),
 and the freeze is **not load-bearing for the present verdict** on either tree:
 
@@ -1184,7 +1184,7 @@ design.
 > diagnosis held: no heap instrument pointed at the package, and the registered
 > one had drifted from its own pin. Both were fixed in the order this section
 > asked for. PR #7939 repointed the existing P0 ladder's four candidate seams at
-> `re-frame.hicasso` — **reusing the driver, donors, floor, harness, fixtures,
+> `re-frame.fresco` — **reusing the driver, donors, floor, harness, fixtures,
 > fit rules and order guard unchanged, so the estimator did not move** — and it
 > merged, fixing the rig's blobs, *before* any sample existed. One solo
 > quiet-window run then took the package arm and **both** donor arms in the same
@@ -1193,9 +1193,9 @@ design.
 >
 > Two of this section's stated conditions were met differently from the way it
 > guessed, and the difference is worth recording. **No new build id was needed
-> and no hot-zone file was touched**: the driver already rides `:hicasso-bench`
-> through `P0_BUILD` / `P0_INIT_FN`, and `hicasso/src` is already on that build's
-> source paths, so `:hicasso-heap-bench` was deferred rather than built (to
+> and no hot-zone file was touched**: the driver already rides `:fresco-bench`
+> through `P0_BUILD` / `P0_INIT_FN`, and `fresco/src` is already on that build's
+> source paths, so `:fresco-heap-bench` was deferred rather than built (to
 > `rf2-hic-071`, reconsidered only if this becomes a standing gate). And the
 > `~5% common-mode offset` caution below is about the **two harnesses** — P0
 > against the freehand ladder — not about two runs of this one; the
@@ -1211,14 +1211,14 @@ design.
 > prototype is read against same-run donors rather than against a stale pin.
 
 `rf2-hic-006` asks for the shell, per-read and teardown baselines
-**re-measured on `implementation/hicasso`** so later gates have a
+**re-measured on `implementation/fresco`** so later gates have a
 same-instrument anchor. **This page refuses that deliverable and reports why.
 The refusal is the finding.**
 
 ### The instrument does not measure the package
 
 The pinned heap figures come from `p0_run.cjs --only ladder`, whose candidate
-arm is `re-frame.bench.hicasso.arm1.*` in the benchmark tree. That runtime's
+arm is `re-frame.bench.fresco.arm1.*` in the benchmark tree. That runtime's
 own docstring states its residence:
 
 > Residence: the bench/test tree, off every production source path (HD-017).
@@ -1226,13 +1226,13 @@ own docstring states its residence:
 
 `implementation/shadow-cljs.edn` states the same separation from the other
 side — the bench tree "stays exactly where it is and keeps building under
-`:hicasso-bench`; nothing in the package imports it, and
-`hicasso/scripts/check_freeze.py` is what says so."
+`:fresco-bench`; nothing in the package imports it, and
+`fresco/scripts/check_freeze.py` is what says so."
 
-So `implementation/hicasso/src` is a **copy** of that runtime, deliberately
+So `implementation/fresco/src` is a **copy** of that runtime, deliberately
 frozen apart from it, and **no heap instrument is pointed at the package at
 all.** The merged-PR audit of #7759 reached the same conclusion from the
-`npm run bench:hicasso` side and is recorded on the bead.
+`npm run bench:fresco` side and is recorded on the bead.
 
 ### The registered instrument has also drifted from its own pin
 
@@ -1247,7 +1247,7 @@ and one file no longer exists:
 | `reads_ladder_run.cjs` | `eabd226bcb6fe3877d056145cae496eccd5ab62c` | `7c10142110543bf67e2f9b8df57b14fdea46fddb` |
 | `p0_run.cjs` | `4718aaead7035ae9a6cf74a89ef13141803742cc` | `30e168756279b37edc47f7a900d009f861903966` |
 | `p0_heap.cljs` | `34c9210dfe39d3c7ee153c724fa63cf8e65dd1e1` | `0d3ef77db05bcec08d9f37f861bb4af30f88901d` |
-| `p0_hicasso.cljs` | `f2440e307423665048dfe227b14baaf4ffc8ac89` | `a24fcebc7a8a0ac11dafb215ffbe462b6e9ccf4d` |
+| `p0_fresco.cljs` | `f2440e307423665048dfe227b14baaf4ffc8ac89` | `a24fcebc7a8a0ac11dafb215ffbe462b6e9ccf4d` |
 | `arm1/runtime.cljs` | `69bfc6fc23af3035af88a2f69c4f4623a869fd83` | `202f7612ae356602b14db038bfd9249c16930acb` |
 | `front/sub_index.cljs` | `394927d6f6493ea651daac84b9f140cd54f8f6c1` | **absent** |
 
@@ -1270,13 +1270,13 @@ out of bounds here:
   the failure mode that rule exists to prevent.
 - The hot-zone edit is the operator's to sequence, and was not requested in
   advance.
-- `rf2-hic-018` already owns `implementation/hicasso/test/.../substrate_*` as
+- `rf2-hic-018` already owns `implementation/fresco/test/.../substrate_*` as
   **new benches** on its surface line. The package-resident heap instrument is
   most naturally that bead's, or a new one sequenced with it — not this one's.
 
 **What it would take**, stated so the next window can be dispatched without
-rediscovering it: a `:hicasso-heap-bench` build id whose candidate arm requires
-`re-frame.hicasso` instead of `re-frame.bench.hicasso.arm1`, the existing
+rediscovering it: a `:fresco-heap-bench` build id whose candidate arm requires
+`re-frame.fresco` instead of `re-frame.bench.fresco.arm1`, the existing
 `p0_*` driver and fixtures reused unchanged so the estimator does not move, and
 one quiet-machine run taking the package arm and both donor arms **in the same
 run** — because the two harnesses differ by a measured ~5% common-mode offset
@@ -1328,7 +1328,7 @@ assertion:
 
 ```
 FAIL in (a-keystroke-costs-the-same-at-25-cells-and-at-100)
-  (re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs:198:11)
+  (re_frame/fresco/examples/grid/scaling_dom_cljs_test.cljs:198:11)
 expected: (= 3 at-25 at-100)
   actual: (not (= 3 2 2))
 ```
@@ -1450,7 +1450,7 @@ to exclude.
 
 Why the audit's conclusion did not hold, recorded here so it is not re-derived:
 `D26`'s witness declares the namespace
-`re-frame.bench.hicasso.topo.census-dom-cljs-test`, which the PR-blocking
+`re-frame.bench.fresco.topo.census-dom-cljs-test`, which the PR-blocking
 selector matches; and the job that runs that build, `cljs-browser`, is in
 `test.yml`'s required `all-required-passed` needs list and is armed for this
 surface by the changed-surface classifier. The witness's assertions do gate on
@@ -1463,7 +1463,7 @@ eight witnesses this ledger names and left the eighth class — the plain
 `*_cljs_test` counters — exactly where it found them: lane spelled legally,
 file on disk, lane itself believed. That remainder was not hypothetical.
 `rf2-9vbl1` found `D9` and `U6` naming
-`hicasso/test_kit/src/re_frame/hicasso/test/mounted.cljs`, the test-kit
+`fresco/test_kit/src/re_frame/fresco/test/mounted.cljs`, the test-kit
 **facade** — a real library file, under a real source root, containing no tests
 and compiled into no test build — and the DOM-only rule returned green on it.
 So the rule is now the general one: **every `PR gate` witness must be selected
@@ -1571,32 +1571,32 @@ loses no address.
 
 | # | Registered line | Current value | Population | Status | Instrument (lane) | Authority | Disposition |
 |---|---|---|---|---|---|---|---|
-| D1 | 2 bodies per keystroke at 5×5, and equal to D2 | 2 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
-| D2 | 2 bodies per keystroke at 10×10, and equal to D1 | 2 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
-| D3 | 26 bodies, coarse shape at 5×5 | 26 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
-| D4 | 101 bodies, coarse shape at 10×10 | 101 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
-| D5 | 0 bodies for a refused keystroke | 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
-| D6 | 11 bodies for `clear-row` on a 10-wide row | 11 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
-| D7 | 2 bodies, first keystroke of an editor session | 2 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/editor/flow_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
-| D8 | 1 body, every keystroke after the first | 1 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/editor/flow_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
-| D9 | zero teardown residue in counters and frame ids | zero | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/test_kit_mounted_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
-| D10 | 3 hiccup-walk entries dropped by a direct return (`codec/vec->element`) | 3 — the hiccup arm reads 4 against the crossing's floor of 1 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
-| D11 | 3 prop-pipeline entries dropped by a direct return (`codec/convert-props`) | 3 — the hiccup arm reads 3 against a floor of 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
-| D12 | 2 event-lowering entries dropped by a direct return (`intent/lower-prop`) | 2 — the hiccup arm reads 2 against a floor of 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
-| D13 | 3 controlled-repair entries dropped by a direct return (`controlled/install!`) | 3 — the hiccup arm reads 3 against a floor of 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
-| D14 | 0 wrappers between the element type React reconciles and the author's own function, handwritten-React island | 0 — the type is `identical?` to the function on the handwritten-React route; UIx's is a generated component | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
-| D15 | 1 slot on the props object React carries, and it is the author's own | 1 — `label`, the name the call site wrote; UIx also reads 1, and it is the `argv` carrier | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
-| D16 | 0 unwrapping hops per render, per component, handwritten React | 0 — the UIx route reads 1, opening `argv` | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
-| D17 | 10 subscription recomputations per keystroke, four-field editor | 10 — `::field` 4, `::committed` 4, `::revision` 1, `::dirty?` 1; one of the ten computes a new value | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
-| D18 | 31 subscription recomputations per keystroke, grid at 5×5 — a LINEAR quantity at a stated mount size | 31 — `::cell` 25, `::row-total` 5, `::dimensions` 1 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
-| D19 | 111 subscription recomputations per keystroke, grid at 10×10 — a LINEAR quantity at a stated mount size | 111 — `::cell` 100, `::row-total` 10, `::dimensions` 1; 109 of them compute what they computed last time | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
-| D20 | 0 subscription recomputations for a refused keystroke | 0 — the event writes no address, so nothing is invalidated | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
-| D21 | 0 glass writes for an accepted keystroke | 0 — the character is already on the glass and the model took it unchanged | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
-| D22 | 1 glass write for a refused keystroke | 1 — the committed value going back over the character the model would not take; also this instrument's own positive control | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
-| D23 | 7 DOM mutation records per keystroke, editor | 7 — `name` ×4, `type` ×2, `value` ×1; four of them React's churn on an attribute the application never wrote | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
-| D24 | 8 DOM mutation records per keystroke, grid | 8 — the editor's seven plus one `characterData` on the row total's text node | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
-| D25 | 3 DOM mutation records for a refused keystroke | 3 — `name`/`type`/`name` with no `value` write; the attribution that makes D23's other four the commit's | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
-| D26 | 1 row of markup built for a one-row write under a fine topology, at every row count | 1 at B = 100, 300 and 1,000 — the coarse arm builds B, the chunked k=25, the windowed 1 | bench-tree | `MET` | `bench/hicasso/src/re_frame/bench/hicasso/topo/census_dom_cljs_test.cljs` (PR gate) | `rf2-mwr2` | — |
+| D1 | 2 bodies per keystroke at 5×5, and equal to D2 | 2 | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D2 | 2 bodies per keystroke at 10×10, and equal to D1 | 2 | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D3 | 26 bodies, coarse shape at 5×5 | 26 | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D4 | 101 bodies, coarse shape at 10×10 | 101 | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D5 | 0 bodies for a refused keystroke | 0 | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D6 | 11 bodies for `clear-row` on a 10-wide row | 11 | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D7 | 2 bodies, first keystroke of an editor session | 2 | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/editor/flow_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D8 | 1 body, every keystroke after the first | 1 | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/editor/flow_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D9 | zero teardown residue in counters and frame ids | zero | package | `MET` | `implementation/fresco/test/re_frame/fresco/test_kit_mounted_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D10 | 3 hiccup-walk entries dropped by a direct return (`codec/vec->element`) | 3 — the hiccup arm reads 4 against the crossing's floor of 1 | package | `MET` | `implementation/fresco/test/re_frame/fresco/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
+| D11 | 3 prop-pipeline entries dropped by a direct return (`codec/convert-props`) | 3 — the hiccup arm reads 3 against a floor of 0 | package | `MET` | `implementation/fresco/test/re_frame/fresco/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
+| D12 | 2 event-lowering entries dropped by a direct return (`intent/lower-prop`) | 2 — the hiccup arm reads 2 against a floor of 0 | package | `MET` | `implementation/fresco/test/re_frame/fresco/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
+| D13 | 3 controlled-repair entries dropped by a direct return (`controlled/install!`) | 3 — the hiccup arm reads 3 against a floor of 0 | package | `MET` | `implementation/fresco/test/re_frame/fresco/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
+| D14 | 0 wrappers between the element type React reconciles and the author's own function, handwritten-React island | 0 — the type is `identical?` to the function on the handwritten-React route; UIx's is a generated component | package | `MET` | `implementation/fresco/test/re_frame/fresco/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
+| D15 | 1 slot on the props object React carries, and it is the author's own | 1 — `label`, the name the call site wrote; UIx also reads 1, and it is the `argv` carrier | package | `MET` | `implementation/fresco/test/re_frame/fresco/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
+| D16 | 0 unwrapping hops per render, per component, handwritten React | 0 — the UIx route reads 1, opening `argv` | package | `MET` | `implementation/fresco/test/re_frame/fresco/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
+| D17 | 10 subscription recomputations per keystroke, four-field editor | 10 — `::field` 4, `::committed` 4, `::revision` 1, `::dirty?` 1; one of the ten computes a new value | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D18 | 31 subscription recomputations per keystroke, grid at 5×5 — a LINEAR quantity at a stated mount size | 31 — `::cell` 25, `::row-total` 5, `::dimensions` 1 | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D19 | 111 subscription recomputations per keystroke, grid at 10×10 — a LINEAR quantity at a stated mount size | 111 — `::cell` 100, `::row-total` 10, `::dimensions` 1; 109 of them compute what they computed last time | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D20 | 0 subscription recomputations for a refused keystroke | 0 — the event writes no address, so nothing is invalidated | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D21 | 0 glass writes for an accepted keystroke | 0 — the character is already on the glass and the model took it unchanged | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D22 | 1 glass write for a refused keystroke | 1 — the committed value going back over the character the model would not take; also this instrument's own positive control | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D23 | 7 DOM mutation records per keystroke, editor | 7 — `name` ×4, `type` ×2, `value` ×1; four of them React's churn on an attribute the application never wrote | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D24 | 8 DOM mutation records per keystroke, grid | 8 — the editor's seven plus one `characterData` on the row total's text node | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D25 | 3 DOM mutation records for a refused keystroke | 3 — `name`/`type`/`name` with no `value` write; the attribution that makes D23's other four the commit's | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D26 | 1 row of markup built for a one-row write under a fine topology, at every row count | 1 at B = 100, 300 and 1,000 — the coarse arm builds B, the chunked k=25, the windowed 1 | bench-tree | `MET` | `bench/fresco/src/re_frame/bench/fresco/topo/census_dom_cljs_test.cljs` (PR gate) | `rf2-mwr2` | — |
 | S1 | 1,024 B, R=0 shell, Reagent segment | 1,100 B [1,091–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,107 B |
 | S2 | 1,024 B, R=0 shell, UIx segment | 1,095 B [1,087–1,101] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,101 B |
 | S3 | ≤ 10% regression on the same pinned witness | 1,417 vs Reagent 948 per read | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-85og2` | [substrate-decision §6](substrate-decision.md#6-what-this-page-does-not-decide) |
@@ -1609,19 +1609,19 @@ loses no address.
 | U2 | ≤ 50 ms p95 and ≤ 100 ms p99 to next paint | keystroke p95 18.0 / 18.0 / 18.2 ms and toggle p95 18.0 / 18.0 / 17.8 ms over three runs; **the worst single window of the 360 measured across both event paths is 18.9 ms**, so every quantile including the p99 sits under it on a reading that was taken rather than interpolated | package | `MET` | slice interaction-to-paint clock, keystroke and toggle arms (P-DEV-1 evidence run) | `rf2-85og2` | — |
 | U3 | ≤ 100 ms p95 for broad operations | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U4 | dragging and animation inside the frame budget | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| U5 | body work scales with changed rows, not mounted rows | 2 bodies at 25 cells and at 100, and — on the second counter D26 — 1 row of markup for a one-row write where a coarse arm rebuilds every row | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
-| U6 | teardown residue zero after quiescence | zero counters (D9); bytes indistinguishable from 0 (S5) | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/test_kit_mounted_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| U5 | body work scales with changed rows, not mounted rows | 2 bodies at 25 cells and at 100, and — on the second counter D26 — 1 row of markup for a one-row write where a coarse arm rebuilds every row | package | `MET` | `implementation/fresco/test/re_frame/fresco/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| U6 | teardown residue zero after quiescence | zero counters (D9); bytes indistinguishable from 0 (S5) | package | `MET` | `implementation/fresco/test/re_frame/fresco/test_kit_mounted_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
 | C1 | ≤ 5% regression on the same witness and instrument | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C2 | 1.10x cold mount, the registered line | see S6 | bench-tree | `BREACH` | final K1 estimator (P-DEV-1 evidence run) | `rf2-hic-085` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C3 | ≤ 1.25x the best relevant adapter on broad updates | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| C4 | no sustained 1.5x as ordinary Hicasso | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C4 | no sustained 1.5x as ordinary Fresco | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C5 | 1,024 B byte-exact, not governed by baseline-plus-10% | 1,100 B / 1,095 B [1,087–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,107 B / 1,101 B |
 | C6 | ≤ 10% per-read regression on the same pinned witness | see S3 / S4 | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C7 | ~~a native island within 5% or 1 ms of the same component mounted directly~~ RETIRED 2026-08-29 (`rf2-6c12m.3`): an island is the component itself now, so there is no second measurement | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C8 | an escape taken for a benefit recovers ≥ 20%, saves ≥ 2 ms p95, or flips a failed budget; an interoperability escape is outside the population | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| I9 | ≤ 2 React hooks per boundary shell, invariant in read count | 2 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/hook_budget_cljs_test.cljs` (PR gate) | `rf2-hic-018` | — |
+| I9 | ≤ 2 React hooks per boundary shell, invariant in read count | 2 | package | `MET` | `implementation/fresco/test/re_frame/fresco/hook_budget_cljs_test.cljs` (PR gate) | `rf2-hic-018` | — |
 
-**D26's witness moved with the bench tree on 2026-08-29 (rf2-6c12m.1)**, to `bench/hicasso/src/re_frame/bench/hicasso/topo/census_dom_cljs_test.cljs`, and the whole tree is off the per-PR lanes by that ruling — `:browser-test` no longer compiles it, so its `PR gate` cell is a lane the counter ran in when the row was taken, not one it runs in now. The cell and D26's deterministic pin are kept because this ledger's own rules (`check_budget_ledger.py` L6 and U5's companion-counter rule) require a deterministic row to name that lane; rf2-6c12m.8 retires the ledger gate, and the row's reading is retaken by `npm run check` from `bench/hicasso/` rather than by any merge gate.
+**D26's witness moved with the bench tree on 2026-08-29 (rf2-6c12m.1)**, to `bench/fresco/src/re_frame/bench/fresco/topo/census_dom_cljs_test.cljs`, and the whole tree is off the per-PR lanes by that ruling — `:browser-test` no longer compiles it, so its `PR gate` cell is a lane the counter ran in when the row was taken, not one it runs in now. The cell and D26's deterministic pin are kept because this ledger's own rules (`check_budget_ledger.py` L6 and U5's companion-counter rule) require a deterministic row to name that lane; rf2-6c12m.8 retires the ledger gate, and the row's reading is retaken by `npm run check` from `bench/fresco/` rather than by any merge gate.
 
 <!-- rf2-hic-089: end-ledger -->
 
@@ -1640,17 +1640,17 @@ instrument cell names the deterministic witness because that is the half a pull
 request runs; the other half is S5's own row, one line above.
 
 **[Corrected 2026-08-14, `rf2-9vbl1`.]** Both `D9` and `U6` named
-`implementation/hicasso/test_kit/src/re_frame/hicasso/test/mounted.cljs` until
+`implementation/fresco/test_kit/src/re_frame/fresco/test/mounted.cljs` until
 this correction. That file is the test-kit **facade** — a library file under
 `test_kit/src` holding no tests, and selected by no test build: its namespace
-`re-frame.hicasso.test.mounted` matches neither the `cljs-test$` selector nor
+`re-frame.fresco.test.mounted` matches neither the `cljs-test$` selector nor
 the `-dom-cljs-test$` one, and `implementation/shadow-cljs.edn` says as much
 itself in the source-path comment for the kit. Its two `deftest` occurrences
 are documentation prose. So both rows asserted the `PR gate` lane against a
 file that gates nothing. The confusion was instrument for witness:
 `hm/assert-clean!` is the **instrument** and does live there, but the
 **witness** is a suite that runs it. Both rows now name the facade's own DOM
-witness suite, whose namespace `re-frame.hicasso.test-kit-mounted-dom-cljs-test`
+witness suite, whose namespace `re-frame.fresco.test-kit-mounted-dom-cljs-test`
 is matched by both selectors, and which drives `hm/assert-clean!` and
 `hm/residue` directly and asserts that a destroyed frame is gone from
 `rf/frame-ids`. [§3](#3-deterministic-rows-pinned-on-the-moved-package)'s own
@@ -1708,7 +1708,7 @@ or `C5` changes with it.
   such an instrument exists. `C3` and `C4` are the comparative rules stated on
   the same missing readings. None of the six can be pinned by measuring harder
   on the rig that exists; each needs a clock instrument pointed at
-  `implementation/hicasso`, on P-DEV-1, in its own window.
+  `implementation/fresco`, on P-DEV-1, in its own window.
   **[Amended 2026-08-14, `rf2-hic-045`.]** `U1`'s **deterministic half is now
   published** — [`per-keystroke.md`](per-keystroke.md) is the per-keystroke
   census of the two witness applications, and its §6 records that on both
@@ -1729,11 +1729,11 @@ or `C5` changes with it.
   **[Amended 2026-08-18, `rf2-xa8wo`. All six rows keep the status they had.]**
   This bullet's heading sentence has expired and its conclusion has moved. A
   package-resident clock instrument **does** now exist —
-  `re-frame.bench.hicasso.direct-return-clock-app`, which requires
-  `re-frame.hicasso` itself and is `S8`'s arm — and the lane's `summarise` now
+  `re-frame.bench.fresco.direct-return-clock-app`, which requires
+  `re-frame.fresco` itself and is `S8`'s arm — and the lane's `summarise` now
   computes the `:p95` and `:p99` these rows are registered at, which it did not
   when the bullet was written. So *each needs a clock instrument pointed at
-  `implementation/hicasso`* is no longer the condition. What the six need is a
+  `implementation/fresco`* is no longer the condition. What the six need is a
   driver whose window is **one discrete interaction through to the paint that
   follows it, in a slice application**, because both landed drivers mount a
   synthetic bench page inside one `flushSync` window — a mount, not a paint —
@@ -1778,7 +1778,7 @@ or `C5` changes with it.
   carries the record; [§4 carries the same finding from the instrument side](#the-package-resident-clock-instrument-and-what-it-is-still-missing)
   rather than a second copy of it here.
 - **The 5% rule has no same-instrument anchor.** `C1` compares a reading
-  against the pinned ordinary-Hicasso benchmark, and §6 records that the
+  against the pinned ordinary-Fresco benchmark, and §6 records that the
   registered instrument's eleven pinned blobs are superseded rather than
   repaired — one of its files no longer exists. Until the ladder is re-pinned,
   "the same instrument" names nothing, and a comparison against it would be
@@ -2055,7 +2055,7 @@ evidence run, checked for internal honesty and nothing more.
 is on this page.** They are recorded here rather than quietly dropped:
 
 - *The 5% same-instrument regression gate, running in CI per relevant PR.* The
-  pinned ordinary-Hicasso benchmark is a heap figure — distributional, P-DEV-1
+  pinned ordinary-Fresco benchmark is a heap figure — distributional, P-DEV-1
   only, and §7 says such a row is never converted into a flaky PR threshold.
   Wiring it to a hosted runner would breach §1 on the first green. It is `C1`
   in the ledger, `UNPINNED`, and it additionally has no anchor to compare
@@ -2150,10 +2150,10 @@ reason. No threshold was guessed, no band widened and no figure restated.
 **`U1`–`U4` and `C3`/`C4`: the reason has moved from *absence* to *estimator*.**
 Two clock drivers have landed since the bullet above was written, and one of
 them **is** pointed at the package: §4's `S8` clocks mount time through
-`re-frame.bench.hicasso.direct-return-clock-app`, which requires
-`re-frame.hicasso` itself and whose row this page already calls a **package
-figure**. The other, `re-frame.bench.hicasso.topo.clock-app` (`rf2-w01c`,
-window taken 2026-08-18), requires `re-frame.bench.hicasso.arm1.runtime` and is
+`re-frame.bench.fresco.direct-return-clock-app`, which requires
+`re-frame.fresco` itself and whose row this page already calls a **package
+figure**. The other, `re-frame.bench.fresco.topo.clock-app` (`rf2-w01c`,
+window taken 2026-08-18), requires `re-frame.bench.fresco.arm1.runtime` and is
 a bench-tree instrument. **Neither can pin `U1`–`U4`, and the block is now a
 line of source rather than a gap**: `lane/summarise` answers
 `{:n :min :max :p50}`, and no `p95` and no `p99` is computed anywhere on this
@@ -2189,7 +2189,7 @@ worse than no `p95` at all because it is quotable. `rf2-xa8wo` therefore built
 the estimator and stopped: what it still owes, and what the gate-1 window is
 still waiting on, is a driver whose window is one discrete interaction through
 to the paint that follows it, on a witness application under
-`implementation/hicasso/test/re_frame/hicasso/examples/`. No threshold was
+`implementation/fresco/test/re_frame/fresco/examples/`. No threshold was
 guessed, no band widened, no figure restated and no ledger count moved.
 
 **What *package-resident* means here**, written down because it is mis-readable
@@ -2197,11 +2197,11 @@ in a way that would silently discharge that bullet. It names what the
 instrument is **pointed at**, never where the instrument's own code ships. §6's
 heading is *the instrument does not measure the package*, its diagnosis is *no
 heap instrument pointed at the package at all*, and `rf2-fe0l` discharged that
-half by **repointing** the P0 ladder's candidate seams at `re-frame.hicasso`
+half by **repointing** the P0 ladder's candidate seams at `re-frame.fresco`
 rather than by repackaging anything; §4's *package figure* / *bench-tree
 figure* column sorts readings on the same axis. So `rf2-rxf49` putting
 `test_kit/src` on `:clein/build`'s `:src-dirs` — which does ship
-`re-frame.hicasso.test` and `re-frame.hicasso.test.mounted` in the jar, while
+`re-frame.fresco.test` and `re-frame.fresco.test.mounted` in the jar, while
 `:paths` still does not carry it — moves nothing here, and the
 jar-versus-classpath distinction it creates is not the axis this gate turns on.
 The kit carries no clock estimand in any case: `mounted.cljs` installs a **fake**
@@ -2219,17 +2219,17 @@ at this branch's base with `git hash-object`:
 |---|---|---|
 | `p0_run.cjs` | `4718aaea…` | `9c993e96…` |
 | `p0_heap.cljs` | `34c9210d…` | `2d922d31…` |
-| `p0_hicasso.cljs` | `f2440e30…` | `7a91564f…` |
+| `p0_fresco.cljs` | `f2440e30…` | `7a91564f…` |
 | `p0_reagent.cljs` | `b1f5ec92…` | `419e166a…` |
 | `p0_uix.cljs` | `deec8976…` | `f1aaf9cb…` |
 | `p0_fixture.cljc` | `867ad583…` | `de27135c…` |
 
 The other five are the candidate arm's, and **the pinned path itself is gone**:
-they are pinned under `implementation/freehand/test/re_frame/bench/hicasso/`,
-the benchmark harness was re-homed into `implementation/hicasso/` on 2026-08-14
+they are pinned under `implementation/freehand/test/re_frame/bench/fresco/`,
+the benchmark harness was re-homed into `implementation/fresco/` on 2026-08-14
 by `e61e175341`, and `implementation/freehand` was deleted whole on 2026-08-15
 by `c951808b47` (`rf2-0yp7w.6`). Four of the five survive the move under
-`implementation/hicasso/test/re_frame/bench/hicasso/`, and **all four have
+`implementation/fresco/test/re_frame/bench/fresco/`, and **all four have
 different content there**; the fifth is gone from the repository altogether,
 which is the absence §6 already records:
 
@@ -2260,15 +2260,15 @@ sharpens the paragraph above, which had the fact right and the reason unstated.
 
 **One finding changes what the re-pin run has to do, and it makes the
 supersession wider rather than narrower.** The four survivors are no longer the
-candidate arm at all. The pinned `p0_hicasso.cljs` required
-`re-frame.bench.hicasso.arm1.runtime`; the blob at the tip requires
-`re-frame.hicasso`, because `rf2-fe0l` repointed the candidate seam at the
+candidate arm at all. The pinned `p0_fresco.cljs` required
+`re-frame.bench.fresco.arm1.runtime`; the blob at the tip requires
+`re-frame.fresco`, because `rf2-fe0l` repointed the candidate seam at the
 package — the same repoint §6's *package-resident* paragraph above already
 credits with discharging the other half. So re-pinning the four at their
 re-homed path would register **the wrong files**: the frozen prototype the
 package was moved away from, whose divergence from the product §6 calls expected
-and permanent. The arm is now `re-frame.hicasso` under
-`implementation/hicasso/src/`, and the ladder records its whole-tree object so a
+and permanent. The arm is now `re-frame.fresco` under
+`implementation/fresco/src/`, and the ladder records its whole-tree object so a
 run has one identity that exists to name.
 
 So the sentence above is discharged in exactly one respect — the candidate arm
@@ -2284,11 +2284,11 @@ moved.
 
 **`C8`: the population is verifiably empty, not merely unreported.** Across the
 witness applications under
-`implementation/hicasso/test/re_frame/hicasso/examples/`, shipping view code
+`implementation/fresco/test/re_frame/fresco/examples/`, shipping view code
 carries exactly one `h/as-element` call — `ledger/views.cljs`'s `:render-row`,
 handing a boundary to the vendor virtualizer, which is the interoperability
-site the bullet above already names — and **no `re-frame.hicasso.native` island
-at all**. Nothing under `examples/` mounts Hicasso either. So there is still
+site the bullet above already names — and **no `re-frame.fresco.native` island
+at all**. Nothing under `examples/` mounts Fresco either. So there is still
 nothing for *"simplify or remove"* to name, and `S8` remains this mechanism's
 published reference price rather than a verdict about a site.
 
@@ -2348,18 +2348,18 @@ instrument's nine files moved between those two runs, six of them within the
 preceding day, so the two readings are the same witness and **not** the same
 instrument. What it does establish is narrower — the allocation lane's edits to
 the shared P0 driver did not move what this rung reads, which is a fact about
-that lane rather than about Hicasso.
+that lane rather than about Fresco.
 
 **`U1`–`U4`, `C3`/`C4` and `C8`: refused again, zero runs declared and zero
 taken, and the refusals are now cheaper to re-derive.** Both were re-tested at
 source at this window's tip. For gate 1 the estimator half stays closed and the
 **population** half stays open: no driver under
-`implementation/hicasso/test/re_frame/bench/` requires anything under
-`re-frame.hicasso.examples`, and the lane's window is still a `flushSync`
+`implementation/fresco/test/re_frame/bench/` requires anything under
+`re-frame.fresco.examples`, and the lane's window is still a `flushSync`
 commit, a mount and not a paint. For gate 3 the population is still empty —
 one `h/as-element` in shipping example view code, the vendor-virtualizer
 boundary the rule already places outside the population, and no
-`re-frame.hicasso.native` island at all — and the census was run with a
+`re-frame.fresco.native` island at all — and the census was run with a
 positive control in both directions, because a search that returns zero and a
 search that looks nowhere print the same thing. **Neither refusal is about box
 quietness and no quiet-box time was spent on either**; the cheap source checks
@@ -2381,8 +2381,8 @@ landed a driver in the bench tree that requires the slice application's own
 `events`, `routes` and `views`, mounts it through `h/mount!`, and brackets a
 real DOM event through to the first task after the carrying frame's rendering
 steps. So both sentences the entry above rests on are now false at the tip: a
-driver under `implementation/hicasso/test/re_frame/bench/` **does** require
-something under `re-frame.hicasso.examples`, and that driver's window is **not**
+driver under `implementation/fresco/test/re_frame/bench/` **does** require
+something under `re-frame.fresco.examples`, and that driver's window is **not**
 a `flushSync` commit. `U3`, `U4`, `C3` and `C4` are untouched by it, for the
 reason §4 records — the arms, not the window.
 
@@ -2406,18 +2406,18 @@ lifted, from *"the same instrument" names nothing* to a second reading not yet
 taken across a change, and no edit produces that reading.
 
 **Gate 3 is refused again, on a census re-run at this tip.** Shipping view code
-under `implementation/hicasso/test/re_frame/hicasso/examples/` still carries
+under `implementation/fresco/test/re_frame/fresco/examples/` still carries
 exactly one `h/as-element` call — `ledger/views.cljs`'s `:render-row`, the
 vendor-virtualizer boundary
 [§4's `C8` row](#the-comparative-and-regression-rules) places outside the
-population — and no `re-frame.hicasso.native` island anywhere under `examples/`.
+population — and no `re-frame.fresco.native` island anywhere under `examples/`.
 Both halves were controlled: `as-element` resolves in nine files under
-`implementation/hicasso/src/` and `native.cljc` exists there, so each name
+`implementation/fresco/src/` and `native.cljc` exists there, so each name
 resolves and each absence is in the population rather than in the pattern.
 
 **One sentence in the 2026-08-19 `C8` entry above is wrong and is corrected
 here rather than over there, because that entry is dated.** It reads *Nothing
-under `examples/` mounts Hicasso either*. Six of the witness applications mount
+under `examples/` mounts Fresco either*. Six of the witness applications mount
 it from their own `app.cljs` — `editor`, `grid`, `ledger`, `slice`, `todo` and
 `typeahead` — and have since `2026-08-15`, so the sentence was already false
 when it was written. **`C8`'s conclusion is untouched by the correction**: the
@@ -2481,7 +2481,7 @@ such a cell may move.** `check_budget_ledger.py`'s `POPULATION_PIN` pinned
 `U1`–`U4` to `—` and its own comment names the only route out — *a new
 measurement window and an edit here*. This is that window, the edit is beside
 it, and the subject is the slice witness application mounted through
-`re-frame.hicasso`'s own `h/mount!`, which is `package` on the same rule that
+`re-frame.fresco`'s own `h/mount!`, which is `package` on the same rule that
 puts `D17`–`D25` there. The gate's `—`-population control moved from `U2` to
 `U3` for the same reason and in the same commit: it needs a row nothing has
 measured, and `U2` had stopped being one.

@@ -11,7 +11,7 @@
    This file is the Reagent HALF: the only substrate-specific code. Below it are
    the `reg-view` views, the React root, the adapter init, and the mount — the
    parts that actually name Reagent. The UIx twin (`uix.login.core`) and the
-   Hicasso twin (`hicasso.login.core`) import the
+   Fresco twin (`fresco.login.core`) import the
    identical `login.model` and supply their own view layer instead. One model,
    three view layers; the cross-view-layer comparison is exactly this
    substrate-specific half, held against a model that never changes. See
@@ -21,7 +21,7 @@
    contract suite (`npm run test:cljs`) and the framework gates, not by a test
    alongside this file."
   ;; This example runs on stock Reagent. It's also the cross-view-layer
-  ;; reference base — mirrored as `login-uix` and `login-hicasso` over the same
+  ;; reference base — mirrored as `login-uix` and `login-fresco` over the same
   ;; `login.model` — so staying on Reagent keeps the trio an honest
   ;; apples-to-apples comparison.
   (:require [re-frame.core :as rf]

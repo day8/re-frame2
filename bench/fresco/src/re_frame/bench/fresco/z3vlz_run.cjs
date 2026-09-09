@@ -2,13 +2,13 @@
 // THE rf2-z3vlz DISCRIMINATOR DRIVER — build four bundles, drive six
 // pages, and answer (a), (b) or (c).
 //
-//   node implementation/hicasso/test/re_frame/bench/hicasso/z3vlz_run.cjs
+//   node implementation/fresco/test/re_frame/bench/fresco/z3vlz_run.cjs
 //
 //   Z3VLZ_ONLY=slim-only,mixed \
 //   Z3VLZ_PORT=8171 \
-//     node implementation/hicasso/test/re_frame/bench/hicasso/z3vlz_run.cjs
+//     node implementation/fresco/test/re_frame/bench/fresco/z3vlz_run.cjs
 //
-// Rides rf2-2rtt6.2's `:hicasso-bench` build id through `--config-merge`,
+// Rides rf2-2rtt6.2's `:fresco-bench` build id through `--config-merge`,
 // exactly as `run.cjs` does and for the same reason: HD-017 makes a build-id
 // touch a hot-zone edit to `implementation/shadow-cljs.edn`, and four bundles
 // would otherwise be four of them. NOTHING here adds a build id.
@@ -42,7 +42,7 @@
 // So every page now carries a CONTRACT in data — `PAGE_CONTRACT` below —
 // and the driver adjudicates the probe's own figures against it. The
 // contract is exactly the matrix this rig published
-// (`docs/design/hicasso/studio/slim-non-reactive-arm-diagnosis.md`), and
+// (`docs/design/fresco/studio/slim-non-reactive-arm-diagnosis.md`), and
 // it is stated per page rather than derived, so a drift has to be
 // declared to be accepted.
 //
@@ -91,7 +91,7 @@ const { resetLaneBuildCache } = require('../../../../../../implementation/core/t
 const { shadowBuild } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
-const BUILD_ID = 'hicasso-bench';
+const BUILD_ID = 'fresco-bench';
 const PORT = Number(process.env.Z3VLZ_PORT || 8171);
 const SENTINEL_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -140,7 +140,7 @@ const ORDERS = ['inside-drain', 'drain-immediately', 'yield-then-drain'];
 const VARIANTS = [
   {
     name: 'slim-only',
-    initFn: 're-frame.bench.hicasso.z3vlz-slim-only/-main',
+    initFn: 're-frame.bench.fresco.z3vlz-slim-only/-main',
     outDir: 'out/z3vlz-slim-only',
     expect: { reagent: false, reagent2: true, uix: false },
     pages: [
@@ -149,7 +149,7 @@ const VARIANTS = [
   },
   {
     name: 'slim+reagent',
-    initFn: 're-frame.bench.hicasso.z3vlz-slim-reagent/-main',
+    initFn: 're-frame.bench.fresco.z3vlz-slim-reagent/-main',
     outDir: 'out/z3vlz-slim-reagent',
     expect: { reagent: true, reagent2: true, uix: false },
     pages: [
@@ -163,7 +163,7 @@ const VARIANTS = [
   },
   {
     name: 'slim+uix',
-    initFn: 're-frame.bench.hicasso.z3vlz-slim-uix/-main',
+    initFn: 're-frame.bench.fresco.z3vlz-slim-uix/-main',
     outDir: 'out/z3vlz-slim-uix',
     expect: { reagent: false, reagent2: true, uix: true },
     pages: [
@@ -172,7 +172,7 @@ const VARIANTS = [
   },
   {
     name: 'mixed',
-    initFn: 're-frame.bench.hicasso.z3vlz-mixed/-main',
+    initFn: 're-frame.bench.fresco.z3vlz-mixed/-main',
     outDir: 'out/z3vlz-mixed',
     expect: { reagent: true, reagent2: true, uix: true },
     pages: [
@@ -323,7 +323,7 @@ async function drive(page, url) {
   const pageErrors = [];
   // Resolved by the FIRST uncaught page error, and raced against the
   // done-sentinel below. A throw that escapes the probe's own promise chain
-  // leaves `window.HICASSO_DONE` unset for ever, so without this race the
+  // leaves `window.FRESCO_DONE` unset for ever, so without this race the
   // driver would sit out its whole sentinel and then report a TIMEOUT —
   // burying the actual stack under a budget failure it did not have.
   let onFirstError;
@@ -368,16 +368,16 @@ async function drive(page, url) {
   await navigate(page, url, {
     waitUntil: 'commit',
     timeoutMs: NAV_TIMEOUT_MS,
-    budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.HICASSO_DONE`,
+    budget: `the ${SENTINEL_TIMEOUT_MS / 60000}-minute wait for window.FRESCO_DONE`,
   });
   await Promise.race([
-    page.waitForFunction('window.HICASSO_DONE === true || window.HICASSO_ERROR', null, {
+    page.waitForFunction('window.FRESCO_DONE === true || window.FRESCO_ERROR', null, {
       timeout: SENTINEL_TIMEOUT_MS,
     }),
     firstError,
   ]);
-  const err = await page.evaluate('window.HICASSO_ERROR || null');
-  const results = await page.evaluate('window.HICASSO_RESULTS || {}');
+  const err = await page.evaluate('window.FRESCO_ERROR || null');
+  const results = await page.evaluate('window.FRESCO_RESULTS || {}');
   const gates = await page.evaluate('window.Z3VLZ_GATES || null');
   const uncaught = await page.evaluate('window.Z3VLZ_UNCAUGHT || null');
   if (uncaught) {

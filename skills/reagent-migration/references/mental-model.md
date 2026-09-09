@@ -1,7 +1,7 @@
-# The Hicasso view shift (mental model)
+# The Fresco view shift (mental model)
 
 > The shifts a migrating developer must internalise. Map Reagent's "a view is a
-> function I run every render" onto Hicasso's "a view is a declared React
+> function I run every render" onto Fresco's "a view is a declared React
 > component I mount", and every rule below stops being a surprise.
 
 ## Anchor: a React function component you can also call → one you can only mount
@@ -10,7 +10,7 @@ If you know React, the closest analogue is the move from a **function component
 you can also just call** to a **declared component you can only mount**. In
 React, `<Card />` and `Card()` both "work" and mean different things — one
 creates a boundary React owns, the other splices the body into the caller. React
-never made you choose; Hicasso does, at the spelling.
+never made you choose; Fresco does, at the spelling.
 
 ```clojure
 [card {:title t}]     ; a BOUNDARY — a real React function component with its own subscription edges
@@ -34,7 +34,7 @@ A Reagent view is an ordinary function returning hiccup, re-invoked every render
   [:h1 "Hello, " name])
 ```
 
-A Hicasso view is an `h/defview` whose argument vector is **the ordinary
+A Fresco view is an `h/defview` whose argument vector is **the ordinary
 one-props-map argument vector**, so destructuring reads as it does in any
 Clojure fn:
 
@@ -68,7 +68,7 @@ Reagent subscriptions are reactive atoms you deref:
 [:span @(subscribe [:total])]        ; deref a reaction
 ```
 
-Hicasso reads them with `h/sub`, which returns the **value**:
+Fresco reads them with `h/sub`, which returns the **value**:
 
 ```clojure
 [:span (h/sub [:total])]
@@ -97,7 +97,7 @@ Reagent handler is an opaque closure:
 {:on-click #(dispatch [:ev x])}       ; a closure — nothing can see inside
 ```
 
-Hicasso puts the intent in the tree as data. There is **no roster of blessed
+Fresco puts the intent in the tree as data. There is **no roster of blessed
 prop names** — any `on-*`/`onX` key is an event position — and the **shape** of
 the value selects one of four behaviours:
 
@@ -131,7 +131,7 @@ a test — no browser, no click simulation.
 place where the handler shift is more than a respelling, so it is worth knowing
 before you lift the first handler. `rf/dispatch` **queues**: it appends the event
 to the router and returns *before* the handler runs, so the browser callback
-finishes first and the event drains after it. A Hicasso intent does not — a
+finishes first and the event drains after it. A Fresco intent does not — a
 vector, a key-map branch, or a vector returned from `h/event` goes through the
 frame's **synchronous** door, so the event and its synchronous cascade drain
 inside the callback's own turn and the store is notified before that turn ends.
@@ -157,23 +157,23 @@ fails at *click* time with `:rf.error/no-frame-context`. See
 
 ### 4. The view holds no state
 
-Hicasso has **no `local`, no `use-state`, no cell of any kind** — and that
+Fresco has **no `local`, no `use-state`, no cell of any kind** — and that
 absence is the design, not a gap waiting to close. An atom allocated in a
 `defview` body is re-allocated every render, because the body is an anonymous fn
 React re-invokes. Reagent's Form-2 and Form-3 exist almost entirely to hold
 state and lifecycle, so this is where a Reagent codebase changes *shape* rather
 than spelling:
 
-| Reagent held it in | Hicasso puts it |
+| Reagent held it in | Fresco puts it |
 |---|---|
 | `(r/atom false)` for a toggle | app-db — `h/reg-state` mints the sub and the setter event for you |
-| Form-2 closure over a draft that commits on blur-or-Enter | `re-frame.hicasso.forms/buffered-field`, whose draft lives in app-db in front of the committed value |
+| Form-2 closure over a draft that commits on blur-or-Enter | `re-frame.fresco.forms/buffered-field`, whose draft lives in app-db in front of the committed value |
 | `component-did-mount` DOM work | a **callback ref** — React's own contract, a function at `:ref`, node as the argument |
 | `component-will-unmount` DOM cleanup | the **return value** of that same callback ref |
 | `component-did-mount` "load the thing" | an ordinary event — the frame's `:initial-events`, or a route |
 | `component-did-update` | no mechanism; re-render *is* the update, or a React island with `react/useEffect` |
 | `component-did-catch` | `h/error-boundary` |
-| genuine widget mechanics needing hooks | a React island — a UIx `defui` or a raw React function component mounted through `h/defhost` — where ordinary React hooks are legal; `n/use-sub` / `n/use-frame` when it needs Hicasso state |
+| genuine widget mechanics needing hooks | a React island — a UIx `defui` or a raw React function component mounted through `h/defhost` — where ordinary React hooks are legal; `n/use-sub` / `n/use-frame` when it needs Fresco state |
 
 The judgment this forces — *is this value product state, or is it the DOM's?* —
 is the whole of MIG-16/17, and it is the reason this skill is not a codemod.
@@ -184,8 +184,8 @@ hooks are about call *sequence*, so a hook there would make its own order depend
 on a subscription's answer. Hook-intensive behaviour goes to a React island: a
 UIx `defui` or a raw React function component, mounted through `h/defhost` (or
 `[:> …]` for a one-off), where React's rules of hooks apply to source the author
-controls. When the island needs Hicasso state it uses the two hooks
-`re-frame.hicasso.native` keeps for exactly that — `n/use-sub`, a read joined to
+controls. When the island needs Fresco state it uses the two hooks
+`re-frame.fresco.native` keeps for exactly that — `n/use-sub`, a read joined to
 the island's frame, and `n/use-frame`, a dispatch pinned to that frame's
 incarnation — so the read builds the same cell and the dispatch reaches the same
 frame a `defview` would. Nothing enforces the no-hooks rule at runtime; React is
@@ -200,7 +200,7 @@ the enforcement.
   this `r/atom` product state (→ app-db), a draft protocol (→ the forms module),
   or genuinely the DOM's (→ a ref or a React island)? The code can't tell
   you; the domain can.
-- **R-tier** is where a shift meets a surface Hicasso **does not have** — a
+- **R-tier** is where a shift meets a surface Fresco **does not have** — a
   frame-pinned reactive read, the prev-props update protocol, and Reagent's own
   component introspection. Those views stay on Reagent, and saying so is the
   honest answer.

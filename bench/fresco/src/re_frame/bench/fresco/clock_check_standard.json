@@ -1,5 +1,5 @@
 {
-  "id": "hicasso-clock/ctl-2x-level",
+  "id": "fresco-clock/ctl-2x-level",
   "version": 4,
   "ruling": "rf2-8a746",
   "frozen": "2026-08-07",
@@ -26,7 +26,7 @@
       "touches": "adds the top-level `evidence` field and this amendment entry only. Every centre, location limit, dispersion limit, tolerance band and error rate is byte-identical to v3; no hard refusal (read-back, canonical-DOM, page-error, arm-order, quiet-box, band-ceiling) is involved; the location/dispersion run-rejection rule is unchanged — a run now simply has to be COMPLETE before that rule is consulted."
     }
   ],
-  "what": "The level-denominated check standard for the Hicasso clock (clock_run.cjs). The measured quantity is the ctl-2x arm's TARED TaskDuration over the floor's TARED TaskDuration, in the same round of the same segment — one per block, 18 per row-run. Both terms are LEVELS, so the ~0.4 ms of estimator error each arm's p50 carries is 9% of a ~4.5 ms denominator rather than 48% of a 1.2 ms difference. It replaces the three-point difference-of-differences control, which rf2-8a746 retired as a gate.",
+  "what": "The level-denominated check standard for the Fresco clock (clock_run.cjs). The measured quantity is the ctl-2x arm's TARED TaskDuration over the floor's TARED TaskDuration, in the same round of the same segment — one per block, 18 per row-run. Both terms are LEVELS, so the ~0.4 ms of estimator error each arm's p50 carries is 9% of a ~4.5 ms denominator rather than 48% of a 1.2 ms difference. It replaces the three-point difference-of-differences control, which rf2-8a746 retired as a gate.",
   "notAPrediction": "The expected centre is EMPIRICAL, not theoretical. ctl-2x builds exactly twice the floor's page and the arithmetic prediction is 2.00x, but TaskDuration is not affine in the page either, and asserting a theoretical value against a non-affine clock is the exact mistake rf2-8a746 retired. What is frozen below is what this instrument, on this page, through this door, was MEASURED to read.",
   "statistics": {
     "block": "one (round, segment) pair — tared(ctl-2x) / tared(floor)",

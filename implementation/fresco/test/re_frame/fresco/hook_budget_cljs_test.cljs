@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.hook-budget-cljs-test
+(ns re-frame.fresco.hook-budget-cljs-test
   "THE ≤2-HOOK BUDGET, COUNTED AT REACT'S OWN DISPATCHER.
 
   > Hook budget ≤ 2 per boundary (paper rule), fully consumed by the
@@ -6,14 +6,14 @@
   > callback refs, never `useRef` in the shell. A ViewCell-class
   > per-boundary object graph appearing means the arm has failed.
   >
-  > — `docs/design/hicasso/architecture.md`, Arm 1
+  > — `docs/design/fresco/architecture.md`, Arm 1
 
   A hard architectural line, and the package has never had a witness for
-  it. [[re-frame.hicasso.test.runtime/shell-hook-ledger]] is a
+  it. [[re-frame.fresco.test.runtime/shell-hook-ledger]] is a
   DECLARATION — a vector of two keywords the shell says it calls — and a
   budget a runtime reports about itself is not evidence. This file counts
   the calls React actually received, through
-  [[re-frame.hicasso.hook-probe]], which wraps React's own dispatcher slot
+  [[re-frame.fresco.hook-probe]], which wraps React's own dispatcher slot
   and records what was asked of it.
 
   ## The boundary is a COUNT, so the instrument has to be able to say 3
@@ -57,13 +57,13 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
-            [re-frame.hicasso.hook-probe :as rf.hicasso.hook-probe]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
+            [re-frame.fresco.hook-probe :as rf.fresco.hook-probe]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
@@ -78,7 +78,7 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -86,7 +86,7 @@
 
 (defn- seeded!
   []
-  (rf.hicasso.checkpoint-support/leave-act-environment!)
+  (rf.fresco.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id
     (rf/dispatch-sync [:hookbudget/seed {:items (vec (range 20))}]))
@@ -97,7 +97,7 @@
   Every count in this file is worthless if this is not true, so it is
   asserted rather than branched on."
   []
-  (is (true? (rf.hicasso.hook-probe/install!))
+  (is (true? (rf.fresco.hook-probe/install!))
       "React's client-internals dispatcher slot was not found — the hook
        budget is UNWITNESSED, not satisfied"))
 
@@ -107,35 +107,35 @@
   while it ran, in call order."
   [hiccup]
   (let [!html (volatile! nil)
-        hooks (rf.hicasso.hook-probe/record!
+        hooks (rf.fresco.hook-probe/record!
                 (fn []
                   (vreset! !html
                            (react-dom-server/renderToString
-                             (rf.hicasso.impl.mount/provider frame-id
-                                             (rf.hicasso.impl.codec/root-element frame-id hiccup))))))]
+                             (rf.fresco.impl.mount/provider frame-id
+                                             (rf.fresco.impl.codec/root-element frame-id hiccup))))))]
     {:html @!html :hooks hooks}))
 
 ;; ---------------------------------------------------------------------------
 ;; The boundaries under the probe
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview reader
+(rf.fresco/defview reader
   "One boundary reading `n` subscriptions through the ambient collector.
   The reads sit in a `for` — which no hook-shaped read surface can do,
   and which is exactly why the count is interesting."
   [{:keys [n]}]
   [:ul.reads
    (for [i (range n)]
-     [:li.read {:key i} (str (rf.hicasso/sub [:hookbudget/item i]))])])
+     [:li.read {:key i} (str (rf.fresco/sub [:hookbudget/item i]))])])
 
-(rf.hicasso/defview outer
+(rf.fresco/defview outer
   "A boundary whose body mints another boundary's element."
   [_]
-  [:div.outer (str (rf.hicasso/sub [:hookbudget/item 0])) [reader {:n 1}]])
+  [:div.outer (str (rf.fresco/sub [:hookbudget/item 0])) [reader {:n 1}]])
 
 (defn- three-hook-control
   "A plain React component calling three hooks, two of which HD-020(b)
-  names as forbidden in a shell. Not a Hicasso boundary and not meant to
+  names as forbidden in a shell. Not a Fresco boundary and not meant to
   be one: it exists so that `exactly two` below is a reading taken by an
   instrument that has been seen to answer three."
   [_props]
@@ -154,7 +154,7 @@
 (defn- hosted-widget
   "A foreign React component of the kind the door exists for — its own
   context read, its own state, its own effect. Three hooks, none of them
-  Hicasso's, and the point of the two rows below is that the door does
+  Fresco's, and the point of the two rows below is that the door does
   not know or care that they are there."
   [^js props]
   (react/useContext theme-context)
@@ -162,25 +162,25 @@
   (react/useEffect (fn [] js/undefined) #js [])
   (react/createElement "p" #js {:className "hosted"} (.-label props)))
 
-(rf.hicasso/defhost gated-host
+(rf.fresco/defhost gated-host
   "The RULED DEFAULT policy, `:client-only`, which mints a gate."
   hosted-widget)
 
-(rf.hicasso/defhost render-host
+(rf.fresco/defhost render-host
   "The same component under `:server :render` — the policy that mints NO
   gate, so the head's slot carries the foreign component itself."
   hosted-widget
   {:server :render})
 
-(rf.hicasso/defview gated-page
+(rf.fresco/defview gated-page
   "One boundary, one read, one gated crossing."
   [_]
-  [:div.page (str (rf.hicasso/sub [:hookbudget/item 0])) [gated-host {:label "hi"}]])
+  [:div.page (str (rf.fresco/sub [:hookbudget/item 0])) [gated-host {:label "hi"}]])
 
-(rf.hicasso/defview render-page
+(rf.fresco/defview render-page
   "The same page with the crossing's policy the only thing changed."
   [_]
-  [:div.page (str (rf.hicasso/sub [:hookbudget/item 0])) [render-host {:label "hi"}]])
+  [:div.page (str (rf.fresco/sub [:hookbudget/item 0])) [render-host {:label "hi"}]])
 
 ;; ---------------------------------------------------------------------------
 ;; 1. The instrument can count, and can count past the budget
@@ -189,7 +189,7 @@
 (deftest the-probe-answers-what-react-was-asked-for-and-can-count-to-three
   (seeded!)
   (armed!)
-  (let [hooks (rf.hicasso.hook-probe/record!
+  (let [hooks (rf.fresco.hook-probe/record!
                 (fn [] (react-dom-server/renderToString
                          (react/createElement three-hook-control nil))))]
 
@@ -228,7 +228,7 @@
     (testing "and the ledger the shell declares agrees with what React was
               asked for — which is what makes the declaration a checked
               statement rather than a comment that can rot"
-      (is (= (count rf.hicasso.test.runtime/shell-hook-ledger) (count hooks))))
+      (is (= (count rf.fresco.test.runtime/shell-hook-ledger) (count hooks))))
 
     (testing "neither is `useRef` and neither is `useState`: HD-020(b)'s
               two named prohibitions, stated as themselves rather than
@@ -327,7 +327,7 @@
 
     (testing "and the shell's ledger is what it was: the crossing added a
               fiber and a hook to the PAGE, not to the boundary"
-      (is (= 2 (count rf.hicasso.test.runtime/shell-hook-ledger))))))
+      (is (= 2 (count rf.fresco.test.runtime/shell-hook-ledger))))))
 
 (deftest an-ssr-render-crossing-costs-no-hook-and-the-hosted-hooks-are-its-own
   (seeded!)
@@ -351,10 +351,10 @@
               distinction the door exists to draw: a hosted component's
               hooks are its own affair, they are not charged against
               HD-020(b)'s budget, and no amount of them adds a hook of
-              Hicasso's"
+              Fresco's"
       (is (= ["useContext" "useState" "useEffect"] beyond-the-shell)))
 
     (testing "and the budget is still the budget — the component brought
               three hooks through the door and the shell's ledger did not
               move"
-      (is (= 2 (count rf.hicasso.test.runtime/shell-hook-ledger))))))
+      (is (= 2 (count rf.fresco.test.runtime/shell-hook-ledger))))))

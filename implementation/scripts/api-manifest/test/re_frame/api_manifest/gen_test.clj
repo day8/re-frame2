@@ -423,7 +423,7 @@
     ;; rows at all. A namespace whose every public acquired `^:no-doc`, or
     ;; whose surface moved wholesale behind a reader conditional, would
     ;; drop out of the inventory with the drift check still reporting OK.
-    ;; That is how `re-frame.hicasso` could have been ADDED to the roster
+    ;; That is how `re-frame.fresco` could have been ADDED to the roster
     ;; and still inventoried nothing on this host.
     ;;
     ;; Asserted over the roster rather than over a named namespace, so it

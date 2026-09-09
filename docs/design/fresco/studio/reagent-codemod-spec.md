@@ -63,7 +63,7 @@ conduct, the corpus is wrong and the tool that passes it is wrong.
 
 **(b) But only half the tool depends on that.** The rewrites that repair Reagent's props
 dialect are arguments about **two landed conversion tables** — reagent 2.0.1's
-`convert-props`/`convert-prop-value`, and Hicasso's `host-entry`/`host-prop-value`. Both are
+`convert-props`/`convert-prop-value`, and Fresco's `host-entry`/`host-prop-value`. Both are
 code today. Those rewrites are correct at a `defhost` call site *now*, and correct at a
 `[:>]` site under the escape's own ruling that its props take *"the landed unclaimed-slot
 conduct of `host-entry` … with no branch of its own"* ([raw-escape-spec.md](raw-escape-spec.md)
@@ -82,17 +82,17 @@ as the safety argument, and §7.2 records what it is replaced by.
 
 ## 3 · The migrator's problem, from the migrator's chair
 
-They have a Reagent namespace containing `[:> Component {…} …]` forms. Under Hicasso, once
+They have a Reagent namespace containing `[:> Component {…} …]` forms. Under Fresco, once
 `[:>]` lands, **that form is legal and keeps its shape.** So the migration is not a
 port — the head, the props map and the children all survive verbatim. What does *not*
 survive is a set of conversions Reagent performed silently on the way through, and which
-Hicasso deliberately does not.
+Fresco deliberately does not.
 
-| What the author wrote | Reagent 2.0.1 delivered | Hicasso delivers (host walk) | How it fails |
+| What the author wrote | Reagent 2.0.1 delivered | Fresco delivers (host walk) | How it fails |
 |---|---|---|---|
 | `{:style {:font-size 12}}` | `{fontSize: 12}` — `kv-conv` recurses through map chains via `cached-prop-name` | `{"font-size": 12}` — `host-prop-value`'s `coll?` arm is `clj->js`, and its docstring says so in terms | **silent.** React ignores hyphenated style keys; the element is simply unstyled |
 | `{:variant :contained}` | `"contained"` — `convert-prop-value`'s `(named? x) (name x)` arm, at every prop of every element including `:>` | the Keyword object — `host-prop-value` keeps a named value except at `html-attr-slots` | **silent.** The library reads an object where it expected a string |
-| `^{:key (:id x)} [:> C …]` | live — `native-element` sets `.-key` from `(meta argv)` *after* `convert-props`, so metadata even beats a props `:key` | dead — no Hicasso path reads `(meta argv)` | **silent, and worse than silent** (§6.3) |
+| `^{:key (:id x)} [:> C …]` | live — `native-element` sets `.-key` from `(meta argv)` *after* `convert-props`, so metadata even beats a props `:key` | dead — no Fresco path reads `(meta argv)` | **silent, and worse than silent** (§6.3) |
 | `{:on-select (r/partial f a)}` | callable — `convert-prop-value`'s `ifn?` arm wraps it fresh per conversion | an inert object — neither walk has an `ifn?` arm | **silent.** A working handler stops firing |
 | `[:> "input" …]` | Reagent's controlled-input wrapper — `input-component?` matches on the `:>` path | refused: the ruled `[:>]` does not accept strings | **loud**, at the crossing |
 
@@ -238,11 +238,11 @@ stringification underneath an installed Reagent codebase and shipped
 
 **Refused, and not on my preference.** `host-prop-value`'s own docstring rules it out by
 name: *"`reagent-slim` warns once per non-HTML keyword prop because it narrowed the rule
-underneath an installed Reagent codebase … Hicasso has no such codebase to protect, and
+underneath an installed Reagent codebase … Fresco has no such codebase to protect, and
 after this change a keyword at a host prop is the CORRECT and taught spelling of HD-011's
 flagship case — warning on the happy path is a nag, not a diagnostic."* That is a landed
 ruling on the exact question, and it is right: the two cases differ in that `reagent-slim`
-*is* the migration target and Hicasso is a different framework. A migration-scoped opt-in
+*is* the migration target and Fresco is a different framework. A migration-scoped opt-in
 flag would evade the ruling and is over-engineering.
 
 ### E · Report only, no writes
@@ -290,12 +290,12 @@ Neither the design's 13-fact table nor the attack's verification sweep has a row
 - reagent 2.0.1 `convert-prop-value` is `(cond (util/js-val? x) x (named? x) (name x) …)` —
   applied at every prop of every element, and the `:>` path reaches it through
   `native-element` → `convert-props` → `kv-conv` like any other.
-- Hicasso's `host-prop-value` is `(cond (fn? v) v (or (keyword? v) (symbol? v)) (if
+- Fresco's `host-prop-value` is `(cond (fn? v) v (or (keyword? v) (symbol? v)) (if
   (html-attr-slot? slot) (name v) v) (coll? v) (clj->js v) :else v)` — the named value
   crosses **whole** except at `className`, `id`, `role`, `data-*` and `aria-*`.
 
 So `[:> Btn {:variant :contained}]` handed the library `"contained"` under Reagent and hands
-it a Keyword object under Hicasso. This landed as `rf2-vrvv9` (`40f663edad`) on the same day
+it a Keyword object under Fresco. This landed as `rf2-vrvv9` (`40f663edad`) on the same day
 the design was written, and for the right reason — `(name v)` collapsed `:theme/dark` and
 `:other/dark` onto one string. The migration cost is real all the same, and it is silent.
 
@@ -310,7 +310,7 @@ idempotence holds. Three cells the rule needs:
 2. **`html-attr-slots` are fixpoints** — both systems `name` there — so the rule needs no
    slot table of its own.
 3. **`:key` included.** Reagent ran `:key` through `kv-conv` like any prop, so
-   `{:key :foo}` reached React as `"foo"`; Hicasso's `host-element` lifts `(:key props)`
+   `{:key :foo}` reached React as `"foo"`; Fresco's `host-element` lifts `(:key props)`
    raw and React coerces the Keyword to `":foo"`. One-time and harmless, but the rule is
    cheaper applied uniformly than excepted.
 
@@ -328,7 +328,7 @@ silent; .104's minted warning is dev-only"* — reading `.104` as partial cover.
 `.104` has since landed (`9523b6fbdb`, `fa3fe9dd29`, `589853f53d`). **It does not cover this
 at all.** `check-member-key!` reaches its warning only under `(boundary-head? h)` — a
 `defview` product. A minted host head is not one, and neither is `:>`. So a seq of migrated
-crossings with dropped metadata keys gets **nothing** from Hicasso, at any build. The
+crossings with dropped metadata keys gets **nothing** from Fresco, at any build. The
 warning's own text is the sharpest evidence that the class is known: *"a key written as
 Reagent metadata is not read here"* — said to the author of a `defview` child, and to nobody
 else.
@@ -392,7 +392,7 @@ recorded costs, one forces a repair, one is withdrawn.
 It is true and it is the strongest charge. The fixer **writes to props**; a wrong rewrite is
 a silent behaviour change, which is the one fatal class. The hoister only moves a head and
 adds a declaration: when it is wrong it is wrong *loudly* — a compile error, a `mint-host!`
-refusal, a `:rf.error/hicasso-bad-head`. B therefore concentrates every fatal-class risk and
+refusal, a `:rf.error/fresco-bad-head`. B therefore concentrates every fatal-class risk and
 discards every loud-failure component.
 
 It does not reverse the recommendation, because the answer to concentrated fatal risk is a
@@ -434,7 +434,7 @@ report the loss by name.** A tool that silently writes `"dark"` for `:theme/dark
 nothing is a tool that hides a decision.
 
 A second cell fell out of the same pass and is the reason this charge is worth its space:
-**`:key` was a prop under Reagent and is structural under Hicasso** (`host-entry` skips it
+**`:key` was a prop under Reagent and is structural under Fresco** (`host-entry` skips it
 in-loop; `host-element` lifts `(:key props)` raw), so a keyword `:key` reaches React as
 `"foo"` before the migration and `":foo"` after. Nothing in the 2026-08-04 pair covers it.
 
@@ -498,7 +498,7 @@ settled from the record and this page does not try.
 
 Stated for B; every clause is also a clause of C.
 
-**Residence.** `migration/reagent-to-hicasso/codemod/`, cloned from
+**Residence.** `migration/reagent-to-fresco/codemod/`, cloned from
 `migration/from-re-frame-v1/codemod/`: standalone `deps.edn` (clojure 1.12.4, rewrite-clj
 1.1.49), cognitect `:test`, `clojure -M:run`. Source-text operation; re-frame2 never loaded.
 Its README enters the docs gates, because the fast-PR spine stages `migration/` under
@@ -521,11 +521,11 @@ the head.
 
 **The guards, which demote a site to a report rather than rewriting it.** `dangerouslySetInnerHTML`
 anywhere in a rewritten site — Reagent *deleted* it unless `UnsafeHTML`-wrapped, in
-`convert-props`, and both Hicasso walks resurrect it. A vector or key-map literal at an
+`convert-props`, and both Fresco walks resurrect it. A vector or key-map literal at an
 event-spelled prop under R3 — inert under Reagent (`coll?` precedes `ifn?` in
-`convert-prop-value`), live at a native position under Hicasso: the one truly fatal class,
+`convert-prop-value`), live at a native position under Fresco: the one truly fatal class,
 reported and never rewritten. A literal `:&` key, which meant a prop named `"&"` under
-Reagent and means the merge under Hicasso. A `:key` present in both metadata and props with
+Reagent and means the merge under Fresco. A `:key` present in both metadata and props with
 different forms.
 
 **Report classes**, on the sibling's finding-map shape with `:action :flag`: `:dynamic-head`,
@@ -549,7 +549,7 @@ the only executed evidence the rewrites are right.
 
 **Docs.** `rf2-2rtt6.112` teaches it after the implementation PR merges. The guide's two
 "planned, unbuilt" statements flip then. `migration/from-re-frame-v1/README.md` needs **no**
-line — it is the v1→v2 axis and this is the Reagent-adapter→Hicasso axis — so there is no
+line — it is the v1→v2 axis and this is the Reagent-adapter→Fresco axis — so there is no
 hot-zone sequencing constraint, stated here so nobody batches one silently.
 
 ---
@@ -563,7 +563,7 @@ hot-zone sequencing constraint, stated here so nobody batches one silently.
 - [The `[:>]` synthesized spec](raw-escape-spec.md) — the destination: the shared
   module-level gate, the pinned component roster, the unclaimed-slot conduct, and the
   dated `rf2-2rtt6.119` / `rf2-d03av` / `rf2-l0wfx` addenda.
-- `implementation/freehand/test/re_frame/bench/hicasso/front/codec.cljs` — `host-entry`,
+- `implementation/freehand/test/re_frame/bench/fresco/front/codec.cljs` — `host-entry`,
   `host-prop-value`, `host-element`, `mint-host!`, `mint-host-gate!`, `declared-ssr`,
   `refuse-undeclared-host-event!`, `check-member-key!`, `convert-prop-value`,
   `nested-map->js`, `class-names`, `props-map?`, `hiccup-tag?`, `vec->element`.
@@ -577,7 +577,7 @@ hot-zone sequencing constraint, stated here so nobody batches one silently.
   `rf2-kfpf` audits.
 - `migration/from-re-frame-v1/codemod/` — `deps.edn` and `reg_event_codemod.clj`, the
   residence and skeleton precedent.
-- `docs/design/hicasso/draft-guide/05-interop.md` — the published manual recipe and the two
+- `docs/design/fresco/draft-guide/05-interop.md` — the published manual recipe and the two
   troubleshooting rows that make candidate A serious.
 - Beads: `rf2-2rtt6.103`, `.104`, `.112`, `.116`, `.119`, `rf2-d03av`, `rf2-l0wfx`,
   `rf2-nv07k`, `rf2-vrvv9`, `rf2-cgcv`, `rf2-kfpf`.

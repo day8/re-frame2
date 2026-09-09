@@ -616,7 +616,7 @@
   where `Buffer` is not there. `TextEncoder` is UTF-8 BY DEFINITION — no
   encoding argument a later edit can silently drop — and is present in every
   browser and in Node. The `^js` hints keep `:advanced` from renaming the
-  interop call. Same helper shape as `re-frame.ssr.hash`, the hicasso lane's
+  interop call. Same helper shape as `re-frame.ssr.hash`, the fresco lane's
   `utf8-bytes` (rf2-2rtt6.121) and xray's `format/pr-str-bytes`
   (rf2-2rtt6.131)."
   [v]

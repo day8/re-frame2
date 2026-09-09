@@ -1,4 +1,4 @@
-# The naming packet — every Hicasso name, defaults applied, one sitting overrides
+# The naming packet — every Fresco name, defaults applied, one sitting overrides
 
 **Published by `rf2-hic-065`.** This is the single consolidation point the whole
 programme has been deferring names to. [`naming-ledger.md`](naming-ledger.md) is the
@@ -29,7 +29,7 @@ is overturnable at no cost beyond the diff sweep.
 > — are what a reader has to carry:
 >
 > - **The native tier, 2026-08-29 — `aa01f0e8a6` (`rf2-6c12m.31`, wave 2 of ruling
->   `rf2-6c12m.3` Option A).** `re-frame.hicasso.native` was shrunk to 82 lines publishing
+>   `rf2-6c12m.3` Option A).** `re-frame.fresco.native` was shrunk to 82 lines publishing
 >   `use-sub` and `use-frame` alone, and the eight `native_*` suites were deleted with it. That
 >   reaches **all of §3.2 Bucket B except row 10**: `n/$` (7), `n/props` (8), `n/defcomponent`
 >   (9), `n/memo`/`n/lazy` (29), `n/component` (43), `n/marker`/`n/tier-sentinel` (44),
@@ -49,7 +49,7 @@ is overturnable at no cost beyond the diff sweep.
 > - **Facade and gate hygiene, 2026-08-29/30 — `rf2-6c12m.15` (PR #8779) and `bb3a92cd73`
 >   (`rf2-6c12m.8`, PR #8775).** The first removed `h/use-subs` from the door and from
 >   `impl.collector`, struck HS-41, and demoted `::h/navigate` to the implementation keyword
->   `:re-frame.hicasso.impl.intent/navigate`, off the public marker table — so **rows 48 and 35
+>   `:re-frame.fresco.impl.intent/navigate`, off the public marker table — so **rows 48 and 35
 >   describe surfaces that are gone**, each amended on its own row below. The second deleted
 >   `check_facade_inventory.py` alongside `check_naming_census.py`, so the gate this page cites
 >   six times — rows 6 and 47, §4.1, §4.2 twice and §7 — no longer exists. §7 already records
@@ -81,7 +81,7 @@ is overturnable at no cost beyond the diff sweep.
 | Rows already RULED by the operator | 5 (§2) |
 | Rows already APPLIED or SHIPPED before the packet | 5 (§2) |
 | Rows recommended here as defaults | 36 (§3) |
-| Public names in `implementation/hicasso`, measured | 105 (§4) |
+| Public names in `implementation/fresco`, measured | 105 (§4) |
 | Public names the ledger did **not** carry | 60 (§4) |
 | New ledger rows the census forces | 8 (§5, rows 47–54) |
 | Rows that STOP as semantic, and file rather than sweep | 2 (§6) |
@@ -99,7 +99,7 @@ one sweep. The sitting's agenda is the packet residue, not these.
 |---|---|---|---|---|
 | 1 | the one callback macro | `hfn` → **`h/event`**. `h/handler` rejected as a cross-adaptor false friend | rename the door macro and the corpus; **plus** the semantic residue in §6.1 | `h/fn` 251 occurrences / 61 files; `hfn` 205 / 56 |
 | 13 | root lifecycle constructors | `root!` → **`mount!`**; `hydrate-root!` → **`hydrate!`**. The rest of the door stands as landed | rename two constructors; `render!`/`unmount!` untouched | `h/root!` 35 / 20; `hydrate-root!` 144 / 35. The guide already teaches `h/mount!` (12) against `h/root!` (1) |
-| 18 | `hframe` | **RETIRE** in favour of core `rf/current-frame-id` + zero-arity `rf/capture-frame` admitted during a Hicasso body | **STOPS — semantic.** See §6.2 · **[Amended 2026-09-04, `rf2-87iu`: the stop is EXECUTED, and this cell is the last record still reading as though it stands.]** `rf2-t32wg` was ruled option C by the operator on 2026-08-30 and executed as `rf2-6c12m.13`, PR #8784: one semantic rule in core, `hframe` and its `h/` alias deleted with no compatibility alias. `hframe` has **zero** occurrences under `implementation/hicasso/src/` at `main`@`4f54988b07` — measured against a control of 37 for `defview` in the same tree, so the zero is an absence and not a failed probe. [`naming-ledger.md`](naming-ledger.md) row 18 already reads LANDED; this page did not. | `hframe` 124 / 30; `h/frame` 118 / 19 |
+| 18 | `hframe` | **RETIRE** in favour of core `rf/current-frame-id` + zero-arity `rf/capture-frame` admitted during a Fresco body | **STOPS — semantic.** See §6.2 · **[Amended 2026-09-04, `rf2-87iu`: the stop is EXECUTED, and this cell is the last record still reading as though it stands.]** `rf2-t32wg` was ruled option C by the operator on 2026-08-30 and executed as `rf2-6c12m.13`, PR #8784: one semantic rule in core, `hframe` and its `h/` alias deleted with no compatibility alias. `hframe` has **zero** occurrences under `implementation/fresco/src/` at `main`@`4f54988b07` — measured against a control of 37 for `defview` in the same tree, so the zero is an absence and not a failed probe. [`naming-ledger.md`](naming-ledger.md) row 18 already reads LANDED; this page did not. | `hframe` 124 / 30; `h/frame` 118 / 19 |
 | 24 | mounted test facade re-render verb | **`hm/rerender!`**. `render!` rejected — it collides with the product facade's `h/render!` (row 13) | rename the shipped `hm/render!` | `hm/render!` 5 / 4. The guide already types `hm/rerender!` (1) against `hm/render!` (0) |
 | 31 | motion respellings | stand **as taught** — `motion/presence` head, `::motion/mounting` / `::motion/unmounting` override keys | nothing on the guide side; the engine respells with row 5's namespace move | — |
 
@@ -107,7 +107,7 @@ one sweep. The sitting's agenda is the packet residue, not these.
 
 | # | Surface | State | Why it landed early |
 |---|---|---|---|
-| 16 | `re-frame.hicasso.forms` | **SHIPPED** (`rf2-sh56`) | Operator ruling, 2026-08-12: the forms module is V0 scope. The name was never in question — it is the spelling `05-forms.md`'s `:require` already teaches |
+| 16 | `re-frame.fresco.forms` | **SHIPPED** (`rf2-sh56`) | Operator ruling, 2026-08-12: the forms module is V0 scope. The name was never in question — it is the spelling `05-forms.md`'s `:require` already teaches |
 | 21 | `:server` policy option | **APPLIED** (`rf2-mo4o`) | The divergence had become code-vs-code inside one artefact — `n/defcomponent` refused every key but `:server` while `defhost` refused `:server` itself. A defect, not a taste question |
 | 23 | `ht/tree` | **APPLIED** (`rf2-0ckh`) | The kit minted `ht/render` two and a half hours *after* the row recorded `ht/tree`, against the header rule. Reconciled to the row |
 | 13 | `release!` off the door, `render!`/`unmount!` promoted | **HALF LANDED** (`rf2-31xm`, `rf2-e2al`) | By a correctness route, not a naming one: `release!`'s page-wide reset emptied the runtime under every other root. Faults, not spellings |
@@ -125,8 +125,8 @@ sitting's.
 | 2 | `:&` merge key | remove; a pure owned-wins merge recipe | **remove from the grammar** | Row 34 verified across all 22 chapters that no page invents a merge symbol, so the grammar entry has no consumer to serve | spec §4 disposition; row 34's corpus sweep | |
 | 3 | `h/reg-state` | remove from adaptor core; reconsider in forms | **remove from core** | The forms module now owns the addressed-draft door (row 16, shipped), which is the second consumer the core sugar was standing in for | `rf2-sh56`; HS-42 records what is on the door, which is not an endorsement of membership | |
 | 4 | `subscribe-once` | internal/advanced | **internal until a caller proves `sub` inadequate** | No witness application reached it; a public name with no consumer is a freeze obligation bought for nothing | Checkpoint 2's authoring reports | |
-| 5 | presence namespace | the optional motion namespace name | **`re-frame.hicasso.motion`** | Fourth in the optional-module family beside `.forms`, `.overlay`, `.server`; the guide's ch12 already teaches `motion/*` (row 31) | `motion.cljs` ships under this name today | |
-| 6 | `route-link` home | the routing-integration namespace name | **`re-frame.hicasso.routing`** (provisional — the namespace does not exist yet) | Same family rule as row 5; `h/route-link` sits on the door today and HS-40 records it there | `check_facade_inventory.py` attributes `h/route-link` → HS-40 | |
+| 5 | presence namespace | the optional motion namespace name | **`re-frame.fresco.motion`** | Fourth in the optional-module family beside `.forms`, `.overlay`, `.server`; the guide's ch12 already teaches `motion/*` (row 31) | `motion.cljs` ships under this name today | |
+| 6 | `route-link` home | the routing-integration namespace name | **`re-frame.fresco.routing`** (provisional — the namespace does not exist yet) | Same family rule as row 5; `h/route-link` sits on the door today and HS-40 records it there | `check_facade_inventory.py` attributes `h/route-link` → HS-40 | |
 | C2-1 | where a `h/reg-state` concern is declared | `subs`, `events`, or `db` | **moot if row 3 removes it**; otherwise declare it in `db` | The keyword names an address, not an action — the only one of the three that reads correctly on both sides | `naming-findings-cp2.md` C2-1; slice vs Todo answered differently | |
 | C2-2 | a name for the `:ui` root | `h/state-path`, or a reader/clear pair | **mint nothing** | Conditional on row 3; `impl.state` already carries `ui-root` and `clear-event-id`, so a mint here is an export decision the removal dissolves | `naming-findings-cp2.md` C2-2; two applications, one hand-written literal path each | |
 | C2-4 | `::h/clear` | add to the reserved-data list | **add it to the reserved vocabulary — rename nothing** | Same disposition row 35 gave `::h/navigate`; it is author-written, which is the stronger case for listing | `naming-findings-cp2.md` C2-4; reached twice by the Todo class | |
@@ -161,7 +161,7 @@ source-side census agrees at 14.
 
 **[Amended 2026-09-05, `rf2-pvmy`.]** All three figures are historical and the pin is gone.
 `native_surface_cljs_test.cljs` was deleted with the tier on 2026-08-29 by `aa01f0e8a6`, so
-nothing is pinned mechanically at tip, and `re-frame.hicasso.native` publishes **two** names —
+nothing is pinned mechanically at tip, and `re-frame.fresco.native` publishes **two** names —
 `use-sub` and `use-frame` — not fourteen. The reconciliation is kept as the record of why 14
 and 15 were each right when written; it is not a reading of the tree today.
 
@@ -180,11 +180,11 @@ and 15 were each right when written; it is not a reading of the tree today.
 
 | # | Current name | Candidate(s) | Recommendation — applied as default | Why (one line) | Witness | Override |
 |---|---|---|---|---|---|---|
-| 14 | package/artifact ns | `re-frame.hicasso` | **`re-frame.hicasso`** | Every optional module already inherits this prefix; changing it now moves rows 5, 6, 15, 16, 17 and 22 with it | the shipped tree | |
-| 15 | test-kit namespace | `re-frame.hicasso.test` | **keep** | Row 24 settled `re-frame.hicasso.test.mounted` as the mounted facade's home, leaving `ht` the L0–L2 surface this row pins | `test_kit/src/` | |
-| 17 | overlay module ns | `re-frame.hicasso.overlay` | **`re-frame.hicasso.overlay`** | Third in the optional-module family; ch13 already teaches `overlay/*` | `overlay.cljs` ships under this name | |
-| 19 | artifact coordinates `io.github.day8/re-frame2-hicasso` | keep; or align with core's bare `day8/` | **keep as taught** — but see the counter-candidate | ch01 is the only coordinate any reader has seen, and both group ids are conventions the org already publishes under. *Counter-candidate on record*: `day8/re-frame2-hicasso`, on the ground that an adaptor should match its core's family | guide ch01; row 14 covers the ns name only, never the coordinate | |
-| 22 | `re-frame.hicasso.server` + the eight `server/render` option spellings | keep; or fold server rendering into an existing namespace | **keep as taught** — the eight spellings settle as a set, not one at a time | A **Node-side CLJS** module beside `.forms`/`.overlay`/`.motion` is one more optional module, not a new pattern; hydration parity holds by construction only while one runtime renders both halves | ch18 *"there is no parallel JVM string emitter"*; `ssr/entry.cljs` runs the Hicasso runtime under `react-dom/server` | |
+| 14 | package/artifact ns | `re-frame.fresco` | **`re-frame.fresco`** | Every optional module already inherits this prefix; changing it now moves rows 5, 6, 15, 16, 17 and 22 with it | the shipped tree | |
+| 15 | test-kit namespace | `re-frame.fresco.test` | **keep** | Row 24 settled `re-frame.fresco.test.mounted` as the mounted facade's home, leaving `ht` the L0–L2 surface this row pins | `test_kit/src/` | |
+| 17 | overlay module ns | `re-frame.fresco.overlay` | **`re-frame.fresco.overlay`** | Third in the optional-module family; ch13 already teaches `overlay/*` | `overlay.cljs` ships under this name | |
+| 19 | artifact coordinates `io.github.day8/re-frame2-fresco` | keep; or align with core's bare `day8/` | **keep as taught** — but see the counter-candidate | ch01 is the only coordinate any reader has seen, and both group ids are conventions the org already publishes under. *Counter-candidate on record*: `day8/re-frame2-fresco`, on the ground that an adaptor should match its core's family | guide ch01; row 14 covers the ns name only, never the coordinate | |
+| 22 | `re-frame.fresco.server` + the eight `server/render` option spellings | keep; or fold server rendering into an existing namespace | **keep as taught** — the eight spellings settle as a set, not one at a time | A **Node-side CLJS** module beside `.forms`/`.overlay`/`.motion` is one more optional module, not a new pattern; hydration parity holds by construction only while one runtime renders both halves | ch18 *"there is no parallel JVM string emitter"*; `ssr/entry.cljs` runs the Fresco runtime under `react-dom/server` | |
 
 ### 3.5 Bucket E — everything the ledger gathered en route
 
@@ -192,16 +192,16 @@ and 15 were each right when written; it is not a reading of the tree today.
 |---|---|---|---|---|---|---|
 | 23 | test kit L2 `ht/tree` + `{:subs …}` | `ht/tree`; `ht/render` | **`ht/tree`** — applied | L2 returns a data tree and never DOM, so `render` misdescribes it and collides with `h/render!` and `server/render` | the kit's own docstring: *"It is not a renderer"* | |
 | 25 | `hm/shadow!` + `{:reference :candidate :initial-events :script}` | keep; `:seed` was ch19's original | **keep as taught with `:initial-events`** | One seeding vocabulary across `h/mount!`, `hm/mount!` and `hm/shadow!` | `shadow_dom_cljs_test.cljs` | |
-| 30 | overlay surface — heads, seven options, `:rf.error/hicasso-overlay-anchor-missing` | keep | **keep as taught** — the option set settles as one family | The id is the corpus's single deliberate mint, so it is a complaint-catalogue obligation as well as a spelling | Stage C census: 33 ids cited, 32 attested | |
+| 30 | overlay surface — heads, seven options, `:rf.error/fresco-overlay-anchor-missing` | keep | **keep as taught** — the option set settles as one family | The id is the corpus's single deliberate mint, so it is a complaint-catalogue obligation as well as a spelling | Stage C census: 33 ids cited, 32 attested | |
 | 32 | `forms/buffered-field` + its five props | keep | **keep as taught** | Reset unifies on `::h/revision`, which the controlled-input law already owns, so the field adds no second reset vocabulary | `forms_dom_cljs_test.cljs`; D016 | |
-| 33 | `:demand true` in `[:rf/resource …]` | keep | **keep as taught** | `:keep-previous?` is struck from the mint list — it is attested core-resources vocabulary, not a Hicasso mint | `typeahead/demand_dom_cljs_test.cljs` | |
+| 33 | `:demand true` in `[:rf/resource …]` | keep | **keep as taught** | `:keep-previous?` is struck from the mint list — it is attested core-resources vocabulary, not a Fresco mint | `typeahead/demand_dom_cljs_test.cljs` | |
 | 34 | owned-wins merge — no symbol minted | mint nothing; or a named helper | **mint nothing** | Verified across all 22 chapters that no page invents a symbol; this recipe is what stands in for the `:&` grammar row 2 removes | corpus sweep, ch02 and ch04 | |
-| 35 | `::h/navigate` reserved head | keep | **keep, and add it to the reserved-data list** | The brief's list omits it, so what this row owes is a reserved-vocabulary entry rather than a rename | `route_link_cljs_test.cljs` · **[Amended 2026-09-05, `rf2-pvmy`: the citation resolves two ways, and the head it names is demoted.]** Two tracked files carry that basename — `implementation/hicasso/test/re_frame/hicasso/route_link_cljs_test.cljs` and `implementation/routing/test/re_frame/route_link_cljs_test.cljs` — and this row means the **first**: it is Hicasso's route-link grammar suite and names the navigate head on four lines, where routing's is about `:route/link`'s click interception and names it on none. The head is no longer spelled `::h/navigate`: `rf2-6c12m.15` (PR #8779) demoted it to the implementation keyword `:re-frame.hicasso.impl.intent/navigate` and took it off the public marker table, and the suite now reads it through `intent/navigate-head?`. `::h/navigate` has zero occurrences under `implementation/` against a control of 30 files for `::h/revision`, so the zero is an absence and not a failed probe. **The recommendation is not re-scored** — whether a demoted head still owes a reserved-vocabulary entry is `rf2-hic-065`'s. | |
+| 35 | `::h/navigate` reserved head | keep | **keep, and add it to the reserved-data list** | The brief's list omits it, so what this row owes is a reserved-vocabulary entry rather than a rename | `route_link_cljs_test.cljs` · **[Amended 2026-09-05, `rf2-pvmy`: the citation resolves two ways, and the head it names is demoted.]** Two tracked files carry that basename — `implementation/fresco/test/re_frame/fresco/route_link_cljs_test.cljs` and `implementation/routing/test/re_frame/route_link_cljs_test.cljs` — and this row means the **first**: it is Fresco's route-link grammar suite and names the navigate head on four lines, where routing's is about `:route/link`'s click interception and names it on none. The head is no longer spelled `::h/navigate`: `rf2-6c12m.15` (PR #8779) demoted it to the implementation keyword `:re-frame.fresco.impl.intent/navigate` and took it off the public marker table, and the suite now reads it through `intent/navigate-head?`. `::h/navigate` has zero occurrences under `implementation/` against a control of 30 files for `::h/revision`, so the zero is an absence and not a failed probe. **The recommendation is not re-scored** — whether a demoted head still owes a reserved-vocabulary entry is `rf2-hic-065`'s. | |
 | 36 | `:prefetch :intent` on `route-link` | keep | **keep as taught** | Routing's own `:rf.route/prefetch` event and its `:intent` value are attested, so only the link-side acceptance is new | the retired decline id stays tombstoned, never reused (`rf2-hic-021` law) | |
 | 37 | Xray evidence-envelope keyword spellings | keep | **keep as taught** | spec §10 pins this vocabulary in prose but not the keyword forms, and these are what a Tool-Pair consumer types against | `evidence_schema_cljs_test.cljs` | |
 | 38 | hydration-mismatch report `{:id :root :where :error}` | keep | **keep as taught** | `:rf.ssr/hydration-mismatch` is attested in re-frame.ssr; only the report-map keys are the mint | `identifier_prefix_ssr_dom_cljs_test.cljs` | |
-| 39 | migration tool surface | none — every one matches the codemod source | **no naming question** | Recorded so the sitting sees the whole sweep; of the migration surfaces only shadow mode (row 25) is a mint | `migration/reagent-to-hicasso/codemod` | |
-| 40 | twelve **reserved** complaint ids | keep; or respell when the surface is built | **keep as minted** | A reservation is cheap to hold and expensive to omit — a refusal with no id is invisible to a round trip and gets a second spelling from whoever builds the surface | [`complaints.md`](../../../../implementation/hicasso/spec/complaints.md) | |
+| 39 | migration tool surface | none — every one matches the codemod source | **no naming question** | Recorded so the sitting sees the whole sweep; of the migration surfaces only shadow mode (row 25) is a mint | `migration/reagent-to-fresco/codemod` | |
+| 40 | twelve **reserved** complaint ids | keep; or respell when the surface is built | **keep as minted** | A reservation is cheap to hold and expensive to omit — a refusal with no id is invisible to a round trip and gets a second spelling from whoever builds the surface | [`complaints.md`](../../../../implementation/fresco/spec/complaints.md) | |
 | 41 | `hm/advance-clock!` + `{:clock true}` | keep | **keep both as shipped** | The verb is a carry-over, not a mint: `re-frame.freehand.presence-runtime` and `re-frame.ui.presence-runtime` both carry it, and a conformance fixture spells the step `:advance-clock` | `test_kit_clock_dom_cljs_test.cljs` | |
 | C2-3 | the L3 enqueued-work verb | `hm/drain!`; a `:until` option on `settle!` | **moot — ruled and shipped as `hm/settle-until!`** (row 42) | `interop/next-tick` is a macrotask with no fixed tick count, so an honest door states a condition and a deadline rather than queue quiescence | `rf2-6m4w`; `rf2-aiq7` | |
 
@@ -243,22 +243,22 @@ is not yet a gate.
 
 | Namespace | Public names | Already in the ledger | Unrostered |
 |---|---|---|---|
-| `re-frame.hicasso` | 16 | 14 | 2 |
-| `re-frame.hicasso.native` | 14 | 14 | 0 |
-| `re-frame.hicasso.forms` | 4 | 0 | 4 |
-| `re-frame.hicasso.overlay` | 2 | 2 | 0 |
-| `re-frame.hicasso.motion` | 1 | 1 | 0 |
-| `re-frame.hicasso.server` | 6 | 1 | 5 |
-| `re-frame.hicasso.tool` | 4 | 0 | 4 |
-| `re-frame.hicasso.evidence` | 20 | 0 | 20 |
-| `re-frame.hicasso.test` | 23 | 3 | 20 |
-| `re-frame.hicasso.test.mounted` | 15 | 10 | 5 |
+| `re-frame.fresco` | 16 | 14 | 2 |
+| `re-frame.fresco.native` | 14 | 14 | 0 |
+| `re-frame.fresco.forms` | 4 | 0 | 4 |
+| `re-frame.fresco.overlay` | 2 | 2 | 0 |
+| `re-frame.fresco.motion` | 1 | 1 | 0 |
+| `re-frame.fresco.server` | 6 | 1 | 5 |
+| `re-frame.fresco.tool` | 4 | 0 | 4 |
+| `re-frame.fresco.evidence` | 20 | 0 | 20 |
+| `re-frame.fresco.test` | 23 | 3 | 20 |
+| `re-frame.fresco.test.mounted` | 15 | 10 | 5 |
 | **Total** | **105** | **45** | **60** |
 
 **Agreement with the standing gate.** `check_facade_inventory.py` reports *"16 names on
-`re-frame.hicasso`"* and this census reports 16 for that namespace — an exact match, from
+`re-frame.fresco`"* and this census reports 16 for that namespace — an exact match, from
 two independent walks of the same door. `native_surface_cljs_test.cljs` pins
-`re-frame.hicasso.native` at 10 SURFACE + 4 INTERNAL = 14, read from the **compiler** at
+`re-frame.fresco.native` at 10 SURFACE + 4 INTERNAL = 14, read from the **compiler** at
 expansion; this census reads the **source** and also reports 14. Neither agreement was
 arranged: the gate and the test were written before this census existed.
 
@@ -273,18 +273,18 @@ is what §7 preserves the method for.
 **What the census caught that no gate does.** `check_facade_inventory.py` reads one door by
 design, and says so — *"adding a second door here is a data change; deciding what its public
 roster IS is not, and is filed rather than guessed"*. So the 58 unrostered names outside
-`re-frame.hicasso` were outside every existing gate's reach. §5 gives each a disposition.
+`re-frame.fresco` were outside every existing gate's reach. §5 gives each a disposition.
 
 ### 4.3 The seeded positive control
 
 A census that cannot be shown to bite proves nothing. One public definition was planted in
-`implementation/hicasso/src/re_frame/hicasso/motion.cljs` — deliberately omitted from the
+`implementation/fresco/src/re_frame/fresco/motion.cljs` — deliberately omitted from the
 ledger — and the census was re-run:
 
 ```
-MISS re-frame.hicasso.motion          motion/hic065-census-positive-control
+MISS re-frame.fresco.motion          motion/hic065-census-positive-control
 CENSUS: 106 public names across 10 shipped namespaces; 61 NOT rostered in naming-ledger.md
-  UNROSTERED  re-frame.hicasso.motion  motion/hic065-census-positive-control
+  UNROSTERED  re-frame.fresco.motion  motion/hic065-census-positive-control
 ```
 
 105 → 106 and 60 → 61, with the planted name named. The plant was then reverted and the
@@ -309,12 +309,12 @@ member is named verbatim below**, so grouping costs no completeness.
 |---|---|---|---|---|
 | 47 | `h/defview` — the primary authoring macro | **keep** | The one name every reader types first, and the ledger never carried it; there is no candidate because the whole corpus, the guide and HS-01 spell it this way | HS-01; `check_facade_inventory.py` attributes it BY NAME |
 | 48 | `h/use-subs` — the grouped read | **keep, classified SURFACE** | One fixed site takes the whole read-set, which is the control the ordinary path is measured against; it reached the door with no row anywhere until `rf2-2l8pw` minted HS-41 | HS-41; `readset_group_census_cljs_test.cljs` · **[Amended 2026-09-05, `rf2-pvmy`: the witness and the door are both gone, and for different reasons.]** The witness went on 2026-08-29 in `1f98f63a58` (`rf2-6c12m.22`), which retired the suites that measured the programme rather than the product — **not** the native retirement that reaches §3.2, and the distinction matters because that cut preserved what it measured: the three readings are at [`readset-group-census.md`](readset-group-census.md). The door went separately, under `rf2-6c12m.15` (PR #8779), which removed `h/use-subs` from the facade and from `impl.collector` and struck HS-41 — recorded in `facade_roster_ssr_dom_cljs_test.cljs`'s own docstring, and named in the slice example's `views.cljs` as the reason its two grouped-read bodies now read through `h/sub` like the rest. So this row's subject no longer exists. **It is left standing and unscored for `rf2-hic-065`**, which is the sitting that owns whether a row about a removed door is struck or kept as history. |
-| 49 | `re-frame.hicasso.forms` ids — `forms/drafts`, `forms/edit-id`, `forms/commit-id`, `forms/cancel-id` | **keep all four as shipped**, and record that they are ids rather than doors | Each is public *as an id and not as a door* — written into the field's own intents, so it is already visible in the rendered tree, in Xray and in a captured intent; a test that could not name it would be asserting on a literal | `forms.cljs` docstrings; `forms_cljs_test.cljs` |
-| 50 | `re-frame.hicasso.server` — `server/document`, `server/fresh-frame-id`, `server/payload-script`, `server/setup-events`, `server/render-twice` (`server/render` is row 22) | ~~keep all five as shipped~~ — **OVERRIDDEN (operator, 2026-08-15, `rf2-sc1dt`): keep `server/document`, `server/payload-script` and `server/render-twice`; `server/fresh-frame-id` and `server/setup-events` go PRIVATE.** Public surface is four names | The default kept all five as "the request pipeline `server/render` composes". The sitting split them on evidence instead: each survivor does something for an external host that `server/render`'s returns alone cannot — re-wrap a mutated payload against the pinned script id and the EDN-aware escaper, rebuild the envelope without re-spelling `escape-html`/`escape-attr`, run a determinism check whose `:differs-at` diagnoses a red run and which cannot move to a test kit without `react-dom/server`. The two going private have no such story, and `fresh-frame-id` structurally cannot: `server/render` mints its own id and forbids overriding it, so no public path consumes the return value. Zero test churn; the `hicasso.ssr` bundle sentinel is untouched. Implemented by `rf2-34sdz`; full ruling on ledger row 50 | `server_render_ssr_dom_cljs_test.cljs`; `ssr/entry.cljs` |
-| 51 | `re-frame.hicasso.tool` — `tool/read-mounted-boundaries`, `tool/read-read-attribution`, `tool/read-intents`, `tool/explain-render` | **keep all four as shipped** | They are the tool-tier reader door in full — *the four reads Xray and the AI pair consume, and the only door either of them has* — and the `read-*` prefix is what marks them as projections of state the runtime already retains rather than an accumulator | `tool.cljs` namespace docstring; `tool_reads_cljs_test.cljs` |
-| 52 | `re-frame.hicasso.evidence` — `evidence/schema`, `producer`, `basis-kinds`, `scopes`, `loss-reasons`, `unknown`, `reads`, `scope?`, `loss?`, `unseeing-bases`, `axis-keys`, `projection-fields`, `projection-invariants`, `defects`, `defects-message`, `projection`, `capped`, `envelope-fields`, `envelope`, `retention` | **keep all twenty as shipped** — the vocabulary settles as one closed set | This is one versioned adapter-neutral schema and its vocabularies are closed on purpose; respelling any member is a schema version bump, not a rename, and row 37 already keeps the keyword spellings a consumer types | `evidence_schema_cljs_test.cljs`; spec SN §10 |
-| 53 | `re-frame.hicasso.test` L0–L2 — `ht/ladder`, `ht/tree-version`, `ht/boundary?`, `ht/host?`, `ht/callback?`, `ht/controlled?`, `ht/view-name`, `ht/host-policy`, `ht/element-props`, `ht/materialize`, `ht/revision`, `ht/capture-intents`, `ht/fire!`, `ht/find`, `ht/attrs`, `ht/text`, `ht/intents`, `ht/role`, `ht/accessible-name`, `ht/unnamed-controls` | **keep all as shipped** | They are one ladder, published as data (`ht/ladder`) precisely so the kit's own refusals can cite it; the predicates and accessors are named for what they answer and no member has a competing spelling anywhere in the corpus | `test.cljs` — *"THE TESTING LADDER, as data"*; `test_kit_cljs_test.cljs`, `test_kit_a11y_cljs_test.cljs` |
-| 54 | `re-frame.hicasso.test.mounted` counters — `hm/counted`, `hm/census`, `hm/bodies-run`, `hm/residue`, `hm/this-frame` | **keep all five as shipped** | The residue vocabulary `hm/assert-clean!` compares against, published so a test can ask what a page *retains* (`census`) separately from what a change *cost* (`bodies-run`) without either asserting; `this-frame` is the stand-in a shadow run compares two isolated mounts as | `mounted.cljs` docstrings; `test_kit_mounted_dom_cljs_test.cljs` |
+| 49 | `re-frame.fresco.forms` ids — `forms/drafts`, `forms/edit-id`, `forms/commit-id`, `forms/cancel-id` | **keep all four as shipped**, and record that they are ids rather than doors | Each is public *as an id and not as a door* — written into the field's own intents, so it is already visible in the rendered tree, in Xray and in a captured intent; a test that could not name it would be asserting on a literal | `forms.cljs` docstrings; `forms_cljs_test.cljs` |
+| 50 | `re-frame.fresco.server` — `server/document`, `server/fresh-frame-id`, `server/payload-script`, `server/setup-events`, `server/render-twice` (`server/render` is row 22) | ~~keep all five as shipped~~ — **OVERRIDDEN (operator, 2026-08-15, `rf2-sc1dt`): keep `server/document`, `server/payload-script` and `server/render-twice`; `server/fresh-frame-id` and `server/setup-events` go PRIVATE.** Public surface is four names | The default kept all five as "the request pipeline `server/render` composes". The sitting split them on evidence instead: each survivor does something for an external host that `server/render`'s returns alone cannot — re-wrap a mutated payload against the pinned script id and the EDN-aware escaper, rebuild the envelope without re-spelling `escape-html`/`escape-attr`, run a determinism check whose `:differs-at` diagnoses a red run and which cannot move to a test kit without `react-dom/server`. The two going private have no such story, and `fresh-frame-id` structurally cannot: `server/render` mints its own id and forbids overriding it, so no public path consumes the return value. Zero test churn; the `fresco.ssr` bundle sentinel is untouched. Implemented by `rf2-34sdz`; full ruling on ledger row 50 | `server_render_ssr_dom_cljs_test.cljs`; `ssr/entry.cljs` |
+| 51 | `re-frame.fresco.tool` — `tool/read-mounted-boundaries`, `tool/read-read-attribution`, `tool/read-intents`, `tool/explain-render` | **keep all four as shipped** | They are the tool-tier reader door in full — *the four reads Xray and the AI pair consume, and the only door either of them has* — and the `read-*` prefix is what marks them as projections of state the runtime already retains rather than an accumulator | `tool.cljs` namespace docstring; `tool_reads_cljs_test.cljs` |
+| 52 | `re-frame.fresco.evidence` — `evidence/schema`, `producer`, `basis-kinds`, `scopes`, `loss-reasons`, `unknown`, `reads`, `scope?`, `loss?`, `unseeing-bases`, `axis-keys`, `projection-fields`, `projection-invariants`, `defects`, `defects-message`, `projection`, `capped`, `envelope-fields`, `envelope`, `retention` | **keep all twenty as shipped** — the vocabulary settles as one closed set | This is one versioned adapter-neutral schema and its vocabularies are closed on purpose; respelling any member is a schema version bump, not a rename, and row 37 already keeps the keyword spellings a consumer types | `evidence_schema_cljs_test.cljs`; spec SN §10 |
+| 53 | `re-frame.fresco.test` L0–L2 — `ht/ladder`, `ht/tree-version`, `ht/boundary?`, `ht/host?`, `ht/callback?`, `ht/controlled?`, `ht/view-name`, `ht/host-policy`, `ht/element-props`, `ht/materialize`, `ht/revision`, `ht/capture-intents`, `ht/fire!`, `ht/find`, `ht/attrs`, `ht/text`, `ht/intents`, `ht/role`, `ht/accessible-name`, `ht/unnamed-controls` | **keep all as shipped** | They are one ladder, published as data (`ht/ladder`) precisely so the kit's own refusals can cite it; the predicates and accessors are named for what they answer and no member has a competing spelling anywhere in the corpus | `test.cljs` — *"THE TESTING LADDER, as data"*; `test_kit_cljs_test.cljs`, `test_kit_a11y_cljs_test.cljs` |
+| 54 | `re-frame.fresco.test.mounted` counters — `hm/counted`, `hm/census`, `hm/bodies-run`, `hm/residue`, `hm/this-frame` | **keep all five as shipped** | The residue vocabulary `hm/assert-clean!` compares against, published so a test can ask what a page *retains* (`census`) separately from what a change *cost* (`bodies-run`) without either asserting; `this-frame` is the stand-in a shadow run compares two isolated mounts as | `mounted.cljs` docstrings; `test_kit_mounted_dom_cljs_test.cljs` |
 
 **Nothing here is a rename.** All 60 names read *keep*, which is the honest outcome: they
 are internal-facing surfaces that grew under a consistent hand, and the reason they were
@@ -337,14 +337,14 @@ re-open it.
 tabulates three: a native `:on-*` prop is **event** (a returned vector is dispatched), a
 `defhost` `:callbacks` entry is **as declared** (`:event`, `:handler` or `:render`), and
 any other prop position is **render** — pure, return not dispatched, and dispatching from
-inside is `:rf.error/hicasso-intent-at-a-non-event-contract` named at the position. The
+inside is `:rf.error/fresco-intent-at-a-non-event-contract` named at the position. The
 `hfn` docstring agrees: *"The value is an ORDINARY FUNCTION … The contract comes from the
 position it is written at."*
 
 **[Amended 2026-08-29, PR #8755 (`rf2-6c12m.24`).]** Read at source today, `impl/intent.cljs`
 tabulates **two**: event and render, inferred from the position at a native tag and at a host
 alike, with `:callbacks` as an optional `:event` / `:render` override for an `on*`-named render
-prop. `:handler` is deleted and `:rf.error/hicasso-intent-at-a-non-event-contract` is retired; a
+prop. `:handler` is deleted and `:rf.error/fresco-intent-at-a-non-event-contract` is retired; a
 vector at a render position crosses as data. The row's argument below reads the same with two
 contracts as with three.
 
@@ -374,13 +374,13 @@ between the advisory's reading and the source, not between two shipped descripti
 > above is false at tip and the section below is kept as the record of why the row was held from
 > 2026-08-15 to 2026-08-30, not as a live constraint. Row 18 in the table above and in
 > [`naming-ledger.md`](naming-ledger.md) is **EXECUTED**. The occurrence figures in the paragraphs
-> below are likewise historical: they were taken before the sweep, `implementation/hicasso/src/`
+> below are likewise historical: they were taken before the sweep, `implementation/fresco/src/`
 > reads **zero** `hframe` today, and the survivors elsewhere are docs, bench and test trees.
 
 `hframe` RETIRES by operator ruling, in favour of core `rf/current-frame-id` and zero-arity
-`rf/capture-frame` admitted during a Hicasso body. But **zero-arity `rf/capture-frame`
-inside a Hicasso body refuses today** — measured, with `:operation :capture-frame`,
-`:substrate :hicasso`, extent `hicasso/boundary-render` (`rf2-lvelh`).
+`rf/capture-frame` admitted during a Fresco body. But **zero-arity `rf/capture-frame`
+inside a Fresco body refuses today** — measured, with `:operation :capture-frame`,
+`:substrate :fresco`, extent `fresco/boundary-render` (`rf2-lvelh`).
 
 So the retire is semantic work and not a deletion: the ambient-refusal seam must first
 admit exactly `:current-frame-id` and `:capture-frame` in-body, resolving to the body's
@@ -397,13 +397,13 @@ and the sitting need not clear the inventory before deciding.
 ## 7. Re-running the census — for `rf2-hic-064`
 
 `rf2-hic-064` re-runs both the census and its positive control. Both are now a **committed
-gate** — `implementation/hicasso/scripts/check_naming_census.py` — rather than a script
+gate** — `implementation/fresco/scripts/check_naming_census.py` — rather than a script
 reproduced in this section, which is what `rf2-hxbhe` promoted. Until that landed the census
 was a one-shot measurement; it is now re-runnable by anyone, with its controls attached.
 
 ```
-python3 implementation/hicasso/scripts/check_naming_census.py <ABSOLUTE repo root>
-python3 implementation/hicasso/scripts/check_naming_census.py --self-test
+python3 implementation/fresco/scripts/check_naming_census.py <ABSOLUTE repo root>
+python3 implementation/fresco/scripts/check_naming_census.py --self-test
 ```
 
 **[Amended 2026-08-30, `rf2-6c12m.8`.]** The gate is deleted — PR #8775 retired `check_naming_census.py`, its CI job and its spine lane together with the ledger it rostered against, which is design history at [`naming-ledger.md`](naming-ledger.md) beside this page. The two commands above no longer resolve; what this section preserves is the census's method and its positive control, which a future re-run would rebuild from.
@@ -438,7 +438,7 @@ publication with no ledger row — precisely what section 3 of
 [`dispositions.md`](dispositions.md) forbids.
 
 > **[Amended 2026-09-04, `rf2-87iu`. Nothing below stands; both homes are gone, and this is where the
-> consequence for §13 is recorded.]** The `hicasso-naming-census` job was deleted from
+> consequence for §13 is recorded.]** The `fresco-naming-census` job was deleted from
 > `.github/workflows/test.yml` by `49aa8116c4` on 2026-08-30 and the `scripts/test-fast-pr.sh` block
 > by `bb3a92cd73` four minutes earlier, both `rf2-6c12m.8` / PR #8775, together with
 > `check_naming_census.py` itself and the matching `SPINE_LANES` entry named in the last sentence
@@ -454,7 +454,7 @@ publication with no ledger row — precisely what section 3 of
 > 2026-08-20 reading — 106 public names across 11 shipped namespaces, 0 unrostered, self-test exit 0
 > over 12 checks including the seeded-export positive control — and NOT by any live instrument.**
 > That end state was chosen, not drifted into: the operator's own 2026-08-30 pass deleted the checker
-> deliberately, and its stated reason is on the record in `implementation/hicasso/spec/README.md` —
+> deliberately, and its stated reason is on the record in `implementation/fresco/spec/README.md` —
 > *closed programme records were being gated as if live*. **What is not on the record is whether that
 > pass weighed this particular consequence**, and this note does not assume it did: the reason it
 > gives is about gating a closed ledger, and §13 is not mentioned. So the clause is witnessed by a
@@ -466,11 +466,11 @@ publication with no ledger row — precisely what section 3 of
 > hand-rolled enumeration is not that, and would fail on exactly those two shapes.
 
 **Standing since `rf2-st1x5`,** in two homes rather than the three that bead anticipated.
-The `hicasso-naming-census` job in `.github/workflows/test.yml` runs it unconditionally —
+The `fresco-naming-census` job in `.github/workflows/test.yml` runs it unconditionally —
 the ledger arms no classifier output, so a deleted row would otherwise next redden on
 somebody else's source PR — and that job is named in `all-required-passed`'s `needs:`,
 without which it would exist and gate nothing. The local lane is `scripts/test-fast-pr.sh`
-rather than the `test:hicasso-invariants` chain its seven siblings ride, because the live
+rather than the `test:fresco-invariants` chain its seven siblings ride, because the live
 run takes an **absolute** repo root and npm runs package scripts through `sh` on
 Linux/macOS and `cmd.exe` on Windows: `$PWD` expands in one and stays literal in the other,
 `%CD%` is the mirror image, and no single spelling resolves on both. The spine is one POSIX

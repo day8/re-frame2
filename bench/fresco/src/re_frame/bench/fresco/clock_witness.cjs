@@ -341,9 +341,9 @@ function format(v) {
 // The fixtures — every refusal, plus the defect this file repairs
 // ---------------------------------------------------------------------------
 
-const SHAPE = { cells: 100, fields: 4, substrate: ['hicasso'], floors: ['floor', 'ctl-50ms'] };
+const SHAPE = { cells: 100, fields: 4, substrate: ['fresco'], floors: ['floor', 'ctl-50ms'] };
 
-const cleanCensus = (arm) => ({ [`s/${arm}`]: arm === 'hicasso' ? { 'p0/cell': 100, 'p0/draft': 4 } : {} });
+const cleanCensus = (arm) => ({ [`s/${arm}`]: arm === 'fresco' ? { 'p0/cell': 100, 'p0/draft': 4 } : {} });
 
 /** One physical key's worth of entries: the interaction, plus zero-id noise. */
 function keyEntries(k, { interactionId, duration, zeroIds = 2 }) {
@@ -363,7 +363,7 @@ function selfTest() {
   const checks = [];
   const check = (name, ok) => checks.push({ name, ok });
 
-  const key = (round, sampleIndex, arm = 'hicasso') => ({ seg: 's', arm, round, sampleIndex, field: sampleIndex % 4 });
+  const key = (round, sampleIndex, arm = 'fresco') => ({ seg: 's', arm, round, sampleIndex, field: sampleIndex % 4 });
 
   // 1. THE DEFECT ITSELF. One physical key, one nonzero interaction, two
   //    zero-id entries beside it. The old grouping minted TWO records here.
@@ -372,7 +372,7 @@ function selfTest() {
     const v = adjudicate({
       sent: [k],
       entries: keyEntries(k, { interactionId: 7, duration: 32 }),
-      census: cleanCensus('hicasso'),
+      census: cleanCensus('fresco'),
       shape: SHAPE,
     });
     check('one physical key with zero-id noise forms exactly ONE record', v.ok && v.records.length === 1);
@@ -386,14 +386,14 @@ function selfTest() {
     const v = adjudicate({
       sent: ks,
       entries: keyEntries(ks[0], { interactionId: 7, duration: 40 }),
-      census: cleanCensus('hicasso'),
+      census: cleanCensus('fresco'),
       shape: SHAPE,
     });
     check('a key with no entry is CENSORED, not dropped', v.ok && v.censored.length === 2 && v.records.length === 1);
-    check('records + censored = keys sent', v.perArm['s/hicasso'].observed + v.perArm['s/hicasso'].censored === 3);
+    check('records + censored = keys sent', v.perArm['s/fresco'].observed + v.perArm['s/fresco'].censored === 3);
     check(
       'a majority-censored arm reports its true median as under the floor',
-      v.perArm['s/hicasso'].populationMedianUnderFloor === true
+      v.perArm['s/fresco'].populationMedianUnderFloor === true
     );
     check('the censoring is published in the formatted block', format(v).some((l) => l.includes('censored')));
   }
@@ -401,7 +401,7 @@ function selfTest() {
   // 3. EVERY KEY CENSORED is a result and says so.
   {
     const ks = [key(0, 0), key(0, 1)];
-    const v = adjudicate({ sent: ks, entries: [], census: cleanCensus('hicasso'), shape: SHAPE });
+    const v = adjudicate({ sent: ks, entries: [], census: cleanCensus('fresco'), shape: SHAPE });
     check('an arm with no entries at all still passes', v.ok && v.records.length === 0);
     check('and its line says the floor is the result', format(v).some((l) => l.includes('a result and not a gap')));
   }
@@ -410,7 +410,7 @@ function selfTest() {
   //    that dropped `sampleIndex` produces — is refused by name.
   {
     const k = key(0, 0);
-    const v = adjudicate({ sent: [k, { ...k }], entries: [], census: cleanCensus('hicasso'), shape: SHAPE });
+    const v = adjudicate({ sent: [k, { ...k }], entries: [], census: cleanCensus('fresco'), shape: SHAPE });
     check('two keys collapsed into one identity REFUSES', !v.ok && v.faults.some((f) => f.code === 'collapsed-physical-keys'));
   }
 
@@ -420,7 +420,7 @@ function selfTest() {
     const v = adjudicate({
       sent: [k],
       entries: keyEntries(key(3, 9), { interactionId: 7, duration: 32 }),
-      census: cleanCensus('hicasso'),
+      census: cleanCensus('fresco'),
       shape: SHAPE,
     });
     check('an unattributable entry REFUSES', !v.ok && v.faults.some((f) => f.code === 'unattributed-entry'));
@@ -435,7 +435,7 @@ function selfTest() {
         ...keyEntries(k, { interactionId: 7, duration: 32, zeroIds: 0 }),
         ...keyEntries(k, { interactionId: 9, duration: 24, zeroIds: 0 }),
       ],
-      census: cleanCensus('hicasso'),
+      census: cleanCensus('fresco'),
       shape: SHAPE,
     });
     check('two interaction ids in one physical key REFUSES', !v.ok && v.faults.some((f) => f.code === 'multi-interaction-key'));
@@ -451,7 +451,7 @@ function selfTest() {
         ...keyEntries(a, { interactionId: 7, duration: 32, zeroIds: 0 }),
         ...keyEntries(b, { interactionId: 7, duration: 24, zeroIds: 0 }),
       ],
-      census: cleanCensus('hicasso'),
+      census: cleanCensus('fresco'),
       shape: SHAPE,
     });
     check('one interaction id across two keys REFUSES', !v.ok && v.faults.some((f) => f.code === 'shared-interaction-id'));
@@ -461,7 +461,7 @@ function selfTest() {
   {
     const k = key(0, 0);
     const base = { sent: [k], entries: keyEntries(k, { interactionId: 7, duration: 32 }), shape: SHAPE };
-    const short = adjudicate({ ...base, census: { 's/hicasso': { 'p0/cell': 1, 'p0/draft': 1 } } });
+    const short = adjudicate({ ...base, census: { 's/fresco': { 'p0/cell': 1, 'p0/draft': 1 } } });
     check(
       'a substrate arm that localised its recomputes REFUSES (the witness states all 104)',
       !short.ok && short.faults.some((f) => f.code === 'census-mismatch')
@@ -496,7 +496,7 @@ function selfTest() {
     const v = adjudicate({
       sent: [k],
       entries: [...cold, ...keyEntries(k, { interactionId: 7, duration: 32 })],
-      census: cleanCensus('hicasso'),
+      census: cleanCensus('fresco'),
       shape: SHAPE,
     });
     check('warm-up entries are excluded rather than refused', v.ok && v.records.length === 1);
@@ -516,7 +516,7 @@ function selfTest() {
         else entries.push(...keyEntries(k, { interactionId: 0, duration: 0 }));
       }
     }
-    const v = adjudicate({ sent, entries, census: cleanCensus('hicasso'), shape: SHAPE });
+    const v = adjudicate({ sent, entries, census: cleanCensus('fresco'), shape: SHAPE });
     check('60 keys per arm reconcile exactly', v.ok && v.totals.sent === 60 && v.totals.observed === 30 && v.totals.censored === 30);
     check('and the count is never inflated past the keys pressed', v.totals.observed <= v.totals.sent);
   }

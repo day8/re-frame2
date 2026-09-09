@@ -318,7 +318,7 @@
 ;; effect the programmer wrote never runs, so the handler LOOKS like it worked.
 ;; That partial-success disguise is what defeats a gate asserting a label plus
 ;; "nothing has happened yet"; it hid a dead `:dispatch-later` timer in the
-;; hicasso testbed's operator instruments, and an eleven-week-dead
+;; fresco testbed's operator instruments, and an eleven-week-dead
 ;; `persist-chart-collapsed` fx inside Xray itself. Both go red on first run
 ;; under the refusal.
 ;;

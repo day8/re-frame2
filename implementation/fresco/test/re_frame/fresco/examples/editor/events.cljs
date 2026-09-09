@@ -1,9 +1,9 @@
-(ns re-frame.hicasso.examples.editor.events
+(ns re-frame.fresco.examples.editor.events
   "THE FOUR-FIELD EDITOR'S MODEL — ordinary re-frame2, and nothing else.
 
   Four fields, one address each, and every handler a plain
   `(fn [coeffects event-v] → effect-map)`. This namespace requires
-  `re-frame.core` and `clojure.string`; it does not require the Hicasso
+  `re-frame.core` and `clojure.string`; it does not require the Fresco
   door, and could not tell you a view substrate existed. That is the
   tier, and `editor.l0-cljs-test` spends its whole length proving the
   consequence: the model is testable with `=` and a map.
@@ -31,14 +31,14 @@
 
   Confirmed here from a second application, and the finding is the slice
   authoring report's first
-  (`docs/design/hicasso/product/authoring-report-slice.md` §1).
+  (`docs/design/fresco/product/authoring-report-slice.md` §1).
   `spec/Conventions.md` §Canonical event-vector shape asks for
-  `[<id> {<k> <v>}]`; Hicasso substitutes its markers with `mapv` over
+  `[<id> {<k> <v>}]`; Fresco substitutes its markers with `mapv` over
   the intent vector's **top level**, deliberately and for a stated cost
   reason. So the shape the convention asks for cannot carry a marker:
 
       ;; WRONG, and silent. `:value` arrives as the keyword
-      ;; :re-frame.hicasso/value and renders as text.
+      ;; :re-frame.fresco/value and renders as text.
       [::edit {:field :title :value ::h/value}]
 
       ;; The only spelling that works — the one the linter nudges away from.

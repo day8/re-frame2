@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.reincarnation-readset-dom-cljs-test
+(ns re-frame.fresco.reincarnation-readset-dom-cljs-test
   "A MOUNTED READ SET ACROSS A LATER-TASK FRAME RECREATION — the value the
   cold probe recovers, and the ownership it does not.
 
@@ -52,12 +52,12 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.native :as rf.hicasso.native]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.native :as rf.fresco.native]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]))
 
@@ -71,7 +71,7 @@
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The exercised population — a MEASUREMENT, not a claim
@@ -99,11 +99,11 @@
   `n/use-sub` — the hook door onto the very entry the boundary resolves."
   [_props]
   (react/createElement "i" #js {"className" "island"}
-                       (str (rf.hicasso.native/use-sub [:readset/who]))))
+                       (str (rf.fresco.native/use-sub [:readset/who]))))
 
-(rf.hicasso/defhost island-host island {:server :render})
+(rf.fresco/defhost island-host island {:server :render})
 
-(rf.hicasso/defview who-page
+(rf.fresco/defview who-page
   "The mounted view. `:revision` is in the props and NOWHERE in the read
   set: it exists so a row can force a real re-render of the same head
   without changing what the body reads, which is the shape the defect
@@ -112,7 +112,7 @@
   so a row can prove the re-render happened rather than trusting it."
   [{:keys [revision]}]
   [:div
-   [:b.who {:data-revision (str revision)} (rf.hicasso/sub [:readset/who])]
+   [:b.who {:data-revision (str revision)} (rf.fresco/sub [:readset/who])]
    [island-host {}]])
 
 ;; ---------------------------------------------------------------------------
@@ -142,7 +142,7 @@
   "The residue with `:entries` dropped — cells, memberships, boundaries
   and edges, which is what a reacquisition has to move."
   []
-  (dissoc (rf.hicasso.test.runtime/residue) :entries))
+  (dissoc (rf.fresco.test.runtime/residue) :entries))
 
 (defn- poll [pred label]
   (rf.test-support/poll-until pred {:label label :timeout-ms 4000}))
@@ -166,7 +166,7 @@
   whose body threw cannot leave a live root standing in the document for
   the next namespace to inherit. `mount/release!` is idempotent."
   []
-  (run! rf.hicasso.impl.mount/release! @!minted)
+  (run! rf.fresco.impl.mount/release! @!minted)
   (reset! !minted [])
   nil)
 
@@ -182,8 +182,8 @@
   instant until [[release-minted!]] runs there is a live root on the page
   and this promise is the only thing that could ever name it."
   [revision]
-  (let [container (rf.hicasso.impl.mount/fresh-container!)
-        handle    (rf.hicasso.impl.mount/root! container frame-id [who-page {:revision revision}])]
+  (let [container (rf.fresco.impl.mount/fresh-container!)
+        handle    (rf.fresco.impl.mount/root! container frame-id [who-page {:revision revision}])]
     (swap! !minted conj handle)
     (-> (poll #(= {:cells 1 :cell-refs 2 :boundaries 2 :edges 2} (readers-residue))
               "the boundary and the island are both committed on one cell")
@@ -209,10 +209,10 @@
 
 (deftest a-mounted-read-set-reacquires-after-a-later-task-recreation
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no document to mount into") (done))
       (do
-        (rf.hicasso.checkpoint-support/leave-act-environment!)
+        (rf.fresco.checkpoint-support/leave-act-environment!)
         (seat! "A")
         (-> (mount-live! 0)
             (.then
@@ -223,14 +223,14 @@
                           one-key read set is an ordinary read set"
                   (is (= "A" (rf/with-frame frame-id @(rf/subscribe [:readset/who])))
                       "the predecessor holds the value")
-                  (is (some? (rf.hicasso.test.runtime/cell-reaction sub-key))
+                  (is (some? (rf.fresco.test.runtime/cell-reaction sub-key))
                       "and the runtime holds a live cell for the key"))
 
                 ;; 1 — destroy, and let the invalidation microtask RUN. With
                 ;; no successor to rebuild against, the deferred phase
                 ;; disposes: the exact no-successor teardown, unchanged.
                 (rf/destroy-frame! frame-id)
-                (-> (rf.hicasso.checkpoint-support/drain-checkpoint
+                (-> (rf.fresco.checkpoint-support/drain-checkpoint
                       #(zero? (:cells (readers-residue))))
                     (.then
                       (fn [turns]
@@ -241,7 +241,7 @@
                               (str "the disposal did not land inside the "
                                    "microtask checkpoint; residue "
                                    (pr-str (readers-residue))))
-                          (is (nil? (rf.hicasso.test.runtime/cell-reaction sub-key))))
+                          (is (nil? (rf.fresco.test.runtime/cell-reaction sub-key))))
 
                         ;; 2 — the successor arrives in a LATER TASK, which is
                         ;; the whole transition: the disposal has already run.
@@ -251,7 +251,7 @@
                             ;; 3 — a forced same-head props re-render. The read
                             ;; set is unchanged, so this is exactly the render
                             ;; React answers without re-subscribing.
-                            (rf.hicasso.impl.mount/render! handle [who-page {:revision 1}])
+                            (rf.fresco.impl.mount/render! handle [who-page {:revision 1}])
                             handle))))
                     (.then
                       (fn [handle]
@@ -281,14 +281,14 @@
                                   spent on React's own re-subscribe"
                           (is (= {:cells 1 :cell-refs 2 :boundaries 2 :edges 2}
                                  (readers-residue)))
-                          (is (some? (rf.hicasso.test.runtime/cell-reaction sub-key))
+                          (is (some? (rf.fresco.test.runtime/cell-reaction sub-key))
                               "and the cell holds a live reaction, so a write
                                has an edge to travel"))
 
                         ;; 5 — the assertion the impact statement is about: a
                         ;; write to the SUCCESSOR has to reach the screen.
                         (rf/with-frame frame-id (rf/dispatch-sync [:readset/seed "C"]))
-                        (rf.hicasso.impl.mount/settle!)
+                        (rf.fresco.impl.mount/settle!)
                         (poll #(= "CC" (text handle))
                               "a write to the successor repaints both doors")))
                     (.then
@@ -298,8 +298,8 @@
                                   happened to probe"
                           (is (= "CC" (text handle))))
                         (exercised! :readset/later-task-recreation)
-                        (rf.hicasso.impl.mount/unmount! handle)
-                        (.then (rf.hicasso.test.runtime/quiesced!)
+                        (rf.fresco.impl.mount/unmount! handle)
+                        (.then (rf.fresco.test.runtime/quiesced!)
                                (fn [_]
                                  (testing "and teardown is still exact — the
                                            retirement evicted a cache, it did
@@ -325,17 +325,17 @@
   ;; boundary whose reads did not move. The repair is a DISPOSAL's, and this
   ;; is what says so.
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no document to mount into") (done))
       (do
-        (rf.hicasso.checkpoint-support/leave-act-environment!)
+        (rf.fresco.checkpoint-support/leave-act-environment!)
         (seat! "A")
         (-> (mount-live! 0)
             (.then
               (fn [handle]
-                (let [reaction (rf.hicasso.test.runtime/cell-reaction sub-key)
-                      entry    (rf.hicasso.impl.collector/last-reads)]
-                  (rf.hicasso.impl.mount/render! handle [who-page {:revision 1}])
+                (let [reaction (rf.fresco.test.runtime/cell-reaction sub-key)
+                      entry    (rf.fresco.impl.collector/last-reads)]
+                  (rf.fresco.impl.mount/render! handle [who-page {:revision 1}])
                   (testing "the premise: the same head really did re-render
                             under new props"
                     (is (= "1" (revision-attr handle))))
@@ -347,16 +347,16 @@
                     (is (= {:cells 1 :cell-refs 2 :boundaries 2 :edges 2}
                            (readers-residue)))
                     (is (identical? reaction
-                                    (rf.hicasso.test.runtime/cell-reaction sub-key))
+                                    (rf.fresco.test.runtime/cell-reaction sub-key))
                         "the cell was not rebuilt")
-                    (is (identical? entry (rf.hicasso.impl.collector/last-reads))
+                    (is (identical? entry (rf.fresco.impl.collector/last-reads))
                         "and the read-set entry the render resolved is the one
                          already committed, so React was handed a `subscribe`
                          it has already subscribed through"))
 
                   (exercised! :readset/unrelated-rerender)
-                  (rf.hicasso.impl.mount/unmount! handle)
-                  (.then (rf.hicasso.test.runtime/quiesced!)
+                  (rf.fresco.impl.mount/unmount! handle)
+                  (.then (rf.fresco.test.runtime/quiesced!)
                          (fn [_]
                            (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
                                   (readers-residue))
@@ -370,7 +370,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-declared-population-was-actually-exercised
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no document, so nothing is exercised")
     (is (= declared-population @!exercised)
         (str "every declared transition must be reached; missing: "

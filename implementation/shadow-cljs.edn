@@ -120,47 +120,47 @@
                 ;; required, and core never :requires re-frame.resources.
                 "resources/src"
                 "resources/test"
-                ;; rf2-hic-001 — the Hicasso view substrate. src carries
-                ;; the runtime under re-frame.hicasso + re-frame.hicasso.impl.*;
+                ;; rf2-hic-001 — the Fresco view substrate. src carries
+                ;; the runtime under re-frame.fresco + re-frame.fresco.impl.*;
                 ;; test carries the package's own suites — the smoke
-                ;; (re-frame.hicasso.smoke-cljs-test) and every
-                ;; `re-frame.hicasso.*-cljs-test` beside it — which ride the
+                ;; (re-frame.fresco.smoke-cljs-test) and every
+                ;; `re-frame.fresco.*-cljs-test` beside it — which ride the
                 ;; always-on :node-test gate (`cljs-test$` matches) AND the
-                ;; focused :node-test-hicasso build below. The benchmark
+                ;; focused :node-test-fresco build below. The benchmark
                 ;; harness the runtime was copied out of is NOT here: rf2-6c12m.1
-                ;; moved it to bench/hicasso/, its own shadow project off this
+                ;; moved it to bench/fresco/, its own shadow project off this
                 ;; classpath, and check_optional_module_reachability.py's
                 ;; `bench tree` row is what says nothing in the package imports
                 ;; it. Bundle-isolation holds: no production build :requires
-                ;; re-frame.hicasso.*.
-                "hicasso/src"
-                "hicasso/test"
-                ;; rf2-hic-020 — `re-frame.hicasso.test`, the supported L0–L2
+                ;; re-frame.fresco.*.
+                "fresco/src"
+                "fresco/test"
+                ;; rf2-hic-020 — `re-frame.fresco.test`, the supported L0–L2
                 ;; testing surface. Its OWN source root, deliberately outside
-                ;; `hicasso/src` and outside the artefact's published :paths:
+                ;; `fresco/src` and outside the artefact's published :paths:
                 ;; the kit is reachable when a test uses it and unreachable
                 ;; otherwise, so bundle-isolation holds by construction rather
                 ;; than by review. No namespace under it is `*-cljs-test`, so
                 ;; no test-selecting ns-regexp matches the KIT itself.
-                "hicasso/test_kit/src"
+                "fresco/test_kit/src"
                 ;; rf2-kyum — the kit's own witnesses. Most of them live under
-                ;; `hicasso/test` with everything else the lane runs; this root
-                ;; exists so a witness can be written while `hicasso/test` is
+                ;; `fresco/test` with everything else the lane runs; this root
+                ;; exists so a witness can be written while `fresco/test` is
                 ;; held by another branch, and so the kit's src root stays free
-                ;; of test namespaces. Same discovery as `hicasso/test`: the
+                ;; of test namespaces. Same discovery as `fresco/test`: the
                 ;; suffix picks the lane (`-dom-cljs-test` → `:browser-test`,
                 ;; and `cljs-test$` → the always-on `:node-test` gate).
-                "hicasso/test_kit/test"
+                "fresco/test_kit/test"
                 ;; rf2-hic-016 — the controlled-input testbed. A standalone
-                ;; app under hicasso/testbed/ whose fields are the §4.2
+                ;; app under fresco/testbed/ whose fields are the §4.2
                 ;; policy family (accept / refuse / normalise / reset), and
                 ;; the only surface the three-engine controlled-input gate
-                ;; drives. Source path here so the :hicasso/testbed build's
+                ;; drives. Source path here so the :fresco/testbed build's
                 ;; init-fn resolves; the gate is
-                ;; scripts/serve-and-run-hicasso-controlled-testbed.cjs,
+                ;; scripts/serve-and-run-fresco-controlled-testbed.cjs,
                 ;; which compiles, serves and drives it in Chromium,
                 ;; Firefox and WebKit.
-                "hicasso/testbed"
+                "fresco/testbed"
                 ;; The build-time reader for committed `spec/` data
                 ;; (day8/re-frame2-spec-resource). Both macros named under
                 ;; the `../spec` root below go through it, and it is on
@@ -596,7 +596,7 @@
             ;;   http://localhost:8041/#/stories  login showcase (rf2-p8v0q)
             ;;   http://localhost:8042/#/stories  counter (canonical minimal)
             ;;   http://localhost:8043/#/stories  login-form (5-state)
-            ;;   http://localhost:8045/#/stories  hicasso-counter (native substrate)
+            ;;   http://localhost:8045/#/stories  fresco-counter (native substrate)
             8040 {:roots   ["../examples/patterns/nine_states"
                             "out/examples/nine-states-with-stories"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
@@ -617,14 +617,14 @@
             8044 {:roots   ["../examples/capabilities/resources/linearlite"
                             "out/examples/linearlite"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
-            ;; rf2-kttom — the HICASSO Story testbed. Same hash-routed shape
+            ;; rf2-kttom — the FRESCO Story testbed. Same hash-routed shape
             ;; and source-dir-first cascade as the four Story builds above:
             ;;   http://localhost:8045/#/        the live tally
-            ;;   http://localhost:8045/#/stories the deck, :substrates #{:hicasso}
+            ;;   http://localhost:8045/#/stories the deck, :substrates #{:fresco}
             ;; Port 8045 is the next free slot in the example/story 804x band
             ;; (8040-8043 the Story-enabled four, 8044 linearlite).
-            8045 {:roots   ["../tools/story/testbeds/hicasso_counter"
-                            "out/examples/hicasso-counter"]
+            8045 {:roots   ["../tools/story/testbeds/fresco_counter"
+                            "out/examples/fresco-counter"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
             ;; --- Top-level testbeds (rf2-5e22yc) ---------------------
             ;; The 806x band for top-level testbeds/<surface>/ dev-http
@@ -637,7 +637,7 @@
             8060 {:roots   ["../testbeds/tenant_switcher"
                             "out/testbeds/tenant-switcher"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
-            ;; rf2-vsgq — the Hicasso HMR testbed. The ONLY :dev-http entry
+            ;; rf2-vsgq — the Fresco HMR testbed. The ONLY :dev-http entry
             ;; in this file that a gate depends on, and it is a `watch`
             ;; surface by necessity rather than for developer convenience:
             ;; the contract under test is what a real shadow hot reload
@@ -650,12 +650,12 @@
             ;;
             ;; No :handler — open-in-editor is a developer affordance and
             ;; this surface is driven by a gate. The first root is the
-            ;; dedicated `hmr/` directory rather than `hicasso/testbed`
+            ;; dedicated `hmr/` directory rather than `fresco/testbed`
             ;; itself: that directory already holds the CONTROLLED
             ;; testbed's index.html, and cascading through it would serve
             ;; the wrong app at `/`.
-            8061 {:roots ["hicasso/testbed/hmr"
-                          "out/hicasso-hmr-testbed"]}}
+            8061 {:roots ["fresco/testbed/hmr"
+                          "out/fresco-hmr-testbed"]}}
 
  :builds
  {:node-test
@@ -669,7 +669,7 @@
    ;; `--config-merge` data is applied, so a focused compile and the always-on
    ;; full compile below share ONE cache entry — the identical rule
    ;; `implementation/core/test/re_frame/bench/lane_cache.cjs`
-   ;; already enforces for the hicasso bench lane. Mixing configs against a
+   ;; already enforces for the fresco bench lane. Mixing configs against a
    ;; shared id risks leaving the next, unrelated compile mid-state; under
    ;; box load a plain full compile can independently die with `aborted
    ;; par-compile ... still waiting for ...` (`:par-timeout`, default 60s, in
@@ -836,9 +836,9 @@
    :compiler-options {:warnings      {:redef false}
                       :infer-externs false}}
 
-  ;; rf2-hic-001 — the Hicasso PACKAGE's compile target. Mirrors
+  ;; rf2-hic-001 — the Fresco PACKAGE's compile target. Mirrors
   ;; :node-test-testbed-support above: the ns-regexp selects
-  ;; only `re-frame.hicasso.*` suites, and nothing else in the repo lives
+  ;; only `re-frame.fresco.*` suites, and nothing else in the repo lives
   ;; under that prefix. Those namespaces also match the always-on
   ;; :node-test build's broader `cljs-test$` regex, so the package is
   ;; covered on every PR whether or not this focused build is invoked —
@@ -847,12 +847,12 @@
   ;; Why a new build id rather than --config-merge onto an existing one,
   ;; which is the house preference: --config-merge can add a source
   ;; path or an entry to a build that already has the right SHAPE, and
-  ;; there is no existing id whose shape is "compile the hicasso package
+  ;; there is no existing id whose shape is "compile the fresco package
   ;; and run its suites". Riding the then-live :node-test-freehand would
   ;; have compiled the package under the FREEHAND artefact's regexp and
   ;; name, tying a new artefact's gate to a neighbour's; riding the bench
-  ;; lane's :hicasso-bench (then in this file, now in
-  ;; bench/hicasso/shadow-cljs.edn) would have compiled the package under
+  ;; lane's :fresco-bench (then in this file, now in
+  ;; bench/fresco/shadow-cljs.edn) would have compiled the package under
   ;; the BENCH tree's advanced browser build, which is the very coupling
   ;; this extraction exists to end. One id, one artefact, matching the two
   ;; donor siblings that came before it.
@@ -860,10 +860,10 @@
   ;; The compile alone is half the acceptance: it is what proves the
   ;; renamed impl.* graph loads with the bench tree off the classpath.
   ;; Running it proves the other half, the defview + sub round-trip.
-  :node-test-hicasso
+  :node-test-fresco
   {:target    :node-test
-   :output-to "out/node-test-hicasso.js"
-   :ns-regexp "^re-frame\\.hicasso\\..+-cljs-test$"
+   :output-to "out/node-test-fresco.js"
+   :ns-regexp "^re-frame\\.fresco\\..+-cljs-test$"
    :main      re-frame.test-quiet.shadow-node/main
    :compiler-options {:infer-externs false}}
 
@@ -901,70 +901,70 @@
    :compiler-options {:warnings      {:redef false}
                       :infer-externs false}}
 
-  ;; rf2-hic-008 — the Hicasso artefact's RELEASE build: the substrate
+  ;; rf2-hic-008 — the Fresco artefact's RELEASE build: the substrate
   ;; compiled the way a consumer ships it.
   ;;
   ;; Everything above this line is a TEST build, and until this id existed
   ;; that was the whole inventory: nothing in the repo had ever compiled
-  ;; Hicasso under `:advanced` with `goog.DEBUG` false, so the two claims
+  ;; Fresco under `:advanced` with `goog.DEBUG` false, so the two claims
   ;; Phase 0 has to be able to make — that a clean consumer's application
   ;; compiles for production at all, and that the dev-only seams are not
   ;; in the bundle when it does — had no artefact to point at.
   ;;
-  ;; The entry is `re-frame.hicasso.consumer-app`, which is a small real
+  ;; The entry is `re-frame.fresco.consumer-app`, which is a small real
   ;; APPLICATION rather than a require-only stub, for the reason the
   ;; departed `:freehand-release` gave: Closure keeps what is reachable
   ;; and an unused require is not, so a namespace that merely required the
   ;; door would DCE to nearly nothing and the bundle would report a cost
   ;; no consumer pays. It reaches a declared view, an ambient read, a
   ;; controlled field's converge and a root that owns its frame — and it
-  ;; reaches them through `re-frame.hicasso`, `re-frame.core` and one
+  ;; reaches them through `re-frame.fresco`, `re-frame.core` and one
   ;; adapter, with nothing from the bench tree or from `tools/`. That
   ;; fence is the bead's acceptance and the entry's whole point.
   ;;
   ;; Shape follows the departed advanced build :freehand-release: both
   ;; settings pinned rather than
   ;; left to `release`'s defaults, so the build says what it is at the
-  ;; point a reader is looking. The entry sits under `hicasso/test/` — on
+  ;; point a reader is looking. The entry sits under `fresco/test/` — on
   ;; :source-paths above, outside the artefact's published :paths — which
   ;; is where every sibling bundle probe lives, and it matches no test
   ;; regexp, so it is compiled here and nowhere else.
   ;;
-  ;; The bundle lands at out/hicasso-release/main.js. No :dev-http — like
+  ;; The bundle lands at out/fresco-release/main.js. No :dev-http — like
   ;; every other advanced build here it is compiled and inspected, never
-  ;; served. The SERVED Hicasso builds are :hicasso/testbed and
-  ;; :hicasso/hmr-testbed, further down.
+  ;; served. The SERVED Fresco builds are :fresco/testbed and
+  ;; :fresco/hmr-testbed, further down.
   ;;
-  ;; Run by `npm run build:hicasso-release`, as the last step of test.yml's
+  ;; Run by `npm run build:fresco-release`, as the last step of test.yml's
   ;; `cljs` job (rf2-qy1j — it landed here with no script and no job, since
   ;; both files were held when rf2-hic-008 built it). It has no changed-
   ;; surface predicate of its own and wants none: every repo-source input
   ;; this build has — implementation/core, implementation/adapters and
-  ;; implementation/hicasso, plus this file and the npm pins — already arms
+  ;; implementation/fresco, plus this file and the npm pins — already arms
   ;; that job's `cljs_node_test`, so a condition here would be one more
   ;; thing to keep in step for no coverage. It is also the ONLY Closure-
   ;; optimised compile these namespaces get: `:node-test`, `:browser-test`
   ;; and the bench lane are all `:none`, so what `:advanced` decides —
   ;; renaming, externs inference, DCE-sensitive interop — is decided here
   ;; and nowhere else.
-  :hicasso-release
+  :fresco-release
   {:target     :browser
-   :output-dir "out/hicasso-release"
+   :output-dir "out/fresco-release"
    :asset-path "."
    :compiler-options {:optimizations :advanced
                       :infer-externs :auto
                       :closure-defines {goog.DEBUG false}}
-   :modules {:main {:init-fn re-frame.hicasso.consumer-app/-main}}}
+   :modules {:main {:init-fn re-frame.fresco.consumer-app/-main}}}
 
-  ;; rf2-6c12m.1 — THE HICASSO PACKAGE'S WARNINGS-FATAL COMPILE of what no
+  ;; rf2-6c12m.1 — THE FRESCO PACKAGE'S WARNINGS-FATAL COMPILE of what no
   ;; other gate judges: the optional modules (motion / overlay / forms /
   ;; native / server) and the two core attribution instruments re-homed under
-  ;; core/test/re_frame/bench (rf2-peorl). `hicasso/scripts/
+  ;; core/test/re_frame/bench (rf2-peorl). `fresco/scripts/
   ;; check_modules_compile.cjs` reads the module entries off
   ;; `check_optional_module_reachability.py --module-namespaces` and the two
   ;; instruments off its own roster, merges them in as `:entries`, and refuses
   ;; the build on ANY warning. That is the whole reason this id exists:
-  ;; `:node-test-hicasso` sets `:infer-externs false` and `:browser-test`
+  ;; `:node-test-fresco` sets `:infer-externs false` and `:browser-test`
   ;; exits 0 on warnings, so this is the one compile where an un-externable
   ;; property access can go red (rf2-9zz0y: four `:infer-warning`s in
   ;; impl/overlay.cljs lived on main until read off a browser build by hand).
@@ -974,18 +974,18 @@
   ;; externs can infer, and the same rows under a `:node-script` id raised
   ;; four `:infer-warning`s there (rf2-bl0j). The analyser classes this gate
   ;; closes — a deleted def, a renamed require, a dropped arity, an undeclared
-  ;; var — do not vary by `:target`. Driven by `npm run test:hicasso-compile`,
+  ;; var — do not vary by `:target`. Driven by `npm run test:fresco-compile`,
   ;; a step of the required `cljs` job. No `:dev-http`; compiled, never served.
   ;;
-  ;; The hicasso BENCH LANE's own ids (`:hicasso-bench`, `:hicasso-bench-node`)
-  ;; left this file with the lane: they live in bench/hicasso/shadow-cljs.edn,
+  ;; The fresco BENCH LANE's own ids (`:fresco-bench`, `:fresco-bench-node`)
+  ;; left this file with the lane: they live in bench/fresco/shadow-cljs.edn,
   ;; a hand-run project off this classpath (rf2-6c12m.1).
-  :hicasso-modules-compile
+  :fresco-modules-compile
   {:target     :browser
-   :output-dir "out/hicasso-modules-compile"
+   :output-dir "out/fresco-modules-compile"
    :asset-path "."
    :compiler-options {:infer-externs :auto}
-   :modules {:main {:entries [re-frame.hicasso]}}}
+   :modules {:main {:entries [re-frame.fresco]}}}
 
   ;; rf2-2hrj8 — `:browser-test` is narrowed to DOM-dependent tests only.
   ;; The ns-regexp `-dom-cljs-test$` matches files whose namespace ends in
@@ -1185,13 +1185,13 @@
                         :depends-on #{:trace-tooling}}
     :ssr               {:init-fn re-frame.bundle-isolation-positive-control.ssr/run
                         :depends-on #{:trace-tooling}}
-    ;; rf2-gra70 — day8/re-frame2-hicasso is a PUBLISHED browser-optional view
+    ;; rf2-gra70 — day8/re-frame2-fresco is a PUBLISHED browser-optional view
     ;; substrate, so the release lockstep and the bundle-isolation gate now
     ;; enrol it from the same `:aliases/:clein/build` fact. Its two sentinels
-    ;; are chosen to survive `:advanced` with `goog.DEBUG` false — most Hicasso
+    ;; are chosen to survive `:advanced` with `goog.DEBUG` false — most Fresco
     ;; strings deliberately do not — so this module proves presence where the
     ;; counter bundle proves absence.
-    :hicasso           {:init-fn re-frame.bundle-isolation-positive-control.hicasso/run
+    :fresco           {:init-fn re-frame.bundle-isolation-positive-control.fresco/run
                         :depends-on #{:trace-tooling}}
     :subs-tooling      {:init-fn re-frame.bundle-isolation-positive-control.subs-tooling/run
                         :depends-on #{:trace-tooling}}
@@ -1702,17 +1702,17 @@
    :asset-path "."
    :modules    {:main {:init-fn uix.dashboard.core/run}}}
 
-  ;; rf2-fmns2 — the THIRD login arm, on Hicasso (re-frame2's own native view
+  ;; rf2-fmns2 — the THIRD login arm, on Fresco (re-frame2's own native view
   ;; layer). Same shape as the pair above: its own per-example build over the
   ;; ONE substrate-free `login.model`, so `check-login-bundle-isolation.cjs`
   ;; can prove each login bundle carries only its own view runtime.
-  :examples/login-hicasso
+  :examples/login-fresco
   {:target     :browser
-   :output-dir "out/examples/login-hicasso"
+   :output-dir "out/examples/login-fresco"
    :asset-path "."
-   :modules    {:main {:init-fn hicasso.login.core/run}}}
+   :modules    {:main {:init-fn fresco.login.core/run}}}
 
-  ;; rf2-8arzr.5 — the SERVER half of the Hicasso login arm: the module
+  ;; rf2-8arzr.5 — the SERVER half of the Fresco login arm: the module
   ;; `implementation/ssr-node`'s sidecar loads, so a JVM `ssr-handler`
   ;; running `re-frame.ssr.ring.node/renderer` can render this page's body
   ;; on Node. A `:node-library` rather than a `:node-script`: the sidecar
@@ -1727,7 +1727,7 @@
   ;; like the rest.
   ;;
   ;; The build id it publishes is a `goog-define`
-  ;; (`hicasso.login.server/build-id`); a release stamps the real one
+  ;; (`fresco.login.server/build-id`); a release stamps the real one
   ;; through `--config-merge :closure-defines`. See the example README.
   ;; `:optimizations :simple` and `:infer-externs false` go TOGETHER and are
   ;; one decision rather than two. A server bundle is not shipped over a
@@ -1738,15 +1738,15 @@
   ;; browser externs, so core's `substrate/spine.cljs` — DOM-reading code
   ;; this bundle never runs — raises eight `:infer-warning`s that
   ;; `check-examples-compile.cjs` treats as failures. That is the same
-  ;; measurement rf2-bl0j recorded when it put `:hicasso-modules-compile` on
-  ;; a `:browser` target, and the same reason `:node-test-hicasso` above
+  ;; measurement rf2-bl0j recorded when it put `:fresco-modules-compile` on
+  ;; a `:browser` target, and the same reason `:node-test-fresco` above
   ;; sets the flag. Externs inference is JUDGED on the browser builds, which
   ;; is where a renamed property could actually bite.
-  :examples/login-hicasso-server
+  :examples/login-fresco-server
   {:target      :node-library
-   :output-dir  "out/examples/login-hicasso-server"
-   :output-to   "out/examples/login-hicasso-server/server.js"
-   :exports-var hicasso.login.server/module
+   :output-dir  "out/examples/login-fresco-server"
+   :output-to   "out/examples/login-fresco-server/server.js"
+   :exports-var fresco.login.server/module
    :compiler-options {:optimizations  :simple
                       :infer-externs  false}}
 
@@ -2005,26 +2005,26 @@
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
-  ;; Hicasso Story testbed (rf2-kttom) — Phase D of rf2-5czki, and the
+  ;; Fresco Story testbed (rf2-kttom) — Phase D of rf2-5czki, and the
   ;; proof that a boundary authored on the NATIVE substrate paints in
   ;; Story's canvas. Hash-routed like the four Story builds above: `#/`
   ;; renders the live tally (a Reagent root carrying the boundary through
   ;; `h/as-component`), `#/stories` mounts the shell over a deck declaring
-  ;; `:substrates #{:hicasso}`. Sources under
-  ;; tools/story/testbeds/hicasso_counter/, which resolves via the
+  ;; `:substrates #{:fresco}`. Sources under
+  ;; tools/story/testbeds/fresco_counter/, which resolves via the
   ;; `../tools/story/testbeds` :source-paths entry near the top of this
-  ;; file; `re-frame.hicasso.*` resolves via the "hicasso/src" entry.
+  ;; file; `re-frame.fresco.*` resolves via the "fresco/src" entry.
   ;;
-  ;; The `:hicasso` substrate render fn is HOST-registered (rf2-2dbpd) —
-  ;; Story ships no installer for it, so `hicasso-counter.core/run` calls
+  ;; The `:fresco` substrate render fn is HOST-registered (rf2-2dbpd) —
+  ;; Story ships no installer for it, so `fresco-counter.core/run` calls
   ;; `story/register-substrate!` at boot. Bundle isolation is unaffected:
   ;; this is a testbed build, and nothing under implementation/ requires
   ;; anything under tools/.
-  :examples/hicasso-counter
+  :examples/fresco-counter
   {:target           :browser
-   :output-dir       "out/examples/hicasso-counter"
+   :output-dir       "out/examples/fresco-counter"
    :asset-path       "."
-   :modules          {:main {:init-fn hicasso-counter.core/run}}
+   :modules          {:main {:init-fn fresco-counter.core/run}}
    ;; rf2-qhhxp — pair-MCP + inline Xray, matching the sibling Story
    ;; testbed builds.
    :devtools         {:preloads [re-frame2-pair.runtime
@@ -2335,42 +2335,42 @@
    :modules    {:main {:init-fn adapter-testbed-uix.core/init}}
    :devtools   {:preloads [re-frame2-pair.runtime]}}
 
-  ;; rf2-hic-016 — the Hicasso controlled-input testbed. NOT in the shared
+  ;; rf2-hic-016 — the Fresco controlled-input testbed. NOT in the shared
   ;; adapter-smoke manifest and deliberately so: that runner is one engine
   ;; (Chromium) over N specs, and this surface's whole contract is the
   ;; SAME spec over three engines. It therefore carries its own
-  ;; orchestrator, scripts/serve-and-run-hicasso-controlled-testbed.cjs —
+  ;; orchestrator, scripts/serve-and-run-fresco-controlled-testbed.cjs —
   ;; the reagent-slim / tenant-switcher precedent — which compiles this
   ;; build, serves it, and drives Chromium, Firefox and WebKit in turn.
   ;; No :dev-http entry: the gate serves from http-server on a resolved
   ;; port like every other browser gate, and nothing here is a
   ;; `shadow-cljs watch` surface.
-  :hicasso/testbed
+  :fresco/testbed
   {:target     :browser
-   :output-dir "out/hicasso-testbed"
+   :output-dir "out/fresco-testbed"
    :asset-path "."
-   :modules    {:main {:init-fn hicasso-testbed.core/init}}}
+   :modules    {:main {:init-fn fresco-testbed.core/init}}}
 
-  ;; rf2-vsgq — the Hicasso HMR testbed, and the one build in this file
+  ;; rf2-vsgq — the Fresco HMR testbed, and the one build in this file
   ;; that a gate drives with `watch` rather than `compile`.
   ;;
   ;; The #7755 audit on rf2-hic-015 requires a browser suite that drives an
   ;; ACTUAL shadow reload through `defview`. A compiled bundle cannot: the
   ;; reload is the thing under test, so the gate needs shadow's devtools
   ;; client, its websocket and its module re-evaluation, which only `watch`
-  ;; provides. `scripts/serve-and-run-hicasso-hmr-testbed.cjs` starts the
-  ;; watch, edits ONE marked line in hicasso/testbed/hicasso_hmr_testbed/
+  ;; provides. `scripts/serve-and-run-fresco-hmr-testbed.cjs` starts the
+  ;; watch, edits ONE marked line in fresco/testbed/fresco_hmr_testbed/
   ;; views.cljs, and waits for the page to report the new code running.
   ;;
   ;; Served on :dev-http 8061 (above) rather than by http-server, so the
   ;; page and the devtools websocket share an origin. Sources are already
-  ;; on the classpath — `hicasso/testbed` is an existing :source-paths
+  ;; on the classpath — `fresco/testbed` is an existing :source-paths
   ;; entry — so this build id is the whole of the wiring.
-  :hicasso/hmr-testbed
+  :fresco/hmr-testbed
   {:target     :browser
-   :output-dir "out/hicasso-hmr-testbed"
+   :output-dir "out/fresco-hmr-testbed"
    :asset-path "."
-   :modules    {:main {:init-fn hicasso-hmr-testbed.core/init}}}
+   :modules    {:main {:init-fn fresco-hmr-testbed.core/init}}}
 
   ;; rf2-xsgu8a — per-adapter CLIENT-RUNTIME smoke for the day8/reagent-slim
   ;; substrate. Same minimal-counter shape as the Reagent/UIx

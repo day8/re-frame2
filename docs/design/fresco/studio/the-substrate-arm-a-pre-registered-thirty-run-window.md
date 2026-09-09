@@ -171,7 +171,7 @@ wedge rather than fail:
 ```bash
 P0_PORT=8491 P0_ALLOC_PLAN=floor P0_ALLOC_WRITE=all \
 P0_ROOTS=4 P0_ALLOC_CELLS=6 P0_ALLOC_ROUNDS=18 P0_ALLOC_SEG_ORDER=fixed-reversed \
-P0_RAW_OUT=implementation/hicasso/test/re_frame/bench/hicasso/data/revorder-csca8/reversed-1.json \
+P0_RAW_OUT=implementation/fresco/test/re_frame/bench/fresco/data/revorder-csca8/reversed-1.json \
   node implementation/core/test/re_frame/bench/p0_run.cjs --only alloc
 ```
 
@@ -180,7 +180,7 @@ output name following it. Every figure below is re-derived from the committed
 records by:
 
 ```bash
-node implementation/hicasso/test/re_frame/bench/hicasso/alloc_cluster_carrier.cjs --corpus
+node implementation/fresco/test/re_frame/bench/fresco/alloc_cluster_carrier.cjs --corpus
 ```
 
 That report prints, for each of the three readings and both bands, the cell
@@ -191,8 +191,8 @@ with. The paired table and its `p` are pinned in the reader's `--self-test`.
 This window alone is read by naming its records:
 
 ```bash
-node implementation/hicasso/test/re_frame/bench/hicasso/alloc_cluster_carrier.cjs \
-  implementation/hicasso/test/re_frame/bench/hicasso/data/revorder-csca8/*.json
+node implementation/fresco/test/re_frame/bench/fresco/alloc_cluster_carrier.cjs \
+  implementation/fresco/test/re_frame/bench/fresco/data/revorder-csca8/*.json
 ```
 
 ## The answer, first — and the retraction that followed it
@@ -406,7 +406,7 @@ and it is fenced.**
 
 While this window was running, `rf2-0eu1s`'s re-derivation landed on
 `worker/floorderv-cluster` (PR #8620), record
-`docs/design/hicasso/studio/the-floor-is-two-populations.md` — **cited by path
+`docs/design/fresco/studio/the-floor-is-two-populations.md` — **cited by path
 rather than linked, because at this commit it is on that branch and not on
 `main`, and a link to it would be a broken target here.** **Verified first-hand on that
 branch rather than taken from the report:** over 242 committed null-arm cells the

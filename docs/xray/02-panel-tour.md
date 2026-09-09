@@ -10,11 +10,11 @@ Xray's Dynamic shell has four layers:
 L1  ribbon       mode, frame, filters, settings, close
 L2  event spine  recent epochs for the selected frame
 L3  tabs         Epoch, app-db, Views, Trace, Machine, Routes,
-                 Resources, Graph, Frames, Hicasso
+                 Resources, Graph, Frames, Fresco
 L4  detail       the selected tab's detail view
 ```
 
-The event spine is the load-bearing piece. It is not a decorative timeline; it is the focus selector for the event lenses. Click an event row and Epoch, app-db, Views, Trace, Machine, and Routes read that same epoch. (Graph, Frames, and Hicasso browse live structure instead — they do not follow the row you pick, and Resources follows the selected frame for its live sections.)
+The event spine is the load-bearing piece. It is not a decorative timeline; it is the focus selector for the event lenses. Click an event row and Epoch, app-db, Views, Trace, Machine, and Routes read that same epoch. (Graph, Frames, and Fresco browse live structure instead — they do not follow the row you pick, and Resources follows the selected frame for its live sections.)
 
 ![The event spine and Dynamic tabs](../images/xray/xray-tutorial-epoch.png)
 
@@ -82,9 +82,9 @@ Open Graph when the question is structural rather than event-coupled — "where 
 
 Open Frames when your app loads images into frames. It shows each live image-loaded frame as an execution context carrying its resolved image's descriptors, which is what explains the same name resolving differently in two frames. A process not using image-loaded frames gets an honest no-image caption rather than a blank.
 
-### Hicasso
+### Fresco
 
-Open Hicasso when a view re-rendered and you want to know why. Six views over one evidence read: which boundaries are mounted, which subscriptions they hold, what was dispatched, what changed, which boundary is hot, and one dispatch walked from event to paint. The tab is always present — on an app that is not running Hicasso it says so in those words rather than showing an empty table. [11. The Hicasso tab](11-hicasso-tab.md) is the chapter.
+Open Fresco when a view re-rendered and you want to know why. Six views over one evidence read: which boundaries are mounted, which subscriptions they hold, what was dispatched, what changed, which boundary is hot, and one dispatch walked from event to paint. The tab is always present — on an app that is not running Fresco it says so in those words rather than showing an empty table. [11. The Fresco tab](11-fresco-tab.md) is the chapter.
 
 ## Static Mode
 

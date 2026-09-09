@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.shapes.large-template
+(ns re-frame.bench.fresco.shapes.large-template
   "**TIER-1 SHAPE 2 — LARGE TEMPLATES**, the ~1,200-element shape
   (charter §Use cases A2; rf2-2rtt6.51).
 
@@ -44,7 +44,7 @@
   hooks.** Sixty-nine cards read two subs each, the chrome reads three
   more, and every one of those reads sits inside a `for`, inside a plain
   helper called from inside that `for`
-  ([[re-frame.bench.hicasso.shapes.card/card]]) — which is the collector's
+  ([[re-frame.bench.fresco.shapes.card/card]]) — which is the collector's
   authoring claim taken to a rung no hook-shaped read surface can reach at
   all. `hook_budget_dom_cljs_test` counts it at React's own dispatcher:
   two, the same two the one-read boundary pays.
@@ -60,14 +60,14 @@
   \"large template\" idiom — no `into`, no `apply`, no fragment ceremony,
   no keys on anything that is not in a `for`. The card is a function call
   because a card here is not a component; making it one is
-  [[re-frame.bench.hicasso.shapes.feed]], and the diff between the two
+  [[re-frame.bench.fresco.shapes.feed]], and the diff between the two
   files is the deliberate finding.
 
   `.cljc`-compatible by construction (HD-020(d))."
-  (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.shapes.card :as rf.bench.hicasso.shapes.card]
-            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require [re-frame.bench.fresco.arm1.runtime :refer [sub]]
+            [re-frame.bench.fresco.shapes.card :as rf.bench.fresco.shapes.card]
+            [re-frame.bench.fresco.shapes.model :as rf.bench.fresco.shapes.model])
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 (def article-count
   "Sixty-nine cards. Chosen so the page lands on the charter's
@@ -98,7 +98,7 @@
 (defn element-arithmetic
   "The page's element count, predicted rather than measured."
   []
-  (+ chrome-elements tag-count (* rf.bench.hicasso.shapes.card/elements-per-card article-count)))
+  (+ chrome-elements tag-count (* rf.bench.fresco.shapes.card/elements-per-card article-count)))
 
 (def !body-runs
   "How many times the page's one body has run."
@@ -125,20 +125,20 @@
            [:a.nav-link {:href        "#"
                          :data-testid "your-feed-tab"
                          :class       (when your-feed? "active")
-                         :on-click    [:re-frame.hicasso/prevent [:conduit/show-your-feed]]}
+                         :on-click    [:re-frame.fresco/prevent [:conduit/show-your-feed]]}
             "Your Feed"]]
           [:li.nav-item
            [:a.nav-link {:href        "#"
                          :data-testid "global-feed-tab"
                          :class       (when-not your-feed? "active")
-                         :on-click    [:re-frame.hicasso/prevent [:conduit/show-global-feed]]}
+                         :on-click    [:re-frame.fresco/prevent [:conduit/show-global-feed]]}
             "Global Feed"]]]]
         [:div.article-list {:data-testid "article-list"}
          (for [slug (sub [:conduit/slugs])]
            ;; A plain call. It inlines into THIS boundary and donates its
            ;; two reads to it — the whole difference between this shape and
            ;; the next one.
-           (rf.bench.hicasso.shapes.card/card slug))]]
+           (rf.bench.fresco.shapes.card/card slug))]]
        [:div.col-md-3
         [:div.sidebar
          [:p "Popular Tags"]
@@ -149,5 +149,5 @@
                                       :data-testid (str "tag-" tag)}
              tag])]]]]]]))
 
-(defn make-frame! [frame-id] (rf.bench.hicasso.shapes.model/make-frame! frame-id seed))
-(defn reseed! [frame-id] (rf.bench.hicasso.shapes.model/reseed! frame-id seed))
+(defn make-frame! [frame-id] (rf.bench.fresco.shapes.model/make-frame! frame-id seed))
+(defn reseed! [frame-id] (rf.bench.fresco.shapes.model/reseed! frame-id seed))

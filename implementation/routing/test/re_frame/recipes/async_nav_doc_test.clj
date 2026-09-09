@@ -8,7 +8,7 @@
   `re-frame.recipes.async-nav` registers an `:optimistic` plan whose
   target is a MAP — `{:resource … :params … :scope …}`. The page that
   reports this application,
-  `docs/design/hicasso/product/async-routing-recipes.md`, printed the
+  `docs/design/fresco/product/async-routing-recipes.md`, printed the
   `[id params]` VECTOR spelling instead. That is not a near-miss.
   Optimistic arms run BEFORE the request lowers, so a target that could
   write the cache under a wrong identity is rejected outright rather
@@ -64,8 +64,8 @@
     too. The shape row is what refuses that direction.
 
   This is deliberately NOT a digest-roster mechanism — the shape
-  `implementation/hicasso/scripts/check_guide_samples.py` runs over
-  `docs/core/hicasso/`, pinning every fenced block by digest. That kind
+  `implementation/fresco/scripts/check_guide_samples.py` runs over
+  `docs/core/fresco/`, pinning every fenced block by digest. That kind
   of gate asks *did this block change since someone last checked it*,
   and a pin over a block that was wrong when it was pinned certifies
   the wrongness. Here the question is answerable outright — the target
@@ -130,7 +130,7 @@
       (throw (ex-info "Could not locate repository root" {}))))
 
 (def ^:private page-path
-  "docs/design/hicasso/product/async-routing-recipes.md")
+  "docs/design/fresco/product/async-routing-recipes.md")
 
 (def ^:private app-path
   "implementation/routing/test/re_frame/recipes/async_nav.cljs")

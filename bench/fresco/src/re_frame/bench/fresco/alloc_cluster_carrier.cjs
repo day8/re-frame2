@@ -2,9 +2,9 @@
 // WHAT CARRIES THE ~1,000-1,300 B CLUSTER — rf2-csca8, read off the committed
 // floor corpus and nothing else.
 //
-//     node hicasso/test/re_frame/bench/hicasso/alloc_cluster_carrier.cjs <dataset.json>...
-//     node hicasso/test/re_frame/bench/hicasso/alloc_cluster_carrier.cjs --corpus
-//     node hicasso/test/re_frame/bench/hicasso/alloc_cluster_carrier.cjs --self-test
+//     node fresco/test/re_frame/bench/fresco/alloc_cluster_carrier.cjs <dataset.json>...
+//     node fresco/test/re_frame/bench/fresco/alloc_cluster_carrier.cjs --corpus
+//     node fresco/test/re_frame/bench/fresco/alloc_cluster_carrier.cjs --self-test
 //
 // ## THE QUESTION
 //
@@ -110,7 +110,7 @@
 // `fixed`, ten `parity`, interleaved one at a time — taken under the MASKING-FREE
 // `any-leg` reading, which was declared and committed BEFORE that runner was
 // invoked once. Record:
-// `docs/design/hicasso/studio/the-substrate-arm-a-pre-registered-thirty-run-window.md`.
+// `docs/design/fresco/studio/the-substrate-arm-a-pre-registered-thirty-run-window.md`.
 // The corpus is 161 runs / 4,560 collection-free / 4,392 positional after it.
 //
 // THE PRE-REGISTERED FIRST BRANCH IS THE DIRECTION THAT HAPPENED. Inside

@@ -297,39 +297,39 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // Hicasso, the lean-React view substrate (rf2-gra70 — the
-  // `day8/re-frame2-hicasso` artefact). A separately published,
+  // Fresco, the lean-React view substrate (rf2-gra70 — the
+  // `day8/re-frame2-fresco` artefact). A separately published,
   // browser-reachable OPTIONAL substrate: nothing in core or the adapters
   // `:require`s it, and the counter example is a Reagent app that never names
-  // a `re-frame.hicasso.*` namespace, so the whole tree must be absent from
-  // its production bundle. A non-zero internal-sentinel hit means the Hicasso
+  // a `re-frame.fresco.*` namespace, so the whole tree must be absent from
+  // its production bundle. A non-zero internal-sentinel hit means the Fresco
   // runtime got dragged in (most likely a stray `:require` from a core/* ns).
   //
-  // THE SENTINEL CHOICE IS THE INTERESTING PART, because most Hicasso strings
+  // THE SENTINEL CHOICE IS THE INTERESTING PART, because most Fresco strings
   // would make a FALSE-GREEN one. The package's production story is that its
   // complaint machinery folds away under `:advanced` with `goog.DEBUG` false
-  // (`hicasso/scripts/check_production_erasure.cjs` asserts exactly that), so
+  // (`fresco/scripts/check_production_erasure.cjs` asserts exactly that), so
   // a sentinel taken from a dev-guarded refusal would be absent from every
   // bundle including one that ships the whole runtime. Both sentinels below
   // are that script's own POSITIVE CONTROLS — the strings it proves PRESENT in
-  // the `:hicasso-release` `:advanced` bundle — so they are absent here only
+  // the `:fresco-release` `:advanced` bundle — so they are absent here only
   // when the code is absent:
-  //   - `hicassoBoundary` is the own-property marker `mark-boundary!` stamps
+  //   - `frescoBoundary` is the own-property marker `mark-boundary!` stamps
   //     on every minted head via `unchecked-set` with a literal string key,
   //     with no `goog.DEBUG` gate anywhere near it;
-  //   - `rf.error/hicasso-empty-vector` is a refusal id minted by `fail!` on
+  //   - `rf.error/fresco-empty-vector` is a refusal id minted by `fail!` on
   //     the path every build keeps, not inside its dev guard.
   // Both are unique to the artefact's own src tree (verified repo-wide).
   {
-    name: 'hicasso',
-    relPath: 'hicasso',
+    name: 'fresco',
+    relPath: 'fresco',
     internalSentinels: [
       // impl/codec.cljs — mark-boundary! own-property marker (ungated).
-      { source: 're-frame.hicasso.impl.codec mark-boundary! (hicassoBoundary)',
-        sentinel: 'hicassoBoundary' },
+      { source: 're-frame.fresco.impl.codec mark-boundary! (frescoBoundary)',
+        sentinel: 'frescoBoundary' },
       // impl/codec.cljs — vector-kind's empty-vector refusal id.
-      { source: 're-frame.hicasso.impl.codec vector-kind (hicasso-empty-vector)',
-        sentinel: 'rf.error/hicasso-empty-vector' },
+      { source: 're-frame.fresco.impl.codec vector-kind (fresco-empty-vector)',
+        sentinel: 'rf.error/fresco-empty-vector' },
     ],
     consumerAllowList: null,
     expectedAllowListHits: 0,
@@ -775,11 +775,11 @@ const POSITIVE_CONTROL = {
   flows:               { onModule: 'flows' },
   epoch:               { onModule: 'epoch' },
   ssr:                 { onModule: 'ssr' },
-  // The :hicasso module (scripts/bundle-isolation-positive-control/
-  // src/.../hicasso.cljs) references the re-frame.hicasso.impl.codec fns whose
+  // The :fresco module (scripts/bundle-isolation-positive-control/
+  // src/.../fresco.cljs) references the re-frame.fresco.impl.codec fns whose
   // bodies carry both sentinels, so they are present in out/bundle-isolation-
-  // positive-control/hicasso.js and a drifted marker or reason-id fails loud.
-  hicasso:             { onModule: 'hicasso' },
+  // positive-control/fresco.js and a drifted marker or reason-id fails loud.
+  fresco:             { onModule: 'fresco' },
   'trace-tooling':     { onModule: 'trace-tooling' },
   'subs-tooling':      { onModule: 'subs-tooling' },
   'flows-tooling':     { onModule: 'flows-tooling' },

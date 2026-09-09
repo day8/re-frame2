@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.impl.generation
+(ns re-frame.fresco.impl.generation
   "The commit basis: the three monotone counters Spec 006 invariant 5 is
   judged against, and the only doors that advance the two this runtime
   owns (the third, the frame's install epoch, is the substrate's and is
@@ -7,7 +7,7 @@
   are named, so a grep for the two `bump-` doors is the complete list of
   writers, because a counter anything can increment is a counter nothing
   can reason about. Why the basis has three terms and what each one sees
-  is docs/design/hicasso/architecture.md, section The collector."
+  is docs/design/fresco/architecture.md, section The collector."
   (:require [re-frame.frame :as rf.frame]))
 
 (defonce ^:private !generation (volatile! 0))
@@ -67,7 +67,7 @@
   (`staged_reincarnation_basis_cljs_test`, rf2-6c12m.19); a frame holding
   no other cell ties either way, which is Spec 006 invariant 5's
   `:node-key` axis, not this number's. Full argument:
-  docs/design/hicasso/architecture.md, section The collector."
+  docs/design/fresco/architecture.md, section The collector."
   [frame-kw]
   (+ @!generation (rf.frame/frame-commit-epoch frame-kw) @!registry-epoch))
 

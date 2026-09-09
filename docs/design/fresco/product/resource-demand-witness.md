@@ -8,11 +8,11 @@ The criteria are frozen at commit `afbb58febc`, which is the effective revision 
 
 ## What was built, and where it runs
 
-Six application namespaces under `implementation/hicasso/test/re_frame/hicasso/examples/typeahead/`, on the public door and nothing else: `db`, `events`, `service`, `subs`, `views`, `app`. It does debounce, supersession, stale-reply suppression, refresh-with-data, cancellation, two async resources (suggestions parameterised by a term, details parameterised by a chosen id), and hover prefetch.
+Six application namespaces under `implementation/fresco/test/re_frame/fresco/examples/typeahead/`, on the public door and nothing else: `db`, `events`, `service`, `subs`, `views`, `app`. It does debounce, supersession, stale-reply suppression, refresh-with-data, cancellation, two async resources (suggestions parameterised by a term, details parameterised by a chosen id), and hover prefetch.
 
-The application reaches **four** foreign namespaces — `clojure.string`, `re-frame.core`, `re-frame.hicasso`, `re-frame.adapter.uix` — which is the same four [the slice](authoring-report-slice.md) needed for a static form. Nothing in the resource story required a fifth. That roster was pinned and read off the ClojureScript analyzer's own dependency graph rather than off the `ns` forms.
+The application reaches **four** foreign namespaces — `clojure.string`, `re-frame.core`, `re-frame.fresco`, `re-frame.adapter.uix` — which is the same four [the slice](authoring-report-slice.md) needed for a static form. Nothing in the resource story required a fifth. That roster was pinned and read off the ClojureScript analyzer's own dependency graph rather than off the `ns` forms.
 
-**[2026-09-04, `rf2-60jv`: the roster is now a reviewed claim.]** `rf2-6c12m.10` deleted `typeahead.surface-cljs-test` with the rest of the per-package `*surface-cljs-test*` suites. Its successor, `re-frame.hicasso.examples.fence-cljs-test`, derives its population from the `examples/` directory on every run and reads each `ns` form with `cljs.tools.reader`; it is a **four-family blocklist** — no Hicasso internal, no benchmark tree, no development tool, no test kit — so it holds *nothing here reaches past the public door* and holds neither the count of four nor the absent routing edge. Both are true as at this page's date and neither is enforced; the positive roster is deliberately not re-asserted ([`specification.md` §13](specification.md#13-definition-of-done)).
+**[2026-09-04, `rf2-60jv`: the roster is now a reviewed claim.]** `rf2-6c12m.10` deleted `typeahead.surface-cljs-test` with the rest of the per-package `*surface-cljs-test*` suites. Its successor, `re-frame.fresco.examples.fence-cljs-test`, derives its population from the `examples/` directory on every run and reads each `ns` form with `cljs.tools.reader`; it is a **four-family blocklist** — no Fresco internal, no benchmark tree, no development tool, no test kit — so it holds *nothing here reaches past the public door* and holds neither the count of four nor the absent routing edge. Both are true as at this page's date and neither is enforced; the positive roster is deliberately not re-asserted ([`specification.md` §13](specification.md#13-definition-of-done)).
 
 | suite | lane | what it owns |
 |---|---|---|
@@ -116,7 +116,7 @@ These are the TYPEAHEAD's body counts and they say nothing about any other appli
 
 **And nothing was acquired for them.** `an-abandoned-render-asks-the-service-for-nothing` drives a full search under StrictMode: every body on the page runs twice, half of those renders are discarded, and the service receives **exactly one** request. Today that is true by construction rather than by care, and recording it now is what lets the implementation bead inherit a blocking test with a population it can force.
 
-The other four React abandonment mechanisms — Suspense retry, transition abort, an error-boundary throw-and-retry, and the render-to-commit gap — are already driven at the runtime seam by `re-frame.hicasso.kernel-commit-owns-dom-cljs-test`, which asserts the premise before the claim in each row (`collector/body-runs` moved, so React really ran the body it discarded). That suite is landed and cited rather than re-derived here.
+The other four React abandonment mechanisms — Suspense retry, transition abort, an error-boundary throw-and-retry, and the render-to-commit gap — are already driven at the runtime seam by `re-frame.fresco.kernel-commit-owns-dom-cljs-test`, which asserts the premise before the claim in each row (`collector/body-runs` moved, so React really ran the body it discarded). That suite is landed and cited rather than re-derived here.
 
 **What a verdict must decide.** This witness exhibits one of the two mechanisms C3 names by name (the StrictMode double-invoke) with a counted population on the witness itself; the other, *React abandonment and retry*, is exhibited on the runtime rather than on this application. Whether that satisfies C3's "on the witness" is a judgement the verdict owns, and it is flagged here rather than assumed.
 
@@ -137,7 +137,7 @@ The parameter is in the QUERY rather than read out of `app-db` inside the subscr
 
 ## C5 — No second per-read ledger
 
-**The exact retained per-read and per-boundary structures of the status quo** are the five counters `re-frame.hicasso.test.mounted/census` publishes: `:cells`, `:cell-refs`, `:boundaries`, `:edges`, `:entries`. Read on this witness at three named moments, with the panel as the control:
+**The exact retained per-read and per-boundary structures of the status quo** are the five counters `re-frame.fresco.test.mounted/census` publishes: `:cells`, `:cell-refs`, `:boundaries`, `:edges`, `:entries`. Read on this witness at three named moments, with the panel as the control:
 
 | moment | cells | cell-refs | boundaries | edges | entries |
 |---|---|---|---|---|---|

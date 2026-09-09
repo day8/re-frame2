@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.public-root-lifecycle-dom-cljs-test
+(ns re-frame.fresco.public-root-lifecycle-dom-cljs-test
   "THE PUBLIC DOOR'S ROOT LIFECYCLE — what a CONSUMER can do to one root
   without touching another.
 
@@ -6,7 +6,7 @@
   every other suite is measuring the runtime and the impl door is the
   shortest way to it. This one is the opposite: the mounting, the
   re-rendering and the teardown are all written through
-  `re-frame.hicasso` and nothing else, because what is under test IS the
+  `re-frame.fresco` and nothing else, because what is under test IS the
   public surface. `impl.collector`, `test.runtime` and `impl.mount` are
   required for INSTRUMENTS only — the cell table, the reader lists, the
   body counter, `browser?` and `fresh-container!` — never to perform an
@@ -19,7 +19,7 @@
   it until something changes. So the surviving root is proved live by
   DISPATCHING into it and watching the paint follow, and by reading the
   cell table's keys and reader lists — the observables
-  `re-frame.hicasso.roots-frames-support` chooses, for the reasons it
+  `re-frame.fresco.roots-frames-support` chooses, for the reasons it
   states there.
 
   ## Two frames, and no frame passed as an argument
@@ -45,10 +45,10 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-a ::frame-a)
@@ -80,18 +80,18 @@
      ;; answer that one instead, and an isolation miss would read as a
      ;; rendering difference rather than as the failure it is.
      :ambient-frame nil
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The app — ONE view, mounted twice
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview panel
+(rf.fresco/defview panel
   "The whole app: one read, and a tag the caller supplies so a re-render
   with different props is legible in the markup."
   [{:keys [tag]}]
   [:div.panel {:data-tag tag}
-   [:span.label (rf.hicasso/sub label-q)]])
+   [:span.label (rf.fresco/sub label-q)]])
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -115,8 +115,8 @@
   (rf/make-frame {:id frame-b})
   (rf/with-frame frame-a (rf/dispatch-sync [::seed "alpha"]))
   (rf/with-frame frame-b (rf/dispatch-sync [::seed "beta"]))
-  (rf.hicasso.impl.collector/reset-runtime!)
-  (rf.hicasso.test.runtime/reset-body-runs!)
+  (rf.fresco.impl.collector/reset-runtime!)
+  (rf.fresco.test.runtime/reset-body-runs!)
   nil)
 
 (defn- bare!
@@ -129,15 +129,15 @@
   make an ENSURE claim vacuous."
   []
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-  (rf.hicasso.impl.collector/reset-runtime!)
-  (rf.hicasso.test.runtime/reset-body-runs!)
+  (rf.fresco.impl.collector/reset-runtime!)
+  (rf.fresco.test.runtime/reset-body-runs!)
   nil)
 
 (defn- live-frame? [frame-kw] (some? (rf.frame/frame-incarnation-token frame-kw)))
 
-(defn- cell-keys [] (set (keys @rf.hicasso.impl.collector/!cells)))
+(defn- cell-keys [] (set (keys @rf.fresco.impl.collector/!cells)))
 
-(defn- readers-of [sub-key] (count (rf.hicasso.test.runtime/cell-readers sub-key)))
+(defn- readers-of [sub-key] (count (rf.fresco.test.runtime/cell-readers sub-key)))
 
 ;; The readers take the CONTAINER, never a handle. Under Spec 006 §The
 ;; client root the mount point is the CALLER's throughout — `h/render!`
@@ -173,15 +173,15 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest tearing-one-root-down-leaves-the-other-root-live
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_  (fresh!)
-          ca (rf.hicasso.impl.mount/fresh-container!)
-          cb (rf.hicasso.impl.mount/fresh-container!)
-          a  (rf.hicasso/client-root)
-          b  (rf.hicasso/client-root)]
-      (rf.hicasso/render! a [rf.hicasso/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
-      (rf.hicasso/render! b [rf.hicasso/frame-root {:id frame-b} [panel {:tag "b"}]] cb)
+          ca (rf.fresco.impl.mount/fresh-container!)
+          cb (rf.fresco.impl.mount/fresh-container!)
+          a  (rf.fresco/client-root)
+          b  (rf.fresco/client-root)]
+      (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
+      (rf.fresco/render! b [rf.fresco/frame-root {:id frame-b} [panel {:tag "b"}]] cb)
       (try
         (testing "premise: two roots, two frames, one cell each, both painted"
           (is (= #{[frame-a label-q] [frame-b label-q]} (cell-keys))
@@ -192,7 +192,7 @@
 
         ;; The act under test, and the ONLY thing that happens between the
         ;; premise above and the readings below.
-        (rf.hicasso/unmount! a)
+        (rf.fresco/unmount! a)
 
         (testing "root B's runtime survives root A's teardown — its cell is
                   still in the table, and still read by its boundary"
@@ -207,7 +207,7 @@
                   the reading the DOM alone cannot give — the markup React
                   last committed stays on the page whether or not anything
                   is still wired to it"
-          (rf.hicasso.impl.mount/dispatch! frame-b [::relabel "beta-again"])
+          (rf.fresco.impl.mount/dispatch! frame-b [::relabel "beta-again"])
           (is (= "beta-again" (text-at cb ".label"))
               "root B stopped repainting when root A was torn down"))
 
@@ -229,25 +229,25 @@
               "root A's boundary is still reading a cell after its teardown"))
 
         (finally
-          (rf.hicasso/unmount! b)
+          (rf.fresco/unmount! b)
           (detach! ca)
           (detach! cb)
           (is (= [false false] [(connected? ca) (connected? cb)])
               "this witness left one of its own containers in the shared
                browser-test document")
-          (rf.hicasso.impl.collector/reset-runtime!))))))
+          (rf.fresco.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W2 — the door can re-render a mounted root
 ;; ---------------------------------------------------------------------------
 
 (deftest a-mounted-root-can-be-re-rendered-through-the-public-door
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_  (fresh!)
-          ca (rf.hicasso.impl.mount/fresh-container!)
-          a  (rf.hicasso/client-root)
-          _  (rf.hicasso/render! a [rf.hicasso/frame-root {:id frame-a} [panel {:tag "first"}]] ca)
+          ca (rf.fresco.impl.mount/fresh-container!)
+          a  (rf.fresco/client-root)
+          _  (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "first"}]] ca)
           node (node-at ca ".panel")]
       (try
         (testing "premise: the root is mounted and painted"
@@ -257,16 +257,16 @@
 
         (testing "the door re-renders the EXISTING root — the new tree is on
                   the page and the boundary body ran again"
-          (rf.hicasso.test.runtime/reset-body-runs!)
+          (rf.fresco.test.runtime/reset-body-runs!)
           ;; The frame boundary rides EVERY render of a root, not only the
           ;; first: a later `render!` reconciles against the tree on the page,
           ;; and a tree that dropped the boundary would drop the frame with it.
           ;; The three-arity form is the whole of a hot reload — the mount
           ;; point was read on the first call and is not read again.
-          (rf.hicasso/render! a [rf.hicasso/frame-root {:id frame-a}
+          (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a}
                                  [panel {:tag "second"}]] ca)
           (is (= "second" (attr-at ca ".panel" "data-tag")))
-          (is (pos? (rf.hicasso.test.runtime/body-runs))
+          (is (pos? (rf.fresco.test.runtime/body-runs))
               "the re-render did not run the boundary body"))
 
         (testing "and it is a RE-RENDER, not a remount: the very DOM node
@@ -279,16 +279,16 @@
 
         (testing "the root is still wired after the re-render — a dispatch
                   still reaches its paint"
-          (rf.hicasso.impl.mount/dispatch! frame-a [::relabel "alpha-again"])
+          (rf.fresco.impl.mount/dispatch! frame-a [::relabel "alpha-again"])
           (is (= "alpha-again" (text-at ca ".label"))))
 
         (finally
-          (rf.hicasso/unmount! a)
+          (rf.fresco/unmount! a)
           (detach! ca)
           (is (false? (connected? ca))
               "this witness left its own container in the shared
                browser-test document")
-          (rf.hicasso.impl.collector/reset-runtime!))))))
+          (rf.fresco.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W3 — THE EXECUTING SABOTAGE CONTROL for kernel risk row 2
@@ -315,12 +315,12 @@
   public door must NOT be able to do, which is the whole of the
   narrowing."
   [handle container]
-  (rf.hicasso/unmount! handle)
+  (rf.fresco/unmount! handle)
   (when-some [p (.-parentNode container)] (.removeChild p container))
-  (rf.hicasso.impl.collector/reset-runtime!)
+  (rf.fresco.impl.collector/reset-runtime!)
   nil)
 
-;; Kernel risk row 2 of `docs/design/hicasso/product/lanes/adversarial-risks.md`
+;; Kernel risk row 2 of `docs/design/fresco/product/lanes/adversarial-risks.md`
 ;; — *independent roots and SSR requests cannot reset, adopt, dirty, or release
 ;; one another's state* — is a correctness gate, and that register's gate
 ;; construction rule asks every one of them for "a sabotage mutation that makes
@@ -349,47 +349,47 @@
 ;; stopped moving. The armed half asserts all three — dead tables, a frozen
 ;; label, and a page that still looks perfectly well.
 (deftest a-page-wide-teardown-door-strands-the-sibling-root
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       ;; DISARMED — the shipped root-scoped door.
       (let [_  (fresh!)
-            ca (rf.hicasso.impl.mount/fresh-container!)
-            cb (rf.hicasso.impl.mount/fresh-container!)
-            a  (rf.hicasso/client-root)
-            b  (rf.hicasso/client-root)]
-        (rf.hicasso/render! a [rf.hicasso/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
-        (rf.hicasso/render! b [rf.hicasso/frame-root {:id frame-b} [panel {:tag "b"}]] cb)
+            ca (rf.fresco.impl.mount/fresh-container!)
+            cb (rf.fresco.impl.mount/fresh-container!)
+            a  (rf.fresco/client-root)
+            b  (rf.fresco/client-root)]
+        (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
+        (rf.fresco/render! b [rf.fresco/frame-root {:id frame-b} [panel {:tag "b"}]] cb)
         (try
           (is (= #{[frame-a label-q] [frame-b label-q]} (cell-keys))
               (str "premise: two roots, two frames, one cell each; got "
                    (pr-str (cell-keys))))
-          (rf.hicasso/unmount! a)
+          (rf.fresco/unmount! a)
           (testing "DISARMED — root B keeps its cell, keeps its reader, and stays
                     LIVE across its sibling's teardown"
             (is (contains? (cell-keys) [frame-b label-q])
                 (str "got " (pr-str (cell-keys))))
             (is (= 1 (readers-of [frame-b label-q])))
-            (rf.hicasso.impl.mount/dispatch! frame-b [::relabel "beta-again"])
+            (rf.fresco.impl.mount/dispatch! frame-b [::relabel "beta-again"])
             (is (= "beta-again" (text-at cb ".label"))
                 "root B stopped repainting when root A was torn down"))
           (finally
-            (rf.hicasso/unmount! b)
+            (rf.fresco/unmount! b)
             (detach! ca)
             (detach! cb)
             (is (= [false false] [(connected? ca) (connected? cb)])
                 "this witness left one of its own containers in the shared
                  browser-test document")
-            (rf.hicasso.impl.collector/reset-runtime!))))
+            (rf.fresco.impl.collector/reset-runtime!))))
 
       ;; ARMED — the same construction, torn down through the page-wide door.
       (let [_  (fresh!)
-            ca (rf.hicasso.impl.mount/fresh-container!)
-            cb (rf.hicasso.impl.mount/fresh-container!)
-            a  (rf.hicasso/client-root)
-            b  (rf.hicasso/client-root)]
-        (rf.hicasso/render! a [rf.hicasso/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
-        (rf.hicasso/render! b [rf.hicasso/frame-root {:id frame-b} [panel {:tag "b"}]] cb)
+            ca (rf.fresco.impl.mount/fresh-container!)
+            cb (rf.fresco.impl.mount/fresh-container!)
+            a  (rf.fresco/client-root)
+            b  (rf.fresco/client-root)]
+        (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
+        (rf.fresco/render! b [rf.fresco/frame-root {:id frame-b} [panel {:tag "b"}]] cb)
         (try
           (is (= #{[frame-a label-q] [frame-b label-q]} (cell-keys))
               (str "premise: the same two roots as the disarmed half; got "
@@ -410,7 +410,7 @@
                     The only symptom is a screen that has stopped moving, which
                     is exactly why W1 reads the tables and the dispatch rather
                     than the DOM"
-            (rf.hicasso.impl.mount/dispatch! frame-b [::relabel "beta-again"])
+            (rf.fresco.impl.mount/dispatch! frame-b [::relabel "beta-again"])
             (is (= "beta" (text-at cb ".label"))
                 (str "the page-wide door left root B repainting, so the dispatch
                       reading in W1 is not a discrimination either; got "
@@ -418,13 +418,13 @@
             (is (true? (connected? cb))
                 "and the page still looks perfectly well"))
           (finally
-            (rf.hicasso/unmount! b)
+            (rf.fresco/unmount! b)
             (detach! ca)
             (detach! cb)
             (is (= [false false] [(connected? ca) (connected? cb)])
                 "this witness left one of its own containers in the shared
                  browser-test document")
-            (rf.hicasso.impl.collector/reset-runtime!)))))))
+            (rf.fresco.impl.collector/reset-runtime!)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W4 — the door ENSURES its frame and seeds it BEFORE first paint
@@ -449,16 +449,16 @@
 ;; `:initial-events` nothing would seed it if it did.
 
 (deftest mounting-ensures-its-frame-and-seeds-it-before-the-first-paint
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_  (bare!)
           _  (is (false? (live-frame? frame-ensured))
                  "premise: the frame this mount names must not exist yet, or the
                   ENSURE claim below is green against somebody else's frame")
-          ca (rf.hicasso.impl.mount/fresh-container!)
-          a  (rf.hicasso/client-root)
-          _  (rf.hicasso/render! a
-                      [rf.hicasso/frame-root
+          ca (rf.fresco.impl.mount/fresh-container!)
+          a  (rf.fresco/client-root)
+          _  (rf.fresco/render! a
+                      [rf.fresco/frame-root
                        {:id             frame-ensured
                         ;; TWO steps, because order is part of the contract:
                         ;; `::seed` installs a whole db and `::relabel` edits it,
@@ -487,16 +487,16 @@
 
         (testing "the root is ordinarily wired afterwards — the ensured frame is
                   a real frame, not a one-shot seeding trick"
-          (rf.hicasso.impl.mount/dispatch! frame-ensured [::relabel "third"])
+          (rf.fresco.impl.mount/dispatch! frame-ensured [::relabel "third"])
           (is (= "third" (text-at ca ".label"))))
 
         (finally
-          (rf.hicasso/unmount! a)
+          (rf.fresco/unmount! a)
           (detach! ca)
           (is (false? (connected? ca))
               "this witness left its own container in the shared
                browser-test document")
-          (rf.hicasso.impl.collector/reset-runtime!))))))
+          (rf.fresco.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W5 — a JOINING root does not replay `:initial-events`
@@ -515,26 +515,26 @@
 ;; carries a seed of its own precisely so that replaying would be visible.
 
 (deftest a-second-root-joining-one-frame-does-not-replay-initial-events
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_  (bare!)
-          ca (rf.hicasso.impl.mount/fresh-container!)
-          cb (rf.hicasso.impl.mount/fresh-container!)
+          ca (rf.fresco.impl.mount/fresh-container!)
+          cb (rf.fresco.impl.mount/fresh-container!)
           ;; TWO handles, because one handle owns at most one Root: two roots
           ;; on one page are two `client-root` allocations, and the frame they
           ;; share is named in each one's TREE.
-          a  (rf.hicasso/client-root)
-          b  (rf.hicasso/client-root)]
-      (rf.hicasso/render! a
-        [rf.hicasso/frame-root
+          a  (rf.fresco/client-root)
+          b  (rf.fresco/client-root)]
+      (rf.fresco/render! a
+        [rf.fresco/frame-root
          {:id frame-ensured :initial-events [[::seed "creator"]]}
          [panel {:tag "a"}]]
         ca)
       ;; The joining root names its own `:initial-events`, and they must be
       ;; IGNORED. A door that replayed would leave "joiner" on both screens
       ;; and this row would be the only thing on the page to notice.
-      (rf.hicasso/render! b
-        [rf.hicasso/frame-root
+      (rf.fresco/render! b
+        [rf.fresco/frame-root
          {:id frame-ensured :initial-events [[::seed "joiner"]]}
          [panel {:tag "b"}]]
         cb)
@@ -550,7 +550,7 @@
 
         (testing "and it really is ONE frame, not two that happen to agree: a
                   single dispatch moves both roots' paint"
-          (rf.hicasso.impl.mount/dispatch! frame-ensured [::relabel "shared"])
+          (rf.fresco.impl.mount/dispatch! frame-ensured [::relabel "shared"])
           (is (= ["shared" "shared"] [(text-at ca ".label") (text-at cb ".label")])
               "the two roots did not join one frame"))
 
@@ -561,11 +561,11 @@
               "both roots' boundaries must be reading the one cell"))
 
         (finally
-          (rf.hicasso/unmount! a)
-          (rf.hicasso/unmount! b)
+          (rf.fresco/unmount! a)
+          (rf.fresco/unmount! b)
           (detach! ca)
           (detach! cb)
           (is (= [false false] [(connected? ca) (connected? cb)])
               "this witness left one of its own containers in the shared
                browser-test document")
-          (rf.hicasso.impl.collector/reset-runtime!))))))
+          (rf.fresco.impl.collector/reset-runtime!))))))

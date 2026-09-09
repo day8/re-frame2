@@ -2,7 +2,7 @@
 // Do the two floor-arm modes climb the SAME heap, or only CLOSE at the same one?
 //
 // Bead rf2-9jrhi, reopened by the merged-PR audit of PR #8457.  Record:
-//   docs/design/hicasso/studio/the-bisect-is-flat-and-the-floor-has-a-second-mode.md
+//   docs/design/fresco/studio/the-bisect-is-flat-and-the-floor-has-a-second-mode.md
 //
 // WHAT THE AUDIT FOUND.  That record excluded the heap trajectory as the carrier
 // of the 3,792 B second mode on this evidence: the absolute opening heap level
@@ -18,7 +18,7 @@
 // publishes, from committed datasets only.  It launches no browser, reads no rig
 // file and writes nothing.  Run it and diff the output against the page.
 //
-//   node implementation/hicasso/test/re_frame/bench/hicasso/alloc_heap_trajectory.cjs
+//   node implementation/fresco/test/re_frame/bench/fresco/alloc_heap_trajectory.cjs
 //
 // WHAT IT CANNOT DO.  There is exactly ONE high-mode run in the corpus, so every
 // comparison here has n = 1 on one side.  Nothing below establishes a mechanism;

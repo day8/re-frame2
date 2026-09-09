@@ -64,7 +64,7 @@
   registered today, with mnemonic letters per spec/018 §11:
 
       Epoch (e) · app-db (a) · Views (v) · Trace (t) · Machine (m) ·
-      Routes (r) · Resources (s) · Graph (g) · Frames (u) · Hicasso (h)
+      Routes (r) · Resources (s) · Graph (g) · Frames (u) · Fresco (h)
 
   Selection lives on `:rf.xray/selected-tab` and drives the L4
   detail panel's registry lookup. Routing was promoted to its own tab
@@ -96,7 +96,7 @@
   three-stacked-tables design, rf2-8ve8z), Trace → `trace/Panel`,
   Machine → `machine-inspector/Panel`, Routes → `routing/Panel`,
   Resources → `resources/Panel`, Graph → `derivation-graph/Panel`,
-  Frames → `module-view/Panel`, Hicasso → `hicasso/Panel`.
+  Frames → `module-view/Panel`, Fresco → `fresco/Panel`.
 
   ## Frame isolation (rf2-tijr Option C + rf2-in6l2)
 

@@ -72,8 +72,8 @@ page's final `rf2-b69lw` record landed; it moved no figure.
 
 | | |
 |---|---|
-| **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` — runs at each **landed** commit above, and **from a cold or a warm cache in any order** since `rf2-2rtt6.20` ([why](#the-lanes-shared-build-cache-made-this-page-look-broken-rf2-2rtt620)) |
-| **Build** | `:hicasso-bench` (rf2-2rtt6.2's lane) — `:advanced`, `goog.DEBUG false` |
+| **Reproduction** | `node implementation/freehand/test/re_frame/bench/fresco/hd8_run.cjs` — runs at each **landed** commit above, and **from a cold or a warm cache in any order** since `rf2-2rtt6.20` ([why](#the-lanes-shared-build-cache-made-this-page-look-broken-rf2-2rtt620)) |
+| **Build** | `:fresco-bench` (rf2-2rtt6.2's lane) — `:advanced`, `goog.DEBUG false` |
 | **Runtime** | Chromium `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), React 19.2.0, node v24.13.0 |
 | **Rounds** | 6 · mount `{:warmup 4 :samples 12}` · write `{:warmup 3 :samples 10}` |
 
@@ -166,7 +166,7 @@ figures came off depends on `re-frame.core`, on the three adapters, on
 of them.
 
 **The blob hashes pin the files they name and nothing else, which is a real but
-narrower guarantee.** `git rev-parse HEAD:implementation/freehand/test/re_frame/bench/hicasso/hd8_rows.cljs`
+narrower guarantee.** `git rev-parse HEAD:implementation/freehand/test/re_frame/bench/fresco/hd8_rows.cljs`
 tells a reader whether the instrument file in front of them is the one that took
 the row — useful precisely because it survives a rebase. It does **not** tell
 them the rest of the tree matches, and this page used to claim it did. The
@@ -230,13 +230,13 @@ So the re-take is two measurements, deliberately separate:
 | **Clock of record** | CDP `Performance.getMetrics` raw `TaskDuration`, settled to the next frame (`requestAnimationFrame` → `setTimeout 0`), tared by a `plumb` arm measured in the same block. `taskNet` and the in-page `flushSync` window are recorded on the **same samples** as diagnostics |
 | **The door** | every arm, tare included: `page.evaluate → HD8CLOCK.sample` — one door, so its cost is common-mode and subtracted. Through this door `taskNet` is FRAME-ONLY (`DevToolsCommandDuration` carries the arm's own script, `rf2-emvod`) and is never a verdict here |
 | **Design** | 6 rounds × 3 blocks × (4 warmup + 10 samples) per arm — 18 blocks per row, `clock_run.cjs`'s own per-block depth. A first cut at (2 + 4) could not adjudicate — single low-side block outliers failed the control and every gated range straddled the boundary by construction — and is recorded in the driver header, publishing nothing |
-| **Runtime** | HeadlessChrome/147.0.7727.15 (Windows NT 10.0 x64, 24 cores), React 19.2.0, node v24.13.0, `:hicasso-bench` — `:advanced`, `goog.DEBUG false` |
+| **Runtime** | HeadlessChrome/147.0.7727.15 (Windows NT 10.0 x64, 24 cores), React 19.2.0, node v24.13.0, `:fresco-bench` — `:advanced`, `goog.DEBUG false` |
 | **Sweep schedule** | the page's own: 6 rounds, mount `{:warmup 4 :samples 12}`, write `{:warmup 3 :samples 10}`, all three adapter runs, 7-arm mount plans (`donor-fh` rides per `rf2-2rtt6.29`) |
 | **Witness stamp** | B/E/Q = 300/300/300 — 300 boundaries, one subscription edge each, 300 distinct query vectors; `M` 903 elements, `U` 301; `ctl-2x` doubles them |
 | **Quiet box** | 8 consecutive sub-30 % CPU samples verified immediately before **every** clock-of-record row; loud attempts refused and recorded (three were). Measurement windows (2026-08-02): uix 04:59:59–05:02:46 Z · reagent 05:02:46–05:05:02 Z · slim 05:05:02–05:07:41 Z; the sweep followed at ~05:08–05:13 Z on the box the last gate had just verified. The sibling implementation worker (`worker/burst-2rtt6-55`) held its browser gates out of these windows |
-| **Datasets** | `implementation/freehand/test/re_frame/bench/hicasso/data/hd8clock-2rtt6-31/{uix,reagent,slim}.json` — the reduced quantities every clock-of-record figure below recomputes from |
+| **Datasets** | `implementation/freehand/test/re_frame/bench/fresco/data/hd8clock-2rtt6-31/{uix,reagent,slim}.json` — the reduced quantities every clock-of-record figure below recomputes from |
 | **Exit codes** | clock-of-record run ~~`0`~~; sweep `0` — as taken: measured, guard clean, no refusal. **The clock-of-record `0` is superseded — see the addendum below** |
-| **Reproduce** | `node implementation/freehand/test/re_frame/bench/hicasso/hd8_clock_run.cjs` · `node implementation/freehand/test/re_frame/bench/hicasso/hd8_run.cjs` — **at the producing commit above**, whose drivers are the blobs in the table below. The first command's exit rule at `main`'s tip is not the one that produced the code beside it |
+| **Reproduce** | `node implementation/freehand/test/re_frame/bench/fresco/hd8_clock_run.cjs` · `node implementation/freehand/test/re_frame/bench/fresco/hd8_run.cjs` — **at the producing commit above**, whose drivers are the blobs in the table below. The first command's exit rule at `main`'s tip is not the one that produced the code beside it |
 
 Instrument blobs at the producing commit (they survive a rebase; they pin the
 files they name and nothing else):
@@ -1121,7 +1121,7 @@ withheld from the log is a row nobody can diagnose. What a partial run must neve
 do is emit a figure that *looks* like the published one.
 
 **Where the general fix belongs, and where it now lives.** The same fixed yield
-lived in the shared `lane/verified-write!`, which every Hicasso arm uses, and
+lived in the shared `lane/verified-write!`, which every Fresco arm uses, and
 the general repair — an arm-declared scheduler, additive, today's path unchanged
 when it is absent — is **`rf2-pq7d8`**. It was not made in the same pass as this
 page's, because `lane.cljs` is a shared instrument with sibling arms measuring
@@ -1148,10 +1148,10 @@ pageerror: Cannot read properties of undefined (reading 'd')
 ```
 
 It reproduced at *unmodified* HEAD, which is how it was localised, and it
-cleared completely with `rm -rf implementation/.shadow-cljs/builds/hicasso-bench`.
+cleared completely with `rm -rf implementation/.shadow-cljs/builds/fresco-bench`.
 
 **The cause is the lane's one build id, not this arm.** HD-017 gives the whole
-programme a single `:hicasso-bench` so that no arm costs a hot-zone edit of
+programme a single `:fresco-bench` so that no arm costs a hot-zone edit of
 `implementation/shadow-cljs.edn`; shadow-cljs derives the build cache directory
 from the build id alone, and fixes it *before* any `--config-merge` data is
 applied. The arm is therefore invisible to the cache key, and several different

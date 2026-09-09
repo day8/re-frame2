@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.reincarnation-routing-cljs-test
+(ns re-frame.fresco.reincarnation-routing-cljs-test
   "SAME-PUBLIC-ID FRAME REINCARNATION — where a delayed operation lands.
 
   A frame is destroyed and a new one created under the SAME public keyword
@@ -7,8 +7,8 @@
   `setTimeout`, a promise continuation, a WebSocket `onmessage`, a
   predecessor React root's deferred effect cleanup. The law is that none
   of them may write into the successor.
-  `re-frame.hicasso.impl.frames` names this as its reason for existing,
-  and `re-frame.hicasso.impl.generation/commit-basis` names the
+  `re-frame.fresco.impl.frames` names this as its reason for existing,
+  and `re-frame.fresco.impl.generation/commit-basis` names the
   reincarnation as the one axis its number is structurally blind to.
 
   ## Why these observables, and not the rendered markup
@@ -19,7 +19,7 @@
   that id when it is called — so a boundary re-rendered after the
   reincarnation reads the SUCCESSOR's value and paints it correctly. The
   WRITE path resolves through the memoised `rf/capture-frame` bundle in
-  [[re-frame.hicasso.impl.frames/!frame-ops]], which is pinned to one
+  [[re-frame.fresco.impl.frames/!frame-ops]], which is pinned to one
   incarnation. The two halves of the same runtime therefore disagree about
   which frame they are talking to, and the visible symptom of the
   disagreement is markup that is byte-for-byte correct above controls that
@@ -46,7 +46,7 @@
   under late binding. Section 8 is the negative control: it rebuilds the
   late-binding mechanism out of the documented seam and reproduces BOTH
   failures, so nothing here can be passing because the instruments are dead.
-  See `implementation/hicasso/spec/invariants.md` §7.
+  See `implementation/fresco/spec/invariants.md` §7.
 
   ## Companion
 
@@ -60,11 +60,11 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.frames :as rf.hicasso.impl.frames]
-            [re-frame.hicasso.impl.generation :as rf.hicasso.impl.generation]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.frames :as rf.fresco.impl.frames]
+            [re-frame.fresco.impl.generation :as rf.fresco.impl.generation]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::reincarnation)
@@ -87,7 +87,7 @@
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :init-fn       (fn []
-                      (rf.hicasso.impl.collector/reset-runtime!)
+                      (rf.fresco.impl.collector/reset-runtime!)
                       (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---------------------------------------------------------------------------
@@ -113,7 +113,7 @@
   [who]
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   (when (rf.frame/frame-incarnation-token frame-id) (rf/destroy-frame! frame-id))
-  (rf.hicasso.impl.frames/forget-frame-ops! frame-id)
+  (rf.fresco.impl.frames/forget-frame-ops! frame-id)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:reinc/seed who]))
   (rf.frame/frame-incarnation-token frame-id))
@@ -163,15 +163,15 @@
       (is (true? (rf.frame/frame-incarnation-live? frame-id token-b)))))
 
   (testing "`commit-basis` TIES across the transition — the fourth axis
-            `re-frame.hicasso.impl.generation/commit-basis` documents as not
+            `re-frame.fresco.impl.generation/commit-basis` documents as not
             carryable there. The frame's install epoch RESTARTS with the
             successor, and neither of the two terms that namespace owns is a
             frame fact, so a successor holding a DIFFERENT value reports the
             same number its predecessor did"
     (let [_       (incarnate! "A")
-          basis-a (rf.hicasso.impl.generation/commit-basis frame-id)
+          basis-a (rf.fresco.impl.generation/commit-basis frame-id)
           _       (reincarnate! "B")
-          basis-b (rf.hicasso.impl.generation/commit-basis frame-id)]
+          basis-b (rf.fresco.impl.generation/commit-basis frame-id)]
       (is (= "B" (:who (rf/app-db-value frame-id)))
           "sanity: the successor really does hold a different value")
       (is (= basis-a basis-b)
@@ -184,9 +184,9 @@
   ;; number that just failed to move.
   (testing "the basis is a live instrument: an ordinary in-incarnation write moves it"
     (incarnate! "A")
-    (let [before (rf.hicasso.impl.generation/commit-basis frame-id)]
+    (let [before (rf.fresco.impl.generation/commit-basis frame-id)]
       (rf/with-frame frame-id (rf/dispatch-sync [:reinc/mark :ordinary]))
-      (is (> (rf.hicasso.impl.generation/commit-basis frame-id) before)
+      (is (> (rf.fresco.impl.generation/commit-basis frame-id) before)
           "an ordinary write advances the basis, so the tie above is the
            reincarnation's property and not a stuck counter"))))
 
@@ -202,7 +202,7 @@
             ;; Exactly what a render leaves behind: the memoised bundle in the
             ;; arm's one frame row, which every boundary of that incarnation
             ;; shares.
-            handle-a (:ops (rf.hicasso.impl.collector/frame-row frame-id))
+            handle-a (:ops (rf.fresco.impl.collector/frame-row frame-id))
             _        (reincarnate! "B")
             _        (is (nil? (marked)) "sanity: the successor starts unmarked")
             {:keys [refusals]} (with-refusals #(invoke handle-a))]
@@ -219,7 +219,7 @@
             successor's app-db nor leave a reaction in the successor's
             sub-cache"
     (let [_        (incarnate! "A")
-          handle-a (:ops (rf.hicasso.impl.collector/frame-row frame-id))
+          handle-a (:ops (rf.fresco.impl.collector/frame-row frame-id))
           _        (reincarnate! "B")
           {:keys [result refusals]} (with-refusals #((:subscribe handle-a) [:reinc/who]))]
       (is (nil? result) "the recovery is nil, never the successor's value")
@@ -279,7 +279,7 @@
   `impl.collector/run-once` binds for a body's dynamic extent, and therefore
   exactly what every callback that body lowers retains."
   []
-  (rf.hicasso.impl.collector/frame-dispatch frame-id))
+  (rf.fresco.impl.collector/frame-dispatch frame-id))
 
 (def ^:private postures
   "The three states the arm's one frame row can be in when a retained callback
@@ -298,8 +298,8 @@
             is the ordinary case: a boundary that rendered but that nobody
             clicked before the teardown."
   [[:cold  (fn [])]
-   [:warm  (fn [] (rf.hicasso.impl.collector/frame-dispatch frame-id))]
-   [:reset (fn [] (rf.hicasso.impl.frames/forget-frame-ops! frame-id))]])
+   [:warm  (fn [] (rf.fresco.impl.collector/frame-dispatch frame-id))]
+   [:reset (fn [] (rf.fresco.impl.frames/forget-frame-ops! frame-id))]])
 
 (deftest a-retained-callback-is-pinned-to-the-incarnation-that-lowered-it
   (doseq [[posture establish!] postures]
@@ -349,11 +349,11 @@
   (let [_     (incarnate! "A")
         a1    (render-dispatch)
         a2    (render-dispatch)
-        ops-a (:ops (rf.hicasso.impl.collector/frame-row frame-id))
+        ops-a (:ops (rf.fresco.impl.collector/frame-row frame-id))
         _     (reincarnate! "B")
         b1    (render-dispatch)
         b2    (render-dispatch)
-        ops-b (:ops (rf.hicasso.impl.collector/frame-row frame-id))]
+        ops-b (:ops (rf.fresco.impl.collector/frame-row frame-id))]
     (is (identical? a1 a2)
         "repeated renders of ONE incarnation share one handler — the memo is
          still a memo, and a boundary re-render allocates nothing")
@@ -366,7 +366,7 @@
         "the captured bundle underneath moved with it — the row is ONE record,
          so the closure and the bundle cannot describe different incarnations")
     (is (true? (rf.frame/frame-incarnation-live?
-                 frame-id (:incarnation (rf.hicasso.impl.collector/frame-row frame-id))))
+                 frame-id (:incarnation (rf.fresco.impl.collector/frame-row frame-id))))
         "and the row answering now is pinned to the incarnation live now")))
 
 ;; ---------------------------------------------------------------------------
@@ -380,11 +380,11 @@
 ;; where that shows up.
 (def ^:private lowering-paths
   [[:intent-vector
-    (fn [tag] (rf.hicasso.impl.intent/lower-prop :on-click [:reinc/mark tag]))]
+    (fn [tag] (rf.fresco.impl.intent/lower-prop :on-click [:reinc/mark tag]))]
    [:h-fn-returning-an-intent
-    (fn [tag] (rf.hicasso.impl.intent/lower-prop :on-click (rf.hicasso.impl.intent/callback (fn [_e] [:reinc/mark tag]))))]
+    (fn [tag] (rf.fresco.impl.intent/lower-prop :on-click (rf.fresco.impl.intent/callback (fn [_e] [:reinc/mark tag]))))]
    [:key-map-branch
-    (fn [tag] (rf.hicasso.impl.intent/lower-prop :on-key-down {"Enter" [:reinc/mark tag]}))]
+    (fn [tag] (rf.fresco.impl.intent/lower-prop :on-key-down {"Enter" [:reinc/mark tag]}))]
    [:handler-inside-a-render-callback
     ;; The render callback is lowered under the boundary, then INVOKED — which
     ;; is when its inner handler is lowered, against the gate — and the handler
@@ -392,15 +392,15 @@
     ;; boundary's dispatch once the call has returned, so this path inherits
     ;; the pin one level deeper than the other three.
     (fn [tag]
-      ((rf.hicasso.impl.intent/lower-prop :row-render
-                          (rf.hicasso.impl.intent/callback
-                            (fn [] (rf.hicasso.impl.intent/lower-prop :on-click [:reinc/mark tag]))))))]])
+      ((rf.fresco.impl.intent/lower-prop :row-render
+                          (rf.fresco.impl.intent/callback
+                            (fn [] (rf.fresco.impl.intent/lower-prop :on-click [:reinc/mark tag]))))))]])
 
 (defn- lower-under-boundary
   "Lower through `f` inside the render-time ambient binding a boundary body
   runs under — `impl.collector/run-once`'s, spelled out."
   [f]
-  (rf.hicasso.impl.intent/with-frame frame-id (render-dispatch) f))
+  (rf.fresco.impl.intent/with-frame frame-id (render-dispatch) f))
 
 (defn- fire!
   "Invoke a lowered handler the way its position's invoker would. One event
@@ -439,14 +439,14 @@
 (deftest reset-empties-the-frame-memo
   (incarnate! "A")
   (render-dispatch)
-  (is (contains? @rf.hicasso.impl.frames/!frame-ops frame-id)
+  (is (contains? @rf.fresco.impl.frames/!frame-ops frame-id)
       "a render leaves exactly one row behind — the bundle and the ambient
        dispatch are one record now, so acquiring the dispatch acquires both")
-  (is (= 1 (:frames (rf.hicasso.test.runtime/stats)))
+  (is (= 1 (:frames (rf.fresco.test.runtime/stats)))
       "which is what the residue census counts under its `:frame-ops` token")
-  (rf.hicasso.impl.collector/reset-runtime!)
-  (is (= {} @rf.hicasso.impl.frames/!frame-ops) "and the whole-runtime reset empties it")
-  (is (= 0 (:frames (rf.hicasso.test.runtime/stats)))))
+  (rf.fresco.impl.collector/reset-runtime!)
+  (is (= {} @rf.fresco.impl.frames/!frame-ops) "and the whole-runtime reset empties it")
+  (is (= 0 (:frames (rf.fresco.test.runtime/stats)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. NEGATIVE CONTROL — restore late keyword resolution and BOTH failures
@@ -467,13 +467,13 @@
   `!memo` stands in for the arm's frame table under it, and the returned
   closure for `impl.collector/frame-dispatch`'s: it closes over the frame
   KEYWORD and resolves a `rf/capture-frame` bundle when it FIRES. The commit
-  window is the arm's real [[re-frame.hicasso.impl.collector/with-commit]] — it
+  window is the arm's real [[re-frame.fresco.impl.collector/with-commit]] — it
   batches notifications and has no say in where a write lands, but using the
   real door keeps this a reconstruction rather than a paraphrase."
   [!memo]
   (fn late-frame-dispatch [frame-kw]
     (fn late-dispatch-for-frame [event]
-      (rf.hicasso.impl.collector/with-commit
+      (rf.fresco.impl.collector/with-commit
         (fn []
           (let [ops (or (get @!memo frame-kw)
                         (let [captured (rf/capture-frame frame-kw)]

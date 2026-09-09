@@ -87,7 +87,7 @@ over:
 
 Prefer:
 
-> Hicasso creates the callback and dispatches the event vector for you.
+> Fresco creates the callback and dispatches the event vector for you.
 
 over:
 
@@ -155,7 +155,7 @@ Better:
 [:button {:on-click [:todo/toggle id]} "Toggle"]
 ```
 
-Hicasso accepts an event vector directly. It creates the callback and
+Fresco accepts an event vector directly. It creates the callback and
 dispatches the vector when the button is clicked.
 
 Because the tree still contains `[:todo/toggle id]`, tests and tools can
@@ -252,13 +252,13 @@ lists the pages and their order.
 
 Bad:
 
-> Hicasso's rendering model consists of boundaries, collectors and an
+> Fresco's rendering model consists of boundaries, collectors and an
 > interpreted Hiccup lowering phase.
 
 Better:
 
 > A view often needs several subscription values, including values needed only
-> inside a helper or conditional. In Hicasso, you can call `h/sub` exactly
+> inside a helper or conditional. In Fresco, you can call `h/sub` exactly
 > where you need the value.
 
 Start with what the developer is trying to accomplish.
@@ -278,7 +278,7 @@ Typical shape:
 ````markdown
 # Subscriptions
 
-Use `h/sub` to read a registered subscription from a Hicasso view.
+Use `h/sub` to read a registered subscription from a Fresco view.
 
 ```clojure
 (h/defview todo-count [_]
@@ -470,7 +470,7 @@ The copy-pastable code on a page should overwhelmingly be good code.
 
 Good:
 
-> Put the key in the props map. Hicasso passes it to React but removes it
+> Put the key in the props map. Fresco passes it to React but removes it
 > before calling your view body, matching React's component semantics.
 
 Too little:
@@ -512,7 +512,7 @@ Then, if useful, say why.
 
 Example:
 
-> Hicasso compares view props with ClojureScript `=`. If the props are equal
+> Fresco compares view props with ClojureScript `=`. If the props are equal
 > and none of the view's own subscriptions changed, the body does not run
 > again.
 >
@@ -896,7 +896,7 @@ confined to one. Read that block rather than any prose list before citing
 covers more than the design trees, and it grows. Two gates do cover the design
 trees: `scripts/check_doc_slugs.py` validates link targets and heading anchors
 across the whole corpus, design trees included, and `scripts/check_provenance_pins.py`
-runs on changed pages under `docs/design/hicasso/`. Nothing checks their
+runs on changed pages under `docs/design/fresco/`. Nothing checks their
 tables, rendering, or nav, so verify those by hand and say so in the PR body.
 
 "Across the whole corpus" means every page, not every line of one: fenced code
@@ -905,7 +905,7 @@ inside a fence is never checked and a green says nothing about it (rf2-sodfq).
 That is deliberate — a fence is code, and well over a hundred links in this
 corpus sit legitimately inside one — but it means an edit confined to a fenced block is
 ungated, so check those links by hand. Two trees are held to more:
-`docs/design/hicasso/` and `docs/the-mayor-method/`, where a documentation link
+`docs/design/fresco/` and `docs/the-mayor-method/`, where a documentation link
 inside a fence is itself reported, because there the fence is the deliverable.
 
 Everything else is human judgment: feature PRs update the affected guide page

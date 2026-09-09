@@ -661,12 +661,12 @@ one intent per position cannot compose; see **One value per claimed position** b
 There is ONE prefetch calculation in the framework — the address extraction and the
 `[:rf.route/prefetch {…}]` vector it mints — and every link surface reaches it, so no
 surface writes a second prefetch policy. `rf/route-link` reaches it by direct call.
-`re-frame.hicasso/route-link` reaches it through the `:routing/link-model` seam, which
+`re-frame.fresco/route-link` reaches it through the `:routing/link-model` seam, which
 carries the minted vector (`:prefetch`, nil for a passive link) alongside the
 positions it belongs at (`:prefetch-keys`) — the seam names the positions so a
 consuming substrate never restates them, and a position routing adds reaches every
 surface at once. What remains substrate-specific is only how the vector is attached:
-`rf/route-link` installs composing handler functions, Hicasso puts the intent vector
+`rf/route-link` installs composing handler functions, Fresco puts the intent vector
 at each position and lets its own lowering walk it. **Both surfaces honour
 `:prefetch :intent`; neither accepts it and warms nothing.**
 
@@ -675,8 +675,8 @@ per position, `:prefetch :intent` CLAIMS the three positions and a caller value 
 one of them is refused at render rather than silently dropped or half-applied — a
 link warming at two positions out of three is the same undetectable failure the value
 check above exists to refuse. `rf/route-link`, whose handlers compose, has no such
-conflict and needs no such refusal; `re-frame.hicasso/route-link` raises
-[`:rf.error/hicasso-route-link-claimed-intent-position`](009-Instrumentation.md#error-event-catalogue).
+conflict and needs no such refusal; `re-frame.fresco/route-link` raises
+[`:rf.error/fresco-route-link-claimed-intent-position`](009-Instrumentation.md#error-event-catalogue).
 On any surface the escape is the same: omit the sugar and dispatch
 `:rf.route/prefetch` by hand from the positions you are not using. The sugar
 abbreviates that form; it never replaces it. A caller who wants prefetch on a

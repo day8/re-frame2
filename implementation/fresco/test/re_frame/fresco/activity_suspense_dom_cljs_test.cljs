@@ -1,7 +1,7 @@
-(ns re-frame.hicasso.activity-suspense-dom-cljs-test
+(ns re-frame.fresco.activity-suspense-dom-cljs-test
   "ACTIVITY AND SUSPENSE, UNDER REAL REACT 19.2.
 
-  [[re-frame.hicasso.activity-suspense-cljs-test]] states the hide/reveal
+  [[re-frame.fresco.activity-suspense-cljs-test]] states the hide/reveal
   ownership algebra exactly, at the collector's published seam, and runs
   on every PR. **It cannot say that React hides anything** — it drives the
   cleanup and the re-subscribe itself. This file is where that claim is
@@ -63,12 +63,12 @@
             [clojure.set :as set]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom" :as react-dom]
@@ -87,7 +87,7 @@
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The exercised population — a MEASUREMENT, not a claim
@@ -118,7 +118,7 @@
 
 (defn- seeded!
   []
-  (rf.hicasso.checkpoint-support/leave-act-environment!)
+  (rf.fresco.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:acsd/seed {:a 1 :b 100}]))
   frame-id)
@@ -129,7 +129,7 @@
   "The census with the entry cache projected out. A read-set entry is a
   render-phase cache, not ownership."
   []
-  (dissoc (rf.hicasso.test.runtime/residue) :entries))
+  (dissoc (rf.fresco.test.runtime/residue) :entries))
 
 (defn- reader-count
   "How many registrations read `query-v`.
@@ -139,11 +139,11 @@
   cycle and dies on the vector. The seam file's `reader-count` carries
   the full note."
   [query-v]
-  (count (rf.hicasso.test.runtime/cell-readers (sub-key query-v))))
+  (count (rf.fresco.test.runtime/cell-readers (sub-key query-v))))
 
 (defn- sole-reader
   [query-v]
-  (let [rs (rf.hicasso.test.runtime/cell-readers (sub-key query-v))]
+  (let [rs (rf.fresco.test.runtime/cell-readers (sub-key query-v))]
     (when (= 1 (count rs)) (first rs))))
 
 (defn- poll
@@ -185,13 +185,13 @@
 
 (defn- teardown-census!
   [handle]
-  (rf.hicasso.impl.mount/unmount! handle)
-  (.then (rf.hicasso.test.runtime/quiesced!)
+  (rf.fresco.impl.mount/unmount! handle)
+  (.then (rf.fresco.test.runtime/quiesced!)
          (fn [_]
            (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                  (rf.hicasso.test.runtime/residue))
+                  (rf.fresco.test.runtime/residue))
                "teardown is exact: zero residue after quiescence")
-           (rf.hicasso.impl.mount/release! handle)
+           (rf.fresco.impl.mount/release! handle)
            nil)))
 
 (defn- report-failure!
@@ -210,22 +210,22 @@
   offending namespace again.
 
   The long-form account is on
-  [[re-frame.hicasso.reincarnation-paint-dom-cljs-test]]'s own
+  [[re-frame.fresco.reincarnation-paint-dom-cljs-test]]'s own
   `report-failure!`; the shape is the one
-  [[re-frame.hicasso.checkpoint-support/at-the-checkpoint]] already uses."
+  [[re-frame.fresco.checkpoint-support/at-the-checkpoint]] already uses."
   [label handle]
   (fn [e]
     (is false (str label " — " (.-message e)
                    " | DOM was " (pr-str (when handle (text handle)))
                    " | ownership " (pr-str (ownership))))
-    (when handle (rf.hicasso.impl.mount/release! handle))
+    (when handle (rf.fresco.impl.mount/release! handle))
     nil))
 
 ;; ---------------------------------------------------------------------------
 ;; The tree
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview panel
+(rf.fresco/defview panel
   "The boundary under Activity. Its read set is a function of a PROP, not
   of a subscription, and that is deliberate: while the subtree is hidden
   it holds no subscription, so an app-db change cannot reach it — the
@@ -234,7 +234,7 @@
   *conditional reads changed while hidden* names."
   [{:keys [which]}]
   [:p {:id "panel"}
-   (str (name which) "=" (if (= :a which) (rf.hicasso/sub [:acsd/a]) (rf.hicasso/sub [:acsd/b])))])
+   (str (name which) "=" (if (= :a which) (rf.fresco/sub [:acsd/a]) (rf.fresco/sub [:acsd/b])))])
 
 (def ^:private !bump-count (atom nil))
 
@@ -270,14 +270,14 @@
     (react/createElement
       (.-Activity react) #js {:mode mode}
       (react/createElement (.-Fragment react) nil
-                           (rf.hicasso.impl.codec/root-element frame-id [panel {:which which}])
+                           (rf.fresco.impl.codec/root-element frame-id [panel {:which which}])
                            (react/createElement host-state nil)))))
 
 (unchecked-set activity-host "displayName" "acsd/activity-host")
 
 (defn- activity-tree
   []
-  (rf.hicasso.impl.mount/provider frame-id (react/createElement activity-host nil)))
+  (rf.fresco.impl.mount/provider frame-id (react/createElement activity-host nil)))
 
 (defn- act!
   "Drive a React state setter and let its commit land. `flushSync`
@@ -296,10 +296,10 @@
 
 (deftest an-activity-hide-releases-ownership-and-its-reveal-reacquires-the-current-read-set
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (let [_      (seeded!)
-            handle (mount-concurrent! (rf.hicasso.impl.mount/fresh-container!) (activity-tree))
+            handle (mount-concurrent! (rf.fresco.impl.mount/fresh-container!) (activity-tree))
             !state (atom {})]
         (-> (poll #(and (= 1 (reader-count [:acsd/a])) (some? @!set-mode))
                   "the visible Activity commits and its boundary subscribes")
@@ -359,17 +359,17 @@
                 ;; A WRITE while hidden, and a PROP change while hidden.
                 ;; The write is what the reveal will have to correct for;
                 ;; the prop change is what moves the hidden read set.
-                (rf.hicasso.impl.mount/dispatch! handle [:acsd/bump :a])
-                (swap! !state assoc :runs-before (rf.hicasso.test.runtime/body-runs))
+                (rf.fresco.impl.mount/dispatch! handle [:acsd/bump :a])
+                (swap! !state assoc :runs-before (rf.fresco.test.runtime/body-runs))
                 (act! (fn [] (@!set-which :b)))
-                (poll #(> (rf.hicasso.test.runtime/body-runs) (:runs-before @!state))
+                (poll #(> (rf.fresco.test.runtime/body-runs) (:runs-before @!state))
                       "React renders the hidden child against its new prop")))
             (.then
               (fn [_]
                 (testing "the premise: React really did run the hidden
                           body. Without this the zeros below are the zeros
                           of a render that never happened"
-                  (is (pos? (- (rf.hicasso.test.runtime/body-runs) (:runs-before @!state)))))
+                  (is (pos? (- (rf.fresco.test.runtime/body-runs) (:runs-before @!state)))))
 
                 (testing "and the hidden render published nothing — no
                           durable ownership on the key it just read, none
@@ -414,7 +414,7 @@
 
                 (testing "and the revealed boundary is LIVE — a write to
                           the key it now reads repaints it"
-                  (rf.hicasso.impl.mount/dispatch! handle [:acsd/bump :b])
+                  (rf.fresco.impl.mount/dispatch! handle [:acsd/bump :b])
                   (poll #(= "b=101" (painted handle "panel"))
                         "the revealed boundary repaints"))))
             (.then
@@ -481,10 +481,10 @@
   ;; end of the row carries the analysis and the reason it is React's
   ;; scheduling rather than this runtime's.
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (let [_      (seeded!)
-            handle (mount-concurrent! (rf.hicasso.impl.mount/fresh-container!) (activity-tree))]
+            handle (mount-concurrent! (rf.fresco.impl.mount/fresh-container!) (activity-tree))]
         (-> (poll #(and (= 1 (reader-count [:acsd/a])) (some? @!set-mode))
                   "the visible Activity commits and its boundary subscribes")
             (.then
@@ -496,7 +496,7 @@
             (.then
               (fn [_]
                 ;; Four writes the hidden subtree cannot hear.
-                (dotimes [_ 4] (rf.hicasso.impl.mount/dispatch! handle [:acsd/bump :a]))
+                (dotimes [_ 4] (rf.fresco.impl.mount/dispatch! handle [:acsd/bump :a]))
 
                 (testing "the premise, and it is the whole row: app-db moved
                           four times while the subtree was hidden, and the
@@ -531,7 +531,7 @@
                       "React releases the subscription a second time")))
             (.then
               (fn [_]
-                (dotimes [_ 3] (rf.hicasso.impl.mount/dispatch! handle [:acsd/bump :a]))
+                (dotimes [_ 3] (rf.fresco.impl.mount/dispatch! handle [:acsd/bump :a]))
                 (is (= 8 (:a (rf/app-db-value frame-id))))
                 (is (= "a=5" (.-textContent ^js (node handle "panel")))
                     "the premise for reading 2: stale again, by three")
@@ -626,8 +626,8 @@
   (react/createElement
     (.-Suspense react) #js {:fallback (react/createElement "p" #js {:id "fb"} "waiting")}
     (react/createElement (.-Fragment react) nil
-                         (rf.hicasso.impl.mount/provider frame-id
-                                         (rf.hicasso.impl.codec/root-element frame-id [panel {:which :a}]))
+                         (rf.fresco.impl.mount/provider frame-id
+                                         (rf.fresco.impl.codec/root-element frame-id [panel {:which :a}]))
                          (react/createElement gate nil))))
 
 (deftest a-post-commit-suspension-retains-the-subscription-and-the-retry-leaves-exact-ownership
@@ -656,11 +656,11 @@
   ;; OWNERSHIP across the cycle: the count never leaves 1, the identity
   ;; never changes, and the retry adds nothing. That is what is asserted.
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (let [_       (seeded!)
             _       (reset! !gate-promise (js/Promise. (fn [res] (reset! !gate-resolve res))))
-            handle  (mount-concurrent! (rf.hicasso.impl.mount/fresh-container!) (suspense-tree))
+            handle  (mount-concurrent! (rf.fresco.impl.mount/fresh-container!) (suspense-tree))
             !state  (atom {})]
         (-> (poll #(and (= 1 (reader-count [:acsd/a])) (some? @!set-gate))
                   "the primary tree commits and its boundary subscribes")
@@ -702,7 +702,7 @@
 
                 ;; A write DURING the suspension. Because the subscription
                 ;; survived, the hidden primary tree hears it.
-                (rf.hicasso.impl.mount/dispatch! handle [:acsd/bump :a])
+                (rf.fresco.impl.mount/dispatch! handle [:acsd/bump :a])
 
                 ;; The retry.
                 (act! (fn [] (@!set-gate false)))
@@ -727,7 +727,7 @@
                   (is (= "a=2" (painted handle "panel"))))
 
                 (testing "still live after the retry"
-                  (rf.hicasso.impl.mount/dispatch! handle [:acsd/bump :a])
+                  (rf.fresco.impl.mount/dispatch! handle [:acsd/bump :a])
                   (poll #(= "a=3" (painted handle "panel"))
                         "the retried boundary repaints"))))
             (.then
@@ -743,7 +743,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-declared-population-was-actually-exercised
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test runs none of the mechanisms above")
     (is (= declared-population @!exercised)
         (str "every declared Activity/Suspense mechanism must be reached at

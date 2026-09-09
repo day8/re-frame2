@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.combobox-keyboard-dom-cljs-test
+(ns re-frame.fresco.combobox-keyboard-dom-cljs-test
   "L4 — THE SELECT-ONLY DROPDOWN'S KEYBOARD CONDUCT, AND THE ACTIVE-
   DESCENDANT MODEL IT RESTS ON.
 
@@ -28,7 +28,7 @@
   ## What this file is, and its relationship to the guide
 
   [[select-dropdown]] is the guide's example
-  (`docs/core/hicasso/13-overlays-and-focus.md`,
+  (`docs/core/fresco/13-overlays-and-focus.md`,
   *Build a dropdown from a popover*) with the audit's bounded repair
   applied: the trigger carries `role=\"combobox\"`; `aria-controls`
   names the listbox and is emitted only while one exists;
@@ -77,10 +77,10 @@
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.overlay :as rf.hicasso.overlay]
-            [re-frame.hicasso.test :as rf.hicasso.test]
-            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.overlay :as rf.fresco.overlay]
+            [re-frame.fresco.test :as rf.fresco.test]
+            [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
@@ -137,7 +137,7 @@
 ;; The view — the guide's example with the audit's repair
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview select-dropdown
+(rf.fresco/defview select-dropdown
   "The guide's *Build a dropdown from a popover*, repaired.
 
   Four changes, and each is one clause of the audit:
@@ -162,9 +162,9 @@
      are two different options for as long as the user is looking
      around, and collapsing them announces a choice nobody has made."
   [_]
-  (let [open?  (rf.hicasso/sub [::open?])
-        active (rf.hicasso/sub [::active])
-        value  (rf.hicasso/sub [::value])
+  (let [open?  (rf.fresco/sub [::open?])
+        active (rf.fresco/sub [::active])
+        value  (rf.fresco/sub [::value])
         label  (some #(when (= value (:value %)) (:label %)) items)]
     [:div.combo
      [:span {:id label-id} "Language"]
@@ -178,11 +178,11 @@
        :aria-controls         (when open? listbox-id)
        :aria-activedescendant (when (and open? active) (option-id active))
        :on-click              [::toggled]
-       :on-key-down           {"ArrowDown" [::rf.hicasso/prevent [::moved 1]]
-                               "ArrowUp"   [::rf.hicasso/prevent [::moved -1]]
-                               "Enter"     [::rf.hicasso/prevent [::committed]]}}
+       :on-key-down           {"ArrowDown" [::rf.fresco/prevent [::moved 1]]
+                               "ArrowUp"   [::rf.fresco/prevent [::moved -1]]
+                               "Enter"     [::rf.fresco/prevent [::committed]]}}
       label]
-     [rf.hicasso.overlay/popover {:open?      open?
+     [rf.fresco.overlay/popover {:open?      open?
                        :on-dismiss [::dismissed]
                        :anchor     trigger-id
                        :placement  :bottom-start}
@@ -195,7 +195,7 @@
                :on-click      [::selected v]}
           l])]]]))
 
-(rf.hicasso/defview the-guides-dropdown-as-written
+(rf.fresco/defview the-guides-dropdown-as-written
   "THE POSITIVE CONTROL — the same dropdown with the repair taken back
   out, which is the shape the guide ships today.
 
@@ -207,9 +207,9 @@
   click-driven test, or in a structural sweep that only asks whether
   every control has a name."
   [_]
-  (let [open?  (rf.hicasso/sub [::open?])
-        active (rf.hicasso/sub [::active])
-        value  (rf.hicasso/sub [::value])
+  (let [open?  (rf.fresco/sub [::open?])
+        active (rf.fresco/sub [::active])
+        value  (rf.fresco/sub [::value])
         label  (some #(when (= value (:value %)) (:label %)) items)]
     [:div.combo
      [:span {:id label-id} "Language"]
@@ -221,11 +221,11 @@
        :aria-expanded         open?
        :aria-activedescendant (when (and open? active) (option-id active))
        :on-click              [::toggled]
-       :on-key-down           {"ArrowDown" [::rf.hicasso/prevent [::moved 1]]
-                               "ArrowUp"   [::rf.hicasso/prevent [::moved -1]]
-                               "Enter"     [::rf.hicasso/prevent [::committed]]}}
+       :on-key-down           {"ArrowDown" [::rf.fresco/prevent [::moved 1]]
+                               "ArrowUp"   [::rf.fresco/prevent [::moved -1]]
+                               "Enter"     [::rf.fresco/prevent [::committed]]}}
       label]
-     [rf.hicasso.overlay/popover {:open?      open?
+     [rf.fresco.overlay/popover {:open?      open?
                        :on-dismiss [::dismissed]
                        :anchor     trigger-id
                        :placement  :bottom-start}
@@ -257,7 +257,7 @@
   #{"combobox" "textbox" "searchbox" "listbox" "menu" "menubar" "tree"
     "treegrid" "grid" "radiogroup" "group" "toolbar" "application"})
 
-(defn- attr [node k] (get (rf.hicasso.test/attrs node) k))
+(defn- attr [node k] (get (rf.fresco.test/attrs node) k))
 
 (defn- ids-of [s] (remove str/blank? (str/split (or s "") #"\s+")))
 
@@ -279,7 +279,7 @@
   | `:activedescendant-outside-the-owned-subtree` | resolves it outside what the combobox controls |"
   [tree]
   (let [by-id (into {} (map (juxt #(attr % :id) identity))
-                    (rf.hicasso.test/find-all tree #(some? (attr % :id))))]
+                    (rf.fresco.test/find-all tree #(some? (attr % :id))))]
     (into []
           (mapcat
             (fn [node]
@@ -289,7 +289,7 @@
                     owner  (some by-id owned)
                     referent (get by-id target)]
                 (cond-> []
-                  (not (contains? activedescendant-roles (name (or (rf.hicasso.test/role node) :none))))
+                  (not (contains? activedescendant-roles (name (or (rf.fresco.test/role node) :none))))
                   (conj :role-may-not-carry-activedescendant)
 
                   (empty? owned)
@@ -300,25 +300,25 @@
 
                   (and (some? referent) (some? owner)
                        (not (some #(identical? referent %)
-                                  (rf.hicasso.test/find-all owner (constantly true)))))
+                                  (rf.fresco.test/find-all owner (constantly true)))))
                   (conj :activedescendant-outside-the-owned-subtree)))))
-          (rf.hicasso.test/find-all tree #(some? (attr % :aria-activedescendant))))))
+          (rf.fresco.test/find-all tree #(some? (attr % :aria-activedescendant))))))
 
 (defn- selected-options
   "The values of the options carrying `aria-selected=\"true\"`, in
   document order."
   [tree]
   (into []
-        (comp (filter #(= :option (rf.hicasso.test/role %)))
+        (comp (filter #(= :option (rf.fresco.test/role %)))
               (filter #(true? (attr % :aria-selected)))
               (map #(attr % :id)))
-        (rf.hicasso.test/find-all tree (constantly true))))
+        (rf.fresco.test/find-all tree (constantly true))))
 
 (defn- open-tree
   "The named view, rendered with the list open and the keyboard resting
   on `active` while `value` is committed."
   [view {:keys [active value]}]
-  (rf.hicasso.test/tree [view {}]
+  (rf.fresco.test/tree [view {}]
            {:subs {[::open?] true
                    [::active] active
                    [::value] (or value "en")}}))
@@ -336,7 +336,7 @@
          *3 of 3, 日本語* at all")
 
     (testing "and the pieces, named, so a failure above says which"
-      (let [trigger (rf.hicasso.test/find t #(= :combobox (rf.hicasso.test/role %)))]
+      (let [trigger (rf.fresco.test/find t #(= :combobox (rf.fresco.test/role %)))]
         (is (= trigger-id (attr trigger :id)))
         (is (= listbox-id (attr trigger :aria-controls)))
         (is (= (option-id "ja") (attr trigger :aria-activedescendant)))
@@ -358,8 +358,8 @@
 
     (testing "and the trigger reads as an ordinary button, which is
               precisely the problem: everything about it is legal markup"
-      (let [trigger (rf.hicasso.test/find t #(some? (attr % :aria-activedescendant)))]
-        (is (= :button (rf.hicasso.test/role trigger)))
+      (let [trigger (rf.fresco.test/find t #(some? (attr % :aria-activedescendant)))]
+        (is (= :button (rf.fresco.test/role trigger)))
         (is (nil? (attr trigger :aria-controls)))))))
 
 (deftest aria-selected-follows-the-commitment-and-not-the-keyboard
@@ -414,13 +414,13 @@
   [m k]
   (.dispatchEvent (query-node m (str "#" trigger-id))
                   (js/KeyboardEvent. "keydown" #js {:key k :bubbles true}))
-  (rf.hicasso.test.mounted/settle! m)
+  (rf.fresco.test.mounted/settle! m)
   nil)
 
 (deftest the-arrow-keys-move-the-active-option-and-nothing-else
   (if-not (browser?)
     (skip! "the arrow keys")
-    (let [m (rf.hicasso.test.mounted/mount! [select-dropdown {}])]
+    (let [m (rf.fresco.test.mounted/mount! [select-dropdown {}])]
       (try
         (.focus (query-node m (str "#" trigger-id)))
         (testing "premise: shut, with no pointer and nothing to point at"
@@ -464,12 +464,12 @@
                   instead of moving focus into the list"
           (is (identical? (query-node m (str "#" trigger-id)) (active-el))))
 
-        (finally (rf.hicasso.test.mounted/unmount! m))))))
+        (finally (rf.fresco.test.mounted/unmount! m))))))
 
 (deftest enter-commits-the-active-option-and-shuts-the-list
   (if-not (browser?)
     (skip! "the commit")
-    (let [m (rf.hicasso.test.mounted/mount! [select-dropdown {}])]
+    (let [m (rf.fresco.test.mounted/mount! [select-dropdown {}])]
       (try
         (.focus (query-node m (str "#" trigger-id)))
         (key! m "ArrowDown")
@@ -494,4 +494,4 @@
             "and focus is still on the trigger — nothing had to be
              restored, because nothing ever moved")
 
-        (finally (rf.hicasso.test.mounted/unmount! m))))))
+        (finally (rf.fresco.test.mounted/unmount! m))))))

@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.staged-reincarnation-basis-cljs-test
+(ns re-frame.fresco.staged-reincarnation-basis-cljs-test
   "A STAGED KEY ACROSS A SAME-ID REINCARNATION — the one scenario in which
   the generation term of `commit-basis` carries something the frame's
   install epoch does not (rf2-6c12m.19).
@@ -53,9 +53,9 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::staged-reincarnation)
@@ -70,7 +70,7 @@
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 (def ^:private held-key [frame-id [:staged/n]])
 
@@ -78,7 +78,7 @@
   "Make the frame under its public id, seed it with `who`, and install
   `touches` more times. Answers the frame's install epoch."
   [who touches]
-  (rf.hicasso.checkpoint-support/leave-act-environment!)
+  (rf.fresco.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id
     (rf/dispatch-sync [:staged/seed who])
@@ -102,16 +102,16 @@
   "A committed boundary holding a cell on the frame — the OTHER cell the
   reincarnation's side effect reaches. Answers its release fn."
   []
-  (rf.hicasso.impl.collector/render-body frame-id (fn [_] (rf.hicasso.impl.collector/sub [:staged/n])) {})
-  (rf.hicasso.impl.collector/commit-boundary! (rf.hicasso.impl.collector/last-reads) (fn [])))
+  (rf.fresco.impl.collector/render-body frame-id (fn [_] (rf.fresco.impl.collector/sub [:staged/n])) {})
+  (rf.fresco.impl.collector/commit-boundary! (rf.fresco.impl.collector/last-reads) (fn [])))
 
 (defn- render-staged!
   "Render — and only render — a boundary reading the staged key. Answers
   what it painted, its entry, and the number React captured at render."
   []
-  (let [value (rf.hicasso.impl.collector/render-body frame-id (fn [_] (rf.hicasso.impl.collector/sub [:staged/who])) {})
-        entry (rf.hicasso.impl.collector/last-reads)]
-    {:value value :entry entry :at-render (rf.hicasso.test.runtime/snapshot-of entry)}))
+  (let [value (rf.fresco.impl.collector/render-body frame-id (fn [_] (rf.fresco.impl.collector/sub [:staged/who])) {})
+        entry (rf.fresco.impl.collector/last-reads)]
+    {:value value :entry entry :at-render (rf.fresco.test.runtime/snapshot-of entry)}))
 
 (deftest a-staged-key-committed-across-a-same-id-reincarnation-sees-the-store-move
   (async done
@@ -119,7 +119,7 @@
           release-held (commit-held!)
           {:keys [value entry at-render]} (render-staged!)]
       (is (= "A" value) "the render painted the predecessor's value")
-      (is (some? (rf.hicasso.test.runtime/cell-reaction held-key))
+      (is (some? (rf.fresco.test.runtime/cell-reaction held-key))
           "and the frame holds one other cell, whose reaction the teardown will dispose")
 
       ;; THE GAP. The frame dies and comes back under the same id, with a
@@ -128,16 +128,16 @@
       (let [epoch-b (reincarnate-to-epoch! "B" epoch-a)]
         (is (= epoch-a epoch-b)
             "precondition: the successor's install epoch ties the predecessor's at render")
-        (is (nil? (rf.hicasso.test.runtime/cell-reaction held-key))
+        (is (nil? (rf.fresco.test.runtime/cell-reaction held-key))
             "the held cell's reaction was dropped synchronously by the teardown")
 
-        (rf.hicasso.checkpoint-support/at-the-checkpoint
-          #(some? (rf.hicasso.test.runtime/cell-reaction held-key))
+        (rf.fresco.checkpoint-support/at-the-checkpoint
+          #(some? (rf.fresco.test.runtime/cell-reaction held-key))
           "the held cell's reincarnation rewire"
           done
           (fn [_turns]
-            (let [release-staged (rf.hicasso.impl.collector/commit-boundary! entry (fn []))
-                  at-commit      (rf.hicasso.test.runtime/snapshot-of entry)]
+            (let [release-staged (rf.fresco.impl.collector/commit-boundary! entry (fn []))
+                  at-commit      (rf.fresco.test.runtime/snapshot-of entry)]
               (testing "the commit lands after the rewire, so React's
                         post-subscribe re-read of `getSnapshot` must differ
                         from the number the fiber captured at render — the
@@ -146,8 +146,8 @@
                     (str "basis@render " at-render " vs basis@commit " at-commit
                          ": a tie here is the predecessor's value left on screen")))
               (testing "and the cell the commit acquired answers for the successor"
-                (is (= "B" (rf.hicasso.impl.collector/render-body frame-id
-                                                  (fn [_] (rf.hicasso.impl.collector/sub [:staged/who]))
+                (is (= "B" (rf.fresco.impl.collector/render-body frame-id
+                                                  (fn [_] (rf.fresco.impl.collector/sub [:staged/who]))
                                                   {}))))
               (release-staged)
               (release-held))))))))
@@ -161,8 +161,8 @@
   (incarnate! "A" 3)
   (let [release-held (commit-held!)
         {:keys [entry at-render]} (render-staged!)
-        release-staged (rf.hicasso.impl.collector/commit-boundary! entry (fn []))]
-    (is (= at-render (rf.hicasso.test.runtime/snapshot-of entry))
+        release-staged (rf.fresco.impl.collector/commit-boundary! entry (fn []))]
+    (is (= at-render (rf.fresco.test.runtime/snapshot-of entry))
         "a cell born at the basis the render read contributes the same number")
     (release-staged)
     (release-held)))

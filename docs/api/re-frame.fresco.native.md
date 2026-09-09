@@ -1,15 +1,15 @@
-# re-frame.hicasso.native
+# re-frame.fresco.native
 
-The two React hooks that join a React **island** to the Hicasso frame it is
+The two React hooks that join a React **island** to the Fresco frame it is
 mounted in — and nothing else.
 
 ```clojure
-(:require [re-frame.hicasso.native :as n])
+(:require [re-frame.fresco.native :as n])
 ```
 
 An island is a UIx `defui` or a raw React function component, mounted through
-`h/defhost` or `[:>]`. It requires this namespace only when it needs Hicasso
-state, and nothing in `re-frame.hicasso` requires it, so an application with no
+`h/defhost` or `[:>]`. It requires this namespace only when it needs Fresco
+state, and nothing in `re-frame.fresco` requires it, so an application with no
 island carries none of it. React's own hooks are reached by direct `["react"]`
 interop and none are wrapped here: what React cannot supply is the frame, so the
 frame is all these two supply.
@@ -23,7 +23,7 @@ synchronous render does not reach them. That is the one rule the whole React
 hook family follows: `re-frame.adapter.uix`'s `use-sub` and `use-frame` answer
 identically, so a component that moves between the two substrates resolves the
 same frame. The islands themselves are taught in
-[The native tier](../core/hicasso/10-native-tier.md).
+[The native tier](../core/fresco/10-native-tier.md).
 
 ## The hooks
 
@@ -41,7 +41,7 @@ same frame. The islands themselves are taught in
   - It hands `useSyncExternalStore` the same `subscribe` and `getSnapshot` a
     boundary reading this key gets, so the read builds the same cell, joins the
     same reader membership and residue census, wakes on the same commit, and
-    appears in the same `re-frame.hicasso.tool` rosters Xray reads.
+    appears in the same `re-frame.fresco.tool` rosters Xray reads.
   - A re-render that changed no read performs no re-subscribe; unmount releases
     what mount acquired, StrictMode's double mount included.
   - A commit observed through it is a **blocking** update — React's rule for an
@@ -80,7 +80,7 @@ same frame. The islands themselves are taught in
 
 ## See also
 
-- [The native tier](../core/hicasso/10-native-tier.md) — islands, and when to
+- [The native tier](../core/fresco/10-native-tier.md) — islands, and when to
   reach for one
-- [Hicasso API reference](../core/hicasso/api-reference.md) — the full contract
-- [`re-frame.hicasso`](re-frame.hicasso.md) — the door, including `h/defhost`
+- [Fresco API reference](../core/fresco/api-reference.md) — the full contract
+- [`re-frame.fresco`](re-frame.fresco.md) — the door, including `h/defhost`

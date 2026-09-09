@@ -25,7 +25,7 @@ const NAV_TIMEOUT_MS = Number(process.env.XRAY_FEATURE_GATE_TIMEOUT_MS || 45000)
 
 // The 4-layer chrome's L3 tab bar exposes the 10 LIVE Dynamic tabs:
 // epoch / app-db / views / trace / machines / routing / resources /
-// derivation-graph / module-view / hicasso (spec/018 §5 §The 10 tabs;
+// derivation-graph / module-view / fresco (spec/018 §5 §The 10 tabs;
 // spec/007-UX-IA.md §L3). The Epoch panel is the canonical
 // "what happened in this epoch" surface; issues surface inline in the
 // Epoch panel + the L2 event-row pink-wash + the always-on issues
@@ -61,15 +61,15 @@ const PANEL_HANDOFFS = [
   // tab. Its root view always renders the `rf-xray-module-view` testid
   // (panels/module_view.cljs).
   ['module-view', 'rf-xray-module-view'],
-  // The :hicasso tab (rf2-hic-023) — six views over the Hicasso evidence
+  // The :fresco tab (rf2-hic-023) — six views over the Fresco evidence
   // surface, the last two (rf2-hic-037) derivations over the same four
   // evidence envelopes. L4-only registry tab. Its root view always renders the
-  // `rf-xray-hicasso` testid (panels/hicasso.cljs); the counter testbed is
-  // not a Hicasso application, so the panel renders its honest
-  // `rf-xray-hicasso-absent` state ("no Hicasso evidence on this host")
-  // under the same root — which is exactly the state a non-Hicasso host
+  // `rf-xray-fresco` testid (panels/fresco.cljs); the counter testbed is
+  // not a Fresco application, so the panel renders its honest
+  // `rf-xray-fresco-absent` state ("no Fresco evidence on this host")
+  // under the same root — which is exactly the state a non-Fresco host
   // should show, and is distinct from the idle and mismatch states.
-  ['hicasso', 'rf-xray-hicasso'],
+  ['fresco', 'rf-xray-fresco'],
   // There is no dedicated Issues tab to enumerate here; issues surface
   // inline in the Epoch panel + the L2 event-row pink-wash + the
   // always-on issues ribbon signal (the auto-open-on-error watcher).
@@ -238,9 +238,9 @@ async function openXray(page) {
 
 // The L3 tab bar's tabs expose `data-testid="rf-xray-tab-<id>"` for the
 // 10 LIVE Dynamic panels (epoch / app-db / views / trace / machines /
-// routing / resources / derivation-graph / module-view / hicasso —
+// routing / resources / derivation-graph / module-view / fresco —
 // spec/018 §5 §The 10 tabs; Resources per Spec 016 §Xray and AI
-// tooling; Graph + Frames per EP-0014 / EP-0013; Hicasso per
+// tooling; Graph + Frames per EP-0014 / EP-0013; Fresco per
 // rf2-hic-023).
 async function clickTab(page, id, canvasTestId) {
   await page.locator(`[data-testid="rf-xray-tab-${id}"]`).click();

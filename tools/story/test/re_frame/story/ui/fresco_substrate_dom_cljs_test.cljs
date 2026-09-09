@@ -1,32 +1,32 @@
-(ns re-frame.story.ui.hicasso-substrate-dom-cljs-test
-  "rf2-2dbpd — THE `:hicasso` SUBSTRATE RENDER FN, and the Reagent-parent
+(ns re-frame.story.ui.fresco-substrate-dom-cljs-test
+  "rf2-2dbpd — THE `:fresco` SUBSTRATE RENDER FN, and the Reagent-parent
   crossing it stands on.
 
   ## The spike this file was written to settle
 
-  rf2-5czki's survey found that Hicasso needs no new plumbing to paint in
-  Story's canvas — `rf.hicasso/as-element` mints a React element from a boundary
+  rf2-5czki's survey found that Fresco needs no new plumbing to paint in
+  Story's canvas — `rf.fresco/as-element` mints a React element from a boundary
   head, and the canvas already wraps the subject in
   `[rf/frame-provider {:frame variant-id} …]`, whose provider is the one
   React context every React-shaped adapter reads. But it also found that
-  NOTHING IN THE REPOSITORY WITNESSED THAT CROSSING: every `rf.hicasso/as-component`
-  / `rf.hicasso/as-element` boundary crossing had a Hicasso, native or UIx parent,
+  NOTHING IN THE REPOSITORY WITNESSED THAT CROSSING: every `rf.fresco/as-component`
+  / `rf.fresco/as-element` boundary crossing had a Fresco, native or UIx parent,
   and Reagent was not among them. The ruling named it the one material
   uncertainty and made proving it a precondition of the registration.
 
   This namespace is that proof, and then the registration's own coverage.
   `crossing-paints-under-a-reagent-parent` is the spike stated as a row:
-  a `rf.hicasso/defview` boundary, spliced into a REAGENT hiccup tree under
+  a `rf.fresco/defview` boundary, spliced into a REAGENT hiccup tree under
   `rf/frame-provider`, mounted through `reagent.dom.client` into a real
   DOM, painting its own markup and reading a subscription from the frame
   the Reagent provider scoped.
 
   ## The render fn under test is the SHIPPED RECIPE
 
-  Story ships no `install-hicasso-substrate!` — ruled (rf2-1gy4e
-  placement 1): `:hicasso` is host-registered exactly as `:uix` is, so
-  Story core never names Hicasso and `tools/story/deps.edn` is untouched.
-  [[hicasso-render]] below is therefore the CONSUMER's five lines, and it
+  Story ships no `install-fresco-substrate!` — ruled (rf2-1gy4e
+  placement 1): `:fresco` is host-registered exactly as `:uix` is, so
+  Story core never names Fresco and `tools/story/deps.edn` is untouched.
+  [[fresco-render]] below is therefore the CONSUMER's five lines, and it
   is byte-for-byte the recipe written out in
   `re-frame.story.ui.multi-substrate`'s ns docstring. It is registered
   here through the public `rf.story/register-substrate!` — no private seam,
@@ -40,10 +40,10 @@
   - **read it with `rf/view`**, the framework's own late-bind lookup,
     because the alias publishes its minted head at `:handler-fn` like
     every other substrate's `:view` entry (rf2-kuky.60). It used to read a
-    private `:hicasso/component` off `rf/handler-meta`, because the entry
+    private `:fresco/component` off `rf/handler-meta`, because the entry
     carried no `:handler-fn` and `rf/view` answered nil (rf2-5qaf4);
-  - **mint the element directly** with `rf.hicasso/as-element` rather than bridging
-    through `rf.hicasso/as-component`. `element-type-is-stable-across-renders` is
+  - **mint the element directly** with `rf.fresco/as-element` rather than bridging
+    through `rf.fresco/as-component`. `element-type-is-stable-across-renders` is
     the evidence: `defview` already mints ONE `React.memo` wrapper per
     head at definition time, so a fresh element per pass rides a stable
     type and the boundary re-renders instead of remounting. A memoized
@@ -61,23 +61,23 @@
   [[a-write-repaints-a-boundary-crossed-in-by-as-component]] below — and
   the crossing was never the variable. The measurement that produced the
   gap varied the mounting route AND the frame id at once, and it was the
-  second that carried the defect: `:story.hicasso/card`'s cell is still
-  in Hicasso's table when the row below it runs (this file's fixture
+  second that carried the defect: `:story.fresco/card`'s cell is still
+  in Fresco's table when the row below it runs (this file's fixture
   clears the registrar and re-registers `::counter`, which is a FIRST
-  registration and invalidates that cell), while the `rf.hicasso/render!` control
+  registration and invalidates that cell), while the `rf.fresco/render!` control
   named a frame no other row uses and so mounted against a clean table.
   `impl.collector/acquire-cell!` reused the invalidated cell without
   rebuilding its attachment, so the boundary got the right value from the
   cold probe and no watch to be notified through.
 
   The repair is in the acquire, and the witness that pins it — with the
-  crossing held OUT of the row, under `rf.hicasso/render!`, where the same
+  crossing held OUT of the row, under `rf.fresco/render!`, where the same
   deafness reproduces — is
-  `re-frame.hicasso.foreign-root-bridge-dom-cljs-test`. That file also
+  `re-frame.fresco.foreign-root-bridge-dom-cljs-test`. That file also
   drives five mounting routes, a UIx `defui` parent among them, and every
   one repaints.
 
-  **This file's fixture still does not reset the Hicasso runtime**, and
+  **This file's fixture still does not reset the Fresco runtime**, and
   that is deliberate rather than an oversight: the two returned rows earn
   their keep precisely because they mount against a cell an earlier row
   left behind.
@@ -97,7 +97,7 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso :as rf.hicasso]
+            [re-frame.fresco :as rf.fresco]
             [re-frame.machines :as rf.machines]
             [re-frame.registrar :as rf.registrar]
             [re-frame.story :as rf.story]
@@ -109,7 +109,7 @@
             [re-frame.subs :as rf.subs]))
 
 ;; ---------------------------------------------------------------------------
-;; The subject — ordinary Hicasso views, declared at namespace load
+;; The subject — ordinary Fresco views, declared at namespace load
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Declared at the top level, which is where `defview` belongs and also
@@ -117,38 +117,38 @@
 ;; namespace LOAD, before any fixture runs. `reset-all!` clears the
 ;; framework registrar, so the aliases are snapshotted below and folded
 ;; back before each test — the same problem (and the same shape of answer)
-;; `re-frame.hicasso.view-alias-registry-cljs-test` solves by pinning its
+;; `re-frame.fresco.view-alias-registry-cljs-test` solves by pinning its
 ;; fixture baseline after the declarations.
 
 (defonce ^:private !card-runs (atom 0))
 
-(rf.hicasso/defview hicasso-card
+(rf.fresco/defview fresco-card
   "An ordinary boundary. It reads a subscription, so the frame it resolved
   is observable on screen rather than only in a cell table."
   [props]
   (swap! !card-runs inc)
-  [:article {:class "hic-card" :data-test "hicasso-card"}
-   (str (:label props) "/" (rf.hicasso/sub [::counter]))])
+  [:article {:class "hic-card" :data-test "fresco-card"}
+   (str (:label props) "/" (rf.fresco/sub [::counter]))])
 
-(rf.hicasso/defview hicasso-panel
-  "A SECOND boundary, so a row can tell one hicasso view from another
+(rf.fresco/defview fresco-panel
+  "A SECOND boundary, so a row can tell one fresco view from another
   rather than merely from Reagent."
   [props]
-  [:aside {:data-test "hicasso-panel"} (str "panel:" (:label props))])
+  [:aside {:data-test "fresco-panel"} (str "panel:" (:label props))])
 
-(def ^:private card-id  ::hicasso-card)
-(def ^:private panel-id ::hicasso-panel)
+(def ^:private card-id  ::fresco-card)
+(def ^:private panel-id ::fresco-panel)
 
 (def ^:private bridged-card
   "THE OTHER BRIDGE DOOR, minted once at top level — the law, because
-  `rf.hicasso/as-component` allocates a component and minting one inside a render
+  `rf.fresco/as-component` allocates a component and minting one inside a render
   would hand React a fresh element type every pass. Memoized on the head
   the way rf2-phabt's route 3 spells it, so the two returned rows differ
   by the DOOR and by nothing else."
-  (react/memo (rf.hicasso/as-component hicasso-card)))
+  (react/memo (rf.fresco/as-component fresco-card)))
 
 (def ^:private alias-entries
-  "The registrar entries `rf.hicasso/defview` published at NAMESPACE LOAD, captured
+  "The registrar entries `rf.fresco/defview` published at NAMESPACE LOAD, captured
   before any fixture can clear them. `reset-all!` folds them back.
 
   Snapshotting the WHOLE entry rather than re-deriving it keeps this
@@ -162,14 +162,14 @@
 ;; THE RECIPE UNDER TEST — the consumer's five lines
 ;; ---------------------------------------------------------------------------
 
-(defn- hicasso-render
-  "The `:hicasso` substrate render fn, exactly as a host writes it (and
+(defn- fresco-render
+  "The `:fresco` substrate render fn, exactly as a host writes it (and
   exactly as `multi-substrate`'s ns docstring writes it out)."
   [_variant-id view-id args]
   (if-let [head (rf/view view-id)]
-    (rf.hicasso/as-element [head args])
+    (rf.fresco/as-element [head args])
     [:div (str ":component " (pr-str view-id)
-               " is not registered as a hicasso view")]))
+               " is not registered as a fresco view")]))
 
 ;; ---- fixture --------------------------------------------------------------
 
@@ -195,18 +195,18 @@
   ;; Fold the load-time aliases back over the cleared registrar.
   (doseq [[id entry] alias-entries]
     (rf.registrar/register! :view id entry))
-  ;; Start every case from a KNOWN-EMPTY `:hicasso` slot: the degradation
+  ;; Start every case from a KNOWN-EMPTY `:fresco` slot: the degradation
   ;; row wants it absent, every other row registers it.
-  (rf.story.ui.multi-substrate/unregister-substrate! :hicasso)
+  (rf.story.ui.multi-substrate/unregister-substrate! :fresco)
   (reset! !card-runs 0)
   (register-probes!))
 
 (defn- restore-registry!
   "`substrate->render-fn` is a `defonce` atom that `rf.story/clear-all!` does
-  not touch, so a `:hicasso` entry left here would leak into every
+  not touch, so a `:fresco` entry left here would leak into every
   namespace that runs after this one."
   []
-  (rf.story.ui.multi-substrate/unregister-substrate! :hicasso))
+  (rf.story.ui.multi-substrate/unregister-substrate! :fresco))
 
 (use-fixtures :each {:before reset-all! :after restore-registry!})
 
@@ -223,25 +223,25 @@
     (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
   (rf/reg-sub ::counter (fn [db _] (or (:n db) 0)))
   ;; A Reagent view registered under a DIFFERENT id, reachable only
-  ;; through `rf/view`. A hicasso variant must never resolve to it.
+  ;; through `rf/view`. A fresco variant must never resolve to it.
   (rf/reg-view* :views/reagent-probe reagent-probe-view)
-  (rf.story/reg-story* :story.hicasso {:doc "rf2-2dbpd witness story"})
-  (rf.story/reg-variant* :story.hicasso/card
+  (rf.story/reg-story* :story.fresco {:doc "rf2-2dbpd witness story"})
+  (rf.story/reg-variant* :story.fresco/card
     {:doc        "One declared substrate, and it is the native one."
      :component  card-id
-     :substrates #{:hicasso}
+     :substrates #{:fresco}
      :args       {:label "alpha"}
      :loaders    [[:noop/loader]]})
-  (rf.story/reg-variant* :story.hicasso/panel
-    {:doc        "A second hicasso view under the same substrate."
+  (rf.story/reg-variant* :story.fresco/panel
+    {:doc        "A second fresco view under the same substrate."
      :component  panel-id
-     :substrates #{:hicasso}
+     :substrates #{:fresco}
      :args       {:label "beta"}
      :loaders    [[:noop/loader]]})
-  (rf.story/reg-variant* :story.hicasso/missing-view
+  (rf.story/reg-variant* :story.fresco/missing-view
     {:doc        "Names a view no registrar entry answers for."
      :component  :views/nobody-registered-this
-     :substrates #{:hicasso}
+     :substrates #{:fresco}
      :loaders    [[:noop/loader]]}))
 
 ;; ---- helpers --------------------------------------------------------------
@@ -254,10 +254,10 @@
 
 (defn- settle!
   "The ratom host's drain, and it is two acts rather than one — the pair
-  `re-frame.bench.hicasso.arm1.ratom-activation-dom-cljs-test` spells out.
+  `re-frame.bench.fresco.arm1.ratom-activation-dom-cljs-test` spells out.
 
   `r/flush` runs the reactions the write enqueued, which is what turns an
-  activated node's recompute into the `notify-w` a Hicasso cell's watch
+  activated node's recompute into the `notify-w` a Fresco cell's watch
   rides (a re-frame subscription under the ratom family IS a bare
   `reagent.ratom/Reaction`). The empty `flushSync` then lets the sync-lane
   `onStoreChange` that raised commit — `impl.mount/settle!`'s shape,
@@ -301,22 +301,22 @@
   (some? (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "reagent-view-render")))
 
 ;; ===========================================================================
-;; 1 · THE SPIKE — a Hicasso boundary paints inside a REAGENT tree
+;; 1 · THE SPIKE — a Fresco boundary paints inside a REAGENT tree
 ;; ===========================================================================
 
 (deftest crossing-paints-under-a-reagent-parent
   (testing "rf2-2dbpd's mandated spike. Nothing in the repository witnessed
-            a Hicasso boundary rendering inside a REAGENT tree: the
+            a Fresco boundary rendering inside a REAGENT tree: the
             crossing is designed and documented, and every witnessed parent
-            was Hicasso, native or UIx. This mounts one — a `rf.hicasso/defview`
-            head, minted to an element by `rf.hicasso/as-element`, spliced into a
+            was Fresco, native or UIx. This mounts one — a `rf.fresco/defview`
+            head, minted to an element by `rf.fresco/as-element`, spliced into a
             Reagent hiccup vector under `rf/frame-provider`, committed
             through `reagent.dom.client` into a real DOM. If this row
             cannot be made green the registration is worthless and the
-            answer is a Hicasso finding, not a Story workaround."
+            answer is a Fresco finding, not a Story workaround."
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs this row")
-      (let [variant-id :story.hicasso/card
+      (let [variant-id :story.fresco/card
             mount-node (make-mount-node!)
             root       (rdc/create-root mount-node)]
         (rf/make-frame {:id variant-id})
@@ -327,10 +327,10 @@
               (rdc/render root
                 [rf/frame-provider {:frame variant-id}
                  [:div.reagent-parent
-                  (rf.hicasso/as-element [hicasso-card {:label "alpha"}])]])))
-          (let [el (.querySelector mount-node "[data-test=\"hicasso-card\"]")]
+                  (rf.fresco/as-element [fresco-card {:label "alpha"}])]])))
+          (let [el (.querySelector mount-node "[data-test=\"fresco-card\"]")]
             (is (some? el)
-                "THE CROSSING PAINTS — a Hicasso boundary rendered its own
+                "THE CROSSING PAINTS — a Fresco boundary rendered its own
                  markup inside a Reagent parent, with no second root and no
                  mount door called")
             (is (= "alpha/7" (some-> el .-textContent))
@@ -342,13 +342,13 @@
           (finally
             (try (.unmount root) (catch :default _ nil))))))))
 
-(deftest a-write-repaints-a-boundary-under-hicassos-own-root
+(deftest a-write-repaints-a-boundary-under-frescos-own-root
   (testing "THE LIVE HALF OF THE KNOWN GAP, and the reason the gap's zero
             can be read at all (see this namespace's §KNOWN GAP).
 
             The same boundary, the same subscription, the same Reagent
             adapter, the same write and the same drain — mounted through
-            Hicasso's OWN root door rather than spliced into a Reagent
+            Fresco's OWN root door rather than spliced into a Reagent
             tree. It repaints. So when the crossed counterpart does not,
             the difference is the CROSSING and not the substrate, the
             harness, the drain or the adapter — a zero with no live
@@ -363,14 +363,14 @@
             container (make-mount-node!)]
         (rf/make-frame {:id frame-id})
         (rf/dispatch-sync [:hicsub/bump 1] {:frame frame-id})
-        (let [handle (rf.hicasso/client-root)]
-          (rf.hicasso/render! handle
-                              [rf.hicasso/frame-provider {:frame frame-id}
-                               [hicasso-card {:label "ctl"}]]
+        (let [handle (rf.fresco/client-root)]
+          (rf.fresco/render! handle
+                              [rf.fresco/frame-provider {:frame frame-id}
+                               [fresco-card {:label "ctl"}]]
                               container)
           (try
             (is (= "ctl/1"
-                   (some-> (.querySelector container "[data-test=\"hicasso-card\"]")
+                   (some-> (.querySelector container "[data-test=\"fresco-card\"]")
                            .-textContent))
                 "mounted, and read its frame")
             (let [runs-at-mount @!card-runs]
@@ -380,11 +380,11 @@
                   "the write re-ran the body — the notification channel is
                    alive on this adapter, with this drain")
               (is (= "ctl/42"
-                     (some-> (.querySelector container "[data-test=\"hicasso-card\"]")
+                     (some-> (.querySelector container "[data-test=\"fresco-card\"]")
                              .-textContent))
                   "and the readout moved"))
             (finally
-              (try (rf.hicasso/unmount! handle) (catch :default _ nil)))))))))
+              (try (rf.fresco/unmount! handle) (catch :default _ nil)))))))))
 
 (defn- write-and-settle!
   "Write `n` into `frame-kw` and drain, the way a story's own interaction
@@ -397,14 +397,14 @@
 (deftest a-write-repaints-a-crossed-boundary
   (testing "rf2-phabt's ROUTE 2, restored. It ran red once and was removed
             rather than shipped red: a boundary spliced into a Reagent
-            tree by `rf.hicasso/as-element` painted `alpha/1` and then did not move
+            tree by `rf.fresco/as-element` painted `alpha/1` and then did not move
             on a write into its own frame, with the body run count saying
             so — 1 to 1, a missing notification rather than a stale read.
 
             It is green because `impl.collector/acquire-cell!` now rebuilds
             the attachment of a cell it REUSES. This row mounts on
-            `:story.hicasso/card`, whose cell an earlier row in this file
-            leaves in Hicasso's table and this file's fixture then
+            `:story.fresco/card`, whose cell an earlier row in this file
+            leaves in Fresco's table and this file's fixture then
             invalidates by re-registering `::counter` from cold — which is
             the state the original red was taken in, and the reason the
             frame id is this one rather than a fresh one.
@@ -415,10 +415,10 @@
             fixed one."
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs this row")
-      (let [variant-id :story.hicasso/card
+      (let [variant-id :story.fresco/card
             mount-node (make-mount-node!)
             root       (rdc/create-root mount-node)
-            card-text  #(some-> (.querySelector mount-node "[data-test=\"hicasso-card\"]")
+            card-text  #(some-> (.querySelector mount-node "[data-test=\"fresco-card\"]")
                                 .-textContent)]
         (rf/make-frame {:id variant-id})
         (write-and-settle! variant-id 1)
@@ -428,7 +428,7 @@
               (rdc/render root
                 [rf/frame-provider {:frame variant-id}
                  [:div.reagent-parent
-                  (rf.hicasso/as-element [hicasso-card {:label "alpha"}])]])))
+                  (rf.fresco/as-element [fresco-card {:label "alpha"}])]])))
           (is (= "alpha/1" (card-text)) "it painted, reading the variant's frame")
           (let [runs-at-mount @!card-runs]
             (write-and-settle! variant-id 42)
@@ -448,10 +448,10 @@
             deaf, and this row is what would say so."
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs this row")
-      (let [variant-id :story.hicasso/card
+      (let [variant-id :story.fresco/card
             mount-node (make-mount-node!)
             root       (rdc/create-root mount-node)
-            card-text  #(some-> (.querySelector mount-node "[data-test=\"hicasso-card\"]")
+            card-text  #(some-> (.querySelector mount-node "[data-test=\"fresco-card\"]")
                                 .-textContent)]
         (rf/make-frame {:id variant-id})
         (write-and-settle! variant-id 1)
@@ -478,7 +478,7 @@
             per head at definition time and every element rides that type.
             Drive the Reagent parent to re-render and the boundary must
             RE-RENDER, never remount — a remount is what a per-render
-            `rf.hicasso/as-component` would have produced, and it would have been
+            `rf.fresco/as-component` would have produced, and it would have been
             invisible on screen.
 
             REMOUNT IS MEASURED ON THE DOM NODE'S IDENTITY, which is the
@@ -500,15 +500,15 @@
             what a Reagent parent re-rendering actually looks like."
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs this row")
-      (let [variant-id :story.hicasso/card
+      (let [variant-id :story.fresco/card
             mount-node (make-mount-node!)
             root       (rdc/create-root mount-node)
             !label     (r/atom "alpha")
             parent     (fn []
                          [:div.reagent-parent
                           [:i (str "parent:" @!label)]
-                          (hicasso-render variant-id card-id {:label @!label})])
-            card-node  #(.querySelector mount-node "[data-test=\"hicasso-card\"]")
+                          (fresco-render variant-id card-id {:label @!label})])
+            card-node  #(.querySelector mount-node "[data-test=\"fresco-card\"]")
             relabel!   (fn [label]
                          (react-dom/flushSync
                            (fn [] (reset! !label label) (r/flush))))]
@@ -540,44 +540,44 @@
 ;; 2 · the PUBLIC registry — the render fn is on the canvas's default path
 ;; ===========================================================================
 
-(deftest the-registered-hicasso-render-fn-is-what-the-single-pane-reaches
+(deftest the-registered-fresco-render-fn-is-what-the-single-pane-reaches
   (testing "rf2-3afns put the substrate registry ON the canvas single-pane
             path, which is what makes registering into it worth anything.
-            A variant declaring `:substrates #{:hicasso}` must reach the
-            fn registered under `:hicasso` — and must NOT fall through to
+            A variant declaring `:substrates #{:fresco}` must reach the
+            fn registered under `:fresco` — and must NOT fall through to
             the `:reagent` branch, which since rf2-kuky.60 RESOLVES a
-            hicasso alias through `rf/view` and refuses it with the
+            fresco alias through `rf/view` and refuses it with the
             foreign-substrate diagnostic. Before that flip the fall-through
             degraded to the missing-view diagnostic instead; either way it
             is a wrong pane, which is what this row holds."
-    (rf.story/register-substrate! :hicasso hicasso-render)
-    (let [tree (ready-tree :story.hicasso/card)
+    (rf.story/register-substrate! :fresco fresco-render)
+    (let [tree (ready-tree :story.fresco/card)
           el   (find-react-element tree)]
       (is (some? el)
-          "the canvas tree carries a React element — the `:hicasso` render
+          "the canvas tree carries a React element — the `:fresco` render
            fn ran and minted one")
       (is (not (rendered-under-reagent? tree))
           "and nothing painted under Reagent")
-      (is (identical? (unchecked-get hicasso-card "hicassoMemo") (.-type el))
+      (is (identical? (unchecked-get fresco-card "frescoMemo") (.-type el))
           "the element's TYPE is the head's own stable memo wrapper, so the
            boundary React reconciles is the one `defview` minted")
       (is (= {:label "alpha"} (unchecked-get (.-props el) "rfProps"))
           "and Story's resolved args crossed as the boundary's props map —
            kebab keywords, by identity, with no camelCase round trip")
-      (rf.story/destroy-variant! :story.hicasso/card))))
+      (rf.story/destroy-variant! :story.fresco/card))))
 
-(deftest two-hicasso-views-are-two-elements
+(deftest two-fresco-views-are-two-elements
   (testing "the registry entry resolves the variant's OWN `:component`,
-            not merely 'some hicasso view'. Two variants under one
+            not merely 'some fresco view'. Two variants under one
             substrate must mint two different element types."
-    (rf.story/register-substrate! :hicasso hicasso-render)
-    (let [card  (find-react-element (ready-tree :story.hicasso/card))
-          panel (find-react-element (ready-tree :story.hicasso/panel))]
-      (is (identical? (unchecked-get hicasso-card "hicassoMemo") (.-type card)))
-      (is (identical? (unchecked-get hicasso-panel "hicassoMemo") (.-type panel)))
+    (rf.story/register-substrate! :fresco fresco-render)
+    (let [card  (find-react-element (ready-tree :story.fresco/card))
+          panel (find-react-element (ready-tree :story.fresco/panel))]
+      (is (identical? (unchecked-get fresco-card "frescoMemo") (.-type card)))
+      (is (identical? (unchecked-get fresco-panel "frescoMemo") (.-type panel)))
       (is (not (identical? (.-type card) (.-type panel))))
-      (rf.story/destroy-variant! :story.hicasso/card)
-      (rf.story/destroy-variant! :story.hicasso/panel))))
+      (rf.story/destroy-variant! :story.fresco/card)
+      (rf.story/destroy-variant! :story.fresco/panel))))
 
 (deftest element-type-is-stable-across-renders
   (testing "THE IDENTITY DECISION, stated where it can be checked without a
@@ -585,9 +585,9 @@
             elements with the SAME type. That is the whole basis for
             returning a direct element mint and keeping no cache — the
             stability React needs is already in the head."
-    (rf.story/register-substrate! :hicasso hicasso-render)
-    (let [a (hicasso-render :story.hicasso/card card-id {:label "one"})
-          b (hicasso-render :story.hicasso/card card-id {:label "two"})]
+    (rf.story/register-substrate! :fresco fresco-render)
+    (let [a (fresco-render :story.fresco/card card-id {:label "one"})
+          b (fresco-render :story.fresco/card card-id {:label "two"})]
       (is (not (identical? a b)) "a fresh element per pass")
       (is (identical? (.-type a) (.-type b)) "riding one stable type"))))
 
@@ -597,87 +597,87 @@
             registrar entry behind the same id; the story must pick the new
             head up with no story change. Simulated the way a reload works
             — a second entry written under the same id."
-    (rf.story/register-substrate! :hicasso hicasso-render)
-    (let [before (.-type (hicasso-render :story.hicasso/card card-id {}))]
+    (rf.story/register-substrate! :fresco fresco-render)
+    (let [before (.-type (fresco-render :story.fresco/card card-id {}))]
       (rf.registrar/register! :view card-id
-        (assoc (get alias-entries card-id) :handler-fn hicasso-panel))
-      (let [after (.-type (hicasso-render :story.hicasso/card card-id {}))]
+        (assoc (get alias-entries card-id) :handler-fn fresco-panel))
+      (let [after (.-type (fresco-render :story.fresco/card card-id {}))]
         (is (not (identical? before after))
             "the story followed the replaced entry")
-        (is (identical? (unchecked-get hicasso-panel "hicassoMemo") after)
+        (is (identical? (unchecked-get fresco-panel "frescoMemo") after)
             "to the NEW head, resolved at render time")))))
 
 ;; ===========================================================================
 ;; 3 · degradation — the two misses, each at its own level
 ;; ===========================================================================
 
-(deftest a-hicasso-id-that-resolves-to-nothing-degrades-inline
+(deftest a-fresco-id-that-resolves-to-nothing-degrades-inline
   (testing "`:component` naming a view no registrar entry answers for. The
             render fn returns the same style of inline diagnostic
             `reagent-render` returns — a FRAGMENT-level miss, not a grid
             cell — and names the id so the author knows what to fix."
-    (rf.story/register-substrate! :hicasso hicasso-render)
-    (let [tree (ready-tree :story.hicasso/missing-view)
+    (rf.story/register-substrate! :fresco fresco-render)
+    (let [tree (ready-tree :story.fresco/missing-view)
           text (rf.story.test-helpers.e2e-multi-frame/text-nodes tree)]
       (is (nil? (find-react-element tree))
           "nothing was minted — there was no head to mint from")
-      (is (re-find #"is not registered as a hicasso view" text))
+      (is (re-find #"is not registered as a fresco view" text))
       (is (re-find #"views/nobody-registered-this" text)
           "and it names WHICH view")
-      (rf.story/destroy-variant! :story.hicasso/missing-view))))
+      (rf.story/destroy-variant! :story.fresco/missing-view))))
 
-(deftest a-hicasso-variant-with-no-registered-substrate-says-so
+(deftest a-fresco-variant-with-no-registered-substrate-says-so
   (testing "the host never called `register-substrate!`. The single pane
             must say so — loudly, at the fragment level — rather than
             silently painting Reagent, which is the defect rf2-3afns
             closed and the one this substrate must not reopen."
-    (is (not (contains? @rf.story.ui.multi-substrate/substrate->render-fn :hicasso))
-        "precondition: `:hicasso` absent from the registry")
-    (let [tree (ready-tree :story.hicasso/card)
+    (is (not (contains? @rf.story.ui.multi-substrate/substrate->render-fn :fresco))
+        "precondition: `:fresco` absent from the registry")
+    (let [tree (ready-tree :story.fresco/card)
           text (rf.story.test-helpers.e2e-multi-frame/text-nodes tree)]
       (is (re-find #"is not registered" text))
-      (is (re-find #"hicasso" text) "and it names WHICH substrate")
+      (is (re-find #"fresco" text) "and it names WHICH substrate")
       (is (not (rendered-under-reagent? tree))
           "it did NOT fall back to Reagent — falling back silently is the
            bug, not the remedy")
-      (rf.story/destroy-variant! :story.hicasso/card))))
+      (rf.story/destroy-variant! :story.fresco/card))))
 
-(deftest rf-view-answers-the-hicasso-alias-and-answers-it-untouched
+(deftest rf-view-answers-the-fresco-alias-and-answers-it-untouched
   (testing "the premise the whole render fn is built on, and it INVERTED
             under rf2-kuky.60. The alias entry publishes its minted head at
             `:handler-fn` — the one executable slot every substrate's
-            `:view` entry uses — so `rf/view` answers a Hicasso boundary
+            `:view` entry uses — so `rf/view` answers a Fresco boundary
             the way it answers a Reagent or a UIx head, and this render fn
             needs no second descriptor shape. What comes back is the `def`
             value itself: `view-head` returns a slot it did not build
             exactly as stored, so nothing wrapped or componentised a
             boundary that already is a React component."
     (is (some? (rf/view card-id)))
-    (is (identical? hicasso-card (rf/view card-id))
+    (is (identical? fresco-card (rf/view card-id))
         "the very value the `def` binds")
-    (is (identical? hicasso-card (:handler-fn (rf/handler-meta {:source :store :kind :view :id card-id}))))
-    (is (not (contains? (rf/handler-meta {:source :store :kind :view :id card-id}) :hicasso/component))
+    (is (identical? fresco-card (:handler-fn (rf/handler-meta {:source :store :kind :view :id card-id}))))
+    (is (not (contains? (rf/handler-meta {:source :store :kind :view :id card-id}) :fresco/component))
         "and the private slot it used to ride is gone, so no consumer can
          still be reading it"))
 
   (testing "THE HAZARD THAT NIL USED TO COVER FOR, now covered by a guard
             instead. While `rf/view` answered nil, the `:reagent` substrate
-            could not paint a Hicasso head because it could not find one.
+            could not paint a Fresco head because it could not find one.
             Now it finds one — and a boundary is a React component type, so
             splicing `[head args]` into a Reagent tree would call a plain
             function with the wrong ABI. `reagent-render` reads the
-            `hicassoBoundary` own-property and returns its inline
+            `frescoBoundary` own-property and returns its inline
             diagnostic instead, naming the substrate that CAN mount it."
     (rf.story.ui.multi-substrate/install-reagent-substrate!)
     (let [painted (rf.story.ui.multi-substrate/render-view
-                    :reagent :story.hicasso/card card-id {:label "one"})
+                    :reagent :story.fresco/card card-id {:label "one"})
           text    (pr-str painted)]
-      (is (not (identical? hicasso-card (first painted)))
+      (is (not (identical? fresco-card (first painted)))
           "the head was NOT spliced into head position, which is the
            wrong-ABI call this guard exists to prevent")
       (is (= :div (first painted))
           "what came back is the inline diagnostic")
-      (is (re-find #"hicasso" text)
+      (is (re-find #"fresco" text)
           "the diagnostic names the substrate that can mount it")
       (is (re-find #":substrates" text)
           "and tells the author what to declare")))
@@ -689,6 +689,6 @@
             `:reagent` branch having stopped working"
     (rf.story.ui.multi-substrate/install-reagent-substrate!)
     (let [painted (rf.story.ui.multi-substrate/render-view
-                    :reagent :story.hicasso/card :views/reagent-probe {})]
+                    :reagent :story.fresco/card :views/reagent-probe {})]
       (is (identical? (rf/view :views/reagent-probe) (first painted))
           "spliced in head position, exactly as before this change"))))

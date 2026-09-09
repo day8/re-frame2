@@ -1,10 +1,10 @@
-(ns re-frame.hicasso.examples.typeahead.db
+(ns re-frame.fresco.examples.typeahead.db
   "THE TYPEAHEAD'S MODEL — the shape, and the four pure questions the
   ceremony keeps asking.
 
   This namespace holds no ceremony of its own. It holds the model, and the
   predicates the handlers in
-  [[re-frame.hicasso.examples.typeahead.events]] have to consult in order
+  [[re-frame.fresco.examples.typeahead.events]] have to consult in order
   to keep a resource's life correlated with a read's. Naming them here
   rather than inlining them is what makes the census in that file
   readable: a ceremony site is then the CALL and the decision around it,

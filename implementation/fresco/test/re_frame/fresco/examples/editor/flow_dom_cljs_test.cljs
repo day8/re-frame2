@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.editor.flow-dom-cljs-test
+(ns re-frame.fresco.examples.editor.flow-dom-cljs-test
   "L3 — THE FOUR-FIELD EDITOR, MOUNTED AND TYPED INTO.
 
   `l2-cljs-test` says what the bodies MEAN. This file puts them on a real
@@ -29,7 +29,7 @@
   numbers from this application. Two of those five are counted here:
   `l0-cljs-test/one-keystroke-moves-exactly-one-address` is the write, and
   [[the-per-keystroke-body-count-is-one-and-does-not-grow]] is the body count,
-  read off [[re-frame.hicasso.test.mounted/bodies-run]].
+  read off [[re-frame.fresco.test.mounted/bodies-run]].
 
   **That door is the kit's, and the budget is stated through it.**
   `test.runtime/body-runs` is the internal behind it, and a test is
@@ -52,12 +52,12 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.editor.app :as rf.hicasso.examples.editor.app]
-            [re-frame.hicasso.examples.editor.events :as rf.hicasso.examples.editor.events]
-            [re-frame.hicasso.examples.editor.subs :as rf.hicasso.examples.editor.subs]
-            [re-frame.hicasso.examples.editor.views :as rf.hicasso.examples.editor.views]
-            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.editor.app :as rf.fresco.examples.editor.app]
+            [re-frame.fresco.examples.editor.events :as rf.fresco.examples.editor.events]
+            [re-frame.fresco.examples.editor.subs :as rf.fresco.examples.editor.subs]
+            [re-frame.fresco.examples.editor.views :as rf.fresco.examples.editor.views]
+            [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
@@ -76,7 +76,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- mount-editor! []
-  (rf.hicasso.test.mounted/mount! [rf.hicasso.examples.editor.views/editor {}] {:initial-events rf.hicasso.examples.editor.app/initial-events}))
+  (rf.fresco.test.mounted/mount! [rf.fresco.examples.editor.views/editor {}] {:initial-events rf.fresco.examples.editor.app/initial-events}))
 
 (defn- node [m selector] (.querySelector (:container m) selector))
 
@@ -86,7 +86,7 @@
   (.-textContent (node m (str "[data-committed='" (name field) "']"))))
 
 (defn- model [m field]
-  (rf/with-frame (:frame m) (deref (rf/subscribe [::rf.hicasso.examples.editor.subs/field field]))))
+  (rf/with-frame (:frame m) (deref (rf/subscribe [::rf.fresco.examples.editor.subs/field field]))))
 
 (defn- set-native-value!
   "Write `v` through the element prototype's OWN `value` setter, bypassing
@@ -120,13 +120,13 @@
     (let [m (mount-editor!)
           n (field-node m :title)]
       (type-into! n "!")
-      (rf.hicasso.test.mounted/settle! m)
+      (rf.fresco.test.mounted/settle! m)
       (is (= "Intents are data!" (.-value n))
           "the character the model TOOK is on the glass. This is the
            converge's own trap: writing the change handler's stale closure
            value back here would wipe the character just typed")
       (is (= "Intents are data!" (model m :title)))
-      (rf.hicasso.test.mounted/unmount! m))))
+      (rf.fresco.test.mounted/unmount! m))))
 
 (deftest a-normalised-keystroke-echoes-the-COMMITTED-value
   (if-not (browser?)
@@ -135,14 +135,14 @@
           n (field-node m :slug)]
       (set-native-value! n "")
       (type-into! n "Hello,   World")
-      (rf.hicasso.test.mounted/settle! m)
+      (rf.fresco.test.mounted/settle! m)
       (is (= "hello-world" (model m :slug))
           "the model normalised")
       (is (= "hello-world" (.-value n))
           "AND THE FIELD SHOWS THE MODEL, not what was typed — at a length
            the typing did not have. A field that echoed nothing would be
            green on a length-preserving normalisation and red here")
-      (rf.hicasso.test.mounted/unmount! m))))
+      (rf.fresco.test.mounted/unmount! m))))
 
 (deftest the-checkbox-writes-a-boolean-through-a-real-click
   (if-not (browser?)
@@ -151,25 +151,25 @@
           n (field-node m :published)]
       (is (false? (.-checked n)))
       (click! n)
-      (rf.hicasso.test.mounted/settle! m)
+      (rf.fresco.test.mounted/settle! m)
       (is (true? (.-checked n)))
       (is (true? (model m :published?)))
-      (rf.hicasso.test.mounted/unmount! m))))
+      (rf.fresco.test.mounted/unmount! m))))
 
 (deftest the-readout-holds-still-while-you-type-and-moves-when-you-save
   (if-not (browser?)
     (skip! "the committed readout")
     (let [m (mount-editor!)]
       (type-into! (field-node m :title) "!")
-      (rf.hicasso.test.mounted/settle! m)
+      (rf.fresco.test.mounted/settle! m)
       (is (= "Intents are data" (committed-text m :title))
           "\"echoes only committed state\", readable off the page: the
            readout subscribes to `::subs/committed` and a keystroke moves
            the draft, so the readout is not notified at all")
       (click! (node m "#save"))
-      (rf.hicasso.test.mounted/settle! m)
+      (rf.fresco.test.mounted/settle! m)
       (is (= "Intents are data!" (committed-text m :title)))
-      (rf.hicasso.test.mounted/unmount! m))))
+      (rf.fresco.test.mounted/unmount! m))))
 
 ;; ---------------------------------------------------------------------------
 ;; The reset — the slice authoring report's finding 5, measured
@@ -187,14 +187,14 @@
       (type-into! slug "-x")
       (type-into! body " More.")
       (click! box)
-      (rf.hicasso.test.mounted/settle! m)
-      (is (= 0 (rf/with-frame (:frame m) (deref (rf/subscribe [::rf.hicasso.examples.editor.subs/revision]))))
+      (rf.fresco.test.mounted/settle! m)
+      (is (= 0 (rf/with-frame (:frame m) (deref (rf/subscribe [::rf.fresco.examples.editor.subs/revision]))))
           "nothing has reset yet")
 
       (click! (node m "#discard"))
-      (rf.hicasso.test.mounted/settle! m)
+      (rf.fresco.test.mounted/settle! m)
 
-      (is (= 1 (rf/with-frame (:frame m) (deref (rf/subscribe [::rf.hicasso.examples.editor.subs/revision]))))
+      (is (= 1 (rf/with-frame (:frame m) (deref (rf/subscribe [::rf.fresco.examples.editor.subs/revision]))))
           "ONE, from an `app-db` that had no `:revision` key — the
            `(fnil inc 0)` nothing on the door asks an author to write")
       (is (= "Intents are data" (.-value title)))
@@ -202,9 +202,9 @@
       (is (= false (.-checked box))
           "the checkbox restores WITHOUT a revision, which is why
            `published-box` carries none")
-      (is (= (get-in rf.hicasso.examples.editor.events/seed [:article :body]) (.-value body))
+      (is (= (get-in rf.fresco.examples.editor.events/seed [:article :body]) (.-value body))
           "and the textarea restores on the same law as the inputs")
-      (rf.hicasso.test.mounted/unmount! m))))
+      (rf.fresco.test.mounted/unmount! m))))
 
 (deftest what-the-revision-bump-is-actually-load-bearing-FOR
   ;; The slice authoring report's finding 5 says the bump is needed
@@ -258,8 +258,8 @@
           title (field-node m :title)
           slug  (field-node m :slug)]
       (type-into! title "!")
-      (rf.hicasso.test.mounted/settle! m)
-      (is (true? (rf/with-frame (:frame m) (deref (rf/subscribe [::rf.hicasso.examples.editor.subs/dirty?]))))
+      (rf.fresco.test.mounted/settle! m)
+      (is (true? (rf/with-frame (:frame m) (deref (rf/subscribe [::rf.fresco.examples.editor.subs/dirty?]))))
           "dirtied from the OTHER field, so `#discard` is live and the
            slug's own address is not among what the discard will move")
 
@@ -274,7 +274,7 @@
            keystroke's divergence never saw it")
 
       (click! (node m "#discard"))
-      (rf.hicasso.test.mounted/settle! m)
+      (rf.fresco.test.mounted/settle! m)
       (is (= "intents-are-data" (.-value slug))
           "re-baselined, and the counter is the only thing that could have
            done it. `:draft :slug` never moved, so of this boundary's two
@@ -286,9 +286,9 @@
            the field still showing `typed-by-nobody` — measured, and that
            is why the counter cannot be dropped as bookkeeping nobody can
            see a reason for")
-      (rf.hicasso.test.mounted/unmount! m))))
+      (rf.fresco.test.mounted/unmount! m))))
 
-(rf.hicasso/defview bad-revision-box
+(rf.fresco/defview bad-revision-box
   "A DELIBERATE DEFECT, and the only one in this bead's two applications.
 
   It lives in a test namespace and not in either witness, because a
@@ -296,7 +296,7 @@
   gate red. `published-box`'s docstring claims the door refuses a
   revision here; this is the view that asks it to."
   [_]
-  [:input {:type "checkbox" :checked false ::rf.hicasso/revision 1}])
+  [:input {:type "checkbox" :checked false ::rf.fresco/revision 1}])
 
 (deftest a-revision-on-a-value-less-checkbox-is-refused-at-the-element
   ;; The L3 half of `l2-cljs-test`'s stated limit: `ht/controlled?` builds
@@ -308,9 +308,9 @@
   ;; anti-pattern belongs in the control that has to be able to go red.
   (if-not (browser?)
     (skip! "an element is only created on a real root")
-    (let [data (try (rf.hicasso.test.mounted/mount! [bad-revision-box {}] {}) nil
+    (let [data (try (rf.fresco.test.mounted/mount! [bad-revision-box {}] {}) nil
                     (catch :default e (ex-data e)))]
-      (is (= {:rf.error/id :rf.error/hicasso-revision-not-controlled}
+      (is (= {:rf.error/id :rf.error/fresco-revision-not-controlled}
              (select-keys data [:rf.error/id]))
           "asserted as an identity and not as `thrown?`: in a layered
            runtime there is nearly always a second defence, and a bare
@@ -329,14 +329,14 @@
       ;; The FIRST keystroke of an editing session moves `::subs/dirty?`
       ;; too, so the button row runs with the field. That is the ordinary
       ;; second body run and it is named rather than tuned away.
-      (let [first-burst (rf.hicasso.test.mounted/bodies-run #(do (type-into! n "a") (rf.hicasso.test.mounted/settle! m)))]
+      (let [first-burst (rf.fresco.test.mounted/bodies-run #(do (type-into! n "a") (rf.fresco.test.mounted/settle! m)))]
         (is (= 2 first-burst)
             "the field and the button row — `::subs/dirty?` goes false to
              true exactly once per session"))
 
       (testing "and every keystroke after it runs ONE body"
         (doseq [ch ["b" "c" "d"]]
-          (is (= 1 (rf.hicasso.test.mounted/bodies-run #(do (type-into! n ch) (rf.hicasso.test.mounted/settle! m))))
+          (is (= 1 (rf.fresco.test.mounted/bodies-run #(do (type-into! n ch) (rf.fresco.test.mounted/settle! m))))
               (str "typing " ch " ran a body that was not the title
                     field's. Four controls are on this page and three of
                     them read addresses this keystroke did not move; the
@@ -345,12 +345,12 @@
 
       (testing "including the field that normalises — a policy is not a cost"
         (let [slug (field-node m :slug)]
-          (is (= 1 (rf.hicasso.test.mounted/bodies-run #(do (type-into! slug "z") (rf.hicasso.test.mounted/settle! m)))))))
+          (is (= 1 (rf.fresco.test.mounted/bodies-run #(do (type-into! slug "z") (rf.fresco.test.mounted/settle! m)))))))
 
       (testing "the count is a property of the TOPOLOGY, not of the form's size"
         ;; The editor has four controls. `grid.scaling-dom-cljs-test`
         ;; runs the same measurement over a hundred, and gets the same
         ;; answer — which is the sentence specification §6 asks for.
-        (is (= 1 (rf.hicasso.test.mounted/bodies-run #(do (type-into! n "e") (rf.hicasso.test.mounted/settle! m))))))
+        (is (= 1 (rf.fresco.test.mounted/bodies-run #(do (type-into! n "e") (rf.fresco.test.mounted/settle! m))))))
 
-      (rf.hicasso.test.mounted/unmount! m))))
+      (rf.fresco.test.mounted/unmount! m))))

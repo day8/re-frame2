@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.impl.collector
+(ns re-frame.fresco.impl.collector
   "The collector: which boundaries a commit must re-run, how a body reaches
   subscription values, and the generation fence that keeps one render pass
   on one commit. React owns everything else about a boundary.
@@ -16,23 +16,23 @@
   why they share a namespace; `impl.generation`, `impl.frames` and
   `impl.roots` each hold a one-directional edge out of it. What the
   runtime retains is counted from outside it, through the test kit's
-  `re-frame.hicasso.test.runtime`.
+  `re-frame.fresco.test.runtime`.
 
-  Design record: docs/design/hicasso/architecture.md, section The
+  Design record: docs/design/fresco/architecture.md, section The
   collector (the commit basis, the repairs, the entry cache, the reapers,
   the bracket and the alias), with the sub-read mechanism, HD-002 and
   HD-020 above it; the state machine and the edge-diff operation are
   discharged clause by clause in
-  docs/design/hicasso/studio/arm1-lean-react-dogfood-judgement.md §2; the
-  cold read is priced in docs/design/hicasso/studio/the-cold-read-mount-term.md;
+  docs/design/fresco/studio/arm1-lean-react-dogfood-judgement.md §2; the
+  cold read is priced in docs/design/fresco/studio/the-cold-read-mount-term.md;
   every module-level owner here has its row on
-  docs/design/hicasso/product/globals.md."
+  docs/design/fresco/product/globals.md."
   (:require [re-frame.adapter.context :as rf.adapter.context]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.error :as rf.hicasso.impl.error :refer [fail!]]
-            [re-frame.hicasso.impl.frames :as rf.hicasso.impl.frames]
-            [re-frame.hicasso.impl.generation :as rf.hicasso.impl.generation]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.error :as rf.fresco.impl.error :refer [fail!]]
+            [re-frame.fresco.impl.frames :as rf.fresco.impl.frames]
+            [re-frame.fresco.impl.generation :as rf.fresco.impl.generation]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.live-frame :as rf.live-frame]
@@ -48,7 +48,7 @@
 ;; Module-level rather than per-render objects, legal because boundary
 ;; bodies do not nest: a body returns hiccup, the codec turns a child
 ;; boundary into an element, and React runs the child's body after this
-;; one has returned (docs/design/hicasso/product/globals.md).
+;; one has returned (docs/design/fresco/product/globals.md).
 
 (def ^js rstate
   "The render slots, one JS object for the whole runtime: the frame the
@@ -60,7 +60,7 @@
   `subscribe` the shell hands React for that entry (`render-body`).
   Public so the test kit's runtime door reads `bodyRuns` off it; every
   writer is in this file. Module-level because boundary bodies do not
-  nest (docs/design/hicasso/product/globals.md)."
+  nest (docs/design/fresco/product/globals.md)."
   #js {"frame" nil "entry" nil "probe" nil "bodyRuns" 0 "subscribe" nil})
 
 (def ^:private ^js scratch
@@ -68,7 +68,7 @@
   overwrite at the top of every body — `(set! (.-length scratch) 0)` is
   the whole of the reset. Exactly one, because a second would mean
   telling two render attempts apart, which is the ledger HD-002 forbids
-  (docs/design/hicasso/product/globals.md)."
+  (docs/design/fresco/product/globals.md)."
   #js [])
 
 (defn rendering?
@@ -89,7 +89,7 @@
   A's own `:dispatch-sync`, so once A is destroyed core's `capture-frame`
   fence refuses it (`:rf.error/frame-destroyed`) instead of resolving the
   address again and writing whoever occupies it now (rf2-x874,
-  docs/design/hicasso/product/invariants.md, the rf2-hic-013 record)."
+  docs/design/fresco/product/invariants.md, the rf2-hic-013 record)."
   [ops]
   (let [dispatch-sync (:dispatch-sync ops)]
     (fn dispatch-for-frame [event]
@@ -103,7 +103,7 @@
   closure factory, so every caller reads the same row and the bundle can
   never describe a different incarnation than the closure that calls it."
   [frame-kw]
-  (rf.hicasso.impl.frames/frame-row frame-kw mint-frame-dispatch))
+  (rf.fresco.impl.frames/frame-row frame-kw mint-frame-dispatch))
 
 (defn frame-dispatch
   "The ambient dispatch a boundary binds for its render's dynamic extent
@@ -128,14 +128,14 @@
 ;; isolated contexts. `.-readers` is the key's reverse edge AND its
 ;; reference count, one slot per reader, so there is no `refs` counter
 ;; to drift from it; the forward edge is the registration's own key set
-;; (docs/design/hicasso/architecture.md, section The collector).
+;; (docs/design/fresco/architecture.md, section The collector).
 
 ;; `!cells` is public so the test kit's runtime door can count what the
 ;; table retains; every writer is in this file. One table for the whole
 ;; page and FRAME-SCOPED by its keying — the same query under two frames
 ;; is two cells, and a cross-frame read is an address that cannot be
 ;; spelled (`roots-frames-isolation-dom-cljs-test`;
-;; docs/design/hicasso/product/globals.md carries every owner below).
+;; docs/design/fresco/product/globals.md carries every owner below).
 (defonce !cells (atom {}))
 (defonce ^:private !dirty (volatile! #{}))
 (defonce ^:private !batching (volatile! false))
@@ -147,7 +147,7 @@
   one cell per `(frame, query)`, and no two cells hold the same
   reaction. A keyword minted per cell bought that same uniqueness at a
   `Keyword`, its name and its qualified string retained per unique key
-  (docs/design/hicasso/studio/the-cold-read-mount-term.md, the mint's
+  (docs/design/fresco/studio/the-cold-read-mount-term.md, the mint's
   retirement)."
   ::cell-watch)
 
@@ -302,12 +302,12 @@
   Activate FIRST, then watch, then observe: under the ratom family a
   reaction deref'd outside `*ratom-context*` watches nothing, so the
   watch would never fire and the runtime would paint once and go deaf
-  (docs/design/hicasso/product/substrate-decision.md, the ratom-only
+  (docs/design/fresco/product/substrate-decision.md, the ratom-only
   line; a routed no-op on the React-hook spine). The disposal hook is an
   event rather than a term in the epoch sum because the substrate says
   exactly when a held reaction dies, and it covers every transition that
   disposes — `first-registration!` carries the one that does not
-  (docs/design/hicasso/architecture.md, section The collector)."
+  (docs/design/fresco/architecture.md, section The collector)."
   [^js cell]
   (let [frame-kw (.-frameKw cell)
         query-v  (.-queryV cell)
@@ -337,9 +337,9 @@
   frame teardown, none of which is a place to subscribe; a microtask and
   never a macrotask, because the re-stamp is the render/commit tear's
   correction and design law React 3 requires it before visible paint
-  (ruling rf2-2l17 on docs/design/hicasso/product/invariants.md, the
+  (ruling rf2-2l17 on docs/design/fresco/product/invariants.md, the
   rf2-hic-013 record; the argument in
-  docs/design/hicasso/architecture.md, section The collector)."
+  docs/design/fresco/architecture.md, section The collector)."
   [^js cell]
   (when-not (.-disposed cell)
     (set! (.-reaction cell) nil)
@@ -371,7 +371,7 @@
   each is repaired by `invalidate-cell!`. Reaches only the cells holding
   the id, so an unrelated registration moves no snapshot — the held-cell
   half of the registry axis; the staged half is `commit-basis`'s
-  registry term (docs/design/hicasso/architecture.md, section The
+  registry term (docs/design/fresco/architecture.md, section The
   collector)."
   [{:keys [kind id was]}]
   (when (and (= :sub kind) (nil? was))
@@ -399,12 +399,12 @@
   before the registration it is about to read against."
   [{:keys [kind] :as registration}]
   (when (= :sub kind)
-    (rf.hicasso.impl.generation/bump-registry-epoch!)
+    (rf.fresco.impl.generation/bump-registry-epoch!)
     (first-registration! registration))
   nil)
 
 ;; Armed once per process, at load: the `defonce` IS the arming and the var
-;; is never read (docs/design/hicasso/product/globals.md). It costs a
+;; is never read (docs/design/fresco/product/globals.md). It costs a
 ;; keyword compare per registration and the scan only on a first-time `:sub`.
 #_:clj-kondo/ignore
 (defonce ^:private first-registration-armed
@@ -431,7 +431,7 @@
                                      ;; contributes the CURRENT basis to
                                      ;; `getSnapshot`, so a cell born at
                                      ;; the same basis reads the same.
-                                     "epoch"    (rf.hicasso.impl.generation/commit-basis frame-kw)
+                                     "epoch"    (rf.fresco.impl.generation/commit-basis frame-kw)
                                      ;; The key's reverse edge AND its
                                      ;; reference count, in one array —
                                      ;; see the section header.
@@ -441,7 +441,7 @@
                    ;; "Acquire without deref" is not implementable here: a
                    ;; fresh reaction's `unset` baseline reports movement on
                    ;; the first later commit whatever it did
-                   ;; (docs/design/hicasso/studio/arm1-lean-react-dogfood-judgement.md
+                   ;; (docs/design/fresco/studio/arm1-lean-react-dogfood-judgement.md
                    ;; §3.1). Made here, not trusted to the layer below,
                    ;; because the notification ITSELF is the dirty signal.
                    (wire-cell! fresh)
@@ -498,7 +498,7 @@
   (let [dirty @!dirty]
     (when (seq dirty)
       (vreset! !dirty #{})
-      (rf.hicasso.impl.generation/bump-generation!)
+      (rf.fresco.impl.generation/bump-generation!)
       ;; Re-STAMP rather than increment, so a cell's epoch stays a
       ;; `commit-basis` reading comparable with a staged key's — floored
       ;; at one above the stamp it carried, because across a same-id frame
@@ -506,11 +506,11 @@
       ;; to move (measured in Chromium: epoch 3 re-stamped to 3, the
       ;; notification delivered and ignored, the predecessor's value left
       ;; on screen). The floor can only raise a stamp, so the sum stays
-      ;; monotone (docs/design/hicasso/product/invariants.md, rf2-hic-013;
+      ;; monotone (docs/design/fresco/product/invariants.md, rf2-hic-013;
       ;; `reincarnation-paint-dom-cljs-test`).
       (doseq [^js cell dirty]
         (set! (.-epoch cell) (max (inc (.-epoch cell))
-                                  (rf.hicasso.impl.generation/commit-basis (.-frameKw cell)))))
+                                  (rf.fresco.impl.generation/commit-basis (.-frameKw cell)))))
       (let [boundaries (dirty-readers dirty)]
         (if (rendering?)
           (do (vswap! !deferred into boundaries)
@@ -565,7 +565,7 @@
   cache entry, takes no reference, installs no watch. The memo is per
   read, not run-shared, because the shared one cost more than it saved
   on the acceptance shape (2.75 vs 1.42 µs/read;
-  docs/design/hicasso/studio/the-cold-read-mount-term.md)."
+  docs/design/fresco/studio/the-cold-read-mount-term.md)."
   [frame-kw query-v]
   (let [frame-record (rf.frame/frame frame-kw)]
     (if (nil? frame-record)
@@ -609,8 +609,8 @@
   edge (`read-extent-cljs-test`)."
   [query-v]
   (when (nil? (.-frame rstate))
-    (fail! :rf.error/hicasso-sub-outside-render
-           're-frame.hicasso.impl.collector/read-key!
+    (fail! :rf.error/fresco-sub-outside-render
+           're-frame.fresco.impl.collector/read-key!
            (str "A subscription read " (pr-str query-v)
                 " happened outside a boundary render. `sub` is legal only "
                 "inside a defview body; `subscribe-once` is "
@@ -627,7 +627,7 @@
   "The ambient collector — a plain function call, legal anywhere in a
   body: inside a `when`, a `for`, an inlined helper. The edge is recorded
   where the read happens, so a branch not taken contributes no edge
-  (docs/design/hicasso/decisions.md HD-002)."
+  (docs/design/fresco/decisions.md HD-002)."
   [query-v]
   (read-key! query-v))
 
@@ -651,7 +651,7 @@
   `read-key!` looked it up. The whole sequence rather than the first
   sub-key so the scan's cost is a function of the read set and not of
   how an author ordered their `let` bindings
-  (docs/design/hicasso/architecture.md, section The collector)."
+  (docs/design/fresco/architecture.md, section The collector)."
   [^js read-keys]
   (let [read-count (alength read-keys)]
     (loop [index 0 hash-value 1]
@@ -711,7 +711,7 @@
   render beats React's passive flush, so the entry is evicted before it
   is claimed and the next render re-subscribes. 4 ms was the shortest
   probed delay that read 1.00N
-  (docs/design/hicasso/studio/coldmount-double-build-priced.md).
+  (docs/design/fresco/studio/coldmount-double-build-priced.md).
 
   A MARGIN, NOT A CONTRACT: React documents no maximum
   render-to-subscribe interval, no caller may rely on it, and a lost race
@@ -791,7 +791,7 @@
   the commit has created the cell, and React's post-subscribe re-read
   compares the two per fiber — a 0 there would answer the same number
   before and after however far the value moved. A mounted boundary has
-  no staged term (docs/design/hicasso/architecture.md, section The
+  no staged term (docs/design/fresco/architecture.md, section The
   collector)."
   [^js entry]
   (fn snapshot []
@@ -806,7 +806,7 @@
                    (if-some [^js cell (get cells read-key)]
                      (+ epoch-sum (.-epoch cell))
                      (+ epoch-sum
-                        (rf.hicasso.impl.generation/commit-basis (nth read-key 0)))))))))))
+                        (rf.fresco.impl.generation/commit-basis (nth read-key 0)))))))))))
 
 (defn- make-subscribe
   "React's `subscribe`, a pure function of the read set — the only
@@ -819,7 +819,7 @@
   is this cleanup followed by a fresh call to a different entry's
   `subscribe`. `.-reads` on the registration IS the forward edge, the
   entry's own key set by reference
-  (docs/design/hicasso/studio/arm1-lean-react-dogfood-judgement.md §2)."
+  (docs/design/fresco/studio/arm1-lean-react-dogfood-judgement.md §2)."
   [^js entry]
   (fn subscribe [on-store-change]
     (let [reads (.-set entry)
@@ -857,7 +857,7 @@
 ;; The hook seam — one read, from a React component that is not a boundary
 ;; ---------------------------------------------------------------------------
 ;;
-;; `re-frame.hicasso.native/use-sub` runs inside a real React component: no
+;; `re-frame.fresco.native/use-sub` runs inside a real React component: no
 ;; shell ran, `rstate` names no frame, the scratch is somebody else's. So
 ;; it cannot take `sub`; the two doors below are doors onto THIS module's
 ;; tables, never a second copy of them, so a hook and a boundary reading
@@ -913,7 +913,7 @@
   bundle carries neither the slot name nor an attribute value in it; the
   literal is pinned on this line by
   `scripts/check_production_erasure.cjs`."
-  "hicassoViewAttrs")
+  "frescoViewAttrs")
 
 (defn view-annotations
   "The attrs map Spec 006 §Source-coord annotation and §View tagging
@@ -923,7 +923,7 @@
   The formatters are core's single cross-host implementation
   (`re-frame.source-coords`, reached here through the
   `re-frame.adapter.context` re-export this namespace already requires),
-  so a Hicasso boundary's two attribute values are byte-identical to the
+  so a Fresco boundary's two attribute values are byte-identical to the
   ones Reagent, reagent-slim, UIx and the JVM SSR registration boundary
   emit for the same id. That is the whole property a tool rests on: one
   reader over every substrate.
@@ -943,7 +943,7 @@
   [view-name]
   (let [view-id (keyword view-name)]
     {:data-rf2-source-coord (rf.adapter.context/format-source-coord
-                              view-id (rf.hicasso.impl.error/source-of view-name))
+                              view-id (rf.fresco.impl.error/source-of view-name))
      :data-rf-view          (rf.adapter.context/format-view-id view-id)}))
 
 (defn- author-owns-slot?
@@ -953,7 +953,7 @@
   emitter itself uses — so this cannot answer differently from what
   `convert-props` will do with the map."
   [authored slot]
-  (reduce-kv (fn [_ k _] (if (= slot (rf.hicasso.impl.codec/canonical-slot k)) (reduced true) false))
+  (reduce-kv (fn [_ k _] (if (= slot (rf.fresco.impl.codec/canonical-slot k)) (reduced true) false))
              false
              authored))
 
@@ -962,7 +962,7 @@
   claims — `attrs` itself, by identity, when it claims neither.
 
   This is what makes the author's ownership a real one. A hiccup attribute
-  key is written in five spellings (`re-frame.hicasso.impl.slot`), and
+  key is written in five spellings (`re-frame.fresco.impl.slot`), and
   every one of them emits under a single React name, so `merge` — which
   resolves a collision only between keys that are `=` — keeps BOTH a
   body's `\"data-rf-view\"` and the framework's `:data-rf-view`, and
@@ -975,7 +975,7 @@
   the codec was about to walk anyway."
   [attrs authored]
   (reduce-kv (fn [acc k _]
-               (if (author-owns-slot? authored (rf.hicasso.impl.codec/canonical-slot k))
+               (if (author-owns-slot? authored (rf.fresco.impl.codec/canonical-slot k))
                  (dissoc acc k)
                  acc))
              attrs
@@ -992,7 +992,7 @@
   anonymous-box generation, `:nth-child` and sibling selectors,
   positioning ancestors, stacking contexts, containment. It is also what
   makes the annotation free of a wrapper, a fiber and a hook, which is
-  what lets Hicasso honour the contract inside HD-020's two-hook budget:
+  what lets Fresco honour the contract inside HD-020's two-hook budget:
   the cost is two map entries on a map the codec was about to walk
   anyway, in a dev build only.
 
@@ -1019,7 +1019,7 @@
   [hiccup attrs]
   (if (and (vector? hiccup)
            (pos? (count hiccup))
-           (= :tag (rf.hicasso.impl.codec/head-kind (nth hiccup 0))))
+           (= :tag (rf.fresco.impl.codec/head-kind (nth hiccup 0))))
     (let [maybe-attrs (nth hiccup 1 nil)]
       (if (map? maybe-attrs)
         (assoc hiccup 1 (merge (without-authored-slots attrs maybe-attrs) maybe-attrs))
@@ -1048,9 +1048,9 @@
   ;; render, and a real count is the one that says so.
   (set! (.-bodyRuns rstate) (inc (.-bodyRuns rstate)))
   (try
-    (rf.hicasso.impl.intent/with-frame frame-kw (frame-dispatch frame-kw)
+    (rf.fresco.impl.intent/with-frame frame-kw (frame-dispatch frame-kw)
       (fn []
-        (rf.hicasso.impl.codec/as-element
+        (rf.fresco.impl.codec/as-element
           (let [out (body-fn props)]
             (if ^boolean js/goog.DEBUG
               (if-some [attrs (unchecked-get body-fn view-attrs-slot)]
@@ -1065,16 +1065,16 @@
 ;; that keeps it. Written under `goog.DEBUG` only, so a release bundle
 ;; carries neither the slot name nor a name in it; the literal is pinned on
 ;; this line by `scripts/check_production_erasure.cjs`, like `body-slot`.
-(def ^:private views-slot "hicassoViews")
+(def ^:private views-slot "frescoViews")
 
 (defn- view-subscribe
   "Dev only: the `subscribe` the shell hands React for `entry` when the
   body is the declared view named `view-name` — the entry's own closure,
   wrapped so `view-name` is counted where React commits the reference and uncounted where
-  its cleanup releases it. The roster `re-frame.hicasso.tool` exports
+  its cleanup releases it. The roster `re-frame.fresco.tool` exports
   claims the MOUNTED views, and only the commit knows that: a render React
   discards and a view that has unmounted name nothing, exactly as they
-  hold nothing (docs/design/hicasso/hd-002-adjudication.md §3). Cached per
+  hold nothing (docs/design/fresco/hd-002-adjudication.md §3). Cached per
   (entry, name) on the entry under `views-slot`, so its identity moves
   exactly when the entry's does and React re-subscribes on no render it
   did not already."
@@ -1101,8 +1101,8 @@
   "The set of declared view names holding a committed reference on
   read-set `entry` — the mounted ones — or nil where none does, or in a
   production build, where nothing writes the slot. Read by
-  `re-frame.hicasso.tool`; the names are what
-  `re-frame.hicasso.impl.error/source-of` resolves to a coordinate."
+  `re-frame.fresco.tool`; the names are what
+  `re-frame.fresco.impl.error/source-of` resolves to a coordinate."
   [^js entry]
   (when-some [^js views (unchecked-get entry views-slot)]
     (let [names (volatile! #{})]
@@ -1121,13 +1121,13 @@
   preservation as one comparison per boundary rather than one deref per
   read. The basis rather than the generation alone, because a mid-body
   move of a key nothing holds moves no watch and so no generation
-  (docs/design/hicasso/architecture.md, section The collector)."
+  (docs/design/fresco/architecture.md, section The collector)."
   [frame-kw body-fn props]
   (loop [attempt 0]
-    (let [basis-before (rf.hicasso.impl.generation/commit-basis frame-kw)
+    (let [basis-before (rf.fresco.impl.generation/commit-basis frame-kw)
           element      (run-once frame-kw body-fn props)]
       (cond
-        (= basis-before (rf.hicasso.impl.generation/commit-basis frame-kw))
+        (= basis-before (rf.fresco.impl.generation/commit-basis frame-kw))
         (let [entry (entry-for scratch)]
           (set! (.-entry rstate) entry)
           (when ^boolean js/goog.DEBUG
@@ -1141,13 +1141,13 @@
         (recur (inc attempt))
 
         :else
-        (fail! :rf.error/hicasso-generation-fence-exhausted
-               're-frame.hicasso.impl.collector/render-body
+        (fail! :rf.error/fresco-generation-fence-exhausted
+               're-frame.fresco.impl.collector/render-body
                (str "A boundary body observed a new commit on each of "
                     (inc max-fence-retries) " consecutive runs. A body that "
                     "writes on every render cannot be fenced; move the write "
                     "out of the render.")
-               {:frame frame-kw :generation (rf.hicasso.impl.generation/generation)})))))
+               {:frame frame-kw :generation (rf.fresco.impl.generation/generation)})))))
 
 (defn last-reads
   "The read-set entry the most recent `render-body` resolved — what a
@@ -1160,7 +1160,7 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The shell's declared hook calls are the test kit's `shell-hook-ledger`
-;; (`re-frame.hicasso.test.runtime`), and `hook_budget_cljs_test` counts
+;; (`re-frame.fresco.test.runtime`), and `hook_budget_cljs_test` counts
 ;; the calls React's own dispatcher received against it.
 
 (defn resolve-frame!
@@ -1172,12 +1172,12 @@
   `frame/require-current-frame!`'s dynamic-var chain: a body's extent has
   unwound by the time React renders the component it returned, so the var
   tier can only answer for a different render than the one asking
-  (docs/design/hicasso/studio/arm1-lean-react-dogfood-judgement.md §3.2)."
+  (docs/design/fresco/studio/arm1-lean-react-dogfood-judgement.md §3.2)."
   [frame-kw where]
   (if (or (nil? frame-kw) (= rf.adapter.context/no-provider-sentinel frame-kw))
     (fail! :rf.error/no-frame-context
            where
-           (str "A Hicasso boundary rendered with no frame in scope. Mount the "
+           (str "A Fresco boundary rendered with no frame in scope. Mount the "
                 "tree under a frame boundary — `h/frame-root` installs one.")
            {})
     frame-kw))
@@ -1193,7 +1193,7 @@
   entry's own is all there is."
   [body-fn js-props]
   (let [frame-kw (resolve-frame! (react/useContext rf.adapter.context/frame-context)
-                                 're-frame.hicasso.impl.collector/shell)
+                                 're-frame.fresco.impl.collector/shell)
         props    (or (unchecked-get js-props "rfProps") {})
         element  (render-body frame-kw body-fn props)
         ^js entry (.-entry rstate)]
@@ -1220,9 +1220,9 @@
   observable semantics: React consults the boundary's own
   `useSyncExternalStore` and context updates before the comparator, so a
   boundary whose reads moved cannot be bailed out whatever its props say
-  (docs/design/hicasso/decisions.md HD-028). Why the bracket sits on the
+  (docs/design/fresco/decisions.md HD-028). Why the bracket sits on the
   component fn rather than in `render-body`, and what follows from that:
-  docs/design/hicasso/architecture.md, section The collector."
+  docs/design/fresco/architecture.md, section The collector."
   [view-name body-fn]
   (when ^boolean js/goog.DEBUG
     (unchecked-set body-fn "displayName" view-name)
@@ -1231,22 +1231,22 @@
     ;; this view's coordinate off `error`'s ledger rather than taking one
     ;; as a parameter every mint would have to thread.
     (unchecked-set body-fn view-attrs-slot (view-annotations view-name)))
-  (let [component (fn hicasso-boundary [js-props]
+  (let [component (fn fresco-boundary [js-props]
                     (rf.performance/mark-and-measure :render view-name
                       (shell body-fn js-props)))
         ;; Dev only: the origin a refusal below names. `interop/debug-enabled?`
         ;; is `^boolean goog.DEBUG`, so under `:advanced` this `if` folds to
         ;; `component` and React calls the fn above, unchanged.
         component (if rf.interop/debug-enabled?
-                    (rf.hicasso.impl.error/traced-boundary view-name component)
+                    (rf.fresco.impl.error/traced-boundary view-name component)
                     component)]
     (unchecked-set component "displayName" view-name)
-    (let [head (rf.hicasso.impl.codec/memoize-boundary! (rf.hicasso.impl.codec/mark-boundary! component))]
+    (let [head (rf.fresco.impl.codec/memoize-boundary! (rf.fresco.impl.codec/mark-boundary! component))]
       ;; The body, kept ON the head for the test kit's L2 walk alone, which
       ;; mounts nothing and would otherwise have no route back to it. One
       ;; own property; under `goog.DEBUG=false` it folds away with
       ;; `codec/retain-body!` (`view-body-retention-elision-prod-test`).
-      (when ^boolean js/goog.DEBUG (rf.hicasso.impl.codec/retain-body! head body-fn))
+      (when ^boolean js/goog.DEBUG (rf.fresco.impl.codec/retain-body! head body-fn))
       head)))
 
 ;; ---------------------------------------------------------------------------
@@ -1272,7 +1272,7 @@
   a caller gets back is `identical?` to the one the `def` bound. That
   pass-through is the whole reason this writes `registrar/register!`
   directly rather than `rf/reg-view*`: `reg-view*` builds a `:handler-fn`
-  WRAPPER and componentises it, and a Hicasso boundary is already a React
+  WRAPPER and componentises it, and a Fresco boundary is already a React
   component that stamps its own annotations (rf2-c5w1) — routing it
   through core's pipeline would wrap and double-stamp it. The registrar
   reads executable identity at `(get metadata (get metadata :executable-key
@@ -1284,14 +1284,14 @@
   from a foreign React parent via `h/as-component`, from a foreign hiccup
   parent via `h/as-element`. It is a React component, not a hiccup render
   fn, so a Reagent story or tool must not splice it into a Reagent tree —
-  the `hicassoBoundary` own-property is the marker that says so.
+  the `frescoBoundary` own-property is the marker that says so.
 
   Dev only: called inside the `defview` expansion's
   `interop/debug-enabled?` gate, so the call, this fn and the slot leave
   a production bundle (`error-source-coord-elision-prod-test`) and
-  `(rf/view id)` for a Hicasso view is nil in a release build — the
+  `(rf/view id)` for a Fresco view is nil in a release build — the
   documented answer, not a defect. The argument:
-  docs/design/hicasso/architecture.md, section The collector."
+  docs/design/fresco/architecture.md, section The collector."
   [view-id slot head]
   (rf.registrar/register! :view view-id (assoc slot :handler-fn head))
   view-id)
@@ -1309,7 +1309,7 @@
   `impl.mount/unmount!` is root teardown and reaches none of this. It
   calls each sibling's own door for what it does not hold, and it does
   not touch a root's hydration adoption window, which only that root's
-  handle reaches (docs/design/hicasso/product/globals.md)."
+  handle reaches (docs/design/fresco/product/globals.md)."
   []
   (doseq [[_ cell] @!cells] (dispose-cell! cell))
   (reset! !cells {})
@@ -1319,7 +1319,7 @@
   (vreset! !batching false)
   (reset-reapers! cell-reapers)
   (reset-reapers! entry-reapers)
-  (rf.hicasso.impl.generation/reset-basis!)
+  (rf.fresco.impl.generation/reset-basis!)
   (set! (.-entry rstate) nil)
   (set! (.-subscribe rstate) nil)
   (set! (.-frame rstate) nil)
@@ -1329,5 +1329,5 @@
   ;; across the thing they measure, and a teardown door that zeroed the
   ;; counter would let a reading taken on the wrong side of a reset look
   ;; like a reading. The kit's `reset-body-runs!` is the explicit zero.
-  (rf.hicasso.impl.frames/forget-frame-ops!)
+  (rf.fresco.impl.frames/forget-frame-ops!)
   nil)

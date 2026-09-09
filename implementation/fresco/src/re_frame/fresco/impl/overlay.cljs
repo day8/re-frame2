@@ -1,5 +1,5 @@
-(ns re-frame.hicasso.impl.overlay
-  "The impure half of `re-frame.hicasso.overlay`: two components that put
+(ns re-frame.fresco.impl.overlay
+  "The impure half of `re-frame.fresco.overlay`: two components that put
   an element into the browser's top layer and take it out again. The
   posture and the vocabulary are the door's; this file is the mechanism.
 
@@ -14,7 +14,7 @@
   the one thing a stable ref cannot see — a changed `:anchor` on an
   overlay that is already open (`reconcile-anchor!`). Neither component is
   a boundary shell, so HD-020's shell budget is not the ceiling
-  (`docs/design/hicasso/decisions.md`);
+  (`docs/design/fresco/decisions.md`);
   `overlay-dom-cljs-test/an-overlay-costs-three-hooks-and-the-shell-still-costs-two`
   counts them.
 
@@ -35,14 +35,14 @@
   (`closedby=\"none\"`, `popover=\"manual\"`). With `:on-dismiss` the
   platform's own dismissal comes back as an ordinary intent — and a
   frameless overlay carrying one refuses at render with
-  `:rf.error/hicasso-intent-outside-boundary`, because an element that
+  `:rf.error/fresco-intent-outside-boundary`, because an element that
   invites a dismissal nothing can route is exactly the second owner
   (HD-020's frameless ruling)."
   (:require [re-frame.adapter.context :as rf.adapter.context]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.error :refer [fail!]]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.error :refer [fail!]]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
             ["react" :as react]))
 
 ;; ---------------------------------------------------------------------------
@@ -88,7 +88,7 @@
 ;; Page-wide on purpose: a CSS anchor name lives in ONE namespace per
 ;; document, not one per React root, so two roots each minting
 ;; `--rf-overlay-1` would put two live overlays on one name. Narrowing it
-;; would be the defect — `docs/design/hicasso/product/globals.md`, §The
+;; would be the defect — `docs/design/fresco/product/globals.md`, §The
 ;; page-wide id namespace.
 (defonce ^:private !anchor-seq (atom 0))
 
@@ -104,7 +104,7 @@
 (defn- claim-anchor!
   "Give the element with DOM id `anchor-id` the CSS anchor name `ident`
   and answer `#js [element previous-name]`; nil when `anchor-id` is nil;
-  REFUSES with `:rf.error/hicasso-overlay-anchor-missing` when the id
+  REFUSES with `:rf.error/fresco-overlay-anchor-missing` when the id
   names no element. No anchor and a missing anchor are different
   absences — the first asks for the UA's default position, the second
   asks to be positioned against a trigger and would get that default in
@@ -123,8 +123,8 @@
       (let [previous (.. el -style -anchorName)]
         (set! (.. el -style -anchorName) ident)
         #js [el previous])
-      (fail! :rf.error/hicasso-overlay-anchor-missing
-             're-frame.hicasso.impl.overlay/claim-anchor!
+      (fail! :rf.error/fresco-overlay-anchor-missing
+             're-frame.fresco.impl.overlay/claim-anchor!
              (str "An overlay's :anchor is " (pr-str anchor-id) ", and no "
                   "element in the document carries that id, so there is "
                   "nothing to position the panel against.")
@@ -143,8 +143,8 @@
   paint, there is no ident in the bytes to disagree about and no frame in
   which an anchored panel is painted unanchored. Why a `useId`-derived
   name was refused instead:
-  `docs/design/hicasso/product/globals.md`, §The page-wide id namespace,
-  and `docs/design/hicasso/product/dispositions.md` HS-32."
+  `docs/design/fresco/product/globals.md`, §The page-wide id namespace,
+  and `docs/design/fresco/product/dispositions.md` HS-32."
   [^js panel ident]
   (set! (.. panel -style -positionAnchor) ident)
   nil)
@@ -171,7 +171,7 @@
 ;; the panel's last control goes through the document's own end-of-scope
 ;; step and parks focus on `<body>` for one press — four stops for three
 ;; controls, measured on
-;; `docs/design/hicasso/studio/the-modal-tab-wrap-measured.md`. `wrap-tab!`
+;; `docs/design/fresco/studio/the-modal-tab-wrap-measured.md`. `wrap-tab!`
 ;; closes those two edges and nothing else: it tracks no state, holds no
 ;; listener while idle, and runs for no key but Tab. It has to know which
 ;; control IS each edge, which is `sequential-tab-stops`' question.
@@ -254,7 +254,7 @@
   — which is why the four effective non-stops (`visibility:hidden`, a
   closed `<details>`, `inert`, a disabled `<fieldset>`) are excluded
   rather than left to `.focus()` to decline. Measured on
-  `docs/design/hicasso/studio/the-modal-tab-wrap-measured.md`."
+  `docs/design/fresco/studio/the-modal-tab-wrap-measured.md`."
   [^js panel]
   (->> (array-seq (.querySelectorAll panel tab-stop-selector))
        (filterv tab-stop?)
@@ -438,9 +438,9 @@
 (defn- dismissal-handler
   "The function the platform's dismissal event lands on: nil when there
   is no `:on-dismiss`; a refusal with
-  `:rf.error/hicasso-intent-outside-boundary` when there is one and no
+  `:rf.error/fresco-intent-outside-boundary` when there is one and no
   frame `dispatch` to route it (HD-020's frameless ruling,
-  `docs/design/hicasso/decisions.md`); otherwise a fresh closure per
+  `docs/design/fresco/decisions.md`); otherwise a fresh closure per
   render, so an overlay whose `:on-dismiss` changed cannot dispatch the
   previous one. `closed-only?` is the popover's `newState` filter. The
   module's own teardown needs no guard: React does not deliver an event
@@ -449,8 +449,8 @@
   [dispatch on-dismiss closed-only?]
   (when on-dismiss
     (when-not dispatch
-      (fail! :rf.error/hicasso-intent-outside-boundary
-             're-frame.hicasso.impl.overlay/dismissal-handler
+      (fail! :rf.error/fresco-intent-outside-boundary
+             're-frame.fresco.impl.overlay/dismissal-handler
              (str "This overlay carries :on-dismiss " (pr-str on-dismiss)
                   " but no frame is in scope, so the platform would be told "
                   "it may dismiss while nothing could route the dismissal. "
@@ -514,7 +514,7 @@
       ;; Zero cost when closed: no element, so no top-layer entry, no
       ;; listener, no anchor claim and no children rendered.
       (when (:open? props)
-        (let [dispatch (when frame-kw (rf.hicasso.impl.collector/frame-dispatch frame-kw))
+        (let [dispatch (when frame-kw (rf.fresco.impl.collector/frame-dispatch frame-kw))
               area     (position-area (:placement props))
               extra    (cond-> (assoc (dismissal-attrs props)
                                       :ref   (unchecked-get cell "ref")
@@ -536,9 +536,9 @@
           ;; the parent's body and are walked HERE, so the ambient frame the
           ;; codec's intent lowering reads is re-established around this
           ;; call and nowhere else.
-          (rf.hicasso.impl.intent/with-frame frame-kw dispatch
+          (rf.fresco.impl.intent/with-frame frame-kw dispatch
             (fn []
-              (rf.hicasso.impl.codec/as-element
+              (rf.fresco.impl.codec/as-element
                 (into [tag (element-attrs props extra)] (:children props))))))))))
 
 (defn- modal-dismissal-attrs
@@ -560,13 +560,13 @@
   {:popover (if (nil? (:on-dismiss props)) "manual" "auto")})
 
 (def modal
-  "See `re-frame.hicasso.overlay/modal`."
-  (rf.hicasso.impl.codec/mark-boundary!
-    (doto (fn hicasso-modal [js-props] (body modal-ops modal-dismissal-attrs js-props))
-      (unchecked-set "displayName" "hicasso/modal"))))
+  "See `re-frame.fresco.overlay/modal`."
+  (rf.fresco.impl.codec/mark-boundary!
+    (doto (fn fresco-modal [js-props] (body modal-ops modal-dismissal-attrs js-props))
+      (unchecked-set "displayName" "fresco/modal"))))
 
 (def popover
-  "See `re-frame.hicasso.overlay/popover`."
-  (rf.hicasso.impl.codec/mark-boundary!
-    (doto (fn hicasso-popover [js-props] (body popover-ops popover-dismissal-attrs js-props))
-      (unchecked-set "displayName" "hicasso/popover"))))
+  "See `re-frame.fresco.overlay/popover`."
+  (rf.fresco.impl.codec/mark-boundary!
+    (doto (fn fresco-popover [js-props] (body popover-ops popover-dismissal-attrs js-props))
+      (unchecked-set "displayName" "fresco/popover"))))

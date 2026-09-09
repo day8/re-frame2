@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.ledger.events
+(ns re-frame.fresco.examples.ledger.events
   "THE TEN-THOUSAND-ROW LEDGER'S MODEL — ordinary re-frame2.
 
   The grid is evidence about BREADTH at a hundred fields, all of them

@@ -1088,7 +1088,7 @@ class _LiteralPathHost:
 # tools and reconciled the prose tool COUNT to 35, so every existing gate
 # stayed green while the five S3 view tools (`explain-render` and the four
 # `read-view-*` / `read-mounted-views` reads it shipped beside, since replaced
-# by the Hicasso evidence door under rf2-n3mb)
+# by the Fresco evidence door under rf2-n3mb)
 # appeared nowhere but the SKILL.md frontmatter — no arg shape, no semantics,
 # no workflow.
 #

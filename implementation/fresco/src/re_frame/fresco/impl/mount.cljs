@@ -1,14 +1,14 @@
-(ns re-frame.hicasso.impl.mount
+(ns re-frame.fresco.impl.mount
   "The package's root: one operation that associates a DOM node, a frame
   and a hiccup tree, and an idempotent teardown (HD-021(b),
-  docs/design/hicasso/decisions.md). `re-frame.hicasso`'s root lifecycle
+  docs/design/fresco/decisions.md). `re-frame.fresco`'s root lifecycle
   is spelled here, in TWO tiers. The public grammar is Spec 006 §The
   client root's — `client-root`, `render-client-root!`,
   `unmount-client-root!`, published as `h/client-root`, `h/render!` and
   `h/unmount!` — and it is a thin branch over the impl tier below it:
   `root!` and `hydrate-root!` are the two constructors one first-call
   `:hydrate?` chooses between, `render!` the update path, `unmount!` the
-  teardown (docs/design/hicasso/product/naming-ledger.md rows 13 and 20).
+  teardown (docs/design/fresco/product/naming-ledger.md rows 13 and 20).
   Every door is root-scoped: it takes a handle, or makes one, and reaches
   nothing another root owns. `release!` is the fixture door and is not on
   the facade.
@@ -19,14 +19,14 @@
   `hydrate-root!` is the one exception: adoption is React's own concurrent
   business, so it returns before the tree is adopted and a witness waits
   for the adoption window to close. The mechanism record is
-  docs/design/hicasso/architecture.md, section The root."
+  docs/design/fresco/architecture.md, section The root."
   (:require [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.error :refer [fail!]]
-            [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.error :refer [fail!]]
+            [re-frame.fresco.impl.roots :as rf.fresco.impl.roots]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.trace :as rf.trace]
@@ -36,7 +36,7 @@
 
 (defn provider
   "Scope `frame-kw` for a subtree through the substrate's one internal
-  React context (`re-frame.adapter.context/frame-context`), so a Hicasso
+  React context (`re-frame.adapter.context/frame-context`), so a Fresco
   subtree and a UIx subtree under one provider resolve the same frame.
   Renders no DOM of its own, so it cannot move a canonical-DOM parity
   comparison."
@@ -71,14 +71,14 @@
   and subscription the adoption established discarded. The window's
   presence is the one fact that says a root is hydrated; there is no
   second flag to disagree with it. Public because
-  `re-frame.hicasso.server/render` builds its element here too, so the
+  `re-frame.fresco.server/render` builds its element here too, so the
   bytes it emits and the tree `hydrate-root!` adopts agree on `useId`'s
   tree position by construction
-  (docs/design/hicasso/product/dispositions.md HS-11, obstruction 2;
-  witnesses in docs/design/hicasso/architecture.md, section The root)."
+  (docs/design/fresco/product/dispositions.md HS-11, obstruction 2;
+  witnesses in docs/design/fresco/architecture.md, section The root)."
   [handle hiccup]
   (let [frame-kw (:frame handle)
-        element  (rf.hicasso.impl.codec/root-element frame-kw hiccup)
+        element  (rf.fresco.impl.codec/root-element frame-kw hiccup)
         ;; A handle with NO frame is a root whose TREE names its own —
         ;; `h/frame-root` / `h/frame-provider` write the same one context
         ;; this provider would, from inside the tree, so wrapping one
@@ -90,7 +90,7 @@
       (react/createElement (.-Fragment react) nil
                            (react/createElement adoption-window-closer
                                                 #js {:rfWindow window})
-                           (rf.hicasso.impl.roots/with-adoption window app))
+                           (rf.fresco.impl.roots/with-adoption window app))
       app)))
 
 (defn render!
@@ -152,9 +152,9 @@
   replaces, and the two refusals are separated because the two mistakes
   are: `:frame` and `:initial-events` are FRAME configuration, which the
   tree now spells, so they are answered with the head that spells them
-  (`:rf.error/hicasso-frame-config-misplaced`); anything else is an
+  (`:rf.error/fresco-frame-config-misplaced`); anything else is an
   option the door does not have
-  (`:rf.error/hicasso-unknown-root-option`), which is the No-silent-
+  (`:rf.error/fresco-unknown-root-option`), which is the No-silent-
   swallow rule — `:fx-overrides` handed to a mount used to be dropped on
   the floor, and the whole make-frame-then-join detour existed because of
   it.
@@ -165,7 +165,7 @@
   [config where]
   (when (some? config)
     (when-not (map? config)
-      (fail! :rf.error/hicasso-unknown-root-option
+      (fail! :rf.error/fresco-unknown-root-option
              where
              (str "A root door's opts is a MAP of root options, and this one "
                   "is " (pr-str config) ". The shape is "
@@ -174,7 +174,7 @@
     (doseq [k (keys config)]
       (when-not (contains? root-options-roster k)
         (if-some [head (get frame-config-keys k)]
-          (fail! :rf.error/hicasso-frame-config-misplaced
+          (fail! :rf.error/fresco-frame-config-misplaced
                  where
                  (str "The root door no longer configures a frame: " (pr-str k)
                       " belongs in the TREE, on " head ". A root door carries "
@@ -186,7 +186,7 @@
                       "`rf.ssr/hydrate!`, or a second root on the same frame — "
                       "is [h/frame-provider {:frame :app/main} [root-view]].")
                  {:option k :config config})
-          (fail! :rf.error/hicasso-unknown-root-option
+          (fail! :rf.error/fresco-unknown-root-option
                  where
                  (str (pr-str k) " is not a root option. A root door carries "
                       ":hydrate? — adopt this container's server-rendered DOM "
@@ -212,10 +212,10 @@
   REPLACEMENT — config and generation refresh, durable state preserved —
   so an unguarded call would not fail a joining root, it would silently
   refresh the first root's config, and the guide promises the opposite
-  (docs/core/hicasso/00-installation.md). Synchronous, and called before
+  (docs/core/fresco/00-installation.md). Synchronous, and called before
   `createRoot`: `make-frame` drains the seed to a fixed point before it
   returns, so the first paint is the seeded one
-  (docs/design/hicasso/architecture.md, section The root).
+  (docs/design/fresco/architecture.md, section The root).
 
   A NIL `frame-kw` ensures nothing, and is not an error: it is a root
   whose TREE names its own frame — `h/frame-root`, whose ENSURE is core's
@@ -267,10 +267,10 @@
   having run — the completion signal a witness waits on in place of the
   `flushSync` `hydrate-root!` refuses. The shape is
   `re-frame.substrate.spine/adoption-window-closer`'s
-  (docs/design/hicasso/architecture.md, section The root)."
+  (docs/design/fresco/architecture.md, section The root)."
   [^js props]
   (react/useEffect (fn close-window []
-                     (rf.hicasso.impl.roots/close-adoption-window! (.-rfWindow props))
+                     (rf.fresco.impl.roots/close-adoption-window! (.-rfWindow props))
                      js/undefined)
                    #js [])
   nil)
@@ -278,13 +278,13 @@
 ;; `unchecked-set`, not `aset`: `aset` is the ARRAY writer and a component
 ;; is a function. The STRING key is what keeps `displayName` off Closure's
 ;; renamer under `:advanced`.
-(unchecked-set adoption-window-closer "displayName" "hicasso/adoption-window-closer")
+(unchecked-set adoption-window-closer "displayName" "fresco/adoption-window-closer")
 
 (defn- report-recoverable-default!
   "React's own default reporting, replicated. Installing any
   `onRecoverableError` takes React's default off, so a reporter that only
   emitted would swallow the error, which the fail-open rule forbids
-  (docs/design/hicasso/studio/ssr-spike-witness.md, rf2-2rtt6.97)."
+  (docs/design/fresco/studio/ssr-spike-witness.md, rf2-2rtt6.97)."
   [error]
   (if (fn? (.-reportError js/globalThis))
     (js/reportError error)
@@ -300,7 +300,7 @@
   [error]
   (rf.trace/emit! :warning :rf.ssr/hydration-mismatch
                {:error    (some-> error .-message)
-                :where    're-frame.hicasso.impl.mount/hydrate-root!
+                :where    're-frame.fresco.impl.mount/hydrate-root!
                 :recovery :warned-and-replaced}))
 
 (defn hydration-reporter
@@ -317,14 +317,14 @@
   page-wide window would label a completed root's later recovery a
   hydration mismatch whenever a sibling was still adopting, and a
   page-wide boolean lets one root's closer silence another's genuine
-  mismatch (docs/design/hicasso/architecture.md, section The root).
+  mismatch (docs/design/fresco/architecture.md, section The root).
   Attribute-only divergences are outside React's contract and stay
-  outside this channel (docs/design/hicasso/production-server-arm.md).
+  outside this channel (docs/design/fresco/production-server-arm.md).
   Public so a witness can drive the real callback across the window
   boundary."
   [^js window]
   (fn on-recoverable [error _error-info]
-    (when (rf.hicasso.impl.roots/adopting? window)
+    (when (rf.fresco.impl.roots/adopting? window)
       (emit-hydration-mismatch! error))
     (report-recoverable-default! error)))
 
@@ -366,14 +366,14 @@
   and React recovers by replacing the subtree. Matching the prefix is
   necessary and not sufficient: `useId` also derives from tree position,
   and this root's tree is `tree`'s Fragment rather than the bare app, so
-  the server half must be `re-frame.hicasso.server/render`, which builds
+  the server half must be `re-frame.fresco.server/render`, which builds
   its element from the same function
-  (docs/design/hicasso/product/dispositions.md HS-11, obstruction 2;
-  `re-frame.hicasso.server-render-ssr-dom-cljs-test`). Mechanism and
-  witnesses: docs/design/hicasso/architecture.md, section The root."
+  (docs/design/fresco/product/dispositions.md HS-11, obstruction 2;
+  `re-frame.fresco.server-render-ssr-dom-cljs-test`). Mechanism and
+  witnesses: docs/design/fresco/architecture.md, section The root."
   ([container frame-kw hiccup] (hydrate-root! container frame-kw hiccup nil))
   ([container frame-kw hiccup opts]
-   (let [window  (rf.hicasso.impl.roots/open-adoption-window!)
+   (let [window  (rf.fresco.impl.roots/open-adoption-window!)
          handle  {:frame frame-kw :container container :adoption window}
          element (tree handle hiccup)
          ropts   (hydrate-root-options window opts)]
@@ -395,10 +395,10 @@
   emptied the tables first could never turn red. And it does not remove
   the container: that is the caller's node, and React's own
   `root.unmount()` empties it and leaves it where it is. Both are
-  `release!`'s (docs/design/hicasso/product/globals.md, the
+  `release!`'s (docs/design/fresco/product/globals.md, the
   `reset-runtime!` paragraph)."
   [handle]
-  (rf.hicasso.impl.roots/close-adoption-window! (:adoption handle))
+  (rf.fresco.impl.roots/close-adoption-window! (:adoption handle))
   (when-some [r (:root handle)]
     (react-dom/flushSync (fn [] (.unmount r))))
   nil)
@@ -408,35 +408,35 @@
   fixture door, and not on the facade, because it ends with a page that
   holds nothing — right where one test owns the page, wrong for a consumer
   tearing down one of two roots
-  (docs/design/hicasso/product/naming-ledger.md row 13). Idempotent, so a
+  (docs/design/fresco/product/naming-ledger.md row 13). Idempotent, so a
   fixture can route through it twice. Not the door a residue assertion
   takes — see `unmount!`."
   [handle]
   (unmount! handle)
   (when-some [c (:container handle)]
     (when-some [p (.-parentNode c)] (.removeChild p c)))
-  (rf.hicasso.impl.collector/reset-runtime!)
+  (rf.fresco.impl.collector/reset-runtime!)
   nil)
 
 ;; ---------------------------------------------------------------------------
-;; The client root — Spec 006 §The client root, Hicasso's realisation
+;; The client root — Spec 006 §The client root, Fresco's realisation
 ;; ---------------------------------------------------------------------------
 ;;
 ;; ONE handle with a first-call mode, in place of the four verbs this
 ;; package used to spell (rf2-kuky.59). The grammar is the one every React
 ;; view adapter publishes — `client-root` / `render!` / `unmount!` — and
-;; the semantics below are the spec's, proved here against Hicasso's OWN
+;; the semantics below are the spec's, proved here against Fresco's OWN
 ;; root path rather than the spine's: `flushSync` on every update, a
 ;; per-root adoption window, a per-root recoverable-error reporter, and
 ;; the stable wrapper tree `tree` puts over every post-hydration render so
-;; the client agrees with `re-frame.hicasso.server/render` about `useId`.
+;; the client agrees with `re-frame.fresco.server/render` about `useId`.
 ;;
 ;; The handle logic is written here rather than taken from
 ;; `re-frame.substrate.spine/make-client-root-fns` DELIBERATELY: the spine
 ;; is core's React-HOOK machinery, and one `:require` of it from this
-;; namespace would put the whole spine into the bundle of every Hicasso
+;; namespace would put the whole spine into the bundle of every Fresco
 ;; application, including the ones that install Reagent, reagent-slim or
-;; UIx instead. That is the exact cost `re-frame.hicasso.substrate`'s row
+;; UIx instead. That is the exact cost `re-frame.fresco.substrate`'s row
 ;; in `scripts/check_optional_module_reachability.py` exists to keep
 ;; optional. Twenty lines of handle branch is the cheaper half of that
 ;; trade, and the SEMANTICS are pinned to the shared ones by test rather
@@ -448,14 +448,14 @@
 ;; and a handle's own `unmount!` both reach the host unmount exactly once
 ;; per root, whichever gets there first.
 ;;
-;; One cell for the package rather than one per adapter, because a Hicasso
-;; root is created by Hicasso's own door whatever adapter is installed —
+;; One cell for the package rather than one per adapter, because a Fresco
+;; root is created by Fresco's own door whatever adapter is installed —
 ;; `h/render!` never routes through the substrate contract's `render` slot.
-;; The drain is published to core on the `:hicasso/drain-client-roots!`
+;; The drain is published to core on the `:fresco/drain-client-roots!`
 ;; late-bind hook below and invoked by
 ;; `re-frame.substrate.adapter/dispose-adapter!`, which is the PROCESS
 ;; teardown boundary: `rf/destroy-adapter!` therefore releases these roots
-;; whichever adapter an application installed, Hicasso over UIx and over
+;; whichever adapter an application installed, Fresco over UIx and over
 ;; Reagent included (rf2-kuky.59).
 ;;
 ;; A comment rather than a docstring because CLJS `defonce` takes no
@@ -477,9 +477,9 @@
 
 (defn drain-active-roots!
   "Unmount every Root this package still holds and empty the cell: the
-  host-resource half of Spec 006 §Adapter disposal lifecycle for Hicasso,
+  host-resource half of Spec 006 §Adapter disposal lifecycle for Fresco,
   reached from `re-frame.substrate.adapter/dispose-adapter!` through the
-  `:hicasso/drain-client-roots!` hook published below.
+  `:fresco/drain-client-roots!` hook published below.
 
   The cell is emptied FIRST, so a handle whose Root this drain took finds
   itself already released and a `render!` through it mounts afresh. Each
@@ -505,7 +505,7 @@
 ;; `:live-frame/release-frame-generation-pool!`'s directory row. This
 ;; namespace is loaded by every door that can create a root, so the hook is
 ;; bound before the first Root can exist.
-(rf.late-bind/set-fn! :hicasso/drain-client-roots! drain-active-roots!)
+(rf.late-bind/set-fn! :fresco/drain-client-roots! drain-active-roots!)
 
 (defn client-root
   "Allocate an inert client-root handle: `h/client-root`. No DOM work and
@@ -551,7 +551,7 @@
   ([handle render-tree mount-point]
    (render-client-root! handle render-tree mount-point nil))
   ([handle render-tree mount-point opts]
-   (require-root-options! opts 're-frame.hicasso/render!)
+   (require-root-options! opts 're-frame.fresco/render!)
    (let [live @handle]
      (if (and live ((:live? live)))
        ((:update! live) render-tree)
@@ -581,7 +581,7 @@
   a witness driving one names the frame itself — which is the honest
   spelling anyway, since a root can hold more than one boundary."
   [target event]
-  (rf.hicasso.impl.collector/dispatch!
+  (rf.fresco.impl.collector/dispatch!
     (if (keyword? target) target (:frame target))
     event)
   (settle!)

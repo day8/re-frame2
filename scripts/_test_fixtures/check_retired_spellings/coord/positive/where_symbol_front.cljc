@@ -8,7 +8,7 @@
   (if (nil? frame-kw)
     (fail! :rf.error/no-frame-prop
            'front.codec/root-element
-           "A frame-fed Hicasso boundary rendered with no frame in its props."
+           "A frame-fed Fresco boundary rendered with no frame in its props."
            :mint-the-root-element-with-a-frame
            {})
     frame-kw))

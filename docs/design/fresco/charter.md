@@ -1,6 +1,6 @@
-# Hicasso — charter
+# Fresco — charter
 
-**Hicasso is re-frame2's native view layer: interpreted Hiccup on a modern React
+**Fresco is re-frame2's native view layer: interpreted Hiccup on a modern React
 function-component host, optimised for re-frame2.** This charter states the
 identity, evidence base, goals, constraints, and scope. Decisions are normative in
 [decisions.md](decisions.md); the runtime shape in
@@ -11,13 +11,13 @@ the programmer-facing surface in [authoring.md](authoring.md).
 
 | | |
 |---|---|
-| **Product** | **Hicasso** — Hiccup + Picasso, one letter apart |
-| **Namespace** | `re-frame.hicasso` · artifact `io.github.day8/re-frame2-hicasso` |
+| **Product** | **Fresco** — Hiccup + Picasso, one letter apart |
+| **Namespace** | `re-frame.fresco` · artifact `io.github.day8/re-frame2-fresco` |
 | **Alias** | `h` (deliberately not Freehand's `v`, not `ui`) |
-| **One-liner** | *Hicasso — Hiccup views for re-frame2.* |
+| **One-liner** | *Fresco — Hiccup views for re-frame2.* |
 
 ```clojure
-(:require [re-frame.hicasso :as h :refer [defview sub]])
+(:require [re-frame.fresco :as h :refer [defview sub]])
 (h/defview cart-badge [_] [:span.badge (sub [:cart/count])])
 ```
 
@@ -43,7 +43,7 @@ canonical.
   controlled-input restore come from the host.
 - **The specialization advantage**: in re-frame2, subscriptions are the only
   reactive source and the commit is the only write clock. Every comparable system
-  (Solid, Svelte, Vapor, Preact signals) had to build a scheduler; Hicasso gets one
+  (Solid, Svelte, Vapor, Preact signals) had to build a scheduler; Fresco gets one
   free — a structural edge Reagent and UIx cannot copy without becoming re-frame2.
 - **There is no compiler, no analyzer, no second mode, no ViewCell, no reaction
   graph, and no second app-facing state model.** The predecessors' post-mortems
@@ -152,13 +152,13 @@ canonical.
 - **Tier-1 syntax only for the five census-proven shapes; rare shapes get escape
   hatches; no layout DSL.**
 - **End state:** on a win, the public Freehand and re-frame.ui surfaces are
-  deleted and **Hicasso is the one taught story**; on a loss, adapters plus
+  deleted and **Fresco is the one taught story**; on a loss, adapters plus
   status-quo donors — never three living stories.
 
 ## Use cases
 
 The full roster is the product's definition of done — the existing witness corpus
-re-pointed at Hicasso, green. **v0 is deliberately narrower**: the five tier-1
+re-pointed at Fresco, green. **v0 is deliberately narrower**: the five tier-1
 shapes beautiful; controlled input R-A1/R-A2; mount inside the mount gate and bulk
 ≤ Reagent on the witness shapes; one host hatch proven; a dogfood list+form screen
 preferred over raw UIx by its authors; the event/sub loop not regressed; a short
@@ -168,7 +168,7 @@ buffered/revision input ladder, overlay excellence, batteries/library platform,
 SSR as identity, devtools glass, per-keystroke envelopes as a gate.
 
 **Amended 2026-08-04 (operator ruling):** the out-of-v0 SSR posture above is
-superseded — **SSR + hydration is required Hicasso scope** ("hicasso is useless
+superseded — **SSR + hydration is required Fresco scope** ("fresco is useless
 unless it does SSR"), through the framework's own Spec 011 story, recorded as
 the HD-020 addendum in [decisions.md](decisions.md) and the same-date EP-0038
 addendum. The sentences above stand as the record of what v0 pre-registered.
@@ -236,7 +236,7 @@ tier-1). 16. Multi-frame isolation. 17. Hot reload with clean remount semantics.
 18. Time travel, including mounted host state.
 
 **Amended 2026-08-04 (operator ruling):** item 14 is no longer waiting past
-v0 — SSR + hydration is required Hicasso scope, per the same-date note under
+v0 — SSR + hydration is required Fresco scope, per the same-date note under
 the v0 scope paragraph above and the HD-020 addendum in
 [decisions.md](decisions.md).
 
@@ -292,7 +292,7 @@ tier-1 syntax; **no layout DSL**. Census-weighted policy defaults belong in the
 acceptance instrument: `:on-submit` intents auto-prevent; a data key-map with the
 composition-gated Enter/Escape law centralised in the runtime.
 
-## Why Hicasso should fare better than its predecessors
+## Why Fresco should fare better than its predecessors
 
 1. **It starts from the autopsy they paid for.** The killers are measured — the
    per-boundary shell and the per-read ledger — and the design omits them, with

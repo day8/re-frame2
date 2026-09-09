@@ -1,12 +1,12 @@
-# Hicasso — architecture
+# Fresco — architecture
 
 The runtime architecture space, the one live arm, the front half it inherited
 from the two-arm period, and the mechanism ladders. Decisions cited as HD-nnn are
 normative in [decisions.md](decisions.md); the proof obligations live in
 [validation.md](validation.md).
 
-> **Status, 2026-07-31: Hicasso is a React adapter, and there is one arm.** Mike
-> ruled that Hicasso is "an adaptor for React that is optimised for re-frame2,
+> **Status, 2026-07-31: Fresco is a React adapter, and there is one arm.** Mike
+> ruled that Fresco is "an adaptor for React that is optimised for re-frame2,
 > user ergonomics and performance", and dropped Arm 2 (PATCH). The tournament is
 > over, decided on **product direction, not on measurement**: Arm 2 *met* its
 > hard gate in real Chromium and its code was retired afterwards (`rf2-m6if4`),
@@ -31,8 +31,8 @@ normative in [decisions.md](decisions.md); the proof obligations live in
 
 | | **Views re-run when dirty** | **Views run once; reactive holes** |
 |---|---|---|
-| **React owns the DOM** | **Hicasso lean-React** — the product line | dead — two-owner input clobber |
-| **Own renderer, React at islands** | ~~**Hicasso/PATCH**~~ — withdrawn 2026-07-31 (HD-007, superseded) | dead — the shipped read surface requires a re-running body (HD-002) |
+| **React owns the DOM** | **Fresco lean-React** — the product line | dead — two-owner input clobber |
+| **Own renderer, React at islands** | ~~**Fresco/PATCH**~~ — withdrawn 2026-07-31 (HD-007, superseded) | dead — the shipped read surface requires a re-running body (HD-002) |
 
 `sub`-as-a-value in open Clojure forces the re-run column: without a compiler to
 thunk expressions, run-once economics require hole-based authoring, which the
@@ -80,14 +80,14 @@ elements vs own DOM).
    is gone: PR #8745 deleted `impl/evidence.cljs` and the collector's two
    taps, since nothing in src attached and the Xray projection reads the
    collector's tables directly. The instruments that did attach now reach the
-   runtime through the test kit's own door, `re-frame.hicasso.test.runtime`.
+   runtime through the test kit's own door, `re-frame.fresco.test.runtime`.
 3. **Ergonomics-as-data** — event vectors in attributes, the value placeholder,
    auto-prevent on submit, the composition-gated key-map, `route-link`
    ([authoring.md](authoring.md)).
 4. **Sub-layer push-cheap/pull-lazy** — equality cutoff on subscription values at
    the existing sub layer; unchanged hot reads perform no new attach/release.
 
-## Arm 1 — Hicasso lean-React (the product line since 2026-07-31)
+## Arm 1 — Fresco lean-React (the product line since 2026-07-31)
 
 - A boundary is a **real React function component** minted by `defview`
   (invocation semantics: HD-016). React owns identity, reconciliation, context,
@@ -133,15 +133,15 @@ elements vs own DOM).
   node references, subscription-addressed holes, or direct DOM writes, it is the
   PATCH strategy and must say so.
 
-## Arm 2 — Hicasso/PATCH (equal-class spike arm; HD-007)
+## Arm 2 — Fresco/PATCH (equal-class spike arm; HD-007)
 
-> **WITHDRAWN 2026-07-31, and the code is gone.** Mike ruled that Hicasso is an
+> **WITHDRAWN 2026-07-31, and the code is gone.** Mike ruled that Fresco is an
 > adapter for React (`rf2-2rtt6.10`), so this arm was dropped on **product
 > direction, not on measurement** — it *met* its hard gate, in real Chromium.
-> Its tree under `implementation/freehand/test/re_frame/bench/hicasso/arm2/` was
+> Its tree under `implementation/freehand/test/re_frame/bench/fresco/arm2/` was
 > retired by `rf2-m6if4`. The section stays as the design record. What survived
 > the retirement is the controlled-restore witness, moved to
-> `bench/hicasso/controlled_restore_dom_cljs_test.cljs` and re-taken on React —
+> `bench/fresco/controlled_restore_dom_cljs_test.cljs` and re-taken on React —
 > where the `:unchanged-model-rejection` row does **not** hold, which is open on
 > `rf2-n3dxw`.
 
@@ -235,7 +235,7 @@ file's docstrings were trimmed to the contract (rf2-76hbj, executing the
 rf2-6c12m.4 rule). The ruling is
 [HD-021](decisions.md#hd-021--the-v0-execution-contract-root-hmr-headless);
 the door names and the `(node config view)` shape are naming-ledger rows 13
-and 20 (`docs/design/hicasso/product/naming-ledger.md`); what teardown may
+and 20 (`docs/design/fresco/product/naming-ledger.md`); what teardown may
 and may not touch is [globals.md](product/globals.md).
 
 **Every door commits before it returns, except the hydrating one.** React 19
@@ -269,14 +269,14 @@ and React unmounts the adopted subtree and mounts a fresh one, discarding
 every node, cell and subscription the adoption established. That was observed
 when the shape landed as the first `render!` after a hydration re-running all
 four boundary bodies and replacing all four DOM nodes; the standing witness is
-`re-frame.hicasso.roots-frames-hydration-dom-cljs-test`, whose
+`re-frame.fresco.roots-frames-hydration-dom-cljs-test`, whose
 `tearing-down-one-hydrated-root-leaves-the-other-adopted-and-live` row asserts
 that a props-equal `render!` after adoption bails at the memo with zero body
 runs and every node still the server's. `tree` is public because
-`re-frame.hicasso.server/render` builds its element from the same function:
+`re-frame.fresco.server/render` builds its element from the same function:
 React derives a `useId` from tree position as well as from the prefix, so the
 server's bytes and the adopted tree agree by construction rather than by two
-implementations agreeing (`docs/design/hicasso/product/dispositions.md`,
+implementations agreeing (`docs/design/fresco/product/dispositions.md`,
 HS-11 obstruction 2).
 
 **The adoption window is per-root, closed by a component, and minted in
@@ -335,7 +335,7 @@ live. The guard asks `frame/frame-incarnation-token` rather than trusting
 replacement — config and generation refresh, durable state preserved — so an
 unguarded call would not fail a joining root, it would silently refresh the
 config of the frame the first root created, and the guide promises the
-opposite (`docs/core/hicasso/00-installation.md`). `make-frame` drains the
+opposite (`docs/core/fresco/00-installation.md`). `make-frame` drains the
 seed to a fixed point before it returns, so the seeded app-db is on the frame
 before React renders anything and the first paint is the seeded one — an
 ordering the substrate's `frame-root` component cannot have, since its ensure
@@ -579,12 +579,12 @@ live row's entry in one bucket, where every probe passes the length test and
 the index-0 test and fails only at the last key, so mounting N rows costs
 `sum(i)` probes; at the N = 300 rung that is the same page, the same edges and
 about 150× the entry-lookup work (rf2-2rtt6.46). The same entry cache serves
-`re-frame.hicasso.native/use-sub`: a hook is a real React component and not a
+`re-frame.fresco.native/use-sub`: a hook is a real React component and not a
 boundary — no shell ran, `rstate` names no frame, the scratch holds somebody
 else's reads or none — so it takes `hook-entry` and `hook-read`, doors onto
 this module's tables and never a second copy of them. A hook and a boundary
 reading one key share one entry, one registration shape and one cell, which is
-why `re-frame.hicasso.tool`'s rosters see a hook's reads without knowing hooks
+why `re-frame.fresco.tool`'s rosters see a hook's reads without knowing hooks
 exist; the entry's identity is what spares a hook a `useMemo` or `useRef`, and
 `hook-read` scopes the cold-probe box to its own call so a later hook read
 cannot inherit a snapshot of a world that has moved.
@@ -648,7 +648,7 @@ finding recorded as §3.2 of [the dogfood judgement](studio/arm1-lean-react-dogf
 inside three consecutive body runs is a write loop and fails loudly. In a dev
 build the entry's `subscribe` is wrapped per declared view name so the name is
 counted where React commits the reference and uncounted where its cleanup
-releases it: the roster `re-frame.hicasso.tool` exports claims the *mounted*
+releases it: the roster `re-frame.fresco.tool` exports claims the *mounted*
 views, and only the commit knows that — a render React discards and a view that
 has unmounted name nothing, exactly as they hold nothing
 ([the adjudication](hd-002-adjudication.md#3-the-ownership-state-machine)).
@@ -677,7 +677,7 @@ still emits through the macro's `try/finally`. Helpers inlined into a body are
 not bracketed — their cost lands inside the enclosing boundary's measure, where
 their reads land. The entry is `rf:render:<view-name>` with `view-name` the
 string stamped as `displayName`, so a measure name and React DevTools show one
-identifier (`bench/hicasso/src/re_frame/bench/hicasso/arm1/render_measure_cljs_test.cljs`
+identifier (`bench/fresco/src/re_frame/bench/fresco/arm1/render_measure_cljs_test.cljs`
 is the OFF half, its `_emit_nightly_` sibling the ON half). The body is kept on
 the head under one dev-only own property because a minted head is a React
 component whose body is reachable only through the shell, and the test kit's L2
@@ -697,12 +697,12 @@ way it answers a Reagent or a UIx head (rf2-kuky.60). What comes back is
 `identical?` to what the `def` bound: `re-frame.views/view-head` returns a
 `:view` slot it did not itself build exactly as stored, so nothing composes,
 wraps or componentises a boundary that already is a React component. The entry
-carried a private `:hicasso/component` and no `:handler-fn` until rf2-kuky.60,
+carried a private `:fresco/component` and no `:handler-fn` until rf2-kuky.60,
 on the reasoning that `rf/view` answers *the registered render fn*; the answer
 was that `view-head`'s pass-through makes the ordinary key free, and one lookup
 on every substrate is worth more than a contract sentence that was itself stale.
 It publishes resolvability, not identity — mounted boundary identity is still
-keyed by the read set and unnamed, which is what `re-frame.hicasso.tool` answers
+keyed by the read set and unnamed, which is what `re-frame.fresco.tool` answers
 the backward question with. It goes through `registrar/register!` rather than
 `rf/reg-view*` for two reasons, either decisive: `reg-view*` always builds a
 frame-aware render wrapper under `:handler-fn`, so it cannot mint a metadata-only
@@ -713,7 +713,7 @@ construction. Re-evaluating a `defview` re-registers the same id and the
 registrar replaces the slot, and it reports that replacement correctly with
 nothing said out loud: `register!` derives `:rf.registry/handler-replaced`'s
 `:different-fn?` from `:handler-fn` by default, which is where the head now
-lives. The entry used to need an `:executable-key :hicasso/component` to point
+lives. The entry used to need an `:executable-key :fresco/component` to point
 that derivation at its private slot, because nil against nil reports a genuine
 swap of one component for another as an idempotent reload — the second defect
 rf2-kuky.60 retired, and the reason `registrar/executable-identity` now has no
@@ -750,7 +750,7 @@ cost: [HD-028](decisions.md#hd-028--value-equality-is-the-boundary-default).
 Instrument arms live on branches against the existing tracked bench trees, with
 results published to their beads and the studio table. Runtime skeletons stay
 disposable (spike branch or the local `ai/` tree) until the surviving arm
-graduates into a tracked `implementation/hicasso/` artefact. (HD-017 wrote that
+graduates into a tracked `implementation/fresco/` artefact. (HD-017 wrote that
 condition as "the P2 ruling graduates exactly one arm"; the 2026-07-31 product
 ruling settled *which* arm ahead of P2, and the residence rule is otherwise
 unchanged.) The spike-01 index model was library input to the front half, not a

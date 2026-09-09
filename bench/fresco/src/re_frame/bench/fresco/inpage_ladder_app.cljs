@@ -1,8 +1,8 @@
-(ns re-frame.bench.hicasso.inpage-ladder-app
+(ns re-frame.bench.fresco.inpage-ladder-app
   "THE IN-PAGE MOUNT TERM, DECOMPOSED (rf2-409ab).
 
   `rf2-cno31` published the acceptance arm's mount as
-  `hicasso 16.015 = 8.254 taskNet + 6.100 in-page` against
+  `fresco 16.015 = 8.254 taskNet + 6.100 in-page` against
   `uix 13.742 = 8.246 taskNet + 3.900 in-page`, floor 12.010 — so the
   arms' FRAME halves are indistinguishable (8.254 vs 8.246) and the whole
   +2.2 ms deficit lives in the IN-PAGE half. This entry decomposes that
@@ -10,7 +10,7 @@
 
   ## The door and the window, stated first
 
-  Every arm here mounts through `rf.bench.hicasso.lane/mount-arm!` — `createRoot` +
+  Every arm here mounts through `rf.bench.fresco.lane/mount-arm!` — `createRoot` +
   `.render` inside ONE `react-dom/flushSync`, `performance.now()` on
   either side — which is **the same window, on the same page, at the same
   door** the published in-page term is read through
@@ -38,13 +38,13 @@
 
   | arm | what it is | subtraction |
   |---|---|---|
-  | `ship` | the real [[re-frame.bench.hicasso.shapes.large-template/page]] through the real shell | the published 6.100 |
+  | `ship` | the real [[re-frame.bench.fresco.shapes.large-template/page]] through the real shell | the published 6.100 |
   | `local` | the same body, re-spelled in THIS namespace | fidelity gate: `local / ship` |
   | `nolink` | `local` with the card's three `route-link`s spelled as literal-href anchors | `local - nolink` = **the routing term** |
   | `nohiccup` | the 141 reads, then a hiccup tree built ONCE at boot | `nolink - nohiccup` = **hiccup materialisation** |
   | `nowalk` | the 141 reads, then a React element tree built ONCE at boot | `nohiccup - nowalk` = **the codec walk** |
   | `noreads` | the frozen element tree, no reads | `nowalk - noreads` = **the 141 reads AND their commit** |
-  | `nomemo` | `noreads` minted WITHOUT `rf.bench.hicasso.front.codec/memoize-boundary!` | `noreads - nomemo` = **the HD-028 memo wrapper's fiber** |
+  | `nomemo` | `noreads` minted WITHOUT `rf.bench.fresco.front.codec/memoize-boundary!` | `noreads - nomemo` = **the HD-028 memo wrapper's fiber** |
   | `bare` | a plain React function component, no shell, no hooks | `nomemo - bare` = **the shell: 2 hooks, the fence, the entry** |
   | `coarse` | `local` at the TWIN's read shape — five coarse reads | `local - coarse` = **the read-shape asymmetry, on our arm** |
   | `floor` | the census floor arm - hand-written `createElement` | the calibrator |
@@ -77,22 +77,22 @@
   to the DOM.
 
   Owner bead: rf2-409ab. Driver: `run.cjs` with
-  HICASSO_INIT_FN=re-frame.bench.hicasso.inpage-ladder-app/-main."
+  FRESCO_INIT_FN=re-frame.bench.fresco.inpage-ladder-app/-main."
   (:require ["react" :as react]
             ["react-dom/client" :as react-dom-client]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
-            [re-frame.bench.hicasso.front.route-link :refer [route-link]]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.shapes.census-clock-arms :as rf.bench.hicasso.shapes.census-clock-arms]
-            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
-            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime :refer [sub]]
+            [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
+            [re-frame.bench.fresco.front.route-link :refer [route-link]]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.shapes.census-clock-arms :as rf.bench.fresco.shapes.census-clock-arms]
+            [re-frame.bench.fresco.shapes.large-template :as rf.bench.fresco.shapes.large-template]
+            [re-frame.bench.fresco.shapes.model :as rf.bench.fresco.shapes.model]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
             [uix.core :refer [$ defui]])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 (def row-key :large-template)
 
@@ -121,7 +121,7 @@
   "Eight identically-seeded frames the commit micro takes its entries
   from. Cells are global per (frame, query), so a commit measured twice
   on one frame measures a WARM one the second time."
-  (mapv (fn [i] (keyword "re-frame.bench.hicasso.inpage-ladder-app" (str "commit" i)))
+  (mapv (fn [i] (keyword "re-frame.bench.fresco.inpage-ladder-app" (str "commit" i)))
         (range 8)))
 
 (defonce ^:private !dispatch
@@ -130,9 +130,9 @@
   (atom {}))
 
 (defn- seed-frame! [fid]
-  (rf.bench.hicasso.shapes.model/make-frame! fid rf.bench.hicasso.shapes.large-template/seed)
-  (rf.bench.hicasso.shapes.model/reseed! fid rf.bench.hicasso.shapes.large-template/seed)
-  (rf.bench.hicasso.shapes.census-clock-arms/prime-frame! fid)
+  (rf.bench.fresco.shapes.model/make-frame! fid rf.bench.fresco.shapes.large-template/seed)
+  (rf.bench.fresco.shapes.model/reseed! fid rf.bench.fresco.shapes.large-template/seed)
+  (rf.bench.fresco.shapes.census-clock-arms/prime-frame! fid)
   (swap! !dispatch assoc fid (:dispatch (rf/capture-frame fid)))
   fid)
 
@@ -173,7 +173,7 @@
     [:div.article-preview {:key         slug
                            :data-testid (str "article-preview-" slug)}
      [:div.article-meta
-      (profile-a "author-link" [:img.user-pic {:src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""}])
+      (profile-a "author-link" [:img.user-pic {:src (rf.bench.fresco.shapes.model/avatar-src (:image author)) :alt ""}])
       [:div.info
        (profile-a "author" username)
        [:span.date createdAt]]
@@ -232,13 +232,13 @@
            [:a.nav-link {:href        "#"
                          :data-testid "your-feed-tab"
                          :class       (when your-feed? "active")
-                         :on-click    [:re-frame.hicasso/prevent [:conduit/show-your-feed]]}
+                         :on-click    [:re-frame.fresco/prevent [:conduit/show-your-feed]]}
             "Your Feed"]]
           [:li.nav-item
            [:a.nav-link {:href        "#"
                          :data-testid "global-feed-tab"
                          :class       (when-not your-feed? "active")
-                         :on-click    [:re-frame.hicasso/prevent [:conduit/show-global-feed]]}
+                         :on-click    [:re-frame.fresco/prevent [:conduit/show-global-feed]]}
             "Global Feed"]]]]
         [:div.article-list {:data-testid "article-list"} cards]]
        [:div.col-md-3
@@ -308,13 +308,13 @@
 
 (def nomemo-page
   "`noreads-page` minted the long way and NOT handed to
-  `rf.bench.hicasso.front.codec/memoize-boundary!` — the one difference. `element-type` falls
-  back to the head itself when there is no `hicassoMemo`, so this is the
+  `rf.bench.fresco.front.codec/memoize-boundary!` — the one difference. `element-type` falls
+  back to the head itself when there is no `frescoMemo`, so this is the
   shell without React's wrapper fiber above it."
-  (let [c (fn hicasso-boundary-nomemo [js-props]
-            (rf.bench.hicasso.arm1.runtime/shell (fn [_] @!frozen-element) js-props))]
+  (let [c (fn fresco-boundary-nomemo [js-props]
+            (rf.bench.fresco.arm1.runtime/shell (fn [_] @!frozen-element) js-props))]
     (unchecked-set c "displayName" "inpage-ladder/nomemo")
-    (rf.bench.hicasso.front.codec/mark-boundary! c)))
+    (rf.bench.fresco.front.codec/mark-boundary! c)))
 
 (defn bare-component
   "No shell: no `useContext`, no `useSyncExternalStore`, no generation
@@ -345,7 +345,7 @@
 ;; creation the candidate reaches through an interpreter — so `uix` is
 ;; re-spelled here and stepped down the same way: routing off, then the
 ;; markup off. `census_clock_arms`' own private helpers are re-spelled
-;; with it, for the rf2-2rtt6.32 reason the hicasso copy is.
+;; with it, for the rf2-2rtt6.32 reason the fresco copy is.
 
 (def ^:private favorite-base "btn btn-outline-primary btn-sm pull-xs-right")
 
@@ -382,7 +382,7 @@
     ($ :div.article-preview {:key slug :data-testid (str "article-preview-" slug)}
        ($ :div.article-meta
           ($ :a.author-link {:href (:href pic) :on-click (:on-click pic)}
-             ($ :img.user-pic {:src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""}))
+             ($ :img.user-pic {:src (rf.bench.fresco.shapes.model/avatar-src (:image author)) :alt ""}))
           ($ :div.info
              ($ :a.author {:href (:href nam) :on-click (:on-click nam)} username)
              ($ :span.date createdAt))
@@ -460,10 +460,10 @@
                 r))
    :unmount (fn [r] (.unmount r))})
 
-(defn- hicasso-arm [id view]
+(defn- fresco-arm [id view]
   (let [fid (get local-frames id)]
     (react-root-arm id
-      (fn [] (rf.bench.hicasso.arm1.mount/provider fid (rf.bench.hicasso.front.codec/as-element [view {}]))))))
+      (fn [] (rf.bench.fresco.arm1.mount/provider fid (rf.bench.fresco.front.codec/as-element [view {}]))))))
 
 (defn- uix-arm [id view]
   (let [fid (get local-frames id)]
@@ -471,23 +471,23 @@
       (fn [] ($ rf.adapter.uix/frame-provider {:frame fid} ($ view {}))))))
 
 (defn- ladder-arms []
-  [(rf.bench.hicasso.shapes.census-clock-arms/arm row-key :hicasso)                              ; :hicasso — `ship`
-   (hicasso-arm :local    local-page)
-   (hicasso-arm :coarse   coarse-page)
-   (hicasso-arm :nolink   nolink-page)
-   (hicasso-arm :nohiccup nohiccup-page)
-   (hicasso-arm :nowalk   nowalk-page)
-   (hicasso-arm :noreads  noreads-page)
-   (hicasso-arm :nomemo   nomemo-page)
+  [(rf.bench.fresco.shapes.census-clock-arms/arm row-key :fresco)                              ; :fresco — `ship`
+   (fresco-arm :local    local-page)
+   (fresco-arm :coarse   coarse-page)
+   (fresco-arm :nolink   nolink-page)
+   (fresco-arm :nohiccup nohiccup-page)
+   (fresco-arm :nowalk   nowalk-page)
+   (fresco-arm :noreads  noreads-page)
+   (fresco-arm :nomemo   nomemo-page)
    (react-root-arm :bare
-     (fn [] (rf.bench.hicasso.arm1.mount/provider (:bare local-frames)
+     (fn [] (rf.bench.fresco.arm1.mount/provider (:bare local-frames)
               (react/createElement bare-component nil))))
-   (rf.bench.hicasso.shapes.census-clock-arms/arm row-key :floor)
-   (rf.bench.hicasso.shapes.census-clock-arms/arm row-key :uix)
+   (rf.bench.fresco.shapes.census-clock-arms/arm row-key :floor)
+   (rf.bench.fresco.shapes.census-clock-arms/arm row-key :uix)
    (uix-arm :uixlocal  uixlocal-page)
    (uix-arm :uixnolink uixnolink-page)
    (uix-arm :uixbare   uixbare-page)
-   (assoc (rf.bench.hicasso.shapes.census-clock-arms/arm row-key :ctl-2x) :control? true)])
+   (assoc (rf.bench.fresco.shapes.census-clock-arms/arm row-key :ctl-2x) :control? true)])
 
 (def ^:private control-ids #{:ctl-2x})
 
@@ -496,18 +496,18 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- canon-of [arm]
-  (let [mnt (rf.bench.hicasso.lane/mount-arm! arm {})
-        s   (rf.bench.hicasso.lane/canonical (:container mnt))
-        n   (rf.bench.hicasso.lane/element-count (:container mnt))]
-    (rf.bench.hicasso.lane/release! mnt)
+  (let [mnt (rf.bench.fresco.lane/mount-arm! arm {})
+        s   (rf.bench.fresco.lane/canonical (:container mnt))
+        n   (rf.bench.fresco.lane/element-count (:container mnt))]
+    (rf.bench.fresco.lane/release! mnt)
     {:canonical s :elements n}))
 
 (defn- parity-problems [arms']
   (let [reference (canon-of (first arms'))
-        expected  (rf.bench.hicasso.shapes.census-clock-arms/expected-elements row-key :hicasso)]
+        expected  (rf.bench.fresco.shapes.census-clock-arms/expected-elements row-key :fresco)]
     (into (if (= expected (:elements reference))
             []
-            [{:arm :hicasso :problem :element-count
+            [{:arm :fresco :problem :element-count
               :predicted expected :measured (:elements reference)}])
           (comp (drop 1)
                 (remove #(control-ids (:id %)))
@@ -540,34 +540,34 @@
 
 (defn- rounds-async!
   "The reflecting-schedule sampler, promise-chained. Every sample index
-  visits every arm in [[rf.bench.hicasso.lane/slot-order]]'s order; warm-up samples are
+  visits every arm in [[rf.bench.fresco.lane/slot-order]]'s order; warm-up samples are
   taken and discarded; between samples the mount is released and ONE
   macrotask settles, which is what lets the cell reaper run and so what
   makes the next sample's 141 reads COLD again — the property the whole
   ladder is about."
   [arms' {:keys [warmup samples]} rounds']
   (let [k    (count arms')
-        coll (rf.bench.hicasso.lane/sample-collector)
+        coll (rf.bench.fresco.lane/sample-collector)
         out  (atom [])]
-    (-> (rf.bench.hicasso.lane/chain
+    (-> (rf.bench.fresco.lane/chain
           nil
           (for [round (range rounds')
                 s     (range (+ warmup samples))
-                j     (rf.bench.hicasso.lane/slot-order k s)]
+                j     (rf.bench.fresco.lane/slot-order k s)]
             [round s j])
           (fn [_ [round s j]]
             (let [arm (nth arms' j)
-                  mnt (rf.bench.hicasso.lane/mount-arm! arm {})
+                  mnt (rf.bench.fresco.lane/mount-arm! arm {})
                   ms  (:ms mnt)]
               ;; OUTSIDE the window: did the boundary's commit run inside
               ;; the flushSync we just timed? 141 live cells says yes.
-              (when (= :hicasso (:id arm))
-                (swap! !cells-after-window update (:cells (rf.bench.hicasso.arm1.runtime/stats)) (fnil inc 0)))
-              (rf.bench.hicasso.lane/release! mnt)
+              (when (= :fresco (:id arm))
+                (swap! !cells-after-window update (:cells (rf.bench.fresco.arm1.runtime/stats)) (fnil inc 0)))
+              (rf.bench.fresco.lane/release! mnt)
               (when (>= s warmup)
-                (rf.bench.hicasso.lane/collect! coll (name (:id arm)) ms)
+                (rf.bench.fresco.lane/collect! coll (name (:id arm)) ms)
                 (swap! out conj [round (:id arm) ms]))
-              (rf.bench.hicasso.lane/settle!))))
+              (rf.bench.fresco.lane/settle!))))
         (.then (fn [_] {:rows @out :samples (:samples @coll)})))))
 
 ;; ---------------------------------------------------------------------------
@@ -597,7 +597,7 @@
   (into {}
         (map (fn [id]
                (let [xs (into [] (comp (filter #(= id (nth % 1))) (map #(nth % 2))) rows)]
-                 [id (assoc (rf.bench.hicasso.lane/summarise xs) :tmean (trimmed-mean xs))])))
+                 [id (assoc (rf.bench.fresco.lane/summarise xs) :tmean (trimmed-mean xs))])))
         ids))
 
 (defn- per-round-ratio
@@ -605,7 +605,7 @@
   raw samples pooled across a drifting box."
   [rows ids floor-id rounds']
   (let [round-p50 (fn [round id]
-                    (:p50 (rf.bench.hicasso.lane/summarise
+                    (:p50 (rf.bench.fresco.lane/summarise
                             (into [] (comp (filter #(and (= round (nth % 0))
                                                          (= id (nth % 1))))
                                            (map #(nth % 2)))
@@ -614,9 +614,9 @@
           (map (fn [id]
                  (let [vs (mapv (fn [r] (/ (round-p50 r id) (round-p50 r floor-id)))
                                 (range rounds'))]
-                   [id {:mean (rf.bench.hicasso.lane/round4 (/ (reduce + 0.0 vs) (count vs)))
-                        :min  (rf.bench.hicasso.lane/round4 (apply min vs))
-                        :max  (rf.bench.hicasso.lane/round4 (apply max vs))}])))
+                   [id {:mean (rf.bench.fresco.lane/round4 (/ (reduce + 0.0 vs) (count vs)))
+                        :min  (rf.bench.fresco.lane/round4 (apply min vs))
+                        :max  (rf.bench.fresco.lane/round4 (apply max vs))}])))
           ids)))
 
 (defn- arm-line [id {:keys [p50 tmean min max]}]
@@ -632,9 +632,9 @@
 
 (defn- ns-per-op [reps f]
   (let [sink (volatile! nil)
-        t0   (rf.bench.hicasso.lane/now-ms)]
+        t0   (rf.bench.fresco.lane/now-ms)]
     (dotimes [_ reps] (vreset! sink (f)))
-    (/ (* 1e6 (- (rf.bench.hicasso.lane/now-ms) t0)) reps)))
+    (/ (* 1e6 (- (rf.bench.fresco.lane/now-ms) t0)) reps)))
 
 (def ^:private passes-per-window
   "Body-door passes inside ONE micro window. Chrome clamps
@@ -645,9 +645,9 @@
   8)
 
 (defn- window-ms [reps f]
-  (let [t0 (rf.bench.hicasso.lane/now-ms)]
+  (let [t0 (rf.bench.fresco.lane/now-ms)]
     (dotimes [_ reps] (f))
-    (/ (- (rf.bench.hicasso.lane/now-ms) t0) reps)))
+    (/ (- (rf.bench.fresco.lane/now-ms) t0) reps)))
 
 (defn- micro-table
   "Independent readings of the three terms the mount ladder infers by
@@ -665,7 +665,7 @@
   []
   (let [fid (:capture local-frames)
         pass (fn [f] (/ (window-ms 30 (fn [] (dotimes [_ passes-per-window]
-                                               (rf.bench.hicasso.arm1.runtime/render-body fid f {}))))
+                                               (rf.bench.fresco.arm1.runtime/render-body fid f {}))))
                         passes-per-window))]
     [[:build+walk+reads-ms (pass (fn [_] (acceptance-hiccup false)))]
      [:walk+reads-ms       (pass (fn [_] (sub-pass!) @!frozen-hiccup))]
@@ -687,21 +687,21 @@
   (let [reps 12
         one  (fn []
                (let [entries (mapv (fn [f]
-                                     (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (sub-pass!) [:span]) {})
-                                     (rf.bench.hicasso.arm1.runtime/last-reads))
+                                     (rf.bench.fresco.arm1.runtime/render-body f (fn [_] (sub-pass!) [:span]) {})
+                                     (rf.bench.fresco.arm1.runtime/last-reads))
                                    commit-frames)
-                     t0       (rf.bench.hicasso.lane/now-ms)
-                     releases (mapv (fn [e] (rf.bench.hicasso.arm1.runtime/commit-boundary! e (fn [] nil))) entries)
-                     ms       (- (rf.bench.hicasso.lane/now-ms) t0)]
+                     t0       (rf.bench.fresco.lane/now-ms)
+                     releases (mapv (fn [e] (rf.bench.fresco.arm1.runtime/commit-boundary! e (fn [] nil))) entries)
+                     ms       (- (rf.bench.fresco.lane/now-ms) t0)]
                  (doseq [r releases] (r))
                  ;; Synchronously, because the cell reaper's grace is a
                  ;; macrotask and this loop never yields — an un-reset
                  ;; runtime would make the next rep's 141 reads WARM and
                  ;; its commit a no-op.
-                 (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+                 (rf.bench.fresco.arm1.runtime/reset-runtime!)
                  (/ ms (count commit-frames))))
         xs   (vec (repeatedly reps one))]
-    (:p50 (rf.bench.hicasso.lane/summarise xs))))
+    (:p50 (rf.bench.fresco.lane/summarise xs))))
 
 ;; ---------------------------------------------------------------------------
 ;; Boot
@@ -714,19 +714,19 @@
   it is the arithmetic's 3 + 2 × 69 = 141 distinct reads on the
   1,202-element page."
   [fid]
-  (let [container (rf.bench.hicasso.arm1.mount/fresh-container!)
-        handle    (rf.bench.hicasso.arm1.mount/root! container fid [rf.bench.hicasso.shapes.large-template/page {}])
-        ^js entry (rf.bench.hicasso.arm1.runtime/last-reads)
+  (let [container (rf.bench.fresco.arm1.mount/fresh-container!)
+        handle    (rf.bench.fresco.arm1.mount/root! container fid [rf.bench.fresco.shapes.large-template/page {}])
+        ^js entry (rf.bench.fresco.arm1.runtime/last-reads)
         ks        (.-keys entry)
-        n         (rf.bench.hicasso.lane/element-count container)
-        expected  (rf.bench.hicasso.shapes.large-template/element-arithmetic)
+        n         (rf.bench.fresco.lane/element-count container)
+        expected  (rf.bench.fresco.shapes.large-template/element-arithmetic)
         roster    (let [a #js []]
                     (dotimes [i (alength ks)] (.push a (nth (aget ks i) 1)))
                     a)
         distinct-n (count (into #{} (array-seq roster)))
-        want       (+ 3 (* 2 rf.bench.hicasso.shapes.large-template/article-count))]
-    (rf.bench.hicasso.arm1.mount/unmount! handle)
-    (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+        want       (+ 3 (* 2 rf.bench.fresco.shapes.large-template/article-count))]
+    (rf.bench.fresco.arm1.mount/unmount! handle)
+    (rf.bench.fresco.arm1.runtime/reset-runtime!)
     (when-not (= expected n)
       (throw (ex-info (str "harvest FAILED: page has " n " elements, expected " expected) {})))
     (when-not (and (= want (alength roster)) (= want distinct-n))
@@ -738,25 +738,25 @@
   "Build the no-link page's hiccup and its React element tree ONCE, inside
   a real body door on the capture frame."
   [fid]
-  (let [element (rf.bench.hicasso.arm1.runtime/render-body fid
+  (let [element (rf.bench.fresco.arm1.runtime/render-body fid
                                 (fn [_] (let [h (acceptance-hiccup false)]
                                           (reset! !frozen-hiccup h)
                                           h))
                                 {})]
     (reset! !frozen-element element)
-    (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+    (rf.bench.fresco.arm1.runtime/reset-runtime!)
     nil))
 
 (defn ^:export -main []
   (rf/init! rf.adapter.uix/adapter)
-  (rf.bench.hicasso.lane/leave-act-environment!)
-  (rf.bench.hicasso.lane/self-test!)
+  (rf.bench.fresco.lane/leave-act-environment!)
+  (rf.bench.fresco.lane/self-test!)
   (-> (js/Promise.resolve nil)
       (.then
         (fn [_]
           ;; `census_clock_arms` owns the published `ship`, `uix`, `floor`
           ;; and `ctl-2x` arms, so its frames are made its way.
-          (rf.bench.hicasso.shapes.census-clock-arms/ensure-frames! [:floor :hicasso :uix])
+          (rf.bench.fresco.shapes.census-clock-arms/ensure-frames! [:floor :fresco :uix])
           (doseq [[_ fid] local-frames] (seed-frame! fid))
           (doseq [fid commit-frames] (seed-frame! fid))
           (let [{:keys [roster elements]} (harvest-roster! (:capture local-frames))]
@@ -771,44 +771,44 @@
               (js/console.log (str ";; parity OK — " (count arms') " arms, "
                                    (- (count arms') (count control-ids))
                                    " of them byte-identical to the candidate's page"))
-              (-> (rf.bench.hicasso.lane/settle!)
+              (-> (rf.bench.fresco.lane/settle!)
                   (.then (fn [_] (rounds-async! arms' sampling rounds)))
                   (.then
                     (fn [{:keys [rows samples]}]
                       (let [ids  (mapv :id arms')
                             p50  (per-arm rows ids)
-                            gv   (rf.bench.hicasso.lane/guard! samples "in-page ladder (in-page flushSync window, diagnostic)")
-                            ctl  (rf.bench.hicasso.lane/control-verdict
-                                   (rf.bench.hicasso.shapes.census-clock-arms/ctl-predicted row-key)
+                            gv   (rf.bench.fresco.lane/guard! samples "in-page ladder (in-page flushSync window, diagnostic)")
+                            ctl  (rf.bench.fresco.lane/control-verdict
+                                   (rf.bench.fresco.shapes.census-clock-arms/ctl-predicted row-key)
                                    (get (per-round-ratio rows [:ctl-2x] :floor rounds) :ctl-2x)
                                    0.25)
                             g    (fn [id] (:tmean (get p50 id)))]
-                        (rf.bench.hicasso.lane/record! :inpage-ladder-arms
+                        (rf.bench.fresco.lane/record! :inpage-ladder-arms
                                       (into {} (map (fn [[k v]]
-                                                      [k (-> v (update :min rf.bench.hicasso.lane/round4)
-                                                             (update :max rf.bench.hicasso.lane/round4)
-                                                             (update :p50 rf.bench.hicasso.lane/round4)
-                                                             (update :tmean rf.bench.hicasso.lane/round4))]))
+                                                      [k (-> v (update :min rf.bench.fresco.lane/round4)
+                                                             (update :max rf.bench.fresco.lane/round4)
+                                                             (update :p50 rf.bench.fresco.lane/round4)
+                                                             (update :tmean rf.bench.fresco.lane/round4))]))
                                             p50))
-                        (rf.bench.hicasso.lane/record! :inpage-ladder-rounds
-                                      (mapv (fn [[r id ms]] [r id (rf.bench.hicasso.lane/round4 ms)]) rows))
-                        (rf.bench.hicasso.lane/record! :inpage-ladder-ratio-to-floor
+                        (rf.bench.fresco.lane/record! :inpage-ladder-rounds
+                                      (mapv (fn [[r id ms]] [r id (rf.bench.fresco.lane/round4 ms)]) rows))
+                        (rf.bench.fresco.lane/record! :inpage-ladder-ratio-to-floor
                                       (per-round-ratio rows ids :floor rounds))
-                        (rf.bench.hicasso.lane/record! :inpage-ladder-cells-after-window @!cells-after-window)
-                        (rf.bench.hicasso.lane/record! :inpage-ladder-decomposition
-                                      (into {} (map (fn [[k v]] [k (rf.bench.hicasso.lane/round4 v)]))
-                                            {:ship                (g :hicasso)
+                        (rf.bench.fresco.lane/record! :inpage-ladder-cells-after-window @!cells-after-window)
+                        (rf.bench.fresco.lane/record! :inpage-ladder-decomposition
+                                      (into {} (map (fn [[k v]] [k (rf.bench.fresco.lane/round4 v)]))
+                                            {:ship                (g :fresco)
                                              :uix                 (g :uix)
                                              :bare                (g :bare)
                                              :floor               (g :floor)
-                                             :deficit             (- (g :hicasso) (g :uix))
+                                             :deficit             (- (g :fresco) (g :uix))
                                              :h-routing           (- (g :local) (g :nolink))
                                              :h-hiccup-build      (- (g :nolink) (g :nohiccup))
                                              :h-codec-walk        (- (g :nohiccup) (g :nowalk))
                                              :h-reads+commit      (- (g :nowalk) (g :noreads))
                                              :h-memo-fiber        (- (g :noreads) (g :nomemo))
                                              :h-shell             (- (g :nomemo) (g :bare))
-                                             :h-total             (- (g :hicasso) (g :bare))
+                                             :h-total             (- (g :fresco) (g :bare))
                                              :u-routing           (- (g :uixlocal) (g :uixnolink))
                                              :u-markup            (- (g :uixnolink) (g :uixbare))
                                              :u-reads+hooks       (- (g :uixbare) (g :bare))
@@ -816,14 +816,14 @@
                                              :h-read-shape        (- (g :local) (g :coarse))
                                              :matched-shape-gap   (- (g :coarse) (g :uix))
                                              :coarse              (g :coarse)
-                                             :fidelity-local-ship (/ (g :local) (g :hicasso))
+                                             :fidelity-local-ship (/ (g :local) (g :fresco))
                                              :fidelity-uixlocal-uix (/ (g :uixlocal) (g :uix))}))
                         (js/console.log ";; ==== IN-PAGE LADDER (ms per mount, in-page flushSync window; DIAGNOSTIC) ====")
                         (js/console.log (str ";;   design " rounds "x(" (:warmup sampling) "+"
                                              (:samples sampling) ")  page 1,202 el / 1 boundary / 141 reads / 207 links"))
                         (doseq [id ids] (js/console.log (arm-line id (get p50 id))))
                         (js/console.log ";; ==== THE DECOMPOSITION — deltas on the 10% trimmed mean ====")
-                        (js/console.log (str ";;   copy fidelity: local/ship = " (fmt (/ (g :local) (g :hicasso)) 4)
+                        (js/console.log (str ";;   copy fidelity: local/ship = " (fmt (/ (g :local) (g :fresco)) 4)
                                              "   uixlocal/uix = " (fmt (/ (g :uixlocal) (g :uix)) 4)))
                         (js/console.log ";;   -- the candidate --")
                         (js/console.log (delta-line "routing term        (local - nolink)" (g :local) (g :nolink)))
@@ -832,7 +832,7 @@
                         (js/console.log (delta-line "141 reads + commit  (nowalk - noreads)" (g :nowalk) (g :noreads)))
                         (js/console.log (delta-line "memo wrapper fiber  (noreads - nomemo)" (g :noreads) (g :nomemo)))
                         (js/console.log (delta-line "the 2-hook shell    (nomemo - bare)" (g :nomemo) (g :bare)))
-                        (js/console.log (delta-line "  candidate total   (ship - bare)" (g :hicasso) (g :bare)))
+                        (js/console.log (delta-line "  candidate total   (ship - bare)" (g :fresco) (g :bare)))
                         (js/console.log ";;   -- the control --")
                         (js/console.log (delta-line "routing term        (uixlocal - uixnolink)" (g :uixlocal) (g :uixnolink)))
                         (js/console.log (delta-line "$ markup + card fns (uixnolink - uixbare)" (g :uixnolink) (g :uixbare)))
@@ -844,7 +844,7 @@
                         (js/console.log ";;   -- the base and the deficit --")
                         (js/console.log (delta-line "React mounts 1,202 elements it was handed (bare)" (g :bare) 0.0))
                         (js/console.log (delta-line "floor (createElement inside the window)" (g :floor) 0.0))
-                        (js/console.log (delta-line "THE DEFICIT         (ship - uix)" (g :hicasso) (g :uix)))
+                        (js/console.log (delta-line "THE DEFICIT         (ship - uix)" (g :fresco) (g :uix)))
                         (js/console.log (str ";;   control: " (:why ctl)))
                         (js/console.log (str ";;   cells live immediately after the timed window, by count: "
                                              (pr-str @!cells-after-window)
@@ -852,9 +852,9 @@
                         (let [micro  (micro-table)
                               mm     (into {} micro)
                               commit (commit-half-ms)]
-                          (rf.bench.hicasso.lane/record! :inpage-ladder-micro
-                                        (assoc (into {} (map (fn [[k v]] [k (rf.bench.hicasso.lane/round4 v)])) micro)
-                                               :commit-half-ms (rf.bench.hicasso.lane/round4 commit)))
+                          (rf.bench.fresco.lane/record! :inpage-ladder-micro
+                                        (assoc (into {} (map (fn [[k v]] [k (rf.bench.fresco.lane/round4 v)])) micro)
+                                               :commit-half-ms (rf.bench.fresco.lane/round4 commit)))
                           (js/console.log ";; ==== MICRO (ms per body-door pass unless named otherwise) ====")
                           (doseq [[k v] micro]
                             (js/console.log (str ";;   " (name k) ": " (fmt v 4))))
@@ -867,13 +867,13 @@
                                                (fmt (- (:reads-ms mm) (:empty-door-ms mm)) 4) " ms/pass ("
                                                (fmt (* 1e3 (/ (- (:reads-ms mm) (:empty-door-ms mm)) 141)) 2)
                                                " µs/read; rf2-6c237 read 2.04)")))
-                        (rf.bench.hicasso.lane/record! :inpage-ladder-runtime (rf.bench.hicasso.lane/runtime-label))
+                        (rf.bench.fresco.lane/record! :inpage-ladder-runtime (rf.bench.fresco.lane/runtime-label))
                         (when (:refuse? gv)
-                          (set! (.-HICASSO_GUARD_REFUSED js/window) true))
+                          (set! (.-FRESCO_GUARD_REFUSED js/window) true))
                         (when-not (:ok? ctl)
-                          (set! (.-HICASSO_CONTROL_FAILED js/window) true))
-                        (rf.bench.hicasso.lane/assert-teardown-clean! "the in-page ladder")
-                        (rf.bench.hicasso.lane/done!)))))))))
+                          (set! (.-FRESCO_CONTROL_FAILED js/window) true))
+                        (rf.bench.fresco.lane/assert-teardown-clean! "the in-page ladder")
+                        (rf.bench.fresco.lane/done!)))))))))
       (.catch (fn [e]
-                (rf.bench.hicasso.lane/fail! (or (some-> e .-message) (str e)))
-                (rf.bench.hicasso.lane/done!)))))
+                (rf.bench.fresco.lane/fail! (or (some-> e .-message) (str e)))
+                (rf.bench.fresco.lane/done!)))))

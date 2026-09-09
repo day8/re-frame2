@@ -51,9 +51,9 @@ tools/re-frame2-pair-mcp/tool-descriptors.edn text eol=lf
 # digest is the artefact and any re-writing destroys it. A Windows
 # (core.autocrlf=true) checkout would CRLF-rewrite them and a reader there
 # would compute a different hash from the one the page names. Pin LF.
-bench/hicasso/src/re_frame/bench/hicasso/data/jsfb-rguy1/*.json text eol=lf
+bench/fresco/src/re_frame/bench/fresco/data/jsfb-rguy1/*.json text eol=lf
 
-# The Reagent-to-Hicasso codemod's GOLDEN CORPUS (rf2-2rtt6.143). Each case
+# The Reagent-to-Fresco codemod's GOLDEN CORPUS (rf2-2rtt6.143). Each case
 # asserts its rewritten output BYTE FOR BYTE, so the fixture bytes must not
 # depend on who checked the tree out. The fixer itself now preserves whichever
 # convention it finds — that is the repair, and it is what makes the corpus
@@ -62,7 +62,7 @@ bench/hicasso/src/re_frame/bench/hicasso/data/jsfb-rguy1/*.json text eol=lf
 # witness that runs on the Linux CI lane too. So the fixtures are pinned to LF
 # and `newlines_test.clj` builds its CRLF sources in memory, where every
 # platform sees them.
-migration/reagent-to-hicasso/codemod/test/corpus/** text eol=lf
+migration/reagent-to-fresco/codemod/test/corpus/** text eol=lf
 
 # The beads tracker export (rf2-gsjfr). `bd` rewrites .beads/issues.jsonl with
 # LF endings on every invocation, so an unpinned Windows (core.autocrlf=true)

@@ -5,7 +5,7 @@ Seat: MEASUREMENT RECORD, EP-0038. Bead `rf2-ojehu`, the measurement half of
 2026-08-16 22:05–22:12 AUSEST, branch `worker/bysite-ojehu` off `63a3d44086`.
 
 Runtime, beside every figure below: Chromium **147.0.7727.15** via Playwright,
-shadow-cljs `release` on build id `:hicasso-bench`, `:optimizations :advanced`,
+shadow-cljs `release` on build id `:fresco-bench`, `:optimizations :advanced`,
 `goog.DEBUG false`, `--expose-gc`, `--enable-precise-memory-info`, `:init-fn
 re-frame.bench.p0-app/-main`. The counter is in-page
 `performance.memory.usedJSHeapSize`, sampled with no CDP round trip between

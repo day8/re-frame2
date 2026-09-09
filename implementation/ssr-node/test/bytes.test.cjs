@@ -5,7 +5,7 @@
 //
 // ## What a byte test at THIS layer can and cannot claim
 //
-// The client-side hydration contract is `rf2-hic-046`'s: that a Hicasso
+// The client-side hydration contract is `rf2-hic-046`'s: that a Fresco
 // server render's bytes are adopted by a hydrating client, per surface,
 // with React asked whether it found a mismatch rather than the final DOM
 // merely asserted. That work is landed, it is mandatory, and it does not

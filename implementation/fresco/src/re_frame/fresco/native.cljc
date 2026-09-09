@@ -1,18 +1,18 @@
-(ns re-frame.hicasso.native
-  "The two React hooks that join a React island to the Hicasso frame it is
+(ns re-frame.fresco.native
+  "The two React hooks that join a React island to the Fresco frame it is
   mounted in — `use-sub` reads a subscription, `use-frame` answers the
   frame's operations — and nothing else. An island is a UIx `defui` or a
   raw React function component, mounted through `h/defhost` or `[:>]`; it
-  requires this namespace only when it needs Hicasso state, and nothing in
-  `re-frame.hicasso` requires it, so an application with no island carries
+  requires this namespace only when it needs Fresco state, and nothing in
+  `re-frame.fresco` requires it, so an application with no island carries
   none of it. React's own hooks are reached by direct `[\"react\"]` interop
   and none are wrapped here: what React cannot supply is the frame, so the
   frame is all these two supply.
 
-  docs/design/hicasso/product/lanes/design-laws.md, Native boundary."
+  docs/design/fresco/product/lanes/design-laws.md, Native boundary."
   #?(:cljs (:require ["react" :as react]
                      [re-frame.adapter.context :as rf.adapter.context]
-                     [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector])))
+                     [re-frame.fresco.impl.collector :as rf.fresco.impl.collector])))
 
 #?(:cljs
    (do
@@ -36,12 +36,12 @@
         (let [{:keys [dispatch]} (n/use-frame)]
           ($ :div {:on-pointer-up (fn [_] (dispatch [:col/commit]))})))
 
-  docs/design/hicasso/product/lanes/design-laws.md, Native boundary."
+  docs/design/fresco/product/lanes/design-laws.md, Native boundary."
        []
-       (let [frame-kw (rf.hicasso.impl.collector/resolve-frame!
+       (let [frame-kw (rf.fresco.impl.collector/resolve-frame!
                         (react/useContext rf.adapter.context/frame-context)
-                        're-frame.hicasso.native/use-frame)]
-         (:ops (rf.hicasso.impl.collector/frame-row frame-kw))))
+                        're-frame.fresco.native/use-frame)]
+         (:ops (rf.fresco.impl.collector/frame-row frame-kw))))
 
      (defn use-sub
        "The current value of the subscription `query-v` names, read under
@@ -52,7 +52,7 @@
   one. It hands `useSyncExternalStore` the same `subscribe` and
   `getSnapshot` a boundary reading this key gets, so the read builds the
   same cell, joins the same reader membership and residue census, wakes on
-  the same commit and appears in the same `re-frame.hicasso.tool` rosters
+  the same commit and appears in the same `re-frame.fresco.tool` rosters
   Xray reads. A re-render that changed no read performs no re-subscribe;
   unmount releases what mount acquired, StrictMode's double mount included.
   A commit observed through it is a BLOCKING update — React's rule for an
@@ -63,20 +63,20 @@
       (defui ticker [{:keys [sym]}]
         ($ :span (n/use-sub [:quote/price sym])))
 
-  docs/design/hicasso/product/lanes/design-laws.md, Native boundary."
+  docs/design/fresco/product/lanes/design-laws.md, Native boundary."
        [query-v]
-       (let [frame-kw  (rf.hicasso.impl.collector/resolve-frame!
+       (let [frame-kw  (rf.fresco.impl.collector/resolve-frame!
                          (react/useContext rf.adapter.context/frame-context)
-                         're-frame.hicasso.native/use-sub)
+                         're-frame.fresco.native/use-sub)
              ;; The refusal sits BEFORE the store hook: a render that throws
              ;; never reaches React's hook reconciliation, so no hook count
              ;; can disagree with a previous render's.
              sub-key   [frame-kw query-v]
-             ^js entry (rf.hicasso.impl.collector/hook-entry sub-key)]
+             ^js entry (rf.fresco.impl.collector/hook-entry sub-key)]
          ;; The snapshot is an epoch, not the value: one monotone number
          ;; React compares with `Object.is`, and the value is read after it
          ;; from the same synchronous instant. The third argument is the
          ;; same closure for the same reason.
          (react/useSyncExternalStore (.-subscribe entry) (.-snapshot entry)
                                      (.-snapshot entry))
-         (rf.hicasso.impl.collector/hook-read sub-key)))))
+         (rf.fresco.impl.collector/hook-read sub-key)))))

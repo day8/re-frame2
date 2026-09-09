@@ -1,25 +1,25 @@
 # Installation
 
-Chapter `00` of the Hicasso draft guide. This page adds Hicasso to a browser
+Chapter `00` of the Fresco draft guide. This page adds Fresco to a browser
 build and mounts a small counter. The example establishes the three forms used
 throughout the guide: [`h/defview`](glossary.md#defview) for a view,
 [`h/sub`](glossary.md#hsub) for a subscription read, and event vectors for
 ordinary handlers.
 
-There is no Hicasso variant of the re-frame2 app template — it scaffolds
-`:reagent` and `:uix`, and neither emits Hicasso views. Build by hand from this
-chapter instead: it names every file a Hicasso project needs, and the result
+There is no Fresco variant of the re-frame2 app template — it scaffolds
+`:reagent` and `:uix`, and neither emits Fresco views. Build by hand from this
+chapter instead: it names every file a Fresco project needs, and the result
 boots.
 
 ## Add the dependencies
 
 !!! warning "Pre-alpha: no Clojars coordinate"
 
-    `day8/re-frame2-hicasso` is **not published**, and there is no date at
+    `day8/re-frame2-fresco` is **not published**, and there is no date at
     which it will be. It lives in the re-frame2 monorepo, so today you resolve
     it — and `day8/re-frame2` with it — from a checkout using `:local/root`.
     The snippet below resolves against a clone on your own disk, and becomes
-    an ordinary Maven coordinate the day Hicasso publishes.
+    an ordinary Maven coordinate the day Fresco publishes.
 
 `:local/root` is relative to *your* `deps.edn`, so clone the monorepo **beside**
 your project directory — the convention the rest of the docs use:
@@ -30,14 +30,14 @@ git clone https://github.com/day8/re-frame2.git
 cd my-app
 ```
 
-Then add the Hicasso artifact to `deps.edn`. One coordinate is the whole of it:
-Hicasso ships its own [substrate adapter](#hicasso-needs-a-substrate-adapter),
+Then add the Fresco artifact to `deps.edn`. One coordinate is the whole of it:
+Fresco ships its own [substrate adapter](#fresco-needs-a-substrate-adapter),
 so there is no second dependency to add for the reactive plumbing.
 
 ```clojure
 ;; deps.edn — resolved from a re-frame2 checkout beside your project
 {:paths ["src"]
- :deps  {day8/re-frame2-hicasso {:local/root "../re-frame2/implementation/hicasso"}}
+ :deps  {day8/re-frame2-fresco {:local/root "../re-frame2/implementation/fresco"}}
 
  ;; shadow-cljs reads its classpath from this file, so the compiler is a
  ;; dependency here as well as an npm package below.
@@ -45,7 +45,7 @@ so there is no second dependency to add for the reactive plumbing.
  {:shadow {:extra-deps {thheller/shadow-cljs {:mvn/version "3.4.10"}}}}}
 ```
 
-The Hicasso artifact brings `day8/re-frame2` with it. React and the shadow-cljs
+The Fresco artifact brings `day8/re-frame2` with it. React and the shadow-cljs
 launcher come from npm:
 
 ```json
@@ -60,12 +60,12 @@ npm install
 ```
 
 Both npm lines earn their place. **Pin React, and pin it at 19.2 or newer.**
-Hicasso mounts through `createRoot` and lets `:identifier-prefix` decide what
+Fresco mounts through `createRoot` and lets `:identifier-prefix` decide what
 `useId` answers, both of which React has offered since 18 — but the lifecycle
-contract Hicasso holds itself to is written against
+contract Fresco holds itself to is written against
 [`<Activity>`](https://react.dev/reference/react/Activity), which shipped in
 19.2, and 19.2 is the pair the reference implementation runs and this chapter is
-checked against. **React 18 is not supported**: nothing tests Hicasso there, and
+checked against. **React 18 is not supported**: nothing tests Fresco there, and
 the Activity half of the contract has nothing to run on. A bare
 `npm install react react-dom` resolves to whatever is current that day, which is
 the other half of why the pin is written out. **And keep `shadow-cljs` in
@@ -74,7 +74,7 @@ npm package is where the `process` shim React's CommonJS build asks for comes
 from, and without it the build stops at
 `The required JS dependency "process" is not available`.
 
-Hicasso interprets Hiccup at runtime, so it needs no compiler hook, macro
+Fresco interprets Hiccup at runtime, so it needs no compiler hook, macro
 allow-list, or build flag. A normal shadow-cljs browser build is enough:
 
 ```clojure
@@ -103,7 +103,7 @@ bare `{:deps true}` reads `deps.edn` without the alias, finds no
 </html>
 ```
 
-The main namespace is `re-frame.hicasso`, conventionally required as `h`.
+The main namespace is `re-frame.fresco`, conventionally required as `h`.
 Forms, overlays, motion, routing, the island hooks, and the test kit use separate
 namespaces. A build that does not require an optional module does not include
 its code.
@@ -111,7 +111,7 @@ its code.
 ## Supported versions
 
 The pins above are not arbitrary, and this table says what stands behind each of
-them. **Tested** means a gate in the re-frame2 repository runs Hicasso against
+them. **Tested** means a gate in the re-frame2 repository runs Fresco against
 that combination. **Expected** means the code has no version-conditional branch
 that would make it fail there, but nothing measures it — a reasonable bet rather
 than a promise. Nothing here is forbidden; the distinction is only between what
@@ -119,15 +119,15 @@ is checked and what is not.
 
 | Combination | Tested | Expected, but unmeasured |
 | --- | --- | --- |
-| React and react-dom | 19.2.0, on every browser and Node lane Hicasso runs | Later 19.x, for the render boundary and the two-hook contract. Below 19.2 the `<Activity>` lifecycle rows have nothing to run on, and 18 and earlier is not supported at all |
-| Browser engine | Chromium, on the headless DOM lane. Firefox and WebKit, whenever a change touches the Hicasso surface | Any other engine or version — the substrate targets React's DOM contract rather than any one browser's |
+| React and react-dom | 19.2.0, on every browser and Node lane Fresco runs | Later 19.x, for the render boundary and the two-hook contract. Below 19.2 the `<Activity>` lifecycle rows have nothing to run on, and 18 and earlier is not supported at all |
+| Browser engine | Chromium, on the headless DOM lane. Firefox and WebKit, whenever a change touches the Fresco surface | Any other engine or version — the substrate targets React's DOM contract rather than any one browser's |
 | ClojureScript and shadow-cljs | 1.12.145 and 3.4.10 | Nothing else is measured |
-| re-frame2 core and `re-frame2-ssr` | the same checkout as Hicasso, which `:local/root` is what guarantees | There is no released coordinate yet, so no released-version pair exists to be compatible with |
+| re-frame2 core and `re-frame2-ssr` | the same checkout as Fresco, which `:local/root` is what guarantees | There is no released coordinate yet, so no released-version pair exists to be compatible with |
 
 The full matrix — every row above, plus the platform axis and the named CI job
 or explicit untested-but-expected label behind each one — is maintained in the
-repository as the Hicasso release policy, under
-`docs/design/hicasso/product/release-policy.md`. That page is a working design
+repository as the Fresco release policy, under
+`docs/design/fresco/product/release-policy.md`. That page is a working design
 record rather than part of this site, so it is read from a checkout.
 
 **Upgrades before 1.0 may cost you a rename, and should not cost you a
@@ -141,12 +141,12 @@ outlive the code that raised them. The
 [complaint index](troubleshooting.md#the-complaint-index) is the list those
 promises are about.
 
-## Hicasso needs a substrate adapter
+## Fresco needs a substrate adapter
 
-Hicasso is a view layer, not a [substrate](../glossary.md#substrate). It owns
+Fresco is a view layer, not a [substrate](../glossary.md#substrate). It owns
 Hiccup interpretation and the render boundary; the reactive container app-db
 lives in comes from an [adapter](../glossary.md#adapter), and re-frame2 installs
-none for you. **So every Hicasso application calls
+none for you. **So every Fresco application calls
 [`rf/init!`](../glossary.md#init) with an adapter before it mounts anything** —
 one line, on the first line of boot:
 
@@ -154,9 +154,9 @@ one line, on the first line of boot:
 (rf/init! substrate/adapter)
 ```
 
-`re-frame.hicasso.substrate` ships inside `day8/re-frame2-hicasso`, so that
+`re-frame.fresco.substrate` ships inside `day8/re-frame2-fresco`, so that
 line costs no coordinate. It is a separate namespace rather than a name on the
-`h` door for the reason every optional Hicasso module is: an application that
+`h` door for the reason every optional Fresco module is: an application that
 installs somebody else's adapter never requires it and never carries it.
 
 It is not optional and it does not fail quietly. `h/frame-root` ensures its
@@ -172,25 +172,25 @@ ns and pass its `adapter` Var, e.g. (rf/init! reagent/adapter).
 *Which* adapter is your choice, and it is the only line that changes between
 substrates — see [Use UIx or reagent-slim](../how-to/use-uix-or-slim.md) for the
 shipped alternatives and their coordinates. A Reagent or UIx adapter under a
-Hicasso tree keeps working exactly as it did, and is what you want when the page
+Fresco tree keeps working exactly as it did, and is what you want when the page
 also renders that substrate's own components: every React-shaped adapter writes
-the same frame context, so a Hicasso subtree and that substrate's own subtree
+the same frame context, so a Fresco subtree and that substrate's own subtree
 resolve one frame. What it costs is a second dependency whose notation you never
-write, which is why Hicasso's own is the default here.
+write, which is why Fresco's own is the default here.
 
 **One frame, but not one markup dialect.** That shared context is what a
 *component* crossing reads; it is not permission to interleave the two notations.
 A Reagent view is not a legal Hiccup head, so `[reagent-footer]` written inside a
-Hicasso body raises `:rf.error/hicasso-bad-head` at the first paint — and because
+Fresco body raises `:rf.error/fresco-bad-head` at the first paint — and because
 a Reagent view is an anonymous meta-carrying function, the refusal can name the
 enclosing view but not the offender. The two directions are not symmetric:
 
-- **Hicasso inside a foreign parent has a named door.** `h/as-component` mints a
-  real React component from a Hicasso head, and `h/as-element` converts one
+- **Fresco inside a foreign parent has a named door.** `h/as-component` mints a
+  real React component from a Fresco head, and `h/as-element` converts one
   subtree; a Reagent, UIx, React or plain-JavaScript parent then mounts either
-  under the frame it is already in. See [Render a Hicasso view from native
-  React](09-interop.md#render-a-hicasso-view-from-native-react).
-- **Reagent inside a Hicasso tree has no Hicasso door.** `[:>]` and `h/defhost`
+  under the frame it is already in. See [Render a Fresco view from native
+  React](09-interop.md#render-a-fresco-view-from-native-react).
+- **Reagent inside a Fresco tree has no Fresco door.** `[:>]` and `h/defhost`
   take real React components, which a Reagent view is not. Lifting it with
   `reagent.core/reactify-component` and crossing at the [raw
   escape](09-interop.md#raw--escape) does work, but that is Reagent's own bridge
@@ -202,7 +202,7 @@ migrate a screen at a time, and where one page must genuinely show both, give
 each layer its own root naming the same `:frame` — see [More than one
 root](#more-than-one-root).
 
-An adapter buys plumbing, not notation: you write Hicasso views either way and
+An adapter buys plumbing, not notation: you write Fresco views either way and
 never call the adapter yourself. The headless plain-atom adapter is not a
 substitute for a browser app — its derived value registers no watch, so a
 subscription under it notifies nothing.
@@ -217,8 +217,8 @@ build calls:
 ```clojure
 (ns counter.core
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso.substrate :as substrate]
-            [re-frame.hicasso :as h]))
+            [re-frame.fresco.substrate :as substrate]
+            [re-frame.fresco :as h]))
 
 (rf/reg-event :counter/initialise
   (fn [_cofx _event]
@@ -270,7 +270,7 @@ npx shadow-cljs watch app
 # http://localhost:8080
 ```
 
-The example uses three Hicasso rules:
+The example uses three Fresco rules:
 
 - `h/defview` creates a Hiccup head. Render it as `[counter]` or
   `[counter {}]`; do not call it as `(counter {})`. Use a plain `defn` for
@@ -301,7 +301,7 @@ exist, or reuses the live one as it stands if another boundary already holds it.
 complete before the first paint, which prevents an empty initial render -- the
 ensure runs in a layout effect and `h/render!` renders inside `flushSync`, so the
 door returns with the seeded markup already on the page. Initial state still
-arrives through events; Hicasso does not add a separate `:db` seed option.
+arrives through events; Fresco does not add a separate `:db` seed option.
 
 This is the same `frame-root` / `frame-provider` pair every re-frame2 view
 substrate spells, so a boot written here reads like a Reagent or UIx one. The
@@ -331,7 +331,7 @@ reached independently by fixtures, reload hooks, and `finally` blocks. The
 unmount releases the root's subscriptions as their reference counts reach
 zero and makes the DOM node available for another root.
 
-**A bare mount catches nothing.** Every Hicasso refusal is a throw, and React
+**A bare mount catches nothing.** Every Fresco refusal is a throw, and React
 unmounts a root whose tree throws with no error boundary above it — the whole
 page, not the offending region, with the error only in the console. Put
 `h/error-boundary` around the regions a user can carry on without, which for
@@ -360,7 +360,7 @@ owns the browser URL, `:fx-overrides` for a stubbed backend, `:images`,
 ```
 
 Naming the frame ONCE, where it is used, is the whole point of the shape.
-Hicasso used to make a boot like this call `rf/make-frame` first and mount to
+Fresco used to make a boot like this call `rf/make-frame` first and mount to
 JOIN, because the root door's config could not carry `:fx-overrides`; the
 boundary in the tree retired that detour, and the door now REFUSES a frame
 option rather than dropping it.
@@ -371,7 +371,7 @@ only by carrying `:url-bound? true`, and nothing supplies it by default.
 
 ## More than one root
 
-A page can mount several Hicasso roots. The frame id determines whether those
+A page can mount several Fresco roots. The frame id determines whether those
 roots share an application.
 
 ### Two roots sharing one frame
@@ -462,14 +462,14 @@ production; there is no production-only view mode.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| A mount throws `:rf.error/no-adapter-installed`, naming `rf/make-state-container` | No [adapter](#hicasso-needs-a-substrate-adapter) is installed: `rf/init!` never ran, or ran after the mount | Make `(rf/init! substrate/adapter)` the first line of boot |
+| A mount throws `:rf.error/no-adapter-installed`, naming `rf/make-state-container` | No [adapter](#fresco-needs-a-substrate-adapter) is installed: `rf/init!` never ran, or ran after the mount | Make `(rf/init! substrate/adapter)` the first line of boot |
 | `(counter {})` throws and names the view | A `defview` is a Hiccup head, not a directly callable helper | Render `[counter {}]`. Use a plain `defn` for inline markup |
-| `h/sub` in a callback, timer, or promise throws | `:rf.error/hicasso-sub-outside-render`: the read happened outside a synchronous view body | Read during the body and close over the value. Async work should read state through events and coeffects |
+| `h/sub` in a callback, timer, or promise throws | `:rf.error/fresco-sub-outside-render`: the read happened outside a synchronous view body | Read during the body and close over the value. Async work should read state through events and coeffects |
 | The first paint is empty and then fills in | Initial state was dispatched after mounting | Put the seed events in `h/frame-root`'s `:initial-events` so they finish before the first paint |
 | A hot reload replaced the whole tree instead of updating it | A FRESH handle was allocated on reload, so its first `h/render!` built a second root | Allocate the handle with `defonce`, so a reload re-evaluates the namespace without replacing the handle |
 | A reusing `h/frame-root`'s `:initial-events` never run | The named frame already exists; ensure reuses without re-seeding | Seed only from the boundary that creates the frame |
-| `h/render!` throws `:rf.error/hicasso-frame-config-misplaced` | `:frame` or `:initial-events` was handed to the root door; frame configuration lives on the boundary in the tree | Move it to `[h/frame-root {:id … :initial-events …}]` ([above](#a-frame-that-needs-more-than-a-seed)) |
-| `h/render!` throws `:rf.error/hicasso-unknown-root-option` | A root door carries `:hydrate?` and `:identifier-prefix` and nothing else, and refuses the rest rather than ignoring it | Put every `rf/make-frame` option on `h/frame-root` |
-| One refused head blanks the whole page | A Hicasso refusal is a throw, and React unmounts a root that throws with no boundary above it | Wrap independently recoverable regions with `h/error-boundary` ([Errors](17-errors.md)) |
+| `h/render!` throws `:rf.error/fresco-frame-config-misplaced` | `:frame` or `:initial-events` was handed to the root door; frame configuration lives on the boundary in the tree | Move it to `[h/frame-root {:id … :initial-events …}]` ([above](#a-frame-that-needs-more-than-a-seed)) |
+| `h/render!` throws `:rf.error/fresco-unknown-root-option` | A root door carries `:hydrate?` and `:identifier-prefix` and nothing else, and refuses the rest rather than ignoring it | Put every `rf/make-frame` option on `h/frame-root` |
+| One refused head blanks the whole page | A Fresco refusal is a throw, and React unmounts a root that throws with no boundary above it | Wrap independently recoverable regions with `h/error-boundary` ([Errors](17-errors.md)) |
 | A changed initialisation handler has no effect after hot reload | The live frame kept its existing app-db | Reload, recreate the frame, or dispatch an explicit reset event |
 | A view body runs twice when first mounted in development | React StrictMode probes bodies twice | Expected. Keep view bodies pure and safe to re-run |

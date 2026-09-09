@@ -9,7 +9,7 @@ This is the implementor's companion to the application-side skills in this repo:
 - [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) — for writing application code on the CLJS reference.
 - [`re-frame2-setup`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup) — for bootstrapping a fresh greenfield project on the CLJS reference.
 - [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) — for porting an existing re-frame v1 codebase to the CLJS reference.
-- [`reagent-migration`](https://github.com/day8/re-frame2/tree/main/skills/reagent-migration) — for moving Reagent views to Hicasso once that port has landed.
+- [`reagent-migration`](https://github.com/day8/re-frame2/tree/main/skills/reagent-migration) — for moving Reagent views to Fresco once that port has landed.
 - [`re-frame2-improver`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-improver) — for critiquing existing re-frame2 code against the anti-pattern catalogue.
 
 Where the application-side skills are about using re-frame2, this skill is about realising it.

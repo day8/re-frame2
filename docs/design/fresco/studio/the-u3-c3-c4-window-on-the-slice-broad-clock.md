@@ -168,7 +168,7 @@ and, for `C3` and `C4`, from
 |---|---|---|---|
 | `U3` | ≤ 100 ms `p95` for broad operations | operation latency | `:locale`, `:theme` |
 | `C3` | ≤ 1.25x the best relevant adapter on broad updates | ratio of broad-update latency | `:locale`/`:donor-locale`, `:theme`/`:donor-theme` |
-| `C4` | no sustained 1.5x as ordinary Hicasso | the same ratio, sustained | the same two pairs |
+| `C4` | no sustained 1.5x as ordinary Fresco | the same ratio, sustained | the same two pairs |
 
 `:idle-frame` is the floor and `:ctl-blocked` is the control. Neither is in any
 population, and neither is read against a line.
@@ -339,7 +339,7 @@ is a ratio of two within-round `:p50`s, the floor having cancelled:
 The donor arm's own docstring is unambiguous and is quoted rather than
 paraphrased: **this does not decide `C3`'s *best relevant adapter*, and no file
 in a bench tree could.** What a run reading this instrument may conclude is
-`Hicasso / UIx` on the slice's broad updates; concluding *≤ 1.25x the best
+`Fresco / UIx` on the slice's broad updates; concluding *≤ 1.25x the best
 relevant adapter* additionally needs the Reagent-on-subs arm, and that arm needs
 a second page because `rf/init!` installs one adapter per process.
 
@@ -350,7 +350,7 @@ the two donors survives the other. **That argument is transferred, not
 measured**: those rows were taken on a different clock over a different page,
 and whether UIx is also the faster donor on the slice's feed page is not read
 here. So it is reported as a transfer with its source named, and it does not
-convert a `Hicasso / UIx` ratio into a `C3` verdict.
+convert a `Fresco / UIx` ratio into a `C3` verdict.
 
 Pre-registered, therefore, and symmetrically with `U3`:
 
@@ -409,14 +409,14 @@ was built:
 | free physical memory | 14.17 GB |
 
 **One long-lived process on the box is reported rather than counted as zero.**
-An orphaned `npm run ssr:hicasso-serve -- --port 8139` has been listening since
+An orphaned `npm run ssr:fresco-serve -- --port 8139` has been listening since
 `2026-08-21 02:55`, and in the 24.8 hours since it has consumed **0.77 seconds**
 of CPU in total. It is not this window's, it predates it by a day, and it is
 left alone rather than killed — the rule on this lane is *kill only the one you
 can show is yours*. It is not a peer running a gate and it does not contend for
 a core; what it does hold is **port 8139**, which is the port this driver's own
 docstring names. [§6](#6-the-instrument-and-the-subject) therefore runs on a
-different port, and `HICASSO_PORT` is a runner variable that reaches no figure.
+different port, and `FRESCO_PORT` is a runner variable that reaches no figure.
 
 The opening and closing brackets of the window itself are in
 [§8](#8-conditions), and the opening one is taken **immediately before the first
@@ -443,12 +443,12 @@ The instrument:
 
 | file | blob |
 |---|---|
-| `bench/hicasso/slice_broad_clock_app.cljs` | `bc3863e9c6946fd84b9f2965b9fd5ad8d38bbac7` |
-| `bench/hicasso/slice_donor_views.cljs` | `45a864a3716f158d70a0a36a96fea43c136abaf0` |
-| `bench/hicasso/slice_echo_clock_app.cljs` | `979dd3413390e489beab26f004743c53da72fd07` |
-| `bench/hicasso/lane.cljs` | `3d466f77e908d502835de5682e0c6d4b20b1d39e` |
-| `bench/hicasso/run.cjs` | `da8a2f3723bfd3345f392e29c1344c582a30b736` |
-| `bench/hicasso/lane_build.cjs` | `c55771d6c90d5dab53bfb02af48c6fcbcf49cffd` |
+| `bench/fresco/slice_broad_clock_app.cljs` | `bc3863e9c6946fd84b9f2965b9fd5ad8d38bbac7` |
+| `bench/fresco/slice_donor_views.cljs` | `45a864a3716f158d70a0a36a96fea43c136abaf0` |
+| `bench/fresco/slice_echo_clock_app.cljs` | `979dd3413390e489beab26f004743c53da72fd07` |
+| `bench/fresco/lane.cljs` | `3d466f77e908d502835de5682e0c6d4b20b1d39e` |
+| `bench/fresco/run.cjs` | `da8a2f3723bfd3345f392e29c1344c582a30b736` |
+| `bench/fresco/lane_build.cjs` | `c55771d6c90d5dab53bfb02af48c6fcbcf49cffd` |
 | `bench/order_guard.cljc` | `d57c25473360ba8a464cb9107152288b79303e84` |
 | `bench/navigate.cjs` | `d8f30bbab93e850ec6b37b9a6de50f295601b02b` |
 | `bench/lane_cache.cjs` | `ec3c60f44fa46f2bbb11ae908749cf93742b27dc` |
@@ -460,7 +460,7 @@ window is. Its blob is the one the `U1`/`U2` window read.
 
 The subject is the slice witness application, mounted through the package's own
 `h/mount!` with the application's own views and its own initial events. Its
-files, under `implementation/hicasso/test/re_frame/hicasso/examples/slice/`:
+files, under `implementation/fresco/test/re_frame/fresco/examples/slice/`:
 
 | file | blob |
 |---|---|
@@ -471,28 +471,28 @@ files, under `implementation/hicasso/test/re_frame/hicasso/examples/slice/`:
 | `db.cljs` | `57ea222f7bc8b5d2335d6ac4d3c1ca734e7ea65f` |
 | `i18n.cljs` | `1ff3dbc140d51adec9b6b74792a567b7aaa8c3e4` |
 
-The package doors it mounts through, under `implementation/hicasso/src/`:
+The package doors it mounts through, under `implementation/fresco/src/`:
 
 | file | blob |
 |---|---|
-| `re_frame/hicasso.cljc` | `c64d048e4ff2d72756b5b52329f2a40b8e015dcf` |
-| `re_frame/hicasso/impl/mount.cljs` | `77c367ca6324435d4ae83146bb3a152833ef17c3` |
-| `re_frame/hicasso/impl/controlled.cljs` | `dbe21f4ebe8c21eece34ef4414524d0052c662dd` |
-| `re_frame/hicasso/impl/collector.cljs` | `bfb1c37f84b14c8d701da41c97883a24740dba52` |
+| `re_frame/fresco.cljc` | `c64d048e4ff2d72756b5b52329f2a40b8e015dcf` |
+| `re_frame/fresco/impl/mount.cljs` | `77c367ca6324435d4ae83146bb3a152833ef17c3` |
+| `re_frame/fresco/impl/controlled.cljs` | `dbe21f4ebe8c21eece34ef4414524d0052c662dd` |
+| `re_frame/fresco/impl/collector.cljs` | `bfb1c37f84b14c8d701da41c97883a24740dba52` |
 
 Reproduce, from the repository root:
 
 ```bash
-HICASSO_INIT_FN=re-frame.bench.hicasso.slice-broad-clock-app/-main \
-HICASSO_OUT_DIR=out/hicasso-slice-broad \
-HICASSO_PORT=8143 \
-  node implementation/hicasso/test/re_frame/bench/hicasso/run.cjs
+FRESCO_INIT_FN=re-frame.bench.fresco.slice-broad-clock-app/-main \
+FRESCO_OUT_DIR=out/fresco-slice-broad \
+FRESCO_PORT=8143 \
+  node implementation/fresco/test/re_frame/bench/fresco/run.cjs
 ```
 
 The driver's docstring names `8139`; this window used `8143` for the reason
 [§5](#5-the-box) gives, and the variable reaches nothing but the local HTTP
 server the runner starts. No new build id: the driver takes its entry from
-`HICASSO_INIT_FN` and rides `:hicasso-bench`, the id the whole lane already
+`FRESCO_INIT_FN` and rides `:fresco-bench`, the id the whole lane already
 shares, so this arm costs `implementation/shadow-cljs.edn` — an HD-017 hot-zone
 file — nothing. Exit `1` on a build that merely warned, a page error, a fatal
 the page recorded, a parity refusal, a control that did not discriminate, an
@@ -587,7 +587,7 @@ Milliseconds.
 | | 2 | 51.3 | 52.00 | 52.50 | 52.88 | 53.0 |
 | | 3 | 51.3 | 51.90 | 52.41 | 52.58 | 52.7 |
 
-The three runs reproduce closely on the Hicasso arms: across them the `:locale`
+The three runs reproduce closely on the Fresco arms: across them the `:locale`
 `p95` spans `18.41`–`18.51 ms` (**0.5%**) and the `:theme` `p95` spans
 `18.00`–`18.40 ms` (**2.2%**).
 
@@ -702,7 +702,7 @@ because a paint-bounded window is `~96%` frame grid, and the ratio the row is
 read on is a ratio of whole windows. Work out what a substrate difference would
 do to it, from this run's own published `p50`s and nothing else:
 
-| pair | run | donor's excess over floor | ratio if Hicasso's own work were `1.25x` | ratio if `1.5x` | observed per-round spread |
+| pair | run | donor's excess over floor | ratio if Fresco's own work were `1.25x` | ratio if `1.5x` | observed per-round spread |
 |---|---:|---:|---:|---:|---:|
 | locale | 1 | 0.75 ms | `1.011` | `1.022` | 3.75 pp |
 | | 2 | 0.50 ms | `1.007` | `1.015` | 4.02 pp |
@@ -733,7 +733,7 @@ quoted as a verdict.**
 
 What a broader population means, stated so it is not rediscovered: a page whose
 broad update costs enough that the arms clear the frame grid rather than sitting
-`2`–`8%` above it. `re-frame.hicasso.examples.ledger`'s virtualized 10,000-row
+`2`–`8%` above it. `re-frame.fresco.examples.ledger`'s virtualized 10,000-row
 list is the witness this repository already has at that scale, and it is the
 page `rf2-xc0bw`'s per-frame driver was built on.
 
@@ -800,7 +800,7 @@ usual runners returns four processes at both brackets, and **not one of them is
 a bench executing**: two are shells whose recorded command line merely names one
 — a terminal host matched on the substring `workbench`, and this session's own
 shell, whose command line retains the runner it last invoked — and the other two
-are the single orphaned `ssr:hicasso-serve` listener
+are the single orphaned `ssr:fresco-serve` listener
 [§5](#5-the-box) reports, which has used `0.77 s` of CPU in the 24.8 hours since
 it started and holds nothing but a socket. A count alone would have read `4` and
 said nothing; a count alone would equally have read `0` for the wrong reason if
@@ -824,9 +824,9 @@ The pairing is not obvious from the job names, which is why it is written down:
 | gate | what it covers here | the planted fault, and what it returned |
 |---|---|---|
 | `scripts/check_doc_slugs.py` | this page, under `docs/` | a broken internal anchor → exit `1`, naming it |
-| `scripts/check_readme_links.py --ci` | `implementation/hicasso/spec/budgets.md`, which is **outside** the doc gate's roots | a broken relative target in the amendments → exit `1` here and **exit `0` from `check_doc_slugs.py` on the same break** |
-| `scripts/check_provenance_pins.py` | this page, as a changed page under `docs/design/hicasso/` | an unresolvable commit pin → exit `1`, classified by the word on its left |
-| `implementation/hicasso/scripts/check_budget_ledger.py` | the ledger in `budgets.md` | `C3`'s instrument cell moved into the `PR gate` lane → exit `1`, *is a distributional row wired to the PR-gate lane* |
+| `scripts/check_readme_links.py --ci` | `implementation/fresco/spec/budgets.md`, which is **outside** the doc gate's roots | a broken relative target in the amendments → exit `1` here and **exit `0` from `check_doc_slugs.py` on the same break** |
+| `scripts/check_provenance_pins.py` | this page, as a changed page under `docs/design/fresco/` | an unresolvable commit pin → exit `1`, classified by the word on its left |
+| `implementation/fresco/scripts/check_budget_ledger.py` | the ledger in `budgets.md` | `C3`'s instrument cell moved into the `PR gate` lane → exit `1`, *is a distributional row wired to the PR-gate lane* |
 
 That last red is worth keeping for a second reason: it is the gate stating in
 its own words the classification [§4](#4-the-pre-registered-adjudication-rules)
@@ -834,7 +834,7 @@ derives by exclusion, which is the one claim on this page that no roster
 asserts.
 
 **`mkdocs build --strict` is not a gate for any of this and was not run.**
-`mkdocs.yml`'s `exclude_docs` block carries `design/hicasso/`, so the build
+`mkdocs.yml`'s `exclude_docs` block carries `design/fresco/`, so the build
 cannot see this page at all; and `budgets.md` sits outside `docs_dir` entirely,
 which is a second and independent reason. One planted-fault run confirmed the
 first half of that pairing by returning green from the doc gate on a break the

@@ -2,8 +2,8 @@
 """The final architecture and retained-mechanism census, made executable
 (rf2-hic-087).
 
-`docs/design/hicasso/product/architecture-census.md` publishes three claims
-about the finished Hicasso package:
+`docs/design/fresco/product/architecture-census.md` publishes three claims
+about the finished Fresco package:
 
   1. no REJECTED MECHANISM is present — no ViewCell-class per-boundary object
      graph, no second emitter, no compiled-hiccup mode, no per-boundary
@@ -61,10 +61,10 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-SRC = REPO / "implementation" / "hicasso" / "src"
-PAGE = REPO / "docs" / "design" / "hicasso" / "product" / "architecture-census.md"
-GLOBALS_PAGE = REPO / "docs" / "design" / "hicasso" / "product" / "globals.md"
-HIC_SCRIPTS = REPO / "implementation" / "hicasso" / "scripts"
+SRC = REPO / "implementation" / "fresco" / "src"
+PAGE = REPO / "docs" / "design" / "fresco" / "product" / "architecture-census.md"
+GLOBALS_PAGE = REPO / "docs" / "design" / "fresco" / "product" / "globals.md"
+HIC_SCRIPTS = REPO / "implementation" / "fresco" / "scripts"
 PACKAGE_JSON = REPO / "implementation" / "package.json"
 
 # ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ PACKAGE_JSON = REPO / "implementation" / "package.json"
 
 # The three macros the package publishes — `h/defview`, `h/event` and
 # `h/defhost`, all on the ordinary facade (the native tier's three left with it,
-# rf2-6c12m.3; `re-frame.hicasso.native` is two plain hook functions now).
+# rf2-6c12m.3; `re-frame.fresco.native` is two plain hook functions now).
 # Every one is `defn`-class sugar with a function fallback, which is what the
 # charter's *No analyzer* constraint permits; none classifies, lowers or
 # refuses a body form.  A FOURTH NAME IS THE TRIPWIRE — not because a fourth
@@ -82,7 +82,7 @@ PACKAGE_JSON = REPO / "implementation" / "package.json"
 MACRO_ROSTER = {"defview", "event", "defhost"}
 
 # A renderer this package is allowed to call.  React's own, in its two halves.
-# `re-frame.hicasso.server` runs THIS runtime under `react-dom/server`; the
+# `re-frame.fresco.server` runs THIS runtime under `react-dom/server`; the
 # whole no-second-emitter claim reduces to the alias in front of these calls.
 RENDER_CALL = re.compile(
     r"\((?P<alias>[a-zA-Z][a-zA-Z0-9._-]*)/"
@@ -139,7 +139,7 @@ def git_ls(pathspec: str) -> list[Path]:
 def strip_docstrings(text: str) -> str:
     """Blank out string literals, keeping line structure.
 
-    Every arm here is about CODE.  Hicasso's sources carry very long
+    Every arm here is about CODE.  Fresco's sources carry very long
     docstrings that quote code — the `!root` example, the retired
     `counter`/`watchers` writers, `renderToString` named in prose forty times
     — and an arm that reads them measures the commentary rather than the
@@ -170,9 +170,9 @@ def strip_docstrings(text: str) -> str:
 
 
 def sources() -> list[tuple[str, str, str]]:
-    """`(short-path, raw, code-only)` for every tracked Hicasso source."""
+    """`(short-path, raw, code-only)` for every tracked Fresco source."""
     rows = []
-    for p in git_ls("implementation/hicasso/src"):
+    for p in git_ls("implementation/fresco/src"):
         raw = p.read_text(encoding="utf-8")
         short = p.relative_to(SRC / "re_frame").as_posix()
         rows.append((short, raw, strip_docstrings(raw)))
@@ -186,8 +186,8 @@ def declaring_ns(short: str) -> str:
     no parser is required, and there is no way for the spelling in an `ns`
     form to drift from the file the compiler loaded it out of.  `sources()`
     hands out paths relative to `re_frame/` and the rosters abbreviate away
-    the shared `re-frame.hicasso.` prefix, so `hicasso/impl/collector.cljs` is
-    `impl.collector` and the facade `hicasso.cljc` is `hicasso`.  Underscores
+    the shared `re-frame.fresco.` prefix, so `fresco/impl/collector.cljs` is
+    `impl.collector` and the facade `fresco.cljc` is `fresco`.  Underscores
     become hyphens, which is the compiler's own munging read backwards
     (`presence_react.cljs` declares `impl.presence-react`).
 
@@ -199,8 +199,8 @@ def declaring_ns(short: str) -> str:
     merged-PR audit of #8258 reproduced against this gate.
     """
     parts = re.sub(r"\.clj[sc]$", "", short).split("/")
-    if parts[0] == "hicasso":
-        parts = parts[1:] or ["hicasso"]
+    if parts[0] == "fresco":
+        parts = parts[1:] or ["fresco"]
     return ".".join(parts).replace("_", "-")
 
 
@@ -319,12 +319,12 @@ def arm_tooling(page: str) -> list[str]:
     population: list[tuple[str, str]] = []
     for p in sorted(HIC_SCRIPTS.glob("*")):
         if p.is_file() and p.name != "README.md":
-            population.append((f"implementation/hicasso/scripts/{p.name}", "checker"))
+            population.append((f"implementation/fresco/scripts/{p.name}", "checker"))
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
     for name in sorted(scripts):
-        if "hicasso" in name.lower():
+        if "fresco" in name.lower():
             population.append((name, "npm script"))
-    for ns in ("re-frame.hicasso.evidence", "re-frame.hicasso.tool"):
+    for ns in ("re-frame.fresco.evidence", "re-frame.fresco.tool"):
         population.append((ns, "tool namespace"))
 
     for name, kind in population:
@@ -492,7 +492,7 @@ def self_test() -> int:
 
     real = sources()
 
-    PLANTED = "hicasso/impl/planted.cljs"
+    PLANTED = "fresco/impl/planted.cljs"
 
     seeded = list(real) + [(PLANTED, "", '(defmacro deftemplate [& body])\n')]
     check("a seventh macro is a compiled-hiccup tripwire",
@@ -531,11 +531,11 @@ def self_test() -> int:
     check("a surface with no row is a finding",
           any("no row on the census page" in f
               for f in arm_tooling(page.replace(
-                  "implementation/hicasso/scripts/check_optional_module_reachability.py", "REMOVED"))))
+                  "implementation/fresco/scripts/check_optional_module_reachability.py", "REMOVED"))))
     check("an empty Consumer cell is a finding",
           any("Consumer cell is empty" in f
               for f in arm_tooling(re.sub(
-                  r"(\| `implementation/hicasso/scripts/check_optional_module_reachability\.py`[^|]*\|[^|]*\|)[^|]*\|",
+                  r"(\| `implementation/fresco/scripts/check_optional_module_reachability\.py`[^|]*\|[^|]*\|)[^|]*\|",
                   r"\1 |", page))))
 
     print("self-test: " + ("all arms bite." if ok else "AN ARM DID NOT BITE."))

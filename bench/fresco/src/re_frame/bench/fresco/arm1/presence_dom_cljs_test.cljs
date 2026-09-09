@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.arm1.presence-dom-cljs-test
+(ns re-frame.bench.fresco.arm1.presence-dom-cljs-test
   "PRESENCE, MOUNTED — the toast tray written INLINE (rf2-2rtt6.37,
   HD-025).
 
@@ -21,13 +21,13 @@
   skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.presence :refer [presence]]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.presence :refer [presence]]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.core :as rf]
             [re-frame.test-support :as rf.test-support])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 (def ^:private frame-id ::arm1-presence)
 (def ^:private timeout-ms 60)
@@ -49,12 +49,12 @@
      ;; `cljs.test` hard-errors on a fn-form fixture in a suite with an
      ;; `(async done …)` test.
      :async?        true
-     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!))}))
 
 (defn- skip! [why] (is true (str "a presence claim needs a real React DOM — " why)))
 
 (defn- fresh! [ts]
-  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.fresco.lane/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:toasts/set ts]))
   frame-id)
@@ -69,10 +69,10 @@
   attributes on the extracted child."
   [_]
   [presence {:timeout-ms timeout-ms}
-   (for [t (rf.bench.hicasso.arm1.runtime/sub [:toasts/visible])]
+   (for [t (rf.bench.fresco.arm1.runtime/sub [:toasts/visible])]
      [:div.toast {:key (:id t)
                   :data-id (:id t)
-                  :re-frame.hicasso/unmounting {:class       "toast--exit"
+                  :re-frame.fresco/unmounting {:class       "toast--exit"
                                                 :inert       true
                                                 :aria-hidden true}}
       (:message t)])])
@@ -91,10 +91,10 @@
   React name — so this is the shape the deny has to be written against."
   [_]
   [presence {:timeout-ms timeout-ms}
-   (for [t (rf.bench.hicasso.arm1.runtime/sub [:toasts/visible])]
+   (for [t (rf.bench.fresco.arm1.runtime/sub [:toasts/visible])]
      [:div.toast {:key (:id t)
                   :data-id (:id t)
-                  :re-frame.hicasso/unmounting
+                  :re-frame.fresco/unmounting
                   {:class "toast--exit"
                    "ref"  (fn [node] (swap! !ref-fired conj node))
                    :x/key (str "stolen-" (:id t))}}
@@ -113,23 +113,23 @@
   "Let the enter flip's macrotask land, then let React commit it."
   []
   (js/Promise. (fn [resolve]
-                 (js/setTimeout (fn [] (rf.bench.hicasso.arm1.mount/settle!) (resolve true)) 0))))
+                 (js/setTimeout (fn [] (rf.bench.fresco.arm1.mount/settle!) (resolve true)) 0))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the inline toast gets its exit attributes, and loses them on re-entry
 ;; ---------------------------------------------------------------------------
 
 (deftest an-inline-toast-gets-the-exit-attributes-while-unmounting
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh! two)
-      (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [toast-tray {}])]
+      (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [toast-tray {}])]
         (try
           (is (= 2 (toast-count handle)) "both toasts are on screen")
           (is (nil? (.getAttribute (node handle 2) "inert"))
               "and neither is exiting")
-          (rf.bench.hicasso.arm1.mount/dispatch! handle [:toasts/set one])
+          (rf.bench.fresco.arm1.mount/dispatch! handle [:toasts/set one])
           (is (= 2 (toast-count handle))
               "the removed toast is RETAINED — it is gone from app-db and
                still in the document, which is the whole of presence")
@@ -144,30 +144,30 @@
           (is (nil? (.getAttribute (node handle 1) "inert"))
               "while its neighbour is untouched")
           (testing "and re-entry cancels the exit rather than finishing it"
-            (rf.bench.hicasso.arm1.mount/dispatch! handle [:toasts/set two])
+            (rf.bench.fresco.arm1.mount/dispatch! handle [:toasts/set two])
             (let [back (node handle 2)]
               (is (nil? (.getAttribute back "inert")))
               (is (nil? (.getAttribute back "aria-hidden")))
               (is (not (.contains (.-classList back) "toast--exit")))
               (is (= 2 (toast-count handle)))))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1b — a hostile override reaches neither structural slot on the real node
 ;; ---------------------------------------------------------------------------
 
 (deftest a-hostile-override-reaches-neither-structural-slot-on-the-retained-node
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (reset! !ref-fired [])
       (fresh! two)
-      (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [hostile-tray {}])]
+      (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [hostile-tray {}])]
         (try
           (let [before (node handle 2)]
             (is (some? before))
             (is (= [] @!ref-fired) "nothing attached while the toast was present")
-            (rf.bench.hicasso.arm1.mount/dispatch! handle [:toasts/set one])
+            (rf.bench.fresco.arm1.mount/dispatch! handle [:toasts/set one])
             (is (= 2 (toast-count handle)) "retained, as ever")
             (let [during (node handle 2)]
               (is (.contains (.-classList during) "toast--exit")
@@ -183,7 +183,7 @@
                    key the machine retains it under, and nothing in an override
                    can move that in any spelling — a remount here would restart
                    the exit of a node that is mid-animation")))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the node is gone after :timeout-ms, and nothing leaks
@@ -194,16 +194,16 @@
   ;; first async block of a `deftest`, so a skip branch with its own block
   ;; would be a test that silently stopped running in the browser.
   (async done
-    (if-not (rf.bench.hicasso.arm1.mount/browser?)
+    (if-not (rf.bench.fresco.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh! two)
-        (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [toast-tray {}])]
-          (rf.bench.hicasso.arm1.mount/dispatch! handle [:toasts/set one])
+        (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [toast-tray {}])]
+          (rf.bench.fresco.arm1.mount/dispatch! handle [:toasts/set one])
           (is (= 2 (toast-count handle)) "retained, for now")
           (js/setTimeout
             (fn []
-              (rf.bench.hicasso.arm1.mount/settle!)
+              (rf.bench.fresco.arm1.mount/settle!)
               (try
                 (is (= 1 (toast-count handle))
                     "removal is terminal: :timeout-ms is a clock, not a
@@ -213,7 +213,7 @@
                 (is (some? (node handle 1))
                     "and the toast that never left is still there, so this is
                      removal and not a teardown")
-                (finally (rf.bench.hicasso.arm1.mount/release! handle) (done))))
+                (finally (rf.bench.fresco.arm1.mount/release! handle) (done))))
             (* 4 timeout-ms)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -222,12 +222,12 @@
 
 (deftest a-mounting-child-flips-to-present-after-paint
   (async done
-    (if-not (rf.bench.hicasso.arm1.mount/browser?)
+    (if-not (rf.bench.fresco.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh! [])
-        (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [toast-tray {}])]
-          (rf.bench.hicasso.arm1.mount/dispatch! handle [:toasts/set one])
+        (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [toast-tray {}])]
+          (rf.bench.fresco.arm1.mount/dispatch! handle [:toasts/set one])
           (is (= 1 (toast-count handle)))
           (-> (settled!)
               (.then (fn [_]
@@ -239,7 +239,7 @@
                               paint, which is why the guide teaches an
                               animation on insertion for enter and keeps the
                               override for exit")
-                         (finally (rf.bench.hicasso.arm1.mount/release! handle)))))
+                         (finally (rf.bench.fresco.arm1.mount/release! handle)))))
               ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
               ;; the whole remainder of the run synchronously, so a `.catch`
               ;; downstream of it would claim a later namespace's throw as this

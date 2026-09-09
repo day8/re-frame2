@@ -15,7 +15,7 @@
     (fn [] [:div {:on-click #(reset! open? true)} (when @open? …)])))
 ```
 
-**Hicasso has no view-local state tier, and that is the design.** There is no
+**Fresco has no view-local state tier, and that is the design.** There is no
 `local`, no `use-state`, and no cell of any kind; an atom allocated in a
 `defview` body is re-allocated every render because the body is an anonymous fn
 React re-invokes. So the Reagent question "is this ephemeral enough to keep in
@@ -46,12 +46,12 @@ this value belong to* — three answers, in order of how often they are right:
   and write). **Do not be squeamish about "app-db for a dropdown flag":** frame
   state is cheap, and it is what makes the toggle inspectable and testable.
 
-- **A control that drafts and commits → `re-frame.hicasso.forms/buffered-field`.**
+- **A control that drafts and commits → `re-frame.fresco.forms/buffered-field`.**
   A field that edits and commits on blur-or-Enter, a typeahead holding a typed
   query beside a settled one. The module is the sanctioned home, and it is
   honest about the bargain: the draft lives in **app-db in front of the
   committed value**, fenced by `::h/revision` — it does not make the draft
-  DOM-local. Require it explicitly (`[re-frame.hicasso.forms :as forms]`); it is
+  DOM-local. Require it explicitly (`[re-frame.fresco.forms :as forms]`); it is
   an optional module and absent when unused.
 
 - **State that is genuinely the DOM's → a callback ref, or a React island.**
@@ -77,7 +77,7 @@ extract `:reagent-render` as the view body. Then, per body:
 
 ### Host / DOM work on mount and unmount → a callback ref
 
-Hicasso's ref is **React's own callback ref**: a function at `:ref`, called with
+Fresco's ref is **React's own callback ref**: a function at `:ref`, called with
 the node at commit, and **its return value is the detach cleanup**. That one
 mechanism answers both `component-did-mount` and `component-will-unmount` for
 DOM work.
@@ -106,8 +106,8 @@ its own hook-shaped lifecycle — that is a React island: a UIx `defui` or a raw
 React function component, mounted through `h/defhost`, where ordinary React
 hooks are legal because you control the source and its call order. `n/use-sub`
 (a read joined to the island's frame) and `n/use-frame` (a dispatch pinned to
-that frame's incarnation) are the two Hicasso adds, for when the island needs
-Hicasso state.
+that frame's incarnation) are the two Fresco adds, for when the island needs
+Fresco state.
 
 ### Domain work on MOUNT → an ordinary event
 
@@ -169,7 +169,7 @@ vector, or pure imperative work:
 
 **The decision: split local work from app intent, then pick the form.** A
 converted `h/defview` has no ambient `dispatch`, so this is not a one-line lift.
-Hicasso gives you exactly one escape and it is deliberately plain:
+Fresco gives you exactly one escape and it is deliberately plain:
 
 - **A guarded or payload-shaping dispatch → `h/event`.** Its body runs with the
   live callback arguments, and **only a returned vector is dispatched** — any
@@ -181,7 +181,7 @@ Hicasso gives you exactly one escape and it is deliberately plain:
   ```
 
 - **Pure imperative work whose return is irrelevant → a plain function.** It
-  crosses to React by identity and Hicasso does not touch it. This is legal and
+  crosses to React by identity and Fresco does not touch it. This is legal and
   supported — the only rule is that it must not try to `dispatch` ambiently.
 - **Prefer splitting to writing one closure that does both.** The imperative
   half goes in the callback; the app intent goes on the natural element as a
@@ -192,7 +192,7 @@ assume an event at position one, which is what makes it the right answer at a
 value-first foreign callback too (MIG-10).
 
 One failure mode to know: an `h/event` that returns a vector but captured no
-frame raises `:rf.error/hicasso-intent-outside-boundary` at *fire* time, not at
+frame raises `:rf.error/fresco-intent-outside-boundary` at *fire* time, not at
 render. A `:render`-contract callback is pure by contract — its return is the
 render output — and nothing polices a dispatch from inside it beyond React's
 own render-phase warnings.
@@ -237,7 +237,7 @@ does it.
 
 ## MIG-09 / 10 / 22 — foreign React, and the props that cross it
 
-`[:> Component props & children]` is **legal in Hicasso and still works**, so a
+`[:> Component props & children]` is **legal in Fresco and still works**, so a
 foreign React component never forces a whole view onto Reagent. The decision is
 *which door*, and it turns on one question: **does this crossing repeat?**
 
@@ -290,7 +290,7 @@ Two migration behaviours are worth pre-empting:
 - **EVENT-FIRST vs VALUE-FIRST.** The vector's markers and `::h/prevent` read
   the DOM event from argument one. A library that calls `onChange(date, event)`
   is value-first, so `[:task/set-due ::h/value]` raises
-  `:rf.error/hicasso-intent-needs-the-event` naming the position, and `h/event` —
+  `:rf.error/fresco-intent-needs-the-event` naming the position, and `h/event` —
   which sees the library's own arguments in order — is the spelling. At an
   event-first foreign callback the vector is legal and shorter.
 
@@ -298,14 +298,14 @@ Two migration behaviours are worth pre-empting:
 component, not a React one.** `r/reactify-component` makes it crossable, and the
 census reports every such site. That is two renderers in one tree: a judgment
 call, worth measuring. The cleaner move is often the **outward** bridge — keep
-the wrapper subtree on Reagent and hand a converted Hicasso view up to it with
+the wrapper subtree on Reagent and hand a converted Fresco view up to it with
 `(def card* (h/as-component card))`, declared once at top level beside the view.
 The parent's props arrive as the view's ordinary props map, children at
 `:children`, and the frame comes from React context.
 
 ## MIG-26 — ambient `subscribe`/`dispatch` in a plain `defn`
 
-Reagent let a plain fn reach an ambient global frame. Under Hicasso an `h/sub`
+Reagent let a plain fn reach an ambient global frame. Under Fresco an `h/sub`
 from an ordinary `defn` **is legal** — the collector is ambient, and the render
 owns the read wherever the call lexically sits. What fails is a read or a
 dispatch with **no active render**: a timer, a callback the browser invokes
@@ -328,12 +328,12 @@ them apart is most of the debugging:
   names both recoveries: the collector for a read, an intent at a handler
   position for a dispatch.
 - **An ambient `rf/dispatch` from a callback fails at CLICK**, raising
-  `:rf.error/no-frame-context` — **core's id, not a `hicasso-*` one**. Nothing
+  `:rf.error/no-frame-context` — **core's id, not a `fresco-*` one**. Nothing
   refuses it at render, which is what makes it the nastiest one in the
   migration.
 - **An `h/sub` hoisted too far fails at FIRE.** Moved *out* of the render and
   into the callback it was meant to serve, it raises
-  `:rf.error/hicasso-sub-outside-render`: hoist the READ to render time and
+  `:rf.error/fresco-sub-outside-render`: hoist the READ to render time and
   close over the VALUE, not the read. `rf/subscribe-once` is the sanctioned
   snapshot for handler and utility code.
 - Preference order: (1) if it runs during render, leave it in the helper —
@@ -358,12 +358,12 @@ is [`ssr-hydrate.md`](ssr-hydrate.md). A client-only migration never opens it.
 
 | MIG | Construct | The decision |
 |---|---|---|
-| **MIG-08** | unkeyed `for`; per-row reads; loop-capturing handlers | Hicasso allows a per-row `h/sub` and a capturing handler, so this is a **shaping** call rather than a forced extraction: extract a keyed child view when the row has its own reads and intents (it also gives you the per-row memo boundary), keep the inline `for` when the row is presentational. Keys are React's list identity either way — and MIG-07 means an unkeyed `for` is a real defect, not a warning to silence. |
+| **MIG-08** | unkeyed `for`; per-row reads; loop-capturing handlers | Fresco allows a per-row `h/sub` and a capturing handler, so this is a **shaping** call rather than a forced extraction: extract a keyed child view when the row has its own reads and intents (it also gives you the per-row memo boundary), keep the inline `for` when the row is presentational. Keys are React's list identity either way — and MIG-07 means an unkeyed `for` is a real defect, not a warning to silence. |
 | **MIG-13** | markup-returning `(map (fn …) xs)` in child position | Rewrite to a keyed `for` — `(for [t ts] [item {:key (:id t) :t t}])`. Mechanical only when the fn is a literal with a keyed hiccup body; confirm the candidate. |
-| **MIG-27** | fn-valued prop on an **internal-view** call site | A plain fn prop is an opaque identity-compared value. *Recommend*, don't force: forward a **data vector** where you want tool visibility (`:on-commit [:commit]`, and the child places it at its own DOM `:on-*` site). Hicasso has no declared render-slot mechanism for internal views — `:slots` is `defhost`'s, for foreign components — so parameterised content is an ordinary hiccup-valued prop the child places. |
+| **MIG-27** | fn-valued prop on an **internal-view** call site | A plain fn prop is an opaque identity-compared value. *Recommend*, don't force: forward a **data vector** where you want tool visibility (`:on-commit [:commit]`, and the child places it at its own DOM `:on-*` site). Fresco has no declared render-slot mechanism for internal views — `:slots` is `defhost`'s, for foreign components — so parameterised content is an ordinary hiccup-valued prop the child places. |
 | **MIG-28** | computed / dynamic DOM props (`(merge attrs {…})`) | **A plain `merge`, with the owned keys last, is the one spelling** — what the guide teaches (ch02 §Forward attributes, ch04 §Forward caller attributes) and what ships; there is no reserved merge key and no spread form. Write the caller's map first and the owned literals after it: `[:input (merge (dissoc attrs :key) {:type "text" :value draft :on-change …})]`. The owned keys win by presence because they are merged last; `dissoc` `:key` and `::h/revision` from the forwarded map, since both belong to the wrapper's element. The case where a caller override *should* win is spelled by not writing the owned literal. Forward maps in the same kebab-keyword spelling as the literals — an alternate spelling of the same React slot is a different map key, and which one lands is then map order, not law. |
-| **MIG-30** | runtime-built markup (`(md/render …)` walking an AST) | **Converts directly.** A helper returning hiccup is ordinary content and Hicasso walks it; there is no finite grammar to satisfy and no compiled tier to opt into. This is no longer a decision — it is MIG-14 pass-through. |
-| **MIG-31** | `capture-frame` in a render body | **The spelling is unchanged.** Zero-arity `(rf/capture-frame)` is legal inside a Hicasso body and captures the rendering boundary's frame, exactly as it did in the Reagent view; `(rf/current-frame-id)` answers the id. Decide whether the async work belongs in the view at all: usually it re-homes to an event, which already runs against the committed frame. If it genuinely needs a carried frame in the view, keep the capture — but check the re-home first. |
+| **MIG-30** | runtime-built markup (`(md/render …)` walking an AST) | **Converts directly.** A helper returning hiccup is ordinary content and Fresco walks it; there is no finite grammar to satisfy and no compiled tier to opt into. This is no longer a decision — it is MIG-14 pass-through. |
+| **MIG-31** | `capture-frame` in a render body | **The spelling is unchanged.** Zero-arity `(rf/capture-frame)` is legal inside a Fresco body and captures the rendering boundary's frame, exactly as it did in the Reagent view; `(rf/current-frame-id)` answers the id. Decide whether the async work belongs in the view at all: usually it re-homes to an event, which already runs against the committed frame. If it genuinely needs a carried frame in the view, keep the capture — but check the re-home first. |
 
 Every row above is a view the skill leaves whole until the decision is made.
 Decide it, then convert the whole view or hold the whole view — never a partial

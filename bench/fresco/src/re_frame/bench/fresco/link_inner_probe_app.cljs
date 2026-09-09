@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.link-inner-probe-app
+(ns re-frame.bench.fresco.link-inner-probe-app
   "DIAGNOSTIC ONLY (rf2-cno31), SECOND PASS. `link_decomp_probe_app`
   attributed the 8.21 µs/link term to `route-url` (4.71 µs) and found the
   two suspects it named were NOT the cost — the CEDN fail-closed guard is
@@ -23,10 +23,10 @@
   which is what a decomposition needs when the stages are `defn-`
   private. The anchor arm (`:route-url`) keeps both probes on one scale."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
-            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.shapes.large-template :as rf.bench.fresco.shapes.large-template]
+            [re-frame.bench.fresco.shapes.model :as rf.bench.fresco.shapes.model]
             [re-frame.core :as rf]
             [re-frame.identity :as rf.identity]
             [re-frame.routing :as rf.routing]
@@ -38,8 +38,8 @@
 
 (defn- link-targets []
   (let [a #js []]
-    (dotimes [i rf.bench.hicasso.shapes.large-template/article-count]
-      (let [art (rf.bench.hicasso.shapes.model/article i)
+    (dotimes [i rf.bench.fresco.shapes.large-template/article-count]
+      (let [art (rf.bench.fresco.shapes.model/article i)
             u   (:username (:author art))]
         (.push a {:to :conduit.profile/show :params {:username u}})
         (.push a {:to :conduit.profile/show :params {:username u}})
@@ -98,22 +98,22 @@
 (def ^:private passes-per-sample 4)
 
 (defn- timed-door [pass!]
-  (let [t0 (rf.bench.hicasso.lane/now-ms)]
+  (let [t0 (rf.bench.fresco.lane/now-ms)]
     (dotimes [_ passes-per-sample]
-      (rf.bench.hicasso.arm1.runtime/render-body frame-id (fn [_] (pass!) [:span]) {}))
-    (- (rf.bench.hicasso.lane/now-ms) t0)))
+      (rf.bench.fresco.arm1.runtime/render-body frame-id (fn [_] (pass!) [:span]) {}))
+    (- (rf.bench.fresco.lane/now-ms) t0)))
 
 (def ^:private arm-ids [:floor :ideal :emit-loop :set-build :addr-keys :route-url :ctl2])
 
 (defn ^:export -main []
   (rf/init! rf.adapter.uix/adapter)
-  (rf.bench.hicasso.lane/leave-act-environment!)
-  (rf.bench.hicasso.lane/self-test!)
+  (rf.bench.fresco.lane/leave-act-environment!)
+  (rf.bench.fresco.lane/self-test!)
   (-> (js/Promise.resolve nil)
       (.then
         (fn [_]
-          (rf.bench.hicasso.shapes.large-template/make-frame! frame-id)
-          (rf.bench.hicasso.shapes.large-template/reseed! frame-id)
+          (rf.bench.fresco.shapes.large-template/make-frame! frame-id)
+          (rf.bench.fresco.shapes.large-template/reseed! frame-id)
           (let [targets (link-targets)
                 ideals  (ideal-parts targets)
                 n       (alength targets)
@@ -159,21 +159,21 @@
                             (dotimes [i n]
                               (vreset! sink (rf.routing/route-url (aget targets i))))))}]
                 {:keys [readings samples]}
-                (rf.bench.hicasso.lane/rounds! arms {:warmup 4 :samples 8} 5
+                (rf.bench.fresco.lane/rounds! arms {:warmup 4 :samples 8} 5
                               (fn [{:keys [pass]}] (timed-door pass)))
                 rows (into {}
                            (map (fn [id]
                                   (let [xs (mapcat #(get % id) readings)]
-                                    [id (rf.bench.hicasso.lane/summarise (mapv #(/ % passes-per-sample) xs))])))
+                                    [id (rf.bench.fresco.lane/summarise (mapv #(/ % passes-per-sample) xs))])))
                            arm-ids)
-                gv   (rf.bench.hicasso.lane/guard! samples "link inner decomposition (in-page ms, diagnostic)")
-                ctl  (rf.bench.hicasso.lane/control-verdict (* 2.0 (:p50 (get rows :route-url)))
+                gv   (rf.bench.fresco.lane/guard! samples "link inner decomposition (in-page ms, diagnostic)")
+                ctl  (rf.bench.fresco.lane/control-verdict (* 2.0 (:p50 (get rows :route-url)))
                                            (let [s (get rows :ctl2)]
                                              {:min (:min s) :max (:max s) :mean (:p50 s)})
                                            0.25)]
             (when-not (:ok? ctl)
               (throw (ex-info (str "positive control failed: " (:why ctl)) {})))
-            (rf.bench.hicasso.lane/record! :link-inner rows)
+            (rf.bench.fresco.lane/record! :link-inner rows)
             (js/console.log ";; ==== LINK INNER DECOMPOSITION (ms per 207-call pass; diagnostic) ====")
             (doseq [id arm-ids]
               (let [{:keys [p50 min max]} (get rows id)]
@@ -183,8 +183,8 @@
                                      " us/call)"))))
             (js/console.log (str ";;   control: " (:why ctl)))
             (when (:refuse? gv)
-              (set! (.-HICASSO_GUARD_REFUSED js/window) true))
-            (rf.bench.hicasso.lane/done!))))
+              (set! (.-FRESCO_GUARD_REFUSED js/window) true))
+            (rf.bench.fresco.lane/done!))))
       (.catch (fn [e]
-                (rf.bench.hicasso.lane/fail! (or (some-> e .-message) (str e)))
-                (rf.bench.hicasso.lane/done!)))))
+                (rf.bench.fresco.lane/fail! (or (some-> e .-message) (str e)))
+                (rf.bench.fresco.lane/done!)))))

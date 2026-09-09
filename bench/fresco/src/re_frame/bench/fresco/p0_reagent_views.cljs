@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.p0-reagent-views
+(ns re-frame.bench.fresco.p0-reagent-views
   "THE SHIP BAR'S DENOMINATOR — Reagent reading re-frame2 subscriptions,
   and the two arms that make that number mean something (rf2-2rtt6.2).
 

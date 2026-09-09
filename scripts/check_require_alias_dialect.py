@@ -1343,7 +1343,7 @@ def main(argv: list[str]) -> int:
 #
 # A CHECKER WHOSE SUBJECT IS ABSENCE IS GREEN WHEN IT STOPS FIRING.  That is
 # the defect class this repo keeps finding in its own instruments, and the
-# reason lint.yml already carries a fixture-witness step for hicasso's kondo
+# reason lint.yml already carries a fixture-witness step for fresco's kondo
 # export.  So every rule here is exercised in BOTH directions against real
 # files on disk under `scripts/_test_fixtures/check_require_alias_dialect/`:
 # each `positive/` fixture must be NAMED, each `negative/` fixture must be

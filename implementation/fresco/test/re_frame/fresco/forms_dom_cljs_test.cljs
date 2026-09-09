@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.forms-dom-cljs-test
+(ns re-frame.fresco.forms-dom-cljs-test
   "THE FORMS MODULE ON A REAL REACT ROOT OVER A REAL DOM.
 
   The claims the node lane cannot decide: whether a commit keeps the
@@ -50,9 +50,9 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fx]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.forms :as rf.hicasso.forms]
-            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.forms :as rf.fresco.forms]
+            [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
@@ -101,20 +101,20 @@
 (rf/reg-event ::hide (fn [{:keys [db]} _] {:db (assoc db :showing? false)}))
 (rf/reg-event ::show (fn [{:keys [db]} _] {:db (assoc db :showing? true)}))
 
-(rf.hicasso/defview title-field
+(rf.fresco/defview title-field
   "The chapter's own call site: a parent boundary reads the committed
   value and its revision and hands both down as props."
   [{:keys [id]}]
-  [rf.hicasso.forms/buffered-field
+  [rf.fresco.forms/buffered-field
    {:control     [:todo id :title]
-    :value       (rf.hicasso/sub [::title id])
-    ::rf.hicasso/revision (rf.hicasso/sub [::title-revision id])
+    :value       (rf.fresco/sub [::title id])
+    ::rf.fresco/revision (rf.fresco/sub [::title-revision id])
     :on-commit   [::title-committed id]
     :id          "todo-title"
     :class       "title"
     :placeholder "What needs doing?"}])
 
-(rf.hicasso/defview constant-field
+(rf.fresco/defview constant-field
   "THE CONTROL ARM, and the whole reason the revision row below can fail.
 
   The chapter blesses a constant revision for a field that will never be
@@ -128,21 +128,21 @@
   its drift, the difference between them is the revision and cannot be
   anything else."
   [{:keys [id]}]
-  [rf.hicasso.forms/buffered-field
+  [rf.fresco.forms/buffered-field
    {:control     [:todo id :constant]
-    :value       (rf.hicasso/sub [::title id])
-    ::rf.hicasso/revision 0
+    :value       (rf.fresco/sub [::title id])
+    ::rf.fresco/revision 0
     :on-commit   [::title-committed id]
     :id          "todo-constant"
     :class       "constant"}])
 
-(rf.hicasso/defview screen
+(rf.fresco/defview screen
   "Both fields, and a switch that takes the first off the page. The switch
   is read HERE and nowhere else, so toggling it re-renders this body
   alone."
   [_]
   [:main.screen
-   (when (rf.hicasso/sub [::showing?])
+   (when (rf.fresco/sub [::showing?])
      [title-field {:id todo}])
    [constant-field {:id todo}]])
 
@@ -185,7 +185,7 @@
   [m n v]
   (.call (value-setter) n v)
   (.dispatchEvent n (js/InputEvent. "input" #js {:bubbles true}))
-  (rf.hicasso.test.mounted/settle! m))
+  (rf.fresco.test.mounted/settle! m))
 
 (defn- drift!
   "Move the field's value WITHOUT telling React — the foreign write an
@@ -198,19 +198,19 @@
 
 (defn- press! [m n key]
   (.dispatchEvent n (js/KeyboardEvent. "keydown" #js {:key key :bubbles true}))
-  (rf.hicasso.test.mounted/settle! m))
+  (rf.fresco.test.mounted/settle! m))
 
-(defn- blur! [m n] (.blur n) (rf.hicasso.test.mounted/settle! m))
+(defn- blur! [m n] (.blur n) (rf.fresco.test.mounted/settle! m))
 
 (defn- send! [m event-v] (rf/dispatch-sync event-v {:frame (:frame m)}))
 (defn- title-of [m] (get-in (rf/app-db-value (:frame m)) [:todo todo :title]))
 (defn- record-of [m]
-  (rf/subscribe-once [rf.hicasso.forms/drafts [:todo todo :title]] {:frame (:frame m)}))
+  (rf/subscribe-once [rf.fresco.forms/drafts [:todo todo :title]] {:frame (:frame m)}))
 
-(defn- mount! [] (rf.hicasso.test.mounted/mount! [screen {}] {:initial-events [[::seed]]}))
+(defn- mount! [] (rf.fresco.test.mounted/mount! [screen {}] {:initial-events [[::seed]]}))
 
 (defn- finish [m done]
-  (-> (rf.hicasso.test.mounted/unmount! m) (rf.hicasso.test.mounted/assert-clean!) (.then done)))
+  (-> (rf.fresco.test.mounted/unmount! m) (rf.fresco.test.mounted/assert-clean!) (.then done)))
 
 ;; ---------------------------------------------------------------------------
 ;; The commit, on a real node
@@ -297,7 +297,7 @@
         (.focus n)
         (type-into! m n "half typed")
         (send! m [::settle todo "Buy almond milk"])
-        (rf.hicasso.test.mounted/settle! m)
+        (rf.fresco.test.mounted/settle! m)
         (is (= "Buy almond milk" (.-value n))
             "the reset made the draft ineligible immediately — no
              render-time dispatch, and no turn in between showing the
@@ -347,13 +347,13 @@
         (drift! n "autofilled@example.com")
         (drift! c "autofilled@example.com")
         (is (nil? (record-of m)) "no session — neither box holds a draft")
-        (rf.hicasso.test.mounted/settle! m)
+        (rf.fresco.test.mounted/settle! m)
         (is (= "autofilled@example.com" (.-value n))
             "settling alone repairs nothing: no subscription moved, so no
              boundary re-rendered")
         (is (= "autofilled@example.com" (.-value c)))
         (send! m [::bump-revision todo])
-        (rf.hicasso.test.mounted/settle! m)
+        (rf.fresco.test.mounted/settle! m)
         (is (= committed (.-value n))
             "the revision is the only thing that changed, and it is what
              put the model back over the box")
@@ -381,14 +381,14 @@
         (.focus n)
         (type-into! m n "half typed")
         (send! m [::hide])
-        (rf.hicasso.test.mounted/settle! m)
+        (rf.fresco.test.mounted/settle! m)
         (is (nil? (field m)) "the field really left the page")
         (is (= {:revision 0 :draft "half typed"} (record-of m))
             "and the draft is still where it was — unmount neither
              commits nor cancels")
         (is (= committed (title-of m)) "nothing was committed on the way out")
         (send! m [::show])
-        (rf.hicasso.test.mounted/settle! m)
+        (rf.fresco.test.mounted/settle! m)
         (let [n2 (field m)]
           (is (some? n2))
           (is (not (identical? n n2)) "a genuinely new node")

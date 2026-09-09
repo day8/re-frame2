@@ -1,15 +1,15 @@
-(ns re-frame.migration.hicasso.codemod
-  "The Reagent `[:>]` → Hicasso migration codemod — the FIXER.
+(ns re-frame.migration.fresco.codemod
+  "The Reagent `[:>]` → Fresco migration codemod — the FIXER.
 
   A source-text tool that reads a consumer's Reagent `.cljs` namespaces and
   repairs the props dialect at every foreign crossing, so that a codebase
-  whose `[:> …]` sites are about to be interpreted by Hicasso keeps
+  whose `[:> …]` sites are about to be interpreted by Fresco keeps
   behaving the way Reagent made it behave. It mints no declaration, hoists
   nothing, and edits no `ns` form. It writes whole files through
   rewrite-clj, skips any file it cannot parse, and emits a report.
 
   Designed at
-  `docs/design/hicasso/studio/reagent-codemod-against-the-landed-escape.md`
+  `docs/design/fresco/studio/reagent-codemod-against-the-landed-escape.md`
   and built as amended by rf2-2rtt6.143. The HOIST — the
   declare-what-you-use-twice `defhost` hoist with dedupe — is DEMAND-GATED
   by the same ratification and is deliberately absent.
@@ -32,9 +32,9 @@
   one level down."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [re-frame.migration.hicasso.census :as rf.migration.hicasso.census]
-            [re-frame.migration.hicasso.report :as rf.migration.hicasso.report]
-            [re-frame.migration.hicasso.rewrite :as rf.migration.hicasso.rewrite]
+            [re-frame.migration.fresco.census :as rf.migration.fresco.census]
+            [re-frame.migration.fresco.report :as rf.migration.fresco.report]
+            [re-frame.migration.fresco.rewrite :as rf.migration.fresco.rewrite]
             [rewrite-clj.node :as n]
             [rewrite-clj.parser :as p]
             [rewrite-clj.zip :as z])
@@ -47,19 +47,19 @@
 (defn- adapt-def?
   "Is this node `(def Foo (r/adapt-react-class X))`?"
   [nd ctx]
-  (and (rf.migration.hicasso.rewrite/list-node? nd)
-       (= 'def (rf.migration.hicasso.rewrite/sexpr-safe (rf.migration.hicasso.rewrite/element-at nd 0)))
-       (symbol? (rf.migration.hicasso.rewrite/sexpr-safe (rf.migration.hicasso.rewrite/element-at nd 1)))
-       (some-> (rf.migration.hicasso.rewrite/element-at nd 2) (rf.migration.hicasso.rewrite/bound-call? 'adapt-react-class ctx))))
+  (and (rf.migration.fresco.rewrite/list-node? nd)
+       (= 'def (rf.migration.fresco.rewrite/sexpr-safe (rf.migration.fresco.rewrite/element-at nd 0)))
+       (symbol? (rf.migration.fresco.rewrite/sexpr-safe (rf.migration.fresco.rewrite/element-at nd 1)))
+       (some-> (rf.migration.fresco.rewrite/element-at nd 2) (rf.migration.fresco.rewrite/bound-call? 'adapt-react-class ctx))))
 
 (defn- hiccup-head-symbol
   "The head of `[Foo …]` when it is a bare symbol — a call site of a
   `def`ed adapted class, if that symbol names one."
   [nd]
   (when (= :vector (n/tag nd))
-    (let [h (rf.migration.hicasso.rewrite/element-at nd 0)]
+    (let [h (rf.migration.fresco.rewrite/element-at nd 0)]
       (when (and h (= :token (n/tag h)))
-        (let [s (rf.migration.hicasso.rewrite/sexpr-safe h)] (when (symbol? s) s))))))
+        (let [s (rf.migration.fresco.rewrite/sexpr-safe h)] (when (symbol? s) s))))))
 
 (defn- adapt-def-entry
   "`(def Foo (r/adapt-react-class X))` cannot be rewritten by a fixer:
@@ -99,7 +99,7 @@
   (loop [ks [], l loc]
     (let [p (z/up l)]
       (if (and p (= :meta (z/tag p)))
-        (recur (if-let [k (rf.migration.hicasso.rewrite/meta-key-node (z/node p))] (conj ks k) ks) p)
+        (recur (if-let [k (rf.migration.fresco.rewrite/meta-key-node (z/node p))] (conj ks k) ks) p)
         ks))))
 
 (defn analyse
@@ -126,23 +126,23 @@
        :suggestions suggests
        :sites      sites
        :left-alone quiet}
-      (if (rf.migration.hicasso.rewrite/inert? (z/node loc))
-        (recur (rf.migration.hicasso.rewrite/past-subtree loc) entries suggests defs calls sites quiet)
+      (if (rf.migration.fresco.rewrite/inert? (z/node loc))
+        (recur (rf.migration.fresco.rewrite/past-subtree loc) entries suggests defs calls sites quiet)
         (let [nd         (z/node loc)
               [line col] (z/position loc)
               form       (fn [] (let [s (z/string loc)]
                                   (if (> (count s) 200) (str (subs s 0 200) " …") s)))
-              kind       (rf.migration.hicasso.rewrite/site-kind nd ctx)
+              kind       (rf.migration.fresco.rewrite/site-kind nd ctx)
               calls      (if-let [s (hiccup-head-symbol nd)]
                            (update calls s (fnil conj []) line)
                            calls)
               defs       (if (adapt-def? nd ctx)
-                           (conj defs {:sym  (rf.migration.hicasso.rewrite/sexpr-safe (rf.migration.hicasso.rewrite/element-at nd 1))
+                           (conj defs {:sym  (rf.migration.fresco.rewrite/sexpr-safe (rf.migration.fresco.rewrite/element-at nd 1))
                                        :line line :col col :form (form) :file file})
                            defs)]
           (if-not kind
             (recur (z/next loc) entries suggests defs calls sites quiet)
-            (let [plan (rf.migration.hicasso.rewrite/plan-site nd (assoc ctx :meta-keys (meta-keys-above loc)))
+            (let [plan (rf.migration.fresco.rewrite/plan-site nd (assoc ctx :meta-keys (meta-keys-above loc)))
                   es   (mapv #(assoc % :file file :line line :col col
                                      :form (form) :head (:head plan))
                              (:entries plan))]
@@ -179,16 +179,16 @@
   produces."
   [nd ctx]
   (cond
-    (rf.migration.hicasso.rewrite/inert? nd) nd
+    (rf.migration.fresco.rewrite/inert? nd) nd
 
-    (rf.migration.hicasso.rewrite/meta-node? nd)
-    (let [[metas inner] (rf.migration.hicasso.rewrite/unwrap-metas nd)
-          plan   (rf.migration.hicasso.rewrite/plan-site inner (assoc ctx :meta-keys (rf.migration.hicasso.rewrite/meta-key-nodes metas)))
+    (rf.migration.fresco.rewrite/meta-node? nd)
+    (let [[metas inner] (rf.migration.fresco.rewrite/unwrap-metas nd)
+          plan   (rf.migration.fresco.rewrite/plan-site inner (assoc ctx :meta-keys (rf.migration.fresco.rewrite/meta-key-nodes metas)))
           inner' ((:edit plan) (rw-children inner ctx))]
-      (rf.migration.hicasso.rewrite/rebuild-meta-chain nd inner' (boolean (:w1? plan))))
+      (rf.migration.fresco.rewrite/rebuild-meta-chain nd inner' (boolean (:w1? plan))))
 
-    (rf.migration.hicasso.rewrite/site-kind nd ctx)
-    (let [plan (rf.migration.hicasso.rewrite/plan-site nd (assoc ctx :meta-keys []))]
+    (rf.migration.fresco.rewrite/site-kind nd ctx)
+    (let [plan (rf.migration.fresco.rewrite/plan-site nd (assoc ctx :meta-keys []))]
       ((:edit plan) (rw-children nd ctx)))
 
     :else (rw-children nd ctx)))
@@ -245,7 +245,7 @@
   node, which is `:cljc-site`)."
   [source file]
   (let [root (p/parse-string-all source)]
-    (assoc (rf.migration.hicasso.rewrite/ns-context root)
+    (assoc (rf.migration.fresco.rewrite/ns-context root)
            :file  (some-> file str)
            :cljc? (boolean (some-> file str (str/ends-with? ".cljc"))))))
 
@@ -290,7 +290,7 @@
             changed? (and rewrite? (not= orig (:source r)))]
         (when (and write? changed?) (spit f (:source r)))
         (assoc r :path path :changed? (boolean changed?)
-               :census (rf.migration.hicasso.census/scan orig path)))
+               :census (rf.migration.fresco.census/scan orig path)))
       (catch Exception e
         {:path path :changed? false :sites 0 :left-alone 0 :suggestions []
          ;; A file the reader cannot read is one refusal, not two: the
@@ -308,10 +308,10 @@
   [paths {:keys [rewrite? write?] :as opts}]
   (let [files   (expand-paths paths)
         results (mapv #(run-file % opts) files)]
-    (rf.migration.hicasso.report/build
+    (rf.migration.fresco.report/build
      {:entries          (vec (mapcat :entries results))
       :suggestions      (vec (mapcat :suggestions results))
-      :census           (rf.migration.hicasso.census/build (mapv :census results))
+      :census           (rf.migration.fresco.census/build (mapv :census results))
       :files-scanned    (count files)
       :files-changed    (count (filter :changed? results))
       :dry-run?         (and rewrite? (not write?))
@@ -333,7 +333,7 @@
 ;; CLI
 ;; ---------------------------------------------------------------------------
 
-(def ^:private report-file-name "reagent-to-hicasso-report.edn")
+(def ^:private report-file-name "reagent-to-fresco-report.edn")
 
 (defn- default-report-path
   "Where the report goes when `--report` is not given: BESIDE the tree the
@@ -384,12 +384,12 @@
       (let [report-p (or explicit (default-report-path paths))
             rep (run paths {:rewrite? (contains? flags "--rewrite")
                             :write?   (contains? flags "--write")})]
-        (rf.migration.hicasso.report/print-lines (:entries rep))
-        (rf.migration.hicasso.census/print-lines (:entries (:census rep)))
-        (rf.migration.hicasso.report/write! rep report-p)
+        (rf.migration.fresco.report/print-lines (:entries rep))
+        (rf.migration.fresco.census/print-lines (:entries (:census rep)))
+        (rf.migration.fresco.report/write! rep report-p)
         (println)
         (println (pr-str (:summary rep)))
-        (println (rf.migration.hicasso.census/describe (:census rep)))
+        (println (rf.migration.fresco.census/describe (:census rep)))
         ;; ABSOLUTE, and it says it WROTE. The old line printed the bare
         ;; relative name, which named the file without naming the directory
         ;; — so the one thing a reader needed from it was the one thing it

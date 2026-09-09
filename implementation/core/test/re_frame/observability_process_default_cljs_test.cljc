@@ -16,7 +16,7 @@
   2. **Records no frame policy can ever route.** Three producers stamp
      `:frame nil` BY CONSTRUCTION (`:rf.error/no-frame-context`, the
      pre-frame SSR hydration-parse arm of
-     `:rf.error/malformed-hydration-payload`, hicasso's compute-sub
+     `:rf.error/malformed-hydration-payload`, fresco's compute-sub
      `:rf.error/sub-exception`), and a record whose `:frame` no longer
      RESOLVES (a dissociated incarnation's teardown report) is in the same
      position. These reach the process default under an EXPLICITLY NIL
@@ -303,7 +303,7 @@
 
 (deftest frameless-record-reaches-the-default-fail-closed
   (testing "rf2-kuky.67 Q3 — a `:frame nil` record (the shape
-            :rf.error/no-frame-context and hicasso's compute-sub
+            :rf.error/no-frame-context and fresco's compute-sub
             :rf.error/sub-exception carry BY CONSTRUCTION) reaches the
             process default, projected under an EXPLICITLY nil governing
             frame: tree slots are :rf/redacted, summary ids intact. Before

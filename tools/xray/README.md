@@ -63,12 +63,12 @@ The tab-bar render order + the registry `:id` each tab lands on
 | **Resources** (`s`) | `:resources` | The server-state / resource cache for this event — registry · instances · in-flight work · invalidations · the route→resource graph. |
 | **Graph** | `:derivation-graph` | The unified derivation/process graph across all algebra-view families (EP-0014). L4-only — registry tab, no standalone `mount-*!` facade. |
 | **Frames** (`u`) | `:module-view` | The EP-0023 `image -> frame` public model — each live image-loaded frame as an execution context carrying its resolved image's `[kind id]` descriptors with per-descriptor provenance. L4-only — registry tab, no standalone `mount-*!` facade. |
-| **Hicasso** (`h`) | `:hicasso` | Six views over the adapter-neutral Hicasso evidence surface — Mounted boundaries · Reads attribution · the Intents stream · Why · Advisor · Causal — each stating its own scope, basis, completeness and loss. The last two are derivations over the same four envelopes as the first four, taken in one turn. L4-only — registry tab, no standalone `mount-*!` facade. |
+| **Fresco** (`h`) | `:fresco` | Six views over the adapter-neutral Fresco evidence surface — Mounted boundaries · Reads attribution · the Intents stream · Why · Advisor · Causal — each stating its own scope, basis, completeness and loss. The last two are derivations over the same four envelopes as the first four, taken in one turn. L4-only — registry tab, no standalone `mount-*!` facade. |
 
 All 10 ids are focusable via `focus!`. The standalone-mountable `Panel`
 re-views (per [`spec/API.md`](./spec/API.md) §Additional public surfaces)
 are the first 7 — Epoch, app-db, Views, Trace, Machine, Routes, and
-Resources; Graph, Frames and Hicasso are L4-only registry tabs
+Resources; Graph, Frames and Fresco are L4-only registry tabs
 (shell-internal, focusable but not independently mountable).
 
 ### Static mode — the 5 browse surfaces (registry catalogue, event-independent)

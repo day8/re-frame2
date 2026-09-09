@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.walk-vs-reagent-app
+(ns re-frame.bench.fresco.walk-vs-reagent-app
   "OUR WALK, PUT BESIDE REAGENT'S OWN (rf2-2rtt6.63).
 
   The mount deficit's attribution chain ends at the runtime hiccup
@@ -9,36 +9,36 @@
 
   | arm | walks | input |
   |---|---|---|
-  | `hicasso` | `front.codec/as-element` | the plain witness |
+  | `fresco` | `front.codec/as-element` | the plain witness |
   | `slim` | `reagent2.impl.template/as-element` | the plain witness |
   | `reagent` | `reagent.impl.template/as-element` (stock 2.0.1) | the plain witness |
-  | `hicasso-native` | `front.codec/as-element` | the page's OWN markup (intent vectors) |
+  | `fresco-native` | `front.codec/as-element` | the page's OWN markup (intent vectors) |
 
   ## The witness, and why it is link-term free
 
   The page is `walk_profile_app`'s twin of the acceptance shape — the
   same 1,202-element census page, guarded by that file's own fatal
-  canonical-DOM parity gate against the real `rf.bench.hicasso.shapes.large-template/page`, so there is one
+  canonical-DOM parity gate against the real `rf.bench.fresco.shapes.large-template/page`, so there is one
   twin in the lane and not two. It is **realized once, outside every
-  timed window** (`rf.bench.hicasso.front.codec/realize-deep`), which is what makes these rows
+  timed window** (`rf.bench.fresco.front.codec/realize-deep`), which is what makes these rows
   immune to the route-link render term `rf2-cno31` is fixing: every
   `route-link` href on the page is synthesised during realisation and is
   a plain string by the time any arm walks it. No timed window here
   contains a `route-url` call.
 
-  **THE PLAIN WITNESS.** Hicasso's markup carries intent VECTORS at its
+  **THE PLAIN WITNESS.** Fresco's markup carries intent VECTORS at its
   71 event positions; Reagent has no such surface and would `clj->js`
   them. An arm doing different work is not an arm (`rf2-2rtt6.62`), so
   the compared value is the realized page with every event position
   replaced by one shared plain function — legal, and identical work, for
-  all three interpreters. `hicasso-native` then prices what Hicasso's own
+  all three interpreters. `fresco-native` then prices what Fresco's own
   authoring surface costs ON TOP of that, so the intent term is named
   rather than hidden inside the comparison.
 
   ## Workload matching is gated, not asserted
 
   Every arm's element tree is rendered into a fresh container and its
-  canonical DOM read (`rf.bench.hicasso.lane/canonical`, attribute names sorted). The
+  canonical DOM read (`rf.bench.fresco.lane/canonical`, attribute names sorted). The
   three canonicals and the three element counts are reported beside the
   rows: a decomposition of arms whose OUTPUT differs would be a
   decomposition of nothing.
@@ -58,7 +58,7 @@
   2. STAGES — the same primitive, ours and Reagent's, over the page's own
      literal roster: tag lookup, prop-name lookup, value conversion, the
      whole per-element prop pipeline, the per-element tag hook
-     (`rf.bench.hicasso.front.controlled/install!` against `input/input-component?`), and child
+     (`rf.bench.fresco.front.controlled/install!` against `input/input-component?`), and child
      dispatch. **Absolute ns/element**, because two-thirds of a mount
      window is shared frame work and a ratio cannot be read against it.
   3. CANDIDATES — costed BEFORE anything is landed. Each is a shape the
@@ -66,16 +66,16 @@
      timed against it in the same process on the same roster.
 
   Owner bead: rf2-2rtt6.63. Driver: `run.cjs` with
-  HICASSO_INIT_FN=re-frame.bench.hicasso.walk-vs-reagent-app/-main."
+  FRESCO_INIT_FN=re-frame.bench.fresco.walk-vs-reagent-app/-main."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
-            [re-frame.bench.hicasso.front.controlled :as rf.bench.hicasso.front.controlled]
-            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
-            [re-frame.bench.hicasso.front.slot :as rf.bench.hicasso.front.slot]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
-            [re-frame.bench.hicasso.walk-profile-app :as rf.bench.hicasso.walk-profile-app]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
+            [re-frame.bench.fresco.front.controlled :as rf.bench.fresco.front.controlled]
+            [re-frame.bench.fresco.front.intent :as rf.bench.fresco.front.intent]
+            [re-frame.bench.fresco.front.slot :as rf.bench.fresco.front.slot]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.shapes.large-template :as rf.bench.fresco.shapes.large-template]
+            [re-frame.bench.fresco.walk-profile-app :as rf.bench.fresco.walk-profile-app]
             [re-frame.core :as rf]
             [reagent.impl.input :as rinput]
             [reagent.impl.protocols :as rp]
@@ -102,7 +102,7 @@
   native one everywhere it can."
   [m]
   (reduce-kv (fn [acc k _v]
-               (if (and (keyword? k) (rf.bench.hicasso.front.intent/event-prop? k))
+               (if (and (keyword? k) (rf.bench.fresco.front.intent/event-prop? k))
                  (assoc acc k noop)
                  acc))
              m
@@ -136,11 +136,11 @@
   answer `[canonical-dom element-count]`. The tree is a value, so this
   runs no interpreter and belongs to no timed window."
   [el]
-  (let [c    (rf.bench.hicasso.arm1.mount/fresh-container!)
+  (let [c    (rf.bench.fresco.arm1.mount/fresh-container!)
         root (react-dom-client/createRoot c)]
     (react-dom/flushSync (fn [] (.render root el)))
-    (let [canon (rf.bench.hicasso.lane/canonical c)
-          n     (rf.bench.hicasso.lane/element-count c)]
+    (let [canon (rf.bench.fresco.lane/canonical c)
+          n     (rf.bench.fresco.lane/element-count c)]
       (react-dom/flushSync (fn [] (.unmount root)))
       (.remove c)
       [canon n])))
@@ -217,19 +217,19 @@
   Answers ms for the window.
 
   **Every arm runs inside the body door**, including the two that do not
-  need it. Hicasso's intent lowering refuses to run with no ambient
+  need it. Fresco's intent lowering refuses to run with no ambient
   dispatch (`front.intent/require-dispatch`), so the native arm has no
   choice; running the donors inside the same door keeps the four arms on
   ONE call convention, which is the confound `rf2-2rtt6.32` recorded and
   the only reason that measurement's error was caught. The clock starts
   INSIDE the door, so the door itself is never in the window."
   [witness walk-one]
-  (rf.bench.hicasso.walk-profile-app/in-body
+  (rf.bench.fresco.walk-profile-app/in-body
     (fn []
-      (let [t0 (rf.bench.hicasso.lane/now-ms)]
+      (let [t0 (rf.bench.fresco.lane/now-ms)]
         (dotimes [_ walks-per-sample]
           (walk-one witness))
-        (- (rf.bench.hicasso.lane/now-ms) t0)))))
+        (- (rf.bench.fresco.lane/now-ms) t0)))))
 
 (def ^:private sampling {:warmup 4 :samples 10})
 (def ^:private rounds 6)
@@ -244,11 +244,11 @@
   [reps ^js arr f]
   (let [sink (volatile! nil)
         n    (.-length arr)
-        t0   (rf.bench.hicasso.lane/now-ms)]
+        t0   (rf.bench.fresco.lane/now-ms)]
     (dotimes [_ reps]
       (dotimes [i n]
         (vreset! sink (f (aget arr i)))))
-    (let [ms (- (rf.bench.hicasso.lane/now-ms) t0)]
+    (let [ms (- (rf.bench.fresco.lane/now-ms) t0)]
       (/ (* 1e6 ms) (* reps n)))))
 
 (defn- ns-per-op2
@@ -257,11 +257,11 @@
   [reps ^js a ^js b f]
   (let [sink (volatile! nil)
         n    (.-length a)
-        t0   (rf.bench.hicasso.lane/now-ms)]
+        t0   (rf.bench.fresco.lane/now-ms)]
     (dotimes [_ reps]
       (dotimes [i n]
         (vreset! sink (f (aget a i) (aget b i)))))
-    (let [ms (- (rf.bench.hicasso.lane/now-ms) t0)]
+    (let [ms (- (rf.bench.fresco.lane/now-ms) t0)]
       (/ (* 1e6 ms) (* reps n)))))
 
 (def ^:private micro-reps 200)
@@ -275,7 +275,7 @@
         ;; rows price the PIPELINE and not two different tag lookups.
         h-parsed (let [a #js []]
                    (dotimes [i (.-length el-tags)]
-                     (.push a (rf.bench.hicasso.front.codec/cached-parse (aget el-tags i))))
+                     (.push a (rf.bench.fresco.front.codec/cached-parse (aget el-tags i))))
                    a)
         r-parsed (let [a #js []]
                    (dotimes [i (.-length el-tags)]
@@ -286,29 +286,29 @@
                      (.push a (.-tag ^js (aget h-parsed i))))
                    a)]
     [;; --- tag lookup -------------------------------------------------
-     [:tag-lookup-hicasso (ns-per-op micro-reps tags (fn [t] (rf.bench.hicasso.front.codec/cached-parse t)))]
+     [:tag-lookup-fresco (ns-per-op micro-reps tags (fn [t] (rf.bench.fresco.front.codec/cached-parse t)))]
      [:tag-lookup-reagent (ns-per-op micro-reps tags
                                      (fn [t] (rtpl/cached-parse nil (name t) t)))]
      ;; --- prop-name lookup -------------------------------------------
-     [:prop-name-hicasso (ns-per-op micro-reps prop-keys (fn [k] (rf.bench.hicasso.front.codec/cached-prop-name k)))]
+     [:prop-name-fresco (ns-per-op micro-reps prop-keys (fn [k] (rf.bench.fresco.front.codec/cached-prop-name k)))]
      [:prop-name-slim    (ns-per-op micro-reps prop-keys (fn [k] (slim/cached-prop-name k)))]
      [:prop-name-reagent (ns-per-op micro-reps prop-keys (fn [k] (rtpl/cached-prop-name k)))]
      ;; --- value conversion -------------------------------------------
-     [:prop-value-hicasso (ns-per-op micro-reps prop-vals (fn [v] (rf.bench.hicasso.front.codec/convert-prop-value v)))]
+     [:prop-value-fresco (ns-per-op micro-reps prop-vals (fn [v] (rf.bench.fresco.front.codec/convert-prop-value v)))]
      [:prop-value-slim    (ns-per-op micro-reps prop-vals (fn [v] (slim/convert-prop-value v)))]
      [:prop-value-reagent (ns-per-op micro-reps prop-vals (fn [v] (rtpl/convert-prop-value v)))]
      ;; --- the whole per-element prop pipeline -------------------------
-     [:convert-props-hicasso
-      (ns-per-op2 micro-reps el-props h-parsed (fn [p ^js t] (rf.bench.hicasso.front.codec/convert-props p t)))]
+     [:convert-props-fresco
+      (ns-per-op2 micro-reps el-props h-parsed (fn [p ^js t] (rf.bench.fresco.front.codec/convert-props p t)))]
      [:convert-props-reagent
       (ns-per-op2 micro-reps el-props r-parsed (fn [p ^js t] (rtpl/convert-props p t)))]
      ;; --- the per-element tag hook ------------------------------------
-     [:tag-hook-hicasso (ns-per-op micro-reps tag-strs
-                                   (fn [t] (rf.bench.hicasso.front.controlled/install! t #js {})))]
+     [:tag-hook-fresco (ns-per-op micro-reps tag-strs
+                                   (fn [t] (rf.bench.fresco.front.controlled/install! t #js {})))]
      [:tag-hook-reagent (ns-per-op micro-reps tag-strs
                                    (fn [t] (rinput/input-component? t)))]
      ;; --- child dispatch ----------------------------------------------
-     [:string-child-hicasso (ns-per-op micro-reps strings (fn [s] (rf.bench.hicasso.front.codec/as-element s)))]
+     [:string-child-fresco (ns-per-op micro-reps strings (fn [s] (rf.bench.fresco.front.codec/as-element s)))]
      [:string-child-slim    (ns-per-op micro-reps strings (fn [s] (slim/as-element s)))]
      [:string-child-reagent (ns-per-op micro-reps strings
                                        (fn [s] (rp/as-element rtpl/class-compiler s)))]
@@ -317,7 +317,7 @@
       (let [p #js {:className "x"}]
         (ns-per-op (quot micro-reps 4) tag-strs (fn [t] (react/createElement t p))))]
      ;; --- the per-element `:key` read the walk pays outside the loop ---
-     [:key-read-hicasso (ns-per-op micro-reps el-props (fn [p] (:key p)))]
+     [:key-read-fresco (ns-per-op micro-reps el-props (fn [p] (:key p)))]
      [:roster-elements (.-length el-tags)]
      [:roster-props    (.-length prop-keys)]
      [:roster-children (.-length children)]
@@ -368,7 +368,7 @@
   "All three arms cache the same value shape the codec caches, so the
   rows price the LOOKUP and not two different payloads."
   [k n]
-  (rf.bench.hicasso.front.codec/->PropSlot (rf.bench.hicasso.front.slot/prop-name k) (reserved-name? n) false false false))
+  (rf.bench.fresco.front.codec/->PropSlot (rf.bench.fresco.front.slot/prop-name k) (reserved-name? n) false false false))
 
 (defn- guarded-lookup
   "The shipping lookup shape, written here so every arm is local."
@@ -394,7 +394,7 @@
 (defn- instcheck-lookup [k]
   (let [n (name k)
         v (unchecked-get instcheck-cache n)]
-    (if (instance? rf.bench.hicasso.front.codec/PropSlot v)
+    (if (instance? rf.bench.fresco.front.codec/PropSlot v)
       v
       (let [v' (mint-slot k n)]
         (when-not (reserved-name? n) (unchecked-set instcheck-cache n v'))
@@ -410,10 +410,10 @@
 (defn- guarded-tag-lookup [t]
   (let [k (tag-cache-key t)]
     (if (reserved-name? k)
-      (rf.bench.hicasso.front.codec/parse-tag t)
+      (rf.bench.fresco.front.codec/parse-tag t)
       (if (.call has-own guarded-tag-cache k)
         (unchecked-get guarded-tag-cache k)
-        (let [v (rf.bench.hicasso.front.codec/parse-tag t)]
+        (let [v (rf.bench.fresco.front.codec/parse-tag t)]
           (unchecked-set guarded-tag-cache k v)
           v)))))
 
@@ -421,7 +421,7 @@
   (let [k (tag-cache-key t)
         v (unchecked-get nullproto-tag-cache k)]
     (if (undefined? v)
-      (let [v' (rf.bench.hicasso.front.codec/parse-tag t)]
+      (let [v' (rf.bench.fresco.front.codec/parse-tag t)]
         (when-not (reserved-name? k) (unchecked-set nullproto-tag-cache k v'))
         v')
       v)))
@@ -429,9 +429,9 @@
 (defn- instcheck-tag-lookup [t]
   (let [k (tag-cache-key t)
         v (unchecked-get instcheck-tag-cache k)]
-    (if (instance? rf.bench.hicasso.front.codec/ParsedTag v)
+    (if (instance? rf.bench.fresco.front.codec/ParsedTag v)
       v
-      (let [v' (rf.bench.hicasso.front.codec/parse-tag t)]
+      (let [v' (rf.bench.fresco.front.codec/parse-tag t)]
         (when-not (reserved-name? k) (unchecked-set instcheck-tag-cache k v'))
         v'))))
 
@@ -480,7 +480,7 @@
 ;; No `^js` hint: these read DEFTYPE fields, whose names the compiler
 ;; munges (`js-name` -> `js_name`, `reserved?` -> `reserved_QMARK_`). The
 ;; codec reads them the same way, through its own `^PropSlot` hint.
-(defn- slot= [^rf.bench.hicasso.front.codec/PropSlot a ^rf.bench.hicasso.front.codec/PropSlot b]
+(defn- slot= [^rf.bench.fresco.front.codec/PropSlot a ^rf.bench.fresco.front.codec/PropSlot b]
   (and (= (.-js-name a) (.-js-name b))
        (= (.-reserved? a) (.-reserved? b))))
 
@@ -527,7 +527,7 @@
 ;; THE INTENT SURFACE, DECOMPOSED (rf2-vw412)
 ;; ---------------------------------------------------------------------------
 ;;
-;; The `hicasso-native` − `hicasso` gap is the only figure on this page
+;; The `fresco-native` − `fresco` gap is the only figure on this page
 ;; that prices the authoring surface, and the arms earn that reading
 ;; honestly: the two witnesses differ at EVENT POSITIONS and nowhere else.
 ;; What the arm row cannot say is WHICH event positions, and this page
@@ -544,13 +544,13 @@
 ;; first. §1's statement that the route-link term is "structurally absent
 ;; from this instrument" is true of the `route-url` SYNTHESIS — that
 ;; happens once, at `realize-deep`, outside every window — and is not true
-;; of the navigate vector's LOWERING, which `rf.bench.hicasso.front.codec/as-element` performs
+;; of the navigate vector's LOWERING, which `rf.bench.fresco.front.codec/as-element` performs
 ;; inside every timed window of the native arm and never on the plain one.
 ;;
 ;; So the rows below split the gap by carrier and price each against what
 ;; the plain arm pays at the SAME key. Every one of them runs inside the
 ;; body door: lowering an intent with no ambient dispatch is
-;; `:rf.error/hicasso-intent-outside-boundary` by construction.
+;; `:rf.error/fresco-intent-outside-boundary` by construction.
 
 (defn- collect-intent-roster
   "The NATIVE witness's event positions, split by carrier. The plain arm's
@@ -570,9 +570,9 @@
                     props      (when has-props? (nth argv 1))]
                 (when props
                   (doseq [[k v] props]
-                    (when (and (keyword? k) (rf.bench.hicasso.front.intent/event-prop? k))
+                    (when (and (keyword? k) (rf.bench.fresco.front.intent/event-prop? k))
                       (cond
-                        (rf.bench.hicasso.front.intent/navigate-head? v) (do (.push nav-ks k)
+                        (rf.bench.fresco.front.intent/navigate-head? v) (do (.push nav-ks k)
                                                       (.push nav-vs v)
                                                       (.push nav-maps (nth v 1 nil)))
                         (vector? v)               (do (.push int-ks k) (.push int-vs v))
@@ -671,11 +671,11 @@
      [:roster-intent-positions       (.-length intent-keys)]
      [:roster-other-event-positions  (.-length other-keys)]
      ;; --- the navigate carrier: minted by route-link, 1 per link -------
-     [:lower-navigate-native (ns-per-op2 micro-reps nav-keys nav-vals rf.bench.hicasso.front.intent/lower-prop)]
-     [:lower-navigate-plain  (ns-per-op2 micro-reps nav-keys nav-plain rf.bench.hicasso.front.intent/lower-prop)]
+     [:lower-navigate-native (ns-per-op2 micro-reps nav-keys nav-vals rf.bench.fresco.front.intent/lower-prop)]
+     [:lower-navigate-plain  (ns-per-op2 micro-reps nav-keys nav-plain rf.bench.fresco.front.intent/lower-prop)]
      ;; --- the author-written carrier -----------------------------------
-     [:lower-intent-native   (ns-per-op2 micro-reps intent-keys intent-vals rf.bench.hicasso.front.intent/lower-prop)]
-     [:lower-intent-plain    (ns-per-op2 micro-reps intent-keys int-plain rf.bench.hicasso.front.intent/lower-prop)]
+     [:lower-intent-native   (ns-per-op2 micro-reps intent-keys intent-vals rf.bench.fresco.front.intent/lower-prop)]
+     [:lower-intent-plain    (ns-per-op2 micro-reps intent-keys int-plain rf.bench.fresco.front.intent/lower-prop)]
      ;; --- the closed-grammar check inside the navigate carrier ---------
      [:navmap-keyset-shipping (ns-per-op micro-reps nav-maps navmap-keyset-shipping)]
      [:navmap-keyset-scan     (ns-per-op micro-reps nav-maps navmap-keyset-scan)]]))
@@ -1058,7 +1058,7 @@
      ;; the per-element prop-map preamble
      [:slim-preamble-ship  (ns-per-op2 micro-reps el-props parsed slim-preamble-ship)]
      [:slim-preamble-cheap (ns-per-op2 micro-reps el-props parsed slim-preamble-cheap)]
-     ;; the WHOLE per-element prop pipeline — the row the hicasso/reagent
+     ;; the WHOLE per-element prop pipeline — the row the fresco/reagent
      ;; table has and slim did not
      [:slim-convert-props-ship
       (ns-per-op2 micro-reps el-props parsed
@@ -1183,32 +1183,32 @@
         (map (fn [id]
                (let [xs       (mapcat #(get % id) readings)
                      per-walk (mapv #(/ % walks-per-sample) xs)]
-                 [id (rf.bench.hicasso.lane/summarise per-walk)])))
+                 [id (rf.bench.fresco.lane/summarise per-walk)])))
         (map :id arms)))
 
 (defn ^:export -main []
   (rf/init! rf.adapter.uix/adapter)
-  (rf.bench.hicasso.lane/leave-act-environment!)
-  (rf.bench.hicasso.lane/self-test!)
+  (rf.bench.fresco.lane/leave-act-environment!)
+  (rf.bench.fresco.lane/self-test!)
   (-> (js/Promise.resolve nil)
       (.then
         (fn [_]
-          (rf.bench.hicasso.shapes.large-template/make-frame! rf.bench.hicasso.walk-profile-app/frame-id)
-          (rf.bench.hicasso.shapes.large-template/reseed! rf.bench.hicasso.walk-profile-app/frame-id)
-          (let [{:keys [elements bytes]} (rf.bench.hicasso.walk-profile-app/parity!)]
+          (rf.bench.fresco.shapes.large-template/make-frame! rf.bench.fresco.walk-profile-app/frame-id)
+          (rf.bench.fresco.shapes.large-template/reseed! rf.bench.fresco.walk-profile-app/frame-id)
+          (let [{:keys [elements bytes]} (rf.bench.fresco.walk-profile-app/parity!)]
             (js/console.log (str ";; twin parity OK — " elements " elements, "
-                                 bytes " canonical bytes, identical to rf.bench.hicasso.shapes.large-template/page"))
-            (let [native  (rf.bench.hicasso.walk-profile-app/in-body (fn [] (rf.bench.hicasso.front.codec/realize-deep (rf.bench.hicasso.walk-profile-app/page-hiccup))))
+                                 bytes " canonical bytes, identical to rf.bench.fresco.shapes.large-template/page"))
+            (let [native  (rf.bench.fresco.walk-profile-app/in-body (fn [] (rf.bench.fresco.front.codec/realize-deep (rf.bench.fresco.walk-profile-app/page-hiccup))))
                   plain   (plainify native)
                   roster  (collect-roster plain)
-                  arms    [{:id :hicasso        :witness plain
-                            :walk (fn [h] (rf.bench.hicasso.front.codec/as-element h))}
+                  arms    [{:id :fresco        :witness plain
+                            :walk (fn [h] (rf.bench.fresco.front.codec/as-element h))}
                            {:id :slim           :witness plain
                             :walk (fn [h] (slim/as-element h))}
                            {:id :reagent        :witness plain
                             :walk (fn [h] (rp/as-element rtpl/class-compiler h))}
-                           {:id :hicasso-native :witness native
-                            :walk (fn [h] (rf.bench.hicasso.front.codec/as-element h))}]
+                           {:id :fresco-native :witness native
+                            :walk (fn [h] (rf.bench.fresco.front.codec/as-element h))}]
                   ;; ---- workload matching, before any figure ------------
                   ;; The tree is built inside the body door (the native
                   ;; arm's lowering needs it) and RENDERED outside it, so
@@ -1216,27 +1216,27 @@
                   canons  (into {}
                                 (map (fn [{:keys [id witness walk]}]
                                        [id (render-canonical
-                                             (rf.bench.hicasso.walk-profile-app/in-body (fn [] (walk witness))))]))
+                                             (rf.bench.fresco.walk-profile-app/in-body (fn [] (walk witness))))]))
                                 arms)
-                  ref-canon (first (get canons :hicasso))
+                  ref-canon (first (get canons :fresco))
                   parity  (into {}
                                 (map (fn [[id [canon n]]]
-                                       ;; `rf.bench.hicasso.lane/utf8-bytes` and not `count`:
+                                       ;; `rf.bench.fresco.lane/utf8-bytes` and not `count`:
                                        ;; printed below as "canonical bytes",
                                        ;; and `count` answers UTF-16 code
                                        ;; units (rf2-2rtt6.121).
                                        [id {:elements n
-                                            :bytes    (rf.bench.hicasso.lane/utf8-bytes canon)
+                                            :bytes    (rf.bench.fresco.lane/utf8-bytes canon)
                                             :same?    (= canon ref-canon)
                                             :diverges (when-not (= canon ref-canon)
                                                         (first-divergence ref-canon canon))}]))
                                 canons)
                   ;; ---- the interleaved rounds --------------------------
                   {:keys [readings samples]}
-                  (rf.bench.hicasso.lane/rounds! arms sampling rounds
+                  (rf.bench.fresco.lane/rounds! arms sampling rounds
                                 (fn [{:keys [witness walk]}] (timed-walks witness walk)))
                   rows    (arm-rows arms readings)
-                  gv      (rf.bench.hicasso.lane/guard! samples "walk-vs-reagent arms (in-page ms, diagnostic)")
+                  gv      (rf.bench.fresco.lane/guard! samples "walk-vs-reagent arms (in-page ms, diagnostic)")
                   stages  (stage-table roster)
                   cand-bad (candidate-agreement roster)
                   cands   (candidate-table roster)
@@ -1247,36 +1247,36 @@
                   ;; inside the body door (rf2-vw412).
                   iroster  (collect-intent-roster native)
                   intent-bad (intent-agreement iroster)
-                  intents  (rf.bench.hicasso.walk-profile-app/in-body (fn [] (intent-table iroster)))
-                  hic     (:p50 (get rows :hicasso))
+                  intents  (rf.bench.fresco.walk-profile-app/in-body (fn [] (intent-table iroster)))
+                  hic     (:p50 (get rows :fresco))
                   rgt     (:p50 (get rows :reagent))
                   slm     (:p50 (get rows :slim))]
 
-              (rf.bench.hicasso.lane/record! :walk-vs-reagent-parity parity)
-              (rf.bench.hicasso.lane/record! :walk-vs-reagent-arms
+              (rf.bench.fresco.lane/record! :walk-vs-reagent-parity parity)
+              (rf.bench.fresco.lane/record! :walk-vs-reagent-arms
                             (into {} (map (fn [[k v]]
-                                            [k (-> v (update :min rf.bench.hicasso.lane/round4)
-                                                   (update :max rf.bench.hicasso.lane/round4)
-                                                   (update :p50 rf.bench.hicasso.lane/round4))]))
+                                            [k (-> v (update :min rf.bench.fresco.lane/round4)
+                                                   (update :max rf.bench.fresco.lane/round4)
+                                                   (update :p50 rf.bench.fresco.lane/round4))]))
                                   rows))
-              (rf.bench.hicasso.lane/record! :walk-vs-reagent-stages
-                            (into {} (map (fn [[k v]] [k (rf.bench.hicasso.lane/round4 v)])) stages))
-              (rf.bench.hicasso.lane/record! :walk-vs-reagent-candidates
+              (rf.bench.fresco.lane/record! :walk-vs-reagent-stages
+                            (into {} (map (fn [[k v]] [k (rf.bench.fresco.lane/round4 v)])) stages))
+              (rf.bench.fresco.lane/record! :walk-vs-reagent-candidates
                             {:disagreements cand-bad
-                             :ns-per-op (into {} (map (fn [[k v]] [k (rf.bench.hicasso.lane/round4 v)])) cands)})
-              (rf.bench.hicasso.lane/record! :walk-vs-reagent-slim
+                             :ns-per-op (into {} (map (fn [[k v]] [k (rf.bench.fresco.lane/round4 v)])) cands)})
+              (rf.bench.fresco.lane/record! :walk-vs-reagent-slim
                             {:disagreements slim-bad
-                             :ns-per-op (into {} (map (fn [[k v]] [k (rf.bench.hicasso.lane/round4 v)])) slims)})
-              (rf.bench.hicasso.lane/record! :walk-vs-reagent-intent
+                             :ns-per-op (into {} (map (fn [[k v]] [k (rf.bench.fresco.lane/round4 v)])) slims)})
+              (rf.bench.fresco.lane/record! :walk-vs-reagent-intent
                             {:disagreements intent-bad
-                             :ns-per-op (into {} (map (fn [[k v]] [k (rf.bench.hicasso.lane/round4 v)])) intents)})
+                             :ns-per-op (into {} (map (fn [[k v]] [k (rf.bench.fresco.lane/round4 v)])) intents)})
 
               (js/console.log ";; ==== WORKLOAD MATCH (every arm's own DOM, canonical) ====")
               (doseq [{:keys [id]} arms]
                 (let [p (get parity id)]
                   (js/console.log (str ";;   " (name id) ": " (:elements p) " elements, "
                                        (:bytes p) " canonical bytes, "
-                                       (if (:same? p) "IDENTICAL to hicasso"
+                                       (if (:same? p) "IDENTICAL to fresco"
                                            (str "DIFFERS — " (pr-str (:diverges p))))))))
 
               (js/console.log ";; ==== ARMS (ms per whole-page walk; diagnostic in-page clock) ====")
@@ -1289,8 +1289,8 @@
                   (js/console.log (str ";;   " (name id) ": p50 " (fmt p50 4)
                                        " [" (fmt min 4) " - " (fmt max 4) "] ms/walk  ("
                                        (fmt (* 1e6 (/ p50 elements)) 0) " ns/el)"))))
-              (js/console.log (str ";;   hicasso/reagent " (fmt (/ hic rgt) 4)
-                                   "   hicasso/slim " (fmt (/ hic slm) 4)
+              (js/console.log (str ";;   fresco/reagent " (fmt (/ hic rgt) 4)
+                                   "   fresco/slim " (fmt (/ hic slm) 4)
                                    "   slim/reagent " (fmt (/ slm rgt) 4)))
               (js/console.log (str ";;   ABSOLUTE per-element delta vs reagent: "
                                    (fmt (* 1e6 (/ (- hic rgt) elements)) 1) " ns/el"))
@@ -1337,7 +1337,7 @@
                                      " elements = " (fmt int-el 1) " ns/element"))
                 (js/console.log (str ";;   -> named carriers sum: " (fmt (+ nav-el int-el) 1)
                                      " ns/element; OBSERVED arm gap "
-                                     (fmt (* 1e6 (/ (- (:p50 (get rows :hicasso-native)) hic)
+                                     (fmt (* 1e6 (/ (- (:p50 (get rows :fresco-native)) hic)
                                                     elements))
                                           1)
                                      " ns/element"))
@@ -1345,8 +1345,8 @@
                                      "check is " (fmt keyset-el 1) " ns/element")))
 
               (when (:refuse? gv)
-                (set! (.-HICASSO_GUARD_REFUSED js/window) true))
-              (rf.bench.hicasso.lane/done!)))))
+                (set! (.-FRESCO_GUARD_REFUSED js/window) true))
+              (rf.bench.fresco.lane/done!)))))
       (.catch (fn [e]
-                (rf.bench.hicasso.lane/fail! (or (some-> e .-message) (str e)))
-                (rf.bench.hicasso.lane/done!)))))
+                (rf.bench.fresco.lane/fail! (or (some-> e .-message) (str e)))
+                (rf.bench.fresco.lane/done!)))))

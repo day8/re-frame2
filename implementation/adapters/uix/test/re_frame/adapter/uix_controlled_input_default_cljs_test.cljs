@@ -13,7 +13,7 @@
 
   The two implementations are materially different products, measured in
   real Chromium against react-dom 19.2.0 in
-  `docs/design/hicasso/studio/controlled-input-two-implementations.md`
+  `docs/design/fresco/studio/controlled-input-two-implementations.md`
   (rf2-n3dxw): React keeps the element controlled and converges inside the
   discrete event; the port makes it uncontrolled and converges one
   `requestAnimationFrame` later. Those DOM-level differences are witnessed

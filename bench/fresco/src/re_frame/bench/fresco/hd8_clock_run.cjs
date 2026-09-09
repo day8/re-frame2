@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // HD-008's DONOR ROWS ON THE CLOCK OF RECORD — driver (rf2-2rtt6.31).
 //
-//   node implementation/hicasso/test/re_frame/bench/hicasso/hd8_clock_run.cjs
+//   node implementation/fresco/test/re_frame/bench/fresco/hd8_clock_run.cjs
 //
 // The mount-gate amendment (rf2-2rtt6.1, recorded 2026-08-02) ratifies raw
 // `TaskDuration` — script AND frame — as the bar's adjudicating clock and
@@ -111,9 +111,9 @@ const PROJECT = path.resolve(__dirname, '../../../..');
 const IMPL = path.resolve(PROJECT, '../../implementation');
 const REPO = path.resolve(IMPL, '..');
 
-const BUILD_ID = 'hicasso-bench';
+const BUILD_ID = 'fresco-bench';
 const OUT_DIR = process.env.HD8CLOCK_OUT_DIR || 'out/hd8-clock';
-const INIT_FN = 're-frame.bench.hicasso.hd8-clock-app/-main';
+const INIT_FN = 're-frame.bench.fresco.hd8-clock-app/-main';
 const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.HD8CLOCK_PORT || 8141);
 
@@ -244,11 +244,11 @@ function revision() {
 }
 
 const BLOB_FILES = [
-  'implementation/hicasso/test/re_frame/bench/hicasso/hd8_clock_app.cljs',
-  'implementation/hicasso/test/re_frame/bench/hicasso/hd8_clock_run.cjs',
-  'implementation/hicasso/test/re_frame/bench/hicasso/hd8_rows.cljs',
-  'implementation/hicasso/test/re_frame/bench/hicasso/hd8_witnesses.cljs',
-  'implementation/hicasso/test/re_frame/bench/hicasso/lane.cljs',
+  'implementation/fresco/test/re_frame/bench/fresco/hd8_clock_app.cljs',
+  'implementation/fresco/test/re_frame/bench/fresco/hd8_clock_run.cjs',
+  'implementation/fresco/test/re_frame/bench/fresco/hd8_rows.cljs',
+  'implementation/fresco/test/re_frame/bench/fresco/hd8_witnesses.cljs',
+  'implementation/fresco/test/re_frame/bench/fresco/lane.cljs',
   'implementation/core/src/re_frame/substrate/spine.cljs',
 ];
 
@@ -979,7 +979,7 @@ async function drive() {
   console.log(';;   bead        rf2-2rtt6.31 (HD-008 donor re-take; EP-0038)');
   console.log(`;;   commit      ${sha}`);
   for (const [f, h] of Object.entries(bl)) console.log(`;;   blob        ${h}  ${f}`);
-  console.log(`;;   reproduce   node implementation/hicasso/test/re_frame/bench/hicasso/hd8_clock_run.cjs`);
+  console.log(`;;   reproduce   node implementation/fresco/test/re_frame/bench/fresco/hd8_clock_run.cjs`);
   console.log(`;;   build       shadow-cljs release ${BUILD_ID} (:advanced, goog.DEBUG false)`);
   console.log(`;;   node        ${process.version}`);
   console.log(

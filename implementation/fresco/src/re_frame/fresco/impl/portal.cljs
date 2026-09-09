@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.impl.portal
+(ns re-frame.fresco.impl.portal
   "`h/portal` — hiccup into React's `createPortal`: markup lands in a DOM
   container elsewhere on the page while staying part of the React tree it
   was written in.
@@ -28,9 +28,9 @@
   container — while the SURFACE is client-only because the portalled
   subtree never reaches the response. Gating inside the body rather than
   in front of it is what keeps the caller's `:fallback` reachable.
-  Anchoring, dismissal and focus are `re-frame.hicasso.overlay`'s.
-  Design record: docs/design/hicasso/decisions.md, HD-011."
-  (:require [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+  Anchoring, dismissal and focus are `re-frame.fresco.overlay`'s.
+  Design record: docs/design/fresco/decisions.md, HD-011."
+  (:require [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             ["react-dom" :as react-dom]))
 
 (defn- portal-body
@@ -41,7 +41,7 @@
   pass with no fallback flash. The target is read only on the adopted
   branch, because a server render legitimately has no container."
   [^js props]
-  (if (rf.hicasso.impl.codec/adopted?)
+  (if (rf.fresco.impl.codec/adopted?)
     (react-dom/createPortal (.-children props) (.-target props))
     (.-fallback props)))
 
@@ -49,7 +49,7 @@
 ;; write: the name has to survive `:advanced` renaming, and `mint-host!`
 ;; does not stamp it under `:server :render`, where the head's type is
 ;; somebody else's component.
-(unchecked-set portal-body "displayName" "hicasso/portal")
+(unchecked-set portal-body "displayName" "fresco/portal")
 
 (def portal
   "`h/portal` — the head. A minted host crossing like any other: children
@@ -57,6 +57,6 @@
   ReactNode position so hiccup there lowers under that same frame, and
   `:target` crosses by identity as ordinary data. A misspelled option is
   an absent one — two options is not a roster."
-  (rf.hicasso.impl.codec/mint-host! "hicasso/portal" portal-body
+  (rf.fresco.impl.codec/mint-host! "fresco/portal" portal-body
                     {:slots  #{:fallback}
                      :server :render}))

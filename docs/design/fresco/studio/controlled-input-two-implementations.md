@@ -10,7 +10,7 @@
 
 **Bead** `rf2-n3dxw` · **epic** `rf2-2rtt6` (EP-0038)
 **Witness content hash** `d747b10d82daa24ce39a4a7a6cff825ce7716483`
-(`implementation/freehand/test/re_frame/bench/hicasso/controlled_restore_dom_cljs_test.cljs`;
+(`implementation/freehand/test/re_frame/bench/fresco/controlled_restore_dom_cljs_test.cljs`;
 authored on `worker/reject-n3dxw`, amended on `worker/heqwo-default` when
 `rf2-heqwo` pinned the selector — the measured rows are unchanged, the
 restore-to-default helper is not; the previous blob was
@@ -22,11 +22,11 @@ identifier, and `git log --oneline --all -- <path>` plus
 
 **The arm's own witness content hashes** (`rf2-fki5d`, measured 2026-08-02
 AUSEST, same runtime): `22e7e6f456fd1ac9a1628fd985588ff87e68532d`
-(`…/hicasso/arm1/controlled_grid_dom_cljs_test.cljs`) and
+(`…/fresco/arm1/controlled_grid_dom_cljs_test.cljs`) and
 `176442a54e1be2ea346e7cfee460f4583bf10233`
-(`…/hicasso/front/controlled_dom_cljs_test.cljs`). The mechanism is
+(`…/fresco/front/controlled_dom_cljs_test.cljs`). The mechanism is
 `e625d031cb251614899015894bccc2703052ddfd`
-(`…/hicasso/front/controlled.cljs`).
+(`…/fresco/front/controlled.cljs`).
 
 **Runtime for every row on this page**: headless Chromium via Playwright
 1.59.1, shadow-cljs `:browser-test` (development optimisations, `goog.DEBUG`
@@ -185,7 +185,7 @@ implementations run.
 **Established** (`rf2-o27h3`), by a harness that drives the browser's own
 composition machinery rather than dispatching Events shaped like it:
 `ime_run.cjs` (beside the bench drivers, in
-`implementation/freehand/test/re_frame/bench/hicasso/`) uses CDP
+`implementation/freehand/test/re_frame/bench/fresco/`) uses CDP
 `Input.imeSetComposition` / `Input.insertText` / `Input.dispatchKeyEvent`,
 which mint **trusted** `compositionstart`/`compositionupdate` events, trusted
 `input` events carrying `insertCompositionText` and `isComposing true`, real

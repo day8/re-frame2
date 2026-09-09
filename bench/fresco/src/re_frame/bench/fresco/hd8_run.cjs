@@ -2,11 +2,11 @@
 // HD-008's driver — build once, serve once, run three adapters, refuse a
 // contaminated figure (rf2-2rtt6.7).
 //
-//   node implementation/hicasso/test/re_frame/bench/hicasso/hd8_run.cjs
+//   node implementation/fresco/test/re_frame/bench/fresco/hd8_run.cjs
 //
 // ## What this measures, and why it comes before any API
 //
-// HD-008 is EP-0038's STOP-GATE. Before a line of Hicasso's API is
+// HD-008 is EP-0038's STOP-GATE. Before a line of Fresco's API is
 // designed, the central hypothesis is assembled out of parts already in
 // this repository — reagent-slim's `:f>` function-component path and its
 // runtime hiccup interpreter, plus the existing UIx `use-sub`
@@ -28,7 +28,7 @@
 //
 // No new build id, and `implementation/shadow-cljs.edn` is not touched:
 // rf2-2rtt6.2 owns the measurement lane and any build-id addition (a
-// hot-zone, sequenced file). This rides its `:hicasso-bench` with an
+// hot-zone, sequenced file). This rides its `:fresco-bench` with an
 // output directory and an `:init-fn` merged in at the CLI, which is the
 // seam rf2-2rtt6.2's own driver established for exactly this.
 //
@@ -88,12 +88,12 @@ const IMPL = path.resolve(PROJECT, '../../implementation');
 const REPO = path.resolve(IMPL, '..');
 // rf2-2rtt6.2's lane, reused rather than re-minted: ONE build id serves the
 // whole programme, and HD-017 makes a new one a hot-zone edit of
-// implementation/shadow-cljs.edn that rf2-2rtt6.2 owns. `:hicasso-bench` is
+// implementation/shadow-cljs.edn that rf2-2rtt6.2 owns. `:fresco-bench` is
 // already `:advanced` with goog.DEBUG false, which is what HD-012 requires of
 // every bar-relevant figure, so this arm needs nothing of its own.
-const BUILD_ID = 'hicasso-bench';
+const BUILD_ID = 'fresco-bench';
 const OUT_DIR = process.env.HD8_OUT_DIR || 'out/hd8-donor';
-const INIT_FN = 're-frame.bench.hicasso.hd8-app/-main';
+const INIT_FN = 're-frame.bench.fresco.hd8-app/-main';
 const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.HD8_PORT || 8129);
 
@@ -1042,7 +1042,7 @@ async function main() {
   // bare command: a published figure whose repro command does not reproduce it
   // is a figure nobody can check.
   console.log(
-    `;;   reproduce   ${ONLY ? `HD8_ONLY=${ONLY} ` : ''}${ROWS ? `HD8_ROWS=${ROWS} ` : ''}node implementation/hicasso/test/re_frame/bench/hicasso/hd8_run.cjs`
+    `;;   reproduce   ${ONLY ? `HD8_ONLY=${ONLY} ` : ''}${ROWS ? `HD8_ROWS=${ROWS} ` : ''}node implementation/fresco/test/re_frame/bench/fresco/hd8_run.cjs`
   );
   console.log(`;;   build       shadow-cljs release ${BUILD_ID} (:advanced, goog.DEBUG false)`);
   console.log(`;;   node        ${process.version}`);

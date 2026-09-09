@@ -6,7 +6,7 @@ exactly as on a native tag.
 
 ```clojure
 (ns app.hosts.date-picker
-  (:require [re-frame.hicasso :as h]
+  (:require [re-frame.fresco :as h]
             ["react-datepicker" :default DatePicker]))
 
 (h/defhost date-picker DatePicker)
@@ -14,7 +14,7 @@ exactly as on a native tag.
 
 ```clojure
 (ns app.views
-  (:require [re-frame.hicasso :as h]
+  (:require [re-frame.fresco :as h]
             [app.hosts.date-picker :refer [date-picker]]))
 
 (h/defview due-field [_]
@@ -41,7 +41,7 @@ Declare a host at namespace top level, never during rendering.
 | --- | --- |
 | Top-level prop names | converted to canonical React slots: `:on-change` → `onChange`, `:class` → `className`; `data-*` and `aria-*` remain hyphenated |
 | Prop values | pass by identity; nested maps and collections are not deeply converted |
-| HTML-like attribute slots | class/id/role/data/ARIA values use native-attribute coercion; Hicasso class collections are joined |
+| HTML-like attribute slots | class/id/role/data/ARIA values use native-attribute coercion; Fresco class collections are joined |
 | Children | Hiccup is converted where it was authored |
 | Callbacks | contract inferred from the prop's spelling, as on a native tag — see below |
 | Declared slots | Hiccup becomes React elements under the captured frame |
@@ -49,20 +49,20 @@ Declare a host at namespace top level, never during rendering.
 
 When a library expects a JavaScript options object, camelCase nested keys, or a
 string instead of a keyword, provide that value explicitly with `#js`,
-`clj->js`, a string, or `(name value)`. Hicasso does not guess a library's
+`clj->js`, a string, or `(name value)`. Fresco does not guess a library's
 data model.
 
 The declaration accepts `:callbacks`, `:slots`, `:server`, and `:fallback`. A
 declaration outside that shape — an unknown option, a `:callbacks` value outside
 `:event` and `:render`, a malformed `:slots` set — fails with
-`:rf.error/hicasso-bad-host-declaration`, the reason naming which; a component
+`:rf.error/fresco-bad-host-declaration`, the reason naming which; a component
 that resolved to `nil` — often a mistaken `:default` import — fails with
-`:rf.error/hicasso-host-no-component`. These errors point to the declaration rather than a later
+`:rf.error/fresco-host-no-component`. These errors point to the declaration rather than a later
 mount.
 
 ## Callback contracts
 
-Hicasso infers a callback's contract from the prop's spelling, exactly as it
+Fresco infers a callback's contract from the prop's spelling, exactly as it
 does on a native tag. An `on*` prop is an **event** position; any other prop
 that receives `h/event` is a **render** position; a plain function crosses
 untouched anywhere. No declaration is needed for the usual case:
@@ -86,8 +86,8 @@ value-first callback such as `onChange(date)`:
 
 A bare intent with no marker is valid even when no DOM event exists because it
 does not inspect callback arguments. A marker-bearing intent remains
-event-first; if argument one is not a DOM event, Hicasso raises
-`:rf.error/hicasso-intent-needs-the-event` and points to `h/event`.
+event-first; if argument one is not a DOM event, Fresco raises
+`:rf.error/fresco-intent-needs-the-event` and points to `h/event`.
 
 ### Render positions
 
@@ -110,10 +110,10 @@ frame. The callback itself is pure: its return is the render output, and
 nothing is dispatched while it runs.
 
 A plain function is legal at any position and passes through without a wrapper.
-It is enough when the callback returns a Hicasso view head whose frame is
+It is enough when the callback returns a Fresco view head whose frame is
 resolved where React renders it. If the callback's raw Hiccup contains event
 vectors, use `h/event`; otherwise conversion has no captured frame and raises
-`:rf.error/hicasso-intent-outside-boundary`. There is no separate "handler"
+`:rf.error/fresco-intent-outside-boundary`. There is no separate "handler"
 contract to declare: a plain function is that contract.
 
 ### Overriding the spelling
@@ -131,7 +131,7 @@ Declare the override once, on the host:
 
 `:callbacks` takes `:event` or `:render` and nothing else, and a declared
 contract outranks the spelling. Any other value is refused at the declaration
-with `:rf.error/hicasso-bad-host-declaration`. Write the override only
+with `:rf.error/fresco-bad-host-declaration`. Write the override only
 where the spelling is wrong; the usual case needs none.
 
 ## ReactNode slots
@@ -194,9 +194,9 @@ A host has one of two policies:
   `:fallback` Hiccup appears at the crossing until the client adopts it.
 
 A fallback must be inert markup. A `defview` or `defhost` head inside it raises
-`:rf.error/hicasso-host-fallback-boundary-head`. Combining `:fallback` with
+`:rf.error/fresco-host-fallback-boundary-head`. Combining `:fallback` with
 `:server :render`, or supplying another policy value, raises
-`:rf.error/hicasso-host-bad-ssr-policy` at declaration.
+`:rf.error/fresco-host-bad-ssr-policy` at declaration.
 
 ## Portals
 
@@ -256,7 +256,7 @@ declared host: an intent vector or `h/event` at an `on*` prop dispatches into
 the writing view's frame, and `h/event` at any other prop is a frame-carrying
 render callback. What the escape cannot express is the override for an
 on*-named render prop and a ReactNode slot, where `h/event` is refused with
-`:rf.error/hicasso-host-unclaimed-callback`; both need `h/defhost`.
+`:rf.error/fresco-host-unclaimed-callback`; both need `h/defhost`.
 
 A plain function still crosses by identity but carries no frame. Ambient
 `rf/dispatch` from that function later raises `:rf.error/no-frame-context`.
@@ -281,14 +281,14 @@ Only a declaration on the real component with `{:server :render}` makes that
 claim.
 
 The raw component position must evaluate to a valid React element type. `nil` —
-usually a mistaken `:default` import — and a Hicasso `defview` or `defhost` head
-raise `:rf.error/hicasso-raw-not-a-component` at the authored crossing,
+usually a mistaken `:default` import — and a Fresco `defview` or `defhost` head
+raise `:rf.error/fresco-raw-not-a-component` at the authored crossing,
 including during server render. Any other invalid type is React's own error at
 render.
 
-## Render a Hicasso view from native React
+## Render a Fresco view from native React
 
-`h/as-component` converts a Hicasso view head into a real React component for
+`h/as-component` converts a Fresco view head into a real React component for
 Reagent, UIx, raw React, JavaScript, or TypeScript parents:
 
 ```clojure
@@ -296,11 +296,11 @@ Reagent, UIx, raw React, JavaScript, or TypeScript parents:
   (h/as-component article-card))
 ```
 
-React props return to the Hicasso view as a normal props map with canonical
+React props return to the Fresco view as a normal props map with canonical
 names (`articleId` becomes `:article-id`) and identity-preserved values. The
 view retains its memoization, subscription reads, key identity, teardown, and
 frame from React context. Rendering it outside every frame raises
-`:rf.error/no-frame-context` — every frame, not every Hicasso root. `h/frame-root`,
+`:rf.error/no-frame-context` — every frame, not every Fresco root. `h/frame-root`,
 `h/frame-provider` and their `rf/`-prefixed twins all write the same frame context, so a
 bridged view inside a Reagent or UIx tree resolves that tree's frame and needs
 no root of its own.
@@ -329,10 +329,10 @@ as a component.
 | Hiccup in a prop appears as array data | The prop was not declared as a ReactNode slot | Add it to `:slots` or convert that value with `h/as-element` |
 | React rejects an object returned by a render callback | Raw Hiccup crossed a render position | Return `h/as-element` |
 | A list renders nothing at an on*-named render prop | The spelling inferred the event contract, whose wrapper returns `nil` | Declare `{:callbacks {:on-render-item :render}}` on the host |
-| `:rf.error/hicasso-bad-host-declaration` at declaration | A `:callbacks` value outside `:event` and `:render` — `:handler` included — or another declaration-shape fault the reason names | A plain function is the handler contract; declare `:event` or `:render` only where the spelling is wrong |
-| A raw callback runs and then raises `:rf.error/no-frame-context` | A plain function retained no rendering frame | Capture the frame in the Hicasso body or use a declared event callback |
+| `:rf.error/fresco-bad-host-declaration` at declaration | A `:callbacks` value outside `:event` and `:render` — `:handler` included — or another declaration-shape fault the reason names | A plain function is the handler contract; declare `:event` or `:render` only where the spelling is wrong |
+| A raw callback runs and then raises `:rf.error/no-frame-context` | A plain function retained no rendering frame | Capture the frame in the Fresco body or use a declared event callback |
 | A shared namespace fails to load on the JVM | It contains a JavaScript require | Move the require and host declarations to a `.cljs` namespace |
-| `:rf.error/hicasso-host-bad-ssr-policy` at declaration | Invalid policy or fallback attached to Render | Use Render or Client-only; fallback belongs only to Client-only |
+| `:rf.error/fresco-host-bad-ssr-policy` at declaration | Invalid policy or fallback attached to Render | Use Render or Client-only; fallback belongs only to Client-only |
 | A hosted component does not receive changed application state | The surrounding view bailed out and the host's own props did not change | Put every value that drives the host on the host's props |
 | A provider's children vanish from server HTML | Transparent wrapper remained Client-only | Declare deterministic wrappers `{:server :render}` |
 
@@ -350,9 +350,9 @@ where the foreign implementation is worth that cost.
 
 ## Advanced
 
-### Host crossings do not add a Hicasso memo wrapper
+### Host crossings do not add a Fresco memo wrapper
 
-A hosted component is re-entered whenever the Hicasso view that authored it
+A hosted component is re-entered whenever the Fresco view that authored it
 re-renders. Put it behind a small `defview` when an equal-props bail-out is
 useful. Conversely, state that must update the host must appear on its own
 props; reading a value elsewhere without passing it cannot update the host.

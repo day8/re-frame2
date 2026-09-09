@@ -19,7 +19,7 @@
     entire public surface IS the documented adapter API (spec/API.md
     §UIx adapter), so BOTH directions are checked (a var added
     without a row, or a row with no live var, → RED).
-  - `re-frame.hicasso` (rf2-phm7g) — fully-rowed, and the one covered
+  - `re-frame.fresco` (rf2-phm7g) — fully-rowed, and the one covered
     namespace that is NOT CLJS-only. The door is a SPLIT-HOST `.cljc`:
     its `#?(:clj …)` arm is three authoring macros the JVM generator
     introspects and rows under `:classification`, and its `#?(:cljs …)`
@@ -31,7 +31,7 @@
     case `:jvm-only-classification` mirrors from the other side, and
     the reason that key needs no entry here.
   - `re-frame.story` (rf2-i6kh post-merge audit) — fully-rowed, and the
-    SECOND split-host `.cljc` door: the same shape as Hicasso at
+    SECOND split-host `.cljc` door: the same shape as Fresco at
     product-façade scale. Its `#?(:clj …)` arm is the nine `reg-*`
     macros and its `.cljc` body ~107 fns, all JVM-introspected and rowed
     under `:classification`; its `#?(:cljs …)` arm is five more facade
@@ -92,7 +92,7 @@
             ;; requires are load-bearing.
             [re-frame.adapter.reagent]
             [re-frame.adapter.uix]
-            [re-frame.hicasso]
+            [re-frame.fresco]
             [re-frame.story]
             [day8.re-frame2-xray.core]
             [day8.re-frame2-xray.mount]
@@ -121,14 +121,14 @@
    namespace, enumerated off the analyzer at compile time."
   {"re-frame.adapter.reagent"  (emit-ns-publics re-frame.adapter.reagent)
    "re-frame.adapter.uix"      (emit-ns-publics re-frame.adapter.uix)
-   ;; The Hicasso door (rf2-phm7g) — a SPLIT-HOST `.cljc`, and the first
+   ;; The Fresco door (rf2-phm7g) — a SPLIT-HOST `.cljc`, and the first
    ;; namespace the probe covers that the JVM generator ALSO owns. The
    ;; analyzer surface here is the door's `#?(:cljs …)` arm (the runtime
    ;; aliases, rowed under `:cljs-only`) plus the three `:require-macros`-
    ;; referred authoring macros (rowed under `:classification`, because the
    ;; JVM introspects them). `reconcile-rows` below carries both sets, so
    ;; the two arms reconcile against one live surface.
-   "re-frame.hicasso"          (emit-ns-publics re-frame.hicasso)
+   "re-frame.fresco"          (emit-ns-publics re-frame.fresco)
    ;; The Story FAÇADE (rf2-i6kh post-merge audit) — the SECOND split-host
    ;; `.cljc` door here, and the second namespace the JVM generator also
    ;; owns. Its `#?(:clj …)` arm is the nine `reg-*` macros (self-referred
@@ -136,7 +136,7 @@
    ;; ~107 `.cljc` fns the JVM introspects, all rowed under
    ;; `:classification`; its `#?(:cljs …)` arm is five more facade fns the
    ;; JVM cannot see, rowed under `:cljs-only`. Both sets land on ONE live
-   ;; analyzer surface, exactly as Hicasso's do, so `reconcile-rows` carries
+   ;; analyzer surface, exactly as Fresco's do, so `reconcile-rows` carries
    ;; both and the door is held to full completeness.
    "re-frame.story"            (emit-ns-publics re-frame.story)
    ;; The Xray FAÇADE (rf2-ar67) — fully-rowed, unlike every other Xray
@@ -164,8 +164,8 @@
 (def fully-rowed
   "Namespaces whose ENTIRE public surface must be rowed (direction 2).
    The two adapter namespaces — their public surface IS the documented
-   adapter API — and the Hicasso door, which is likewise its whole
-   documented authoring surface (`re-frame.hicasso.impl.*` is where the
+   adapter API — and the Fresco door, which is likewise its whole
+   documented authoring surface (`re-frame.fresco.impl.*` is where the
    non-surface lives, and the door re-exports none of it).
 
    `day8.re-frame2-xray.core` joins them (rf2-ar67) on the same test, and
@@ -200,7 +200,7 @@
    completeness would oblige rows for their internals."
   #{"re-frame.adapter.reagent"
     "re-frame.adapter.uix"
-    "re-frame.hicasso"
+    "re-frame.fresco"
     "re-frame.story"
     "day8.re-frame2-xray.core"})
 
@@ -209,25 +209,25 @@
    compile time (no runtime filesystem)."
   (emit-cljs-only-rows))
 
-(def hicasso-classification-rows
-  "The `re-frame.hicasso` `:classification` rows — the door's three
+(def fresco-classification-rows
+  "The `re-frame.fresco` `:classification` rows — the door's three
    authoring macros (rf2-phm7g).
 
    Every other namespace this probe covers is CLJS-only, so all its rows
-   live under `:cljs-only`. The Hicasso door does not: it is a `.cljc` the
+   live under `:cljs-only`. The Fresco door does not: it is a `.cljc` the
    JVM generator owns, so its macros are curated under `:classification`
    and their `:kind`/`:tier` are the generator's. They still need
    reconciling HERE, because they are `:require-macros`-referred into the
    door's own ClojureScript arm and so appear on the live analyzer surface
    — and without them the `fully-rowed` completeness check above would
    report three live publics with no row."
-  (emit-classification-rows "re-frame.hicasso"))
+  (emit-classification-rows "re-frame.fresco"))
 
 (def story-classification-rows
   "The `re-frame.story` `:classification` rows — the Story façade's
    JVM-introspected arm (rf2-i6kh post-merge audit).
 
-   The same split-host case as `hicasso-classification-rows` above, at the
+   The same split-host case as `fresco-classification-rows` above, at the
    scale of a whole product façade rather than three macros. `re-frame.story`
    is on the generator's `jvm-namespaces`, so its `.cljc` fns and its nine
    `#?(:clj (defmacro …))` `reg-*` forms are curated under `:classification`
@@ -241,9 +241,9 @@
 (def reconcile-rows
   "Every row the probe reconciles: the `:cljs-only` surfaces, plus the
    JVM-owned `:classification` rows of the two SPLIT-HOST doors (the
-   Hicasso door and the Story façade)."
+   Fresco door and the Story façade)."
   (-> (vec cljs-only-rows)
-      (into hicasso-classification-rows)
+      (into fresco-classification-rows)
       (into story-classification-rows)))
 
 ;; ---------------------------------------------------------------------------
@@ -281,7 +281,7 @@
     ;; the covered set, so deleting a namespace's `emit-ns-publics` entry
     ;; removes its rows from the reconciliation and the probe goes GREEN over a
     ;; surface it no longer looks at — the exact fail-open shape that left the
-    ;; Hicasso door uninventoried on both hosts.
+    ;; Fresco door uninventoried on both hosts.
     ;;
     ;; The sidecar already states the intended invariant, in a field: a
     ;; `:cljs-only` row is `:runtime-verified? true` "once the probe covers its

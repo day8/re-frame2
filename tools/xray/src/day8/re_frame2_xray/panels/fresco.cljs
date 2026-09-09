@@ -1,5 +1,5 @@
-(ns day8.re-frame2-xray.panels.hicasso
-  "Hicasso tab — the glass on the live tier (rf2-hic-023, rf2-hic-037).
+(ns day8.re-frame2-xray.panels.fresco
+  "Fresco tab — the glass on the live tier (rf2-hic-023, rf2-hic-037).
 
   Six views over ONE evidence surface. The first four answer the questions
   Spec SN §10 says a developer actually asks of a view substrate:
@@ -17,7 +17,7 @@
       fan-out; classifies what owns the pressure; and recommends the
       smallest route that addresses THAT owner — which, from this
       evidence, is never a native one. See
-      `hicasso_advisor.cljc` for why the refusal is the product.
+      `fresco_advisor.cljc` for why the refusal is the product.
     - **Causal** — §10's chain, `event → subscriptions recomputed →
       values changed → boundaries notified → bodies run → React commit →
       paint`, walked link by link for one real dispatch, with each link's
@@ -25,11 +25,11 @@
 
   ## The tab's job is to make the LOSS legible, not to hide it
 
-  Hicasso's evidence door refuses to encode unknown as an empty
+  Fresco's evidence door refuses to encode unknown as an empty
   collection, and this panel's whole design follows from taking that
   seriously one layer further out. Three things fall out of it:
 
-  1. **Every empty is its own sentence.** *Not running Hicasso*, *running
+  1. **Every empty is its own sentence.** *Not running Fresco*, *running
      a schema this build cannot parse* and *running with an empty roster*
      are unrelated facts with unrelated remedies, and each renders under
      its own testid with its own prose. A tab that showed one blank table
@@ -57,17 +57,17 @@
 
   Same contract as every Xray panel — `rf/reg-view` and pure hiccup, no
   Reagent or UIx reference, no component-local state. The data → data
-  projection lives in `hicasso_helpers.cljc` so the algebra runs under the
-  JVM unit-test target; the live read seam is `hicasso_reads.cljs`, which
+  projection lives in `fresco_helpers.cljc` so the algebra runs under the
+  JVM unit-test target; the live read seam is `fresco_reads.cljs`, which
   passes the producer's envelopes through unchanged.
 
-  Normative owner: `tools/xray/spec/027-Hicasso-Evidence.md`."
+  Normative owner: `tools/xray/spec/027-Fresco-Evidence.md`."
   (:require [clojure.string :as string]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
-            [day8.re-frame2-xray.panels.hicasso-advisor :as advisor]
-            [day8.re-frame2-xray.panels.hicasso-causal :as causal]
-            [day8.re-frame2-xray.panels.hicasso-helpers :as hh]
-            [day8.re-frame2-xray.panels.hicasso-reads :as reads]
+            [day8.re-frame2-xray.panels.fresco-advisor :as advisor]
+            [day8.re-frame2-xray.panels.fresco-causal :as causal]
+            [day8.re-frame2-xray.panels.fresco-helpers :as hh]
+            [day8.re-frame2-xray.panels.fresco-reads :as reads]
             [day8.re-frame2-xray.panels.overflow-indicator :as overflow]
             [day8.re-frame2-xray.panels.common-helpers :as ch]
             [day8.re-frame2-xray.theme.section :as section]
@@ -75,7 +75,7 @@
              :refer [tokens mono-stack sans-stack with-alpha]]
             [re-frame.core :as rf]))
 
-(def ^:private panel-id "hicasso")
+(def ^:private panel-id "fresco")
 
 ;; ---- styles --------------------------------------------------------------
 
@@ -544,22 +544,22 @@
                     :role          "tab"
                     :aria-selected (= id selected)
                     :title         asks
-                    :on-click      #(dispatch [:rf.xray.hicasso/set-view id])
+                    :on-click      #(dispatch [:rf.xray.fresco/set-view id])
                     :style         (pill-style (= id selected))}
            label])))
 
 (rf/reg-view Panel
-  "The Hicasso tab: a sub-strip over six views of one evidence surface.
+  "The Fresco tab: a sub-strip over six views of one evidence surface.
 
-  Every view derefs `:rf.xray.hicasso/data`, which takes all four
+  Every view derefs `:rf.xray.fresco/data`, which takes all four
   envelopes in one turn — the four rosters are projections of ONE runtime
   state, and reading them across two turns would let a mount land between
   the census and the edges. Six views over four envelopes because Advisor
   and Causal are derivations over the same take rather than reads of their
   own: the four are the rosters, the six are the projections of them."
   []
-  (let [selected (hh/normalise-sub-mode @(rf/subscribe [:rf.xray.hicasso/view]))
-        {:keys [envelopes] :as data} @(rf/subscribe [:rf.xray.hicasso/data])
+  (let [selected (hh/normalise-sub-mode @(rf/subscribe [:rf.xray.fresco/view]))
+        {:keys [envelopes] :as data} @(rf/subscribe [:rf.xray.fresco/data])
         envelope (get envelopes (case selected
                                   :mounted     :mounted-boundaries
                                   :attribution :read-attribution
@@ -578,7 +578,7 @@
       ;; The derived views state their OWN claim, not the census's. An
       ;; advice envelope and a slice envelope have their own scope, basis
       ;; and loss, and printing the producer's summary over them would
-      ;; credit Hicasso with a completeness claim about a derivation Xray
+      ;; credit Fresco with a completeness claim about a derivation Xray
       ;; made.
       (or (case selected
             :advisor (advisor/advice-summary (:advice data))
@@ -603,27 +603,27 @@
 (defn install!
   []
   ;; The selected sub-view. Ordinary app-db state under Xray's own
-  ;; `:rf.xray.hicasso/*` prefix, normalised on write so a stale
+  ;; `:rf.xray.fresco/*` prefix, normalised on write so a stale
   ;; localStorage value or a hand-dispatched id cannot leave the panel on a
   ;; view that does not exist.
-  (rf/reg-event :rf.xray.hicasso/set-view
+  (rf/reg-event :rf.xray.fresco/set-view
     (fn [{:keys [db]} [_ view]]
-      {:db (assoc db :hicasso-view (hh/normalise-sub-mode view))}))
+      {:db (assoc db :fresco-view (hh/normalise-sub-mode view))}))
 
   ;; ONE sub, taking all four envelopes in one turn and shaping every
   ;; view's rows from them. Not four subs: the rosters are projections of
   ;; a single runtime state, and four independent recomputes could
   ;; interleave with a mount and show an edge whose boundary is not in the
   ;; census. It does not compose off an `:rf.xray/*` app-db slot because
-  ;; the Hicasso tables are a process-global fact — they live in the
+  ;; the Fresco tables are a process-global fact — they live in the
   ;; inspected application's runtime, not Xray's app-db — but it DOES
   ;; compose off `:rf.xray/trace-buffer` as a re-fire tick, so the panel
   ;; refreshes as the inspected application runs.
-  (rf/reg-sub :rf.xray.hicasso/view
+  (rf/reg-sub :rf.xray.fresco/view
     (fn [db _query]
-      (hh/normalise-sub-mode (:hicasso-view db))))
+      (hh/normalise-sub-mode (:fresco-view db))))
 
-  (rf/reg-sub :rf.xray.hicasso/data
+  (rf/reg-sub :rf.xray.fresco/data
     {:inputs [[:rf.xray/trace-buffer]]}
     (fn [[_tick] _query]
       (let [envelopes (reads/evidence)
@@ -650,8 +650,8 @@
                                        :boundary-key (:key (:boundary top))}))})))
 
   (panel-registry/reg-l4-tab!
-    {:id    :hicasso
-     :label "Hicasso"
+    {:id    :fresco
+     :label "Fresco"
      :mnem  "h"
      :modes #{:dynamic}
      :order 10

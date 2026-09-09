@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // rf2-flqpd — the retention diagnostic's driver.
 //
-//   node implementation/hicasso/test/re_frame/bench/hicasso/retention_run.cjs
+//   node implementation/fresco/test/re_frame/bench/fresco/retention_run.cjs
 //   RETENTION_SEGMENT=uix-subs RETENTION_CYCLES=8 node .../retention_run.cjs
 //   node .../retention_run.cjs --no-build      (reuse the last bundle)
 //
@@ -68,7 +68,7 @@
 // ## The build id
 //
 // `implementation/shadow-cljs.edn` is hot-zone. This rides rf2-2rtt6.2's
-// `:hicasso-bench` with an output directory and an `:init-fn` merged in at
+// `:fresco-bench` with an output directory and an `:init-fn` merged in at
 // the CLI, which is the seam that lane established for exactly this.
 
 'use strict';
@@ -86,10 +86,10 @@ const { shadowBuild } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
 
-const BUILD_ID = 'hicasso-bench';
-const OUT_DIR = process.env.RETENTION_OUT_DIR || 'out/hicasso-retention';
+const BUILD_ID = 'fresco-bench';
+const OUT_DIR = process.env.RETENTION_OUT_DIR || 'out/fresco-retention';
 const OUT = path.join(PROJECT, OUT_DIR);
-const INIT_FN = 're-frame.bench.hicasso.retention-probe/-main';
+const INIT_FN = 're-frame.bench.fresco.retention-probe/-main';
 const PORT = Number(process.env.RETENTION_PORT || 8137);
 
 // The arm, the segment it needs, and how many roots a cycle mounts.

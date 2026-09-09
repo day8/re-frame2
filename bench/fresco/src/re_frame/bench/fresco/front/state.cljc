@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.front.state
+(ns re-frame.bench.fresco.front.state
   "`h/reg-state` — THE INSTANCE-KEY SUGAR (rf2-2rtt6.98, HD-009 as amended
   by the 2026-08-04 explicit-key ruling).
 
@@ -97,7 +97,7 @@
   "`::h/clear` — the FRAMEWORK-NAMED clear event, `[::h/clear ::concern
   ikey]`. One handler serves every concern, because removing an entry
   needs to know nothing about what used to be in it."
-  :re-frame.hicasso/clear)
+  :re-frame.fresco/clear)
 
 ;; ---------------------------------------------------------------------------
 ;; Errors — the lane's shape (front.presence/fail!)
@@ -135,7 +135,7 @@
   the way back out, one interaction later and in a different component."
   [concern ikey op]
   (when-not (instance-key? ikey)
-    (fail! :rf.error/hicasso-state-bad-key
+    (fail! :rf.error/fresco-state-bad-key
            'front.state/check-key!
            (str "The instance key for " (pr-str concern) " was "
                 (pr-str ikey) ", which is not a keyword, string, number, "
@@ -257,7 +257,7 @@
   ([concern] (reg-state concern nil))
   ([concern opts]
    (when-not (and (keyword? concern) (namespace concern))
-     (fail! :rf.error/hicasso-state-bad-concern
+     (fail! :rf.error/fresco-state-bad-concern
             'front.state/reg-state
             (str "A state concern must be a namespace-qualified keyword; it "
                  "was " (pr-str concern) ". The concern is a sub id, an event "
@@ -266,7 +266,7 @@
             :namespace-qualify-the-concern
             {:concern concern}))
    (when-not (or (nil? opts) (map? opts))
-     (fail! :rf.error/hicasso-state-bad-option
+     (fail! :rf.error/fresco-state-bad-option
             'front.state/reg-state
             (str "reg-state options must be a map; for " (pr-str concern)
                  " they were " (pr-str opts) ".")
@@ -274,7 +274,7 @@
             {:concern concern :options opts}))
    (let [unknown (seq (disj (set (keys opts)) :default))]
      (when unknown
-       (fail! :rf.error/hicasso-state-bad-option
+       (fail! :rf.error/fresco-state-bad-option
               'front.state/reg-state
               (str "reg-state accepts :default and nothing else; "
                    (pr-str concern) " was given " (pr-str (vec (sort-by str unknown)))
@@ -285,7 +285,7 @@
    (let [default (:default opts)]
      (when (and (contains? @!defaults concern)
                 (not= default (get @!defaults concern)))
-       (fail! :rf.error/hicasso-state-redefined
+       (fail! :rf.error/fresco-state-redefined
               'front.state/reg-state
               (str "The concern " (pr-str concern) " is already registered with "
                    ":default " (pr-str (get @!defaults concern)) " and cannot be "

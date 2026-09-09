@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // THE CENSUS-REAL PAGES' CLOCK ROWS — driver (rf2-2rtt6.56).
 //
-//   node implementation/hicasso/test/re_frame/bench/hicasso/shapes/census_clock_run.cjs
+//   node implementation/fresco/test/re_frame/bench/fresco/shapes/census_clock_run.cjs
 //
 // The tier-1 shape roster (rf2-2rtt6.51) authored four census-real pages on
 // one shared state layer and published no timing row. This driver takes
@@ -56,7 +56,7 @@
 // scale with the seed. Shared `card.cljs` and one-card
 // canonical equality buy MARKUP PARITY, not matched workload. What this
 // driver establishes is per row: within a row every arm mounts the
-// identical page (canon-gated before any clock), so hicasso/uix on THAT
+// identical page (canon-gated before any clock), so fresco/uix on THAT
 // page is adjudicable. Between rows it establishes ordering of measured
 // numbers and nothing causal. Matching the two decompositions at one card
 // count is a seed change in `census_clock_arms.cljs` plus a clock session
@@ -111,7 +111,7 @@
 // ## Two runs, each a self-contained browser session
 //
 // Spec 006 installs one adapter per process. `uix` carries the GATED pair
-// (hicasso / uix); `reagent` adds Reagent-on-subs beside the gate, never
+// (fresco / uix); `reagent` adds Reagent-on-subs beside the gate, never
 // as a second gate. Every published ratio is WITHIN one run — no figure
 // composes across runs — so the runs may be invoked separately
 // (C56CLOCK_ONLY) without breaking same-session pairing; the published
@@ -185,7 +185,7 @@ const CHECK_STANDARD = require('./census_check_standard.json');
 // THIS IS NOT THE ALL-BLOCKS RULE, and the two must never be conflated. The
 // strict per-block unanimity rule — `controlVerdict` below, "EVERY block
 // inside the band" — is about WHERE each block falls, and its cost is the
-// `p^n` arithmetic rf2-8a746 reasoned about on the hicasso clock. This is
+// `p^n` arithmetic rf2-8a746 reasoned about on the fresco clock. This is
 // about HOW MANY blocks exist at all, and it is a precondition of the
 // calibrated standard that REPLACED unanimity as the `ordinary` row's
 // adjudicator. Retiring unanimity and requiring the whole evidence are
@@ -199,9 +199,9 @@ const PROJECT = path.resolve(__dirname, '../../../../..');
 const IMPL = path.resolve(PROJECT, '../../implementation');
 const REPO = path.resolve(IMPL, '..');
 
-const BUILD_ID = 'hicasso-bench';
+const BUILD_ID = 'fresco-bench';
 const OUT_DIR = process.env.C56CLOCK_OUT_DIR || 'out/census-clock';
-const INIT_FN = 're-frame.bench.hicasso.shapes.census-clock-app/-main';
+const INIT_FN = 're-frame.bench.fresco.shapes.census-clock-app/-main';
 const OUT = path.join(PROJECT, OUT_DIR);
 const PORT = Number(process.env.C56CLOCK_PORT || 8143);
 
@@ -217,7 +217,7 @@ const WARMUP = Number(process.env.C56CLOCK_WARMUP || 4);
 const SAMPLES = Number(process.env.C56CLOCK_SAMPLES || 10);
 const TOLERANCE = Number(process.env.C56CLOCK_TOLERANCE || 0.35);
 const CONTROL_SLACK = 0.25;
-const GATE_LINE = 1.1; // the amendment's one line: hicasso <= 1.10x direct UIx
+const GATE_LINE = 1.1; // the amendment's one line: fresco <= 1.10x direct UIx
 const NO_BUILD = process.argv.includes('--no-build');
 const SKIP_QUIET = process.env.C56CLOCK_SKIP_QUIET === '1';
 
@@ -236,7 +236,7 @@ const DATA_DIR =
   process.env.C56CLOCK_DATA_DIR || path.join(__dirname, '..', 'data', 'censusclock-2rtt6-56');
 
 const ALL_RUNS = [
-  { id: 'uix', query: '?adapter=uix', why: 'the GATED pair — hicasso against direct UIx-on-subs, within one process' },
+  { id: 'uix', query: '?adapter=uix', why: 'the GATED pair — fresco against direct UIx-on-subs, within one process' },
   { id: 'reagent', query: '?adapter=reagent', why: 'plus stock Reagent-on-subs, co-instrumented (NOT a second gate)' },
 ];
 const ONLY = (process.env.C56CLOCK_ONLY || '').trim();
@@ -252,11 +252,11 @@ const CTL = 'ctl-2x';
 // The gated pair — numerator over denominator, both in the SAME run. The
 // direct-UIx anchor is the amendment's; the Reagent pairs are
 // co-instrumented and reported beside the gate, never as a second gate.
-const GATED = [['hicasso', 'uix']];
+const GATED = [['fresco', 'uix']];
 const BESIDE = {
   uix: [],
   reagent: [
-    ['hicasso', 'reagent'],
+    ['fresco', 'reagent'],
     ['uix', 'reagent'],
   ],
 };
@@ -273,9 +273,9 @@ const STAMP = {
   'large-template': {
     cards: '69 article cards',
     elements: 1202,
-    boundaries: { hicasso: 1, uix: 1, reagent: 1 },
+    boundaries: { fresco: 1, uix: 1, reagent: 1 },
     reads: {
-      hicasso: '141 per-instance (collector, inside a for inside a helper)',
+      fresco: '141 per-instance (collector, inside a for inside a helper)',
       reagent: '141 per-instance (reactions deref in the same positions)',
       uix: '5 coarse (order/articles/tags/flag/pending at fixed hook sites — no one-boundary hook surface can spell 141 per-instance reads)',
     },
@@ -283,9 +283,9 @@ const STAMP = {
   feed: {
     cards: '300 article cards',
     elements: 5129,
-    boundaries: { hicasso: 301, uix: 301, reagent: 301 },
+    boundaries: { fresco: 301, uix: 301, reagent: 301 },
     reads: {
-      hicasso: '603 per-instance (3 page + 2 per card)',
+      fresco: '603 per-instance (3 page + 2 per card)',
       reagent: '603 per-instance',
       uix: '603 per-instance (the census read pair, per-card component)',
     },
@@ -293,9 +293,9 @@ const STAMP = {
   ordinary: {
     cards: '5 comment cards (a DIFFERENT screen — not the article list at a third size)',
     elements: 51,
-    boundaries: { hicasso: 7, uix: 7, reagent: 7 },
+    boundaries: { fresco: 7, uix: 7, reagent: 7 },
     reads: {
-      hicasso: '15 (delete-status read inside (when mine? …))',
+      fresco: '15 (delete-status read inside (when mine? …))',
       reagent: '15 (same conditional deref)',
       uix: '18 (a hook cannot sit in a branch; delete-status read on every card)',
     },
@@ -346,7 +346,7 @@ const robustScale = (xs) => (quantile(xs, 0.75) - quantile(xs, 0.25)) / 1.349;
 /**
  * The run-rejection rule: EVERY block inside the tolerance band.
  *
- * rf2-8a746 RETIRED this rule on the hicasso clock, and rf2-y0pkh asked
+ * rf2-8a746 RETIRED this rule on the fresco clock, and rf2-y0pkh asked
  * whether it should be retired here too. It should not, and the reason is a
  * measurement rather than a shape. `1 - p^n` on a per-block in-band rate `p`
  * is a property of the RULE and not of the clock, so what decides the answer
@@ -647,18 +647,18 @@ function revision() {
 // a sibling branch is editing the shapes tree, and a row nobody can tie
 // to the exact page it mounted is rf2-cvvb7's recorded fault.
 const BLOB_FILES = [
-  'implementation/hicasso/test/re_frame/bench/hicasso/shapes/census_clock_arms.cljs',
-  'implementation/hicasso/test/re_frame/bench/hicasso/shapes/census_clock_app.cljs',
-  'implementation/hicasso/test/re_frame/bench/hicasso/shapes/census_clock_run.cjs',
-  'implementation/hicasso/test/re_frame/bench/hicasso/shapes/model.cljs',
-  'implementation/hicasso/test/re_frame/bench/hicasso/shapes/card.cljs',
-  'implementation/hicasso/test/re_frame/bench/hicasso/shapes/large_template.cljs',
-  'implementation/hicasso/test/re_frame/bench/hicasso/shapes/feed.cljs',
-  'implementation/hicasso/test/re_frame/bench/hicasso/shapes/ordinary.cljs',
-  'implementation/hicasso/test/re_frame/bench/hicasso/arm1/runtime.cljs',
-  'implementation/hicasso/test/re_frame/bench/hicasso/arm1/lang.clj',
-  'implementation/hicasso/test/re_frame/bench/hicasso/front/codec.cljs',
-  'implementation/hicasso/test/re_frame/bench/hicasso/lane.cljs',
+  'implementation/fresco/test/re_frame/bench/fresco/shapes/census_clock_arms.cljs',
+  'implementation/fresco/test/re_frame/bench/fresco/shapes/census_clock_app.cljs',
+  'implementation/fresco/test/re_frame/bench/fresco/shapes/census_clock_run.cjs',
+  'implementation/fresco/test/re_frame/bench/fresco/shapes/model.cljs',
+  'implementation/fresco/test/re_frame/bench/fresco/shapes/card.cljs',
+  'implementation/fresco/test/re_frame/bench/fresco/shapes/large_template.cljs',
+  'implementation/fresco/test/re_frame/bench/fresco/shapes/feed.cljs',
+  'implementation/fresco/test/re_frame/bench/fresco/shapes/ordinary.cljs',
+  'implementation/fresco/test/re_frame/bench/fresco/arm1/runtime.cljs',
+  'implementation/fresco/test/re_frame/bench/fresco/arm1/lang.clj',
+  'implementation/fresco/test/re_frame/bench/fresco/front/codec.cljs',
+  'implementation/fresco/test/re_frame/bench/fresco/lane.cljs',
   'implementation/core/src/re_frame/substrate/spine.cljs',
 ];
 
@@ -1138,7 +1138,7 @@ function report(out) {
     `;; grain    smallest non-zero per-sample TaskDuration delta ${granularity.length ? granularity[0].toFixed(6) : 'n/a'} ms`
   );
   console.log(`;; stamp    ${stamp.cards}; ${stamp.elements} elements; the census's own screen, mounted at the roster's seed`);
-  for (const arm of ['hicasso', 'uix', 'reagent']) {
+  for (const arm of ['fresco', 'uix', 'reagent']) {
     if (!armIds.includes(arm)) continue;
     console.log(`;; stamp    ${arm.padEnd(8)} B=${stamp.boundaries[arm]} · reads: ${stamp.reads[arm]}`);
   }
@@ -1240,7 +1240,7 @@ function report(out) {
   for (const [n, d] of pairs) {
     const key = `${n} / ${d}`;
     const bd = barBands[key];
-    const gated = n === 'hicasso' && d === 'uix';
+    const gated = n === 'fresco' && d === 'uix';
     const netPer = perBlock(blocksNet, (r, b) => taredCell(blocksNet, r, b, n) / taredCell(blocksNet, r, b, d));
     const inPer = perBlock(blocksInPage, (r, b) => p50(blocksInPage[r][b][n]) / p50(blocksInPage[r][b][d])).filter(Number.isFinite);
     console.log(
@@ -1676,7 +1676,7 @@ async function drive() {
   console.log(';;   bead        rf2-2rtt6.56 (census-page clock rows; EP-0038)');
   console.log(`;;   commit      ${sha}`);
   for (const [f, h] of Object.entries(bl)) console.log(`;;   blob        ${h}  ${f}`);
-  console.log(`;;   reproduce   node implementation/hicasso/test/re_frame/bench/hicasso/shapes/census_clock_run.cjs`);
+  console.log(`;;   reproduce   node implementation/fresco/test/re_frame/bench/fresco/shapes/census_clock_run.cjs`);
   console.log(`;;   build       shadow-cljs release ${BUILD_ID} (:advanced, goog.DEBUG false)`);
   console.log(`;;   node        ${process.version}`);
   console.log(
@@ -1697,11 +1697,11 @@ async function drive() {
   console.log(';;   P1  ctl-2x reads BELOW its arithmetic prediction on every row (rf2-jcm3p\'s');
   console.log(';;       recorded mount undershoot), inside the strict +/-25% band unless block');
   console.log(';;       scatter is wide.');
-  console.log(';;   P2  DIRECTION ONLY: hicasso / uix on the FEED row sits wholly ABOVE 1.10 —');
+  console.log(';;   P2  DIRECTION ONLY: fresco / uix on the FEED row sits wholly ABOVE 1.10 —');
   console.log(';;       the census card is ~17 elements per boundary against M1\'s 3, so the');
   console.log(';;       interpreter term the candidate\'s recorded 1.5001x deficit lives in');
   console.log(';;       GROWS on census-real cards. No magnitude predicted.');
-  console.log(';;   P3  hicasso / uix on the LARGE-TEMPLATE row is the largest of the three —');
+  console.log(';;   P3  fresco / uix on the LARGE-TEMPLATE row is the largest of the three —');
   console.log(';;       1,202 interpreted elements against a compile-time page with the shell');
   console.log(';;       held at one boundary.');
   console.log(';;   P4  the ORDINARY row (51 elements) sits near this door\'s own floor; if its');

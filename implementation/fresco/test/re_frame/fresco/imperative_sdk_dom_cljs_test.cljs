@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.imperative-sdk-dom-cljs-test
+(ns re-frame.fresco.imperative-sdk-dom-cljs-test
   "ONE IMPERATIVE SDK, OWNED THROUGH THE DECLARED HOST SEAM.
 
   `specification.md` §7's *Imperative SDKs* row promises *declared host
@@ -111,12 +111,12 @@
             [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
-            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
+            [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/client" :as react-dom-client]))
@@ -254,7 +254,7 @@
   "**The acquire/release recipe.** An ordinary React component that owns
   one foreign instance, written as raw React because that is where
   fibers, refs and effects live — HD-020's ≤2-hook budget is a
-  statement about Hicasso BOUNDARIES, and an island is not one.
+  statement about Fresco BOUNDARIES, and an island is not one.
 
   Five hooks, and the split between them IS the recipe:
 
@@ -308,7 +308,7 @@
 ;; THE CROSSINGS — one declaration each, and hiccup uses them as heads
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defhost spark
+(rf.fresco/defhost spark
   "The declared host seam. `:on-pick` carries the `:event` contract, so an
   `h/event` written there sees the vendor's own arguments in order and a
   vector it returns dispatches under the frame of the boundary that wrote
@@ -335,30 +335,30 @@
 ;; is exactly what a positive control is for. A screen showing a count
 ;; beside its chart is also the more realistic screen.
 
-(rf.hicasso/defview screen
+(rf.fresco/defview screen
   "One island, in one boundary. `:on-pick` is written FRESH on every
   render — the standing rule, and the reason the acquire effect may not
   depend on it."
   [{:keys [data]}]
   [:div
-   [:span.picks (str (rf.hicasso/sub [::picks]))]
-   [spark {:data data :on-pick (rf.hicasso/event [v] [::picked v])}]])
+   [:span.picks (str (rf.fresco/sub [::picks]))]
+   [spark {:data data :on-pick (rf.fresco/event [v] [::picked v])}]])
 
-(rf.hicasso/defview two-screen
+(rf.fresco/defview two-screen
   "Two islands under one root — the positive control that says [[!live]]
   counts instances rather than answering a constant."
   [{:keys [data]}]
   [:div
-   [:span.picks (str (rf.hicasso/sub [::picks]))]
-   [spark {:data data :on-pick (rf.hicasso/event [v] [::picked v])}]
-   [spark {:data (str data "-b") :on-pick (rf.hicasso/event [v] [::picked v])}]])
+   [:span.picks (str (rf.fresco/sub [::picks]))]
+   [spark {:data data :on-pick (rf.fresco/event [v] [::picked v])}]
+   [spark {:data (str data "-b") :on-pick (rf.fresco/event [v] [::picked v])}]])
 
-(rf.hicasso/defview toggle-screen
+(rf.fresco/defview toggle-screen
   "The island behind a `when`, with its identity under the caller's
   control. Dropping it is an ordinary unmount; changing `:key` is a keyed
   remount — two exits, one screen.
 
-  `:key` in the PROPS MAP and not as `^{:key …}` metadata: hicasso reads
+  `:key` in the PROPS MAP and not as `^{:key …}` metadata: fresco reads
   no hiccup metadata anywhere, which the codec's own unkeyed-children
   warning states in as many words (*a key written as Reagent metadata is
   not read here*). Written the Reagent way here the metadata is inert, the
@@ -366,11 +366,11 @@
   measures nothing — observed, on the first run of this file."
   [{:keys [data show? instance]}]
   [:div
-   [:span.picks (str (rf.hicasso/sub [::picks]))]
+   [:span.picks (str (rf.fresco/sub [::picks]))]
    (when show?
-     [spark {:key instance :data data :on-pick (rf.hicasso/event [v] [::picked v])}])])
+     [spark {:key instance :data data :on-pick (rf.fresco/event [v] [::picked v])}])])
 
-(rf.hicasso/defview detonator
+(rf.fresco/defview detonator
   "A SIBLING of the island that throws during render once armed. A
   sibling and not the island itself, because a component that throws on
   its FIRST render never ran an effect and so has nothing to release —
@@ -383,13 +383,13 @@
     (throw (js/Error. "planted imperative-sdk throw"))
     [:span.armed "armed"]))
 
-(rf.hicasso/defview guarded-screen
+(rf.fresco/defview guarded-screen
   [{:keys [data boom? attempt]}]
   [:div
-   [:span.picks (str (rf.hicasso/sub [::picks]))]
-   [rf.hicasso/error-boundary {:fallback [:p.fell "fell"] :reset-key attempt}
+   [:span.picks (str (rf.fresco/sub [::picks]))]
+   [rf.fresco/error-boundary {:fallback [:p.fell "fell"] :reset-key attempt}
     [:div
-     [spark {:data data :on-pick (rf.hicasso/event [v] [::picked v])}]
+     [spark {:data data :on-pick (rf.fresco/event [v] [::picked v])}]
      [detonator {:boom? boom?}]]]])
 
 ;; ---------------------------------------------------------------------------
@@ -406,9 +406,9 @@
      ;; The MAP shape, because every row here is `async`.
      :async?        true
      :init-fn       (fn []
-                      (rf.hicasso.roots-frames-support/leave-act-environment!)
+                      (rf.fresco.roots-frames-support/leave-act-environment!)
                       (force-release-all!)
-                      (rf.hicasso.impl.collector/reset-runtime!))}))
+                      (rf.fresco.impl.collector/reset-runtime!))}))
 
 (defn- seat! []
   (rf/make-frame {:id frame-id})
@@ -423,10 +423,10 @@
   condition and a synchronous flush would only be inventing a schedule
   for the one row where React deletes a subtree it is midway through."
   [hiccup]
-  (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup)))
+  (rf.fresco.impl.mount/provider frame-id (rf.fresco.impl.codec/root-element frame-id hiccup)))
 
 (defn- mount! [hiccup]
-  (let [container (rf.hicasso.impl.mount/fresh-container!)
+  (let [container (rf.fresco.impl.mount/fresh-container!)
         root      (react-dom-client/createRoot container)]
     (.render root (app-element hiccup))
     {:root root :container container :frame frame-id}))
@@ -436,7 +436,7 @@
   tree, which is where an application puts it and where this repo's other
   StrictMode witnesses put it (`kernel_commit_owns_dom_cljs_test`)."
   [hiccup]
-  (let [container (rf.hicasso.impl.mount/fresh-container!)
+  (let [container (rf.fresco.impl.mount/fresh-container!)
         root      (react-dom-client/createRoot container)]
     (.render root (react/createElement (.-StrictMode react) nil (app-element hiccup)))
     {:root root :container container :frame frame-id}))
@@ -468,7 +468,7 @@
   [value]
   (.dispatchEvent js/window
                   (js/CustomEvent. external-event #js {"detail" #js {"value" value}}))
-  (rf.hicasso.impl.mount/settle!)
+  (rf.fresco.impl.mount/settle!)
   nil)
 
 (defn- picks [] (rf/with-frame frame-id @(rf/subscribe [::picks])))
@@ -509,7 +509,7 @@
     (is false (str label " — " (.-message e)
                    " | live " (pr-str (ids))
                    " acquired " @!acquired " released " @!released))
-    (when handle (rf.hicasso.impl.mount/release! handle))
+    (when handle (rf.fresco.impl.mount/release! handle))
     nil))
 
 ;; ---------------------------------------------------------------------------
@@ -524,7 +524,7 @@
   ;; census read after the reset that empties it. Each of the three is
   ;; driven here until it reads more than nothing.
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (do
         (seat!)
@@ -565,9 +565,9 @@
                             it reads zeros whether the teardown released anything
                             or not; this is the reading that makes the zero below
                             it mean something"
-                    (let [before (rf.hicasso.roots-frames-support/census)]
+                    (let [before (rf.fresco.roots-frames-support/census)]
                       (is (pos? (:boundaries before)))
-                      (is (= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/teardown-census! handle)))))
+                      (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/teardown-census! handle)))))
 
                   (testing "and the teardown released both instances — the
                             vendor's ledger and the runtime's agree"
@@ -596,7 +596,7 @@
   ;; care about — which is what the fresh-per-render intent callback
   ;; provides for free on every one of these renders.
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (do
         (seat!)
@@ -647,7 +647,7 @@
 
                   (testing "and teardown releases exactly the one thing
                             the mount acquired"
-                    (is (= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/teardown-census! handle)))
+                    (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/teardown-census! handle)))
                     (is (= 0 (count @!live)))
                     (is (= 1 @!released))
                     (is (= 0 @!double-destroys))
@@ -671,7 +671,7 @@
   ;; imperative wrapper is most tempted to do, because the node is right
   ;; there — leaves two instances and one release, and paints identically.
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (do
         (seat!)
@@ -708,7 +708,7 @@
 
                   (testing "and unmount releases exactly what the surviving
                             mount acquired"
-                    (is (= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/teardown-census! handle)))
+                    (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/teardown-census! handle)))
                     (is (= 0 (count @!live)))
                     (is (= 2 @!released))
                     (is (balanced?)))
@@ -724,7 +724,7 @@
 
 (deftest a-remount-releases-then-acquires-and-the-instance-is-a-new-one
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (do
         (seat!)
@@ -784,7 +784,7 @@
                     (fire-external! "keyed")
                     (is (= 1 (picks))))
 
-                  (is (= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/teardown-census! handle)))
+                  (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/teardown-census! handle)))
                   (is (= 0 (count @!live)))
                   (is (= 3 @!released))
                   (is (balanced?))
@@ -813,7 +813,7 @@
   ;; would be true of a mount that never happened — the exact shape of gate
   ;; that cannot go red.
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (do
         (seat!)
@@ -886,7 +886,7 @@
 
                   (testing "and the ordinary teardown still balances after all
                             of it"
-                    (is (= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/teardown-census! handle)))
+                    (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/teardown-census! handle)))
                     (is (= 0 (count @!live)))
                     (is (= 2 @!released))
                     (is (= 0 @!double-destroys))
@@ -910,7 +910,7 @@
   ;; nothing to refuse. This row is what says the recipe reaches that
   ;; stronger statement and does not merely rely on the fence.
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (do
         (seat!)
@@ -923,7 +923,7 @@
                     (fire-external! "while-up")
                     (is (= 1 (picks))))
 
-                  (is (= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/teardown-census! handle)))
+                  (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/teardown-census! handle)))
 
                   (testing "and after the teardown the same event reaches
                             nothing — no intent, and no refusal either,
@@ -962,17 +962,17 @@
   ;; No fiber needed: the ledger is a declaration, read off the runtime.
   (testing "the shell still declares exactly its two hooks"
     (is (= [:use-context/frame :use-sync-external-store/subscription-epoch]
-           rf.hicasso.test.runtime/shell-hook-ledger))
-    (is (= 2 (count rf.hicasso.test.runtime/shell-hook-ledger))))
+           rf.fresco.test.runtime/shell-hook-ledger))
+    (is (= 2 (count rf.fresco.test.runtime/shell-hook-ledger))))
   (testing "and declares no ref or state hook — HD-020(b)"
-    (is (empty? (filter #(#{:use-ref :use-state} %) rf.hicasso.test.runtime/shell-hook-ledger)))))
+    (is (empty? (filter #(#{:use-ref :use-state} %) rf.fresco.test.runtime/shell-hook-ledger)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. The roster
 ;; ---------------------------------------------------------------------------
 
 (deftest the-declared-population-was-actually-exercised
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test reaches none of the mechanisms")
     (testing "every mechanism this file claims to drive was driven"
       (is (= declared-population (set/intersection declared-population @!exercised))

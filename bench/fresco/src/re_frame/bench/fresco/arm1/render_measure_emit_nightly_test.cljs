@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.arm1.render-measure-emit-nightly-test
+(ns re-frame.bench.fresco.arm1.render-measure-emit-nightly-test
   "SPEC 009's `:render` BUCKET — THE ON HALF (rf2-2rtt6.125).
 
   The measures actually landing. Every claim below is about entries a
@@ -49,14 +49,14 @@
   that, at the level a headless runner can state it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
             [re-frame.core :as rf]
             [re-frame.performance :as rf.performance :include-macros true]
             [re-frame.test-support :as rf.test-support]
             ["react-dom/server" :as react-dom-server])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 (def ^:private frame-id ::render-measure-on)
 
@@ -72,7 +72,7 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!) (rf.bench.hicasso.arm1.runtime/reset-body-runs!))}))
+     :init-fn       (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!) (rf.bench.fresco.arm1.runtime/reset-body-runs!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The page
@@ -80,7 +80,7 @@
 
 (defview title-row
   [_]
-  [:h1.title (rf.bench.hicasso.arm1.runtime/sub [:rm-on/title])])
+  [:h1.title (rf.bench.fresco.arm1.runtime/sub [:rm-on/title])])
 
 (defview note-row
   [_]
@@ -146,14 +146,14 @@
 
 (defn- server-html [hiccup]
   (react-dom-server/renderToString
-    (rf.bench.hicasso.arm1.mount/provider frame-id (rf.bench.hicasso.front.codec/root-element frame-id hiccup))))
+    (rf.bench.fresco.arm1.mount/provider frame-id (rf.bench.fresco.front.codec/root-element frame-id hiccup))))
 
 (def ^:private page-name
-  "re-frame.bench.hicasso.arm1.render-measure-emit-nightly-test/measured-page")
+  "re-frame.bench.fresco.arm1.render-measure-emit-nightly-test/measured-page")
 (def ^:private title-name
-  "re-frame.bench.hicasso.arm1.render-measure-emit-nightly-test/title-row")
+  "re-frame.bench.fresco.arm1.render-measure-emit-nightly-test/title-row")
 (def ^:private note-name
-  "re-frame.bench.hicasso.arm1.render-measure-emit-nightly-test/note-row")
+  "re-frame.bench.fresco.arm1.render-measure-emit-nightly-test/note-row")
 
 ;; ---------------------------------------------------------------------------
 ;; 0 — the runner is the runner this file claims to need
@@ -185,11 +185,11 @@
             pinned naming rule (the head's displayName)."
     (fresh!)
     (clear-measures!)
-    (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
+    (rf.bench.fresco.arm1.runtime/reset-body-runs!)
     (let [html  (server-html [measured-page {}])
           names (render-measure-names)]
       (is (re-find #"quarterly" html) "the page really rendered")
-      (is (= 3 (rf.bench.hicasso.arm1.runtime/body-runs)) "three boundary bodies ran")
+      (is (= 3 (rf.bench.fresco.arm1.runtime/body-runs)) "three boundary bodies ran")
       (is (= #{page-name title-name note-name}
              (set (map #(subs % (count render-prefix)) names)))
           "one entry per rendered head, each named by its displayName")
@@ -223,10 +223,10 @@
             which is bumped somewhere else entirely, agrees."
     (fresh!)
     (clear-measures!)
-    (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
+    (rf.bench.fresco.arm1.runtime/reset-body-runs!)
     (dotimes [_ 3]
       (server-html [measured-page {}]))
-    (is (= 9 (rf.bench.hicasso.arm1.runtime/body-runs)))
+    (is (= 9 (rf.bench.fresco.arm1.runtime/body-runs)))
     (is (= 9 (count (render-measure-names)))
         "one measure per body run — the fence never retried, so the two
          counters are the same number arrived at two ways")
@@ -288,13 +288,13 @@
             its own row rather than an assumption."
     (fresh!)
     (clear-measures!)
-    (rf.bench.hicasso.arm1.runtime/reset-body-runs!)
-    (let [row  (rf.bench.hicasso.arm1.runtime/mint-frame-prop-view!
+    (rf.bench.fresco.arm1.runtime/reset-body-runs!)
+    (let [row  (rf.bench.fresco.arm1.runtime/mint-frame-prop-view!
                  "frame-prop/measured-row"
-                 (fn [_] [:li.fp (str (rf.bench.hicasso.arm1.runtime/sub [:rm-on/title]))]))
+                 (fn [_] [:li.fp (str (rf.bench.fresco.arm1.runtime/sub [:rm-on/title]))]))
           html (server-html [row {}])]
       (is (re-find #"quarterly" html) "the frame-fed boundary rendered")
-      (is (= 1 (rf.bench.hicasso.arm1.runtime/body-runs)))
+      (is (= 1 (rf.bench.fresco.arm1.runtime/body-runs)))
       (is (= [(str render-prefix "frame-prop/measured-row")]
              (render-measure-names))
           "and it emitted exactly one entry, named the same way"))))

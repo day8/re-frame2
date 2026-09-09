@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.arm1.cold-read-cljs-test
+(ns re-frame.bench.fresco.arm1.cold-read-cljs-test
   "THE COLD PROBE'S OWN CONTRACT (rf2-6c237).
 
   rf2-6c237 rebuilt `read-key!`'s cold branch on the cold-probe
@@ -28,7 +28,7 @@
   both stay green over it)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
@@ -40,7 +40,7 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!))}))
 
 (defn- make-frame! [id db]
   (rf.live-frame/make-frame {:id id})
@@ -80,9 +80,9 @@
           a (volatile! nil)
           b (volatile! nil)]
       (reg-counted! :coldread/once)
-      (rf.bench.hicasso.arm1.runtime/render-body f (fn [_]
-                          (vreset! a (rf.bench.hicasso.arm1.runtime/sub [:coldread/once]))
-                          (vreset! b (rf.bench.hicasso.arm1.runtime/sub [:coldread/once]))
+      (rf.bench.fresco.arm1.runtime/render-body f (fn [_]
+                          (vreset! a (rf.bench.fresco.arm1.runtime/sub [:coldread/once]))
+                          (vreset! b (rf.bench.fresco.arm1.runtime/sub [:coldread/once]))
                           [:li])
                       {})
       (is (= 7 @a))
@@ -97,12 +97,12 @@
            THEN, never a stale snapshot"
     (let [f    (make-frame! ::fresh {:v 1})
           seen (volatile! nil)
-          body (fn [_] (vreset! seen (rf.bench.hicasso.arm1.runtime/sub [:coldread/fresh])) [:li])]
+          body (fn [_] (vreset! seen (rf.bench.fresco.arm1.runtime/sub [:coldread/fresh])) [:li])]
       (reg-counted! :coldread/fresh)
-      (rf.bench.hicasso.arm1.runtime/render-body f body {})
+      (rf.bench.fresco.arm1.runtime/render-body f body {})
       (is (= 1 @seen))
       (rf.frame/replace-app-db! f {:v 2})
-      (rf.bench.hicasso.arm1.runtime/render-body f body {})
+      (rf.bench.fresco.arm1.runtime/render-body f body {})
       (is (= 2 @seen)
           "the second render minted a fresh snapshot and a fresh memo —
            a probe box surviving the run would answer 1 here")
@@ -114,9 +114,9 @@
            needs no cleanup because nothing happened"
     (let [f (make-frame! ::clean {:v 3})]
       (reg-counted! :coldread/clean)
-      (let [before (rf.bench.hicasso.arm1.runtime/stats)]
-        (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (rf.bench.hicasso.arm1.runtime/sub [:coldread/clean]) [:li]) {})
-        (let [after (rf.bench.hicasso.arm1.runtime/stats)]
+      (let [before (rf.bench.fresco.arm1.runtime/stats)]
+        (rf.bench.fresco.arm1.runtime/render-body f (fn [_] (rf.bench.fresco.arm1.runtime/sub [:coldread/clean]) [:li]) {})
+        (let [after (rf.bench.fresco.arm1.runtime/stats)]
           (is (= (:cells before) (:cells after)) "no cell built")
           (is (= (:cell-refs before) (:cell-refs after)) "no reference taken")
           (is (= (:boundaries before) (:boundaries after)) "no boundary registered")
@@ -144,7 +144,7 @@
             entry-before (get @cache [:coldread/reuse])
             seen (volatile! nil)]
         (is (= 1 runs-after-hold))
-        (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (vreset! seen (rf.bench.hicasso.arm1.runtime/sub [:coldread/reuse])) [:li]) {})
+        (rf.bench.fresco.arm1.runtime/render-body f (fn [_] (vreset! seen (rf.bench.fresco.arm1.runtime/sub [:coldread/reuse])) [:li]) {})
         (is (= 11 @seen) "the cold read answered the held reaction's value")
         (is (= 1 @!runs)
             "by deref alone: the probe's first rung reused the live
@@ -171,9 +171,9 @@
           records
           (capture-errors
             (fn []
-              (rf.bench.hicasso.arm1.runtime/render-body f (fn [_]
-                                  (vreset! seen (rf.bench.hicasso.arm1.runtime/sub [:coldread/nope]))
-                                  (rf.bench.hicasso.arm1.runtime/sub [:coldread/nope])
+              (rf.bench.fresco.arm1.runtime/render-body f (fn [_]
+                                  (vreset! seen (rf.bench.fresco.arm1.runtime/sub [:coldread/nope]))
+                                  (rf.bench.fresco.arm1.runtime/sub [:coldread/nope])
                                   [:li])
                               {})))]
       (is (nil? @seen) "recovered to nil, the contract unchanged")
@@ -192,7 +192,7 @@
           seen (volatile! :unread)]
       ;; Registered AFTER the frame exists, read in the SAME tick.
       (reg-counted! :coldread/sametick)
-      (rf.bench.hicasso.arm1.runtime/render-body f (fn [_] (vreset! seen (rf.bench.hicasso.arm1.runtime/sub [:coldread/sametick])) [:li]) {})
+      (rf.bench.fresco.arm1.runtime/render-body f (fn [_] (vreset! seen (rf.bench.fresco.arm1.runtime/sub [:coldread/sametick])) [:li]) {})
       (is (= 5 @seen)
           "the very next cold read resolved the handler registered this
            tick — a probe that skipped the resolution seam's flush could

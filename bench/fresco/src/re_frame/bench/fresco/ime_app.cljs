@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.ime-app
+(ns re-frame.bench.fresco.ime-app
   "THE IME COMPOSITION PAGE — the in-browser half of the real-CompositionEvent
   harness (rf2-o27h3). `ime_run.cjs` is the other half and the only caller.
 
@@ -28,7 +28,7 @@
 
   | `?impl=` | what mounts | pin |
   |---|---|---|
-  | `hicasso` | Arm 1's element path — `defview` cells, intent vectors, the composition-gated key-map, and `front.controlled/install!`'s converge wrapped around the change handler by the codec | `false` (recorded; the codec never consults it — `arm1_controlled_grid_dom_cljs_test` proves that) |
+  | `fresco` | Arm 1's element path — `defview` cells, intent vectors, the composition-gated key-map, and `front.controlled/install!`'s converge wrapped around the change handler by the codec | `false` (recorded; the codec never consults it — `arm1_controlled_grid_dom_cljs_test` proves that) |
   | `react` | UIx adapter `defui` cells on plain React controlled inputs | `false` — plain React |
   | `uix-port` | the same `defui` cells on UIx's port of Reagent's controlled-input workaround | `true` — the port |
 
@@ -36,7 +36,7 @@
   takes what is typed, `digits` refuses non-digits (the model does not
   move), `upper` normalises to upper case — plus the commit door the IME
   fence exists for: Enter copies a cell's live value into `:committed`,
-  gated by `front.intent/composing?` (on the hicasso row via the key-map,
+  gated by `front.intent/composing?` (on the fresco row via the key-map,
   which is composition-gated centrally; on the other two via the same
   predicate called from an ordinary `:on-key-down`, so one gate is driven
   through both event plumbings).
@@ -63,9 +63,9 @@
   division every bench page in this directory keeps."
   (:require [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :refer [sub]]
+            [re-frame.bench.fresco.front.intent :as rf.bench.fresco.front.intent]
             [re-frame.core :as rf]
             [uix.core :refer [$ defui]]
             [uix.compiler.input]
@@ -77,7 +77,7 @@
             [reagent.impl.batching]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview event]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview event]]))
 
 (def frame-id ::ime)
 
@@ -171,7 +171,7 @@
   nil)
 
 ;; ---------------------------------------------------------------------------
-;; The hicasso page — Arm 1's element path, converge and key-map included
+;; The fresco page — Arm 1's element path, converge and key-map included
 ;; ---------------------------------------------------------------------------
 
 (defview ime-cell
@@ -186,7 +186,7 @@
   [:input {:id          field
            :type        "text"
            :value       (sub [:ime/cell field])
-           :on-input    [:ime/edit field :re-frame.hicasso/value]
+           :on-input    [:ime/edit field :re-frame.fresco/value]
            :on-key-down {"Enter" [:ime/commit field]}
            :on-composition-start  (event [e] (probe-handler-event! field "compositionstart" e) nil)
            :on-composition-update (event [e] (probe-handler-event! field "compositionupdate" e) nil)
@@ -206,7 +206,7 @@
   "The same three surfaces on the UIx adapter: a controlled `:value`, an
   `:on-change` edit (the port's `input-render-setup` requires `onChange`
   to engage at all), and an Enter commit gated by the SAME
-  `front.intent/composing?` the hicasso key-map is gated by — so one gate
+  `front.intent/composing?` the fresco key-map is gated by — so one gate
   is witnessed through both event plumbings, reading the native event."
   [{:keys [field]}]
   (let [v (rf.adapter.uix/use-sub [:ime/cell field])
@@ -221,7 +221,7 @@
         :on-key-down (fn [^js e]
                        (probe-handler-event! field "keydown" e)
                        (when (and (= "Enter" (.-key e))
-                                  (not (rf.bench.hicasso.front.intent/composing? e)))
+                                  (not (rf.bench.fresco.front.intent/composing? e)))
                          (dispatch-sync [:ime/commit field])))
         :on-composition-start  (fn [^js e] (probe-handler-event! field "compositionstart" e))
         :on-composition-update (fn [^js e] (probe-handler-event! field "compositionupdate" e))
@@ -243,7 +243,7 @@
     c))
 
 (defn- pin!
-  "Pin the UIx input implementation for this page's lifetime. `hicasso`
+  "Pin the UIx input implementation for this page's lifetime. `fresco`
   records `false` too — the codec never consults the selector, which the
   grid suite proves; recording the pin keeps this page unable to measure
   an implementation it cannot name."
@@ -253,7 +253,7 @@
 
 (defn- mount-impl! [impl]
   (case impl
-    "hicasso" (rf.bench.hicasso.arm1.mount/root! (container!) frame-id [ime-grid {}])
+    "fresco" (rf.bench.fresco.arm1.mount/root! (container!) frame-id [ime-grid {}])
     (let [c    (container!)
           root (react-dom-client/createRoot c)]
       (react-dom/flushSync

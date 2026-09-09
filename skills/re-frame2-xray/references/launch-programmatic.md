@@ -153,7 +153,7 @@ The command keys, per
 Valid `:panel` ids are the ten live Dynamic L4 tabs, re-exported as
 `xray/valid-focus-panels`: `:epoch` `:app-db` `:views` `:trace`
 `:machines` `:routing` `:resources` `:derivation-graph` `:module-view`
-`:hicasso`. These are internal **ids**, not the visible labels — the tab
+`:fresco`. These are internal **ids**, not the visible labels — the tab
 that renders as "Routes" is `:routing`, "Graph" is `:derivation-graph`,
 "Frames" is `:module-view`. Because a host naturally reaches for the
 visible noun, `:routes` is accepted as an alias and normalises to

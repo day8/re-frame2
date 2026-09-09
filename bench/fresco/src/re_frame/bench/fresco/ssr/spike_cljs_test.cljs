@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.ssr.spike-cljs-test
+(ns re-frame.bench.fresco.ssr.spike-cljs-test
   "THE SSR SPIKE WITNESS — X1(a): DETERMINISM (rf2-2rtt6.87).
 
   Evidence for the P2 sitting. **No verdict is published here and none is
@@ -21,7 +21,7 @@
 
   Because `:rf/render-hash` cannot do this job here, and that is measured
   rather than suspected. Spec 011's hydration-mismatch instrument hashes
-  the RENDER TREE, and Hicasso's root hiccup is one vector whose head is
+  the RENDER TREE, and Fresco's root hiccup is one vector whose head is
   a function — `canonical-edn` renders every function identically, so the
   dogfood screen and the ~1,200-element Conduit feed page **both hash
   `83b865f8`**. Leaning a determinism row on it would be leaning on a
@@ -49,14 +49,14 @@
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
+            [re-frame.bench.fresco.front.dogfood :as rf.bench.fresco.front.dogfood]
             ;; rf2-2rtt6.121 — for `utf8-bytes` alone. The lane is already on
             ;; the `:node-test` classpath (its `*_dom_cljs_test` siblings
             ;; require it and `cljs-test$` matches them too), so this adds no
             ;; dependency the build did not already carry.
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.ssr.entry :as rf.bench.hicasso.ssr.entry]
-            [re-frame.bench.hicasso.ssr.fixtures :as rf.bench.hicasso.ssr.fixtures]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.ssr.entry :as rf.bench.fresco.ssr.entry]
+            [re-frame.bench.fresco.ssr.fixtures :as rf.bench.fresco.ssr.fixtures]
             ;; rf2-2rtt6.91 — the entry ships no render hash, so the control
             ;; row takes the hash it is a control AGAINST directly.
             [re-frame.ssr.hash :as rf.ssr.hash]
@@ -66,7 +66,7 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter
      :async?  true
-     :init-fn (fn [] (rf.bench.hicasso.ssr.fixtures/register!))}))
+     :init-fn (fn [] (rf.bench.fresco.ssr.fixtures/register!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; SHA-256
@@ -76,8 +76,8 @@
   "A promise of `s`'s SHA-256, lower-case hex.
 
   `crypto.subtle` rather than `node:crypto`: every namespace in this lane
-  is also compiled by `npm run test:hicasso-compile`, which rides
-  `:hicasso-bench` — a BROWSER build — so a `node:` require here would
+  is also compiled by `npm run test:fresco-compile`, which rides
+  `:fresco-bench` — a BROWSER build — so a `node:` require here would
   fail that gate (`ssr/node.cljs` states the same rule). The Web Crypto
   API is present in both runtimes and needs no module."
   [s]
@@ -89,7 +89,7 @@
                     (str/join))))))
 
 (defn- report! [label m]
-  (println (str ";; HICASSO SSR SPIKE " label " " (pr-str m)))
+  (println (str ";; FRESCO SSR SPIKE " label " " (pr-str m)))
   m)
 
 ;; ---------------------------------------------------------------------------
@@ -100,8 +100,8 @@
 
 (deftest x1a-the-seeded-dogfood-snapshot-renders-byte-identical-documents
   (async done
-    (let [row (rf.bench.hicasso.ssr.fixtures/row dogfood-row-id)
-          {:keys [identical? differs-at] a :first b :second} (rf.bench.hicasso.ssr.entry/render-twice row)]
+    (let [row (rf.bench.fresco.ssr.fixtures/row dogfood-row-id)
+          {:keys [identical? differs-at] a :first b :second} (rf.bench.fresco.ssr.entry/render-twice row)]
       (is (some? row) "the corpus still carries the row this witness renders")
       (is identical?
            (str "the same bundle and the same snapshot rendered two DIFFERENT "
@@ -121,7 +121,7 @@
               (report! "X1a"
                        {:row          dogfood-row-id
                         :sha256       ha
-                        ;; `rf.bench.hicasso.lane/utf8-bytes` and not `count` (rf2-2rtt6.121).
+                        ;; `rf.bench.fresco.lane/utf8-bytes` and not `count` (rf2-2rtt6.121).
                         ;; THIS FIGURE MOVES, and it is the one published
                         ;; figure in this repair that does: measured
                         ;; 2026-08-06, the same document is 3,042 code units
@@ -135,11 +135,11 @@
                         ;; error. The DOCUMENT itself has since shrunk (that
                         ;; bead saw 3,101/3,119), which is corpus drift and
                         ;; nothing to do with the ruler.
-                        :bytes        (rf.bench.hicasso.lane/utf8-bytes (:document a))
+                        :bytes        (rf.bench.fresco.lane/utf8-bytes (:document a))
                         ;; rf2-2rtt6.91 — the published column, taken where
                         ;; the fact lives now that the entry emits none.
                         :render-hash  (str (rf.ssr.hash/render-tree-hash
-                                             (:hiccup (rf.bench.hicasso.ssr.fixtures/row dogfood-row-id))))})))
+                                             (:hiccup (rf.bench.fresco.ssr.fixtures/row dogfood-row-id))))})))
           ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs the
           ;; whole remainder of the run synchronously, so a `.catch` downstream
           ;; of it would claim a later namespace's throw as this row's and fire
@@ -155,9 +155,9 @@
            row above is measuring the renderer's silence rather than its
            determinism"
     (async done
-      (let [row (rf.bench.hicasso.ssr.fixtures/row dogfood-row-id)
-            eight (:document (rf.bench.hicasso.ssr.entry/render row))
-            nine  (:document (rf.bench.hicasso.ssr.entry/render (assoc row :snapshot (rf.bench.hicasso.front.dogfood/seed-db 9))))]
+      (let [row (rf.bench.fresco.ssr.fixtures/row dogfood-row-id)
+            eight (:document (rf.bench.fresco.ssr.entry/render row))
+            nine  (:document (rf.bench.fresco.ssr.entry/render (assoc row :snapshot (rf.bench.fresco.front.dogfood/seed-db 9))))]
         (is (not= eight nine))
         (-> (js/Promise.all #js [(sha256-hex eight) (sha256-hex nine)])
             (.then (fn [[h8 h9]]
@@ -183,10 +183,10 @@
            have shipped is a constant, so its absence costs this row
            nothing"
     (async done
-      (let [dog       (rf.bench.hicasso.ssr.entry/render (rf.bench.hicasso.ssr.fixtures/row dogfood-row-id))
-            conduit   (rf.bench.hicasso.ssr.entry/render (rf.bench.hicasso.ssr.fixtures/row "conduit-feed"))
-            dog-h     (rf.ssr.hash/render-tree-hash (:hiccup (rf.bench.hicasso.ssr.fixtures/row dogfood-row-id)))
-            conduit-h (rf.ssr.hash/render-tree-hash (:hiccup (rf.bench.hicasso.ssr.fixtures/row "conduit-feed")))]
+      (let [dog       (rf.bench.fresco.ssr.entry/render (rf.bench.fresco.ssr.fixtures/row dogfood-row-id))
+            conduit   (rf.bench.fresco.ssr.entry/render (rf.bench.fresco.ssr.fixtures/row "conduit-feed"))
+            dog-h     (rf.ssr.hash/render-tree-hash (:hiccup (rf.bench.fresco.ssr.fixtures/row dogfood-row-id)))
+            conduit-h (rf.ssr.hash/render-tree-hash (:hiccup (rf.bench.fresco.ssr.fixtures/row "conduit-feed")))]
         (is (not (contains? (:payload dog) :rf/render-hash))
             "no hash on the wire for an adoption-tier root")
         (is (= dog-h conduit-h)

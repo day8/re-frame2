@@ -2,12 +2,12 @@
 'use strict';
 
 /*
- * THE HICASSO HMR GATE — the contract witnessed through a REAL shadow
+ * THE FRESCO HMR GATE — the contract witnessed through a REAL shadow
  * reload, in three engines (rf2-vsgq, closing the browser half of
  * rf2-hic-015).
  *
- *   node implementation/scripts/serve-and-run-hicasso-hmr-testbed.cjs
- *   npm run test:hicasso-hmr                 (from implementation/)
+ *   node implementation/scripts/serve-and-run-fresco-hmr-testbed.cjs
+ *   npm run test:fresco-hmr                 (from implementation/)
  *
  * ## Why this one runs `watch` when every other browser gate runs `compile`
  *
@@ -19,7 +19,7 @@
  * renderer that fails to run old-generation cleanup on a type replacement.
  * A compiled bundle cannot close either gap — only shadow's own watcher,
  * websocket and module re-evaluation can — so this gate starts
- * `shadow-cljs watch :hicasso/hmr-testbed`, rewrites one marked line in a
+ * `shadow-cljs watch :fresco/hmr-testbed`, rewrites one marked line in a
  * real source file, and lets the real pipeline deliver the consequences.
  *
  * The page is served by shadow's own `:dev-http` (port 8061) rather than
@@ -101,11 +101,11 @@
  * measured row carries.
  *
  * A divergence needs two engines to be visible at all, so a run narrowed by
- * `HICASSO_HMR_ENGINES` to one engine has no comparison available to it.
+ * `FRESCO_HMR_ENGINES` to one engine has no comparison available to it.
  * That narrowing stays — it is a real developer convenience and a narrowed
  * run still exits 0 — but it does NOT get to close with the words a full
- * run closes with. The two verdicts are separate strings, `HICASSO HMR
- * PASS` and `HICASSO HMR PARTIAL PASS`, neither a substring of the other,
+ * run closes with. The two verdicts are separate strings, `FRESCO HMR
+ * PASS` and `FRESCO HMR PARTIAL PASS`, neither a substring of the other,
  * so no skim of a log and no grep for the full-matrix verdict can mistake
  * one for the other (rf2-l92i).
  *
@@ -118,8 +118,8 @@
  * while WebKit never started.
  *
  * The three timeout ceilings are knobs of the same kind (rf2-qzm8).
- * `HICASSO_HMR_BUILD_TIMEOUT_MS`, `HICASSO_HMR_SAVE_TIMEOUT_MS` and
- * `HICASSO_HMR_SPEC_TIMEOUT_MS` stay tunable — a slow box is real — but no
+ * `FRESCO_HMR_BUILD_TIMEOUT_MS`, `FRESCO_HMR_SAVE_TIMEOUT_MS` and
+ * `FRESCO_HMR_SPEC_TIMEOUT_MS` stay tunable — a slow box is real — but no
  * override passes in silence: every non-default value is announced up
  * front, and a RAISED ceiling closes with the partial token too, because a
  * pass that may have needed a wider window than the contract's did not
@@ -160,7 +160,7 @@
  *
  * - **A real IME.** `Input.imeSetComposition` is a CDP method, so a real
  *   composition RANGE is Chromium-only and stays with
- *   `bench/hicasso/src/re_frame/bench/hicasso/ime_run.cjs`. The composition
+ *   `bench/fresco/src/re_frame/bench/fresco/ime_run.cjs`. The composition
  *   row drives the event SEQUENCE, which reaches the carve-out and the
  *   shadow but not the browser's own composition range.
  * - **Selection as a RANGE across a save.** A remount destroys the node,
@@ -185,17 +185,17 @@ const {
 } = require('./lib/local-browser-harness.cjs');
 
 const IMPL_ROOT = path.resolve(__dirname, '..');
-const BUILD_ID = ':hicasso/hmr-testbed';
-const PORT = Number(process.env.HICASSO_HMR_PORT) || 8061;
+const BUILD_ID = ':fresco/hmr-testbed';
+const PORT = Number(process.env.FRESCO_HMR_PORT) || 8061;
 const HOT_FILE = path.join(
-  IMPL_ROOT, 'hicasso', 'testbed', 'hicasso_hmr_testbed', 'views.cljs');
-const SPEC = require(path.join(IMPL_ROOT, 'hicasso', 'testbed', 'hmr_spec.cjs'));
+  IMPL_ROOT, 'fresco', 'testbed', 'fresco_hmr_testbed', 'views.cljs');
+const SPEC = require(path.join(IMPL_ROOT, 'fresco', 'testbed', 'hmr_spec.cjs'));
 // The module `:dev-http` serves at `/main.js`, named here so this run can
 // prove the server answering on PORT is the one THIS watch is feeding. It
 // restates `:output-dir` from shadow-cljs.edn, exactly as PORT above
 // restates that build's `:dev-http`; the two facts travel together and the
 // check below turns a drift in either into a loud red.
-const BUNDLE_FILE = path.join(IMPL_ROOT, 'out', 'hicasso-hmr-testbed', 'main.js');
+const BUNDLE_FILE = path.join(IMPL_ROOT, 'out', 'fresco-hmr-testbed', 'main.js');
 
 // The label the file is committed with and must be restored to.
 const CANONICAL_LABEL = 'GEN-A';
@@ -211,12 +211,12 @@ const HOT_LINE_RE = /"([A-Za-z0-9-]+)"\)(\s*);; rf2-vsgq:HOT-LINE/;
 // table a raised ceiling left no trace in the log at all, so a run that
 // passed only because someone widened a threshold read identically to one
 // that passed on merit. Now every non-default value is announced up front
-// in `main`, in the same register as the HICASSO_HMR_ENGINES narrowing
+// in `main`, in the same register as the FRESCO_HMR_ENGINES narrowing
 // banner, and a raised one costs the run its full verdict in `verdictLine`.
 const TIMEOUT_DEFAULTS = {
-  HICASSO_HMR_BUILD_TIMEOUT_MS: 300000,
-  HICASSO_HMR_SAVE_TIMEOUT_MS: 90000,
-  HICASSO_HMR_SPEC_TIMEOUT_MS: 600000,
+  FRESCO_HMR_BUILD_TIMEOUT_MS: 300000,
+  FRESCO_HMR_SAVE_TIMEOUT_MS: 90000,
+  FRESCO_HMR_SPEC_TIMEOUT_MS: 600000,
 };
 
 /** The ceilings this run uses: the environment's word, else the default. */
@@ -242,9 +242,9 @@ function timeoutOverrides(timeouts, defaults = TIMEOUT_DEFAULTS) {
 const TIMEOUTS = resolveTimeouts();
 const TIMEOUT_OVERRIDES = timeoutOverrides(TIMEOUTS);
 
-const BUILD_TIMEOUT_MS = TIMEOUTS.HICASSO_HMR_BUILD_TIMEOUT_MS;
-const SAVE_TIMEOUT_MS = TIMEOUTS.HICASSO_HMR_SAVE_TIMEOUT_MS;
-const SPEC_TIMEOUT_MS = TIMEOUTS.HICASSO_HMR_SPEC_TIMEOUT_MS;
+const BUILD_TIMEOUT_MS = TIMEOUTS.FRESCO_HMR_BUILD_TIMEOUT_MS;
+const SAVE_TIMEOUT_MS = TIMEOUTS.FRESCO_HMR_SAVE_TIMEOUT_MS;
+const SPEC_TIMEOUT_MS = TIMEOUTS.FRESCO_HMR_SPEC_TIMEOUT_MS;
 const NAV_TIMEOUT_MS = 60000;
 // The app's own mount, once shadow is already serving a compiled bundle.
 // Deliberately NOT the build ceiling: by this point the slow part is done,
@@ -260,7 +260,7 @@ const MOUNT_TIMEOUT_MS = 60000;
 const REGISTER_TIMEOUT_MS = 60000;
 // PROOF INSTRUMENT, default 0 = off. See `delayRelaySocket`.
 const REGISTER_DELAY_MS = parseInt(
-  process.env.HICASSO_HMR_REGISTER_DELAY_MS || '0', 10);
+  process.env.FRESCO_HMR_REGISTER_DELAY_MS || '0', 10);
 
 // ONE console error that is not a fault, matched as narrowly as it can be.
 //
@@ -286,7 +286,7 @@ const REGISTER_DELAY_MS = parseInt(
 const BENIGN_CONSOLE_ERROR = /watch for build .* not running/;
 
 const ALL_ENGINES = ['chromium', 'firefox', 'webkit'];
-const ONLY = (process.env.HICASSO_HMR_ENGINES || '').trim();
+const ONLY = (process.env.FRESCO_HMR_ENGINES || '').trim();
 const ENGINES = ONLY
   ? ALL_ENGINES.filter((e) => ONLY.split(',').map((s) => s.trim()).includes(e))
   : ALL_ENGINES;
@@ -315,8 +315,8 @@ const ENGINES = ONLY
 // The CI job passes no narrowing at all and a classifier regression in
 // `_changed-surfaces.test.cjs` pins that, so this pair is about the LOCAL
 // run and about any future job that might acquire the variable.
-const FULL_VERDICT = 'HICASSO HMR PASS';
-const NARROWED_VERDICT = 'HICASSO HMR PARTIAL PASS';
+const FULL_VERDICT = 'FRESCO HMR PASS';
+const NARROWED_VERDICT = 'FRESCO HMR PARTIAL PASS';
 
 // ---------------------------------------------------------------------------
 // The coverage floor — names, not a total
@@ -477,7 +477,7 @@ async function waitForRegistration(census, engine, deadline) {
 }
 
 /**
- * PROOF INSTRUMENT (`HICASSO_HMR_REGISTER_DELAY_MS`, default 0 = off).
+ * PROOF INSTRUMENT (`FRESCO_HMR_REGISTER_DELAY_MS`, default 0 = off).
  *
  * Forces the interleaving rf2-odh3 is about, by letting the app mount on
  * time while shadow's devtools socket connects `delayMs` late. Against the
@@ -601,8 +601,8 @@ function comparedAcrossEngines(engines) {
  * Two different questions were once asked through `comparedAcrossEngines`
  * alone: "did a comparison happen?" and "did the pinned matrix run?". They
  * part company at exactly two engines, and the run that fell in the gap
- * closed with the full verdict: `HICASSO_HMR_ENGINES=chromium,firefox`
- * printed `HICASSO HMR PASS (chromium + firefox)`, so a grep for the token
+ * closed with the full verdict: `FRESCO_HMR_ENGINES=chromium,firefox`
+ * printed `FRESCO HMR PASS (chromium + firefox)`, so a grep for the token
  * this file calls the full-matrix verdict was answered by a run in which
  * WebKit — the engine likeliest to diverge, and the one every NARROWINGS
  * entry is about — never started.
@@ -636,7 +636,7 @@ function ranFullMatrix(engines, all = ALL_ENGINES) {
  *
  * A LOWERED ceiling is stricter than the contract and costs nothing here —
  * the up-front banner in `main` is its only trace. So is naming the full
- * matrix explicitly in `HICASSO_HMR_ENGINES`: that is not a narrowing, and
+ * matrix explicitly in `FRESCO_HMR_ENGINES`: that is not a narrowing, and
  * a run that drove all three engines earns the full token however it was
  * asked to.
  */
@@ -646,7 +646,7 @@ function verdictLine(engines, reloads, overrides = TIMEOUT_OVERRIDES,
   const missing = all.filter((e) => !engines.includes(e));
   const causes = [];
   if (missing.length > 0) {
-    causes.push('HICASSO_HMR_ENGINES narrowed this run, so '
+    causes.push('FRESCO_HMR_ENGINES narrowed this run, so '
       + `${missing.join(' + ')} never ran`);
   }
   if (!comparedAcrossEngines(engines)) {
@@ -910,7 +910,7 @@ function runMutationTeeth() {
     const line = verdictLine(['webkit'], 12, []);
     return line.startsWith(NARROWED_VERDICT)
       && /cross-engine comparison was NOT performed/.test(line)
-      && /HICASSO_HMR_ENGINES/.test(line)
+      && /FRESCO_HMR_ENGINES/.test(line)
       && line.includes('webkit')
       && line.includes('12 real shadow reloads');
   });
@@ -931,8 +931,8 @@ function runMutationTeeth() {
     && !comparedAcrossEngines(['chromium'])
     && !comparedAcrossEngines([]));
 
-  // THE TWO-ENGINE TOOTH. `HICASSO_HMR_ENGINES=chromium,firefox` shipped
-  // `HICASSO HMR PASS (chromium + firefox)` — the comparator floor was met,
+  // THE TWO-ENGINE TOOTH. `FRESCO_HMR_ENGINES=chromium,firefox` shipped
+  // `FRESCO HMR PASS (chromium + firefox)` — the comparator floor was met,
   // so the verdict that shared its predicate declared a full matrix that
   // never ran. This is the case that must not come back.
   bite('a TWO-engine run does NOT print the full verdict, and names the engine that never ran', () => {
@@ -940,7 +940,7 @@ function runMutationTeeth() {
     return line.startsWith(NARROWED_VERDICT)
       && !line.includes(FULL_VERDICT)
       && /webkit never ran/.test(line)
-      && /HICASSO_HMR_ENGINES/.test(line)
+      && /FRESCO_HMR_ENGINES/.test(line)
       // It WAS compared, so it must not claim the comparator was skipped.
       && !/cross-engine comparison was NOT performed/.test(line)
       && line.includes('36 real shadow reloads');
@@ -1009,28 +1009,28 @@ function runMutationTeeth() {
 
   bite('setting a knob TO its default is not an override', () =>
     timeoutOverrides(resolveTimeouts(
-      { HICASSO_HMR_SAVE_TIMEOUT_MS: '90000' })).length === 0);
+      { FRESCO_HMR_SAVE_TIMEOUT_MS: '90000' })).length === 0);
 
   bite('a raised ceiling is an override in the fail-open direction', () => {
     const o = timeoutOverrides(resolveTimeouts(
-      { HICASSO_HMR_SAVE_TIMEOUT_MS: '180000' }));
+      { FRESCO_HMR_SAVE_TIMEOUT_MS: '180000' }));
     return o.length === 1
-      && o[0].name === 'HICASSO_HMR_SAVE_TIMEOUT_MS'
+      && o[0].name === 'FRESCO_HMR_SAVE_TIMEOUT_MS'
       && o[0].value === 180000 && o[0].dflt === 90000 && o[0].raised === true;
   });
 
   bite('a lowered ceiling is an override but not a raised one', () => {
     const o = timeoutOverrides(resolveTimeouts(
-      { HICASSO_HMR_BUILD_TIMEOUT_MS: '60000' }));
+      { FRESCO_HMR_BUILD_TIMEOUT_MS: '60000' }));
     return o.length === 1 && o[0].raised === false;
   });
 
   bite('a raised ceiling costs the full verdict, and the line names the knob', () => {
     const line = verdictLine(ALL_ENGINES, 36, timeoutOverrides(resolveTimeouts(
-      { HICASSO_HMR_SAVE_TIMEOUT_MS: '180000' })));
+      { FRESCO_HMR_SAVE_TIMEOUT_MS: '180000' })));
     return line.startsWith(NARROWED_VERDICT)
       && !line.includes(FULL_VERDICT)
-      && line.includes('HICASSO_HMR_SAVE_TIMEOUT_MS=180000')
+      && line.includes('FRESCO_HMR_SAVE_TIMEOUT_MS=180000')
       && line.includes('90000ms ceiling')
       && line.includes('chromium + firefox + webkit')
       && line.includes('36 real shadow reloads');
@@ -1038,14 +1038,14 @@ function runMutationTeeth() {
 
   bite('a lowered ceiling alone leaves the full verdict intact', () =>
     verdictLine(ALL_ENGINES, 36, timeoutOverrides(resolveTimeouts(
-      { HICASSO_HMR_SPEC_TIMEOUT_MS: '60000' }))).startsWith(FULL_VERDICT));
+      { FRESCO_HMR_SPEC_TIMEOUT_MS: '60000' }))).startsWith(FULL_VERDICT));
 
   bite('a narrowed run under a raised ceiling names both causes', () => {
     const line = verdictLine(['chromium'], 12, timeoutOverrides(resolveTimeouts(
-      { HICASSO_HMR_BUILD_TIMEOUT_MS: '600000' })));
+      { FRESCO_HMR_BUILD_TIMEOUT_MS: '600000' })));
     return line.startsWith(NARROWED_VERDICT)
       && /cross-engine comparison was NOT performed/.test(line)
-      && line.includes('HICASSO_HMR_BUILD_TIMEOUT_MS=600000')
+      && line.includes('FRESCO_HMR_BUILD_TIMEOUT_MS=600000')
       && line.includes('12 real shadow reloads');
   });
 
@@ -1207,7 +1207,7 @@ async function assertOwnBundle(baseUrl, watchLog) {
  * Wait until THIS watch has completed a compile and shadow is serving it.
  *
  * Both halves are load-bearing, and the second one was learned the hard
- * way. `out/hicasso-hmr-testbed/` survives between runs, so an HTTP probe
+ * way. `out/fresco-hmr-testbed/` survives between runs, so an HTTP probe
  * for `/main.js` answers 200 from the PREVIOUS run's bundle within
  * milliseconds of the server binding — the first version of this function
  * gated on that alone, and a run whose source had been fixed loaded the
@@ -1250,7 +1250,7 @@ function startWatch(cleanup) {
   // shadow prints one line per build outcome, prefixed with the build id.
   // Matching on the id keeps a sibling build in the same JVM from
   // answering for this one.
-  // Exactly as shadow prints it, colon included: `[:hicasso/hmr-testbed]`.
+  // Exactly as shadow prints it, colon included: `[:fresco/hmr-testbed]`.
   const marker = `[${BUILD_ID}]`;
   // Scans are FROM A MARK rather than over the whole stream. A watch
   // compiles many times in one run — once at startup and once per save —
@@ -1367,7 +1367,7 @@ async function driveEngine(engine, baseUrl, watchLog) {
     if (REGISTER_DELAY_MS > 0) {
       await page.addInitScript(delayRelaySocket,
         { delayMs: REGISTER_DELAY_MS, pattern: RELAY_URL_RE.source });
-      log(`[${engine}] HICASSO_HMR_REGISTER_DELAY_MS=${REGISTER_DELAY_MS} — `
+      log(`[${engine}] FRESCO_HMR_REGISTER_DELAY_MS=${REGISTER_DELAY_MS} — `
         + `the devtools socket is being held back on purpose.`);
     }
     page.on('console', (msg) => {
@@ -1504,7 +1504,7 @@ async function main() {
   cleanup.addCleanup(() => { restoreHotFile(); });
 
   if (ENGINES.length === 0) {
-    console.error(`HICASSO_HMR_ENGINES=${ONLY} selects no engine; ` +
+    console.error(`FRESCO_HMR_ENGINES=${ONLY} selects no engine; ` +
       `known: ${ALL_ENGINES.join(', ')}`);
     return 1;
   }
@@ -1515,7 +1515,7 @@ async function main() {
   // never going to compare anything.
   if (ONLY && !ranFullMatrix(ENGINES)) {
     const missing = ALL_ENGINES.filter((e) => !ENGINES.includes(e));
-    console.log(`> HICASSO_HMR_ENGINES=${ONLY} — narrowed to `
+    console.log(`> FRESCO_HMR_ENGINES=${ONLY} — narrowed to `
       + `${ENGINES.join(' + ')} of ${ALL_ENGINES.join(' + ')}, so `
       + `${missing.join(' + ')} will not run. This run closes with at most `
       + `"${NARROWED_VERDICT}".`);
@@ -1586,7 +1586,7 @@ async function main() {
     if (!comparedAcrossEngines(ENGINES)) {
       console.log(`  cross-engine comparison NOT PERFORMED — ${ENGINES.length} `
         + `engine ran, and a divergence needs two to be visible. Unset `
-        + `HICASSO_HMR_ENGINES for the full ${ALL_ENGINES.join(' + ')} matrix.`);
+        + `FRESCO_HMR_ENGINES for the full ${ALL_ENGINES.join(' + ')} matrix.`);
     } else if (!ranFullMatrix(ENGINES)) {
       // Compared, but across less than the matrix — the case that used to
       // print the full verdict. A divergence only WebKit shows is invisible
@@ -1595,7 +1595,7 @@ async function main() {
       console.log(`  compared across ${ENGINES.join(' + ')} ONLY — `
         + `${missing.join(' + ')} did not run, so a divergence only `
         + `${missing.join(' or ')} shows is invisible here. Unset `
-        + `HICASSO_HMR_ENGINES for the full ${ALL_ENGINES.join(' + ')} matrix.`);
+        + `FRESCO_HMR_ENGINES for the full ${ALL_ENGINES.join(' + ')} matrix.`);
     }
     const problems = divergenceReport(recorded);
     if (problems.length > 0) {

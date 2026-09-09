@@ -13,7 +13,7 @@
   :head "Btn",
   :detail {:props [":on-pick"]},
   :note
-  "These prop values are computed, so the tool cannot see what crosses. Three things a computed value may silently be, each of which diverges: a KEYWORD or symbol (Reagent named it, Hicasso keeps it whole), a NESTED MAP (Reagent camelCased its keys, Hicasso does not), or a non-fn `IFn` such as an `r/partial` reached through a symbol (Reagent wrapped it, Hicasso passes it opaque and the handler stops firing). Check each by hand."}
+  "These prop values are computed, so the tool cannot see what crosses. Three things a computed value may silently be, each of which diverges: a KEYWORD or symbol (Reagent named it, Fresco keeps it whole), a NESTED MAP (Reagent camelCased its keys, Fresco does not), or a non-fn `IFn` such as an `r/partial` reached through a symbol (Reagent wrapped it, Fresco passes it opaque and the handler stops firing). Check each by hand."}
  {:line 29,
   :col 3,
   :class :cljc-site,
@@ -29,4 +29,4 @@
   :head "Btn",
   :detail {:props [":label"]},
   :note
-  "These prop values are computed, so the tool cannot see what crosses. Three things a computed value may silently be, each of which diverges: a KEYWORD or symbol (Reagent named it, Hicasso keeps it whole), a NESTED MAP (Reagent camelCased its keys, Hicasso does not), or a non-fn `IFn` such as an `r/partial` reached through a symbol (Reagent wrapped it, Hicasso passes it opaque and the handler stops firing). Check each by hand."}]
+  "These prop values are computed, so the tool cannot see what crosses. Three things a computed value may silently be, each of which diverges: a KEYWORD or symbol (Reagent named it, Fresco keeps it whole), a NESTED MAP (Reagent camelCased its keys, Fresco does not), or a non-fn `IFn` such as an `r/partial` reached through a symbol (Reagent wrapped it, Fresco passes it opaque and the handler stops firing). Check each by hand."}]

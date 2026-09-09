@@ -1,8 +1,8 @@
-(ns re-frame.hicasso.revision-dom-cljs-test
+(ns re-frame.fresco.revision-dom-cljs-test
   "THE REVISION PROP ON A CONTROLLED ELEMENT — the shape ruled in
-  `docs/design/hicasso/studio/revision-prop-spec.md`.
+  `docs/design/fresco/studio/revision-prop-spec.md`.
 
-  `::h/revision` — `:re-frame.hicasso/revision` — re-baselines a controlled
+  `::h/revision` — `:re-frame.fresco/revision` — re-baselines a controlled
   text field to the model on an EXPLICIT CALLER REVISION change, and never
   on value equality. That is HD-019's reset law, kept from D016, and the
   rows below are written against the law's own wording: a revision must be
@@ -16,7 +16,7 @@
   the codec mints per render (HD-004 refuses prop-object caching). Three
   React behaviours carry it and none of them is a public contract —
   the same class as the `defaultValue` mirror
-  [[re-frame.hicasso.impl.controlled/last-rendered]] leans on.
+  [[re-frame.fresco.impl.controlled/last-rendered]] leans on.
   If they do not hold, the prop needs real machinery and the design does
   not survive contact. So §0 pins them before anything else runs, as
   DESIGN-VALIDATION rows rather than as regression rows. **They hold**:
@@ -50,7 +50,7 @@
 
   ## The composition rows and their standing limit
 
-  `bench/hicasso/ime_run.cjs` drives trusted CDP composition and owns the
+  `bench/fresco/ime_run.cjs` drives trusted CDP composition and owns the
   fence; dispatched `CompositionEvent`s do not exercise React's
   composition plugin or the browser's composition range. What a dispatched
   event CAN reach is the half [[shadowed-props]] holds — an `input` event
@@ -62,8 +62,8 @@
   Runtime: `-dom-cljs-test`. Every row needs a real React tree over a real
   document; under `:node-test` each degrades to a stated skip."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.controlled :as rf.hicasso.impl.controlled]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.controlled :as rf.fresco.impl.controlled]
             ["react" :as react]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
@@ -124,7 +124,7 @@
   ([tag value] (field tag value ::absent))
   ([tag value revision]
    [tag (cond-> {:id "f" :value value :on-input noop-input}
-          (not= ::absent revision) (assoc :re-frame.hicasso/revision revision))]))
+          (not= ::absent revision) (assoc :re-frame.fresco/revision revision))]))
 
 (defn- node [c] (.querySelector c "#f"))
 
@@ -135,7 +135,7 @@
 (def ^:private walled-field
   (react/memo
    (fn [props]
-     (rf.hicasso.impl.codec/as-element
+     (rf.fresco.impl.codec/as-element
       (field (keyword (unchecked-get props "tag"))
              (unchecked-get props "value")
              (unchecked-get props "revision"))))))
@@ -174,12 +174,12 @@
       (let [c    (container!)
             root (react-dom-client/createRoot c)]
         (try
-          (render! root (rf.hicasso.impl.codec/as-element (field :input "committed")))
+          (render! root (rf.fresco.impl.codec/as-element (field :input "committed")))
           (let [n (node c)]
             (is (= "committed" (.-value n)))
             (drift! n "foreign")
             (is (= "foreign" (.-value n)) "the drift really landed")
-            (render! root (rf.hicasso.impl.codec/as-element (field :input "committed")))
+            (render! root (rf.fresco.impl.codec/as-element (field :input "committed")))
             (is (= "committed" (.-value n))
                 "the commit re-asserted the model over the drift")
             (is (identical? n (node c))
@@ -196,11 +196,11 @@
       (let [c    (container!)
             root (react-dom-client/createRoot c)]
         (try
-          (render! root (rf.hicasso.impl.codec/as-element (field :textarea "committed")))
+          (render! root (rf.fresco.impl.codec/as-element (field :textarea "committed")))
           (let [n (node c)]
             (is (= "TEXTAREA" (.-tagName n)))
             (drift! n "foreign")
-            (render! root (rf.hicasso.impl.codec/as-element (field :textarea "committed")))
+            (render! root (rf.fresco.impl.codec/as-element (field :textarea "committed")))
             (is (= "committed" (.-value n)))
             (is (identical? n (node c))))
           (finally (react-dom/flushSync #(.unmount root)) (drop-container! c)))))))
@@ -232,9 +232,9 @@
            field's first, so no reset ever fires and the draft survives.
            What THIS row pins is the fact underneath that: the prop cannot
            influence adoption at all."
-    (let [with-rev    (rf.hicasso.impl.codec/as-element (field :input "server" "rev-1"))
-          bumped      (rf.hicasso.impl.codec/as-element (field :input "server" "rev-2"))
-          without-rev (rf.hicasso.impl.codec/as-element (field :input "server"))
+    (let [with-rev    (rf.fresco.impl.codec/as-element (field :input "server" "rev-1"))
+          bumped      (rf.fresco.impl.codec/as-element (field :input "server" "rev-2"))
+          without-rev (rf.fresco.impl.codec/as-element (field :input "server"))
           names       (fn [el] (vec (sort (js/Object.keys (.-props el)))))
           plain       (fn [el] (into {} (for [k (names el)
                                               :let [v (unchecked-get (.-props el) k)]
@@ -256,7 +256,7 @@
            two places, so a `revision` cannot reach the wire by construction
            rather than by a server-side special case"
     (let [bytes (react-dom-server/renderToString
-                 (rf.hicasso.impl.codec/as-element (field :input "server" "rev-1")))]
+                 (rf.fresco.impl.codec/as-element (field :input "server" "rev-1")))]
       (is (re-find #"value=\"server\"" bytes))
       (is (not (re-find #"revision" bytes)) bytes))))
 
@@ -380,18 +380,18 @@
            component, reused rather than duplicated."
     (doseq [[what hiccup]
             [["a :div"
-              [:div {:re-frame.hicasso/revision "r" :value "x" :on-input noop-input}]]
+              [:div {:re-frame.fresco/revision "r" :value "x" :on-input noop-input}]]
              ["a value-less <input>"
-              [:input {:re-frame.hicasso/revision "r" :on-input noop-input}]]
+              [:input {:re-frame.fresco/revision "r" :on-input noop-input}]]
              ["an <input> with a nil :value, which is the same statement"
-              [:input {:re-frame.hicasso/revision "r" :value nil :on-input noop-input}]]
+              [:input {:re-frame.fresco/revision "r" :value nil :on-input noop-input}]]
              ["a value-less checkbox, written the idiomatic way"
               [:input {:type :checkbox :checked true
-                       :re-frame.hicasso/revision "r" :on-input noop-input}]]
+                       :re-frame.fresco/revision "r" :on-input noop-input}]]
              ["a <select>, which has no text cursor and no mirror"
-              [:select {:re-frame.hicasso/revision "r" :value "x" :on-input noop-input}]]]]
-      (is (= :rf.error/hicasso-revision-not-controlled
-             (:rf.error/id (errors-of #(rf.hicasso.impl.codec/as-element hiccup))))
+              [:select {:re-frame.fresco/revision "r" :value "x" :on-input noop-input}]]]]
+      (is (= :rf.error/fresco-revision-not-controlled
+             (:rf.error/id (errors-of #(rf.fresco.impl.codec/as-element hiccup))))
           what)))
   (testing "and the coverage is stated honestly rather than overstated.
            `controlled-text-tag?` is deliberately TYPE-BLIND — tag plus a
@@ -401,11 +401,11 @@
     (doseq [[what hiccup]
             [["a checkbox carrying a form-submission value"
               [:input {:type :checkbox :value "yes" :checked true
-                       :re-frame.hicasso/revision "r" :on-input noop-input}]]
+                       :re-frame.fresco/revision "r" :on-input noop-input}]]
              ["an <input type=number>, with caret semantics that do not apply"
               [:input {:type :number :value "1"
-                       :re-frame.hicasso/revision "r" :on-input noop-input}]]]]
-      (is (nil? (errors-of #(rf.hicasso.impl.codec/as-element hiccup))) what))))
+                       :re-frame.fresco/revision "r" :on-input noop-input}]]]]
+      (is (nil? (errors-of #(rf.fresco.impl.codec/as-element hiccup))) what))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — NEVER A DOM ATTRIBUTE
@@ -418,7 +418,7 @@
            bytes cannot carry a revision by construction rather than by a
            server-side special case."
     (let [bytes (react-dom-server/renderToString
-                 (rf.hicasso.impl.codec/as-element (field :input "committed" "rev-1")))]
+                 (rf.fresco.impl.codec/as-element (field :input "committed" "rev-1")))]
       (is (not (re-find #"revision" bytes))
           (str "no revision in the server bytes: " bytes))
       (is (re-find #"value=\"committed\"" bytes)
@@ -429,7 +429,7 @@
       (let [c    (container!)
             root (react-dom-client/createRoot c)]
         (try
-          (render! root (rf.hicasso.impl.codec/as-element (field :input "committed" "rev-1")))
+          (render! root (rf.fresco.impl.codec/as-element (field :input "committed" "rev-1")))
           (let [n (node c)]
             (is (not (.hasAttribute n "revision")))
             (is (not (re-find #"revision" (.-outerHTML n)))
@@ -438,15 +438,15 @@
           (finally (react-dom/flushSync #(.unmount root)) (drop-container! c))))))
   (testing "and the marker the codec stashes for `install!` does not survive
            it either — it exists for the length of one call"
-    (let [el (rf.hicasso.impl.codec/as-element (field :input "committed" "rev-1"))]
-      (is (undefined? (unchecked-get (.-props el) rf.hicasso.impl.controlled/revision-slot))
+    (let [el (rf.fresco.impl.codec/as-element (field :input "committed" "rev-1"))]
+      (is (undefined? (unchecked-get (.-props el) rf.fresco.impl.controlled/revision-slot))
           "deleted as it was read")
       (is (undefined? (unchecked-get (.-props el) "revision"))
           "and never emitted under its own name")))
   (testing "every OTHER spelling is an ordinary attribute, which is the
            documented honest loss: the exact namespaced keyword or nothing"
     (let [bytes (react-dom-server/renderToString
-                 (rf.hicasso.impl.codec/as-element
+                 (rf.fresco.impl.codec/as-element
                   [:input {:value "committed" :on-input noop-input :revision "rev-1"}]))]
       (is (re-find #"revision=\"rev-1\"" bytes)
           (str "a misspelled bare :revision is silent and becomes an
@@ -481,14 +481,14 @@
       (let [c    (container!)
             root (react-dom-client/createRoot c)]
         (try
-          (render! root (rf.hicasso.impl.codec/as-element (field :input "committed" "rev-1")))
+          (render! root (rf.fresco.impl.codec/as-element (field :input "committed" "rev-1")))
           (let [n (node c)]
             (.focus n)
             (composing-input! n "kana-in-flight")
             (is (= "kana-in-flight" (.-value n))
                 "the shadow holds the live draft, so React's own restore
                  finds nothing to write")
-            (render! root (rf.hicasso.impl.codec/as-element (field :input "committed" "rev-2")))
+            (render! root (rf.fresco.impl.codec/as-element (field :input "committed" "rev-2")))
             (is (= "kana-in-flight" (.-value n))
                 "THE DEFERRAL: the revision bumped mid-composition and the
                  exchange was NOT destroyed — no immediate write, so no
@@ -521,9 +521,9 @@
             !model (atom "committed")
             accept (fn [e] (reset! !model (.. e -target -value)))
             paint! (fn [rev]
-                     (render! root (rf.hicasso.impl.codec/as-element
+                     (render! root (rf.fresco.impl.codec/as-element
                                     [:input {:id "f" :value @!model :on-input accept
-                                             :re-frame.hicasso/revision rev}])))]
+                                             :re-frame.fresco/revision rev}])))]
         (try
           (paint! "rev-1")
           (let [n (node c)]
@@ -587,10 +587,10 @@
             !runs (atom 0)
             paint! (fn [rev]
                      (render! root
-                              (rf.hicasso.impl.codec/as-element
+                              (rf.fresco.impl.codec/as-element
                                [:input {:id "f" :value "committed"
                                         :on-input (fn [_e] (swap! !runs inc))
-                                        :re-frame.hicasso/revision rev}])))]
+                                        :re-frame.fresco/revision rev}])))]
         (try
           (paint! "rev-1")
           (let [n (node c)]

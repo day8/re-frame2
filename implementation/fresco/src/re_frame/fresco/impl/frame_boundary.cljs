@@ -1,5 +1,5 @@
-(ns re-frame.hicasso.impl.frame-boundary
-  "`h/frame-root` and `h/frame-provider` — Hicasso's two IN-TREE frame
+(ns re-frame.fresco.impl.frame-boundary
+  "`h/frame-root` and `h/frame-provider` — Fresco's two IN-TREE frame
   boundaries, and the shape every other React-shaped substrate already
   spells (spec/002 §`frame-root`, §`frame-provider`; the rf2-nyea0r split
   — *roots ensure; providers scope*).
@@ -23,7 +23,7 @@
 
   ## What the SUBSTRATE's idiom is here, and why it needs a head kind
 
-  Hicasso lowers hiccup EAGERLY: `[a b]` becomes a React element before
+  Fresco lowers hiccup EAGERLY: `[a b]` becomes a React element before
   React renders anything, inside a binding of `intent/*frame*`. A frame
   boundary is the one head whose PROPS decide which frame its CHILDREN
   lower under, so the codec cannot treat it as a `defhost` crossing —
@@ -53,16 +53,16 @@
   with the seeded markup on the page — the property `impl.mount/root!`
   used to hold by ensuring before `createRoot`, now held by React's own
   layout phase. Witnessed in
-  `re-frame.hicasso.frame-boundary-heads-dom-cljs-test`."
+  `re-frame.fresco.frame-boundary-heads-dom-cljs-test`."
   (:require [re-frame.frame :as rf.frame]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.substrate.spine :as rf.substrate.spine]
             [re-frame.views.frame-boundary :as rf.views.frame-boundary]))
 
 ;; The `:where` symbols are the FACADE spellings, not these impl names:
 ;; a refusal names the head the author wrote.
-(def ^:private root-where 're-frame.hicasso/frame-root)
-(def ^:private provider-where 're-frame.hicasso/frame-provider)
+(def ^:private root-where 're-frame.fresco/frame-root)
+(def ^:private provider-where 're-frame.fresco/frame-provider)
 
 (def frame-root
   "`h/frame-root` — the ENSURE boundary. See the facade var for the
@@ -75,8 +75,8 @@
   gets the did-you-mean naming `frame-provider` rather than a
   missing-`:id` complaint about a call that named a frame perfectly
   well."
-  (rf.hicasso.impl.codec/mint-frame-boundary!
-    "hicasso/frame-root"
+  (rf.fresco.impl.codec/mint-frame-boundary!
+    "fresco/frame-root"
     (fn frame-root-element [props lower]
       (when (contains? props :frame)
         (rf.views.frame-boundary/reject-frame-root-frame! (:frame props) root-where))
@@ -93,12 +93,12 @@
   the authoring contract; the mechanism is
   `spine/build-frame-provider-element`.
 
-  Distinct from `re-frame.hicasso.substrate/frame-provider`, which is the
+  Distinct from `re-frame.fresco.substrate/frame-provider`, which is the
   adapter contract's `:register-context-provider` SLOT — a lower-level
   seat the contract requires and an application never writes. This is the
   authoring verb."
-  (rf.hicasso.impl.codec/mint-frame-boundary!
-    "hicasso/frame-provider"
+  (rf.fresco.impl.codec/mint-frame-boundary!
+    "fresco/frame-provider"
     (fn frame-provider-element [props lower]
       (when (contains? props :id)
         (rf.views.frame-boundary/reject-frame-provider-id! (:id props) provider-where))

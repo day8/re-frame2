@@ -112,7 +112,7 @@
  *   b6_prod_run.cjs   b6_profile_run.cjs   b7_run.cjs   b8_run.cjs
  *   b10_prod_run.cjs  reads_ladder_run.cjs spine_ablation_run.cjs
  *   ../../../../core/test/re_frame/bench/p0_run.cjs
- *   ../../../../adapters/reagent/test/re_frame/bench/hicasso_narrow_run.cjs
+ *   ../../../../adapters/reagent/test/re_frame/bench/fresco_narrow_run.cjs
  *
  * ...AND THE NINE NOW RACE, TOO (rf2-qv761, 2026-08-05)
  * ---------------------------------------------------
@@ -134,7 +134,7 @@
  *   2. NO NEW EXIT CODE. Every rejection lands in a path each driver already
  *      had — `drive()`'s rejection handler in `b6_prod`, `b6_profile` and
  *      `b10_prod`; the existing `catch` in `b7`, `p0`, the ladder and the
- *      ablation; `failed` in `b8`; `hicasso_narrow`'s `main` catch — and all
+ *      ablation; `failed` in `b8`; `fresco_narrow`'s `main` catch — and all
  *      of those are that driver's existing 1.
  *
  * WHAT IT DOES COST, stated rather than discovered later. In rf2-sib23's own

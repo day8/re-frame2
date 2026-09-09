@@ -1,10 +1,10 @@
-(ns re-frame.hicasso.impl.controlled
+(ns re-frame.fresco.impl.controlled
   "The controlled-element converge: a store-backed `<input>` / `<textarea>`
   converges to its model in the same discrete event with the caret where
   the edit left it, and a live IME composition is carved out of that.
 
   It lives in the element path, not in a component. `install!` is called
-  from `re-frame.hicasso.impl.codec/native-element` and wraps the change
+  from `re-frame.fresco.impl.codec/native-element` and wraps the change
   handler the author wrote, so the view stays an ordinary `:value` /
   `:on-input` pair and the boundary shell gains no hook. At the end of
   that handler — still ahead of React's own end-of-event restore — it
@@ -35,13 +35,13 @@
   `flushSync` site. Mid-composition it defers to the exchange's close;
   mid-adoption it is absorbed.
 
-  Design record: docs/design/hicasso/decisions.md HD-019 and its addendum
+  Design record: docs/design/fresco/decisions.md HD-019 and its addendum
   (the flushSync exception, the carve-out, the shadow's hook priced);
-  docs/design/hicasso/studio/controlled-input-two-implementations.md (the
+  docs/design/fresco/studio/controlled-input-two-implementations.md (the
   matrix, the trap, why the record is React's own, the IME measurements);
-  docs/design/hicasso/studio/revision-prop-spec.md (the revision prop,
+  docs/design/fresco/studio/revision-prop-spec.md (the revision prop,
   the mid-composition deferral, the mid-adoption absorption)."
-  (:require [re-frame.hicasso.impl.error :refer [fail!]]
+  (:require [re-frame.fresco.impl.error :refer [fail!]]
             ["react" :as react]
             ["react-dom" :as react-dom]))
 
@@ -58,7 +58,7 @@
   `<textarea>` and undisturbed by typing. The one place this namespace
   depends on that behaviour, so it is the one place a row pins it —
   `arm1/controlled_grid_dom_cljs_test/the-record-is-reacts-own-mirror-and-is-not-the-handlers-closure`
-  (`bench/hicasso`). `js/undefined` on anything that is not a live form
+  (`bench/fresco`). `js/undefined` on anything that is not a live form
   control, which is what makes `converge!` inert there."
   [node]
   (.-defaultValue node))
@@ -122,7 +122,7 @@
   stale (`setDefaultValue` skips a focused `number` field). Answered no,
   the element is left as React leaves it
   (`arm1/controlled_grid_dom_cljs_test/a-type-change-inside-the-flush-leaves-the-converge-inert`,
-  `bench/hicasso`).
+  `bench/fresco`).
 
   This is the one `flushSync` expression in the namespace, reached from
   two call sites — the non-composing keystroke and `compositionend` — of
@@ -173,7 +173,7 @@
   it total: `:type 0` survives the codec as a number with no
   `toLowerCase`. The fold costs ~8 ns per call, about 0.1% of one field's
   render, and a fold-on-miss variant was measured and rejected —
-  docs/design/hicasso/studio/controlled-input-two-implementations.md,
+  docs/design/fresco/studio/controlled-input-two-implementations.md,
   §The type fold, priced."
   [tag js-props]
   (or (identical? "textarea" tag)
@@ -226,15 +226,15 @@
 (def ^:private native-tag-key
   "Where `shadow-component` records the tag it renders, so `element-tag`
   can answer for an emitted element without knowing this namespace."
-  "hicassoNativeTag")
+  "frescoNativeTag")
 
 (def revision-slot
-  "The private slot `re-frame.hicasso.impl.codec/native-element` stashes a
+  "The private slot `re-frame.fresco.impl.codec/native-element` stashes a
   `::h/revision` on, and `install!` deletes as it reads. It exists for the
   length of one `install!` call; this namespace owns the name so the codec
   cannot drift from it, and the delete is what makes *never a DOM
   attribute* true by construction."
-  "hicassoRevision")
+  "frescoRevision")
 
 (defn- shadowed-props
   "The props the native tag renders with while `shadow` is held: the
@@ -265,21 +265,21 @@
     (when (some? shadow)
       (unchecked-set out "value" shadow))
     (unchecked-set out slot
-                   (fn hicasso-composition-shadow [e]
+                   (fn fresco-composition-shadow [e]
                      (if (composing-input? e)
                        (set-shadow (some-> (.-target e) (.-value)))
                        (release!))
                      (inner e)
                      nil))
     (unchecked-set out "onCompositionEnd"
-                   (fn hicasso-composition-end [e]
+                   (fn fresco-composition-end [e]
                      (release!)
                      (when (fn? ended) (ended e))
                      (when-some [node (.-target e)]
                        (converge! node))
                      nil))
     (unchecked-set out "onBlur"
-                   (fn hicasso-composition-release [e]
+                   (fn fresco-composition-release [e]
                      (release!)
                      (when (fn? blurred) (blurred e))
                      nil))
@@ -304,7 +304,7 @@
                        (if (convergeable? tag props)
                          (shadowed-props props shadow set-shadow)
                          props))))]
-    (unchecked-set component "displayName" (str "hicasso/controlled-" tag))
+    (unchecked-set component "displayName" (str "fresco/controlled-" tag))
     (unchecked-set component native-tag-key tag)
     component))
 
@@ -339,7 +339,7 @@
 
   The revision marker (`revision-slot`) is read and deleted on every
   native element, one `unchecked-get`. Present, the element is REFUSED
-  with `:rf.error/hicasso-revision-not-controlled` unless it is a
+  with `:rf.error/fresco-revision-not-controlled` unless it is a
   `controlled-text-tag?`; nothing else happens, because the reset rides
   React's per-commit re-assert off the fresh props the codec mints per
   render. The predicate is type-blind, so state the coverage exactly: a
@@ -353,10 +353,10 @@
   (when-not (undefined? (unchecked-get js-props revision-slot))
     (js-delete js-props revision-slot)
     (when-not (controlled-text-tag? tag js-props)
-      (fail! :rf.error/hicasso-revision-not-controlled
-             're-frame.hicasso.impl.controlled/install!
+      (fail! :rf.error/fresco-revision-not-controlled
+             're-frame.fresco.impl.controlled/install!
              (str "A revision belongs on a controlled text field, and this is not "
-                  "one. :re-frame.hicasso/revision re-baselines a controlled "
+                  "one. :re-frame.fresco/revision re-baselines a controlled "
                   "<input> or <textarea> to its model, so it needs both of those: "
                   "an `input`/`textarea` tag, and a non-nil :value to re-baseline "
                   "TO. This is a " (pr-str tag) " and the trigger has no field to "
@@ -366,7 +366,7 @@
     (let [slot    (change-slot js-props)
           handler (unchecked-get js-props slot)]
       (unchecked-set js-props slot
-                     (fn hicasso-converging-change [e]
+                     (fn fresco-converging-change [e]
                        (handler e)
                        (when-not (composing-input? e)
                          (when-some [node (.-target e)]

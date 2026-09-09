@@ -1,13 +1,13 @@
 # Islands
 
-Most of a Hicasso application is interpreted Hiccup: `defview` bodies, `h/sub`
+Most of a Fresco application is interpreted Hiccup: `defview` bodies, `h/sub`
 reads, event vectors. Some regions want React itself — a hook, a vendor widget
 that keeps its own state, pointer mechanics that update on every move, a screen
 that is React-shaped by design. Write those regions in React. An **island** is a
 React component, raw or UIx, mounted through `h/defhost` under the same root,
-frame and app-db as the Hiccup around it. When it needs Hicasso state, two hooks
+frame and app-db as the Hiccup around it. When it needs Fresco state, two hooks
 join it: `n/use-sub` reads a subscription and `n/use-frame` returns the frame's
-operations. That is the whole of `re-frame.hicasso.native`; nothing else lives
+operations. That is the whole of `re-frame.fresco.native`; nothing else lives
 there.
 
 `[...]` always means interpreted Hiccup. A React element is never interpreted;
@@ -24,18 +24,18 @@ namespace includes none of its code.
    one-off without a name ([Interop](09-interop.md)). Both stay under the
    existing root and frame.
 
-Inside the component, `n/use-sub` and `n/use-frame` are how it reaches Hicasso
+Inside the component, `n/use-sub` and `n/use-frame` are how it reaches Fresco
 state. An island that reads nothing needs neither: a vendor widget fed by props
 is an island with nothing from this namespace in it.
 
 ## The same row three ways
 
 A watchlist row reads one subscription and dispatches one click. As ordinary
-Hicasso:
+Fresco:
 
 ```clojure
 (ns app.watchlist.row
-  (:require [re-frame.hicasso :as h]))
+  (:require [re-frame.fresco :as h]))
 
 (h/defview quote-row [{:keys [sym]}]
   (let [{:keys [px up?]} (h/sub [:quotes/row sym])]
@@ -52,8 +52,8 @@ The same row as a UIx island:
 
 ```clojure
 (ns app.watchlist.row
-  (:require [re-frame.hicasso :as h]
-            [re-frame.hicasso.native :as n]
+  (:require [re-frame.fresco :as h]
+            [re-frame.fresco.native :as n]
             [uix.core :refer [defui $]]))
 
 (defui quote-row* [{:keys [sym]}]
@@ -73,15 +73,15 @@ The same row as a UIx island:
 A `defui` reads its props from UIx's own carrier, which only UIx's `$` builds,
 so the crossing from a host is one plain function handing the JavaScript props
 across. That is the whole cost of the interop, and it is UIx's rather than
-Hicasso's.
+Fresco's.
 
 The same row in raw React:
 
 ```clojure
 (ns app.watchlist.row
   (:require ["react" :as react]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.native :as n]))
+            [re-frame.fresco :as h]
+            [re-frame.fresco.native :as n]))
 
 (defn quote-row* [^js props]
   (let [sym                (.-sym props)
@@ -113,7 +113,7 @@ an island reading a dozen keys wanted a `defview`.
 
 | Read API | Legal context | Rule |
 | --- | --- | --- |
-| `h/sub` | synchronous Hicasso view body | ordinary function call; branches, loops and helpers are legal |
+| `h/sub` | synchronous Fresco view body | ordinary function call; branches, loops and helpers are legal |
 | `n/use-sub` | React component | React hook; top level and unconditional |
 
 `n/use-frame` returns `{:frame :dispatch :dispatch-sync :subscribe}` for the
@@ -153,7 +153,7 @@ is a plain function, and it carries the frame by capturing it:
 (ns app.watchlist.row
   (:require ["react" :as react]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]))
+            [re-frame.fresco :as h]))
 
 (h/defview quote-row [{:keys [sym]}]
   (let [{:keys [px up?]}   (h/sub [:quotes/row sym])
@@ -185,10 +185,10 @@ dynamically. A view that needs one is an island.
 
 Do not cross without a reproducible interaction and an attributed owner. Read
 placement, unstable props, excessive event volume and uncontrolled DOM size are
-fixed at the Hicasso level first.
+fixed at the Fresco level first.
 
 Keep form controls interpreted. An `<input>` inside an island does not receive
-Hicasso's same-turn convergence, selection preservation, IME protection or
+Fresco's same-turn convergence, selection preservation, IME protection or
 `::h/revision` handling, and moving it there does not make typing faster.
 
 Do not create islands for stylistic consistency. A few named crossings are a
@@ -206,7 +206,7 @@ An independent root is an isolation decision, not a performance optimisation.
 
 ## Verify every crossing
 
-After crossing, rerun the contracts Hicasso can no longer inspect inside the
+After crossing, rerun the contracts Fresco can no longer inspect inside the
 React subtree:
 
 - DOM and interaction parity
@@ -224,7 +224,7 @@ React descendants.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `n/use-sub` or `n/use-frame` raises `:rf.error/no-frame-context` | The component mounted outside a Hicasso frame provider | Mount it under the application root, or use the test kit's provider |
+| `n/use-sub` or `n/use-frame` raises `:rf.error/no-frame-context` | The component mounted outside a Fresco frame provider | Mount it under the application root, or use the test kit's provider |
 | A click inside an island or a directly returned element does nothing | An event vector or `h/event` at a raw React prop; nothing lowers it there | Dispatch from `n/use-frame` in an island, or from `(rf/capture-frame)` in a view body |
 | A `defui` mounted through `h/defhost` sees empty props | UIx reads props from its own carrier, which only `$` builds | Cross through a plain function that calls `$` with the JavaScript props |
 | Local island state resets after each code save | Hot reload allocates a new component and React remounts it | Expected; move persistent state to app-db |

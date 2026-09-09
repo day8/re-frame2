@@ -4,7 +4,7 @@ A dropdown can be open, a field can hold a half-typed draft, and a drag can
 have an in-flight pointer position. Those facts do not all belong in the same
 place.
 
-Hicasso has no component-local reactive cell. There is no Hicasso equivalent
+Fresco has no component-local reactive cell. There is no Fresco equivalent
 of Reagent's `r/atom`, and `useState` does not belong in a `defview` body.
 Application-visible facts live in app-db. High-rate widget mechanics stay
 inside a native host. Browser-owned state stays in the browser.
@@ -45,7 +45,7 @@ nothing else:
 ```clojure
 (ns app.panels
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso :as h]))
+            [re-frame.fresco :as h]))
 
 (h/reg-state ::expanded? {:default false})
 
@@ -87,7 +87,7 @@ Either way, prefer a named event over a generic `[:ui/set path value]`.
 
 A draft is application-visible when validation, submit gating, dirty-leave
 logic, or another view needs it. Store it at an app-db address, usually through
-`re-frame.hicasso.forms`.
+`re-frame.fresco.forms`.
 
 The forms module is one view, `forms/buffered-field`: a draft in front of a
 committed value, with a baseline, a commit protocol and the `::h/revision`
@@ -123,7 +123,7 @@ The rule at the edge is: **motion stays inside; meaning leaves as one event.**
 ```clojure
 (ns app.board.drag
   (:require ["react" :as react]
-            [re-frame.hicasso :as h]))
+            [re-frame.fresco :as h]))
 
 (defn drag-surface [^js props]
   (let [[xy set-xy] (react/useState nil)]
@@ -159,7 +159,7 @@ event callback, and the island calls it with the column it computed.
 
 Hooks belong in the island. A `defview` body may
 branch and loop dynamically, so putting hooks there makes hook order depend on
-data and moves the body outside Hicasso's headless model.
+data and moves the body outside Fresco's headless model.
 
 ## 4. Browser-owned state
 
@@ -186,7 +186,7 @@ App-db records what is true. A dismissed toast should leave app-db immediately,
 but its DOM node may need a short exit animation. That gap is **not**
 ephemeral application state — it is paint retention.
 
-Use the optional [`re-frame.hicasso.motion`](12-motion-and-presence.md) module
+Use the optional [`re-frame.fresco.motion`](12-motion-and-presence.md) module
 and `motion/presence`. That chapter owns the API, the phase markers
 (`::motion/mounting` / `::motion/unmounting`, on elements and views alike), SSR
 behaviour, and accessibility attributes for exiting nodes.
@@ -206,7 +206,7 @@ behaviour, and accessibility attributes for exiting nodes.
 
 ## Choose a stable instance address
 
-Application-visible and form state need an instance key. Hicasso does not
+Application-visible and form state need an instance key. Fresco does not
 invent one. React's `useId` is unsuitable because it is tied to render order
 and does not provide a durable app-db address.
 
@@ -224,7 +224,7 @@ Use authored data: a keyword, string, number, or flat vector of those values.
 
 ## There is no `:on-mount`
 
-Hicasso has no `:on-mount` or `:on-unmount`. The job you are trying to perform
+Fresco has no `:on-mount` or `:on-unmount`. The job you are trying to perform
 already has a more specific owner:
 
 | Job | Use |
@@ -246,7 +246,7 @@ Do not put a fact in app-db when:
 Everything else is application state and should have one app-db address.
 
 ```clojure
-;; Don't: this atom is recreated whenever the body runs, and Hicasso does not
+;; Don't: this atom is recreated whenever the body runs, and Fresco does not
 ;; track it as reactive state.
 (h/defview broken-panel [{:keys [id title]}]
   (let [expanded? (atom false)]
@@ -265,8 +265,8 @@ Everything else is application state and should have one app-db address.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | You are reaching for `useState` or `r/atom` to hold “is this open?” | Application-visible state is moving into a private store | Give it an app-db address, or use the overlay module's reconciled open flag |
-| A view-local atom resets or never repaints the view | The body can re-run or be abandoned, and Hicasso does not subscribe to the atom | Move the fact to app-db; move genuine widget mechanics into a native component |
-| You are looking for `:on-mount`, `componentDidMount`, or a mount effect | Hicasso has no generic lifecycle hook | Identify the job and use the owner in the table above |
+| A view-local atom resets or never repaints the view | The body can re-run or be abandoned, and Fresco does not subscribe to the atom | Move the fact to app-db; move genuine widget mechanics into a native component |
+| You are looking for `:on-mount`, `componentDidMount`, or a mount effect | Fresco has no generic lifecycle hook | Identify the job and use the owner in the table above |
 | Every panel opens at once | All instances share one address | Include a stable instance key in the address |
 | Typing or dragging lags and Xray shows an event per pointer move | High-rate mechanics were routed through app-db | Keep pointer mechanics inside the host and dispatch only the semantic result |
 | A dismissed item vanishes before its CSS exit finishes | Exit retention was treated as app-db state, or Presence was not used | See [Motion and presence](12-motion-and-presence.md) |
@@ -274,7 +274,7 @@ Everything else is application state and should have one app-db address.
 | A test simulates clicks only to open a dropdown | The open flag is data | Seed the address directly in the test ([Testing](15-testing.md)) |
 
 ??? info "Coming from Reagent"
-    `r/atom` solved a view-local reactivity problem that Hicasso does not
+    `r/atom` solved a view-local reactivity problem that Fresco does not
     create. Put semantic state at addresses, drafts in the forms model,
     mechanics in hosts, browser-owned facts in the DOM, and exit retention in
     [Motion and presence](12-motion-and-presence.md).

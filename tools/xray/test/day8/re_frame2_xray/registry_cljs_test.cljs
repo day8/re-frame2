@@ -321,11 +321,11 @@
    ;; `image-view-reads` seam; presents Xray itself as its OWN image
    ;; inspecting the target frame as data (EP-0023 §Xray Beside The Target).
    :rf.xray/image-view
-   ;; rf2-hic-023 — the Hicasso evidence tab's two reads. `…/view` is the
+   ;; rf2-hic-023 — the Fresco evidence tab's two reads. `…/view` is the
    ;; selected sub-view; `…/data` takes all four evidence envelopes in ONE
    ;; turn and shapes every view's rows from them.
-   :rf.xray.hicasso/view
-   :rf.xray.hicasso/data
+   :rf.xray.fresco/view
+   :rf.xray.fresco/data
    ;; rf2-o5f5f.3 — Routes browse + Simulate-URL state lives under
    ;; the Static Routes panel (promoted from `:rf.xray.routing/*` per
    ;; the two-verbs-two-homes split). The Dynamic Routing lens narrows
@@ -484,7 +484,7 @@
    ;; `re-frame.freehand.tool` are GONE from this roster with the Mounted
    ;; Views + Declared View Sites sections (spec/021 §3.4.3). They retired
    ;; with the Freehand substrate rather than moving to
-   ;; `re-frame.hicasso.tool`; the schema-6 migration clause clears them from
+   ;; `re-frame.fresco.tool`; the schema-6 migration clause clears them from
    ;; a live-upgraded process.
    :rf.xray/reactive-show-unchanged?))
 
@@ -516,10 +516,10 @@
    ;; `reset` clears all overrides for a table.
    ;; rf2-xzg1y — `hydrate` lifts the persisted column-widths map from
    ;; localStorage into app-db at first-mount time.
-   ;; rf2-hic-023 — the Hicasso evidence tab's one event: the selected
+   ;; rf2-hic-023 — the Fresco evidence tab's one event: the selected
    ;; sub-view, normalised on write so a stale id cannot leave the panel
    ;; on a view that does not exist.
-   :rf.xray.hicasso/set-view
+   :rf.xray.fresco/set-view
    :rf.xray.column-widths/hydrate
    :rf.xray.column-widths/resize-pair-commit
    :rf.xray.column-widths/resize-pair-tick

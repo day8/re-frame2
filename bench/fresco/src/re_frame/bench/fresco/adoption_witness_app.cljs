@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.adoption-witness-app
+(ns re-frame.bench.fresco.adoption-witness-app
   "THE ADOPTION WITNESS — does the commit adopt the render-phase build on a
   PUBLIC mount schedule, on a page whose clock is fast enough to say?
   (rf2-2rtt6.80; the ruling on rf2-2rtt6.71's ruling (a).)
@@ -7,7 +7,7 @@
 
   It is a DIAGNOSTIC, run on demand:
 
-      node implementation/hicasso/test/re_frame/bench/hicasso/adoption_witness_run.cjs
+      node implementation/fresco/test/re_frame/bench/fresco/adoption_witness_run.cjs
 
   It is NOT a gate. Nothing in CI invokes it, and that is the ruling, not an
   omission. rf2-2rtt6.71 wanted a standing tripwire and the browser suite could
@@ -137,7 +137,7 @@
 
   Owner: rf2-2rtt6.80; phase 3 rf2-2rtt6.87."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
@@ -273,7 +273,7 @@
   ([n read-integers?] (run-trial! n read-integers? false))
   ([n read-integers? hydrate?]
   (let [frame-id      (keyword "rf.adoptwit" (str "trial-" n))
-        container     (rf.bench.hicasso.lane/fresh-container!)
+        container     (rf.bench.fresco.lane/fresh-container!)
         t0            (volatile! nil)
         t1            (volatile! nil)
         render-tenant (volatile! nil)
@@ -288,7 +288,7 @@
           cold? (nil? (get @cache query-v))]
       (reset! at-render
               (fn []
-                (vreset! t0 (rf.bench.hicasso.lane/now-ms))
+                (vreset! t0 (rf.bench.fresco.lane/now-ms))
                 (when read-integers?
                   ;; The render's escrowed +1 is what keeps this entry
                   ;; tenanted, so the reaction read HERE is the render's.
@@ -296,7 +296,7 @@
       (reset! at-commit
               (fn []
                 (when (nil? @t1)
-                  (vreset! t1 (rf.bench.hicasso.lane/now-ms))
+                  (vreset! t1 (rf.bench.fresco.lane/now-ms))
                   (when read-integers?
                     (let [tenant (get-in @cache [query-v :reaction])]
                       (vreset! snap
@@ -339,7 +339,7 @@
                             (= outcome :timeout)
                             (assoc :dom-at-timeout (.-textContent container))
                             (not= outcome :timeout)
-                            (assoc :gap-ms (rf.bench.hicasso.lane/round4 (- @t1 @t0)))
+                            (assoc :gap-ms (rf.bench.fresco.lane/round4 (- @t1 @t0)))
 
                             (and (not= outcome :timeout) read-integers?)
                             (merge @snap)
@@ -382,10 +382,10 @@
 (defn- gap-summary [rows]
   (let [gaps (keep :gap-ms rows)]
     (merge {:trials (count rows) :committed (count gaps)}
-           (some-> (rf.bench.hicasso.lane/summarise gaps)
-                   (update :min rf.bench.hicasso.lane/round4)
-                   (update :max rf.bench.hicasso.lane/round4)
-                   (update :p50 rf.bench.hicasso.lane/round4)))))
+           (some-> (rf.bench.fresco.lane/summarise gaps)
+                   (update :min rf.bench.fresco.lane/round4)
+                   (update :max rf.bench.fresco.lane/round4)
+                   (update :p50 rf.bench.fresco.lane/round4)))))
 
 (defn- disqualifiers
   "Every reason `rows` cannot carry an adoption reading, in the order a reader
@@ -538,7 +538,7 @@
         (fn [rows]
           (let [summary (gap-summary rows)
                 bad     (disqualifiers rows ceiling-ms)]
-            (rf.bench.hicasso.lane/record! :hydration {:horizon-ms horizon-ms
+            (rf.bench.fresco.lane/record! :hydration {:horizon-ms horizon-ms
                                       :ceiling-ms ceiling-ms
                                       :summary    summary
                                       :rows       rows
@@ -568,7 +568,7 @@
                              (str "A MARGIN, NOT A CONTRACT: React documents no maximum "
                                   "render-to-subscribe interval. Re-run when the react / "
                                   "react-dom / playwright pins move.")]))))
-            (rf.bench.hicasso.lane/done!))))))
+            (rf.bench.fresco.lane/done!))))))
 
 (defn- adjudicate-adoption!
   "PHASE 2 — reached only from a qualifying phase-1 gap, and refusing again if
@@ -581,7 +581,7 @@
         (fn [rows]
           (let [summary (gap-summary rows)
                 bad     (disqualifiers rows ceiling-ms)]
-            (rf.bench.hicasso.lane/record! :adoption {:horizon-ms horizon-ms
+            (rf.bench.fresco.lane/record! :adoption {:horizon-ms horizon-ms
                                      :ceiling-ms ceiling-ms
                                      :summary    summary
                                      :rows       rows})
@@ -592,7 +592,7 @@
                             (into ["phase 1 qualified but an adoption mount did not, so its"
                                    "integers were discarded unread."]
                                   bad))
-                  (rf.bench.hicasso.lane/done!)
+                  (rf.bench.fresco.lane/done!)
                   (js/Promise.resolve nil))
               (let [faults (adoption-faults rows)]
                 (if (seq faults)
@@ -601,7 +601,7 @@
                                        "commit still did not adopt the render's build. On a qualifying"
                                        "page that is a MECHANISM regression, not a scheduling one."]
                                       faults))
-                      (rf.bench.hicasso.lane/done!)
+                      (rf.bench.fresco.lane/done!)
                       (js/Promise.resolve nil))
                   ;; Phase 2 held, so the hydration schedule is worth asking
                   ;; about — and phase 2's records are what its parity row is
@@ -614,7 +614,7 @@
   [rows horizon-ms ceiling-ms]
   (let [summary (gap-summary rows)
         bad     (disqualifiers rows ceiling-ms)]
-    (rf.bench.hicasso.lane/record! :gap {:horizon-ms horizon-ms
+    (rf.bench.fresco.lane/record! :gap {:horizon-ms horizon-ms
                         :ceiling-ms ceiling-ms
                         :summary    summary
                         :rows       rows})
@@ -626,7 +626,7 @@
                            "This is not a failure of the adoption; it is a refusal to"
                            "adjudicate it here."]
                           bad))
-          (rf.bench.hicasso.lane/done!)
+          (rf.bench.fresco.lane/done!)
           (js/Promise.resolve nil))
       (adjudicate-adoption! horizon-ms ceiling-ms))))
 
@@ -634,21 +634,21 @@
   (rf/init! rf.adapter.uix/adapter)
   ;; Every reading here is taken outside React's act queue, so the commit
   ;; measured is the commit a consumer's page performs.
-  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.fresco.lane/leave-act-environment!)
   (let [{:keys [horizon-ms ceiling-ms error]} (params)]
     (if error
-      (do (rf.bench.hicasso.lane/fail! error) (rf.bench.hicasso.lane/done!))
+      (do (rf.bench.fresco.lane/fail! error) (rf.bench.fresco.lane/done!))
       (-> (js/Promise.resolve nil)
           (.then (fn [_] (register!) (render-server-markup!)))
           ;; WARM-UP: printed, never counted. The first mount on a fresh page
           ;; pays React's own lazy initialisation.
           (.then (fn [_] (run-trials! (trial-ids "w" warmup-trials) false)))
           (.then (fn [warm]
-                   (rf.bench.hicasso.lane/record! :warmup {:rows warm})
+                   (rf.bench.fresco.lane/record! :warmup {:rows warm})
                    (js/console.log (str ";; warm-up gaps (discarded): "
                                         (pr-str (mapv :gap-ms warm)) " ms"))
                    (run-trials! (trial-ids "g" gap-trials) false)))
           (.then (fn [rows] (adjudicate-gap! rows horizon-ms ceiling-ms)))
           (.catch (fn [e]
-                    (rf.bench.hicasso.lane/fail! (or (some-> e .-message) (str e)))
-                    (rf.bench.hicasso.lane/done!)))))))
+                    (rf.bench.fresco.lane/fail! (or (some-> e .-message) (str e)))
+                    (rf.bench.fresco.lane/done!)))))))

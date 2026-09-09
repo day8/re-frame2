@@ -1363,7 +1363,7 @@ if [ "$run_docs" = true ]; then
   run "docs corpus anchor validator" "python scripts/check_doc_slugs.py" \
     python "$spine_root/scripts/check_doc_slugs.py"
 
-  # Provenance pins (rf2-kqac1).  This repo rebase-merges, so a Hicasso page
+  # Provenance pins (rf2-kqac1).  This repo rebase-merges, so a Fresco page
   # that pins a measurement to its own authored SHA is stranded the moment its
   # PR lands — the object is reachable from no ref and absent from a fresh
   # clone.  The rule is accompaniment: a cited authored head must share its
@@ -1525,10 +1525,10 @@ fi
 #
 # Before this lane the repo had no local gate that could catch a source error
 # lint.yml fails on, for two independent reasons.  The only local lane that ran
-# clj-kondo at all was the Hicasso fixture witness below, and it (a) took
+# clj-kondo at all was the Fresco fixture witness below, and it (a) took
 # whatever binary was on PATH — 2025.10.23 here, which reports `errors: 0` on
 # the exact line CI fails at 2026.04.15 — and (b) lints two fixture files and
-# `hicasso/testbed`, never `hicasso/src/`.  An `(aset f "displayName" …)` pair
+# `fresco/testbed`, never `fresco/src/`.  An `(aset f "displayName" …)` pair
 # went out green locally and red in CI, and no amount of care locally could
 # have found it.
 #
@@ -1616,12 +1616,12 @@ if [ "$run_node" = true ] && [ ! -d "$spine_root/implementation/node_modules" ];
   printf '      worktree, and only the primary checkout carries the install).\n'
   printf '      This is NOT a pass.  Left with NO local gate: the JS harness\n'
   printf '      self-tests, the CLJS node integration suite, the per-namespace\n'
-  printf '      isolation gate, and the hicasso invariants / lint-export /\n'
+  printf '      isolation gate, and the fresco invariants / lint-export /\n'
   printf '      modules-compile lanes.  CI grades all of them (test.yml `cljs`).\n'
   printf '      To run them here: npm ci --prefix implementation.  Do NOT link\n'
   printf '      another checkout'"'"'s node_modules — an installer writes THROUGH\n'
   printf '      the link and empties the tree it points at (rf2-7ymm).\n'
-  note_skipped "npm/CLJS/isolation + hicasso invariant lanes — implementation/node_modules absent in this checkout (linked worktree), so no local lane ran the JS harness self-tests, CLJS node integration, per-ns isolation or the hicasso gates this run (rf2-7ymm)"
+  note_skipped "npm/CLJS/isolation + fresco invariant lanes — implementation/node_modules absent in this checkout (linked worktree), so no local lane ran the JS harness self-tests, CLJS node integration, per-ns isolation or the fresco gates this run (rf2-7ymm)"
 elif [ "$run_node" = true ]; then
   run "implementation JS harness self-tests" "cd implementation && npm run test:scripts" \
     bash -lc "cd '$spine_root/implementation' && npm run test:scripts"
@@ -1643,7 +1643,7 @@ elif [ "$run_node" = true ]; then
   run "per-ns test isolation" "cd implementation && node scripts/check-per-ns-isolation.cjs" \
     bash -lc "cd '$spine_root/implementation' && node scripts/check-per-ns-isolation.cjs"
 
-  # Hicasso invariants gate (rf2-8a6s).  implementation/hicasso/ IS the measured
+  # Fresco invariants gate (rf2-8a6s).  implementation/fresco/ IS the measured
   # prototype, moved — `frozen-sources.edn` pins every donor file in the bench
   # tree by digest (FROZEN), the gate RECONSTRUCTS each package file from its
   # donor and requires the file on disk to equal it (MOVED), and no package
@@ -1654,7 +1654,7 @@ elif [ "$run_node" = true ]; then
   # diverge arbitrarily and stay green while this spine advertised the gate as
   # proof that it had not.  Sub-second, pure Python stdlib.  It runs in the
   # `cljs` job in CI for the same reason it sits in this tier: its two input
-  # surface — implementation/hicasso/** — which it was
+  # surface — implementation/fresco/** — which it was
   # copied from — both arm `cljs_node_test`.
   #
   # FREEZE IS ONE OF SEVERAL (rf2-ibje, hence the name).  The same npm script
@@ -1662,10 +1662,10 @@ elif [ "$run_node" = true ]; then
   # facade inventory and the guide-samples check — sibling static reads of the
   # same artefact, each with its own `--self-test`, sharing this lane because
   # they share its input surface.  Read the roster off package.json.
-  run "hicasso invariants gate" "cd implementation && npm run test:hicasso-invariants" \
-    bash -lc "cd '$spine_root/implementation' && npm run test:hicasso-invariants"
+  run "fresco invariants gate" "cd implementation && npm run test:fresco-invariants" \
+    bash -lc "cd '$spine_root/implementation' && npm run test:fresco-invariants"
 
-  # Hicasso lint export gate (rf2-hic-022; reduced to macro shapes under
+  # Fresco lint export gate (rf2-hic-022; reduced to macro shapes under
   # rf2-r3r00).  The artefact publishes a clj-kondo export from
   # `resources/clj-kondo.exports/` giving `defview` / `event` / `defhost`
   # their `defn` / `fn` / `def` shapes, and this is its smoke:
@@ -1681,24 +1681,24 @@ elif [ "$run_node" = true ]; then
   # matching `test.yml` job (`check_jvm_lane_rosters.py`), which is hot-zone.
   # So the export is gated in CI by lint.yml's required `clj-kondo` job (the
   # repo's `:config-paths` points at it), and the FIXTURES are gated here.
-  # Pairing a `jvm-hicasso` job with a roster entry would let the witness
+  # Pairing a `jvm-fresco` job with a roster entry would let the witness
   # follow; until then, this line is what makes it run.
-  run "hicasso lint export gate" "cd implementation && npm run test:hicasso-lint" \
-    bash -lc "cd '$spine_root/implementation' && npm run test:hicasso-lint"
+  run "fresco lint export gate" "cd implementation && npm run test:fresco-lint" \
+    bash -lc "cd '$spine_root/implementation' && npm run test:fresco-lint"
 
-  # Hicasso bench-lane compile coverage (rf2-2rtt6.73).  NO PR gate compiled
+  # Fresco bench-lane compile coverage (rf2-2rtt6.73).  NO PR gate compiled
   # this lane: `:node-test` selects `cljs-test$` and `:browser-test` selects
   # `-dom-cljs-test$`, and nothing test-shaped requires the arms, so
   # out/node-test.js carried zero occurrences of `walk_profile_app` and
   # out/browser-test/ had no such module.  The only compiler that ever saw an
-  # arm was `:hicasso-bench`, driven BY HAND — a broken arm could not go red,
+  # arm was `:fresco-bench`, driven BY HAND — a broken arm could not go red,
   # and a worker mutation-proving a change through the lane proved nothing.
   # The arms are deliberately LOCAL COPIES of shipping code (the rf2-2rtt6.32
   # call-convention discipline), so they drift by construction and a compile
   # is the cheapest thing that notices.  ~45s: one dev-mode `shadow-cljs
   # compile` of all 100 lane namespaces, warnings treated as failures.
-  run "hicasso modules compile" "cd implementation && npm run test:hicasso-compile" \
-    bash -lc "cd '$spine_root/implementation' && npm run test:hicasso-compile"
+  run "fresco modules compile" "cd implementation && npm run test:fresco-compile" \
+    bash -lc "cd '$spine_root/implementation' && npm run test:fresco-compile"
 else
   printf '\n--- cljs_node_test surface unchanged → skipping npm/CLJS/isolation (override with --all) ---\n'
   note_skipped "npm/CLJS/isolation (cljs_node_test surface unchanged; --all forces)"

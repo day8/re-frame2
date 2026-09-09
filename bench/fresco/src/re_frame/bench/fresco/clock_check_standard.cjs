@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// THE CHECK STANDARD FOR THE HICASSO CLOCK (rf2-8a746).
+// THE CHECK STANDARD FOR THE FRESCO CLOCK (rf2-8a746).
 //
-//   node hicasso/test/re_frame/bench/hicasso/clock_check_standard.cjs   the self-test
+//   node fresco/test/re_frame/bench/fresco/clock_check_standard.cjs   the self-test
 //
 // ## What this replaces, and why the replacement is a LEVEL
 //

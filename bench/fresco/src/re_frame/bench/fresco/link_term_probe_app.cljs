@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.link-term-probe-app
+(ns re-frame.bench.fresco.link-term-probe-app
   "DIAGNOSTIC ONLY (rf2-6c237): price the per-render route-link term the
   rf2-2rtt6.54 migration added to every census mount — the 207
   `link-model` calls the acceptance page performs (69 cards x 3 links),
@@ -10,10 +10,10 @@
   render-body door exactly as `route-link` performs them (same seam, same
   frame), interleaved with the arm-order guard adjudicating."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
-            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.shapes.large-template :as rf.bench.fresco.shapes.large-template]
+            [re-frame.bench.fresco.shapes.model :as rf.bench.fresco.shapes.model]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.routing :as rf.routing]))
@@ -27,8 +27,8 @@
   links and one article link, from the model's own seed."
   []
   (let [a #js []]
-    (dotimes [i rf.bench.hicasso.shapes.large-template/article-count]
-      (let [art (rf.bench.hicasso.shapes.model/article i)
+    (dotimes [i rf.bench.fresco.shapes.large-template/article-count]
+      (let [art (rf.bench.fresco.shapes.model/article i)
             u   (:username (:author art))]
         (.push a {:to :conduit.profile/show :params {:username u}})
         (.push a {:to :conduit.profile/show :params {:username u}})
@@ -38,20 +38,20 @@
 (def ^:private passes-per-sample 4)
 
 (defn- timed-door [pass!]
-  (let [t0 (rf.bench.hicasso.lane/now-ms)]
+  (let [t0 (rf.bench.fresco.lane/now-ms)]
     (dotimes [_ passes-per-sample]
-      (rf.bench.hicasso.arm1.runtime/render-body frame-id (fn [_] (pass!) [:span]) {}))
-    (- (rf.bench.hicasso.lane/now-ms) t0)))
+      (rf.bench.fresco.arm1.runtime/render-body frame-id (fn [_] (pass!) [:span]) {}))
+    (- (rf.bench.fresco.lane/now-ms) t0)))
 
 (defn ^:export -main []
   (rf/init! rf.adapter.uix/adapter)
-  (rf.bench.hicasso.lane/leave-act-environment!)
-  (rf.bench.hicasso.lane/self-test!)
+  (rf.bench.fresco.lane/leave-act-environment!)
+  (rf.bench.fresco.lane/self-test!)
   (-> (js/Promise.resolve nil)
       (.then
         (fn [_]
-          (rf.bench.hicasso.shapes.large-template/make-frame! frame-id)
-          (rf.bench.hicasso.shapes.large-template/reseed! frame-id)
+          (rf.bench.fresco.shapes.large-template/make-frame! frame-id)
+          (rf.bench.fresco.shapes.large-template/reseed! frame-id)
           (let [targets    (link-targets)
                 n          (alength targets)
                 link-model (rf.late-bind/require-fn! :routing/link-model
@@ -72,21 +72,21 @@
                             (dotimes [i n]
                               (vreset! sink (link-model (aget targets i) frame-id)))))}]
                 {:keys [readings samples]}
-                (rf.bench.hicasso.lane/rounds! arms {:warmup 3 :samples 8} 5
+                (rf.bench.fresco.lane/rounds! arms {:warmup 3 :samples 8} 5
                               (fn [{:keys [pass]}] (timed-door pass)))
                 rows (into {}
                            (map (fn [id]
                                   (let [xs (mapcat #(get % id) readings)]
-                                    [id (rf.bench.hicasso.lane/summarise (mapv #(/ % passes-per-sample) xs))])))
+                                    [id (rf.bench.fresco.lane/summarise (mapv #(/ % passes-per-sample) xs))])))
                            [:link-model :route-url :ctl2])
-                gv   (rf.bench.hicasso.lane/guard! samples "link-term probe (in-page ms, diagnostic)")
-                ctl  (rf.bench.hicasso.lane/control-verdict (* 2.0 (:p50 (get rows :link-model)))
+                gv   (rf.bench.fresco.lane/guard! samples "link-term probe (in-page ms, diagnostic)")
+                ctl  (rf.bench.fresco.lane/control-verdict (* 2.0 (:p50 (get rows :link-model)))
                                            (let [s (get rows :ctl2)]
                                              {:min (:min s) :max (:max s) :mean (:p50 s)})
                                            0.25)]
             (when-not (:ok? ctl)
               (throw (ex-info (str "positive control failed: " (:why ctl)) {})))
-            (rf.bench.hicasso.lane/record! :link-term rows)
+            (rf.bench.fresco.lane/record! :link-term rows)
             (js/console.log ";; ==== LINK TERM (ms per 207-link pass; diagnostic in-page clock) ====")
             (doseq [id [:link-model :route-url :ctl2]]
               (let [{:keys [p50 min max]} (get rows id)]
@@ -96,8 +96,8 @@
                                      " us/link)"))))
             (js/console.log (str ";;   control: " (:why ctl)))
             (when (:refuse? gv)
-              (set! (.-HICASSO_GUARD_REFUSED js/window) true))
-            (rf.bench.hicasso.lane/done!))))
+              (set! (.-FRESCO_GUARD_REFUSED js/window) true))
+            (rf.bench.fresco.lane/done!))))
       (.catch (fn [e]
-                (rf.bench.hicasso.lane/fail! (or (some-> e .-message) (str e)))
-                (rf.bench.hicasso.lane/done!)))))
+                (rf.bench.fresco.lane/fail! (or (some-> e .-message) (str e)))
+                (rf.bench.fresco.lane/done!)))))

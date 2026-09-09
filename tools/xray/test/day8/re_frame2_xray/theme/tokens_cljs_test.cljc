@@ -204,7 +204,7 @@
             deleted `panel-domain->token` map named six tabs — one of
             them the retired `:event` (rf2-5gl5r) — while five shipped
             ones (`:epoch` · `:resources` · `:derivation-graph` ·
-            `:module-view` · `:hicasso`) were absent, and the pinning
+            `:module-view` · `:fresco`) were absent, and the pinning
             test could not fail on that because it compared the map
             with a copy of itself. A universal assertion covers every
             shipped tab without introducing a second inventory to
@@ -221,7 +221,7 @@
             universal over the argument."
     (let [accent (:accent t/tokens)]
       (is (string? accent) "the single accent resolves (sanity guard)")
-      (doseq [tab [:machines :hicasso :event :never-a-tab nil]]
+      (doseq [tab [:machines :fresco :event :never-a-tab nil]]
         (is (= accent (t/panel-accent tab))
             (str "panel-accent " (pr-str tab) " is the single accent"))))))
 

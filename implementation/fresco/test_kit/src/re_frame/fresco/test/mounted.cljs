@@ -1,14 +1,14 @@
-(ns re-frame.hicasso.test.mounted
-  "`hm` — HICASSO'S MOUNTED TEST FACADE, L3 (rf2-hic-027).
+(ns re-frame.fresco.test.mounted
+  "`hm` — FRESCO'S MOUNTED TEST FACADE, L3 (rf2-hic-027).
 
-  The rung above `re-frame.hicasso.test`. That namespace runs ONE body and
+  The rung above `re-frame.fresco.test`. That namespace runs ONE body and
   reads the hiccup it returned; this one puts a real React root on a real
   page and lets React do everything L2 refuses to pretend about —
   lifecycle, hooks, context, refs, error boundaries, foreign hosts, the
   DOM.
 
-      (:require [re-frame.hicasso.test :as ht]        ;; L1–L2
-                [re-frame.hicasso.test.mounted :as hm]) ;; L3
+      (:require [re-frame.fresco.test :as ht]        ;; L1–L2
+                [re-frame.fresco.test.mounted :as hm]) ;; L3
 
   ## Nine doors and one handle
 
@@ -44,7 +44,7 @@
       (hm/shadow! opts)  → {:status :green :checkpoints 4}
 
   [[shadow!]] is the migration comparator: the Reagent original and the
-  Hicasso port, mounted against isolated copies of the same seeded frame
+  Fresco port, mounted against isolated copies of the same seeded frame
   and driven by one script, with canonical DOM and the intent stream
   compared at every checkpoint. It takes no handle either — it makes two,
   and a caller who held one could reach across the isolation the door
@@ -83,7 +83,7 @@
 
   (The deliberately shared-frame multi-root case is a claim about the
   RUNTIME rather than about a consumer's app, and it belongs where it
-  already lives — `re-frame.hicasso.roots-frames-*` drives it against
+  already lives — `re-frame.fresco.roots-frames-*` drives it against
   `impl.mount` directly.)
 
   ## No selector language, and no library dependency
@@ -141,7 +141,7 @@
 
   A malformed form, a bad handle or a hiccup shape the substrate rejects
   is already refused BY THE RUNTIME, with the runtime's own id, reason and
-  recovery — which is the whole discipline `re-frame.hicasso.test`
+  recovery — which is the whole discipline `re-frame.fresco.test`
   established (§Children, and the runtime-parity suite). A guard here
   would paraphrase a refusal that already exists.
 
@@ -158,14 +158,14 @@
   throwing. That distinction is the useful one — the kit REFUSES misuse of
   the instrument and REPORTS a fact about the code under test — and it is
   also what keeps this file free of new `:rf.error/*` ids.
-  (`:rf.error/hicasso-test-residue-after-quiescence` was reserved for a
+  (`:rf.error/fresco-test-residue-after-quiescence` was reserved for a
   raising variant of that report and is now a TOMBSTONE in the complaint
   register: residue is settled as a reported test failure, so the
   spelling is retired and will never be raised.)
 
   [[shadow!]] does not weaken that. Its OPTIONS are its own surface and
   nothing else refuses them, so it does refuse a malformed one — but it
-  reuses the kit's existing `:rf.error/hicasso-test-bad-option`, whose
+  reuses the kit's existing `:rf.error/fresco-test-bad-option`, whose
   meaning is *the kit was given options outside their closed contract*
   and whose two recoveries are already the two arms this door needs. An
   id names the refusal rather than the door (complaints.md, *Rulings this
@@ -180,8 +180,8 @@
   document. The two page-wide readers do not — [[census]] and
   [[bodies-run]] read runtime tables — but a reading is only worth what
   built the page it describes, so both belong beside a mount all the same.
-  Like `re-frame.hicasso.test` it lives in the kit's own source root
-  (`hicasso/test_kit/src`), outside the artefact's published `:paths`, so
+  Like `re-frame.fresco.test` it lives in the kit's own source root
+  (`fresco/test_kit/src`), outside the artefact's published `:paths`, so
   nothing in a production bundle can reach it."
   (:require [clojure.string :as str]
             [clojure.walk :as walk]
@@ -189,10 +189,10 @@
             [re-frame.core :as rf]
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.error :as rf.error]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.impl.roots :as rf.fresco.impl.roots]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.test-support :as rf.test-support]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]))
@@ -479,7 +479,7 @@
   facade does not visit should read it through the same door the report
   does, rather than through a second assembly of the same numbers."
   []
-  (assoc (rf.hicasso.test.runtime/residue) :frames (set (rf/frame-ids))))
+  (assoc (rf.fresco.test.runtime/residue) :frames (set (rf/frame-ids))))
 
 ;; ---------------------------------------------------------------------------
 ;; The work counter — the census's opposite number
@@ -558,7 +558,7 @@
   but dead code. Every consumer of it is a test, so the door belongs at
   the tier its consumers run on rather than on the public door, and this
   namespace is where the thing being measured was mounted. It costs a
-  production bundle nothing: the kit sits in `hicasso/test_kit/src`,
+  production bundle nothing: the kit sits in `fresco/test_kit/src`,
   outside the artefact's published `:paths`, so a consumer that never
   writes a test never carries it (rf2-5mxe).
 
@@ -569,9 +569,9 @@
   where this counter bumps once per body INVOCATION — so on a body the
   fence re-ran the two disagree by design."
   [f]
-  (rf.hicasso.test.runtime/reset-body-runs!)
+  (rf.fresco.test.runtime/reset-body-runs!)
   (f)
-  (rf.hicasso.test.runtime/body-runs))
+  (rf.fresco.test.runtime/body-runs))
 
 (defn- leaked
   "What `now` has that `baseline` did not — the report's `:leaked` map, or
@@ -640,7 +640,7 @@
   spelling."
   [initial-events]
   (let [ordinal  (swap! !mount-seq inc)
-        frame-kw (keyword "re-frame.hicasso.test.mounted" (str "mount-" ordinal))]
+        frame-kw (keyword "re-frame.fresco.test.mounted" (str "mount-" ordinal))]
     (rf/make-frame (cond-> {:id frame-kw}
                      (seq initial-events) (assoc :initial-events (vec initial-events))))
     (swap! !facade-frames conj frame-kw)
@@ -676,7 +676,7 @@
 ;; of the third left the first two standing.
 ;;
 ;; The audit drove it. A valid registered view whose body holds a plain
-;; function child head is a genuine `:rf.error/hicasso-bad-head`; React 19
+;; function child head is a genuine `:rf.error/fresco-bad-head`; React 19
 ;; does not re-throw a failed render out of `flushSync`, it hands the error
 ;; to the root's `onUncaughtError`, whose default reports it globally and
 ;; returns. So `mount!` answered a handle for a root that had rendered
@@ -721,7 +721,7 @@
                              #js {:onUncaughtError (fn [error _info] (catch! error))})
                 :frame     frame-kw
                 :container container}]
-    (try (rf.hicasso.impl.mount/render! handle hiccup)
+    (try (rf.fresco.impl.mount/render! handle hiccup)
          (catch :default e (catch! e)))
     handle))
 
@@ -751,7 +751,7 @@
   So the rollback takes it down and the complaint is the honest residue
   of a hydration that failed."
   [frame-kw node supplied? root]
-  (when (some? root) (rf.hicasso.impl.mount/unmount! root))
+  (when (some? root) (rf.fresco.impl.mount/unmount! root))
   (when-not supplied?
     (when-some [p (.-parentNode node)] (.removeChild p node)))
   (swap! !facade-frames disj frame-kw)
@@ -843,7 +843,7 @@
    (try
      (let [[frame-kw ordinal] (mint-frame! initial-events)
            baseline           (census)
-           node               (or container (rf.hicasso.impl.mount/fresh-container!))
+           node               (or container (rf.fresco.impl.mount/fresh-container!))
            !refusal           (volatile! nil)
            root               (catching-root! node frame-kw form
                                               (fn [error]
@@ -915,11 +915,11 @@
   ([form {:keys [initial-events container html clock]} budget-ms]
    (let [[frame-kw ordinal] (mint-frame! initial-events)
          baseline  (census)
-         node      (or container (rf.hicasso.impl.mount/fresh-container!))
+         node      (or container (rf.fresco.impl.mount/fresh-container!))
          supplied? (some? container)
          _         (when (some? html) (set! (.-innerHTML node) html))
          !refusal  (volatile! nil)
-         root      (try (rf.hicasso.impl.mount/hydrate-root! node frame-kw form)
+         root      (try (rf.fresco.impl.mount/hydrate-root! node frame-kw form)
                         (catch :default e (vreset! !refusal e) nil))]
      (if-some [refusal @!refusal]
        (do (abandon! frame-kw node supplied? nil)
@@ -930,7 +930,7 @@
            (fn [resolve reject]
              (letfn [(tick []
                        (cond
-                         (not (rf.hicasso.impl.roots/adopting? window))
+                         (not (rf.fresco.impl.roots/adopting? window))
                          ;; Past the closer AND past the reap horizon, so the
                          ;; handle a caller receives is one whose tables have
                          ;; settled. This is also where the construction
@@ -975,7 +975,7 @@
 
   Takes a hydrated handle unchanged."
   [handle form]
-  (rf.hicasso.impl.mount/render! handle form)
+  (rf.fresco.impl.mount/render! handle form)
   handle)
 
 (defn settle!
@@ -984,7 +984,7 @@
 
   Call it after anything that stimulated the page from outside a facade
   door and whose handlers have ALREADY RUN: a `user-event` sequence, a
-  raw `.click` on an element carrying a Hicasso intent, a timer you
+  raw `.click` on an element carrying a Fresco intent, a timer you
   fired yourself. An intent lowered in a body dispatches through the
   arm's frame-locked SYNCHRONOUS door, so by the time the click returns
   the handlers have run and app-db has moved; this commits the echo, and
@@ -1020,7 +1020,7 @@
   The flush is React's and is therefore page-wide; the handle is taken so
   that every door in this facade reads the same way."
   [handle]
-  (rf.hicasso.impl.mount/settle!)
+  (rf.fresco.impl.mount/settle!)
   handle)
 
 (defn settle-until!
@@ -1119,7 +1119,7 @@
     the platform's own schedule, where it still fires — so a rAF-driven
     witness is not blocked by the clock, it is simply not driven by it.
     (The substrate arms none: presence's whole frame budget is zero rAF
-    and zero interval, and `re-frame.hicasso.motion-presence-dom-cljs-test`
+    and zero interval, and `re-frame.fresco.motion-presence-dom-cljs-test`
     is what says so.)
   - **Microtasks, and therefore promises.** A microtask queue cannot be
     drained from inside a task by anything in userland, so no control
@@ -1173,7 +1173,7 @@
 
   It is not `act`: see the namespace docstring."
   [handle event]
-  (rf.hicasso.impl.mount/dispatch! handle event)
+  (rf.fresco.impl.mount/dispatch! handle event)
   handle)
 
 (defn unmount!
@@ -1202,7 +1202,7 @@
   Idempotent: unmounting twice is not an error, and only the first call
   counts against the standing-mount census."
   [handle]
-  (rf.hicasso.impl.mount/unmount! handle)
+  (rf.fresco.impl.mount/unmount! handle)
   (when (= :mounted @(get handle state-key))
     (vreset! (get handle state-key) :unmounted)
     (swap! !standing dec))
@@ -1218,7 +1218,7 @@
   report; asserts nothing and resets nothing.
 
       {:clean?         false
-       :frame          :re-frame.hicasso.test.mounted/mount-3
+       :frame          :re-frame.fresco.test.mounted/mount-3
        :ordinal        3
        :still-mounted? false
        :standing       0
@@ -1258,7 +1258,7 @@
   (release-clock-for! handle)
   (let [baseline (get handle baseline-key)
         mounted? (= :mounted @(get handle state-key))]
-    (.then (rf.hicasso.test.runtime/quiesced!)
+    (.then (rf.fresco.test.runtime/quiesced!)
            (fn [_]
              (let [now (census)
                    l   (leaked baseline now)]
@@ -1340,7 +1340,7 @@
            (when (= :unmounted @(get handle state-key))
              (vreset! (get handle state-key) :read)
              (when (zero? (swap! !open dec))
-               (rf.hicasso.impl.collector/reset-runtime!))
+               (rf.fresco.impl.collector/reset-runtime!))
              (swap! !facade-frames disj (:frame handle))
              (rf/destroy-frame! (:frame handle)))
            report)))
@@ -1362,7 +1362,7 @@
 ;;
 ;; AND ISOLATION IS EXACTLY WHAT MAKES THE COMPARISON UNFAIR, at one slot.
 ;; `capsule-replay-verdict.md` states the general result and names this door
-;; while doing it: *the tree a Hicasso body returns is not pure data with
+;; while doing it: *the tree a Fresco body returns is not pure data with
 ;; respect to the frame it ran in*. A `h/route-link` captures the rendering
 ;; frame at render time and bakes its keyword into the anchor's navigate
 ;; intent as ordinary data, so two isolated mounts of the SAME view emit two
@@ -1406,13 +1406,13 @@
 
 (defn- bad-option!
   "Refuse a malformed shadow option, reusing the kit's own
-  `:rf.error/hicasso-test-bad-option`. See the namespace docstring §Refusals
+  `:rf.error/fresco-test-bad-option`. See the namespace docstring §Refusals
   on why this door refuses at all and why it mints no id to do it."
   [reason extra]
   (throw (rf.error/ex-info-from-data
            (merge extra
-                  {:rf.error/id :rf.error/hicasso-test-bad-option
-                   :where       're-frame.hicasso.test.mounted
+                  {:rf.error/id :rf.error/fresco-test-bad-option
+                   :where       're-frame.fresco.test.mounted
                    :reason      reason
                    :recovery    :no-recovery}))))
 
@@ -1429,7 +1429,7 @@
 
   `re-frame.event-emit`, the substrate's event-observation registry,
   which is the same port
-  `re-frame.hicasso.test/capture-intents` takes its reading at — this
+  `re-frame.fresco.test/capture-intents` takes its reading at — this
   variant exists only because it must be armed BEFORE either frame
   exists. `capture-intents` filters to a frame keyword the caller already
   has; a shadow run does not have one until `mount!` has minted it, and
@@ -1439,7 +1439,7 @@
   same door."
   []
   (let [!log (atom [])
-        listener-id (keyword "re-frame.hicasso.test.mounted"
+        listener-id (keyword "re-frame.fresco.test.mounted"
                              (str "shadow-" (swap! !shadow-seq inc)))]
     (rf.event-emit/register-event-listener! listener-id
                            (fn [record]
@@ -1481,7 +1481,7 @@
 ;; The DOM difference — the FIRST node at which the two pages disagree
 ;; ---------------------------------------------------------------------------
 ;;
-;; `re-frame.hicasso.test/canonical-dom` answers WHETHER two pages differ; a
+;; `re-frame.fresco.test/canonical-dom` answers WHETHER two pages differ; a
 ;; red owes the programmer WHERE. This walk is that second question, and over
 ;; MARKUP it is deliberately the same equality: comments are dropped and
 ;; adjacent text runs join, exactly as they do when `canonical-dom` flattens a
@@ -1512,7 +1512,7 @@
   (persistent!
     (reduce (fn [attributes attribute]
               (let [attribute-name (.-name attribute)]
-                (if (contains? rf.hicasso.test.runtime/annotation-attributes attribute-name)
+                (if (contains? rf.fresco.test.runtime/annotation-attributes attribute-name)
                   attributes
                   (assoc! attributes
                           attribute-name
@@ -1950,9 +1950,9 @@
      run goes red at the checkpoint you expect. A comparator that has
      never been seen to fail is not yet evidence of anything.
 
-  ## What is mounted, and how an original that is not Hicasso gets here
+  ## What is mounted, and how an original that is not Fresco gets here
 
-  Both sides are handed to the Hicasso runtime by [[mount!]], so a form
+  Both sides are handed to the Fresco runtime by [[mount!]], so a form
   the substrate refuses is refused with the substrate's own id. A Reagent,
   UIx or plain-React original therefore arrives the way every foreign
   component arrives — through the runtime's own crossing, `[:> C props]`
@@ -1961,7 +1961,7 @@
   a second view library, and the door works for all of them for that
   reason.
 
-  **Cross single-word props.** The crossing renames the KEY: Hicasso
+  **Cross single-word props.** The crossing renames the KEY: Fresco
   camelCases it on the way out, and a reactified Reagent original reads
   back the name React actually carried, so `:article-id` reaches the
   reference as `:articleId` while the Hiccup candidate still sees
@@ -1992,7 +1992,7 @@
   each side's own frame keyword normalises to [[this-frame]] first, in
   the intent stream and in DOM text and attribute values alike. That is a
   narrower claim than raw equality and it is stated rather than assumed;
-  `docs/design/hicasso/product/capsule-replay-verdict.md` is where the
+  `docs/design/fresco/product/capsule-replay-verdict.md` is where the
   general result was found, and it names this door while stating it. Only
   a mount's OWN keyword normalises, so a genuine cross-frame address still
   reddens.

@@ -1,8 +1,8 @@
-(ns day8.re-frame2-xray.panels.hicasso-causal-native-island-dom-cljs-test
+(ns day8.re-frame2-xray.panels.fresco-causal-native-island-dom-cljs-test
   "THE CAUSAL SLICE OVER A SUBJECT PAST THE FENCE (rf2-t2d3).
 
-  `hicasso_causal_cljs_test` mounts interpreted Hicasso and nothing else:
-  `rf.hicasso/defview` boundaries reading `rf.hicasso/sub`. Every link it evidences, and
+  `fresco_causal_cljs_test` mounts interpreted Fresco and nothing else:
+  `rf.fresco/defview` boundaries reading `rf.fresco/sub`. Every link it evidences, and
   every link it labels `:host-opaque`, would read exactly the same on a
   repository with no native tier in it — which is what CHECKPOINT 3
   (`rf2-hic-038`, row 7) named when it scored the row's deciding
@@ -14,7 +14,7 @@
 
   | row | what it establishes |
   |---|---|
-  | [[a-native-island-is-a-first-class-causal-subject]] | an `rf.hicasso.native/use-sub` read is a slice subject on the same four seams a boundary's read is: links 1-4 evidenced, and the advisor names AND times it |
+  | [[a-native-island-is-a-first-class-causal-subject]] | an `rf.fresco.native/use-sub` read is a slice subject on the same four seams a boundary's read is: links 1-4 evidenced, and the advisor names AND times it |
   | [[the-inner-tree-is-opaque-and-a-foreign-subtree-contributes-nothing]] | neither island markup nor a rendered foreign subtree reaches ANY of the four reads — and the foreign subtree's absence is proved against a control showing it really rendered |
   | [[host-opacity-does-not-mean-a-foreign-subtree-was-crossed]] | THE REFUSAL. Links 5-7 are identical over this subject and over an interpreted-only one, so `:host-opaque` does not encode a crossing and cannot be read as one |
 
@@ -25,7 +25,7 @@
   reason is structural rather than unfinished: **the projection holds no
   tree**. `causal/slice` is a pure function of four evidence envelopes and
   a trace window, and not one of them carries a node, a child, an element
-  or a component — `re-frame.hicasso.tool`'s own naming projection says so
+  or a component — `re-frame.fresco.tool`'s own naming projection says so
   at the producer (`:basis :opaque`, and *the runtime mints no boundary
   identity and keeps no view registry*). A boundary is identified by the
   EDGE SET it holds. So there is no subtree for a label to attach to, and
@@ -44,36 +44,36 @@
   ## The subjects are real, and one of them is not ours at all
 
   The island is a raw React function component — `react/createElement`
-  and `rf.hicasso.native/use-sub`, mounted through `rf.hicasso/defhost` — so its read is a real
+  and `rf.fresco.native/use-sub`, mounted through `rf.fresco/defhost` — so its read is a real
   React hook against the collector's own entry cache. The foreign
   subtree is a plain React function component with its own `useState`,
   reached through the `[:>]` raw escape — *`defhost` with the declaration
-  erased* (`impl/codec` §HD-011). Nothing in it is Hicasso's, which is
+  erased* (`impl/codec` §HD-011). Nothing in it is Fresco's, which is
   what makes its absence from the rosters the fact this file needs.
 
   ## Browser lane
 
-  Hooks need a fiber. Per `docs/design/hicasso/product/lanes/testing-xray.md`
+  Hooks need a fiber. Per `docs/design/fresco/product/lanes/testing-xray.md`
   foreign regions are mounted-test territory and there is no fake hook
   dispatcher, ever — so every row here needs a real React DOM and the ns
   takes the `-dom-cljs-test` suffix that selects `:browser-test`. The
   `:node-test` build compiles it too (`cljs-test$` matches), where each row
   degrades to a STATED skip rather than to a false green.
 
-  Normative owner: `tools/xray/spec/028-Hicasso-Advisor.md`."
+  Normative owner: `tools/xray/spec/028-Fresco-Advisor.md`."
   (:require [cljs.test :refer [deftest is testing use-fixtures async]]
             [clojure.string :as string]
-            [day8.re-frame2-xray.panels.hicasso-advisor :as advisor]
-            [day8.re-frame2-xray.panels.hicasso-causal :as causal]
-            [day8.re-frame2-xray.panels.hicasso-helpers :as hh]
-            [day8.re-frame2-xray.panels.hicasso-reads :as reads]
+            [day8.re-frame2-xray.panels.fresco-advisor :as advisor]
+            [day8.re-frame2-xray.panels.fresco-causal :as causal]
+            [day8.re-frame2-xray.panels.fresco-helpers :as hh]
+            [day8.re-frame2-xray.panels.fresco-reads :as reads]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.native :as rf.hicasso.native]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.native :as rf.fresco.native]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]))
 
@@ -103,8 +103,8 @@
 
 (defn- Foreign
   "A FOREIGN React component. Not a `defview`, not an island reading
-  through `rf.hicasso.native/use-sub`, no `rf.hicasso/sub` — it reads nothing of the
-  application's, and Hicasso knows only that React was handed a function.
+  through `rf.fresco.native/use-sub`, no `rf.fresco/sub` — it reads nothing of the
+  application's, and Fresco knows only that React was handed a function.
 
   It holds its own `useState` so a row can prove it really rendered and
   really re-rendered, which is what turns its absence from every roster
@@ -129,35 +129,35 @@
   the `react/createElement` tree below is what the tool tier must not be
   able to see."
   [^js _props]
-  (let [v (rf.hicasso.native/use-sub [::island])]
+  (let [v (rf.fresco.native/use-sub [::island])]
     (react/createElement
       "div" #js {"className" "island" "data-testid" "island-root"}
       (react/createElement
         "span" #js {"className" "island-depth-1"}
         (react/createElement "b" #js {"className" "island-depth-2"} (str v))))))
 
-(rf.hicasso/defhost island-host
+(rf.fresco/defhost island-host
   "The declared crossing to the island — `defhost` names it, and the
   island is React on the far side."
   island)
 
-(rf.hicasso/defview crossing-boundary
+(rf.fresco/defview crossing-boundary
   "One interpreted boundary whose subtree crosses the fence TWICE: a
   raw-React island below it, and a foreign React component beside that."
   [_]
   [:div.crossing
-   [:u.shell (str (rf.hicasso/sub [::shell]))]
+   [:u.shell (str (rf.fresco/sub [::shell]))]
    [island-host {}]
    [:> Foreign]])
 
-(rf.hicasso/defview interpreted-boundary
+(rf.fresco/defview interpreted-boundary
   "The arm with no native tier anywhere under it — the subject the landed
   causal slice already has, mounted here so the third row can compare
   against it on ONE runtime rather than across two files."
   [_]
-  [:div.interpreted [:i.plain (str (rf.hicasso/sub [::plain]))]])
+  [:div.interpreted [:i.plain (str (rf.fresco/sub [::plain]))]])
 
-(rf.hicasso/defview page
+(rf.fresco/defview page
   "Both arms on one page, so every reading below is taken from one
   runtime and one turn of the four rosters. Reads nothing itself, and so
   claims the census's empty edge set — which is the fourth row every
@@ -184,7 +184,7 @@
                       (xray-test-support/reset-all!)
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
                       (reset! !foreign-runs 0)
-                      (rf.hicasso.impl.collector/reset-runtime!))}))
+                      (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -222,7 +222,7 @@
   arms reach, so a rejection cannot leave a live React root standing in
   the document for the next namespace to inherit."
   []
-  (run! rf.hicasso.impl.mount/release! @!minted)
+  (run! rf.fresco.impl.mount/release! @!minted)
   (reset! !minted [])
   nil)
 
@@ -244,14 +244,14 @@
   []
   (rf/make-frame {:id app-frame})
   (rf/with-frame app-frame (rf/dispatch-sync [::seed {:island 1 :shell 10 :plain 100}]))
-  (let [container (rf.hicasso.impl.mount/fresh-container!)
-        handle    (rf.hicasso.impl.mount/root! container app-frame [page {}])]
+  (let [container (rf.fresco.impl.mount/fresh-container!)
+        handle    (rf.fresco.impl.mount/root! container app-frame [page {}])]
     (swap! !minted conj handle)
-    (-> (wait-until! #(= 3 (count (keys @rf.hicasso.impl.collector/!cells))))
+    (-> (wait-until! #(= 3 (count (keys @rf.fresco.impl.collector/!cells))))
         (.then (fn [ok?]
                  (when-not ok?
                    (throw (ex-info (str "expected three cells; have "
-                                        (pr-str (keys @rf.hicasso.impl.collector/!cells)))
+                                        (pr-str (keys @rf.fresco.impl.collector/!cells)))
                                    {})))
                  handle)))))
 
@@ -260,7 +260,7 @@
   every cell that reads it, and lands in the frame's Spec 009 ring."
   []
   (rf/with-frame app-frame (rf/dispatch-sync [::bump]))
-  (rf.hicasso.impl.mount/settle!)
+  (rf.fresco.impl.mount/settle!)
   nil)
 
 (defn- evidence! [] (reads/evidence))
@@ -320,7 +320,7 @@
 
 (deftest a-native-island-is-a-first-class-causal-subject
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (-> (mount-page!)
           (.then
@@ -390,7 +390,7 @@
 
 (deftest the-inner-tree-is-opaque-and-a-foreign-subtree-contributes-nothing
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (-> (mount-page!)
           (.then
@@ -409,7 +409,7 @@
                          (.-textContent (.querySelector ^js container ".foreign-depth-2"))))
                   (let [before @!foreign-runs]
                     (.click (.querySelector ^js container ".foreign-nudge"))
-                    (rf.hicasso.impl.mount/settle!)
+                    (rf.fresco.impl.mount/settle!)
                     (is (< before @!foreign-runs)
                         (str "it is a live React component with its own state, so "
                              "its absence from the rosters below is OPACITY and "
@@ -473,7 +473,7 @@
   ;; foreign subtree" cannot be read off this output, and a checklist row
   ;; deciding on it is deciding on something the projection never computes.
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no React DOM") (done))
       (-> (mount-page!)
           (.then

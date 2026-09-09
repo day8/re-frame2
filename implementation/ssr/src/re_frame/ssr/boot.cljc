@@ -212,7 +212,7 @@
                      `re-frame.substrate.spine/make-render`). Hydrating via
                      `uix.dom/hydrate-root` directly bypasses it.
 
-                   • **React-element root — HICASSO.** A Hicasso root hands
+                   • **React-element root — FRESCO.** A Fresco root hands
                      React an element rather than a hashable data tree, so
                      likewise NO `:render-tree-fn`: call `ssr/hydrate!` without
                      one, then hydrate the root through `h/render!`'s `{:hydrate? true}`, which

@@ -3,7 +3,7 @@
 //
 // THE MINTED KEY WARNING'S PRODUCTION-ISOLATION PROBE (rf2-2rtt6.104).
 //
-//     node hicasso/test/re_frame/bench/hicasso/keywarn_elision_run.cjs
+//     node fresco/test/re_frame/bench/fresco/keywarn_elision_run.cjs
 //
 // ## The claim
 //
@@ -35,16 +35,16 @@
 //
 // ## The entry has to REACH the codec, and the default one does not
 //
-// `:hicasso-bench`'s baked `:init-fn` is `p0-reagent-app/-main` — the Reagent
+// `:fresco-bench`'s baked `:init-fn` is `p0-reagent-app/-main` — the Reagent
 // arm, which never requires `front.codec`. A pair built on the default entry
 // carries no sentinel in EITHER bundle: the control leg would fail loudly
 // rather than pass vacuously, but it would still be a guaranteed red run for
-// the wrong reason. Both legs therefore name `jsfb-hicasso-app/-main`, which
+// the wrong reason. Both legs therefore name `jsfb-fresco-app/-main`, which
 // requires `arm1.mount` -> `arm1.runtime` -> `front.codec`.
 //
 // ## NO EDIT TO shadow-cljs.edn
 //
-// The pair rides `:hicasso-bench` through `--config-merge`, exactly as
+// The pair rides `:fresco-bench` through `--config-merge`, exactly as
 // `compile_gate.cjs` and `jsfb_build.cjs` do, supplying its own `:output-dir`
 // and `:closure-defines` per leg. HD-017 makes a new build id a hot-zone edit;
 // the lane was built so a sibling never has to pay that. The shared build
@@ -64,8 +64,8 @@ const { shadowBuildVerdict, reportRefusal } = require('./lane_build.cjs');
 const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
-const BUILD_ID = 'hicasso-bench';
-const INIT_FN = 're-frame.bench.hicasso.jsfb-hicasso-app/-main';
+const BUILD_ID = 'fresco-bench';
+const INIT_FN = 're-frame.bench.fresco.jsfb-fresco-app/-main';
 const TAG = 'keywarn-elision';
 
 // DEV-ONLY sentinels. Each is an EXACT runtime string literal from inside a
@@ -93,7 +93,7 @@ const DEV_ONLY = [
   // independent string is still evidence the whole feature is gone rather
   // than one line of it, but the load-bearing sentinels are the two above.
   { source: 'front.codec/set-lowering-owner! (the unbalanced-pair pin)',
-    sentinel: '[hicasso] A boundary body began lowering while `' },
+    sentinel: '[fresco] A boundary body began lowering while `' },
 ];
 
 // PROD-SURVIVING sentinels: strings this entry ships regardless of goog.DEBUG.

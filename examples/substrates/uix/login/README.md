@@ -17,7 +17,7 @@ the same canned HTTP stub — because it is literally the same source. All of it
 lives in one substrate-free namespace, `login.model`
 ([`examples/core/login/model.cljc`](../../../core/login/model.cljc)), which this
 example `:require`s and both twins — Reagent and
-[Hicasso](../../hicasso/login/) — import unchanged. Only the
+[Fresco](../../fresco/login/) — import unchanged. Only the
 views are written differently. That's the idea worth taking away: swapping the
 renderer changes almost nothing. So this is a clear place to see where the
 substrate boundary falls, and how little sits on the substrate side of it.
@@ -91,7 +91,7 @@ React-family library renders them. Same model, swap the renderer, get UIx.
 This is a parity demonstration. Parity shows best when you hold everything
 constant except the one thing under test. Read this side by side with its
 siblings — [`examples/core/login/`](../../../core/login/) is the reference, and
-[`examples/substrates/hicasso/login/`](../../hicasso/login/) is the third arm.
+[`examples/substrates/fresco/login/`](../../fresco/login/) is the third arm.
 The
 schemas, the machine, the subs, and the HTTP stub are the same in all three; the
 view layer is the only thing that differs. Three renderers, one model.
@@ -103,7 +103,7 @@ strongest form of parity — the comparison holds the model constant not by keep
 of duplication: there is no second copy to diverge. The bundle-isolation gate
 (`npm run test:bundle-isolation`) scans all three login builds and proves each
 carries only its own view runtime — the UIx login `main.js` has no Reagent or
-Hicasso code — which is exactly what proves the shared `login.model` drags in no
+Fresco code — which is exactly what proves the shared `login.model` drags in no
 renderer.
 
 One mechanical note: the view namespace here is `uix.login.core`, not

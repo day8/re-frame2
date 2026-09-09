@@ -1,22 +1,22 @@
-(ns re-frame.bench.hicasso.slice-broad-clock-app
+(ns re-frame.bench.fresco.slice-broad-clock-app
   "THE SLICE'S BROAD-UPDATE CLOCK, WITH A DONOR ARM BESIDE IT — one broad
   application operation, through to the paint that follows it, taken on
-  the Hicasso page and on the UIx page that renders the same feed
+  the Fresco page and on the UIx page that renders the same feed
   (rf2-9wmqd).
 
-      HICASSO_INIT_FN=re-frame.bench.hicasso.slice-broad-clock-app/-main \\
-      HICASSO_OUT_DIR=out/hicasso-slice-broad \\
-      HICASSO_PORT=8139 \\
-        node implementation/hicasso/test/re_frame/bench/hicasso/run.cjs
+      FRESCO_INIT_FN=re-frame.bench.fresco.slice-broad-clock-app/-main \\
+      FRESCO_OUT_DIR=out/fresco-slice-broad \\
+      FRESCO_PORT=8139 \\
+        node implementation/fresco/test/re_frame/bench/fresco/run.cjs
 
-  NO NEW BUILD ID. `run.cjs` takes its entry from `HICASSO_INIT_FN` and
-  rides `:hicasso-bench`, the id the whole lane already shares, so this
+  NO NEW BUILD ID. `run.cjs` takes its entry from `FRESCO_INIT_FN` and
+  rides `:fresco-bench`, the id the whole lane already shares, so this
   arm costs `implementation/shadow-cljs.edn` — an HD-017 hot-zone file —
   nothing.
 
   ## WHY THERE IS A SECOND DRIVER AT ALL
 
-  [[re-frame.bench.hicasso.slice-echo-clock-app]] is the first, and its
+  [[re-frame.bench.fresco.slice-echo-clock-app]] is the first, and its
   own docstring states what it does not serve: **`U3` and `U4` are not in
   its row set, and it carries no donor arm at all**, so `C3` and `C4`
   have nothing to compare against. This driver takes the first of those
@@ -28,13 +28,13 @@
 
   ## IT IS THE SAME WINDOW, NOT A COPY OF IT
 
-  `window!` and `after-paint` are [[re-frame.bench.hicasso.slice-echo-clock-app]]'s,
+  `window!` and `after-paint` are [[re-frame.bench.fresco.slice-echo-clock-app]]'s,
   REQUIRED rather than transcribed, and so are its `measured-mask` and
   `structure-over-measured`. This lane pays for local copies deliberately
   where the copy is of SHIPPING code (the rf2-2rtt6.32 call-convention
   discipline), and that reason does not reach a sibling arm: two copies
   of one bench mechanism is two things that can drift with nothing
-  holding them in step, which is the shape `rf.bench.hicasso.lane/visit-plan`'s own
+  holding them in step, which is the shape `rf.bench.fresco.lane/visit-plan`'s own
   docstring is written against. So the two drivers cannot disagree about
   what a window is, and a repair to the window reaches both.
 
@@ -45,7 +45,7 @@
   ## THE ROW SET, AND WHY IT IS THE ONE IT IS
 
       :idle-frame     no interaction at all — the frame and nothing else,
-                      on the Hicasso page. The FLOOR every other row pays.
+                      on the Fresco page. The FLOOR every other row pays.
 
       :locale         a real `change` on the published `<select>`, which
                       moves ONE key in `app-db` and re-renders every
@@ -72,11 +72,11 @@
   by this window at all, and the reason is mechanical rather than a
   matter of taste.**
 
-  `re-frame.hicasso.examples.slice.flow-dom-cljs-test`'s namespace
+  `re-frame.fresco.examples.slice.flow-dom-cljs-test`'s namespace
   docstring, §*TWO CLICKS, TWO SETTLING RULES*, records the split as a
   finding of the slice's own authoring report:
 
-  - A **Hicasso intent** — the `:on-change` and `:on-click` vectors this
+  - A **Fresco intent** — the `:on-change` and `:on-click` vectors this
     driver's two measured operations fire — dispatches through the
     runtime's **synchronous** frame-locked door, so the handler has run,
     `app-db` has moved and React has committed before the DOM event
@@ -118,7 +118,7 @@
   interactions rather than on interactions added to reach a row.
 
   **The repair exists and it is another witness application.**
-  `re-frame.hicasso.examples.ledger` publishes a virtualized 10,000-row
+  `re-frame.fresco.examples.ledger` publishes a virtualized 10,000-row
   list over a real scroll viewport — its `virtualized-dom-cljs-test`
   drives `scrollTop` and a real `scroll` event, and the vendor artefact's
   own note names *host-local animation/drag state* — which is a genuinely
@@ -140,7 +140,7 @@
   route a navigation row would leave*. Two drivers, two pages, no
   preparation crossing between them.
 
-  [[re-frame.bench.hicasso.slice-donor-views]] renders the same feed page
+  [[re-frame.bench.fresco.slice-donor-views]] renders the same feed page
   in UIx, reading the same subscriptions and dispatching the same events.
   Its own docstring carries the donor's argument — why UIx and not
   Reagent, what makes it a denominator rather than a strawman, and the
@@ -148,7 +148,7 @@
 
   ## THE FAIRNESS GATE RUNS BEFORE ANY CLOCK, AND IT HAS A NEGATIVE CONTROL
 
-  `rf.bench.hicasso.lane/canonical` is this lane's one answer to *are these two arms
+  `rf.bench.fresco.lane/canonical` is this lane's one answer to *are these two arms
   building the same page* — attribute names sorted, so the comparison is
   of the DOM and not of two serialisers. [[assert-parity!]] takes it over
   both containers on the seeded page and REFUSES the run when they
@@ -176,7 +176,7 @@
   PR #8599's audit measured exactly that on this file's first cut: at
   `{:warmup 8 :samples 12}`, `:theme` ran in the non-seed locale on 4 of
   its 12 measured visits per round and `:donor-theme` on 8 of 12, because
-  two arms move the Hicasso frame's locale and only one moves the donor's.
+  two arms move the Fresco frame's locale and only one moves the donor's.
   The comparative theme figure was therefore a ratio between two
   populations. [[pre-state]] closes it by making each arm's page state a
   pure function of its own visit index, and
@@ -199,8 +199,8 @@
     element's inline `background-color`** against the target theme's
     `:surface` token. A button's activation behaviour writes no style.
 
-  Both checks are adjudicated per sample, banked into `rf.bench.hicasso.lane/tally`, and
-  `rf.bench.hicasso.lane/assert-verified!` refuses the run at `N unverified of M`.
+  Both checks are adjudicated per sample, banked into `rf.bench.fresco.lane/tally`, and
+  `rf.bench.fresco.lane/assert-verified!` refuses the run at `N unverified of M`.
 
   ## THE NEGATIVE CONTROLS ON THE ECHOES, TAKEN ONCE AT BOOT
 
@@ -229,7 +229,7 @@
   A commit-bounded window would not see one millisecond of it, so the
   control catches a rig that had quietly stopped measuring a paint.
 
-  ONE control, on the Hicasso side only, and that is enough because there
+  ONE control, on the Fresco side only, and that is enough because there
   is one window: both arms run the same `window!` over the same
   mechanism. What a donor-side fault would look like is not a blind
   window but an interaction that never reached the donor application, and
@@ -243,9 +243,9 @@
   verdict, the control's verdict and the runtime label. Then two
   comparative figures — `:locale / :donor-locale` and
   `:theme / :donor-theme`, per round and as a range, through
-  `rf.bench.hicasso.lane/ratio-between` — every arm's range against the floor through
-  `rf.bench.hicasso.lane/across-rounds`, and per pair what size of difference the run
-  could have SEEN, through `rf.bench.hicasso.lane/resolution`.
+  `rf.bench.fresco.lane/ratio-between` — every arm's range against the floor through
+  `rf.bench.fresco.lane/across-rounds`, and per pair what size of difference the run
+  could have SEEN, through `rf.bench.fresco.lane/resolution`.
 
   **No line is applied to any of them.** `U3`'s 100 ms `p95`, `C3`'s
   `1.25x` and `C4`'s `1.5x` appear nowhere in this file and none of them
@@ -267,7 +267,7 @@
   `1.00x` for a reason that has nothing to do with either substrate.
 
   That is why `:over-floor` is published beside the comparative figures.
-  It is `rf.bench.hicasso.lane/across-rounds` over each arm's ratio to `:idle-frame`, and
+  It is `rf.bench.fresco.lane/across-rounds` over each arm's ratio to `:idle-frame`, and
   its `:straddles-1?` flag is the FIRST of two tests: an arm whose range
   against an EMPTY FRAME includes 1.0 was not separated from the floor by
   this window, and no ratio between two such arms is a reading about
@@ -286,7 +286,7 @@
   quoted that as a pass.
 
   So `:resolution` is published beside `:comparative`, one entry per
-  pair, from `rf.bench.hicasso.lane/resolution` — see that function for the arithmetic.
+  pair, from `rf.bench.fresco.lane/resolution` — see that function for the arithmetic.
   Its `:resolves-at` is the smallest difference in the ARMS' OWN WORK
   whose effect on the published ratio would have been as large as the
   scatter this run actually showed. **Read it against the line YOUR row
@@ -304,16 +304,16 @@
 
   Owner: rf2-9wmqd."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.slice-donor-views :as rf.bench.hicasso.slice-donor-views]
-            [re-frame.bench.hicasso.slice-echo-clock-app :as rf.bench.hicasso.slice-echo-clock-app]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.slice-donor-views :as rf.bench.fresco.slice-donor-views]
+            [re-frame.bench.fresco.slice-echo-clock-app :as rf.bench.fresco.slice-echo-clock-app]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.slice.db :as rf.hicasso.examples.slice.db]
-            [re-frame.hicasso.examples.slice.events :as rf.hicasso.examples.slice.events]
-            [re-frame.hicasso.examples.slice.i18n :as rf.hicasso.examples.slice.i18n]
-            [re-frame.hicasso.examples.slice.routes :as rf.hicasso.examples.slice.routes]
-            [re-frame.hicasso.examples.slice.views :as rf.hicasso.examples.slice.views]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.slice.db :as rf.fresco.examples.slice.db]
+            [re-frame.fresco.examples.slice.events :as rf.fresco.examples.slice.events]
+            [re-frame.fresco.examples.slice.i18n :as rf.fresco.examples.slice.i18n]
+            [re-frame.fresco.examples.slice.routes :as rf.fresco.examples.slice.routes]
+            [re-frame.fresco.examples.slice.views :as rf.fresco.examples.slice.views]
             [uix.dom :as uix-dom]))
 
 ;; ---------------------------------------------------------------------------
@@ -326,7 +326,7 @@
   taken on a different schedule from the row it sits beside is a
   comparison a reader has to reconcile before they can read it.
 
-  **A tail quantile over 12 is mostly interpolation** (`rf.bench.hicasso.lane/quantile`
+  **A tail quantile over 12 is mostly interpolation** (`rf.bench.fresco.lane/quantile`
   prices it), so the run that reads this instrument will want more, and
   raising these two is how it gets them.
 
@@ -362,15 +362,15 @@
   ROUNDED to the grid. `0.5` of 50 ms is ±25 ms, which covers one
   interval with room for a grid that is not exactly 60 Hz.
 
-  It is [[re-frame.bench.hicasso.slice-echo-clock-app/control-slack]]'s
+  It is [[re-frame.bench.fresco.slice-echo-clock-app/control-slack]]'s
   value and its argument. Stated here rather than aliased because a band
   is a claim about THIS instrument's control, and an instrument whose
   band moves when a sibling's moves is an instrument nobody can
   re-adjudicate."
   0.5)
 
-(def hicasso-frame
-  "The Hicasso arm's DEFAULT frame id. Its own, because frames are
+(def fresco-frame
+  "The Fresco arm's DEFAULT frame id. Its own, because frames are
   isolated contexts: the two arms hold two copies of the same seeded
   `app-db` and neither can see the other's.
 
@@ -378,10 +378,10 @@
   and a caller that mounts REPEATEDLY IN ONE PROCESS must hand it fresh
   ones — see [[boot!]]'s §MOUNTING TWICE. The bench page mounts once and
   takes these."
-  ::hicasso-frame)
+  ::fresco-frame)
 
 (def donor-frame
-  "The UIx arm's default frame id. [[hicasso-frame]] carries why it is a
+  "The UIx arm's default frame id. [[fresco-frame]] carries why it is a
   default."
   ::donor-frame)
 
@@ -392,16 +392,16 @@
   is the failure the canonical-DOM gate would report as a page difference
   and a reader would spend an afternoon on. It is the slice's own pair
   from `app.cljs`, opened on the feed rather than on an article."
-  [[::rf.hicasso.examples.slice.events/seed]
-   [:rf.route/navigate {:to rf.hicasso.examples.slice.routes/feed}]])
+  [[::rf.fresco.examples.slice.events/seed]
+   [:rf.route/navigate {:to rf.fresco.examples.slice.routes/feed}]])
 
 ;; ---------------------------------------------------------------------------
 ;; State
 ;; ---------------------------------------------------------------------------
 
 (defonce ^:private !state
-  (atom {:hicasso-container nil
-         :hicasso-handle    nil
+  (atom {:fresco-container nil
+         :fresco-handle    nil
          :donor-container   nil
          :donor-root        nil
          :echo-tally        nil
@@ -415,7 +415,7 @@
   [[boot!]] — warm-up visits included, because a verification is worth
   more the more of them there are."
   []
-  (rf.bench.hicasso.lane/tally-value (:echo-tally @!state)))
+  (rf.bench.fresco.lane/tally-value (:echo-tally @!state)))
 
 (defn visits
   "`{arm-id n}` — how many windows each arm has taken since the last
@@ -425,7 +425,7 @@
   which is one less, and [[claim-visit!]] is the one place that conversion
   happens. The distinction is worth a line because the first cut of this
   reader published the index under this docstring's words, and the suite
-  row that compares it against `rf.bench.hicasso.lane/visit-plan`'s per-arm visit count is
+  row that compares it against `rf.bench.fresco.lane/visit-plan`'s per-arm visit count is
   what found the disagreement.
 
   Exposed because a suite that wants to check the pre-state the driver
@@ -435,9 +435,9 @@
   (:visits @!state))
 
 (defn frames
-  "`{:hicasso id :donor id}` — the frame ids THIS boot mounted on.
+  "`{:fresco id :donor id}` — the frame ids THIS boot mounted on.
 
-  Read this rather than [[hicasso-frame]] / [[donor-frame]]: those are
+  Read this rather than [[fresco-frame]] / [[donor-frame]]: those are
   defaults, and a caller that mounts repeatedly hands [[boot!]] fresh ones
   for the reason its §MOUNTING TWICE gives."
   []
@@ -495,7 +495,7 @@
 
 (defn- container-for [side]
   (case side
-    :hicasso (:hicasso-container @!state)
+    :fresco (:fresco-container @!state)
     :donor   (:donor-container @!state)))
 
 (defn- node-at [side sel]
@@ -514,7 +514,7 @@
 (def locales
   "The two locales the row alternates between, in `i18n/locales`' order.
   A vector rather than a set so *the other one* is arithmetic."
-  (vec rf.hicasso.examples.slice.i18n/locales))
+  (vec rf.fresco.examples.slice.i18n/locales))
 
 (defn- other-locale [now]
   (first (remove #(= % now) locales)))
@@ -529,7 +529,7 @@
   fact whose opposite is a real regression, and a reader of a refusal
   needs to see which of the two went."
   [side want]
-  {:expect   (rf.hicasso.examples.slice.i18n/t want :app/title)
+  {:expect   (rf.fresco.examples.slice.i18n/t want :app/title)
    :rendered (some-> (title-heading side) .-textContent)
    :glass    (some-> (locale-select side) .-value)
    :want     (name want)})
@@ -547,7 +547,7 @@
   The token values are already CSSOM's own serialisation
   (`\"rgb(255, 255, 255)\"`), so this is an equality and not a parse."
   [side want]
-  {:expect   (rf.hicasso.examples.slice.i18n/token want :surface)
+  {:expect   (rf.fresco.examples.slice.i18n/token want :surface)
    :rendered (some-> (page-root side) .-style .-backgroundColor)
    :want     (name want)})
 
@@ -556,7 +556,7 @@
 
 (defn- note-refusal!
   "Keep the FIRST refusal's detail, so a run that dies on `N unverified of
-  M` says which arm, which conjunct and against what. `rf.bench.hicasso.lane/tally` counts
+  M` says which arm, which conjunct and against what. `rf.bench.fresco.lane/tally` counts
   and does not describe."
   [arm-id echo]
   (swap! !state update :first-refusal
@@ -572,7 +572,7 @@
   application does nothing. `:echo` is `:n/a` and banks as verified,
   because there is no echo to be late.
 
-  Taken on the Hicasso container, and one floor rather than two: the wait
+  Taken on the Fresco container, and one floor rather than two: the wait
   for a rendering opportunity is the browser's and belongs to neither
   arm. A second floor on the donor page would measure the same grid and
   invite a reader to divide one by the other."
@@ -615,7 +615,7 @@
   NOT RELIED ON and could not be — a map has none. The only question
   asked of this roster is *which member is the page not wearing*, which
   is answered by the token values and not by position."
-  (vec (keys rf.hicasso.examples.slice.i18n/themes)))
+  (vec (keys rf.fresco.examples.slice.i18n/themes)))
 
 (defn theme-state
   "`{:target <button> :want <theme>}` for one arm: the button to click,
@@ -647,7 +647,7 @@
         current? (fn [^js b] (.contains (.-classList b) "current"))
         marked  (filterv current? buttons)
         now-bg  (some-> (page-root side) .-style .-backgroundColor)
-        want    (first (remove (fn [th] (= (rf.hicasso.examples.slice.i18n/token th :surface) now-bg)) themes))]
+        want    (first (remove (fn [th] (= (rf.fresco.examples.slice.i18n/token th :surface) now-bg)) themes))]
     (when-not (= 2 (count themes))
       (throw (ex-info (str "the application's theme table names " (count themes) " themes, and "
                            "this arm's whole rule for choosing a target is *the one the page "
@@ -667,14 +667,14 @@
                       {:rf.error/id ::theme-current-unexpected
                        :side        side
                        :marked      (count marked)})))
-    (when-not (some (fn [th] (= (rf.hicasso.examples.slice.i18n/token th :surface) now-bg)) themes)
+    (when-not (some (fn [th] (= (rf.fresco.examples.slice.i18n/token th :surface) now-bg)) themes)
       (throw (ex-info (str "the " (name side) " arm's root is wearing " (pr-str now-bg)
                            ", which is neither theme's :surface token, so the theme echo "
                            "has no target it could be checked against")
                       {:rf.error/id ::theme-surface-unknown
                        :side        side
                        :observed    now-bg
-                       :tokens      (mapv #(rf.hicasso.examples.slice.i18n/token % :surface) themes)})))
+                       :tokens      (mapv #(rf.fresco.examples.slice.i18n/token % :surface) themes)})))
     {:target (first (remove current? buttons))
      :want   want}))
 
@@ -703,11 +703,11 @@
   the control has to occupy the interval the window is measuring rather
   than yield it."
   [ms]
-  (let [end (+ (rf.bench.hicasso.lane/now-ms) ms)]
-    (loop [] (when (< (rf.bench.hicasso.lane/now-ms) end) (recur)))))
+  (let [end (+ (rf.bench.fresco.lane/now-ms) ms)]
+    (loop [] (when (< (rf.bench.fresco.lane/now-ms) end) (recur)))))
 
 (defn- blocked-plan
-  "`:locale` on the Hicasso arm, plus [[blocked-ms]] of blocked main
+  "`:locale` on the Fresco arm, plus [[blocked-ms]] of blocked main
   thread on `window!`'s `after-commit!` seam.
 
   WHERE THE COST SITS IS THE CONTROL. Injecting it inside `interact!`
@@ -730,7 +730,7 @@
   per round against `:locale`'s 4 of 12, the same divergence as the
   published theme pair with the dimensions swapped."
   [state]
-  (assoc ((locale-plan :hicasso) state)
+  (assoc ((locale-plan :fresco) state)
          :after-commit! (fn [] (busy-wait! blocked-ms))))
 
 ;; ---------------------------------------------------------------------------
@@ -741,19 +741,19 @@
   "Two frames, outside every window. React's commit and the initial
   events' drain are not the same tick."
   []
-  (.then (rf.bench.hicasso.slice-echo-clock-app/after-paint) (fn [_] (rf.bench.hicasso.slice-echo-clock-app/after-paint))))
+  (.then (rf.bench.fresco.slice-echo-clock-app/after-paint) (fn [_] (rf.bench.fresco.slice-echo-clock-app/after-paint))))
 
 (def seed-locale
   "The locale both frames open in, taken from the application's own seed
   rather than written out. A literal `:en` here would be a second
   authority for a fact `db/seed` already states, and the first thing to go
   stale when the slice ships a third locale and changes its default."
-  (:locale rf.hicasso.examples.slice.db/seed))
+  (:locale rf.fresco.examples.slice.db/seed))
 
 (def seed-theme
   "The theme both frames open in, from the same seed and for the same
   reason."
-  (:theme rf.hicasso.examples.slice.db/seed))
+  (:theme rf.fresco.examples.slice.db/seed))
 
 (defn- other-theme
   "The theme the application's table names that is not `now`. The same
@@ -775,8 +775,8 @@
   population.
 
   PR #8599's audit measured it on this file's own roster. `:locale` and
-  `:ctl-blocked` both move the HICASSO frame's locale while only
-  `:donor-locale` moves the donor's, so replaying `rf.bench.hicasso.lane/visit-plan` at
+  `:ctl-blocked` both move the FRESCO frame's locale while only
+  `:donor-locale` moves the donor's, so replaying `rf.bench.fresco.lane/visit-plan` at
   `{:warmup 8 :samples 12}` puts `:theme` in the non-seed locale on 4 of
   its 12 measured visits per round and `:donor-theme` on 8 of 12. The same
   arithmetic in the other dimension splits the CONTROL from the arm it is
@@ -829,7 +829,7 @@
 
 (defn- frame-for
   "The frame id THIS boot gave `side` — read from the live pair rather
-  than from [[hicasso-frame]] / [[donor-frame]], which are only its
+  than from [[fresco-frame]] / [[donor-frame]], which are only its
   defaults. A caller that mounts twice on fresh ids and then dispatched
   into the default would be writing to a frame nothing renders from."
   [side]
@@ -862,8 +862,8 @@
   [arm visit]
   (let [{:keys [locale theme]} (pre-state arm visit)]
     (rf/with-frame (frame-for (:side arm))
-      (rf/dispatch-sync [::rf.hicasso.examples.slice.events/set-locale (name locale)])
-      (rf/dispatch-sync [::rf.hicasso.examples.slice.events/set-theme {:theme theme}]))
+      (rf/dispatch-sync [::rf.fresco.examples.slice.events/set-locale (name locale)])
+      (rf/dispatch-sync [::rf.fresco.examples.slice.events/set-theme {:theme theme}]))
     (settle!)))
 
 ;; ---------------------------------------------------------------------------
@@ -877,8 +877,8 @@
   this is called from inside [[measure-one!]], which the lane calls for
   warm-up and measured visits alike and which is handed an ARM rather
   than a visit, so it cannot tell them apart and does not try.
-  `rf.bench.hicasso.slice-echo-clock-app/structure-over-measured` narrows the parts to the measured
-  population using the mask `rf.bench.hicasso.lane/visit-plan` produces.
+  `rf.bench.fresco.slice-echo-clock-app/structure-over-measured` narrows the parts to the measured
+  population using the mask `rf.bench.fresco.lane/visit-plan` produces.
 
   The two consumers want different populations, which is why the
   narrowing is at publication rather than here. The TALLY wants every
@@ -924,8 +924,8 @@
   [arm]
   (let [visit (claim-visit! (:id arm))]
     (-> (establish-pre-state! arm visit)
-        (.then (fn [_] (rf.bench.hicasso.slice-echo-clock-app/after-paint)))
-        (.then (fn [_] (rf.bench.hicasso.slice-echo-clock-app/window! ((:plan arm) !state))))
+        (.then (fn [_] (rf.bench.fresco.slice-echo-clock-app/after-paint)))
+        (.then (fn [_] (rf.bench.fresco.slice-echo-clock-app/window! ((:plan arm) !state))))
         (.then (fn [r] (bank-aux! (:id arm) r) (:ms r))))))
 
 ;; ---------------------------------------------------------------------------
@@ -936,10 +936,10 @@
   "Mount both arms into their own containers on their own frames, and
   answer a promise that resolves once both pages are on the screen.
 
-  The Hicasso arm goes through `rf.hicasso/client-root` +
-  `rf.hicasso/render!`, the application's own root door, with the
+  The Fresco arm goes through `rf.fresco/client-root` +
+  `rf.fresco/render!`, the application's own root door, with the
   application's own views and `initial-events`. Its frame is spelled in
-  the TREE, on `rf.hicasso/frame-root`, which ENSUREs it — so the Hicasso
+  the TREE, on `rf.fresco/frame-root`, which ENSUREs it — so the Fresco
   arm still makes its own frame, exactly as it did when the root door
   carried `:frame`. The donor arm makes its frame with `rf/make-frame` —
   core's own door, carrying the SAME `:initial-events` — and renders
@@ -960,10 +960,10 @@
 
   The bench page boots once and the no-arg arity is for it. A SUITE boots
   once per row, and handing this the same pair of ids each time does not
-  merely inherit the previous row's `app-db` — **it leaves the Hicasso arm
+  merely inherit the previous row's `app-db` — **it leaves the Fresco arm
   RENDERED BUT DEAF**, and that is measured rather than feared.
 
-  `re-frame.hicasso.impl.collector`'s `!cells` is a process-global table
+  `re-frame.fresco.impl.collector`'s `!cells` is a process-global table
   keyed by `(frame, query)`, and its own comment states that isolation
   between roots is a property of THAT KEYING rather than anything React
   provides. A cell holds its reaction for the life of every boundary that
@@ -978,47 +978,47 @@
 
   The symptom is silent in the worst way — the first render is perfect.
   PR #8606's first cut booted every row on these two defaults and CI read
-  it exactly so: the mount row passed, the Hicasso arm's captured read
+  it exactly so: the mount row passed, the Fresco arm's captured read
   roster came back `#{}` against the donor's 34, every locale and theme
-  pre-state failed to reach the page, and all nine Hicasso-side windows
+  pre-state failed to reach the page, and all nine Fresco-side windows
   went unverified while all six donor-side ones verified.
 
   So a repeat caller passes fresh ids, which is the discipline
   `slice-echo-window-dom-cljs-test` already keeps against a milder form of
   the same hazard. [[frames]] answers the pair this boot actually used;
   read that rather than the defaults."
-  ([] (boot! {:hicasso hicasso-frame :donor donor-frame}))
-  ([{hic-frame :hicasso don-frame :donor}]
-   (let [hic-container (rf.bench.hicasso.lane/fresh-container!)
-         don-container (rf.bench.hicasso.lane/fresh-container!)
-         handle        (rf.hicasso/client-root)
+  ([] (boot! {:fresco fresco-frame :donor donor-frame}))
+  ([{hic-frame :fresco don-frame :donor}]
+   (let [hic-container (rf.bench.fresco.lane/fresh-container!)
+         don-container (rf.bench.fresco.lane/fresh-container!)
+         handle        (rf.fresco/client-root)
          ;; `:identifier-prefix` is a ROOT option and stays on the door;
          ;; `:frame` and `:initial-events` are FRAME configuration and are
          ;; spelled in the TREE, on the ENSUREing `frame-root` head.
-         _             (rf.hicasso/render! handle
-                                           [rf.hicasso/frame-root
+         _             (rf.fresco/render! handle
+                                           [rf.fresco/frame-root
                                             {:id             hic-frame
                                              :initial-events initial-events}
-                                            [rf.hicasso.examples.slice.views/app {}]]
+                                            [rf.fresco.examples.slice.views/app {}]]
                                            hic-container
                                            {:identifier-prefix "hic"})
          _             (rf/make-frame {:id             don-frame
                                        :initial-events initial-events})
          don-root      (uix-dom/create-root don-container {:identifier-prefix "don"})]
-     (uix-dom/render-root (rf.bench.hicasso.slice-donor-views/root don-frame) don-root)
+     (uix-dom/render-root (rf.bench.fresco.slice-donor-views/root don-frame) don-root)
      (swap! !state assoc
-            :hicasso-container hic-container
-            :hicasso-handle    handle
+            :fresco-container hic-container
+            :fresco-handle    handle
             :donor-container   don-container
             :donor-root        don-root
             :first-refusal     nil
-            :frames            {:hicasso hic-frame :donor don-frame}
+            :frames            {:fresco hic-frame :donor don-frame}
             :visits            {}
             :aux               {}
-            :echo-tally        (rf.bench.hicasso.lane/tally))
+            :echo-tally        (rf.bench.fresco.lane/tally))
      (.then (settle!)
             (fn [_]
-              (doseq [side [:hicasso :donor]]
+              (doseq [side [:fresco :donor]]
                 (when (nil? (locale-select side))
                   (throw (ex-info (str "the " (name side) " arm mounted but its feed did not: "
                                        "#slice-locale is not on its page, so there is no "
@@ -1042,13 +1042,13 @@
   hook this cannot reach. [[boot!]]'s §MOUNTING TWICE carries the
   measurement and the remedy."
   []
-  (let [{:keys [hicasso-container hicasso-handle donor-container donor-root]} @!state]
-    (when hicasso-handle (rf.hicasso/unmount! hicasso-handle))
+  (let [{:keys [fresco-container fresco-handle donor-container donor-root]} @!state]
+    (when fresco-handle (rf.fresco/unmount! fresco-handle))
     (when donor-root (uix-dom/unmount-root donor-root))
-    (doseq [c [hicasso-container donor-container]]
+    (doseq [c [fresco-container donor-container]]
       (when (and c (.-parentNode c)) (.removeChild (.-parentNode c) c)))
     (swap! !state assoc
-           :hicasso-container nil :hicasso-handle nil
+           :fresco-container nil :fresco-handle nil
            :donor-container nil :donor-root nil)
     nil))
 
@@ -1057,10 +1057,10 @@
 ;; ---------------------------------------------------------------------------
 
 (defn pages
-  "Both arms' canonical DOM, as `{:hicasso s :donor s}`."
+  "Both arms' canonical DOM, as `{:fresco s :donor s}`."
   []
-  {:hicasso (rf.bench.hicasso.lane/canonical (container-for :hicasso))
-   :donor   (rf.bench.hicasso.lane/canonical (container-for :donor))})
+  {:fresco (rf.bench.fresco.lane/canonical (container-for :fresco))
+   :donor   (rf.bench.fresco.lane/canonical (container-for :donor))})
 
 (defn- first-difference
   "The index of the first character at which `a` and `b` differ, and the
@@ -1073,22 +1073,22 @@
                             :else                      (recur (inc i))))]
     (when (some? i)
       {:at      i
-       :hicasso (subs a i (min (count a) (+ i 60)))
+       :fresco (subs a i (min (count a) (+ i 60)))
        :donor   (subs b i (min (count b) (+ i 60)))})))
 
 (defn assert-parity!
   "REFUSE unless both arms are building the same page.
 
   This is the entire fairness guarantee of a cross-arm ratio, in
-  `rf.bench.hicasso.lane/canonical`'s own words: without it two arms can be timed against
+  `rf.bench.fresco.lane/canonical`'s own words: without it two arms can be timed against
   each other while building different pages. It runs on the seeded page,
   before any window, because that is the only moment both arms are known
   to be in the same state — every measured arm alternates its own page
   independently afterwards, so a comparison taken later would be
   comparing two different locales and would refuse for the wrong reason."
   [why]
-  (let [{:keys [hicasso donor]} (pages)]
-    (when (not= hicasso donor)
+  (let [{:keys [fresco donor]} (pages)]
+    (when (not= fresco donor)
       (throw (ex-info (str "the two arms are not building the same page (" why "), so no "
                            "ratio between them would be a ratio about a substrate. "
                            "Under a dev compile this is expected and correct: "
@@ -1097,8 +1097,8 @@
                            "emit is DCE'd on both sides.")
                       {:rf.error/id ::pages-differ
                        :why         why
-                       :difference  (first-difference hicasso donor)
-                       :sizes       {:hicasso (count hicasso) :donor (count donor)}})))
+                       :difference  (first-difference fresco donor)
+                       :sizes       {:fresco (count fresco) :donor (count donor)}})))
     nil))
 
 (defn parity-discrimination!
@@ -1120,22 +1120,22 @@
         now         (keyword (.-value (locale-select :donor)))
         other       (other-locale now)
         to-locale!  (fn [l] (rf/with-frame (frame-for :donor)
-                              (rf/dispatch-sync [::rf.hicasso.examples.slice.events/set-locale (name l)])))
+                              (rf/dispatch-sync [::rf.fresco.examples.slice.events/set-locale (name l)])))
         restore     (fn [] (to-locale! now))
         break       (fn [] (to-locale! other))]
     (break)
     (-> (settle!)
         (.then (fn [_]
-                 (let [{:keys [hicasso donor]} (pages)]
-                   (when (= hicasso donor)
+                 (let [{:keys [fresco donor]} (pages)]
+                   (when (= fresco donor)
                      (throw (ex-info (str "the canonical-DOM gate does not discriminate: the "
                                           "donor arm was moved to a different locale and its "
-                                          "page still serialised identically to the Hicasso "
+                                          "page still serialised identically to the Fresco "
                                           "arm's. Every parity check this run could take "
                                           "would pass whatever the two arms rendered, so "
                                           "nothing may be measured")
                                       {:rf.error/id ::parity-not-discriminating
-                                       :size        (count hicasso)})))
+                                       :size        (count fresco)})))
                    (restore))))
         (.then (fn [_] (settle!)))
         (.then (fn [_] (assert-parity! "after the gate's own negative control restored it")
@@ -1149,7 +1149,7 @@
   "Take one window over `plan` and require its observation to REFUSE.
   Answers a promise of the refused observation and REJECTS if it passed."
   [label plan]
-  (.then (rf.bench.hicasso.slice-echo-clock-app/window! plan)
+  (.then (rf.bench.fresco.slice-echo-clock-app/window! plan)
          (fn [{:keys [echo]}]
            (when (:verified? echo)
              (throw (ex-info (str label " does not discriminate: a window whose interaction "
@@ -1220,9 +1220,9 @@
                                    (let [seen (theme-echo-check side want)]
                                      {:verified? (theme-echo-verified? seen)
                                       :echo      seen}))})))]
-    (-> (locale-control :hicasso)
+    (-> (locale-control :fresco)
         (.then (fn [_] (locale-control :donor)))
-        (.then (fn [_] (theme-control :hicasso)))
+        (.then (fn [_] (theme-control :fresco)))
         (.then (fn [_] (theme-control :donor))))))
 
 ;; ---------------------------------------------------------------------------
@@ -1244,12 +1244,12 @@
 
   `:idle-frame` alternates NOTHING — it is the floor and it interacts with
   nothing — so it holds the seeded state on every visit."
-  [{:id :idle-frame   :plan idle-plan              :side :hicasso :alternates nil}
-   {:id :locale       :plan (locale-plan :hicasso) :side :hicasso :alternates :locale}
+  [{:id :idle-frame   :plan idle-plan              :side :fresco :alternates nil}
+   {:id :locale       :plan (locale-plan :fresco) :side :fresco :alternates :locale}
    {:id :donor-locale :plan (locale-plan :donor)   :side :donor   :alternates :locale}
-   {:id :theme        :plan (theme-plan :hicasso)  :side :hicasso :alternates :theme}
+   {:id :theme        :plan (theme-plan :fresco)  :side :fresco :alternates :theme}
    {:id :donor-theme  :plan (theme-plan :donor)    :side :donor   :alternates :theme}
-   {:id :ctl-blocked  :plan blocked-plan           :side :hicasso :alternates :locale
+   {:id :ctl-blocked  :plan blocked-plan           :side :fresco :alternates :locale
     :control? true}])
 
 (defn- readings-by-arm [readings]
@@ -1262,13 +1262,13 @@
   "Each round's arm-to-floor ratio map, which is what both comparative
   figures are built from.
 
-  Every ratio is against the floor measured in THAT round — `rf.bench.hicasso.lane/normalise`'s
+  Every ratio is against the floor measured in THAT round — `rf.bench.fresco.lane/normalise`'s
   rule, and the reason this box's drift across rounds is not a term in
-  any published figure. `rf.bench.hicasso.lane/ratio-between` then divides two of them,
+  any published figure. `rf.bench.fresco.lane/ratio-between` then divides two of them,
   and the floor cancels: what is left is the per-round ratio of two
   within-round medians."
   [readings]
-  (mapv (fn [round] (:ratio (rf.bench.hicasso.lane/normalise round :idle-frame))) readings))
+  (mapv (fn [round] (:ratio (rf.bench.fresco.lane/normalise round :idle-frame))) readings))
 
 (defn control-per-round
   "One adjudicated figure per round: `:ctl-blocked`'s median less
@@ -1279,8 +1279,8 @@
   with its own denominator is what `control-verdict-strict` asks for."
   [readings]
   (mapv (fn [round]
-          (rf.bench.hicasso.lane/round4 (- (:p50 (rf.bench.hicasso.lane/summarise (get round :ctl-blocked)))
-                          (:p50 (rf.bench.hicasso.lane/summarise (get round :locale))))))
+          (rf.bench.fresco.lane/round4 (- (:p50 (rf.bench.fresco.lane/summarise (get round :ctl-blocked)))
+                          (:p50 (rf.bench.fresco.lane/summarise (get round :locale))))))
         readings))
 
 (defn take-plan!
@@ -1292,24 +1292,24 @@
   the evidence on the console rather than only the refusal."
   []
   (.then
-    (rf.bench.hicasso.lane/rounds-async! arms sampling rounds measure-one!)
+    (rf.bench.fresco.lane/rounds-async! arms sampling rounds measure-one!)
     (fn [{:keys [readings samples]}]
       (let [by-arm  (readings-by-arm readings)
             ratios  (round-ratios readings)
-            control (rf.bench.hicasso.lane/control-verdict-strict blocked-ms
+            control (rf.bench.fresco.lane/control-verdict-strict blocked-ms
                                                  (control-per-round readings)
                                                  control-slack)
-            verdict (rf.bench.hicasso.lane/guard! samples "slice broad update")
-            summary (into {} (map (fn [[id xs]] [id (rf.bench.hicasso.lane/summarise xs)])) by-arm)
-            compare {:locale (rf.bench.hicasso.lane/ratio-between ratios :locale :donor-locale)
-                     :theme  (rf.bench.hicasso.lane/ratio-between ratios :theme :donor-theme)}]
-        (rf.bench.hicasso.lane/record! :slice-broad
+            verdict (rf.bench.fresco.lane/guard! samples "slice broad update")
+            summary (into {} (map (fn [[id xs]] [id (rf.bench.fresco.lane/summarise xs)])) by-arm)
+            compare {:locale (rf.bench.fresco.lane/ratio-between ratios :locale :donor-locale)
+                     :theme  (rf.bench.fresco.lane/ratio-between ratios :theme :donor-theme)}]
+        (rf.bench.fresco.lane/record! :slice-broad
                       {:window      :interaction-to-paint
-                       :population  {:hicasso {:app   're-frame.hicasso.examples.slice
-                                               :views 're-frame.hicasso.examples.slice.views
+                       :population  {:fresco {:app   're-frame.fresco.examples.slice
+                                               :views 're-frame.fresco.examples.slice.views
                                                :route :feed}
-                                     :donor   {:app   're-frame.hicasso.examples.slice
-                                               :views 're-frame.bench.hicasso.slice-donor-views
+                                     :donor   {:app   're-frame.fresco.examples.slice
+                                               :views 're-frame.bench.fresco.slice-donor-views
                                                :route :feed
                                                :spine :uix/use-sub}
                                      ;; DERIVED from the application's own seed,
@@ -1317,10 +1317,10 @@
                                      ;; restated three integers would be a second
                                      ;; source for them, and the first thing to go
                                      ;; stale when the seed grows an article.
-                                     :seed    {:articles  (count (:order rf.hicasso.examples.slice.db/seed))
-                                               :page-size rf.hicasso.examples.slice.db/page-size
-                                               :pages     (rf.hicasso.examples.slice.db/page-count
-                                                            (rf.hicasso.examples.slice.db/listed rf.hicasso.examples.slice.db/seed))}}
+                                     :seed    {:articles  (count (:order rf.fresco.examples.slice.db/seed))
+                                               :page-size rf.fresco.examples.slice.db/page-size
+                                               :pages     (rf.fresco.examples.slice.db/page-count
+                                                            (rf.fresco.examples.slice.db/listed rf.fresco.examples.slice.db/seed))}}
                        :schedule    (assoc sampling
                                            :rounds           rounds
                                            :visits-per-arm   (* (+ (:warmup sampling)
@@ -1329,21 +1329,21 @@
                                            :measured-per-arm (* (:samples sampling) rounds))
                        :populations populations
                        :summary     summary
-                       :structure   (rf.bench.hicasso.slice-echo-clock-app/structure-over-measured arms sampling rounds
+                       :structure   (rf.bench.fresco.slice-echo-clock-app/structure-over-measured arms sampling rounds
                                                                   (:aux @!state))
                        :comparative compare
-                       :over-floor  (rf.bench.hicasso.lane/across-rounds ratios)
+                       :over-floor  (rf.bench.fresco.lane/across-rounds ratios)
                        :resolution  (into {}
                                           (map (fn [[pair c]]
-                                                 [pair (rf.bench.hicasso.lane/resolution c summary :idle-frame)]))
+                                                 [pair (rf.bench.fresco.lane/resolution c summary :idle-frame)]))
                                           compare)
                        :control     control
                        :guard       (select-keys verdict [:refuse? :contaminated?
                                                           :unchecked? :tolerance])
-                       :echo        (cond-> (rf.bench.hicasso.lane/tally-value (:echo-tally @!state))
+                       :echo        (cond-> (rf.bench.fresco.lane/tally-value (:echo-tally @!state))
                                       (:first-refusal @!state)
                                       (assoc :first-refusal (:first-refusal @!state)))
-                       :runtime     (rf.bench.hicasso.lane/runtime-label)
+                       :runtime     (rf.bench.fresco.lane/runtime-label)
                        :note        (str "No line is applied to any figure above. U3's 100 ms "
                                          "p95, C3's 1.25x and C4's 1.5x are read against this "
                                          "instrument in their own quiet-box window, not here. "
@@ -1356,16 +1356,16 @@
                                          "pair could resolve the line, and a difference below "
                                          ":resolves-at is inside this run's own scatter. "
                                          "Neither figure is a verdict.")})
-        (set! (.-HICASSO_GUARD_REFUSED js/window) (boolean (:refuse? verdict)))
-        (set! (.-HICASSO_CONTROL_FAILED js/window) (not (:ok? control)))
-        (rf.bench.hicasso.lane/assert-verified! (:echo-tally @!state) "slice broad update")
+        (set! (.-FRESCO_GUARD_REFUSED js/window) (boolean (:refuse? verdict)))
+        (set! (.-FRESCO_CONTROL_FAILED js/window) (not (:ok? control)))
+        (rf.bench.fresco.lane/assert-verified! (:echo-tally @!state) "slice broad update")
         nil))))
 
 (defn ^:export -main []
   (rf/init! rf.adapter.uix/adapter)
-  (rf.bench.hicasso.lane/leave-act-environment!)
-  (if-not (rf.bench.hicasso.lane/self-test!)
-    (rf.bench.hicasso.lane/fail! (str "the arm-order self-test failed — the copy of the schedule "
+  (rf.bench.fresco.lane/leave-act-environment!)
+  (if-not (rf.bench.fresco.lane/self-test!)
+    (rf.bench.fresco.lane/fail! (str "the arm-order self-test failed — the copy of the schedule "
                      "rule this app is about to rely on no longer behaves like "
                      "the one the .cjs drivers use, so nothing may be measured"))
     (-> (boot!)
@@ -1378,6 +1378,6 @@
         (.then (fn [_] (parity-discrimination!)))
         (.then (fn [_] (echo-discrimination!)))
         (.then (fn [_] (take-plan!)))
-        (.catch (fn [e] (rf.bench.hicasso.lane/fail! (rf.bench.hicasso.lane/describe-throw "slice-broad-clock-app" e))))
-        (.then (fn [_] (rf.bench.hicasso.lane/done!)))))
+        (.catch (fn [e] (rf.bench.fresco.lane/fail! (rf.bench.fresco.lane/describe-throw "slice-broad-clock-app" e))))
+        (.then (fn [_] (rf.bench.fresco.lane/done!)))))
   nil)

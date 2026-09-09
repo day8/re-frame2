@@ -1,10 +1,10 @@
-(ns re-frame.hicasso.examples.forms.events
+(ns re-frame.fresco.examples.forms.events
   "THE THREE RECIPES, AS EVENT HANDLERS.
 
   Ordinary re-frame2: every handler here is `(fn [coeffects event-v] →
   effect-map)` and nothing in this namespace knows a view substrate
   exists. It requires `re-frame.core`, `re-frame.resources` (for the
-  mutation door) and this application's own `db`, and not the Hicasso
+  mutation door) and this application's own `db`, and not the Fresco
   door — so the whole file is L0, testable with `=` and a map.
 
   ## Recipe 1 — the buffered draft, and why a commit is ONE turn
@@ -23,7 +23,7 @@
   revision has already moved while its draft has not — a reset spent on
   the text it was supposed to discard. So both handlers write
   `h/reg-state`'s documented `[:ui <concern> <ikey>]` path directly,
-  through [[re-frame.hicasso.examples.forms.db/draft-path]]. `reg-state`
+  through [[re-frame.fresco.examples.forms.db/draft-path]]. `reg-state`
   states that tier is app-space and that an ordinary handler may read and
   write it; this is the case that needs the second half.
 
@@ -60,7 +60,7 @@
             ;; Side-effecting: registers the `:rf.mutation/*` events and the
             ;; passive `:rf/mutation` subscription this form reads.
             [re-frame.resources]
-            [re-frame.hicasso.examples.forms.db :as rf.hicasso.examples.forms.db]))
+            [re-frame.fresco.examples.forms.db :as rf.fresco.examples.forms.db]))
 
 ;; ---------------------------------------------------------------------------
 ;; Boot
@@ -68,7 +68,7 @@
 
 (rf/reg-event ::seed
   {:doc "Install the starting app-db. The frame's `:initial-events` step."}
-  (fn [_ _] {:db (rf.hicasso.examples.forms.db/seed)}))
+  (fn [_ _] {:db (rf.fresco.examples.forms.db/seed)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Recipe 1 — the buffered subject field
@@ -86,7 +86,7 @@
   that debt comes due."
   [db ikey]
   (-> db
-      (update-in (pop (rf.hicasso.examples.forms.db/draft-path ikey)) dissoc ikey)
+      (update-in (pop (rf.fresco.examples.forms.db/draft-path ikey)) dissoc ikey)
       (update-in [:subject-revision ikey] (fnil inc 0))))
 
 (rf/reg-event ::commit-subject
@@ -101,7 +101,7 @@
          or a blur arriving after Escape all find no session the second
          time and do nothing."}
   (fn [{:keys [db]} [_ ikey]]
-    (if-some [typed (get-in db (rf.hicasso.examples.forms.db/draft-path ikey))]
+    (if-some [typed (get-in db (rf.fresco.examples.forms.db/draft-path ikey))]
       (let [candidate (str/trim typed)]
         (if (str/blank? candidate)
           ;; REFUSE. The subject does not move, so nothing the field reads
@@ -122,7 +122,7 @@
          *cancel must beat the late blur*, answered by the model rather
          than by ordering."}
   (fn [{:keys [db]} [_ ikey]]
-    (if (contains? (get-in db (pop (rf.hicasso.examples.forms.db/draft-path ikey))) ikey)
+    (if (contains? (get-in db (pop (rf.fresco.examples.forms.db/draft-path ikey))) ikey)
       {:db (end-session db ikey)}
       {})))
 
@@ -161,7 +161,7 @@
 
   A FUNCTION, called at ns-load below and again from every suite's
   fixture — the same shape and the same reason as
-  `re-frame.hicasso.examples.slice.routes/register!`. A reset fixture
+  `re-frame.fresco.examples.slice.routes/register!`. A reset fixture
   restores the registrar to a baseline it captured, and the resources
   artefact's own per-test reset clears the mutation kind outright, so a
   registration performed once when this file loaded is not guaranteed to
@@ -191,7 +191,7 @@
          accepted branch executes the write."}
   (fn [{:keys [db]} _]
     (let [attempted (assoc-in db [:form :attempted?] true)]
-      (if-not (rf.hicasso.examples.forms.db/can-submit? db)
+      (if-not (rf.fresco.examples.forms.db/can-submit? db)
         {:db attempted}
         {:db attempted
          :fx [[:dispatch [:rf.mutation/execute
@@ -212,5 +212,5 @@
     (if (= :ok status)
       {:db (-> db
                (update :ticket merge (get-in db [:form :draft]))
-               (assoc :form rf.hicasso.examples.forms.db/blank-form))}
+               (assoc :form rf.fresco.examples.forms.db/blank-form))}
       {})))

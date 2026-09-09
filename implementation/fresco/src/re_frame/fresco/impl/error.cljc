@@ -1,8 +1,8 @@
-(ns re-frame.hicasso.impl.error
+(ns re-frame.fresco.impl.error
   "The package's one refusal constructor, and the dev-only ledger that
   lets a refusal name the view it was raised from.
 
-  `fail!` builds every Hicasso throw through
+  `fail!` builds every Fresco throw through
   `re-frame.error/ex-info-from-data`, so the ex-data is core's 4-slot
   shape — `:rf.error/id`, `:where`, `:reason`, `:recovery :no-recovery`
   — plus the refusal class's own slots from `extra` and, in dev builds,
@@ -14,7 +14,7 @@
   from the ex-data rather than nil.
 
   One constructor rather than one per lane, so a field of the shape is
-  added in one place. Argument: docs/design/hicasso/product/specification.md
+  added in one place. Argument: docs/design/fresco/product/specification.md
   §3.6 (Loud, stable failure)."
   (:require [re-frame.error :as rf.error]
             [re-frame.interop :as rf.interop]))
@@ -113,7 +113,7 @@
   and a boundary that refuses to render at all should still be able to
   say which boundary it was."
   [view-name component]
-  (fn hicasso-traced-boundary [js-props]
+  (fn fresco-traced-boundary [js-props]
     (let [prev @!origin]
       (vreset! !origin view-name)
       (try
@@ -150,7 +150,7 @@
     m))
 
 (defn fail!
-  "Mint and throw a Hicasso refusal. Never returns.
+  "Mint and throw a Fresco refusal. Never returns.
 
   `id` is the stable `:rf.error/…` discriminator a test or a tool branches
   on, `where` the symbol of the fn that refused, `reason` the human
@@ -163,9 +163,9 @@
   `extra` merges UNDER those fields: a canonical key spelled in `extra`
   loses, and the ambient pair is removed from `extra` before the merge.
 
-  `:recovery` is always `:no-recovery` because every Hicasso refusal is a
+  `:recovery` is always `:no-recovery` because every Fresco refusal is a
   throw the runtime does not recover from; the fix lives in `:reason`.
-  Argument: docs/design/hicasso/product/specification.md §3.6."
+  Argument: docs/design/fresco/product/specification.md §3.6."
   [id where reason extra]
   (throw (rf.error/ex-info-from-data
            (merge (apply dissoc extra ambient)

@@ -189,11 +189,11 @@ checked by this gate or by `scripts/check_readme_links.py` — they share the on
 extractor — and the exit 0 is silent about it (rf2-sodfq). The skip is
 deliberate and documented at the top of the script; what it means for you is
 that an edit confined to a fenced block is ungated, so verify those links by
-hand and say so. `docs/design/hicasso/` and `docs/the-mayor-method/` are the
+hand and say so. `docs/design/fresco/` and `docs/the-mayor-method/` are the
 exception, and they invert the rule rather than relaxing it: in those two trees
 a documentation link inside a fence is itself reported as a defect.
 So does `scripts/check_provenance_pins.py`, on changed pages under
-`docs/design/hicasso/`, as its own `docs.yml` job. It prints one line on every
+`docs/design/fresco/`, as its own `docs.yml` job. It prints one line on every
 run naming the pages it opened and the pins it classified, so read that before
 believing a green: `--changed-since` reads the working tree, so an uncommitted
 edit to a tracked page IS checked, but a page git has never been told about is

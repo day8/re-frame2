@@ -17,14 +17,14 @@ UIx. The frame is created later by the rendered
 The whole recipe serves two moments. First page load should create and seed the
 app. Hot reload should re-render changed views without losing app-db.
 
-!!! note "Hicasso apps boot the same way"
+!!! note "Fresco apps boot the same way"
 
     The three jobs are the substrate's, not Reagent's, and
-    [Hicasso](../hicasso/00-installation.md#hicasso-needs-a-substrate-adapter)
+    [Fresco](../fresco/00-installation.md#fresco-needs-a-substrate-adapter)
     does not exempt itself from the second: it interprets Hiccup and owns the
     render boundary, but the reactive container still comes from an adapter, so
-    a Hicasso app opens with the same `(rf/init! …)` line. The third job is
-    spelled the same way too: a Hicasso tree carries `[h/frame-root {:id …}]`
+    a Fresco app opens with the same `(rf/init! …)` line. The third job is
+    spelled the same way too: a Fresco tree carries `[h/frame-root {:id …}]`
     exactly where a Reagent tree carries `[rf/frame-root {:id …}]`, over the
     same options and the same commit-owned ensure. Only the *root call* differs
     — the same `client-root` / `render!` / `unmount!` trio Reagent has — and its opts

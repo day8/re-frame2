@@ -172,12 +172,12 @@ page's B is 4. So `ε = 4·|Δ|` is the offset that takes a cell to zero.
 
 | segment | arm | rung | `all` | `page` | `Δ` B/bnd | `Δ` % | `ε` to null, B/write |
 |---|---|---|---|---|---|---|---|
-| `reagent-subs` | hicasso | R3 | 6,984 | 6,687 | −297 | −4.25 | 1,188 |
-| `reagent-subs` | hicasso | R7 | 14,447 | 13,829 | −618 | −4.28 | 2,472 |
+| `reagent-subs` | fresco | R3 | 6,984 | 6,687 | −297 | −4.25 | 1,188 |
+| `reagent-subs` | fresco | R7 | 14,447 | 13,829 | −618 | −4.28 | 2,472 |
 | `reagent-subs` | reagent | R3 | 7,795 | 7,664 | −131 | −1.68 | 524 |
 | `reagent-subs` | reagent | R7 | 15,408 | 15,180 | −228 | −1.48 | 912 |
-| `uix-subs` | hicasso | R3 | 6,691 | 6,538 | −153 | −2.29 | 612 |
-| `uix-subs` | hicasso | R7 | 13,752 | 13,520 | −232 | −1.69 | 928 |
+| `uix-subs` | fresco | R3 | 6,691 | 6,538 | −153 | −2.29 | 612 |
+| `uix-subs` | fresco | R7 | 13,752 | 13,520 | −232 | −1.69 | 928 |
 | `uix-subs` | uix | R3 | 5,211 | 5,164 | −47 | −0.90 | 188 |
 | `uix-subs` | uix | R7 | 11,405 | 11,347 | −58 | −0.51 | 232 |
 
@@ -260,8 +260,8 @@ observed offsets are not:
 No single `ε` fits four cells that far apart, so a floor-level term cannot be
 the whole of the residual. What the eight cells look more like is a constant
 PROPORTION within each arm family — `page/all` reads 0.9575 and 0.9572 for
-`reagent-subs | hicasso`, 0.9832 and 0.9852 for `reagent-subs | reagent`, 0.9771
-and 0.9831 for `uix-subs | hicasso`, 0.9910 and 0.9949 for `uix-subs | uix`.
+`reagent-subs | fresco`, 0.9832 and 0.9852 for `reagent-subs | reagent`, 0.9771
+and 0.9831 for `uix-subs | fresco`, 0.9910 and 0.9949 for `uix-subs | uix`.
 Each family's two rungs agree to within 0.6 percentage points.
 
 **That is offered as a shape and not as a mechanism, and it is two points per
@@ -288,7 +288,7 @@ neither reaches this question.
   `rf2-erre5`, so it carries neither `writeSelector` nor `samples`.
 - **The V1/V2 re-run window committed no dataset.** Its three runs of
   2026-08-17 are not under
-  `implementation/hicasso/test/re_frame/bench/hicasso/data/`, so the eight
+  `implementation/fresco/test/re_frame/bench/fresco/data/`, so the eight
   disputed cells cannot be recomputed, re-estimated or paired from anything in
   the repository. Their published medians are all that survives of them.
 

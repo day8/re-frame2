@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.ledger.views
+(ns re-frame.fresco.examples.ledger.views
   "THE SERIOUS-VENDOR SCREEN — ten thousand rows through a foreign
   virtualizer, and the crossing is one declaration.
 
@@ -7,7 +7,7 @@
   accessibility*. This file is that recipe. The narrative version, with
   the reasoning a consumer needs rather than the reasoning a reviewer
   needs, is
-  [`docs/design/hicasso/product/virtualizer-recipe.md`](../../../../../../../docs/design/hicasso/product/virtualizer-recipe.md).
+  [`docs/design/fresco/product/virtualizer-recipe.md`](../../../../../../../docs/design/fresco/product/virtualizer-recipe.md).
 
   ## The whole crossing
 
@@ -58,7 +58,7 @@
   from its parent to be minted, so the render callback needs no data
   either — which is fortunate, because **a subscription may not be read
   inside a render callback**: the callback runs during the vendor's
-  render, outside the supplying boundary's read extent, and Hicasso
+  render, outside the supplying boundary's read extent, and Fresco
   refuses a read that escapes it (I7). A row shape that needed its record
   at the call site could not be written here at all.
 
@@ -90,10 +90,10 @@
   is not needed here, because a virtualizer is an ordinary
   React component and the door for an ordinary React component is the
   declaration."
-  (:require [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.ledger.events :as rf.hicasso.examples.ledger.events]
-            [re-frame.hicasso.examples.ledger.subs :as rf.hicasso.examples.ledger.subs]
-            [re-frame.hicasso.examples.ledger.vendor :as rf.hicasso.examples.ledger.vendor]))
+  (:require [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.ledger.events :as rf.fresco.examples.ledger.events]
+            [re-frame.fresco.examples.ledger.subs :as rf.fresco.examples.ledger.subs]
+            [re-frame.fresco.examples.ledger.vendor :as rf.fresco.examples.ledger.vendor]))
 
 ;; ---------------------------------------------------------------------------
 ;; Geometry
@@ -119,7 +119,7 @@
 ;; The crossing
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defhost rows
+(rf.fresco/defhost rows
   "The declared door onto the virtualizer.
 
   `:render-row` carries the `:render` contract, so what the callback
@@ -134,13 +134,13 @@
   offset)`, `onWindow(from, to)` — so there is no event at argument one
   and nothing for a vector's markers to read. The one callback form
   receives the library's own arguments, in order (HD-024)."
-  rf.hicasso.examples.ledger.vendor/virtual-rows)
+  rf.fresco.examples.ledger.vendor/virtual-rows)
 
 ;; ---------------------------------------------------------------------------
 ;; The screen
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview ledger-row
+(rf.fresco/defview ledger-row
   "One record's row: its name, its note and its flag.
 
   Three reads, all parametric on the model index, and every one of them
@@ -154,7 +154,7 @@
   contributes two `role=\"presentation\"` wrappers and knows nothing
   about tables."
   [{:keys [index offset]}]
-  (let [{:keys [id name]} (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/record index])]
+  (let [{:keys [id name]} (rf.fresco/sub [::rf.fresco.examples.ledger.subs/record index])]
     [:div {:role          "row"
            :class         "ledger-row"
            :aria-rowindex (str (inc index))
@@ -167,22 +167,22 @@
                            :height   row-height}}
      [:div {:role "gridcell" :aria-colindex "1" :class "ledger-name"} name]
      [:div {:role "gridcell" :aria-colindex "2"}
-      [:input {:id          (rf.hicasso.examples.ledger.events/note-id index)
+      [:input {:id          (rf.fresco.examples.ledger.events/note-id index)
                :class       "ledger-note"
                :type        "text"
-               :aria-label  (rf.hicasso.examples.ledger.events/note-label index)
+               :aria-label  (rf.fresco.examples.ledger.events/note-label index)
                :data-record id
-               :value       (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/note index])
-               :on-focus    [::rf.hicasso.examples.ledger.events/row-focused {:index index}]
-               :on-input    [::rf.hicasso.examples.ledger.events/note index ::rf.hicasso/value]}]]
+               :value       (rf.fresco/sub [::rf.fresco.examples.ledger.subs/note index])
+               :on-focus    [::rf.fresco.examples.ledger.events/row-focused {:index index}]
+               :on-input    [::rf.fresco.examples.ledger.events/note index ::rf.fresco/value]}]]
      [:div {:role "gridcell" :aria-colindex "3"}
       [:button {:class        "ledger-flag"
-                :aria-label   (rf.hicasso.examples.ledger.events/flag-label index)
-                :aria-pressed (str (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/flagged? index]))
-                :on-click     [::rf.hicasso.examples.ledger.events/flag {:index index}]}
+                :aria-label   (rf.fresco.examples.ledger.events/flag-label index)
+                :aria-pressed (str (rf.fresco/sub [::rf.fresco.examples.ledger.subs/flagged? index]))
+                :on-click     [::rf.fresco.examples.ledger.events/flag {:index index}]}
        "Flag"]]]))
 
-(rf.hicasso/defview status-line
+(rf.fresco/defview status-line
   "*Showing rows 41–66 of 10,000.*
 
   Its own boundary, and that is the whole reason it exists as one: it is
@@ -191,12 +191,12 @@
   re-run the screen, re-mint the render callback and re-create the whole
   window's worth of elements."
   [_]
-  (let [{:keys [from to]} (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/window])
-        total             (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/total])]
+  (let [{:keys [from to]} (rf.fresco/sub [::rf.fresco.examples.ledger.subs/window])
+        total             (rf.fresco/sub [::rf.fresco.examples.ledger.subs/total])]
     [:p.ledger-status {:role "status"}
      (str "Showing rows " (inc from) "–" (inc to) " of " total)]))
 
-(rf.hicasso/defview ledger
+(rf.fresco/defview ledger
   "The whole application.
 
   Reads the total, which nothing writes after the seed, and the pinned
@@ -204,8 +204,8 @@
   or by a keystroke, so this body runs at mount and on a focus change and
   at no other time."
   [_]
-  (let [total  (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/total])
-        pinned (rf.hicasso/sub [::rf.hicasso.examples.ledger.subs/pinned-index])]
+  (let [total  (rf.fresco/sub [::rf.fresco.examples.ledger.subs/total])
+        pinned (rf.fresco/sub [::rf.fresco.examples.ledger.subs/pinned-index])]
     [:section#ledger
      [:h1 "Ledger"]
      [status-line {}]
@@ -221,10 +221,10 @@
              :viewport-height viewport-height
              :overscan        overscan
              :pinned-index    pinned
-             :render-row      (rf.hicasso/event [i offset]
-                                (rf.hicasso/as-element
+             :render-row      (rf.fresco/event [i offset]
+                                (rf.fresco/as-element
                                   [ledger-row {:key    (row-key i)
                                                :index  i
                                                :offset offset}]))
-             :on-window       (rf.hicasso/event [from to]
-                                [::rf.hicasso.examples.ledger.events/window-shown {:from from :to to}])}]]]))
+             :on-window       (rf.fresco/event [from to]
+                                [::rf.fresco.examples.ledger.events/window-shown {:from from :to to}])}]]]))

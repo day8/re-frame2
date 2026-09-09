@@ -17,7 +17,7 @@
 //
 // `--only ladder` is the PER-READ row (rf2-2rtt6.34): B and the witness
 // held fixed while READS walk HD-002's 1/3/7/20 at Q = E, on three
-// substrates — the two donors and the Hicasso candidate — so the
+// substrates — the two donors and the Fresco candidate — so the
 // candidate is judged against donor rows taken on its own instrument
 // (validation.md:180-189). Opt-in, runs nothing else, and takes
 // `P0_LADDER_RUNGS` and `P0_LADDER_ROUNDS`.
@@ -49,7 +49,7 @@
 // `:target :browser`, `:optimizations :advanced`, `:infer-externs :auto`,
 // `goog.DEBUG false`. The module's entry, and therefore everything that
 // ends up in the bundle, is this arm's. The default id is rf2-2rtt6.2's
-// measurement lane, `:hicasso-bench` — the id the lane landed for exactly
+// measurement lane, `:fresco-bench` — the id the lane landed for exactly
 // this ride — and `P0_BUILD` overrides it. One id serves N programs, so
 // the driven id's cache entry is cleared before every build
 // (`lane_cache.cjs`, rf2-2rtt6.20): a sibling arm's stale `shadow-js/`
@@ -176,8 +176,8 @@ const { watchPage } = require('../../../../../implementation/core/test/re_frame/
 const PROJECT = path.resolve(__dirname, '../../..');
 const IMPL = path.resolve(PROJECT, '../../implementation');
 
-const BUILD = process.env.P0_BUILD || 'hicasso-bench';
-const OUT_DIR = process.env.P0_OUT_DIR || 'out/p0-hicasso';
+const BUILD = process.env.P0_BUILD || 'fresco-bench';
+const OUT_DIR = process.env.P0_OUT_DIR || 'out/p0-fresco';
 const OUT = path.join(PROJECT, OUT_DIR);
 const INIT_FN = process.env.P0_INIT_FN || 're-frame.bench.p0-app/-main';
 const PORT = Number(process.env.P0_PORT || 8149);
@@ -533,8 +533,8 @@ const LADDER_RUNGS = (process.env.P0_LADDER_RUNGS || '0,1,3,7,20')
 const LADDER_ROUNDS = Number(process.env.P0_LADDER_ROUNDS || 6);
 
 const LADDER_SUBSTRATES = {
-  'reagent-subs': ['reagent', 'hicasso'],
-  'uix-subs': ['uix', 'hicasso'],
+  'reagent-subs': ['reagent', 'fresco'],
+  'uix-subs': ['uix', 'fresco'],
 };
 
 // `perRoot.grid` is the PAGE, and the plan states it on every arm rather
@@ -805,7 +805,7 @@ async function clockRow(chromium) {
   // The fold runs in a page too, so the ranges, the red-zone ratios, the
   // arm-order verdict, the summed read-back tally and the positive
   // control's verdict are computed by `re-frame.bench.order-guard`,
-  // `p0-harness` and `hicasso.lane` — the same code the rounds ran under —
+  // `p0-harness` and `fresco.lane` — the same code the rounds ran under —
   // rather than by a second, drifting expression of the same arithmetic in
   // JavaScript. `adjudicate` is the ONLY door onto the fold: a driver that
   // could take the record without the verdicts is the hole this closed.
@@ -978,14 +978,14 @@ async function heapPass(
         await gc();
         const post = await read();
         // THE SURVIVAL METRIC'S STRUCTURAL HALF (rf2-2rtt6.34), read
-        // here and not one line earlier: the Hicasso runtime reaps a
+        // here and not one line earlier: the Fresco runtime reaps a
         // cell and a read-set entry whose last holder left on the NEXT
         // MACROTASK, so a residue read immediately after `release()`
         // would report a cache that is about to evict itself as a leak.
         // The collector above has just spent three passes with an 80 ms
         // beat between them, which is that macrotask several times over.
         const structural = await page.evaluate(() =>
-          window.P0H.hicassoResidue ? window.P0H.hicassoResidue() : null
+          window.P0H.frescoResidue ? window.P0H.frescoResidue() : null
         );
         const boundaries = entry.boundaries;
         armsOut[entry.key] = {
@@ -4410,7 +4410,7 @@ function summariseAllocFits(row) {
   for (const seg of Object.keys(LADDER_SUBSTRATES)) {
     for (const selector of row.writeLegs || [row.writeSelector]) {
       const donor = LADDER_SUBSTRATES[seg][0];
-      const hc = slopeOf(allocWindowKey(`${seg}|hicasso`, selector, paired));
+      const hc = slopeOf(allocWindowKey(`${seg}|fresco`, selector, paired));
       const dn = slopeOf(allocWindowKey(`${seg}|${donor}`, selector, paired));
       if (typeof hc !== 'number' || typeof dn !== 'number') continue;
       console.log(
@@ -4455,11 +4455,11 @@ function ladderStructuralFailures(row) {
   const B = row.plan[0].arms[0].boundaries;
   for (const r of row.perRound) {
     for (const [key, a] of Object.entries(r.arms)) {
-      const h = a.verify && a.verify.hicasso;
+      const h = a.verify && a.verify.fresco;
       if (!h) continue;
-      const hicasso = a.arm === 'lad/hicasso';
+      const fresco = a.arm === 'lad/fresco';
       const R = a.reads || 0;
-      const want = hicasso
+      const want = fresco
         ? {
             boundaries: R === 0 ? 0 : B,
             edges: B * R,
@@ -4469,7 +4469,7 @@ function ladderStructuralFailures(row) {
         : { boundaries: 0, edges: 0, cells: 0, entries: 0 };
       for (const f of Object.keys(want)) {
         if (h[f] !== want[f]) {
-          out.push(`round ${r.round} ${key}: hicasso ${f} ${h[f]}, expected ${want[f]}`);
+          out.push(`round ${r.round} ${key}: fresco ${f} ${h[f]}, expected ${want[f]}`);
         }
       }
       const res = a.structural;
@@ -4477,7 +4477,7 @@ function ladderStructuralFailures(row) {
         for (const f of ['cells', 'cellRefs', 'boundaries', 'edges', 'entries']) {
           if (res[f] !== 0) {
             out.push(
-              `round ${r.round} ${key}: residue after teardown — hicasso ${f} ${res[f]}, expected 0`
+              `round ${r.round} ${key}: residue after teardown — fresco ${f} ${res[f]}, expected 0`
             );
           }
         }
@@ -4627,19 +4627,19 @@ function summariseLadder(row, structuralFailures) {
   const rg = slopeOf('reagent-subs|reagent');
   const ux = slopeOf('uix-subs|uix');
   for (const seg of Object.keys(LADDER_SUBSTRATES)) {
-    const hc = slopeOf(`${seg}|hicasso`);
+    const hc = slopeOf(`${seg}|fresco`);
     if (typeof hc !== 'number') continue;
     const line = (name, donor) =>
       typeof donor === 'number'
         ? `${name} ${(hc / donor).toFixed(4)}x (${n0(hc)} vs ${n0(donor)} B/read, ` +
           `margin ${(100 * (donor - hc) / donor).toFixed(1)}%)`
         : `${name} —`;
-    console.log(`;;   hicasso in ${seg.padEnd(13)} ${line('vs Reagent', rg)}   ${line('vs UIx', ux)}`);
+    console.log(`;;   fresco in ${seg.padEnd(13)} ${line('vs Reagent', rg)}   ${line('vs UIx', ux)}`);
   }
-  if (typeof slopeOf('reagent-subs|hicasso') === 'number' &&
-      typeof slopeOf('uix-subs|hicasso') === 'number') {
-    const a = slopeOf('reagent-subs|hicasso');
-    const b = slopeOf('uix-subs|hicasso');
+  if (typeof slopeOf('reagent-subs|fresco') === 'number' &&
+      typeof slopeOf('uix-subs|fresco') === 'number') {
+    const a = slopeOf('reagent-subs|fresco');
+    const b = slopeOf('uix-subs|fresco');
     console.log(
       `;;   the candidate's two segments: ${n0(a)} and ${n0(b)} B/read — ` +
         `${(100 * Math.abs(a - b) / ((a + b) / 2)).toFixed(2)}% apart. NOT a seam figure: the`
@@ -5208,7 +5208,7 @@ if (require.main === module) (async () => {
   // THE RAW RECORD, AND WHAT AN ALLOCATION WINDOW IS EXPECTED TO DO WITH IT
   // (rf2-erre5). **An allocation window KEEPS this file, and its studio page
   // cites it by SHA.** Its home is `data/alloc-<bead>/` beside the readers
-  // (`bench/hicasso/src/re_frame/bench/hicasso/data/`), where rf2-2rtt6.138
+  // (`bench/fresco/src/re_frame/bench/fresco/data/`), where rf2-2rtt6.138
   // committed its record and where every reader still looks — but since
   // rf2-6c12m.6 that directory is git-ignored and the corpus of past windows
   // is archived in git history (`data_archive.cjs` carries the SHA and the

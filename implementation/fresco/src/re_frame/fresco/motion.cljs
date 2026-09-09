@@ -1,9 +1,9 @@
-(ns re-frame.hicasso.motion
+(ns re-frame.fresco.motion
   "MOTION — the optional module, and the posture it exists to state.
 
       (ns my.app
-        (:require [re-frame.hicasso :as h]
-                  [re-frame.hicasso.motion :as motion]))
+        (:require [re-frame.fresco :as h]
+                  [re-frame.fresco.motion :as motion]))
 
       (h/defview toast-tray [_]
         [motion/presence {:timeout-ms 300}
@@ -41,7 +41,7 @@
 
   ## What follows from the posture, and is witnessed
 
-  `re-frame.hicasso.motion-presence-dom-cljs-test` is the witness; each
+  `re-frame.fresco.motion-presence-dom-cljs-test` is the witness; each
   claim below names the row that holds it.
 
   **Per-frame work is zero.** A transition costs one timer per
@@ -62,31 +62,31 @@
   armed. R-B8 — *an unmount mid-transition leaving uncancelled timers* —
   is the failure this module is measured against.
 
-  **Absent when unused.** `re-frame.hicasso` does not reach this
+  **Absent when unused.** `re-frame.fresco` does not reach this
   namespace, so an application that never requires it carries none of it:
   not the component, not the machine, not the phase transform.
-  `hicasso/scripts/check_optional_module_reachability.py` is what keeps
+  `fresco/scripts/check_optional_module_reachability.py` is what keeps
   that true, and it fails the moment the public door imports the module
   or its engine.
 
   ## Where the pieces live
 
   The machine and the phase transform are
-  `re-frame.hicasso.impl.presence` (pure — a value in, a value out, no
+  `re-frame.fresco.impl.presence` (pure — a value in, a value out, no
   React and no clock), and the component that drives them is
-  `re-frame.hicasso.impl.presence-react`. They live under `impl.*`
+  `re-frame.fresco.impl.presence-react`. They live under `impl.*`
   because that is the package's one private half and this namespace is a
-  door onto part of it, exactly as `re-frame.hicasso` is a door onto the
-  rest. The two catalogued `:rf.error/hicasso-presence-*` ids are raised
+  door onto part of it, exactly as `re-frame.fresco` is a door onto the
+  rest. The two catalogued `:rf.error/fresco-presence-*` ids are raised
   from `impl.presence`, so the two files stay put.
 
   **The override keys are `::motion/mounting` and `::motion/unmounting`**,
   as the example above shows — this namespace's own spellings, and the
   whole of its vocabulary: a view child takes the same map, merged into
-  its props (docs/design/hicasso/decisions.md HD-030). Naming-ledger row
+  its props (docs/design/fresco/decisions.md HD-030). Naming-ledger row
   31 ruled the respelling from the prototype's `::h/…` (operator,
   2026-08-11), and the vocabulary now matches the row (rf2-hg3q)."
-  (:require [re-frame.hicasso.impl.presence-react :as rf.hicasso.impl.presence-react]))
+  (:require [re-frame.fresco.impl.presence-react :as rf.fresco.impl.presence-react]))
 
 (def ^{:doc "`motion/presence` — retain exiting keyed children for
   `:timeout-ms`, merging each child's own `::motion/mounting` /
@@ -97,5 +97,5 @@
   renders is the author's own node with the author's own attributes
   merged. `:timeout-ms` is mandatory — it is the retention length and
   the hard terminal bound at once, so a child leaves on time whether or
-  not any CSS ran. `re-frame.hicasso.impl.presence-react/presence`."}
-  presence rf.hicasso.impl.presence-react/presence)
+  not any CSS ran. `re-frame.fresco.impl.presence-react/presence`."}
+  presence rf.fresco.impl.presence-react/presence)

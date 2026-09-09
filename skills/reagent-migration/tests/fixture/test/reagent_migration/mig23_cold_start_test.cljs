@@ -15,11 +15,11 @@
   `:rf.error/adapter-disposed` instead, a different lifecycle state):
 
     1. NEGATIVE (never-initialized): the recipe's two entry points —
-       `rf.hicasso.server/render` (the server half) and `rf/make-frame` (the client
+       `rf.fresco.server/render` (the server half) and `rf/make-frame` (the client
        half's first call) — each raise `:rf.error/no-adapter-installed`
        before any render/hydration work; no `:document` is produced.
     2. POSITIVE server control: ONE `(rf/init! rf.ssr/adapter)` at process
-       boot, then TWO `rf.hicasso.server/render` requests both answer a `:document`
+       boot, then TWO `rf.fresco.server/render` requests both answer a `:document`
        and a payload, with no second adapter install attempted
        (`rf/current-adapter` identity is unchanged across both) —
        initialization is boot work, not request work.
@@ -29,7 +29,7 @@
        a reload-path `rf/init!` re-run is a no-op (same installed spec),
        so the hydration/HMR path never reinstalls. The browser-side
        hydrate calls themselves need a DOM and are covered by the
-       shipped Hicasso/SSR suites — the entry point the cold recipe dies
+       shipped Fresco/SSR suites — the entry point the cold recipe dies
        at, per the finding, is `rf/make-frame`, and that is what is
        proven to advance here.
 
@@ -39,10 +39,10 @@
             [re-frame.core :as rf]
             [re-frame.ssr :as rf.ssr]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.server :as rf.hicasso.server]))
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.server :as rf.fresco.server]))
 
-(rf.hicasso/defview page
+(rf.fresco/defview page
   "Minimal deterministic root — no clock, no randomness, no browser
   global, so the server render is byte-stable."
   [_props]
@@ -70,11 +70,11 @@
     (is (nil? (rf/current-adapter))
         "cold start: no adapter is installed and none is defaulted")
     (is (= :rf.error/no-adapter-installed
-           (rf-error-id #(rf.hicasso.server/render render-opts)))
-        "the server half without rf/init!: rf.hicasso.server/render reaches rf/make-frame and throws; no :document is returned")
+           (rf-error-id #(rf.fresco.server/render render-opts)))
+        "the server half without rf/init!: rf.fresco.server/render reaches rf/make-frame and throws; no :document is returned")
     (is (= :rf.error/no-adapter-installed
            (rf-error-id #(rf/make-frame {:id :app/main :platform :client})))
-        "the client half without rf/init!: its first rf/make-frame throws the same error, so rf.ssr/hydrate! / rf.hicasso/render! never run")
+        "the client half without rf/init!: its first rf/make-frame throws the same error, so rf.ssr/hydrate! / rf.fresco/render! never run")
     (is (nil? (rf/current-adapter))
         "the failed calls did not install anything either — render never auto-installs"))
 
@@ -83,8 +83,8 @@
     (is (= :rf.adapter/ssr (:kind (rf/current-adapter)))
         "the corrected server half installs the headless server-side adapter once")
     (let [spec-before (rf/current-adapter)
-          r1          (rf.hicasso.server/render render-opts)
-          r2          (rf.hicasso.server/render render-opts)]
+          r1          (rf.fresco.server/render render-opts)
+          r2          (rf.fresco.server/render render-opts)]
       (is (string? (:document r1))
           "first request: the existing render call now returns a document")
       (is (map? (:payload r1))

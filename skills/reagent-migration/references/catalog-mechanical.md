@@ -93,7 +93,7 @@ target:
 **A marker substitutes only at the TOP LEVEL of the intent vector.** The
 substitution is one pass over the vector's own elements; a `::h/value` nested
 inside a map or an inner vector arrives at the handler as the literal keyword
-`:re-frame.hicasso/value`, silently. Restructure the event's payload rather than
+`:re-frame.fresco/value`, silently. Restructure the event's payload rather than
 nesting the marker.
 
 Anything a closure did beyond these two shapes → MIG-18 (D).
@@ -154,7 +154,7 @@ needs it — a view that reaches for it everywhere has misread the check above.
 `::h/prevent` is a **reserved head wrapping exactly one intent vector**. The
 grammar is closed and checked once per render: exactly two elements, the second
 a non-empty vector that is not itself a reserved head. Anything else raises
-`:rf.error/hicasso-malformed-prevent`.
+`:rf.error/fresco-malformed-prevent`.
 
 Two facts decide most sites:
 
@@ -175,7 +175,7 @@ not exist, and neither does `:capture`, `:passive`, `:once` or
 - **Capture phase is React's own prop spelling** — `:on-click-capture` /
   `:onClickCapture` is an ordinary event position and an intent vector lowers
   there normally.
-- **`passive` and `once` have no Hicasso surface at all.** A handler that
+- **`passive` and `once` have no Fresco surface at all.** A handler that
   genuinely needs either is a callback ref plus `addEventListener` — which makes
   the view a MIG-17 decision, not a mechanical lift.
 
@@ -186,7 +186,7 @@ not exist, and neither does `:capture`, `:passive`, `:once` or
 ^{:key (:id t)} [item t]   =>   [item {:key (:id t) :t t}]
 ```
 
-**Hicasso never reads Clojure metadata.** There is no `(meta …)` read in the
+**Fresco never reads Clojure metadata.** There is no `(meta …)` read in the
 codec at all, so a surviving `^{:key …}` is not a spelling variant — it is a key
 that is simply absent, and React reconciles the list by position instead. In a
 reorderable or filterable list that is silent state corruption: the wrong row's
@@ -195,8 +195,8 @@ input keeps the wrong row's text.
 It rides MIG-01's atomic call-site pass so the props map is built once. Two
 signals help, and neither is complete cover:
 
-- React's own key warning fires for a missing key; Hicasso adds nothing to it.
-- `:rf.warning/hicasso-entity-key` fires when the key is neither a
+- React's own key warning fires for a missing key; Fresco adds nothing to it.
+- `:rf.warning/fresco-entity-key` fires when the key is neither a
   string/number/keyword nor a uuid/symbol — an entity map used as a key, which
   was never stable.
 
@@ -208,7 +208,7 @@ rest is yours.
 
 ## MIG-11 — the prop dialect (mostly: leave it alone)
 
-**Start by not rewriting.** Hicasso resolves every prop key through one
+**Start by not rewriting.** Fresco resolves every prop key through one
 canonical-slot rule, and it accepts the spellings a Reagent codebase already
 has:
 
@@ -319,12 +319,12 @@ Four things matter, and the first two are the ones a migration gets wrong:
   nothing installs one for you: there is no default-adapter registry, so the
   install is the app's own explicit line whatever the views are written in.
   Keep the app's existing adapter install; it is not Reagent-specific
-  scaffolding to be deleted. A Reagent adapter under a Hicasso tree keeps
+  scaffolding to be deleted. A Reagent adapter under a Fresco tree keeps
   working exactly as it did, and is what a part-migrated page wants — every
   React-shaped adapter writes the same frame context, so the Reagent subtree
-  and the Hicasso one resolve to the *same* frame. Hicasso does ship an
-  adapter of its own (`re-frame.hicasso.substrate`), but it is an optional
-  module nothing under Hicasso's own source requires, so `h/render!` neither
+  and the Fresco one resolve to the *same* frame. Fresco does ship an
+  adapter of its own (`re-frame.fresco.substrate`), but it is an optional
+  module nothing under Fresco's own source requires, so `h/render!` neither
   installs it nor displaces what the app has. *"Stays" is about a migration in
   progress. If the app ends with no Reagent view at all, the choice reopens and
   the author gets told — MIG-24 §When no Reagent view remains.*
@@ -349,25 +349,25 @@ Four things matter, and the first two are the ones a migration gets wrong:
   the same handle mounts afresh.
 
 `reagent.dom.server` / `hydrate-root` are the SSR family → MIG-23 (D), whose
-recipe is its own leaf, [`ssr-hydrate.md`](ssr-hydrate.md): the Hicasso pipeline
+recipe is its own leaf, [`ssr-hydrate.md`](ssr-hydrate.md): the Fresco pipeline
 ships — `server/render`, then `ssr/hydrate!`, then `h/render!` with
 `{:hydrate? true}` — so the open question is whether to run a Node renderer,
 not whether a door exists.
 
 ## MIG-24 — ns requires (runs LAST)
 
-Add the Hicasso require; drop `reagent.*` requires **only when the namespace has
+Add the Fresco require; drop `reagent.*` requires **only when the namespace has
 zero remaining uses** (a held D/R view keeps them alive):
 
 ```clojure
 (:require [re-frame.core :as rf]
-          [re-frame.hicasso :as h]           ; add — `h` is the conventional alias
+          [re-frame.fresco :as h]           ; add — `h` is the conventional alias
           ;; [reagent.core :as r]            ; drop only if nothing else needs it
           )
 ```
 
 **The `h` alias is load-bearing, not cosmetic.** `::h/value`, `::h/checked` and
-`::h/prevent` are auto-resolved keywords that read `:re-frame.hicasso/…` through
+`::h/prevent` are auto-resolved keywords that read `:re-frame.fresco/…` through
 that alias. Alias it anything else and the markers you write are different
 keywords that nothing substitutes.
 
@@ -375,10 +375,10 @@ The optional modules are separate requires and are **absent when unused** —
 that is the point of them, so do not add one speculatively:
 
 ```clojure
-[re-frame.hicasso.forms   :as forms]     ; buffered-field + the draft concern
-[re-frame.hicasso.motion  :as motion]    ; presence
-[re-frame.hicasso.overlay :as overlay]   ; popover, modal
-[re-frame.hicasso.native  :as n]         ; the two Hicasso hooks for React islands
+[re-frame.fresco.forms   :as forms]     ; buffered-field + the draft concern
+[re-frame.fresco.motion  :as motion]    ; presence
+[re-frame.fresco.overlay :as overlay]   ; popover, modal
+[re-frame.fresco.native  :as n]         ; the two Fresco hooks for React islands
 ```
 
 ### When no Reagent view remains, the adapter question opens
@@ -390,17 +390,17 @@ leave the author holding a dependency for nothing.
 Once **every** view in the app is converted, `re-frame.adapter.reagent` is no
 longer earning its place: its only job was ever the substrate half of Spec 006
 — the container `app-db` lives in, plus a derived value that says when it
-moved. Hicasso ships an adapter of its own, so that job has a second answer:
+moved. Fresco ships an adapter of its own, so that job has a second answer:
 
 ```clojure
 (:require [re-frame.core :as rf]
-          [re-frame.hicasso :as h]
-          [re-frame.hicasso.substrate :as substrate])
+          [re-frame.fresco :as h]
+          [re-frame.fresco.substrate :as substrate])
 
-(rf/init! substrate/adapter)          ;; :kind :rf.adapter/hicasso
+(rf/init! substrate/adapter)          ;; :kind :rf.adapter/fresco
 ```
 
-`re-frame.hicasso.substrate` ships inside `day8/re-frame2-hicasso`, so that line
+`re-frame.fresco.substrate` ships inside `day8/re-frame2-fresco`, so that line
 costs no coordinate. What follows from it is **two** decisions, and this
 migration only measured the first.
 
@@ -495,12 +495,12 @@ to this rewrite too.
 
 ## MIG-34 — `dangerouslySetInnerHTML` converts, and that is the problem
 
-**Hicasso has no trusted-markup verb, and it does not need one: the prop passes
+**Fresco has no trusted-markup verb, and it does not need one: the prop passes
 straight through to React.** So the view converts with no edit at all — and that
 is precisely why it needs flagging rather than skipping.
 
-Reagent **deleted** this prop unless it was wrapped; Hicasso **passes it
-through**. A site that was inert under Reagent becomes live under Hicasso —
+Reagent **deleted** this prop unless it was wrapped; Fresco **passes it
+through**. A site that was inert under Reagent becomes live under Fresco —
 markup that has not been rendered for however long this code has existed starts
 being injected. The codemod reports every such site as `:dangerous-html`, a
 runtime blocker, for exactly this reason.

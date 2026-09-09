@@ -179,7 +179,7 @@ implementation/                CLJS reference implementation — per-artefact su
                                jar with its own deps.edn, on the top-level shadow-cljs classpath.
   core/                        day8/re-frame2 — registry, drain, fx, dispatch, subscribe,
                                frame-provider, trace, source-coords, substrate, elision
-  hicasso/                     day8/re-frame2-hicasso — Hicasso, the re-frame-native view layer
+  fresco/                     day8/re-frame2-fresco — Fresco, the re-frame-native view layer
   adapters/
     reagent/                   day8/re-frame2-reagent — the Reagent adapter (browser default)
     reagent-slim/              day8/reagent-slim — slim Reagent fork (reagent2.core); same view

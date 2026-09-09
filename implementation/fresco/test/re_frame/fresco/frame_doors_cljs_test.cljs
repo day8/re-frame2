@@ -1,10 +1,10 @@
-(ns re-frame.hicasso.frame-doors-cljs-test
+(ns re-frame.fresco.frame-doors-cljs-test
   "THE PURE FRAME DOORS INSIDE A BODY — `rf/current-frame-id` and
   zero-arity `rf/capture-frame`.
 
   spec/002-Frames.md §The refusal tier: a refusing render extent may
   still expose its declared frame to the pure identity and capture
-  doors, while stateful ambient operations remain refused. Hicasso
+  doors, while stateful ambient operations remain refused. Fresco
   declares its boundary's frame as `:extent-frame`
   (`impl.intent/with-frame`), so the two core doors answer the rendering
   boundary's frame inside a body and inside a render callback that body
@@ -13,7 +13,7 @@
 
   This file is the node half: everything the seam does that is not
   React's is answerable here, and the `-dom` sibling
-  (`re-frame.hicasso.frame-doors-dom-cljs-test`) proves React drives
+  (`re-frame.fresco.frame-doors-dom-cljs-test`) proves React drives
   *this* seam rather than re-proving what the seam does.
 
   ## Why these rows are not vacuous
@@ -33,10 +33,10 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
-            [re-frame.hicasso.todo-support :as rf.hicasso.todo-support]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
+            [re-frame.fresco.todo-support :as rf.fresco.todo-support]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
@@ -47,16 +47,16 @@
      ;; wins over everything — so a row claiming the door answered the
      ;; EXTENT's frame would pass for the wrong reason.
      :ambient-frame nil
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 (def ^:private frame-a ::doors-a)
 (def ^:private frame-b ::doors-b)
 
 (defn- frames! []
-  (rf.hicasso.todo-support/make-frame! frame-a 3)
-  (rf.hicasso.todo-support/make-frame! frame-b 3)
-  (rf.hicasso.todo-support/reseed! frame-a 3)
-  (rf.hicasso.todo-support/reseed! frame-b 3)
+  (rf.fresco.todo-support/make-frame! frame-a 3)
+  (rf.fresco.todo-support/make-frame! frame-b 3)
+  (rf.fresco.todo-support/reseed! frame-a 3)
+  (rf.fresco.todo-support/reseed! frame-b 3)
   nil)
 
 (defn- outcome
@@ -73,7 +73,7 @@
   here."
   [frame-kw body-fn]
   (let [seen (volatile! ::unset)]
-    (rf.hicasso.impl.collector/render-body frame-kw (fn [_] (body-fn seen) [:li]) {})
+    (rf.fresco.impl.collector/render-body frame-kw (fn [_] (body-fn seen) [:li]) {})
     @seen))
 
 (defn- with-context-frame
@@ -113,7 +113,7 @@
 (deftest outside-a-render-extent-the-doors-report-cores-absence
   (frames!)
   (testing "no extent, no answer — never a guessed frame and never nil.
-           The error is core's own `:rf.error/no-frame-context`: Hicasso
+           The error is core's own `:rf.error/no-frame-context`: Fresco
            mints no door and therefore no error of its own"
     (let [data (outcome rf/current-frame-id)]
       (is (= :rf.error/no-frame-context (:rf.error/id data))
@@ -141,20 +141,20 @@
           probe    (fn []
                      (vreset! seen {:id      (rf/current-frame-id)
                                     :capture (:frame (rf/capture-frame))
-                                    :read    (outcome #(rf/subscribe [:hicasso.todo/done? 0]))}))]
+                                    :read    (outcome #(rf/subscribe [:fresco.todo/done? 0]))}))]
       ;; Lowered at a NON-event position inside frame-a's body, which is
       ;; what gives it the render contract.
-      (rf.hicasso.impl.collector/render-body frame-a
+      (rf.fresco.impl.collector/render-body frame-a
                              (fn [_]
                                (vreset! callback
-                                        (rf.hicasso.impl.intent/lower-prop :render-row (rf.hicasso.impl.intent/callback probe)))
+                                        (rf.fresco.impl.intent/lower-prop :render-row (rf.fresco.impl.intent/callback probe)))
                                [:li])
                              {})
       (is (some? @callback) "precondition: the render position lowered a wrapper")
 
       (testing "invoked from outside any extent at all — the foreign
                component's own render"
-        (is (not (rf.hicasso.impl.collector/rendering?))
+        (is (not (rf.fresco.impl.collector/rendering?))
             "the premise, asserted rather than described: the runtime's own
              render slot is EMPTY at the moment the callback runs")
         (@callback)
@@ -174,7 +174,7 @@
                so the supplying boundary is the only frame that can own
                this call"
         (vreset! seen ::unset)
-        (rf.hicasso.impl.intent/with-frame frame-b (rf.hicasso.impl.collector/frame-dispatch frame-b) (fn [] (@callback)))
+        (rf.fresco.impl.intent/with-frame frame-b (rf.fresco.impl.collector/frame-dispatch frame-b) (fn [] (@callback)))
         (is (= frame-a (:id @seen))
             "the invoker's frame must not colonise the owner's callback")
         (is (= frame-a (:capture @seen))))
@@ -200,23 +200,23 @@
            sub-key at all. Reads become edges because they are sub-KEYS;
            the frame is not one — it is render-constant per boundary and
            resolved once by the shell"
-    (rf.hicasso.impl.collector/render-body frame-a (fn [_] [:li (str (rf/current-frame-id))]) {})
-    (is (= [] (vec (rf.hicasso.test.runtime/reads-of (rf.hicasso.impl.collector/last-reads))))))
+    (rf.fresco.impl.collector/render-body frame-a (fn [_] [:li (str (rf/current-frame-id))]) {})
+    (is (= [] (vec (rf.fresco.test.runtime/reads-of (rf.fresco.impl.collector/last-reads))))))
 
   (testing "and adding it to a READING body changes the read set not at
            all — same keys, same order. The control is the point: the
            first row alone would be green for a body that read nothing
            for any reason"
-    (rf.hicasso.impl.collector/render-body frame-a
-                           (fn [_] [:li (str (rf.hicasso.impl.collector/sub [:hicasso.todo/done? 0]))])
+    (rf.fresco.impl.collector/render-body frame-a
+                           (fn [_] [:li (str (rf.fresco.impl.collector/sub [:fresco.todo/done? 0]))])
                            {})
-    (let [without (vec (rf.hicasso.test.runtime/reads-of (rf.hicasso.impl.collector/last-reads)))]
-      (rf.hicasso.impl.collector/render-body frame-a
+    (let [without (vec (rf.fresco.test.runtime/reads-of (rf.fresco.impl.collector/last-reads)))]
+      (rf.fresco.impl.collector/render-body frame-a
                              (fn [_]
                                [:li (str (rf/current-frame-id))
-                                (str (rf.hicasso.impl.collector/sub [:hicasso.todo/done? 0]))])
+                                (str (rf.fresco.impl.collector/sub [:fresco.todo/done? 0]))])
                              {})
-      (let [with (vec (rf.hicasso.test.runtime/reads-of (rf.hicasso.impl.collector/last-reads)))]
+      (let [with (vec (rf.fresco.test.runtime/reads-of (rf.fresco.impl.collector/last-reads)))]
         (is (= 1 (count without)) "precondition: the control body read exactly one key")
         (is (= without with)
             (str "the identity read must contribute nothing to the collector: "
@@ -246,7 +246,7 @@
           (is (= frame-a (rf.frame/resolve-current-frame))
               "control: tier 2 is genuinely answering out here, so the nil
                below is the withdrawal and not an empty chain")
-          (rf.hicasso.impl.collector/render-body frame-a
+          (rf.fresco.impl.collector/render-body frame-a
                                  (fn [_]
                                    (vreset! seen {:reader (rf.frame/resolve-current-frame)
                                                   :door   (rf/current-frame-id)})
@@ -272,7 +272,7 @@
            lands in the wrong place and this row says so"
     (let [carry (fn [frame-kw]
                   (let [held (volatile! nil)]
-                    (rf.hicasso.impl.collector/render-body frame-kw
+                    (rf.fresco.impl.collector/render-body frame-kw
                                            (fn [_]
                                              (vreset! held (rf/capture-frame))
                                              [:li])
@@ -285,10 +285,10 @@
 
       (testing "and each dispatches into ITS OWN frame, after the extent
                has gone"
-        (is (nil? rf.hicasso.impl.intent/*frame*) "precondition: no render extent is live here")
-        ((:dispatch-sync a) [:hicasso.todo/toggle 0])
-        (is (true? @(rf/subscribe [:hicasso.todo/done? 0] {:frame frame-a})))
-        (is (false? @(rf/subscribe [:hicasso.todo/done? 0] {:frame frame-b}))
+        (is (nil? rf.fresco.impl.intent/*frame*) "precondition: no render extent is live here")
+        ((:dispatch-sync a) [:fresco.todo/toggle 0])
+        (is (true? @(rf/subscribe [:fresco.todo/done? 0] {:frame frame-a})))
+        (is (false? @(rf/subscribe [:fresco.todo/done? 0] {:frame frame-b}))
             "frames are isolated contexts — the sibling must not have moved")))))
 
 ;; ---------------------------------------------------------------------------
@@ -305,8 +305,8 @@
     (let [seen (read-in-body frame-a
                              (fn [seen]
                                (vreset! seen {:capture  (:frame (rf/capture-frame))
-                                              :read     (outcome #(rf/subscribe [:hicasso.todo/done? 0]))
-                                              :dispatch (outcome #(rf/dispatch [:hicasso.todo/toggle 0]))})))]
+                                              :read     (outcome #(rf/subscribe [:fresco.todo/done? 0]))
+                                              :dispatch (outcome #(rf/dispatch [:fresco.todo/toggle 0]))})))]
       (is (= frame-a (:capture seen)))
       (is (= :rf.error/ambient-frame-refused (:rf.error/id (:read seen)))
           (str "an ambient read must still refuse; got " (pr-str (:read seen))))
@@ -338,7 +338,7 @@
            is refused rather than silently repaired to its own frame"
     (let [seen (volatile! ::unset)]
       (rf/with-frame frame-b
-        (rf.hicasso.impl.collector/render-body frame-a
+        (rf.fresco.impl.collector/render-body frame-a
                                (fn [_]
                                  (vreset! seen {:capture  (outcome #(rf/capture-frame))
                                                 :id       (outcome #(rf/current-frame-id))
@@ -360,7 +360,7 @@
            there is no second frame and both doors answer it"
     (let [seen (volatile! ::unset)]
       (rf/with-frame frame-a
-        (rf.hicasso.impl.collector/render-body frame-a
+        (rf.fresco.impl.collector/render-body frame-a
                                (fn [_]
                                  (vreset! seen {:capture (:frame (rf/capture-frame))
                                                 :id      (rf/current-frame-id)})

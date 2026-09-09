@@ -13,7 +13,7 @@ method does not.
 **And they moved while this page was being written, which is worth recording rather than tidying away.** The
 three censuses were first taken eighteen commits earlier. Re-running them on the final base left the
 native-share census identical to the digit and changed the rent census outright, because
-`re-frame.hicasso.server` landed in the interval — so §3a's finding below is one the first run could not have
+`re-frame.fresco.server` landed in the interval — so §3a's finding below is one the first run could not have
 made, and the sentence it replaced (that the module was *in flight*) would have shipped false.
 
 ## What this page is written against
@@ -39,20 +39,20 @@ brief says the same thing more sharply — *"Native-code percentage is **an obse
 So what follows is an observation. There is no line to pass and none is drawn.
 
 **What counts as native.** [§5](specification.md#5-native-react-hot-path) grades the escape as five rungs.
-Rungs 1 and 2 are ordinary Hicasso — hiccup, ambient reads, boundary and read topology — and are not native.
-Rungs 3, 4 and 5 are, and each leaves a mark in the source that a scan can find: a `re-frame.hicasso.native`
+Rungs 1 and 2 are ordinary Fresco — hiccup, ambient reads, boundary and read topology — and are not native.
+Rungs 3, 4 and 5 are, and each leaves a mark in the source that a scan can find: a `re-frame.fresco.native`
 require, a `["react" …]` or `[uix.…]` require, an `h/defhost` declaration, or an `h/as-element` /
 `h/as-component` crossing. Those six tokens are the census, and they were chosen because each is a
-*declaration* rather than a style — you cannot reach React from a Hicasso view without writing one of them.
+*declaration* rather than a style — you cannot reach React from a Fresco view without writing one of them.
 
 ### Method
 
 ```sh
-cd implementation/hicasso/test/re_frame/hicasso/examples
+cd implementation/fresco/test/re_frame/fresco/examples
 SRC=$(ls */*.cljs | grep -v "_test\.cljs$")            # source namespaces; test namespaces excluded
 
 # namespaces carrying a native escape
-grep -nE '\[re-frame\.hicasso\.native|\["react"|\["react-dom|\[uix\.' $SRC
+grep -nE '\[re-frame\.fresco\.native|\["react"|\["react-dom|\[uix\.' $SRC
 grep -nE '\(h/defhost |\(h/as-element|\(h/as-component|\(n/' $SRC
 
 # the component denominator
@@ -91,7 +91,7 @@ and defines one React function component (`virtual-rows`, using `useRef`, `useSt
 across it with `h/as-element`. The two native components are that raw React component and the `h/defhost` door
 onto it.
 
-**Zero of the forty source namespaces require `re-frame.hicasso.native`.** The tier's own namespace docstring
+**Zero of the forty source namespaces require `re-frame.fresco.native`.** The tier's own namespace docstring
 predicts this — *"Most applications never require this namespace"* — and the shipped corpus does not contradict
 it. The tier is exercised by its own witness suites, the benches and the testbed, which are not applications
 and are not counted here.
@@ -233,20 +233,20 @@ census was first taken the matrix read *four of five source-side, two of five bu
 gaps were filed rather than left to be discovered:
 
 - **`rf2-ot28g`** — motion and overlay had no sentinel row, and it was a choice rather than an oversight:
-  `re-frame.hicasso.motion/presence` already sat in `check_bundle_isolation.cjs` as a *near-miss control
+  `re-frame.fresco.motion/presence` already sat in `check_bundle_isolation.cjs` as a *near-miss control
   string* the gate is asserted **not** to fire on, so the file knew the modules existed. Both were proved
   unreachable in the source graph — the stronger instrument — but nothing checked that Closure really left
   nothing behind at `:advanced`. Three rows landed: motion has ONE reachability shape and overlay TWO.
-- **`rf2-2a0ju`** — `re-frame.hicasso.server` was in *neither* roster while its own docstring named
-  `check_optional_module_reachability.py` as what kept it out of a browser build. `grep -c 'hicasso.server'`
+- **`rf2-2a0ju`** — `re-frame.fresco.server` was in *neither* roster while its own docstring named
+  `check_optional_module_reachability.py` as what kept it out of a browser build. `grep -c 'fresco.server'`
   returned **0** against both gates. The premise held, but nothing would have noticed if it stopped: a
   missing row beside a sentence naming the script that allegedly closes it is a hole a reader is steered
   away from. The source-side row landed, and with it the module joined the warnings-fatal `:advanced`
   compile gate that roster also drives.
 - **`rf2-fn62g`** — the last bundle-side gap, and a design question rather than a missing row, since
-  `:hicasso-release` is a browser build and the server module is a Node one. **Answered rather than
+  `:fresco-release` is a browser build and the server module is a Node one. **Answered rather than
   inherited**: the gate asks whether any byte of a module *reached* a browser bundle, which is meaningful for
-  any namespace and sharpest for a Node-only one. The sentinel is the `hicasso.ssr` keyword namespace
+  any namespace and sharpest for a Node-only one. The sentinel is the `fresco.ssr` keyword namespace
   `fresh-frame-id` mints, co-reachable with `react-dom/server` by construction because that dependency enters
   by exactly one route and `render`'s first binding is `(fresh-frame-id)`. Its two limits — a leak of
   `document`/`payload-script` alone is green, and the bench prototype mints the same string — are stated in
@@ -258,22 +258,22 @@ gaps were filed rather than left to be discovered:
 
 ```sh
 cd implementation
-python hicasso/scripts/check_optional_module_reachability.py --self-test   # exit 0
-python hicasso/scripts/check_optional_module_reachability.py              # exit 0
-python hicasso/scripts/check_budget_ledger.py --self-test                 # exit 0
-python hicasso/scripts/check_budget_ledger.py                             # exit 0
+python fresco/scripts/check_optional_module_reachability.py --self-test   # exit 0
+python fresco/scripts/check_optional_module_reachability.py              # exit 0
+python fresco/scripts/check_budget_ledger.py --self-test                 # exit 0
+python fresco/scripts/check_budget_ledger.py                             # exit 0
 
 # the two rosters, read at source rather than inferred
-grep -n '"name":' hicasso/scripts/check_optional_module_reachability.py   # 6: 5 MODULES + UIx
-grep -c 'surface:' hicasso/scripts/check_bundle_isolation.cjs             # 8 rows over 5 surfaces
-grep -c 'hicasso.server' hicasso/scripts/check_optional_module_reachability.py \
-                         hicasso/scripts/check_bundle_isolation.cjs        # 2 and 5
+grep -n '"name":' fresco/scripts/check_optional_module_reachability.py   # 6: 5 MODULES + UIx
+grep -c 'surface:' fresco/scripts/check_bundle_isolation.cjs             # 8 rows over 5 surfaces
+grep -c 'fresco.server' fresco/scripts/check_optional_module_reachability.py \
+                         fresco/scripts/check_bundle_isolation.cjs        # 2 and 5
 
 # the bundle side, which costs a full :advanced release build
-npm run build:hicasso-release   # compiles, then runs erasure + isolation, both self-tested first
+npm run build:fresco-release   # compiles, then runs erasure + isolation, both self-tested first
 
 # the denominator the rosters are measured against
-ls hicasso/src/re_frame/hicasso/*.cljs hicasso/src/re_frame/hicasso/*.cljc
+ls fresco/src/re_frame/fresco/*.cljs fresco/src/re_frame/fresco/*.cljc
 ```
 
 The source-side gate is green: *motion, overlay, native, forms and server unreachable from the public door;

@@ -2335,7 +2335,7 @@
 ;; observation port (Spec 006 §The internal observation port), which was
 ;; retired on 2026-08-21 (rf2-63t1i).
 ;;
-;; [[compute-sub-with-memo]] has a live caller — `day8/re-frame2-hicasso`'s
+;; [[compute-sub-with-memo]] has a live caller — `day8/re-frame2-fresco`'s
 ;; collector reaches it directly. [[acquire-cache-reaction!]] has NONE, and is
 ;; RETAINED for the reason Spec 009 gives for `rf.frame/guard-open-drain!` at zero
 ;; call sites: the law is CORE's. A commit that takes ownership of a cache node

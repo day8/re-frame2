@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.jsfb-uix-app
+(ns re-frame.bench.fresco.jsfb-uix-app
   "THE DONOR ARM — js-framework-benchmark's app in UIx, reading re-frame2
   subscriptions (rf2-rguy1).
 
@@ -20,11 +20,11 @@
   follow-up asked for. Nothing in this lane is called by the bare
   adjective *frame-inclusive*; a window is named by what it measures.
 
-  **That row is `UIx / Reagent`, not `Hicasso / Reagent`.** Every clock
+  **That row is `UIx / Reagent`, not `Fresco / Reagent`.** Every clock
   figure the programme published before `rf2-0qj9w` is about the DONORS —
   the converged page's `M1` mount `1.0150×` and bulk-broad `0.6291×` are
   UIx against Reagent, and the candidate appears in neither. A run with
-  only a Reagent arm and a Hicasso arm cannot speak to it, however many
+  only a Reagent arm and a Fresco arm cannot speak to it, however many
   instruments it uses, and reporting one as though it could would be the
   same class of error as comparing two ratios taken on different
   witnesses.
@@ -47,7 +47,7 @@
 
   Owner: rf2-rguy1."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.jsfb-model :as rf.bench.hicasso.jsfb-model]
+            [re-frame.bench.fresco.jsfb-model :as rf.bench.fresco.jsfb-model]
             [re-frame.core :as rf]
             [uix.core :refer [$ defui]]
             [uix.dom :as uix-dom]))
@@ -57,7 +57,7 @@
   after the render that created it returned, so it resolves no frame from
   context. `dispatch-sync` inside the click turn, like every other arm."
   [event]
-  (rf/with-frame rf.bench.hicasso.jsfb-model/frame-id (rf/dispatch-sync event)))
+  (rf/with-frame rf.bench.fresco.jsfb-model/frame-id (rf/dispatch-sync event)))
 
 (defui row [{:keys [id]}]
   (let [{:keys [label]} (rf.adapter.uix/use-sub [:jsfb/row id])
@@ -101,9 +101,9 @@
 (defn ^:export -main
   []
   (rf/init! rf.adapter.uix/adapter)
-  (rf.bench.hicasso.jsfb-model/reset-seed!)
-  (rf.bench.hicasso.jsfb-model/register!)
-  (rf.bench.hicasso.jsfb-model/make-frame!)
+  (rf.bench.fresco.jsfb-model/reset-seed!)
+  (rf.bench.fresco.jsfb-model/register!)
+  (rf.bench.fresco.jsfb-model/make-frame!)
   (uix-dom/render-root
-    ($ rf.adapter.uix/frame-provider {:frame rf.bench.hicasso.jsfb-model/frame-id} ($ app))
+    ($ rf.adapter.uix/frame-provider {:frame rf.bench.fresco.jsfb-model/frame-id} ($ app))
     (uix-dom/create-root (js/document.getElementById "main"))))

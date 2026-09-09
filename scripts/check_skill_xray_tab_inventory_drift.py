@@ -29,7 +29,7 @@ whose `:modes` include `:dynamic`, under
 test). Ordered by `:order`, that is today:
 
     Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph ·
-    Frames · Hicasso   (mnemonics: e a v t m r s g u h)
+    Frames · Fresco   (mnemonics: e a v t m r s g u h)
 
 That roster is a SNAPSHOT, and no check reads it — see the note below the
 checks for why that matters.
@@ -63,7 +63,7 @@ Checks (all against the runtime inventory parsed fresh each run):
       SKILL.md (so a newly-added tab's user-visible name is actually taught).
 
   A5  EVAL HIGHEST-ORDER TAB LABEL — evals.json names the highest-`:order` tab
-      by its shipped visible label (today "Hicasso", `:order 10`), so the
+      by its shipped visible label (today "Fresco", `:order 10`), so the
       answer-quality fixtures pin the currently-shipped label rather than a
       stale one.
 
@@ -354,7 +354,7 @@ def check(
 
     # A5 — evals name the highest-:order tab by its shipped visible label.
     # Derived, never hard-coded: the last tab was :module-view ("Frames") until
-    # rf2-hic-023 appended :hicasso at :order 10, and it will move again.
+    # rf2-hic-023 appended :fresco at :order 10, and it will move again.
     highest = max(runtime_tabs, key=lambda t: t.get("order", 0))
     highest_label = highest.get("label")
     eval_text = skill_files.get(EVAL_HIGHEST_LABEL_FILE, "")

@@ -21,7 +21,7 @@ registry.
 
 Left-to-right in tab order (mnemonics `e a v t m r s g u h`):
 **Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph ·
-Frames · Hicasso.**
+Frames · Fresco.**
 
 The **Tooltip** column below is each tab's `:mnem` — the parenthesised
 letter in the tab button's `title` (`Trace (t)`), and nothing more. It is
@@ -41,7 +41,7 @@ command palette, `Cmd/Ctrl+K` → "Open Trace panel"; from code, with
 | **Resources** | `s` | mixed | The declarative server-state lens — registry, live instances, work ledger, mutation/invalidation evidence. | [panels-resources.md](panels-resources.md) |
 | **Graph** | `g` | observed frame / process-global | The EP-0014 derivation/process graph across all five families; its own Declared ↔ Realized projection toggle. | [panels-structure.md](panels-structure.md) |
 | **Frames** | `u` | process-global | The EP-0023 `image → frame` lens — which image loaded each live frame, and how it resolves registrations. | [panels-structure.md](panels-structure.md) |
-| **Hicasso** | `h` | live runtime (not epoch-coupled) | The Hicasso evidence lens — six views (Mounted · Reads · Intents · Why · Advisor · Causal) over four envelopes taken in one turn. | [panels-structure.md](panels-structure.md) |
+| **Fresco** | `h` | live runtime (not epoch-coupled) | The Fresco evidence lens — six views (Mounted · Reads · Intents · Why · Advisor · Causal) over four envelopes taken in one turn. | [panels-structure.md](panels-structure.md) |
 
 Cross-epoch signal lives on the L2 timeline (badges + the issue
 pink-wash); **no Dynamic tab shows a cross-epoch aggregate** (binding,
@@ -58,9 +58,9 @@ reads one of three scopes:
 |---|---|---|
 | **Focused epoch** — the event-spine lenses | Epoch · app-db · Views · Trace · Machine · Routes | rebinds them to that epoch's captured cascade |
 | **Observed frame** — live frame state | **Graph** (Realized projection) · Resources (live instances) | does nothing; they follow the **L1 frame picker** |
-| **Process-global / registry-wide** | **Graph** (Declared projection) · **Frames** · **Hicasso** · Resources (static registry) | does nothing; identical for every epoch |
+| **Process-global / registry-wide** | **Graph** (Declared projection) · **Frames** · **Fresco** · Resources (static registry) | does nothing; identical for every epoch |
 
-So "select an epoch and Graph/Frames/Hicasso update" is **false** — only
+So "select an epoch and Graph/Frames/Fresco update" is **false** — only
 the six focused-epoch lenses rebind.
 
 ## Static mode — 5 registry-browse tabs

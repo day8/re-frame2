@@ -1,11 +1,11 @@
-(ns re-frame.hicasso.facade-roster-ssr-dom-cljs-test
+(ns re-frame.fresco.facade-roster-ssr-dom-cljs-test
   "**The facade names that had no inventory row** — dispositions.md
   §2.1 row HS-40 and §2.2 row HS-42.
 
   CHECKPOINT 4 read §3's second constraint — *a surface
   that reaches the facade without a row has escaped the inventory, and
   the Phase 4 exit silently stops meaning anything* — against
-  `re-frame.hicasso`'s own alias block, and three public names came back
+  `re-frame.fresco`'s own alias block, and three public names came back
   with no row anywhere: `h/route-link`, `h/use-subs` and `h/reg-state`.
   This file is what those rows now point at. The middle one, HS-41, was
   the grouped read door; it was removed under rf2-6c12m.15 and its rows
@@ -18,9 +18,9 @@
   eye. From the repository root:
 
       grep -nE '^   \\(defmacro [a-z]' \\
-        implementation/hicasso/src/re_frame/hicasso.cljc
+        implementation/fresco/src/re_frame/fresco.cljc
       grep -nE '^ +[a-z][a-zA-Z0-9!?*<>=-]* +impl-[a-z-]+/[a-zA-Z0-9!?*<>=-]+\\)+$' \\
-        implementation/hicasso/src/re_frame/hicasso.cljc
+        implementation/fresco/src/re_frame/fresco.cljc
 
   That is 3 + 12 = 15 names as of this bead. A name added tomorrow shows
   up in the second grep the day it lands, and §3's constraint says it
@@ -32,7 +32,7 @@
   server bytes — a plain function answering `[:a {:href …}]`, where the
   href is routing's own synthesis. `requirements-mine.md`'s census counts
   106 sites and licenses them to stay href-real and visible to the server
-  renderer. No hicasso suite had ever server-rendered one.
+  renderer. No fresco suite had ever server-rendered one.
 
   **`h/reg-state` (HS-42)** is §2.2's, not §2.1's, and this file's one
   row for it says why in the only way that is not an assumption: the
@@ -59,11 +59,11 @@
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
             [re-frame.routing :as rf.routing]
             [re-frame.test-support :as rf.test-support]
             ["react-dom/server" :as react-dom-server]))
@@ -71,25 +71,25 @@
 (def ^:private frame-id ::roster)
 (def ^:private other-frame-id ::roster-other)
 
-(def ^:private route-id :hicasso.facade-roster/profile)
+(def ^:private route-id :fresco.facade-roster/profile)
 
 (def ^:private panel-concern
   "`reg-state`'s concern for this file. Namespaced to this suite, because
   `reg-state` refuses a re-registration under a DIFFERENT `:default` and
   the concern is a process-wide key in three registries at once."
-  :hicasso.facade-roster/panel-open?)
+  :fresco.facade-roster/panel-open?)
 
 ;; ---------------------------------------------------------------------------
 ;; The request state
 ;; ---------------------------------------------------------------------------
 
-(rf/reg-sub :hicasso.facade-roster/author (fn [db _] (:author db)))
+(rf/reg-sub :fresco.facade-roster/author (fn [db _] (:author db)))
 
-(rf/reg-event :hicasso.facade-roster/seed
+(rf/reg-event :fresco.facade-roster/seed
               (fn [_ [_ author]]
                 {:db {:author (or author "jane")}}))
 
-(rf/reg-event :hicasso.facade-roster/rename
+(rf/reg-event :fresco.facade-roster/rename
               (fn [{:keys [db]} [_ a]] {:db (assoc db :author a)}))
 
 (use-fixtures :each
@@ -99,7 +99,7 @@
      ;; the hydration rows wait on a real clock, and `cljs.test`
      ;; hard-errors on a fn-form fixture in a suite with an async test.
      :async?        true
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 (defn- fresh!
   "A frame seeded to a known request, with the route table and the state
@@ -113,28 +113,28 @@
   ([kw author]
    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
    (rf.routing/reg-route route-id {} "/profile/:username")
-   (rf.hicasso/reg-state panel-concern {:default false})
+   (rf.fresco/reg-state panel-concern {:default false})
    (rf/make-frame {:id kw})
-   (rf/with-frame kw (rf/dispatch-sync [:hicasso.facade-roster/seed author]))
+   (rf/with-frame kw (rf/dispatch-sync [:fresco.facade-roster/seed author]))
    kw))
 
 ;; ---------------------------------------------------------------------------
 ;; The views — one surface per view, so a red row names a surface
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview byline
+(rf.fresco/defview byline
   "HS-40. One census route-link inside the boundary a link always lives
   in — the form is a plain CALL, not a hiccup head, because `route-link`
   mints no boundary and adds no hook. Its `:class` is an ordinary
   passthrough attribute, which is the control for the click-decision row:
   something on this props map does reach the bytes."
   [_]
-  (let [who (rf.hicasso/sub [:hicasso.facade-roster/author])]
+  (let [who (rf.fresco/sub [:fresco.facade-roster/author])]
     [:p.byline
-     (rf.hicasso/route-link {:to route-id :params {:username who} :class "author"}
+     (rf.fresco/route-link {:to route-id :params {:username who} :class "author"}
                    who)]))
 
-(rf.hicasso/defview panel
+(rf.fresco/defview panel
   "HS-42's read half. `reg-state` itself contributes nothing to a tree;
   what reaches a page is the parametric subscription it minted, read
   through the ordinary door. So the only server-observable fact about
@@ -143,9 +143,9 @@
   registered."
   [_]
   [:div.panel
-   [:span.p-state (str (rf.hicasso/sub [panel-concern "p1"]))]])
+   [:span.p-state (str (rf.fresco/sub [panel-concern "p1"]))]])
 
-(rf.hicasso/defview page
+(rf.fresco/defview page
   "The hydration rows' page: both surfaces in one tree, so ONE adoption
   covers HS-40 and HS-42 rather than leaving them witnessed on the server
   side alone."
@@ -163,12 +163,12 @@
   `renderToString`, called by hand — the smallest thing that produces
   server bytes, so what these rows read is the surface's own server
   behaviour and nothing else. The package's own server door is
-  `re-frame.hicasso.server/render`; this harness sits beside it, not
+  `re-frame.fresco.server/render`; this harness sits beside it, not
   instead of it."
   ([hiccup] (server-html frame-id hiccup))
   ([kw hiccup]
    (react-dom-server/renderToString
-     (rf.hicasso.impl.mount/provider kw (rf.hicasso.impl.codec/root-element kw hiccup)))))
+     (rf.fresco.impl.mount/provider kw (rf.fresco.impl.codec/root-element kw hiccup)))))
 
 (defn- query-node [root selector] (.querySelector root selector))
 
@@ -184,17 +184,17 @@
   [hiccup done after]
   (fresh!)
   (let [html      (server-html hiccup)
-        container (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
-        {:keys [seen stop!]} (rf.hicasso.roots-frames-support/watch-mismatches!)
-        handle    (rf.hicasso.impl.mount/hydrate-root! container frame-id hiccup)]
+        container (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))
+        {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)
+        handle    (rf.fresco.impl.mount/hydrate-root! container frame-id hiccup)]
     (js/setTimeout
       (fn []
         (stop!)
         (try
           (after container @seen html)
           (finally
-            (rf.hicasso.impl.mount/release! handle)
-            (rf.hicasso.impl.collector/reset-runtime!)
+            (rf.fresco.impl.mount/release! handle)
+            (rf.fresco.impl.collector/reset-runtime!)
             (done))))
       200)))
 
@@ -240,14 +240,14 @@
             attribute"
     (fresh!)
     ;; Spec 006's dev-mode view annotations come out first: the
-    ;; `re-frame\.hicasso` scan below is for a leaked reserved keyword, and
+    ;; `re-frame\.fresco` scan below is for a leaked reserved keyword, and
     ;; `data-rf2-source-coord` carries the declaring namespace on purpose,
     ;; so leaving it in would red this row on the framework obeying 006.
     ;; `sup/without-view-annotations` carries the argument in full.
-    (let [html (rf.hicasso.roots-frames-support/without-view-annotations (server-html [byline {}]))]
+    (let [html (rf.fresco.roots-frames-support/without-view-annotations (server-html [byline {}]))]
       (is (not (re-find #"onclick|onClick" html))
           (str "no DOM event attribute on the anchor: " html))
-      (is (not (re-find #"re-frame\.hicasso" html))
+      (is (not (re-find #"re-frame\.fresco" html))
           (str "and no reserved keyword of any kind survived: " html))
       (is (not (re-find #"rf\.route" html))
           (str "nor the routing event the payload names: " html)))))
@@ -302,8 +302,8 @@
 
 (deftest the-page-adopts-the-servers-own-nodes
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
-      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
+    (if-not (rf.fresco.impl.mount/browser?)
+      (do (rf.fresco.roots-frames-support/skip! ":node-test has no DOM") (done))
       (hydration-row
         [page {}]
         done
@@ -318,10 +318,10 @@
                       not tell adoption from a fresh mount: " html))
             (is (empty? seen)
                 (str "**REACT FOUND NOTHING TO RECONCILE**: " (pr-str seen)))
-            (is (rf.hicasso.roots-frames-support/every-server-node? container "a")
+            (is (rf.fresco.roots-frames-support/every-server-node? container "a")
                 "the anchor is the SERVER'S node, still carrying the
                  expando — adoption, not a re-render that looks the same")
-            (is (rf.hicasso.roots-frames-support/every-server-node? container ".p-state")
+            (is (rf.fresco.roots-frames-support/every-server-node? container ".p-state")
                 "as is the reg-state panel's")
             (is (= "/profile/jane"
                    (.getAttribute (query-node container "a") "href"))
@@ -331,8 +331,8 @@
 
 (deftest an-adopted-read-is-acquired-exactly-once
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
-      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
+    (if-not (rf.fresco.impl.mount/browser?)
+      (do (rf.fresco.roots-frames-support/skip! ":node-test has no DOM") (done))
       (hydration-row
         [page {}]
         done
@@ -341,31 +341,31 @@
                     read: one reader after adoption, not two, so the
                     server render registered NONE and only the adoption
                     acquired"
-            (is (= 1 (rf.hicasso.roots-frames-support/readers-of [frame-id [:hicasso.facade-roster/author]]))
+            (is (= 1 (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.facade-roster/author]]))
                 (str "the link's read acquired exactly once; cells: "
-                     (pr-str (rf.hicasso.roots-frames-support/cell-keys))))))))))
+                     (pr-str (rf.fresco.roots-frames-support/cell-keys))))))))))
 
 (deftest a-deliberate-mismatch-is-attributed-to-the-root-that-owns-it
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
-      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
+    (if-not (rf.fresco.impl.mount/browser?)
+      (do (rf.fresco.roots-frames-support/skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
         (let [html      (server-html [page {}])
-              container (rf.hicasso.roots-frames-support/server-dom! html)
-              {:keys [seen stop!]} (rf.hicasso.roots-frames-support/watch-mismatches!)
+              container (rf.fresco.roots-frames-support/server-dom! html)
+              {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)
               ;; MANUFACTURED here and asserted on here — the only shape
               ;; of call site at which swallowing an uncaught error is
               ;; not a fail-open.
-              {:keys [captured close!]} (rf.hicasso.roots-frames-support/open-console-capture!
+              {:keys [captured close!]} (rf.fresco.roots-frames-support/open-console-capture!
                                           {:swallow-uncaught? true})]
           ;; The request the client renders is not the request the server
           ;; rendered, and the divergence lands on the LINK'S OWN
           ;; ATTRIBUTE — an href, which is the half of a route-link a
           ;; text-only mismatch check would miss.
           (rf/with-frame frame-id
-            (rf/dispatch-sync [:hicasso.facade-roster/rename "mary"]))
-          (let [handle (rf.hicasso.impl.mount/hydrate-root! container frame-id [page {}])]
+            (rf/dispatch-sync [:fresco.facade-roster/rename "mary"]))
+          (let [handle (rf.fresco.impl.mount/hydrate-root! container frame-id [page {}])]
             (js/setTimeout
               (fn []
                 (close!)
@@ -386,38 +386,38 @@
                     (is (= 1 (count @seen))
                         (str "the framework's Spec 011 diagnostic fired
                               exactly once, for this one root; got "
-                             (pr-str (mapv (comp :error rf.hicasso.roots-frames-support/tags-of) @seen))))
-                    (is (= 're-frame.hicasso.impl.mount/hydrate-root!
-                           (:where (rf.hicasso.roots-frames-support/tags-of (first @seen))))
+                             (pr-str (mapv (comp :error rf.fresco.roots-frames-support/tags-of) @seen))))
+                    (is (= 're-frame.fresco.impl.mount/hydrate-root!
+                           (:where (rf.fresco.roots-frames-support/tags-of (first @seen))))
                         "attributed to the door that owns the adoption")
                     (is (= :warned-and-replaced
-                           (:recovery (rf.hicasso.roots-frames-support/tags-of (first @seen))))
+                           (:recovery (rf.fresco.roots-frames-support/tags-of (first @seen))))
                         "with the recovery React had already performed")
                     (is (= "/profile/mary"
                            (.getAttribute (query-node container "a") "href"))
                         "and the repaired DOM carries the CLIENT's href,
                          which is what 'warned and replaced' means"))
                   (finally
-                    (rf.hicasso.impl.mount/release! handle)
-                    (rf.hicasso.impl.collector/reset-runtime!)
+                    (rf.fresco.impl.mount/release! handle)
+                    (rf.fresco.impl.collector/reset-runtime!)
                     (done))))
               300)))))))
 
 (deftest two-overlapping-roots-adopt-under-distinct-prefixes
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
-      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
+    (if-not (rf.fresco.impl.mount/browser?)
+      (do (rf.fresco.roots-frames-support/skip! ":node-test has no DOM") (done))
       (do
         (fresh! frame-id "jane")
         (fresh! other-frame-id "mary")
         (let [html-a (server-html frame-id [page {}])
               html-b (server-html other-frame-id [page {}])
-              ca     (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html-a))
-              cb     (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html-b))
-              {:keys [seen stop!]} (rf.hicasso.roots-frames-support/watch-mismatches!)
-              ha     (rf.hicasso.impl.mount/hydrate-root! ca frame-id [page {}]
+              ca     (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html-a))
+              cb     (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html-b))
+              {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)
+              ha     (rf.fresco.impl.mount/hydrate-root! ca frame-id [page {}]
                                           {:identifier-prefix "roster-a-"})
-              hb     (rf.hicasso.impl.mount/hydrate-root! cb other-frame-id [page {}]
+              hb     (rf.fresco.impl.mount/hydrate-root! cb other-frame-id [page {}]
                                           {:identifier-prefix "roster-b-"})]
           (js/setTimeout
             (fn []
@@ -438,39 +438,39 @@
                       "root A's link settled on its own request")
                   (is (= "/profile/mary" (.getAttribute (query-node cb "a") "href"))
                       "root B's on its own")
-                  (is (rf.hicasso.roots-frames-support/every-server-node? ca "a")
+                  (is (rf.fresco.roots-frames-support/every-server-node? ca "a")
                       "root A adopted the server's anchor")
-                  (is (rf.hicasso.roots-frames-support/every-server-node? cb "a")
+                  (is (rf.fresco.roots-frames-support/every-server-node? cb "a")
                       "and so did root B, concurrently")
-                  (is (= 1 (rf.hicasso.roots-frames-support/readers-of [frame-id [:hicasso.facade-roster/author]]))
+                  (is (= 1 (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.facade-roster/author]]))
                       (str "and each frame holds its own single edge
                             rather than one shared cell; cells: "
-                           (pr-str (rf.hicasso.roots-frames-support/cell-keys))))
-                  (is (= 1 (rf.hicasso.roots-frames-support/readers-of [other-frame-id [:hicasso.facade-roster/author]]))
+                           (pr-str (rf.fresco.roots-frames-support/cell-keys))))
+                  (is (= 1 (rf.fresco.roots-frames-support/readers-of [other-frame-id [:fresco.facade-roster/author]]))
                       (str "one each, in both directions; cells: "
-                           (pr-str (rf.hicasso.roots-frames-support/cell-keys)))))
+                           (pr-str (rf.fresco.roots-frames-support/cell-keys)))))
                 (finally
-                  (rf.hicasso.impl.mount/release! ha)
-                  (rf.hicasso.impl.mount/release! hb)
-                  (rf.hicasso.impl.collector/reset-runtime!)
+                  (rf.fresco.impl.mount/release! ha)
+                  (rf.fresco.impl.mount/release! hb)
+                  (rf.fresco.impl.collector/reset-runtime!)
                   (done))))
             300))))))
 
 (deftest an-adopted-page-releases-exactly-what-it-acquired
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (rf.hicasso.impl.collector/reset-runtime!)
+      (rf.fresco.impl.collector/reset-runtime!)
       (testing "§2.4's last clause for these rows: exact cleanup.
                 Narrowing caught: a teardown that empties the runtime's
                 tables rather than releasing the subscriptions — it
                 answers zero whether it released anything or not"
-        (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [page {}])]
-          (is (= 1 (rf.hicasso.roots-frames-support/readers-of [frame-id [:hicasso.facade-roster/author]]))
+        (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [page {}])]
+          (is (= 1 (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.facade-roster/author]]))
               (str "the link's edge is held while mounted; cells: "
-                   (pr-str (rf.hicasso.roots-frames-support/cell-keys))))
-          (rf.hicasso.impl.mount/unmount! handle)
-          (is (zero? (rf.hicasso.roots-frames-support/readers-of [frame-id [:hicasso.facade-roster/author]]))
+                   (pr-str (rf.fresco.roots-frames-support/cell-keys))))
+          (rf.fresco.impl.mount/unmount! handle)
+          (is (zero? (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.facade-roster/author]]))
               (str "and it does not survive the PUBLIC teardown door; cells: "
-                   (pr-str (rf.hicasso.roots-frames-support/cell-keys)))))))))
+                   (pr-str (rf.fresco.roots-frames-support/cell-keys)))))))))

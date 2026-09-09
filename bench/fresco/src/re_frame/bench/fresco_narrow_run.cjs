@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // EP-0038 P0 — the RATOM-SPINE NARROW-WRITE leg, write + flush SUMMED.
 //
-//   node implementation/adapters/reagent/test/re_frame/bench/hicasso_narrow_run.cjs
-//   HN_ROUNDS=6 node .../hicasso_narrow_run.cjs --no-build
+//   node implementation/adapters/reagent/test/re_frame/bench/fresco_narrow_run.cjs
+//   HN_ROUNDS=6 node .../fresco_narrow_run.cjs --no-build
 //
 // Bead rf2-2rtt6.3. The bar, the budgets and the P0 table this feeds are
 // operator-owned on the governance set that superseded rf2-2rtt6.1 on
-// 2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
+// 2026-08-10, enumerated once in `docs/design/fresco/studio/README.md`;
 // workers append measurements and only the operator amends the numbers.
 //
 // WHAT IS BEING PRICED, AND WHY IT IS ONE NUMBER AND NOT TWO
@@ -30,8 +30,8 @@
 // own b8 driver does: it takes an EXISTING `:advanced` `:browser` build as
 // a config template and overrides the entry point and the output directory
 // with `--config-merge`, so the repository gains no build id from this
-// bead. The template is rf2-2rtt6.2's `:hicasso-bench`, which is the lane
-// every Hicasso arm compiles through.
+// bead. The template is rf2-2rtt6.2's `:fresco-bench`, which is the lane
+// every Fresco arm compiles through.
 //
 // THE INSTRUMENT'S OWN GATES, all of which run BEFORE any figure is taken
 // ----------------------------------------------------------------------
@@ -98,12 +98,12 @@ const path = require('node:path');
 const PROJECT = path.resolve(__dirname, '../../..');
 const IMPL = path.resolve(PROJECT, '../../implementation');
 const REPO = path.resolve(IMPL, '..');
-const OUT = path.join(PROJECT, 'out', 'hicasso-narrow');
+const OUT = path.join(PROJECT, 'out', 'fresco-narrow');
 const PORT = Number(process.env.HN_PORT || 8141);
 
 // THE LANE'S ONE CACHE RULE (rf2-2rtt6.20, applied here by rf2-2rtt6.22).
 //
-// This driver is one of the programs riding `:hicasso-bench`, and shadow-cljs
+// This driver is one of the programs riding `:fresco-bench`, and shadow-cljs
 // derives the build cache directory from the build id alone — before any
 // `--config-merge` is applied — so every program on the id shares ONE cache
 // entry. There is deliberately no count here: a number goes stale the moment
@@ -193,11 +193,11 @@ const CTL_2 = Number(process.env.HN_CTL_2 || 0.9);
 //
 // `implementation/shadow-cljs.edn` is hot-zone and rf2-2rtt6.2 owns the
 // measurement lane's build id, so this bead adds none: it overrides
-// `:hicasso-bench`'s entry point and output directory with
+// `:fresco-bench`'s entry point and output directory with
 // `--config-merge`, which is the technique the donor's own b8 driver uses,
 // and the repository gains no build id from this driver.
 //
-// This used to CHOOSE its template — `:hicasso-bench` when the checkout had
+// This used to CHOOSE its template — `:fresco-bench` when the checkout had
 // it, `:freehand-release` otherwise — because the lane's build id had not
 // landed yet. It has (rf2-2rtt6.2), so the fallback was unreachable code
 // carrying a paragraph of reasoning for a branch that could no longer be
@@ -209,12 +209,12 @@ const CTL_2 = Number(process.env.HN_CTL_2 || 0.9);
 // the same build compiled with a sibling warm, which the donor measured at
 // 4,075 bytes. A figure taken through the fallback would not have been
 // comparable with one taken through the lane.
-const BASE_BUILD = 'hicasso-bench';
+const BASE_BUILD = 'fresco-bench';
 const NO_BUILD = process.argv.includes('--no-build');
 
 const CONFIG_MERGE =
-  '{:output-dir "out/hicasso-narrow" :asset-path "." ' +
-  ':modules {:main {:init-fn re-frame.bench.hicasso-narrow-app/-main}}}';
+  '{:output-dir "out/fresco-narrow" :asset-path "." ' +
+  ':modules {:main {:init-fn re-frame.bench.fresco-narrow-app/-main}}}';
 
 function build() {
   // Before anything reads the cache — see the note beside the require.
@@ -914,8 +914,8 @@ async function main() {
   fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(artefact, null, 2));
   fs.writeFileSync(path.join(OUT, 'report.txt'), lines.join('\n') + '\n');
   say(`producing commit  ${sha}`);
-  say(`reproduce         node implementation/adapters/reagent/test/re_frame/bench/hicasso_narrow_run.cjs`);
-  say(`artefacts         implementation/out/hicasso-narrow/report.{json,txt}`);
+  say(`reproduce         node implementation/adapters/reagent/test/re_frame/bench/fresco_narrow_run.cjs`);
+  say(`artefacts         implementation/out/fresco-narrow/report.{json,txt}`);
   say('');
 
   // --- the verdict --------------------------------------------------------
@@ -945,7 +945,7 @@ async function main() {
 
 // ONE pure function over the run's summary, which is what makes this exit
 // path checkable without a release build and a headless Chromium — see
-// `hicasso_narrow_exit_path.test.cjs`. It is also what stops the defect
+// `fresco_narrow_exit_path.test.cjs`. It is also what stops the defect
 // growing back: the way all five of this driver's earlier fail-opens grew
 // was a second reading of a computed condition somewhere below the report,
 // and there is now only one place a condition can be read.

@@ -91,7 +91,7 @@
 ;; public surface hands back the registry MAP, and only the map can be
 ;; snapshotted here and restored in `reset-runtime!` below (the public verbs
 ;; register, unregister and clear — none of them reads). Same reach, same
-;; suppression, as `re-frame.hicasso.server-render-recovered-error-ssr-cljs-test`
+;; suppression, as `re-frame.fresco.server-render-recovered-error-ssr-cljs-test`
 ;; on `re-frame.error-emit/listeners`. The access itself is unchanged since
 ;; rf2-qwm0a; only this ns's `:require` of `re-frame.trace.tooling` is new, and
 ;; with it clj-kondo can resolve — and so grade — a symbol that previously

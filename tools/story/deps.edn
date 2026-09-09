@@ -119,20 +119,20 @@
                        ;; gone and nothing on this classpath names the substrate.
                        ;;
                        ;; They were RETIRED rather than re-pointed at
-                       ;; `re-frame.hicasso.tool`, and the reason is question
+                       ;; `re-frame.fresco.tool`, and the reason is question
                        ;; shape rather than effort — the same refusal
                        ;; `rf2-jkdy` reached for Xray's Views panel and
                        ;; `rf2-l86mm` re-confirmed. The donor tier answers
                        ;; `view-manifest` / `view-dependencies` /
                        ;; `view-event-sites` about a view named by its id;
-                       ;; Hicasso mints no boundary identity at all (a boundary
+                       ;; Fresco mints no boundary identity at all (a boundary
                        ;; is keyed by its READ SET, `:view` and `:source`
                        ;; projected `unknown` under an `:opaque` naming
                        ;; projection), so those three reads have no counterpart
                        ;; and `mounted-views` cannot be keyed on a view. The JVM
                        ;; structural tree (`re-frame.ui.test/render`,
                        ;; `:rf.ui/tree-version`) has no counterpart either:
-                       ;; `re-frame.hicasso.tool` is `.cljs`-only and Hicasso
+                       ;; `re-frame.fresco.tool` is `.cljs`-only and Fresco
                        ;; ships no headless render. Do not re-add a substrate
                        ;; coordinate to revive them; the compatibility claim
                        ;; they proved retired with the surface it was about.

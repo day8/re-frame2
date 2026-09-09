@@ -10,11 +10,11 @@ The criteria this applies were frozen before any capsule existed: [`capsule-repl
 |---|---|
 | Bead | `rf2-hic-082`, the [specification §11](specification.md#11-innovation-portfolio) spike-after-L2 row |
 | Criteria commit (authored) | `e8903cd993c5f6e53f17b6d5652bbfd235cb9fd7` — pre-registration, landing with this PR; the tree it was written and measured against is `3deaf2890a394cb606898cfda4783d56f7aaa7ef`, which is on main |
-| Witness | `implementation/hicasso/test/re_frame/hicasso/capsule_spike_cljs_test.cljs` |
+| Witness | `implementation/fresco/test/re_frame/fresco/capsule_spike_cljs_test.cljs` |
 | Lane | `npm run test:cljs` — the always-on `:node-test` build, whose `cljs-test$` ns-regexp selects the witness. No new build, no `:source-paths` entry |
 | Scope of the claim | The Spec 004B structural tree one boundary body produced. Nothing else |
 
-**[Amended 2026-08-29, `rf2-6c12m.17`.]** The three doors this record names on the collector — `collector/reads-of`, `collector/body-runs` and `collector/shell-hook-ledger` — moved to the test kit's runtime door in PR #8745 and are `re-frame.hicasso.test.runtime`'s `reads-of`, `body-runs` and `shell-hook-ledger` now; the witness reads them there, while `render-body` and `commit-boundary!` stay on the collector as the runtime's own seam. The measurement text below keeps the names it was taken under.
+**[Amended 2026-08-29, `rf2-6c12m.17`.]** The three doors this record names on the collector — `collector/reads-of`, `collector/body-runs` and `collector/shell-hook-ledger` — moved to the test kit's runtime door in PR #8745 and are `re-frame.fresco.test.runtime`'s `reads-of`, `body-runs` and `shell-hook-ledger` now; the witness reads them there, while `render-body` and `commit-boundary!` stay on the collector as the runtime's own seam. The measurement text below keeps the names it was taken under.
 
 ## What a capsule records, and what it cannot
 
@@ -24,7 +24,7 @@ Three things it **cannot** hold, each found rather than assumed:
 
 - **Read order.** The lane's design says *ordered read values*. The published seam does not carry one: `collector/reads-of` answers a set, and the ordered scratch is module-private. The capsule records `:read-order :unrecoverable` rather than implying an order it does not have.
 - **A build hash.** Nothing in the runtime carries one, so a capsule cannot say which bundle produced it. `:build` records the two facts a replay's correctness actually turns on — the tree-schema version, and the shell's hook ledger, whose movement means the substrate under the recording is not the substrate under the replay.
-- **Anything behind a React crossing.** A raw escape refuses the L2 walk with `:rf.error/hicasso-test-react-is-opaque`, so no capsule exists for a view containing one.
+- **Anything behind a React crossing.** A raw escape refuses the L2 walk with `:rf.error/fresco-test-react-is-opaque`, so no capsule exists for a view containing one.
 
 ## C1 — opacity: PASSES, on both registered readings
 
@@ -53,7 +53,7 @@ The corpus beyond the slice agrees, and it is cited rather than re-derived. The 
 |---|---|---|
 | The world moved | One recorded read value differs | Replay ≠ expectation |
 | The body changed | The same capsule against a body differing by one element | Replay ≠ expectation |
-| The read set grew | The body reads a key the capsule does not answer | REFUSES with `:rf.error/hicasso-test-missing-read-fixture`, naming `[::tone]` |
+| The read set grew | The body reads a key the capsule does not answer | REFUSES with `:rf.error/fresco-test-missing-read-fixture`, naming `[::tone]` |
 
 The third row is the one that answers the *proves nothing* objection directly. The capsule is not compared against itself: the body is re-run, and the fixture map is the read set, so a body that grows a read cannot pass quietly. The second row is the regression-seed claim proper — the capsule holds the world, and the code is what is under test.
 
@@ -79,7 +79,7 @@ exact = 4/6
 
 The two sets coincide exactly: a view's expectation fails to replay **if and only if** the recording frame's keyword is somewhere inside it. Both offenders call `h/route-link`, whose own docstring states the mechanism — *the frame is captured at RENDER (a click fires after the render scope has unwound)* — so the anchor's `[::h/navigate {:frame …}]` vector carries the recording frame's keyword as ordinary data. Modulo that one slot every replay is exact, which is what makes this a finding rather than noise.
 
-**The tree-position row is a stated skip, and the refusal is the reason.** L2 runs one body and always at the root: a body reached as a child is either a boundary CALL, whose body does not run, or a plain function in head position, which the runtime and the kit both refuse (`:rf.error/hicasso-test-plain-fn-head`). There is no position to vary at this tier. What decides the row is landed and cited rather than re-derived — `re-frame.hicasso.identifier-prefix-ssr-dom-cljs-test` measures a `useId` moving with tree position and not with prefix — and it never reaches a capsule anyway, because a component spending its own React hook reaches a Hicasso view only through a crossing, and every crossing is capsule-opaque.
+**The tree-position row is a stated skip, and the refusal is the reason.** L2 runs one body and always at the root: a body reached as a child is either a boundary CALL, whose body does not run, or a plain function in head position, which the runtime and the kit both refuse (`:rf.error/fresco-test-plain-fn-head`). There is no position to vary at this tier. What decides the row is landed and cited rather than re-derived — `re-frame.fresco.identifier-prefix-ssr-dom-cljs-test` measures a `useId` moving with tree position and not with prefix — and it never reaches a capsule anyway, because a component spending its own React hook reaches a Fresco view only through a crossing, and every crossing is capsule-opaque.
 
 ## C3 — one-shot and commit-owned: PASSES
 
@@ -98,13 +98,13 @@ The record is the read set the render resolved and not a projection of state —
 
 ## C5 — the cost fence: PASSES
 
-No public export, no new namespace, no third hook, no npm dependency, no hot-zone file, no `:source-paths` entry. The whole experiment is one test namespace, and deleting it deletes the experiment. `npm run test:hicasso-invariants` re-confirms the spec §7 floor unmoved (exit 0): *motion, overlay, native, forms unreachable from the public door*.
+No public export, no new namespace, no third hook, no npm dependency, no hot-zone file, no `:source-paths` entry. The whole experiment is one test namespace, and deleting it deletes the experiment. `npm run test:fresco-invariants` re-confirms the spec §7 floor unmoved (exit 0): *motion, overlay, native, forms unreachable from the public door*.
 
 ## The verdict, and what would move it
 
 **STOP.** C2 fails in direction B and C4 records the same failure as a law violation, and either is sufficient under the criteria as frozen. The cost of the failure is not marginal: `route-link` is a tier-1 shape — the charter's census counts 106 of them across 85 idiomatic files — so the defect lands on the most common navigation shape in an ordinary application, not on a corner.
 
-What is worth keeping is the **negative result itself**, because it is not obvious and it is general: *the tree a Hicasso body returns is not pure data with respect to the frame it ran in.* Any mechanism that records a rendered tree and replays it elsewhere — a capsule, a shadow comparison, a golden-file suite that renders under one frame and asserts under another — inherits this, and the existing L2 suites do not notice it only because they never compare across frames.
+What is worth keeping is the **negative result itself**, because it is not obvious and it is general: *the tree a Fresco body returns is not pure data with respect to the frame it ran in.* Any mechanism that records a rendered tree and replays it elsewhere — a capsule, a shadow comparison, a golden-file suite that renders under one frame and asserts under another — inherits this, and the existing L2 suites do not notice it only because they never compare across frames.
 
 Three conditions would justify reopening, and none is this bead's to take:
 

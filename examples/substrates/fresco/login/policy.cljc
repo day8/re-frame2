@@ -1,4 +1,4 @@
-(ns hicasso.login.policy
+(ns fresco.login.policy
   "The login arm's RENDER-STATE POLICY — one list, two readers, one file.
 
   `server.cljs` (Node) derives the sidecar entry's per-partition
@@ -48,7 +48,7 @@
   host names in its renderer opts. One root, one entry; a bigger
   application publishes one per server-rendered route. Here for the same
   reason the policy is: two processes, one spelling."
-  "hicasso.login/root")
+  "fresco.login/root")
 
 (def render-state-policy
   "The one list. `{:app-db [<top-level keys>] :runtime-db [<top-level keys>]}`,

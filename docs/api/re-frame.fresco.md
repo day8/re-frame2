@@ -1,22 +1,22 @@
-# re-frame.hicasso
+# re-frame.fresco
 
-`re-frame.hicasso` is the public door of Hicasso, the re-frame-native view layer.
+`re-frame.fresco` is the public door of Fresco, the re-frame-native view layer.
 Everything an author writes against lives here; everything below it is
-`re-frame.hicasso.impl.*` and is not a consumer surface. The intended spelling is
+`re-frame.fresco.impl.*` and is not a consumer surface. The intended spelling is
 one alias:
 
 ```clojure
-(:require [re-frame.hicasso :as h])
+(:require [re-frame.fresco :as h])
 ```
 
-Hicasso replaces the view notation and nothing else. Events, app-db,
+Fresco replaces the view notation and nothing else. Events, app-db,
 subscriptions and effects are unchanged — read [`re-frame.core`](re-frame.core.md)
 for the pipeline and this page for the authoring surface.
 
 This page is the manifest-tracked index of the door's public vars: Kind,
 Signature, and what the var is. The **full contract** — the four shapes an `on-*`
 prop may take, the `defhost` options table, the `mount!` / `hydrate!` asymmetry,
-the render discipline — lives in the [Hicasso API reference](../core/hicasso/api-reference.md),
+the render discipline — lives in the [Fresco API reference](../core/fresco/api-reference.md),
 alongside the guide that teaches it. This page deliberately does not duplicate it;
 where an entry below is terse, that reference is where the depth is.
 
@@ -74,7 +74,7 @@ silently gain or lose a public.
   as at a native tag. `opts` carries four optional keys — `:callbacks`, `:slots`,
   `:server`, `:fallback` — and any other key is refused. Anything written past
   `opts` is refused rather than silently dropped
-  (`:rf.error/hicasso-bad-host-declaration`).
+  (`:rf.error/fresco-bad-host-declaration`).
 - **Example**:
   ```clojure
   (h/defhost date-picker DatePicker)
@@ -121,7 +121,7 @@ Two heads, one pair of opposite verbs. The frame is the **tree's** business, not
 the root door's: a boundary in the tree is what puts a frame in context for
 everything below it, and the same two heads answer for a whole-page root and for
 a subtree inside one. `rf/frame-root` and `re-frame.adapter.uix/frame-root` mount
-the same shared cores, so a Hicasso boot line reads like a Reagent or UIx one.
+the same shared cores, so a Fresco boot line reads like a Reagent or UIx one.
 
 ### `frame-root`
 
@@ -194,8 +194,8 @@ here reaches a root the caller did not name.
   nil. `container` and `opts` are read on the first call only. `opts` carries
   **root options only** — `:hydrate?` and `:identifier-prefix` (React's
   `identifierPrefix`, a pass-through) — and REFUSES anything else: `:frame` /
-  `:initial-events` raise `:rf.error/hicasso-frame-config-misplaced` naming the
-  head that takes them, every other key `:rf.error/hicasso-unknown-root-option`.
+  `:initial-events` raise `:rf.error/fresco-frame-config-misplaced` naming the
+  head that takes them, every other key `:rf.error/fresco-unknown-root-option`.
   The frame is spelled in the tree, on `frame-root` (ENSURE) or `frame-provider`
   (SCOPE), and **the view is a whole root tree, boundary included** — a later
   render that drops the head leaves the subtree with no frame in context, and
@@ -247,7 +247,7 @@ here reaches a root the caller did not name.
   ```
 - **Description**: The runtime's own error boundary, named for React's term of art.
   A React class, so React hands it a render-phase throw from anything below. It is
-  not a Hicasso *reactive* boundary: it reads no subscription, holds no cell and
+  not a Fresco *reactive* boundary: it reads no subscription, holds no cell and
   spends no hook.
 
 ### `portal`
@@ -297,7 +297,7 @@ here reaches a root the caller did not name.
   (h/as-component view)
   ```
 - **Description**: The outward bridge — answers a real React component for a hiccup
-  head, so a UIx or plain-JavaScript parent mounts a minted Hicasso view under the
+  head, so a UIx or plain-JavaScript parent mounts a minted Fresco view under the
   frame it is already in. Declared once at top level, beside the view. The parent's
   props arrive as the view's ordinary props map, children at `:children`, and the
   frame comes from React context: no second root, state owner or props ABI appears
@@ -318,16 +318,16 @@ here reaches a root the caller did not name.
 ## What this door does not carry
 
 The optional modules are reached separately, so an application that never asks for
-one carries none of it — `presence` is `re-frame.hicasso.motion/presence`, and
+one carries none of it — `presence` is `re-frame.fresco.motion/presence`, and
 `.forms`, `.overlay`, `.motion`, `.substrate` and the `.server` SSR module each cost
 a classpath entry and no bundle bytes until required. The door names none of them,
 and that is the point rather than an omission: one `:require` here would put the
 retention machine into every bundle that ever touched the door. Those modules, the
 test kit and the tool tier are documented in the
-[Hicasso API reference](../core/hicasso/api-reference.md); they carry no
+[Fresco API reference](../core/fresco/api-reference.md); they carry no
 api-manifest rows of their own.
 
 The marker keywords need no export. `::h/value`, `::h/prevent`, `::h/revision`,
-`::h/checked` and `::h/clear` read `:re-frame.hicasso/…`, so aliasing this namespace
+`::h/checked` and `::h/clear` read `:re-frame.fresco/…`, so aliasing this namespace
 as `h` resolves the auto-resolved spelling the guide teaches with no keyword changing
 value.

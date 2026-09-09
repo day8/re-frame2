@@ -1,4 +1,4 @@
-(ns hicasso.login.host
+(ns fresco.login.host
   "The JVM half of the login example's SSR route — a Ring handler that
   renders this page's BODY on Node and everything else itself.
 
@@ -29,7 +29,7 @@
   are also opts on two DIFFERENT constructors — `:payload` on
   `ssr-handler`, `:render-state` on the renderer, which is what does the
   projecting. The render-state list is
-  `hicasso.login.policy/render-state-policy`: the same Var the server
+  `fresco.login.policy/render-state-policy`: the same Var the server
   bundle derives its entry allowlists from, so one list is read by both
   halves and a host that reaches past it is refused by the sidecar rather
   than served.
@@ -45,7 +45,7 @@
   (:require [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.node :as rf.ssr.ring.node]
             ;; The one render-state list, shared with `server.cljs`.
-            [hicasso.login.policy :as policy]
+            [fresco.login.policy :as policy]
             ;; The application, on the JVM: every `auth.login` schema, fx,
             ;; machine, event and sub. Requiring it is what makes
             ;; `:initial-events` below name something that exists.
@@ -54,7 +54,7 @@
 (def build-id
   "The bundle this host was deployed against.
 
-  It must be the string the server bundle publishes — `hicasso.login.server/
+  It must be the string the server bundle publishes — `fresco.login.server/
   build-id`, a `goog-define` a release stamps. The check runs in BOTH
   directions and neither is optional: the sidecar refuses a request whose
   `buildId` is not its own — its build-identity refusal, whose code belongs
@@ -62,14 +62,14 @@
   the adapter refuses an ANSWER whose `x-rf-ssr-build` is not this one
   (`:rf.error/ssr-node-build-skew`). Two artefacts from different builds
   cannot quietly serve one page between them."
-  (or (System/getenv "LOGIN_HICASSO_BUILD_ID") "login-hicasso-dev"))
+  (or (System/getenv "LOGIN_FRESCO_BUILD_ID") "login-fresco-dev"))
 
 (def endpoint
   "Where the sidecar is listening. The adapter's default is the launcher's
   default bind, and it accepts any absolute http(s) URL — a non-loopback
   sidecar is not refused. Render state can carry server-only values, so a
   remote one is the operator's network and transport to secure."
-  (or (System/getenv "LOGIN_HICASSO_SSR_NODE") rf.ssr.ring.node/default-endpoint))
+  (or (System/getenv "LOGIN_FRESCO_SSR_NODE") rf.ssr.ring.node/default-endpoint))
 
 (defn make-handler
   "Build the Ring handler against ONE sidecar. `handler` below is this
@@ -102,7 +102,7 @@
                         ;; keys as the entry's per-partition allowlists.
                         :render-state policy/render-state-policy
                         :timeout-ms   1000})
-     ;; The client bundle, and the element it adopts. `hicasso.login.core/run`
+     ;; The client bundle, and the element it adopts. `fresco.login.core/run`
      ;; reads `__rf_payload`, finds one, and HYDRATES rather than mounting.
      :app-element-id "app"
      :script-src     "/js/main.js"}))

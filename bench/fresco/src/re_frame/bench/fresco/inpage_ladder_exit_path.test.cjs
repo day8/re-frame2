@@ -3,7 +3,7 @@
 // THE IN-PAGE LADDER AGGREGATE'S EXIT PATH — a promised refusal must refuse.
 // rf2-bml5u, the inverse of the rf2-rr6do defect class that #7450 repaired.
 //
-//     node hicasso/test/re_frame/bench/hicasso/inpage_ladder_exit_path.test.cjs
+//     node fresco/test/re_frame/bench/fresco/inpage_ladder_exit_path.test.cjs
 //
 // THE DEFECT THIS PINS. `inpage_ladder_aggregate.cjs`'s header has promised
 // since it landed that it exits 1 on "a run that recorded a guard refusal or

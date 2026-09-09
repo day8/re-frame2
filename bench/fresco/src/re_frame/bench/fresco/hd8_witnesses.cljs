@@ -1,9 +1,9 @@
-(ns re-frame.bench.hicasso.hd8-witnesses
+(ns re-frame.bench.fresco.hd8-witnesses
   "HD-008's arms — the composed donor arm and everything it is measured
   against, all declaring the SAME two pages (rf2-2rtt6.7).
 
   This is the EP-0038 stop-gate's instrument. HD-008 asks whether the
-  Hicasso hypothesis survives when it is assembled out of parts that are
+  Fresco hypothesis survives when it is assembled out of parts that are
   already in this repository, BEFORE any API is designed: reagent-slim's
   `:f>` function-component path and its runtime hiccup interpreter for
   markup, the existing UIx `use-sub` spine for reactivity. Two
@@ -25,7 +25,7 @@
   removed from the tree, and a benchmark kept alive by a vendored copy of
   the code it measures rots. What that arm measured is frozen, with its
   commit provenance and measurement date, at
-  `docs/design/hicasso/studio/hd8-freehand-codec-donor-arm.md`. **The
+  `docs/design/fresco/studio/hd8-freehand-codec-donor-arm.md`. **The
   codec axis it opened does not survive it** — see the closing section,
   *The codec comparison, and why `codecs-differ?` is gone rather than
   moved*, which stands in place of the gate the arm used to carry.
@@ -86,7 +86,7 @@
   author of THAT substrate would write. A shared generator producing five
   dialects would measure the generator. So the arms sit side by side
   here, and the canonical-DOM parity gate in
-  [[re-frame.bench.hicasso.hd8-rows]] is what proves they still build one
+  [[re-frame.bench.fresco.hd8-rows]] is what proves they still build one
   page — attribute names sorted, compared before any clock is read.
 
   ## The two pages
@@ -102,7 +102,7 @@
   is explicit that a bare ratom is a labelled lower bound and never a fair
   comparison.
 
-  Normative owner: `docs/design/hicasso/decisions.md` HD-008; the standard
+  Normative owner: `docs/design/fresco/decisions.md` HD-008; the standard
   bead is `rf2-2rtt6.1`."
   (:require ["react" :as react]
             [clojure.string :as str]
@@ -488,4 +488,4 @@
 ;; no longer prices one runtime hiccup codec against another. That is a
 ;; smaller claim, and it is stated here rather than papered over. The
 ;; retired arm's measured figure, its commit provenance and its date are
-;; frozen at `docs/design/hicasso/studio/hd8-freehand-codec-donor-arm.md`.
+;; frozen at `docs/design/fresco/studio/hd8-freehand-codec-donor-arm.md`.

@@ -1,11 +1,11 @@
-(ns re-frame.bench.hicasso.chrome-app
+(ns re-frame.bench.fresco.chrome-app
   "THE PAGE-CHROME ROW, AND WHAT THE BAIL-OUT COSTS — the page half
   (rf2-2rtt6.52's landing bar).
 
   HD-028 makes a value-equality bail-out the boundary default. The ruling
   made it conditional on a measurement rather than on the repair being
   obviously right: the default lands only if it removes the 300-row
-  cascade **without a material rf.bench.hicasso.arm1.mount/bulk regression and without pushing
+  cascade **without a material rf.bench.fresco.arm1.mount/bulk regression and without pushing
   retained heap meaningfully farther past the bar** — because the
   comparator takes React's full `MemoComponent` path and adds an outer
   Fiber per boundary, and the R=0 shell already reads ~1.14 KB against a
@@ -56,12 +56,12 @@
 
   Runs under `:advanced`, which is the production build the bar names."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.shapes.card :as rf.bench.hicasso.shapes.card]
-            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.shapes.card :as rf.bench.fresco.shapes.card]
+            [re-frame.bench.fresco.shapes.model :as rf.bench.fresco.shapes.model]
             [re-frame.core :as rf]
             ["react-dom" :as react-dom]))
 
@@ -81,9 +81,9 @@
   component and no wrapper. Reproduced here rather than described, so the
   `:plain` arm is the old runtime and not an impression of it."
   [view-name body-fn]
-  (let [component (fn hicasso-boundary [js-props] (rf.bench.hicasso.arm1.runtime/shell body-fn js-props))]
+  (let [component (fn fresco-boundary [js-props] (rf.bench.fresco.arm1.runtime/shell body-fn js-props))]
     (unchecked-set component "displayName" view-name)
-    (rf.bench.hicasso.front.codec/mark-boundary! component)))
+    (rf.bench.fresco.front.codec/mark-boundary! component)))
 
 ;; ---------------------------------------------------------------------------
 ;; Bodies — shared by both arms, so only the mint differs
@@ -102,7 +102,7 @@
   comparator the question that op asks."
   [{:keys [slug]}]
   (swap! !cards inc)
-  (rf.bench.hicasso.shapes.card/card slug))
+  (rf.bench.fresco.shapes.card/card slug))
 
 (defn- page-body
   "The feed page. Reads the tab (the chrome the `:chrome` op writes), the
@@ -110,8 +110,8 @@
   [card-head]
   (fn page-body* [_]
     (swap! !pages inc)
-    (let [your-feed? (rf.bench.hicasso.arm1.runtime/sub [:conduit/your-feed?])
-          rev        (rf.bench.hicasso.arm1.runtime/sub [:conduit/page])]
+    (let [your-feed? (rf.bench.fresco.arm1.runtime/sub [:conduit/your-feed?])
+          rev        (rf.bench.fresco.arm1.runtime/sub [:conduit/page])]
       [:div.home-page
        [:div.banner [:div.container [:h1.logo-font "conduit"]]]
        [:div.container.page
@@ -127,23 +127,23 @@
                            :class       (when-not your-feed? "active")} "Global Feed"]]]]
           [:div.article-list {:data-testid "article-list"}
            (into [:<>]
-                 (for [slug (rf.bench.hicasso.arm1.runtime/sub [:conduit/slugs])]
+                 (for [slug (rf.bench.fresco.arm1.runtime/sub [:conduit/slugs])]
                    [card-head {:key slug :slug slug :rev rev}]))]]
          [:div.col-md-3
           [:div.sidebar
            [:div.tag-list
             (into [:<>]
-                  (for [tag (rf.bench.hicasso.arm1.runtime/sub [:conduit/tags])]
+                  (for [tag (rf.bench.fresco.arm1.runtime/sub [:conduit/tags])]
                     [:a.tag-pill {:key tag} tag]))]]]]]])))
 
 ;; ---------------------------------------------------------------------------
 ;; The arms
 ;; ---------------------------------------------------------------------------
 
-(def ^:private memo-card (rf.bench.hicasso.arm1.runtime/mint-view! "chrome/memo-card" card-body))
+(def ^:private memo-card (rf.bench.fresco.arm1.runtime/mint-view! "chrome/memo-card" card-body))
 (def ^:private plain-card (plain-view "chrome/plain-card" card-body))
 
-(def ^:private memo-page (rf.bench.hicasso.arm1.runtime/mint-view! "chrome/memo-page" (page-body memo-card)))
+(def ^:private memo-page (rf.bench.fresco.arm1.runtime/mint-view! "chrome/memo-page" (page-body memo-card)))
 (def ^:private plain-page (plain-view "chrome/plain-page" (page-body plain-card)))
 
 (def ^:private arms
@@ -169,8 +169,8 @@
   (get-in (swap! state update-in [:ops arm-id] (fnil inc 0)) [:ops arm-id]))
 
 (defn- seed! [arm]
-  (rf.bench.hicasso.shapes.model/make-frame! (:frame arm) {:articles cards-n :tags tags-n})
-  (rf.bench.hicasso.shapes.model/reseed! (:frame arm) {:articles cards-n :tags tags-n})
+  (rf.bench.fresco.shapes.model/make-frame! (:frame arm) {:articles cards-n :tags tags-n})
+  (rf.bench.fresco.shapes.model/reseed! (:frame arm) {:articles cards-n :tags tags-n})
   nil)
 
 (defn- settle-frame
@@ -189,14 +189,14 @@
 (defn- mount-arm!
   "Cold-mount one arm. The container is created OUTSIDE the window."
   [arm]
-  (let [container (rf.bench.hicasso.lane/fresh-container!)
+  (let [container (rf.bench.fresco.lane/fresh-container!)
         handle    (volatile! nil)
-        t0        (rf.bench.hicasso.lane/now-ms)]
+        t0        (rf.bench.fresco.lane/now-ms)]
     (react-dom/flushSync
-      (fn [] (vreset! handle (rf.bench.hicasso.arm1.mount/root! container (:frame arm) [(:page arm) {}]))))
+      (fn [] (vreset! handle (rf.bench.fresco.arm1.mount/root! container (:frame arm) [(:page arm) {}]))))
     (-> (settle-frame)
         (.then (fn [_]
-                 (let [ms (- (rf.bench.hicasso.lane/now-ms) t0)]
+                 (let [ms (- (rf.bench.fresco.lane/now-ms) t0)]
                    (swap! state assoc-in [:mounted (:id arm)] @handle)
                    {:ms ms}))))))
 
@@ -205,17 +205,17 @@
   body counts the write produced."
   [arm event]
   (reset-runs!)
-  (let [t0 (rf.bench.hicasso.lane/now-ms)]
-    (rf.bench.hicasso.arm1.runtime/dispatch! (:frame arm) event)
+  (let [t0 (rf.bench.fresco.lane/now-ms)]
+    (rf.bench.fresco.arm1.runtime/dispatch! (:frame arm) event)
     (react-dom/flushSync (fn [] nil))
     (-> (settle-frame)
-        (.then (fn [_] (merge {:ms (- (rf.bench.hicasso.lane/now-ms) t0)} (runs)))))))
+        (.then (fn [_] (merge {:ms (- (rf.bench.fresco.lane/now-ms) t0)} (runs)))))))
 
 (defn- op-event [op op-n]
   (case op
     :chrome (if (odd? op-n) [:conduit/show-your-feed] [:conduit/show-global-feed])
     :bulk   [:conduit/refresh-feed]
-    :narrow [:conduit/favorite (:slug (rf.bench.hicasso.shapes.model/article (mod (* 7 op-n) cards-n)))]
+    :narrow [:conduit/favorite (:slug (rf.bench.fresco.shapes.model/article (mod (* 7 op-n) cards-n)))]
     ;; STRICTLY INCREASING, and above any seeded value. `(inc (mod op-n
     ;; 5))` cycled, and the frame is reseeded every round — so the write
     ;; periodically set the page number the page already had, app-db did
@@ -227,7 +227,7 @@
 
 (defn- release-arm! [arm]
   (when-some [h (get-in @state [:mounted (:id arm)])]
-    (rf.bench.hicasso.arm1.mount/unmount! h)
+    (rf.bench.fresco.arm1.mount/unmount! h)
     (swap! state update :mounted dissoc (:id arm)))
   nil)
 
@@ -244,7 +244,7 @@
                    #js {"ms"         ms
                         "boundaries" (inc cards-n)
                         "cards"      (.-length (.querySelectorAll container ".article-preview"))
-                        "elements"   (rf.bench.hicasso.lane/element-count container)}))))))
+                        "elements"   (rf.bench.fresco.lane/element-count container)}))))))
 
 (defn ^:export runOp [arm-id op-name]
   (let [arm (arm-of arm-id)
@@ -255,10 +255,10 @@
 
 (defn ^:export releaseArm [arm-id]
   (release-arm! (arm-of arm-id))
-  (-> (rf.bench.hicasso.lane/settle!) (.then (fn [_] #js {"ok" true}))))
+  (-> (rf.bench.fresco.lane/settle!) (.then (fn [_] #js {"ok" true}))))
 
 (defn ^:export residue []
-  (let [r (rf.bench.hicasso.arm1.runtime/residue)]
+  (let [r (rf.bench.fresco.arm1.runtime/residue)]
     #js {"cells" (:cells r) "boundaries" (:boundaries r) "edges" (:edges r)}))
 
 (defn ^:export resetRuntime
@@ -273,10 +273,10 @@
   []
   (doseq [a (vals arms)]
     (try (rf/destroy-frame! (:frame a)) (catch :default _e nil)))
-  (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+  (rf.bench.fresco.arm1.runtime/reset-runtime!)
   #js {"ok" true})
 
-(defn ^:export runtimeLabel [] (clj->js (rf.bench.hicasso.lane/runtime-label)))
+(defn ^:export runtimeLabel [] (clj->js (rf.bench.fresco.lane/runtime-label)))
 
 (defn ^:export cardsN [] cards-n)
 
@@ -286,9 +286,9 @@
   ;; adapter, so it is common-mode and cancels in the delta; what it is
   ;; here for is that `make-frame` needs an installed adapter at all.
   (rf/init! rf.adapter.uix/adapter)
-  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.fresco.lane/leave-act-environment!)
   (set! (.-HCHROME js/window)
-        (rf.bench.hicasso.lane/legible-doors
+        (rf.bench.fresco.lane/legible-doors
         #js {"mountArm"      mountArm
              "runOp"         runOp
              "releaseArm"    releaseArm
@@ -296,8 +296,8 @@
              "resetRuntime"  resetRuntime
              "runtimeLabel"  runtimeLabel
              "cardsN"        cardsN}))
-  (rf.bench.hicasso.lane/record! "ready" {:arms (mapv (fn [[k v]] {:id k :why (:why v)}) arms)
+  (rf.bench.fresco.lane/record! "ready" {:arms (mapv (fn [[k v]] {:id k :why (:why v)}) arms)
                          :cards cards-n
-                         :runtime (rf.bench.hicasso.lane/runtime-label)})
+                         :runtime (rf.bench.fresco.lane/runtime-label)})
   (set! (.-HCHROME_READY js/window) true)
   nil)

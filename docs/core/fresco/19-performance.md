@@ -5,7 +5,7 @@ the framework might be slow.
 
 Measure one interaction, identify the cost owner, change the smallest relevant
 piece, and verify the result under the same conditions. Most applications stay
-on ordinary Hicasso throughout that process.
+on ordinary Fresco throughout that process.
 
 ## User-visible budgets
 
@@ -34,11 +34,11 @@ bodies run reports a pass. Count rows of markup built as well.
 
 Teardown is part of performance. Long-lived applications must not accumulate
 subscriptions, timers, listeners, or SDK handles as users leave and revisit
-screens. Hicasso releases its own committed reads. Hosts and native islands
+screens. Fresco releases its own committed reads. Hosts and native islands
 must release what they acquire ([Interop](09-interop.md)). Prove the complete
 claim with `hm/assert-clean!` ([Testing](15-testing.md)).
 
-## Start with ordinary Hicasso
+## Start with ordinary Fresco
 
 The normal implementation is:
 
@@ -62,9 +62,9 @@ that changes what Hiccup means.
 
 | Level | Implementation | Use it when | Details |
 | --- | --- | --- | --- |
-| 1. Ordinary Hicasso | Hiccup, point-of-use reads, data intents | Always start here | [Views and reads](02-views-and-reads.md) |
+| 1. Ordinary Fresco | Hiccup, point-of-use reads, data intents | Always start here | [Views and reads](02-views-and-reads.md) |
 | 2. Tune topology | Same language; change boundaries, keys, and read shape | A measured interaction invalidates too much work | [Lists and collections](06-lists-and-collections.md) |
-| 3. Direct React return | A `defview` returns a React element while keeping its Hicasso frame, reads, and memo | Hiccup lowering is the measured owner | [Islands](10-native-tier.md) |
+| 3. Direct React return | A `defview` returns a React element while keeping its Fresco frame, reads, and memo | Hiccup lowering is the measured owner | [Islands](10-native-tier.md) |
 | 4. React island | A raw React or UIx component mounted through `h/defhost` under the same root and frame | Hooks, vendor behaviour, reconciliation, or high-rate local mechanics dominate | [Islands](10-native-tier.md) |
 | 5. Native screen | A React-first screen under the same state model | The screen is React-shaped by design | [Islands](10-native-tier.md) |
 
@@ -113,12 +113,12 @@ The runtime delivers entries to `PerformanceObserver` and browser DevTools but
 does not retain them for later polling. A subsequent `getEntriesByType` call
 may find nothing even though the live observer saw the entries.
 
-**`h/defview` boundaries are bracketed**, so your Hicasso views do appear in the
+**`h/defview` boundaries are bracketed**, so your Fresco views do appear in the
 stream. Each emits `rf:render:<view-id>`, where the id is the
 `"<namespace>/<name>"` of the declaration — the same string React DevTools shows
 as `displayName`, so a measure name and a DevTools node are one identifier. A
 typical entry reads `rf:render:app.todo/todo-row`. This does not vary by
-adapter: Hicasso is the view substrate rather than a layer over one.
+adapter: Fresco is the view substrate rather than a layer over one.
 
 The bracket sits on the boundary and nowhere else. A plain function inlined into
 a body is not a boundary and gets no measure of its own; its cost lands inside
@@ -159,7 +159,7 @@ node — has nothing to be compared with and is judged by different questions
 ```clojure
 (ns app.editor
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso :as h]))
+            [re-frame.fresco :as h]))
 
 (rf/reg-event :editor/set-title
   (fn [{:keys [db]} [_ typed]]
@@ -184,7 +184,7 @@ One keystroke follows this path:
    unchanged outputs.
 4. The title subscription changes and notifies the title-field view.
 5. One view body runs. Other fields are not notified.
-6. React commits and Hicasso converges value and caret before the event turn
+6. React commits and Fresco converges value and caret before the event turn
    ends.
 7. The next frame paints the echo.
 

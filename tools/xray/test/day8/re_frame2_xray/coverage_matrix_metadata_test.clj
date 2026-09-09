@@ -253,7 +253,7 @@
       ;; real connected occurrences to project.
       ;; 13 -> 12 (rf2-l86mm): and back again, one substrate later. The Views
       ;; panel's Mounted Views + Declared View Sites sections retired with
-      ;; Freehand rather than migrating to Hicasso (spec/021 §3.4.3), so the
+      ;; Freehand rather than migrating to Fresco (spec/021 §3.4.3), so the
       ;; scenario, its sole-claimed matrix row, and the row's retention
       ;; sibling all went with them. The count returning to its pre-rf2-6pohj
       ;; value is the honest reading: the gate covers one fewer row because

@@ -1,12 +1,12 @@
 # Views and reads
 
-A Hicasso view can read a subscription where the value is needed without
+A Fresco view can read a subscription where the value is needed without
 forcing a parent to own that read. The view that performs the read becomes the
 unit that re-renders when the value changes.
 
 ```clojure
 (ns todo.views
-  (:require [re-frame.hicasso :as h]))
+  (:require [re-frame.fresco :as h]))
 
 (h/defview todo-row [{:keys [id]}]
   (let [todo     (h/sub [:todo/by-id id])
@@ -25,7 +25,7 @@ unit that re-renders when the value changes.
 body runs. When one of those subscription values changes, that view
 re-renders.
 
-`h/sub` is the only read form in a Hicasso body. A bare `rf/subscribe` is not an
+`h/sub` is the only read form in a Fresco body. A bare `rf/subscribe` is not an
 untracked alternative; it throws rather than resolving. Event vectors and the
 `::h/value` marker in the example are covered in
 [Events as data](03-events-as-data.md).
@@ -35,7 +35,7 @@ untracked alternative; it throws rather than resolving. Event vectors and the
 These forms look similar but create different runtime structure:
 
 ```clojure
-[todo-row {:key id :id id}]   ;; a separate Hicasso view
+[todo-row {:key id :id id}]   ;; a separate Fresco view
 (row-icon {:kind :urgent})    ;; a plain function call, inlined here
 ```
 
@@ -49,10 +49,10 @@ that tracks:
 - the re-frame2 frame used by event vectors produced by the body
 
 Native tags, fragments, and [`h/defhost`](glossary.md#defhost) heads also appear
-in vector position, but they do not create Hicasso boundaries.
+in vector position, but they do not create Fresco boundaries.
 
 A plain `defn` is only a function call. Its Hiccup is inserted into the caller's
-tree, and any `h/sub` calls it makes are recorded by the surrounding Hicasso
+tree, and any `h/sub` calls it makes are recorded by the surrounding Fresco
 view. It adds no independent re-render granularity. This lets a helper read the
 current filter or other state directly instead of requiring the caller to
 thread that value through its arguments.
@@ -62,7 +62,7 @@ Do not interchange the two forms:
 ```clojure
 ;; Don't — a plain defn cannot be a Hiccup head
 [row-icon {:kind :urgent}]
-;; :rf.error/hicasso-bad-head
+;; :rf.error/fresco-bad-head
 
 ;; Do
 (row-icon {:kind :urgent})
@@ -76,7 +76,7 @@ Do not interchange the two forms:
 [todo-row {:id 7}]
 ```
 
-The first mistake raises `:rf.error/hicasso-bad-head`. A direct `defview` call
+The first mistake raises `:rf.error/fresco-bad-head`. A direct `defview` call
 throws at the call site and names the view. A `defview` never turns into an
 inline helper because it was called with function syntax.
 
@@ -90,10 +90,10 @@ inline helper because it was called with function syntax.
 ```
 
 Every member of a sequence of children needs a key. Put `:key` in that child's
-props map. Hicasso does not read Reagent-style `^{:key id}` metadata, and `for`
+props map. Fresco does not read Reagent-style `^{:key id}` metadata, and `for`
 does not invent a key. Missing keys produce React's own development warning; a
 map or other entity value at the `:key` of a view-boundary child produces
-`:rf.warning/hicasso-entity-key`, naming the child.
+`:rf.warning/fresco-entity-key`, naming the child.
 
 This page owns the spelling. [Lists and collections](06-lists-and-collections.md)
 explains key quality: use a stable domain identity, never an array index or the
@@ -106,13 +106,13 @@ The supported head shapes have different props and children contracts:
 | Head | Props | Children | `:key` | `:ref` |
 | --- | --- | --- | --- | --- |
 | Native tag — `[:div …]` | attribute map | trailing forms | in the attribute map | callback ref, legal |
-| Hicasso view — `[todo-row …]` | one props map | trailing forms arrive as `(:children props)` | in the props map; removed before the body sees props | not a view surface; use ids |
+| Fresco view — `[todo-row …]` | one props map | trailing forms arrive as `(:children props)` | in the props map; removed before the body sees props | not a view surface; use ids |
 | Fragment — `[:<> …]` | none, except a key-bearing fragment props map | trailing forms | in the fragment props map | none |
 | Foreign host — [`h/defhost`](glossary.md#defhost) or `[:>]` | converted according to the host declaration | Hiccup children become React elements | in props | callback ref, legal |
 
 Nested and lazy child sequences are realized once and flattened one level.
 `nil` and `false` render nothing. `true` raises
-`:rf.error/hicasso-true-child`. An existing React element is a valid child. A
+`:rf.error/fresco-true-child`. An existing React element is a valid child. A
 view may return `nil`, one root form, or a fragment. React consumes `:key`, so
 it never appears in the props map received by the view body.
 
@@ -145,7 +145,7 @@ the body as a render counter therefore belongs elsewhere.
 
 ## Equal props skip the body
 
-Every Hicasso view compares its complete props map with ClojureScript `=`. If
+Every Fresco view compares its complete props map with ClojureScript `=`. If
 the props are equal to the previous render, the body does not run merely
 because its parent ran. There is no public opt-out. A child that must change
 with its parent should receive a prop that represents that change.
@@ -238,10 +238,10 @@ used as Hiccup children are forced during the same Hiccup-to-element pass, so
 their reads are still recorded by the active view.
 
 A read deferred past that render raises
-`:rf.error/hicasso-sub-outside-render` and names the query. This includes a
+`:rf.error/fresco-sub-outside-render` and names the query. This includes a
 callback, timer, promise, delayed computation, or lazy sequence forced later.
 An unforced `delay` passed through a view boundary raises
-`:rf.error/hicasso-deferred-read-at-boundary` before the child can retain a
+`:rf.error/fresco-deferred-read-at-boundary` before the child can retain a
 read that will never update correctly.
 
 ```clojure
@@ -293,9 +293,9 @@ Four facts explain the observable behaviour:
 
 | Symptom | Error or cause | Fix |
 | --- | --- | --- |
-| A read made after rendering throws and names the query | `:rf.error/hicasso-sub-outside-render` | Read during the body and retain the value. Event handlers obtain current state through coeffects |
-| An unforced `delay` in props throws at the child view | `:rf.error/hicasso-deferred-read-at-boundary` | Force it in the owning body or pass an ordinary function/value with an explicit contract |
-| A plain `defn` used as a Hiccup head throws | `:rf.error/hicasso-bad-head` | Call the helper or define it with `h/defview` |
+| A read made after rendering throws and names the query | `:rf.error/fresco-sub-outside-render` | Read during the body and retain the value. Event handlers obtain current state through coeffects |
+| An unforced `delay` in props throws at the child view | `:rf.error/fresco-deferred-read-at-boundary` | Force it in the owning body or pass an ordinary function/value with an explicit contract |
+| A plain `defn` used as a Hiccup head throws | `:rf.error/fresco-bad-head` | Call the helper or define it with `h/defview` |
 | Calling a `defview` directly throws | The view was invoked as a function | Render `[todo-row {:id 7}]` |
 | React warns about a missing key | A sequence member has no `:key` in its props map | Put `:key` in each sequence member's props map; metadata is not read |
 | The first render reports an unknown subscription | `:rf.error/no-such-sub` | Require the namespace that registers the subscription before mounting |
@@ -307,7 +307,7 @@ Four facts explain the observable behaviour:
 ## When not to create another view
 
 Use a plain helper when the markup has no independent reads and should always
-render with its caller. Create a separate Hicasso view when that part of the
+render with its caller. Create a separate Fresco view when that part of the
 tree needs its own subscription tracking or props bail-out, not merely because
 the source became long.
 
@@ -319,7 +319,7 @@ to React ([Islands](10-native-tier.md)).
 
 ### The collector
 
-Each Hicasso view has one runtime hook that opens a collection window while the
+Each Fresco view has one runtime hook that opens a collection window while the
 body runs. The body may probe subscription reads, but only a committed render
 installs them. A render that React retries or abandons therefore leaves no
 subscriptions behind.

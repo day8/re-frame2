@@ -12,19 +12,19 @@ A future agent could re-author this skill from this folder alone.
 
 The skill was authored against **Freehand** (`re-frame.freehand`, alias `v`).
 Mike retired Freehand and `re-frame.ui` on 2026-08-14 and ruled the architecture
-to be **a Reagent adapter and a UIx adapter, plus Hicasso as re-frame2 native**.
-The destination is therefore `re-frame.hicasso` (alias `h`), and the locks below
+to be **a Reagent adapter and a UIx adapter, plus Fresco as re-frame2 native**.
+The destination is therefore `re-frame.fresco` (alias `h`), and the locks below
 are the post-retarget set. Three of the original locks changed materially and are
 recorded as such rather than quietly rewritten — **L1**, **L2** and **L8**.
 
 **UIx is deliberately out of scope**, by Mike's narrowing on the same day: *"We
-only need a skill to migrate a Reagent code base to use hicasso instead. We'll
-worry about UIx to hicasso later."* No bead was filed for it and the skill does
+only need a skill to migrate a Reagent code base to use fresco instead. We'll
+worry about UIx to fresco later."* No bead was filed for it and the skill does
 not mention it as future work.
 
 ## 1. Goal
 
-Help a programmer rewrite **Reagent view code into Hicasso** (`re-frame.hicasso`,
+Help a programmer rewrite **Reagent view code into Fresco** (`re-frame.fresco`,
 aliased `h`) with the smallest correct diff and honest scoping — and, before any
 of that, **establish whether they need to at all.**
 
@@ -36,11 +36,11 @@ of that, **establish whether they need to at all.**
    the repo's trust-the-explicit-invoker `allowed-tools` baseline) but leaves the
    interactive visual confirmation to the programmer.
 2. **Idiomaticness** — every rewrite target is verified against the **shipped**
-   Hicasso source. The skill emits no form for a surface that has not landed.
+   Fresco source. The skill emits no form for a surface that has not landed.
 3. **Context economy** — `SKILL.md` is a router; the three tier catalogues +
    mental-model + procedure + gotchas leaves load on demand.
 4. **Assume training knowledge** — the agent knows Reagent, hiccup, React,
-   re-frame2 events/subs. The skill teaches the **Reagent-view → Hicasso
+   re-frame2 events/subs. The skill teaches the **Reagent-view → Fresco
    binding**: which construct is a mechanical rewrite, which is a judgment call,
    which is a hold.
 
@@ -52,7 +52,7 @@ Preserve these unless Mike explicitly unlocks them.
 
 **Amended by rf2-r4j91.** The original lock read *"no rewrite tool ships or is
 invoked — Mike ruled skill-only"*, and that is no longer the state of the tree:
-`migration/reagent-to-hicasso/codemod/` shipped under `rf2-2rtt6.143` with its
+`migration/reagent-to-fresco/codemod/` shipped under `rf2-2rtt6.143` with its
 own ratification, and the skill was still saying there was no tool to run.
 
 The amended lock keeps the part that was actually load-bearing and drops the part
@@ -80,7 +80,7 @@ view code and needs no rewrite to land on re-frame2.** `day8/re-frame2-reagent`
 is the default browser substrate and the adapter the reference suite runs
 against. The v1→v2 move *completes* on its own.
 
-So the second step is chosen for what Hicasso offers, not required to arrive. The
+So the second step is chosen for what Fresco offers, not required to arrive. The
 skill states the trade in both directions and takes an explicit yes.
 **Trust the programmer: state the choice, do not herd.** A migration guide that
 implies the rewrite is necessary is worse than no guide, because it costs its
@@ -88,7 +88,7 @@ reader work they did not have to do.
 
 Two further honesty obligations ride here:
 
-- **Hicasso is PRE-PUBLICATION.** No Maven coordinate, absent from the lockstep
+- **Fresco is PRE-PUBLICATION.** No Maven coordinate, absent from the lockstep
   array and the release matrix. A project adopts it from source or not at all.
   The installation page states this itself and resolves the artefact by
   `:local/root` from a checkout, so there is no coordinate printed there to
@@ -112,7 +112,7 @@ Never half-migrate a view. A **hold** holds the **entire** view on Reagent; a
 **judgment call** is decided with the author, then the **whole** view converts or
 the **whole** view holds. Coherence over coverage. This is cardinal rule 2.
 
-Under Hicasso this lock has teeth it did not have before: a leftover
+Under Fresco this lock has teeth it did not have before: a leftover
 `#(dispatch …)` closure is passed to React **by identity** and fails only at
 click time, with core's `:rf.error/no-frame-context`. Nothing catches a
 half-migrated body earlier.
@@ -144,21 +144,21 @@ clean.
 
 **Retired by rf2-r4j91.** The original lock was *"migrate interpreted; never
 promote mid-flight"*, which was about Freehand's `{:compiled true}` opt-in and
-its finite grammar. **Hicasso has no such tier.** It walks the tree at render,
+its finite grammar. **Fresco has no such tier.** It walks the tree at render,
 full stop — which is why dynamic tag heads and runtime-built markup are ordinary
 pass-through here rather than judgment calls. Emitting `{:compiled true}` against
-Hicasso would be inventing an option that does not exist, so the lock is retired
+Fresco would be inventing an option that does not exist, so the lock is retired
 rather than restated.
 
 ### L9 — Emit only what has shipped, and READ THE DOOR to find out
 
 **Guide pages describe forms that do not exist.** The authority is
-`implementation/hicasso/src/re_frame/hicasso.cljc` and the `impl/` namespaces
+`implementation/fresco/src/re_frame/fresco.cljc` and the `impl/` namespaces
 beside it, not a design page and not the guide.
 
 The lock's original example, an `h/fn` spelling, was swept to `h/event` on
 2026-08-15 and no page teaches it now; and the `draft-guide/` corpus the lock
-named has itself **shipped** as `docs/core/hicasso/` (rf2-0yp7w), leaving only a
+named has itself **shipped** as `docs/core/fresco/` (rf2-0yp7w), leaving only a
 rewrite-audit note behind it. **Neither fact retires the lock**, because the
 class outlived both examples: the shipped guide still restricts key maps to
 `:on-key-down`/`:on-key-up` while `impl/intent.cljs`'s `lower-prop` accepts a
@@ -166,7 +166,7 @@ map at any event position. Re-derive the examples when citing them; the rule is
 the constant.
 
 **This is now the highest-risk lock in the folder**, because unlike Freehand
-there is no `spec/API.md` roster to check against — Hicasso is pre-publication
+there is no `spec/API.md` roster to check against — Fresco is pre-publication
 and unrostered. The check is reading the source.
 
 ### L10 — Generic to ANY Reagent consumer app
@@ -188,7 +188,7 @@ skills/reagent-migration/
 ├── package.json                   (npm metadata; `files` OMITS evals/ + spec/)
 ├── .claude-plugin/plugin.json     (Claude Code plugin metadata; status pre-alpha)
 ├── references/
-│   ├── mental-model.md            (the Reagent→Hicasso view shift)
+│   ├── mental-model.md            (the Reagent→Fresco view shift)
 │   ├── catalog-mechanical.md      (M-tier — "do this", before→after per rule)
 │   ├── catalog-judgment.md        (D-tier — "here's how to DECIDE")
 │   ├── catalog-reject.md          (R-tier — "don't migrate this / stay on Reagent")
@@ -217,12 +217,12 @@ carried it. `SKILL.md` routes to it directly, so the one-level rule holds.
 ## 5. Where this diverges from `re-frame-migration`
 
 - **Different migration.** `re-frame-migration` moves events/subs/db from v1 to
-  v2 (`M-N`/`O-N` rules). This skill rewrites *views* from Reagent into Hicasso
+  v2 (`M-N`/`O-N` rules). This skill rewrites *views* from Reagent into Fresco
   (`MIG-NN` rules). They compose — but note the asymmetry that L2 turns on: the
   first is required and completes; the second is optional and may never be taken.
 - **Fewer leaves.** The domain is narrower (view tier only).
 - **Honest scoping is a first-class deliverable.** `catalog-reject.md` is not a
-  footnote. It is deliberately **short** now — Hicasso has a first-class
+  footnote. It is deliberately **short** now — Fresco has a first-class
   foreign-React door, callback refs, an error boundary, portals, an
   ephemeral-state sugar and a real test kit — and a short honest list is worth
   more than a long stale one.
@@ -235,6 +235,6 @@ carried it. `SKILL.md` routes to it directly, so the one-level rule holds.
   the view tier, and the shipped codemod is a `[:>]`-dialect reporter/fixer, a
   different population. Revisit only if field use shows the M-tier rewrites are
   applied identically at scale.
-- **OQ3 — what happens to this skill when Hicasso publishes?** L2's honesty
+- **OQ3 — what happens to this skill when Fresco publishes?** L2's honesty
   clauses (pre-publication, adopt-from-source, pre-flight check 3) all change on
   the day a Maven coordinate exists. Update this folder first, then the skill.

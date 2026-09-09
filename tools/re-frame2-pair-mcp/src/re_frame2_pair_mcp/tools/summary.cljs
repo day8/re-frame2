@@ -103,7 +103,7 @@
   as well as in every browser. `^js` hints so `:advanced` cannot rename
   the call. Same helper shape as
   `day8.re-frame2-xray.panels.epoch.format/pr-str-bytes` (rf2-2rtt6.131)
-  and `re-frame.bench.hicasso.lane/utf8-bytes` (rf2-2rtt6.121)."
+  and `re-frame.bench.fresco.lane/utf8-bytes` (rf2-2rtt6.121)."
   [s]
   (let [^js enc (js/TextEncoder.)
         ^js buf (.encode enc s)]

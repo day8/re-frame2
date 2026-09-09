@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.shapes.feed
+(ns re-frame.bench.fresco.shapes.feed
   "**TIER-1 SHAPES 3 AND 4** — the same page, and the two writes that
   separate them (charter §Use cases A3/A4; rf2-2rtt6.51).
 
@@ -18,21 +18,21 @@
   or a return-to-tab does to a cached list, and favouriting is Conduit's
   most-clicked control.
 
-  ## The page is [[re-frame.bench.hicasso.shapes.large-template]], re-cut
+  ## The page is [[re-frame.bench.fresco.shapes.large-template]], re-cut
 
   Same chrome, same card, same model, same intents. The **only** edit is
   the one the shape is about:
 
       ;; large-template, one boundary:
       (for [slug (sub [:conduit/slugs])]
-        (rf.bench.hicasso.shapes.card/card slug))
+        (rf.bench.fresco.shapes.card/card slug))
 
       ;; feed, one boundary per card:
       (for [slug (sub [:conduit/slugs])]
         [article-card {:key slug :slug slug}])
 
   plus the four lines of [[article-card]] below, whose entire body is the
-  same `(rf.bench.hicasso.shapes.card/card slug)`. `bulk_dom_cljs_test` asserts the two pages
+  same `(rf.bench.fresco.shapes.card/card slug)`. `bulk_dom_cljs_test` asserts the two pages
   build byte-identical card DOM, so \"the only edit\" is a comparison and
   not a claim.
 
@@ -49,7 +49,7 @@
   ## The cascade this page made visible, and then priced
 
   A write the **page** reads — the feed toggle — re-renders the page, and
-  used to re-render all 300 card boundaries beneath it, because a Hicasso
+  used to re-render all 300 card boundaries beneath it, because a Fresco
   boundary was a plain function component with no value-equality bail-out.
   Reagent's default `shouldComponentUpdate` compares argv and stops
   exactly this cascade. `narrow_dom_cljs_test` measured it rather than
@@ -60,11 +60,11 @@
   `a-page-chrome-write-re-renders-no-unchanged-row`.
 
   `.cljc`-compatible by construction (HD-020(d))."
-  (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.shapes.card :as rf.bench.hicasso.shapes.card]
-            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
-            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require [re-frame.bench.fresco.arm1.runtime :refer [sub]]
+            [re-frame.bench.fresco.shapes.card :as rf.bench.fresco.shapes.card]
+            [re-frame.bench.fresco.shapes.large-template :as rf.bench.fresco.shapes.large-template]
+            [re-frame.bench.fresco.shapes.model :as rf.bench.fresco.shapes.model])
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 (def article-count
   "The charter's rung: ~300 boundaries on one commit."
@@ -78,7 +78,7 @@
   "Predicted element count — the same chrome as the large template, the
   same card, a different number of them."
   []
-  (+ rf.bench.hicasso.shapes.large-template/chrome-elements tag-count (* rf.bench.hicasso.shapes.card/elements-per-card article-count)))
+  (+ rf.bench.fresco.shapes.large-template/chrome-elements tag-count (* rf.bench.fresco.shapes.card/elements-per-card article-count)))
 
 (def !card-runs
   "How many card bodies have run. Shape 3's claim is that one commit makes
@@ -97,10 +97,10 @@
 
 (defview article-card
   "One card, as a boundary. The whole body is the shared markup — see
-  [[re-frame.bench.hicasso.shapes.card]] for why that is the point."
+  [[re-frame.bench.fresco.shapes.card]] for why that is the point."
   [{:keys [slug]}]
   (swap! !card-runs inc)
-  (rf.bench.hicasso.shapes.card/card slug))
+  (rf.bench.fresco.shapes.card/card slug))
 
 (defview page
   "The feed, one boundary per card."
@@ -121,13 +121,13 @@
            [:a.nav-link {:href        "#"
                          :data-testid "your-feed-tab"
                          :class       (when your-feed? "active")
-                         :on-click    [:re-frame.hicasso/prevent [:conduit/show-your-feed]]}
+                         :on-click    [:re-frame.fresco/prevent [:conduit/show-your-feed]]}
             "Your Feed"]]
           [:li.nav-item
            [:a.nav-link {:href        "#"
                          :data-testid "global-feed-tab"
                          :class       (when-not your-feed? "active")
-                         :on-click    [:re-frame.hicasso/prevent [:conduit/show-global-feed]]}
+                         :on-click    [:re-frame.fresco/prevent [:conduit/show-global-feed]]}
             "Global Feed"]]]]
         [:div.article-list {:data-testid "article-list"}
          (for [slug (sub [:conduit/slugs])]
@@ -142,11 +142,11 @@
                                       :data-testid (str "tag-" tag)}
              tag])]]]]]]))
 
-(defn make-frame! [frame-id] (rf.bench.hicasso.shapes.model/make-frame! frame-id seed))
-(defn reseed! [frame-id] (rf.bench.hicasso.shapes.model/reseed! frame-id seed))
+(defn make-frame! [frame-id] (rf.bench.fresco.shapes.model/make-frame! frame-id seed))
+(defn reseed! [frame-id] (rf.bench.fresco.shapes.model/reseed! frame-id seed))
 
 (defn slug-at
   "The slug of the `i`th article, for a witness that wants to name one row
   out of three hundred."
   [i]
-  (:slug (rf.bench.hicasso.shapes.model/article i)))
+  (:slug (rf.bench.fresco.shapes.model/article i)))

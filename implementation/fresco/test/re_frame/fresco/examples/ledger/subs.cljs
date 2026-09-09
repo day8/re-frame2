@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.ledger.subs
+(ns re-frame.fresco.examples.ledger.subs
   "THE LEDGER'S READ TOPOLOGY.
 
   Five subscriptions, and the shape of the first three is the whole of

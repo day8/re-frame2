@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.identifier-prefix-ssr-dom-cljs-test
+(ns re-frame.fresco.identifier-prefix-ssr-dom-cljs-test
   "`identifierPrefix` ACROSS THE SEAM — the option, and the SECOND
   obstruction it uncovered.
 
@@ -92,7 +92,7 @@
   The server bytes come from `react-dom/server`'s own `renderToString`, called
   by hand with React's own `identifierPrefix` option — the smallest thing that
   produces server bytes under a named prefix. The package's own server door,
-  `re-frame.hicasso.server/render`, spells the same option as
+  `re-frame.fresco.server/render`, spells the same option as
   `:identifier-prefix`; this harness sits beside it, not instead of it, so
   what these rows read is the prefix and nothing else. The client half is
   the product door `impl.mount/hydrate-root!` and never `hydrateRoot`
@@ -111,12 +111,12 @@
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
-            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.impl.roots :as rf.fresco.impl.roots]
+            [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
@@ -142,7 +142,7 @@
      ;; the hydration rows wait on a real clock, and `cljs.test`
      ;; hard-errors on a fn-form fixture in a suite with an async test.
      :async?        true
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The probe — a `useId` that reaches the server bytes
@@ -172,28 +172,28 @@
     (react/createElement "b" #js {:className "probe"} (react/useId))
     (react/createElement "i" #js {:className "label"} (.-label props))))
 
-(rf.hicasso/defhost id-host id-probe {:server :render})
+(rf.fresco/defhost id-host id-probe {:server :render})
 
-(rf.hicasso/defview id-page
+(rf.fresco/defview id-page
   "The page both sides render. One subscription read, so the root
   acquires a frame-keyed cell and its commit is observable at all; one
   island, so the page has an id in it."
   [_]
   [:div.page
-   [:p.value (rf.hicasso/sub label-q)]
-   [id-host {:label (rf.hicasso/sub label-q)}]])
+   [:p.value (rf.fresco/sub label-q)]
+   [id-host {:label (rf.fresco/sub label-q)}]])
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
 ;; ---------------------------------------------------------------------------
 
 (defn- fresh! []
-  (rf.hicasso.roots-frames-support/leave-act-environment!)
+  (rf.fresco.roots-frames-support/leave-act-environment!)
   (rf/make-frame {:id frame-a})
   (rf/make-frame {:id frame-b})
   (rf/with-frame frame-a (rf/dispatch-sync [::seed "alpha"]))
   (rf/with-frame frame-b (rf/dispatch-sync [::seed "beta"]))
-  (rf.hicasso.impl.collector/reset-runtime!)
+  (rf.fresco.impl.collector/reset-runtime!)
   nil)
 
 (defn- server-html!
@@ -207,7 +207,7 @@
   other tree, and §3 pins the difference to that one fork."
   [frame-kw hiccup prefix]
   (react-dom-server/renderToString
-    (rf.hicasso.impl.mount/provider frame-kw (rf.hicasso.impl.codec/root-element frame-kw hiccup))
+    (rf.fresco.impl.mount/provider frame-kw (rf.fresco.impl.codec/root-element frame-kw hiccup))
     (when prefix #js {"identifierPrefix" prefix})))
 
 (defn- root-shaped-server-html!
@@ -232,13 +232,13 @@
   here is that this is not offered to any other suite and answers no
   question except *which structural difference moved the id*."
   [frame-kw hiccup prefix]
-  (let [window (rf.hicasso.impl.roots/open-adoption-window!)
-        app    (rf.hicasso.impl.mount/provider frame-kw (rf.hicasso.impl.codec/root-element frame-kw hiccup))]
+  (let [window (rf.fresco.impl.roots/open-adoption-window!)
+        app    (rf.fresco.impl.mount/provider frame-kw (rf.fresco.impl.codec/root-element frame-kw hiccup))]
     (react-dom-server/renderToString
       (react/createElement (.-Fragment react) nil
-                           (react/createElement rf.hicasso.impl.mount/adoption-window-closer
+                           (react/createElement rf.fresco.impl.mount/adoption-window-closer
                                                 #js {:rfWindow window})
-                           (rf.hicasso.impl.roots/with-adoption window app))
+                           (rf.fresco.impl.roots/with-adoption window app))
       (when prefix #js {"identifierPrefix" prefix}))))
 
 (defn- text-in [container sel]
@@ -267,7 +267,7 @@
   the reading on the next line is taken after a real client render."
   [frame-kw label]
   (rf/with-frame frame-kw (rf/dispatch-sync [::relabel label]))
-  (rf.hicasso.impl.mount/settle!)
+  (rf.fresco.impl.mount/settle!)
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -378,26 +378,26 @@
 
 (deftest the-bytes-a-consumer-can-bake-today-mismatch-on-position-not-on-prefix
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
-      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM") (done))
+    (if-not (rf.fresco.impl.mount/browser?)
+      (do (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM") (done))
       (do
         (fresh!)
         (let [html      (server-html! frame-a [id-page {}] "pfx-a-")
               server-id (id-in-html html)
-              container (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
-              {:keys [seen stop!]} (rf.hicasso.roots-frames-support/watch-mismatches!)
+              container (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))
+              {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)
               ;; MANUFACTURED here and asserted on here — the only shape of
               ;; call site at which swallowing an uncaught error is not the
               ;; fail-open the pageerror rule forbids. React routes a hydration
               ;; failure to `reportError`, and the browser runner fails a
               ;; run on any uncaught pageerror.
-              {:keys [captured close!]} (rf.hicasso.roots-frames-support/open-console-capture!
+              {:keys [captured close!]} (rf.fresco.roots-frames-support/open-console-capture!
                                           {:swallow-uncaught? true})]
           (is (some? server-id) "premise: the bytes carry an id")
-          (rf.hicasso.impl.collector/reset-runtime!)
-          (let [handle (rf.hicasso.impl.mount/hydrate-root! container frame-a [id-page {}]
+          (rf.fresco.impl.collector/reset-runtime!)
+          (let [handle (rf.fresco.impl.mount/hydrate-root! container frame-a [id-page {}]
                                             {:identifier-prefix "pfx-a-"})]
-            (-> (rf.hicasso.roots-frames-support/adopted! handle)
+            (-> (rf.fresco.roots-frames-support/adopted! handle)
                 (.then
                   (fn [ok]
                     ;; Closed HERE and named in `:release!` as well. Here,
@@ -418,8 +418,8 @@
                                              @captured))))
                       (is (seq @seen)
                           "the divergence must reach Spec 011's channel")
-                      (let [tags (rf.hicasso.roots-frames-support/tags-of (first @seen))]
-                        (is (= 're-frame.hicasso.impl.mount/hydrate-root!
+                      (let [tags (rf.fresco.roots-frames-support/tags-of (first @seen))]
+                        (is (= 're-frame.fresco.impl.mount/hydrate-root!
                                (:where tags))
                             (str "attributed to source; got " (pr-str (:where tags))))
                         (is (= :warned-and-replaced (:recovery tags))
@@ -445,13 +445,13 @@
                                "obstruction this row records; server "
                                (pr-str server-id) ", client "
                                (pr-str (probe-id container)))))))
-                (rf.hicasso.roots-frames-support/settle-row!
+                (rf.fresco.roots-frames-support/settle-row!
                   {:row      "§2 — the bytes a consumer can bake today"
                    :done     done
                    :release! (fn []
                                (close!)
                                (stop!)
-                               (rf.hicasso.impl.mount/release! handle))}))))))))
+                               (rf.fresco.impl.mount/release! handle))}))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — THE DIAGNOSIS: bytes of the root's own shape hydrate silently
@@ -459,18 +459,18 @@
 
 (deftest bytes-of-the-hydrating-root-s-own-shape-adopt-with-the-server-s-id
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
-      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM") (done))
+    (if-not (rf.fresco.impl.mount/browser?)
+      (do (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM") (done))
       (do
         (fresh!)
         (let [html      (root-shaped-server-html! frame-a [id-page {}] "pfx-a-")
               server-id (id-in-html html)
-              container (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
-              {:keys [seen stop!]} (rf.hicasso.roots-frames-support/watch-mismatches!)]
-          (rf.hicasso.impl.collector/reset-runtime!)
-          (let [handle (rf.hicasso.impl.mount/hydrate-root! container frame-a [id-page {}]
+              container (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))
+              {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)]
+          (rf.fresco.impl.collector/reset-runtime!)
+          (let [handle (rf.fresco.impl.mount/hydrate-root! container frame-a [id-page {}]
                                             {:identifier-prefix "pfx-a-"})]
-            (-> (rf.hicasso.roots-frames-support/adopted! handle)
+            (-> (rf.fresco.roots-frames-support/adopted! handle)
                 (.then
                   (fn [ok]
                     (is (true? ok) "the root's own adoption window shut")
@@ -478,7 +478,7 @@
                     (testing "the adoption was real — these are the very nodes
                               the bytes produced, which no re-render could
                               reconstruct"
-                      (is (rf.hicasso.roots-frames-support/every-server-node? container ".page, .value, .probe")
+                      (is (rf.fresco.roots-frames-support/every-server-node? container ".page, .value, .probe")
                           "the server's nodes survived, probe included"))
 
                     (testing "and React had nothing to complain about, which is
@@ -487,7 +487,7 @@
                       (is (empty? @seen)
                           (str "matching shape and matching prefix must produce "
                                "no mismatch; got "
-                               (pr-str (mapv #(:error (rf.hicasso.roots-frames-support/tags-of %)) @seen)))))
+                               (pr-str (mapv #(:error (rf.fresco.roots-frames-support/tags-of %)) @seen)))))
 
                     (testing "the id agrees ACROSS A REAL CLIENT RENDER, which
                               is the only reading that separates *the client
@@ -500,12 +500,12 @@
                           (str "the client's own id must equal the server's; "
                                "server " (pr-str server-id) ", client "
                                (pr-str (probe-id container)))))))
-                (rf.hicasso.roots-frames-support/settle-row!
+                (rf.fresco.roots-frames-support/settle-row!
                   {:row      "§3 — bytes of the hydrating root's own shape"
                    :done     done
                    :release! (fn []
                                (stop!)
-                               (rf.hicasso.impl.mount/release! handle))}))))))))
+                               (rf.fresco.impl.mount/release! handle))}))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — §2.4's clause, as written: TWO SIMULTANEOUS hydrating roots
@@ -519,42 +519,42 @@
 
 (deftest two-simultaneous-hydrating-roots-keep-stable-and-distinct-prefixes
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
-      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM") (done))
+    (if-not (rf.fresco.impl.mount/browser?)
+      (do (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM") (done))
       (do
         (fresh!)
         (let [html-a   (root-shaped-server-html! frame-a [id-page {}] "pfx-a-")
               html-b   (root-shaped-server-html! frame-b [id-page {}] "pfx-b-")
               server-a (id-in-html html-a)
               server-b (id-in-html html-b)
-              ca       (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html-a))
-              cb       (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html-b))
-              {:keys [seen stop!]} (rf.hicasso.roots-frames-support/watch-mismatches!)]
+              ca       (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html-a))
+              cb       (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html-b))
+              {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)]
           (is (not= server-a server-b)
               (str "premise: two prefixes gave the server two ids; got "
                    (pr-str server-a) " and " (pr-str server-b)))
-          (rf.hicasso.impl.collector/reset-runtime!)
-          (let [ha (rf.hicasso.impl.mount/hydrate-root! ca frame-a [id-page {}]
+          (rf.fresco.impl.collector/reset-runtime!)
+          (let [ha (rf.fresco.impl.mount/hydrate-root! ca frame-a [id-page {}]
                                         {:identifier-prefix "pfx-a-"})
-                hb (rf.hicasso.impl.mount/hydrate-root! cb frame-b [id-page {}]
+                hb (rf.fresco.impl.mount/hydrate-root! cb frame-b [id-page {}]
                                         {:identifier-prefix "pfx-b-"})]
             ;; The overlap is a CONSTRUCTION and not a timing guess: both
             ;; roots were handed to React before either had adopted, and
             ;; each root's OWN window being open on this line says so.
-            (is (true? (rf.hicasso.impl.roots/adopting? (:adoption ha)))
+            (is (true? (rf.fresco.impl.roots/adopting? (:adoption ha)))
                 "root A is in flight — `hydrate-root!` returns before adoption")
-            (is (true? (rf.hicasso.impl.roots/adopting? (:adoption hb)))
+            (is (true? (rf.fresco.impl.roots/adopting? (:adoption hb)))
                 "and so is root B, in its own window")
-            (-> (rf.hicasso.roots-frames-support/adopted! ha)
-                (.then (fn [_] (rf.hicasso.roots-frames-support/adopted! hb)))
+            (-> (rf.fresco.roots-frames-support/adopted! ha)
+                (.then (fn [_] (rf.fresco.roots-frames-support/adopted! hb)))
                 (.then
                   (fn [ok]
                     (is (true? ok) "both roots adopted")
 
                     (testing "each root adopted its OWN server DOM"
-                      (is (rf.hicasso.roots-frames-support/every-server-node? ca ".page, .value, .probe")
+                      (is (rf.fresco.roots-frames-support/every-server-node? ca ".page, .value, .probe")
                           "root A kept the server's nodes")
-                      (is (rf.hicasso.roots-frames-support/every-server-node? cb ".page, .value, .probe")
+                      (is (rf.fresco.roots-frames-support/every-server-node? cb ".page, .value, .probe")
                           "root B kept the server's nodes"))
 
                     (testing "and neither adoption complained — two prefixes,
@@ -562,7 +562,7 @@
                       (is (empty? @seen)
                           (str "two matching prefixes must produce no mismatch; "
                                "got "
-                               (pr-str (mapv #(:error (rf.hicasso.roots-frames-support/tags-of %)) @seen)))))
+                               (pr-str (mapv #(:error (rf.fresco.roots-frames-support/tags-of %)) @seen)))))
 
                     (testing "the ids are DISTINCT and each is its own root's.
                               Read after a dispatch into each root, so both are
@@ -588,14 +588,14 @@
                               once both are down. Read before any `release!`,
                               because `release!` empties the tables by fiat and
                               a census after it cannot go red"
-                      (rf.hicasso.impl.mount/unmount! ha)
-                      (is (not= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/census))
+                      (rf.fresco.impl.mount/unmount! ha)
+                      (is (not= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/census))
                           "root B is still live, so the runtime is not empty")
-                      (rf.hicasso.impl.mount/unmount! hb)
-                      (is (= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/census))
+                      (rf.fresco.impl.mount/unmount! hb)
+                      (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/census))
                           (str "both roots down; residue was "
-                               (pr-str (rf.hicasso.roots-frames-support/census)))))))
-                (rf.hicasso.roots-frames-support/settle-row!
+                               (pr-str (rf.fresco.roots-frames-support/census)))))))
+                (rf.fresco.roots-frames-support/settle-row!
                   {:row      "§4 — two simultaneous hydrating roots"
                    :done     done
                    ;; The FULL handles, where the `finally` this replaced
@@ -615,8 +615,8 @@
                    ;; is the whole point.
                    :release! (fn []
                                (stop!)
-                               (rf.hicasso.impl.mount/release! ha)
-                               (rf.hicasso.impl.mount/release! hb))}))))))))
+                               (rf.fresco.impl.mount/release! ha)
+                               (rf.fresco.impl.mount/release! hb))}))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5 — the NEAR-MISS: a legal prefix that is the wrong one
@@ -632,21 +632,21 @@
 
 (deftest a-client-prefix-that-disagrees-with-the-bytes-is-caught-at-source
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
-      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no React DOM") (done))
+    (if-not (rf.fresco.impl.mount/browser?)
+      (do (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM") (done))
       (do
         (fresh!)
         (let [html      (root-shaped-server-html! frame-a [id-page {}] "pfx-a-")
               server-id (id-in-html html)
-              container (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
-              {:keys [seen stop!]} (rf.hicasso.roots-frames-support/watch-mismatches!)
+              container (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))
+              {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)
               ;; Manufactured and asserted on here — see §2's note.
-              {:keys [captured close!]} (rf.hicasso.roots-frames-support/open-console-capture!
+              {:keys [captured close!]} (rf.fresco.roots-frames-support/open-console-capture!
                                           {:swallow-uncaught? true})]
-          (rf.hicasso.impl.collector/reset-runtime!)
-          (let [handle (rf.hicasso.impl.mount/hydrate-root! container frame-a [id-page {}]
+          (rf.fresco.impl.collector/reset-runtime!)
+          (let [handle (rf.fresco.impl.mount/hydrate-root! container frame-a [id-page {}]
                                             {:identifier-prefix "pfx-b-"})]
-            (-> (rf.hicasso.roots-frames-support/adopted! handle)
+            (-> (rf.fresco.roots-frames-support/adopted! handle)
                 (.then
                   (fn [_]
                     ;; Closed here for §2's reason, and named in `:release!`
@@ -661,8 +661,8 @@
                                              @captured))))
                       (is (seq @seen)
                           "a prefix that disagrees with the bytes must complain")
-                      (let [tags (rf.hicasso.roots-frames-support/tags-of (first @seen))]
-                        (is (= 're-frame.hicasso.impl.mount/hydrate-root!
+                      (let [tags (rf.fresco.roots-frames-support/tags-of (first @seen))]
+                        (is (= 're-frame.fresco.impl.mount/hydrate-root!
                                (:where tags))
                             (str "attributed to source; got "
                                  (pr-str (:where tags))))
@@ -676,13 +676,13 @@
                       (is (str/includes? (probe-id container) "pfx-b-")
                           (str "and it is the client's prefix; got "
                                (pr-str (probe-id container)))))))
-                (rf.hicasso.roots-frames-support/settle-row!
+                (rf.fresco.roots-frames-support/settle-row!
                   {:row      "§5 — a client prefix that disagrees with the bytes"
                    :done     done
                    :release! (fn []
                                (close!)
                                (stop!)
-                               (rf.hicasso.impl.mount/release! handle))}))))))))
+                               (rf.fresco.impl.mount/release! handle))}))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6 — THE LEAK CONTROL: a rejected adoption still releases the page
@@ -707,36 +707,36 @@
 ;; merely slow.
 
 (deftest a-rejected-adoption-still-releases-the-root-console-and-watcher
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! "what a rejection can leak here is a real root and a real console")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! "what a rejection can leak here is a real root and a real console")
     (async done
       (fresh!)
       (let [html           (root-shaped-server-html! frame-a [id-page {}] "pfx-a-")
-            container      (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html))
-            watch          (rf.hicasso.roots-frames-support/watch-mismatches!)
+            container      (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))
+            watch          (rf.fresco.roots-frames-support/watch-mismatches!)
             ;; NOT `:swallow-uncaught? true`: this row manufactures a
             ;; rejected PROMISE, which `sup/settle-row!` handles, and no
             ;; uncaught window error at all. Swallowing anywhere else is
             ;; the fail-open the browser runner's pageerror rule forbids.
             console-before (.-error js/console)
-            capture        (rf.hicasso.roots-frames-support/open-console-capture!)
+            capture        (rf.fresco.roots-frames-support/open-console-capture!)
             stops          (atom 0)
             finishes       (atom 0)
             reports        (atom [])]
-        (rf.hicasso.impl.collector/reset-runtime!)
-        (let [handle (rf.hicasso.impl.mount/hydrate-root! container frame-a [id-page {}]
+        (rf.fresco.impl.collector/reset-runtime!)
+        (let [handle (rf.fresco.impl.mount/hydrate-root! container frame-a [id-page {}]
                                           {:identifier-prefix "pfx-a-"})]
-          (-> (rf.hicasso.roots-frames-support/adopted! handle)
+          (-> (rf.fresco.roots-frames-support/adopted! handle)
               (.then
                 (fn [ok]
                   (is (true? ok) "premise: the root really did adopt")
-                  (is (not= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/census))
+                  (is (not= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/census))
                       (str "premise: the runtime is holding this root's cells "
                            "and edges, so the census taken after the rejection "
                            "is a RELEASE and not an empty page; got "
-                           (pr-str (rf.hicasso.roots-frames-support/census))))
+                           (pr-str (rf.fresco.roots-frames-support/census))))
                   (js/Promise.reject (js/Error. "adoption rejected on purpose"))))
-              (rf.hicasso.roots-frames-support/settle-row!
+              (rf.fresco.roots-frames-support/settle-row!
                 {:row      "the rejected-adoption control"
                  :done     (fn [] (swap! finishes inc))
                  :report!  (fn [e] (swap! reports conj e))
@@ -744,11 +744,11 @@
                              ((:close! capture))
                              (swap! stops inc)
                              ((:stop! watch))
-                             (rf.hicasso.impl.mount/release! handle))})
+                             (rf.fresco.impl.mount/release! handle))})
               ;; The cell reapers are armed at unmount and run past a bare
               ;; macrotask, so the tables are read at the runtime's own
               ;; horizon rather than one tick after the release.
-              (.then (fn [_] (rf.hicasso.roots-frames-support/quiesced!)))
+              (.then (fn [_] (rf.fresco.roots-frames-support/quiesced!)))
               (.then
                 (fn [_]
                   (testing "the rejection is REPORTED — which is the whole of
@@ -772,21 +772,21 @@
                             all the same, because a row that leans on the
                             fixture to stop its own watcher is measuring the
                             fixture)"
-                    (is (= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/census))
-                        (str "no root: residue was " (pr-str (rf.hicasso.roots-frames-support/census))))
-                    (is (empty? (rf.hicasso.roots-frames-support/cell-frames))
+                    (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/census))
+                        (str "no root: residue was " (pr-str (rf.fresco.roots-frames-support/census))))
+                    (is (empty? (rf.fresco.roots-frames-support/cell-frames))
                         (str "no frame: the cell table still mentions "
-                             (pr-str (rf.hicasso.roots-frames-support/cell-frames))))
+                             (pr-str (rf.fresco.roots-frames-support/cell-frames))))
                     (is (= 1 @stops)
                         (str "the mismatch watcher was stopped — `stop!` is what "
                              "unregisters the trace listener; it ran "
                              @stops " times"))
                     (is (identical? console-before (.-error js/console))
                         "`console.error` is the page's own again"))))
-              (rf.hicasso.roots-frames-support/settle-row!
+              (rf.fresco.roots-frames-support/settle-row!
                 {:row      "the rejected-adoption control's own settlement"
                  :done     done
                  :release! (fn []
                              ((:close! capture))
                              ((:stop! watch))
-                             (rf.hicasso.impl.mount/release! handle))})))))))
+                             (rf.fresco.impl.mount/release! handle))})))))))

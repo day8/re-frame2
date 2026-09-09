@@ -1,9 +1,9 @@
-(ns re-frame.hicasso.examples.editor.subs
+(ns re-frame.fresco.examples.editor.subs
   "THE EDITOR'S READ TOPOLOGY — one address per field.
 
   Four fields and four subscription cells, because the per-keystroke
   budget is a fact about the READ TOPOLOGY and about nothing else.
-  `docs/core/hicasso/19-performance.md` §Trace one
+  `docs/core/fresco/19-performance.md` §Trace one
   controlled keystroke walks it: one write, subscriptions recompute,
   equality gates stop every one whose output did not move, and the
   boundaries whose reads changed are notified. With a field per cell that
@@ -18,7 +18,7 @@
   goes on to read, so a keystroke re-runs all TEN of this form's cells and
   the equality gate then stops nine of them from notifying anything.
   Measured by the per-keystroke census and published in
-  `docs/design/hicasso/product/per-keystroke.md`: one changed subscription
+  `docs/design/fresco/product/per-keystroke.md`: one changed subscription
   out of ten recomputed, which is a distinction the body count cannot
   make and the budget does not rest on.
 

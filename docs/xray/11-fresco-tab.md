@@ -1,7 +1,7 @@
-# 11. The Hicasso Tab
+# 11. The Fresco Tab
 
-Your view re-rendered and you want to know why. The **Hicasso** tab is Xray's
-lens on [Hicasso](../core/hicasso/index.md), re-frame2's native view layer: six
+Your view re-rendered and you want to know why. The **Fresco** tab is Xray's
+lens on [Fresco](../core/fresco/index.md), re-frame2's native view layer: six
 views over one evidence read, covering which boundaries are mounted, which
 subscriptions they hold, what was dispatched, what changed, which boundary is
 hot, and how one dispatch travelled from event to paint.
@@ -12,11 +12,11 @@ chapter is mostly about why.
 
 ## The Tab Is Always There
 
-The Hicasso tab is registered at Xray install time alongside Epoch, app-db,
+The Fresco tab is registered at Xray install time alongside Epoch, app-db,
 Views and the rest. It is not conditional on the inspected application running
-Hicasso, and there is no switch to turn it on.
+Fresco, and there is no switch to turn it on.
 
-What changes is what it *says*. On an app that is not running Hicasso, the tab
+What changes is what it *says*. On an app that is not running Fresco, the tab
 renders one sentence explaining exactly that, rather than an empty table you
 would have to interpret. That distinction is the tab's organising idea: an
 absence of evidence and evidence of absence are different findings, and this
@@ -55,9 +55,9 @@ remedies. Xray writes each one out:
 
 | State | What it means | What to do |
 | --- | --- | --- |
-| **Not running Hicasso** | The evidence door answered `nil` — this app does not use Hicasso, or this is a production build where the door is erased rather than empty | Nothing. This is the correct reading for a Reagent or UIx app |
-| **Schema mismatch** | Hicasso answered, stamping an evidence schema this Xray build was not taught to parse | Align the Xray and Hicasso versions. Rows are suppressed rather than mis-parsed, because a shape read as though it were the expected one is worse than no rows |
-| **Empty roster** | Hicasso answered, and the roster is genuinely empty | Depends on the view — see below |
+| **Not running Fresco** | The evidence door answered `nil` — this app does not use Fresco, or this is a production build where the door is erased rather than empty | Nothing. This is the correct reading for a Reagent or UIx app |
+| **Schema mismatch** | Fresco answered, stamping an evidence schema this Xray build was not taught to parse | Align the Xray and Fresco versions. Rows are suppressed rather than mis-parsed, because a shape read as though it were the expected one is worse than no rows |
+| **Empty roster** | Fresco answered, and the roster is genuinely empty | Depends on the view — see below |
 
 The third row is the interesting one, because "empty" is a different fact in
 each view and each gets its own sentence:
@@ -162,28 +162,28 @@ two lookups.
 
 ## Focusing The Tab From A Host
 
-`:hicasso` is one of the canonical focusable panel ids, so a host — a Story beat,
+`:fresco` is one of the canonical focusable panel ids, so a host — a Story beat,
 an assertion, a docs link — can land a reader directly on it:
 
 ```clojure
 (require '[day8.re-frame2-xray.core :as xray])
 
-(xray/focus! {:panel :hicasso})
+(xray/focus! {:panel :fresco})
 ```
 
 The full set is in [the reference](api/reference.md#day8re-frame2-xraycore).
 
-What the Hicasso tab does *not* have is a standalone `mount-*!` facade. It is an
+What the Fresco tab does *not* have is a standalone `mount-*!` facade. It is an
 **L4-only registry tab**: focusable and composed by the shell, but not
 independently mountable into a host's own layout the way Epoch or App-DB Diff
 are. Graph and Frames are the same shape. This is a deliberate split, and it is
 a different axis from focusability — a tab can be one without the other.
 
-## A Good Hicasso Debugging Loop
+## A Good Fresco Debugging Loop
 
 1. Reproduce the interaction.
 2. Click the event row in the spine.
-3. Open **Hicasso** and read **Advisor** first — it points at a boundary and
+3. Open **Fresco** and read **Advisor** first — it points at a boundary and
    names the owner.
 4. If the owner is computation or topology, go to **Reads** for the fan-out and
    read-set shape behind it.
@@ -194,6 +194,6 @@ a different axis from focusability — a tab can be one without the other.
 7. Use **Causal** when you need the whole chain for one dispatch rather than one
    boundary's ranking.
 
-[Diagnostics](../core/hicasso/16-diagnostics.md) in the Hicasso guide covers the
+[Diagnostics](../core/fresco/16-diagnostics.md) in the Fresco guide covers the
 same ground from the application side — the cause table, the pressure table, and
 the fixes each one selects.

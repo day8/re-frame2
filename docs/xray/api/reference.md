@@ -22,7 +22,7 @@ The canonical facade. The day-to-day require for host integrations: mount contro
 | `target-frame` | `(target-frame)` → keyword \| nil | Read the currently-selected inspected-host frame, or `nil` when none is selected (never defaulted to `:rf/default`). One-shot read; not reactive. |
 | `set-target-frame!` | `(set-target-frame! frame-id)` → nil | Set the inspected-host frame Xray targets. `nil` resets to the **unselected** state (not `:rf/default`). |
 | `focus!` | `(focus! command)` → map | Host-facing focus handoff. Story and other hosts use it to focus a panel, epoch, cascade row, app-db path, or source target without rebuilding Xray's diagnostic UI. |
-| `valid-focus-panels` | set value | Canonical focusable panel ids — one per live Dynamic L4 tab: `#{:epoch :app-db :views :trace :machines :routing :resources :derivation-graph :module-view :hicasso}`. The id is the internal registry key, not the visible label: `:routing` renders as "Routes", `:derivation-graph` as "Graph", `:module-view` as "Frames". A host that prefers the display noun may pass `:routes`, which normalises to `:routing`. |
+| `valid-focus-panels` | set value | Canonical focusable panel ids — one per live Dynamic L4 tab: `#{:epoch :app-db :views :trace :machines :routing :resources :derivation-graph :module-view :fresco}`. The id is the internal registry key, not the visible label: `:routing` renders as "Routes", `:derivation-graph` as "Graph", `:module-view` as "Frames". A host that prefers the display noun may pass `:routes`, which normalises to `:routing`. |
 | `load-theme!` | `(load-theme! css-string)` → nil | Programmatic theme override. Installs or replaces a host CSS block; `nil` or blank clears the override. |
 | `configure!` | `(configure! opts)` → nil | Top-level config — re-exported from `config`. See [Configuration keys](config-keys.md). |
 | `set-auto-open!` | `(set-auto-open! bool)` → nil | Re-exported from `config`. Whether the preload auto-opens. |
@@ -121,9 +121,9 @@ The remaining three are **L4-only registry tabs** — registered for the tab str
 |---|---|---|
 | Graph (derivation graph) | `day8.re-frame2-xray.panels.derivation-graph` | `Panel` reg-view, registry only |
 | Frames (module view) | `day8.re-frame2-xray.panels.module-view` | `Panel` reg-view, registry only |
-| Hicasso | `day8.re-frame2-xray.panels.hicasso` | `Panel` reg-view, registry only |
+| Fresco | `day8.re-frame2-xray.panels.fresco` | `Panel` reg-view, registry only |
 
-Focusability and mountability are separate axes: every one of the ten is in `valid-focus-panels`, and only the first seven have a mount facade. See [11. The Hicasso tab](../11-hicasso-tab.md) for what the Hicasso panel shows.
+Focusability and mountability are separate axes: every one of the ten is in `valid-focus-panels`, and only the first seven have a mount facade. See [11. The Fresco tab](../11-fresco-tab.md) for what the Fresco panel shows.
 
 Five parallel Static-mode panels browse the registrar rather than the event spine:
 

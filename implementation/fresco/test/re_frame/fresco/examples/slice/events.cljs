@@ -1,12 +1,12 @@
-(ns re-frame.hicasso.examples.slice.events
+(ns re-frame.fresco.examples.slice.events
   "THE SLICE'S EVENTS — ordinary re-frame2, and one stand-in server.
 
   Every handler here is `(fn [coeffects event-v] → effect-map)`. Nothing
   in this namespace knows that a view substrate exists: it requires
-  `re-frame.core` and [[re-frame.hicasso.examples.slice.db]], and not the
-  Hicasso door. That is the point of the tier rather than an accident of
+  `re-frame.core` and [[re-frame.fresco.examples.slice.db]], and not the
+  Fresco door. That is the point of the tier rather than an accident of
   it — the whole of this file is L0, testable with `=` and a map, and
-  `re-frame.hicasso.examples.slice.l0-cljs-test` does exactly that.
+  `re-frame.fresco.examples.slice.l0-cljs-test` does exactly that.
 
   ## TWO event shapes, and the seam is not the author's choice
   (the slice authoring report's first finding)
@@ -16,13 +16,13 @@
   toward it. Most handlers below take that shape.
 
   [[::edit]] and [[::toggle-published]] do NOT, and cannot.
-  `re-frame.hicasso.impl.intent/materialize` substitutes `::h/value` and
+  `re-frame.fresco.impl.intent/materialize` substitutes `::h/value` and
   `::h/checked` with **`mapv` over the intent vector's top level**, by
   design and for a stated cost reason (a deep walk would be paid on every
   keystroke). So a marker written inside the canonical payload map —
 
       ;; WRONG, and silent: `:value` arrives as the keyword
-      ;; :re-frame.hicasso/value, not as what the user typed.
+      ;; :re-frame.fresco/value, not as what the user typed.
       [::edit {:slug slug :field :title :value ::h/value}]
 
   — is not substituted, is not refused, and is not linted. The keyword
@@ -55,7 +55,7 @@
   way.
 
   It is a `setTimeout` rather than a resolved promise for a reason the
-  test tier decides: `re-frame.hicasso.test.mounted`'s virtual clock
+  test tier decides: `re-frame.fresco.test.mounted`'s virtual clock
   drives `setTimeout`, `setInterval` and `Date.now` in lockstep and
   deliberately does NOT drive microtasks, so a promise-based stub would
   make the mounted witness wait on the wall clock — the flake this
@@ -72,7 +72,7 @@
   problem, and leaving it out would have made the slice evidence for an
   API that had never met one."
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso.examples.slice.db :as rf.hicasso.examples.slice.db]))
+            [re-frame.fresco.examples.slice.db :as rf.fresco.examples.slice.db]))
 
 ;; ---------------------------------------------------------------------------
 ;; Boot
@@ -80,7 +80,7 @@
 
 (rf/reg-event ::seed
   {:doc "Install the starting app-db. The frame's `:initial-events` step."}
-  (fn [_ _] {:db rf.hicasso.examples.slice.db/seed}))
+  (fn [_ _] {:db rf.fresco.examples.slice.db/seed}))
 
 ;; ---------------------------------------------------------------------------
 ;; Editing — the controlled fields write straight into the draft
@@ -98,13 +98,13 @@
     ;; draft yet, so the article's own fields are what the edit lands on
     ;; top of. Without it the first character would arrive into an empty
     ;; map and the other fields would blank themselves.
-    {:db (assoc-in db [:drafts slug] (assoc (rf.hicasso.examples.slice.db/draft-for db slug) field value))}))
+    {:db (assoc-in db [:drafts slug] (assoc (rf.fresco.examples.slice.db/draft-for db slug) field value))}))
 
 (rf/reg-event ::toggle-published
   {:doc "Take the checkbox's state. Positional because it carries `::h/checked`."}
   (fn [{:keys [db]} [_ slug published?]]
     {:db (assoc-in db [:drafts slug]
-                   (assoc (rf.hicasso.examples.slice.db/draft-for db slug) :published? (boolean published?)))}))
+                   (assoc (rf.fresco.examples.slice.db/draft-for db slug) :published? (boolean published?)))}))
 
 (rf/reg-event ::discard
   {:doc "Throw a draft away — the reset, and it is one move."}
@@ -132,8 +132,8 @@
 (rf/reg-event ::save
   {:doc "Validate a draft locally; if it passes, ask the server."}
   (fn [{:keys [db]} [_ {:keys [slug]}]]
-    (let [draft    (rf.hicasso.examples.slice.db/draft-for db slug)
-          problems (rf.hicasso.examples.slice.db/problems draft)]
+    (let [draft    (rf.fresco.examples.slice.db/draft-for db slug)
+          problems (rf.fresco.examples.slice.db/problems draft)]
       (if (seq problems)
         ;; The local half. No request is made, so there is nothing in
         ;; flight and nothing to arrive late: the status goes straight to
@@ -143,7 +143,7 @@
         {:db (assoc db :save {:status :saving :slug slug})
          :fx [[::persist {:slug    slug
                           :draft   draft
-                          :taken?  (rf.hicasso.examples.slice.db/title-taken? db slug (:title draft))
+                          :taken?  (rf.fresco.examples.slice.db/title-taken? db slug (:title draft))
                           :delay   save-delay-ms
                           :on-ok   ::saved
                           :on-fail ::save-failed}]]}))))
@@ -152,7 +152,7 @@
   {:doc "The server accepted a draft. Fold it in."}
   (fn [{:keys [db]} [_ {:keys [slug draft]}]]
     (if (= slug (get-in db [:save :slug]))
-      {:db (-> (rf.hicasso.examples.slice.db/commit db slug draft)
+      {:db (-> (rf.fresco.examples.slice.db/commit db slug draft)
                (assoc :save {:status :saved :slug slug}))}
       ;; A reply for an article this frame is no longer saving. Dropping
       ;; it is the whole of stale-reply suppression at this size, and it
@@ -233,7 +233,7 @@
   (fn [ctx {:keys [delay on-ok]}]
     (js/setTimeout
       (fn []
-        (rf/dispatch [on-ok {:blocks rf.hicasso.examples.slice.db/digest}] {:frame (:frame ctx)}))
+        (rf/dispatch [on-ok {:blocks rf.fresco.examples.slice.db/digest}] {:frame (:frame ctx)}))
       delay)))
 
 ;; ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.slot-corpus
+(ns re-frame.fresco.slot-corpus
   "THE CANONICAL SLOT CORPUS — authored prop key → the React slot it
   emits into.
 
@@ -6,7 +6,7 @@
   gate's universe (files that evaluate a test-defining form at the top
   level) never reaches it and it needs no lane, no roster entry and no
   workflow change. It is required by
-  [[re-frame.hicasso.codec-cljs-test]], which asserts the codec's caches
+  [[re-frame.fresco.codec-cljs-test]], which asserts the codec's caches
   answer the rule over every row.
 
   The table is one definition read by several suites on purpose: a rule

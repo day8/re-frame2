@@ -4,7 +4,7 @@
  * THE CONTROLLED-INPUT WITNESSES — invariant I15, in three real engines
  * (rf2-hic-016).
  *
- * `serve-and-run-hicasso-controlled-testbed.cjs` compiles the testbed,
+ * `serve-and-run-fresco-controlled-testbed.cjs` compiles the testbed,
  * serves it, and runs everything below once per engine in Chromium,
  * Firefox and WebKit. The spec asserts what must hold in every engine and
  * RECORDS what differs; the runner compares the recorded rows across
@@ -40,7 +40,7 @@
  *
  * `Input.imeSetComposition` is a CDP method and CDP is Chromium's protocol,
  * so the repo's existing real-IME harness
- * (`hicasso/test/re_frame/bench/hicasso/ime_run.cjs`) states its scope as
+ * (`fresco/test/re_frame/bench/fresco/ime_run.cjs`) states its scope as
  * Chromium only. This gate needs the carve-out witnessed on WebKit and
  * Firefox, where no such protocol exists, so composition here is the event
  * SEQUENCE a composition produces — `compositionstart`, `beforeinput` and
@@ -903,7 +903,7 @@ async function formResetAndFillProxy(page, witness) {
 // seven model policies. The rows below are a different question — does
 // every control type specification 4.2 names have a support-or-refusal
 // policy that holds in three engines, with none of them silently
-// unsupported. `docs/design/hicasso/product/dispositions.md` section 2.3 is
+// unsupported. `docs/design/fresco/product/dispositions.md` section 2.3 is
 // the roster and this block fills it.
 //
 // Three of these rows are FINDINGS rather than confirmations, and they are
@@ -1090,7 +1090,7 @@ async function reservedMarkerReadsTheWholeMultipleSelection(page, witness) {
 //
 // This row therefore witnesses the constraint rather than the crash: the
 // supported path works, and the assignment the controlled path would make
-// is shown to throw in each engine. The absence of a source-located Hicasso
+// is shown to throw in each engine. The absence of a source-located Fresco
 // refusal is a FINDING recorded against the matrix, not repaired here — the
 // repair mints an error id, and an error id owes a `spec/009` row, which is
 // hot zone this bead may not touch.
@@ -1552,7 +1552,7 @@ async function waitForArm(page, predicate, arg, whatFailed) {
   }
 }
 
-const TESTBED_ROOT = '[data-testid="hicasso-controlled-testbed"]';
+const TESTBED_ROOT = '[data-testid="fresco-controlled-testbed"]';
 
 /**
  * Wait for the app to mount after a re-navigation, under the navigation's own
@@ -1761,7 +1761,7 @@ const SECTIONS = [
 ];
 
 module.exports = {
-  name: 'Hicasso controlled input (I15) — three engines',
+  name: 'Fresco controlled input (I15) — three engines',
   url: '/index.html',
   pageHelpers: PAGE_HELPERS,
 

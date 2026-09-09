@@ -13,7 +13,7 @@
  *
  * The roster (rf2-kttom)
  * ----------------------
- * This runner drove ONE hardcoded testbed until the Hicasso deck landed.
+ * This runner drove ONE hardcoded testbed until the Fresco deck landed.
  * `TESTBEDS` is now the list, modelled on the roster/clean/compile/stage
  * loop the sibling `serve-and-run-story-feature-load-tests.cjs` already
  * keeps. Each entry owns its build id, HTML source, output dir, base path
@@ -22,10 +22,10 @@
  *   counter-with-stories  four rows, both sides. It owns proof of THIS
  *                         RUNNER's pass/fail semantics, so its seeded
  *                         expected-fail fixtures must stay discovered.
- *   hicasso-counter       one row, pass side only. It owns proof that a
+ *   fresco-counter       one row, pass side only. It owns proof that a
  *                         view authored on the NATIVE substrate paints
  *                         and responds inside Story. Manufacturing a
- *                         failing hicasso variant would test the runner
+ *                         failing fresco variant would test the runner
  *                         twice without strengthening that claim, and
  *                         requiring four rows would pad the deck.
  *
@@ -553,20 +553,20 @@ const TESTBEDS = [
     },
   },
   {
-    label: 'hicasso-counter',
-    build: 'examples/hicasso-counter',
-    dirName: 'hicasso-counter',
+    label: 'fresco-counter',
+    build: 'examples/fresco-counter',
+    dirName: 'fresco-counter',
     htmlSrc: path.join(
-      REPO_ROOT, 'tools', 'story', 'testbeds', 'hicasso_counter', 'index.html',
+      REPO_ROOT, 'tools', 'story', 'testbeds', 'fresco_counter', 'index.html',
     ),
-    outDir: path.join(OUT_ROOT, 'hicasso-counter'),
+    outDir: path.join(OUT_ROOT, 'fresco-counter'),
     vacuity: {
       minRows: 1,
       requireBothSides: false,
       seededBy:
-        'the hicasso-counter deck seeds ONE meaningful play — mount the ' +
+        'the fresco-counter deck seeds ONE meaningful play — mount the ' +
         'boundary, click it, assert the resulting DOM and frame state ' +
-        '(rf2-kttom). Zero rows means the :hicasso registration, the view ' +
+        '(rf2-kttom). Zero rows means the :fresco registration, the view ' +
         'alias, or the deck has drifted',
     },
   },
@@ -608,7 +608,7 @@ function basePathFor(testbed) {
  * second half's switch and it defaults TRUE, so the counter entry — and
  * any caller that passes no opts, including every existing unit case —
  * keeps exactly the invariant rf2-54xbp wrote. A deck opts OUT only by
- * saying so in the roster, and only where it has a reason: the hicasso
+ * saying so in the roster, and only where it has a reason: the fresco
  * deck's job is to prove the native substrate paints, not to re-prove the
  * runner's failure path, which the counter already holds under continuous
  * coverage. `minRows` still applies on the pass side, so an opted-out deck

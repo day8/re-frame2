@@ -2,7 +2,7 @@
 
 A controlled field writes every edit directly to app-db. A form often needs a
 separate draft, validation that appears at the right time, and a submit status
-that survives renders. The optional `re-frame.hicasso.forms` module provides
+that survives renders. The optional `re-frame.fresco.forms` module provides
 those pieces without introducing local atoms or completion callbacks.
 
 A form has three kinds of state:
@@ -29,8 +29,8 @@ Require the module where its views are used:
 (ns app.todos
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
-            [re-frame.hicasso.forms :as forms]))
+            [re-frame.fresco :as h]
+            [re-frame.fresco.forms :as forms]))
 ```
 
 Applications that never require this namespace do not include the module.
@@ -323,7 +323,7 @@ mutation and reads its instance.
 
 The module's common failures are behavioural rather than separately named
 runtime errors. Underlying controlled elements still use errors such as
-`:rf.error/hicasso-revision-not-controlled`.
+`:rf.error/fresco-revision-not-controlled`.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |

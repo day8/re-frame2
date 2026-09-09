@@ -3,7 +3,7 @@
 **The mount deficit ~~is worse than published~~ reads larger on the corrected
 clock than on the clock it replaced, and the other three rows are still
 refused.** On raw `TaskDuration` — the arm's own JavaScript *and* the frame it
-causes — `hicasso / reagent-subs` on `M1` reads **1.4896×** [1.3488 – 1.5989] on
+causes — `fresco / reagent-subs` on `M1` reads **1.4896×** [1.3488 – 1.5989] on
 ~~the ensemble that has standing~~ the ensemble this page was written against,
 against the **1.2107×** ~~the candidate's clock publishes~~ the candidate's
 clock read before the correction *(2026-08-06, `rf2-jcm3p`: ~~that page publishes
@@ -31,7 +31,7 @@ against a predicted 2.00× on this very ensemble
 reproduced at 1.8443× and 1.8567× on two verifiably idle boxes — and a mount row
 has no changed-set axis a control could be linear in, so no control can
 adjudicate it. The strict rule that refuses `bulk300` and `bulk100` below binds
-on `M1` too, and the row is restated as a **regime**: *Hicasso mounts materially
+on `M1` too, and the row is restated as a **regime**: *Fresco mounts materially
 slower than both adapters, every corroborated reading is above the amended
 `≤ 1.10×` UIx gate, and `≤ 1.10×` has not been demonstrated.*~~ **What that
 argument got wrong is the rule it attributed to the instrument**: `controlVerdict`
@@ -154,7 +154,7 @@ prints on every row. On `M1`, per sample, pooled:
 | `plumb` *(the tare)* | 0.613 | 0.201 | — | 0.412 |
 | `floor` | 6.242 | 4.841 | 0.914 | 1.401 |
 | `reagent-subs` | 10.535 | 4.728 | 5.336 | **5.807** |
-| `hicasso` | **14.738** | 5.520 | **8.507** | **9.218** |
+| `fresco` | **14.738** | 5.520 | **8.507** | **9.218** |
 
 `devtools` tracks the in-page window arm for arm — 5.807 against 5.336, 9.218
 against 8.507 — and `task − tare ≈ taskNet + in-page` closes to within a few
@@ -180,7 +180,7 @@ percent on every arm. **The two clocks are complements**, which is exactly what
 
 They are not three readings of one quantity, and that is the whole finding.
 
-| reading | app | clock | `hicasso / reagent` |
+| reading | app | clock | `fresco / reagent` |
 |---|---|---|---:|
 | ours, `M1` | 901 elements, cold mount | **frame-only** | ~~`1.2107×`~~ |
 | ours, `M1` | the same | script **and** frame | **`1.4896×`** |
@@ -223,7 +223,7 @@ over.
 
 **The split does not work and its output is incoherent.** On `run1k` it put
 93.3% of `rf2-reagent`'s time after the mid-point and **1.2%** of
-`rf2-hicasso`'s — which would mean the two arms do their work in opposite
+`rf2-fresco`'s — which would mean the two arms do their work in opposite
 halves of the same operation. The cause is that `page.click` resolves when the
 event is *dispatched*, not when the renderer has finished with it, so the
 mid-point metrics read — itself a protocol round trip — races the page's work
@@ -263,7 +263,7 @@ reading 3 would be a container that survived its unmount *(2026-08-06,
 `rf2-moe9a`: this said ~~zero~~ on every counter, the same wrong baseline
 [the clock page](the-candidates-clock.md#3-the-design) carried)*.
 
-| row | `hicasso / reagent-subs`, raw `TaskDuration` | on `taskNet` | reportable runs | disposition |
+| row | `fresco / reagent-subs`, raw `TaskDuration` | on `taskNet` | reportable runs | disposition |
 |---|---:|---:|---:|---|
 | **`M1` mount** | **1.3737×** [1.3289 – 1.4331] *(historical — see §4.3)* | 1.1143× | **7 of 7** | ~~every run clears its own band (margins 32.9–43.3% against bands 4.9–10.8%)~~ ~~**REGIME, no magnitude** *(2026-08-06, `rf2-jcm3p`)*~~ ~~**A MAGNITUDE AGAIN, CONDITIONALLY LABELLED** *(2026-08-07, `rf2-t2flm`)*: `~1.184×` against direct UIx-on-subs, `1.1402×` / `1.1100×` against Reagent-on-subs, on the two **retained** ensembles and under the labels §4.3 states.~~ **A MAGNITUDE ON K1's OWN FLOOR-NORMALISED ESTIMAND — `K1 MISSED, DECISIVELY`** *(2026-08-08, `rf2-diaud` — [§4.3](#43-the-published-m1-row))*, drawn from the two **retained** ensembles, with Reagent-on-subs co-instrumented and gating nothing. The figures are at §4.3 and nowhere else. `1.3737×` in this table is **this** ensemble's own reading and stays as a dated historical observation — taken at a heavier load regime, and no figure in §4.3 derives from it. See also [§5](#5-what-this-ensemble-may-not-say) |
 | `bulk300` | 1.1494× [1.1102 – 1.2032] | 1.0703× | 3 of 7 | **refused** — control failed on 4, ceiling breached on 1 |
@@ -370,7 +370,7 @@ ensemble was taken at, so it is filed rather than done here.
 >
 > #### The published row — K1 is MISSED, decisively
 >
-> | ensemble | outer runs | `hicasso / uix-subs`, floor-normalised | verdict against K1's `1.10×` |
+> | ensemble | outer runs | `fresco / uix-subs`, floor-normalised | verdict against K1's `1.10×` |
 > |---|---:|---|---|
 > | `clock-emvod` | 8 | **1.1718×** [1.1263 – 1.2190] | whole interval above — **K1 MISSED** |
 > | `clock-w3yxd` | 6 | **1.1976×** [1.1504 – 1.2468] | whole interval above — **K1 MISSED** |
@@ -390,7 +390,7 @@ ensemble was taken at, so it is filed rather than done here.
 >
 > | pair | `clock-emvod` *(n=8)* | `clock-w3yxd` *(n=6)* |
 > |---|---|---|
-> | `hicasso / reagent-subs` | 1.1326× [1.0775 – 1.1955] | 1.1282× [1.0217 – 1.2301] |
+> | `fresco / reagent-subs` | 1.1326× [1.0775 – 1.1955] | 1.1282× [1.0217 – 1.2301] |
 > | `uix-subs / reagent-subs` | 0.9665× [0.9179 – 1.0228] | 0.9420× [0.8517 – 1.0294] |
 >
 > #### The unfloored level ratio, kept as a labelled diagnostic
@@ -404,8 +404,8 @@ ensemble was taken at, so it is filed rather than done here.
 >
 > | pair | `clock-emvod` *(n=8)* | `clock-w3yxd` *(n=6)* |
 > |---|---|---|
-> | `hicasso / uix-subs` | 1.1679× [1.1259 – 1.2096] | 1.1621× [1.1209 – 1.2090] |
-> | `hicasso / reagent-subs` | 1.1142× [1.0238 – 1.1988] | 1.1151× [1.0314 – 1.1955] |
+> | `fresco / uix-subs` | 1.1679× [1.1259 – 1.2096] | 1.1621× [1.1209 – 1.2090] |
+> | `fresco / reagent-subs` | 1.1142× [1.0238 – 1.1988] | 1.1151× [1.0314 – 1.1955] |
 > | `uix-subs / reagent-subs` | 0.9540× [0.8835 – 1.0139] | 0.9596× [0.8962 – 1.0209] |
 >
 > Every pair moves the same way on both estimators, and on the gated pair the
@@ -466,9 +466,9 @@ ensemble was taken at, so it is filed rather than done here.
 >
 > ```bash
 > cd implementation
-> node hicasso/test/re_frame/bench/hicasso/clock_readjudicate.cjs \
->   hicasso/test/re_frame/bench/hicasso/data/clock-emvod/run*.json
-> # exit 0 — ROW M1, PAIR hicasso / uix-subs:
+> node fresco/test/re_frame/bench/fresco/clock_readjudicate.cjs \
+>   fresco/test/re_frame/bench/fresco/data/clock-emvod/run*.json
+> # exit 0 — ROW M1, PAIR fresco / uix-subs:
 > #   point 1.1718x  95% CI [1.1263 – 1.2190]  over 8 reportable run(s)
 > #   VERDICT K1 MISSED, DECISIVELY — the whole interval is above the 1.1x mount gate
 > ```
@@ -510,8 +510,8 @@ ensemble was taken at, so it is filed rather than done here.
 >
 > | pair | `clock-emvod` published → now | `clock-w3yxd` published → now |
 > |---|---|---|
-> | `hicasso / uix-subs` | 1.1837× *(n=4)* → **1.1798× *(n=8)*** | 1.1848× *(n=3)* → **1.2057× *(n=6)*** |
-> | `hicasso / reagent-subs` | 1.1402× *(n=4)* → **1.1429× *(n=8)*** | 1.1100× *(n=3)* → **1.1492× *(n=6)*** |
+> | `fresco / uix-subs` | 1.1837× *(n=4)* → **1.1798× *(n=8)*** | 1.1848× *(n=3)* → **1.2057× *(n=6)*** |
+> | `fresco / reagent-subs` | 1.1402× *(n=4)* → **1.1429× *(n=8)*** | 1.1100× *(n=3)* → **1.1492× *(n=6)*** |
 >
 > Both "now" columns are the whole-ensemble figures already tabled below, so
 > **no new number enters the record** — what changes is which column is the
@@ -544,12 +544,12 @@ ensemble was taken at, so it is filed rather than done here.
 >
 > | pair | `clock-emvod` | `clock-w3yxd` |
 > |---|---|---|
-> | `hicasso / uix-subs` | 1.1679× [1.1259 – 1.2096] *(n=8)* | 1.1621× [1.1209 – 1.2090] *(n=6)* |
-> | `hicasso / reagent-subs` | 1.1142× [1.0238 – 1.1988] *(n=8)* | 1.1151× [1.0314 – 1.1955] *(n=6)* |
+> | `fresco / uix-subs` | 1.1679× [1.1259 – 1.2096] *(n=8)* | 1.1621× [1.1209 – 1.2090] *(n=6)* |
+> | `fresco / reagent-subs` | 1.1142× [1.0238 – 1.1988] *(n=8)* | 1.1151× [1.0314 – 1.1955] *(n=6)* |
 > | `uix-subs / reagent-subs` | 0.9540× [0.8835 – 1.0139] *(n=8)* | 0.9596× [0.8962 – 1.0209] *(n=6)* |
 >
 > The reason is stated precisely, because it is **not** that the row is noisy:
-> on the two `hicasso` pairs the whole interval lies **above 1.0** — the
+> on the two `fresco` pairs the whole interval lies **above 1.0** — the
 > direction is intact and parity is excluded — but the rule publishes a
 > magnitude only when the whole interval clears the `1.0` ship bar *below* or
 > the `1.5` architecture-kill *above*, and an interval at ~1.16× clears neither
@@ -697,8 +697,8 @@ the wrinkle is unchanged and neither pool was tightened)* eligible runs:
 
 | pair | clears its own noise band | detail |
 |---|---:|---|
-| `hicasso / uix-subs` | ~~6 of 7~~ **11 of 14** | `clock-w3yxd` 6 of 6; `clock-emvod` 5 of 8 |
-| `hicasso / reagent-subs` | ~~5 of 7~~ **10 of 14** | `clock-w3yxd` 5 of 6; `clock-emvod` 5 of 8 |
+| `fresco / uix-subs` | ~~6 of 7~~ **11 of 14** | `clock-w3yxd` 6 of 6; `clock-emvod` 5 of 8 |
+| `fresco / reagent-subs` | ~~5 of 7~~ **10 of 14** | `clock-w3yxd` 5 of 6; `clock-emvod` 5 of 8 |
 
 Tightening the pool is **not** required by this ruling and is not done. It is a
 disclosed wrinkle, the disclosure is what the reader needs, and building new
@@ -898,7 +898,7 @@ readings comparable.
 | `jsfb_serve.cjs` | `c198a54c42a28557b99b36f650ffc744ee32e6c4` | serves the built arms without the upstream clone |
 
 ```bash
-P=implementation/freehand/test/re_frame/bench/hicasso/clock_run.cjs
+P=implementation/freehand/test/re_frame/bench/fresco/clock_run.cjs
 git rev-parse <candidate>:$P   # must print 84aa25d93b65ee55f3d28d339d57720e3a504da3
 ```
 
@@ -907,14 +907,14 @@ git rev-parse <candidate>:$P   # must print 84aa25d93b65ee55f3d28d339d57720e3a50
 | Published ensemble | **7 runs**, all five rows in each, all at the blob above, 2026-08-02 03:16–03:46 AUSEST |
 | Discarded | **one run, and it is named** — run 2 of eight, on the pre-condition in [§5](#5-what-this-ensemble-may-not-say) |
 | Runtime | Chromium `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64, Playwright), React 19.2.0, node v24.13.0, `hardware-concurrency` 24, `device-memory` 32 |
-| Build | `:hicasso-bench`, `:advanced`, `goog.DEBUG false`, via `--config-merge` only — `implementation/shadow-cljs.edn` untouched |
+| Build | `:fresco-bench`, `:advanced`, `goog.DEBUG false`, via `--config-merge` only — `implementation/shadow-cljs.edn` untouched |
 | Box | **NOT quiet, and the row that says so is the floor.** Sampled 18–51% CPU before the ensemble; `M1` floor 5.98–6.95 ms against `rf2-cvvb7`'s 3.06–5.50 ms ladder range. A sibling worker held the fast-PR spine for part of the window |
 | Exit code | **1** on six runs, scoped to a control; **0** on run 3 — the first fully clean five-row run this instrument has produced. Every whole-run gate cleared on every row of every run |
 
 ```bash
 cd implementation && npm ci
-node hicasso/test/re_frame/bench/hicasso/clock_run.cjs           # one run, all five rows
-node hicasso/test/re_frame/bench/hicasso/clock_readjudicate.cjs out/run*.json
+node fresco/test/re_frame/bench/fresco/clock_run.cjs           # one run, all five rows
+node fresco/test/re_frame/bench/fresco/clock_readjudicate.cjs out/run*.json
 ```
 
 ### 7.1 What this page cannot regenerate
@@ -922,7 +922,7 @@ node hicasso/test/re_frame/bench/hicasso/clock_readjudicate.cjs out/run*.json
 **The seven datasets were not retained, and the command above is therefore not
 a reproduction** *(2026-08-07, `rf2-emvod`, recorded rather than repaired)*.
 `out/run*.json` names files that existed only in the author's working tree; the
-merge landed no Hicasso dataset at all. So a fresh clone cannot recompute
+merge landed no Fresco dataset at all. So a fresh clone cannot recompute
 `1.3737×`, its range, the 7/3/2/4 reportable counts, the controls, the bands,
 the absolutes, the door spreads or [§4.2](#42-ctl-2x-undershoots-on-the-mount-row-too-and-that-changes-its-diagnosis)'s
 additive-residual table. **Every table on this page is unreproducible from the
@@ -970,9 +970,9 @@ readjudicator can adjudicate on all thirteen axes without re-running the box.
 
 ```bash
 cd implementation
-node hicasso/test/re_frame/bench/hicasso/clock_readjudicate.cjs \
-  hicasso/test/re_frame/bench/hicasso/data/clock-0qj9w/run1.json \
-  hicasso/test/re_frame/bench/hicasso/data/clock-0qj9w/run2.json
+node fresco/test/re_frame/bench/fresco/clock_readjudicate.cjs \
+  fresco/test/re_frame/bench/fresco/data/clock-0qj9w/run1.json \
+  fresco/test/re_frame/bench/fresco/data/clock-0qj9w/run2.json
 # exit 3 — neither file carries a `canonical` verdict, both are printed in
 #          full, and no reportable subset is drawn from either
 ```
@@ -983,7 +983,7 @@ in both directions:
 
 ```bash
 cd implementation
-node hicasso/test/re_frame/bench/hicasso/clock_exit_path.test.cjs
+node fresco/test/re_frame/bench/fresco/clock_exit_path.test.cjs
 ```
 
 The cross-check probe in [§2.1](#21-what-the-correction-therefore-does-not-reach)
@@ -1082,8 +1082,8 @@ that can adjudicate the row is a **ruling**, and a worker holding a measurement
 is not the one to make it. The ruling went **for** adjudication — the passes are
 mechanistic (`rf2-8a746`), the rule they pass was pre-registered six days before
 this ensemble, and a second independently launched ensemble replicates the result.
-This ensemble's ~~four~~ **eight** runs supply `hicasso / uix-subs`
-~~**1.1837×**~~ **1.1798×** and `hicasso / reagent-subs` ~~**1.1402×**~~
+This ensemble's ~~four~~ **eight** runs supply `fresco / uix-subs`
+~~**1.1837×**~~ **1.1798×** and `fresco / reagent-subs` ~~**1.1402×**~~
 **1.1429×** to the published row at [§4.3](#43-the-published-m1-row), where they
 are stated with their conditional labels, their whole-ensemble bands and their
 raw quotients. *(2026-08-08, `rf2-x7x10`: the four-run subset was the
@@ -1098,8 +1098,8 @@ ensembles, and the seven runs this page was written on are untouched.
 
 ```bash
 cd implementation
-node hicasso/test/re_frame/bench/hicasso/clock_readjudicate.cjs \
-  hicasso/test/re_frame/bench/hicasso/data/clock-emvod/run*.json
+node fresco/test/re_frame/bench/fresco/clock_readjudicate.cjs \
+  fresco/test/re_frame/bench/fresco/data/clock-emvod/run*.json
 # exit 0 — all eight datasets are eligible published evidence, every run is
 #          printed with its own magnitude and its own refusals beside it, and
 #          the reportable subset is drawn only where the gates left one

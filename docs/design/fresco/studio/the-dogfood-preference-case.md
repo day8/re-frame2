@@ -28,9 +28,9 @@ did not have: an intent-parity witness and the authoring counted.
 |---|---|
 | **Bead** | `rf2-2rtt6.67` (parent `rf2-2rtt6`) |
 | **Branch** | `worker/dogfood-2rtt6-67` (first cut: `worker/dogfood-pref`, PR #7395) |
-| **The two renderings** | `implementation/freehand/test/re_frame/bench/hicasso/arm1/dogfood_collector.cljs` (Hicasso, the ruled Surface B) · `implementation/freehand/test/re_frame/bench/hicasso/arm1/dogfood_uix.cljs` (raw UIx, the control) |
-| **The shared state layer** | `implementation/freehand/test/re_frame/bench/hicasso/front/dogfood.cljs` — one app-db shape, one event set, one subscription set under both renderings. **Nothing else is shared**: each rendering writes its own event positions, so no part of either view layer sits outside the counts below |
-| **The witness** | `implementation/freehand/test/re_frame/bench/hicasso/arm1/dogfood_dom_cljs_test.cljs` — canonical-DOM parity at mount, intent parity through a 17-step interaction script covering every handler site on the screen, DOM parity again after the script |
+| **The two renderings** | `implementation/freehand/test/re_frame/bench/fresco/arm1/dogfood_collector.cljs` (Fresco, the ruled Surface B) · `implementation/freehand/test/re_frame/bench/fresco/arm1/dogfood_uix.cljs` (raw UIx, the control) |
+| **The shared state layer** | `implementation/freehand/test/re_frame/bench/fresco/front/dogfood.cljs` — one app-db shape, one event set, one subscription set under both renderings. **Nothing else is shared**: each rendering writes its own event positions, so no part of either view layer sits outside the counts below |
+| **The witness** | `implementation/freehand/test/re_frame/bench/fresco/arm1/dogfood_dom_cljs_test.cljs` — canonical-DOM parity at mount, intent parity through a 17-step interaction script covering every handler site on the screen, DOM parity again after the script |
 | **Reproduction** | `cd implementation && npm run test:cljs` (node half; DOM claims degrade to stated skips) and `npm run test:browser` (the real-DOM half) |
 | **Line counts** | taken on this branch's files by counting non-blank, non-comment, non-docstring lines per top-level form; the arithmetic is restated in §3 so a reader can re-take it |
 
@@ -48,14 +48,14 @@ can be trusted**:
 2. **"Cannot express" was too strong.** Raw UIx *can* have a conditional read
    and a helper-donated read; each costs a stated structural price rather than
    being impossible. §3.4 and §4 now price them instead of forbidding them.
-3. **The line counts were asymmetric.** Thirteen lines of Hicasso authoring —
+3. **The line counts were asymmetric.** Thirteen lines of Fresco authoring —
    the `row-intents` / `new-item-intents` helpers — sat in the *shared* state
    file and so were excluded from the collector's total, while raw UIx's
    equivalent authoring was counted in full. The helpers are gone; each
    rendering now writes its own event positions and every line of both view
    layers is counted (§3.1).
 
-The third correction moved the headline number **in Hicasso's favour, which is
+The third correction moved the headline number **in Fresco's favour, which is
 exactly why it deserves suspicion and gets its arithmetic shown twice** (§3.1).
 
 ## 1. The two renderings, brought current first
@@ -100,7 +100,7 @@ be**, and one of them is itself a finding:
    the previous spelling answered `undefined` however plainly the browser set
    it, and a composing Enter would have committed a half-typed draft on every
    IME whose browser doesn't send the legacy keyCode-229 signal. The gate now
-   reads the native event. The data key-map on the Hicasso side gets the same
+   reads the native event. The data key-map on the Fresco side gets the same
    law from `front.intent/composing?`, centrally, and the trap is measured at
    `arm1_controlled_grid_dom_cljs_test/reacts-synthetic-keyboard-event-drops-is-composing`.
    The point is not that a UIx author *cannot* write this — it is that every
@@ -285,7 +285,7 @@ same page, `the-collectors-conditional-read-costs-fewer-edges-than-the-declarati
 The UIx `row` reads the draft on every render including a completed row's,
 because a hook may not sit inside a `when`; its cost scales in hooks — the
 dispatcher-level ledger (`arm1_hook_ledger_dom_cljs_test`) counts the whole
-Hicasso shell at two hooks whatever the read count, against a per-read hook
+Fresco shell at two hooks whatever the read count, against a per-read hook
 count on the UIx spine that rises with every `use-subscribe`.
 
 **This is a placement cost, not an inexpressible one, and the first cut of
@@ -305,7 +305,7 @@ and reconciliation. Two things keep this from dissolving the finding:
   renderings have one. That constraint is real and is the shape the charter's
   Surface B ruling was about.
 
-Hicasso is charged symmetrically for the same trade: the grouped rendering's
+Fresco is charged symmetrically for the same trade: the grouped rendering's
 own file prices "a conditional *child boundary* owning the draft — buys the
 edge back and costs a second `defview`".
 
@@ -328,7 +328,7 @@ props; the shared state layer is identical on both sides and excluded):
 | **Hand-carried responsibilities** | none on this screen | `preventDefault` on submit; event-object interop; the IME composition law *including* the native-event trap; the hooks discipline — a read in a `when`, a `for` or a plain helper must become a component boundary or a custom hook (§3.3, §3.4), or the value gets threaded instead |
 | **Escape hatches needed** | none — `h/fn`, `:&`, `::h/prevent`, `::h/navigate`, presence all unused (§1) | none — the event object is already in hand |
 
-The form counts tie at five, and that is an honest tie — Hicasso does not
+The form counts tie at five, and that is an honest tie — Fresco does not
 win this screen by having fewer names. The difference is the second row:
 what the names *leave the author to carry*. The collector's five forms close
 over the submit default, the composition law and read placement; raw UIx's
@@ -344,7 +344,7 @@ the other. No difference worth a preference.
 ### 3.7 The bail-out: a default against an opt-in (HD-028)
 
 Landed 2026-08-02, after the first cut of this page, and it moves one
-row: **a value-equality bail-out is now the Hicasso boundary default**
+row: **a value-equality bail-out is now the Fresco boundary default**
 (HD-028, amending HD-006 on the reopen condition HD-006 had
 pre-registered for itself). A `defview` head carries an internal stable
 memo wrapper comparing its whole props value with `=`, failing *open* on
@@ -353,13 +353,13 @@ a throw.
 The comparison it creates is an authoring one rather than a clock one,
 so it belongs here: **UIx has the same tool and it is opt-in.**
 `uix.core/memo` (1.4.4) compares `argv` plus `:children` — the codec's
-own note records that the compared value matches Hicasso's without a
+own note records that the compared value matches Fresco's without a
 special case — but a raw-UIx author must reach for it, per component,
 having first noticed they need it. Neither this screen's UIx rendering
 nor any UIx example in this repo does.
 
 Where it bites on *this* screen: a filter change moves `visible-ids`, so
-`todo-list` re-runs and re-creates every row element; the Hicasso rows
+`todo-list` re-runs and re-creates every row element; the Fresco rows
 whose props are unchanged bail out, the raw-UIx rows all re-run their
 bodies and re-read their hooks. **Both render the same DOM** — which is
 why the parity witness in §2 passes across exactly that interaction —
@@ -440,7 +440,7 @@ read and maintain?** The evidence on the table:
 - Raw UIx answers with compile-time checking, the event in hand, fixed
   subscription identity, and a smaller machinery bet (§4) — and it ties on
   concept count (§3.5) and imports (§3.6). Since HD-028 it no longer ties
-  on the bail-out: Hicasso's is the default, UIx's is a per-component
+  on the bail-out: Fresco's is the default, UIx's is a per-component
   opt-in the author must know to reach for (§3.7).
 - **What the collector's advantage is not.** It is not that UIx cannot
   express these reads. It can — a conditional read via a component

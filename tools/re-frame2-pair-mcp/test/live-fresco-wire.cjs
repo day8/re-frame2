@@ -1,4 +1,4 @@
-// live-hicasso-wire.cjs — THE LIVE WIRE WITNESS for the three Hicasso
+// live-fresco-wire.cjs — THE LIVE WIRE WITNESS for the three Fresco
 // evidence-door tools (rf2-hic-059, #7986 merged-PR audit).
 //
 // ## The gap this closes
@@ -6,15 +6,15 @@
 // Two suites in this tree already look at these tools and neither one runs
 // them:
 //
-//   - `hicasso_tool_test.cljs` stubs `nrepl/cljs-eval-value` with canned
+//   - `fresco_tool_test.cljs` stubs `nrepl/cljs-eval-value` with canned
 //     envelopes, so it checks the emitter and the schema gate against
 //     itself;
-//   - `hicasso_wire_test.cljs` parses the emitted STRING and reads the
+//   - `fresco_wire_test.cljs` parses the emitted STRING and reads the
 //     provider's own source, so it checks that the two sides agree on
 //     names and on the schema literal.
 //
 // Both are valuable static seam checks and neither executes a Pair tool
-// against a Hicasso provider. The claim that the privacy-projected
+// against a Fresco provider. The claim that the privacy-projected
 // evidence surface works THROUGH the MCP plumbing was therefore
 // unwitnessed: the emitted form had never been compiled, sent, evaluated
 // in a runtime, or had its result carried back through the gate.
@@ -26,14 +26,14 @@
 //   MCP `tools/call` frame on stdio
 //     -> `out/server.js` (the SHIPPED bundle, `:simple` optimised)
 //     -> `tools/invoke` (build resolution, precheck, cache, cap)
-//     -> `hicasso-tool/<read>-tool`
+//     -> `fresco-tool/<read>-tool`
 //     -> `probe/eval-after-runtime!` (the `__re_frame2_pair_runtime`
 //        preload probe + the JVM-side liveness re-check)
 //     -> `nrepl/cljs-eval-value` — bencode frames on a REAL socket
 //     -> shadow-cljs COMPILES the door-resolving form that
-//        `hicasso-tool/projection-form` built, and evaluates it inside the
+//        `fresco-tool/projection-form` built, and evaluates it inside the
 //        browser CLJS runtime
-//     -> `re-frame.hicasso.tool/<read>` runs against the live application
+//     -> `re-frame.fresco.tool/<read>` runs against the live application
 //     -> the projection returns over the same socket
 //     -> `versioned-envelope-result` GATES it against
 //        `consumed-evidence-schema`
@@ -62,7 +62,7 @@
 //   1. NON-VACUITY. `read-sub` (a different shipped Pair tool, same
 //      socket, same server) returns the secret. The runtime really holds
 //      it and the wire really can carry it.
-//   2. ABSENCE. None of the three Hicasso envelopes contains it, while all
+//   2. ABSENCE. None of the three Fresco envelopes contains it, while all
 //      three name `::subs/draft` — the very read whose value it is.
 //
 // Without step 1 the absence assertion would pass just as happily against
@@ -71,7 +71,7 @@
 // ## The DOOR-ABSENT rung, witnessed first (rf2-t2ec)
 //
 // The tools document a degradation ladder whose first rung is an app that
-// has no evidence door — a Reagent/UIx app, or a Hicasso app nothing
+// has no evidence door — a Reagent/UIx app, or a Fresco app nothing
 // pulled the door into. This witness in its first form (rf2-hic-059)
 // found that the rung was unreachable: `cljs.core/exists?` guards a
 // missing VAR, but the call it guarded was a var reference like any
@@ -88,7 +88,7 @@
 // called against the plain host build and must answer
 // `:evidence-tier-unavailable` with its hint. The row runs FIRST, because
 // it is the only assertion here whose population is destroyed by the rest
-// of the script — `(require 're-frame.hicasso.tool)` below pushes the door
+// of the script — `(require 're-frame.fresco.tool)` below pushes the door
 // into the runtime this script is about to interrogate.
 //
 // The population comes back on its own. A REPL `require` reaches the
@@ -96,7 +96,7 @@
 // opens a fresh Playwright page — so the next run's page starts without
 // the door again and the script is re-runnable against one long-lived
 // `shadow-cljs watch`. What is NOT safe is a page that already carries
-// the door: `RF2_HICASSO_WIRE_URL` accepts any host, and a page hosting
+// the door: `RF2_FRESCO_WIRE_URL` accepts any host, and a page hosting
 // Xray has pulled the door in. Rather than skip the row on such a host —
 // a skip and a pass being indistinguishable, which is precisely the
 // failure shape this bead is about — the script probes for the door and
@@ -111,17 +111,17 @@
 //   # 1. a browser build carrying the pair preload, on the implementation
 //   #    classpath (which is where the slice and the door both live):
 //   cd implementation
-//   npx shadow-cljs watch hicasso/hmr-testbed \
+//   npx shadow-cljs watch fresco/hmr-testbed \
 //     --config-merge '{:devtools {:preloads [re-frame2-pair.runtime]}}'
 //
 //   # 2. build the server and run the witness
 //   cd tools/re-frame2-pair-mcp && npm run build
-//   npm run test:live-hicasso-wire
+//   npm run test:live-fresco-wire
 //
-// `RF2_HICASSO_WIRE_URL` overrides the page (default http://localhost:8061)
+// `RF2_FRESCO_WIRE_URL` overrides the page (default http://localhost:8061)
 // and `SHADOW_CLJS_NREPL_PORT` the port. Any page will do provided it
 // carries the `re-frame2-pair.runtime` preload and its build can reach
-// `re-frame.hicasso.tool` and the slice on its classpath.
+// `re-frame.fresco.tool` and the slice on its classpath.
 //
 // Exit code 0 = pass OR soft-skip; non-zero = a live assertion failed.
 
@@ -138,7 +138,7 @@ const REPO_ROOT = path.resolve(PAIR_MCP_DIR, '..', '..');
 const IMPL_DIR = path.join(REPO_ROOT, 'implementation');
 const SERVER = path.join(PAIR_MCP_DIR, 'out', 'server.js');
 
-const APP_URL = process.env.RF2_HICASSO_WIRE_URL || 'http://localhost:8061';
+const APP_URL = process.env.RF2_FRESCO_WIRE_URL || 'http://localhost:8061';
 
 // Kept aligned with pair-mcp's own `port-file-candidates` and the two
 // sibling live harnesses. The host build is served out of `implementation`,
@@ -155,7 +155,7 @@ const RUNTIME_PRELOAD_TIMEOUT_MS = 60000;
 // The slice's own namespaces. Spelled once, here, because every form below
 // calls them fully qualified — an alias would be this script's vocabulary
 // rather than the application's.
-const SLICE = 're-frame.hicasso.examples.slice';
+const SLICE = 're-frame.fresco.examples.slice';
 const FRAME = `:${SLICE}.app/frame`;
 
 // A value that exists nowhere else in this process, so finding it in a
@@ -165,19 +165,19 @@ const THE_SECRET = 'RF2-HIC-059-WIRE-SECRET-4d2a1f';
 // The consumer-owned schema literal `versioned-envelope-result` gates on.
 // Asserted as a STRING because this is the wire, which is where the two
 // sides have to agree.
-const EXPECTED_SCHEMA = ':re-frame.hicasso.evidence/v3';
+const EXPECTED_SCHEMA = ':re-frame.fresco.evidence/v3';
 
 const DOOR_READS = ['read-mounted-boundaries', 'read-read-attribution', 'explain-render'];
 
 // The evidence door itself. Spelled once because the door-absent row below
 // asserts on it three ways — the presence probe, the hint text, and the
 // require that ends the absent population.
-const DOOR_NS = 're-frame.hicasso.tool';
+const DOOR_NS = 're-frame.fresco.tool';
 
 function skip(reason) {
   // The same leading-line banner the mcp-conformance hermetic orchestrator
   // greps for, so a soft-skip is never mistaken for a passing run.
-  console.log(`SKIP live-hicasso-wire — ${reason}`);
+  console.log(`SKIP live-fresco-wire — ${reason}`);
   process.exit(0);
 }
 
@@ -339,9 +339,9 @@ async function main() {
   if (!appUp) {
     skip(
       `no runtime host reachable at ${APP_URL} — boot one with ` +
-        "`cd implementation && npx shadow-cljs watch hicasso/hmr-testbed " +
+        "`cd implementation && npx shadow-cljs watch fresco/hmr-testbed " +
         "--config-merge '{:devtools {:preloads [re-frame2-pair.runtime]}}'` " +
-        '(set RF2_HICASSO_WIRE_URL to override)',
+        '(set RF2_FRESCO_WIRE_URL to override)',
     );
   }
   const nreplPort = readNreplPort();
@@ -353,7 +353,7 @@ async function main() {
     skip('playwright not resolvable — `npm install` in tools/re-frame2-pair-mcp or implementation/');
   }
 
-  console.log(`[live-hicasso-wire] host ${APP_URL}, nREPL :${nreplPort}`);
+  console.log(`[live-fresco-wire] host ${APP_URL}, nREPL :${nreplPort}`);
 
   const browser = await playwright.chromium.launch({ headless: true });
   let client = null;
@@ -375,7 +375,7 @@ async function main() {
     const init = await client.rawCall('initialize', {
       protocolVersion: '2025-06-18',
       capabilities: {},
-      clientInfo: { name: 'live-hicasso-wire', version: '0' },
+      clientInfo: { name: 'live-fresco-wire', version: '0' },
     });
     assert(init.result?.protocolVersion, 'initialize failed: ' + JSON.stringify(init));
     client.notify('notifications/initialized', {});
@@ -393,7 +393,7 @@ async function main() {
     console.log(`OK   discover-app -> build ${build}`);
 
     // ---- THE DOOR-ABSENT RUNG, before anything loads the door -----------
-    // Nothing in `re-frame.hicasso` requires `re-frame.hicasso.tool`, so a
+    // Nothing in `re-frame.fresco` requires `re-frame.fresco.tool`, so a
     // freshly-watched build has not compiled it and this host is, for the
     // moment, indistinguishable from a Reagent/UIx app: the population the
     // `:evidence-tier-unavailable` rung is written for.
@@ -405,7 +405,7 @@ async function main() {
     assert(
       /:value false\b/.test(doorLoaded.text),
       `${DOOR_NS} is ALREADY loaded in this runtime, so the door-absent rung ` +
-        `cannot be witnessed here. Point RF2_HICASSO_WIRE_URL at a page that ` +
+        `cannot be witnessed here. Point RF2_FRESCO_WIRE_URL at a page that ` +
         'has not pulled the door in — a page hosting Xray has — or reload the ' +
         'one you have. Probe answered: ' + doorLoaded.text,
     );
@@ -451,8 +451,8 @@ async function main() {
         ` (${SLICE}.app/-main) :booted)`,
       'boot the slice',
     );
-    // Nothing in `re-frame.hicasso` requires the door — that is how a
-    // production build never loads it — so a Hicasso app has it only once
+    // Nothing in `re-frame.fresco` requires the door — that is how a
+    // production build never loads it — so a Fresco app has it only once
     // something pulls it in. Xray does; here this line does. It is also the
     // line that ends the door-absent population above — for the life of this
     // PAGE, which is why the row runs first and why the next run's fresh page
@@ -464,8 +464,8 @@ async function main() {
     await evalCljs(
       client,
       `(re-frame.core/with-frame ${FRAME}` +
-        ` (re-frame.core/dispatch-sync [:rf.route/navigate {:to :${SLICE}.routes/article :params {:slug "hicasso"}}])` +
-        ` (re-frame.core/dispatch-sync [:${SLICE}.events/edit "hicasso" :title "${THE_SECRET}"])` +
+        ` (re-frame.core/dispatch-sync [:rf.route/navigate {:to :${SLICE}.routes/article :params {:slug "fresco"}}])` +
+        ` (re-frame.core/dispatch-sync [:${SLICE}.events/edit "fresco" :title "${THE_SECRET}"])` +
         ' :seeded)',
       'seed the secret',
     );
@@ -491,7 +491,7 @@ async function main() {
 
     // ---- NON-VACUITY: the wire really can carry this value ---------------
     const sub = await callTool(client, 'read-sub', {
-      sub: `[:${SLICE}.subs/draft "hicasso"]`,
+      sub: `[:${SLICE}.subs/draft "fresco"]`,
       frame: FRAME,
       build,
       'max-tokens': 0,
@@ -545,7 +545,7 @@ async function main() {
       );
     }
 
-    console.log('\nRE-FRAME2-PAIR-MCP LIVE HICASSO WIRE WITNESS GREEN');
+    console.log('\nRE-FRAME2-PAIR-MCP LIVE FRESCO WIRE WITNESS GREEN');
   } finally {
     if (client && client.child) {
       try {

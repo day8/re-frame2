@@ -1,7 +1,7 @@
 'use strict';
-// THE HICASSO LANE'S ONE CACHE RULE — rf2-2rtt6.20.
+// THE FRESCO LANE'S ONE CACHE RULE — rf2-2rtt6.20.
 //
-// HD-017 gives the whole P0 lane a SINGLE build id, `:hicasso-bench`, because
+// HD-017 gives the whole P0 lane a SINGLE build id, `:fresco-bench`, because
 // `implementation/shadow-cljs.edn` is hot-zone and a build id per arm would be
 // a sequenced dispatch per arm. Every driver in the lane therefore rides
 // that one id and supplies its own `:init-fn` and `:output-dir` through
@@ -24,7 +24,7 @@
 // MEASURED, at unmodified main `6509d8e5c5`: from a cold cache, two
 // `run.cjs` builds (`p0-reagent-app`) and one `p0_converge_run.cjs` build
 // (`p0-converge-app`), then `hd8_run.cjs` — which exits 1 before taking a
-// single sample. `rm -rf .shadow-cljs/builds/hicasso-bench` clears it
+// single sample. `rm -rf .shadow-cljs/builds/fresco-bench` clears it
 // completely.
 //
 // THE CARRIER IS `shadow-js/`, the npm-conversion cache, and it was isolated
@@ -65,13 +65,13 @@
 // byte-identical `main.js` (sha256 `a1d14753ef818fcd…`, measured both ways),
 // where before the fix the bundle depended on which arm had built last —
 // Closure's renaming for a build compiled fresh differs from the same build
-// compiled with a sibling warm, which `hicasso_narrow_run.cjs` measured at
+// compiled with a sibling warm, which `fresco_narrow_run.cjs` measured at
 // 4,075 bytes. A reproduction command a studio page publishes should not emit
 // a different bundle depending on what the reader ran an hour ago.
 //
 // ## What the rows published BEFORE the clear are worth — rf2-t84ee
 //
-// The `hicasso-bench` lane got this call on 2026-07-31. The seven
+// The `fresco-bench` lane got this call on 2026-07-31. The seven
 // `freehand-release` riders did not get it until `448d368bb9` on 2026-08-06,
 // so every row those seven have published was measured without it. Whether any
 // one run was warm over a SIBLING is operator shell history and cannot be

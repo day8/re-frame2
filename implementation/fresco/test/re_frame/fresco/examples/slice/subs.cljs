@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.slice.subs
+(ns re-frame.fresco.examples.slice.subs
   "THE SLICE'S SUBSCRIPTIONS — including its strings and its theme tokens.
 
   Every read a view makes goes through here, and that is the §7 i18n /
@@ -11,20 +11,20 @@
 
   ## Why `h/reg-state` is here rather than in `events`
 
-  [[re-frame.hicasso/reg-state]] registers a sub AND an event under one
+  [[re-frame.fresco/reg-state]] registers a sub AND an event under one
   concern keyword; it is a naming convention with refusals, not a
   feature. It lives beside the hand-written subs because that is where a
   reader looks for *what can this page read* — and because the pair it
   mints is exactly the pair the two files below would otherwise both
   hold half of.
 
-  It is the ONE place this namespace touches the Hicasso door. The
+  It is the ONE place this namespace touches the Fresco door. The
   `re-frame.core` subs above it know nothing about a view substrate."
   (:refer-clojure :exclude [t])
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.slice.db :as rf.hicasso.examples.slice.db]
-            [re-frame.hicasso.examples.slice.i18n :as rf.hicasso.examples.slice.i18n]))
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.slice.db :as rf.fresco.examples.slice.db]
+            [re-frame.fresco.examples.slice.i18n :as rf.fresco.examples.slice.i18n]))
 
 ;; ---------------------------------------------------------------------------
 ;; Layer 1 — the raw reads
@@ -43,7 +43,7 @@
   answers that can drift."}
   (fn [db _]
     (mapv (fn [a] (select-keys a [:slug :title :published? :tags]))
-          (rf.hicasso.examples.slice.db/listed db))))
+          (rf.fresco.examples.slice.db/listed db))))
 
 ;; ---------------------------------------------------------------------------
 ;; Layer 2 — i18n and theming, as ordinary derived reads
@@ -51,11 +51,11 @@
 
 (rf/reg-sub ::t
   {:doc "The sentence for a string key, in the frame's current locale." :inputs [[::locale]]}
-  (fn [[locale] [_ k]] (rf.hicasso.examples.slice.i18n/t locale k)))
+  (fn [[locale] [_ k]] (rf.fresco.examples.slice.i18n/t locale k)))
 
 (rf/reg-sub ::token
   {:doc "The value of a theme token, under the frame's current theme." :inputs [[::theme]]}
-  (fn [[theme] [_ k]] (rf.hicasso.examples.slice.i18n/token theme k)))
+  (fn [[theme] [_ k]] (rf.fresco.examples.slice.i18n/token theme k)))
 
 ;; ---------------------------------------------------------------------------
 ;; Layer 2 — the feed and the article
@@ -76,14 +76,14 @@
 
 (rf/reg-sub ::page-count
   {:doc "How many pages the feed has." :inputs [[::listed]]}
-  (fn [[rows] _] (rf.hicasso.examples.slice.db/page-count rows)))
+  (fn [[rows] _] (rf.fresco.examples.slice.db/page-count rows)))
 
 (rf/reg-sub ::current-page
   {:doc "The page actually on screen — the URL's number brought inside the
   range the data has. `/slice?page=900` shows the last page rather than an
   empty one, because a URL is user input."
    :inputs [[::listed] [::page]]}
-  (fn [[rows page] _] (rf.hicasso.examples.slice.db/clamp-page rows page)))
+  (fn [[rows page] _] (rf.fresco.examples.slice.db/clamp-page rows page)))
 
 (rf/reg-sub ::feed
   {:doc "The rows THIS PAGE shows, in publication order. Each row is the
@@ -94,7 +94,7 @@
   page number never reaches a view — the pager reads it to draw itself,
   and the list reads rows."
    :inputs [[::listed] [::current-page]]}
-  (fn [[rows page] _] (rf.hicasso.examples.slice.db/page-rows rows page)))
+  (fn [[rows page] _] (rf.fresco.examples.slice.db/page-rows rows page)))
 
 ;; ---------------------------------------------------------------------------
 ;; Layer 2 — the digest, the runtime-selected content region
@@ -114,16 +114,16 @@
 
 (rf/reg-sub ::article
   {:doc "One article by slug, or nil for a slug the URL invented."}
-  (fn [db [_ slug]] (rf.hicasso.examples.slice.db/article db slug)))
+  (fn [db [_ slug]] (rf.fresco.examples.slice.db/article db slug)))
 
 (rf/reg-sub ::draft
   {:doc "The editable value of one article — the draft, or the article's
   own fields when nobody has typed yet. See db/draft-for."}
-  (fn [db [_ slug]] (rf.hicasso.examples.slice.db/draft-for db slug)))
+  (fn [db [_ slug]] (rf.fresco.examples.slice.db/draft-for db slug)))
 
 (rf/reg-sub ::dirty?
   {:doc "Has this article been edited since it was last saved or discarded?"}
-  (fn [db [_ slug]] (rf.hicasso.examples.slice.db/dirty? db slug)))
+  (fn [db [_ slug]] (rf.fresco.examples.slice.db/dirty? db slug)))
 
 ;; ---------------------------------------------------------------------------
 ;; Layer 3 — the save region, projected for the view
@@ -161,4 +161,4 @@
   `[:ui :tags-open?]` flag and they all open at once. The instance key
   is the article's slug — a domain id, which is the rule the sugar
   teaches and does not police."
-  (rf.hicasso/reg-state ::tags-open? {:default false}))
+  (rf.fresco/reg-state ::tags-open? {:default false}))

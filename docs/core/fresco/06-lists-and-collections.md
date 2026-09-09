@@ -11,7 +11,7 @@ Put `:key` in each child's props map:
 ```clojure
 (ns app.orders
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso :as h]))
+            [re-frame.fresco :as h]))
 
 (rf/reg-sub :orders/visible-ids
   (fn [db _]
@@ -48,12 +48,12 @@ can skip their bodies.
     Strings, numbers, keywords, UUIDs, and symbols are valid keys.
     Collections, JS objects, dates, booleans, and functions are not.
 
-Missing keys produce React's own warning in development; Hicasso adds nothing
+Missing keys produce React's own warning in development; Fresco adds nothing
 to it.
 
-Hicasso's own entity-key warning is narrower than the rule above, and it is
+Fresco's own entity-key warning is narrower than the rule above, and it is
 worth knowing what it does and does not cover.
-`:rf.warning/hicasso-entity-key` fires for a member of a **sequence** whose head
+`:rf.warning/fresco-entity-key` fires for a member of a **sequence** whose head
 is a **view boundary** — an `h/defview` head, as in `[order-row {:key …}]` —
 and whose key is none of string, number, keyword, UUID, or symbol. It names the
 child head, the shape it found at `:key`, and the first offending index; the key
@@ -62,16 +62,16 @@ break the diagnostic. It fires once per site rather than relying on React's
 page-lifetime deduplication, and it disappears from production.
 
 It does not fire for a native tag. `[:li {:key {:id id}} …]` inside a `for` is
-the same mistake and passes in silence, because Hicasso reads `:key` off a
+the same mistake and passes in silence, because Fresco reads `:key` off a
 native tag without classifying it. Treat the rule above as the standard, not the
 warning as complete cover.
 
 The warning does, however, run where React never looks: a sequence passed as a
-Hicasso view's children is flattened before reaching React, and the flattened
+Fresco view's children is flattened before reaching React, and the flattened
 elements already appear validated to it.
 
 ??? info "For readers coming from Reagent"
-    Hicasso does not read `^{:key id}` metadata. Use
+    Fresco does not read `^{:key id}` metadata. Use
     `[order-row {:key id :id id}]`.
 
 ## Write the sequence in child position
@@ -85,16 +85,16 @@ elements on the page:
  (for [id ids]
    [order-row {:key id :id id}])]
 
-;; This splices the sequence away before Hicasso sees it.
+;; This splices the sequence away before Fresco sees it.
 (into [:ul.orders]
       (for [id ids]
         [order-row {:key id :id id}]))
 ```
 
-Prefer the first. A sequence in child position is spliced by Hicasso itself, and
-that splice is the only place the entity-key check runs: Hicasso walks the
+Prefer the first. A sequence in child position is spliced by Fresco itself, and
+that splice is the only place the entity-key check runs: Fresco walks the
 sequence's members and classifies each `:key` on the way past. `into` produces
-an ordinary vector of children before Hicasso is involved, so no sequence
+an ordinary vector of children before Fresco is involved, so no sequence
 survives for it to walk and the check cannot run. The same applies to React's
 missing-key warning, because spliced children arrive as direct arguments, which
 React treats as already validated.
@@ -245,7 +245,7 @@ window:
 ;; Keep npm requires in a .cljs host namespace.
 (ns app.orders.virtual
   (:require ["react-virtuoso" :refer [Virtuoso]]
-            [re-frame.hicasso :as h]))
+            [re-frame.fresco :as h]))
 
 (h/defhost virtual-list Virtuoso)
 
@@ -329,7 +329,7 @@ so assert both on a row and again after a scroll.
 
 Three properties decide whether a foreign virtualizer can be reached through one
 `h/defhost` declaration. They are ordinary library features rather than anything
-Hicasso asks for, and a package either has them or does not:
+Fresco asks for, and a package either has them or does not:
 
 | Property | Why it matters | What its absence breaks |
 | --- | --- | --- |
@@ -357,12 +357,12 @@ each view and their churn.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | React warns about a missing key | A sequence member has no `:key` in its props map | Put `:key` in every sequence member's props map; Reagent metadata is not read |
-| Editing a row remounts it and reports an entity key | `:rf.warning/hicasso-entity-key` | Use a stable primitive domain id, not the full row value |
+| Editing a row remounts it and reports an entity key | `:rf.warning/fresco-entity-key` | Use a stable primitive domain id, not the full row value |
 | Input state or animation jumps after insertion/reorder | Index keys changed row identity | Key rows by domain id |
 | One entity change runs every row body | A sparse workload uses a read placed too high, or row props all changed | Let rows read their own entities, or accept and measure the coarse model |
 | A bulk write runs every body despite equal-props memoization | Props contain a fresh function/JS object or fields that change but are not rendered | Use event vectors and persistent values; select only displayed fields |
 | Filtering is slow | Large oscillating dependency set or whole-table recomputation on each edit | Give rows stable reads, chunk the model, or move filtering into a subscription |
-| A plain function or JS component is rejected as a head | `:rf.error/hicasso-bad-head` | Use `h/defview` for Hicasso views and `h/defhost` for foreign components |
+| A plain function or JS component is rejected as a head | `:rf.error/fresco-bad-head` | Use `h/defview` for Fresco views and `h/defhost` for foreign components |
 | Virtualized rows render but interactions use the wrong frame or are inert | Render callback returned raw Hiccup or performed a deferred read | Return the row through `h/as-element`; read values before the callback; use `h/event` for callback-produced events |
 
 ## When not to tune or virtualize

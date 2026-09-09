@@ -78,7 +78,7 @@
              :as app-db-segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
-            [day8.re-frame2-xray.panels.hicasso :as hicasso]
+            [day8.re-frame2-xray.panels.fresco :as fresco]
             [day8.re-frame2-xray.panels.issues-ribbon-helpers :as issues-helpers]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panels.managed-fx-subs :as managed-fx-subs]
@@ -189,17 +189,17 @@
         that coordinate is the whole point of the cutover. So a process
         carrying that residue is NOT stamped current; it is told, once and
         loudly, to reload.
-    5 — Hicasso evidence tab (rf2-hic-023): the Dynamic `:hicasso` L4 tab and
-        its three NEW registrations (`:rf.xray.hicasso/set-view`,
-        `:rf.xray.hicasso/view`, `:rf.xray.hicasso/data`). A schema-4 process
-        has none of them and would show no Hicasso tab at all until a page
+    5 — Fresco evidence tab (rf2-hic-023): the Dynamic `:fresco` L4 tab and
+        its three NEW registrations (`:rf.xray.fresco/set-view`,
+        `:rf.xray.fresco/view`, `:rf.xray.fresco/data`). A schema-4 process
+        has none of them and would show no Fresco tab at all until a page
         reload, because `reg-l4-tab!` runs inside the gated `install!` the
         umbrella no-ops. The migration re-runs that `install!` — idempotent
         in both halves: the registrar replaces each handler in place, and
         `reg-l4-tab!` writes one entry keyed `[mode id]`.
     6 — Freehand tool-door reads REMOVED (rf2-l86mm): the Views panel's
         Mounted Views and Declared View Sites sections retire WITH the
-        Freehand substrate rather than migrating to Hicasso, so the three
+        Freehand substrate rather than migrating to Fresco, so the three
         ids schema 4 added are GONE (`:rf.xray/mounted-views`,
         `:rf.xray/mounted-views-schema`, `:rf.xray/mounted-view-sites`) and
         nothing replaces them. A REMOVAL-ONLY delta, which the seam already
@@ -328,8 +328,8 @@
   migrate live in full, so both sit past schema 4's fork rather than inside
   it, and the fn returns TRUE unconditionally.
 
-  Schema 5 — the Hicasso evidence tab (rf2-hic-023). Three NEW registrations
-  and one NEW L4 tab entry, all inside the gated `hicasso/install!` the
+  Schema 5 — the Fresco evidence tab (rf2-hic-023). Three NEW registrations
+  and one NEW L4 tab entry, all inside the gated `fresco/install!` the
   umbrella no-ops for an already-registered process. Re-running the owning
   facade is the whole delta: the registrar replaces each handler in place and
   `reg-l4-tab!` writes one entry keyed `[mode id]`, so this is idempotent and
@@ -343,11 +343,11 @@
 
   Always TRUE — unlike schema 4 there is nothing in either clause a live
   process cannot reach. Neither tier has an ownership plane to release: the
-  Hicasso door and the retired Freehand door are both pure readers, which is
+  Fresco door and the retired Freehand door are both pure readers, which is
   precisely what makes both migrations ordinary."
   [from]
   (when (< from 5)
-    (hicasso/install!))
+    (fresco/install!))
   (when (< from 6)
     (run! #(rf/clear :sub %) schema-5-subs-removed))
   true)
@@ -1314,19 +1314,19 @@
     ;; descriptors. Read-only: enumerating live frames + reading sealed
     ;; generations pins nothing, dispatches nothing.
     (module-view/install!)
-    ;; Hicasso tab — Dynamic L4 tab: six views over the adapter-neutral
-    ;; Hicasso evidence surface (`re-frame.hicasso.tool`) — mounted
+    ;; Fresco tab — Dynamic L4 tab: six views over the adapter-neutral
+    ;; Fresco evidence surface (`re-frame.fresco.tool`) — mounted
     ;; boundaries, read attribution, the intent stream, and explain-render,
     ;; plus the advisor and the causal slice (rf2-hic-037), which are
     ;; derivations over those same four envelopes taken in one turn.
-    ;; A pure reader like the Freehand door above it: the Hicasso tier has
+    ;; A pure reader like the Freehand door above it: the Fresco tier has
     ;; no registry and no ownership plane, so there is nothing to acquire,
     ;; nothing to release and nothing another tool can lock us out of.
     ;; Read-only: every projection is taken from state the runtime already
     ;; retains, pins nothing and dispatches nothing. Answers the honest
-    ;; "no Hicasso evidence on this host" state on a host that is not
-    ;; running Hicasso, and in a production build.
-    (hicasso/install!)
+    ;; "no Fresco evidence on this host" state on a host that is not
+    ;; running Fresco, and in a production build.
+    (fresco/install!)
     ;; Static Routes panel — Static-surface browse +
     ;; Simulate-URL + per-row inline expand + hermetic Simulate-
     ;; navigation preview. Installs the UI-state slots under

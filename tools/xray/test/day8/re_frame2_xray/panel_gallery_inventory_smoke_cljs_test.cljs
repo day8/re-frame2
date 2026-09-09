@@ -137,7 +137,7 @@
 ;;
 ;; The panel-gallery is the visual-design harness for the six CORE L4
 ;; lenses. The four cohesive-sub-domain / runtime-structure tabs added
-;; later (Resources · Graph · Frames · Hicasso) are INTENTIONALLY not
+;; later (Resources · Graph · Frames · Fresco) are INTENTIONALLY not
 ;; galleried — their shipped-surface + focusability coverage lives in the
 ;; feature-matrix browser sweep (PANEL_HANDOFFS walks all ten live tabs)
 ;; + their own per-panel CLJS unit tests. This test locks that split:
@@ -158,7 +158,7 @@
   `panel_gallery/core.cljs` §Intentional gallery exclusions (rf2-1sddi6
   F3). Coverage lives in the feature-matrix browser sweep + per-panel
   unit tests."
-  #{:resources :derivation-graph :module-view :hicasso})
+  #{:resources :derivation-graph :module-view :fresco})
 
 (deftest gallery-coverage-partitions-the-live-dynamic-inventory
   (testing "galleried + intentionally-excluded tabs exactly partition the

@@ -7,7 +7,7 @@ UNASSESSED on 2026-08-13 for want of a certified floor window. Measured
 is an ancestor of `origin/main`.
 
 Runtime, beside every figure below: Chromium **147.0.7727.15** via Playwright,
-shadow-cljs `release` on build id `:hicasso-bench`, `:optimizations :advanced`,
+shadow-cljs `release` on build id `:fresco-bench`, `:optimizations :advanced`,
 `goog.DEBUG false`, `--expose-gc`, `:init-fn re-frame.bench.p0-app/-main`.
 
 **Nothing was widened.** `ALLOC_LEG_TOLERANCE` stayed the declared 0.25
@@ -290,22 +290,22 @@ quoting.
 
 | segment \| arm | rung | n `all` | n `page` | `all` | `page` | difference |
 |---|---|---|---|---|---|---|
-| `reagent-subs` \| hicasso | R1 | 3 | 5 | 3,256 | 3,292 | +1.11% |
-| `reagent-subs` \| hicasso | R3 | 4 | 4 | 6,984 | 6,687 | **−4.25%** |
-| `reagent-subs` \| hicasso | R7 | 4 | 5 | 14,447 | 13,829 | **−4.28%** |
+| `reagent-subs` \| fresco | R1 | 3 | 5 | 3,256 | 3,292 | +1.11% |
+| `reagent-subs` \| fresco | R3 | 4 | 4 | 6,984 | 6,687 | **−4.25%** |
+| `reagent-subs` \| fresco | R7 | 4 | 5 | 14,447 | 13,829 | **−4.28%** |
 | `reagent-subs` \| reagent | R1 | 4 | 5 | 4,196 | 4,152 | −1.05% |
 | `reagent-subs` \| reagent | R3 | 4 | 5 | 7,795 | 7,664 | −1.67% |
 | `reagent-subs` \| reagent | R7 | 4 | 4 | 15,408 | 15,180 | −1.48% |
-| `uix-subs` \| hicasso | R1 | 5 | 4 | 3,290 | 3,579 | **+8.81%** |
-| `uix-subs` \| hicasso | R3 | 4 | 6 | 6,691 | 6,538 | −2.28% |
-| `uix-subs` \| hicasso | R7 | 5 | 6 | 13,752 | 13,520 | −1.69% |
+| `uix-subs` \| fresco | R1 | 5 | 4 | 3,290 | 3,579 | **+8.81%** |
+| `uix-subs` \| fresco | R3 | 4 | 6 | 6,691 | 6,538 | −2.28% |
+| `uix-subs` \| fresco | R7 | 5 | 6 | 13,752 | 13,520 | −1.69% |
 | `uix-subs` \| uix | R1 | 4 | 6 | 2,169 | 2,176 | +0.31% |
 | `uix-subs` \| uix | R3 | 5 | 4 | 5,211 | 5,164 | −0.90% |
 | `uix-subs` \| uix | R7 | 5 | 6 | 11,405 | 11,347 | −0.51% |
 | `uix-subs` \| uix | R20 | 5 | 5 | 31,270 | 31,481 | +0.67% |
 
 **Ten of the thirteen certified per-round ranges overlap between the two
-writes.** The three that do not are `reagent-subs | hicasso R3`,
+writes.** The three that do not are `reagent-subs | fresco R3`,
 `reagent-subs | reagent R3` and `reagent-subs | reagent R7`, and all three miss
 by less than the width of the ranges themselves.
 
@@ -314,7 +314,7 @@ by less than the width of the ranges themselves.
 **At every one of the eight R = 3 and R = 7 comparisons, `write-page` reads
 below `write-all`** — both segments, both substrates, 8 of 8 in one direction,
 by 0.51% to 4.28%. Under a null of random sign that is a 1-in-256 arrangement.
-The two R = 1 hicasso rungs, whose round-to-round spread runs 22 – 35%, are the
+The two R = 1 fresco rungs, whose round-to-round spread runs 22 – 35%, are the
 noisiest cells on the page and carry the two largest disagreements in the other
 direction; the mid rungs, whose spread is 1 – 7%, are where the sign is
 consistent.
@@ -331,9 +331,9 @@ does not make it.
 
 | arm family | certified pairs |
 |---|---|
-| `reagent-subs` \| hicasso R20 | **none** |
+| `reagent-subs` \| fresco R20 | **none** |
 | `reagent-subs` \| reagent R20 | **none** |
-| `uix-subs` \| hicasso R20 | **none** |
+| `uix-subs` \| fresco R20 | **none** |
 | `uix-subs` \| uix R20 | 5 under each write |
 
 One of four families, which is exactly what 2026-08-13 found. The top rung is

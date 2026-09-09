@@ -1,4 +1,4 @@
-# Hicasso product specification set
+# Fresco product specification set
 
 These documents define the current target for the native interpreted-Hiccup adapter. They are organised by enduring product concern.
 

@@ -60,7 +60,7 @@ a **decision** landed rather than a fix or a disproved premise, and it is the on
 HS-23's `n/$` Activity route — **Disposition 1, accept the render, docs only, no gate and no code** — and `rf2-fdg4w` is
 closed. So the clause this page has carried since #8275, that conjunct B is failed in part by *a policy the measurement
 disproves whose disposition is an open operator decision*, is retired: the policy is not disproven, it is
-**declaration-scoped**, and a route carrying no declaration carries no Hicasso policy to disprove. **Nothing else moves.**
+**declaration-scoped**, and a route carrying no declaration carries no Fresco policy to disprove. **Nothing else moves.**
 The count stays **nineteen and one** and the verdict stays **NOT MET**, because conjunct B was never failed by HS-23 alone:
 HS-33, HS-17, HS-18, HS-21 and HS-34 fail it too, none of them was touched by #8286, and all five were re-read against
 `main` for this amendment. §3 records the settled disposition and §7's live table is one row shorter and still not empty.
@@ -75,7 +75,7 @@ a row closes when the section that produced it is re-run against the landed fix,
 
 Per the scope correction recorded on the bead, this is the **Phase 4 subset** audit: it asserts the rows whose evidence
 Phase 4 schedules. The complete §7 exit, the §13 definition of done and the Phase 5 evidence are `rf2-hic-064`'s. Where
-a §7 row's answer landed under Phase 5 — the shipped `re-frame.hicasso.forms` and `re-frame.hicasso.overlay` modules,
+a §7 row's answer landed under Phase 5 — the shipped `re-frame.fresco.forms` and `re-frame.fresco.overlay` modules,
 the resource-demand verdict — it is read here as landed evidence rather than re-adjudicated.
 
 **Measurement is deferred by operator direction and no window was opened.** Nothing below reconstructs a time from a
@@ -120,18 +120,18 @@ no longer a construction for it to be unreachable by. **Neither of those is a re
 2026-08-15 reading is kept above exactly as written. **What is left still fails the conjunct**, on the same arithmetic
 the paragraph above uses on `HS-23`: three clauses over four ids — `HS-33` measured to satisfy *neither* policy,
 `HS-17`/`HS-18` unwitnessed on the server, and `HS-34` naming a module that still does not exist, `git ls-files` finding
-no `re-frame.hicasso.routing` under `implementation/hicasso/src/` at `main`@`4f54988b07`. **Dropping `HS-21` does not
+no `re-frame.fresco.routing` under `implementation/fresco/src/` at `main`@`4f54988b07`. **Dropping `HS-21` does not
 move this conjunct, for the same reason dropping `HS-23` did not.**
 
 **[Corrected 2026-09-05, `rf2-nf8w`, after the merged-PR audit of #9185 and #9189. The amendment above is kept as
 written; the conjunct is still NOT MET, no clause is re-scored and no row is recoloured.]** The amendment's **second**
 reason is false. *The outward bridge it is about was retired … so there is no longer a construction for it to be
 unreachable by* — **the outward bridge was not retired.** `h/as-component` is live at
-`implementation/hicasso/src/re_frame/hicasso.cljc`, where the facade's own docstring calls it **the outward bridge**,
+`implementation/fresco/src/re_frame/fresco.cljc`, where the facade's own docstring calls it **the outward bridge**,
 and at `impl/codec.cljs`; the docstring says in terms that it sits on the facade *rather than* on the native tier so
 that a UIx or JavaScript parent need not require the native namespace, so `aa01f0e8a6` — which deleted the native
 construction grammar, the `native_fence` conjunct and the `native_abi` witness — did not reach it. Its client-side
-witness is live at `implementation/hicasso/test/re_frame/hicasso/foreign_root_bridge_dom_cljs_test.cljs`, which mints
+witness is live at `implementation/fresco/test/re_frame/fresco/foreign_root_bridge_dom_cljs_test.cljs`, which mints
 the bridge and mounts it from raw-React and UIx parents. **An outward-bridged root can still be built.** What is gone is
 `rf2-s52w`'s *a-consumer-built-root-hydrates-a-bridged-subtree-with-no-framework-reporter* row, which went with
 `native_abi_dom_cljs_test.cljs` — **the witness, not the surface.** **`HS-21`'s clause still leaves the enumeration, and
@@ -181,7 +181,7 @@ Three values, and *unaddressed* never reads as *works*.
 | i18n and theming | **met** | the page is mounted once and never re-mounted, and `<main>`'s identity is asserted across every switch — so a mechanism that tore the tree down would show a different node |
 | Testing | **met** | L0–L2 pure kit with its runtime-parity claim held, L3 mounted facade sabotaged across four leak kinds, production-sentinel erasure chained into the release build |
 | Diagnostics | **met** | versioned projection with its schema held, four views, the cause-aware advisor. Open correction `rf2-t2d3` · **[Amended 2026-09-04, `rf2-l67a`: `rf2-t2d3` is not open.** Its row in [`correction-ledger.md`](correction-ledger.md) reads `closed`, transitioned on 2026-08-14 against `main`@`77bee1b9b7` on a §2 Correctness re-run by the re-dispatched `rf2-hic-038`. The score is **not** touched by this note — the row read **met** with the correction open and reads **met** with it closed, so nothing here moves a verdict; what is corrected is a live-state claim that went stale the day after it was written.**]** |
-| Migration | **met** | reporter, refusal classes and shadow comparison all landed — `migration/reagent-to-hicasso/codemod/` and `.../test_kit/test/re_frame/hicasso/shadow_dom_cljs_test.cljs` — and so did the **population**. §7's Required-proof cell for this row reads *three representative repositories*, and `rf2-hic-055` ran three, each pinned by commit: the in-repo examples (81 files); `athensresearch/athens` @ `b463a97a0d28cbc0a29bec55feebcbe54c20de54`, canonically at [that repository's commit page](https://github.com/athensresearch/athens/commit/b463a97a0d28cbc0a29bec55feebcbe54c20de54), 131 files and 109 census sites; and `district0x/memefactory` @ `71bf92b4b4b935bda089783fd6c07041f84d34f8`, [likewise](https://github.com/district0x/memefactory/commit/71bf92b4b4b935bda089783fd6c07041f84d34f8), 102 files and 85 sites. Both SHAs are commits of those repositories rather than of this one — which is the reason each is typed with its permalink, and a second way of saying that this tree is not where they live. `day8/re-frame-10x` was the vendored-Reagent control and `implementation/hicasso/src` the clean 0/0/0 one, with determinism shown by two byte-identical athens runs. **This row read NOT MET until 2026-08-15**, on the premise that the population is the in-repo corpus alone. **Read this before re-asserting that premise, which has now been disproved twice: Migration's population spans three repositories, and the two external ones were checked out read-only and measured rather than vendored — so their absence from this tree is the method working, not the run missing.** [§1.2](dispositions.md#12-rows-without-a-complete-planned-witness) records all three runs and scores this row Witnessed. `rf2-gqp5s` **withdrawn** |
+| Migration | **met** | reporter, refusal classes and shadow comparison all landed — `migration/reagent-to-fresco/codemod/` and `.../test_kit/test/re_frame/fresco/shadow_dom_cljs_test.cljs` — and so did the **population**. §7's Required-proof cell for this row reads *three representative repositories*, and `rf2-hic-055` ran three, each pinned by commit: the in-repo examples (81 files); `athensresearch/athens` @ `b463a97a0d28cbc0a29bec55feebcbe54c20de54`, canonically at [that repository's commit page](https://github.com/athensresearch/athens/commit/b463a97a0d28cbc0a29bec55feebcbe54c20de54), 131 files and 109 census sites; and `district0x/memefactory` @ `71bf92b4b4b935bda089783fd6c07041f84d34f8`, [likewise](https://github.com/district0x/memefactory/commit/71bf92b4b4b935bda089783fd6c07041f84d34f8), 102 files and 85 sites. Both SHAs are commits of those repositories rather than of this one — which is the reason each is typed with its permalink, and a second way of saying that this tree is not where they live. `day8/re-frame-10x` was the vendored-Reagent control and `implementation/fresco/src` the clean 0/0/0 one, with determinism shown by two byte-identical athens runs. **This row read NOT MET until 2026-08-15**, on the premise that the population is the in-repo corpus alone. **Read this before re-asserting that premise, which has now been disproved twice: Migration's population spans three repositories, and the two external ones were checked out read-only and measured rather than vendored — so their absence from this tree is the method working, not the run missing.** [§1.2](dispositions.md#12-rows-without-a-complete-planned-witness) records all three runs and scores this row Witnessed. `rf2-gqp5s` **withdrawn** |
 
 **Nineteen met, one not met, none unaddressed at the row level.** The unaddressed category does real work one level down —
 inside Large collections, where the clock half is unaddressed while the work census is met — and it is recorded there
@@ -255,20 +255,20 @@ established that:
 - **HS-23 is the one the measurement made worse, and it is the one that is now SETTLED.** It read here as an open
   operator decision until 2026-08-15, when PR #8286 landed `rf2-fdg4w`'s ruling — **Disposition 1: accept the render on
   the `n/$` route, docs only, no gate and no code** — and closed the bead. What the ruling changes is the *diagnosis*,
-  never the measurement: a Hicasso server policy attaches to a **declaration**, `h/defhost` and `n/defcomponent` are the
+  never the measurement: a Fresco server policy attaches to a **declaration**, `h/defhost` and `n/defcomponent` are the
   two declaration doors, and a foreign head under `n/$` passes through neither. So the Target policy is not *disproven*
   on that route — it never reached it. Through `h/defhost` the refusal fires at the declaration source, with its declared
   fallback and its `:server :render` control beside it: both arms, which is what note 3 asks of a Client-only row.
   Through the raw `[:>]` escape it is HS-19's hard refusal, **inherited** from that same gate rather than invented, which
   is why the `[:>]`/`n/$` split is a principled tier boundary and not the inconsistency this bullet used to call it.
-  Through `n/$` there is **no Hicasso policy at all: React's own server semantics govern — bytes witnessed, no hydration
+  Through `n/$` there is **no Fresco policy at all: React's own server semantics govern — bytes witnessed, no hydration
   claim made, and the route is NOT upgraded to Render**, because
   [§2.4](dispositions.md#24-the-default-rule-and-how-a-row-is-upgraded) asks five clauses and only the first of them is
   measured here. **A witness was never owed and none was added** —
   `client_only_arms_ssr_cljs_test.cljs`'s *through-n-dollar-a-visible-activity-subtree-reaches-the-response* is that
   witness, landed with `rf2-cfriw` and cited by HS-23's cell all along. The **disposition** that was owed now exists.
   **This checkpoint records a disposition and reads it as one**, which is the distinction scoring the row would lose.
-- **HS-34 owes nothing until a module exists.** There is no `re-frame.hicasso.routing` namespace anywhere under
+- **HS-34 owes nothing until a module exists.** There is no `re-frame.fresco.routing` namespace anywhere under
   `implementation/`; `check_optional_module_reachability.py`'s `MODULES` roster names five and routing is not among
   them. No refusal can fire at a declaration source that does not exist, so the row is a finding rather than a gap and
   its witness is owed by whichever bead lands the namespace, inside that bead. `h/route-link` — which is what a reader
@@ -282,7 +282,7 @@ have been the easy error.
 **And the claim's denominator is short — which is the finding this checkpoint would not have got from any hand-off.**
 [§3](dispositions.md#3-append-protocol-and-ownership)'s second constraint reads: *"Adding a public surface adds an id. A
 surface that reaches the facade without a row here has escaped the inventory, and the Phase 4 exit — every inventory id
-pointing at an applicable green row — silently stops meaning anything."* Three names on `re-frame.hicasso`'s alias block
+pointing at an applicable green row — silently stops meaning anything."* Three names on `re-frame.fresco`'s alias block
 have no row anywhere in §2.1 or §2.2:
 
 - **`h/route-link`** — a node of the rendered tree with real server bytes. The census counts 106 sites, the
@@ -300,8 +300,8 @@ Filed as `rf2-2l8pw`.
 **[Re-run 2026-08-15.] The denominator is repaired, it is now derived by a gate rather than by a grep, and one sentence
 this section wrote about it was wrong.** All three names carry rows — `h/route-link` → **HS-40** (§2.1, Render),
 `h/use-subs` → **HS-41** (§2.1, Render), `h/reg-state` → **HS-42** (§2.2) — and `rf2-2l8pw` closed on a re-run by
-`rf2-dybf9`. The mechanism that produced the escapes closed with it: `implementation/hicasso/scripts/check_facade_inventory.py`
-(`rf2-gz4bq`) walks every `def` head on `re-frame.hicasso` as **code**, with strings, comments and reader-discarded
+`rf2-dybf9`. The mechanism that produced the escapes closed with it: `implementation/fresco/scripts/check_facade_inventory.py`
+(`rf2-gz4bq`) walks every `def` head on `re-frame.fresco` as **code**, with strings, comments and reader-discarded
 forms blanked, and diffs the result against §2.1 and §2.2. **Re-run for this checkpoint: 16 names on the door, 43
 inventory rows read, ZERO escapes — 13 attributed by name, 3 by declaration — captured exit 0.** The claim is no longer
 one a re-reader has to take on trust, which is a better outcome than the finding asked for.
@@ -418,7 +418,7 @@ table is where that distinction is drawn.
 | Finding | bd id | What became of it |
 |---|---|---|
 | Three facade surfaces with no inventory id | `rf2-2l8pw` | **Closed 2026-08-15** on a §1 re-run by closure bead `rf2-dybf9`, which wrote none of the fix. HS-40, HS-41 and HS-42 minted; the roster re-derived from the door as code by `check_facade_inventory.py`, zero escapes. The fix's own *no fourth escape* claim was false when written — `h/hframe` was one, minted since as HS-43 (`rf2-lvelh`) — so the row closed over a **larger** denominator than the fix claimed |
-| HMR through the `React.lazy` bridge, unwitnessed and unowned | `rf2-y5x6j` | **Closed 2026-08-15**, same closure bead. `npm run test:hicasso-hmr` driven rather than quoted: 45 real shadow reloads, 153 checks per engine on Chromium, Firefox and WebKit, with a section-name coverage floor so a skipped section cannot hide in the total. §7's Code splitting row is **met** above on it |
+| HMR through the `React.lazy` bridge, unwitnessed and unowned | `rf2-y5x6j` | **Closed 2026-08-15**, same closure bead. `npm run test:fresco-hmr` driven rather than quoted: 45 real shadow reloads, 153 checks per engine on Chromium, Firefox and WebKit, with a section-name coverage floor so a skipped section cannot hide in the total. §7's Code splitting row is **met** above on it |
 | HS-31, HS-32, HS-34, HS-23 owe an unproved refusal, no live owner | `rf2-cfriw` | **Closed 2026-08-15**, same closure bead, and it is the one whose closure left work standing rather than finishing it. The witness landed and was executed; the diagnosis changed and no id went green. **Two remainders were carried forward deliberately** — HS-23's disposition and HS-34's absent module. **The first is settled**: PR #8286 ruled it on 2026-08-15 and `rf2-fdg4w` is closed. The second stands. §3 |
 | ~~The axe checks never landed and the routing chain terminates in nothing~~ | `rf2-5q8o` | **Withdrawn, and blocks nothing.** `rf2-7znnl` was closed as a duplicate of `rf2-5q8o`, whose ruling is **DECLINE**: no acceptance column asks for an axe sweep, so it is a non-goal rather than an unlanded witness. The Accessibility row it was filed against is met on §7's own Required proof |
 | ~~Migration's population is the in-repo corpus alone~~ | `rf2-gqp5s` | **Withdrawn, and blocks nothing.** The premise is false: `rf2-hic-055` ran three repositories and pinned each by commit, and the two external ones are checked out read-only and measured rather than vendored, so this tree was never where they would appear. Withdrawn in [`correction-ledger.md`](correction-ledger.md); the bead is closed and owes no work |
@@ -432,9 +432,9 @@ this page and a met conjunct B, and **not one of them is a row this checkpoint f
 
 | What stands | Owner | Kind |
 |---|---|---|
-| HS-21's outward-bridge mismatch attribution is unreachable by construction — no Spec 011 reporter on a hand-rolled `hydrateRoot` | `rf2-s52w`, open | A missing door; the ledger row is open too, and the door is the operator's call · **[Amended 2026-09-04, `rf2-nf8w`: every clause of this row is now wrong except the first, and the row is kept because a later reader will meet the wrong ones.** `rf2-s52w` is **closed** in the tracker, closed on 2026-08-15; its ledger row reads **`resolved`**, not `open`. And **both clauses of the stated cause are refuted**: it is not *a missing door* — `re-frame.hicasso.server/render` landed 2026-08-14 as `30317bfe0e` (PR #8236, `rf2-b6jkj`) and `impl/roots.cljs` names it one of two minters of the adoption window — and it is not *the operator's call*, because `rf2-s52w`'s own close record rules the finding **a scope, not a gap**: `onRecoverableError` is an option of an individual root, and the package sets none on a root it did not open. That is a mechanism, and it still holds at tip. What has gone is the *bridge*: `aa01f0e8a6` (2026-08-29, `rf2-6c12m.31`) deleted the native grammar, so the outward-bridged root this row describes cannot be built. **This is not a re-score** — the row stays in this table as filed, conjunct B stays NOT MET on `HS-33`, `HS-17`/`HS-18` and `HS-34`, and the `HS-21` clause's departure is recorded at conjunct B above.**]** · **[Corrected 2026-09-05, `rf2-nf8w`, after the merged-PR audit of #9185 and #9189. The sentence immediately above is kept because a later reader will meet it; nothing here re-scores this row.]** **The bridge has not gone, and that sentence is false at tip.** `h/as-component` is live at `implementation/hicasso/src/re_frame/hicasso.cljc`, where the facade's own docstring calls it **the outward bridge**, and at `impl/codec.cljs`; the docstring says it sits on the facade rather than the native tier so a UIx or JavaScript parent need not require the native namespace, so the native retirement did not reach it. Its witness `foreign_root_bridge_dom_cljs_test.cljs` still mints that bridge and mounts it from raw-React and UIx parents, so **an outward-bridged root can still be built.** What `aa01f0e8a6` deleted is the native construction grammar, the `native_fence` conjunct and the `native_abi` witness — including this row's *a-consumer-built-root-hydrates-a-bridged-subtree-with-no-framework-reporter* reading — **the witness, not the surface.** The row's own outcome is unchanged: `HS-21`'s clause still leaves conjunct B, on the scope narrowing of `137bd927db` alone, and conjunct B stays NOT MET on `HS-33`, `HS-17`/`HS-18` and `HS-34`.**]** |
+| HS-21's outward-bridge mismatch attribution is unreachable by construction — no Spec 011 reporter on a hand-rolled `hydrateRoot` | `rf2-s52w`, open | A missing door; the ledger row is open too, and the door is the operator's call · **[Amended 2026-09-04, `rf2-nf8w`: every clause of this row is now wrong except the first, and the row is kept because a later reader will meet the wrong ones.** `rf2-s52w` is **closed** in the tracker, closed on 2026-08-15; its ledger row reads **`resolved`**, not `open`. And **both clauses of the stated cause are refuted**: it is not *a missing door* — `re-frame.fresco.server/render` landed 2026-08-14 as `30317bfe0e` (PR #8236, `rf2-b6jkj`) and `impl/roots.cljs` names it one of two minters of the adoption window — and it is not *the operator's call*, because `rf2-s52w`'s own close record rules the finding **a scope, not a gap**: `onRecoverableError` is an option of an individual root, and the package sets none on a root it did not open. That is a mechanism, and it still holds at tip. What has gone is the *bridge*: `aa01f0e8a6` (2026-08-29, `rf2-6c12m.31`) deleted the native grammar, so the outward-bridged root this row describes cannot be built. **This is not a re-score** — the row stays in this table as filed, conjunct B stays NOT MET on `HS-33`, `HS-17`/`HS-18` and `HS-34`, and the `HS-21` clause's departure is recorded at conjunct B above.**]** · **[Corrected 2026-09-05, `rf2-nf8w`, after the merged-PR audit of #9185 and #9189. The sentence immediately above is kept because a later reader will meet it; nothing here re-scores this row.]** **The bridge has not gone, and that sentence is false at tip.** `h/as-component` is live at `implementation/fresco/src/re_frame/fresco.cljc`, where the facade's own docstring calls it **the outward bridge**, and at `impl/codec.cljs`; the docstring says it sits on the facade rather than the native tier so a UIx or JavaScript parent need not require the native namespace, so the native retirement did not reach it. Its witness `foreign_root_bridge_dom_cljs_test.cljs` still mints that bridge and mounts it from raw-React and UIx parents, so **an outward-bridged root can still be built.** What `aa01f0e8a6` deleted is the native construction grammar, the `native_fence` conjunct and the `native_abi` witness — including this row's *a-consumer-built-root-hydrates-a-bridged-subtree-with-no-framework-reporter* reading — **the witness, not the surface.** The row's own outcome is unchanged: `HS-21`'s clause still leaves conjunct B, on the scope narrowing of `137bd927db` alone, and conjunct B stays NOT MET on `HS-33`, `HS-17`/`HS-18` and `HS-34`.**]** |
 | HS-33 satisfies neither policy; its Render repair is recorded DECIDED and unbuilt | unowned — recorded in `impl.roots/open-adoption-window!` | Work, and the only one of the four that is plainly that |
-| HS-34's module does not exist, and HS-17/HS-18 are unwitnessed on the server | owed inside whichever bead lands `re-frame.hicasso.routing`; HS-17/HS-18 unowned | Work that is not yet scheduled |
+| HS-34's module does not exist, and HS-17/HS-18 are unwitnessed on the server | owed inside whichever bead lands `re-frame.fresco.routing`; HS-17/HS-18 unowned | Work that is not yet scheduled |
 
 **`rf2-fdg4w` was the fourth row of that table until 2026-08-15, and its removal is the whole of what this amendment
 changes.** This page declined to score it while three dispositions were live, on the ground that scoring it would be
@@ -484,7 +484,7 @@ clearest the exit has been about what it wants.
 
 **Conjunct B needs three things and all three are work.** In the order a reader can act on them: HS-33's Render repair,
 decided and unbuilt; witnesses for HS-17's named slot positions and HS-18's `h/as-element` on the server; and a
-`re-frame.hicasso.routing` namespace, inside which HS-34's refusal is witnessed. **A fourth item stood at the front of
+`re-frame.fresco.routing` namespace, inside which HS-34's refusal is witnessed. **A fourth item stood at the front of
 this list until 2026-08-15** — `rf2-fdg4w`'s decision on HS-23 — and PR #8286 answered it, which removed the item
 rather than completing the list. `rf2-s52w`'s door is the fourth if it is taken; it is its own operator call and no
 longer sits behind `rf2-fdg4w`'s, which has been made.

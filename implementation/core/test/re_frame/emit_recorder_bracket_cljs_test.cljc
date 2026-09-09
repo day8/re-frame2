@@ -12,7 +12,7 @@
   What the ruling did NOT do is delete the substrates. `re-frame.event-emit`
   and `re-frame.error-emit` survive as IMPLEMENTATION-tier registries for two
   named consumers: the framework's own synchronous-window capture sites (the
-  Hicasso server's one-render error window, the test kit's intent capture) and
+  Fresco server's one-render error window, the test kit's intent capture) and
   TESTS. `re-frame.test-support/with-emit-recorder!` is the test half — ONE
   bracket over both registries rather than a hand-rolled
   register/try/finally/unregister wrapper per file, which is the divergence

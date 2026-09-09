@@ -5,7 +5,7 @@
   :head "Foo",
   :detail {:head "Foo"},
   :note
-  "`vec-to-elem` sent a `NativeWrapper` head and a `[:> C …]` head to the SAME `native-element`, with the props slot at a different index — two spellings of one path. Respelled as `[:> …]`, which is the form Hicasso accepts; left alone it is a head Hicasso answers with `:rf.error/hicasso-bad-head`."}
+  "`vec-to-elem` sent a `NativeWrapper` head and a `[:> C …]` head to the SAME `native-element`, with the props slot at a different index — two spellings of one path. Respelled as `[:> …]`, which is the form Fresco accepts; left alone it is a head Fresco answers with `:rf.error/fresco-bad-head`."}
  {:line 9,
   :col 3,
   :class :named-value,
@@ -13,7 +13,7 @@
   :head "Foo",
   :detail {:prop ":variant", :was ":big", :now "big"},
   :note
-  "Reagent named every keyword and symbol prop value; Hicasso keeps them whole except at HTML-attribute slots. The string is a fixpoint on both walks."}
+  "Reagent named every keyword and symbol prop value; Fresco keeps them whole except at HTML-attribute slots. The string is a fixpoint on both walks."}
  {:line 12,
   :col 3,
   :class :adapt-react-class-head,
@@ -21,7 +21,7 @@
   :head "Foo",
   :detail {:head "Foo"},
   :note
-  "`vec-to-elem` sent a `NativeWrapper` head and a `[:> C …]` head to the SAME `native-element`, with the props slot at a different index — two spellings of one path. Respelled as `[:> …]`, which is the form Hicasso accepts; left alone it is a head Hicasso answers with `:rf.error/hicasso-bad-head`."}
+  "`vec-to-elem` sent a `NativeWrapper` head and a `[:> C …]` head to the SAME `native-element`, with the props slot at a different index — two spellings of one path. Respelled as `[:> …]`, which is the form Fresco accepts; left alone it is a head Fresco answers with `:rf.error/fresco-bad-head`."}
  {:line 17,
   :col 1,
   :class :adapt-def-site,

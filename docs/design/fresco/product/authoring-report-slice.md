@@ -1,14 +1,14 @@
 # The vertical slice — authoring report
 
-What it was like to write a small complete application on the Hicasso public door, and nothing else. Produced by **rf2-hic-025**; raw material for the ordinary-facade freeze at **rf2-hic-026**, which governs what is done about any of it.
+What it was like to write a small complete application on the Fresco public door, and nothing else. Produced by **rf2-hic-025**; raw material for the ordinary-facade freeze at **rf2-hic-026**, which governs what is done about any of it.
 
-The application is `re-frame.hicasso.examples.slice.*` under `implementation/hicasso/test/`. Seven namespaces, five suites. Two routes, a keyed list, an article editor with controlled fields, an async mutation with a real server-side refusal, an error region, a reset, and a runtime locale and theme switch.
+The application is `re-frame.fresco.examples.slice.*` under `implementation/fresco/test/`. Seven namespaces, five suites. Two routes, a keyed list, an article editor with controlled fields, an async mutation with a real server-side refusal, an error region, a reset, and a runtime locale and theme switch.
 
 > **This report records what the surface was like to use.** It proposes no renames and takes no decisions — an empty report would have been suspect, and so would one that fixed things. Where a finding has an obvious remedy the remedy is named as a *candidate*, for the freeze to accept or reject.
 
 ## What the application actually needed
 
-The most useful single fact for a facade freeze is the list of doors an ordinary application reaches for. This one reaches four namespaces and, within `re-frame.hicasso`, **nine names and two keywords**:
+The most useful single fact for a facade freeze is the list of doors an ordinary application reaches for. This one reaches four namespaces and, within `re-frame.fresco`, **nine names and two keywords**:
 
 | Reached | Used for |
 |---|---|
@@ -27,7 +27,7 @@ The most useful single fact for a facade freeze is the list of doors an ordinary
 
 The import discipline **was** asserted mechanically rather than reviewed: `slice.surface-cljs-test` read each application namespace's `:requires` / `:require-macros` / `:uses` / `:use-macros` off the ClojureScript analyzer and pinned that roster of four, so a fifth door could not arrive quietly.
 
-**[2026-09-04, `rf2-60jv`: that suite no longer exists, and the roster above is now a reviewed claim rather than an enforced one.]** `rf2-6c12m.10` deleted the per-package `*surface-cljs-test*` suites together with the shared `require_graph.clj` macro they read the analyzer through, and replaced them with one suite, `re-frame.hicasso.examples.fence-cljs-test` (`:node-test`), which derives its package population from the `examples/` directory **on every run** and reads each `ns` form with `cljs.tools.reader` rather than off the analyzer. **It is a blocklist, not a roster**: it fails a package that names a Hicasso internal, the benchmark tree, a development tool or the test kit, and passes any other namespace. So *this application reaches past the public door* is still held mechanically, with a sabotage control and a planted-breach control; *this application reaches exactly these four doors, and a fifth cannot arrive quietly* is true as at this report's date and is **no longer held by a gate**. The positive roster is deliberately not re-asserted anywhere — see [`specification.md` §13](specification.md#13-definition-of-done).
+**[2026-09-04, `rf2-60jv`: that suite no longer exists, and the roster above is now a reviewed claim rather than an enforced one.]** `rf2-6c12m.10` deleted the per-package `*surface-cljs-test*` suites together with the shared `require_graph.clj` macro they read the analyzer through, and replaced them with one suite, `re-frame.fresco.examples.fence-cljs-test` (`:node-test`), which derives its package population from the `examples/` directory **on every run** and reads each `ns` form with `cljs.tools.reader` rather than off the analyzer. **It is a blocklist, not a roster**: it fails a package that names a Fresco internal, the benchmark tree, a development tool or the test kit, and passes any other namespace. So *this application reaches past the public door* is still held mechanically, with a sabotage control and a planted-breach control; *this application reaches exactly these four doors, and a fifth cannot arrive quietly* is true as at this report's date and is **no longer held by a gate**. The positive roster is deliberately not re-asserted anywhere — see [`specification.md` §13](specification.md#13-definition-of-done).
 
 ## Findings
 
@@ -35,13 +35,13 @@ The import discipline **was** asserted mechanically rather than reviewed: `slice
 
 **The sharpest thing found, and the only one with a correctness consequence.**
 
-`spec/Conventions.md` §Canonical event-vector shape asks for `[<id> {<k> <v>}]`, says the linter nudges new code toward it, and gives four reasons. Hicasso's marker substitution is `mapv` over the intent vector's **top level** — `re-frame.hicasso.impl.intent/materialize`, and `markers?` beside it decides the static/dynamic split the same way. Both are deliberate and the reason is stated at the source: a deep walk would be paid on every keystroke of every controlled field.
+`spec/Conventions.md` §Canonical event-vector shape asks for `[<id> {<k> <v>}]`, says the linter nudges new code toward it, and gives four reasons. Fresco's marker substitution is `mapv` over the intent vector's **top level** — `re-frame.fresco.impl.intent/materialize`, and `markers?` beside it decides the static/dynamic split the same way. Both are deliberate and the reason is stated at the source: a deep walk would be paid on every keystroke of every controlled field.
 
 So the shape the convention asks for cannot carry a marker:
 
 ```clojure
 ;; What the convention asks for. NOT substituted, NOT refused, NOT linted:
-;; :value arrives as the keyword :re-frame.hicasso/value and renders as text.
+;; :value arrives as the keyword :re-frame.fresco/value and renders as text.
 [::events/edit {:slug slug :field :title :value ::h/value}]
 
 ;; The only spelling that works — the one the linter nudges away from.
@@ -67,7 +67,7 @@ The slice writes the positional form and says so at both the events namespace an
 
 `route-link` is a plain function on purpose, and the reason is good: a link is not a unit of re-render, and a boundary would cost two hooks and a row in the page's boundary count at every one of the corpus's 106 link sites. But nothing at the call site says which grammar applies, and these are the only two things in the application that both produce markup and are written differently.
 
-It is a **one-time** cost and the mistake is loud — a function in head position is `:rf.error/hicasso-function-in-head-position`, and the clj-kondo export flags it before the build. Recorded because a facade freeze should know it exists, not because it needs fixing.
+It is a **one-time** cost and the mistake is loud — a function in head position is `:rf.error/fresco-function-in-head-position`, and the clj-kondo export flags it before the build. Recorded because a facade freeze should know it exists, not because it needs fixing.
 
 ### 3. Top-level `reg-route` does not survive the supported test fixture
 
@@ -75,7 +75,7 @@ It is a **one-time** cost and the mistake is loud — a function in head positio
 
 For `reg-sub` and `reg-event` this is invisible, because a test namespace requires the application's `subs` and `events` and they load first. For routes it is not: the slice's `routes` namespace had to expose a `register!` function purely so that each test's `:init-fn` could put the routes back.
 
-Nothing in the application changed. What changed is that the shape a consumer copies from a guide — `reg-route` at the top level, once — needs a second door opened for the test's sake, and they meet this on the first test row they write. This is a **testing-surface** finding rather than an authoring one; it belongs to Spec 008 / `re-frame.test-support` rather than to the Hicasso facade.
+Nothing in the application changed. What changed is that the shape a consumer copies from a guide — `reg-route` at the top level, once — needs a second door opened for the test's sake, and they meet this on the first test row they write. This is a **testing-surface** finding rather than an authoring one; it belongs to Spec 008 / `re-frame.test-support` rather than to the Fresco facade.
 
 ### 4. `use-subs` reads well at two reads and badly at four
 
@@ -114,7 +114,7 @@ So the counter came out: the `:revision` key, `db/revision`, the two `(fnil inc 
 
 **Found by a red gate, not by reading.** The first mounted run failed twelve assertions across four rows, and every one of them has this single cause.
 
-A **Hicasso intent** dispatches through the runtime's own synchronous frame-locked door. After a real click on `.save` or `.discard` the handlers have run, `app-db` has moved and React has committed; the next line reads the repainted page, and `hm/settle!` is all that is owed.
+A **Fresco intent** dispatches through the runtime's own synchronous frame-locked door. After a real click on `.save` or `.discard` the handlers have run, `app-db` has moved and React has committed; the next line reads the repainted page, and `hm/settle!` is all that is owed.
 
 A **route-link** does not. `re-frame.routing/activate-link!` ends in `router/dispatch!` — the async door — so the click returns with the navigation merely enqueued, and the router drains it on `interop/next-tick`, a next-turn *task*. `hm/settle!` is an empty `flushSync` and cannot help: nothing is scheduled in React yet.
 
@@ -146,7 +146,7 @@ So the two supported waiting mechanisms are mutually exclusive, and an async mut
 ```
 expected: (= :realworld.article/show (rf/compute-sub [:rf.route/id] …))
   actual: (not (= :realworld.article/show
-                  :re-frame.hicasso.examples.slice.routes/article))
+                  :re-frame.fresco.examples.slice.routes/article))
 ```
 
 The slice's routes were `/` and `/article/:slug` — the two most natural paths an author writes, and the two RealWorld already holds. Route **ids** are namespaced keywords and cannot collide; route **paths** are strings in a process-global registry, and this repository's node test bundle loads a dozen applications into one process. `match-url` began answering this app's route for RealWorld's URLs.
@@ -166,15 +166,15 @@ Filed as **rf2-wqnl**, which made the prefix a written convention for the whole 
 
 ## Where the slice is gated
 
-The application and its five suites live under `implementation/hicasso/test/`, which is an existing shadow-cljs `:source-paths` entry, so:
+The application and its five suites live under `implementation/fresco/test/`, which is an existing shadow-cljs `:source-paths` entry, so:
 
 | Suite | Namespace suffix | Lane |
 |---|---|---|
-| surface, L0, L2 | `-cljs-test` | `:node-test` (`npm run test:cljs`) and `:node-test-hicasso` |
+| surface, L0, L2 | `-cljs-test` | `:node-test` (`npm run test:cljs`) and `:node-test-fresco` |
 | flow, i18n/theme | `-dom-cljs-test` | `:browser-test` (`npm run test:browser`), plus a stated skip on the node lane |
 
-Both lanes are armed for `implementation/hicasso/**` — `cljs_node_test` and `cljs_browser` — so every suite runs on a diff that touches the slice.
+Both lanes are armed for `implementation/fresco/**` — `cljs_node_test` and `cljs_browser` — so every suite runs on a diff that touches the slice.
 
-**[2026-09-04, `rf2-60jv`: the table above is this report's own dated inventory and is kept as written; it is not the inventory at tip.]** The lane mapping by namespace suffix still holds, and both lanes are still armed for `implementation/hicasso/**`. What has moved is the population. **`slice.surface-cljs-test` is gone** — retired with the other per-package `*surface-cljs-test*` suites by `rf2-6c12m.10`, as the [import-discipline amendment above](#what-the-application-actually-needed) records — so the first row's `surface` names a suite that no longer exists. Three suites have since joined that this report predates: `slice.a11y-cljs-test` on the node lane, and `slice.a11y-focus-dom-cljs-test` and `slice.extension-dom-cljs-test` on the browser lane. The slice therefore stands at **seven** suites at tip — `a11y`, `l0`, `l2` on `:node-test`; `a11y-focus`, `extension`, `flow`, `i18n` on `:browser-test` — against the five this report was written over. The central fence is the one suite named above, `re-frame.hicasso.examples.fence-cljs-test`, and it is a blocklist: **no positive roster is re-asserted here or anywhere.**
+**[2026-09-04, `rf2-60jv`: the table above is this report's own dated inventory and is kept as written; it is not the inventory at tip.]** The lane mapping by namespace suffix still holds, and both lanes are still armed for `implementation/fresco/**`. What has moved is the population. **`slice.surface-cljs-test` is gone** — retired with the other per-package `*surface-cljs-test*` suites by `rf2-6c12m.10`, as the [import-discipline amendment above](#what-the-application-actually-needed) records — so the first row's `surface` names a suite that no longer exists. Three suites have since joined that this report predates: `slice.a11y-cljs-test` on the node lane, and `slice.a11y-focus-dom-cljs-test` and `slice.extension-dom-cljs-test` on the browser lane. The slice therefore stands at **seven** suites at tip — `a11y`, `l0`, `l2` on `:node-test`; `a11y-focus`, `extension`, `flow`, `i18n` on `:browser-test` — against the five this report was written over. The central fence is the one suite named above, `re-frame.fresco.examples.fence-cljs-test`, and it is a blocklist: **no positive roster is re-asserted here or anywhere.**
 
-**`implementation/hicasso/examples/` — the path rf2-hic-025's bead names — is on no `:source-paths` entry, so a tree there would be compiled by nothing.** That is why the slice is not at that path. Moving it is a `git mv` plus two lines in `implementation/shadow-cljs.edn`, which is hot-zone and was not taken.
+**`implementation/fresco/examples/` — the path rf2-hic-025's bead names — is on no `:source-paths` entry, so a tree there would be compiled by nothing.** That is why the slice is not at that path. Moving it is a `git mv` plus two lines in `implementation/shadow-cljs.edn`, which is hot-zone and was not taken.

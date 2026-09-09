@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.z3vlz-slim-only
+(ns re-frame.bench.fresco.z3vlz-slim-only
   "RUNG 1 — reagent-slim ALONE. THE EXPERIMENT THAT SETTLES rf2-z3vlz.
 
   The bead's question is whether a SINGLE-SUBSTRATE reagent-slim bundle —
@@ -10,23 +10,23 @@
   This entry's whole content is one `rf/init!` and one probe call. What
   makes it the experiment is what it does NOT require: no
   `re-frame.adapter.reagent`, no `reagent.core`, no `uix.core`, and
-  nothing that reaches them transitively. `re-frame.bench.hicasso.lane`
+  nothing that reaches them transitively. `re-frame.bench.fresco.lane`
   (through the probe) requires only `react-dom` and the order guard; the
   slim substrate namespace requires only `reagent2.*`. The
   `:compiled-in` manifest below is checked against the BUILD'S OWN source
   map by the driver, so the claim is verified rather than asserted.
 
   Built and driven by
-  `implementation/hicasso/test/re_frame/bench/hicasso/z3vlz_run.cjs` on
-  rf2-2rtt6.2's `:hicasso-bench` build id — no new build id, so
+  `implementation/fresco/test/re_frame/bench/fresco/z3vlz_run.cjs` on
+  rf2-2rtt6.2's `:fresco-bench` build id — no new build id, so
   `implementation/shadow-cljs.edn` is untouched."
-  (:require [re-frame.bench.hicasso.z3vlz-probe :as rf.bench.hicasso.z3vlz-probe]
-            [re-frame.bench.hicasso.z3vlz-slim-substrate :as rf.bench.hicasso.z3vlz-slim-substrate]
+  (:require [re-frame.bench.fresco.z3vlz-probe :as rf.bench.fresco.z3vlz-probe]
+            [re-frame.bench.fresco.z3vlz-slim-substrate :as rf.bench.fresco.z3vlz-slim-substrate]
             [re-frame.core :as rf]))
 
 (defn ^:export -main []
-  (rf/init! rf.bench.hicasso.z3vlz-slim-substrate/adapter)
-  (rf.bench.hicasso.z3vlz-probe/run-probe! rf.bench.hicasso.z3vlz-slim-substrate/substrate
+  (rf/init! rf.bench.fresco.z3vlz-slim-substrate/adapter)
+  (rf.bench.fresco.z3vlz-probe/run-probe! rf.bench.fresco.z3vlz-slim-substrate/substrate
               {:bundle      :slim-only
                :installed   :reagent-slim
                :compiled-in [:reagent2]}

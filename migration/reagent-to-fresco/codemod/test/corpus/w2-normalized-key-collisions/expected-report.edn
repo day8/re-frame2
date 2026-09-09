@@ -45,7 +45,7 @@
   :head "C",
   :detail {:path ":opts", :respelled [[":page-size" ":pageSize"]]},
   :note
-  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
+  "Reagent camelCased these nested keys on the way across; Fresco does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
  {:line 27,
   :col 3,
   :class :nested-map-keys,
@@ -53,4 +53,4 @@
   :head "C",
   :detail {:path ":other", :respelled [[":first-name" ":firstName"]]},
   :note
-  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}]
+  "Reagent camelCased these nested keys on the way across; Fresco does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}]

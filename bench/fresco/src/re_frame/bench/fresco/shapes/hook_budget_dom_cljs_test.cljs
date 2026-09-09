@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.shapes.hook-budget-dom-cljs-test
+(ns re-frame.bench.fresco.shapes.hook-budget-dom-cljs-test
   "**THE ≤2-HOOK BUDGET, HELD AT EVERY TIER-1 SHAPE** (HD-020(b);
   rf2-2rtt6.51).
 
@@ -34,7 +34,7 @@
 
   Shape 1's page carries **one hook that is not in any shell**: the
   `useState` belonging to
-  [[re-frame.bench.hicasso.front.controlled]]'s composition shadow,
+  [[re-frame.bench.fresco.front.controlled]]'s composition shadow,
   which stands in front of the shape's one controlled `<textarea>` (the
   comment draft in `shapes/ordinary`). It is the price of the IME
   composition carve-out the operator ruled in on 2026-08-03, and this
@@ -61,21 +61,21 @@
   to **unwitnessed** — never to a false green."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.hook-probe :as rf.bench.hicasso.arm1.hook-probe]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.shapes.feed :as rf.bench.hicasso.shapes.feed]
-            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
-            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
-            [re-frame.bench.hicasso.shapes.ordinary :as rf.bench.hicasso.shapes.ordinary]
+            [re-frame.bench.fresco.arm1.hook-probe :as rf.bench.fresco.arm1.hook-probe]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.shapes.feed :as rf.bench.fresco.shapes.feed]
+            [re-frame.bench.fresco.shapes.large-template :as rf.bench.fresco.shapes.large-template]
+            [re-frame.bench.fresco.shapes.model :as rf.bench.fresco.shapes.model]
+            [re-frame.bench.fresco.shapes.ordinary :as rf.bench.fresco.shapes.ordinary]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::shape-hooks)
 
@@ -85,7 +85,7 @@
 (defn- unwitnessed! []
   (is false (str "React's internals slot was not found, so the ≤2-hook budget is "
                  "UNWITNESSED on these shapes. A gate nobody has watched fire is "
-                 "not evidence — fix " (pr-str 're-frame.bench.hicasso.arm1.hook-probe)
+                 "not evidence — fix " (pr-str 're-frame.bench.fresco.arm1.hook-probe)
                  " rather than reading this as a pass.")))
 
 (defn- mount-and-count
@@ -93,15 +93,15 @@
   while it mounted, alongside the runtime's own boundary and edge counts —
   read BEFORE the release that would empty them."
   [seed hiccup]
-  (rf.bench.hicasso.lane/leave-act-environment!)
-  (rf.bench.hicasso.shapes.model/make-frame! frame-id seed)
-  (rf.bench.hicasso.shapes.model/reseed! frame-id seed)
-  (let [container (rf.bench.hicasso.arm1.mount/fresh-container!)
+  (rf.bench.fresco.lane/leave-act-environment!)
+  (rf.bench.fresco.shapes.model/make-frame! frame-id seed)
+  (rf.bench.fresco.shapes.model/reseed! frame-id seed)
+  (let [container (rf.bench.fresco.arm1.mount/fresh-container!)
         handle    (volatile! nil)
-        names     (rf.bench.hicasso.arm1.hook-probe/record!
-                    (fn [] (vreset! handle (rf.bench.hicasso.arm1.mount/root! container frame-id hiccup))))
-        stats     (rf.bench.hicasso.arm1.runtime/stats)]
-    (rf.bench.hicasso.arm1.mount/release! @handle)
+        names     (rf.bench.fresco.arm1.hook-probe/record!
+                    (fn [] (vreset! handle (rf.bench.fresco.arm1.mount/root! container frame-id hiccup))))
+        stats     (rf.bench.fresco.arm1.runtime/stats)]
+    (rf.bench.fresco.arm1.mount/release! @handle)
     {:hooks      names
      :boundaries (:boundaries stats)
      :edges      (:edges stats)}))
@@ -122,16 +122,16 @@
   controlled field exists reds the row that names it."
   [{:label   "1 — ordinary views"
     :seed    {:articles 2 :comments 5 :tags 2}
-    :tree    [rf.bench.hicasso.shapes.ordinary/screen {}]
+    :tree    [rf.bench.fresco.shapes.ordinary/screen {}]
     ;; The comment draft — `shapes/ordinary`'s one controlled `<textarea>`.
     :shadows 1}
    {:label   "2 — large templates"
-    :seed    rf.bench.hicasso.shapes.large-template/seed
-    :tree    [rf.bench.hicasso.shapes.large-template/page {}]
+    :seed    rf.bench.fresco.shapes.large-template/seed
+    :tree    [rf.bench.fresco.shapes.large-template/page {}]
     :shadows 0}
    {:label   "3/4 — bulk + narrow"
-    :seed    rf.bench.hicasso.shapes.feed/seed
-    :tree    [rf.bench.hicasso.shapes.feed/page {}]
+    :seed    rf.bench.fresco.shapes.feed/seed
+    :tree    [rf.bench.fresco.shapes.feed/page {}]
     :shadows 0}])
 
 ;; ---------------------------------------------------------------------------
@@ -139,9 +139,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest every-shape-costs-exactly-two-hooks-per-boundary
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (rf.bench.hicasso.arm1.hook-probe/install!)
+    (if-not (rf.bench.fresco.arm1.hook-probe/install!)
       (unwitnessed!)
       (doseq [{:keys [label seed tree shadows]} shapes]
         (testing label
@@ -161,7 +161,7 @@
                      React runs a component's hooks to completion before it
                      starts the next, so the whole page's sequence is the
                      declared pair repeated"))
-            (is (= (count rf.bench.hicasso.arm1.runtime/shell-hook-ledger) 2)
+            (is (= (count rf.bench.fresco.arm1.runtime/shell-hook-ledger) 2)
                 "and the ledger the runtime declares is still two entries long")
             (testing "the composition shadow's hook, and only it (rf2-digtt)"
               (is (= shadows (count (filter #{shadow-hook} hooks)))
@@ -186,9 +186,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-read-count-cannot-reach-the-hook-count
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (rf.bench.hicasso.arm1.hook-probe/install!)
+    (if-not (rf.bench.fresco.arm1.hook-probe/install!)
       (unwitnessed!)
       (testing "shape 2 is one boundary making 141 subscription reads, every
                one of them inside a `for` and inside a plain helper called
@@ -196,7 +196,7 @@
                one read, because `subscribe` closes over the read SET and
                nothing else."
         (let [{:keys [hooks boundaries edges]}
-              (mount-and-count rf.bench.hicasso.shapes.large-template/seed [rf.bench.hicasso.shapes.large-template/page {}])]
+              (mount-and-count rf.bench.fresco.shapes.large-template/seed [rf.bench.fresco.shapes.large-template/page {}])]
           (is (= 1 boundaries))
           (is (= 141 edges) "141 reads")
           (is (= 2 (count hooks))
@@ -205,15 +205,15 @@
               "in the declared order"))))))
 
 (deftest the-budget-does-not-move-when-the-page-grows
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (rf.bench.hicasso.arm1.hook-probe/install!)
+    (if-not (rf.bench.fresco.arm1.hook-probe/install!)
       (unwitnessed!)
       (testing "hooks per boundary is 2 at 50, 150 and 300 mounted card
                boundaries — the axis a bulk row grows along"
         (doseq [n [50 150 300]]
           (let [{:keys [hooks boundaries]}
-                (mount-and-count {:articles n :tags rf.bench.hicasso.shapes.feed/tag-count} [rf.bench.hicasso.shapes.feed/page {}])]
+                (mount-and-count {:articles n :tags rf.bench.fresco.shapes.feed/tag-count} [rf.bench.fresco.shapes.feed/page {}])]
             (is (= (inc n) boundaries))
             (is (= (* 2 (inc n)) (count hooks))
                 (str "B = " n ": " (count hooks) " hooks over " boundaries

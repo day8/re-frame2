@@ -1,4 +1,4 @@
-(ns hicasso-hmr-testbed.views
+(ns fresco-hmr-testbed.views
   "THE RELOADED NAMESPACE — the source file a real `shadow-cljs watch`
   really recompiles, and the only file the HMR gate edits on disk
   (rf2-vsgq, closing the browser half of rf2-hic-015).
@@ -47,14 +47,14 @@
   | [[app]] | the head whose re-mint is the whole cause, rendered once per frame so frame routing is readable per root |
 
   The foreign components — the hook child, the imperative host and the
-  island — are written with React's own primitives and no Hicasso in
+  island — are written with React's own primitives and no Fresco in
   them at all, which is what makes them a fair witness for \"React facts
-  die with the fiber\" ([I6](../../../implementation/hicasso/spec/invariants.md)):
+  die with the fiber\" ([I6](../../../implementation/fresco/spec/invariants.md)):
   the runtime is not being asked to preserve anything it could have
   preserved."
   (:require ["react" :as react]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]))
+            [re-frame.fresco :as rf.fresco]))
 
 ;; ---------------------------------------------------------------------------
 ;; The hot line
@@ -111,7 +111,7 @@
   (fn [{:keys [db]} [_ label]] {:db (assoc db :label label)}))
 
 ;; ---------------------------------------------------------------------------
-;; The foreign components — plain React, no Hicasso inside
+;; The foreign components — plain React, no Fresco inside
 ;; ---------------------------------------------------------------------------
 
 (defn- HookChild
@@ -174,7 +174,7 @@
 ;; meets a real recompile (rf2-y5x6j). The chain is
 ;;
 ;;   island-body   defn             a raw React function component over
-;;                                  react/createElement, no Hicasso in it
+;;                                  react/createElement, no Fresco in it
 ;;     -> island   react/memo       the memo record around it
 ;;     -> *-head   react/lazy       a lazy record over the payload, one per crossing
 ;;     -> crossed  defhost AND [:>] both crossings, so neither door is assumed
@@ -221,7 +221,7 @@
 
 (defn- island-body
   "THE ISLAND — a raw React function component: a plain `defn` over
-  `react/createElement`, with no Hicasso in it. Its server policy is
+  `react/createElement`, with no Fresco in it. Its server policy is
   declared where a crossing declares one, on [[island-host]].
 
   Its `useState` instance id is minted from the counter that outlives the
@@ -316,17 +316,17 @@
 ;; `(defhost sym "doc" Component opts?)`. Written the other way round the
 ;; docstring lands in the `opts` position and `mint-host!` walks a string
 ;; as an option map.
-(rf.hicasso/defhost hook-host
+(rf.fresco/defhost hook-host
   "The host crossing the hook child sits inside, so the row is `child hook
   state IN A HOST` and not merely `hook state somewhere on the page`."
   HookChild)
 
-(rf.hicasso/defhost note-host
+(rf.fresco/defhost note-host
   "The imperative host. Its instance arrives through a callback `:ref` —
   HD-022's v0 spelling, a function and never a vector."
   imperative-note)
 
-(rf.hicasso/defhost suspense-host
+(rf.fresco/defhost suspense-host
   "React's own Suspense, wrapping the split region and NOTHING else. The
   scope is deliberate: this region shows its fallback on every save, and a
   boundary drawn any wider would take the controlled field, the hook child
@@ -335,7 +335,7 @@
   (.-Suspense react)
   {:slots #{:fallback}})
 
-(rf.hicasso/defhost island-host
+(rf.fresco/defhost island-host
   "The `defhost` crossing over the lazy head — a declaration, with the
   island's server policy written where a crossing declares one.
   `:server :client-only` is the default and needs no writing; it is
@@ -345,26 +345,26 @@
   host-head
   {:server :client-only})
 
-(rf.hicasso/defview field
+(rf.fresco/defview field
   "The focused controlled input. An ordinary `:value` off a subscription
   and an intent vector at `:on-input`; nothing test-only on it."
   [_]
   [:input {:data-testid "field"
            :type        "text"
-           :value       (rf.hicasso/sub [:hmr/text])
-           :on-input    [:hmr/edit ::rf.hicasso/value]}])
+           :value       (rf.fresco/sub [:hmr/text])
+           :on-input    [:hmr/edit ::rf.fresco/value]}])
 
-(rf.hicasso/defview digits-field
+(rf.fresco/defview digits-field
   "The refusing field the composition row is driven on — the case
   `hmr_registry`'s browser sibling could not reach, and the one where a
   held draft is provably the model's refusal rather than its agreement."
   [_]
   [:input {:data-testid "digits"
            :type        "text"
-           :value       (rf.hicasso/sub [:hmr/digits])
-           :on-input    [:hmr/edit-digits ::rf.hicasso/value]}])
+           :value       (rf.fresco/sub [:hmr/digits])
+           :on-input    [:hmr/edit-digits ::rf.fresco/value]}])
 
-(rf.hicasso/defview app
+(rf.fresco/defview app
   "The head whose re-mint is the whole mechanism. Mounted once per frame,
   so each root reads its own frame and the routing row can compare them.
 
@@ -377,7 +377,7 @@
   [{:keys [ref-sink island-refs]}]
   [:main {:data-testid "hmr-app"}
    [:span {:data-testid "gen-label"} generation-label]
-   [:span {:data-testid "frame-label"} (rf.hicasso/sub [:hmr/label])]
+   [:span {:data-testid "frame-label"} (rf.fresco/sub [:hmr/label])]
    [field {}]
    [digits-field {}]
    [hook-host {}]

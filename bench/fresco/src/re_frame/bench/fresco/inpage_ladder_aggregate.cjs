@@ -8,7 +8,7 @@
 // datasets and one fail-closed command that rebuilds every published figure
 // from them.
 //
-//   node implementation/hicasso/test/re_frame/bench/hicasso/inpage_ladder_aggregate.cjs
+//   node implementation/fresco/test/re_frame/bench/fresco/inpage_ladder_aggregate.cjs
 //
 // Exit 0  every run presents the whole raw shape this instrument published,
 //         its stored aggregates reproduce from its own raw rounds, no
@@ -113,7 +113,7 @@ const GUARD_TOLERANCE = 0.1;
 // `ctl-2x` positive control.
 const ARMS = [
   'floor', 'bare',
-  'hicasso', 'local', 'nolink', 'nohiccup', 'nowalk', 'noreads', 'nomemo',
+  'fresco', 'local', 'nolink', 'nohiccup', 'nowalk', 'noreads', 'nomemo',
   'coarse',
   'uix', 'uixlocal', 'uixnolink', 'uixbare',
   'ctl-2x',
@@ -199,26 +199,26 @@ const round4 = (x) => Math.round(x * 10000) / 10000;
 
 function decompose(t) {
   return {
-    ship: t.hicasso,
+    ship: t.fresco,
     uix: t.uix,
     coarse: t.coarse,
     bare: t.bare,
     floor: t.floor,
-    deficit: t.hicasso - t.uix,
+    deficit: t.fresco - t.uix,
     'h-routing': t.local - t.nolink,
     'h-hiccup-build': t.nolink - t.nohiccup,
     'h-codec-walk': t.nohiccup - t.nowalk,
     'h-reads+commit': t.nowalk - t.noreads,
     'h-memo-fiber': t.noreads - t.nomemo,
     'h-shell': t.nomemo - t.bare,
-    'h-total': t.hicasso - t.bare,
+    'h-total': t.fresco - t.bare,
     'h-read-shape': t.local - t.coarse,
     'matched-shape-gap': t.coarse - t.uix,
     'u-routing': t.uixlocal - t.uixnolink,
     'u-markup': t.uixnolink - t.uixbare,
     'u-reads+hooks': t.uixbare - t.bare,
     'u-total': t.uix - t.bare,
-    'fidelity-local-ship': t.local / t.hicasso,
+    'fidelity-local-ship': t.local / t.fresco,
     'fidelity-uixlocal-uix': t.uixlocal / t.uix,
   };
 }

@@ -139,11 +139,11 @@
 
       (let [n (use-sub [:counter/value])] …)
 
-  ONE name across every React function component: `re-frame.hicasso.native`
-  publishes `use-sub` for an island under Hicasso and this is the same
+  ONE name across every React function component: `re-frame.fresco.native`
+  publishes `use-sub` for an island under Fresco and this is the same
   operation under the same name. The rule the pair follows: the VERB returns a
   subscription (`rf/subscribe`, Reagent's reaction), the NOUN returns its
-  value (`h/sub` in a Hicasso body, `use-sub` in a function component).
+  value (`h/sub` in a Fresco body, `use-sub` in a function component).
 
   Reads the surrounding `frame-provider` (SCOPE) / `frame-root` (ENSURE) from
   React context, and nothing else. A `with-frame` / `bind-fn` dynamic scope

@@ -1,4 +1,4 @@
-(ns re-frame.migration.hicasso.inert-source-test
+(ns re-frame.migration.fresco.inert-source-test
   "**A crossing SITE is source that runs** (rf2-xc11).
 
   The census half learned this first (merged-PR audit #8140, PR #8151),
@@ -40,7 +40,7 @@
   migrator a hand-port of a form that never runs. Pinned from
   [[an-inert-reagent-call-is-not-a-refusal-reason]] down."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.migration.hicasso.codemod :as rf.migration.hicasso.codemod]))
+            [re-frame.migration.fresco.codemod :as rf.migration.fresco.codemod]))
 
 (def ^:private hdr
   "(ns app.p\n  (:require [reagent.core :as r]))\n")
@@ -48,17 +48,17 @@
 (defn- classes
   "The report's entry classes for one source string."
   [body]
-  (mapv :class (:entries (rf.migration.hicasso.codemod/scan-string (str hdr body) "app/p.cljs"))))
+  (mapv :class (:entries (rf.migration.fresco.codemod/scan-string (str hdr body) "app/p.cljs"))))
 
 (defn- sites
   "How many crossing sites the walk counted."
   [body]
-  (:sites (rf.migration.hicasso.codemod/scan-string (str hdr body) "app/p.cljs")))
+  (:sites (rf.migration.fresco.codemod/scan-string (str hdr body) "app/p.cljs")))
 
 (defn- rewritten
   "The fixer's output for one source string."
   [body]
-  (:source (rf.migration.hicasso.codemod/rewrite-string (str hdr body) "app/p.cljs")))
+  (:source (rf.migration.fresco.codemod/rewrite-string (str hdr body) "app/p.cljs")))
 
 ;; ---------------------------------------------------------------------------
 ;; Pass 1 — the report
@@ -182,7 +182,7 @@
   (testing "and the same for the CALL sites such an entry lists: a
             `[Foo …]` inside a comment is not a call site, so it must not
             appear in the line list the report tells a migrator to visit"
-    (let [entry (first (:entries (rf.migration.hicasso.codemod/scan-string
+    (let [entry (first (:entries (rf.migration.fresco.codemod/scan-string
                                   (str hdr
                                        "(def Foo (r/adapt-react-class X))\n"
                                        "(comment [Foo {:a 1}])\n"

@@ -57,7 +57,7 @@
   been widened into place: the same three write the route id as a `def`'d
   symbol (`(routing/reg-route feed …)`), and the old reader dropped any claim
   whose id was not a keyword literal without a word. Measured before this
-  bead: adding `implementation/hicasso/test` to `app-roots` moved the files
+  bead: adding `implementation/fresco/test` to `app-roots` moved the files
   scanned from 101 to 231 and the claims found from 39 to 39.
 
   So the reader is now `clojure.tools.reader` at `:features #{:cljs}` over the
@@ -141,8 +141,8 @@
   the landing page nothing else navigates to. That is a property of TODAY'S
   suites, not a guarantee — which is why a new claimant must come here and be
   argued for rather than land silently. A witness app added to the bundle
-  should prefix its paths (`/slice`, `/hicasso-todo`) and never appear here.
-  Widening the census's reach to the Hicasso witness applications (rf2-p5og)
+  should prefix its paths (`/slice`, `/fresco-todo`) and never appear here.
+  Widening the census's reach to the Fresco witness applications (rf2-p5og)
   added no entry and was never going to: all three were already prefixed.
 
   `/articles` is the weaker entry and the honest label for it is INHERITED,
@@ -196,7 +196,7 @@
        "breakage lands in a suite that has never heard of your app.\n\n"
        "CONVENTION (TESTING.md): every app or witness loaded into the shared node\n"
        "test bundle namespaces its URL paths under a distinct leading segment:\n"
-       "/slice, /hicasso-todo. Prefix your paths. Only if the shared claim is a\n"
+       "/slice, /fresco-todo. Prefix your paths. Only if the shared claim is a\n"
        "URL-fidelity requirement AND no suite can ingress another app's URLs, add\n"
        "it to `allowed-duplicate-paths` in this file with the justification.\n\n"
        (str/join "\n\n"
@@ -235,9 +235,9 @@
   test bundle. Directory-level, not app-level, so a NEW app is censused the
   moment it exists — there is no per-app roster to forget to update.
 
-  `implementation/hicasso/test` is here (rf2-p5og) because `hicasso/test` is a
+  `implementation/fresco/test` is here (rf2-p5og) because `fresco/test` is a
   `:source-paths` entry of the top-level shadow build, so the witness
-  applications under `re_frame/hicasso/examples/` compile into the SAME node
+  applications under `re_frame/fresco/examples/` compile into the SAME node
   bundle as everything under `examples/` and their paths are exactly as
   process-global. The tree also holds ordinary `*_cljs_test` namespaces, and
   they are safe to walk: a `reg-route` a test registers sits inside a
@@ -249,7 +249,7 @@
   builds), so a path they share with an example is not a collision."
   ["examples"
    "testbeds"
-   "implementation/hicasso/test"])
+   "implementation/fresco/test"])
 
 (defn- repo-root
   "Walk up from the test's working directory to the checkout root (the

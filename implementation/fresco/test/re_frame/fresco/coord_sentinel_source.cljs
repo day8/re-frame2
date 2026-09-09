@@ -1,11 +1,11 @@
-(ns re-frame.hicasso.coord-sentinel-source
+(ns re-frame.fresco.coord-sentinel-source
   "THE SENTINEL DECLARATIONS — one `defview` and one
   `defhost`, declared for their SOURCE COORDINATES and nothing else.
 
   ## Why they are not in the suite that asserts about them
 
   The first draft put them in
-  `re-frame.hicasso.error-source-coord-elision-prod-test` itself, and the
+  `re-frame.fresco.error-source-coord-elision-prod-test` itself, and the
   bundle scan went red on a build whose erasure was perfectly correct.
   `cljs.test` stamps `:file` and `:line` into the report map of every
   `deftest` and every `is`, so a test namespace's own file name is in the
@@ -17,7 +17,7 @@
   ONLY thing that can put `coord_sentinel_source.cljs` in a release bundle
   is a `defview` or `defhost` coordinate surviving production erasure,
   which is exactly the claim
-  `implementation/hicasso/scripts/check_source_coord_elision.cjs` makes.
+  `implementation/fresco/scripts/check_source_coord_elision.cjs` makes.
 
   This file is compiled into the `:browser-test-prod-elision` build by the
   elision suite's `:require`, the same way `checkpoint_support` and
@@ -26,9 +26,9 @@
   `defview`'s authoring-time alias rides the same
   `debug-enabled?` gate as the coordinate, so the registrar entry is one
   more thing this build is asserted not to have."
-  (:require [re-frame.hicasso :as rf.hicasso]))
+  (:require [re-frame.fresco :as rf.fresco]))
 
-(rf.hicasso/defview sentinel-row
+(rf.fresco/defview sentinel-row
   "Declared for its coordinate. Under a dev build the macro registers this
   file's absolute path, line and column against [[view-name]]; under
   `:advanced` + `goog.DEBUG=false` it registers nothing and the path
@@ -36,7 +36,7 @@
   [_]
   [:li "sentinel"])
 
-(rf.hicasso/defhost sentinel-host
+(rf.fresco/defhost sentinel-host
   "The declaration channel's half of the same proof — `defhost` opens the
   same extent under the same gate."
   (fn CoordSentinel [_props] nil)
@@ -47,11 +47,11 @@
   macro also stamps as `displayName`, and the bundle scan's POSITIVE
   CONTROL. It is emitted unconditionally, so its presence is what proves
   the scan is reading a bundle that really compiled these declarations."
-  "re-frame.hicasso.coord-sentinel-source/sentinel-row")
+  "re-frame.fresco.coord-sentinel-source/sentinel-row")
 
 (def host-name
   "The ledger key for [[sentinel-host]]."
-  "re-frame.hicasso.coord-sentinel-source/sentinel-host")
+  "re-frame.fresco.coord-sentinel-source/sentinel-host")
 
 (def view-id
   "The `:view` registrar id [[sentinel-row]] would be published under in a
@@ -60,6 +60,6 @@
   than rebuilt in the suite, so the two spellings of one declaration's
   identity cannot drift.
 
-  A keyword, so what reaches the bundle is `\"re-frame.hicasso.coord-sentinel-source\"`
+  A keyword, so what reaches the bundle is `\"re-frame.fresco.coord-sentinel-source\"`
   — dots, not the `coord_sentinel_source.cljs` PATH the scan looks for."
   ::sentinel-row)

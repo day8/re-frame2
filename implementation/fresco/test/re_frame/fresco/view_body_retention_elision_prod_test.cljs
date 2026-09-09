@@ -1,9 +1,9 @@
-(ns re-frame.hicasso.view-body-retention-elision-prod-test
+(ns re-frame.fresco.view-body-retention-elision-prod-test
   "PRODUCTION ERASURE OF THE RETAINED VIEW BODY.
 
   `mint-view!` attaches the body function to the minted head so the L0–L2
   test kit can render `[some-view …]` without React
-  (`re-frame.hicasso.impl.codec/retain-body!`). The operator's ruling makes
+  (`re-frame.fresco.impl.codec/retain-body!`). The operator's ruling makes
   that retention **dev only** and non-negotiably so: the write sits inside
   `(when ^boolean js/goog.DEBUG …)`, and under `:advanced` +
   `goog.DEBUG=false` the Closure compiler removes it — the call, the slot
@@ -17,7 +17,7 @@
 
   ## Why there is no bundle scan beside it
 
-  `re-frame.hicasso.error-source-coord-elision-prod-test` is only half of
+  `re-frame.fresco.error-source-coord-elision-prod-test` is only half of
   its proof — `check_source_coord_elision.cjs` scans the release artefact,
   because the thing that leaks there is a STRING, and a string Closure kept
   but nothing reads is invisible from inside the page. What leaks here is a
@@ -31,23 +31,23 @@
 
   ## The declarations are next door, and that is not tidiness
 
-  `re-frame.hicasso.coord-sentinel-source` carries them, for a recorded
+  `re-frame.fresco.coord-sentinel-source` carries them, for a recorded
   reason: `cljs.test` stamps `:file` into the report map of
   every `deftest` and every `is`, so a test namespace names itself in a
   release bundle before anything else does. That namespace carries no
   `deftest`, and its `sentinel-row` is minted by the same `h/defview` door
   every application view is."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.hicasso.coord-sentinel-source :as rf.hicasso.coord-sentinel-source]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]))
+            [re-frame.fresco.coord-sentinel-source :as rf.fresco.coord-sentinel-source]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]))
 
 (deftest the-sentinel-head-is-a-real-minted-boundary-in-this-bundle
   (testing "the POSITIVE CONTROL, and the reason the absences below are not
             green for the wrong reason: an unminted, missing or
             wholly-DCE'd head would satisfy every one of them trivially"
-    (is (fn? rf.hicasso.coord-sentinel-source/sentinel-row))
-    (is (true? (rf.hicasso.impl.codec/boundary-head? rf.hicasso.coord-sentinel-source/sentinel-row)))
-    (is (= rf.hicasso.coord-sentinel-source/view-name (.-displayName rf.hicasso.coord-sentinel-source/sentinel-row))
+    (is (fn? rf.fresco.coord-sentinel-source/sentinel-row))
+    (is (true? (rf.fresco.impl.codec/boundary-head? rf.fresco.coord-sentinel-source/sentinel-row)))
+    (is (= rf.fresco.coord-sentinel-source/view-name (.-displayName rf.fresco.coord-sentinel-source/sentinel-row))
         "the view name is NOT elided — it is the measure id and the React
          DevTools label")))
 
@@ -55,7 +55,7 @@
   (testing "`(when ^boolean js/goog.DEBUG (codec/retain-body! head body-fn))`
             in `mint-view!` folds away whole, so the slot the test kit reads
             was never written and the body is unreachable from the head"
-    (is (nil? (rf.hicasso.impl.codec/retained-body rf.hicasso.coord-sentinel-source/sentinel-row)))))
+    (is (nil? (rf.fresco.impl.codec/retained-body rf.fresco.coord-sentinel-source/sentinel-row)))))
 
 (deftest no-own-property-of-a-production-head-holds-a-function
   (testing "the slot-name-independent form of the same claim: the body is a
@@ -64,9 +64,9 @@
             accidentally-duplicated retention is caught here even though the
             row above reads one slot"
     (let [held (into {}
-                     (comp (map (fn [k] [k (unchecked-get rf.hicasso.coord-sentinel-source/sentinel-row k)]))
+                     (comp (map (fn [k] [k (unchecked-get rf.fresco.coord-sentinel-source/sentinel-row k)]))
                            (filter (fn [[_ v]] (fn? v))))
-                     (js->clj (js/Object.keys rf.hicasso.coord-sentinel-source/sentinel-row)))]
+                     (js->clj (js/Object.keys rf.fresco.coord-sentinel-source/sentinel-row)))]
       (is (= {} held)
           "a production head's own properties are the display name and the
            boundary markers — never a body"))))

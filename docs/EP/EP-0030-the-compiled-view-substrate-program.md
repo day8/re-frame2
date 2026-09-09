@@ -14,7 +14,7 @@ Resolution: accepted 2026-07-11 (program ratification); adapter disposition refr
 > `git ls-files`. Nothing is in flight under this EP or its siblings
 > EP-0031–EP-0035; they are kept as the record of the donor programme. The
 > later successful view-layer programme is
-> [EP-0038](EP-0038-the-hicasso-view-layer-programme.md); it is a new bounded
+> [EP-0038](EP-0038-the-fresco-view-layer-programme.md); it is a new bounded
 > adapter experiment, not a revival of this compiled-substrate contract.
 
 ## Abstract

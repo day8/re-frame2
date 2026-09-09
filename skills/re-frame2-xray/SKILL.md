@@ -14,7 +14,7 @@ description: >
   exists — the spec is the answer). Trigger phrases: "open Xray", "which Xray
   panel shows…", "Xray Static mode", "browse registered
   machines/routes/schemas", "Xray overlay", "Xray machine inspector", "Xray
-  Graph / Resources / Frames / Hicasso tab", "why did this boundary
+  Graph / Resources / Frames / Fresco tab", "why did this boundary
   re-render".
 allowed-tools:
  - Read
@@ -65,7 +65,7 @@ unless the user asked for the inventory.
 | Server state — what owns it, is it stale, what's in flight, did my mutation's `:reply-to` fire | **Dynamic → Resources** | pick the frame — live instances follow the L1 frame picker, not the epoch | — |
 | Where does this value come from — the dependency graph across subs / flows / resources / routes / machines | **Dynamic → Graph** (does not follow the epoch) | flip its own Declared ↔ Realized projection toggle for registered-vs-observed | — |
 | Which image loaded which frame; how a frame resolves its registrations | **Dynamic → Frames** (process-global; does not follow the epoch) | open the tab | — |
-| Hicasso — which boundaries are mounted, what they read, why one re-rendered, which is hot | **Dynamic → Hicasso** (not epoch-coupled) | open the tab; pick the sub-view (Mounted · Reads · Intents · Why · Advisor · Causal) | — |
+| Fresco — which boundaries are mounted, what they read, why one re-rendered, which is hot | **Dynamic → Fresco** (not epoch-coupled) | open the tab; pick the sub-view (Mounted · Reads · Intents · Why · Advisor · Causal) | — |
 | What's registered — machines / routes / schemas / flows / interceptors as catalogues | **Static mode** | flip the L1 mode pill or press `Cmd/Ctrl+Shift+M` | — |
 | Schema violations — what fired and when each started | **Dynamic → Epoch** (violations attach inline to the owning step) + the L2 pink-wash | pick the frame; scan the spine for washed rows | registered-schema *catalogue* → **Static → Schemas** |
 | SSR hydration mismatches | **Dynamic → Epoch** inline + the auto-open-on-error issues-ribbon signal — there is **no** Hydration tab | pick the washed event | — |
@@ -75,14 +75,14 @@ unless the user asked for the inventory.
 The daily path in one line: **choose the frame → choose an event (only
 when the question is event-shaped) → start at Epoch for "what happened?"
 → branch to the exact state/render/raw/specialist lens → use Static for
-definitions.** The non-epoch surfaces (Graph · Frames · Hicasso) never
+definitions.** The non-epoch surfaces (Graph · Frames · Fresco) never
 pretend to follow the event — route them by structure, not by dispatch.
 
 ## The inventory (for explicit "list every tab" requests)
 
 Dynamic mode's L3 tab bar holds **10 tabs**, left-to-right (mnemonics
 `e a v t m r s g u h`): **Epoch · app-db · Views · Trace · Machine ·
-Routes · Resources · Graph · Frames · Hicasso**. Static mode holds **5**:
+Routes · Resources · Graph · Frames · Fresco**. Static mode holds **5**:
 **Machines · Routes · Schemas · Flows · Interceptors**, with its own
 letters — the same letter can label a tab in each mode, as `m` does for
 Dynamic's Machine and Static's Machines.
@@ -108,12 +108,12 @@ full-inventory request, not for routine routing.
 - **Resources is mixed** — a process-global resource registry plus the
  observed frame's live cache/ledger (follows the L1 frame picker), with
  per-epoch mutation evidence drawn from the trace stream.
-- **Graph, Frames and Hicasso do not follow the event.** Graph reads the
+- **Graph, Frames and Fresco do not follow the event.** Graph reads the
  process-global registrar (Declared) or the observed frame (Realized) —
  its Declared ↔ Realized projection toggle is a Graph-local control, NOT
  the L1 Dynamic/Static mode pill (the shipped UI labels the toggle
  static/live; Graph is always a Dynamic tab). Frames enumerates the
- process-global live-frame registry (the `image → frame` model). Hicasso
+ process-global live-frame registry (the `image → frame` model). Fresco
  re-takes its live evidence on each trace tick. "Select an epoch and
  they update" is false — only the six lenses above rebind.
 - **Static's definition catalogues are process-global** — the registrar
@@ -219,7 +219,7 @@ deeper question loads at most **one** focused leaf:
 | app-db sections + diffs, or Views render causes | [`references/panels-state.md`](references/panels-state.md) |
 | Machine or Routes activity in depth | [`references/panels-domains.md`](references/panels-domains.md) |
 | Resources (server state) in depth | [`references/panels-resources.md`](references/panels-resources.md) |
-| Graph, Frames, or Hicasso in depth | [`references/panels-structure.md`](references/panels-structure.md) |
+| Graph, Frames, or Fresco in depth | [`references/panels-structure.md`](references/panels-structure.md) |
 | First-screen chrome in depth — the L1 frame picker, Settings tabs, palette sources, Snapshot redaction, the rewind detail | [`references/chrome.md`](references/chrome.md) |
 | The components every panel reuses + the glyph reference | [`references/shared-components.md`](references/shared-components.md) |
 

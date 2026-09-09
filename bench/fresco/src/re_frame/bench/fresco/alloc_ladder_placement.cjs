@@ -2,7 +2,7 @@
 // Where does the 2026-08-08 F_old row sit on the floor arm's LEVEL LADDER?
 //
 // Bead rf2-nkeba.  Record:
-//   docs/design/hicasso/studio/the-2026-08-08-row-is-the-arms-top-level.md
+//   docs/design/fresco/studio/the-2026-08-08-row-is-the-arms-top-level.md
 //
 // THE QUESTION.  V1's allocation control has an across-time clause: F_old "must
 // land on the 2026-08-08 figures at B = 24 (24,108 / 24,730 B per write)".  On
@@ -19,7 +19,7 @@
 // figure the record page publishes.  It launches no browser, reads no rig, and
 // writes nothing.  Run it and diff the output against the page.
 //
-//   node implementation/hicasso/test/re_frame/bench/hicasso/alloc_ladder_placement.cjs
+//   node implementation/fresco/test/re_frame/bench/fresco/alloc_ladder_placement.cjs
 //
 // THE ONE MODELLED STEP, and it is the page's chief limit.  The 2026-08-08
 // dataset preserves per-round `rise`, `maxStep`, `falls` and `endpoints` but NOT

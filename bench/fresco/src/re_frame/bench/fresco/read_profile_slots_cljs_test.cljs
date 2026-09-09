@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.read-profile-slots-cljs-test
+(ns re-frame.bench.fresco.read-profile-slots-cljs-test
   "PHASE B'S NULLS SIT AT THREE DIFFERENT SLOTS, AND THE SLOTS ARE THE
   POINT — pinned (rf2-lo7uy).
 
@@ -14,7 +14,7 @@
 
   `read_profile_app` therefore carries three nulls, and the whole of their
   value is WHERE THEY SIT. `rounds-async!` visits arms in
-  `rf.bench.hicasso.lane/slot-order`'s reflecting rotation, indexed by the SAMPLE and not
+  `rf.bench.fresco.lane/slot-order`'s reflecting rotation, indexed by the SAMPLE and not
   the round, so every arm occupies a fixed multiset of sweep positions —
   the same multiset in every round of every run. The layout was chosen so
   that
@@ -40,14 +40,14 @@
   for the window this layout was built to make askable; this namespace
   only refuses to let the instrument drift out from under it."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.read-profile-app :as rf.bench.hicasso.read-profile-app]))
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.read-profile-app :as rf.bench.fresco.read-profile-app]))
 
 (defn- slot-of [id]
-  (first (keep-indexed (fn [i x] (when (= x id) i)) rf.bench.hicasso.read-profile-app/phase-b-arm-ids)))
+  (first (keep-indexed (fn [i x] (when (= x id) i)) rf.bench.fresco.read-profile-app/phase-b-arm-ids)))
 
 (defn- footprint [id]
-  (first (filter (comp #{id} :id) (rf.bench.hicasso.read-profile-app/phase-b-slot-plan))))
+  (first (filter (comp #{id} :id) (rf.bench.fresco.read-profile-app/phase-b-slot-plan))))
 
 ;; ===========================================================================
 ;; 1 — the roster has ONE authority
@@ -58,17 +58,17 @@
            declares, in exactly that order — the vector index IS the slot,
            so a roster that disagreed would put every printed delta on a
            different pair of slots from the one its label names"
-    (is (= rf.bench.hicasso.read-profile-app/phase-b-arm-ids
-           (mapv :id (rf.bench.hicasso.read-profile-app/phase-b-arms {} {} {} nil)))))
+    (is (= rf.bench.fresco.read-profile-app/phase-b-arm-ids
+           (mapv :id (rf.bench.fresco.read-profile-app/phase-b-arms {} {} {} nil)))))
 
   (testing "ids are distinct, because `arm-rows` keys by id and a duplicate
            would silently pool two arms into one row"
-    (is (= (count rf.bench.hicasso.read-profile-app/phase-b-arm-ids)
-           (count (set rf.bench.hicasso.read-profile-app/phase-b-arm-ids)))))
+    (is (= (count rf.bench.fresco.read-profile-app/phase-b-arm-ids)
+           (count (set rf.bench.fresco.read-profile-app/phase-b-arm-ids)))))
 
   (testing "every null is on the roster it is a null of"
-    (is (every? (set rf.bench.hicasso.read-profile-app/phase-b-arm-ids) rf.bench.hicasso.read-profile-app/null-arm-ids))
-    (is (= 3 (count rf.bench.hicasso.read-profile-app/null-arm-ids))
+    (is (every? (set rf.bench.fresco.read-profile-app/phase-b-arm-ids) rf.bench.fresco.read-profile-app/null-arm-ids))
+    (is (= 3 (count rf.bench.fresco.read-profile-app/null-arm-ids))
         "three, because one null cannot say whether what it reads is
          positional")))
 
@@ -83,7 +83,7 @@
            committed transcript"
     (is (= [:commit :c-local :c-null :c-noactivate :c-nowatch
             :c-nosub :c-noreaders :c-nomap :b-build]
-           (subvec rf.bench.hicasso.read-profile-app/phase-b-arm-ids 0 9))))
+           (subvec rf.bench.fresco.read-profile-app/phase-b-arm-ids 0 9))))
 
   (testing "and the two added nulls sit at HIGHER slots than the null they
            join, which is what let the roster grow without a reorder"
@@ -95,16 +95,16 @@
 ;; ===========================================================================
 
 (deftest the-footprint-comes-from-the-schedule-itself
-  (let [{:keys [sampling]} (rf.bench.hicasso.read-profile-app/phase-b-shape)
+  (let [{:keys [sampling]} (rf.bench.fresco.read-profile-app/phase-b-shape)
         {:keys [warmup samples]} sampling
-        n (count rf.bench.hicasso.read-profile-app/phase-b-arm-ids)]
+        n (count rf.bench.fresco.read-profile-app/phase-b-arm-ids)]
 
     (testing "an arm's position at a kept sample is its index in that
-             sample's `rf.bench.hicasso.lane/slot-order`, arm for arm"
+             sample's `rf.bench.fresco.lane/slot-order`, arm for arm"
       (doseq [s (range warmup (+ warmup samples))]
-        (let [order (rf.bench.hicasso.lane/slot-order n s)]
+        (let [order (rf.bench.fresco.lane/slot-order n s)]
           (doseq [slot (range n)]
-            (is (= (nth (rf.bench.hicasso.read-profile-app/slot-positions n slot sampling) (- s warmup))
+            (is (= (nth (rf.bench.fresco.read-profile-app/slot-positions n slot sampling) (- s warmup))
                    (first (keep-indexed (fn [p j] (when (= j slot) p)) order)))
                 (str "slot " slot " at sample " s))))))
 
@@ -115,7 +115,7 @@
         (is (= (set (range n))
                (into #{}
                      (map (fn [slot]
-                            (nth (rf.bench.hicasso.read-profile-app/slot-positions n slot sampling) (- s warmup))))
+                            (nth (rf.bench.fresco.read-profile-app/slot-positions n slot sampling) (- s warmup))))
                      (range n)))
             (str "sample " s))))
 
@@ -123,7 +123,7 @@
              footprint is longer than another's"
       (is (= #{samples}
              (into #{} (map (fn [{:keys [positions]}] (count positions)))
-                   (rf.bench.hicasso.read-profile-app/phase-b-slot-plan)))))))
+                   (rf.bench.fresco.read-profile-app/phase-b-slot-plan)))))))
 
 ;; ===========================================================================
 ;; 4 — THE LAYOUT: three nulls, three footprints, three questions
@@ -173,7 +173,7 @@
 ;; ===========================================================================
 
 (deftest the-published-nine-arm-null-differenced-two-different-footprints
-  (let [sampling (:sampling (rf.bench.hicasso.read-profile-app/phase-b-shape))]
+  (let [sampling (:sampling (rf.bench.fresco.read-profile-app/phase-b-shape))]
 
     (testing "this row is about the NINE-arm rig rf2-3l6hf ran, and it is
              only about that rig while the sampling is the one it used"
@@ -186,8 +186,8 @@
              the window reported was measured across a positional
              difference, which is exactly the confound the new nulls exist
              to resolve"
-      (let [a (rf.bench.hicasso.read-profile-app/slot-footprint 9 1 sampling)
-            b (rf.bench.hicasso.read-profile-app/slot-footprint 9 2 sampling)]
+      (let [a (rf.bench.fresco.read-profile-app/slot-footprint 9 1 sampling)
+            b (rf.bench.fresco.read-profile-app/slot-footprint 9 2 sampling)]
         (is (not= (:positions a) (:positions b)))
         (is (= 4.5 (:mean-position a)))
         (is (= 3.375 (:mean-position b))

@@ -38,8 +38,8 @@ kill rules in [the decision brief](../product/decision-brief.md).
 | | |
 |---|---|
 | **Producing commit (authored)** | `7885a7c14896ae3b37e69a9257508afc7770c718` on `worker/census-2rtt6-56`, based on `origin/main` `f57808fb60`. The run executed at exactly this commit — working tree clean, so its stamped blobs are the commit's. The branch was then rebased onto `origin/main` `3bcbaf4323` (post-PR #7378), rewriting it to `5b51627520`; the mapping is checkable because **all thirteen blobs below are byte-identical at both commits** — the rebase brought in only `hd8_*` files and docs, none of them measured here |
-| **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/shapes/census_clock_run.cjs` — both adapter runs, the published shape |
-| **Build** | `:hicasso-bench` (`--config-merge` entry swap; `implementation/shadow-cljs.edn` untouched) — `:advanced`, `goog.DEBUG false`, cache cleared per `rf2-2rtt6.20`. Build exit `0`, 0 warnings |
+| **Reproduction** | `node implementation/freehand/test/re_frame/bench/fresco/shapes/census_clock_run.cjs` — both adapter runs, the published shape |
+| **Build** | `:fresco-bench` (`--config-merge` entry swap; `implementation/shadow-cljs.edn` untouched) — `:advanced`, `goog.DEBUG false`, cache cleared per `rf2-2rtt6.20`. Build exit `0`, 0 warnings |
 | **Runtime** | `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), node `v24.13.0`, hardware-concurrency 24, device-memory 32 |
 | **Design** | 6 rounds × 3 blocks × (4 warmup + 10 samples) per arm per row — 18 blocks, the shape the band ceiling was calibrated on (`rf2-ymi6j`) |
 | **Clock** | PUBLISHED: `Performance.getMetrics` raw `TaskDuration`, frame-settled (rAF + setTimeout) — main thread only, no raster/composite; CDP does not document its semantics (Chromium accounting read from source, `rf2-8nqsl`). DIAGNOSTIC: `taskNet` (frame-only through this door) and the in-page `flushSync` window, on the same samples |
@@ -56,22 +56,22 @@ shapes tree and a row nobody can tie to the exact page it mounted is
 
 | file | blob |
 |---|---|
-| `…/bench/hicasso/shapes/census_clock_arms.cljs` | `1e38b1a7a4e980122ae7a9aeebb037eb843c313f` |
-| `…/bench/hicasso/shapes/census_clock_app.cljs` | `b077ad6a11690fe5ad003e5751b9aa8d573819f8` |
-| `…/bench/hicasso/shapes/census_clock_run.cjs` | `1f2a7e1c8bc8d38a8c880a6732d5becf01b7703b` |
-| `…/bench/hicasso/shapes/model.cljs` | `d5abb7c05aab198c64d534698a9b0cc3edee74a3` |
-| `…/bench/hicasso/shapes/card.cljs` | `d197bf0d6dedeebefe9ad68054fce2a7637f1e68` |
-| `…/bench/hicasso/shapes/large_template.cljs` | `f575b78429ba1292a98a355b3ba1a8d3fac5bec6` |
-| `…/bench/hicasso/shapes/feed.cljs` | `589291891fc256edc2f6d768ac4169395f13e89c` |
-| `…/bench/hicasso/shapes/ordinary.cljs` | `2dea5d0b0b07eff3e768da130185c850045ae4d8` |
-| `…/bench/hicasso/arm1/runtime.cljs` | `b5b79f1f8b7d9f306aec813955eeaca8882ec492` |
-| `…/bench/hicasso/arm1/lang.clj` | `0151ddafb4aefe6a6a2403a349187ae5b28cc537` |
-| `…/bench/hicasso/front/codec.cljs` | `92942efb0bc9eaa3539cde4fcbec1b8408048705` |
-| `…/bench/hicasso/lane.cljs` | `0642815dc234c1544d1f97bd9e1e4dd24365c027` |
+| `…/bench/fresco/shapes/census_clock_arms.cljs` | `1e38b1a7a4e980122ae7a9aeebb037eb843c313f` |
+| `…/bench/fresco/shapes/census_clock_app.cljs` | `b077ad6a11690fe5ad003e5751b9aa8d573819f8` |
+| `…/bench/fresco/shapes/census_clock_run.cjs` | `1f2a7e1c8bc8d38a8c880a6732d5becf01b7703b` |
+| `…/bench/fresco/shapes/model.cljs` | `d5abb7c05aab198c64d534698a9b0cc3edee74a3` |
+| `…/bench/fresco/shapes/card.cljs` | `d197bf0d6dedeebefe9ad68054fce2a7637f1e68` |
+| `…/bench/fresco/shapes/large_template.cljs` | `f575b78429ba1292a98a355b3ba1a8d3fac5bec6` |
+| `…/bench/fresco/shapes/feed.cljs` | `589291891fc256edc2f6d768ac4169395f13e89c` |
+| `…/bench/fresco/shapes/ordinary.cljs` | `2dea5d0b0b07eff3e768da130185c850045ae4d8` |
+| `…/bench/fresco/arm1/runtime.cljs` | `b5b79f1f8b7d9f306aec813955eeaca8882ec492` |
+| `…/bench/fresco/arm1/lang.clj` | `0151ddafb4aefe6a6a2403a349187ae5b28cc537` |
+| `…/bench/fresco/front/codec.cljs` | `92942efb0bc9eaa3539cde4fcbec1b8408048705` |
+| `…/bench/fresco/lane.cljs` | `0642815dc234c1544d1f97bd9e1e4dd24365c027` |
 | `implementation/core/src/re_frame/substrate/spine.cljs` | `ad7b19d9d8957e7a1872e58f9b18ace8acdc4841` |
 
 Compact datasets (the reduced quantities every statistic below is a function
-of): `implementation/freehand/test/re_frame/bench/hicasso/data/censusclock-2rtt6-56/`.
+of): `implementation/freehand/test/re_frame/bench/fresco/data/censusclock-2rtt6-56/`.
 
 ## The arms, and what each substrate can spell
 
@@ -96,7 +96,7 @@ bytes), at stress AND small size, and the comparison was proven able to answer
 false. Two read-shape asymmetries are structural and stamped on every row
 rather than hidden:
 
-| row | hicasso | reagent | uix |
+| row | fresco | reagent | uix |
 |---|---|---|---|
 | large-template (1,202 el, **1 boundary**) | 141 per-instance reads | 141 per-instance | **5 coarse reads** — no one-boundary hook surface can spell 141 per-instance reads |
 | feed (5,129 el, **301 boundaries**) | 603 per-instance | 603 per-instance | 603 per-instance — the census read pair exactly |
@@ -133,7 +133,7 @@ decomposition rather than to size.
 **Consequently, everything below is a within-row claim.** Within a row the
 comparison is sound and unaffected: all arms mount the identical page, proven
 by canonical-DOM equality before any clock is read, so each row's
-hicasso/uix ratio, control, band and verdict are exactly as measured. Between
+fresco/uix ratio, control, band and verdict are exactly as measured. Between
 rows this page reports the **ordering of measured numbers** and nothing
 causal.
 
@@ -162,7 +162,7 @@ ratios. The gate line is the amendment's: **≤ 1.10× direct UIx**.
 
 ### `uix` run (the gated run)
 
-| row | floor abs p50 | hicasso abs | uix abs | **hicasso / uix** | ctl-2x (pred) | band | **verdict vs 1.10×** |
+| row | floor abs p50 | fresco abs | uix abs | **fresco / uix** | ctl-2x (pred) | band | **verdict vs 1.10×** |
 |---|---|---|---|---|---|---|---|
 | large-template | 8.237 ms | 10.777 ms | 8.484 ms | **1.3053× [1.1044 – 1.4660]** | 1.8650 [1.5349–2.0508] vs 1.9759 **PASS** | 6.7% | **FAILS THE LINE** — whole range above 1.10, margin 18.7% clears the band |
 | feed | 34.837 ms | 49.832 ms | 43.771 ms | **1.1646× [1.0951 – 1.2445]** | 2.0772 [1.9219–2.3144] vs 1.9943 **PASS** | 6.7% | **INSTRUMENT-LIMITED** — the range straddles 1.10; not a pass |
@@ -170,14 +170,14 @@ ratios. The gate line is the amendment's: **≤ 1.10× direct UIx**.
 
 ### `reagent` run (co-instrumented)
 
-| row | **hicasso / uix** | hicasso / reagent | uix / reagent | ctl-2x (pred) | band | gated verdict |
+| row | **fresco / uix** | fresco / reagent | uix / reagent | ctl-2x (pred) | band | gated verdict |
 |---|---|---|---|---|---|---|
 | large-template | 1.2469× [1.0946 – 1.5161] | 1.1081× [1.0239 – 1.3061] | **0.8913× [0.7739 – 0.9835]** | 1.8879 [1.4082–2.3461] vs 1.9759 **FAIL** | 14.0% | INSTRUMENT-LIMITED (straddle + control failure) |
 | feed | 1.2159× [1.1362 – 1.2892] | 1.2053× [1.1298 – 1.3024] | 0.9918× [0.9384 – 1.0539] straddles 1.0 | 2.2450 [2.0435–2.5914] vs 1.9943 **FAIL** | 10.7% | INSTRUMENT-LIMITED — whole range above 1.10 but margin 10.5% sits inside the band 10.7%, and the control failed |
 | ordinary | 1.1107× [0.9386 – 1.5712] | 1.1002× [0.9278 – 1.4248] straddles 1.0 | 1.0009× [0.8590 – 1.4341] straddles 1.0 | 1.2964 [1.0128–1.4945] vs 1.7255 **FAIL** | 17.8% | INSTRUMENT-LIMITED (straddle + control failure) |
 
 `taskNet` on the same samples reads every gated pair at **0.98 – 1.07** — the
-frame halves are equal, and the whole hicasso-vs-UIx gap is **script**: the
+frame halves are equal, and the whole fresco-vs-UIx gap is **script**: the
 runtime hiccup walk. That is the same decomposition the HD-008 re-take found
 on its own shapes
 ([hd8-composed-donor-arm.md](hd8-composed-donor-arm.md#the-re-take-on-the-current-tree-rf2-2rtt631)).
@@ -220,7 +220,7 @@ reproduce on census-real screens?
 >
 > ~~**THOSE TWO M1 FIGURES ARE NO LONGER PUBLISHED MAGNITUDES (`rf2-jcm3p`,
 > ruled 2026-08-06).** M1 mount is stated as a **REGIME**, not an adjudicated
-> magnitude: hicasso mounts materially slower than both adapters — every
+> magnitude: fresco mounts materially slower than both adapters — every
 > corroborated reading sits above the amended `≤ 1.10×` UIx gate — direction
 > triple-corroborated (worst-case witnesses, **census rows**, outside
 > benchmark), and **`≤ 1.10×` has NOT been demonstrated**. The row's positive
@@ -243,7 +243,7 @@ reproduce on census-real screens?
 cards, the read shape M1's 3-element rows share — the same gated ratio reads
 **1.1646× [1.0951 – 1.2445]** (control-passing run), and 1.2159× [1.1362 –
 1.2892] on the co-instrumented run. The deficit against the floor tells the
-same story: hicasso 1.4936× floor vs uix 1.2838× floor (feed), where the p0
+same story: fresco 1.4936× floor vs uix 1.2838× floor (feed), where the p0
 gated pair *read* ~1.5× *of UIx itself* — a reading, not a published
 magnitude, per the note above.
 
@@ -280,8 +280,8 @@ own shapes.
 | | registered | outcome |
 |---|---|---|
 | P1 | ctl-2x reads below its arithmetic prediction on every row (`rf2-jcm3p`) | **CONFIRMED on large-template** (1.8650 / 1.8879 vs 1.9759) and **on ordinary**, where the additive residual `c` is 0.90 ms on a 1.14 ms tared floor — the constant is most of the signal. **REFUTED on feed** (2.0772 / 2.2450 vs 1.9943): at 10,229 elements the doubled floor costs *more* than the arithmetic — layout 2.06×, style 1.85×, script 2.3× in the decomposition, **a dated 2026-08-02 observation that is not recomputable from any committed dataset** ([why](#refusals-and-instrument-limits-with-reasons)) — so the superlinearity of React's own mount at 10k elements outweighs the additive undershoot. Recorded, not smoothed over |
-| P2 | direction only: feed hicasso/uix wholly above 1.10 | **CONFIRMED in direction on the reagent run** (whole range above 1.10); **not resolved on the uix run** (range floor 1.0951). The magnitude *growth* the bead's scaling argument implied did not happen — the deficit shrank instead (see the workload leg above) |
-| P3 | large-template is the largest hicasso/uix of the three rows | **ORDERING CONFIRMED, REASONING NOT** — 1.3053 > 1.1646 > 1.1248 is what was measured. P3 was registered on the reasoning that the shell is held at one boundary while the interpreter term is maximal; the rows cannot separate that from large-template simply being a different page at a different size (`rf2-2rtt6.62`). The ordering is a fact about three numbers, not evidence for the mechanism that predicted it |
+| P2 | direction only: feed fresco/uix wholly above 1.10 | **CONFIRMED in direction on the reagent run** (whole range above 1.10); **not resolved on the uix run** (range floor 1.0951). The magnitude *growth* the bead's scaling argument implied did not happen — the deficit shrank instead (see the workload leg above) |
+| P3 | large-template is the largest fresco/uix of the three rows | **ORDERING CONFIRMED, REASONING NOT** — 1.3053 > 1.1646 > 1.1248 is what was measured. P3 was registered on the reasoning that the shell is held at one boundary while the interpreter term is maximal; the rows cannot separate that from large-template simply being a different page at a different size (`rf2-2rtt6.62`). The ordering is a fact about three numbers, not evidence for the mechanism that predicted it |
 | P4 | the ordinary row sits near this door's floor; if its control or band cannot hold, it publishes a refusal, not a number | **CONFIRMED** — both runs' ordinary controls FAILED (1.1511 / 1.2964 vs 1.7255 predicted); the row's gated magnitudes are published only as instrument-limited non-results carrying the control's failure |
 
 ## Refusals and instrument limits, with reasons
@@ -378,7 +378,7 @@ blocks.
 
 `uix` run (the gated run):
 
-| row | floor abs p50 | hicasso abs | uix abs | **hicasso / uix** | ctl-2x measured (pred) | band | verdict vs 1.10× |
+| row | floor abs p50 | fresco abs | uix abs | **fresco / uix** | ctl-2x measured (pred) | band | verdict vs 1.10× |
 |---|---|---|---|---|---|---|---|
 | large-template | 14.158 ms | 18.827 ms | 16.347 ms | 1.1608× [0.9301 – 1.2652] | 1.8022 [1.5043–2.1151] vs 1.9759 **PASS** | 9.2% | **INSTRUMENT-LIMITED** — straddles 1.10 *and* 1.0 |
 | feed | 56.029 ms | 79.342 ms | 76.313 ms | 1.0430× [0.9309 – 1.1460] | 1.9828 [1.7366–2.2347] vs 1.9943 **PASS** | 7.7% | **INSTRUMENT-LIMITED** — straddles 1.10 |
@@ -386,7 +386,7 @@ blocks.
 
 `reagent` run (co-instrumented — the same-run donors the fallback asks for):
 
-| row | **hicasso / uix** | hicasso / reagent | uix / reagent | ctl-2x measured (pred) | band | verdict |
+| row | **fresco / uix** | fresco / reagent | uix / reagent | ctl-2x measured (pred) | band | verdict |
 |---|---|---|---|---|---|---|
 | large-template | 1.1986× [0.7713 – 1.5949] | 1.0689× [0.8336 – 1.2748] | 0.9011× [0.7414 – 1.1729] | 1.8363 [1.4815–2.1460] vs 1.9759 **FAIL** | 15.9% | INSTRUMENT-LIMITED, control failed |
 | feed | 1.1216× [1.0274 – 1.2350] | 1.1232× [0.9881 – 1.2105] | 1.0034× [0.9420 – 1.1490] | 2.0674 [1.7110–2.3373] vs 1.9943 **PASS** | 10.6% | INSTRUMENT-LIMITED — straddles 1.10 |
@@ -394,7 +394,7 @@ blocks.
 
 `taskNet` on the same samples reads every gated pair at **0.97 – 1.10**, which
 is the same decomposition the 2026-08-02 rows found: the frame halves are near
-equal and the hicasso-vs-UIx difference is script.
+equal and the fresco-vs-UIx difference is script.
 
 **Three of six row-runs are reportable** — `uix/large-template`, `uix/feed`
 and `reagent/feed` — and the run as a whole **exited 4**: `reagent/ordinary`
@@ -403,7 +403,7 @@ selected away; both dataset files carry all six rows with their own verdicts.
 
 ### These rows are not comparable to the 2026-08-02 rows, for two independent reasons
 
-Read alongside the tables above, `hicasso / uix` has fallen on every row —
+Read alongside the tables above, `fresco / uix` has fallen on every row —
 1.3053 → 1.1608 on `large-template`, 1.1646 → 1.0430 on `feed`. **Neither
 movement may be read as an effect of the codec**, and the reasons are both
 checkable in the tree rather than inferred from the numbers.
@@ -433,7 +433,7 @@ effect is worth.
 | | |
 |---|---|
 | **Measured commit** | `752b8069be867c2b0af193db7db3c9beab5cb0ac`, working tree clean. Contains `02a440a4d1` (`rf2-2rtt6.63`'s cheapening), `870a7d1684` (`rf2-2rtt6.52`'s boundary change) and `d0c91ad811` (`rf2-cno31`'s route-link fix) — all three checked with `git merge-base --is-ancestor`, all exit `0` |
-| **Reproduction** | `C56CLOCK_DATA_DIR=…/data/censusclock-jv36i node implementation/freehand/test/re_frame/bench/hicasso/shapes/census_clock_run.cjs` — both adapter runs, all three rows, no depth override, no `--no-build`, quiet gate armed |
+| **Reproduction** | `C56CLOCK_DATA_DIR=…/data/censusclock-jv36i node implementation/freehand/test/re_frame/bench/fresco/shapes/census_clock_run.cjs` — both adapter runs, all three rows, no depth override, no `--no-build`, quiet gate armed |
 | **Design** | 6 rounds × 3 blocks × (4 warmup + 10 samples) per arm per row — the published shape, unoverridden |
 | **Read-backs** | **0 unverified of 8,316** across the six row-runs |
 | **Arm-order guard** | **reportable on all six row-runs**, on raw `TaskDuration` and on the diagnostic clock alike — no refusal, tolerance 0.35 |
@@ -442,24 +442,24 @@ effect is worth.
 | **Windows** | `uix` `2026-08-07T06:48:02Z – 06:51:46Z`; `reagent` `06:51:46Z – 06:56:13Z`. One run at a time, nothing else dispatched on the box |
 | **Runtime** | `HeadlessChrome/147.0.7727.15`, node `v24.13.0`, 24 hardware threads, 32 GB |
 | **Exit code** | **4** — the band ceiling on `reagent/ordinary` (48.1%), with `ctl-2x` failures on `uix/ordinary`, `reagent/large-template` and `reagent/ordinary` named beside it |
-| **Datasets** | `implementation/freehand/test/re_frame/bench/hicasso/data/censusclock-jv36i/` — `canonical: false`, because `C56CLOCK_DATA_DIR` named a sibling directory rather than overwriting the published evidence set above. That is the same route every other `censusclock-*` sibling was taken by; it is not a gate failure, and the run's own gate outcomes are the exit code and the per-row verdicts |
+| **Datasets** | `implementation/freehand/test/re_frame/bench/fresco/data/censusclock-jv36i/` — `canonical: false`, because `C56CLOCK_DATA_DIR` named a sibling directory rather than overwriting the published evidence set above. That is the same route every other `censusclock-*` sibling was taken by; it is not a gate failure, and the run's own gate outcomes are the exit code and the per-row verdicts |
 
 Blob hashes at the measured commit:
 
 | file | blob |
 |---|---|
-| `…/bench/hicasso/shapes/census_clock_arms.cljs` | `5d4ed45eb41fcbabf7dd26a7bf0962688b58ee9b` |
-| `…/bench/hicasso/shapes/census_clock_app.cljs` | `2057882111067ed9872ee3cb195527f7989bb2b3` |
-| `…/bench/hicasso/shapes/census_clock_run.cjs` | `13d713fe8930c4eb2b32062947fd9b9dbad4b412` |
-| `…/bench/hicasso/shapes/model.cljs` | `7f4043dc09aef036aab0c502748da7dcacc6d70d` |
-| `…/bench/hicasso/shapes/card.cljs` | `07458921f7830b99b60a90262cbb974f7e05d5c7` |
-| `…/bench/hicasso/shapes/large_template.cljs` | `f575b78429ba1292a98a355b3ba1a8d3fac5bec6` |
-| `…/bench/hicasso/shapes/feed.cljs` | `9add8a25377809c36747511f268aedefa68e5372` |
-| `…/bench/hicasso/shapes/ordinary.cljs` | `d3e3acc859287c4eaf5f6e036e01954ea1d11ea7` |
-| `…/bench/hicasso/arm1/runtime.cljs` | `9f0e341c2deffffc5b4dc32cbcf6ad00f2a5c924` |
-| `…/bench/hicasso/arm1/lang.clj` | `8c18fb0c4d43d6f392ac4d1ac7ac550626c178a5` |
-| `…/bench/hicasso/front/codec.cljs` | `fc28796b5c7cc3a543f989d19b65d6587ca86da8` |
-| `…/bench/hicasso/lane.cljs` | `769ffc55fca216f3742bfb248c1b3a0c1e6df787` |
+| `…/bench/fresco/shapes/census_clock_arms.cljs` | `5d4ed45eb41fcbabf7dd26a7bf0962688b58ee9b` |
+| `…/bench/fresco/shapes/census_clock_app.cljs` | `2057882111067ed9872ee3cb195527f7989bb2b3` |
+| `…/bench/fresco/shapes/census_clock_run.cjs` | `13d713fe8930c4eb2b32062947fd9b9dbad4b412` |
+| `…/bench/fresco/shapes/model.cljs` | `7f4043dc09aef036aab0c502748da7dcacc6d70d` |
+| `…/bench/fresco/shapes/card.cljs` | `07458921f7830b99b60a90262cbb974f7e05d5c7` |
+| `…/bench/fresco/shapes/large_template.cljs` | `f575b78429ba1292a98a355b3ba1a8d3fac5bec6` |
+| `…/bench/fresco/shapes/feed.cljs` | `9add8a25377809c36747511f268aedefa68e5372` |
+| `…/bench/fresco/shapes/ordinary.cljs` | `d3e3acc859287c4eaf5f6e036e01954ea1d11ea7` |
+| `…/bench/fresco/arm1/runtime.cljs` | `9f0e341c2deffffc5b4dc32cbcf6ad00f2a5c924` |
+| `…/bench/fresco/arm1/lang.clj` | `8c18fb0c4d43d6f392ac4d1ac7ac550626c178a5` |
+| `…/bench/fresco/front/codec.cljs` | `fc28796b5c7cc3a543f989d19b65d6587ca86da8` |
+| `…/bench/fresco/lane.cljs` | `769ffc55fca216f3742bfb248c1b3a0c1e6df787` |
 | `implementation/core/src/re_frame/substrate/spine.cljs` | `630782a321211b9ec4cb98f6a3218762a9506143` |
 
 **These are the first census datasets that carry `blocksDecomp`** (`rf2-jo60g`),

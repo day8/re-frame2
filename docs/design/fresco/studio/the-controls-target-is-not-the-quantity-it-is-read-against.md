@@ -139,7 +139,7 @@ file was edited by this analysis.**
 ## The dataset this rests on, and the fact that it exists
 
 `rf2-2rtt6.138`'s run of 2026-08-08 committed its **raw per-window record** —
-`implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-2rtt6-138/run1.json`,
+`implementation/fresco/test/re_frame/bench/fresco/data/alloc-2rtt6-138/run1.json`,
 3,140 lines, landed by `4a1537cb71` and still tracked. It is the only allocation
 run in the corpus whose data survives: the 2026-08-13, 2026-08-16 and 2026-08-17
 windows published records but no dataset. **That asymmetry is the whole reason
@@ -431,7 +431,7 @@ operator rather than to rewrite it from inside the window that found it.
 | item | value |
 |---|---|
 | analysis head | `2e993181f8`, which is `origin/main` |
-| 2026-08-08 dataset | `implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-2rtt6-138/run1.json`, landed by `4a1537cb71` |
+| 2026-08-08 dataset | `implementation/fresco/test/re_frame/bench/fresco/data/alloc-2rtt6-138/run1.json`, landed by `4a1537cb71` |
 | 2026-08-17 record re-read | [the floor certifies and the control does not](the-floor-certifies-and-the-control-does-not.md), measured off `6a32dbf7e5` |
 | instrument at the earlier revision | `p0_run.cjs`, `p0_heap.cljs`, `p0_arms.cljs`, `p0_fixture.cljc` at `4a1537cb71` |
 | rig files edited | **none** |

@@ -84,8 +84,8 @@ discrete interaction.
   `{:n :min :max :p50 :p95 :p99}` and `lane/quantile` is a linear-interpolated
   quantile at `h = (n-1)q` — landed by `rf2-xa8wo`, verified here at source.
 - The **population** half is missing, and it is the half that governs. No
-  driver under `implementation/hicasso/test/re_frame/bench/` requires anything
-  under `re-frame.hicasso.examples`, and the lane's measured window is a
+  driver under `implementation/fresco/test/re_frame/bench/` requires anything
+  under `re-frame.fresco.examples`, and the lane's measured window is a
   commit bracketed by `react-dom/flushSync` — a **mount, not a paint**.
 
 A `p95` taken over the window this lane can currently drive would be a `p95` of
@@ -100,16 +100,16 @@ spent trying.**
 
 `C8` governs an escape **taken for a benefit**. Across the witness
 applications under
-`implementation/hicasso/test/re_frame/hicasso/examples/`, shipping view code
+`implementation/fresco/test/re_frame/fresco/examples/`, shipping view code
 carries exactly **one** `h/as-element` call — `ledger/views.cljs`'s row
 renderer, handing a boundary to the vendor virtualizer, which the rule itself
 places **outside** the population as interoperability — and **no
-`re-frame.hicasso.native` island at all**.
+`re-frame.fresco.native` island at all**.
 
 The census was run with a positive control in both directions, because a search
 that returns zero and a search that looks nowhere print the same thing: the
 same pattern finds `as-element` across nine files under
-`implementation/hicasso/src/`, and `re-frame.hicasso.native` exists as
+`implementation/fresco/src/`, and `re-frame.fresco.native` exists as
 `native.cljc` in the package, so both names resolve and the absence is in the
 **population** rather than in the pattern.
 
@@ -153,7 +153,7 @@ The instrument, all under `implementation/core/test/re_frame/bench/`:
 |---|---|
 | `p0_run.cjs` | `ce6363ff774d8049c07b58513d708687a73e937e` |
 | `p0_heap.cljs` | `5e174327ac17feac2f46ccbdf2bc4f89accf624f` |
-| `p0_hicasso.cljs` | `355ffb0d5da5bdadcea4d97f0509d5b814fcbf1b` |
+| `p0_fresco.cljs` | `355ffb0d5da5bdadcea4d97f0509d5b814fcbf1b` |
 | `p0_reagent.cljs` | `c4fa66532f7155fb1f1f9996287f597a6d30235e` |
 | `p0_uix.cljs` | `554259ddbd4b76da12ed299f4a2d6b0f43b73961` |
 | `p0_fixture.cljc` | `1f066a05365e9f47b76b887a3d98e7cd8a9152e8` |
@@ -161,15 +161,15 @@ The instrument, all under `implementation/core/test/re_frame/bench/`:
 | `p0_harness.cljs` | `e18c2f50d4f5985d7bc81ff99dfd173ae296f82b` |
 | `p0_floor.cljs` | `3a14ff96414f9a77a7612f56181444155b582620` |
 
-The candidate arm is the package, `re-frame.hicasso` under
-`implementation/hicasso/src/`. Its doors:
+The candidate arm is the package, `re-frame.fresco` under
+`implementation/fresco/src/`. Its doors:
 
 | file | blob |
 |---|---|
 | `impl/mount.cljs` | `dd82c2ca467bf458493a9b9073eedb9cd0b73fc9` |
 | `impl/collector.cljs` | `6fecb70f6905003bc36ef3acfed97fbe957c6ed6` |
 | `impl/inventory.cljs` | `10d4d2bb23f673b4bb23b952cb8e7851bf78d81c` |
-| `hicasso.cljc` (the facade) | `8641b387629974f2564fe9cbf16748ce1473bfa7` |
+| `fresco.cljc` (the facade) | `8641b387629974f2564fe9cbf16748ce1473bfa7` |
 
 **Seven of the nine instrument files have moved since the 2026-08-12 package
 rung, and six of them moved within the last day.** Only `p0_arms.cljs` and
@@ -230,13 +230,13 @@ run 1, the coldest of the three, is the one that differs.
 `slope` is the **marginal** read; `shell` is the directly measured `R=0` rung
 and never the fitted intercept. Bands are min–max across the six rounds.
 
-| `reagent-subs` \| **hicasso** | slope B/read | shell B (R=0) | r² |
+| `reagent-subs` \| **fresco** | slope B/read | shell B (R=0) | r² |
 |---|---:|---:|---:|
 | run 1 | 1,417 [1,414–1,418] | 1,098 [1,089–1,102] | 0.99833 |
 | run 2 | 1,416 [1,413–1,418] | 1,100 [1,092–1,107] | 0.99834 |
 | run 3 | 1,417 [1,417–1,417] | 1,101 [1,091–1,111] | 0.99831 |
 
-| `uix-subs` \| **hicasso** | slope B/read | shell B (R=0) | r² |
+| `uix-subs` \| **fresco** | slope B/read | shell B (R=0) | r² |
 |---|---:|---:|---:|
 | run 1 | 2,116 [2,114–2,118] | 1,096 [1,094–1,102] | 0.99956 |
 | run 2 | 2,116 [2,110–2,119] | 1,096 [1,087–1,103] | 0.99956 |
@@ -253,10 +253,10 @@ unchanged tree:**
 
 | quantity | across the three runs | spread |
 |---|---|---:|
-| `reagent-subs` \| hicasso, slope | 1,416 – 1,417 B/read | **0.07%** |
-| `reagent-subs` \| hicasso, shell | 1,098 – 1,101 B | **0.27%** |
-| `uix-subs` \| hicasso, slope | 2,116 – 2,116 B/read | **0.00%** |
-| `uix-subs` \| hicasso, shell | 1,096 – 1,097 B | **0.09%** |
+| `reagent-subs` \| fresco, slope | 1,416 – 1,417 B/read | **0.07%** |
+| `reagent-subs` \| fresco, shell | 1,098 – 1,101 B | **0.27%** |
+| `uix-subs` \| fresco, slope | 2,116 – 2,116 B/read | **0.00%** |
+| `uix-subs` \| fresco, shell | 1,096 – 1,097 B | **0.09%** |
 
 **So the `C1` line is measurable by this instrument, and that is what three
 runs bought that one could not have.** The widest disagreement between two
@@ -277,10 +277,10 @@ measured the same arm on the same rung. Against it:
 
 | quantity | 2026-08-12 | this window | deviation |
 |---|---:|---:|---:|
-| `reagent-subs` \| hicasso, slope | 1,417 | 1,416 – 1,417 | ≤ 0.07% |
-| `reagent-subs` \| hicasso, shell | 1,100 | 1,098 – 1,101 | ≤ 0.18% |
-| `uix-subs` \| hicasso, slope | 2,115 | 2,116 | ≤ 0.05% |
-| `uix-subs` \| hicasso, shell | 1,095 | 1,096 – 1,097 | ≤ 0.18% |
+| `reagent-subs` \| fresco, slope | 1,417 | 1,416 – 1,417 | ≤ 0.07% |
+| `reagent-subs` \| fresco, shell | 1,100 | 1,098 – 1,101 | ≤ 0.18% |
+| `uix-subs` \| fresco, slope | 2,115 | 2,116 | ≤ 0.05% |
+| `uix-subs` \| fresco, shell | 1,095 | 1,096 – 1,097 | ≤ 0.18% |
 
 **This is not a `C1` verdict and must not be quoted as one.** `C1` is written
 *on the same witness **and instrument***, and the instrument is not the same:
@@ -288,7 +288,7 @@ seven of its nine files moved between those two runs, six of them within the
 last day (§6). What the agreement does establish is narrower and still worth
 recording — the allocation lane's edits to the shared driver did **not** move
 what this rung reads, which is a fact about that lane rather than about
-Hicasso.
+Fresco.
 
 ### 7.5 The verdict, and the one thing this window deliberately did not do
 

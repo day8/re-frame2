@@ -8,7 +8,7 @@
    :respelled
    [[":first-name" ":firstName"] [":page-size" ":pageSize"]]},
   :note
-  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
+  "Reagent camelCased these nested keys on the way across; Fresco does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
  {:line 12,
   :col 3,
   :class :nested-map-keys,
@@ -21,7 +21,7 @@
     [":class" ":className"]
     [":for" ":htmlFor"]]},
   :note
-  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
+  "Reagent camelCased these nested keys on the way across; Fresco does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
  {:line 15,
   :col 3,
   :class :nested-map-keys,
@@ -29,7 +29,7 @@
   :head "Chart",
   :detail {:path ":cfg", :respelled [[":other-key" ":otherKey"]]},
   :note
-  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
+  "Reagent camelCased these nested keys on the way across; Fresco does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
  {:line 21,
   :col 3,
   :class :nested-map-keys,
@@ -39,7 +39,7 @@
   {:path ":outer",
    :respelled [[":deep-key" ":deepKey"] [":inner-map" ":innerMap"]]},
   :note
-  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
+  "Reagent camelCased these nested keys on the way across; Fresco does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
  {:line 29,
   :col 3,
   :class :css-var-repair,
@@ -47,7 +47,7 @@
   :head "Chart",
   :detail {:path [":style" ":--brand-color"]},
   :note
-  "Reagent's `dash-to-prop-name` mangled this CSS custom property into a style key nothing reads, so the declaration never took effect. Hicasso preserves it and React routes a `--`-prefixed key through `setProperty`. The key is left alone and THE SITE STARTS WORKING — check that the style it now applies is the one you want."}
+  "Reagent's `dash-to-prop-name` mangled this CSS custom property into a style key nothing reads, so the declaration never took effect. Fresco preserves it and React routes a `--`-prefixed key through `setProperty`. The key is left alone and THE SITE STARTS WORKING — check that the style it now applies is the one you want."}
  {:line 29,
   :col 3,
   :class :nested-map-keys,
@@ -55,7 +55,7 @@
   :head "Chart",
   :detail {:path ":style", :respelled [[":font-size" ":fontSize"]]},
   :note
-  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
+  "Reagent camelCased these nested keys on the way across; Fresco does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}
  {:line 32,
   :col 3,
   :class :computed-nested-key,
@@ -71,4 +71,4 @@
   :head "Chart",
   :detail {:path ":cfg", :respelled [[":page-size" ":pageSize"]]},
   :note
-  "Reagent camelCased these nested keys on the way across; Hicasso does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}]
+  "Reagent camelCased these nested keys on the way across; Fresco does not, so the spelling is now written into your source where the library will actually read it. IF A KEY HERE IS DATA RATHER THAN A LIBRARY OPTION, THIS REWRITE IS THE MOMENT TO NOTICE — tidying it back to the spelling you originally wrote will silently change what the library receives."}]

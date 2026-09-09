@@ -14,7 +14,7 @@ three places, which fail at three different **times** under three different ids:
 |---|---|---|
 | an ambient `@(rf/subscribe …)` or `(rf/dispatch …)` still inside the render extent — the body **or** a helper it inlines | RENDER | `:rf.error/ambient-frame-refused` |
 | a `#(rf/dispatch …)` closure surviving at an `:on-*` prop | CLICK | `:rf.error/no-frame-context` |
-| an `(h/sub …)` moved out into a callback, a timer or a promise | FIRE | `:rf.error/hicasso-sub-outside-render` |
+| an `(h/sub …)` moved out into a callback, a timer or a promise | FIRE | `:rf.error/fresco-sub-outside-render` |
 
 **Row 1 — the render-time refusal.** A boundary body runs inside an extent that
 *refuses* ambient frame resolution, so a surviving `rf/subscribe` or
@@ -25,7 +25,7 @@ position for a dispatch. **The extent covers helpers too**: a parens-called
 `defn` runs inside the body, so MIG-02's deref-drop reaches it (MIG-26).
 
 **Row 2 — the click-time failure**, and the reason a converted view can look
-finished. Hicasso passes an **unmarked plain function** at an `on-*` prop
+finished. Fresco passes an **unmarked plain function** at an `on-*` prop
 straight through to React **by identity** — deliberately, so `React.memo` and
 every handler-identity bail-out keep working. So a surviving Reagent closure:
 
@@ -36,8 +36,8 @@ every handler-identity bail-out keep working. So a surviving Reagent closure:
 is not refused at lowering, is not refused at render, and reaches React exactly
 as written. When the browser invokes it later the extent has unwound, ambient
 dispatch has no frame to resolve against, and it raises
-**`:rf.error/no-frame-context`** — *core's* id, not a `hicasso-*` one, so a grep
-for Hicasso diagnostics will not find it either.
+**`:rf.error/no-frame-context`** — *core's* id, not a `fresco-*` one, so a grep
+for Fresco diagnostics will not find it either.
 
 **Row 3 — the over-correction**, reached by fixing row 1 or row 2 too
 enthusiastically. `h/sub` is legal only *during* a body run: hoist the **read**
@@ -63,7 +63,7 @@ slots. Knowing them turns a stack trace into an instruction:
 - **`:where`** — the symbol naming the function that refused.
 - **`:reason`** — the human sentence, and it **names the fix**. Read this first.
 - **`:recovery`** — a keyword classifying that fix
-  (`:read-through-the-boundary-collector` for the Hicasso render refusal,
+  (`:read-through-the-boundary-collector` for the Fresco render refusal,
   `:no-recovery` where the runtime does not recover).
 
 Beyond the four sits the refusal's own detail — the offending query vector, the
@@ -71,8 +71,8 @@ prop position, the frame. `:view` and `:source` name the rendering boundary and
 where its `defview` was written: dev-build **context, not contract**, absent
 under `:advanced`, so never branch on them.
 
-Every id Hicasso raises is indexed in `implementation/hicasso/spec/complaints.md`;
-what each one means is `spec/009-Instrumentation.md` §Hicasso.
+Every id Fresco raises is indexed in `implementation/fresco/spec/complaints.md`;
+what each one means is `spec/009-Instrumentation.md` §Fresco.
 
 ## Brackets mount, parens inline — the ownership change that reads like spelling
 
@@ -95,7 +95,7 @@ Two ways a Reagent codebase trips on this:
 
 ## `^{:key …}` metadata is not read — at all
 
-**Hicasso performs no metadata read anywhere in the codec.** A surviving
+**Fresco performs no metadata read anywhere in the codec.** A surviving
 `^{:key (:id t)}` is not a spelling variant to be tidied later; it is a key that
 is simply **absent**, and React falls back to reconciling the list by position.
 
@@ -105,8 +105,8 @@ row's input text, the wrong item animates, the wrong subtree survives a
 re-sort. MIG-07 is therefore mandatory rather than cosmetic.
 
 Two signals help and neither is complete cover: React's own key warning fires
-for a missing key (Hicasso adds nothing to it), and the dev-only
-`:rf.warning/hicasso-entity-key` fires for a **boundary-headed** member of a
+for a missing key (Fresco adds nothing to it), and the dev-only
+`:rf.warning/fresco-entity-key` fires for a **boundary-headed** member of a
 sequence whose key is not a string/number/keyword/uuid/symbol.
 
 `:key` is the **exact literal keyword**. `"key"` and `:x/key` are ordinary
@@ -145,19 +145,19 @@ own elements**. A marker written below the top level:
 {:on-input [:form/set {:title ::h/value}]}    ; WRONG — arrives as a literal keyword
 ```
 
-arrives at the handler as `:re-frame.hicasso/value`, silently, with no
+arrives at the handler as `:re-frame.fresco/value`, silently, with no
 diagnostic. Restructure the event's payload instead:
 `[:form/set :title ::h/value]`.
 
 The reserved **head** an author writes is one — `::h/prevent` — and it sits at
-index 0; its payload cannot itself be a reserved head. Hicasso keeps a second,
+index 0; its payload cannot itself be a reserved head. Fresco keeps a second,
 internal navigate head, but `h/route-link` mints it and it is not `::h/…` —
 never write it. Navigation is `h/route-link` or an ordinary routing event.
 
 Everything else spelled `::h/…` is not a dispatch marker: `::h/revision` is a
 controlled-input attribute, `::h/clear` is a registered event id. The presence
 overrides are the motion module's own keywords — `::motion/mounting` /
-`::motion/unmounting`, i.e. `:re-frame.hicasso.motion/…` — not `::h/…` at all.
+`::motion/unmounting`, i.e. `:re-frame.fresco.motion/…` — not `::h/…` at all.
 
 ## Prop-dialect edges that fail silently
 
@@ -227,8 +227,8 @@ Reagent tree already spells, so that wrapper is a rename.
 The app's existing `rf/init!` stays — do not delete it as Reagent scaffolding.
 re-frame2 installs no adapter for you and has no default-adapter registry, so
 the install is the app's own explicit line whatever the views are written in,
-and a Reagent adapter under a Hicasso tree resolves the *same* frame as the
-Hicasso subtree. Full rule: MIG-15 — plus MIG-24's closing section for the one
+and a Reagent adapter under a Fresco tree resolves the *same* frame as the
+Fresco subtree. Full rule: MIG-15 — plus MIG-24's closing section for the one
 case where the choice reopens, an app with no Reagent view left at all.
 
 Hot reload is the SAME `h/render!` through the SAME handle: the first call
@@ -253,6 +253,6 @@ source; one is still live, and the standing rule outlives all three:
 | "key maps are valid only at `:on-key-down` / `:on-key-up`" | **still stated in the shipped guide, and still wrong**: the intent lowering accepts a map at *any* event position |
 | the reserved vocabulary as four keywords | stale twice over — its `::h/navigate` is now an internal head `h/route-link` mints (an author never writes it), it omits `::h/clear`, and the presence overrides are the motion module's `::motion/mounting` / `::motion/unmounting` |
 
-The former `draft-guide/` corpus **shipped** as `docs/core/hicasso/`, so *"it was
+The former `draft-guide/` corpus **shipped** as `docs/core/fresco/`, so *"it was
 only the draft guide"* no longer sorts true from false. What survives is
-unconditional: **read the door** (`re_frame/hicasso.cljc`), not any page — rule 6.
+unconditional: **read the door** (`re_frame/fresco.cljc`), not any page — rule 6.

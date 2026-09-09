@@ -20,7 +20,7 @@
   constructor and the documented per-request SSR recipe mints a fresh gensym
   id, constructs, renders and destroys in a `finally` — one retained row per
   request served, for the life of the server. Exactly the shape rf2-uejlj
-  fixed one layer up for the Hicasso frame-ops row.
+  fixed one layer up for the Fresco frame-ops row.
 
   The fix is `live-frame/release-frame-generation-pool!`, published as
   `:live-frame/on-frame-destroyed!` and invoked from `destroy-frame!`'s step-6

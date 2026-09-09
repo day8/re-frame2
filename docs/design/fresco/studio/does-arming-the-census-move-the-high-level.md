@@ -325,20 +325,20 @@ git checkout 4a1537cb71 -- implementation/core/src
 # ARMED, repeated for the odd-numbered runs
 P0_WORK_COUNT=1 P0_PORT=8473 P0_ALLOC_PLAN=floor P0_ALLOC_WRITE=all \
 P0_ROOTS=4 P0_ALLOC_CELLS=6 P0_ALLOC_ROUNDS=18 \
-P0_RAW_OUT=implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-c4hhk/armed-01-a4a1537cb71.json \
+P0_RAW_OUT=implementation/fresco/test/re_frame/bench/fresco/data/alloc-c4hhk/armed-01-a4a1537cb71.json \
   node implementation/core/test/re_frame/bench/p0_run.cjs --only alloc
 
 # UNARMED, repeated for the even-numbered runs — P0_WORK_COUNT simply absent
 P0_PORT=8473 P0_ALLOC_PLAN=floor P0_ALLOC_WRITE=all \
 P0_ROOTS=4 P0_ALLOC_CELLS=6 P0_ALLOC_ROUNDS=18 \
-P0_RAW_OUT=implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-c4hhk/unarmed-01-a4a1537cb71.json \
+P0_RAW_OUT=implementation/fresco/test/re_frame/bench/fresco/data/alloc-c4hhk/unarmed-01-a4a1537cb71.json \
   node implementation/core/test/re_frame/bench/p0_run.cjs --only alloc
 
 git checkout HEAD -- implementation/core/src
 ```
 
 The datasets are committed beside this page under
-`implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-c4hhk/`, on the convention
+`implementation/fresco/test/re_frame/bench/fresco/data/alloc-c4hhk/`, on the convention
 `rf2-2rtt6.138` set and `rf2-erre5` wrote down. Each retains every window's raw sample
 stream, so the estimator can be re-derived without a browser.
 

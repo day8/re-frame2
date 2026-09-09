@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.hmr-registry-cljs-test
+(ns re-frame.fresco.hmr-registry-cljs-test
   "THE HMR CONTRACT, PART 2 — what a save's re-registrations do to the
   number React re-reads, and when an edited subscription reaches the
   screen.
@@ -7,10 +7,10 @@
   so the subtree is replaced and the retired generation must let go. This
   file takes the half that has nothing to do with the view at all. A
   reload re-runs a namespace's `reg-sub` and `reg-event` forms, and
-  [[re-frame.hicasso.impl.generation]] says in its own docstring that
+  [[re-frame.fresco.impl.generation]] says in its own docstring that
   **the HMR contract lands on that file** — a reload re-registers `:sub`
   handlers, which is exactly what
-  [[re-frame.hicasso.impl.generation/registry-epoch]] counts and exactly
+  [[re-frame.fresco.impl.generation/registry-epoch]] counts and exactly
   what the collector's cell-invalidation repair rides. Nothing had ever
   measured a reload against those numbers.
 
@@ -20,7 +20,7 @@
 
   A boundary re-renders when React's `useSyncExternalStore` decides the
   store moved, which it decides by comparing the number `getSnapshot`
-  returns; [[re-frame.hicasso.test.runtime/snapshot-of]] is that exact
+  returns; [[re-frame.fresco.test.runtime/snapshot-of]] is that exact
   number. When a save re-registers a subscription a mounted boundary
   reads, the number **does not move** at the instant of the save — the
   key is held, so it contributes its cell's frozen stamp — while the read
@@ -39,7 +39,7 @@
 
   ## The harness
 
-  [[re-frame.hicasso.impl.collector/commit-boundary!]] is the seam React
+  [[re-frame.fresco.impl.collector/commit-boundary!]] is the seam React
   occupies, as in the sibling file. `snapshot-of` is, in the collector's
   own words, the witness's way of performing React's
   `checkIfSnapshotChanged` without a browser."
@@ -48,10 +48,10 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.generation :as rf.hicasso.impl.generation]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
-            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.generation :as rf.fresco.impl.generation]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
+            [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
             [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::hmr-registry)
@@ -64,7 +64,7 @@
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -79,15 +79,15 @@
   (rf/with-frame frame-id (rf/dispatch-sync [:hmr-registry/seed label]))
   frame-id)
 
-(defn- label-body [_props] (rf.hicasso.impl.collector/sub [:hmr-registry/label]))
+(defn- label-body [_props] (rf.fresco.impl.collector/sub [:hmr-registry/label]))
 
 (defn- mount-boundary!
   "React's place at the commit seam, for a body of the caller's choosing."
   [body]
-  (let [value    (rf.hicasso.impl.collector/render-body frame-id body {})
-        entry    (rf.hicasso.impl.collector/last-reads)
+  (let [value    (rf.fresco.impl.collector/render-body frame-id body {})
+        entry    (rf.fresco.impl.collector/last-reads)
         notified (volatile! 0)
-        release  (rf.hicasso.impl.collector/commit-boundary! entry (fn [] (vswap! notified inc)))]
+        release  (rf.fresco.impl.collector/commit-boundary! entry (fn [] (vswap! notified inc)))]
     {:value value :entry entry :notified notified :release release}))
 
 (defn- same-object?
@@ -101,12 +101,12 @@
 
 (def ^:private at-the-checkpoint
   "The wait for the deferred repair. See
-  [[re-frame.hicasso.checkpoint-support/at-the-checkpoint]]: rf2-2l17
+  [[re-frame.fresco.checkpoint-support/at-the-checkpoint]]: rf2-2l17
   moved the repair from a `setTimeout 0` to a microtask, so the 30 ms
   timer this used to be is no longer a statement about anything — it was
   green for either scheduling. The sibling reincarnation suites wait the
   same way, on the same instrument, for the same reason."
-  rf.hicasso.checkpoint-support/at-the-checkpoint)
+  rf.fresco.checkpoint-support/at-the-checkpoint)
 
 ;; ---------------------------------------------------------------------------
 ;; 1. The counter a reload moves
@@ -114,26 +114,26 @@
 
 (deftest a-save-moves-the-registry-epoch-once-per-sub-registration
   (seeded! "A")
-  (let [before (rf.hicasso.impl.generation/registry-epoch)]
+  (let [before (rf.fresco.impl.generation/registry-epoch)]
 
     ;; NEGATIVE CONTROL, taken FIRST. The epoch is the arm's count of `:sub`
     ;; registrations specifically, so a reload's OTHER top-level forms must
     ;; leave it alone. If this moved, every number below would be measuring
     ;; "a namespace loaded" rather than "a subscription was registered".
     (rf/reg-event :hmr-registry/other (fn [{:keys [db]} _] {:db db}))
-    (is (= before (rf.hicasso.impl.generation/registry-epoch))
+    (is (= before (rf.fresco.impl.generation/registry-epoch))
         "an event registration moves the registry epoch by zero")
 
     (testing "a reload's re-registration of an existing sub moves it by one —
               the replacement case, which is the case a save is"
       (rf/reg-sub :hmr-registry/label (fn [db _] (:label db)))
-      (is (= (inc before) (rf.hicasso.impl.generation/registry-epoch))))
+      (is (= (inc before) (rf.fresco.impl.generation/registry-epoch))))
 
     (testing "and a first-time registration moves it by one as well: the
               counter does not distinguish them, because in the render-commit
               gap they are the same defect"
       (rf/reg-sub :hmr-registry/fresh (fn [db _] (:label db)))
-      (is (= (+ 2 before) (rf.hicasso.impl.generation/registry-epoch))))))
+      (is (= (+ 2 before) (rf.fresco.impl.generation/registry-epoch))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. A save is not a re-render trigger
@@ -148,36 +148,36 @@
   ;; term in every key's live contribution and would render identically.
   (seeded! "A")
   (let [{:keys [entry notified release]} (mount-boundary! label-body)
-        snapshot-a (rf.hicasso.test.runtime/snapshot-of entry)]
+        snapshot-a (rf.fresco.test.runtime/snapshot-of entry)]
 
     ;; NEGATIVE CONTROL, taken FIRST so the instrument is proven live before
     ;; it is asked to report a tie.
     (rf/with-frame frame-id (rf/dispatch-sync [:hmr-registry/seed "A2"]))
-    (is (> (rf.hicasso.test.runtime/snapshot-of entry) snapshot-a)
+    (is (> (rf.fresco.test.runtime/snapshot-of entry) snapshot-a)
         "an ordinary write MOVES the number React re-reads — so a tie below
          is the save's property and not a dead instrument")
     (is (= 1 @notified) "and notifies the committed boundary exactly once")
 
-    (let [snapshot-before (rf.hicasso.test.runtime/snapshot-of entry)
+    (let [snapshot-before (rf.fresco.test.runtime/snapshot-of entry)
           notified-before @notified
-          epoch-before    (rf.hicasso.impl.generation/registry-epoch)]
+          epoch-before    (rf.fresco.impl.generation/registry-epoch)]
 
       ;; The save: another namespace reloads and re-runs its registrations.
       (rf/reg-sub :hmr-registry/somewhere-else (fn [db _] (:label db)))
       (rf/reg-sub :hmr-registry/somewhere-else-2 (fn [db _] (:label db)))
 
       (testing "the registry epoch moved, so the save really happened"
-        (is (= (+ 2 epoch-before) (rf.hicasso.impl.generation/registry-epoch))))
+        (is (= (+ 2 epoch-before) (rf.fresco.impl.generation/registry-epoch))))
 
       (testing "and the mounted boundary's number did not move, so React
                 schedules nothing: a held key contributes its cell's frozen
                 stamp, which no registration touches"
-        (is (= snapshot-before (rf.hicasso.test.runtime/snapshot-of entry)))
+        (is (= snapshot-before (rf.fresco.test.runtime/snapshot-of entry)))
         (is (= notified-before @notified)))
 
       (testing "nor was its cell disturbed — the first-registration scan
                 reaches only cells holding the id being registered"
-        (is (some? (rf.hicasso.test.runtime/cell-reaction label-key)))))
+        (is (some? (rf.fresco.test.runtime/cell-reaction label-key)))))
     (release)))
 
 ;; ---------------------------------------------------------------------------
@@ -196,24 +196,24 @@
         held    (mount-boundary! label-body)
         ;; The in-flight boundary: rendered, not yet committed, on a key no
         ;; cell holds. This is the render-commit gap, held open.
-        _staged (rf.hicasso.impl.collector/render-body frame-id
-                                       (fn [_] (rf.hicasso.impl.collector/sub [:hmr-registry/staged]))
+        _staged (rf.fresco.impl.collector/render-body frame-id
+                                       (fn [_] (rf.fresco.impl.collector/sub [:hmr-registry/staged]))
                                        {})
-        staged-entry (rf.hicasso.impl.collector/last-reads)
-        held-before   (rf.hicasso.test.runtime/snapshot-of (:entry held))
-        staged-before (rf.hicasso.test.runtime/snapshot-of staged-entry)]
+        staged-entry (rf.fresco.impl.collector/last-reads)
+        held-before   (rf.fresco.test.runtime/snapshot-of (:entry held))
+        staged-before (rf.fresco.test.runtime/snapshot-of staged-entry)]
 
     (rf/reg-sub :hmr-registry/unrelated-to-both (fn [db _] (:label db)))
 
     (testing "the in-flight boundary's number MOVES — conservative in the
               safe direction, which is the only direction a monotone term
               added to a monotone sum can err in"
-      (is (> (rf.hicasso.test.runtime/snapshot-of staged-entry) staged-before)))
+      (is (> (rf.fresco.test.runtime/snapshot-of staged-entry) staged-before)))
 
     (testing "and the mounted boundary's number TIES, on the very same
               registration — so the term's reach is exactly the set of keys
               inside a render-commit gap and not one key more"
-      (is (= held-before (rf.hicasso.test.runtime/snapshot-of (:entry held)))))
+      (is (= held-before (rf.fresco.test.runtime/snapshot-of (:entry held)))))
 
     ((:release held))))
 
@@ -233,17 +233,17 @@
     (seeded! "hello")
     (let [{:keys [entry notified release value]} (mount-boundary! label-body)]
       (is (= "hello" value) "the boundary committed against the original sub")
-      (is (some? (rf.hicasso.test.runtime/cell-reaction label-key)) "holding a live reaction")
+      (is (some? (rf.fresco.test.runtime/cell-reaction label-key)) "holding a live reaction")
 
       ;; NEGATIVE CONTROL, taken FIRST. Saving a file that registers OTHER
       ;; subscriptions must leave this cell's reaction in place — so the drop
       ;; measured below is caused by editing THIS subscription, and not by
       ;; the mere fact that a registration happened.
       (rf/reg-sub :hmr-registry/some-other-sub (fn [db _] (:label db)))
-      (is (some? (rf.hicasso.test.runtime/cell-reaction label-key))
+      (is (some? (rf.fresco.test.runtime/cell-reaction label-key))
           "an unrelated registration leaves the held reaction intact")
 
-      (let [snapshot-before (rf.hicasso.test.runtime/snapshot-of entry)
+      (let [snapshot-before (rf.fresco.test.runtime/snapshot-of entry)
             notified-before @notified]
 
         ;; THE SAVE: the same id, a changed computation. This is the edit.
@@ -252,12 +252,12 @@
         (testing "synchronously the held reference is gone — the replacement
                   reaches the arm as a disposal, and the repair's first phase
                   drops the reaction rather than deref a retired computation"
-          (is (nil? (rf.hicasso.test.runtime/cell-reaction label-key))))
+          (is (nil? (rf.fresco.test.runtime/cell-reaction label-key))))
 
         (testing "yet React has been told nothing: the key is held, so its
                   contribution is the cell's frozen stamp and no registration
                   moves it"
-          (is (= snapshot-before (rf.hicasso.test.runtime/snapshot-of entry))
+          (is (= snapshot-before (rf.fresco.test.runtime/snapshot-of entry))
               "the number React re-reads TIES across the save")
           (is (= notified-before @notified)
               "and no re-render is scheduled"))
@@ -267,10 +267,10 @@
                   the registration on the cold probe. This is exactly why a
                   rendered assertion is green on both sides of the window and
                   can see none of this"
-          (is (= "HELLO" (rf.hicasso.impl.collector/render-body frame-id label-body {}))))
+          (is (= "HELLO" (rf.fresco.impl.collector/render-body frame-id label-body {}))))
 
         (at-the-checkpoint
-          #(some? (rf.hicasso.test.runtime/cell-reaction label-key))
+          #(some? (rf.fresco.test.runtime/cell-reaction label-key))
           "the edited-sub repair"
           done
           (fn [_turns]
@@ -279,9 +279,9 @@
                       the new registration, moved the number and delivered the
                       notification, so a boundary that painted before the save
                       is told to correct itself before the next paint"
-              (is (some? (rf.hicasso.test.runtime/cell-reaction label-key))
+              (is (some? (rf.fresco.test.runtime/cell-reaction label-key))
                   "re-wired rather than left deaf")
-              (is (> (rf.hicasso.test.runtime/snapshot-of entry) snapshot-before)
+              (is (> (rf.fresco.test.runtime/snapshot-of entry) snapshot-before)
                   "the number React re-reads has moved")
               (is (> @notified notified-before)
                   "the repair is delivered, not merely performed"))
@@ -307,8 +307,8 @@
         ;; populated one and say nothing about the reload. Priming here is what
         ;; makes this row's own rationale — "a bundle captured before the
         ;; reload" — name something that exists.
-        row-before    (rf.hicasso.impl.collector/frame-row frame-id)
-        frames-before (:frames (rf.hicasso.test.runtime/stats))]
+        row-before    (rf.fresco.impl.collector/frame-row frame-id)
+        frames-before (:frames (rf.fresco.test.runtime/stats))]
 
     (rf/make-frame {:id frame-id})
 
@@ -317,17 +317,17 @@
           "the incarnation token is the same object"))
 
     (testing "durable state survives, so a reload does not empty app-db"
-      (is (= "A" (rf.hicasso.impl.collector/render-body frame-id label-body {}))))
+      (is (= "A" (rf.fresco.impl.collector/render-body frame-id label-body {}))))
 
     (testing "and the arm's frame-op memo is untouched, so a bundle captured
               before the reload still addresses the same incarnation"
-      (is (= frames-before (:frames (rf.hicasso.test.runtime/stats)))
+      (is (= frames-before (:frames (rf.fresco.test.runtime/stats)))
           "the reload added no row")
-      (is (true? (same-object? row-before (rf.hicasso.impl.collector/frame-row frame-id)))
+      (is (true? (same-object? row-before (rf.fresco.impl.collector/frame-row frame-id)))
           "and it is the SAME row object — so the bundle captured before the
            reload is the one still in use, which is the claim this row makes
            and could not previously check")
-      (is (true? (same-object? token-before (:incarnation (rf.hicasso.impl.collector/frame-row frame-id))))
+      (is (true? (same-object? token-before (:incarnation (rf.fresco.impl.collector/frame-row frame-id))))
           "pinned to the pre-reload incarnation, by object identity"))
 
     ;; NEGATIVE CONTROL. The token reader is only worth anything if it can

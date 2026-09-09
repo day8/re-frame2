@@ -653,7 +653,7 @@ idioms.
 
 reagent-slim keeps Form-3, so on the slim adapter these components run as-is —
 the table above is for teams staying on the class shape. But when a team
-migrates a Reagent Form-3 *off* the class shape to **Hicasso**
+migrates a Reagent Form-3 *off* the class shape to **Fresco**
 (`h/defview`), the generic "host work becomes a ref" advice does not
 cover every lifecycle role safely: an update hook has no native answer at all,
 the snapshot protocol is a paired pre-/post-commit dance with no native
@@ -664,7 +664,7 @@ This is the MIG-17 decision (skill: `reagent-migration`,
 native equivalent and stay on reagent-slim Form-3 — which is exactly why the
 7-key cap keeps their keys.
 
-| Reagent Form-3 lifecycle | Phase & frequency | Hicasso target (MIG-17) |
+| Reagent Form-3 lifecycle | Phase & frequency | Fresco target (MIG-17) |
 |---|---|---|
 | `:reagent-render` | every render | The `h/defview` render body — extract it as the view, and the other migration rules apply to that body. |
 | `:component-did-mount` | after the first commit, before paint (dev StrictMode may replay mount → unmount → mount) | **Host / DOM work** (focus a node, wire a listener) → a **callback `:ref`** — React's own callback ref, a function at `:ref` called with the node at commit, whose return value is the detach cleanup. It must be a stable top-level `def`; an inline `(fn [n] …)` is a fresh identity every render and re-runs the work on every commit. **Anything with its own hook-shaped lifecycle** (a chart, an editor) → a React island — a raw React or UIx component mounted through `h/defhost` — where ordinary React hooks are legal because you own the source and its call order. **Domain work** ("mark viewed", "load on mount") → the frame's `:initial-events` at `make-frame` (MIG-15), a route's entry cascade, or an ordinary event — there is deliberately no `:on-mount` primitive. |

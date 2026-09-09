@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.z3vlz-probe
+(ns re-frame.bench.fresco.z3vlz-probe
   "THE rf2-z3vlz DISCRIMINATOR — one reactivity probe, four bundles.
 
   rf2-z3vlz records that in HD-008's `:advanced` bench bundle — which
@@ -62,10 +62,10 @@
      frames. `NEVER` and `LATE` are different findings and an instrument
      that cannot tell them apart has not measured the thing in the bead.
 
-  Owner: rf2-z3vlz. Normative context: `docs/design/hicasso/decisions.md`
+  Owner: rf2-z3vlz. Normative context: `docs/design/fresco/decisions.md`
   HD-008."
   (:require ["react-dom" :as react-dom]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -144,14 +144,14 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- cells-text [container]
-  (mapv (fn [i] (rf.bench.hicasso.lane/text-at container i)) (range cells-n)))
+  (mapv (fn [i] (rf.bench.fresco.lane/text-at container i)) (range cells-n)))
 
 (defn- all-at?
   "EVERY cell, not one. A stale page can still hold one fresh cell from a
   previous write, so a single-probe check verifies almost nothing."
   [container v]
   (let [want (str v)]
-    (every? (fn [i] (= want (rf.bench.hicasso.lane/text-at container i))) (range cells-n))))
+    (every? (fn [i] (= want (rf.bench.fresco.lane/text-at container i))) (range cells-n))))
 
 ;; ---------------------------------------------------------------------------
 ;; THE THIRD VARIABLE — the ORDER of write against drain
@@ -201,7 +201,7 @@
                 "still full, so the drain has something to flush")}
    {:id    :yield-then-drain
     :doc   (str "write, yield ONE microtask, then drain — the shape of "
-                "`rf.bench.hicasso.lane/verified-write!`, and therefore of HD-008's arm")}])
+                "`rf.bench.fresco.lane/verified-write!`, and therefore of HD-008's arm")}])
 
 ;; ---------------------------------------------------------------------------
 ;; One verified write, with the escalation ladder
@@ -328,7 +328,7 @@
   "Run [[writes-n]] verified writes under EVERY order, serially, against a
   standing mount. Answers a promise of the flat result vector."
   [substrate container fid write-of]
-  (rf.bench.hicasso.lane/chain []
+  (rf.bench.fresco.lane/chain []
               (for [{:keys [id]} orders, v (range 1 (inc writes-n))] [id v])
               (fn [acc [order v]]
                 (let [[mech write!] (write-of v)]
@@ -341,7 +341,7 @@
   [{:keys [unmount] :as substrate} fid]
   (rf/make-frame {:id fid})
   (rf.frame/replace-app-db! fid (seed-db 0))
-  (let [container   (rf.bench.hicasso.lane/fresh-container!)
+  (let [container   (rf.bench.fresco.lane/fresh-container!)
         handle      (mount! substrate container (root fid cells-n))
         mount-cells (cells-text container)
         mount-ok?   (all-at? container 0)]
@@ -358,17 +358,17 @@
                  ;; a contaminated document. The container is detached either
                  ;; way; the record is what makes it fatal. A NORMAL return is
                  ;; not taken at its word either (rf2-z3vlz, from the PR #7291
-                 ;; audit): `rf.bench.hicasso.lane/container-released!` reads the container
-                 ;; before it goes, exactly as `rf.bench.hicasso.lane/release!` does.
+                 ;; audit): `rf.bench.fresco.lane/container-released!` reads the container
+                 ;; before it goes, exactly as `rf.bench.fresco.lane/release!` does.
                  (when (try (unmount handle)
                             true
                             (catch :default e
-                              (rf.bench.hicasso.lane/teardown-failure! "z3vlz subs-arm unmount" e)))
-                   (rf.bench.hicasso.lane/container-released! "z3vlz subs-arm unmount" container))
+                              (rf.bench.fresco.lane/teardown-failure! "z3vlz subs-arm unmount" e)))
+                   (rf.bench.fresco.lane/container-released! "z3vlz subs-arm unmount" container))
                  (.remove container)
                  {:mount    {:ok? mount-ok? :cells mount-cells}
                   :orders   (tally results)
-                  :teardown (rf.bench.hicasso.lane/drain-teardown-failures!)
+                  :teardown (rf.bench.fresco.lane/drain-teardown-failures!)
                   :failed   (vec (take 3 (remove :ok? results)))})))))
 
 (defn- run-raw-control!
@@ -385,7 +385,7 @@
   inert."
   [{:keys [unmount raw-element raw-write!] :as substrate}]
   (raw-write! 0)
-  (let [container (rf.bench.hicasso.lane/fresh-container!)
+  (let [container (rf.bench.fresco.lane/fresh-container!)
         handle    (mount! substrate container (raw-element))
         mount-ok? (all-at? container 0)]
     (-> (writes-over-orders! substrate container nil
@@ -397,23 +397,23 @@
                  ;; would be measured on a page still carrying the control's
                  ;; roots and its ratom's watchers. A NORMAL return is not
                  ;; taken at its word either (rf2-z3vlz, from the PR #7291
-                 ;; audit): `rf.bench.hicasso.lane/container-released!` reads the container
-                 ;; before it goes, exactly as `rf.bench.hicasso.lane/release!` does.
+                 ;; audit): `rf.bench.fresco.lane/container-released!` reads the container
+                 ;; before it goes, exactly as `rf.bench.fresco.lane/release!` does.
                  (when (try (unmount handle)
                             true
                             (catch :default e
-                              (rf.bench.hicasso.lane/teardown-failure! "z3vlz raw-control unmount" e)))
-                   (rf.bench.hicasso.lane/container-released! "z3vlz raw-control unmount" container))
+                              (rf.bench.fresco.lane/teardown-failure! "z3vlz raw-control unmount" e)))
+                   (rf.bench.fresco.lane/container-released! "z3vlz raw-control unmount" container))
                  (.remove container)
                  {:mount    {:ok? mount-ok?}
                   :orders   (tally results)
-                  :teardown (rf.bench.hicasso.lane/drain-teardown-failures!)})))))
+                  :teardown (rf.bench.fresco.lane/drain-teardown-failures!)})))))
 
 ;; ---------------------------------------------------------------------------
 ;; The gate payload — the same figures, in a shape a driver can ADJUDICATE
 ;; ---------------------------------------------------------------------------
 ;;
-;; `rf.bench.hicasso.lane/record!` parks EDN strings, which are for a reader. A driver that
+;; `rf.bench.fresco.lane/record!` parks EDN strings, which are for a reader. A driver that
 ;; had to scrape them with regexes would be a second, drifting expression
 ;; of the same arithmetic — and a regex that stopped matching would report
 ;; `?` and pass, which is the fail-open shape this rig is being repaired
@@ -464,15 +464,15 @@
   [substrate {:keys [bundle installed compiled-in]} fid]
   (-> (run-raw-control! substrate)
       (.then (fn [control]
-               (rf.bench.hicasso.lane/record! :raw-control control)
+               (rf.bench.fresco.lane/record! :raw-control control)
                (-> (run-subs-arm! substrate fid)
                    (.then (fn [subs] [control subs])))))
       (.then (fn [[control subs]]
-               (rf.bench.hicasso.lane/record! :subs-arm subs)
+               (rf.bench.fresco.lane/record! :subs-arm subs)
                (publish-gates! control subs)
                (let [o (:orders subs)
                      un (fn [k] (get-in o [k :summary]))]
-                 (rf.bench.hicasso.lane/record! :verdict
+                 (rf.bench.fresco.lane/record! :verdict
                    {:bundle         bundle
                     :installed      installed
                     :compiled-in    compiled-in
@@ -491,11 +491,11 @@
                          "arm-to-arm ratio, so there is nothing for the guard to "
                          "adjudicate. The only numbers here are write and DOM "
                          "read-back counts.")}))
-               (rf.bench.hicasso.lane/done!)
+               (rf.bench.fresco.lane/done!)
                nil))
       (.catch (fn [e]
-                (rf.bench.hicasso.lane/fail! (str "the probe threw: " (.-message e) "\n" (.-stack e)))
-                (rf.bench.hicasso.lane/done!)
+                (rf.bench.fresco.lane/fail! (str "the probe threw: " (.-message e) "\n" (.-stack e)))
+                (rf.bench.fresco.lane/done!)
                 nil))))
 
 (defn run-probe!
@@ -504,18 +504,18 @@
   `manifest` describes the bundle so the record is self-describing.
 
   Answers a promise of the whole record and parks it under
-  `window.HICASSO_RESULTS` via [[re-frame.bench.hicasso.lane/record!]]."
+  `window.FRESCO_RESULTS` via [[re-frame.bench.fresco.lane/record!]]."
   [substrate manifest fid]
-  (rf.bench.hicasso.lane/leave-act-environment!)
-  (rf.bench.hicasso.lane/record! :manifest (assoc manifest :runtime (rf.bench.hicasso.lane/runtime-label)
+  (rf.bench.fresco.lane/leave-act-environment!)
+  (rf.bench.fresco.lane/record! :manifest (assoc manifest :runtime (rf.bench.fresco.lane/runtime-label)
                                           :cells cells-n :writes writes-n))
   ;; SYNCHRONOUS throws get the same treatment as rejections. A mount that
   ;; throws before the first `.then` would otherwise escape the chain
-  ;; entirely, leaving `HICASSO_DONE` unset and the driver waiting out its
+  ;; entirely, leaving `FRESCO_DONE` unset and the driver waiting out its
   ;; whole sentinel on what is really a one-line stack.
   (try
     (run-chain! substrate manifest fid)
     (catch :default e
-      (rf.bench.hicasso.lane/fail! (str "the probe threw synchronously: " (.-message e) "\n" (.-stack e)))
-      (rf.bench.hicasso.lane/done!)
+      (rf.bench.fresco.lane/fail! (str "the probe threw synchronously: " (.-message e) "\n" (.-stack e)))
+      (rf.bench.fresco.lane/done!)
       nil)))

@@ -12,7 +12,7 @@
  * rows.
  *
  * THE NATIVE TIER IS NO LONGER ROWED HERE, and the absence is the design
- * (rf2-6c12m.3). `re-frame.hicasso.native` shrank to two plain hook
+ * (rf2-6c12m.3). `re-frame.fresco.native` shrank to two plain hook
  * functions — `use-sub` and `use-frame` — with no marker property, no
  * refusal family and no macro of their own, so there is no string a bundle
  * carries if and only if the namespace is reachable: a sentinel planted
@@ -26,7 +26,7 @@
  * THE HEADING MEANS WHAT IT SAYS OF THE MODULE ROSTER: every module
  * `check_optional_module_reachability.py` rows is measured here except
  * `native`, for the reason just given. The last to arrive was
- * `re-frame.hicasso.server`, which this file carried for one bead as a
+ * `re-frame.fresco.server`, which this file carried for one bead as a
  * named gap on the ground that it is a Node module and the one bundle
  * this gate reads is a browser build — see the server section below,
  * where that objection is answered rather than inherited.
@@ -39,8 +39,8 @@
  *     forms — exhaustively, including a require whose every function
  *     Closure then drops, which leaves no string in a bundle at all;
  *   - the BUNDLE is this file. It reads the one build in the repo that
- *     compiles the package the way a consumer ships it — `:hicasso-release`,
- *     `:advanced` + `goog.DEBUG=false`, entry `re-frame.hicasso.consumer-app`
+ *     compiles the package the way a consumer ships it — `:fresco-release`,
+ *     `:advanced` + `goog.DEBUG=false`, entry `re-frame.fresco.consumer-app`
  *     — and asks whether any optional module's bytes survived into it.
  *
  * The source-side gate is the stronger of the two and is not made
@@ -72,14 +72,14 @@
  * PRESENT, chosen so the pair differs by REACHABILITY and by nothing
  * else:
  *
- *   - `hicassoBoundary` (present) against the three stamped-name rows
+ *   - `frescoBoundary` (present) against the three stamped-name rows
  *     (absent) — own-property writes with `unchecked-set` onto a freshly
  *     minted component, one in a namespace the public door leads to and
  *     three in namespaces it never names. That pairing is what makes the
  *     absence a statement about reachability rather than about
  *     compilation.
- *   - `rf.error/hicasso-empty-vector` (present) against
- *     `re-frame.hicasso.forms/drafts` (absent) — two namespaced keyword
+ *   - `rf.error/fresco-empty-vector` (present) against
+ *     `re-frame.fresco.forms/drafts` (absent) — two namespaced keyword
  *     literals whose fully-qualified names survive `:advanced`, one
  *     minted by the codec the public door reaches and one by a module it
  *     never names.
@@ -90,7 +90,7 @@
  *
  * The native-boundary law's clause 6 says an interpreted-only bundle
  * contains no UIx code. THE
- * MEASURED BUNDLE CONTAINS UIx, and it is not a defect: Hicasso ships no
+ * MEASURED BUNDLE CONTAINS UIx, and it is not a defect: Fresco ships no
  * reactive adapter of its own — `consumer_app.cljs`'s docstring says so
  * where the consumer is standing — and the three adapters a consumer may
  * pick from are Reagent, reagent-slim and UIx. Every one of them is a
@@ -107,13 +107,13 @@
  * compiled almost nothing.
  *
  * The clause's UIx half is therefore a claim about a consumer's
- * dependency graph — *nothing Hicasso makes you take drags UIx in* —
+ * dependency graph — *nothing Fresco makes you take drags UIx in* —
  * and that is the source-side gate's kind of question, not a bundle's.
  * It is reported rather than quietly re-scoped.
  *
  * ## The forms module's two sentinels, and why they are NOT two shapes
  *
- * rf2-sh56 shipped `re-frame.hicasso.forms` — the optional module whose
+ * rf2-sh56 shipped `re-frame.fresco.forms` — the optional module whose
  * `buffered-field` the guide's chapter 5 documents — and it is measured
  * here beside the other modules. The rows are two, and NOT because the
  * module has two reachability shapes: it has ONE. It registers its
@@ -132,13 +132,13 @@
  * Each is paired with an EXISTING control of the same idiom, so the pair
  * differs by reachability and by nothing else:
  *
- *   - `re-frame.hicasso.forms/buffered-field` (absent) against
- *     `re-frame.hicasso.consumer-app/app` (present) — two `h/defview`
+ *   - `re-frame.fresco.forms/buffered-field` (absent) against
+ *     `re-frame.fresco.consumer-app/app` (present) — two `h/defview`
  *     view names, both stamped by `mint-view!` unconditionally, one in a
  *     namespace the release entry requires and one in a namespace
  *     nothing does;
- *   - `re-frame.hicasso.forms/drafts` (absent) against
- *     `rf.error/hicasso-empty-vector` (present) — two namespaced keyword
+ *   - `re-frame.fresco.forms/drafts` (absent) against
+ *     `rf.error/fresco-empty-vector` (present) — two namespaced keyword
  *     literals whose fully-qualified names survive `:advanced` because a
  *     keyword carries its own name at runtime. The concern is
  *     load-bearing three times over: `reg-state` makes it a sub id, an
@@ -157,7 +157,7 @@
  * wrong one.
  *
  * All three new rows are stamped `displayName`s, which is not a new
- * idiom but the one the `hicassoBoundary` control is already read
+ * idiom but the one the `frescoBoundary` control is already read
  * through: `codec/mark-boundary!` writes its marker with `unchecked-set`
  * onto a freshly minted component, and each of these modules writes a
  * NAME onto that same component in the same expression. The pair
@@ -190,8 +190,8 @@
  * ## The server module: a Node module IS a browser-bundle question
  *
  * rf2-fn62g inherited an objection worth answering rather than
- * repeating. `:hicasso-release` is a BROWSER build and
- * `re-frame.hicasso.server` is a Node one, so — the reasoning ran — its
+ * repeating. `:fresco-release` is a BROWSER build and
+ * `re-frame.fresco.server` is a Node one, so — the reasoning ran — its
  * row here asks a different question from the other four's, and might
  * be category-confused.
  *
@@ -207,7 +207,7 @@
  * all. It is the most expensive leak on the roster, not the least
  * checkable one.
  *
- * THE SENTINEL IS `hicasso.ssr`, the keyword NAMESPACE `fresh-frame-id`
+ * THE SENTINEL IS `fresco.ssr`, the keyword NAMESPACE `fresh-frame-id`
  * mints the per-request frame id under. A string handed to `keyword` as
  * a runtime argument is a value: `:advanced` can neither rename it nor
  * drop it while the code that passes it is reachable, and inlining
@@ -236,7 +236,7 @@
  * the hooks namespace has entirely, which is why it is not rowed here.
  * Every name in this
  * module is a `defn` and the namespace has NO top-level side effect, so
- * unlike `hicasso/presence` and the forms rows — both stamped at
+ * unlike `fresco/presence` and the forms rows — both stamped at
  * namespace load — a bare `:require` that never calls anything can be
  * DCE'd to nothing on the CLJS side. That is not a leak this gate is
  * missing; it is the source-side gate's question, and it decides it
@@ -249,7 +249,7 @@
  *
  * WHAT A HIT DOES NOT DISTINGUISH, stated for the same reason. The
  * prototype this module is the product form of —
- * `bench/hicasso/src/re_frame/bench/hicasso/ssr/entry.cljs` — mints the identical
+ * `bench/fresco/src/re_frame/bench/fresco/ssr/entry.cljs` — mints the identical
  * keyword namespace, so a red here names one of two surfaces rather
  * than one. Both are leaks: a bench fixture in the release bundle is
  * its own defect and a worse one. The remedy below says to check both,
@@ -282,7 +282,7 @@ const HERE = path.dirname(path.resolve(__filename));
 const PACKAGE_ROOT = path.dirname(HERE);
 const IMPL_ROOT = path.dirname(PACKAGE_ROOT);
 
-const BUNDLE = path.join(IMPL_ROOT, 'out', 'hicasso-release', 'main.js');
+const BUNDLE = path.join(IMPL_ROOT, 'out', 'fresco-release', 'main.js');
 
 // ---------------------------------------------------------------------------
 // The roster
@@ -296,17 +296,17 @@ const BUNDLE = path.join(IMPL_ROOT, 'out', 'hicasso-release', 'main.js');
 const SENTINELS = [
   {
     surface: 'forms module — the view the chapter documents (rf2-sh56)',
-    sentinel: 're-frame.hicasso.forms/buffered-field',
-    source: 'src/re_frame/hicasso/forms.cljs',
-    premise: '(rf.hicasso/defview buffered-field',
+    sentinel: 're-frame.fresco.forms/buffered-field',
+    source: 'src/re_frame/fresco/forms.cljs',
+    premise: '(rf.fresco/defview buffered-field',
     why:
       'The view NAME `h/defview` computes and `mint-view!` stamps as the ' +
       'boundary\'s `displayName`, unconditionally — the same idiom the ' +
       'release entry\'s own control is read through. It is in this bundle ' +
       'if and only if the module is reachable from the entry.',
     remedy:
-      'Find the `:require` of `re-frame.hicasso.forms` that made the module ' +
-      'reachable. Nothing under implementation/hicasso/src/ may name it and ' +
+      'Find the `:require` of `re-frame.fresco.forms` that made the module ' +
+      'reachable. Nothing under implementation/fresco/src/ may name it and ' +
       'the release entry must not either — an application requires it in the ' +
       'region that wants a buffered field, and ' +
       '`check_optional_module_reachability.py` decides the source half of ' +
@@ -314,9 +314,9 @@ const SENTINELS = [
   },
   {
     surface: 'forms module — the app-db concern every draft lives under (rf2-sh56)',
-    sentinel: 're-frame.hicasso.forms/drafts',
-    source: 'src/re_frame/hicasso/forms.cljs',
-    premise: ':re-frame.hicasso.forms/drafts',
+    sentinel: 're-frame.fresco.forms/drafts',
+    source: 'src/re_frame/fresco/forms.cljs',
+    premise: ':re-frame.fresco.forms/drafts',
     why:
       'The `h/reg-state` concern, which is a sub id, an event id and an ' +
       '`app-db` key at once — the module cannot read or write a draft ' +
@@ -333,19 +333,19 @@ const SENTINELS = [
   },
   {
     surface: 'motion module — the presence boundary\'s stamped name (rf2-ot28g)',
-    sentinel: 'hicasso/presence',
-    source: 'src/re_frame/hicasso/impl/presence_react.cljs',
-    premise: '(aset "displayName" "hicasso/presence")',
+    sentinel: 'fresco/presence',
+    source: 'src/re_frame/fresco/impl/presence_react.cljs',
+    premise: '(aset "displayName" "fresco/presence")',
     why:
       'The `displayName` `impl.presence-react` `aset`s onto the presence ' +
       'component as it mints it, inside the same `codec/mark-boundary!` call ' +
-      'the `hicassoBoundary` control below is read through. It is written at ' +
+      'the `frescoBoundary` control below is read through. It is written at ' +
       'namespace load, unconditionally and under no `goog.DEBUG` guard, so ' +
       'the module cannot be reachable and this string be absent.',
     remedy:
-      'Find the `:require` of `re-frame.hicasso.motion` — or of ' +
+      'Find the `:require` of `re-frame.fresco.motion` — or of ' +
       '`impl.presence` / `impl.presence-react` directly — that made the ' +
-      'module reachable. Nothing under implementation/hicasso/src/ may name ' +
+      'module reachable. Nothing under implementation/fresco/src/ may name ' +
       'it and the release entry must not either; an application requires it ' +
       'in the region that wants presence, and ' +
       '`check_optional_module_reachability.py` decides the source half of ' +
@@ -353,9 +353,9 @@ const SENTINELS = [
   },
   {
     surface: 'overlay module — the popover boundary\'s stamped name (rf2-ot28g)',
-    sentinel: 'hicasso/popover',
-    source: 'src/re_frame/hicasso/impl/overlay.cljs',
-    premise: '(unchecked-set "displayName" "hicasso/popover")',
+    sentinel: 'fresco/popover',
+    source: 'src/re_frame/fresco/impl/overlay.cljs',
+    premise: '(unchecked-set "displayName" "fresco/popover")',
     why:
       'The `displayName` stamped onto `impl.overlay/popover` at namespace ' +
       'load, by the same idiom as the two rows above. THE OVERLAY MODULE ' +
@@ -365,15 +365,15 @@ const SENTINELS = [
       'one in and Closure drops the other. Either sentinel alone is green ' +
       'against the other\'s leak, which is why there are two.',
     remedy:
-      'Find the `:require` of `re-frame.hicasso.overlay` — or of ' +
+      'Find the `:require` of `re-frame.fresco.overlay` — or of ' +
       '`impl.overlay` directly — that made the module reachable. If this ' +
       'row is red alone, only the anchored-panel half was re-exported.',
   },
   {
     surface: 'overlay module — the modal boundary\'s stamped name (rf2-ot28g)',
-    sentinel: 'hicasso/modal',
-    source: 'src/re_frame/hicasso/impl/overlay.cljs',
-    premise: '(unchecked-set "displayName" "hicasso/modal")',
+    sentinel: 'fresco/modal',
+    source: 'src/re_frame/fresco/impl/overlay.cljs',
+    premise: '(unchecked-set "displayName" "fresco/modal")',
     why:
       'The second of the overlay module\'s two shapes — the blocking ' +
       'dialog, stamped at namespace load exactly as `popover` is. It ' +
@@ -386,9 +386,9 @@ const SENTINELS = [
   },
   {
     surface: 'server module — the keyword namespace every request frame is minted under (rf2-fn62g)',
-    sentinel: 'hicasso.ssr',
-    source: 'src/re_frame/hicasso/server.cljs',
-    premise: '(keyword "hicasso.ssr"',
+    sentinel: 'fresco.ssr',
+    source: 'src/re_frame/fresco/server.cljs',
+    premise: '(keyword "fresco.ssr"',
     why:
       'The namespace `fresh-frame-id` hands `keyword` to mint the ' +
       'per-request frame id. A string passed as a runtime argument is a ' +
@@ -400,12 +400,12 @@ const SENTINELS = [
       'binding is `(fresh-frame-id)`. See the header for what this row ' +
       'deliberately does not cover.',
     remedy:
-      'Find the `:require` of `re-frame.hicasso.server` that made the ' +
-      'module reachable. Nothing under implementation/hicasso/src/ may ' +
+      'Find the `:require` of `re-frame.fresco.server` that made the ' +
+      'module reachable. Nothing under implementation/fresco/src/ may ' +
       'name it and the release entry must not either — a Node host ' +
       'requires it, and `check_optional_module_reachability.py` decides ' +
       'the source half exhaustively. IF NOTHING REQUIRES THE MODULE, ' +
-      'look at `bench/hicasso/src/re_frame/bench/hicasso/ssr/entry.cljs`: the ' +
+      'look at `bench/fresco/src/re_frame/bench/fresco/ssr/entry.cljs`: the ' +
       'prototype mints the identical keyword namespace, and a bench ' +
       'fixture in the release bundle is its own defect.',
   },
@@ -413,9 +413,9 @@ const SENTINELS = [
 
 const CONTROLS = [
   {
-    control: 're-frame.hicasso.consumer-app/app',
-    source: 'test/re_frame/hicasso/consumer_app.cljs',
-    premise: '(rf.hicasso/defview app',
+    control: 're-frame.fresco.consumer-app/app',
+    source: 'test/re_frame/fresco/consumer_app.cljs',
+    premise: '(rf.fresco/defview app',
     proves:
       'the release entry\'s `h/defview` really compiled — `mint-view!` stamps ' +
       'this name as the boundary\'s `displayName`, unconditionally. Without ' +
@@ -423,9 +423,9 @@ const CONTROLS = [
       'no declaration at all.',
   },
   {
-    control: 'hicassoBoundary',
-    source: 'src/re_frame/hicasso/impl/codec.cljs',
-    premise: '(unchecked-set f "hicassoBoundary" true)',
+    control: 'frescoBoundary',
+    source: 'src/re_frame/fresco/impl/codec.cljs',
+    premise: '(unchecked-set f "frescoBoundary" true)',
     proves:
       'the interpreted tier\'s own marker machinery compiled. It is the ' +
       'REACHABLE counterpart of the three stamped-name rows: same idiom, ' +
@@ -436,9 +436,9 @@ const CONTROLS = [
       'compilation.',
   },
   {
-    control: 'rf.error/hicasso-empty-vector',
-    source: 'src/re_frame/hicasso/impl/codec.cljs',
-    premise: ':rf.error/hicasso-empty-vector',
+    control: 'rf.error/fresco-empty-vector',
+    source: 'src/re_frame/fresco/impl/codec.cljs',
+    premise: ':rf.error/fresco-empty-vector',
     proves:
       'a namespaced keyword literal minted by the codec survived `:advanced` ' +
       'with its fully-qualified name — the same shape the forms module\'s ' +
@@ -452,7 +452,7 @@ const CONTROLS = [
     proves:
       'a whole React view library and a whole reactive substrate really ' +
       'compiled into this bundle — the UIx adapter the exemplar installs, ' +
-      'which Hicasso deliberately ships none of its own. It is the reason ' +
+      'which Fresco deliberately ships none of its own. It is the reason ' +
       'the absences above are worth reading: a bundle carrying UIx, React, ' +
       'core and the interpreted codec, and STILL carrying no optional ' +
       'module, has isolated the modules rather than compiled nothing. It is ' +
@@ -567,9 +567,9 @@ function selfTest() {
   //   - the hooks namespace's name in PROSE reaches no bundle, but the
   //     codec's docstrings name it and a scanner reading source rather
   //     than the artefact would trip on it;
-  //   - `hicassoBoundary` is the interpreted marker, one word away from
+  //   - `frescoBoundary` is the interpreted marker, one word away from
   //     the stamped module names;
-  //   - the other refusal families share `rf.error/hicasso-` with the
+  //   - the other refusal families share `rf.error/fresco-` with the
   //     forms module's keyword, and the suffix is the whole difference.
   //
   // The forms rows add a near-miss of their own, and it is the reason
@@ -577,37 +577,37 @@ function selfTest() {
   // entirely free to have a `buffered-field` of its own and a `:drafts`
   // key of its own, and a bundle carrying either must stay green.
   const legal = [
-    `${green} … re-frame.hicasso.native/use-sub …`,           // a docstring mention
-    `${green} … hicassoBody hicassoBoundary hicassoOwner …`,   // neighbouring markers
-    `${green} … rf.error/hicasso-empty-vector rf.error/hicasso-bad-head …`,
+    `${green} … re-frame.fresco.native/use-sub …`,           // a docstring mention
+    `${green} … frescoBody frescoBoundary frescoOwner …`,   // neighbouring markers
+    `${green} … rf.error/fresco-empty-vector rf.error/fresco-bad-head …`,
     `${green} … "native" nativeEvent isComposing …`,           // React's own plumbing
-    `${green} … re-frame.hicasso/revision re-frame.hicasso/clear …`,
+    `${green} … re-frame.fresco/revision re-frame.fresco/clear …`,
     `${green} … drafts buffered-field myapp.forms/buffered-field :app/drafts …`,
     // rf2-ot28g. This line used to be here because motion was a sibling
     // module the scan did not cover. Motion is now rowed, and the string
-    // stays for the OPPOSITE reason: `re-frame.hicasso.motion/presence` is
+    // stays for the OPPOSITE reason: `re-frame.fresco.motion/presence` is
     // the door's SYMBOL, which `:advanced` renames and which reaches no
     // bundle even when the module leaks — the real sentinel is the
-    // `displayName` `hicasso/presence`. A row on the symbol would have been
+    // `displayName` `fresco/presence`. A row on the symbol would have been
     // unfalsifiable, and this is what says so.
-    `${green} … re-frame.hicasso.motion/presence …`,
+    `${green} … re-frame.fresco.motion/presence …`,
     // The same distinction for overlay, plus the near-miss that matters
     // most: an application is entirely free to have a modal and a popover
     // of its own, and a bundle carrying either must stay green. This is
-    // why all three new sentinels carry the `hicasso/` prefix the minting
+    // why all three new sentinels carry the `fresco/` prefix the minting
     // namespaces stamp rather than the bare product name.
-    `${green} … re-frame.hicasso.overlay/popover myapp.views/modal popoverTargetAction …`,
+    `${green} … re-frame.fresco.overlay/popover myapp.views/modal popoverTargetAction …`,
     // rf2-fn62g, and this one is the near-miss that matters most for the
     // server row: THE FRAMEWORK'S OWN SSR SURFACES ARE LEGAL HERE. A
     // hydrating client carries `re-frame.ssr`'s payload contract by
     // design — the bootstrap reads the payload script and the policy
     // keywords come with it — so a sentinel that fired on `re-frame.ssr`
     // would be red on every correctly hydrating application. The
-    // module's own contribution is the `hicasso.` prefix and nothing
+    // module's own contribution is the `fresco.` prefix and nothing
     // else, which is why the sentinel carries it. The door SYMBOL is
     // here for the motion row's reason: `:advanced` renames it and it
     // reaches no bundle even when the module leaks.
-    `${green} … re-frame.hicasso.server/render re-frame.ssr.payload-policy ` +
+    `${green} … re-frame.fresco.server/render re-frame.ssr.payload-policy ` +
       `rf.ssr.payload/whole-app-db rf.ssr/hydration-mismatch myapp.ssr/request …`,
   ];
   for (const bundle of legal) {
@@ -630,7 +630,7 @@ function selfTest() {
   }
 
   process.stdout.write(
-    `hicasso bundle isolation: self-test OK ` +
+    `fresco bundle isolation: self-test OK ` +
     `(${SENTINELS.length} sentinels, ${CONTROLS.length} positive controls)\n`
   );
   return 0;
@@ -638,7 +638,7 @@ function selfTest() {
 
 function assert(ok, message) {
   if (!ok) {
-    process.stderr.write(`hicasso bundle isolation: SELF-TEST FAILED\n  ${message}\n`);
+    process.stderr.write(`fresco bundle isolation: SELF-TEST FAILED\n  ${message}\n`);
     process.exit(1);
   }
 }
@@ -646,7 +646,7 @@ function assert(ok, message) {
 // ---------------------------------------------------------------------------
 
 function fail(problems) {
-  process.stderr.write('hicasso bundle isolation: FAIL\n');
+  process.stderr.write('fresco bundle isolation: FAIL\n');
   for (const p of problems) process.stderr.write(`  ${p}\n`);
   return 1;
 }
@@ -660,7 +660,7 @@ function main(argv) {
   if (!fs.existsSync(BUNDLE)) {
     return fail([
       `MISSING RELEASE BUNDLE: ${path.relative(IMPL_ROOT, BUNDLE)}\n` +
-      '    Run `npm run build:hicasso-release`, which compiles it.',
+      '    Run `npm run build:fresco-release`, which compiles it.',
     ]);
   }
 

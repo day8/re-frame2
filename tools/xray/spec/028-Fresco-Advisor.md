@@ -1,11 +1,11 @@
 # 028 — The hot-view advisor and the causal slice
 
-**Status**: shipped (rf2-hic-037) · **Tab**: `:hicasso`, sub-views `Advisor` and `Causal`
-**Producers**: `re-frame.hicasso.tool` (the four evidence reads) + Spec 009's retained ring
-**Consumer**: `day8.re-frame2-xray.panels.hicasso-advisor` + `…panels.hicasso-causal`
-**Normative upstream**: `docs/design/hicasso/product/specification.md` §10 ·
-`docs/design/hicasso/product/lanes/hot-path-architecture.md` ·
-`docs/design/hicasso/product/lanes/left-field-ideas.md` §Capability receipts
+**Status**: shipped (rf2-hic-037) · **Tab**: `:fresco`, sub-views `Advisor` and `Causal`
+**Producers**: `re-frame.fresco.tool` (the four evidence reads) + Spec 009's retained ring
+**Consumer**: `day8.re-frame2-xray.panels.fresco-advisor` + `…panels.fresco-causal`
+**Normative upstream**: `docs/design/fresco/product/specification.md` §10 ·
+`docs/design/fresco/product/lanes/hot-path-architecture.md` ·
+`docs/design/fresco/product/lanes/left-field-ideas.md` §Capability receipts
 
 ---
 
@@ -19,17 +19,17 @@ section — §10's chain, `event → subscriptions recomputed → values changed
 boundaries notified → bodies run → React commit → paint`, with the rule that
 *each link needs an explicit evidence seam*.
 
-They are **sub-views of the Hicasso tab**, not a tab of their own, and that is a
+They are **sub-views of the Fresco tab**, not a tab of their own, and that is a
 correctness choice rather than a layout one. Both are derivations of the same
-one-turn read (`:rf.xray.hicasso/data`). A second tab would take a second turn,
+one-turn read (`:rf.xray.fresco/data`). A second tab would take a second turn,
 and a mount landing between them would give a ranking about a census the slice no
 longer agrees with — the same reason the four evidence envelopes are taken
 together in the first place.
 
 Adding them moved **no governance pin**. The tab, its L4 registration, the focus
 mirror, the registry schema version, the palette counts and the feature-matrix
-handoff are all unchanged; `hicasso-helpers/sub-modes` grew from four entries to
-six, and `empty-copy` grew two matching entries. The `:rf.xray.hicasso/*` sub and
+handoff are all unchanged; `fresco-helpers/sub-modes` grew from four entries to
+six, and `empty-copy` grew two matching entries. The `:rf.xray.fresco/*` sub and
 event ids are the same three.
 
 ---
@@ -53,9 +53,9 @@ The three unavailable rows are not an oversight awaiting a later bead.
   on it orders noise*; independently, two clock reads per attempt inflate a
   boundary in proportion to its attempt COUNT rather than its true cost, so two
   boundaries close in true self time and far apart in attempt count invert.
-- **Commit, paint and attempt outcome are React's.** `re-frame.hicasso.tool`'s
+- **Commit, paint and attempt outcome are React's.** `re-frame.fresco.tool`'s
   `host-projection` states all three `:host-opaque` on every envelope it emits.
-- Hicasso emits no `:rf.view/render` trace, and its User-Timing `:render`
+- Fresco emits no `:rf.view/render` trace, and its User-Timing `:render`
   measures ride `re-frame.performance/enabled?` — an independently gated,
   observer-first channel that is off by default.
 
@@ -75,7 +75,7 @@ surface could make a developer make. **The refusal is the product.**
 
 ### The refusal is about the evidence, not about a missing arm
 
-`hicasso-advisor/ladder` is a real table keyed on the measured OWNER, carrying
+`fresco-advisor/ladder` is a real table keyed on the measured OWNER, carrying
 all five rungs with their working-loop steps. Hand it `:lowering` and it answers
 rung 3; `:react-work`, rung 4; `:react-shaped`, rung 5. Those three owner keys are
 **unreachable from `classify`** on this door, and that is the whole claim.
@@ -171,7 +171,7 @@ An advisor that sends a reader to the retention knob when the evidence was
 already retained is worse than no advisor: it sends them to fix the instrument
 instead of the code.
 
-The repair is **one predicate**, `hicasso-helpers/sub-recompute?`
+The repair is **one predicate**, `fresco-helpers/sub-recompute?`
 (`#{:rf.sub/run :rf.sub/create}`) with `sub-skip?` beside it, in the shared
 algebra both derivations already consume — two definitions of *did work happen*
 is what produced the disagreement, and a third would have been worse. The
@@ -261,7 +261,7 @@ ring still holds, so the two views are one workflow rather than two lookups.
 | # | Link | Seam | Basis |
 |---|---|---|---|
 | 1 | event | Spec 009's retained ring, the bundle for this dispatch | `:observation` |
-| 2 | subscriptions recomputed | that bundle's `:subs` RECOMPUTE events — `hicasso-helpers/sub-recompute?`, keyed `:rf.sub/id` | `:observation` |
+| 2 | subscriptions recomputed | that bundle's `:subs` RECOMPUTE events — `fresco-helpers/sub-recompute?`, keyed `:rf.sub/id` | `:observation` |
 | 3 | values changed | the cell table's epoch stamps, at the boundary's peak | `:observation` |
 | 4 | boundaries notified | the cells' reader arrays — the reverse edge `notify!` walks | `:derivation` |
 | 5 | bodies run | — | `:host-opaque` |
@@ -275,9 +275,9 @@ on separate rows, under separate testids.
 
 Links 2 and 3 are both `:observation` — the sub really recomputed, the cell's
 epoch really moved — and **the join between them is `:uncorrelated`**, because an
-epoch stamp carries no dispatch id and Hicasso's commit seam records no cascade
+epoch stamp carries no dispatch id and Fresco's commit seam records no cascade
 id. Two solid facts, printed adjacent, joined by nothing: exactly the adjacency
-`re-frame.hicasso.tool` refuses to call causality, surfaced as its own row rather
+`re-frame.fresco.tool` refuses to call causality, surfaced as its own row rather
 than implied away by the arrow between two green links. The 1→2 join, by
 contrast, IS evidenced — the ring GROUPS by dispatch-id, so that join is the
 storage rather than an inference.
@@ -366,24 +366,24 @@ carry are otherwise the runtime's own.
 
 ## Rendering contract
 
-Every absence renders through the existing `hicasso-helpers/loss-chip`, so the
+Every absence renders through the existing `fresco-helpers/loss-chip`, so the
 five states stay pairwise distinct in words and testid suffix on these two views
 exactly as on the other four.
 
 | Surface | testid |
 |---|---|
-| advisor root | `rf-xray-hicasso-advisor` |
-| one advice row | `rf-xray-hicasso-advice-<slug>` |
+| advisor root | `rf-xray-fresco-advisor` |
+| one advice row | `rf-xray-fresco-advice-<slug>` |
 | its classification + loss chip | `…-class`, `…-class-loss-<kind>` |
 | its route or refusal | `…-route`, `…-refusal`, `…-refusal-<class>` |
-| the three unmeasured classes | `rf-xray-hicasso-advisor-unmeasured[-<class>]` |
-| causal root | `rf-xray-hicasso-causal` |
-| one link | `rf-xray-hicasso-causal-link-<id>` |
+| the three unmeasured classes | `rf-xray-fresco-advisor-unmeasured[-<class>]` |
+| causal root | `rf-xray-fresco-causal` |
+| one link | `rf-xray-fresco-causal-link-<id>` |
 | its basis, loss chip and JOIN | `…-basis`, `…-loss-<kind>`, `…-join` |
-| the two new empties | `rf-xray-hicasso-empty-advisor`, `rf-xray-hicasso-empty-causal` |
+| the two new empties | `rf-xray-fresco-empty-advisor`, `rf-xray-fresco-empty-causal` |
 
 Row slugs are the existing `boundary-slug`, so the advisor's rows share the
-injective encoding `027-Hicasso-Evidence.md` §The key is INJECTIVE established,
+injective encoding `027-Fresco-Evidence.md` §The key is INJECTIVE established,
 and two frames' boundaries over one query cannot collide here either.
 
 The three unmeasured classes render on **every** advisor render, rows or none —
@@ -395,7 +395,7 @@ panel budget applies through `common-helpers/cap-rows` as elsewhere.
 
 ## Read-only, dev-only, bundle-isolated
 
-`hicasso-reads/trace-windows` is the only new live read. It calls
+`fresco-reads/trace-windows` is the only new live read. It calls
 `re-frame.trace.tooling/trace-buffer` for the frames `explain-render`'s `:window
 :frames` already names — the union of the frames the runtime dispatches through
 and any frame a boundary reads from, computed by the producer for exactly the
@@ -403,17 +403,17 @@ reason a per-boundary window is scoped that way. Reading every frame in the
 process instead would let an unrelated application's activity inflate this one's
 ranking.
 
-It is a **second producer**, not a fifth Hicasso read, and it is stamped as one:
-`hicasso-advisor/sub-timing` carries `:day8.re-frame2-xray.hicasso-advisor.timing/v1`
+It is a **second producer**, not a fifth Fresco read, and it is stamped as one:
+`fresco-advisor/sub-timing` carries `:day8.re-frame2-xray.fresco-advisor.timing/v1`
 and `:producer :re-frame/trace`, so a reader can see which producer vouched for
 which number. The advice and slice envelopes likewise stamp Xray's own schemas —
-stamping the producer's would tell a reader that Hicasso vouched for a ranking it
+stamping the producer's would tell a reader that Fresco vouched for a ranking it
 has never seen.
 
 Nothing is pinned, dispatched or acquired; the read is `try`-guarded and degrades
 to `{}`, which the advisor renders as a capped window rather than as a quiet
 application. Every underlying read is `nil` or `[]` in a production build (the
-Hicasso door and the trace ring both nil-gate on
+Fresco door and the trace ring both nil-gate on
 `re-frame.interop/debug-enabled?`). Xray itself stays out of a release build
 by build placement — the host doesn't load it (see
 [`Principles.md`](./Principles.md) §Production posture is build placement) —
@@ -430,10 +430,10 @@ bead: no new sentinel, no new evidence machinery, and no code under
 
 | Suite | Tier | Proves |
 |---|---|---|
-| `…panels.hicasso-advisor-cljs-test` | node + JVM | the timing fold (untimed ≠ zero; a memo hit is not work; an unnamed run is `:uncorrelated`, never dropped; the per-frame scope); the top-3 against a HAND profile whose frequency order deliberately inverts its time order; the fallback axis says `NOT by time`; the five classifications, each driven from a real window; `:cap` and `:host-opaque` are two remedies in two sentences; **the native refusal as a property over the classifier's whole output**, with the ladder's non-vacuity control beside it; the refusal names a non-Xray authority per candidate |
-| `…panels.hicasso-causal-cljs-test` | node (reactive substrate) | the seven links on a REAL interaction through the real commit seam and the real router; links 1–4 evidenced and 5–7 host-opaque with three distinct authorities; the 2→3 join `:uncorrelated` while the 1→2 join is `:evidenced`; **four mutation rows, each with its positive control**; the loss chips reach the page under distinct testids and change between two genuinely different window states; the advisor answers on the running app and still refuses the ladder; advice and slice come from ONE turn |
-| `…panels.hicasso-skip-semantics-cljs-test` | node + JVM | **both public results, off ONE window** — a skip-only window is `:memo-hits-only` / `:host-opaque` with `:runs` 0, routed to measure-first and never to the retention knob, while the same window's slice holds `[]` recomputes and one `:skipped`; a bundle carrying all four `:rf.sub` operations gives the advisor's recompute COUNT and the slice's recompute ROSTER the same reading; the three unattributed states are pairwise distinct and exactly one names `:rf.trace/events-retained`; an untagged RUN beside a tagged skip still degrades to `:unknown` with a `:dropped` of 1; **and the four-operation matrix** — every `:rf.sub` operation with an `:rf.sub/id` and without one, each cell asserted against what the operation IS *and* against link 2's reading of the same event |
-| `…panels.hicasso-causal-native-island-dom-cljs-test` | browser (real React DOM) | the slice over a subject PAST THE FENCE (rf2-t2d3) — a real raw-React island (a function component mounted through `h/defhost`) reading `n/use-sub`, and a foreign React component reached through `[:>]`, under one boundary. An island's read is a first-class subject: links 1–4 evidenced, its own census row, and the advisor NAMES and TIMES it. Neither subtree's markup reaches any of the four reads, and the foreign component claims no census row and no reverse edge — against a control proving it really rendered and re-rendered. **And the refusal**: links 5–7 are identical over the crossing subject and over an interpreted-only one, with a non-vacuity control showing the two slices otherwise differ, so `:host-opaque` demonstrably does not encode a crossing |
+| `…panels.fresco-advisor-cljs-test` | node + JVM | the timing fold (untimed ≠ zero; a memo hit is not work; an unnamed run is `:uncorrelated`, never dropped; the per-frame scope); the top-3 against a HAND profile whose frequency order deliberately inverts its time order; the fallback axis says `NOT by time`; the five classifications, each driven from a real window; `:cap` and `:host-opaque` are two remedies in two sentences; **the native refusal as a property over the classifier's whole output**, with the ladder's non-vacuity control beside it; the refusal names a non-Xray authority per candidate |
+| `…panels.fresco-causal-cljs-test` | node (reactive substrate) | the seven links on a REAL interaction through the real commit seam and the real router; links 1–4 evidenced and 5–7 host-opaque with three distinct authorities; the 2→3 join `:uncorrelated` while the 1→2 join is `:evidenced`; **four mutation rows, each with its positive control**; the loss chips reach the page under distinct testids and change between two genuinely different window states; the advisor answers on the running app and still refuses the ladder; advice and slice come from ONE turn |
+| `…panels.fresco-skip-semantics-cljs-test` | node + JVM | **both public results, off ONE window** — a skip-only window is `:memo-hits-only` / `:host-opaque` with `:runs` 0, routed to measure-first and never to the retention knob, while the same window's slice holds `[]` recomputes and one `:skipped`; a bundle carrying all four `:rf.sub` operations gives the advisor's recompute COUNT and the slice's recompute ROSTER the same reading; the three unattributed states are pairwise distinct and exactly one names `:rf.trace/events-retained`; an untagged RUN beside a tagged skip still degrades to `:unknown` with a `:dropped` of 1; **and the four-operation matrix** — every `:rf.sub` operation with an `:rf.sub/id` and without one, each cell asserted against what the operation IS *and* against link 2's reading of the same event |
+| `…panels.fresco-causal-native-island-dom-cljs-test` | browser (real React DOM) | the slice over a subject PAST THE FENCE (rf2-t2d3) — a real raw-React island (a function component mounted through `h/defhost`) reading `n/use-sub`, and a foreign React component reached through `[:>]`, under one boundary. An island's read is a first-class subject: links 1–4 evidenced, its own census row, and the advisor NAMES and TIMES it. Neither subtree's markup reaches any of the four reads, and the foreign component claims no census row and no reverse edge — against a control proving it really rendered and re-rendered. **And the refusal**: links 5–7 are identical over the crossing subject and over an interpreted-only one, with a non-vacuity control showing the two slices otherwise differ, so `:host-opaque` demonstrably does not encode a crossing |
 
 The pair-in-one-row shape of the third suite is the point: an advisor-only row
 would go green against a causal slice that had drifted back, and a causal-only
@@ -459,7 +459,7 @@ finding restated as a measurement.
 
 The native-island suite is the one that needs a fiber, and it is the only one
 here that does. `n/use-sub` is a real React hook, and per
-`docs/design/hicasso/product/lanes/testing-xray.md` foreign regions are
+`docs/design/fresco/product/lanes/testing-xray.md` foreign regions are
 mounted-test territory with no fake hook dispatcher, ever — so an island
 reading through the hook cannot be simulated at the node tier and the namespace takes the
 `-dom-cljs-test` suffix that selects `:browser-test`. `:node-test` compiles it

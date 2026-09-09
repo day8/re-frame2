@@ -67,7 +67,7 @@ only the focused family leaf):
 | 24 | `launch-overlay` | yes | `open-overlay!` is the supported FALLBACK for no-layout-host; floats above `document.body`; not the primary path. |
 | 26 | `config-init-vs-settings` | yes | Settings popup wins over the `init!` boot default; merge order `defaults < configure! < Settings`; density is NOT a popup control. |
 | 28 | `panel-route-frames` | yes | The which-image-loaded-which-frame / how-a-frame-resolves question → the Dynamic **Frames** tab (internal id `:module-view`, EP-0023 image→frame lens, no realm/app/module browse dimension); Frames is SHIPPED, not absent, not Static, not the same as Graph; no `mount-module-view!` (L4-only). |
-| 29 | `tab-inventory-count` | yes | The full ordered **10-tab** Dynamic list incl. Frames and Hicasso (count is 10, not 9); correct `:order`; no retired label ("Modules"); no removed tab (Issues / Event / Chrome A11y / Machines-Canvas). |
+| 29 | `tab-inventory-count` | yes | The full ordered **10-tab** Dynamic list incl. Frames and Fresco (count is 10, not 9); correct `:order`; no retired label ("Modules"); no removed tab (Issues / Event / Chrome A11y / Machines-Canvas). |
 | 30 | `graph-projection-vs-static-mode` | yes | The Graph tab's registration-derived view is its OWN per-panel projection toggle (Declared/Realized; shipped-labelled static/live), NOT the L1 Static mode pill; Graph is a Dynamic tab, so Static mode does not show it at all. |
 | 32 | `panel-route-resources` | yes | Route quality: server-state staleness / in-flight → the Dynamic **Resources** tab; live instances follow the L1 frame picker, not the epoch; a deep follow-up loads only `references/panels-resources.md`. |
 | 4, 5, 10, 25 | `launch-hotkey` … `config-init-boot` | no | Trigger-only positives (lower drift; covered by the body's quick-reference). |
@@ -84,7 +84,7 @@ panel-route-schema, panel-route-hydration —
 plus launch-popout (the paired programmatic counterpart to the button
 prompt), the tab-inventory pair panel-route-frames +
 tab-inventory-count that pin the 10-tab Dynamic surface (including Frames
-and Hicasso) so a future drop / misroute of Frames, a dropped Hicasso, or a
+and Fresco) so a future drop / misroute of Frames, a dropped Fresco, or a
 revert to 9 tabs, fails the
 answer-quality layer, and graph-projection-vs-static-mode that pins the
 Graph tab's per-panel projection toggle (Declared/Realized) as distinct from
@@ -171,15 +171,15 @@ skill against the single source of truth in this order:
    fails the Xray build if they drift) and is the JVM-runnable, single
    authoritative count. Today it is
    `#{:epoch :app-db :views :trace :machines :routing :resources
-   :derivation-graph :module-view :hicasso}` — 10 tabs. The internal ids
+   :derivation-graph :module-view :fresco}` — 10 tabs. The internal ids
    map to display labels: `:views`→Views, `:routing`→Routes,
-   `:derivation-graph`→Graph, `:module-view`→Frames (`:hicasso` and the rest
+   `:derivation-graph`→Graph, `:module-view`→Frames (`:fresco` and the rest
    render under their own names).
 2. The per-panel `reg-l4-tab!` calls under
    `tools/xray/src/day8/re_frame2_xray/panels/*.cljs` — confirm each tab's
    `:label`, `:mnem`, and `:order` (for example `module_view.cljs` →
    `{:id :module-view :label "Frames" :mnem "u" :order 9}`). An L4-only
-   tab (Graph, Frames, Hicasso) registers via `reg-l4-tab!` but is not
+   tab (Graph, Frames, Fresco) registers via `reg-l4-tab!` but is not
    in `panel-enum` (it has no standalone `mount-*!` facade).
 3. `tools/xray/spec/API.md` (the §Public surfaces table + §Panel
    reg-views) — the normative published surface, which also enumerates
@@ -199,7 +199,7 @@ git grep -nE '[0-9]+ Dynamic|[0-9]+ lenses|[0-9]+ tabs|[0-9]+-tab|e a v t m r s 
 # a numeral is invisible to it, and that is how the nine-tab and four-view
 # drift survived two sweeps (rf2-5atkk). Probe the last tab and the last two
 # sub-views by NAME as well — every enumeration of the set should hit:
-git grep -nc -e 'Hicasso' -e 'Advisor' -- skills/re-frame2-xray/
+git grep -nc -e 'Fresco' -e 'Advisor' -- skills/re-frame2-xray/
 ```
 
 If the source moves and the skill doesn't,

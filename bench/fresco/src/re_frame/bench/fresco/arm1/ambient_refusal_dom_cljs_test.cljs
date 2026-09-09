@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.arm1.ambient-refusal-dom-cljs-test
+(ns re-frame.bench.fresco.arm1.ambient-refusal-dom-cljs-test
   "THE SCOPING ROW, AGAINST REAL REACT (rf2-2rtt6.122).
 
   The refusal tier's one genuine risk is not that it fails to refuse — the
@@ -6,7 +6,7 @@
   frame published on the context slot and a control row proving the same
   read succeeds one call outside a body. The risk is that it refuses TOO
   MUCH. A fence that also refused legitimate ambient use in an adapter
-  island rendering under a Hicasso tree would be a worse bug than the
+  island rendering under a Fresco tree would be a worse bug than the
   silence it replaced, and it is the one claim no node test can settle,
   because it is a claim about WHEN REACT CALLS A CHILD.
 
@@ -16,7 +16,7 @@
   about React, which is exactly the kind of claim this lane asserts
   against a real root rather than argues.
 
-  So: a real `createRoot`, a real `frame-provider`, a real Hicasso
+  So: a real `createRoot`, a real `frame-provider`, a real Fresco
   boundary, and a real foreign React component under it through the one
   interop door — reading `rf/subscribe` AMBIENTLY, which is the normal and
   correct idiom on every adapter re-frame2 ships. It must read the frame,
@@ -25,21 +25,21 @@
   The file is deliberately all-green: nothing here throws, so no row
   depends on catching a render-phase exception React routes to
   `reportError` where `cljs.test` cannot see it. Mounting the whole page
-  at all is itself the second witness — the Hicasso shell's own
+  at all is itself the second witness — the Fresco shell's own
   `useContext`, the codec's root element, the error boundary and the
   presence tray all render inside or around the refusing extent, and any
   one of them reaching for an ambient frame would take this suite down."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.live-frame :as rf.live-frame]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview defhost]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview defhost]]))
 
 (rf/reg-sub :rt122d/v (fn [db _] (:v db)))
 (rf/reg-event :rt122d/bump (fn [{:keys [db]} _] {:db (update db :v inc)}))
@@ -48,12 +48,12 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::rt122-dom)
 
 (defn- frame! []
-  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.fresco.lane/leave-act-environment!)
   (rf.live-frame/make-frame {:id frame-id})
   (rf.frame/replace-app-db! frame-id {:v 7})
   frame-id)
@@ -67,7 +67,7 @@
 
 (defn- island-component
   "A plain React function component that reads AMBIENTLY. Nothing about it
-  knows Hicasso exists; it is written the way the Reagent, reagent-slim
+  knows Fresco exists; it is written the way the Reagent, reagent-slim
   and UIx guides all teach, and it resolves its frame from the enclosing
   `frame-provider` through the shared adapter context. If the refusal
   leaked past the body that rendered it, this read is where it would
@@ -83,7 +83,7 @@
   island's is the ambient one, in the one position where it stays legal."
   [_]
   [:div.page
-   [:output.collector (str (rf.bench.hicasso.arm1.runtime/sub [:rt122d/v]))]
+   [:output.collector (str (rf.bench.fresco.arm1.runtime/sub [:rt122d/v]))]
    [island {}]])
 
 (defn- text-in [handle selector]
@@ -91,14 +91,14 @@
 
 ;; ---------------------------------------------------------------------------
 
-(deftest an-adapter-island-under-a-hicasso-tree-still-resolves-ambiently
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+(deftest an-adapter-island-under-a-fresco-tree-still-resolves-ambiently
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! "the child-render ordering claim is React's, not the runtime's")
-    (testing "a foreign component rendered from a Hicasso body reads its
+    (testing "a foreign component rendered from a Fresco body reads its
              frame ambiently and renders the value — the binding unwound
              when the body returned, before React ever called the child"
       (let [f      (frame!)
-            handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) f [page])]
+            handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) f [page])]
         (try
           (is (= "7" (text-in handle ".collector"))
               "precondition: the boundary itself rendered through its collector")
@@ -106,25 +106,25 @@
               "and the ambient read inside the island resolved the same frame —
                a refusal leaking past the body would have thrown here instead")
           (testing "and it keeps following the frame when the state moves"
-            (rf.bench.hicasso.arm1.mount/dispatch! handle [:rt122d/bump])
-            (rf.bench.hicasso.arm1.mount/settle!)
+            (rf.bench.fresco.arm1.mount/dispatch! handle [:rt122d/bump])
+            (rf.bench.fresco.arm1.mount/settle!)
             (is (= "8" (text-in handle ".collector")))
             (is (= "8" (text-in handle ".island"))
                 "the island re-read ambiently on the boundary's re-render"))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 (deftest mounting-the-page-at-all-is-the-shells-own-witness
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! "no DOM")
     (testing "the shell's `useContext`, the codec's root element and the
              boundary machinery all run inside or around the refusing
              extent; a page that mounts and paints is each of them proven
              not to have reached for an ambient frame"
       (let [f      (frame!)
-            handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) f [page])]
+            handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) f [page])]
         (try
           (is (some? (.querySelector (:container handle) ".page"))
               "the tree rendered")
           (is (nil? rf.frame/*ambient-frame-refusal*)
               "and the extent is not live outside a body run")
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))

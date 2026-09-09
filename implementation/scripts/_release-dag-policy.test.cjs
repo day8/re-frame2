@@ -284,7 +284,7 @@ test('release.yml publishes 14 artefacts and the model finds all of them', () =>
   // Fail loudly rather than pass vacuously if the deploy shape changes: the
   // whole rule below is a no-op over an empty publisher set. 14 = core
   // (deploy-core) + 11 deploy-leaf matrix values + the two post-matrix stages,
-  // ssr-ring (deploy-ssr-ring) and hicasso (deploy-hicasso, rf2-gra70).
+  // ssr-ring (deploy-ssr-ring) and fresco (deploy-fresco, rf2-gra70).
   assert.equal(
     publishers.size,
     14,
@@ -299,9 +299,9 @@ test('release.yml publishes 14 artefacts and the model finds all of them', () =>
     job: 'deploy-ssr-ring',
     leaf: 'ssr-ring',
   });
-  assert.deepEqual(publishers.get('implementation/hicasso'), {
-    job: 'deploy-hicasso',
-    leaf: 'hicasso',
+  assert.deepEqual(publishers.get('implementation/fresco'), {
+    job: 'deploy-fresco',
+    leaf: 'fresco',
   });
   assert.equal(publishers.get('implementation/ssr').job, 'deploy-leaf');
 });
@@ -332,9 +332,9 @@ test('ACCEPTANCE: if the ssr leaf does not publish, ssr-ring cannot publish', ()
   );
 });
 
-test('ACCEPTANCE: if the ssr leaf does not publish, hicasso cannot publish', () => {
-  // rf2-gra70 — hicasso is the SECOND artefact carrying a published-pom edge
-  // to a sibling leaf (day8/re-frame2-ssr, for re-frame.hicasso.server), so it
+test('ACCEPTANCE: if the ssr leaf does not publish, fresco cannot publish', () => {
+  // rf2-gra70 — fresco is the SECOND artefact carrying a published-pom edge
+  // to a sibling leaf (day8/re-frame2-ssr, for re-frame.fresco.server), so it
   // owes the identical property. Asserted separately rather than folded into
   // the ssr-ring case: a single loop over "the dependent leaves" would pass
   // vacuously the day the set is emptied by a refactor, and the two artefacts
@@ -342,30 +342,30 @@ test('ACCEPTANCE: if the ssr leaf does not publish, hicasso cannot publish', () 
   const jobs = releaseModel.jobs;
   const publishers = discoverPublishers(releaseModel);
   const ssr = publishers.get('implementation/ssr');
-  const hicasso = publishers.get('implementation/hicasso');
-  assert.ok(ssr && hicasso, 'ssr and hicasso must both be published by release.yml');
+  const fresco = publishers.get('implementation/fresco');
+  assert.ok(ssr && fresco, 'ssr and fresco must both be published by release.yml');
   assert.notEqual(
     ssr.job,
-    hicasso.job,
-    'ssr and hicasso must not share a job: GHA cannot order matrix values',
+    fresco.job,
+    'ssr and fresco must not share a job: GHA cannot order matrix values',
   );
   assert.ok(
-    transitiveNeeds(jobs, hicasso.job).has(ssr.job),
-    `${hicasso.job} must transitively need ${ssr.job}; needs = `
-      + `${JSON.stringify(needsOf(jobs[hicasso.job]))}`,
+    transitiveNeeds(jobs, fresco.job).has(ssr.job),
+    `${fresco.job} must transitively need ${ssr.job}; needs = `
+      + `${JSON.stringify(needsOf(jobs[fresco.job]))}`,
   );
 });
 
-test('TEETH: folding hicasso back into the deploy-leaf matrix is rejected', () => {
+test('TEETH: folding fresco back into the deploy-leaf matrix is rejected', () => {
   // Same reconstruction-from-the-current-model shape as the ssr-ring case
   // below, so the negative control cannot rot away from the file under test.
   const regressed = JSON.parse(JSON.stringify(releaseModel));
-  const hoisted = matrixInclude(regressed.jobs['deploy-hicasso']);
-  assert.equal(hoisted.length, 1, 'deploy-hicasso should carry exactly one matrix value');
+  const hoisted = matrixInclude(regressed.jobs['deploy-fresco']);
+  assert.equal(hoisted.length, 1, 'deploy-fresco should carry exactly one matrix value');
   regressed.jobs['deploy-leaf'].strategy.matrix.include.push(hoisted[0]);
-  delete regressed.jobs['deploy-hicasso'];
+  delete regressed.jobs['deploy-fresco'];
   regressed.jobs['github-release'].needs = regressed.jobs['github-release'].needs.filter(
-    (n) => n !== 'deploy-hicasso',
+    (n) => n !== 'deploy-fresco',
   );
 
   const violations = orderingViolations(regressed);
@@ -375,13 +375,13 @@ test('TEETH: folding hicasso back into the deploy-leaf matrix is rejected', () =
     `expected exactly one violation for the folded shape, got ${violations.length}:\n  `
       + violations.join('\n  '),
   );
-  assert.match(violations[0], /hicasso publishes a dependency on day8\/re-frame2-ssr/);
+  assert.match(violations[0], /fresco publishes a dependency on day8\/re-frame2-ssr/);
   assert.match(violations[0], /'deploy-leaf' also publishes/);
 });
 
-test('TEETH: dropping deploy-hicasso\'s needs: edge is rejected', () => {
+test('TEETH: dropping deploy-fresco\'s needs: edge is rejected', () => {
   const regressed = JSON.parse(JSON.stringify(releaseModel));
-  regressed.jobs['deploy-hicasso'].needs = ['deploy-core'];
+  regressed.jobs['deploy-fresco'].needs = ['deploy-core'];
   const violations = orderingViolations(regressed);
   assert.equal(violations.length, 1, `expected one violation, got:\n  ${violations.join('\n  ')}`);
   assert.match(violations[0], /does not transitively require 'deploy-leaf'/);

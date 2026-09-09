@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.arm1.host-hatch-dom-cljs-test
+(ns re-frame.bench.fresco.arm1.host-hatch-dom-cljs-test
   "THE HOST HATCH, PROVEN END-TO-END (rf2-2rtt6.65, HD-011).
 
   The charter's v0 gate says 'one host hatch proven', and use case D9
@@ -9,8 +9,8 @@
   with no door, no foreign component and no DOM anywhere in the witness.
   This file is the other half: a real foreign React component — its own
   `useState`, its own `useEffect`, its own `useContext`, its own ref
-  plumbing — declared once with `defhost`, driven from Hicasso
-  subscriptions, dispatching Hicasso intents, surviving what Hicasso
+  plumbing — declared once with `defhost`, driven from Fresco
+  subscriptions, dispatching Fresco intents, surviving what Fresco
   does around it, and tearing down to the residue witnesses' standard.
 
   ## The proof component is a deliberate worst reasonable case
@@ -27,7 +27,7 @@
 
   ## The hook-budget distinction, measured rather than asserted
 
-  HD-020's ≤2-hook budget is a statement about HICASSO'S OWN boundary
+  HD-020's ≤2-hook budget is a statement about FRESCO'S OWN boundary
   shells. The hosted component's hooks are its own affair — that
   distinction is the whole point of the door — and the dispatcher-level
   probe below is what measures the difference rather than asserting it.
@@ -70,17 +70,17 @@
   skip while the declaration/refusal rows run everywhere."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.hook-probe :as rf.bench.hicasso.arm1.hook-probe]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.presence :refer [presence]]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
-            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.fresco.arm1.hook-probe :as rf.bench.fresco.arm1.hook-probe]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.presence :refer [presence]]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
+            [re-frame.bench.fresco.front.intent :as rf.bench.fresco.front.intent]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.core :as rf]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview defhost event]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview defhost event]]))
 
 (def ^:private frame-id ::host-hatch)
 (def ^:private timeout-ms 60)
@@ -116,12 +116,12 @@
      ;; the presence row waits on a real clock, and `cljs.test`
      ;; hard-errors on a fn-form fixture in a suite with an async test.
      :async?        true
-     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!))}))
 
 (defn- skip! [why] (is true (str "a host-hatch claim needs a real React DOM — " why)))
 
 (defn- fresh! []
-  (rf.bench.hicasso.lane/leave-act-environment!)
+  (rf.bench.fresco.lane/leave-act-environment!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:hatch/seed]))
   frame-id)
@@ -205,7 +205,7 @@
       (react/createElement "button"
         #js {:className "widget-run"
              ;; imperative invoker that USES the return — :handler's
-             ;; 'return ignored' is Hicasso's contract, not the library's
+             ;; 'return ignored' is Fresco's contract, not the library's
              :onClick   (fn [_]
                           (when-some [f (.-onImperative props)]
                             (swap! !instr assoc :imperative-return (f 41))))}
@@ -268,14 +268,14 @@
 (defview screen
   [_]
   [:div.screen
-   [:output.picked-count (str (count (rf.bench.hicasso.arm1.runtime/sub [:hatch/picked-log])))]
-   [themed {:value (rf.bench.hicasso.arm1.runtime/sub [:hatch/theme])}
-    [picker {:label         (rf.bench.hicasso.arm1.runtime/sub [:hatch/label])
-             :draft         (rf.bench.hicasso.arm1.runtime/sub [:hatch/draft])
-             :value         (rf.bench.hicasso.arm1.runtime/sub [:hatch/city])
+   [:output.picked-count (str (count (rf.bench.fresco.arm1.runtime/sub [:hatch/picked-log])))]
+   [themed {:value (rf.bench.fresco.arm1.runtime/sub [:hatch/theme])}
+    [picker {:label         (rf.bench.fresco.arm1.runtime/sub [:hatch/label])
+             :draft         (rf.bench.fresco.arm1.runtime/sub [:hatch/draft])
+             :value         (rf.bench.fresco.arm1.runtime/sub [:hatch/city])
              :on-pick       (event [city e] [:hatch/picked city (.-type e)])
-             :on-close      [:re-frame.hicasso/prevent [:hatch/closed]]
-             :on-draft      [:hatch/typed :re-frame.hicasso/value]
+             :on-close      [:re-frame.fresco/prevent [:hatch/closed]]
+             :on-draft      [:hatch/typed :re-frame.fresco/value]
              :on-imperative stable-imperative
              :ref           grab-ref}
      [:em.gifted "from hiccup"]]]])
@@ -298,7 +298,7 @@
   "The minimal page the hook probe counts: one shell, one hosted widget,
   nothing else."
   [_]
-  [picker {:label (rf.bench.hicasso.arm1.runtime/sub [:hatch/label])}])
+  [picker {:label (rf.bench.fresco.arm1.runtime/sub [:hatch/label])}])
 
 (defview render-prop-page
   "A declared `:render` slot, driven by the foreign component's own
@@ -306,7 +306,7 @@
   its tree — the position table's render row, met where it actually
   bites."
   [_]
-  [render-picker {:label         (rf.bench.hicasso.arm1.runtime/sub [:hatch/label])
+  [render-picker {:label         (rf.bench.fresco.arm1.runtime/sub [:hatch/label])
                   :on-render-row (event [label] (str "rendered:" label))}])
 
 (defview tray
@@ -316,13 +316,13 @@
   `h/event` at `:on-pick` survives lowering and would fail at invocation."
   [_]
   [presence {:timeout-ms timeout-ms}
-   (for [w (rf.bench.hicasso.arm1.runtime/sub [:hatch/widgets])]
+   (for [w (rf.bench.fresco.arm1.runtime/sub [:hatch/widgets])]
      [picker {:key      (:id w)
               :label    (:name w)
               :value    (:name w)
               :on-pick  (event [city e] [:hatch/picked city (.-type e)])
               :on-close [:hatch/closed]
-              :re-frame.hicasso/unmounting {:class "widget--exit"}}])])
+              :re-frame.fresco/unmounting {:class "widget--exit"}}])])
 
 (defview hosted-row
   "A host inside an ordinary boundary — which since rf2-2rtt6.52/HD-028
@@ -336,19 +336,19 @@
   value-equal props. The write moves the chrome only."
   [_]
   [:div
-   [:span.chrome (str (rf.bench.hicasso.arm1.runtime/sub [:hatch/label]))]
+   [:span.chrome (str (rf.bench.fresco.arm1.runtime/sub [:hatch/label]))]
    [hosted-row {:label "fixed"}]])
 
 (defview memo-page
   [_]
   [:div
-   [:span.mlabel (str (rf.bench.hicasso.arm1.runtime/sub [:hatch/label]))]
+   [:span.mlabel (str (rf.bench.fresco.arm1.runtime/sub [:hatch/label]))]
    [memo-picker {:label "fixed" :on-imperative stable-imperative}]])
 
 (defview memo-defeated-page
   [_]
   [:div
-   [:span.mlabel (str (rf.bench.hicasso.arm1.runtime/sub [:hatch/label]))]
+   [:span.mlabel (str (rf.bench.fresco.arm1.runtime/sub [:hatch/label]))]
    [memo-picker {:label "fixed" :on-pick [:hatch/picked "static"]}]])
 
 ;; ---------------------------------------------------------------------------
@@ -360,7 +360,7 @@
 
 (defn- click! [handle sel]
   (.click (q handle sel))
-  (rf.bench.hicasso.arm1.mount/settle!))
+  (rf.bench.fresco.arm1.mount/settle!))
 
 (defn- settled!
   "Let the widget's own effect-driven state land. Its `set-phase` runs in
@@ -371,7 +371,7 @@
   presence's weak half, owned by the library instead)."
   []
   (js/Promise. (fn [resolve]
-                 (js/setTimeout (fn [] (rf.bench.hicasso.arm1.mount/settle!) (resolve true)) 0))))
+                 (js/setTimeout (fn [] (rf.bench.fresco.arm1.mount/settle!) (resolve true)) 0))))
 
 (defn- set-native-value!
   "Write `v` through `HTMLInputElement.prototype`'s OWN value setter,
@@ -385,19 +385,19 @@
   (let [node (q handle sel)]
     (set-native-value! node text)
     (.dispatchEvent node (js/Event. "input" #js {:bubbles true}))
-    (rf.bench.hicasso.arm1.mount/settle!)))
+    (rf.bench.fresco.arm1.mount/settle!)))
 
 (defn- teardown-census!
   "Unmount through the arm's own residue door, read the live-reference
   census, THEN release — the lifecycle suite's ordering, and for the
   same reason: a census taken after `release!` reads an emptied table
-  whatever teardown did. `rf.bench.hicasso.arm1.mount/unmount!` rather than a raw flushSync,
+  whatever teardown did. `rf.bench.fresco.arm1.mount/unmount!` rather than a raw flushSync,
   because it is the door a residue gate is designed to read through —
   and the seam the teardown mutation breaks."
   [handle]
-  (rf.bench.hicasso.arm1.mount/unmount! handle)
-  (let [census (select-keys (rf.bench.hicasso.arm1.runtime/residue) [:cell-refs :boundaries :edges])]
-    (rf.bench.hicasso.arm1.mount/release! (assoc handle :root nil))
+  (rf.bench.fresco.arm1.mount/unmount! handle)
+  (let [census (select-keys (rf.bench.fresco.arm1.runtime/residue) [:cell-refs :boundaries :edges])]
+    (rf.bench.fresco.arm1.mount/release! (assoc handle :root nil))
     census))
 
 (def ^:private released {:cell-refs 0 :boundaries 0 :edges 0})
@@ -406,14 +406,14 @@
 ;; 1 — the crossing, whole: value, context, children, ref, lifecycle
 ;; ---------------------------------------------------------------------------
 
-(deftest the-declared-door-mounts-a-foreign-component-inside-a-hicasso-tree
+(deftest the-declared-door-mounts-a-foreign-component-inside-a-fresco-tree
   (async done
-    (if-not (rf.bench.hicasso.arm1.mount/browser?)
+    (if-not (rf.bench.fresco.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (instr!)
         (fresh!)
-        (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [screen {}])]
+        (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [screen {}])]
           (-> (settled!)
               (.then
                 (fn [_]
@@ -426,12 +426,12 @@
                         (is (= "due date" (.-textContent (q handle ".widget-label")))))
                       (testing "context in: the PROVIDER is hosted, and the
                                 consumer reads it below the crossing — React
-                                context flows through the Hicasso tree because
+                                context flows through the Fresco tree because
                                 the tree is real React elements"
                         (is (= "noir" (attr handle ".widget" "data-theme"))))
                       (testing "React-owned lifecycle: the component advanced
                                 its own state from its own effect, with no
-                                Hicasso involvement — the enter-transition
+                                Fresco involvement — the enter-transition
                                 shape standing in for React-owned animation"
                         (is (= "settled" (attr handle ".widget" "data-phase")))
                         (is (= 1 (:mounts @!instr))))
@@ -451,12 +451,12 @@
 
 (deftest two-namespaced-keywords-reach-two-providers-as-two-distinct-values
   (async done
-    (if-not (rf.bench.hicasso.arm1.mount/browser?)
+    (if-not (rf.bench.fresco.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (instr!)
         (fresh!)
-        (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id
+        (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id
                                   [namespaced-theme-page {}])]
           (-> (settled!)
               (.then
@@ -481,24 +481,24 @@
                                 two subtrees differ there"
                         (is (not= (attr handle ".theme-a .widget" "data-theme")
                                   (attr handle ".theme-b .widget" "data-theme")))))
-                    (finally (rf.bench.hicasso.arm1.mount/release! handle)))))
+                    (finally (rf.bench.fresco.arm1.mount/release! handle)))))
               (.catch (fn [e] (is false (str e)) nil))
               (.then (fn [_] (done)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 2 — callbacks out, and React-owned state surviving Hicasso re-renders
+;; 2 — callbacks out, and React-owned state surviving Fresco re-renders
 ;; ---------------------------------------------------------------------------
 
-(deftest callbacks-cross-out-and-react-owned-state-survives-hicasso-rerenders
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+(deftest callbacks-cross-out-and-react-owned-state-survives-fresco-rerenders
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (instr!)
       (fresh!)
-      (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [screen {}])
+      (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [screen {}])
             census (volatile! nil)]
         (try
-          (rf.bench.hicasso.arm1.mount/settle!)
+          (rf.bench.fresco.arm1.mount/settle!)
           (click! handle ".widget-pick")
           (click! handle ".widget-pick")
           (testing "declared :event + h/event: EVERY argument the foreign
@@ -513,7 +513,7 @@
           (testing "REACT-OWNED STATE SURVIVES: the boundary above re-renders
                     on a moved subscription, the new value crosses, and the
                     foreign useState keeps its count — same fiber, no remount"
-            (rf.bench.hicasso.arm1.mount/dispatch! handle [:hatch/set :label "arrival"])
+            (rf.bench.fresco.arm1.mount/dispatch! handle [:hatch/set :label "arrival"])
             (is (= "arrival" (.-textContent (q handle ".widget-label"))))
             (is (= "2" (attr handle ".widget" "data-clicks")))
             (is (= 1 (:mounts @!instr))
@@ -521,7 +521,7 @@
                  rather than remounted"))
           (testing "and a context value driven by a subscription moves through
                     the hosted provider"
-            (rf.bench.hicasso.arm1.mount/dispatch! handle [:hatch/set :theme "sepia"])
+            (rf.bench.fresco.arm1.mount/dispatch! handle [:hatch/set :theme "sepia"])
             (is (= "sepia" (attr handle ".widget" "data-theme")))
             (is (= "2" (attr handle ".widget" "data-clicks"))))
           (finally (vreset! census (teardown-census! handle))))
@@ -532,23 +532,23 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-prevented-intent-at-a-declared-position-prevents-then-dispatches
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (instr!)
       (fresh!)
-      (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [screen {}])]
+      (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [screen {}])]
         (try
-          (rf.bench.hicasso.arm1.mount/settle!)
+          (rf.bench.fresco.arm1.mount/settle!)
           (let [ev      (js/MouseEvent. "click" #js {:bubbles true :cancelable true})
                 outcome (.dispatchEvent (q handle ".widget-close") ev)]
-            (rf.bench.hicasso.arm1.mount/settle!)
+            (rf.bench.fresco.arm1.mount/settle!)
             (is (false? outcome)
                 "dispatchEvent answers false exactly when preventDefault ran —
                  the ::h/prevent half fired on the real event")
             (is (true? (.-defaultPrevented ev)))
             (is (= 1 (:closed (db))) "and the wrapped intent dispatched"))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 (deftest the-value-marker-materializes-when-the-foreign-invoker-hands-an-event
   (testing "the guide's open question — 'whether ::h/value works across a host
@@ -556,35 +556,35 @@
             foreign contract hands the DOM event first, as this widget's
             onChange does. A value-first invoker has no event to read a
             target from; h/event is that spelling (row 2 above proves it)."
-    (if-not (rf.bench.hicasso.arm1.mount/browser?)
+    (if-not (rf.bench.fresco.arm1.mount/browser?)
       (skip! ":node-test has no DOM")
       (do
         (instr!)
         (fresh!)
-        (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [screen {}])]
+        (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [screen {}])]
           (try
-            (rf.bench.hicasso.arm1.mount/settle!)
+            (rf.bench.fresco.arm1.mount/settle!)
             (type-into! handle ".widget-input" "west")
             (is (= "west" (:draft (db)))
                 "the marker read the event's target across the door")
             (is (= "west" (.-value (q handle ".widget-input")))
                 "and the model echoed back into the foreign input — the loop
                  is closed in both directions")
-            (finally (rf.bench.hicasso.arm1.mount/release! handle))))))))
+            (finally (rf.bench.fresco.arm1.mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — :handler crosses by identity, runs imperatively, returns to the caller
 ;; ---------------------------------------------------------------------------
 
 (deftest a-declared-handler-crosses-by-identity-and-its-return-is-the-foreigners
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (instr!)
       (fresh!)
-      (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [screen {}])]
+      (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [screen {}])]
         (try
-          (rf.bench.hicasso.arm1.mount/settle!)
+          (rf.bench.fresco.arm1.mount/settle!)
           (is (identical? stable-imperative (:received-imperative @!instr))
               ":handler is the FUNCTION ITSELF — the door rewrapped nothing,
                so a library memoising on handler identity is not defeated")
@@ -592,9 +592,9 @@
           (is (= [41] (:imperative-args @!instr)) "the imperative call ran")
           (is (= 82 (:imperative-return @!instr))
               "and the RETURN went back to the foreign caller — 'return
-               ignored' is Hicasso's side of the contract, not the library's")
+               ignored' is Fresco's side of the contract, not the library's")
           (is (= [] (:picked (db))) "and nothing dispatched")
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5 — the declaration's refusals (these rows run under :node-test too)
@@ -606,72 +606,72 @@
 (deftest the-declaration-refuses-what-it-cannot-carry
   (testing "nil component — the broken-import symptom — refuses at the
             declaration, where the author's stack is the declaration site"
-    (is (= :rf.error/hicasso-host-no-component
-           (error-id #(rf.bench.hicasso.front.codec/mint-host! "hatch/nil-host" nil {})))))
+    (is (= :rf.error/fresco-host-no-component
+           (error-id #(rf.bench.fresco.front.codec/mint-host! "hatch/nil-host" nil {})))))
   (testing "a contract on a structural slot is refused in every spelling"
-    (is (= :rf.error/hicasso-host-structural-callback
-           (error-id #(rf.bench.hicasso.front.codec/mint-host! "hatch/reffy" widget
+    (is (= :rf.error/fresco-host-structural-callback
+           (error-id #(rf.bench.fresco.front.codec/mint-host! "hatch/reffy" widget
                                         {:callbacks {:ref :event}}))))
-    (is (= :rf.error/hicasso-host-structural-callback
-           (error-id #(rf.bench.hicasso.front.codec/mint-host! "hatch/reffy" widget
+    (is (= :rf.error/fresco-host-structural-callback
+           (error-id #(rf.bench.fresco.front.codec/mint-host! "hatch/reffy" widget
                                         {:callbacks {"ref" :handler}}))))
-    (is (= :rf.error/hicasso-host-structural-callback
-           (error-id #(rf.bench.hicasso.front.codec/mint-host! "hatch/keyed" widget
+    (is (= :rf.error/fresco-host-structural-callback
+           (error-id #(rf.bench.fresco.front.codec/mint-host! "hatch/keyed" widget
                                         {:callbacks {:x/key :event}})))))
   (testing "an unknown contract is refused at mint, not at first render"
-    (is (= :rf.error/hicasso-unknown-callback-contract
-           (error-id #(rf.bench.hicasso.front.codec/mint-host! "hatch/typo" widget
+    (is (= :rf.error/fresco-unknown-callback-contract
+           (error-id #(rf.bench.fresco.front.codec/mint-host! "hatch/typo" widget
                                         {:callbacks {:on-pick :evnt}})))))
   (testing "two spellings landing on one slot are one contradiction, refused"
-    (is (= :rf.error/hicasso-host-callback-slot-collision
-           (error-id #(rf.bench.hicasso.front.codec/mint-host! "hatch/twice" widget
+    (is (= :rf.error/fresco-host-callback-slot-collision
+           (error-id #(rf.bench.fresco.front.codec/mint-host! "hatch/twice" widget
                                         {:callbacks {:on-pick :event
                                                      :onPick  :handler}}))))))
 
 (deftest the-crossing-refuses-an-undeclared-event-spelled-intent
-  (let [h (rf.bench.hicasso.front.codec/mint-host! "hatch/mini" widget {:callbacks {:on-pick :event}})]
+  (let [h (rf.bench.fresco.front.codec/mint-host! "hatch/mini" widget {:callbacks {:on-pick :event}})]
     (testing "an intent vector at an event-spelled prop the declaration does
               not name refuses LOUDLY, naming the host and the position —
               never inference, and never an inert array shipped to the
               library"
       (try
-        (rf.bench.hicasso.front.codec/as-element [h {:on-nope [:boom]}])
+        (rf.bench.fresco.front.codec/as-element [h {:on-nope [:boom]}])
         (is false "should have thrown")
         (catch :default e
           (let [d (ex-data e)]
-            (is (= :rf.error/hicasso-host-undeclared-callback (:rf.error/id d)))
+            (is (= :rf.error/fresco-host-undeclared-callback (:rf.error/id d)))
             (is (= :on-nope (:position d)))
             (is (= "hatch/mini" (:host d)))))))
     (testing "an event-spelled KEY-MAP at an undeclared position is the same
               refusal"
-      (is (= :rf.error/hicasso-host-undeclared-callback
-             (error-id #(rf.bench.hicasso.front.codec/as-element [h {:on-key-down {"Enter" [:boom]}}])))))
+      (is (= :rf.error/fresco-host-undeclared-callback
+             (error-id #(rf.bench.fresco.front.codec/as-element [h {:on-key-down {"Enter" [:boom]}}])))))
     (testing "a vector at the ref slot is HD-022's reservation, held at the
               host position too"
-      (is (= :rf.error/hicasso-ref-vector-reserved
-             (error-id #(rf.bench.hicasso.front.codec/as-element [h {:ref [:re-frame.hicasso/autosize {}]}])))))
+      (is (= :rf.error/fresco-ref-vector-reserved
+             (error-id #(rf.bench.fresco.front.codec/as-element [h {:ref [:re-frame.fresco/autosize {}]}])))))
     (testing "while a plain data vector at a non-event prop is ordinary data"
-      (is (some? (rf.bench.hicasso.front.codec/as-element [h {:columns [1 2 3]}]))))))
+      (is (some? (rf.bench.fresco.front.codec/as-element [h {:columns [1 2 3]}]))))))
 
 (deftest the-declaration-binds-by-canonical-slot-not-by-spelling
-  (let [h (rf.bench.hicasso.front.codec/mint-host! "hatch/slot-bound" widget {:callbacks {:on-pick :event}})]
+  (let [h (rf.bench.fresco.front.codec/mint-host! "hatch/slot-bound" widget {:callbacks {:on-pick :event}})]
     (testing "the camel spelling lands on the declared slot: the vector was
               LOWERED — outside a boundary that is the intent's own loud
               error — rather than crossing as data"
-      (is (= :rf.error/hicasso-intent-outside-boundary
-             (error-id #(rf.bench.hicasso.front.codec/as-element [h {:onPick [:hatch/picked "x"]}])))))
+      (is (= :rf.error/fresco-intent-outside-boundary
+             (error-id #(rf.bench.fresco.front.codec/as-element [h {:onPick [:hatch/picked "x"]}])))))
     (testing "while an undeclared on* spelling never becomes an event position,
               however event-shaped its name"
-      (is (= :rf.error/hicasso-host-undeclared-callback
-             (error-id #(rf.bench.hicasso.front.codec/as-element [h {:onValueChange [:hatch/picked "x"]}])))))))
+      (is (= :rf.error/fresco-host-undeclared-callback
+             (error-id #(rf.bench.fresco.front.codec/as-element [h {:onValueChange [:hatch/picked "x"]}])))))))
 
 (deftest host-props-convert-shallowly
   (testing "HD-011's default: the top-level key camelCases, the value crosses
             with no renaming inside it — a nested option map keeps the
             spelling the author wrote, and converting it is the author's
             explicit job when a library wants camelCase inside"
-    (let [h  (rf.bench.hicasso.front.codec/mint-host! "hatch/shallow" widget {})
-          el (rf.bench.hicasso.front.codec/as-element [h {:menu-items [{:day-of-week 1}]
+    (let [h  (rf.bench.fresco.front.codec/mint-host! "hatch/shallow" widget {})
+          el (rf.bench.fresco.front.codec/as-element [h {:menu-items [{:day-of-week 1}]
                                    :variant    :compact
                                    :theme      :theme/dark
                                    :class      :primary
@@ -734,24 +734,24 @@
   the render's dynamic extent has unwound."
   [head props]
   (let [!seen (atom [])
-        el    (rf.bench.hicasso.front.intent/with-frame (fn [ev] (swap! !seen conj ev) nil)
-                (fn [] (rf.bench.hicasso.front.codec/as-element [head props])))]
+        el    (rf.bench.fresco.front.intent/with-frame (fn [ev] (swap! !seen conj ev) nil)
+                (fn [] (rf.bench.fresco.front.codec/as-element [head props])))]
     [el !seen]))
 
 (deftest a-declared-render-slot-is-invoked-during-the-foreign-render
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (instr!)
       (fresh!)
-      (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [render-prop-page {}])]
+      (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [render-prop-page {}])]
         (try
-          (rf.bench.hicasso.arm1.mount/settle!)
+          (rf.bench.fresco.arm1.mount/settle!)
           (is (= "rendered:due date" (.-textContent (q handle ".widget-render")))
               "the h/event ran inside the foreign component's own render and its
                return went into the library's tree — not to dispatch")
           (is (= [] (:picked (db))) "and nothing dispatched")
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 (deftest the-declaration-governs-every-carrier-at-its-position
   (testing ":event takes all four carriers, because dispatching is what that
@@ -772,15 +772,15 @@
       (is (= [] @!seen))))
 
   (testing ":handler crosses the h/event by identity and REFUSES the dispatching
-            carriers — its return is ignored and Hicasso dispatches nothing
+            carriers — its return is ignored and Fresco dispatches nothing
             from it, so a carrier whose entire content is a dispatch has no
             reading there"
     (let [[el _] (crossed render-picker {:on-imperative stable-imperative})]
       (is (identical? stable-imperative (prop el "onImperative"))))
-    (is (= :rf.error/hicasso-intent-at-a-non-event-contract
+    (is (= :rf.error/fresco-intent-at-a-non-event-contract
            (error-id #(crossed render-picker {:on-imperative [:hatch/closed]})))
         "a bare intent at a declared :handler no longer silently dispatches")
-    (is (= :rf.error/hicasso-intent-at-a-non-event-contract
+    (is (= :rf.error/fresco-intent-at-a-non-event-contract
            (error-id #(crossed render-picker {:on-imperative {"Enter" [:hatch/closed]}}))))
     (let [[el _] (crossed render-picker {:on-imperative identity})]
       (is (identical? identity (prop el "onImperative"))
@@ -792,12 +792,12 @@
     (let [[el !seen] (crossed render-picker {:on-render-row (event [label] (str "row:" label))})]
       (is (= "row:x" ((prop el "onRenderRow") "x")) "the return went back to the caller")
       (is (= [] @!seen)))
-    (is (= :rf.error/hicasso-intent-at-a-non-event-contract
+    (is (= :rf.error/fresco-intent-at-a-non-event-contract
            (error-id #(crossed render-picker {:on-render-row [:hatch/closed]})))
         "the audit's sharpest case: an intent vector at a declared :render
          position used to take the intent path and dispatch during the
          foreign component's render")
-    (is (= :rf.error/hicasso-intent-at-a-non-event-contract
+    (is (= :rf.error/fresco-intent-at-a-non-event-contract
            (error-id #(crossed render-picker {:on-render-row {"Enter" [:hatch/closed]}}))))
     (let [[el _] (crossed render-picker {:on-render-row identity})]
       (is (identical? identity (prop el "onRenderRow")))))
@@ -854,7 +854,7 @@
       (is false "should have thrown")
       (catch :default e
         (let [d (ex-data e)]
-          (is (= :rf.error/hicasso-host-unclaimed-callback (:rf.error/id d))
+          (is (= :rf.error/fresco-host-unclaimed-callback (:rf.error/id d))
               "its own id, distinct from the sibling's: that one is intent
                DATA at an event-SPELLED undeclared slot, this one is the
                marked form at ANY unclaimed slot")
@@ -874,12 +874,12 @@
 
   (testing "an on*-SPELLED unclaimed slot is the same refusal and not the
             sibling's: the spelling never selected anything here either"
-    (is (= :rf.error/hicasso-host-unclaimed-callback
+    (is (= :rf.error/fresco-host-unclaimed-callback
            (error-id #(crossed render-picker {:on-nope (event [_] [:hatch/closed])})))))
 
   (testing "and a slot with no on* spelling at all is refused just the same —
             the mark is the trigger, never the name"
-    (is (= :rf.error/hicasso-host-unclaimed-callback
+    (is (= :rf.error/fresco-host-unclaimed-callback
            (error-id #(crossed render-picker {:row-formatter (event [x] (str x))})))))
 
   (testing "GREEN — a PLAIN function at the very slot the rows above refuse
@@ -916,13 +916,13 @@
             render position raises, because the position is the thing that
             selected it"
     (let [[el !seen] (crossed render-picker
-                             {:on-render-row (event [_] (rf.bench.hicasso.front.intent/*dispatch* [:hatch/closed]) "never")})]
+                             {:on-render-row (event [_] (rf.bench.fresco.front.intent/*dispatch* [:hatch/closed]) "never")})]
       (try
         ((prop el "onRenderRow") "x")
         (is false "should have thrown")
         (catch :default e
           (let [d (ex-data e)]
-            (is (= :rf.error/hicasso-dispatch-in-render-position (:rf.error/id d)))
+            (is (= :rf.error/fresco-dispatch-in-render-position (:rf.error/id d)))
             (is (= :on-render-row (:position d)))
             (is (= [:hatch/closed] (:event d)))
             (is (re-find #":on-render-row" (ex-message e))))))
@@ -930,12 +930,12 @@
 
 (defn- crossed-in-frame
   "[[crossed]] with the boundary's FRAME KEYWORD bound as well — the
-  3-arity door, which is what a row body's `rf.bench.hicasso.front.intent/*frame*` read (and a
+  3-arity door, which is what a row body's `rf.bench.fresco.front.intent/*frame*` read (and a
   `route-link` in one) needs. Answers `[element !dispatched]`."
   [frame-kw head props]
   (let [!seen (atom [])
-        el    (rf.bench.hicasso.front.intent/with-frame frame-kw (fn [ev] (swap! !seen conj ev) nil)
-                (fn [] (rf.bench.hicasso.front.codec/as-element [head props])))]
+        el    (rf.bench.fresco.front.intent/with-frame frame-kw (fn [ev] (swap! !seen conj ev) nil)
+                (fn [] (rf.bench.fresco.front.codec/as-element [head props])))]
     [el !seen]))
 
 (deftest a-render-props-row-is-owned-by-the-boundary-that-supplied-the-callback
@@ -958,13 +958,13 @@
             ::supplier render-picker
             {:on-render-row
              (event [label]
-               (reset! !frame rf.bench.hicasso.front.intent/*frame*)
-               (reset! !row (rf.bench.hicasso.front.codec/as-element
+               (reset! !frame rf.bench.fresco.front.intent/*frame*)
+               (reset! !row (rf.bench.fresco.front.codec/as-element
                               [:li {:on-click [:hatch/picked label "row"]}]))
                ;; an event-position h/event, lowered in the same body
-               (rf.bench.hicasso.front.codec/as-element
+               (rf.bench.fresco.front.codec/as-element
                  [:button {:on-click (event [_] [:hatch/closed])}]))})
-          btn (rf.bench.hicasso.front.intent/with-frame ::other (fn [ev] (swap! !other conj ev) nil)
+          btn (rf.bench.fresco.front.intent/with-frame ::other (fn [ev] (swap! !other conj ev) nil)
                 (fn [] ((prop el "onRenderRow") "paris")))]
       (is (= ::supplier @!frame)
           "inside the invocation the ambient frame is the OWNER's, not the
@@ -973,7 +973,7 @@
       (is (= [] @!other))
 
       (testing "and then the browser's click, long after both extents unwound"
-        (is (nil? rf.bench.hicasso.front.intent/*dispatch*))
+        (is (nil? rf.bench.fresco.front.intent/*dispatch*))
         ((prop @!row "onClick") #js {})
         ((prop btn "onClick") #js {})
         (is (= [[:hatch/picked "paris" "row"] [:hatch/closed]] @!supplier)
@@ -986,7 +986,7 @@
 (deftest the-vector-spelling-is-event-first-and-says-so-when-it-is-not
   (testing "the positive half, at the invoker contract the door was built for:
             an EVENT-FIRST foreign call, which is what onDraft makes"
-    (let [[el !seen] (crossed picker {:on-draft [:hatch/typed :re-frame.hicasso/value]})]
+    (let [[el !seen] (crossed picker {:on-draft [:hatch/typed :re-frame.fresco/value]})]
       ((prop el "onDraft") #js {:target #js {:value "west"}})
       (is (= [[:hatch/typed "west"]] @!seen))))
 
@@ -995,13 +995,13 @@
             string, and `.preventDefault` on it is the engine's own
             TypeError naming nothing the author wrote. It is this error
             instead, and it names the POSITION"
-    (let [[el !seen] (crossed picker {:on-pick [:re-frame.hicasso/prevent [:hatch/closed]]})]
+    (let [[el !seen] (crossed picker {:on-pick [:re-frame.fresco/prevent [:hatch/closed]]})]
       (try
         ((prop el "onPick") "paris" #js {:preventDefault (fn [] nil)})
         (is false "should have thrown")
         (catch :default e
           (let [d (ex-data e)]
-            (is (= :rf.error/hicasso-intent-needs-the-event (:rf.error/id d)))
+            (is (= :rf.error/fresco-intent-needs-the-event (:rf.error/id d)))
             (is (= :on-pick (:position d)))
             (is (= "preventDefault" (:needed d)))
             (is (= "paris" (:argument d)))
@@ -1011,20 +1011,20 @@
   (testing "the SAME law, one message, for the markers — which is the whole
             point of stating it once: `::h/value` at a value-first position
             fails the same way and reads the same diagnostic"
-    (let [[el _] (crossed picker {:on-pick [:hatch/picked :re-frame.hicasso/value "kind"]})]
+    (let [[el _] (crossed picker {:on-pick [:hatch/picked :re-frame.fresco/value "kind"]})]
       (try
         ((prop el "onPick") "paris" #js {:target #js {:value "x"}})
         (is false "should have thrown")
         (catch :default e
           (let [d (ex-data e)]
-            (is (= :rf.error/hicasso-intent-needs-the-event (:rf.error/id d)))
+            (is (= :rf.error/fresco-intent-needs-the-event (:rf.error/id d)))
             (is (= "target" (:needed d))))))))
 
   (testing "and a key-map, whose failure without the law is the WORST of the
             three — no `.key` to look up means no branch, which is a handler
             that silently does nothing"
     (let [[el _] (crossed picker {:on-pick {"Enter" [:hatch/closed]}})]
-      (is (= :rf.error/hicasso-intent-needs-the-event
+      (is (= :rf.error/fresco-intent-needs-the-event
              (error-id #((prop el "onPick") "paris" #js {:key "Enter"}))))))
 
   (testing "while an intent carrying NEITHER a marker nor a prevent never
@@ -1039,9 +1039,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-door-spends-one-hook-and-the-hosted-hooks-are-its-own
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (rf.bench.hicasso.arm1.hook-probe/install!)
+    (if-not (rf.bench.fresco.arm1.hook-probe/install!)
       (is false (str "React's internals slot was not found, so this claim is "
                      "UNWITNESSED on this build — fix the probe rather than "
                      "reading this as a pass"))
@@ -1049,9 +1049,9 @@
         (instr!)
         (fresh!)
         (let [handle (volatile! nil)
-              names  (rf.bench.hicasso.arm1.hook-probe/record!
+              names  (rf.bench.fresco.arm1.hook-probe/record!
                        (fn [] (vreset! handle
-                                       (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!)
+                                       (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!)
                                                     frame-id [host-page {}]))))]
           (try
             (is (= ["useContext" "useSyncExternalStore"] (vec (take 2 names)))
@@ -1066,16 +1066,16 @@
                      "useContext/useState/useEffect, however React's dev "
                      "dispatcher counts its reads of them. No useRef, no "
                      "useCallback, no useMemo, and no further hook of "
-                     "Hicasso's: " (pr-str names)))
+                     "Fresco's: " (pr-str names)))
             (is (= 2 (count (filter #{"useSyncExternalStore"} names)))
                 (str "exactly TWO on the whole page — the boundary's "
                      "subscription and the door's gate, and no third: "
                      (pr-str names)))
-            (is (= 2 (count rf.bench.hicasso.arm1.runtime/shell-hook-ledger))
+            (is (= 2 (count rf.bench.fresco.arm1.runtime/shell-hook-ledger))
                 (str "and HD-020(b)'s ≤2 budget is untouched by the gate, "
                      "which is not a boundary: it holds no subscription and "
-                     "reads no frame. " (pr-str rf.bench.hicasso.arm1.runtime/shell-hook-ledger)))
-            (finally (rf.bench.hicasso.arm1.mount/release! @handle))))))))
+                     "reads no frame. " (pr-str rf.bench.fresco.arm1.runtime/shell-hook-ledger)))
+            (finally (rf.bench.fresco.arm1.mount/release! @handle))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 7 — the host under presence: retention, override crossing, state survival
@@ -1083,19 +1083,19 @@
 
 (deftest react-owned-state-survives-a-presence-transition-around-the-host
   (async done
-    (if-not (rf.bench.hicasso.arm1.mount/browser?)
+    (if-not (rf.bench.fresco.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (instr!)
         (fresh!)
         (rf/with-frame frame-id
           (rf/dispatch-sync [:hatch/set :widgets [{:id 1 :name "one"}]]))
-        (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [tray {}])]
-          (rf.bench.hicasso.arm1.mount/settle!)
+        (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [tray {}])]
+          (rf.bench.fresco.arm1.mount/settle!)
           (click! handle ".widget-pick")
           (is (= "1" (attr handle ".widget" "data-clicks"))
               "the library's own state moved before the transition")
-          (rf.bench.hicasso.arm1.mount/dispatch! handle [:hatch/set :widgets []])
+          (rf.bench.fresco.arm1.mount/dispatch! handle [:hatch/set :widgets []])
           (is (some? (q handle ".widget"))
               "gone from the model, retained on screen — presence retains a
                host child by key exactly as it retains a native node")
@@ -1121,7 +1121,7 @@
                     would have refused before any click could happen"
             (click! handle ".widget-close")
             (is (= 1 (:closed (db)))))
-          (rf.bench.hicasso.arm1.mount/dispatch! handle [:hatch/set :widgets [{:id 1 :name "one"}]])
+          (rf.bench.fresco.arm1.mount/dispatch! handle [:hatch/set :widgets [{:id 1 :name "one"}]])
           (is (not (.contains (.-classList (q handle ".widget")) "widget--exit"))
               "re-entry cancelled the exit and took the override off")
           (is (= "2" (attr handle ".widget" "data-clicks"))
@@ -1131,16 +1131,16 @@
                remounted, so the library's own state was never reset")
           (is (= 1 (:mounts @!instr)))
           ;; and a real departure is a real unmount, on the clock
-          (rf.bench.hicasso.arm1.mount/dispatch! handle [:hatch/set :widgets []])
+          (rf.bench.fresco.arm1.mount/dispatch! handle [:hatch/set :widgets []])
           (js/setTimeout
             (fn []
-              (rf.bench.hicasso.arm1.mount/settle!)
+              (rf.bench.fresco.arm1.mount/settle!)
               (try
                 (is (nil? (q handle ".widget"))
                     "past :timeout-ms the retained host left")
                 (is (= (:mounts @!instr) (:cleanups @!instr))
                     "and its own effect cleanups ran — no foreign residue")
-                (finally (rf.bench.hicasso.arm1.mount/release! handle) (done))))
+                (finally (rf.bench.fresco.arm1.mount/release! handle) (done))))
             (* 4 timeout-ms)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -1148,19 +1148,19 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest teardown-runs-the-hosted-cleanups-and-leaves-no-residue
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (instr!)
       (fresh!)
-      (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [screen {}])]
-        (rf.bench.hicasso.arm1.mount/settle!)
+      (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [screen {}])]
+        (rf.bench.fresco.arm1.mount/settle!)
         (is (= 1 (:mounts @!instr)))
         (is (some? (:ref-node @!instr)))
         (is (zero? (:ref-cleanups @!instr)))
         (let [census (teardown-census! handle)]
           (is (= 1 (:cleanups @!instr))
-              "unmounting the Hicasso root ran the FOREIGN effect's cleanup —
+              "unmounting the Fresco root ran the FOREIGN effect's cleanup —
                React owns the teardown because React owned the mount")
           (is (= 1 (:ref-cleanups @!instr))
               "and the callback ref's returned cleanup ran on detach — the
@@ -1182,12 +1182,12 @@
             repaired, extended to foreign components, which are exactly the
             ones whose render cost nobody controls."
     (async done
-      (if-not (rf.bench.hicasso.arm1.mount/browser?)
+      (if-not (rf.bench.fresco.arm1.mount/browser?)
         (do (skip! ":node-test has no DOM") (done))
         (do
           (instr!)
           (fresh!)
-          (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id
+          (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id
                                     [chrome-page {}])]
             (-> (settled!)
                 (.then
@@ -1195,7 +1195,7 @@
                     (try
                       (let [before (:renders @!instr)]
                         (is (pos? before) "the host mounted")
-                        (rf.bench.hicasso.arm1.mount/dispatch! handle [:hatch/set :label "chrome moved"])
+                        (rf.bench.fresco.arm1.mount/dispatch! handle [:hatch/set :label "chrome moved"])
                         (is (= "chrome moved" (.-textContent (q handle ".chrome")))
                             "the page chrome really re-rendered")
                         (is (= before (:renders @!instr))
@@ -1204,18 +1204,18 @@
                              props, so the crossing was never re-run")
                         (is (= 1 (:mounts @!instr))
                             "nor was it remounted"))
-                      (finally (rf.bench.hicasso.arm1.mount/release! handle)))))
+                      (finally (rf.bench.fresco.arm1.mount/release! handle)))))
                 (.catch (fn [e] (is false (str e)) nil))
                 (.then (fn [_] (done))))))))))
 
 (deftest a-memoised-hosted-component-and-the-doors-honest-cost
   (async done
-    (if-not (rf.bench.hicasso.arm1.mount/browser?)
+    (if-not (rf.bench.fresco.arm1.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (instr!)
         (fresh!)
-        (let [handle (volatile! (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!)
+        (let [handle (volatile! (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!)
                                              frame-id [memo-page {}]))]
           (-> (settled!)
               (.then
@@ -1224,20 +1224,20 @@
                             shallow-equal props: scalars cross as values and
                             a :handler crosses by identity"
                     (let [before (:renders @!instr)]
-                      (rf.bench.hicasso.arm1.mount/dispatch! @handle [:hatch/set :label "moved"])
+                      (rf.bench.fresco.arm1.mount/dispatch! @handle [:hatch/set :label "moved"])
                       (is (= "moved" (.-textContent (q @handle ".mlabel")))
                           "the parent boundary really re-rendered")
                       (is (= before (:renders @!instr))
                           "and React.memo held across it — the door mints a
                            fresh props OBJECT per render, but every value in
                            it was shallow-equal")))
-                  (rf.bench.hicasso.arm1.mount/release! @handle)
+                  (rf.bench.fresco.arm1.mount/release! @handle)
                   (instr!)
                   ;; same frame, re-seeded — a second make-frame mid-test
                   ;; would be a reincarnation, which is its own suite's
                   ;; subject
                   (rf/with-frame frame-id (rf/dispatch-sync [:hatch/seed]))
-                  (vreset! handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!)
+                  (vreset! handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!)
                                                frame-id [memo-defeated-page {}]))
                   (settled!)))
               (.then
@@ -1253,9 +1253,9 @@
                               equal-props parent re-render before the door is
                               reached at all, which is the row below.)"
                       (let [before (:renders @!instr)]
-                        (rf.bench.hicasso.arm1.mount/dispatch! @handle [:hatch/set :label "moved-again"])
+                        (rf.bench.fresco.arm1.mount/dispatch! @handle [:hatch/set :label "moved-again"])
                         (is (= "moved-again" (.-textContent (q @handle ".mlabel"))))
                         (is (= (inc before) (:renders @!instr)))))
-                    (finally (rf.bench.hicasso.arm1.mount/release! @handle)))))
+                    (finally (rf.bench.fresco.arm1.mount/release! @handle)))))
               (.catch (fn [e] (is false (str e)) nil))
               (.then (fn [_] (done)))))))))

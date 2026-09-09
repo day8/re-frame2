@@ -1,7 +1,7 @@
-(ns re-frame.hicasso.test-kit-dogfood-cljs-test
+(ns re-frame.fresco.test-kit-dogfood-cljs-test
   "THE DOGFOOD WITNESSES, RE-EXPRESSED ON THE PUBLIC KIT.
 
-  `re-frame.bench.hicasso.front.dogfood-cljs-test` proves the front half
+  `re-frame.bench.fresco.front.dogfood-cljs-test` proves the front half
   of a real screen: the state layer the renderings share, and the
   composition — *an intent written in the authoring spelling, lowered
   through the codec's prop walk, invoked as the browser would invoke it,
@@ -10,7 +10,7 @@
   around `codec/as-element`, then `(aget (.-props el) \"onClick\")` to get
   the wrapper back out.
 
-  This file makes **the same claims through `re-frame.hicasso.test` and
+  This file makes **the same claims through `re-frame.fresco.test` and
   nothing else** — no `impl.*` require, no element surgery, no private
   door. That is the kit's acceptance criterion, and it is a real
   test of the design rather than a restatement: if a claim needed an
@@ -19,7 +19,7 @@
 
   ## The screen is local, and it has to be
 
-  The freeze gate seals `implementation/hicasso/**` against requiring a
+  The freeze gate seals `implementation/fresco/**` against requiring a
   benchmark-tree namespace, so the dogfood screen itself cannot be
   imported here. What is re-expressed is therefore the CLAIMS, over a
   screen of the same shape: a filtered to-do list with per-instance
@@ -48,9 +48,9 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.test :as rf.fresco.test]
             [re-frame.test-support :as rf.test-support]))
 
 (def ^:private frame-id ::dogfood)
@@ -116,7 +116,7 @@
      :ambient-frame nil
      :init-fn       (fn []
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-                      (rf.hicasso.impl.collector/reset-runtime!))}))
+                      (rf.fresco.impl.collector/reset-runtime!))}))
 
 (defn- seeded!
   ([] (seeded! 3))
@@ -213,7 +213,7 @@
   (seeded! 3)
   (is (false? (read-sub [:dg/done? 1])))
   (let [{:keys [intents prevented?]}
-        (rf.hicasso.test/fire! frame-id [:button {:on-click [:dg/toggle 1]} "toggle"] :on-click {})]
+        (rf.fresco.test/fire! frame-id [:button {:on-click [:dg/toggle 1]} "toggle"] :on-click {})]
 
     (testing "the intent the position dispatched, as the vector itself"
       (is (= [[:dg/toggle 1]] intents)))
@@ -232,32 +232,32 @@
   (let [field [:input {:type      "text"
                        :value     (read-sub [:dg/draft new-draft-key])
                        :on-input  [:dg/edit-draft new-draft-key
-                                   :re-frame.hicasso/value]}]]
+                                   :re-frame.fresco/value]}]]
 
     (testing "the form IS the controlled door — the runtime's own selection"
-      (is (true? (rf.hicasso.test/controlled? field)))
-      (is (= "" (get (rf.hicasso.test/element-props field) "value"))))
+      (is (true? (rf.fresco.test/controlled? field)))
+      (is (= "" (get (rf.fresco.test/element-props field) "value"))))
 
     (testing "the marker is substituted from the event's own target, and the
               substituted intent is what reached the handler"
       (is (= {:intents [[:dg/edit-draft new-draft-key "mi"]] :prevented? false}
-             (rf.hicasso.test/fire! frame-id field :on-input {:value "mi"})))
+             (rf.fresco.test/fire! frame-id field :on-input {:value "mi"})))
       (is (= "mi" (read-sub [:dg/draft new-draft-key])))
       (is (= {:intents [[:dg/edit-draft new-draft-key "milk"]] :prevented? false}
-             (rf.hicasso.test/fire! frame-id field :on-input {:value "milk"})))
+             (rf.fresco.test/fire! frame-id field :on-input {:value "milk"})))
       (is (= "milk" (read-sub [:dg/draft new-draft-key]))))
 
     (testing "and the same substitution read as pure data agrees with what
               the fired handler dispatched — two doors, one law"
       (is (= [:dg/edit-draft new-draft-key "milk"]
-             (rf.hicasso.test/materialize [:dg/edit-draft new-draft-key :re-frame.hicasso/value]
+             (rf.fresco.test/materialize [:dg/edit-draft new-draft-key :re-frame.fresco/value]
                              {:value "milk"}))))))
 
 (deftest l1-the-form-submits-once-and-prevents-the-browsers-navigation
   (seeded! 3)
   (send! [:dg/edit-draft new-draft-key "milk"])
   (let [{:keys [intents prevented?]}
-        (rf.hicasso.test/fire! frame-id [:form {:on-submit [:dg/create]}] :on-submit {})]
+        (rf.fresco.test/fire! frame-id [:form {:on-submit [:dg/create]}] :on-submit {})]
 
     (testing "the default action is prevented, by policy and without the
               author writing `::h/prevent` — `on-submit` carries it"
@@ -280,10 +280,10 @@
               expectation for both is SILENCE, which is a claim about the
               intents and not only about app-db"
       (is (= {:intents [] :prevented? false}
-             (rf.hicasso.test/fire! frame-id field :on-key-down
+             (rf.fresco.test/fire! frame-id field :on-key-down
                        {:key "Enter" :composing? true :key-code 13})))
       (is (= {:intents [] :prevented? false}
-             (rf.hicasso.test/fire! frame-id field :on-key-down
+             (rf.fresco.test/fire! frame-id field :on-key-down
                        {:key "Enter" :composing? false :key-code 229})))
       (is (= "todo 1" (:title (read-sub [:dg/todo 1]))))
       (is (= "renamed" (read-sub [:dg/draft 1])) "and the draft survives"))
@@ -291,33 +291,33 @@
     (testing "a settled Enter commits — the control that says the two rows
               above are silence rather than a dead handler"
       (is (= [[:dg/commit 1]]
-             (:intents (rf.hicasso.test/fire! frame-id field :on-key-down
+             (:intents (rf.fresco.test/fire! frame-id field :on-key-down
                                  {:key "Enter" :composing? false :key-code 13}))))
       (is (= "renamed" (:title (read-sub [:dg/todo 1])))))
 
     (testing "Escape takes the map's other branch"
       (send! [:dg/edit-draft 1 "second thoughts"])
       (is (= [[:dg/cancel 1]]
-             (:intents (rf.hicasso.test/fire! frame-id field :on-key-down
+             (:intents (rf.fresco.test/fire! frame-id field :on-key-down
                                  {:key "Escape" :composing? false :key-code 27}))))
       (is (= "" (read-sub [:dg/draft 1])))
       (is (= "renamed" (:title (read-sub [:dg/todo 1])))))
 
     (testing "and a key the map does not name dispatches nothing, so a
               key-map is not a catch-all wearing a lookup"
-      (is (= [] (:intents (rf.hicasso.test/fire! frame-id field :on-key-down {:key "a"})))))))
+      (is (= [] (:intents (rf.fresco.test/fire! frame-id field :on-key-down {:key "a"})))))))
 
 (deftest l1-a-position-the-form-does-not-write-refuses
   (testing "a silently absent handler is the fault this door exists to make
             loud, so naming one refuses rather than answering no intents —
             which would be indistinguishable from a handler that fired and
             dispatched nothing"
-    (let [refused (try (rf.hicasso.test/fire! frame-id [:button {:on-click [:dg/toggle 1]}]
+    (let [refused (try (rf.fresco.test/fire! frame-id [:button {:on-click [:dg/toggle 1]}]
                                  :on-double-click {})
                        nil
                        (catch :default e (ex-data e)))]
-      (is (= {:rf.error/id :rf.error/hicasso-test-no-handler-at-position
-              :where       're-frame.hicasso.test
+      (is (= {:rf.error/id :rf.error/fresco-test-no-handler-at-position
+              :where       're-frame.fresco.test
               :position    :on-double-click}
              (select-keys refused [:rf.error/id :where :position]))))))
 
@@ -334,22 +334,22 @@
 
 (defn- row-body
   [{:keys [id]}]
-  (let [todo  (rf.hicasso/sub [:dg/todo id])
-        draft (rf.hicasso/sub [:dg/draft id])]
+  (let [todo  (rf.fresco/sub [:dg/todo id])
+        draft (rf.fresco/sub [:dg/draft id])]
     [:li.row {:data-id id}
      [:input.toggle {:type      "checkbox"
                      :checked   (:done? todo)
                      :on-change [:dg/toggle id]}]
      [:span.title (:title todo)]
      [:input.draft {:value       draft
-                    :on-input    [:dg/edit-draft id :re-frame.hicasso/value]
+                    :on-input    [:dg/edit-draft id :re-frame.fresco/value]
                     :on-key-down {"Enter"  [:dg/commit id]
                                   "Escape" [:dg/cancel id]}}]
      [:button.remove {:on-click [:dg/remove id]} "×"]]))
 
 (defn- filters-body
   [_]
-  (let [current (rf.hicasso/sub [:dg/filter])]
+  (let [current (rf.fresco/sub [:dg/filter])]
     [:nav.filters
      (for [f [:all :active :done]]
        [:button.filter {:key      f
@@ -359,7 +359,7 @@
         (name f)])]))
 
 (deftest l2-the-rendered-row-carries-its-intents-as-data
-  (let [tree (rf.hicasso.test/tree [row-body {:id 1}]
+  (let [tree (rf.fresco.test/tree [row-body {:id 1}]
                         {:subs {[:dg/todo 1]  {:id 1 :title "todo 1" :done? false}
                                  [:dg/draft 1] ""}})]
 
@@ -368,47 +368,47 @@
               green for a drift they share; comparing to a written-out
               vector is not"
       (is (= [[:dg/toggle 1]
-              [:dg/edit-draft 1 :re-frame.hicasso/value]
+              [:dg/edit-draft 1 :re-frame.fresco/value]
               [:dg/commit 1]
               [:dg/cancel 1]
               [:dg/remove 1]]
-             (rf.hicasso.test/intents tree))))
+             (rf.fresco.test/intents tree))))
 
     (testing "the marker is retained as the authored keyword rather than
               resolved — a tree cannot know what a target will carry, and
               writing a value there would be the tree claiming one"
-      (is (= [:dg/edit-draft 1 :re-frame.hicasso/value]
-             (:on-input (rf.hicasso.test/attrs (rf.hicasso.test/find tree #(= "draft" (:class (:attrs %)))))))))
+      (is (= [:dg/edit-draft 1 :re-frame.fresco/value]
+             (:on-input (rf.fresco.test/attrs (rf.fresco.test/find tree #(= "draft" (:class (:attrs %)))))))))
 
     (testing "the read values reached the markup"
-      (is (= "todo 1×" (rf.hicasso.test/text tree)))
-      (is (false? (:checked (rf.hicasso.test/attrs (rf.hicasso.test/find tree #(= "toggle" (:class (:attrs %)))))))))
+      (is (= "todo 1×" (rf.fresco.test/text tree)))
+      (is (false? (:checked (rf.fresco.test/attrs (rf.fresco.test/find tree #(= "toggle" (:class (:attrs %)))))))))
 
     (testing "and the control: the same body with a DONE to-do renders the
               other value, so the row above is reading the fixture"
-      (is (true? (:checked (rf.hicasso.test/attrs (rf.hicasso.test/find (rf.hicasso.test/tree [row-body {:id 1}]
+      (is (true? (:checked (rf.fresco.test/attrs (rf.fresco.test/find (rf.fresco.test/tree [row-body {:id 1}]
                                                          {:subs {[:dg/todo 1] {:done? true}
                                                                   [:dg/draft 1] ""}})
                                               #(= "toggle" (:class (:attrs %)))))))))))
 
 (deftest l2-a-dynamic-child-list-renders-inside-the-body-s-own-window
-  (let [tree (rf.hicasso.test/tree [filters-body {}] {:subs {[:dg/filter] :active}})]
+  (let [tree (rf.fresco.test/tree [filters-body {}] {:subs {[:dg/filter] :active}})]
 
     (testing "a `for` inside the body splices its members as children — the
               runtime's one-level flatten, not a second rule"
-      (is (= 3 (count (rf.hicasso.test/find-all tree #(= :button (:tag %))))))
-      (is (= "allactivedone" (rf.hicasso.test/text tree))))
+      (is (= 3 (count (rf.fresco.test/find-all tree #(= :button (:tag %))))))
+      (is (= "allactivedone" (rf.fresco.test/text tree))))
 
     (testing "each member keeps the key it was written with"
       (is (= [:all :active :done]
-             (mapv :key (rf.hicasso.test/find-all tree #(= :button (:tag %)))))))
+             (mapv :key (rf.fresco.test/find-all tree #(= :button (:tag %)))))))
 
     (testing "and the read taken INSIDE the loop is the read the fixture
               answered — which is what says the walk happened inside the
               body's own render window rather than after it"
       (is (= "filter on"
-             (:class (rf.hicasso.test/attrs (rf.hicasso.test/find tree #(= :active (:data-filter (:attrs %))))))))
+             (:class (rf.fresco.test/attrs (rf.fresco.test/find tree #(= :active (:data-filter (:attrs %))))))))
       (is (= "filter"
-             (:class (rf.hicasso.test/attrs (rf.hicasso.test/find tree #(= :all (:data-filter (:attrs %))))))))
+             (:class (rf.fresco.test/attrs (rf.fresco.test/find tree #(= :all (:data-filter (:attrs %))))))))
       (is (= [[:dg/set-filter :all] [:dg/set-filter :active] [:dg/set-filter :done]]
-             (rf.hicasso.test/intents tree))))))
+             (rf.fresco.test/intents tree))))))

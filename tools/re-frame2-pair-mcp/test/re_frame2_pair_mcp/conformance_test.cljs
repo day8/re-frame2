@@ -1771,8 +1771,8 @@
     {:isError? true
      :reason :no-target-arg}}
 
-   ;; ---------- the three re-frame.hicasso.tool reads ---------------------
-   ;; Each ships one self-describing form that RESOLVES re-frame.hicasso.tool at
+   ;; ---------- the three re-frame.fresco.tool reads ---------------------
+   ;; Each ships one self-describing form that RESOLVES re-frame.fresco.tool at
    ;; runtime — `find-ns-obj` on the door, `unchecked-get` on the munged read —
    ;; and resolves to an {:ok? ...} envelope projected via map-envelope-result
    ;; (every :ok? false is isError). The stub returns the envelope that form
@@ -1783,18 +1783,18 @@
    ;; place each read is named in the emitted form since rf2-t2ec replaced the
    ;; fully-qualified var reference. These fixtures therefore pin the emitter and
    ;; nothing else: a form naming a read the provider does not publish matches a
-   ;; stub here just as happily as a real one. `hicasso-wire-test` is what reads
+   ;; stub here just as happily as a real one. `fresco-wire-test` is what reads
    ;; the provider's own source and holds the other side of that, and the
-   ;; door-absent rung is only witnessed live (test/live-hicasso-wire.cjs) —
+   ;; door-absent rung is only witnessed live (test/live-fresco-wire.cjs) —
    ;; a stub cannot reject a form the way shadow's analyzer can.
    {:fixture/id    :read-mounted-boundaries/happy
-    :fixture/doc   "read-mounted-boundaries forwards the versioned roster; the form resolves re-frame.hicasso.tool at runtime and calls read-mounted-boundaries off it. A boundary is keyed by its READ SET — the runtime mints no boundary identity — and :views names the declared views that rendered that set, with the source coordinate defview captured."
+    :fixture/doc   "read-mounted-boundaries forwards the versioned roster; the form resolves re-frame.fresco.tool at runtime and calls read-mounted-boundaries off it. A boundary is keyed by its READ SET — the runtime mints no boundary identity — and :views names the declared views that rendered that set, with the source coordinate defview captured."
     :fixture/tool  "read-mounted-boundaries"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.hicasso.evidence/v3
-                                                          :producer :re-frame/hicasso
+     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.fresco.evidence/v3
+                                                          :producer :re-frame/fresco
                                                           :read :mounted-boundaries
                                                           :complete? true :loss nil
                                                           :boundaries [{:boundary {:parent nil
@@ -1811,11 +1811,11 @@
      [:default                                           nil]]
     :fixture/eval-form-must-contain
     ["(cljs.core/munge \"read-mounted-boundaries\")"
-     "(cljs.core/find-ns-obj \"re-frame.hicasso.tool\")"]
+     "(cljs.core/find-ns-obj \"re-frame.fresco.tool\")"]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :schema :re-frame.hicasso.evidence/v3
-                  :producer :re-frame/hicasso :complete? true}
+     :edn-submap {:ok? true :schema :re-frame.fresco.evidence/v3
+                  :producer :re-frame/fresco :complete? true}
      :edn-contains-keys #{:boundaries :generation}}}
 
    {:fixture/id    :read-mounted-boundaries/empty-but-versioned
@@ -1824,7 +1824,7 @@
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.hicasso.evidence/v3
+     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.fresco.evidence/v3
                                                           :read :mounted-boundaries
                                                           :complete? true :loss nil
                                                           :boundaries []}]
@@ -1834,32 +1834,32 @@
      :edn-submap {:ok? true :boundaries []}}}
 
    {:fixture/id    :read-mounted-boundaries/tier-unavailable-iserror
-    :fixture/doc   "when re-frame.hicasso.tool is not loaded - a Reagent/UIx app, or a Hicasso app nothing pulled the door into (nothing in re-frame.hicasso requires it, which is how a production build never loads it) - find-ns-obj answers nil and the form resolves to {:ok? false :reason :evidence-tier-unavailable}, surfaced as an isError envelope. Absent evidence tolerated explicitly, never a fabricated empty roster."
+    :fixture/doc   "when re-frame.fresco.tool is not loaded - a Reagent/UIx app, or a Fresco app nothing pulled the door into (nothing in re-frame.fresco requires it, which is how a production build never loads it) - find-ns-obj answers nil and the form resolves to {:ok? false :reason :evidence-tier-unavailable}, surfaced as an isError envelope. Absent evidence tolerated explicitly, never a fabricated empty roster."
     :fixture/tool  "read-mounted-boundaries"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
      ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? false :reason :evidence-tier-unavailable
-                                                          :hint "the re-frame.hicasso.tool evidence door is not loaded..."}]
+                                                          :hint "the re-frame.fresco.tool evidence door is not loaded..."}]
      [:default                                           nil]]
     :fixture/expect
     {:isError? true
      :edn-submap {:ok? false :reason :evidence-tier-unavailable}}}
 
    {:fixture/id    :read-mounted-boundaries/schema-mismatch-iserror
-    :fixture/doc   "a projection stamped an evidence schema this pair build was NOT written against is converted to a typed {:ok? false :reason :evidence-tier-version-mismatch} (isError) by the consumer-owned schema gate - Pair reaches an arbitrarily old/new app, so the producer's stamp does not define support. The superseded v2 is the honest fixture: re-frame.hicasso.evidence states there is no acceptance path for a superseded version and no compatibility adapter, because a v2 parser handed a v3 envelope reads :views as absent and the scope axis as missing rather than failing."
+    :fixture/doc   "a projection stamped an evidence schema this pair build was NOT written against is converted to a typed {:ok? false :reason :evidence-tier-version-mismatch} (isError) by the consumer-owned schema gate - Pair reaches an arbitrarily old/new app, so the producer's stamp does not define support. The superseded v2 is the honest fixture: re-frame.fresco.evidence states there is no acceptance path for a superseded version and no compatibility adapter, because a v2 parser handed a v3 envelope reads :views as absent and the scope axis as missing rather than failing."
     :fixture/tool  "read-mounted-boundaries"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.hicasso.evidence/v2
+     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.fresco.evidence/v2
                                                           :boundaries []}]
      [:default                                           nil]]
     :fixture/expect
     {:isError? true
      :edn-submap {:ok? false :reason :evidence-tier-version-mismatch
-                  :expected :re-frame.hicasso.evidence/v3
-                  :actual :re-frame.hicasso.evidence/v2}}}
+                  :expected :re-frame.fresco.evidence/v3
+                  :actual :re-frame.fresco.evidence/v2}}}
 
    {:fixture/id    :read-read-attribution/happy
     :fixture/doc   "read-read-attribution forwards the reverse edge exactly: per subscription its :sub-id, projected :query, :frame-id, :epoch, :fan-out (one slot per reading boundary) and the distinct :readers holding them - each keyed identically to read-mounted-boundaries so the two rosters join with no correlation step, and each carrying its :views."
@@ -1867,8 +1867,8 @@
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["(cljs.core/munge \"read-read-attribution\")"      {:ok? true :schema :re-frame.hicasso.evidence/v3
-                                                          :producer :re-frame/hicasso
+     ["(cljs.core/munge \"read-read-attribution\")"      {:ok? true :schema :re-frame.fresco.evidence/v3
+                                                          :producer :re-frame/fresco
                                                           :read :read-attribution
                                                           :complete? true :loss nil
                                                           :edges [{:sub-id :todo :query [:todo 7]
@@ -1906,8 +1906,8 @@
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["(cljs.core/munge \"explain-render\")"             {:ok? true :schema :re-frame.hicasso.evidence/v3
-                                                          :producer :re-frame/hicasso
+     ["(cljs.core/munge \"explain-render\")"             {:ok? true :schema :re-frame.fresco.evidence/v3
+                                                          :producer :re-frame/fresco
                                                           :read :explain-render
                                                           :complete? false
                                                           :loss {:reason :uncorrelated :dropped :unknown}
@@ -1945,8 +1945,8 @@
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["(cljs.core/munge \"explain-render\")"             {:ok? true :schema :re-frame.hicasso.evidence/v3
-                                                          :producer :re-frame/hicasso
+     ["(cljs.core/munge \"explain-render\")"             {:ok? true :schema :re-frame.fresco.evidence/v3
+                                                          :producer :re-frame/fresco
                                                           :read :explain-render
                                                           :complete? false
                                                           :loss {:reason :uncorrelated :dropped :unknown}

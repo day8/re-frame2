@@ -303,7 +303,7 @@
   identically:
 
     - the public `useContext` RETURN and the class-component `.-context`
-      read — the renderer-agnostic paths Hicasso's boundary, overlay and
+      read — the renderer-agnostic paths Fresco's boundary, overlay and
       presence seams take (rf2-2rzx0); and
     - a direct `_currentValue` slot read — the substrate-portable reader path
       ([[function-component-current-frame]] below).

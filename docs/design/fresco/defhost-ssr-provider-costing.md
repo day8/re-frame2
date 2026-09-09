@@ -43,7 +43,7 @@ wrapper that contributes no markup of its own and exists solely to carry a
 subtree — deletes that subtree from the server response.
 
 The witness is [the namespace printed at the end of this page](#the-witness),
-dropped into `implementation/freehand/test/re_frame/bench/hicasso/arm1/` and run
+dropped into `implementation/freehand/test/re_frame/bench/fresco/arm1/` and run
 with `node out/node-test.js --test=<ns>` after
 `node scripts/compile-node-test.cjs node-test out/node-test.js` from
 `implementation/`. It was run, then removed — nothing under `implementation/` is
@@ -86,10 +86,10 @@ And no `:ssr` value expresses "render the children". All four spellings an
 author would reach for are refused at the declaration:
 
 ```
-  :ssr :children    -> :rf.error/hicasso-host-bad-ssr-policy
-  :ssr :transparent -> :rf.error/hicasso-host-bad-ssr-policy
-  :ssr :passthrough -> :rf.error/hicasso-host-bad-ssr-policy
-  :ssr :server      -> :rf.error/hicasso-host-bad-ssr-policy
+  :ssr :children    -> :rf.error/fresco-host-bad-ssr-policy
+  :ssr :transparent -> :rf.error/fresco-host-bad-ssr-policy
+  :ssr :passthrough -> :rf.error/fresco-host-bad-ssr-policy
+  :ssr :server      -> :rf.error/fresco-host-bad-ssr-policy
 ```
 
 ### Why
@@ -183,7 +183,7 @@ enforced and half is not. Measured:
 
 | Written in a fallback | What happens |
 |---|---|
-| `[:button {:on-click [:x/y]} "go"]` | refused — `:rf.error/hicasso-intent-outside-boundary` |
+| `[:button {:on-click [:x/y]} "go"]` | refused — `:rf.error/fresco-intent-outside-boundary` |
 | `[shell {}]` (a `defview` head) | mints; renders a live boundary that reads subscriptions |
 
 A boundary head defers its body to render time, where the frame comes from React
@@ -217,9 +217,9 @@ Worth correcting whenever those pages are next touched; not worth a PR of its
 own, and this proposal does not touch them.
 
 Separately: **Spec 011 and Spec 009 do not reason about `defhost`'s `:ssr` at
-all.** `spec/009-Instrumentation.md` carries no `hicasso-host-*` error id — the
-whole family, `:rf.error/hicasso-host-bad-ssr-policy` included, is uncatalogued —
-and `spec/011-SSR.md` names neither `hicasso` nor `defhost`. The spec surface
+all.** `spec/009-Instrumentation.md` carries no `fresco-host-*` error id — the
+whole family, `:rf.error/fresco-host-bad-ssr-policy` included, is uncatalogued —
+and `spec/011-SSR.md` names neither `fresco` nor `defhost`. The spec surface
 that *does* reason about a host `:ssr` policy is Spec 004/004B/API/008 and the
 Freehand conformance fixtures, and that is a **different door**. See
 [The bill](#the-bill-what-a-real-fix-touches).
@@ -378,7 +378,7 @@ later ruling could not reopen.
 "providers an ecosystem library hands you" — rather than documenting it. And
 what it would document is the workaround above: write the subtree twice, get no
 context server-side, remount at adoption. Documenting that honestly is close to
-documenting that Hicasso does not do providers under SSR. A provider wrapping a
+documenting that Fresco does not do providers under SSR. A provider wrapping a
 subtree is not exotic; it is what an ecosystem library hands you.
 
 ### The comparison
@@ -412,7 +412,7 @@ The number that usually decides a ruling. Two rosters, because there are **two
 independent `defhost` doors** with an `:ssr` option and a "there is no third
 value" clause, and the operator's first choice is whether they stay in step.
 
-### If the fix is scoped to Hicasso (the bench lane): ~23 co-edits
+### If the fix is scoped to Fresco (the bench lane): ~23 co-edits
 
 | Surface | Sites |
 |---|---|
@@ -447,10 +447,10 @@ rationale: Freehand never executes the registered React component on the JVM, so
 where that component would place the children is unknowable and a server tree
 showing them would invite assertions on content the server never emits.
 
-**That rationale does not transfer.** Hicasso's server render *is* React —
+**That rationale does not transfer.** Fresco's server render *is* React —
 `renderToString` over the same runtime — so the component either runs or does
 not, and there is no structural tree to lie in. The two doors can honestly
-diverge, and scoping the fix to Hicasso is defensible on those grounds.
+diverge, and scoping the fix to Fresco is defensible on those grounds.
 
 If they are kept in step anyway, the additional bill is `descriptor.cljc`'s
 `host-ssr-policies` set and spelling classifier, `freehand.cljc`'s option roster
@@ -483,25 +483,25 @@ asserting `:rf.ui/host-ssr`.
 ## The witness
 
 Drop this at
-`implementation/freehand/test/re_frame/bench/hicasso/arm1/l0wfx_provider_ssr_dom_cljs_test.cljs`,
+`implementation/freehand/test/re_frame/bench/fresco/arm1/l0wfx_provider_ssr_dom_cljs_test.cljs`,
 compile the `node-test` build, and run it with
-`--test=re-frame.bench.hicasso.arm1.l0wfx-provider-ssr-dom-cljs-test`. Four of
+`--test=re-frame.bench.fresco.arm1.l0wfx-provider-ssr-dom-cljs-test`. Four of
 its twelve assertions fail on `origin/main`; each failure message carries the
 server HTML that produced it.
 
 ```clojure
-(ns re-frame.bench.hicasso.arm1.l0wfx-provider-ssr-dom-cljs-test
+(ns re-frame.bench.fresco.arm1.l0wfx-provider-ssr-dom-cljs-test
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.arm1.mount :as mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rt]
-            [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.bench.hicasso.lane :as lane]
+            [re-frame.bench.fresco.arm1.mount :as mount]
+            [re-frame.bench.fresco.arm1.runtime :as rt]
+            [re-frame.bench.fresco.front.codec :as codec]
+            [re-frame.bench.fresco.lane :as lane]
             [re-frame.core :as rf]
             [re-frame.test-support :as test-support]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview defhost]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview defhost]]))
 
 (def ^:private frame-id ::l0wfx)
 
@@ -583,7 +583,7 @@ server HTML that produced it.
 (deftest can-the-subtree-be-smuggled-through-the-fallback
   (fresh!)
   (testing "an INTENT in a fallback is refused — walked at MINT, outside a boundary"
-    (is (= :rf.error/hicasso-intent-outside-boundary
+    (is (= :rf.error/fresco-intent-outside-boundary
            (error-id #(codec/mint-host! "l0wfx/intent-fb" (.-Provider theme-context)
                                         {:ssr {:fallback [:button {:on-click [:x/y]}
                                                           "go"]}})))))
@@ -600,7 +600,7 @@ server HTML that produced it.
 (deftest no-ssr-value-expresses-render-the-children
   (testing "the four spellings an author would reach for are all refused"
     (doseq [v [:children :transparent :passthrough :server]]
-      (is (= :rf.error/hicasso-host-bad-ssr-policy
+      (is (= :rf.error/fresco-host-bad-ssr-policy
              (error-id #(codec/mint-host! (str "l0wfx/" (name v))
                                           (.-Provider theme-context)
                                           {:ssr v})))))))
@@ -616,7 +616,7 @@ server HTML that produced it.
   — §4 (the provider use case) and §Needs a ruling R1, where this was found
 - [`studio/raw-escape-spec.md`](studio/raw-escape-spec.md) — R2, and the
   standing instruction that the escape grows no `:ssr` spelling of its own
-- [`core/hicasso/09-interop.md`](../../core/hicasso/09-interop.md) — the Defaults table
+- [`core/fresco/09-interop.md`](../../core/fresco/09-interop.md) — the Defaults table
   and the Providers section
-- [`core/hicasso/18-ssr-and-hydration.md`](../../core/hicasso/18-ssr-and-hydration.md)
+- [`core/fresco/18-ssr-and-hydration.md`](../../core/fresco/18-ssr-and-hydration.md)
   — the tier's mismatch story and the `:ssr` teaching block

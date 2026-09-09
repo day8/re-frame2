@@ -6,11 +6,11 @@
 > re-ran no section. Read every row below in the past tense.
 >
 > **What that pass found, and did not find, on this page.** The large event between the two dates is
-> the `rf2-6c12m` reduction wave — `re-frame.hicasso.native` shrank to `use-sub` and `use-frame` and
+> the `rf2-6c12m` reduction wave — `re-frame.fresco.native` shrank to `use-sub` and `use-frame` and
 > its grammar and eight suites were deleted (`aa01f0e8a6`, 2026-08-29, `rf2-6c12m.31`), and four
 > ledgers and three checkers were demoted or deleted on 2026-08-30 (`rf2-6c12m.8`, PR #8775). **This
 > page cites none of the retired native surfaces**: probing it for the fixed strings `n/$`,
-> `n/props`, `n/defcomponent`, `prop-slots`, `native_` and `hicasso.native` returns 0 for each,
+> `n/props`, `n/defcomponent`, `prop-slots`, `native_` and `fresco.native` returns 0 for each,
 > against a control of 16 for `2026-08` on the same file. **No cell here is corrected by this pass** —
 > which is a statement about the six probes above and not a re-verification of the rows, none of
 > which was re-read. The page's own open conjunct — the byte-exact boundary shell — is unmoved and is
@@ -149,7 +149,7 @@ a document was written under.
 
 Register row 5 names its deciding witness as "**WebKit/Firefox native composition and `beforeinput`**,
 range/direction, autofill, reset, blur, unmount and upgrade matrix". The landed runner is honest about
-the gap (`serve-and-run-hicasso-controlled-testbed.cjs:213-217`: real composition ranges are Chromium-only
+the gap (`serve-and-run-fresco-controlled-testbed.cjs:213-217`: real composition ranges are Chromium-only
 and the abort signature "cannot be reproduced from page script in any engine, **so it is not claimed
 here**"). Everything else on the row is measured, on three engines, and was re-measured here. The ruling
 leaves that sentence exactly where it stands, and said so in terms: it disposes of the row, it does not
@@ -187,12 +187,12 @@ harness's report.
 
 | Suite | Result | Captured exit |
 |---|---|---|
-| `shadow-cljs compile node-test-hicasso` | — | **0** |
-| `node out/node-test-hicasso.js` | **1127 tests, 4611 assertions, 0 failures, 0 errors** | **0** |
+| `shadow-cljs compile node-test-fresco` | — | **0** |
+| `node out/node-test-fresco.js` | **1127 tests, 4611 assertions, 0 failures, 0 errors** | **0** |
 | `npm run test:browser` | **1473 tests, 9143 assertions, 0 failures, 0 errors** | **0** |
-| `npm run test:hicasso-invariants` | freeze 1 row; motion/overlay/native/forms unreachable from the public door; **74 live complaints**, 6 reserved, 1 pending retirement, 1 retired, every live row emitted and rowed in Spec 009, every anchor resolving; budget ledger 38 rows | **0** |
-| `npm run test:hicasso-controlled` | **97 checks across 13 sections on each of chromium, firefox and webkit** | **0** |
-| `npm run test:hicasso-hmr` | **105 checks across 8 sections on each of chromium, firefox and webkit; 36 real shadow reloads** | **0** |
+| `npm run test:fresco-invariants` | freeze 1 row; motion/overlay/native/forms unreachable from the public door; **74 live complaints**, 6 reserved, 1 pending retirement, 1 retired, every live row emitted and rowed in Spec 009, every anchor resolving; budget ledger 38 rows | **0** |
+| `npm run test:fresco-controlled` | **97 checks across 13 sections on each of chromium, firefox and webkit** | **0** |
+| `npm run test:fresco-hmr` | **105 checks across 8 sections on each of chromium, firefox and webkit; 36 real shadow reloads** | **0** |
 
 **The browser lane is the obligation the 2026-08-11 checkpoint left outstanding**, and it is now
 discharged: kernel rows 2 and 8 live entirely in `:browser-test`, and both their witnesses and both their
@@ -204,7 +204,7 @@ For scale: the node lane read 553 tests on 2026-08-11 and reads 1127 here. The `
 ### 3.1 The node lane still does not cover the DOM half
 
 Unchanged from the previous record and repeated because it is a measurement fact, not a caveat:
-`:node-test-hicasso`'s `ns-regexp` matches `-dom-cljs-test`, so DOM namespaces compile into the node lane
+`:node-test-fresco`'s `ns-regexp` matches `-dom-cljs-test`, so DOM namespaces compile into the node lane
 and their tests are counted in the 1127 — but in that lane every DOM claim degrades to a stated skip
 (`roots_frames_support.cljs:85-91`, `impl/mount.cljs:447-451`). The skip is honest and it is not a
 measurement. A green assertion whose reason is "there is no DOM here" answers no question about the DOM.
@@ -213,7 +213,7 @@ The remedy is that the browser lane ran. It is the 1473, not the 1127, that spea
 
 ### 3.2 The HMR gate is a real reload, not a simulation
 
-`test:hicasso-hmr` drove **36 real shadow-cljs reloads** across the three engines and asserted 105 checks
+`test:fresco-hmr` drove **36 real shadow-cljs reloads** across the three engines and asserted 105 checks
 in eight sections named individually in `hmr_spec.cjs:625-634` and pinned by name in the runner's
 `REQUIRED_SECTIONS`. A section deleted from the list fails the gate rather than shrinking a total, which
 is the same structural-floor discipline the controlled gate uses. Row 6's register scenarios —
@@ -246,7 +246,7 @@ any form. Both were read in full here and both are the shape the finding asked f
 
 Row 5's sabotage is named by `rf2-hic-016`'s acceptance — *disabling the composition guard must turn the
 WebKit IME witness red* — and it is not a `deftest`. It is a source mutation, and the runner's own
-docstring (`serve-and-run-hicasso-controlled-testbed.cjs:228-246`) records it being run by hand on
+docstring (`serve-and-run-fresco-controlled-testbed.cjs:228-246`) records it being run by hand on
 2026-08-10 and again on 2026-08-11, with the failure it produced. **A hand-run mutation recorded in a
 comment is not re-runnable by a reviewer**, which is the shape `rf2-1mmn` indicted for rows 2 and 8. This
 one is better than what that finding described — it is dated and it quotes its failure text verbatim,
@@ -254,10 +254,10 @@ rather than pointing at an unnamed PR body — but it still had to be taken agai
 
 So it was. `impl/controlled.cljs:380-381`'s `composing-input?` body was replaced with `false` — the whole
 carve-out off, both halves, since the draft shadow is held from the same reading — and
-`HICASSO_TESTBED_ENGINES=webkit npm run test:hicasso-controlled` was run against the plant:
+`FRESCO_TESTBED_ENGINES=webkit npm run test:fresco-controlled` was run against the plant:
 
 ```text
-FAIL Hicasso controlled input (I15) — three engines (webkit):
+FAIL Fresco controlled input (I15) — three engines (webkit):
   [webkit] the first composing update survives in the field: expected "123あ", got "123"
 ```
 
@@ -265,7 +265,7 @@ FAIL Hicasso controlled input (I15) — three engines (webkit):
 by a reviewer who wrote none of it. The guard was then restored with `git checkout --`; `git diff` under
 `implementation/` is empty and no source change is carried by this record's PR.
 
-The green baseline it is measured against is §3's `test:hicasso-controlled` run — 97 checks on webkit,
+The green baseline it is measured against is §3's `test:fresco-controlled` run — 97 checks on webkit,
 captured exit 0 — taken on the same worktree immediately before the plant.
 
 **What this does and does not establish.** It establishes that the composition carve-out is load-bearing

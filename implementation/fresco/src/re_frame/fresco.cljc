@@ -1,11 +1,11 @@
-(ns re-frame.hicasso
-  "HICASSO — the public door.
+(ns re-frame.fresco
+  "FRESCO — the public door.
 
   Everything an author writes against lives here, and everything below is
-  `re-frame.hicasso.impl.*`. The intended spelling is one alias:
+  `re-frame.fresco.impl.*`. The intended spelling is one alias:
 
       (ns my.app
-        (:require [re-frame.hicasso :as h]))
+        (:require [re-frame.fresco :as h]))
 
       (h/defview todo-row [{:keys [id]}]
         (let [todo (h/sub [:todo/by-id id])]
@@ -19,32 +19,32 @@
   inside a body, and this door duplicates neither.
 
   **Every other var below is an ALIAS.** This namespace adds no
-  behaviour: each `def` names a value `re-frame.hicasso.impl.*` owns.
+  behaviour: each `def` names a value `re-frame.fresco.impl.*` owns.
 
   ## The marker keywords need no export
 
   `::h/value`, `::h/prevent`, `::h/revision`, `::h/checked` and
-  `::h/clear` read `:re-frame.hicasso/…`. Alias this
+  `::h/clear` read `:re-frame.fresco/…`. Alias this
   namespace as `h` and the auto-resolved spelling the guide teaches
   resolves, with no keyword changing value.
 
   ## What this door does NOT carry — the optional modules
 
-  `presence` is `re-frame.hicasso.motion/presence`, required
+  `presence` is `re-frame.fresco.motion/presence`, required
   separately:
 
-      (:require [re-frame.hicasso :as h]
-                [re-frame.hicasso.motion :as motion])
+      (:require [re-frame.fresco :as h]
+                [re-frame.fresco.motion :as motion])
 
   There is no alias left behind, and that is the point rather than an
   omission. An optional module has to be **absent when unused** — no
   reachable code in an application that never asked for it — and one
   `:require` here would put the retention machine into every bundle that
   ever touched the door. So the door names no optional module, and
-  `hicasso/scripts/check_optional_module_reachability.py` fails if one
+  `fresco/scripts/check_optional_module_reachability.py` fails if one
   reappears. The presence override keys are the motion module's own
   vocabulary and spell its namespace: `::motion/mounting` /
-  `::motion/unmounting`, i.e. `:re-frame.hicasso.motion/…` — naming-ledger
+  `::motion/unmounting`, i.e. `:re-frame.fresco.motion/…` — naming-ledger
   row 31's ruled respelling, executed under rf2-hg3q. They are not `::h/…`
   keywords and are not in the marker set above; the codec still recognises
   them, and refuses one written out of a presence tray's reach."
@@ -57,16 +57,16 @@
   ;; is already this package's only dependency.
   #?(:clj (:require [re-frame.source-coords :as rf.source-coords]))
   #?(:cljs
-     (:require [re-frame.hicasso.impl.boundary :as rf.hicasso.impl.boundary]
-               [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-               [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-               [re-frame.hicasso.impl.frame-boundary :as rf.hicasso.impl.frame-boundary]
-               [re-frame.hicasso.impl.intent]
-               [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-               [re-frame.hicasso.impl.portal :as rf.hicasso.impl.portal]
-               [re-frame.hicasso.impl.route-link :as rf.hicasso.impl.route-link]
-               [re-frame.hicasso.impl.state :as rf.hicasso.impl.state]))
-  #?(:cljs (:require-macros [re-frame.hicasso :refer [defview defhost event]])))
+     (:require [re-frame.fresco.impl.boundary :as rf.fresco.impl.boundary]
+               [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+               [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+               [re-frame.fresco.impl.frame-boundary :as rf.fresco.impl.frame-boundary]
+               [re-frame.fresco.impl.intent]
+               [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+               [re-frame.fresco.impl.portal :as rf.fresco.impl.portal]
+               [re-frame.fresco.impl.route-link :as rf.fresco.impl.route-link]
+               [re-frame.fresco.impl.state :as rf.fresco.impl.state]))
+  #?(:cljs (:require-macros [re-frame.fresco :refer [defview defhost event]])))
 
 ;; ---------------------------------------------------------------------------
 ;; The three macros
@@ -130,7 +130,7 @@
   — a value-first foreign callback — refuses loudly at the position
   rather than doing nothing. Which contract a position imposes on a
   callback, and what a `defhost` declaration changes about it, is
-  `re-frame.hicasso.impl.intent`'s position table.
+  `re-frame.fresco.impl.intent`'s position table.
 
   ## The fn this expands to is ANONYMOUS, and that is the contract
 
@@ -163,7 +163,7 @@
   A body is dynamically composed: its branches, its `for`s and its
   early returns are all free to follow the data it reads. React's rules
   of hooks are about CALL SEQUENCE, so a hook written in a body would
-  make its own order depend on a Hicasso data path — a subscription
+  make its own order depend on a Fresco data path — a subscription
   answering one row fewer, and the sequence moves. Hook-intensive
   behaviour belongs in a separately defined React island — a UIx `defui`
   or a raw React function component mounted through `h/defhost` — where
@@ -183,7 +183,7 @@
 
   The expansion opens a declaration extent around the mint, carrying the
   `:ns` / `:file` / `:line` / `:column` this macro read off its own form.
-  `re-frame.hicasso.impl.error/fail!` resolves it back by view name, so
+  `re-frame.fresco.impl.error/fail!` resolves it back by view name, so
   every refusal raised while this boundary's body runs says WHERE the
   boundary was written without a single call site passing anything.
 
@@ -214,7 +214,7 @@
   the way this docstring documents — `[head props]` inside a body,
   `h/as-element` / `h/as-component` from outside — never as a hiccup
   render fn in a Reagent tree. Registration is debug-gated, so
-  `(rf/view id)` for a Hicasso view is nil in a release build; that is
+  `(rf/view id)` for a Fresco view is nil in a release build; that is
   the documented answer.
 
   **Forward resolution is the whole of it.** The entry exists so that a
@@ -222,7 +222,7 @@
   an editor jumping to source — reaches the view they meant. It mints no
   runtime identity: a MOUNTED boundary is still keyed by its read set
   and still unnamed, and the tool tier
-  (`re-frame.hicasso.tool`) is unchanged. The refusals that say so are
+  (`re-frame.fresco.tool`) is unchanged. The refusals that say so are
   NOT overturned by this, because they answer the BACKWARD question
   *which view is this runtime boundary?* and this answers the forward
   one, where the author already knows and is naming it in source.
@@ -234,12 +234,12 @@
 
   It rides the SAME `debug-enabled?` gate as the coordinate, so under
   `:advanced` + `goog.DEBUG=false` nothing registers and a production
-  Hicasso app still holds no registry at runtime — the entry serves
+  Fresco app still holds no registry at runtime — the entry serves
   tools. Re-evaluating a declaration replaces the entry behind the same
   id — the registrar's own behaviour, with nothing added for it beyond
   the slot naming where its executable identity lives, so that the
   replacement a tool is told about is the one that happened.
-  `re-frame.hicasso.impl.collector/publish-view-alias!` carries the
+  `re-frame.fresco.impl.collector/publish-view-alias!` carries the
   slot's shape and why it is written there rather than through
   `rf/reg-view*`."
      [sym & more]
@@ -261,9 +261,9 @@
        `(def ~(if doc (vary-meta sym assoc :doc doc) sym)
           (do
             (when re-frame.interop/debug-enabled?
-              (re-frame.hicasso.impl.error/declaring! ~view-name ~coord))
+              (re-frame.fresco.impl.error/declaring! ~view-name ~coord))
             (try
-              (let [head# (re-frame.hicasso.impl.collector/mint-view!
+              (let [head# (re-frame.fresco.impl.collector/mint-view!
                             ~view-name
                             ;; ANONYMOUS — see the docstring's section on
                             ;; naming. A named `fn` binds its own name
@@ -277,12 +277,12 @@
                 ;; The head is still what the `def` binds: registration is
                 ;; a side effect and returns nothing to it.
                 (when re-frame.interop/debug-enabled?
-                  (re-frame.hicasso.impl.collector/publish-view-alias!
+                  (re-frame.fresco.impl.collector/publish-view-alias!
                     ~view-id ~slot head#))
                 head#)
               (finally
                 (when re-frame.interop/debug-enabled?
-                  (re-frame.hicasso.impl.error/declared!)))))))))
+                  (re-frame.fresco.impl.error/declared!)))))))))
 
 #?(:clj
    (defmacro event
@@ -306,20 +306,20 @@
   A `defhost` may override the spelling for one prop with
   `{:callbacks {:on-render-item :render}}`, for the on*-named render
   props some vendors ship. `:ref` is React's own and is excluded from
-  lowering; where Hicasso does not walk, this is a plain function whose
-  return is ignored (`re-frame.hicasso.impl.intent` carries the table).
+  lowering; where Fresco does not walk, this is a plain function whose
+  return is ignored (`re-frame.fresco.impl.intent` carries the table).
 
   Expands to nothing but a marked `fn`:
 
       (event [e] (js/Array.from (.. e -target -files)) …)
       ;; =>
-      (re-frame.hicasso.impl.intent/callback (fn [e] …))
+      (re-frame.fresco.impl.intent/callback (fn [e] …))
 
   The value is an ORDINARY FUNCTION, so nothing can fail to be callable
-  where Hicasso does not walk. Argument in docs/design/hicasso/decisions.md,
+  where Fresco does not walk. Argument in docs/design/fresco/decisions.md,
   HD-024."
      [argv & body]
-     `(re-frame.hicasso.impl.intent/callback (fn ~argv ~@body))))
+     `(re-frame.fresco.impl.intent/callback (fn ~argv ~@body))))
 
 #?(:clj
    (defmacro defhost
@@ -362,7 +362,7 @@
     under which a crossing's children reach the server response.
   - `:fallback` — Client-only's placeholder, inert hiccup reused at every
     site; a boundary head inside it is refused
-    (`:rf.error/hicasso-host-fallback-boundary-head`), and it is refused
+    (`:rf.error/fresco-host-fallback-boundary-head`), and it is refused
     beside `:render`.
 
       (defhost modal Modal {:slots #{:title :footer}})
@@ -370,8 +370,8 @@
       (defhost themed (.-Provider theme-context) {:server :render})
 
   Refused at the declaration: a `nil` component
-  (`:rf.error/hicasso-host-no-component`), and — as
-  `:rf.error/hicasso-bad-host-declaration`, the fault named in the
+  (`:rf.error/fresco-host-no-component`), and — as
+  `:rf.error/fresco-bad-host-declaration`, the fault named in the
   reason — non-map options, an option outside the four, a contract
   outside the two, a malformed `:slots` set, and any form after `opts`,
   which is dropped rather than merged. A policy set and never applied is
@@ -379,10 +379,10 @@
   callback above is an `event` rather than a vector because
   react-datepicker calls `onChange(date, event)`, VALUE-first; the vector
   spelling is EVENT-first and would raise
-  `:rf.error/hicasso-intent-needs-the-event`. Like `defview` this is
+  `:rf.error/fresco-intent-needs-the-event`. Like `defview` this is
   not a compiler: it expands to a `def` of the head
-  `re-frame.hicasso.impl.codec/mint-host!` mints. Argument in
-  docs/design/hicasso/decisions.md, HD-011.
+  `re-frame.fresco.impl.codec/mint-host!` mints. Argument in
+  docs/design/fresco/decisions.md, HD-011.
 
   Positional flexibility is deliberately NOT the repair. A docstring
   after the component binds to `opts` (the probe reads only the first
@@ -413,16 +413,16 @@
        `(def ~(if doc (vary-meta sym assoc :doc doc) sym)
           (do
             (when re-frame.interop/debug-enabled?
-              (re-frame.hicasso.impl.error/declaring! ~host-name ~coord))
+              (re-frame.fresco.impl.error/declaring! ~host-name ~coord))
             (try
               ~(if extra
-                 `(re-frame.hicasso.impl.codec/refuse-host-extra-forms!
+                 `(re-frame.fresco.impl.codec/refuse-host-extra-forms!
                     ~host-name '~(vec extra))
-                 `(re-frame.hicasso.impl.codec/mint-host!
+                 `(re-frame.fresco.impl.codec/mint-host!
                     ~host-name ~component ~(or opts {})))
               (finally
                 (when re-frame.interop/debug-enabled?
-                  (re-frame.hicasso.impl.error/declared!)))))))))
+                  (re-frame.fresco.impl.error/declared!)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The vars — aliases, every one naming a value `impl.*` owns
@@ -434,8 +434,8 @@
   from anywhere inside a body, including inside a `when`, a `for` or an
   inlined helper. The edge is recorded where the read happens, so a branch
   not taken contributes no edge.
-  `re-frame.hicasso.impl.collector/sub`."}
-       sub rf.hicasso.impl.collector/sub)
+  `re-frame.fresco.impl.collector/sub`."}
+       sub rf.fresco.impl.collector/sub)
 
      (def ^{:doc "`h/error-boundary` — the runtime's own error boundary
   (HD-020(c)); takes `:fallback`, `:reset-key` and `:on-error`.
@@ -443,13 +443,13 @@
   Named for React's own term of art, which is also what the naming ledger
   rules (row 12). A bare `boundary` would be the wrong word twice over: every minted `defview` is already *a boundary* here,
   and React has a second kind — the Suspense boundary — that this one is
-  not. `re-frame.hicasso.impl.boundary/boundary`."}
-       error-boundary rf.hicasso.impl.boundary/boundary)
+  not. `re-frame.fresco.impl.boundary/boundary`."}
+       error-boundary rf.fresco.impl.boundary/boundary)
 
      (def ^{:doc "`h/reg-state` — the instance-key sugar (HD-009). Mints one
   parametric subscription and one setter event under `[:ui ::concern ikey]`,
-  and nothing else. `re-frame.hicasso.impl.state/reg-state`."}
-       reg-state rf.hicasso.impl.state/reg-state)
+  and nothing else. `re-frame.fresco.impl.state/reg-state`."}
+       reg-state rf.fresco.impl.state/reg-state)
 
      (def ^{:doc "`h/portal` — **hiccup into `createPortal`**.
   A legal hiccup head taking `:target`, the DOM container the subtree
@@ -476,14 +476,14 @@
 
   The raw mechanism, for containers the application does not own.
   Anchoring, dismissal and focus conduct are the overlay module's.
-  `re-frame.hicasso.impl.portal/portal`."}
-       portal rf.hicasso.impl.portal/portal)
+  `re-frame.fresco.impl.portal/portal`."}
+       portal rf.fresco.impl.portal/portal)
 
      (def ^{:doc "One real anchor, as data — href and click decision taken
   whole from routing's late-bound seams. A plain function, not a boundary:
   it mints no boundary and adds no hook.
-  `re-frame.hicasso.impl.route-link/route-link`."}
-       route-link rf.hicasso.impl.route-link/route-link)
+  `re-frame.fresco.impl.route-link/route-link`."}
+       route-link rf.fresco.impl.route-link/route-link)
 
      (def ^{:doc "`h/as-element` — **the one explicit hiccup→ReactNode
   conversion**. Answers the React element a hiccup form
@@ -499,7 +499,7 @@
   **It exists because a `:render` return crosses UNCONVERTED.** A
   declared `:render` position is invoked by the foreign component during
   its own render, and the wrapper ends in a bare call
-  (`re-frame.hicasso.impl.intent/render-callback`) — so a string
+  (`re-frame.fresco.impl.intent/render-callback`) — so a string
   renders and a returned hiccup vector reaches React, which refuses it
   (*\"Objects are not valid as a React child\"*). This is the spelling
   that turns the row into an element, and the row keeps its intents:
@@ -510,7 +510,7 @@
   cannot reach. A `[:>]` escape has no `:slots`, so one element crosses
   a prop with `(h/as-element [:h2 \"Tasks\"])`; and past the native
   fence a hiccup vector is refused outright, so a native subtree takes
-  one Hicasso-rendered child the same way. Where the crossing IS
+  one Fresco-rendered child the same way. Where the crossing IS
   declared, prefer the declaration — `defhost`'s `:slots` lowers those
   positions for every use site at once, and children have never needed a
   conversion at all.
@@ -524,13 +524,13 @@
   Legal wherever a render extent is open — a body, or a render callback
   the body supplied. Outside every extent it converts markup as usual,
   and an intent written in that markup stays the loud
-  `:rf.error/hicasso-intent-outside-boundary` it is everywhere else.
-  `re-frame.hicasso.impl.codec/as-element`."}
-       as-element rf.hicasso.impl.codec/as-element)
+  `:rf.error/fresco-intent-outside-boundary` it is everywhere else.
+  `re-frame.fresco.impl.codec/as-element`."}
+       as-element rf.fresco.impl.codec/as-element)
 
      (def ^{:doc "`h/as-component` — **the outward bridge**.
   Answers a real React component for a hiccup head, so a React parent —
-  UIx, Reagent or plain JavaScript — mounts a minted Hicasso
+  UIx, Reagent or plain JavaScript — mounts a minted Fresco
   view under the frame it is already in:
 
       (def article-card* (h/as-component article-card))
@@ -540,13 +540,13 @@
   children at `:children`, values as this shallow decode finds them — a
   Reagent parent's `[:>]` converts first, so names round-trip across the
   crossing and values do not. The frame comes from React context: ANY
-  frame, written by any React-shaped adapter, rather than a Hicasso
+  frame, written by any React-shaped adapter, rather than a Fresco
   root — and no second root, state owner or props ABI appears anywhere.
   Sits HERE rather than on the native tier because a UIx or JavaScript
   parent must not have to require the native namespace — and therefore
   ship it — to cross inward.
-  `re-frame.hicasso.impl.codec/as-component`."}
-       as-component rf.hicasso.impl.codec/as-component)
+  `re-frame.fresco.impl.codec/as-component`."}
+       as-component rf.fresco.impl.codec/as-component)
 
      ;; ---- the two frame boundaries: ENSURE and SCOPE ---------------------
      ;;
@@ -555,7 +555,7 @@
      ;; door below carries React-root options and nothing about frames.
 
      (def ^{:doc "`h/frame-root` — **ENSURE a named frame for a subtree**,
-  and the head a Hicasso app's root view sits under:
+  and the head a Fresco app's root view sits under:
 
       (h/render! app-root
         [h/frame-root {:id             :app/main
@@ -610,8 +610,8 @@
   ONE implementation across every substrate: the two-pass is core's
   `re-frame.views.frame-boundary/frame-root-fc`, the same component
   `rf/frame-root` and `re-frame.adapter.uix/frame-root` mount.
-  `re-frame.hicasso.impl.frame-boundary/frame-root`."}
-       frame-root rf.hicasso.impl.frame-boundary/frame-root)
+  `re-frame.fresco.impl.frame-boundary/frame-root`."}
+       frame-root rf.fresco.impl.frame-boundary/frame-root)
 
      (def ^{:doc "`h/frame-provider` — **SCOPE an EXISTING frame to a
   subtree**. `frame-root`'s sibling and its opposite verb: it creates,
@@ -641,14 +641,14 @@
   An `:id` key is `:rf.error/frame-provider-given-id`, naming
   `h/frame-root`.
 
-  Distinct from `re-frame.hicasso.substrate/frame-provider`, which is the
+  Distinct from `re-frame.fresco.substrate/frame-provider`, which is the
   reactive-substrate contract's `:register-context-provider` slot — a
   lower-level seat the contract requires and an application never writes.
   This is the authoring verb, and it writes the same one React context
-  every adapter reads, so a Hicasso subtree under a UIx provider (or the
+  every adapter reads, so a Fresco subtree under a UIx provider (or the
   reverse) resolves the same frame.
-  `re-frame.hicasso.impl.frame-boundary/frame-provider`."}
-       frame-provider rf.hicasso.impl.frame-boundary/frame-provider)
+  `re-frame.fresco.impl.frame-boundary/frame-provider`."}
+       frame-provider rf.fresco.impl.frame-boundary/frame-provider)
 
      ;; ---- the root lifecycle: one handle, one verb, one teardown ---------
      ;;
@@ -657,11 +657,11 @@
      ;; creates or adopts and whose later calls update, and an idempotent
      ;; `unmount!`. Every door here is ROOT-SCOPED, which is why
      ;; `release!` is not among them. A hydrating first render adopts the
-     ;; tree `impl.mount/tree` shapes, and `re-frame.hicasso.server` emits
+     ;; tree `impl.mount/tree` shapes, and `re-frame.fresco.server` emits
      ;; that same tree by CALLING it — React derives a `useId` from tree
      ;; position as well as from the prefix, so a second function deciding
      ;; the root's shape for either half hydrates into a text mismatch
-     ;; (docs/design/hicasso/product/dispositions.md HS-11).
+     ;; (docs/design/fresco/product/dispositions.md HS-11).
 
      (def ^{:doc "`h/client-root` — **allocate the handle a root lives
   in**. Inert: no DOM work, no React call, nothing to undo — so it belongs
@@ -680,8 +680,8 @@
   One handle owns AT MOST ONE Root at a time. Two roots on a page are two
   handles; a handle whose Root has been released is inert again and the
   next `render!` through it mounts afresh.
-  `re-frame.hicasso.impl.mount/client-root`."}
-       client-root rf.hicasso.impl.mount/client-root)
+  `re-frame.fresco.impl.mount/client-root`."}
+       client-root rf.fresco.impl.mount/client-root)
 
      (def ^{:doc "`h/render!` — **the root door and the hot-reload door,
   in one verb**: render `tree` through `handle` at DOM node `node`.
@@ -717,7 +717,7 @@
   you are calling from; the three-arity form is the whole of the hot
   reload.
 
-  **`tree` is Hicasso hiccup whose root is a frame boundary head** —
+  **`tree` is Fresco hiccup whose root is a frame boundary head** —
   `[h/frame-root {:id …} …]` to ENSURE, `[h/frame-provider {:frame …} …]`
   to SCOPE. Re-render the WHOLE tree, boundary head included and carrying
   the SAME options. The frame is spelled in the tree, so a render that
@@ -748,11 +748,11 @@
   and takes the `rf/make-frame` option map WHOLE, `:initial-events`,
   `:fx-overrides`, `:url-bound?` and the rest; `[h/frame-provider {:frame
   …}]` SCOPEs a frame that already exists. Handing `:frame` or
-  `:initial-events` to this door is `:rf.error/hicasso-frame-config-
+  `:initial-events` to this door is `:rf.error/fresco-frame-config-
   misplaced`, naming the head that spells it; any other key is
-  `:rf.error/hicasso-unknown-root-option`. That is the same one boundary
+  `:rf.error/fresco-unknown-root-option`. That is the same one boundary
   vocabulary every substrate writes (spec/002 §`frame-root`,
-  §`frame-provider`), so a Hicasso boot line reads like a Reagent or UIx
+  §`frame-provider`), so a Fresco boot line reads like a Reagent or UIx
   one and every frame option has exactly one place to go.
 
   **`:identifier-prefix`** is React's own `identifierPrefix`, handed to
@@ -794,7 +794,7 @@
   React numbers `useId` per root and prefixes it with this option, so a
   hydrating root given a different prefix — or none, where the server had
   one — resolves every id in the tree differently from the bytes it is
-  adopting. `re-frame.hicasso.server/render` takes the same key.
+  adopting. `re-frame.fresco.server/render` takes the same key.
 
   **A hydrating first call returns BEFORE adoption finishes.** React
   adopts concurrently and nothing here forces it synchronously, so the
@@ -808,9 +808,9 @@
   Root-scoped, like every door in this section: each root owns its own
   container, prefix, adoption window and recoverable-error stream, so one
   root's mismatch is reported against that root and cannot silence a
-  sibling's. `re-frame.hicasso.impl.mount/render-client-root!`,
-  `re-frame.hicasso.impl.mount/require-root-options!`."}
-       render! rf.hicasso.impl.mount/render-client-root!)
+  sibling's. `re-frame.fresco.impl.mount/render-client-root!`,
+  `re-frame.fresco.impl.mount/require-root-options!`."}
+       render! rf.fresco.impl.mount/render-client-root!)
 
      (def ^{:doc "`h/unmount!` — **take THIS root down** and return its
   handle to inert; a later `h/render!` through the same handle mounts
@@ -827,5 +827,5 @@
   Because the Root sits in the package's active set, `rf/destroy-adapter!`
   releases a still-live handle's Root exactly once and this door then
   finds nothing left to do — liveness is the set's to say, never the
-  handle's. `re-frame.hicasso.impl.mount/unmount-client-root!`."}
-       unmount! rf.hicasso.impl.mount/unmount-client-root!)))
+  handle's. `re-frame.fresco.impl.mount/unmount-client-root!`."}
+       unmount! rf.fresco.impl.mount/unmount-client-root!)))

@@ -31,7 +31,7 @@
          ;;
          ;; The two `../../examples` roots are the login arm's JVM host
          ;; witness (rf2-8arzr.5, `login_host_crossing_test.clj`): it
-         ;; requires `hicasso.login.host` (examples/substrates) which
+         ;; requires `fresco.login.host` (examples/substrates) which
          ;; requires the shared `login.model` (examples/core). Loading the
          ;; namespace is half the witness — before this, a compile error in
          ;; that host passed every gate silently. Same shape as

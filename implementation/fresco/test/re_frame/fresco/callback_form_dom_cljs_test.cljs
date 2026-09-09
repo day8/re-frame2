@@ -1,7 +1,7 @@
-(ns re-frame.hicasso.callback-form-dom-cljs-test
+(ns re-frame.fresco.callback-form-dom-cljs-test
   "THE ONE CALLBACK FORM, DRIVEN BY A REAL BROWSER EVENT (HD-024).
 
-  [[re-frame.hicasso.intent-cljs-test]] proves the position table's
+  [[re-frame.fresco.intent-cljs-test]] proves the position table's
   algebra against stand-in events, which is the right altitude for it —
   a stand-in makes `preventDefault`, the target and the composition
   signals observable in a way a real event does not. What a stand-in
@@ -31,19 +31,19 @@
   skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.todo-support :as rf.hicasso.todo-support]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.todo-support :as rf.fresco.todo-support]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 (def ^:private frame-id ::callback-form)
 
@@ -53,37 +53,37 @@
 
 (defn- fresh! []
   (reset! !ran 0)
-  (rf.hicasso.checkpoint-support/leave-act-environment!)
-  (rf.hicasso.todo-support/make-frame! frame-id 3)
-  (rf.hicasso.todo-support/reseed! frame-id 3)
+  (rf.fresco.checkpoint-support/leave-act-environment!)
+  (rf.fresco.todo-support/make-frame! frame-id 3)
+  (rf.fresco.todo-support/reseed! frame-id 3)
   frame-id)
 
 ;; ---------------------------------------------------------------------------
 ;; The screen — one form at one position, three times
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview toggle-row
+(rf.fresco/defview toggle-row
   "The row a real click lands on. `event` is the ONE form; `:on-click` is
   the position; the returned vector is the contract that position
   imposes. Nothing here names a form: the author wrote a function and
   returned data."
   [{:keys [id]}]
-  (let [done? (rf.hicasso.impl.collector/sub [:hicasso.todo/done? id])]
+  (let [done? (rf.fresco.impl.collector/sub [:fresco.todo/done? id])]
     [:li.row {:data-id id :data-done (str done?)}
      [:button.toggle
-      {:on-click (rf.hicasso/event [e]
+      {:on-click (rf.fresco/event [e]
                    (swap! !ran inc)
                    ;; A live event: the same form the predecessor would
                    ;; need `v/event` for, reading the DOM event and
                    ;; returning ONE intent.
                    (when (= "toggle" (.. e -target -dataset -role))
-                     [:hicasso.todo/toggle id]))
+                     [:fresco.todo/toggle id]))
        :data-role "toggle"}
       "toggle"]
      [:button.silent
       ;; The same form, same position, whose body returns something that
       ;; is not a vector. The predecessor spells this `v/handler`.
-      {:on-click (rf.hicasso/event [_] (swap! !ran inc) :nothing-to-dispatch)}
+      {:on-click (rf.fresco/event [_] (swap! !ran inc) :nothing-to-dispatch)}
       "silent"]]))
 
 (defn- query [handle sel] (.querySelector (:container handle) sel))
@@ -93,44 +93,44 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-real-click-on-the-one-form-dispatches-what-it-returned
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [toggle-row {:id 1}])]
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [toggle-row {:id 1}])]
         (try
           (is (= "false" (.getAttribute (query handle ".row") "data-done")))
           (.click (query handle ".toggle"))
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           (is (= 1 @!ran) "React routed the click to the closure the runtime minted")
           (is (= "true" (.getAttribute (query handle ".row") "data-done"))
               "and the intent it RETURNED drained through the synchronous
                door, so the echo is on screen in the same turn")
           (.click (query handle ".toggle"))
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           (is (= "false" (.getAttribute (query handle ".row") "data-done"))
               "and again, so this is a working handler and not a one-shot")
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — event position: a return that is not a vector dispatches nothing
 ;; ---------------------------------------------------------------------------
 
 (deftest the-same-form-at-the-same-position-can-return-nothing
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [toggle-row {:id 1}])]
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [toggle-row {:id 1}])]
         (try
           (.click (query handle ".silent"))
-          (rf.hicasso.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
           (is (= 1 @!ran) "the body ran")
           (is (= "false" (.getAttribute (query handle ".row") "data-done"))
               "and nothing was dispatched — in the predecessor this is a
                different FORM with a different contract; here it is the same
                form, and the return value is the whole of the difference")
-          (finally (rf.hicasso.impl.mount/release! handle)))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — outside every walked position, it is a function
@@ -142,14 +142,14 @@
             marker object rather than a function — so `props.onPing(…)`
             raises the engine's own TypeError, worded after whatever
             expression it tripped on and naming nothing the author wrote.
-            The one form is a function everywhere, so a position Hicasso
+            The one form is a function everywhere, so a position Fresco
             never walks costs the CONTRACT and nothing else."
-    (let [cb       (rf.hicasso/event [x] (swap! !ran inc) [:would-have-dispatched x])
+    (let [cb       (rf.fresco/event [x] (swap! !ran inc) [:would-have-dispatched x])
           js-props #js {:onPing cb}]
       (reset! !ran 0)
       (is (fn? (.-onPing js-props)))
       (is (= [:would-have-dispatched 3] ((.-onPing js-props) 3)))
       (is (= 1 @!ran))
-      (is (true? (rf.hicasso.impl.intent/callback? cb))
+      (is (true? (rf.fresco.impl.intent/callback? cb))
           "and it is still the marked form, so a position that DOES walk it
            would impose that position's contract on the same value"))))

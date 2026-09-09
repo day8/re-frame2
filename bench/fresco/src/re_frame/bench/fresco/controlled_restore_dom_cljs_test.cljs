@@ -1,9 +1,9 @@
-(ns re-frame.bench.hicasso.controlled-restore-dom-cljs-test
+(ns re-frame.bench.fresco.controlled-restore-dom-cljs-test
   "WHAT CORRECT MEANS FOR A CONTROLLED INPUT, on React (rf2-m6if4,
   rf2-n3dxw).
 
   Arm 2 (the PATCH renderer) is retired — Mike ruled on 2026-07-31 that
-  Hicasso is an adapter for React — and this file is what its hard gate
+  Fresco is an adapter for React — and this file is what its hard gate
   left behind. Arm 2's `:controlled/grid-100` witness was the clearest
   statement in the repo of what a store-backed controlled input has to
   do, and the statement is worth keeping even though the renderer that
@@ -119,7 +119,7 @@
 
   - `:ime-composition-commits-nothing` — **established, and asserted by
     the real-composition harness rather than here** (rf2-o27h3):
-    `bench/hicasso/ime_run.cjs` drives CDP `Input.imeSetComposition` /
+    `bench/fresco/ime_run.cjs` drives CDP `Input.imeSetComposition` /
     `insertText` / `dispatchKeyEvent` — trusted composition events, a
     real composition range, real mid-composition keydowns — against
     three pages, one implementation each: plain React, the port, and
@@ -228,7 +228,7 @@
 
   Not an authoring pattern and not a proposed API: in a real adapter this
   is the element path's business, wrapping `:on-change` where the user
-  never sees it. It sits in the view here only because neither Hicasso
+  never sees it. It sits in the view here only because neither Fresco
   nor the UIx adapter mints its own `:input` element today — UIx does.
 
   Run at the end of the change handler, i.e. still inside the discrete

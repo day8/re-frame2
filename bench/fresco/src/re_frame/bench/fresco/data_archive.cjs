@@ -1,14 +1,14 @@
 'use strict';
 // THE RUN CORPUS LIVES IN GIT HISTORY, NOT ON MAIN (rf2-6c12m.6).
 //
-// `data/` beside this file held every run record the Hicasso programme's
+// `data/` beside this file held every run record the Fresco programme's
 // numbers were taken from — 237 files, 80 MB, 96% of the tracked lines under
 // the bench — and every clone carried it to serve verdicts already written
-// down in `docs/design/hicasso/studio/`. The tree was deleted from main in one
+// down in `docs/design/fresco/studio/`. The tree was deleted from main in one
 // commit; the full corpus is the tree at the commit named below, and a
 // checkout puts it back exactly where every reader still looks:
 //
-//     git restore --source=7b492b98cb -- bench/hicasso/src/re_frame/bench/hicasso/data
+//     git restore --source=7b492b98cb -- bench/fresco/src/re_frame/bench/fresco/data
 //
 // (`restore`, not `checkout`: it writes the working tree without staging
 // 237 files, and `data/` is git-ignored so a restored corpus never lands in a
@@ -31,7 +31,7 @@ const DATA = path.join(__dirname, 'data');
 
 /** The commit whose tree carries the full corpus, and the command that restores it. */
 const ARCHIVE_SHA = '7b492b98cb';
-const RESTORE = `git restore --source=${ARCHIVE_SHA} -- bench/hicasso/src/re_frame/bench/hicasso/data`;
+const RESTORE = `git restore --source=${ARCHIVE_SHA} -- bench/fresco/src/re_frame/bench/fresco/data`;
 
 /**
  * True when the run corpus has been restored beside the readers. Tested on one

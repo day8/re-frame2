@@ -1,7 +1,7 @@
-(ns re-frame.hicasso.test-kit-dom-cljs-test
+(ns re-frame.fresco.test-kit-dom-cljs-test
   "THE CANONICAL-DOM COMPARATOR'S WITNESSES.
 
-  `re-frame.hicasso.test/canonical-dom` takes a DOM node, so its claims
+  `re-frame.fresco.test/canonical-dom` takes a DOM node, so its claims
   are taken on a REAL document rather than on a hand-built stand-in — a
   serialiser witnessed against a fake node graph proves the fake, and the
   attribute ordering this gate exists to neutralise is precisely a
@@ -26,7 +26,7 @@
   (`cljs-test$` matches `-dom-cljs-test`), and every DOM claim degrades
   there to a STATED skip rather than to a false green."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.hicasso.test :as rf.hicasso.test]))
+            [re-frame.fresco.test :as rf.fresco.test]))
 
 (defn- browser? []
   (and (exists? js/document) (some? (.-createElement js/document))))
@@ -54,7 +54,7 @@
 
       (testing "two pages written in different attribute orders are the same
                 page, which `innerHTML` alone cannot say"
-        (is (= (rf.hicasso.test/canonical-dom a) (rf.hicasso.test/canonical-dom b)))
+        (is (= (rf.fresco.test/canonical-dom a) (rf.fresco.test/canonical-dom b)))
         (is (not= (.-innerHTML a) (.-innerHTML b))
             "and the control: the raw serialisation genuinely differs, so the
              equality above is the comparator's answer and not the DOM's"))
@@ -62,19 +62,19 @@
       (testing "the names are sorted, so the canonical form is stated rather
                 than merely self-consistent"
         (is (= "<p class=\"row\" data-i=\"3\" id=\"one\">milk</p>"
-               (rf.hicasso.test/canonical-dom a))))
+               (rf.fresco.test/canonical-dom a))))
 
       (testing "a page that differs in an attribute VALUE is a different page"
-        (is (not= (rf.hicasso.test/canonical-dom a) (rf.hicasso.test/canonical-dom c))))
+        (is (not= (rf.fresco.test/canonical-dom a) (rf.fresco.test/canonical-dom c))))
 
       (testing "and so is one that differs in its text — without this the
                 comparator could be a constant and every parity claim made
                 through it would be vacuous"
-        (is (not= (rf.hicasso.test/canonical-dom a) (rf.hicasso.test/canonical-dom d))))
+        (is (not= (rf.fresco.test/canonical-dom a) (rf.fresco.test/canonical-dom d))))
 
       (testing "comments contribute nothing, because a comment is not the page"
-        (is (= (rf.hicasso.test/canonical-dom a)
-               (rf.hicasso.test/canonical-dom
+        (is (= (rf.fresco.test/canonical-dom a)
+               (rf.fresco.test/canonical-dom
                  (node! "<!-- note --><p id=\"one\" class=\"row\" data-i=\"3\">milk</p>")))))
 
       (testing "adjacent text nodes are one text run, so a split the DOM
@@ -87,14 +87,14 @@
           (.appendChild p (js/document.createTextNode "mi"))
           (.appendChild p (js/document.createTextNode "lk"))
           (.appendChild split p)
-          (is (= (rf.hicasso.test/canonical-dom a) (rf.hicasso.test/canonical-dom split)))))
+          (is (= (rf.fresco.test/canonical-dom a) (rf.fresco.test/canonical-dom split)))))
 
       (testing "and a value that is not a DOM node refuses rather than
                 serialising to something plausible"
-        (let [refused (try (rf.hicasso.test/canonical-dom {:tag :p}) nil
+        (let [refused (try (rf.fresco.test/canonical-dom {:tag :p}) nil
                            (catch :default e (ex-data e)))]
-          (is (= {:rf.error/id :rf.error/hicasso-test-not-a-dom-node
-                  :where       're-frame.hicasso.test}
+          (is (= {:rf.error/id :rf.error/fresco-test-not-a-dom-node
+                  :where       're-frame.fresco.test}
                  (select-keys refused [:rf.error/id :where]))))))))
 
 (deftest data-cannot-imitate-the-serialisers-own-structure
@@ -115,10 +115,10 @@
         (is (= "<p>x</p>" (.-textContent literal))
             "the control: the page really is showing those characters to a
              user, which is ordinary rendered content and not malformed DOM")
-        (is (not= (rf.hicasso.test/canonical-dom literal)
-                  (rf.hicasso.test/canonical-dom real))
+        (is (not= (rf.fresco.test/canonical-dom literal)
+                  (rf.fresco.test/canonical-dom real))
             "two different pages, therefore two different canonical forms")
-        (is (= "&lt;p&gt;x&lt;/p&gt;" (rf.hicasso.test/canonical-dom literal))
+        (is (= "&lt;p&gt;x&lt;/p&gt;" (rf.fresco.test/canonical-dom literal))
             "and the canonical form is stated, so what the escape produces is
              pinned rather than merely differing from something")))))
 
@@ -141,13 +141,13 @@
       (testing "one attribute whose value spells two is still one attribute"
         (is (= 1 (.-length (.-attributes p1))))
         (is (= 2 (.-length (.-attributes p2))))
-        (is (not= (rf.hicasso.test/canonical-dom one)
-                  (rf.hicasso.test/canonical-dom two))))
+        (is (not= (rf.fresco.test/canonical-dom one)
+                  (rf.fresco.test/canonical-dom two))))
       (testing "and an ampersand a page really shows survives round-distinctly,
                 so the escape is not itself a new collision"
         (let [amp (js/document.createElement "div")
               lt  (js/document.createElement "div")]
           (set! (.-textContent amp) "&lt;")
           (set! (.-textContent lt) "<")
-          (is (not= (rf.hicasso.test/canonical-dom amp)
-                    (rf.hicasso.test/canonical-dom lt))))))))
+          (is (not= (rf.fresco.test/canonical-dom amp)
+                    (rf.fresco.test/canonical-dom lt))))))))

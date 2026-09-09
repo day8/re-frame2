@@ -160,7 +160,7 @@
 
   `TextEncoder` and not `Buffer.byteLength`: this ns compiles into the
   BROWSER panel bundle (and under `:advanced`), where `Buffer` is not
-  there. Same helper shape as `re-frame.ssr.hash` and the hicasso lane's
+  there. Same helper shape as `re-frame.ssr.hash` and the fresco lane's
   `utf8-bytes` (rf2-2rtt6.121)."
   [v]
   (let [s (pr-str v)]

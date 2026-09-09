@@ -1,7 +1,7 @@
 # SSR and hydration
 
 Server-side rendering should produce the same UI that the browser later
-adopts. Hicasso does not use a separate string-template implementation: the
+adopts. Fresco does not use a separate string-template implementation: the
 server renders the same views and React elements used by the client.
 
 Every foreign or native component has one of two server policies:
@@ -19,7 +19,7 @@ The example page reads a feed from app-db and includes a browser-only chart:
 
 ```clojure
 (ns app.views
-  (:require [re-frame.hicasso :as h]
+  (:require [re-frame.fresco :as h]
             ["trend-charts" :refer [TrendChart]]))
 
 (h/defhost trend-chart TrendChart
@@ -56,7 +56,7 @@ adapter once at process startup. It is boot work, not request work.
 (ns app.server
   (:require [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
-            [re-frame.hicasso.server :as server]
+            [re-frame.fresco.server :as server]
             [app.views :as views]
             [app.subs]
             [app.events]))
@@ -123,13 +123,13 @@ The first client render must see the same state used by the server, and the
 frame that state lands in must already exist. A hydrating boot therefore has
 three ordered steps. They share the adapter precondition every browser boot
 has — install one with `rf/init!` before the first frame, per
-[Installation](00-installation.md#hicasso-needs-a-substrate-adapter).
+[Installation](00-installation.md#fresco-needs-a-substrate-adapter).
 
 ```clojure
 (ns app.client
   (:require [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
-            [re-frame.hicasso :as h]
+            [re-frame.fresco :as h]
             [app.views :as views]
             [app.subs]
             [app.events]))
@@ -235,7 +235,7 @@ and does not show the server fallback.
 
 A fallback must be deterministic, inert Hiccup. It is inspected at declaration
 time. A `defview` or `defhost` head inside it raises
-`:rf.error/hicasso-host-fallback-boundary-head`, because a later-running body
+`:rf.error/fresco-host-fallback-boundary-head`, because a later-running body
 cannot be part of the fixed fallback contract.
 
 Use a same-footprint skeleton to reduce layout shift.
@@ -267,9 +267,9 @@ it is declared Render.
 A false Render assertion fails loudly, often as `window is not defined` during
 the server render. Other declaration failures include:
 
-- `:rf.error/hicasso-host-bad-ssr-policy` for an unsupported policy or a
+- `:rf.error/fresco-host-bad-ssr-policy` for an unsupported policy or a
   `:fallback` combined with Render;
-- `:rf.error/hicasso-bad-host-declaration` for an unknown host option.
+- `:rf.error/fresco-bad-host-declaration` for an unknown host option.
 
 ## Multiple roots report independently
 
@@ -327,7 +327,7 @@ share belong in the snapshot or hydration payload.
 
 ??? info "Coming from a Hiccup-tree hash"
     Some adapters can hash an authored Hiccup data tree before React sees it.
-    Hicasso views produce React elements and React performs the traversal, so
+    Fresco views produce React elements and React performs the traversal, so
     there is no separate complete Hiccup tree to hash. Verification uses
     React's own root-scoped adoption reports.
 
@@ -352,10 +352,10 @@ view rewrite.
 | Every `useId` id in one root reports a mismatch | The root's `:identifier-prefix` differs from the server prefix | Use the same unique prefix in `server/render` and that root's adopting `h/render!` |
 | An adopting `h/render!` throws `:rf.error/frame-provider-frame-absent` | The tree SCOPEs a frame nothing made — step 1 or step 2 was skipped | Create the frame and install the payload before adopting the DOM |
 | Client-only widget shows a skeleton, then swaps to the live widget | The Client-only policy is working | Use a same-size fallback, or select Render only when the component is truly server-safe |
-| Declaration raises `:rf.error/hicasso-host-fallback-boundary-head` | The fallback contains a view or host head | Use plain deterministic Hiccup, or render the real component with `{:server :render}` |
+| Declaration raises `:rf.error/fresco-host-fallback-boundary-head` | The fallback contains a view or host head | Use plain deterministic Hiccup, or render the real component with `{:server :render}` |
 | Server render throws `window is not defined` under Render | The component is not server-safe | Return it to Client-only and provide a fallback |
 | A host's children are absent from server HTML | The host is Client-only, so the fallback replaces the whole crossing | Mark a server-safe transparent wrapper `{:server :render}` |
-| Declaration raises `:rf.error/hicasso-host-bad-ssr-policy` | Unsupported policy, or `:fallback` used with Render | Use `:render`, or `:client-only` with an optional fallback |
+| Declaration raises `:rf.error/fresco-host-bad-ssr-policy` | Unsupported policy, or `:fallback` used with Render | Use `:render`, or `:client-only` with an optional fallback |
 | Service boot raises `:rf.error/ssr-missing-payload-policy` | No fail-closed payload policy was supplied | Allowlist every top-level app-db key the page reads, or explicitly select whole app-db |
 | Pure views still mismatch | A rendered app-db key was omitted from the payload | Add the key to the allowlist |
 | Boot raises `:rf.error/hydration-frame-id-mismatch` | Server `:client-frame-id` and client `:frame` differ | Use one stable wire frame id on both sides |
@@ -376,7 +376,7 @@ React renders the server output; there is no parallel JVM string emitter.
 | Roots and `h/as-component` | Render, with request isolation and prefix matching |
 | `h/defhost`, slots, render props, and `h/as-element` | Client-only until the declaration selects Render |
 | Portals, raw React elements, and opaque foreign components | Client-only |
-| A React element returned directly from a `defview` | Render, as React renders it; a component inside it has no Hicasso gate, so it must be server-safe itself |
+| A React element returned directly from a `defview` | Render, as React renders it; a component inside it has no Fresco gate, so it must be server-safe itself |
 | React islands, through `h/defhost` | Client-only until the declaration selects Render |
 | Resource boundaries | Follow their module's server contract; a passive read causes nothing, so no client `[:rf.resource/ensure …]` runs during server rendering |
 
@@ -431,7 +431,7 @@ reaches the browser and no partial page is possible.
 
 Three pieces make it work, and only the middle one is new to this chapter:
 
-- **`re-frame.hicasso.server/render-body`** — the body-only sibling of
+- **`re-frame.fresco.server/render-body`** — the body-only sibling of
   [`server/render`](#render-a-page-from-a-snapshot). It takes `:hiccup`, a
   `:render-state` envelope and an `:identifier-prefix`, installs both state
   partitions into a fresh per-request frame in one write, and returns inner
@@ -451,7 +451,7 @@ agree on the string rather than one.
 The full recipe — both builds, the module, the two state policies and why they
 differ, the serve command, build-id skew and the deployment posture — is
 [Render on Node](../../ssr/concepts.md#render-on-node). The worked example is
-[`substrates/hicasso/login`](../../../examples/substrates/hicasso/login), whose
+[`substrates/fresco/login`](../../../examples/substrates/fresco/login), whose
 `server.cljs` is a real render module driven by the test suite against the real
 views; its `host.clj` is annotated wiring rather than a server you can start,
 because that example's model is ClojureScript-only today.

@@ -1,6 +1,6 @@
 # API reference
 
-Every public name Hicasso ships, with the signature it ships with, grouped by
+Every public name Fresco ships, with the signature it ships with, grouped by
 the namespace that exports it.
 
 This page is for looking something up. It states what a door takes, what it
@@ -9,9 +9,9 @@ does not teach: the numbered chapters do that, and each entry points at the one
 that owns it.
 
 Every signature below was read off the source in
-`implementation/hicasso/`, never off another document. Where a door's behaviour
+`implementation/fresco/`, never off another document. Where a door's behaviour
 is decided somewhere else — React's own contract, core's `rf/make-frame`, the
-platform's `<dialog>` — the entry says so rather than restating it as Hicasso's.
+platform's `<dialog>` — the entry says so rather than restating it as Fresco's.
 
 ## How to read an entry
 
@@ -21,7 +21,7 @@ written `[name props children]` is a Hiccup head; a name with no parentheses is 
 value.
 
 A macro is marked as one. It matters here more than usual, because two of
-Hicasso's doors are macros that expand to a `def` — `h/defview` and `h/defhost`
+Fresco's doors are macros that expand to a `def` — `h/defview` and `h/defhost`
 — so they are written at the top level of a namespace and never inside a body.
 
 Refusals are `ex-info`s carrying a stable `:rf.error/…` id in `ex-data`. Entries
@@ -46,7 +46,7 @@ type a name you remember, the compiler says it does not exist, and you want to
 know what it became. So it is answered here, at [Names that
 changed](#names-that-changed).
 
-## `re-frame.hicasso` — the door
+## `re-frame.fresco` — the door
 
 The one namespace an ordinary application requires. Fourteen names, and every
 optional module is reached separately so that an application which never asks
@@ -54,7 +54,7 @@ for one carries none of it.
 
 ```clojure
 (ns my.app
-  (:require [re-frame.hicasso :as h]))
+  (:require [re-frame.fresco :as h]))
 
 ;; authoring — macros, written at the top level
 (h/defview name docstring? [props] body …)
@@ -90,7 +90,7 @@ for one carries none of it.
 | Name | What it is |
 | --- | --- |
 | `h/defview` | **Macro.** Mints a boundary — a real React function component, and a legal Hiccup head. `argv` is the ordinary one-props-map argument vector. The macro reads no body: it expands to a `def` of the minted head plus a source coordinate, so a refusal raised while the body runs can name where the boundary was written. The `fn` it emits is anonymous, so nothing it binds can shadow a helper of the same name. Taught in [Views and reads](02-views-and-reads.md). |
-| `h/defhost` | **Macro.** Declares a crossing to a foreign React component once, and answers a var usable as a Hiccup head anywhere. Two shapes, `(defhost name component)` and `(defhost name component opts)`, each with an optional docstring in second position. Anything past `opts` is refused with `:rf.error/hicasso-bad-host-declaration` rather than dropped. Taught in [Interop](09-interop.md). |
+| `h/defhost` | **Macro.** Declares a crossing to a foreign React component once, and answers a var usable as a Hiccup head anywhere. Two shapes, `(defhost name component)` and `(defhost name component opts)`, each with an optional docstring in second position. Anything past `opts` is refused with `:rf.error/fresco-bad-host-declaration` rather than dropped. Taught in [Interop](09-interop.md). |
 | `h/event` | **Macro.** The one callback form, for a position where the event itself is wanted. It expands to a marked `fn` and nothing else, so the value is an ordinary function and the contract comes from the position it is written at. Taught in [Events as data](03-events-as-data.md). |
 
 `h/defhost`'s `opts` map carries four keys and refuses any other:
@@ -139,9 +139,9 @@ releases a still-live handle's root exactly once, an already-unmounted handle is
 not released again, and a `h/render!` after either release mounts afresh.
 
 **A key the roster does not carry is REFUSED**, not ignored: `:frame` and
-`:initial-events` raise `:rf.error/hicasso-frame-config-misplaced` naming the
+`:initial-events` raise `:rf.error/fresco-frame-config-misplaced` naming the
 head that takes them, and anything else raises
-`:rf.error/hicasso-unknown-root-option`.
+`:rf.error/fresco-unknown-root-option`.
 
 ### The frame is written in the tree
 
@@ -241,7 +241,7 @@ state](11-ephemeral-state.md).
 ### The marker keywords
 
 The door exports no keyword, and none needs exporting: they already read
-`:re-frame.hicasso/…`, so aliasing this namespace as `h` resolves the
+`:re-frame.fresco/…`, so aliasing this namespace as `h` resolves the
 auto-resolved spelling with no keyword changing value.
 
 | Keyword | Where it goes | What it does |
@@ -257,16 +257,16 @@ nested inside a map or a sub-vector does not.
 
 The presence override markers are not in this roster: they are the motion
 module's own vocabulary — `::motion/mounting` / `::motion/unmounting` —
-documented under [`re-frame.hicasso.motion`](#re-framehicassomotion).
+documented under [`re-frame.fresco.motion`](#re-framefrescomotion).
 
-## `re-frame.hicasso.forms`
+## `re-frame.fresco.forms`
 
 The optional forms module. One view and its protocol; nothing new underneath it.
 
 ```clojure
 (ns my.app
-  (:require [re-frame.hicasso :as h]
-            [re-frame.hicasso.forms :as forms]))
+  (:require [re-frame.fresco :as h]
+            [re-frame.fresco.forms :as forms]))
 
 [forms/buffered-field {:control     [:todo id :title]
                        :value       (h/sub [:todo/title id])
@@ -281,7 +281,7 @@ The field's protocol is three ordinary events in the module's own keyword
 namespace — `::edit` on `:on-input`, `::commit` on Enter and blur alike,
 `::cancel` on Escape — written into the field's intents rather than exported
 as names. A test that drives the field by hand names them through the kit's
-`re-frame.hicasso.test.forms` (`tf/edit-id`, `tf/commit-id`, `tf/cancel-id`).
+`re-frame.fresco.test.forms` (`tf/edit-id`, `tf/commit-id`, `tf/cancel-id`).
 
 `forms/buffered-field` is a controlled `<input>` with an app-db draft in front of
 the committed value. `:control` is an opaque address, not a path; `:value` is the
@@ -303,14 +303,14 @@ durable draft — route entry, an explicit cancel, a successful save reply:
 
 Taught in [Forms](05-forms.md).
 
-## `re-frame.hicasso.overlay`
+## `re-frame.fresco.overlay`
 
 The optional overlay module. Two heads, and the module owns exactly one thing
 about an overlay: the imperative call that enters the browser's top layer.
 
 ```clojure
 (ns my.app
-  (:require [re-frame.hicasso.overlay :as overlay]))
+  (:require [re-frame.fresco.overlay :as overlay]))
 
 [overlay/modal   {:open? o :on-dismiss d :label l :light-dismiss? b} child …]
 [overlay/popover {:open? o :on-dismiss d :label l :anchor id :placement p} child …]
@@ -321,8 +321,8 @@ about an overlay: the imperative call that enters the browser's top layer.
 | `:open?` | both | whether the overlay exists at all. False renders nothing — no element, no listener, no anchor claim |
 | `:on-dismiss` | both | the intent the platform's own dismissal dispatches. Without one, the platform is told not to dismiss at all |
 | `:label` | both | the accessible name, as `aria-label` |
-| `:anchor` | popover | the DOM id of the trigger to position against. An `:anchor` naming no element refuses with `:rf.error/hicasso-overlay-anchor-missing`; omitting it stays legal and silent |
-| `:placement` | popover | a compass word, which becomes a CSS `position-area` against the anchor. The word-to-`position-area` table is `re-frame.hicasso.impl.overlay/position-areas`, public there so a witness can drive it rather than restate it — and a `:placement` outside it is **not refused**: it is passed through as a literal `position-area` value |
+| `:anchor` | popover | the DOM id of the trigger to position against. An `:anchor` naming no element refuses with `:rf.error/fresco-overlay-anchor-missing`; omitting it stays legal and silent |
+| `:placement` | popover | a compass word, which becomes a CSS `position-area` against the anchor. The word-to-`position-area` table is `re-frame.fresco.impl.overlay/position-areas`, public there so a witness can drive it rather than restate it — and a `:placement` outside it is **not refused**: it is passed through as a literal `position-area` value |
 | `:light-dismiss?` | modal | whether a backdrop click dismisses. Default false |
 
 Every other key is an ordinary attribute and reaches the element unrenamed.
@@ -331,14 +331,14 @@ first focusable control, so order the controls rather than reaching for an
 autofocus attribute, neither spelling of which reaches the platform here.
 Taught in [Overlays and focus](13-overlays-and-focus.md).
 
-## `re-frame.hicasso.motion`
+## `re-frame.fresco.motion`
 
 The optional motion module. One head, and the module owns exactly one thing
 about an animation: retention.
 
 ```clojure
 (ns my.app
-  (:require [re-frame.hicasso.motion :as motion]))
+  (:require [re-frame.fresco.motion :as motion]))
 
 [motion/presence {:timeout-ms 300} keyed-child …]
 ```
@@ -354,16 +354,16 @@ There is no easing, spring or keyframe API, no timeline, no `transitionend`
 subscription and no gesture state. Taught in [Motion and
 presence](12-motion-and-presence.md).
 
-## `re-frame.hicasso.native`
+## `re-frame.fresco.native`
 
-The two hooks a React island uses to reach Hicasso state. An island is a raw
+The two hooks a React island uses to reach Fresco state. An island is a raw
 React or UIx component mounted through `h/defhost`; this namespace adds only
-what React cannot supply — a read that joins Hicasso's own cell table, and the
+what React cannot supply — a read that joins Fresco's own cell table, and the
 frame's incarnation-pinned operations. Nothing else lives here.
 
 ```clojure
 (ns my.app
-  (:require [re-frame.hicasso.native :as n]))
+  (:require [re-frame.fresco.native :as n]))
 
 ;; real React hooks — top level of the component, unconditional
 (n/use-frame)
@@ -378,14 +378,14 @@ frame's incarnation-pinned operations. Nothing else lives here.
 Both hooks refuse with `:rf.error/no-frame-context` when rendered outside every
 frame. Taught in [Islands](10-native-tier.md).
 
-## `re-frame.hicasso.server`
+## `re-frame.fresco.server`
 
 The optional server module: one request in, one document out, rendered by the
-Hicasso runtime itself under Node's `react-dom/server`. Three public names.
+Fresco runtime itself under Node's `react-dom/server`. Three public names.
 
 ```clojure
 (ns app.server
-  (:require [re-frame.hicasso.server :as server]))
+  (:require [re-frame.fresco.server :as server]))
 
 (server/render opts)
 (server/payload-script payload-edn)
@@ -428,14 +428,14 @@ byte-identical to the framework's own and the escaping correct.
 The determinism check — render the same request twice and compare the
 documents byte-for-byte, answering `{:first :second :identical? :differs-at}` —
 is a test's business rather than a running host's, so it lives in the test kit
-as `re-frame.hicasso.test.server/render-twice`. Its own namespace, because it is
+as `re-frame.fresco.test.server/render-twice`. Its own namespace, because it is
 the one kit door that requires the server module and `react-dom/server`.
 
 The frame id in `:frame-id` is a per-request gensym, destroyed before `render`
 returns. It is there to be asserted on, not used. Taught in [SSR and
 hydration](18-ssr-and-hydration.md).
 
-## `re-frame.hicasso.tool`
+## `re-frame.fresco.tool`
 
 The tool-tier reader door — the four reads Xray and an AI pair consume, and the
 only door either of them has. Every one of them answers `nil` in a production
@@ -443,7 +443,7 @@ build.
 
 ```clojure
 (ns my.tooling
-  (:require [re-frame.hicasso.tool :as tool]))
+  (:require [re-frame.fresco.tool :as tool]))
 
 (tool/read-mounted-boundaries)
 (tool/read-read-attribution)
@@ -468,14 +468,14 @@ edge set, each with the source coordinate `defview` captured — or `:unknown`
 for a body minted without a name. A view that unmounts leaves the list, and a
 render React discarded never joins it. Taught in [Diagnostics](16-diagnostics.md).
 
-## `re-frame.hicasso.evidence`
+## `re-frame.fresco.evidence`
 
 The evidence vocabulary and the one door every envelope goes through. A
 consumer reads this namespace; a producer calls it.
 
 ```clojure
 (ns my.tooling
-  (:require [re-frame.hicasso.evidence :as evidence]))
+  (:require [re-frame.fresco.evidence :as evidence]))
 
 ;; identity and vocabulary
 evidence/schema  evidence/producer  evidence/reads
@@ -494,7 +494,7 @@ evidence/unknown evidence/loss-reasons
 | `evidence/loss-reasons` | why a read could not carry something: `:cap`, `:opaque`, `:host-opaque`, `:uncorrelated`. Each names a different remedy |
 | `evidence/envelope` | answers `body` stamped with the five envelope fields for `read`, or throws naming every problem: a read outside the vocabulary, a loss with a foreign reason or no sizeable `:dropped`, or `:complete? true` beside a loss. The only door — there is no lenient variant |
 
-## `re-frame.hicasso.test` — the L0/L1 test kit
+## `re-frame.fresco.test` — the L0/L1 test kit
 
 Ships from `test_kit/src` — in the jar, but off the artifact's `:paths`, so a
 `:local/root` consumer names that root explicitly and no shipping namespace ever
@@ -503,7 +503,7 @@ values and runs bodies.
 
 ```clojure
 (ns my.app-test
-  (:require [re-frame.hicasso.test :as ht]))
+  (:require [re-frame.fresco.test :as ht]))
 
 ;; L0 — what a value IS
 (ht/boundary? v)   (ht/host? v)   (ht/callback? v)
@@ -559,13 +559,13 @@ nothing is mounted or painted. It refuses a `h/defhost` crossing, a raw React
 element and an unforced `delay` anywhere in the tree, and it refuses a read no
 fixture answers. Taught in [Testing](15-testing.md).
 
-## `re-frame.hicasso.test.mounted` — the L3 test kit
+## `re-frame.fresco.test.mounted` — the L3 test kit
 
 The mounted tier: a real React root, a real frame, a real DOM. Fifteen names.
 
 ```clojure
 (ns my.app-test
-  (:require [re-frame.hicasso.test.mounted :as hm]))
+  (:require [re-frame.fresco.test.mounted :as hm]))
 
 (hm/mount! form)
 (hm/mount! form {:initial-events es :container node :clock true})
@@ -614,7 +614,7 @@ not walk.
 
 ## Names that changed
 
-Hicasso is pre-alpha and some of its doors have been renamed since they were
+Fresco is pre-alpha and some of its doors have been renamed since they were
 first written down. There is no alias and no deprecation path for any of them:
 an old spelling is gone rather than deprecated, so what you get is a compile
 error rather than a warning. This is what to type instead.
@@ -622,20 +622,20 @@ error rather than a warning. This is what to type instead.
 | What you may have written | What it is today | When, and on whose authority |
 | --- | --- | --- |
 | `hfn`, taught as `h/fn` | `h/event` | Ruled by the project operator on 2026-08-11 and swept through code and guide alike on 2026-08-15. `event` is the word this project already reserves for *turn the invoker's arguments into one event vector, or `nil`*, while `handler` names imperative work whose return is ignored — so `handler` would have been a false friend to anyone arriving from another adapter |
-| `h/root!`, taking the frame keyword positionally | `h/mount!`, over a config map — `(node config view)`; then RETIRED, along with `h/hydrate!`, into the one `h/client-root` / `h/render!` / `h/unmount!` grammar (rf2-kuky.59) | Named by the same 2026-08-11 ruling, but it could not be carried out as a rename: the config map this guide teaches carries `:initial-events`, and the door underneath implemented no such option. It landed on 2026-08-15 as the contract rather than the spelling, which is why it arrived after the sweep that renamed the callback form. The second supersession collapsed four spellings of one React-level job into one handle with a first-call mode, so Hicasso spells the root lifecycle the way every other React view adapter does |
+| `h/root!`, taking the frame keyword positionally | `h/mount!`, over a config map — `(node config view)`; then RETIRED, along with `h/hydrate!`, into the one `h/client-root` / `h/render!` / `h/unmount!` grammar (rf2-kuky.59) | Named by the same 2026-08-11 ruling, but it could not be carried out as a rename: the config map this guide teaches carries `:initial-events`, and the door underneath implemented no such option. It landed on 2026-08-15 as the contract rather than the spelling, which is why it arrived after the sweep that renamed the callback form. The second supersession collapsed four spellings of one React-level job into one handle with a first-call mode, so Fresco spells the root lifecycle the way every other React view adapter does |
 | `h/hydrate-root!` | `h/hydrate!`; then RETIRED into `h/render!`'s `{:hydrate? true}` first-call mode (rf2-kuky.59) | The same ruling. That half was a true rename and landed first, which is why the two doors changed on different days; the second supersession made hydration a MODE rather than a verb, because a root that adopts and a root that creates differ only in which constructor the first render calls |
 | `hm/render!`, on the mounted test kit | `hm/rerender!` | Ruled 2026-08-11, swept 2026-08-15. `render!` would have collided with the product facade's own `h/render!`, and a test that reads `render!` should not have to know which of the two it is looking at |
 | `ht/render`, with a `{:reads …}` fixture | `ht/tree`, with a `{:subs …}` fixture | Applied on 2026-08-11. L2 answers a data tree and never DOM — the kit's own docstring says it is not a renderer — so `render` both misdescribed the door and collided with two others |
-| `:ssr`, on a `defhost` declaration | `:server` | Applied without waiting on the naming sitting, because by then the two spellings had diverged code-against-code inside one shipped artefact, which is a defect rather than an open question of taste. `:ssr` names the technique where `:server` names the side that renders, which is what the two values distinguish. A declaration still carrying `:ssr` now raises `:rf.error/hicasso-bad-host-declaration` |
+| `:ssr`, on a `defhost` declaration | `:server` | Applied without waiting on the naming sitting, because by then the two spellings had diverged code-against-code inside one shipped artefact, which is a defect rather than an open question of taste. `:ssr` names the technique where `:server` names the side that renders, which is what the two values distinguish. A declaration still carrying `:ssr` now raises `:rf.error/fresco-bad-host-declaration` |
 | `server/fresh-frame-id`, `server/setup-events` | Neither is public. The server module's whole public surface is `server/render`, `server/payload-script` and `server/document` | Operator override of 2026-08-15, argued name by name against what an external host can actually do with each. Nothing an application writes calls either of the two: `server/render` mints its own frame id and refuses to have it overridden, and the event setup is a short fold over options `server/render` already accepts directly |
-| `server/render-twice` | `re-frame.hicasso.test.server/render-twice` | Moved 2026-08-30 (rf2-6c12m.15). A determinism probe is a test's instrument, not a running host's door; the kit namespace is its own so that `react-dom/server` is required only by the one test that asks |
+| `server/render-twice` | `re-frame.fresco.test.server/render-twice` | Moved 2026-08-30 (rf2-6c12m.15). A determinism probe is a test's instrument, not a running host's door; the kit namespace is its own so that `react-dom/server` is required only by the one test that asks |
 
 One rule explains most of what looks inconsistent above.
 
 **A refusal id is not a spelling, and never follows one.** An id is frozen for
 the life of the refusal and is never reused after retirement, because a
 consumer's stored errors and an error monitor's grouping rule both outlive the
-code. So `:rf.error/hicasso-test-bad-reads` still carries the retired word
+code. So `:rf.error/fresco-test-bad-reads` still carries the retired word
 `reads` and always will — it names the refusal, not the option the refusal was
 about. The message beside it names the current spelling.
 
@@ -648,7 +648,7 @@ in the shipped package, not when it is proposed.
 
 One gate reads the shipped source rather than this page, which is what makes a
 mismatch between it and an entry here a real finding rather than a matter of
-opinion: `implementation/hicasso/scripts/check_guide_samples.py` resolves every
+opinion: `implementation/fresco/scripts/check_guide_samples.py` resolves every
 `alias/verb` a fenced block in the guide names against the source that defines
 it, and pins each block's text to a digest, on every pull request.
 

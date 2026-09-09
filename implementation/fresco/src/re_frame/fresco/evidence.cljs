@@ -1,5 +1,5 @@
-(ns re-frame.hicasso.evidence
-  "The envelope every `re-frame.hicasso.tool` read answers in, and the
+(ns re-frame.fresco.evidence
+  "The envelope every `re-frame.fresco.tool` read answers in, and the
   vocabulary it is written in.
 
   An envelope names its schema, its producer, the read that answered,
@@ -13,7 +13,7 @@
   Why: Xray and the AI pair consume one door with no consumer
   discriminator, so the shape they parse is pinned by a version and the
   trust a roster deserves rides on the roster. The contract is
-  docs/design/hicasso/product/lanes/testing-xray.md §Evidence contract."
+  docs/design/fresco/product/lanes/testing-xray.md §Evidence contract."
   (:require [clojure.string :as str]))
 
 (def schema
@@ -23,12 +23,12 @@
   prevent. v3 folds the former scope/basis axes into `:complete?` and
   `:loss`, drops the `:naming`, `:host` and `:origin` sub-projections,
   and names the declared views mounted on a boundary as `:views`."
-  :re-frame.hicasso.evidence/v3)
+  :re-frame.fresco.evidence/v3)
 
 (def producer
   "Which substrate produced the envelope. The schema is adapter-neutral,
   so the producer is stamped rather than inferred from the read's name."
-  :re-frame/hicasso)
+  :re-frame/fresco)
 
 (def unknown
   "The value a field states where the fact is not held, and the
@@ -77,7 +77,7 @@
   `{:reason <one of `loss-reasons`> :dropped <count or `unknown`>}`.
   The stamp is `:schema`, `:producer`, `:read`, `:complete?` and `:loss`,
   merged over `body`. Refused, with an `ex-info` whose data carries
-  `:re-frame.hicasso.evidence/defect` and the `:problems`: a read outside
+  `:re-frame.fresco.evidence/defect` and the `:problems`: a read outside
   the vocabulary, a loss with a foreign reason or no sizeable `:dropped`,
   and `:complete? true` beside a loss.
 
@@ -90,7 +90,7 @@
       (throw (ex-info (str "This evidence envelope cannot be emitted: " (str/join "; " ps)
                            ". Every envelope states its read, its completeness and its loss; "
                            "unknown is never encoded as an empty collection.")
-                      {:re-frame.hicasso.evidence/defect :incoherent-envelope
+                      {:re-frame.fresco.evidence/defect :incoherent-envelope
                        :problems ps})))
     (assoc body
            :schema    schema

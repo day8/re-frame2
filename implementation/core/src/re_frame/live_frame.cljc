@@ -625,7 +625,7 @@
 ;; constructs, renders and destroys in a `finally` — so a long-lived server
 ;; retained one row per request served, plus (on the 2-arity) the caller's whole
 ;; explicit descriptor pool. Exactly the shape rf2-uejlj fixed one layer up for
-;; the Hicasso frame-ops row. The release below needs no incarnation token: a
+;; the Fresco frame-ops row. The release below needs no incarnation token: a
 ;; same-id successor is constructable only after teardown's step-9 registry
 ;; dissoc, so every row standing at hook time is a dead incarnation's.
 ;;
@@ -763,7 +763,7 @@
   step-6 auxiliary-cleanup pass, so the row's lifetime is the frame's.
 
   Keyed and UNCONDITIONAL, carrying no incarnation token — the same argument
-  the sibling `:hicasso/on-frame-destroyed!` hook makes (rf2-uejlj): destroy
+  the sibling `:fresco/on-frame-destroyed!` hook makes (rf2-uejlj): destroy
   still holds the id's exact construction/destruction reservation here, and a
   same-id successor can only be seated after the step-9 registry dissoc, so
   every row standing at hook time belongs to the incarnation being torn down.

@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.ssr.node
+(ns re-frame.bench.fresco.ssr.node
   "THE NODE ENTRY POINT — what the bake and the live demo call
   (rf2-2rtt6.86 clauses 3 and 4).
 
@@ -11,7 +11,7 @@
   ## Why the drivers are `.cjs` and this is the only CLJS in the process
 
   Everything under this lane is compiled by `npm run
-  test:hicasso-compile`, which rides `:hicasso-bench` — a **browser**
+  test:fresco-compile`, which rides `:fresco-bench` — a **browser**
   build. A CLJS namespace here that required `node:fs` or `node:http`
   would fail that gate, and a namespace placed outside the lane to dodge
   it would be exactly the silently-uncovered file the gate exists to
@@ -33,15 +33,15 @@
   reaching into the render entry, which is the coupling the seam exists
   to prevent."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.dogfood-collector :as rf.bench.hicasso.arm1.dogfood-collector]
-            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
-            [re-frame.bench.hicasso.ssr.entry :as rf.bench.hicasso.ssr.entry]
-            [re-frame.bench.hicasso.ssr.fixtures :as rf.bench.hicasso.ssr.fixtures]
+            [re-frame.bench.fresco.arm1.dogfood-collector :as rf.bench.fresco.arm1.dogfood-collector]
+            [re-frame.bench.fresco.front.dogfood :as rf.bench.fresco.front.dogfood]
+            [re-frame.bench.fresco.ssr.entry :as rf.bench.fresco.ssr.entry]
+            [re-frame.bench.fresco.ssr.fixtures :as rf.bench.fresco.ssr.fixtures]
             [re-frame.core :as rf]))
 
 (def ^:const api-slot
   "The `globalThis` property the drivers read the API off."
-  "HICASSO_SSR")
+  "FRESCO_SSR")
 
 (defn- result->js
   [{:keys [html document payload-edn frame-id]}]
@@ -58,15 +58,15 @@
 
 (defn- require-row
   [id]
-  (or (rf.bench.hicasso.ssr.fixtures/row id)
+  (or (rf.bench.fresco.ssr.fixtures/row id)
       (throw (ex-info (str "No SSR corpus row named " (pr-str id) ". Known: "
-                           (pr-str (rf.bench.hicasso.ssr.fixtures/ids)))
-                      {:id id :known (rf.bench.hicasso.ssr.fixtures/ids)}))))
+                           (pr-str (rf.bench.fresco.ssr.fixtures/ids)))
+                      {:id id :known (rf.bench.fresco.ssr.fixtures/ids)}))))
 
 (defn render-fixture
   "Render the corpus row named `id`."
   [id]
-  (result->js (rf.bench.hicasso.ssr.entry/render (require-row id))))
+  (result->js (rf.bench.fresco.ssr.entry/render (require-row id))))
 
 (defn render-fixture-twice
   "Render the corpus row named `id` TWICE and hand both documents back —
@@ -74,7 +74,7 @@
   entry has already compared them byte-for-byte."
   [id]
   (let [{:keys [identical? differs-at] a :first b :second}
-        (rf.bench.hicasso.ssr.entry/render-twice (require-row id))]
+        (rf.bench.fresco.ssr.entry/render-twice (require-row id))]
     #js {"first"      (result->js a)
          "second"     (result->js b)
          "identical"  identical?
@@ -89,24 +89,24 @@
   the state is the REQUEST'S and not the process's."
   [n]
   (result->js
-    (rf.bench.hicasso.ssr.entry/render {:hiccup   [rf.bench.hicasso.arm1.dogfood-collector/screen {}]
-                   :snapshot (rf.bench.hicasso.front.dogfood/seed-db n)
-                   :payload  rf.bench.hicasso.ssr.fixtures/dogfood-payload-keys
-                   :title    (str "Hicasso SSR — live, " n " to-dos")})))
+    (rf.bench.fresco.ssr.entry/render {:hiccup   [rf.bench.fresco.arm1.dogfood-collector/screen {}]
+                   :snapshot (rf.bench.fresco.front.dogfood/seed-db n)
+                   :payload  rf.bench.fresco.ssr.fixtures/dogfood-payload-keys
+                   :title    (str "Fresco SSR — live, " n " to-dos")})))
 
 (defn boot!
   "Install the substrate and register what the corpus needs. Once per
   process — Spec 006's law, not a convention."
   []
   (rf/init! rf.adapter.uix/adapter)
-  (rf.bench.hicasso.ssr.fixtures/register!)
+  (rf.bench.fresco.ssr.fixtures/register!)
   nil)
 
 (defn install!
   "Publish the driver API."
   []
   (unchecked-set js/globalThis api-slot
-                 #js {"ids"          (clj->js (rf.bench.hicasso.ssr.fixtures/ids))
+                 #js {"ids"          (clj->js (rf.bench.fresco.ssr.fixtures/ids))
                       "render"       render-fixture
                       "renderTwice"  render-fixture-twice
                       "renderDogfood" render-dogfood})

@@ -15,7 +15,7 @@
 > written to be re-pinned at the sitting of 2026-08-27; there is no sitting. The
 > operator ruled the P2 fork *graduate, as a success* directly in chat on
 > 2026-08-13 at 04:57 AUSEST, pre-empting the 2026-08-25 packet freeze and that
-> sitting ([`decisions.md` HD-029](../decisions.md#hd-029--the-p2-fork-hicasso-graduates-as-a-success);
+> sitting ([`decisions.md` HD-029](../decisions.md#hd-029--the-p2-fork-fresco-graduates-as-a-success);
 > the kill-table dispositions at graduation are in
 > [validation.md](../validation.md#the-kill-table-at-graduation--the-p2-ruling-of-2026-08-13),
 > where K3's *disposition owed explicitly* is discharged by this page). **No
@@ -87,21 +87,21 @@ down is named"* — **never plain green**.
 
 **S1–S5 are package figures as of 2026-08-12**, re-pinned by `rf2-fe0l` (PRs
 #7939 and #7941) in one solo quiet-window run of the P0 ladder repointed at
-`implementation/hicasso`, six rounds, package candidate and both donors in the
+`implementation/fresco`, six rounds, package candidate and both donors in the
 same run set. They are quoted here from [`budgets.md` §4](budgets.md) and
 [the ladder's own section](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l),
 which carry the controls. Nothing on this page is re-derived from raw samples.
 
 | Quantity | Package (2026-08-12) | Prototype anchor (superseded) | Moved? |
 |---|---:|---:|---|
-| Hicasso, ratom segment | **1,417** [1,416–1,417] | 1,278 [1,275–1,280] | **+139 B/read, +10.9%**; bands disjoint by 136 B |
-| Hicasso, React-hook spine segment | **2,115** [2,109–2,118] | 2,115 [2,110–2,118] | no — reproduced to the byte |
+| Fresco, ratom segment | **1,417** [1,416–1,417] | 1,278 [1,275–1,280] | **+139 B/read, +10.9%**; bands disjoint by 136 B |
+| Fresco, React-hook spine segment | **2,115** [2,109–2,118] | 2,115 [2,110–2,118] | no — reproduced to the byte |
 | Reagent donor | **948** [947–948] | 947 | no |
 | UIx donor | **2,980** [2,979–2,981] | 2,979 / 2,980 | no |
 
 **The bead that dispatched this record quoted `1,278` and `947 B/read`, and that
 premise no longer holds.** Those are the prototype anchors, taken on
-`re-frame.bench.hicasso.arm1.*` in the benchmark tree; the package re-pin
+`re-frame.bench.fresco.arm1.*` in the benchmark tree; the package re-pin
 landed after the bead was written and after the pointer note on it. The anchors
 are kept above as lineage — the evidence the package figures reproduce or move
 against — and they are never quoted as package measurements. The `~1.4x` the
@@ -114,9 +114,9 @@ its substrate and that
 [the substrate is the React-hook spine](substrate-decision.md#3-the-verdict-on-the-substrate),
 carried at a measured premium of **+698 B/read** (`1.4926×`) over the ratom
 family. The consequence for this page is stated by that record and not invented
-here: *"the published per-read figure for Hicasso is the spine column. S3's
+here: *"the published per-read figure for Fresco is the spine column. S3's
 ratom-segment figure remains a measurement and a K3 scoreboard input … but it is
-no longer the number a shipped Hicasso would produce"*
+no longer the number a shipped Fresco would produce"*
 ([`substrate-decision.md`](substrate-decision.md#what-this-freezes)).
 
 **On the ratios.** Every ratio quoted from `budgets.md` or the ladder comes from
@@ -138,7 +138,7 @@ instrument, not just a denominator.
 ## 3. Scoreboard (a) — governed viability against the best shipped path
 
 **The question.** What does an application pay, per retained read, to ship
-Hicasso instead of the best shipped path — Reagent? This is the governed K3 row,
+Fresco instead of the best shipped path — Reagent? This is the governed K3 row,
 and it is the one the kill criterion is written about.
 
 Two contrasts exist in the package run, and **they are not the same estimand**:
@@ -177,7 +177,7 @@ are wholly above it, so the row is **K3 territory** on either reading. **No pape
 path down to the line is named**: the design's own demonstrated floor is the
 `1,417 B/read` ratom column — still `1.4953×` the donor — and the ladder's
 bracket sentence is what says a view layer cannot cost less than the reactions it
-holds. A Hicasso-owned derived-value container landing inside `1,417 – 2,115`
+holds. A Fresco-owned derived-value container landing inside `1,417 – 2,115`
 would move `a-ii` toward `a-i`; it would not reach `943`.
 
 **Which row governs, and the alternative.** From the ABI freeze onward the
@@ -224,7 +224,7 @@ row reproduced their prototype anchors.
 Two facts strengthen the row and are worth stating because a reader would
 otherwise have to reconstruct them. First, **this row is like-for-like after
 `rf2-hic-018`**: UIx installs the React-hook spine through
-`spine/make-react-adapter`, and the shipped Hicasso now carries the same spine,
+`spine/make-react-adapter`, and the shipped Fresco now carries the same spine,
 so the two columns differ in view layer alone. Second, the shipped column clears
 the registered **UIx material-cost red-zone** of `2,935 B/read` [2,852–3,055]
 outright — `[2,109–2,118]` is wholly below the band's lower edge, so the verdict
@@ -258,7 +258,7 @@ The witness is
 is denominated in **lines, event positions and named losses — in no bytes at
 all**:
 
-| Measured | Hicasso | Raw UIx |
+| Measured | Fresco | Raw UIx |
 |---|---:|---:|
 | Counted lines for the same screen | **47** | 72 |
 | Event positions | 8 carrying data | 8 hand-written closures |
@@ -307,7 +307,7 @@ line is refused above rather than merely disapproved of:
   [§3](#3-scoreboard-a--governed-viability-against-the-best-shipped-path).
 - **Counting the R=0 shell against the per-read slope**, in either direction.
   Different axis, different owner.
-- **Quoting `1,417 B/read` as what a shipped Hicasso costs.** It is the arm that
+- **Quoting `1,417 B/read` as what a shipped Fresco costs.** It is the arm that
   does not ship; the shipped column is `2,115`.
   [§2](#2-the-figures-this-record-disposes-and-the-tree-each-was-taken-on).
 - **Treating the registered `943 B/read` [935–944] line and this run's `948`
@@ -354,11 +354,11 @@ executable by the bead that owns its enforcement:
 
 | Field | Value |
 |---|---|
-| Pinned witness | The P0 ladder's candidate arm pointed at `implementation/hicasso` — rungs 0/1/3/7/20 at B = 1,200 boundaries (4 roots × 300 cells), Q = E, six rounds, slope fitted over rungs 1/3/7/20 and never from the R=0 intercept |
+| Pinned witness | The P0 ladder's candidate arm pointed at `implementation/fresco` — rungs 0/1/3/7/20 at B = 1,200 boundaries (4 roots × 300 cells), Q = E, six rounds, slope fitted over rungs 1/3/7/20 and never from the R=0 intercept |
 | Instrument | `p0_run.cjs --only ladder` with the package seams landed by PR #7939; the driver, donors, floor, harness, fixtures, fit rules and order guard unchanged from the run that set the baseline |
 | Profile | **P-DEV-1 only.** `CI-RUNNER-A` may never source this row — [`budgets.md` §1](budgets.md) |
-| Governed baseline | The **shipped column**: `2,115 B/read` [2,109–2,118] (S4's Hicasso figure) |
-| Tracked, not gated | The ratom column, `1,417 B/read` [1,416–1,417] (S3's Hicasso figure). It is published and its movement is reported, but a regression on an arm that does not ship is not a product regression |
+| Governed baseline | The **shipped column**: `2,115 B/read` [2,109–2,118] (S4's Fresco figure) |
+| Tracked, not gated | The ratom column, `1,417 B/read` [1,416–1,417] (S3's Fresco figure). It is published and its movement is reported, but a regression on an arm that does not ship is not a product regression |
 | Trip point | `+10%` of the governed baseline is **`2,326.5 B/read`** — computed here as `1.10 × 2,115`, and stated to the half-byte because rounding it up would hand back a byte of allowance the rule did not grant. A reading above it trips |
 | Band reading | A confidence band that **crosses** the trip point is **UNRESOLVED, not a pass** — the same reading the operator froze for the `1,024 B` shell line on 2026-08-12, adopted here by analogy and overturnable with it |
 | What a breach does | It is **not** a blocking PR gate: [`budgets.md` §7](budgets.md) keeps the distributional family out of flaky PR thresholds. It blocks on the pinned interleaved evidence run until the benchmark owner validates the instrument and the adapter owner fixes or reverts |
@@ -374,7 +374,7 @@ actually governs the same move was **0 B**: the spine segment reproduced
 first same-witness comparison has not yet been taken.
 
 **The 5% rule is a different rule.** [`budgets.md` §4](budgets.md)'s
-*"pinned ordinary-Hicasso benchmark does not regress > 5% on same witness and
+*"pinned ordinary-Fresco benchmark does not regress > 5% on same witness and
 instrument"* governs a different witness on a different axis; neither threshold
 may be quoted for the other, and a green result on one says nothing about the
 other.
@@ -412,7 +412,7 @@ Any of these returns this record to the decider:
   figures for this row; a second run that moves either column re-pins every ratio
   above.
 - **A substrate change.** `rf2-hic-018` is delegated and operator-overturnable,
-  and its own reopen conditions — a Hicasso-owned derived-value container
+  and its own reopen conditions — a Fresco-owned derived-value container
   measured inside the `1,417 – 2,115 B/read` bracket with the kernel witnesses
   green on it, a core landing that moves the spine's `+698 B/read` premium, or a
   kernel witness that fails on the spine and passes on the ratom family — each
@@ -457,7 +457,7 @@ worse than none. Re-issuing it requires the same decider.
   [`dispositions.md` §2.3](dispositions.md#23-per-control-and-dom-conformance-dispositions).
   K4's criterion text is untouched and bites on a red result exactly as
   registered, and this record neither made that ruling nor carries it.
-- **Whether a Hicasso-owned derived-value container beats the spine.** No code,
+- **Whether a Fresco-owned derived-value container beats the spine.** No code,
   no measurement, a demonstrated target of `1,417 B/read`, and a bracket that
   says where it would have to land.
 

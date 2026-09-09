@@ -1,12 +1,12 @@
-(ns re-frame.bench.hicasso.shapes.census-clock-arms
+(ns re-frame.bench.fresco.shapes.census-clock-arms
   "THE CENSUS-REAL PAGES' CLOCK ARMS — the tier-1 shape roster's three
   mountable screens, each written out for every substrate the clock
   compares (rf2-2rtt6.56).
 
   The roster (rf2-2rtt6.51) authored the pages ONCE, in the candidate's
-  own language — [[re-frame.bench.hicasso.shapes.ordinary]],
-  [[re-frame.bench.hicasso.shapes.large-template]] and
-  [[re-frame.bench.hicasso.shapes.feed]] — and published no timing row.
+  own language — [[re-frame.bench.fresco.shapes.ordinary]],
+  [[re-frame.bench.fresco.shapes.large-template]] and
+  [[re-frame.bench.fresco.shapes.feed]] — and published no timing row.
   This file is what a clock row needs and the roster deliberately does
   not carry: the SAME three pages in direct UIx, in stock Reagent, and as
   a plain-React floor, so a mount ratio can be taken same-run against the
@@ -65,7 +65,7 @@
 
   ## The class strings are the codec's, byte for byte
 
-  The Hicasso codec merges a tag's `.class` shorthand with a declared
+  The Fresco codec merges a tag's `.class` shorthand with a declared
   `:class` by joining with ONE space and by dropping an empty declared
   string entirely (`front/codec.cljs` `class-names`) — and the census
   card's declared class itself begins with a space, so a favorited
@@ -80,13 +80,13 @@
   (:require ["react" :as react]
             ["react-dom/client" :as react-dom-client]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.shapes.feed :as rf.bench.hicasso.shapes.feed]
-            [re-frame.bench.hicasso.shapes.large-template :as rf.bench.hicasso.shapes.large-template]
-            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
-            [re-frame.bench.hicasso.shapes.ordinary :as rf.bench.hicasso.shapes.ordinary]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.shapes.feed :as rf.bench.fresco.shapes.feed]
+            [re-frame.bench.fresco.shapes.large-template :as rf.bench.fresco.shapes.large-template]
+            [re-frame.bench.fresco.shapes.model :as rf.bench.fresco.shapes.model]
+            [re-frame.bench.fresco.shapes.ordinary :as rf.bench.fresco.shapes.ordinary]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
             [reagent.dom.client :as rdc]
@@ -97,7 +97,7 @@
 ;; The three rows, their seeds and their arithmetic
 ;; ===========================================================================
 ;;
-;; Stress seeds are the roster's own (`rf.bench.hicasso.shapes.large-template/seed`, `rf.bench.hicasso.shapes.feed/seed`, and the
+;; Stress seeds are the roster's own (`rf.bench.fresco.shapes.large-template/seed`, `rf.bench.fresco.shapes.feed/seed`, and the
 ;; ordinary witness's `{:articles 2 :comments 5 :tags 2}`), so a clock row
 ;; is taken on exactly the page the roster's witnesses assert. Small seeds
 ;; exist for the parity gate — agreement at one size is not evidence until
@@ -105,24 +105,24 @@
 
 (def rows
   {:large-template
-   {:seed     rf.bench.hicasso.shapes.large-template/seed
+   {:seed     rf.bench.fresco.shapes.large-template/seed
     :small-a  {:articles 6 :tags 10}
     :small-b  {:articles 7 :tags 10}
     :elements (fn [{:keys [articles]}]
-                (+ rf.bench.hicasso.shapes.large-template/chrome-elements rf.bench.hicasso.shapes.large-template/tag-count (* 17 articles)))}
+                (+ rf.bench.fresco.shapes.large-template/chrome-elements rf.bench.fresco.shapes.large-template/tag-count (* 17 articles)))}
    :feed
-   {:seed     rf.bench.hicasso.shapes.feed/seed
+   {:seed     rf.bench.fresco.shapes.feed/seed
     :small-a  {:articles 6 :tags 10}
     :small-b  {:articles 7 :tags 10}
     :elements (fn [{:keys [articles]}]
-                (+ rf.bench.hicasso.shapes.large-template/chrome-elements rf.bench.hicasso.shapes.large-template/tag-count (* 17 articles)))}
+                (+ rf.bench.fresco.shapes.large-template/chrome-elements rf.bench.fresco.shapes.large-template/tag-count (* 17 articles)))}
    :ordinary
    {:seed     {:articles 2 :comments 5 :tags 2}
     :small-a  {:articles 2 :comments 3 :tags 2}
     :small-b  {:articles 2 :comments 4 :tags 2}
     :elements (fn [{:keys [comments]}]
                 (let [mine (count (filter #(zero? (mod % 4)) (range comments)))]
-                  (rf.bench.hicasso.shapes.ordinary/element-arithmetic comments mine)))}})
+                  (rf.bench.fresco.shapes.ordinary/element-arithmetic comments mine)))}})
 
 (defn- doubled
   "The seed at TWICE the row's card count — what the positive control
@@ -171,8 +171,8 @@
           arm-id  arm-ids
           :when   (not= arm-id :floor)]
     (let [fid (frame-of row-key arm-id)]
-      (rf.bench.hicasso.shapes.model/make-frame! fid (:seed (get rows row-key)))
-      (rf.bench.hicasso.shapes.model/reseed! fid (:seed (get rows row-key)))
+      (rf.bench.fresco.shapes.model/make-frame! fid (:seed (get rows row-key)))
+      (rf.bench.fresco.shapes.model/reseed! fid (:seed (get rows row-key)))
       (prime-frame! fid)))
   nil)
 
@@ -182,7 +182,7 @@
   [row-key arm-ids seed]
   (doseq [arm-id arm-ids
           :when  (not= arm-id :floor)]
-    (rf.bench.hicasso.shapes.model/reseed! (frame-of row-key arm-id) seed))
+    (rf.bench.fresco.shapes.model/reseed! (frame-of row-key arm-id) seed))
   nil)
 
 ;; ===========================================================================
@@ -192,7 +192,7 @@
 (def ^:private favorite-base "btn btn-outline-primary btn-sm pull-xs-right")
 
 (defn- favorite-class
-  "The favourite button's merged class, byte-identical to the Hicasso
+  "The favourite button's merged class, byte-identical to the Fresco
   codec's shorthand merge over the census card's own declared value. The
   declared value begins with a space, so the merged string carries TWO
   before `active`; an empty declared value merges to the shorthand alone."
@@ -266,7 +266,7 @@
 ;; ARM: the React floor — the calibrator, no substrate at all
 ;; ===========================================================================
 ;;
-;; Hand-written `createElement` over a plain seeded value (`rf.bench.hicasso.shapes.model/seed-db`
+;; Hand-written `createElement` over a plain seeded value (`rf.bench.fresco.shapes.model/seed-db`
 ;; called directly — no frame, no subscription, no handler indirection).
 ;; One hoisted inert handler, for the reason hd8's floor hoists its own:
 ;; the calibrator must not be billed for a closure per element that no
@@ -286,7 +286,7 @@
               (fel "a" #js {:className "author-link"
                             :href (str "#/profile/" (:username author))}
                    (fel "img" #js {:className "user-pic"
-                                   :src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""}))
+                                   :src (rf.bench.fresco.shapes.model/avatar-src (:image author)) :alt ""}))
               (fel "div" #js {:className "info"}
                    (fel "a" #js {:className "author"
                                  :href (str "#/profile/" (:username author))}
@@ -371,7 +371,7 @@
                 (fel "a" #js {:className "comment-author"
                               :href (str "#/profile/" (:username author))}
                      (fel "img" #js {:className "comment-author-img"
-                                     :src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""})
+                                     :src (rf.bench.fresco.shapes.model/avatar-src (:image author)) :alt ""})
                      " "
                      (:username author))
                 (fel "span" #js {:className "date-posted"} createdAt)
@@ -450,7 +450,7 @@
     ($ :div.article-preview {:key slug :data-testid (str "article-preview-" slug)}
        ($ :div.article-meta
           ($ :a.author-link {:href (:href pic-link) :on-click (:on-click pic-link)}
-             ($ :img.user-pic {:src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""}))
+             ($ :img.user-pic {:src (rf.bench.fresco.shapes.model/avatar-src (:image author)) :alt ""}))
           ($ :div.info
              ($ :a.author {:href (:href name-link) :on-click (:on-click name-link)}
                 (:username author))
@@ -573,7 +573,7 @@
           ($ :p.card-text {:data-testid "comment-body"} body))
        ($ :div.card-footer
           ($ :a.comment-author {:href (:href byline) :on-click (:on-click byline)}
-             ($ :img.comment-author-img {:src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""})
+             ($ :img.comment-author-img {:src (rf.bench.fresco.shapes.model/avatar-src (:image author)) :alt ""})
              " "
              (:username author))
           ($ :span.date-posted createdAt)
@@ -588,7 +588,7 @@
 (defui ux-comment-form [_props]
   (let [frame    (:frame (rf.adapter.uix/use-frame))
         pending? (rf.adapter.uix/use-sub [:conduit/comment-pending?] {:frame frame})
-        draft    (rf.adapter.uix/use-sub [:conduit/draft rf.bench.hicasso.shapes.model/comment-draft-key] {:frame frame})
+        draft    (rf.adapter.uix/use-sub [:conduit/draft rf.bench.fresco.shapes.model/comment-draft-key] {:frame frame})
         d        (dispatch-for frame)]
     ($ :form.card.comment-form {:data-testid "comment-form"
                                 :on-submit   (fn [e]
@@ -601,7 +601,7 @@
               :placeholder "Write a comment..."
               :value       draft
               :disabled    pending?
-              :on-input    (fn [e] (d [:conduit/edit-draft rf.bench.hicasso.shapes.model/comment-draft-key
+              :on-input    (fn [e] (d [:conduit/edit-draft rf.bench.fresco.shapes.model/comment-draft-key
                                        (.. e -target -value)]))}))
        ($ :div.card-footer
           ($ :button.btn.btn-sm.btn-primary {:type        "submit"
@@ -653,7 +653,7 @@
     [:div.article-preview {:key slug :data-testid (str "article-preview-" slug)}
      [:div.article-meta
       [:a.author-link {:href (:href pic-link) :on-click (:on-click pic-link)}
-       [:img.user-pic {:src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""}]]
+       [:img.user-pic {:src (rf.bench.fresco.shapes.model/avatar-src (:image author)) :alt ""}]]
       [:div.info
        [:a.author {:href (:href name-link) :on-click (:on-click name-link)} (:username author)]
        [:span.date createdAt]]
@@ -750,7 +750,7 @@
       [:p.card-text {:data-testid "comment-body"} body]]
      [:div.card-footer
       [:a.comment-author {:href (:href byline) :on-click (:on-click byline)}
-       [:img.comment-author-img {:src (rf.bench.hicasso.shapes.model/avatar-src (:image author)) :alt ""}]
+       [:img.comment-author-img {:src (rf.bench.fresco.shapes.model/avatar-src (:image author)) :alt ""}]
        " "
        (:username author)]
       [:span.date-posted createdAt]
@@ -773,10 +773,10 @@
       [:textarea.form-control {:data-testid "comment-body-input"
                                :rows        3
                                :placeholder "Write a comment..."
-                               :value       @(subscribe [:conduit/draft rf.bench.hicasso.shapes.model/comment-draft-key])
+                               :value       @(subscribe [:conduit/draft rf.bench.fresco.shapes.model/comment-draft-key])
                                :disabled    pending?
                                :on-input    (fn [e] (dispatch [:conduit/edit-draft
-                                                               rf.bench.hicasso.shapes.model/comment-draft-key
+                                                               rf.bench.fresco.shapes.model/comment-draft-key
                                                                (.. e -target -value)]))}]]
      [:div.card-footer
       [:button.btn.btn-sm.btn-primary {:type        "submit"
@@ -801,10 +801,10 @@
 ;; The arms, wired to their mount doors
 ;; ===========================================================================
 
-(def ^:private hicasso-page
-  {:large-template rf.bench.hicasso.shapes.large-template/page
-   :feed           rf.bench.hicasso.shapes.feed/page
-   :ordinary       rf.bench.hicasso.shapes.ordinary/screen})
+(def ^:private fresco-page
+  {:large-template rf.bench.fresco.shapes.large-template/page
+   :feed           rf.bench.fresco.shapes.feed/page
+   :ordinary       rf.bench.fresco.shapes.ordinary/screen})
 
 (def ^:private ux-page
   {:large-template ux-lt-page
@@ -826,20 +826,20 @@
 
 (defn arm
   "The lane arm for `arm-id` on `row-key` — `{:id :mount :unmount}`, the
-  shape `rf.bench.hicasso.lane/mount-arm!` times. `:floor` and `:ctl-2x` close over plain
+  shape `rf.bench.fresco.lane/mount-arm!` times. `:floor` and `:ctl-2x` close over plain
   seeded values built at load; the reactive arms close over their frames."
   [row-key arm-id]
   (let [fid (frame-of row-key arm-id)]
     (case arm-id
-      :floor   (let [db (rf.bench.hicasso.shapes.model/seed-db (:seed (get rows row-key)))]
+      :floor   (let [db (rf.bench.fresco.shapes.model/seed-db (:seed (get rows row-key)))]
                  (react-root-arm :floor (fn [] (floor-element row-key db))))
-      :ctl-2x  (let [db (rf.bench.hicasso.shapes.model/seed-db (doubled row-key))]
+      :ctl-2x  (let [db (rf.bench.fresco.shapes.model/seed-db (doubled row-key))]
                  (assoc (react-root-arm :ctl-2x (fn [] (floor-element row-key db)))
                         :control? true
                         :parity-exempt? true))
-      :hicasso (react-root-arm :hicasso
-                 (fn [] (rf.bench.hicasso.arm1.mount/provider fid
-                          (rf.bench.hicasso.front.codec/as-element [(get hicasso-page row-key) {}]))))
+      :fresco (react-root-arm :fresco
+                 (fn [] (rf.bench.fresco.arm1.mount/provider fid
+                          (rf.bench.fresco.front.codec/as-element [(get fresco-page row-key) {}]))))
       :uix     (react-root-arm :uix
                  (fn [] ($ rf.adapter.uix/frame-provider {:frame fid}
                            ($ (get ux-page row-key) {}))))
@@ -880,13 +880,13 @@
   [row-key arm-ids seed]
   (reseed-row! row-key arm-ids seed)
   (let [expected (elements-at row-key seed)
-        db       (rf.bench.hicasso.shapes.model/seed-db seed)
+        db       (rf.bench.fresco.shapes.model/seed-db seed)
         arms     (mapv (fn [id]
                          (if (= id :floor)
                            (react-root-arm :floor (fn [] (floor-element row-key db)))
                            (arm row-key id)))
                        arm-ids)
-        p        (rf.bench.hicasso.lane/parity arms {})]
+        p        (rf.bench.fresco.lane/parity arms {})]
     (try
       {:agree?    (:agree? p)
        :counts    (:counts p)
@@ -894,7 +894,7 @@
        :reference (:reference p)
        :disagree  (:disagree p)}
       (finally
-        (doseq [mnt (:mounts p)] (rf.bench.hicasso.lane/release! mnt))))))
+        (doseq [mnt (:mounts p)] (rf.bench.fresco.lane/release! mnt))))))
 
 (defn parity-problems
   "Every row, at stress size and at a small size: every arm builds ONE

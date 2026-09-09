@@ -1,9 +1,9 @@
-(ns re-frame.hicasso.test.server
-  "THE DETERMINISM PROBE over `re-frame.hicasso.server/render` — a test
+(ns re-frame.fresco.test.server
+  "THE DETERMINISM PROBE over `re-frame.fresco.server/render` — a test
   kit door, in its own namespace because it is the one kit namespace
   that requires the server module, and with it `react-dom/server`.
 
-      (:require [re-frame.hicasso.test.server :as ts])
+      (:require [re-frame.fresco.test.server :as ts])
 
       (let [{:keys [identical? differs-at]} (ts/render-twice opts)]
         (is identical? (str \"the render is not deterministic at \" differs-at)))
@@ -15,8 +15,8 @@
   before a page ships. It used to sit on the product door as
   `server/render-twice` (naming-ledger row 50); it moved here under
   rf2-6c12m.15 because nothing a running host does calls it.
-  Design record: docs/design/hicasso/product/naming-ledger.md row 50."
-  (:require [re-frame.hicasso.server :as rf.hicasso.server]))
+  Design record: docs/design/fresco/product/naming-ledger.md row 50."
+  (:require [re-frame.fresco.server :as rf.fresco.server]))
 
 (defn render-twice
   "`server/render` the same `opts` twice and compare the two documents
@@ -27,8 +27,8 @@
   frame ids, which is what makes this the standing proof that the
   per-request id is invisible on the wire."
   [opts]
-  (let [a (rf.hicasso.server/render opts)
-        b (rf.hicasso.server/render opts)
+  (let [a (rf.fresco.server/render opts)
+        b (rf.fresco.server/render opts)
         x (:document a)
         y (:document b)]
     {:first      a

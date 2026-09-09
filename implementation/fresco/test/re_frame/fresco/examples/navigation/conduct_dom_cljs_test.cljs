@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.navigation.conduct-dom-cljs-test
+(ns re-frame.fresco.examples.navigation.conduct-dom-cljs-test
   "L4 — WHAT THE BROWSER SAYS ABOUT NAVIGATION CONDUCT (specification
   §7's routing row).
 
@@ -6,7 +6,7 @@
   mutation*, and its additional surface is *dirty-leave, scroll
   restoration and focus-on-route recipes*. Those three proofs and two of
   those recipes are what this file measures, on
-  `re-frame.hicasso.examples.navigation` — an ordinary two-route
+  `re-frame.fresco.examples.navigation` — an ordinary two-route
   application written on the public door.
 
   ## Why every row here needs an engine
@@ -77,22 +77,22 @@
   drives each of them — with a SYNTHETIC event, not a real DOM one: the
   suite that drove them through the browser retired with the compiled-view
   substrate (rf2-0yp7w), so no browser-level witness survives it.
-  Hicasso's own `h/route-link` honours `:prefetch :intent` too since
+  Fresco's own `h/route-link` honours `:prefetch :intent` too since
   rf2-kuky.37 (naming-ledger row 36, applied), filling the same three
   positions with the same routing-minted vector through the
   `:routing/link-model` seam — but no link in THIS application asks for
   it, so there is still nothing on this surface to witness. The wired
   contract is pinned as data and as a dispatch in
-  `re-frame.hicasso.route-link-cljs-test`."
+  `re-frame.fresco.route-link-cljs-test`."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.examples.navigation.events :as rf.hicasso.examples.navigation.events]
-            [re-frame.hicasso.examples.navigation.routes :as rf.hicasso.examples.navigation.routes]
-            [re-frame.hicasso.examples.navigation.subs :as rf.hicasso.examples.navigation.subs]
-            [re-frame.hicasso.examples.navigation.views :as rf.hicasso.examples.navigation.views]
-            [re-frame.hicasso.test :as rf.hicasso.test]
-            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.fresco.examples.navigation.events :as rf.fresco.examples.navigation.events]
+            [re-frame.fresco.examples.navigation.routes :as rf.fresco.examples.navigation.routes]
+            [re-frame.fresco.examples.navigation.subs :as rf.fresco.examples.navigation.subs]
+            [re-frame.fresco.examples.navigation.views :as rf.fresco.examples.navigation.views]
+            [re-frame.fresco.test :as rf.fresco.test]
+            [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.routing :as rf.routing]
             [re-frame.test-support :as rf.test-support]))
 
@@ -118,7 +118,7 @@
                       ;; the next — which is precisely what the
                       ;; never-visited-URL row is written to rule out.
                       (rf.routing/reset-scroll-cache!)
-                      (rf.hicasso.examples.navigation.routes/register!))}))
+                      (rf.fresco.examples.navigation.routes/register!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading the page
@@ -173,8 +173,8 @@
   link, and the shape every other row starts from."
   ([route] (at! route nil))
   ([route params]
-   (rf.hicasso.test.mounted/mount! [rf.hicasso.examples.navigation.views/app {}]
-              {:initial-events [[::rf.hicasso.examples.navigation.events/seed]
+   (rf.fresco.test.mounted/mount! [rf.fresco.examples.navigation.views/app {}]
+              {:initial-events [[::rf.fresco.examples.navigation.events/seed]
                                 [:rf.route/navigate (cond-> {:to route}
                                                       params (assoc :params params))]]})))
 
@@ -185,7 +185,7 @@
   ([m done] (finish m nil done))
   ([m extra-nodes done]
    (doseq [n extra-nodes] (try (.remove n) (catch :default _ nil)))
-   (-> (rf.hicasso.test.mounted/unmount! m) (rf.hicasso.test.mounted/assert-clean!) (.then done))))
+   (-> (rf.fresco.test.mounted/unmount! m) (rf.fresco.test.mounted/assert-clean!) (.then done))))
 
 (defn- finish-after
   "End the row when `p` settles, reporting a rejection as a failure rather
@@ -267,50 +267,50 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-element-the-recipe-focuses-is-a-heading-with-the-panes-name
-  (let [tree (rf.hicasso.test/tree [rf.hicasso.examples.navigation.views/feed-page {}]
-                      {:subs {[::rf.hicasso.examples.navigation.subs/feed] [{:slug "deep-space" :title "Deep space"}]}})
-        marked (rf.hicasso.test/find tree #(= "true" (:data-route-heading (rf.hicasso.test/attrs %))))]
+  (let [tree (rf.fresco.test/tree [rf.fresco.examples.navigation.views/feed-page {}]
+                      {:subs {[::rf.fresco.examples.navigation.subs/feed] [{:slug "deep-space" :title "Deep space"}]}})
+        marked (rf.fresco.test/find tree #(= "true" (:data-route-heading (rf.fresco.test/attrs %))))]
     (testing "the marker the focus effect selects on exists, exactly once,
               and is on a real heading"
       (is (some? marked)
           "no element carries :data-route-heading — the recipe would focus
            nothing, and every browser row below would be asserting that a
            nil selector match is a no-op")
-      (is (= 1 (count (rf.hicasso.test/find-all tree #(= "true" (:data-route-heading (rf.hicasso.test/attrs %))))))
+      (is (= 1 (count (rf.fresco.test/find-all tree #(= "true" (:data-route-heading (rf.fresco.test/attrs %))))))
           "exactly one: `querySelector` takes the first match in document
            order, so a second marker is a focus target chosen by accident
            of markup order")
-      (is (= :heading (rf.hicasso.test/role marked))
+      (is (= :heading (rf.fresco.test/role marked))
           "a heading, per `ht/role` — landing focus on an unlabelled
            `<div>` announces nothing, which is the version of this recipe
            that passes a browser row and helps nobody"))
 
     (testing "and it carries the pane's own accessible name, so arriving
               there says WHERE the user arrived"
-      (is (= "Articles" (rf.hicasso.test/accessible-name tree marked))))
+      (is (= "Articles" (rf.fresco.test/accessible-name tree marked))))
 
     (testing "it is programmatically focusable and NOT a new Tab stop"
-      (is (= -1 (:tab-index (rf.hicasso.test/attrs marked)))
+      (is (= -1 (:tab-index (rf.fresco.test/attrs marked)))
           "-1, not 0: the heading is a focus TARGET, not a stop on the Tab
            order. Without any tabindex the engine refuses focus outright
            and `.focus()` is a silent no-op; with 0 the recipe buys itself
            an extra Tab press for every keyboard user on every page"))))
 
 (deftest the-recipe-names-a-root-and-not-the-document
-  (let [fx           (:fx (rf.hicasso.examples.navigation.events/pane-shown {} [::rf.hicasso.examples.navigation.events/pane-shown]))
+  (let [fx           (:fx (rf.fresco.examples.navigation.events/pane-shown {} [::rf.fresco.examples.navigation.events/pane-shown]))
         [fx-id args] (first fx)]
     (testing "`:on-match` asks for exactly one effect, and it is the focus one"
       (is (= 1 (count fx)))
-      (is (= ::rf.hicasso.examples.navigation.events/focus-heading fx-id)))
+      (is (= ::rf.fresco.examples.navigation.events/focus-heading fx-id)))
 
     (testing "the effect carries a ROOT scope alongside the selector"
-      (is (= rf.hicasso.examples.navigation.events/root-selector (:root args))
+      (is (= rf.fresco.examples.navigation.events/root-selector (:root args))
           "without `:root` the effect resolves its selector against the whole
            document and focuses the first marked heading on the page, whoever
            it belongs to — the defect
            [[a-deep-link-focuses-inside-the-applications-own-root]] mounts a
            decoy to catch")
-      (is (= rf.hicasso.examples.navigation.events/heading-selector (:selector args))))
+      (is (= rf.fresco.examples.navigation.events/heading-selector (:selector args))))
 
     (testing "and the shell RENDERS that root, so the scope names an element
               rather than nothing"
@@ -318,11 +318,11 @@
       ;; cannot state: a recipe scoped to an id no view writes resolves to
       ;; nil and focuses nothing at all — a no-op that looks exactly like a
       ;; working recipe on a page where nothing else competes for the marker.
-      (let [tree (rf.hicasso.test/tree [rf.hicasso.examples.navigation.views/app {}] {:subs {[:rf.route/id] rf.hicasso.examples.navigation.routes/feed}})
-            root (rf.hicasso.test/find tree #(= rf.hicasso.examples.navigation.events/root-id (:id (rf.hicasso.test/attrs %))))]
+      (let [tree (rf.fresco.test/tree [rf.fresco.examples.navigation.views/app {}] {:subs {[:rf.route/id] rf.fresco.examples.navigation.routes/feed}})
+            root (rf.fresco.test/find tree #(= rf.fresco.examples.navigation.events/root-id (:id (rf.fresco.test/attrs %))))]
         (is (some? root)
             (str "no element in the shell carries the id "
-                 (pr-str rf.hicasso.examples.navigation.events/root-id) " that " (pr-str rf.hicasso.examples.navigation.events/root-selector)
+                 (pr-str rf.fresco.examples.navigation.events/root-id) " that " (pr-str rf.fresco.examples.navigation.events/root-selector)
                  " names"))
         (is (= :main (:tag root))
             "and it is the application's own root element")))))
@@ -335,7 +335,7 @@
   (if-not (browser?)
     (skip! ":node-test has no focus model")
     (async done
-      (let [m (at! rf.hicasso.examples.navigation.routes/article {:slug (:slug first-article)})]
+      (let [m (at! rf.fresco.examples.navigation.routes/article {:slug (:slug first-article)})]
         (-> (focused-heading m "the deep link's landing focus")
             (.then (fn [h]
                      (is (identical? h (active))
@@ -358,20 +358,20 @@
       ;; application's container in document order and a document-wide
       ;; lookup reaches it first. Binding order is the whole mechanism.
       (let [decoy (decoy!)
-            m     (at! rf.hicasso.examples.navigation.routes/article {:slug (:slug first-article)})]
+            m     (at! rf.fresco.examples.navigation.routes/article {:slug (:slug first-article)})]
         (-> (js/Promise.resolve
               (testing "the near-miss is LIVE — a document-wide lookup does NOT
                         answer this application's heading"
                 (is (some? (heading m))
                     "precondition: the pane rendered a marked heading of its own")
-                (is (some? (.querySelector js/document rf.hicasso.examples.navigation.events/root-selector))
+                (is (some? (.querySelector js/document rf.fresco.examples.navigation.events/root-selector))
                     (str "precondition: the shell rendered "
-                         (pr-str rf.hicasso.examples.navigation.events/root-selector) ", the root the recipe
+                         (pr-str rf.fresco.examples.navigation.events/root-selector) ", the root the recipe
                          scopes to. A scope that resolves to nothing focuses
                          nothing, which on a page with no decoy is
                          indistinguishable from a recipe that works"))
                 (is (not (identical? (heading m)
-                                     (.querySelector js/document rf.hicasso.examples.navigation.events/heading-selector)))
+                                     (.querySelector js/document rf.fresco.examples.navigation.events/heading-selector)))
                     "the decoy precedes the application in document order, so
                      `document.querySelector` over the shared marker answers
                      something that is not this application's heading. The
@@ -399,7 +399,7 @@
   (if-not (browser?)
     (skip! ":node-test has no focus model")
     (async done
-      (let [m (at! rf.hicasso.examples.navigation.routes/article {:slug (:slug first-article)})]
+      (let [m (at! rf.fresco.examples.navigation.routes/article {:slug (:slug first-article)})]
         (-> (focused-heading m "the deep link's landing focus")
             (.then (fn [_]
                      ;; The Back button, as the framework sees it: one
@@ -408,10 +408,10 @@
                      ;; because this mount's frame is not URL-bound — what
                      ;; is under test is the conduct the door produces, not
                      ;; the listener that opens it.
-                     (rf.hicasso.test.mounted/dispatch-and-settle!
+                     (rf.fresco.test.mounted/dispatch-and-settle!
                        m [:rf.route/handle-url-change "/navigation"
                           {:rf.route/cause :popstate}])
-                     (is (= rf.hicasso.examples.navigation.routes/feed (read-sub m [:rf.route/id]))
+                     (is (= rf.fresco.examples.navigation.routes/feed (read-sub m [:rf.route/id]))
                          "the Back really landed, so the row below is not green
                           for want of anything happening")
                      (focused-heading m "the Back navigation's landing focus")))
@@ -432,15 +432,15 @@
   (if-not (browser?)
     (skip! ":node-test has no focus model")
     (async done
-      (let [m (at! rf.hicasso.examples.navigation.routes/article {:slug (:slug first-article)})]
+      (let [m (at! rf.fresco.examples.navigation.routes/article {:slug (:slug first-article)})]
         (-> (focused-heading m "the deep link's landing focus")
             (.then (fn [_]
                      ;; Put focus where a user would have it — in the field
                      ;; they are typing in — and then re-render underneath
                      ;; them.
                      (.focus (node m "#navigation-title"))
-                     (rf.hicasso.test.mounted/dispatch-and-settle!
-                       m [::rf.hicasso.examples.navigation.events/edit (:slug first-article) "Deep space, revisited"])
+                     (rf.fresco.test.mounted/dispatch-and-settle!
+                       m [::rf.fresco.examples.navigation.events/edit (:slug first-article) "Deep space, revisited"])
                      (is (= "Deep space, revisited" (.-value (node m "#navigation-title")))
                          "the re-render really happened")
                      (two-frames)))
@@ -457,19 +457,19 @@
   (if-not (browser?)
     (skip! ":node-test has no focus model")
     (async done
-      (let [m    (at! rf.hicasso.examples.navigation.routes/article {:slug (:slug first-article)})
+      (let [m    (at! rf.fresco.examples.navigation.routes/article {:slug (:slug first-article)})
             slug (:slug first-article)]
         (-> (focused-heading m "the deep link's landing focus")
             (.then (fn [_]
                      ;; The pending mutation: a typed, unsaved title. The
                      ;; article route's `:can-leave` guard reads it.
-                     (rf.hicasso.test.mounted/dispatch-and-settle! m [::rf.hicasso.examples.navigation.events/edit slug "Half a title"])
+                     (rf.fresco.test.mounted/dispatch-and-settle! m [::rf.fresco.examples.navigation.events/edit slug "Half a title"])
                      (.focus (node m "#navigation-title"))
 
-                     (rf.hicasso.test.mounted/dispatch-and-settle! m [:rf.route/navigate {:to rf.hicasso.examples.navigation.routes/feed}])
+                     (rf.fresco.test.mounted/dispatch-and-settle! m [:rf.route/navigate {:to rf.fresco.examples.navigation.routes/feed}])
 
                      (testing "the leave is REFUSED, and parked rather than dropped"
-                       (is (= rf.hicasso.examples.navigation.routes/article (read-sub m [:rf.route/id]))
+                       (is (= rf.fresco.examples.navigation.routes/article (read-sub m [:rf.route/id]))
                            "the route did not move")
                        (is (some? (read-sub m [:rf/pending-navigation]))
                            "and the refusal is resumable — routing wrote one
@@ -491,8 +491,8 @@
                      ;; Resume through the application's own wiring point,
                      ;; not through a hand-written event id.
                      (.click (node m ".leave-anyway"))
-                     (rf.hicasso.test.mounted/settle! m)
-                     (is (= rf.hicasso.examples.navigation.routes/feed (read-sub m [:rf.route/id]))
+                     (rf.fresco.test.mounted/settle! m)
+                     (is (= rf.fresco.examples.navigation.routes/feed (read-sub m [:rf.route/id]))
                          "the parked navigation resumed on confirmation")
                      (focused-heading m "the resumed navigation's landing focus")))
             (.then (fn [h]
@@ -516,15 +516,15 @@
     (skip! ":node-test has no scroll model")
     (async done
       (scroll-to! 0)
-      (let [m (at! rf.hicasso.examples.navigation.routes/feed)]
+      (let [m (at! rf.fresco.examples.navigation.routes/feed)]
         (-> (focused-heading m "the list's landing focus")
             (.then (fn [_]
                      (scrolled-to! deep-offset)
 
-                     (rf.hicasso.test.mounted/dispatch-and-settle!
-                       m [:rf.route/navigate {:to rf.hicasso.examples.navigation.routes/article
+                     (rf.fresco.test.mounted/dispatch-and-settle!
+                       m [:rf.route/navigate {:to rf.fresco.examples.navigation.routes/article
                                               :params {:slug (:slug first-article)}}])
-                     (is (= rf.hicasso.examples.navigation.routes/article (read-sub m [:rf.route/id])))
+                     (is (= rf.fresco.examples.navigation.routes/article (read-sub m [:rf.route/id])))
                      (is (= 0 (scroll-y))
                          (str "a forward navigation lands at the top and this one
                               is at " (scroll-y) ". Arriving at a new page
@@ -535,10 +535,10 @@
                      ;; `:restore`, and the position it looks up is the one
                      ;; `:rf.nav/capture-scroll` saved for `/navigation`
                      ;; when the navigation above left it.
-                     (rf.hicasso.test.mounted/dispatch-and-settle!
+                     (rf.fresco.test.mounted/dispatch-and-settle!
                        m [:rf.route/handle-url-change "/navigation"
                           {:rf.route/cause :popstate}])
-                     (is (= rf.hicasso.examples.navigation.routes/feed (read-sub m [:rf.route/id])))
+                     (is (= rf.fresco.examples.navigation.routes/feed (read-sub m [:rf.route/id])))
                      (is (= deep-offset (scroll-y))
                          (str "Back restored " (scroll-y) " rather than "
                               deep-offset ". The list is where the user was
@@ -571,16 +571,16 @@
     (skip! ":node-test has no scroll model")
     (async done
       (scroll-to! 0)
-      (let [m (at! rf.hicasso.examples.navigation.routes/feed)]
+      (let [m (at! rf.fresco.examples.navigation.routes/feed)]
         (-> (focused-heading m "the list's landing focus")
             (.then (fn [_]
                      (scrolled-to! 700)
 
-                     (rf.hicasso.test.mounted/dispatch-and-settle!
-                       m [:rf.route/navigate {:to     rf.hicasso.examples.navigation.routes/article
+                     (rf.fresco.test.mounted/dispatch-and-settle!
+                       m [:rf.route/navigate {:to     rf.fresco.examples.navigation.routes/article
                                               :params {:slug (:slug first-article)}
                                               :scroll false}])
-                     (is (= rf.hicasso.examples.navigation.routes/article (read-sub m [:rf.route/id]))
+                     (is (= rf.fresco.examples.navigation.routes/article (read-sub m [:rf.route/id]))
                          "the navigation happened, so the row is not green for
                           want of one")
                      (is (= 700 (scroll-y))
@@ -602,22 +602,22 @@
     (skip! ":node-test has no scroll model")
     (async done
       (scroll-to! 0)
-      (let [m (at! rf.hicasso.examples.navigation.routes/feed)]
+      (let [m (at! rf.fresco.examples.navigation.routes/feed)]
         (-> (focused-heading m "the list's landing focus")
             (.then (fn [_]
                      ;; Leave `/navigation` at a distinctive offset, so the
                      ;; cache holds exactly one position and it is one no
                      ;; other URL is entitled to.
                      (scrolled-to! deep-offset)
-                     (rf.hicasso.test.mounted/dispatch-and-settle!
-                       m [:rf.route/navigate {:to rf.hicasso.examples.navigation.routes/article
+                     (rf.fresco.test.mounted/dispatch-and-settle!
+                       m [:rf.route/navigate {:to rf.fresco.examples.navigation.routes/article
                                               :params {:slug (:slug first-article)}}])
                      (is (= 0 (scroll-y)))
                      (scrolled-to! 300)
 
                      ;; A Back to a URL this session has never left — so the
                      ;; cache has nothing keyed under it.
-                     (rf.hicasso.test.mounted/dispatch-and-settle!
+                     (rf.fresco.test.mounted/dispatch-and-settle!
                        m [:rf.route/handle-url-change "/navigation/article/shallow-water"
                           {:rf.route/cause :popstate}])
                      (is (= "shallow-water" (:slug (read-sub m [:rf.route/params])))

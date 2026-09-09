@@ -1,8 +1,8 @@
-(ns hicasso-testbed.core
+(ns fresco-testbed.core
   "THE CONTROLLED-INPUT TESTBED — the surface invariant I15 is driven
   against in three engines (rf2-hic-016).
 
-  Every field below is an ORDINARY Hicasso field: a `:value` off a
+  Every field below is an ORDINARY Fresco field: a `:value` off a
   subscription and an intent vector at `:on-input`, written exactly as
   authoring.md tells a consumer to write one. There is no probe, no ref,
   no escape hatch and no test-only prop on any of them — which is the
@@ -35,7 +35,7 @@
   `form-a` / `form-b` sit in a real `<form>` with a real reset button,
   because `form.reset()` returns a control to its `defaultValue` — and
   `defaultValue` is precisely the per-instance record
-  `re-frame.hicasso.impl.controlled/last-rendered` reads. A form reset is
+  `re-frame.fresco.impl.controlled/last-rendered` reads. A form reset is
   therefore the one ordinary browser action that touches the converge's
   own bookkeeping, and rf2-hic-016 records its conduct (the full
   conformance matrix is hic-040's).
@@ -52,7 +52,7 @@
   different question: does every control type named in
   [specification 4.2] have a support-or-refusal policy, in three engines,
   with none of them silently unsupported. That roster is
-  `docs/design/hicasso/product/dispositions.md` section 2.3, and these
+  `docs/design/fresco/product/dispositions.md` section 2.3, and these
   are the controls it needs on screen:
 
   | control | policy behind it | what it is here to settle |
@@ -78,7 +78,7 @@
 
   Everything above is enough for a driver that can call
   `window.__RF2_HIC_TB__.model()`. The bounded native-IME session
-  (`docs/design/hicasso/native-ime-manual-witness.md`) has no such
+  (`docs/design/fresco/native-ime-manual-witness.md`) has no such
   luxury — Playwright's WebKit build on Windows is a browser shell with no
   devtools — and the #7787 audit found two of its checks claiming more
   than a screen full of `<input>`s can show:
@@ -124,7 +124,7 @@
   (:require [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]))
+            [re-frame.fresco :as rf.fresco]))
 
 (def ^:private frame-id ::testbed)
 
@@ -458,7 +458,7 @@
 ;; The views — every field written the way authoring.md writes one
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview text-field
+(rf.fresco/defview text-field
   "One controlled `<input>`. `:value` off the subscription, an intent
   vector at `:on-input`, and nothing else."
   [{:keys [field]}]
@@ -466,18 +466,18 @@
     [:input {:data-testid id
              :id          id
              :type        "text"
-             :value       (rf.hicasso/sub [:tb/field field])
-             :on-input    [:tb/edit field ::rf.hicasso/value]}]))
+             :value       (rf.fresco/sub [:tb/field field])
+             :on-input    [:tb/edit field ::rf.fresco/value]}]))
 
-(rf.hicasso/defview notes-field
+(rf.fresco/defview notes-field
   "The same law on the other convergeable tag."
   [_]
   [:textarea {:data-testid "notes"
               :id          "notes"
-              :value       (rf.hicasso/sub [:tb/field :notes])
-              :on-input    [:tb/edit :notes ::rf.hicasso/value]}])
+              :value       (rf.fresco/sub [:tb/field :notes])
+              :on-input    [:tb/edit :notes ::rf.fresco/value]}])
 
-(rf.hicasso/defview revision-field
+(rf.fresco/defview revision-field
   "The reset trigger, carried as the author carries it: one `::h/revision`
   on the element's own attribute map. It is never an attribute, and the
   field is otherwise an ordinary controlled field.
@@ -491,21 +491,21 @@
     [:input {:data-testid   id
              :id            id
              :type          "text"
-             ::rf.hicasso/revision   (rf.hicasso/sub [:tb/revision])
-             :value         (rf.hicasso/sub [:tb/field field])
-             :on-input      [:tb/edit field ::rf.hicasso/value]}]))
+             ::rf.fresco/revision   (rf.fresco/sub [:tb/revision])
+             :value         (rf.fresco/sub [:tb/field field])
+             :on-input      [:tb/edit field ::rf.fresco/value]}]))
 
-(rf.hicasso/defview flag-box
+(rf.fresco/defview flag-box
   "The owned `::h/checked` pair. `false` is a presence here, not a
   falsehood."
   [_]
   [:input {:data-testid "flag"
            :id          "flag"
            :type        "checkbox"
-           :checked     (rf.hicasso/sub [:tb/flag])
-           :on-change   [:tb/toggle-flag ::rf.hicasso/checked]}])
+           :checked     (rf.fresco/sub [:tb/flag])
+           :on-change   [:tb/toggle-flag ::rf.fresco/checked]}])
 
-(rf.hicasso/defview reset-form
+(rf.fresco/defview reset-form
   "A real form with a real reset button, so `form.reset()` is the
   browser's own and not a simulation of it.
 
@@ -521,14 +521,14 @@
             :id          "form-a"
             :name        "form-a"
             :type        "text"
-            :value       (rf.hicasso/sub [:tb/field :form-a])
-            :on-input    [:tb/edit :form-a ::rf.hicasso/value]}]
+            :value       (rf.fresco/sub [:tb/field :form-a])
+            :on-input    [:tb/edit :form-a ::rf.fresco/value]}]
    [:input {:data-testid "form-b"
             :id          "form-b"
             :name        "form-b"
             :type        "text"
-            :value       (rf.hicasso/sub [:tb/field :form-b])
-            :on-input    [:tb/edit :form-b ::rf.hicasso/value]}]
+            :value       (rf.fresco/sub [:tb/field :form-b])
+            :on-input    [:tb/edit :form-b ::rf.fresco/value]}]
    ;; A controlled checkbox INSIDE the form, so the extraction row reads a
    ;; control whose owned slot is `::h/checked` rather than a value, and
    ;; the reset row has a `defaultChecked` mirror to act on.
@@ -537,29 +537,29 @@
             :name        "form-flag"
             :type        "checkbox"
             :value       "yes"
-            :checked     (rf.hicasso/sub [:tb/flag])
-            :on-change   [:tb/toggle-flag ::rf.hicasso/checked]}]
+            :checked     (rf.fresco/sub [:tb/flag])
+            :on-change   [:tb/toggle-flag ::rf.fresco/checked]}]
    ;; …and a controlled select, whose extraction is `selected` rather than
    ;; an attribute.
    [:select {:data-testid "form-pick"
              :id          "form-pick"
              :name        "form-pick"
-             :value       (rf.hicasso/sub [:tb/field :form-pick])
-             :on-change   [:tb/edit :form-pick ::rf.hicasso/value]}
+             :value       (rf.fresco/sub [:tb/field :form-pick])
+             :on-change   [:tb/edit :form-pick ::rf.fresco/value]}
     [:option {:value "one"} "one"]
     [:option {:value "two"} "two"]]
    [:button {:data-testid "form-reset" :type "reset"} "reset"]])
 
-(rf.hicasso/defview mountable-field
+(rf.fresco/defview mountable-field
   "Rendered behind a flag, so the driver can take the fiber away from
   under a live composition."
   [_]
-  (if (rf.hicasso/sub [:tb/mounted?])
+  (if (rf.fresco/sub [:tb/mounted?])
     [:input {:data-testid "mountable"
              :id          "mountable"
              :type        "text"
-             :value       (rf.hicasso/sub [:tb/field :mountable])
-             :on-input    [:tb/edit :mountable ::rf.hicasso/value]}]
+             :value       (rf.fresco/sub [:tb/field :mountable])
+             :on-input    [:tb/edit :mountable ::rf.fresco/value]}]
     [:p {:data-testid "mountable-gone"} "unmounted"]))
 
 ;; ---------------------------------------------------------------------------
@@ -567,7 +567,7 @@
 ;; authoring.md writes it and NOT the way a harness would find convenient
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview radio-group
+(rf.fresco/defview radio-group
   "Three radios on one model slot. `:checked` is owned off the
   subscription and the intent carries the option as a constant, because a
   radio's `::h/checked` is always `true` at the moment it fires — the
@@ -581,7 +581,7 @@
   through the shadow component and its `convergeable?` re-ask — the inert
   path, on a type with no caret."
   [_]
-  (let [choice (rf.hicasso/sub [:tb/radio])]
+  (let [choice (rf.fresco/sub [:tb/radio])]
     [:fieldset {:data-testid "radios"}
      (for [option ["a" "b" "c"]]
        [:label {:key option}
@@ -593,7 +593,7 @@
                  :on-change   [:tb/pick-radio option]}]
         option])]))
 
-(rf.hicasso/defview select-single
+(rf.fresco/defview select-single
   "A controlled `<select>`. Nothing in `impl.controlled` applies to it —
   `convergeable-tag?` answers false for `select` and the namespace
   docstring says why (no text cursor, no `defaultValue` mirror) — so what
@@ -602,13 +602,13 @@
   [_]
   [:select {:data-testid "pick"
             :id          "pick"
-            :value       (rf.hicasso/sub [:tb/field :pick])
-            :on-change   [:tb/edit :pick ::rf.hicasso/value]}
+            :value       (rf.fresco/sub [:tb/field :pick])
+            :on-change   [:tb/edit :pick ::rf.fresco/value]}
    [:option {:value "one"} "one"]
    [:option {:value "two"} "two"]
    [:option {:value "banned"} "banned"]])
 
-(rf.hicasso/defview select-multiple
+(rf.fresco/defview select-multiple
   "The same control with `:multiple`, written the SUPPORTED way.
 
   `h/event` rather than `::h/value`, and that is the whole content of this
@@ -620,8 +620,8 @@
   [:select {:data-testid "picks"
             :id          "picks"
             :multiple    true
-            :value       (rf.hicasso/sub [:tb/picks])
-            :on-change   (rf.hicasso/event [e]
+            :value       (rf.fresco/sub [:tb/picks])
+            :on-change   (rf.fresco/event [e]
                            [:tb/pick-many
                             (mapv #(.-value %)
                                   (array-seq (.. e -target -selectedOptions)))])}
@@ -630,7 +630,7 @@
    [:option {:value "banned"} "banned"]
    [:option {:value "c"} "c"]])
 
-(rf.hicasso/defview select-multiple-marker
+(rf.fresco/defview select-multiple-marker
   "The same control again, written the way an author reaches for FIRST —
   the reserved marker at the change position — so that what it costs is
   measured rather than asserted in prose. The handler does the obvious
@@ -639,13 +639,13 @@
   [:select {:data-testid "picks-marker"
             :id          "picks-marker"
             :multiple    true
-            :value       (rf.hicasso/sub [:tb/picks-marker])
-            :on-change   [:tb/pick-many-marker ::rf.hicasso/value]}
+            :value       (rf.fresco/sub [:tb/picks-marker])
+            :on-change   [:tb/pick-many-marker ::rf.fresco/value]}
    [:option {:value "a"} "a"]
    [:option {:value "b"} "b"]
    [:option {:value "c"} "c"]])
 
-(rf.hicasso/defview file-field
+(rf.fresco/defview file-field
   "A file input, UNCONTROLLED, which is the only thing it can be:
   `HTMLInputElement.value` refuses every assignment but `\"\"`, so a
   `:value` off a subscription would be a promise the platform cannot
@@ -656,12 +656,12 @@
            :id          "file"
            :type        "file"
            :multiple    true
-           :on-change   (rf.hicasso/event [e]
+           :on-change   (rf.fresco/event [e]
                           [:tb/take-files
                            (mapv #(.-name %)
                                  (array-seq (.. e -target -files)))])}])
 
-(rf.hicasso/defview typed-field
+(rf.fresco/defview typed-field
   "One `<input>` of a type with no text cursor — `number`, `date` or
   `range`. Written identically to the text fields: `:value` off a
   subscription, an intent at `:on-input`.
@@ -676,11 +676,11 @@
     [:input (merge {:data-testid id
                     :id          id
                     :type        kind
-                    :value       (rf.hicasso/sub [:tb/field field])
-                    :on-input    [:tb/edit field ::rf.hicasso/value]}
+                    :value       (rf.fresco/sub [:tb/field field])
+                    :on-input    [:tb/edit field ::rf.fresco/value]}
                    extra)]))
 
-(rf.hicasso/defview editable-region
+(rf.fresco/defview editable-region
   "A `contenteditable` region. It is NOT a controlled field and this
   testbed does not pretend otherwise: there is no owned `:value` slot for
   one, the content is the browser's, and the author's handler reads it
@@ -691,10 +691,10 @@
          :id               "prose"
          :content-editable "plaintext-only"
          :suppress-content-editable-warning true
-         :on-input         (rf.hicasso/event [e] [:tb/set-prose (.. e -target -textContent)])}
-   (rf.hicasso/sub [:tb/prose])])
+         :on-input         (rf.fresco/event [e] [:tb/set-prose (.. e -target -textContent)])}
+   (rf.fresco/sub [:tb/prose])])
 
-(rf.hicasso/defview blur-probe
+(rf.fresco/defview blur-probe
   "A controlled field behind a mount flag, carrying focus and blur
   handlers that write to the model.
 
@@ -708,17 +708,17 @@
   and what it RECORDS is where the focus lands afterwards, which is the
   engines' to differ on."
   [_]
-  (if (rf.hicasso/sub [:tb/probe-mounted?])
+  (if (rf.fresco/sub [:tb/probe-mounted?])
     [:input {:data-testid "blur-probe"
              :id          "blur-probe"
              :type        "text"
-             :value       (rf.hicasso/sub [:tb/field :async])
-             :on-input    [:tb/edit :async ::rf.hicasso/value]
+             :value       (rf.fresco/sub [:tb/field :async])
+             :on-input    [:tb/edit :async ::rf.fresco/value]
              :on-focus    [:tb/focus-edge "focus"]
              :on-blur     [:tb/focus-edge "blur"]}]
     [:p {:data-testid "blur-probe-gone"} "unmounted"]))
 
-(rf.hicasso/defview svg-figure
+(rf.fresco/defview svg-figure
   "SVG, written in the two spellings an author uses: a camel attribute
   React renames nothing about (`:view-box` → `viewBox`) and kebab
   presentation attributes (`:stroke-width`, `:stroke-linecap`). The
@@ -734,7 +734,7 @@
              :stroke         "black"}]
    [:text {:data-testid "svg-text" :x 2 :y 18 :font-size 4} "hi"]])
 
-(rf.hicasso/defview custom-element-figure
+(rf.fresco/defview custom-element-figure
   "A custom element. React 19 hands an unknown element's props through as
   ATTRIBUTES under the name it was given, so the slot rule decides what
   the DOM ends up with — and the slot rule camelCases a kebab keyword.
@@ -757,7 +757,7 @@
   [:plain :digits :empty :grouped :upper :notes :revision :revision-strict
    :form-a :form-b :mountable :pick :count :day :level :async])
 
-(rf.hicasso/defview trace-row
+(rf.fresco/defview trace-row
   "One field's committed value and the number of intents that have reached
   the store for it. `pr-str` rather than the bare string, so `\"\"` and a
   trailing space are visible — a trace that renders an empty model as an
@@ -766,10 +766,10 @@
   (let [id (name field)]
     [:tr
      [:td id]
-     [:td {:data-testid (str "trace-" id "-value")} (pr-str (rf.hicasso/sub [:tb/field field]))]
-     [:td {:data-testid (str "trace-" id "-edits")} (str (rf.hicasso/sub [:tb/edits field]))]]))
+     [:td {:data-testid (str "trace-" id "-value")} (pr-str (rf.fresco/sub [:tb/field field]))]
+     [:td {:data-testid (str "trace-" id "-edits")} (str (rf.fresco/sub [:tb/edits field]))]]))
 
-(rf.hicasso/defview trace
+(rf.fresco/defview trace
   "The store, on screen. The manual native-IME session reads its
   `app-db clean until commit` and `arrives exactly once` checks off this
   table, because a browser shell with no devtools has nowhere else to read
@@ -781,7 +781,7 @@
     (for [field traced-fields]
       [trace-row {:key (name field) :field field}])]])
 
-(rf.hicasso/defview armed-edges
+(rf.fresco/defview armed-edges
   "The two mid-composition edges, reachable without a pointer-down that
   would close the composition first.
 
@@ -790,7 +790,7 @@
   meant to, and it is the only thing a driver can read about an arm
   without waiting five seconds for it to fire."
   [_]
-  (let [armed (rf.hicasso/sub [:tb/armed])
+  (let [armed (rf.fresco/sub [:tb/armed])
         what  (:what armed)
         event (:event armed)]
     [:p
@@ -804,10 +804,10 @@
              " fires in " (humanise-ms (:ms armed)))
         "idle")]]))
 
-(rf.hicasso/defview app
+(rf.fresco/defview app
   [_]
-  [:main {:data-testid "hicasso-controlled-testbed"}
-   [:h1 "Hicasso controlled-input testbed"]
+  [:main {:data-testid "fresco-controlled-testbed"}
+   [:h1 "Fresco controlled-input testbed"]
    [text-field {:field :plain}]
    [text-field {:field :digits}]
    [text-field {:field :empty}]
@@ -884,14 +884,14 @@
 (defonce ^:private app-root
   ;; Inert at allocation, so a load-time `defonce` costs nothing and the
   ;; handle survives a reload.
-  (rf.hicasso/client-root))
+  (rf.fresco/client-root))
 
 (defn ^:export init
   []
   (rf/init! rf.adapter.uix/adapter)
   (rf/make-frame {:id frame-id :initial-events [[:tb/seed]]})
-  (rf.hicasso/render! app-root
-    [rf.hicasso/frame-root {:id frame-id} [app {}]]
+  (rf.fresco/render! app-root
+    [rf.fresco/frame-root {:id frame-id} [app {}]]
     (js/document.getElementById "app"))
   (unchecked-set js/window "__RF2_HIC_TB__" #js {:model model-json})
   nil)

@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.navigation.subs
+(ns re-frame.fresco.examples.navigation.subs
   "THE NAVIGATION WITNESS'S SUBSCRIPTIONS — including the one routing
   itself reads.
 

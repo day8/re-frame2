@@ -31,7 +31,7 @@ nav-token timeline and the wire-trace pop-out. A third, the hydration
 bisector, was superseded: rf2-gbz39 folded hydration mismatches inline
 into the Epoch panel. Earlier drafts gave the three an `r`, an `f` and
 an `h`; none of the three is a key — see §Trimmed pending demand and
-§Retired keys below, and note that `h` is the Hicasso tab's label
+§Retired keys below, and note that `h` is the Fresco tab's label
 mnemonic today. The overlay surfaces that DO ship are catalogued in
 §Mountable surface inventory.
 
@@ -96,7 +96,7 @@ the five-region layout + `ChromeRibbon` / `EventsRibbon` / `EventList`):
 │ view   │ :form/submit    │ 12:30:09.456   │  1.8 ms                      │
 ╞═════════════════════════════════════════════════════════════════════════╡   L2/L3 seam — drag ↕ to resize
 ├─────────────────────────────────────────────────────────────────────────┤
-│ [Epoch] app-db Views Trace Machine Routes Resources Graph Frames Hicasso │              L3 — 10 tabs
+│ [Epoch] app-db Views Trace Machine Routes Resources Graph Frames Fresco │              L3 — 10 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Epoch tab content for the focused event —                             │   L4 — fills the rest
 └─────────────────────────────────────────────────────────────────────────┘
@@ -129,13 +129,13 @@ The four layers, top to bottom:
    first six; the cohesive-sub-domain tabs were appended after), updated post
    rf2-5gl5r + rf2-gbz39 (Issues tab removed per Option (c)) + EP-0016 /
    EP-0014 / EP-0013 (Resources / Graph / Frames added) + rf2-hic-023
-   (Hicasso added):
+   (Fresco added):
    **Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph ·
-   Frames · Hicasso**. Letter mnemonics: `e` `a` `v` `t` `m` `r` `s` `g` `u`
+   Frames · Fresco**. Letter mnemonics: `e` `a` `v` `t` `m` `r` `s` `g` `u`
    `h`. (The original Figma export listed Event/Handler at
    `:order 0`; rf2-5gl5r retired that panel in favour of the Epoch panel at
    `:order -1` — same letter mnemonic `e`, same leftmost position. **Graph**,
-   **Frames** and **Hicasso** are L4-only registry tabs — focusable but with no
+   **Frames** and **Fresco** are L4-only registry tabs — focusable but with no
    standalone `mount-*!` facade.) Each tab
    renders its **label only** (no `◉`/`○` glyph — Figma
    design rf2-ad7zx); the **active tab fills with the single `accent`** (GitHub blue) + white
@@ -1573,7 +1573,7 @@ on `Esc`, click-outside, or invocation of any item.
 - Machines with current state
 - L4 tab jumps — Dynamic: every registered `:dynamic` tab (today
   Epoch / app-db / Views / Trace / Machine / Routes / Resources /
-  Graph / Frames / Hicasso); Static: Machines / Routes /
+  Graph / Frames / Fresco); Static: Machines / Routes /
   Schemas / Flows / Interceptors (see §Mode-aware command surface below)
 - Command verbs (recents-boosted; see §Command verbs below)
 - Settings entries
@@ -2164,16 +2164,16 @@ in `shell.cljs`) `case`-dispatches between the two on `[:rf.xray/mode]`.
 
 **Tab inventory rule.** Tab inventories are mode-keyed and not shared.
 Dynamic ships 10 tabs (Epoch / App DB / Views / Trace / Machines /
-Routing / Resources / Graph / Frames / Hicasso — see
+Routing / Resources / Graph / Frames / Fresco — see
 [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
 for the per-panel content designs + [`018-Event-Spine.md`](./018-Event-Spine.md)
 §The 10 tabs for the live registry ids; the Event/Handler tab was retired
 by rf2-5gl5r when the Epoch panel reached parity; the Issues tab was
 removed by rf2-gbz39 per Mike's Option (c) ruling — issues surface
 inline in the Epoch panel + the L2 event-row pink-wash + the always-on
-issues ribbon signal. Resources / Graph / Frames / Hicasso are the
+issues ribbon signal. Resources / Graph / Frames / Fresco are the
 cohesive-sub-domain L4 lenses added per EP-0016 / EP-0014 / EP-0013 /
-rf2-hic-023; Graph + Frames + Hicasso are L4-only registry tabs with no
+rf2-hic-023; Graph + Frames + Fresco are L4-only registry tabs with no
 standalone `mount-*!` facade). Static ships 5 tabs (Machines /
 Routes / Schemas / Flows / Interceptors — see §Sub-tab inventory
 above). New tabs MUST declare which mode(s) they belong to; tab-id

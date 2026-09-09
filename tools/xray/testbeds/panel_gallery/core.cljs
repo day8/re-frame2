@@ -20,7 +20,7 @@
   Four cohesive-sub-domain / runtime-structure tabs beyond the six
   core lenses — **Resources** (`:resources`, EP-0016),
   **Graph** (`:derivation-graph`, EP-0014), **Frames**
-  (`:module-view`, EP-0013) and **Hicasso** (`:hicasso`, rf2-hic-023) —
+  (`:module-view`, EP-0013) and **Fresco** (`:fresco`, rf2-hic-023) —
   are deliberately NOT galleried here. They
   are visual *design* surfaces whose shipped-surface + focusability
   coverage lives in the feature-matrix browser sweep
@@ -28,7 +28,7 @@
   ten live Dynamic tabs and asserts a real panel root, never the
   unknown-tab stub) and their own per-panel CLJS unit tests
   (`resources_cljs_test`, `derivation_graph_cljs_test`,
-  `image_view_helpers_cljs_test`, `hicasso_cljs_test`). The
+  `image_view_helpers_cljs_test`, `fresco_cljs_test`). The
   panel-gallery is the magnitude/payload *visual-design* harness for the
   six core lenses; adding the four is
   tracked separately if/when a Figma-design pass needs them. The
@@ -45,7 +45,7 @@
   Per `tools/xray/spec/018-Event-Spine.md` the chrome is four stacked
   layers — top ribbon + event list + tab bar + detail panel — with
   ten L4 tabs (Issues folded inline; this gallery covers the six core
-  lenses and intentionally excludes Resources / Graph / Frames / Hicasso
+  lenses and intentionally excludes Resources / Graph / Frames / Fresco
   — see the exclusions note above). Time Travel is folded into the spine.
 
   ## Per-variant frame isolation
@@ -159,7 +159,7 @@
    [:p "A visual gallery of the 4-layer Xray chrome (per "
     [:code "tools/xray/spec/018-Event-Spine.md"]
     ") and of six of its L4 tab panels — Epoch · App-db · Reactive ·
-    Trace · Machines · Routing. Resources · Graph · Frames · Hicasso
+    Trace · Machines · Routing. Resources · Graph · Frames · Fresco
     ship in the chrome but sit deliberately outside this gallery.
     Issues is not a tab; it surfaces inline
     in the Epoch panel + the L2 event-row pink-wash + the ribbon signal

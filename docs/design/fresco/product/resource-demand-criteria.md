@@ -1,6 +1,6 @@
 # Resource-demand criteria (pre-registered)
 
-Demand-driven resource ownership is the strategic differentiator of the Hicasso programme: a committed `sub` that reads a resource may also declare demand, and unmount or parameter change releases it. This document freezes the criteria that decide whether it graduates, **before** the typeahead witness (`rf2-hic-044`) produces any data. Criteria written after a report exists are not pre-registration; they are a rationalisation of whatever the report happens to say.
+Demand-driven resource ownership is the strategic differentiator of the Fresco programme: a committed `sub` that reads a resource may also declare demand, and unmount or parameter change releases it. This document freezes the criteria that decide whether it graduates, **before** the typeahead witness (`rf2-hic-044`) produces any data. Criteria written after a report exists are not pre-registration; they are a rationalisation of whatever the report happens to say.
 
 Nothing here was measured. Every line below is derived from the [specification](specification.md#7-complete-use-case-coverage), the [decision brief](decision-brief.md), the [design laws](lanes/design-laws.md#state-and-reactivity) and the [charter](../charter.md)'s named goal. No benchmark was run to write it, and no existing result was consulted to place a line.
 

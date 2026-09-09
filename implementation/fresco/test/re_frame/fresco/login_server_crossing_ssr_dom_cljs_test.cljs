@@ -1,13 +1,13 @@
-(ns re-frame.hicasso.login-server-crossing-ssr-dom-cljs-test
+(ns re-frame.fresco.login-server-crossing-ssr-dom-cljs-test
   "THE PRODUCT WITNESS for the ssr-node crossing (rf2-8arzr.5, slice E) — the
-  real Hicasso login example, rendered on Node from a projection of a real
+  real Fresco login example, rendered on Node from a projection of a real
   settled JVM-shaped frame, through the real sidecar module contract.
 
   Nothing here is a fixture standing in for the product. The views are
-  `examples/substrates/hicasso/login/core.cljs`'s, the registrations are the
+  `examples/substrates/fresco/login/core.cljs`'s, the registrations are the
   substrate-free `login.model`'s, the entry table and allowlists are
-  `hicasso.login.server`'s (the module `shadow-cljs compile
-  :examples/login-hicasso-server` emits), and the request validator is
+  `fresco.login.server`'s (the module `shadow-cljs compile
+  :examples/login-fresco-server` emits), and the request validator is
   `implementation/ssr-node/src/protocol.cjs` itself, required as JavaScript
   rather than restated — a copy of those rules would be a second authority
   with nothing holding it in step with the first.
@@ -72,11 +72,11 @@
             [goog.object :as gobj]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
-            [re-frame.hicasso.substrate :as rf.hicasso.substrate]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
+            [re-frame.fresco.substrate :as rf.fresco.substrate]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.render-state :as rf.ssr.render-state]
@@ -84,9 +84,9 @@
             ;; The example, whole: views + SSR coordinates, the server module's
             ;; entry table, and the substrate-free model every `auth.login`
             ;; registration lives in.
-            [hicasso.login.core :as views]
-            [hicasso.login.policy :as app-policy]
-            [hicasso.login.server :as app-server]
+            [fresco.login.core :as views]
+            [fresco.login.policy :as app-policy]
+            [fresco.login.server :as app-server]
             [login.model :as model]))
 
 ;; Registered ABOVE `use-fixtures`, and that is load-bearing rather than
@@ -104,15 +104,15 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    ;; The example's OWN adapter — `hicasso.login.core/run` installs this one.
-    {:adapter       rf.hicasso.substrate/adapter
+    ;; The example's OWN adapter — `fresco.login.core/run` installs this one.
+    {:adapter       rf.fresco.substrate/adapter
      ;; The witness makes its own top-level frames, so the fixture's carried
      ;; `:rf/default` stamp would be a scope no request is rendering; and
      ;; `:initial-events` must drain synchronously rather than be treated as
      ;; a mid-cascade child-frame creation.
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The JVM half
@@ -300,7 +300,7 @@
   [f]
   (if (node-lane?)
     (f)
-    (rf.hicasso.roots-frames-support/skip! "a crossing goes through the service's own validator, a CommonJS module off the CLJS classpath")))
+    (rf.fresco.roots-frames-support/skip! "a crossing goes through the service's own validator, a CommonJS module off the CLJS classpath")))
 
 ;; ---------------------------------------------------------------------------
 ;; §1 - the module is one the sidecar will load
@@ -315,7 +315,7 @@
       (is (= [":rf.runtime/machines"] (vec (.-runtimeAllowlist entry))))))
   (crossing-row!
     (fn []
-      (is (some? (.validateModule @protocol module "hicasso.login.server"))
+      (is (some? (.validateModule @protocol module "fresco.login.server"))
           "the sidecar's own door - a malformed entry table fails here, not at deploy"))))
 
 ;; ---------------------------------------------------------------------------
@@ -415,7 +415,7 @@
                  (refusal-code #(crossing! fid {:state {":secrets" "{:token \"t\"}"}})))
               "the allowlist belongs to the entry, so a caller cannot widen its own allowance")
           (is (= (code "UNKNOWN_ENTRY")
-                 (refusal-code #(crossing! fid {:entry "hicasso.login/nope"}))))
+                 (refusal-code #(crossing! fid {:entry "fresco.login/nope"}))))
           (testing "the control - the keys the table names pass"
             (is (str/includes? (:html (crossing! fid)) "Sign in"))))))))
 
@@ -424,7 +424,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- hydrate-row!
-  "Boot the client the way `hicasso.login.core/run` boots it on a
+  "Boot the client the way `fresco.login.core/run` boots it on a
   server-rendered page — the payload through `ssr/hydrate!`, then the DOM
   through an adopting `h/render!` with the example's own `identifier-prefix` — over
   `html`, and answer a promise of `{:seen :adopted-html}`.
@@ -446,38 +446,38 @@
   clean adoption raises nothing to swallow, and arming the swallow there
   would hide a real regression."
   [html payload {:keys [swallow-uncaught?]}]
-  (let [container (rf.hicasso.roots-frames-support/server-dom! html)
+  (let [container (rf.fresco.roots-frames-support/server-dom! html)
         cfid      (keyword "rf.login-crossing" (str (gensym "client-")))
-        watch     (rf.hicasso.roots-frames-support/watch-mismatches!)
-        console   (rf.hicasso.roots-frames-support/open-console-capture! {:swallow-uncaught? swallow-uncaught?})]
+        watch     (rf.fresco.roots-frames-support/watch-mismatches!)
+        console   (rf.fresco.roots-frames-support/open-console-capture! {:swallow-uncaught? swallow-uncaught?})]
     (rf/make-frame (merge {:id cfid} model/frame-config))
     (rf.ssr/hydrate! {:frame cfid :payload payload})
-    (let [handle (rf.hicasso/client-root)
-          _      (rf.hicasso/render! handle
-                             [rf.hicasso/frame-provider {:frame cfid}
+    (let [handle (rf.fresco/client-root)
+          _      (rf.fresco/render! handle
+                             [rf.fresco/frame-provider {:frame cfid}
                               [views/root-view]]
                              container
                              {:hydrate?          true
                               :identifier-prefix views/identifier-prefix})]
-      (.then (rf.hicasso.roots-frames-support/adopted! handle)
+      (.then (rf.fresco.roots-frames-support/adopted! handle)
              (fn [_]
                (let [seen  ((:stop! watch))
                      shown (.-innerHTML container)]
                  ((:close! console))
-                 (rf.hicasso/unmount! handle)
+                 (rf.fresco/unmount! handle)
                  (rf/destroy-frame! cfid)
                  {:seen seen :adopted-html shown}))))))
 
 (deftest the-client-adopts-the-server-bytes-with-no-recoverable-error
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! "adoption is React's own DOM business")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! "adoption is React's own DOM business")
     (async done
-      (rf.hicasso.roots-frames-support/leave-act-environment!)
+      (rf.fresco.roots-frames-support/leave-act-environment!)
       (let [fid     (server-frame! authed-events)
             html    (rendered! fid)
             payload (payload-of fid)]
         (rf/destroy-frame! fid)
-        (rf.hicasso.roots-frames-support/settle-row!
+        (rf.fresco.roots-frames-support/settle-row!
           (.then (hydrate-row! html payload {:swallow-uncaught? false})
                  (fn [{:keys [seen adopted-html]}]
                    (is (= [] seen)
@@ -489,10 +489,10 @@
 
 (deftest a-render-state-key-the-payload-omits-costs-one-recovered-adoption
   ;; §6's control, and the measurement the example's README turns into a rule.
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! "a recoverable error is React's own DOM business")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! "a recoverable error is React's own DOM business")
     (async done
-      (rf.hicasso.roots-frames-support/leave-act-environment!)
+      (rf.fresco.roots-frames-support/leave-act-environment!)
       (let [fid     (server-frame! authed-events server-only-db)
             html    (rendered! fid)
             payload (payload-of fid)]
@@ -500,7 +500,7 @@
         (is (str/includes? html notice) "the server rendered the notice")
         (is (not (str/includes? (pr-str payload) notice))
             "and the client will not be handed it")
-        (rf.hicasso.roots-frames-support/settle-row!
+        (rf.fresco.roots-frames-support/settle-row!
           (.then (hydrate-row! html payload {:swallow-uncaught? true})
                  (fn [{:keys [seen]}]
                    (is (seq seen)

@@ -74,7 +74,7 @@
   `rf.frame/frame-incarnation-token` — the `:drain-lock` identity, constant
   across one incarnation and distinct across a reconstruction — makes the
   reincarnation a memo MISS, so the next render carries ops pinned to the
-  successor. This is the same rule Hicasso's `n/use-frame` keeps by
+  successor. This is the same rule Fresco's `n/use-frame` keeps by
   memoising on the runtime's incarnation row."
   (:require ["react" :as React]
             [re-frame.adapter.context :as rf.adapter.context]

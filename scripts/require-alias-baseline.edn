@@ -28,7 +28,7 @@
   "implementation/epoch"                  0
   "implementation/event-conformance"      0
   "implementation/flows"                  0
-  "implementation/hicasso"                0
+  "implementation/fresco"                0
   "implementation/http"                   0
   "implementation/machines"               0
   "implementation/reply-conformance"      0

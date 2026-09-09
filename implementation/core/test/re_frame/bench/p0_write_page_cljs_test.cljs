@@ -51,8 +51,8 @@
 
 ;; THE IMAGE IS SCOPED TO THE FIXTURE'S OWN NAMESPACE, and it has to be.
 ;; `:p0/cell` is registered THREE times across this repo — here in
-;; `p0-fixture`, and again in `hicasso/clock_views` and
-;; `hicasso/p0_reagent_views`, each with its own implementation. The p0
+;; `p0-fixture`, and again in `fresco/clock_views` and
+;; `fresco/p0_reagent_views`, each with its own implementation. The p0
 ;; release builds put exactly one of those namespaces on the classpath, so
 ;; the collision is unreachable there; the consolidated `:node-test` build
 ;; loads all three, and image assembly correctly refuses to let selection

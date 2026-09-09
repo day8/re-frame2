@@ -3,7 +3,7 @@
 // THE NARROW-WRITE DRIVER'S EXIT PATH — a printed refusal must refuse.
 // rf2-rr6do, following rf2-tb345's repair of the same defect in b8_run.cjs.
 //
-//     node adapters/reagent/test/re_frame/bench/hicasso_narrow_exit_path.test.cjs
+//     node adapters/reagent/test/re_frame/bench/fresco_narrow_exit_path.test.cjs
 //
 // THE DEFECT THIS PINS. Two of this driver's own listed gates were computed,
 // printed and written into `report.json`, and the verdict block read neither.
@@ -40,10 +40,10 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const DRIVER = path.join(__dirname, 'hicasso_narrow_run.cjs');
+const DRIVER = path.join(__dirname, 'fresco_narrow_run.cjs');
 // Requiring the driver must NOT drive it: the `require.main === module`
 // guard is itself part of what is under test here.
-const { verdict } = require('./hicasso_narrow_run.cjs');
+const { verdict } = require('./fresco_narrow_run.cjs');
 
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
@@ -283,7 +283,7 @@ for (const [name, fn] of tests) {
 }
 
 if (failed > 0) {
-  console.error(`\nhicasso_narrow_exit_path.test.cjs: ${failed}/${tests.length} failed`);
+  console.error(`\nfresco_narrow_exit_path.test.cjs: ${failed}/${tests.length} failed`);
   process.exit(1);
 }
-console.log(`hicasso_narrow_exit_path.test.cjs: ${tests.length} passed`);
+console.log(`fresco_narrow_exit_path.test.cjs: ${tests.length} passed`);

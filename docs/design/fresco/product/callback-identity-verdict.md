@@ -6,7 +6,7 @@ This record discharges the standing rule in [specification §4.1](specification.
 
 > Generated intent callbacks may be fresh per render. A narrow stable-event primitive is admitted only if a realistic retaining host demonstrates a material problem and the solution is safe across abandonment, frame reincarnation, and teardown.
 
-Owned by `rf2-hic-029`. The evidence is `implementation/hicasso/test/re_frame/hicasso/retaining_host_callbacks_dom_cljs_test.cljs`, a browser-tier witness built for this question and for nothing else. The risk register's row is [Callback identity and retirement](lanes/adversarial-risks.md#phase-1-kernel-risks).
+Owned by `rf2-hic-029`. The evidence is `implementation/fresco/test/re_frame/fresco/retaining_host_callbacks_dom_cljs_test.cljs`, a browser-tier witness built for this question and for nothing else. The risk register's row is [Callback identity and retirement](lanes/adversarial-risks.md#phase-1-kernel-risks).
 
 ## What the rule asks, and what answers each clause
 
@@ -22,7 +22,7 @@ The rule is a conjunction, and its two halves need different instruments.
 
 Two paths already preserve identity, and both say so in their own docstrings: `lower-declared-prop` hands an unmarked function through untouched at every contract and hands a marked `h/event` through by identity at `:handler`; and `codec/host-prop-value` crosses functions by identity *"so `React.memo` and every downstream bail-out that compares handler identity keep working"*.
 
-**Hicasso's own boundaries never had this problem.** `codec/boundary-props=` compares with CLJS `=`, and an intent vector or key-map is data, so a boundary child bails on value equality. The question exists only at a foreign `React.memo` edge.
+**Fresco's own boundaries never had this problem.** `codec/boundary-props=` compares with CLJS `=`, and an intent vector or key-map is data, so a boundary child bails on value equality. The question exists only at a foreign `React.memo` edge.
 
 ## The measurement
 
@@ -63,7 +63,7 @@ The retained-callback rows are asserted against a callback the vendor stashed at
 
 The rule admits a primitive only if a material problem has a safe solution. The problem is real — five carriers defeat a vendor's memo, and hoisting does not help. But the safe solution **already exists on the shipped surface**, is identity-stable, dispatches, and is incarnation-pinned: `n/use-frame` plus React's own `useCallback`, inside the tier whose whole premise is that past the fence React's hooks are the vocabulary. A new primitive would be a second mechanism for a problem the native tier already solves, which is the shape [§3.4 Capability pays rent](specification.md#34-capability-pays-rent) exists to refuse.
 
-Frequency agrees. Across every application-shaped Hicasso source in the repository — the four witness applications and the HMR testbed — the number of callbacks handed to a memoized foreign child is **zero**. The witness applications declare no `defhost` at all, and the testbed's two declare no `:callbacks`.
+Frequency agrees. Across every application-shaped Fresco source in the repository — the four witness applications and the HMR testbed — the number of callbacks handed to a memoized foreign child is **zero**. The witness applications declare no `defhost` at all, and the testbed's two declare no `:callbacks`.
 
 So the interpreted edge keeps fresh-per-render, which is what makes an intent a value and keeps the position table honest; and the one edge where identity can cost something has an answer that is already written, already tested, and already safe across all three axes the rule names.
 

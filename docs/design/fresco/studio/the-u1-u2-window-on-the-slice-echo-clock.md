@@ -272,17 +272,17 @@ The instrument:
 
 | file | blob |
 |---|---|
-| `bench/hicasso/slice_echo_clock_app.cljs` | `979dd3413390e489beab26f004743c53da72fd07` |
-| `bench/hicasso/lane.cljs` | `3d466f77e908d502835de5682e0c6d4b20b1d39e` |
-| `bench/hicasso/run.cjs` | `da8a2f3723bfd3345f392e29c1344c582a30b736` |
-| `bench/hicasso/lane_build.cjs` | `c55771d6c90d5dab53bfb02af48c6fcbcf49cffd` |
+| `bench/fresco/slice_echo_clock_app.cljs` | `979dd3413390e489beab26f004743c53da72fd07` |
+| `bench/fresco/lane.cljs` | `3d466f77e908d502835de5682e0c6d4b20b1d39e` |
+| `bench/fresco/run.cjs` | `da8a2f3723bfd3345f392e29c1344c582a30b736` |
+| `bench/fresco/lane_build.cjs` | `c55771d6c90d5dab53bfb02af48c6fcbcf49cffd` |
 | `bench/order_guard.cljc` | `d57c25473360ba8a464cb9107152288b79303e84` |
 | `bench/navigate.cjs` | `d8f30bbab93e850ec6b37b9a6de50f295601b02b` |
 | `bench/lane_cache.cjs` | `ec3c60f44fa46f2bbb11ae908749cf93742b27dc` |
 
 The subject is the slice witness application, mounted through the package's own
 `h/mount!` with the application's own views and its own initial events. Its
-files, under `implementation/hicasso/test/re_frame/hicasso/examples/slice/`:
+files, under `implementation/fresco/test/re_frame/fresco/examples/slice/`:
 
 | file | blob |
 |---|---|
@@ -292,26 +292,26 @@ files, under `implementation/hicasso/test/re_frame/hicasso/examples/slice/`:
 | `subs.cljs` | `aeb28c93792c8e426d8c83e5e635db7681a75fa7` |
 | `db.cljs` | `57ea222f7bc8b5d2335d6ac4d3c1ca734e7ea65f` |
 
-The package doors it mounts through, under `implementation/hicasso/src/`:
+The package doors it mounts through, under `implementation/fresco/src/`:
 
 | file | blob |
 |---|---|
-| `re_frame/hicasso.cljc` | `c64d048e4ff2d72756b5b52329f2a40b8e015dcf` |
-| `re_frame/hicasso/impl/mount.cljs` | `77c367ca6324435d4ae83146bb3a152833ef17c3` |
-| `re_frame/hicasso/impl/controlled.cljs` | `dbe21f4ebe8c21eece34ef4414524d0052c662dd` |
-| `re_frame/hicasso/impl/collector.cljs` | `bfb1c37f84b14c8d701da41c97883a24740dba52` |
+| `re_frame/fresco.cljc` | `c64d048e4ff2d72756b5b52329f2a40b8e015dcf` |
+| `re_frame/fresco/impl/mount.cljs` | `77c367ca6324435d4ae83146bb3a152833ef17c3` |
+| `re_frame/fresco/impl/controlled.cljs` | `dbe21f4ebe8c21eece34ef4414524d0052c662dd` |
+| `re_frame/fresco/impl/collector.cljs` | `bfb1c37f84b14c8d701da41c97883a24740dba52` |
 
 Reproduce, from the repository root:
 
 ```bash
-HICASSO_INIT_FN=re-frame.bench.hicasso.slice-echo-clock-app/-main \
-HICASSO_OUT_DIR=out/hicasso-slice-echo \
-HICASSO_PORT=8137 \
-  node implementation/hicasso/test/re_frame/bench/hicasso/run.cjs
+FRESCO_INIT_FN=re-frame.bench.fresco.slice-echo-clock-app/-main \
+FRESCO_OUT_DIR=out/fresco-slice-echo \
+FRESCO_PORT=8137 \
+  node implementation/fresco/test/re_frame/bench/fresco/run.cjs
 ```
 
-No new build id: the driver takes its entry from `HICASSO_INIT_FN` and rides
-`:hicasso-bench`, the id the whole lane already shares, so this arm costs
+No new build id: the driver takes its entry from `FRESCO_INIT_FN` and rides
+`:fresco-bench`, the id the whole lane already shares, so this arm costs
 `implementation/shadow-cljs.edn` — an HD-017 hot-zone file — nothing. Exit `1`
 on a build that merely warned, a page error, a fatal the page recorded, an
 unverified echo or a failed positive control; exit `2` if the arm-order guard
@@ -440,7 +440,7 @@ The status cell moves to `MET` and the population cell to `package` —
 `check_budget_ledger.py`'s `POPULATION_PIN` names exactly one route out of `—`,
 *a new measurement window and an edit here*, and this is that window with the
 edit beside it. The subject is the slice witness application mounted through
-`re-frame.hicasso`'s own `h/mount!`, which is `package` on the same rule that
+`re-frame.fresco`'s own `h/mount!`, which is `package` on the same rule that
 puts `D17`–`D25` there. **Reversing this is a one-line edit in each of two
 files** — the ledger row and that constant — and the evidence for it is this
 section.

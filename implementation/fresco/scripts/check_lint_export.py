@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The Hicasso lint export's smoke: a consumer's copied config analyses the three macro shapes.
+"""The Fresco lint export's smoke: a consumer's copied config analyses the three macro shapes.
 
 WHY THIS EXISTS (rf2-hic-022, reduced under rf2-r3r00).  The export's whole
 job is macro-shape analysis: `defview`, `event` and `defhost` are rewritten to
@@ -18,10 +18,10 @@ row.  Pure silence would also be the output of linting nothing at all; the
 sentinel is the proof that kondo's analysis actually ran over the rewritten
 forms.
 
-NO SECOND ANALYZER.  The six custom `:re-frame.hicasso/*` behavioral findings
+NO SECOND ANALYZER.  The six custom `:re-frame.fresco/*` behavioral findings
 this gate once witnessed were retired (rf2-r3r00): behavior is the runtime's
 law, refused loudly at its execution boundary.  The gate now also asserts the
-export STAYS macro-shape-only — no `:re-frame.hicasso/*` linter in config.edn,
+export STAYS macro-shape-only — no `:re-frame.fresco/*` linter in config.edn,
 no `reg-finding!` in the hook — so the analyzer cannot ride back in
 unwitnessed.
 
@@ -44,7 +44,7 @@ version is weaker evidence rather than none -- but it SAYS SO, loudly.
     python scripts/check_lint_export.py             run the gate
     python scripts/check_lint_export.py --self-test prove the gate fires
 
-Run from `implementation/` as `npm run test:hicasso-lint`, which chains both.
+Run from `implementation/` as `npm run test:fresco-lint`, which chains both.
 """
 
 import argparse
@@ -58,10 +58,10 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ARTEFACT_ROOT = os.path.dirname(HERE)
 EXPORT_DIR = os.path.join(ARTEFACT_ROOT, "resources", "clj-kondo.exports",
-                          "day8", "re-frame2-hicasso")
+                          "day8", "re-frame2-fresco")
 FIXTURES = os.path.join(ARTEFACT_ROOT, "lint-fixtures")
 FIXTURE = os.path.join(FIXTURES, "macro_shapes.cljs")
-HOOK_FILE = os.path.join(EXPORT_DIR, "hooks", "re_frame", "hicasso.clj")
+HOOK_FILE = os.path.join(EXPORT_DIR, "hooks", "re_frame", "fresco.clj")
 CONFIG_FILE = os.path.join(EXPORT_DIR, "config.edn")
 
 # The one finding the fixture must produce: its sentinel view's unread prop.
@@ -131,7 +131,7 @@ def _kondo_command():
             _KONDO_COMMAND.append(cmd)
             return list(cmd)
     raise SystemExit(
-        "FAIL: neither `clj-kondo` nor `clojure` is on PATH, so the Hicasso "
+        "FAIL: neither `clj-kondo` nor `clojure` is on PATH, so the Fresco "
         "lint export gate cannot run. This is a HARD failure on purpose: it "
         "used to SKIP green, which is a gate reporting success over a case it "
         "never exercised -- the exact defect class it exists to catch.")
@@ -171,7 +171,7 @@ def check(export_dir=EXPORT_DIR):
 
     # --- the export is packaged where clj-kondo's --copy-configs looks -----
     for rel in ("config.edn", "README.md", os.path.join("hooks", "re_frame",
-                                                        "hicasso.clj")):
+                                                        "fresco.clj")):
         if not os.path.isfile(os.path.join(export_dir, rel)):
             failures.append("export is missing %s" % rel)
     if failures:
@@ -195,13 +195,13 @@ def check(export_dir=EXPORT_DIR):
         config = fh.read()
     for line in config.splitlines():
         line = line.split(";;", 1)[0]
-        if ":re-frame.hicasso/" in line:
+        if ":re-frame.fresco/" in line:
             failures.append(
-                "config.edn declares a behavioral :re-frame.hicasso/* linter; "
+                "config.edn declares a behavioral :re-frame.fresco/* linter; "
                 "the export is macro-shape analysis only, and a custom "
                 "analyzer must not ride back in unwitnessed (rf2-r3r00): %s"
                 % line.strip())
-    with open(os.path.join(export_dir, "hooks", "re_frame", "hicasso.clj"),
+    with open(os.path.join(export_dir, "hooks", "re_frame", "fresco.clj"),
               encoding="utf-8") as fh:
         hook = fh.read()
     if "reg-finding!" in hook:
@@ -267,13 +267,13 @@ def self_test():
         # with a broken copy would have, and every name that macro defines or
         # binds must go back to reading as unresolved.
         ("the defview rewrite unavailable reds", CONFIG_FILE,
-         "re-frame.hicasso/defview hooks.re-frame.hicasso/defview\n   ", "",
+         "re-frame.fresco/defview hooks.re-frame.fresco/defview\n   ", "",
          "unresolved-symbol"),
         ("the event rewrite unavailable reds", CONFIG_FILE,
-         "re-frame.hicasso/event   hooks.re-frame.hicasso/event\n   ", "",
+         "re-frame.fresco/event   hooks.re-frame.fresco/event\n   ", "",
          "unresolved-symbol"),
         ("the defhost rewrite unavailable reds", CONFIG_FILE,
-         "re-frame.hicasso/defhost hooks.re-frame.hicasso/defhost", "",
+         "re-frame.fresco/defhost hooks.re-frame.fresco/defhost", "",
          "unresolved-symbol"),
         # The sentinel gone silent: read the unread prop and no finding is
         # left, which must red rather than pass -- pure silence is also what
@@ -284,9 +284,9 @@ def self_test():
         # The floor: a behavioral linter riding back into the shipped config
         # reds without needing a fixture to witness it.
         ("a behavioral linter riding back in reds", CONFIG_FILE,
-         "{;; `re-frame.hicasso.native`",
-         "{:linters {:re-frame.hicasso/direct-view-call {:level :error}}\n"
-         " ;; `re-frame.hicasso.native`",
+         "{;; `re-frame.fresco.native`",
+         "{:linters {:re-frame.fresco/direct-view-call {:level :error}}\n"
+         " ;; `re-frame.fresco.native`",
          "behavioral"),
     ]
 
@@ -340,11 +340,11 @@ def main(argv=None):
 
     failures = check()
     if failures:
-        print("FAIL: Hicasso lint export gate\n")
+        print("FAIL: Fresco lint export gate\n")
         for f in failures:
             print("  " + f)
-        print("\nSee implementation/hicasso/resources/clj-kondo.exports/day8/"
-              "re-frame2-hicasso/README.md for what the export does -- and "
+        print("\nSee implementation/fresco/resources/clj-kondo.exports/day8/"
+              "re-frame2-fresco/README.md for what the export does -- and "
               "what it deliberately does not.")
         return 1
 

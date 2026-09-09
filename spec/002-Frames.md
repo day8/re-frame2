@@ -299,7 +299,7 @@ render boundary — answer *which* frame is current. Neither can say **no ambien
 frame is legal here**, and a substrate whose render phase imposes a read discipline
 of its own needs exactly that sentence. The motivating case is a compiled-view
 boundary that must observe every read to build its dependency edges
-([EP-0038 HD-002 clause (a)](../docs/EP/EP-0038-the-hicasso-view-layer-programme.md)):
+([EP-0038 HD-002 clause (a)](../docs/EP/EP-0038-the-fresco-view-layer-programme.md)):
 an ambient `rf/subscribe` written in such a body *resolves* — the frame is genuinely
 in scope through the render boundary — and then contributes zero edges, leaving a
 boundary that silently never re-renders again.
@@ -349,7 +349,7 @@ ambient operations remain refused. `rf/current-frame-id` only reports identity;
 zero-arity `rf/capture-frame` captures a frame-locked api and performs no
 subscription or dispatch at capture time; `rf/subscribe` and `rf/dispatch` continue
 through the refusal unchanged. The fence exists to keep reads on the substrate's
-collector and dispatches frame-locked ([EP-0038 HD-002](../docs/EP/EP-0038-the-hicasso-view-layer-programme.md)),
+collector and dispatches frame-locked ([EP-0038 HD-002](../docs/EP/EP-0038-the-fresco-view-layer-programme.md)),
 and an identity read or a capture does neither — no edge, no mutation — so refusing
 them protected nothing and forced a substrate to mint a frame verb of its own. Three
 things bound the admission. It lives in `require-current-frame!` alone, never in the
@@ -755,7 +755,7 @@ exact-token teardown cascade described below is the sole executable exception.
 6. **Run auxiliary cleanup hooks**, in order: elision warning cache; SSR side-channels;
    machine `:after` timers; schemas; flows; routing host caches and URL ownership;
    Resources work handles; plain managed HTTP; `:dispatch-later` host timers; the
-   Hicasso substrate's memoised frame-ops row (`:hicasso/on-frame-destroyed!`); and the
+   Fresco substrate's memoised frame-ops row (`:fresco/on-frame-destroyed!`); and the
    frame's generation-provenance row — which descriptor pool its generation was
    resolved against (`:live-frame/on-frame-destroyed!`).
 7. **Emit `:rf.frame/destroyed`.** Every application/feature cleanup hook has completed.
@@ -1418,11 +1418,11 @@ The `read-frame-from-context` function is implemented as a tiered lookup: the dy
 
 How the React-context tier wires up:
 
-1. `frame-provider` is a React Context Provider whose `value` is the **keyword** (`:todo`), not a frame record. The shared context object lives in `re-frame.adapter.context/frame-context`; every adapter (Reagent, reagent-slim, UIx, Hicasso) reads and writes the same `createContext` object, so a tree mixing substrates resolves to a single frame chain.
+1. `frame-provider` is a React Context Provider whose `value` is the **keyword** (`:todo`), not a frame record. The shared context object lives in `re-frame.adapter.context/frame-context`; every adapter (Reagent, reagent-slim, UIx, Fresco) reads and writes the same `createContext` object, so a tree mixing substrates resolves to a single frame chain.
 2. `subscribe` and `dispatch` reach the resolution chain through the `:adapter/current-frame` late-bind hook. The active adapter's namespace registers the hook at load time, so `re-frame.subs` / `re-frame.router` (CLJC) stay free of a static dep on this CLJS-only file.
 3. **Reagent's class-component path** (`(.-context cmp)`) is narrow: Reagent's class-component machinery surfaces context only to components whose `:contextType` matches the context object — that is the wiring `reg-view*` attaches via `{:contextType frame-context}`. Plain Reagent fns lack the `:contextType`, so their `(.-context cmp)` is the no-provider sentinel — the reader returns **nil** (no scope), and a public frame-scoped op then raises `:rf.error/no-frame-context` (EP-0002). This narrowness is what makes the plain-fn footgun a *loud error* rather than a silent wrong-frame read.
 4. **UIx's function-component path** (`_currentValue`) reflects the closest enclosing Provider regardless of any class-static metadata, because function components have no `(.-context cmp)` slot. UIx's `use-context` is sugar over this read, so an imperative `subscribe` / `dispatch` performed *during* a render sees the same enclosing Provider the hooks do.
-5. **The HOOKS are not on this chain at all**, and the divergence is deliberate. `use-frame` and `use-sub` — UIx's and `re-frame.hicasso.native`'s alike — classify the React-context value and stop there: no dynamic-var tier, and no boundary above raises `:rf.error/no-frame-context`. The reader above keeps all its tiers for the imperative surfaces. The reason is that the two run at different instants: an imperative call runs inside the extent that bound the var, while a hook runs when React renders the component a body returned, by which time the extent has unwound — so the dynamic tier would answer for a different render than the one asking, and would answer at all only under a synchronous flush (`act()`, `flushSync`, a server render). See [006 §One frame-resolution rule for React hooks](006-ReactiveSubstrate.md#one-frame-resolution-rule-for-react-hooks) for the rule and its full reason.
+5. **The HOOKS are not on this chain at all**, and the divergence is deliberate. `use-frame` and `use-sub` — UIx's and `re-frame.fresco.native`'s alike — classify the React-context value and stop there: no dynamic-var tier, and no boundary above raises `:rf.error/no-frame-context`. The reader above keeps all its tiers for the imperative surfaces. The reason is that the two run at different instants: an imperative call runs inside the extent that bound the var, while a hook runs when React renders the component a body returned, by which time the extent has unwound — so the dynamic tier would answer for a different render than the one asking, and would answer at all only under a synchronous flush (`act()`, `flushSync`, a server render). See [006 §One frame-resolution rule for React hooks](006-ReactiveSubstrate.md#one-frame-resolution-rule-for-react-hooks) for the rule and its full reason.
 
 The context's value is the **keyword**, not the frame record: each consumer resolves the keyword against the global frame registry on every read, so re-registering a frame (including a registered `:rf/default`) is picked up automatically on next render with no React-side invalidation.
 
@@ -1689,7 +1689,7 @@ Ensure a named frame exists for as long as the subtree is mounted — create it 
 
 **A mounted `:id` / opts change fails loud.** A committed `frame-root` scopes exactly one frame for its lifetime; re-pointing it at a different frame id — or a different `make-frame` configuration — is a configuration error (`:rf.error/frame-root-reconfigured`), not a reconfiguration the boundary supports. To scope a different frame, give the `frame-root` a React `key` that changes so it remounts; to reconfigure the same frame, call `rf/make-frame` with the same `:id` directly.
 
-**`frame-root` is realized per-adapter, against a shared contract.** It is **not** a single component: each substrate (Reagent / reagent-slim / UIx / Hicasso) ships its own `frame-root` that reads its props natively and delegates to one shared commit-owned core. Hicasso's is its codec's own head kind rather than a React component shell (rf2-kuky.58): its tree is lowered EAGERLY, so the head names the frame its children lower under and hands the lowered children to the same core — which it can do before the frame exists, because a lowering carries the frame's NAME and not the frame. The **shared contract** every adapter realisation MUST satisfy:
+**`frame-root` is realized per-adapter, against a shared contract.** It is **not** a single component: each substrate (Reagent / reagent-slim / UIx / Fresco) ships its own `frame-root` that reads its props natively and delegates to one shared commit-owned core. Fresco's is its codec's own head kind rather than a React component shell (rf2-kuky.58): its tree is lowered EAGERLY, so the head names the frame its children lower under and hands the lowered children to the same core — which it can do before the frame exists, because a lowering carries the frame's NAME and not the frame. The **shared contract** every adapter realisation MUST satisfy:
 
 - **commit-owned ensure** — `make-frame` runs in a client `useLayoutEffect` (commit phase), never during render; the first render emits no descendant subtree; the boundary marks ready and only then renders provider + children;
 - **discard-safe** — a render React aborts before commit creates + seeds nothing (no ghost frame; no consumed once-per-lifetime initialization);

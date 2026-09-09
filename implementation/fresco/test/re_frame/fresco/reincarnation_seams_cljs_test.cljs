@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.reincarnation-seams-cljs-test
+(ns re-frame.fresco.reincarnation-seams-cljs-test
   "THE THREE SEAMS THAT BYPASS THE PINNED AMBIENT DISPATCHER, measured
   across a same-public-id reincarnation.
 
@@ -66,10 +66,10 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso.impl.boundary :as rf.hicasso.impl.boundary]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.intent :as rf.hicasso.impl.intent]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
+            [re-frame.fresco.impl.boundary :as rf.fresco.impl.boundary]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.routing.link :as rf.routing.link]
             [re-frame.test-support :as rf.test-support]))
@@ -96,7 +96,7 @@
      :ambient-frame nil
      :async?        true
      :init-fn       (fn []
-                      (rf.hicasso.impl.collector/reset-runtime!)
+                      (rf.fresco.impl.collector/reset-runtime!)
                       (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---------------------------------------------------------------------------
@@ -113,7 +113,7 @@
   [who]
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   (when (rf.frame/frame-incarnation-token frame-id) (rf/destroy-frame! frame-id))
-  (rf.hicasso.impl.collector/reset-runtime!)
+  (rf.fresco.impl.collector/reset-runtime!)
   (rf/make-frame {:id frame-id})
   (rf/with-frame frame-id (rf/dispatch-sync [:seams/seed who]))
   (rf.frame/frame-incarnation-token frame-id))
@@ -143,7 +143,7 @@
   late-binding mechanism passes, which is the same mistake in its detectable
   form."
   []
-  (rf.hicasso.impl.collector/frame-dispatch frame-id))
+  (rf.fresco.impl.collector/frame-dispatch frame-id))
 
 (defn- marked [] (:marked (rf/app-db-value frame-id)))
 
@@ -179,7 +179,7 @@
   (testing "a RETAINED closure is a capability — minted under A, it is still
             A's after A dies, and core refuses it"
     (incarnate! "A")
-    (let [on-click (rf.hicasso.impl.collector/frame-dispatch frame-id)]
+    (let [on-click (rf.fresco.impl.collector/frame-dispatch frame-id)]
       (reincarnate! "B")
       (let [{:keys [refusals]} (with-refusals #(on-click [:seams/mark :capability]))]
         (is (nil? (marked))
@@ -197,7 +197,7 @@
     (render!)                                         ; leave a WARM row for A
     (reincarnate! "B")
     (let [{:keys [refusals]} (with-refusals
-                               #(rf.hicasso.impl.collector/dispatch! frame-id [:seams/mark :address]))]
+                               #(rf.fresco.impl.collector/dispatch! frame-id [:seams/mark :address]))]
       (is (= :address (marked))
           "the write lands in the LIVE incarnation, even from a warm row that
            described the predecessor a line ago — the row is replaced by the
@@ -208,12 +208,12 @@
             same state, which is what makes `capability or address?` a real
             question to ask of a seam rather than a form of words"
     (incarnate! "A")
-    (let [retained (rf.hicasso.impl.collector/frame-dispatch frame-id)]
+    (let [retained (rf.fresco.impl.collector/frame-dispatch frame-id)]
       (reincarnate! "B")
       (let [{:keys [refusals]} (with-refusals #(retained [:seams/mark :retained]))]
         (is (nil? (marked)))
         (is (= 1 (count refusals))))
-      (rf.hicasso.impl.collector/dispatch! frame-id [:seams/mark :fresh])
+      (rf.fresco.impl.collector/dispatch! frame-id [:seams/mark :fresh])
       (is (= :fresh (marked))))))
 
 ;; ---------------------------------------------------------------------------
@@ -247,7 +247,7 @@
 (defn- catch!
   "Hand `this` a caught error the way React's commit phase does."
   [this]
-  (.call (.-componentDidCatch (.-prototype rf.hicasso.impl.boundary/boundary))
+  (.call (.-componentDidCatch (.-prototype rf.fresco.impl.boundary/boundary))
          this
          (js/Error. "rf2-q9cf")
          #js {"componentStack" ""}))
@@ -347,7 +347,7 @@
 ;; event)`, `(settle!)`, `nil`. It reads ONE slot off the handle — `:frame`, a
 ;; public keyword — and consults neither `:root` nor `:container`, so a handle
 ;; literal carrying that slot is the door's whole input. It is not exported by
-;; `re-frame.hicasso` (the public door publishes `root!` and `release!` and no
+;; `re-frame.fresco` (the public door publishes `root!` and `release!` and no
 ;; dispatch), which is what makes it the arm's stand-in for "an application
 ;; calls the address-directed door with a frame id".
 ;;
@@ -367,7 +367,7 @@
     (render!)
     (let [handle {:frame frame-id}]                  ; the slot `dispatch!` reads
       (reincarnate! "B")
-      (let [{:keys [refusals]} (with-refusals #(rf.hicasso.impl.mount/dispatch! handle [:seams/mark :handle]))]
+      (let [{:keys [refusals]} (with-refusals #(rf.fresco.impl.mount/dispatch! handle [:seams/mark :handle]))]
         (is (= :handle (marked))
             "the retained handle reaches the LIVE incarnation")
         (is (empty? refusals)))))
@@ -380,9 +380,9 @@
             and the root would WRITE a frame it cannot READ: perfect markup
             above dead controls, which is the exact symptom rf2-x874 deleted"
     (incarnate! "A")
-    (is (= "A" (rf.hicasso.impl.collector/render-body frame-id (fn [_] (rf.hicasso.impl.collector/sub [:seams/who])) {})))
+    (is (= "A" (rf.fresco.impl.collector/render-body frame-id (fn [_] (rf.fresco.impl.collector/sub [:seams/who])) {})))
     (reincarnate! "B")
-    (is (= "B" (rf.hicasso.impl.collector/render-body frame-id (fn [_] (rf.hicasso.impl.collector/sub [:seams/who])) {}))
+    (is (= "B" (rf.fresco.impl.collector/render-body frame-id (fn [_] (rf.fresco.impl.collector/sub [:seams/who])) {}))
         "the root's reads moved to the successor with nothing asked of them"))
 
   (testing "the handle carries a KEYWORD and not a capability — there is no
@@ -401,7 +401,7 @@
 
 ;; The one seam where a frame keyword is closed over at RENDER and resolved at
 ;; CLICK — structurally the shape the pinning repairs. It is nonetheless the
-;; deliberate semantics, and not Hicasso's to change: `route-link` "restates NO
+;; deliberate semantics, and not Fresco's to change: `route-link` "restates NO
 ;; routing law", and routing's own `activate-link!` names the behaviour in
 ;; terms — *`:frame render-frame` is an explicit dispatch opt … so the dispatch
 ;; always lands on the CURRENTLY-committed frame (retarget-safe)*. Core agrees
@@ -412,7 +412,7 @@
 ;; The hook is SET EXPLICITLY in every row below and restored afterwards. It
 ;; must be: `re-frame.routing` publishes `:routing/activate-link!` at ns-load,
 ;; so in the consolidated `:node-test` build the real one is already installed
-;; while in the focused `:node-test-hicasso` build it is not. A row that let the
+;; while in the focused `:node-test-fresco` build it is not. A row that let the
 ;; ambient binding decide would measure a different thing in each build.
 
 (defn- with-activate-link
@@ -429,10 +429,10 @@
   runs — `impl.collector/run-once`'s, spelled out — and answer the closure the
   browser would call. The map is exactly what `route-link` mints."
   [tag]
-  (rf.hicasso.impl.intent/with-frame frame-id (rf.hicasso.impl.collector/frame-dispatch frame-id)
+  (rf.fresco.impl.intent/with-frame frame-id (rf.fresco.impl.collector/frame-dispatch frame-id)
     (fn []
-      (rf.hicasso.impl.intent/lower-prop :on-click
-                         [rf.hicasso.impl.intent/navigate-head {:frame   frame-id
+      (rf.fresco.impl.intent/lower-prop :on-click
+                         [rf.fresco.impl.intent/navigate-head {:frame   frame-id
                                                 :payload [:seams/mark tag]
                                                 :native? false
                                                 :veto    nil}]))))
@@ -447,7 +447,7 @@
        :preventDefault   (fn [] js/undefined)})
 
 (deftest navigate-hands-routing-an-address-and-nothing-incarnation-shaped
-  ;; What crosses the Hicasso/routing seam is the whole of Hicasso's exposure
+  ;; What crosses the Fresco/routing seam is the whole of Fresco's exposure
   ;; here, so it is measured directly rather than inferred from the outcome.
   (let [seen (atom [])
         rec  (fn [_e _veto frame payload _native?] (swap! seen conj [frame payload]) nil)]

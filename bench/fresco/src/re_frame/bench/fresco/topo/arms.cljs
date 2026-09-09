@@ -1,9 +1,9 @@
-(ns re-frame.bench.hicasso.topo.arms
+(ns re-frame.bench.fresco.topo.arms
   "THE FOUR TOPOLOGY ARMS — one table, cut four ways (rf2-hic-036).
 
   The markup is written **once**, in [[row-markup]], and every arm calls
   it. That is the tournament's fairness guarantee and it is the same
-  discipline [[re-frame.bench.hicasso.shapes.card]] uses to make shapes 2
+  discipline [[re-frame.bench.fresco.shapes.card]] uses to make shapes 2
   and 3 differ in exactly one authoring decision: if the four arms wrote
   their own rows, an arm-to-arm difference would be a difference of
   markup and the tournament would prove nothing about topology.
@@ -33,14 +33,14 @@
   ## Body counts are taken on TWO independent instruments
 
   [[counters]] is this file's own — incremented at each body and at each
-  row of markup. [[re-frame.bench.hicasso.arm1.runtime/body-runs]] is the
+  row of markup. [[re-frame.bench.fresco.arm1.runtime/body-runs]] is the
   runtime's, incremented inside `run-once` where a body is actually
   invoked. They share no traversal, so the census asserts them against
   each other: a memo bail-out that this file counted and the runtime did
   not would be a real disagreement rather than a rounding one."
-  (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.topo.model :as rf.bench.hicasso.topo.model])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require [re-frame.bench.fresco.arm1.runtime :refer [sub]]
+            [re-frame.bench.fresco.topo.model :as rf.bench.fresco.topo.model])
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 ;; ---------------------------------------------------------------------------
 ;; The counters
@@ -176,14 +176,14 @@
   `:boundaries` counts registrations holding at least one read edge — the
   list plus, per arm, its row or chunk boundaries. A `coarse` page is one
   boundary because there is nothing beneath it holding a read."
-  ([arm b] (expected arm b rf.bench.hicasso.topo.model/window-size))
+  ([arm b] (expected arm b rf.bench.fresco.topo.model/window-size))
   ([arm b w]
-   (let [rendered (rf.bench.hicasso.topo.model/rendered-rows arm b w)]
+   (let [rendered (rf.bench.fresco.topo.model/rendered-rows arm b w)]
      {:rendered-rows rendered
-      :elements      (rf.bench.hicasso.topo.model/elements-for rendered)
-      :edges         (inc (rf.bench.hicasso.topo.model/memberships arm b w))
+      :elements      (rf.bench.fresco.topo.model/elements-for rendered)
+      :edges         (inc (rf.bench.fresco.topo.model/memberships arm b w))
       :boundaries    (case arm
                        :fine    (inc b)
                        :coarse  1
-                       :chunked (inc (long (Math/ceil (/ b rf.bench.hicasso.topo.model/chunk-size))))
+                       :chunked (inc (long (Math/ceil (/ b rf.bench.fresco.topo.model/chunk-size))))
                        :virtual (inc (min b w)))})))

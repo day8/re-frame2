@@ -2,12 +2,12 @@
 //
 // BUILD THE TWO ARMS AS js-framework-benchmark ENTRIES (rf2-rguy1).
 //
-// Produces `frameworks/keyed/rf2-reagent/` and `frameworks/keyed/rf2-hicasso/`
+// Produces `frameworks/keyed/rf2-reagent/` and `frameworks/keyed/rf2-fresco/`
 // inside a CLONE of krausest/js-framework-benchmark. It never writes inside
 // this repository, and the clone is never committed here: it is somebody
 // else's repository and it stays outside our tree.
 //
-//   node hicasso/test/re_frame/bench/hicasso/jsfb_build.cjs --dest <clone>
+//   node fresco/test/re_frame/bench/fresco/jsfb_build.cjs --dest <clone>
 //
 // ## Why both arms are built here rather than taken from upstream
 //
@@ -20,13 +20,13 @@
 // substrate.
 //
 // So both arms are compiled here, from one repository, at one React, by one
-// shadow-cljs, at `:advanced` with `goog.DEBUG false` — the `:hicasso-bench`
+// shadow-cljs, at `:advanced` with `goog.DEBUG false` — the `:fresco-bench`
 // build the clock harness uses, reached through `--config-merge` only, so
 // `implementation/shadow-cljs.edn` is untouched and no build id is added.
 //
 // ## One build id, two arms — the cache is cleared between them
 //
-// `:hicasso-bench` is a single build id and each arm overrides its
+// `:fresco-bench` is a single build id and each arm overrides its
 // `:init-fn` and `:output-dir`. shadow-cljs caches per build id, so building
 // the second arm without clearing would risk serving the first arm's
 // analysis. rf2-2rtt6.20 records that trap in this lane. The cache directory
@@ -48,25 +48,25 @@ const { resetLaneBuildCache } = require('../../../../../../implementation/core/t
 const PROJECT = path.resolve(__dirname, '../../../..');
 const IMPL = path.resolve(PROJECT, '../../implementation');
 
-const BUILD_ID = 'hicasso-bench';
+const BUILD_ID = 'fresco-bench';
 
 const ARMS = [
   {
     dir: 'rf2-reagent',
-    initFn: 're-frame.bench.hicasso.jsfb-reagent-app/-main',
+    initFn: 're-frame.bench.fresco.jsfb-reagent-app/-main',
     title: 're-frame2 Reagent-on-subs',
   },
   {
-    dir: 'rf2-hicasso',
-    initFn: 're-frame.bench.hicasso.jsfb-hicasso-app/-main',
-    title: 're-frame2 Hicasso Arm 1',
+    dir: 'rf2-fresco',
+    initFn: 're-frame.bench.fresco.jsfb-fresco-app/-main',
+    title: 're-frame2 Fresco Arm 1',
   },
   // Added after the first two had run, because the contested bulk-broad
-  // row is `UIx / Reagent` and a Reagent-and-Hicasso pair cannot speak to
+  // row is `UIx / Reagent` and a Reagent-and-Fresco pair cannot speak to
   // it. See `jsfb_uix_app`'s docstring.
   {
     dir: 'rf2-uix',
-    initFn: 're-frame.bench.hicasso.jsfb-uix-app/-main',
+    initFn: 're-frame.bench.fresco.jsfb-uix-app/-main',
     title: 're-frame2 UIx-on-subs',
   },
 ];
@@ -129,9 +129,9 @@ function packageJson(dir, title) {
           // sources live there. These exist so the directory is shaped like
           // a framework entry; they are NOT an upstream-conformant build and
           // the message says so rather than exiting 0 and looking built.
-          dev: 'echo "build from the re-frame2 repo: node hicasso/test/re_frame/bench/hicasso/jsfb_build.cjs" && exit 1',
+          dev: 'echo "build from the re-frame2 repo: node fresco/test/re_frame/bench/fresco/jsfb_build.cjs" && exit 1',
           'build-prod':
-            'echo "build from the re-frame2 repo: node hicasso/test/re_frame/bench/hicasso/jsfb_build.cjs" && exit 1',
+            'echo "build from the re-frame2 repo: node fresco/test/re_frame/bench/fresco/jsfb_build.cjs" && exit 1',
         },
       },
       null,

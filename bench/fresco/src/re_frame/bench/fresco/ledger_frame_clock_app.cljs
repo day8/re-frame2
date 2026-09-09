@@ -1,31 +1,31 @@
-(ns re-frame.bench.hicasso.ledger-frame-clock-app
+(ns re-frame.bench.fresco.ledger-frame-clock-app
   "THE LEDGER'S PER-FRAME CLOCK — a run of consecutive frames under a
   sustained scroll, on the witness application `U4` is stated over
   (rf2-xc0bw).
 
-      HICASSO_INIT_FN=re-frame.bench.hicasso.ledger-frame-clock-app/-main \\
-      HICASSO_OUT_DIR=out/hicasso-ledger-frame \\
-      HICASSO_PORT=8141 \\
-        node implementation/hicasso/test/re_frame/bench/hicasso/run.cjs
+      FRESCO_INIT_FN=re-frame.bench.fresco.ledger-frame-clock-app/-main \\
+      FRESCO_OUT_DIR=out/fresco-ledger-frame \\
+      FRESCO_PORT=8141 \\
+        node implementation/fresco/test/re_frame/bench/fresco/run.cjs
 
-  NO NEW BUILD ID. `run.cjs` takes its entry from `HICASSO_INIT_FN` and
-  rides `:hicasso-bench`, the id the whole lane already shares, so this
+  NO NEW BUILD ID. `run.cjs` takes its entry from `FRESCO_INIT_FN` and
+  rides `:fresco-bench`, the id the whole lane already shares, so this
   arm costs `implementation/shadow-cljs.edn` — an HD-017 hot-zone file —
   nothing.
 
   ## WHY THIS IS A THIRD DRIVER ON A THIRD PAGE
 
-  `docs/design/hicasso/product/budgets.md` §4 registers `U4` as
+  `docs/design/fresco/product/budgets.md` §4 registers `U4` as
   *Dragging/animation stay inside frame budget*, estimand **per-frame
   latency**, and §9.4 governs it — with `U1`–`U3` — on a witness
-  application under `implementation/hicasso/test/re_frame/hicasso/
+  application under `implementation/fresco/test/re_frame/fresco/
   examples/`. Both landed clock drivers sit on the SLICE, and the slice
   publishes no drag and no animation: every interaction it has is
   discrete — a keystroke, a click, a select.
   Both siblings say so at source rather than leaving it to be
-  discovered — [[re-frame.bench.hicasso.slice-echo-clock-app]] in its
+  discovered — [[re-frame.bench.fresco.slice-echo-clock-app]] in its
   §THE ROWS, AND WHICH ESTIMANDS THEY CAN AND CANNOT SERVE, and
-  [[re-frame.bench.hicasso.slice-broad-clock-app]] in its §`U4` IS NOT
+  [[re-frame.bench.fresco.slice-broad-clock-app]] in its §`U4` IS NOT
   SERVED BY THIS DRIVER EITHER — and two repairs that look obvious are
   both wrong:
 
@@ -38,7 +38,7 @@
     are governed on the application's OWN interactions, not on
     interactions added to reach a row.
 
-  `re-frame.hicasso.examples.ledger` needs neither. It publishes a
+  `re-frame.fresco.examples.ledger` needs neither. It publishes a
   virtualized ten-thousand-row list over a real scroll viewport — the
   vendor owns its scroll offset in `useState` and listens for the
   platform's own `scroll` events on the element it owns — and a scroll
@@ -48,7 +48,7 @@
 
   ## THE ESTIMATOR IS FRAME INTERVALS, AND THAT IS WHY `window!` IS NOT HERE
 
-  [[re-frame.bench.hicasso.slice-echo-clock-app/window!]] measures ONE
+  [[re-frame.bench.fresco.slice-echo-clock-app/window!]] measures ONE
   interaction through to the paint that follows it and ends with a
   `setTimeout 0` task hop. **Chaining it once per frame would not produce
   a per-frame estimator**: the hop puts a task boundary between every
@@ -64,7 +64,7 @@
   reading on this lane starts from. Both siblings settle on it outside
   every measurement, and so does [[prepare!]] here. A second copy of it
   is a second thing that can drift, which is the shape
-  `rf.bench.hicasso.lane/visit-plan`'s own docstring is written against.
+  `rf.bench.fresco.lane/visit-plan`'s own docstring is written against.
 
   [[frames!]] is the estimator:
 
@@ -79,21 +79,21 @@
 
   ## THE SCHEDULE IS THE LANE'S, BUT THE LOOP CANNOT BE
 
-  `rf.bench.hicasso.lane/rounds-async!` schedules a sample as a promise of ONE NUMBER, and
+  `rf.bench.fresco.lane/rounds-async!` schedules a sample as a promise of ONE NUMBER, and
   a frame run yields `K-1` of them, so that loop does not fit. What does
-  fit — and is used — is `rf.bench.hicasso.lane/visit-plan`, the PLAN both of the lane's
-  loops walk: same `rf.bench.hicasso.lane/slot-order` reflection, same warm-up boundary,
-  same round boundary. Walking the plan with `rf.bench.hicasso.lane/chain` and banking a VECTOR
+  fit — and is used — is `rf.bench.fresco.lane/visit-plan`, the PLAN both of the lane's
+  loops walk: same `rf.bench.fresco.lane/slot-order` reflection, same warm-up boundary,
+  same round boundary. Walking the plan with `rf.bench.fresco.lane/chain` and banking a VECTOR
   per visit rather than a number reuses the schedule at the one level
   where it is stated, instead of re-deriving `(count arms)`,
-  `rf.bench.hicasso.lane/slot-order` and the warm-up boundary here. `rf.bench.hicasso.lane/visit-plan`
+  `rf.bench.fresco.lane/slot-order` and the warm-up boundary here. `rf.bench.fresco.lane/visit-plan`
   prices what a second copy of the schedule has cost this lane: the
   `k = 2` degeneracy that survived a fix to its own sibling, and the
   predecessor tagging that was repaired twice privately while ten apps
   riding the shared loop kept the fault.
 
   One guard sample is banked per VISIT — that visit's median interval —
-  so `rf.bench.hicasso.lane/collect!`'s `:position` still counts visits across the whole
+  so `rf.bench.fresco.lane/collect!`'s `:position` still counts visits across the whole
   run and `:predecessor` still names the arm that ran immediately before.
 
   ## WHAT CARRIES THE CLAIM THAT THESE ARE FRAMES UNDER A REAL SCROLL
@@ -109,8 +109,8 @@
      layout and paint — see §WHERE THE OBSERVATION IS READ. A measured
      run is verified when that index ADVANCED across the run, which it
      can only do if the vendor saw the scroll, recomputed its window and
-     React committed the result. It banks into `rf.bench.hicasso.lane/tally` and
-     `rf.bench.hicasso.lane/assert-verified!` refuses the run at `N unverified of M`.
+     React committed the result. It banks into `rf.bench.fresco.lane/tally` and
+     `rf.bench.fresco.lane/assert-verified!` refuses the run at `N unverified of M`.
 
   3. THE NEGATIVE CONTROL, WHICH IS AN ARM RATHER THAN A ONE-SHOT.
      `:idle-frames` runs the same rAF chain and the same observation with
@@ -152,7 +152,7 @@
   reach it, because every term is on the same clamped grid.
 
   It is therefore adjudicated by [[control-verdict-floor]] and NOT by
-  `rf.bench.hicasso.lane/control-verdict` or `rf.bench.hicasso.lane/control-verdict-strict`: both of those
+  `rf.bench.fresco.lane/control-verdict` or `rf.bench.fresco.lane/control-verdict-strict`: both of those
   ask whether a measurement sits INSIDE a ±slack band around a
   prediction, and a floor has no upper edge. A blocked frame that ran
   long is not a control failure, it is a slow frame.
@@ -165,9 +165,9 @@
 
   ## WHERE THE OBSERVATION IS READ, AND WHY IT IS THAT PLACE
 
-  `rf.hicasso.examples.ledger.views/ledger-row` writes `aria-rowindex` as `(inc index)` — the row's
+  `rf.fresco.examples.ledger.views/ledger-row` writes `aria-rowindex` as `(inc index)` — the row's
   MODEL index, Rule 4 of the recipe — onto the element the vendor
-  renders. `rf.hicasso.examples.ledger.vendor/virtual-rows` renders `(range from (inc to))` in
+  renders. `rf.fresco.examples.ledger.vendor/virtual-rows` renders `(range from (inc to))` in
   order into the spacer, and appends the pinned row LAST when it appends
   one at all. So the spacer's `firstElementChild` is the window's first
   row, and its `aria-rowindex` is a number **only React's own commit
@@ -192,7 +192,7 @@
 
   ## THE GESTURE, AND WHY ITS NUMBERS ARE DERIVED
 
-  [[scroll-step-px]] is `rf.hicasso.examples.ledger.views/row-height` — ONE ROW PER FRAME, which at
+  [[scroll-step-px]] is `rf.fresco.examples.ledger.views/row-height` — ONE ROW PER FRAME, which at
   60 Hz is about 1,440 px/s: a brisk flick rather than a contrivance, and
   the unit `virtualized-dom-cljs-test` already measures the screen in
   (*a scroll costs the rows that ENTERED*). It is read off the screen's
@@ -200,7 +200,7 @@
   gesture with it instead of silently changing what a frame's work is.
 
   [[start-row]] puts the run clear of both ends of the model:
-  `rf.hicasso.examples.ledger.vendor/window-from` clamps `from` at 0, so a run beginning at the top
+  `rf.fresco.examples.ledger.vendor/window-from` clamps `from` at 0, so a run beginning at the top
   would spend its first frames with the window standing still for a
   correct reason, and a run ending past the last row would stop advancing
   for another. [[boot!]] derives both bounds from `window-from` itself
@@ -284,14 +284,14 @@
   Owner: rf2-xc0bw."
   (:require [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.slice-echo-clock-app :as rf.bench.hicasso.slice-echo-clock-app]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.slice-echo-clock-app :as rf.bench.fresco.slice-echo-clock-app]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.ledger.app :as rf.hicasso.examples.ledger.app]
-            [re-frame.hicasso.examples.ledger.events :as rf.hicasso.examples.ledger.events]
-            [re-frame.hicasso.examples.ledger.vendor :as rf.hicasso.examples.ledger.vendor]
-            [re-frame.hicasso.examples.ledger.views :as rf.hicasso.examples.ledger.views]))
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.ledger.app :as rf.fresco.examples.ledger.app]
+            [re-frame.fresco.examples.ledger.events :as rf.fresco.examples.ledger.events]
+            [re-frame.fresco.examples.ledger.vendor :as rf.fresco.examples.ledger.vendor]
+            [re-frame.fresco.examples.ledger.views :as rf.fresco.examples.ledger.views]))
 
 ;; ---------------------------------------------------------------------------
 ;; The knobs — every one of them a SCHEDULE knob, never a line
@@ -302,7 +302,7 @@
   own `default-total` — §7's *10K-row behavior* — read from there rather
   than typed, so a run's population cannot disagree with the
   application's."
-  rf.hicasso.examples.ledger.events/default-total)
+  rf.fresco.examples.ledger.events/default-total)
 
 (def sampling
   "Per-round warm-up and measured counts. `rf2-h904p`'s values and both
@@ -323,7 +323,7 @@
   to find the time.
 
   **A tail quantile over a short sample is mostly interpolation**
-  (`rf.bench.hicasso.lane/quantile` prices exactly that). It is less pressing here than on
+  (`rf.bench.fresco.lane/quantile` prices exactly that). It is less pressing here than on
   the sibling clocks, because a visit banks [[frames-per-run]] − 1
   readings rather than one: at these values each arm's `:summary` is
   taken over 1,740 intervals."
@@ -354,18 +354,18 @@
 (def scroll-step-px
   "How far the viewport is scrolled each frame — ONE ROW.
 
-  Derived from `rf.hicasso.examples.ledger.views/row-height` rather than typed, so the gesture is
+  Derived from `rf.fresco.examples.ledger.views/row-height` rather than typed, so the gesture is
   stated in the screen's own units and a change to the row height cannot
   quietly change what a frame's work is. At 60 Hz one row a frame is
   about 1,440 px/s: a brisk flick, and the unit
   `virtualized-dom-cljs-test` measures the screen in."
-  rf.hicasso.examples.ledger.views/row-height)
+  rf.fresco.examples.ledger.views/row-height)
 
 (def start-row
   "The model row every visit's gesture starts at.
 
-  Clear of the model's start by more than `rf.hicasso.examples.ledger.views/overscan`, so
-  `rf.hicasso.examples.ledger.vendor/window-from`'s `(max 0 …)` clamp never bites and the window
+  Clear of the model's start by more than `rf.fresco.examples.ledger.views/overscan`, so
+  `rf.fresco.examples.ledger.vendor/window-from`'s `(max 0 …)` clamp never bites and the window
   advances from the run's first frame; and far enough from its end that
   [[frames-per-run]] rows of gesture cannot reach it. [[boot!]] derives
   both bounds from `window-from` itself and refuses rather than trusting
@@ -410,7 +410,7 @@
   [[boot!]] — warm-up visits included, because a verification is worth
   more the more runs it covers."
   []
-  (rf.bench.hicasso.lane/tally-value (:tally @!state)))
+  (rf.bench.fresco.lane/tally-value (:tally @!state)))
 
 (def populations
   "Which visits each published figure is taken over.
@@ -495,7 +495,7 @@
                   (js/requestAnimationFrame
                     (fn []
                       (try
-                        (.push at (rf.bench.hicasso.lane/now-ms))
+                        (.push at (rf.bench.fresco.lane/now-ms))
                         (.push seen (observe!))
                         (per-frame!)
                         (if (< (.-length at) frames)
@@ -576,7 +576,7 @@
 
 (defn- note-refusal!
   "Keep the FIRST refusal's detail, so a run that dies on `N unverified
-  of M` says which arm went and what it saw. `rf.bench.hicasso.lane/tally` counts and does
+  of M` says which arm went and what it saw. `rf.bench.fresco.lane/tally` counts and does
   not describe, and a bare count over a two-part check is a diagnosis the
   operator has to reproduce."
   [v]
@@ -619,7 +619,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- start-top []
-  (* start-row rf.hicasso.examples.ledger.views/row-height))
+  (* start-row rf.fresco.examples.ledger.views/row-height))
 
 (defn idle-frames
   "The FLOOR, and the standing negative control.
@@ -682,8 +682,8 @@
   FOURTH appears it belongs in `lane`, beside `now-ms`, which is the
   clock it is already spelled against."
   [ms]
-  (let [end (+ (rf.bench.hicasso.lane/now-ms) ms)]
-    (loop [] (when (< (rf.bench.hicasso.lane/now-ms) end) (recur)))))
+  (let [end (+ (rf.bench.fresco.lane/now-ms) ms)]
+    (loop [] (when (< (rf.bench.fresco.lane/now-ms) end) (recur)))))
 
 (defn blocked-scroller
   "[[scroller]] plus [[blocked-ms]] of blocked main thread, every frame.
@@ -747,10 +747,10 @@
      PREDECESSOR-DEPENDENT by construction, and starting each run in the
      first task after a paint makes the phase a constant of the
      instrument rather than a property of whatever ran before —
-     [[re-frame.bench.hicasso.slice-echo-clock-app/measure-one!]] carries
+     [[re-frame.bench.fresco.slice-echo-clock-app/measure-one!]] carries
      the incident that established that.
 
-  4. Assert the reset LANDED, against `rf.hicasso.examples.ledger.vendor/window-from`'s own
+  4. Assert the reset LANDED, against `rf.fresco.examples.ledger.vendor/window-from`'s own
      arithmetic rather than against a number typed here. A visit that
      began on a stale window would still verify — the scrolling arms
      advance either way — while its early frames were catching up rather
@@ -769,14 +769,14 @@
                        :want        want
                        :got         (.-scrollTop vp)})))
     (.dispatchEvent vp (js/Event. "scroll" #js {:bubbles true}))
-    (-> (rf.bench.hicasso.slice-echo-clock-app/after-paint)
-        (.then (fn [_] (rf.bench.hicasso.slice-echo-clock-app/after-paint)))
-        (.then (fn [_] (rf.bench.hicasso.slice-echo-clock-app/after-paint)))
+    (-> (rf.bench.fresco.slice-echo-clock-app/after-paint)
+        (.then (fn [_] (rf.bench.fresco.slice-echo-clock-app/after-paint)))
+        (.then (fn [_] (rf.bench.fresco.slice-echo-clock-app/after-paint)))
         (.then (fn [_]
-                 (let [[from _] (rf.hicasso.examples.ledger.vendor/window-from want
-                                                    {:row-height      rf.hicasso.examples.ledger.views/row-height
-                                                     :viewport-height rf.hicasso.examples.ledger.views/viewport-height
-                                                     :overscan        rf.hicasso.examples.ledger.views/overscan
+                 (let [[from _] (rf.fresco.examples.ledger.vendor/window-from want
+                                                    {:row-height      rf.fresco.examples.ledger.views/row-height
+                                                     :viewport-height rf.fresco.examples.ledger.views/viewport-height
+                                                     :overscan        rf.fresco.examples.ledger.views/overscan
                                                      :total           total})
                        seen     ((observer))]
                    (when-not (= from seen)
@@ -801,7 +801,7 @@
   frame's own work is inside it.
 
   It answers a VECTOR and not a number, which is why this driver cannot
-  ride `rf.bench.hicasso.lane/rounds-async!` and walks `rf.bench.hicasso.lane/visit-plan` itself. See the
+  ride `rf.bench.fresco.lane/rounds-async!` and walks `rf.bench.fresco.lane/visit-plan` itself. See the
   namespace docstring §THE SCHEDULE IS THE LANE'S, BUT THE LOOP CANNOT
   BE."
   [{:keys [id per-frame advance?]}]
@@ -916,7 +916,7 @@
                ;; counter the arms share with a control is a counter whose
                ;; denominator a reader has to reconstruct.
                (swap! !state assoc
-                      :tally             (rf.bench.hicasso.lane/tally)
+                      :tally             (rf.bench.fresco.lane/tally)
                       :first-refusal     nil
                       :last-verification nil
                       :advance           {})
@@ -930,13 +930,13 @@
   "Mount the ledger into `container` on `frame-id`, and answer a promise
   of the mounted handle.
 
-  It goes through `rf.hicasso/client-root` + `rf.hicasso/render!` — the
+  It goes through `rf.fresco/client-root` + `rf.fresco/render!` — the
   application's own root door — with the application's own view and the
   `initial-events` `ledger.app` publishes, parameterised by the size the
   application itself defaults to. The FRAME is spelled in the TREE, on
-  `rf.hicasso/frame-root`, which ENSUREs it: nothing made it beforehand,
+  `rf.fresco/frame-root`, which ENSUREs it: nothing made it beforehand,
   so this head is what creates it and runs those `initial-events`. Nothing
-  here reaches under `re-frame.hicasso.impl.*`, nothing rebuilds a view,
+  here reaches under `re-frame.fresco.impl.*`, nothing rebuilds a view,
   and no scroll is simulated by dispatching an application event: every
   reading starts at a real `scroll` on a node the vendor rendered.
 
@@ -946,7 +946,7 @@
      no observation; a run that discovered that inside a rendering step
      would report it as a null reading.
   2. THE GESTURE FITS THE MODEL, at both ends, derived from
-     `rf.hicasso.examples.ledger.vendor/window-from` rather than from arithmetic repeated here.
+     `rf.fresco.examples.ledger.vendor/window-from` rather than from arithmetic repeated here.
      `window-from` clamps `from` at zero and `to` at the last row, and a
      clamped window stands still — which would make an honest verification
      failure out of a knob that is simply set too near an edge.
@@ -955,29 +955,29 @@
   DONE HERE. Both are process-wide and belong to whoever owns the
   process; [[-main]] owns the bench page and does both."
   [container frame-id]
-  (let [handle (rf.hicasso/client-root)
-        _      (rf.hicasso/render! handle
-                                   [rf.hicasso/frame-root
+  (let [handle (rf.fresco/client-root)
+        _      (rf.fresco/render! handle
+                                   [rf.fresco/frame-root
                                     {:id             frame-id
-                                     :initial-events (rf.hicasso.examples.ledger.app/initial-events total)}
-                                    [rf.hicasso.examples.ledger.views/ledger {}]]
+                                     :initial-events (rf.fresco.examples.ledger.app/initial-events total)}
+                                    [rf.fresco.examples.ledger.views/ledger {}]]
                                    container)
-        geom   {:row-height      rf.hicasso.examples.ledger.views/row-height
-                :viewport-height rf.hicasso.examples.ledger.views/viewport-height
-                :overscan        rf.hicasso.examples.ledger.views/overscan
+        geom   {:row-height      rf.fresco.examples.ledger.views/row-height
+                :viewport-height rf.fresco.examples.ledger.views/viewport-height
+                :overscan        rf.fresco.examples.ledger.views/overscan
                 :total           total}]
     (swap! !state assoc
            :container         container
            :handle            handle
            :viewport          nil
            :spacer            nil
-           :tally             (rf.bench.hicasso.lane/tally)
+           :tally             (rf.bench.fresco.lane/tally)
            :first-refusal     nil
            :last-verification nil
            :advance           {}
            :entry             {})
-    (-> (rf.bench.hicasso.slice-echo-clock-app/after-paint)
-        (.then (fn [_] (rf.bench.hicasso.slice-echo-clock-app/after-paint)))
+    (-> (rf.bench.fresco.slice-echo-clock-app/after-paint)
+        (.then (fn [_] (rf.bench.fresco.slice-echo-clock-app/after-paint)))
         (.then (fn [_]
                  (let [vp     (node-at ".ledger-viewport")
                        spacer (node-at ".ledger-spacer")]
@@ -989,9 +989,9 @@
                                      {:rf.error/id ::viewport-absent
                                       :viewport?   (some? vp)
                                       :spacer?     (some? spacer)})))
-                   (let [[from at-start] (rf.hicasso.examples.ledger.vendor/window-from (start-top) geom)
+                   (let [[from at-start] (rf.fresco.examples.ledger.vendor/window-from (start-top) geom)
                          last-top       (+ (start-top) (* frames-per-run scroll-step-px))
-                         [_ to]         (rf.hicasso.examples.ledger.vendor/window-from last-top geom)]
+                         [_ to]         (rf.fresco.examples.ledger.vendor/window-from last-top geom)]
                      (when-not (pos? from)
                        (throw (ex-info (str "start-row " start-row " puts the window's first "
                                             "row at " from ", on window-from's (max 0 …) "
@@ -1022,7 +1022,7 @@
   mounts and unmounts around each of its rows."
   []
   (let [{:keys [container handle]} @!state]
-    (when handle (rf.hicasso/unmount! handle))
+    (when handle (rf.fresco/unmount! handle))
     (when (and container (.-parentNode container))
       (.removeChild (.-parentNode container) container))
     (swap! !state assoc :container nil :handle nil :viewport nil :spacer nil)
@@ -1038,15 +1038,15 @@
 
   `per-round` is ONE MEASURED VALUE PER ROUND — here the smallest frame
   interval `:ctl-blocked` produced in that round. Round by round and not
-  in aggregate, for the reason `rf.bench.hicasso.lane/control-verdict-strict` gives about
+  in aggregate, for the reason `rf.bench.fresco.lane/control-verdict-strict` gives about
   its own band: a cross-round minimum cannot tell a control that held
   every round from one that held on average, and a good round must not be
   allowed to vouch for a bad one.
 
   ## Why neither of the lane's two rules serves
 
-  `rf.bench.hicasso.lane/control-verdict` asks whether a measured RANGE overlaps a
-  ±`slack` band, and `rf.bench.hicasso.lane/control-verdict-strict` asks whether every
+  `rf.bench.fresco.lane/control-verdict` asks whether a measured RANGE overlaps a
+  ±`slack` band, and `rf.bench.fresco.lane/control-verdict-strict` asks whether every
   round sits INSIDE one. Both need an upper edge, and this prediction has
   none: a blocked frame that ran long is a slow frame and not a control
   failure. Widening a band until it covered that would be inventing a
@@ -1062,7 +1062,7 @@
 
   A floor of zero or less is cleared by any reading whatever, and a
   control with no rounds is the same thing said with no data.
-  `rf.bench.hicasso.lane/control-verdict-strict` refuses both and prices the incident that
+  `rf.bench.fresco.lane/control-verdict-strict` refuses both and prices the incident that
   put the rule there: a walk profile shipped a control whose own
   prediction had gone vacuous and reported that it saw what it never
   predicted.
@@ -1089,18 +1089,18 @@
                          (fn [i v]
                            (when (< v predicted)
                              {:round    (inc i)
-                              :measured (rf.bench.hicasso.lane/round4 v)
-                              :short-by (rf.bench.hicasso.lane/round4 (- predicted v))}))
+                              :measured (rf.bench.fresco.lane/round4 v)
+                              :short-by (rf.bench.fresco.lane/round4 (- predicted v))}))
                          vs)))
         ok?     (and stated? (empty? below))
         floor   (str "predicted floor " (.toFixed predicted 3) " ms")]
     {:rule         :every-round-floor
      :predicted    predicted
      :per-round    vs
-     :measured     (rf.bench.hicasso.lane/summarise vs)
+     :measured     (rf.bench.fresco.lane/summarise vs)
      :stated?      stated?
      :versus-floor (when (and (number? floor-p50) (pos? floor-p50))
-                     (rf.bench.hicasso.lane/round4 (/ predicted floor-p50)))
+                     (rf.bench.fresco.lane/round4 (/ predicted floor-p50)))
      :below        below
      :ok?          ok?
      :why          (cond
@@ -1135,9 +1135,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- fresh-readings
-  "One empty reading vector per arm, per round. `rf.bench.hicasso.lane/rounds!`'s own
+  "One empty reading vector per arm, per round. `rf.bench.fresco.lane/rounds!`'s own
   shape, which is private there; the readings map this driver builds has
-  to be the same one `rf.bench.hicasso.lane/normalise` and the summarisers expect."
+  to be the same one `rf.bench.fresco.lane/normalise` and the summarisers expect."
   []
   (atom (vec (repeat rounds (zipmap (map :id arms) (repeat []))))))
 
@@ -1150,22 +1150,22 @@
           readings))
 
 (defn run-schedule!
-  "Walk `rf.bench.hicasso.lane/visit-plan` and answer a promise of
-  `{:readings :samples}` — the same shape `rf.bench.hicasso.lane/rounds!` and
-  `rf.bench.hicasso.lane/rounds-async!` answer, so everything downstream of it is the
+  "Walk `rf.bench.fresco.lane/visit-plan` and answer a promise of
+  `{:readings :samples}` — the same shape `rf.bench.fresco.lane/rounds!` and
+  `rf.bench.fresco.lane/rounds-async!` answer, so everything downstream of it is the
   lane's.
 
-  THE SCHEDULE IS NOT RESTATED HERE. `rf.bench.hicasso.lane/visit-plan` produces the
-  visits, in execution order, with the reflecting `rf.bench.hicasso.lane/slot-order`
+  THE SCHEDULE IS NOT RESTATED HERE. `rf.bench.fresco.lane/visit-plan` produces the
+  visits, in execution order, with the reflecting `rf.bench.fresco.lane/slot-order`
   rotation, the warm-up boundary and the round boundary all decided over
   there. What this loop adds is the one thing the lane's own loops cannot
   do: bank a VECTOR per visit.
 
-  `rf.bench.hicasso.lane/observe!` is called for warm-up visits and `rf.bench.hicasso.lane/collect!` for
-  measured ones, exactly as `rf.bench.hicasso.lane/rounds!`'s own `bank-visit!` does. A
+  `rf.bench.fresco.lane/observe!` is called for warm-up visits and `rf.bench.fresco.lane/collect!` for
+  measured ones, exactly as `rf.bench.fresco.lane/rounds!`'s own `bank-visit!` does. A
   warm-up visit is still a PREDECESSOR — skipping it would leave the
   first measured visit of a block tagged with whatever ran before the
-  warm-up, which `rf.bench.hicasso.lane/observe!`'s docstring prices at length.
+  warm-up, which `rf.bench.fresco.lane/observe!`'s docstring prices at length.
 
   ONE GUARD SAMPLE PER VISIT, and it is that visit's MEDIAN interval. The
   guard stratifies by `:predecessor` and `:position` to catch arm-order
@@ -1175,20 +1175,20 @@
   interval as its own guard sample would tag twenty-nine of them with a
   predecessor that is really the same run's own previous frame."
   []
-  (let [coll     (rf.bench.hicasso.lane/sample-collector)
+  (let [coll     (rf.bench.fresco.lane/sample-collector)
         readings (fresh-readings)]
     (.then
-      (rf.bench.hicasso.lane/chain nil (rf.bench.hicasso.lane/visit-plan arms sampling rounds)
+      (rf.bench.fresco.lane/chain nil (rf.bench.fresco.lane/visit-plan arms sampling rounds)
                   (fn [_ {:keys [round arm measured?]}]
                     (.then (measure-one! arm)
                            (fn [xs]
                              (if measured?
-                               (do (rf.bench.hicasso.lane/collect! coll (name (:id arm))
-                                                  (:p50 (rf.bench.hicasso.lane/summarise xs)))
+                               (do (rf.bench.fresco.lane/collect! coll (name (:id arm))
+                                                  (:p50 (rf.bench.fresco.lane/summarise xs)))
                                    (swap! readings update-in [round (:id arm)] into xs)
                                    (swap! !state update-in [:entry (:id arm)]
                                           (fnil conj []) (first xs)))
-                               (rf.bench.hicasso.lane/observe! coll (name (:id arm))))
+                               (rf.bench.fresco.lane/observe! coll (name (:id arm))))
                              nil))))
       (fn [_] {:readings @readings :samples (:samples @coll)}))))
 
@@ -1201,7 +1201,7 @@
   with a minimum below it is a control that failed, and an aggregate that
   reported the median would call it a pass."
   [readings]
-  (mapv (fn [round] (rf.bench.hicasso.lane/round4 (:min (rf.bench.hicasso.lane/summarise (get round :ctl-blocked)))))
+  (mapv (fn [round] (rf.bench.fresco.lane/round4 (:min (rf.bench.fresco.lane/summarise (get round :ctl-blocked)))))
         readings))
 
 (defn advance-report
@@ -1221,8 +1221,8 @@
         (map (fn [[id a]]
                [id {:runs           (:runs a)
                     :advanced       (:advanced a)
-                    :rows-gained    (rf.bench.hicasso.lane/summarise (filterv number? (:rows-gained a)))
-                    :frames-changed (rf.bench.hicasso.lane/summarise (:frames-changed a))}]))
+                    :rows-gained    (rf.bench.fresco.lane/summarise (filterv number? (:rows-gained a)))
+                    :frames-changed (rf.bench.fresco.lane/summarise (:frames-changed a))}]))
         advance))
 
 (defn take-plan!
@@ -1237,30 +1237,30 @@
     (run-schedule!)
     (fn [{:keys [readings samples]}]
       (let [by-arm    (readings-by-arm readings)
-            floor-p50 (:p50 (rf.bench.hicasso.lane/summarise (get by-arm :idle-frames)))
+            floor-p50 (:p50 (rf.bench.fresco.lane/summarise (get by-arm :idle-frames)))
             control   (control-verdict-floor blocked-ms
                                              (control-per-round readings)
                                              floor-p50)
-            verdict   (rf.bench.hicasso.lane/guard! samples "ledger per-frame interval")
+            verdict   (rf.bench.fresco.lane/guard! samples "ledger per-frame interval")
             visits    (* (+ (:warmup sampling) (:samples sampling)) rounds)]
-        (rf.bench.hicasso.lane/record! :ledger-frame
+        (rf.bench.fresco.lane/record! :ledger-frame
                       {:window      :frame-interval
-                       :population  {:app      're-frame.hicasso.examples.ledger
-                                     :views    're-frame.hicasso.examples.ledger.views
-                                     :vendor   're-frame.hicasso.examples.ledger.vendor
+                       :population  {:app      're-frame.fresco.examples.ledger
+                                     :views    're-frame.fresco.examples.ledger.views
+                                     :vendor   're-frame.fresco.examples.ledger.vendor
                                      ;; DERIVED from the application's own geometry and
                                      ;; seed, never transcribed: a population pin that
                                      ;; restated these integers would be a second source
                                      ;; for them and the first thing to go stale.
                                      :total    total
-                                     :geometry {:row-height      rf.hicasso.examples.ledger.views/row-height
-                                                :viewport-height rf.hicasso.examples.ledger.views/viewport-height
-                                                :overscan        rf.hicasso.examples.ledger.views/overscan
+                                     :geometry {:row-height      rf.fresco.examples.ledger.views/row-height
+                                                :viewport-height rf.fresco.examples.ledger.views/viewport-height
+                                                :overscan        rf.fresco.examples.ledger.views/overscan
                                                 :window-rows     (:window-rows @!state)}
                                      :gesture  {:start-row      start-row
                                                 :step-px        scroll-step-px
                                                 :rows-per-frame (/ scroll-step-px
-                                                                   rf.hicasso.examples.ledger.views/row-height)
+                                                                   rf.fresco.examples.ledger.views/row-height)
                                                 :frames         frames-per-run}}
                        :schedule    (assoc sampling
                                            :rounds              rounds
@@ -1271,17 +1271,17 @@
                                            :intervals-per-arm   (* (:samples sampling) rounds
                                                                    (dec frames-per-run)))
                        :populations populations
-                       :summary     (into {} (map (fn [[id xs]] [id (rf.bench.hicasso.lane/summarise xs)])) by-arm)
-                       :entry       (into {} (map (fn [[id xs]] [id (rf.bench.hicasso.lane/summarise xs)]))
+                       :summary     (into {} (map (fn [[id xs]] [id (rf.bench.fresco.lane/summarise xs)])) by-arm)
+                       :entry       (into {} (map (fn [[id xs]] [id (rf.bench.fresco.lane/summarise xs)]))
                                           (:entry @!state))
                        :advance     (advance-report (:advance @!state))
                        :control     control
                        :guard       (select-keys verdict [:refuse? :contaminated?
                                                           :unchecked? :tolerance])
-                       :verification (cond-> (rf.bench.hicasso.lane/tally-value (:tally @!state))
+                       :verification (cond-> (rf.bench.fresco.lane/tally-value (:tally @!state))
                                        (:first-refusal @!state)
                                        (assoc :first-refusal (:first-refusal @!state)))
-                       :runtime     (rf.bench.hicasso.lane/runtime-label)
+                       :runtime     (rf.bench.fresco.lane/runtime-label)
                        :note        (str "No line is applied to any figure above. U4's frame "
                                          "budget is read against this instrument in its own "
                                          "quiet-box window, not here, and this driver moves "
@@ -1291,19 +1291,19 @@
                                          "are different findings and the figure alone does "
                                          "not say which. The gesture's realised velocity is "
                                          ":gesture/:step-px divided by :scroll's :p50.")})
-        (set! (.-HICASSO_GUARD_REFUSED js/window) (boolean (:refuse? verdict)))
-        (set! (.-HICASSO_CONTROL_FAILED js/window) (not (:ok? control)))
-        (rf.bench.hicasso.lane/assert-verified! (:tally @!state) "ledger per-frame interval")
+        (set! (.-FRESCO_GUARD_REFUSED js/window) (boolean (:refuse? verdict)))
+        (set! (.-FRESCO_CONTROL_FAILED js/window) (not (:ok? control)))
+        (rf.bench.fresco.lane/assert-verified! (:tally @!state) "ledger per-frame interval")
         nil))))
 
 (defn ^:export -main []
   (rf/init! rf.adapter.uix/adapter)
-  (rf.bench.hicasso.lane/leave-act-environment!)
-  (if-not (rf.bench.hicasso.lane/self-test!)
-    (rf.bench.hicasso.lane/fail! (str "the arm-order self-test failed — the copy of the schedule "
+  (rf.bench.fresco.lane/leave-act-environment!)
+  (if-not (rf.bench.fresco.lane/self-test!)
+    (rf.bench.fresco.lane/fail! (str "the arm-order self-test failed — the copy of the schedule "
                      "rule this app is about to rely on no longer behaves like "
                      "the one the .cjs drivers use, so nothing may be measured"))
-    (-> (boot! (or (js/document.getElementById "app") (rf.bench.hicasso.lane/fresh-container!))
+    (-> (boot! (or (js/document.getElementById "app") (rf.bench.fresco.lane/fresh-container!))
                ::frame)
         ;; Both halves of the discrimination run BEFORE the first warm-up
         ;; visit and their throws travel the same `.catch` as any other
@@ -1312,6 +1312,6 @@
         ;; publishing a record nobody should read.
         (.then (fn [_] (advance-discrimination!)))
         (.then (fn [_] (take-plan!)))
-        (.catch (fn [e] (rf.bench.hicasso.lane/fail! (rf.bench.hicasso.lane/describe-throw "ledger-frame-clock-app" e))))
-        (.then (fn [_] (rf.bench.hicasso.lane/done!)))))
+        (.catch (fn [e] (rf.bench.fresco.lane/fail! (rf.bench.fresco.lane/describe-throw "ledger-frame-clock-app" e))))
+        (.then (fn [_] (rf.bench.fresco.lane/done!)))))
   nil)

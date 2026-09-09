@@ -1,7 +1,7 @@
 # Controlled inputs
 
 A controlled text field sends every edit through app-db and receives the
-committed value back through a subscription. Hicasso keeps that round trip in
+committed value back through a subscription. Fresco keeps that round trip in
 the same browser turn and handles caret and IME behaviour for the normal
 `:value`/`:on-input` form.
 
@@ -23,7 +23,7 @@ For each keystroke, the path is:
 
 `browser event → dispatch → event handler → app-db commit → subscription → view → DOM`
 
-Hicasso completes this path inside the discrete browser turn. That provides
+Fresco completes this path inside the discrete browser turn. That provides
 four guarantees:
 
 1. **The committed value returns in the same turn.** Fast typing does not lose
@@ -57,7 +57,7 @@ chapter owns the measurements and budgets; this page owns the behaviour.
 
 ??? info "For readers coming from Reagent"
     A common Reagent pattern adds a local ratom to protect a field from async
-    rendering. Do not copy that pattern into Hicasso. The controlled path is
+    rendering. Do not copy that pattern into Fresco. The controlled path is
     synchronous and the runtime already preserves selection and composition.
     When an edit needs a separate draft/commit lifecycle, use the forms module
     rather than building a second atom stack.
@@ -89,9 +89,9 @@ platform value:
          :on-change [:todo/set-done id ::h/checked]}]
 ```
 
-Hicasso reconciles a controlled value only for the shapes in that table, and it
+Fresco reconciles a controlled value only for the shapes in that table, and it
 approximates nothing outside them. A contenteditable region is the case worth
-naming: it has no single value Hicasso could reconcile, so it is not treated as
+naming: it has no single value Fresco could reconcile, so it is not treated as
 a controlled field at all. A `:value` bound to one is passed through to React
 untouched — nothing refuses it, and nothing keeps it in step with your app-db,
 so the binding is silently inert rather than loud. Use a declared foreign host
@@ -133,7 +133,7 @@ map.
 
 ## Reset with `::h/revision`
 
-A reset must be an explicit domain event. Hicasso never infers a reset because
+A reset must be an explicit domain event. Fresco never infers a reset because
 the incoming value equals a particular target. Value-based reset detection
 cannot distinguish a user typing that value from an application reset, and it
 cannot observe a same-value reassertion.
@@ -186,8 +186,8 @@ normal behaviour for a value assignment.
 
 `::h/revision` is legal only on controlled text input or textarea. Using it on
 a `div`, `select`, value-less checkbox, or input with no `:value` raises
-`:rf.error/hicasso-revision-not-controlled`, naming the element and source.
-The prop is consumed by Hicasso and never becomes a DOM attribute on the client
+`:rf.error/fresco-revision-not-controlled`, naming the element and source.
+The prop is consumed by Fresco and never becomes a DOM attribute on the client
 or server. A forwarded map cannot activate it for a field whose author did not
 write it.
 
@@ -201,13 +201,13 @@ commits on Enter or blur and cancels on Escape.
 | --- | --- | --- |
 | Fast typing drops characters | The controlled write was deferred through a timer, debounce, queued effect, or promise | Commit the field value synchronously. Debounce downstream consumers, not the write |
 | The caret moves to the end after each accepted/rejected edit | The normal controlled path failed to preserve selection | Treat this as a runtime bug and report it; do not remount or add a second writer |
-| Enter commits unfinished composition text | A custom key handler bypassed Hicasso's keyboard map | Use the data keyboard map so IME checks run centrally |
+| Enter commits unfinished composition text | A custom key handler bypassed Fresco's keyboard map | Use the data keyboard map so IME checks run centrally |
 | A rejected edit kills the active composition | Another writer changed the DOM value during composition | Find the ref, foreign script, or uncontrolled sibling writing the same field; a controlled field must have one writer |
 | IME text briefly lands stale and then corrects | The app-db write was deferred beyond the input turn | Keep the controlled write synchronous. The composition survives, but a deferred model update arrives late |
 | Typing the application's reset value clears the field | Application code inferred reset from value equality | Advance `::h/revision` only for explicit reset events |
 | The field resets on every render | The view creates a new revision while rendering | Read a stable revision written to app-db by events |
 | A `revision="…"` attribute appears and the field never resets | The page used bare `:revision`; only the exact namespaced `::h/revision` is reserved | Use `::h/revision`. Other spellings are ordinary DOM attributes and may lose namespace information |
-| Rendering raises `:rf.error/hicasso-revision-not-controlled` | Revision was placed on a control outside the supported text path | Put it on the controlled input/textarea. Reset a select or checkbox by updating its model value |
+| Rendering raises `:rf.error/fresco-revision-not-controlled` | Revision was placed on a control outside the supported text path | Put it on the controlled input/textarea. Reset a select or checkbox by updating its model value |
 | Focus disappears after validation fails | Code remounted the input | Keep the node and let the controlled path restore the model value |
 
 ## When not to control a field
@@ -231,25 +231,25 @@ A controlled event dispatches synchronously, and store notification is also
 synchronous. React therefore receives the model echo during the same discrete
 browser event.
 
-Hicasso uses `flushSync` only for controlled-text convergence. It commits the
+Fresco uses `flushSync` only for controlled-text convergence. It commits the
 pending value before React's end-of-event restore so that both the value and
 selection are correct when the handler accepts, rejects, or normalizes an
 edit. The path runs once per controlled text keystroke and once when an IME
 composition closes. Pages without a controlled text input do not pay for it.
 Using `flushSync` elsewhere in application code should be treated as an
-architecture problem rather than a normal Hicasso technique.
+architecture problem rather than a normal Fresco technique.
 
 ### Rejection and React restoration
 
 When the handler returns `nil`, the DOM may briefly contain the typed
 character. React restores the unchanged model value at the end of the discrete
-event, but that restore normally loses selection. Hicasso restores the caret
+event, but that restore normally loses selection. Fresco restores the caret
 and selection on the controlled converge path. The handler still only returns
 `nil`.
 
 ### Composition handling
 
-While IME composition is active, Hicasso does not overwrite the field with a
+While IME composition is active, Fresco does not overwrite the field with a
 rejected or normalized model value. The handler may still receive each
 composing update, but the visible composition remains intact until the user
 commits it. The model correction then applies as one value.

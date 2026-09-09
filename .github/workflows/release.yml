@@ -21,14 +21,14 @@
 #                                                  │
 #                                     ┌────────────┴────────────┐
 #                                     ▼                         ▼
-#                              deploy-ssr-ring           deploy-hicasso
+#                              deploy-ssr-ring           deploy-fresco
 #                                     └────────────┬────────────┘
 #                                                  ▼
 #                                          github-release
 #
 # Every per-feature artefact's *published* :deps depends only on core
 # (`day8/re-frame2`) — with TWO exceptions, `day8/re-frame2-ssr-ring`
-# and `day8/re-frame2-hicasso`, each of which also publishes a
+# and `day8/re-frame2-fresco`, each of which also publishes a
 # dependency on `day8/re-frame2-ssr` (see §The inter-leaf edges below).
 # Cross-feature references at runtime are otherwise wired through
 # `re-frame.late-bind` per Spec 006 §Adapter shipping convention and the
@@ -44,8 +44,8 @@
 # split set is now closed; further
 # additions require a new Spec-ulation increment.
 #
-# # The inter-leaf edges: ssr-ring and hicasso both depend on ssr
-# # (rf2-p4a93; hicasso added rf2-gra70)
+# # The inter-leaf edges: ssr-ring and fresco both depend on ssr
+# # (rf2-p4a93; fresco added rf2-gra70)
 #
 # implementation/ssr-ring/deps.edn declares TWO in-repo coordinates in
 # its published :deps — day8/re-frame2 (../core) AND day8/re-frame2-ssr
@@ -54,11 +54,11 @@
 # dependency on a day8/re-frame2-ssr version that has to EXIST on
 # Clojars.
 #
-# implementation/hicasso/deps.edn declares the SAME pair, for a
-# different reason: `re-frame.hicasso.server` hands its payload to the
+# implementation/fresco/deps.edn declares the SAME pair, for a
+# different reason: `re-frame.fresco.server` hands its payload to the
 # ssr artefact's own fail-closed validator and egress projection rather
 # than re-spelling those helpers locally, so the packaging graph is the
-# DAG hicasso -> ssr -> core. Same shape, same hazard, same remedy.
+# DAG fresco -> ssr -> core. Same shape, same hazard, same remedy.
 #
 # Those edges are load-bearing on the DAG because Clojars has no yank.
 # If ssr-ring published while the ssr leaf had failed,
@@ -71,12 +71,12 @@
 # Clojars whether ssr is there.
 #
 # The ordering is therefore STRUCTURAL, not conventional.
-# `deploy-ssr-ring` and `deploy-hicasso` are each their own job with
+# `deploy-ssr-ring` and `deploy-fresco` are each their own job with
 # `needs: [deploy-core, deploy-leaf]`, and a `needs` edge onto a matrix
 # job waits for EVERY value to SUCCEED. That buys exactly the invariant:
 #
 #   if the ssr leaf does not publish successfully, neither ssr-ring nor
-#   hicasso publishes at all.
+#   fresco publishes at all.
 #
 # `needs: deploy-leaf` is deliberately STRONGER than the pom edge — it
 # also blocks them behind leaves they do not depend on (flows, epoch,
@@ -400,8 +400,8 @@ jobs:
   #
   #    That premise is what makes `fail-fast: false` safe, so it has to
   #    stay true. The two leaves that DO carry a published-pom edge to a
-  #    sibling — ssr-ring → ssr and hicasso → ssr — are deliberately NOT
-  #    values here; they are the `deploy-ssr-ring` and `deploy-hicasso`
+  #    sibling — ssr-ring → ssr and fresco → ssr — are deliberately NOT
+  #    values here; they are the `deploy-ssr-ring` and `deploy-fresco`
   #    jobs below, each gated on this whole matrix succeeding (rf2-p4a93,
   #    rf2-gra70; see §The inter-leaf edges at the top of this file). Do
   #    not move either back in, and do not add a value whose published
@@ -472,14 +472,14 @@ jobs:
             artefact: day8/re-frame2-ssr
             directory: implementation/ssr
             local-root: ../core
-          # NOTE — ssr-ring is NOT a value here, and neither is hicasso.
+          # NOTE — ssr-ring is NOT a value here, and neither is fresco.
           # They are the two leaves whose published :deps reference a
           # SECOND in-repo artefact besides core (both of them
           # day8/re-frame2-ssr — ssr-ring at ../ssr per rf2-qmhysc,
-          # hicasso at ../ssr per rf2-gra70), which under
+          # fresco at ../ssr per rf2-gra70), which under
           # `fail-fast: false` would let either publish an unresolvable
           # pom while the `ssr` value above is red. They live in the
-          # `deploy-ssr-ring` and `deploy-hicasso` jobs below, each
+          # `deploy-ssr-ring` and `deploy-fresco` jobs below, each
           # ordered after this whole matrix (rf2-p4a93).
           - leaf: resources
             artefact: day8/re-frame2-resources
@@ -540,8 +540,8 @@ jobs:
       #
       # ONE call per value: every leaf in this matrix has exactly one
       # in-repo coordinate (core). The two leaves with a second one,
-      # ssr-ring and hicasso, are not in this matrix — see
-      # `deploy-ssr-ring` and `deploy-hicasso` below, whose rewrite steps
+      # ssr-ring and fresco, are not in this matrix — see
+      # `deploy-ssr-ring` and `deploy-fresco` below, whose rewrite steps
       # call the script twice (rf2-p4a93, rf2-gra70).
       - name: Rewrite ${{ matrix.leaf }} :local/root → :mvn/version
         working-directory: ${{ matrix.directory }}
@@ -629,7 +629,7 @@ jobs:
   # 4b. Deploy ssr-ring — one of the two leaves with a published-pom edge
   #     to a sibling leaf, so it ships in a stage of its own AFTER the
   #     matrix (rf2-p4a93; the edge itself dates to rf2-qmhysc). Its
-  #     sibling stage is `deploy-hicasso` (4c) — same shape, same edge
+  #     sibling stage is `deploy-fresco` (4c) — same shape, same edge
   #     onto `ssr`, and the two run in parallel because neither appears
   #     in the other's published pom.
   #
@@ -771,22 +771,22 @@ jobs:
         run: clojure -M:clein deploy
 
   # ─────────────────────────────────────────────────────────────────
-  # 4c. Deploy hicasso — the second leaf with a published-pom edge to a
+  # 4c. Deploy fresco — the second leaf with a published-pom edge to a
   #     sibling leaf (rf2-gra70). Everything 4b says applies verbatim:
-  #     implementation/hicasso/deps.edn publishes day8/re-frame2 AND
+  #     implementation/fresco/deps.edn publishes day8/re-frame2 AND
   #     day8/re-frame2-ssr, so its pom only resolves if the `ssr` matrix
   #     value actually reached Clojars, and `needs: deploy-leaf` — which
   #     waits for EVERY matrix value to SUCCEED — is what makes that
   #     structural rather than conventional:
   #
-  #       if the ssr leaf does not publish successfully, hicasso does
+  #       if the ssr leaf does not publish successfully, fresco does
   #       not publish at all.
   #
   #     A SEPARATE JOB rather than a second value of 4b's matrix. Two
   #     values of one matrix cannot be ordered against each other, and
   #     the workflow's posture is that a leaf which cannot be ordered
   #     does not go in a matrix beside the thing it might need. Nothing
-  #     here needs ssr-ring and nothing there needs hicasso, so the two
+  #     here needs ssr-ring and nothing there needs fresco, so the two
   #     stages are independent and run in parallel; keeping them apart
   #     costs one job and keeps each irreversible publish inside its own
   #     failure boundary.
@@ -799,7 +799,7 @@ jobs:
   #     script, and that _release-dag-policy.test.cjs reads to discover
   #     what this workflow publishes.
   # ─────────────────────────────────────────────────────────────────
-  deploy-hicasso:
+  deploy-fresco:
     name: Deploy ${{ matrix.artefact }}
     needs:
       - deploy-core
@@ -809,9 +809,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - leaf: hicasso
-            artefact: day8/re-frame2-hicasso
-            directory: implementation/hicasso
+          - leaf: fresco
+            artefact: day8/re-frame2-fresco
+            directory: implementation/fresco
             local-root: ../core
             extra-local-root: ../ssr
     steps:
@@ -891,7 +891,7 @@ jobs:
     name: Create GitHub Release
     # A `needs` entry referencing a matrix job waits for ALL of its
     # matrix values to succeed, so `deploy-leaf` alone covers the eleven
-    # independent leaves. `deploy-ssr-ring` and `deploy-hicasso` are
+    # independent leaves. `deploy-ssr-ring` and `deploy-fresco` are
     # listed separately because each is its own job (rf2-p4a93,
     # rf2-gra70); without them here, a SKIPPED stage would still cut a
     # Release announcing the artefact.
@@ -899,7 +899,7 @@ jobs:
       - deploy-core
       - deploy-leaf
       - deploy-ssr-ring
-      - deploy-hicasso
+      - deploy-fresco
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -936,7 +936,7 @@ jobs:
             - `day8/re-frame2-ssr-ring` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-resources` ${{ needs.deploy-core.outputs.version }}
             - `day8/re-frame2-epoch` ${{ needs.deploy-core.outputs.version }}
-            - `day8/re-frame2-hicasso` ${{ needs.deploy-core.outputs.version }}
+            - `day8/re-frame2-fresco` ${{ needs.deploy-core.outputs.version }}
           draft: false
           prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
         env:

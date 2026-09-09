@@ -1,9 +1,9 @@
-(ns re-frame.hicasso.raw-escape-dom-cljs-test
+(ns re-frame.fresco.raw-escape-dom-cljs-test
   "THE `[:>]` RAW ESCAPE AGAINST A REAL REACT (HD-011).
 
   The element-level contract — the carrier, the prop walk, the value
   roster, `:key`, refs, the mis-parse regression — is
-  [[re-frame.hicasso.codec-cljs-test]]'s, where it can be
+  [[re-frame.fresco.codec-cljs-test]]'s, where it can be
   read off the element without a DOM. This file carries the three claims
   that a mounted React is the only honest witness for:
 
@@ -23,7 +23,7 @@
      slot of the hiccup vector (slot 1 holds a JS value compared by
      identity). The DOM is not reduced, and that is provable rather than
      asserted: the gate contributes no node of its own and
-     [[re-frame.hicasso.test/canonical-dom]] serialises element and
+     [[re-frame.fresco.test/canonical-dom]] serialises element and
      text nodes only, so a nil-rendering gate is invisible to it. Same
      component, same props, one through `[:>]` and one through `defhost`
      — byte-equal.
@@ -51,13 +51,13 @@
   `:node-test` too."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.codec :as rf.hicasso.impl.codec]
-            [re-frame.hicasso.checkpoint-support :as rf.hicasso.checkpoint-support]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.test :as rf.hicasso.test]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.test :as rf.fresco.test]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]
             ["react-dom/client" :as react-dom-client]
@@ -65,11 +65,11 @@
 
 (def ^:private frame-id ::raw-escape)
 
-(rf/reg-sub :hicasso.raw/title (fn [db _] (:title db)))
+(rf/reg-sub :fresco.raw/title (fn [db _] (:title db)))
 
-(rf/reg-event :hicasso.raw/seed (fn [_ _] {:db {:title "quarterly"}}))
+(rf/reg-event :fresco.raw/seed (fn [_ _] {:db {:title "quarterly"}}))
 
-(rf/reg-event :hicasso.raw/picked
+(rf/reg-event :fresco.raw/picked
               (fn [{:keys [db]} [_ what]]
                 {:db (update db :picked (fnil conj []) what)}))
 
@@ -80,14 +80,14 @@
      ;; the hydration row waits on a real clock, and `cljs.test`
      ;; hard-errors on a fn-form fixture in a suite with an async test.
      :async?        true
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 (defn- skip! [why] (is true (str "a [:>] DOM claim needs a real React DOM — " why)))
 
 (defn- fresh! []
-  (rf.hicasso.checkpoint-support/leave-act-environment!)
+  (rf.fresco.checkpoint-support/leave-act-environment!)
   (rf/make-frame {:id frame-id})
-  (rf/with-frame frame-id (rf/dispatch-sync [:hicasso.raw/seed]))
+  (rf/with-frame frame-id (rf/dispatch-sync [:fresco.raw/seed]))
   frame-id)
 
 (defn- db [] (rf/app-db-value frame-id))
@@ -127,7 +127,7 @@
     (react/createElement "span" #js {:className "widget-label"} (.-label props))
     (.-children props)))
 
-(rf.hicasso/defhost declared-widget
+(rf.fresco/defhost declared-widget
   "The DOOR, on the same component and under the same default policy —
   the control that makes every parity row below a fact about the
   crossing rather than about the page."
@@ -137,44 +137,44 @@
 ;; The pages
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview escape-page
+(rf.fresco/defview escape-page
   "A native sibling beside the crossing, so \"the escape rendered
   nothing\" stays distinguishable from \"nothing rendered at all\"."
   [_]
   [:div.page
-   [:h1.title (rf.hicasso.impl.collector/sub [:hicasso.raw/title])]
-   [:> widget {:label (rf.hicasso.impl.collector/sub [:hicasso.raw/title]) :variant "compact"}
+   [:h1.title (rf.fresco.impl.collector/sub [:fresco.raw/title])]
+   [:> widget {:label (rf.fresco.impl.collector/sub [:fresco.raw/title]) :variant "compact"}
     [:span.kid "slotted"]]])
 
-(rf.hicasso/defview door-page
+(rf.fresco/defview door-page
   "[[escape-page]] through `defhost`, byte for byte the same authored
   shape."
   [_]
   [:div.page
-   [:h1.title (rf.hicasso.impl.collector/sub [:hicasso.raw/title])]
-   [declared-widget {:label (rf.hicasso.impl.collector/sub [:hicasso.raw/title]) :variant "compact"}
+   [:h1.title (rf.fresco.impl.collector/sub [:fresco.raw/title])]
+   [declared-widget {:label (rf.fresco.impl.collector/sub [:fresco.raw/title]) :variant "compact"}
     [:span.kid "slotted"]]])
 
-(rf.hicasso/defview childless-escape-page
+(rf.fresco/defview childless-escape-page
   "A crossing with no children at all — the branch the gate takes when
   `props.children` is absent."
   [_]
   [:div.page [:> widget {:label "bare" :variant "solo"}]])
 
-(rf.hicasso/defview childless-door-page
+(rf.fresco/defview childless-door-page
   "Its control at the door, so the parity claim is measured rather than
   assumed."
   [_]
   [:div.page [declared-widget {:label "bare" :variant "solo"}]])
 
-(rf.hicasso/defview intent-child-page
+(rf.fresco/defview intent-child-page
   "A crossing whose CHILD carries an intent. The child's handler is
   lowered here, in this body's render window, and invoked much later —
   after every render extent has unwound — from the click."
   [_]
   [:div.page
    [:> widget {:label "rows" :variant "list"}
-    [:button.pick {:on-click [:hicasso.raw/picked "child"]} "pick"]]])
+    [:button.pick {:on-click [:fresco.raw/picked "child"]} "pick"]]])
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -185,7 +185,7 @@
   renderer."
   [hiccup]
   (react-dom-server/renderToString
-    (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup))))
+    (rf.fresco.impl.mount/provider frame-id (rf.fresco.impl.codec/root-element frame-id hiccup))))
 
 (defn- query-node [root selector] (.querySelector root selector))
 
@@ -241,14 +241,14 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-fresh-mount-renders-the-component-on-its-first-pass
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (testing "a `createRoot` mount never consults a server snapshot, so
                 the gate costs no placeholder pass — asserted on the line
                 after `root!` returns, which is inside its flushSync"
-        (let [h (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [escape-page {}])]
+        (let [h (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [escape-page {}])]
           (try
             (is (some? (query-node (:container h) ".widget"))
                 "the component mounted immediately")
@@ -261,10 +261,10 @@
             (is (some? (query-node (:container h) ".widget .kid"))
                 "and the children, in the component's own slot — forwarded
                  by the gate as createElement's third argument")
-            (finally (rf.hicasso.impl.mount/release! h))))))))
+            (finally (rf.fresco.impl.mount/release! h))))))))
 
 (deftest a-childless-crossing-hands-the-component-the-doors-own-props-object
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
@@ -273,12 +273,12 @@
                 write `children: undefined` onto a childless crossing —
                 a key the door never gives the component. Read off what
                 the component was actually handed, at both crossings"
-        (let [a (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [childless-escape-page {}])
-              via-escape (do (rf.hicasso.impl.mount/settle!) @!own-props)]
-          (rf.hicasso.impl.mount/release! a)
-          (let [b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [childless-door-page {}])
-                via-door (do (rf.hicasso.impl.mount/settle!) @!own-props)]
-            (rf.hicasso.impl.mount/release! b)
+        (let [a (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [childless-escape-page {}])
+              via-escape (do (rf.fresco.impl.mount/settle!) @!own-props)]
+          (rf.fresco.impl.mount/release! a)
+          (let [b (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [childless-door-page {}])
+                via-door (do (rf.fresco.impl.mount/settle!) @!own-props)]
+            (rf.fresco.impl.mount/release! b)
             (is (= #{"label" "variant"} via-escape)
                 (str "no `children` key at the escape: " (pr-str via-escape)))
             (is (= via-door via-escape)
@@ -286,7 +286,7 @@
                      (pr-str via-escape) " / door: " (pr-str via-door)))))))))
 
 (deftest the-escape-and-the-door-produce-the-same-dom
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
@@ -298,23 +298,23 @@
                 its own, and `htest/canonical-dom` serialises element and text
                 nodes and ignores comments, so a nil-rendering gate is
                 invisible to it"
-        (let [a (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [escape-page {}])
-              b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [door-page {}])]
+        (let [a (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [escape-page {}])
+              b (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [door-page {}])]
           (try
-            (let [via-escape (rf.hicasso.test/canonical-dom (:container a))
-                  via-door   (rf.hicasso.test/canonical-dom (:container b))]
+            (let [via-escape (rf.fresco.test/canonical-dom (:container a))
+                  via-door   (rf.fresco.test/canonical-dom (:container b))]
               (is (re-find #"class=\"widget\"" via-escape)
                   (str "precondition — the fixture renders something to
                         compare, so the row cannot pass on two empty
                         strings: " via-escape))
               (is (= via-door via-escape)
                   (str "BYTE-EQUAL. escape: " via-escape " / door: " via-door)))
-            (finally (rf.hicasso.impl.mount/release! a) (rf.hicasso.impl.mount/release! b)))))
+            (finally (rf.fresco.impl.mount/release! a) (rf.fresco.impl.mount/release! b)))))
       (testing "and the crossing's own fiber is named by the CONSTANT, not
                 by the component — one greppable frame naming the form the
                 author wrote, with the component naming itself one level
                 down at zero cost"
-        (let [e (rf.hicasso.impl.codec/as-element [:> widget {}])]
+        (let [e (rf.fresco.impl.codec/as-element [:> widget {}])]
           (is (= "[:>]" (.-displayName (.-type e)))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -323,19 +323,19 @@
 
 (deftest the-escape-hydrates-with-nothing-there-and-mounts-after-adoption
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
+    (if-not (rf.fresco.impl.mount/browser?)
       (do (skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
         (reset! !renders 0)
         (let [hiccup    [escape-page {}]
               html      (server-html hiccup)
-              container (rf.hicasso.impl.mount/fresh-container!)
+              container (rf.fresco.impl.mount/fresh-container!)
               {:keys [seen restore]} (watch-errors!)]
           (set! (.-innerHTML container) html)
           (let [root (react-dom-client/hydrateRoot
                        container
-                       (rf.hicasso.impl.mount/provider frame-id (rf.hicasso.impl.codec/root-element frame-id hiccup))
+                       (rf.fresco.impl.mount/provider frame-id (rf.fresco.impl.codec/root-element frame-id hiccup))
                        #js {:onRecoverableError
                             (fn [err _info]
                               (swap! seen conj (str "onRecoverableError: " (ex-message err))))})]
@@ -365,7 +365,7 @@
                     (restore)
                     (.unmount root)
                     (when-some [p (.-parentNode container)] (.removeChild p container))
-                    (rf.hicasso.impl.collector/reset-runtime!)
+                    (rf.fresco.impl.collector/reset-runtime!)
                     (done))))
               150)))))))
 
@@ -374,7 +374,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-child-intent-fires-into-the-frame-that-wrote-the-crossing
-  (if-not (rf.hicasso.impl.mount/browser?)
+  (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (testing "children lower EAGERLY at the crossing, inside the render
@@ -387,18 +387,18 @@
         (let [other ::a-second-frame]
           (fresh!)
           (rf/make-frame {:id other})
-          (rf/with-frame other (rf/dispatch-sync [:hicasso.raw/seed]))
-          (let [h (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) frame-id [intent-child-page {}])]
+          (rf/with-frame other (rf/dispatch-sync [:fresco.raw/seed]))
+          (let [h (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [intent-child-page {}])]
             (try
-              (rf.hicasso.impl.mount/settle!)
+              (rf.fresco.impl.mount/settle!)
               (is (some? (query-node (:container h) ".widget .pick"))
                   "precondition: the child is mounted BENEATH the foreign
                    component, so its handler really did cross")
               (.click (query-node (:container h) ".pick"))
-              (rf.hicasso.impl.mount/settle!)
+              (rf.fresco.impl.mount/settle!)
               (is (= ["child"] (:picked (db)))
                   "the click dispatched into the frame that wrote the crossing")
               (is (nil? (:picked (rf/app-db-value other)))
                   "and nothing reached the other frame, which is what makes
                    the ownership assertion non-vacuous")
-              (finally (rf.hicasso.impl.mount/release! h)))))))))
+              (finally (rf.fresco.impl.mount/release! h)))))))))

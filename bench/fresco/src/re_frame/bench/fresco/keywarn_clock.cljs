@@ -1,8 +1,8 @@
-(ns re-frame.bench.hicasso.keywarn-clock
+(ns re-frame.bench.fresco.keywarn-clock
   "THE KEY WARNING'S DEV PRE-PASS, CLOCKED (rf2-2rtt6.104).
 
   This file exists because of a standing rule and a lane history. The
-  rule is [[re-frame.bench.hicasso.front.codec/realize-deep]]'s: figures
+  rule is [[re-frame.bench.fresco.front.codec/realize-deep]]'s: figures
   in the codec are **clocked rather than asserted**. The history is
   rf2-2rtt6.32, whose \"impossible result\" is what an unclocked
   micro-claim did in this lane last time. The design that ruled the
@@ -12,8 +12,8 @@
 
   ## The ablation
 
-  `rf.bench.hicasso.front.codec/as-element` on a seq IS
-  [[re-frame.bench.hicasso.front.codec/expand-seq]] — its `(seq? x)`
+  `rf.bench.fresco.front.codec/as-element` on a seq IS
+  [[re-frame.bench.fresco.front.codec/expand-seq]] — its `(seq? x)`
   branch is `expand-seq`'s sole caller. So the ablated arm is a
   five-line local copy of that loop with the dev pre-pass removed and
   everything else identical, calling the same public `as-element` per
@@ -40,7 +40,7 @@
   rounds, median-of-rounds; it attributes cost between two arms of one
   walk in one process. Nothing here is a threshold and nothing here is
   compared across runs."
-  (:require [re-frame.bench.hicasso.front.codec :as rf.bench.hicasso.front.codec]))
+  (:require [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]))
 
 (def ^:private members 300)
 (def ^:private reps 200)
@@ -51,18 +51,18 @@
   [nm]
   (let [f (fn [_js-props] nil)]
     (unchecked-set f "displayName" nm)
-    (rf.bench.hicasso.front.codec/mark-boundary! f)))
+    (rf.bench.fresco.front.codec/mark-boundary! f)))
 
 (def ^:private row (a-row "keywarn.clock/row"))
 
 (defn- expand-seq-ablated
-  "[[rf.bench.hicasso.front.codec/expand-seq]] with the dev pre-pass removed — the shipping loop,
+  "[[rf.bench.fresco.front.codec/expand-seq]] with the dev pre-pass removed — the shipping loop,
   character for character, minus the one gated line."
   [s]
   (let [a #js []]
     (loop [items (seq s)]
       (when items
-        (.push a (rf.bench.hicasso.front.codec/as-element (first items)))
+        (.push a (rf.bench.fresco.front.codec/as-element (first items)))
         (recur (next items))))
     a))
 
@@ -88,7 +88,7 @@
   [s]
   (let [ship (atom []) abl (atom [])]
     (dotimes [_ rounds]
-      (swap! ship conj (clock rf.bench.hicasso.front.codec/as-element s))
+      (swap! ship conj (clock rf.bench.fresco.front.codec/as-element s))
       (swap! abl conj (clock expand-seq-ablated s)))
     (let [m-ship (median @ship)
           m-abl  (median @abl)]
@@ -113,9 +113,9 @@
         unkeyed (doall (map (fn [_] [row {}]) (range members)))]
     ;; Warm the dedupe: the unkeyed row is meant to price the SCAN after the
     ;; site has spoken, not the one console.warn it speaks with.
-    (rf.bench.hicasso.front.codec/set-lowering-owner! "keywarn.clock/list")
-    (rf.bench.hicasso.front.codec/as-element unkeyed)
-    (rf.bench.hicasso.front.codec/set-lowering-owner! nil)
+    (rf.bench.fresco.front.codec/set-lowering-owner! "keywarn.clock/list")
+    (rf.bench.fresco.front.codec/as-element unkeyed)
+    (rf.bench.fresco.front.codec/set-lowering-owner! nil)
     (println (str ";; keywarn pre-pass — dev build, " members " members, "
                   reps " walks/round, " rounds " interleaved rounds, "
                   "median-of-rounds. ns per member."))

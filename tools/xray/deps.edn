@@ -43,16 +43,16 @@
          ;; projections; the Machine Inspector reads the runtime slice.
          day8/re-frame2-machines {:local/root "../../implementation/machines"}
 
-         ;; The Hicasso tab reads the Hicasso TOOL-TIER door
-         ;; (`re-frame.hicasso.tool` — rf2-hic-023) for the four evidence
+         ;; The Fresco tab reads the Fresco TOOL-TIER door
+         ;; (`re-frame.fresco.tool` — rf2-hic-023) for the four evidence
          ;; envelopes its six views project.
-         ;; The dependency points THIS way only: Hicasso never depends on
+         ;; The dependency points THIS way only: Fresco never depends on
          ;; Xray, and production applications never pull Xray
-         ;; (bundle-isolation contract), so the hicasso artefact reaches
+         ;; (bundle-isolation contract), so the fresco artefact reaches
          ;; production apps solely on its own terms. The door is a pure
          ;; reader — there is no registry to claim and no ownership to hold —
          ;; and it nil-gates on `interop/debug-enabled?`, so a host not
-         ;; running Hicasso, and a production build, both project the honest
+         ;; running Fresco, and a production build, both project the honest
          ;; no-evidence state.
          ;;
          ;; THE ONE VIEW-SUBSTRATE COORDINATE Xray carries, since rf2-l86mm
@@ -62,13 +62,13 @@
          ;; `day8.re-frame2-xray.mounted-views` was in `src`.
          ;;
          ;; NOT PUBLISHABLE YET, and the release preflight will say so.
-         ;; `implementation/hicasso/deps.edn` carries no `:clein/build`
+         ;; `implementation/fresco/deps.edn` carries no `:clein/build`
          ;; (rf2-hic-008 owns release wiring), so this is the ONE in-repo
          ;; coordinate `.github/scripts/preflight-xray-package.sh` refuses to
          ;; find in a published pom. That refusal is correct and is not a
-         ;; mechanical fix; publishing Xray needs Hicasso to acquire a
+         ;; mechanical fix; publishing Xray needs Fresco to acquire a
          ;; coordinate first.
-         day8/re-frame2-hicasso {:local/root "../../implementation/hicasso"}
+         day8/re-frame2-fresco {:local/root "../../implementation/fresco"}
 
          ;; Machine charts are owned by machines-viz and embedded here;
          ;; Xray does not maintain a second chart implementation.

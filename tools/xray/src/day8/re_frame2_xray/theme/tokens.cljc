@@ -755,7 +755,7 @@
   `:accent`, kept so \"the per-tab inventory stays explicit\" — and it
   had drifted to naming the retired `:event` tab while omitting five
   shipped ones (`:epoch` · `:resources` · `:derivation-graph` ·
-  `:module-view` · `:hicasso`). Nothing caught that, because this
+  `:module-view` · `:fresco`). Nothing caught that, because this
   function defaulted past every absent key, so the roster could not
   drift into a wrong ANSWER, only into a wrong LIST. A hand-listed tab
   roster with no reader is a drift attractor, not an inventory.

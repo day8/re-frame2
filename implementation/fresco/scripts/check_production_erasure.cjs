@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 /*
- * THE PRODUCTION-ERASURE PROOF for implementation/hicasso/ (rf2-hic-024).
+ * THE PRODUCTION-ERASURE PROOF for implementation/fresco/ (rf2-hic-024).
  *
- * Spec SN §3.6 buys Hicasso's dev affordances — coordinates, complaint
+ * Spec SN §3.6 buys Fresco's dev affordances — coordinates, complaint
  * detail, the evidence projection, the test kit's route back to a body —
  * with an erasure: under `:advanced` + `goog.DEBUG=false` none of them
  * reaches the artefact a consumer ships. This gate is the proof, read off
  * the one build in the repo that compiles the package the way a consumer
- * ships it (`:hicasso-release`, entry `re-frame.hicasso.consumer-app`,
+ * ships it (`:fresco-release`, entry `re-frame.fresco.consumer-app`,
  * PR #7823).
  *
  * ## Unique sentinels, never a public-name grep
  *
- * Grepping a release bundle for `hicasso` proves nothing: the public names
+ * Grepping a release bundle for `fresco` proves nothing: the public names
  * legitimately survive, which is the whole point of shipping the package.
  * So every row of the roster below is a string that ONE dev-only surface
  * emits and nothing else does — a hit names WHICH surface leaked, not
@@ -34,7 +34,7 @@
  * `goog.DEBUG` gate and by nothing else wherever that pairing is
  * available:
  *
- *   - `hicassoBody` (dev-only) against `hicassoBoundary` (ungated) — two
+ *   - `frescoBody` (dev-only) against `frescoBoundary` (ungated) — two
  *     adjacent own-property slots in `impl/codec.cljs`, both written with
  *     `unchecked-set` on the same minted head, one behind the gate.
  *   - the entry's own view name, which `mint-view!` stamps
@@ -44,7 +44,7 @@
  *
  * A sentinel that has quietly stopped being emitted is absent from every
  * bundle for a reason that has nothing to do with erasure. That is why
- * `re-frame.hicasso.erasure-sentinels-cljs-test` exists: it runs in the
+ * `re-frame.fresco.erasure-sentinels-cljs-test` exists: it runs in the
  * ordinary `goog.DEBUG` node lane and asserts each string below is what a
  * LIVE surface produces. The two halves are the A/B — surface on, string
  * present; surface off, string gone — and neither is evidence alone.
@@ -56,14 +56,14 @@
  *
  * ## A tap drags its namespace's requires onto the shipped path
  *
- * The evidence row below says `re-frame.hicasso.evidence` is dev-only BY
+ * The evidence row below says `re-frame.fresco.evidence` is dev-only BY
  * REACHABILITY rather than by any marker on it, and one rule follows from
  * that which this gate keeps having to teach the hard way (rf2-hic-081,
  * rf2-nkr3). Reachability is a property of NAMESPACES, not of expressions:
  * a collector tap on the shipped path is reachable from the public door,
  * so everything the tap's namespace `:require`s is reachable too. The
  * capability-receipts spike put a receipt envelope in `impl/receipt` and
- * required `re-frame.hicasso.evidence` to build it. Nothing the tap DID
+ * required `re-frame.fresco.evidence` to build it. Nothing the tap DID
  * was dev surface; the gate went red on what the tap's namespace
  * IMPORTED.
  *
@@ -88,7 +88,7 @@
  * scannable in THIS bundle, and the reason is worth stating rather than
  * leaving to be rediscovered. The coordinate the macro bakes is an
  * absolute file path, so the sentinel would have to be the declaring
- * file's name — and the only declaration reachable from `:hicasso-release`
+ * file's name — and the only declaration reachable from `:fresco-release`
  * lives in `consumer_app.cljs`, whose name core's own `reg-sub` /
  * `reg-event` coordinates already put in the release bundle: they are
  * emitted through `re-frame.source-coords/prod-coords-form`, which keeps
@@ -102,7 +102,7 @@
  * `check_source_coord_elision.cjs` scans the `:browser-test-prod-elision`
  * bundle (also `:advanced` + `goog.DEBUG=false`) for
  * `coord_sentinel_source.cljs`, a namespace that carries declarations and
- * no registrations, and `re-frame.hicasso.error-source-coord-elision-prod-test`
+ * no registrations, and `re-frame.fresco.error-source-coord-elision-prod-test`
  * asserts the ledger is empty in that build. Both are rf2-hic-007's and
  * both run today.
  */
@@ -116,7 +116,7 @@ const HERE = path.dirname(path.resolve(__filename));
 const PACKAGE_ROOT = path.dirname(HERE);
 const IMPL_ROOT = path.dirname(PACKAGE_ROOT);
 
-const BUNDLE = path.join(IMPL_ROOT, 'out', 'hicasso-release', 'main.js');
+const BUNDLE = path.join(IMPL_ROOT, 'out', 'fresco-release', 'main.js');
 
 // ---------------------------------------------------------------------------
 // The roster
@@ -130,9 +130,9 @@ const BUNDLE = path.join(IMPL_ROOT, 'out', 'hicasso-release', 'main.js');
 const SENTINELS = [
   {
     surface: 'test kit — the dev-only body-retention door (rf2-hic-020, rf2-kjf5)',
-    sentinel: 'hicassoBody',
-    source: 'src/re_frame/hicasso/impl/codec.cljs',
-    premise: '(def ^:private body-slot "hicassoBody")',
+    sentinel: 'frescoBody',
+    source: 'src/re_frame/fresco/impl/codec.cljs',
+    premise: '(def ^:private body-slot "frescoBody")',
     why:
       'The own property `codec/retain-body!` writes and `codec/retained-body` ' +
       'reads — the L0-L2 kit\'s only route from a minted head back to the ' +
@@ -144,13 +144,13 @@ const SENTINELS = [
   },
   {
     surface: 'evidence — the dev-only view-name stamp on a read-set entry (rf2-6c12m.21)',
-    sentinel: 'hicassoViews',
-    source: 'src/re_frame/hicasso/impl/collector.cljs',
-    premise: '(def ^:private views-slot "hicassoViews")',
+    sentinel: 'frescoViews',
+    source: 'src/re_frame/fresco/impl/collector.cljs',
+    premise: '(def ^:private views-slot "frescoViews")',
     why:
       'The own property `collector/view-subscribe` writes on a read-set entry — ' +
       'the declared view names holding it, counted at commit and uncounted at ' +
-      'cleanup, which `re-frame.hicasso.tool` resolves to a source coordinate. ' +
+      'cleanup, which `re-frame.fresco.tool` resolves to a source coordinate. ' +
       'Written from `render-body` inside `(when ^boolean js/goog.DEBUG …)`, so ' +
       'a release entry carries neither the slot nor a name.',
     remedy:
@@ -159,8 +159,8 @@ const SENTINELS = [
   },
   {
     surface: 'Spec 006 annotations — the dev-only attrs stamp on a minted body (rf2-c5w1)',
-    sentinel: 'hicassoViewAttrs',
-    source: 'src/re_frame/hicasso/impl/collector.cljs',
+    sentinel: 'frescoViewAttrs',
+    source: 'src/re_frame/fresco/impl/collector.cljs',
     premise: '(def ^:private view-attrs-slot',
     why:
       'The own property `mint-view!` writes on a declared view\'s body — the ' +
@@ -175,7 +175,7 @@ const SENTINELS = [
   {
     surface: 'Spec 006 §Source-coord annotation — production elision (rf2-c5w1)',
     sentinel: 'data-rf2-source-coord',
-    source: 'src/re_frame/hicasso/impl/collector.cljs',
+    source: 'src/re_frame/fresco/impl/collector.cljs',
     premise: ':data-rf2-source-coord',
     why:
       'The attribute Spec 006 §Source-coord annotation requires on a ' +
@@ -191,7 +191,7 @@ const SENTINELS = [
   {
     surface: 'Spec 006 §View tagging contract — production elision (rf2-c5w1)',
     sentinel: 'data-rf-view',
-    source: 'src/re_frame/hicasso/impl/collector.cljs',
+    source: 'src/re_frame/fresco/impl/collector.cljs',
     premise: ':data-rf-view',
     why:
       'The view-id attribute Spec 006 §View tagging contract requires ' +
@@ -205,38 +205,38 @@ const SENTINELS = [
   },
   {
     surface: 'test kit — the kit itself (rf2-hic-020)',
-    sentinel: 'rf.error/hicasso-test-',
-    source: 'test_kit/src/re_frame/hicasso/test.cljs',
-    premise: ':rf.error/hicasso-test-',
+    sentinel: 'rf.error/fresco-test-',
+    source: 'test_kit/src/re_frame/fresco/test.cljs',
+    premise: ':rf.error/fresco-test-',
     why:
-      'The refusal-id family `re-frame.hicasso.test` mints, and nothing else ' +
+      'The refusal-id family `re-frame.fresco.test` mints, and nothing else ' +
       'does. The kit is a separate source root that no `src/` namespace may ' +
       'require, so one of its ids in a consumer bundle means the testing ' +
       'surface itself became reachable from the public door.',
     remedy:
-      'Find the `:require` of `re-frame.hicasso.test` under ' +
-      'implementation/hicasso/src/ and move it into the test that needs it.',
+      'Find the `:require` of `re-frame.fresco.test` under ' +
+      'implementation/fresco/src/ and move it into the test that needs it.',
   },
   {
     surface: 'evidence projection — the versioned envelope (rf2-hic-023)',
-    sentinel: 're-frame.hicasso.evidence',
-    source: 'src/re_frame/hicasso/evidence.cljs',
-    premise: ':re-frame.hicasso.evidence/v3',
+    sentinel: 're-frame.fresco.evidence',
+    source: 'src/re_frame/fresco/evidence.cljs',
+    premise: ':re-frame.fresco.evidence/v3',
     why:
       'The schema pin every envelope carries, and the namespace half of ' +
-      'the defect keyword the envelope door raises. `re-frame.hicasso.evidence` ' +
-      'and its consumer `re-frame.hicasso.tool` are dev-only by ' +
+      'the defect keyword the envelope door raises. `re-frame.fresco.evidence` ' +
+      'and its consumer `re-frame.fresco.tool` are dev-only by ' +
       'REACHABILITY: no namespace under src/ requires them, so a consumer ' +
       'who never asks for the projection never ships it.',
     remedy:
-      'Find the `:require` of `re-frame.hicasso.evidence` or ' +
-      '`re-frame.hicasso.tool` that made it reachable from the public door.',
+      'Find the `:require` of `re-frame.fresco.evidence` or ' +
+      '`re-frame.fresco.tool` that made it reachable from the public door.',
   },
   {
     surface: 'dev diagnostics — the codec\'s console messages',
-    sentinel: '[hicasso]',
-    source: 'src/re_frame/hicasso/impl/codec.cljs',
-    premise: '"[hicasso] ',
+    sentinel: '[fresco]',
+    source: 'src/re_frame/fresco/impl/codec.cljs',
+    premise: '"[fresco] ',
     why:
       'The prefix every console message the package prints begins with, and ' +
       'the FAMILY rather than one member: both live in impl/codec.cljs — ' +
@@ -255,9 +255,9 @@ const SENTINELS = [
 
 const CONTROLS = [
   {
-    control: 're-frame.hicasso.consumer-app/app',
-    source: 'test/re_frame/hicasso/consumer_app.cljs',
-    premise: '(rf.hicasso/defview app',
+    control: 're-frame.fresco.consumer-app/app',
+    source: 'test/re_frame/fresco/consumer_app.cljs',
+    premise: '(rf.fresco/defview app',
     proves:
       'the release entry\'s `h/defview` really compiled — `mint-view!` stamps ' +
       'this name as the boundary\'s `displayName` and as its `:render` measure ' +
@@ -265,21 +265,21 @@ const CONTROLS = [
       'absences of a bundle that compiled no declaration at all.',
   },
   {
-    control: 'hicassoBoundary',
-    source: 'src/re_frame/hicasso/impl/codec.cljs',
-    premise: '(unchecked-set f "hicassoBoundary" true)',
+    control: 'frescoBoundary',
+    source: 'src/re_frame/fresco/impl/codec.cljs',
+    premise: '(unchecked-set f "frescoBoundary" true)',
     proves:
       'impl/codec.cljs\'s own-property marker machinery compiled. It is the ' +
-      'UNGATED sibling of the `hicassoBody` slot two hundred lines below it: ' +
+      'UNGATED sibling of the `frescoBody` slot two hundred lines below it: ' +
       'same file, same `unchecked-set`, same minted head, and the only ' +
       'difference between them is the `goog.DEBUG` gate. That is what makes ' +
-      '"no hicassoBody" a statement about erasure rather than about ' +
+      '"no frescoBody" a statement about erasure rather than about ' +
       'compilation.',
   },
   {
-    control: 'rf.error/hicasso-empty-vector',
-    source: 'src/re_frame/hicasso/impl/codec.cljs',
-    premise: ':rf.error/hicasso-empty-vector',
+    control: 'rf.error/fresco-empty-vector',
+    source: 'src/re_frame/fresco/impl/codec.cljs',
+    premise: ':rf.error/fresco-empty-vector',
     proves:
       '`impl.error/fail!` and a shipped refusal id compiled. The complaint ' +
       'sentinel above is a refusal minted INSIDE `fail!`\'s dev guard; this ' +
@@ -403,7 +403,7 @@ function selfTest() {
   }
 
   process.stdout.write(
-    `hicasso production erasure: self-test OK ` +
+    `fresco production erasure: self-test OK ` +
     `(${SENTINELS.length} sentinels, ${CONTROLS.length} positive controls)\n`
   );
   return 0;
@@ -411,7 +411,7 @@ function selfTest() {
 
 function assert(ok, message) {
   if (!ok) {
-    process.stderr.write(`hicasso production erasure: SELF-TEST FAILED\n  ${message}\n`);
+    process.stderr.write(`fresco production erasure: SELF-TEST FAILED\n  ${message}\n`);
     process.exit(1);
   }
 }
@@ -419,7 +419,7 @@ function assert(ok, message) {
 // ---------------------------------------------------------------------------
 
 function fail(problems) {
-  process.stderr.write('hicasso production erasure: FAIL\n');
+  process.stderr.write('fresco production erasure: FAIL\n');
   for (const p of problems) process.stderr.write(`  ${p}\n`);
   return 1;
 }
@@ -433,7 +433,7 @@ function main(argv) {
   if (!fs.existsSync(BUNDLE)) {
     return fail([
       `MISSING RELEASE BUNDLE: ${path.relative(IMPL_ROOT, BUNDLE)}\n` +
-      '    Run `npm run build:hicasso-release`, which compiles it.',
+      '    Run `npm run build:fresco-release`, which compiles it.',
     ]);
   }
 
@@ -441,7 +441,7 @@ function main(argv) {
   if (problems.length > 0) return fail(problems);
 
   process.stdout.write(
-    `OK: no dev-only Hicasso surface in the :advanced / goog.DEBUG=false bundle ` +
+    `OK: no dev-only Fresco surface in the :advanced / goog.DEBUG=false bundle ` +
     `(${SENTINELS.length} sentinels absent, ${CONTROLS.length} positive controls present).\n`
   );
   return 0;

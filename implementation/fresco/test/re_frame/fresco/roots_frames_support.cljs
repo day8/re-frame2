@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.roots-frames-support
+(ns re-frame.fresco.roots-frames-support
   "THE MULTI-ROOT WITNESS HARNESS — the observables, and the reasons they
   are these observables.
 
@@ -31,7 +31,7 @@
 
   1. **The cell table's KEYS** ([[cell-keys]], [[cell-frames]]). A
      sub-key is `[frame-kw query-v]`
-     (`re-frame.hicasso.impl.collector`, the cell-table header), so two
+     (`re-frame.fresco.impl.collector`, the cell-table header), so two
      frames reading one query is two cells and one frame reading it
      twice is one cell with two readers. React has no opinion about
      this structure and no way to repair it: a frame leak is a *count*,
@@ -56,24 +56,24 @@
   ## Provenance
 
   The three techniques are the prototype's. Two of them still live only
-  there, in `re-frame.bench.hicasso.arm1.hydration-support`,
+  there, in `re-frame.bench.fresco.arm1.hydration-support`,
   reimplemented here rather than imported: the package may not
   `:require` the bench tree (`frozen-sources.edn`
-  `:forbidden-import-prefixes`), and `hicasso/scripts/check_freeze.py` is
+  `:forbidden-import-prefixes`), and `fresco/scripts/check_freeze.py` is
   what says so. Naming it in prose is provenance and is explicitly
   permitted — the gate parses `:require` forms, not docstrings.
 
   The third's prototype was `arm1/hframe_dom_cljs_test`, and that suite
   is no longer in the bench tree to point at: executing a PORT verdict
   MOVES a suite rather than copying it. Its landed form is the sibling
-  `re-frame.hicasso.frame-doors-dom-cljs-test`, a file in this package."
+  `re-frame.fresco.frame-doors-dom-cljs-test`, a file in this package."
   (:require [cljs.test :refer-macros [is]]
             [clojure.string :as str]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.frames :as rf.hicasso.impl.frames]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.frames :as rf.fresco.impl.frames]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.impl.roots :as rf.fresco.impl.roots]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---------------------------------------------------------------------------
@@ -86,7 +86,7 @@
   commit a user's page performs.
 
   Set outright rather than imported: the helper that carries this line in
-  the prototype (`re-frame.bench.hicasso.lane/leave-act-environment!`)
+  the prototype (`re-frame.bench.fresco.lane/leave-act-environment!`)
   lives in the bench tree, which the freeze gate forbids this package
   from importing. The package smoke carries the same inlining for the
   same reason."
@@ -190,7 +190,7 @@
   produce ONE key — and would still render two visually plausible
   subtrees, which is exactly why the DOM is not where this is read."
   []
-  (set (keys @rf.hicasso.impl.collector/!cells)))
+  (set (keys @rf.fresco.impl.collector/!cells)))
 
 (defn cell-frames
   "The frames the live cell table mentions, as a set."
@@ -205,7 +205,7 @@
   one key, and `(+ 1 1)` and `2` are different numbers on different
   keys."
   [sub-key]
-  (count (rf.hicasso.test.runtime/cell-readers sub-key)))
+  (count (rf.fresco.test.runtime/cell-readers sub-key)))
 
 (defn frame-memo-frames
   "The frames the arm's frame memo holds a row for.
@@ -225,14 +225,14 @@
   incarnations — and which is why a render, not a dispatch, is now what
   fills this. `test.runtime/stats`'s `:frames` counts the same rows."
   []
-  (set (keys @rf.hicasso.impl.frames/!frame-ops)))
+  (set (keys @rf.fresco.impl.frames/!frame-ops)))
 
 (defn frame-memo-row
   "The arm's memo row for `frame-kw`, or nil — `{:incarnation :ops
   :dispatch}`. Read by IDENTITY, never by value: what a witness wants to
   know is whether this is the same row it saw before."
   [frame-kw]
-  (get @rf.hicasso.impl.frames/!frame-ops frame-kw))
+  (get @rf.fresco.impl.frames/!frame-ops frame-kw))
 
 (defn body-runs-delta!
   "Run `f`, answer how many boundary bodies ran while it did.
@@ -241,9 +241,9 @@
   a reading of everything since the page loaded — the counter is monotone
   by design and `reset-runtime!` deliberately leaves it alone."
   [f]
-  (rf.hicasso.test.runtime/reset-body-runs!)
+  (rf.fresco.test.runtime/reset-body-runs!)
   (f)
-  (rf.hicasso.test.runtime/body-runs))
+  (rf.fresco.test.runtime/body-runs))
 
 ;; ---------------------------------------------------------------------------
 ;; Teardown census — read BETWEEN the unmount and the reset
@@ -261,7 +261,7 @@
   asserting them here would be asserting a schedule rather than a
   release — [[quiesced!]] is where those two become readable."
   []
-  (select-keys (rf.hicasso.test.runtime/residue) [:cell-refs :boundaries :edges]))
+  (select-keys (rf.fresco.test.runtime/residue) [:cell-refs :boundaries :edges]))
 
 (defn teardown-census!
   "Unmount `handle`, read the census, and only THEN finish the release.
@@ -277,9 +277,9 @@
   reset the runtime, drop the container — without unmounting a root that
   is already gone."
   [handle]
-  (rf.hicasso.impl.mount/unmount! handle)
+  (rf.fresco.impl.mount/unmount! handle)
   (let [c (census)]
-    (rf.hicasso.impl.mount/release! (assoc handle :root nil))
+    (rf.fresco.impl.mount/release! (assoc handle :root nil))
     c))
 
 (defn quiesced!
@@ -287,7 +287,7 @@
   has run. `test.runtime/quiesced!`, re-exported so a suite settles
   against the runtime's horizon rather than against a copy of it."
   []
-  (rf.hicasso.test.runtime/quiesced!))
+  (rf.fresco.test.runtime/quiesced!))
 
 ;; ---------------------------------------------------------------------------
 ;; Server bytes, and the node identity that survives them
@@ -314,17 +314,17 @@
   trees rendered through this fn carry none — see
   [[settled-server-html!]] for the ones that do."
   [frame-kw hiccup]
-  (let [container (rf.hicasso.impl.mount/fresh-container!)
-        handle    (rf.hicasso.impl.mount/root! container frame-kw hiccup)
+  (let [container (rf.fresco.impl.mount/fresh-container!)
+        handle    (rf.fresco.impl.mount/root! container frame-kw hiccup)
         html      (.-innerHTML container)]
-    (rf.hicasso.impl.mount/release! handle)
+    (rf.fresco.impl.mount/release! handle)
     html))
 
 (defn server-dom!
   "A container carrying `html`, attached to the document — the page as it
   arrives, before any JavaScript has adopted it."
   [html]
-  (let [container (rf.hicasso.impl.mount/fresh-container!)]
+  (let [container (rf.fresco.impl.mount/fresh-container!)]
     (set! (.-innerHTML container) html)
     container))
 
@@ -336,7 +336,7 @@
   the server markup produced, rather than a replacement that happens to
   look alike — and telling those two apart is the entire difference
   between *adopted* and *re-rendered*."
-  "hicassoRootsFramesServerNode")
+  "frescoRootsFramesServerNode")
 
 (defn stamp-server-nodes!
   "Stamp every element in `container`, and answer it."
@@ -390,7 +390,7 @@
              window   (:adoption (if (satisfies? IDeref handle) @handle handle))]
          (letfn [(tick []
                    (cond
-                     (not (rf.hicasso.impl.roots/adopting? window))
+                     (not (rf.fresco.impl.roots/adopting? window))
                      ;; Past the closer AND past the entry reap horizon,
                      ;; so a reading of the entry cache is taken on the
                      ;; far side of the race.
@@ -458,14 +458,14 @@
   by PLAYING its transition, which is precisely the thing the hydrated
   root must not do."
   [frame-kw hiccup settled?]
-  (let [container (rf.hicasso.impl.mount/fresh-container!)
-        handle    (rf.hicasso.impl.mount/root! container frame-kw hiccup)]
+  (let [container (rf.fresco.impl.mount/fresh-container!)
+        handle    (rf.fresco.impl.mount/root! container frame-kw hiccup)]
     (-> (wait-until! (fn [] (settled? container)))
         (.then (fn [ok]
                  (is (true? ok)
                      "premise: the server tree settled before its bytes were read")
                  (let [html (.-innerHTML container)]
-                   (rf.hicasso.impl.mount/release! handle)
+                   (rf.fresco.impl.mount/release! handle)
                    html))))))
 
 ;; ---------------------------------------------------------------------------
@@ -560,7 +560,7 @@
   and two failure modes make that mandatory rather than tidy. A byte
   comparison of two authoring spellings parts on the view NAME, which is
   the one difference the comparison exists to exclude. And a scan for
-  vocabulary that must not reach the markup — `#\"hicasso\"`, a view's own
+  vocabulary that must not reach the markup — `#\"fresco\"`, a view's own
   name, a reserved keyword — matches the annotation and reports it as the
   leak it was hunting, which is a false RED that reads exactly like a
   true one.
@@ -624,17 +624,17 @@
   which is the pre-fix behaviour exactly."
   [f]
   (let [page-window   #js {"open" false}
-        mint-original rf.hicasso.impl.roots/open-adoption-window!
-        here-original rf.hicasso.impl.roots/adopting-here?]
-    (set! rf.hicasso.impl.roots/open-adoption-window!
+        mint-original rf.fresco.impl.roots/open-adoption-window!
+        here-original rf.fresco.impl.roots/adopting-here?]
+    (set! rf.fresco.impl.roots/open-adoption-window!
           (fn [] (set! (.-open page-window) true) page-window))
-    (set! rf.hicasso.impl.roots/adopting-here?
+    (set! rf.fresco.impl.roots/adopting-here?
           (fn []
             ;; Let-bound, never inlined into the `or`: short-circuiting
             ;; past it would skip the hook, which is the whole hazard.
             (let [in-this-roots-own-window? (here-original)]
-              (or (rf.hicasso.impl.roots/adopting? page-window) in-this-roots-own-window?))))
+              (or (rf.fresco.impl.roots/adopting? page-window) in-this-roots-own-window?))))
     (try (f page-window)
          (finally
-           (set! rf.hicasso.impl.roots/open-adoption-window! mint-original)
-           (set! rf.hicasso.impl.roots/adopting-here? here-original)))))
+           (set! rf.fresco.impl.roots/open-adoption-window! mint-original)
+           (set! rf.fresco.impl.roots/adopting-here? here-original)))))

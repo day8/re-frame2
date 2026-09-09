@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.arm1.dogfood-grouped
+(ns re-frame.bench.fresco.arm1.dogfood-grouped
   "THE DOGFOOD SCREEN — RENDERING 2 OF 3: grouped `use-subs` (HD-002 tier
   2, the product default).
 
@@ -35,9 +35,9 @@
   collector's conditional read is priced against
   (`the-collectors-conditional-read-costs-fewer-edges-than-the-declaration`),
   and for no other reason."
-  (:require [re-frame.bench.hicasso.arm1.runtime :refer [use-subs]]
-            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require [re-frame.bench.fresco.arm1.runtime :refer [use-subs]]
+            [re-frame.bench.fresco.front.dogfood :as rf.bench.fresco.front.dogfood])
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 (defview head [_]
   (let [{:keys [remaining]} (use-subs {:remaining [:dogfood/remaining]})]
@@ -46,13 +46,13 @@
      [:span.remaining {:data-remaining remaining} (str remaining " left")]]))
 
 (defview new-item [_]
-  (let [{:keys [draft]} (use-subs {:draft [:dogfood/draft rf.bench.hicasso.front.dogfood/new-draft-key]})]
+  (let [{:keys [draft]} (use-subs {:draft [:dogfood/draft rf.bench.fresco.front.dogfood/new-draft-key]})]
     [:form.new {:on-submit [:dogfood/create]}
      [:input.new-input {:type        "text"
                         :value       draft
-                        :on-input    [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key :re-frame.hicasso/value]
+                        :on-input    [:dogfood/edit-draft rf.bench.fresco.front.dogfood/new-draft-key :re-frame.fresco/value]
                         :on-key-down {"Enter"  [:dogfood/create]
-                                      "Escape" [:dogfood/cancel rf.bench.hicasso.front.dogfood/new-draft-key]}}]
+                                      "Escape" [:dogfood/cancel rf.bench.fresco.front.dogfood/new-draft-key]}}]
      [:button.add {:type "submit"} "Add"]]))
 
 (defn- filter-button
@@ -82,7 +82,7 @@
      (when-not (:done? todo)
        [:input.draft {:type        "text"
                       :value       draft
-                      :on-input    [:dogfood/edit-draft id :re-frame.hicasso/value]
+                      :on-input    [:dogfood/edit-draft id :re-frame.fresco/value]
                       :on-key-down {"Enter"  [:dogfood/commit id]
                                     "Escape" [:dogfood/cancel id]}}])
      [:button.remove {:type "button" :on-click [:dogfood/remove id]} "x"]]))

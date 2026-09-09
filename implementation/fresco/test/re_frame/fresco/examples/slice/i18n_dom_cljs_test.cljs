@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.slice.i18n-dom-cljs-test
+(ns re-frame.fresco.examples.slice.i18n-dom-cljs-test
   "THE RUNTIME LOCALE AND THEME WITNESS (specification §7's i18n /
   theming row).
 
@@ -46,12 +46,12 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.examples.slice.events :as rf.hicasso.examples.slice.events]
-            [re-frame.hicasso.examples.slice.i18n :as rf.hicasso.examples.slice.i18n]
-            [re-frame.hicasso.examples.slice.routes :as rf.hicasso.examples.slice.routes]
-            [re-frame.hicasso.examples.slice.subs :as rf.hicasso.examples.slice.subs]
-            [re-frame.hicasso.examples.slice.views :as rf.hicasso.examples.slice.views]
-            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.fresco.examples.slice.events :as rf.fresco.examples.slice.events]
+            [re-frame.fresco.examples.slice.i18n :as rf.fresco.examples.slice.i18n]
+            [re-frame.fresco.examples.slice.routes :as rf.fresco.examples.slice.routes]
+            [re-frame.fresco.examples.slice.subs :as rf.fresco.examples.slice.subs]
+            [re-frame.fresco.examples.slice.views :as rf.fresco.examples.slice.views]
+            [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.test-support :as rf.test-support]))
 
 (defn- browser? [] (exists? js/document))
@@ -66,16 +66,16 @@
      :async?        true
      :init-fn       (fn []
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-                      (rf.hicasso.examples.slice.routes/register!))}))
+                      (rf.fresco.examples.slice.routes/register!))}))
 
 (defn- node [m sel] (.querySelector (:container m) sel))
 (defn- text [m sel] (some-> (node m sel) .-textContent))
 
 (defn- at-article!
   [slug]
-  (rf.hicasso.test.mounted/mount! [rf.hicasso.examples.slice.views/app {}]
-             {:initial-events [[::rf.hicasso.examples.slice.events/seed]
-                               [:rf.route/navigate {:to rf.hicasso.examples.slice.routes/article
+  (rf.fresco.test.mounted/mount! [rf.fresco.examples.slice.views/app {}]
+             {:initial-events [[::rf.fresco.examples.slice.events/seed]
+                               [:rf.route/navigate {:to rf.fresco.examples.slice.routes/article
                                                     :params {:slug slug}}]]}))
 
 (defn- choose-locale!
@@ -87,7 +87,7 @@
         d (js/Object.getOwnPropertyDescriptor js/HTMLSelectElement.prototype "value")]
     (.call (.-set d) n (name locale))
     (.dispatchEvent n (js/Event. "change" #js {:bubbles true}))
-    (rf.hicasso.test.mounted/settle! m)))
+    (rf.fresco.test.mounted/settle! m)))
 
 (defn- click-theme!
   "Click the theme button by its VISIBLE LABEL in the page's current
@@ -96,19 +96,19 @@
   reordered them is one of the things this file is watching for."
   [m theme]
   (let [buttons (array-seq (.querySelectorAll (:container m) ".theme-choice"))
-        locale  (rf/subscribe-once [::rf.hicasso.examples.slice.subs/locale] {:frame (:frame m)})
-        want    (rf.hicasso.examples.slice.i18n/t locale (keyword "theme" (name theme)))
+        locale  (rf/subscribe-once [::rf.fresco.examples.slice.subs/locale] {:frame (:frame m)})
+        want    (rf.fresco.examples.slice.i18n/t locale (keyword "theme" (name theme)))
         button  (first (filter #(= want (.-textContent %)) buttons))]
     (is (some? button)
         (str "no theme button reads " (pr-str want) " in " (pr-str locale)
              "; the page offers " (pr-str (mapv #(.-textContent %) buttons))))
     (.click button)
-    (rf.hicasso.test.mounted/settle! m)))
+    (rf.fresco.test.mounted/settle! m)))
 
 (defn- surface-of [m] (.. (node m ".slice") -style -background))
 
 (defn- finish [m done]
-  (-> (rf.hicasso.test.mounted/unmount! m) (rf.hicasso.test.mounted/assert-clean!) (.then done)))
+  (-> (rf.fresco.test.mounted/unmount! m) (rf.fresco.test.mounted/assert-clean!) (.then done)))
 
 ;; ---------------------------------------------------------------------------
 ;; Locale
@@ -174,7 +174,7 @@
             d (js/Object.getOwnPropertyDescriptor js/HTMLInputElement.prototype "value")]
         (.call (.-set d) n "à moitié écrit")
         (.dispatchEvent n (js/InputEvent. "input" #js {:bubbles true}))
-        (rf.hicasso.test.mounted/settle! m)
+        (rf.fresco.test.mounted/settle! m)
         (choose-locale! m :fr)
         (is (= "à moitié écrit" (.-value (node m ".field-title")))
             "the re-render did not reach past the labels into the model")
@@ -218,9 +218,9 @@
         ;; and no clock.
         (.call (.-set d) n "   ")
         (.dispatchEvent n (js/InputEvent. "input" #js {:bubbles true}))
-        (rf.hicasso.test.mounted/settle! m)
+        (rf.fresco.test.mounted/settle! m)
         (.click (node m ".save"))
-        (rf.hicasso.test.mounted/settle! m)
+        (rf.fresco.test.mounted/settle! m)
 
         (is (= "rgb(176, 32, 32)" (.. (node m ".save-problem") -style -color)))
         (click-theme! m :dark)

@@ -7,7 +7,7 @@
   server JVM's registry when the first MCP connect arrives. It stands in
   for a consuming project's own story namespace.
 
-  Deliberately a HICASSO-substrate story: the body is pure data and
+  Deliberately a FRESCO-substrate story: the body is pure data and
   `:component` is a view-id keyword, so the namespace is CLJ/CLJC-loadable
   in the headless server JVM with no renderer on the classpath. Reagent /
   UIx `.cljs` story files are browser-side registrations — a running
@@ -50,7 +50,7 @@
 (rf.story/reg-story :story.fixture-app
   {:doc        "The fixture app's article card — the pre-authored project story the golden-path launch must expose on first connect."
    :component  :fixture-app.views/article-card
-   :substrates #{:hicasso}
+   :substrates #{:fresco}
    :tags       #{:dev}})
 
 ;; The variant carries REAL lifecycle work, and that is load-bearing rather

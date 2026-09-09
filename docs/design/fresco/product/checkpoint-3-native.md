@@ -7,10 +7,10 @@
 > nothing.
 >
 > **The event its rows do not reflect.** On 2026-08-29, `aa01f0e8a6` (`rf2-6c12m.31`, wave 2 of
-> ruling `rf2-6c12m.3` Option A) shrank `re-frame.hicasso.native` from 1,116 lines to 82 and deleted
+> ruling `rf2-6c12m.3` Option A) shrank `re-frame.fresco.native` from 1,116 lines to 82 and deleted
 > the native grammar: `$`, `props`, `defcomponent`, `memo`, `lazy`, `component`, `marker`,
 > `tier-sentinel`, `prop-slots`, `el`, `props*`, `declared-server`, `server-policies` and
-> `check-child!`, with their seven `:rf.error/hicasso-native-*` emitters, and the **eight `native_*`
+> `check-child!`, with their seven `:rf.error/fresco-native-*` emitters, and the **eight `native_*`
 > suites — 91 deftests, 5,234 lines**. `use-sub` and `use-frame` are the whole public surface that
 > survives. So the `n/$`, `n/props`, `n/defcomponent` and `prop-slots` this page names throughout
 > **do not exist at tip**, and neither do the suites its evidence columns cite. The verdict, the
@@ -79,7 +79,7 @@ documented clock refusal, or wait for `rf2-m6i0` to unblock `rf2-hic-036`'s cloc
 settled it, not the reviewer.** `rf2-m6i0` closed on 2026-08-14 **without** unblocking that half —
 its own close note records that `rf2-hic-036`'s clock table *"is still withheld entire because topo/
 HAS NO CLOCK DRIVER"* — and the clock half was split to `rf2-w01c`, which is open, deferred, and
-carries the operator's direction in its description: *"get on with fully implementing hicasso, run
+carries the operator's direction in its description: *"get on with fully implementing fresco, run
 measurement later."* The waiting branch therefore had nothing left to wait for.
 
 What was inherited is the **estimand rule**, applied here for the fourth time: score what the evidence
@@ -167,8 +167,8 @@ the element type is `identical?` to the author's function.
 - **Unmet — the HMR clause has no native witness.** The required result ends *"display/source metadata
   and HMR"*, and the deciding evidence names *one HMR replacement cycle*. The real reload gate —
   `testbed/hmr_spec.cjs`, eight sections driven by a live `shadow-cljs watch` rewriting a source
-  line — exercises **no native component**: `hicasso_hmr_testbed/views.cljs` requires only `react`,
-  `re-frame.core` and `re-frame.hicasso`, and contains zero native references. What is landed for the
+  line — exercises **no native component**: `fresco_hmr_testbed/views.cljs` requires only `react`,
+  `re-frame.core` and `re-frame.fresco`, and contains zero native references. What is landed for the
   tier is an **in-process simulated re-mint** that never re-evaluates a module. → [`rf2-iq0a`](#5-the-misses)
 - **Unaddressed — "one matched component exercised through every wrapper"** does not exist: coverage is
   spread across four distinct components, and the file's own roster asserts ten *mechanisms* ran, not
@@ -186,7 +186,7 @@ frame replacement as same-id reincarnation, StrictMode double mount, and unmount
 
 - **Unmet — Activity hide/reveal, aggravated by the documentation.**
   [`react-compatibility-notes.md`](lanes/react-compatibility-notes.md) closes its Activity section with
-  *"Activity should be used through native React construction—Hicasso-native, UIx, or a `defhost`
+  *"Activity should be used through native React construction—Fresco-native, UIx, or a `defhost`
   declaration."* That sentence **assigns** Activity to this tier rather than deferring it, and no
   landed row drives `n/use-sub` or `n/use-frame` under an `<Activity>`. The Activity suites are
   substantial and green — and contain zero native references. A published route with no witness.
@@ -204,11 +204,11 @@ frame replacement as same-id reincarnation, StrictMode double mount, and unmount
 **Not green.** The inward direction is complete across all three native routes, in one body, one
 frame, one commit, painting byte-identical DOM. The no-second-owner claim is asserted rather than
 described. Retained callbacks are the strongest evidence in the row: a memoising vendor that knows
-nothing about Hicasso, a nine-carrier grid with four controls and a liveness row, and abandonment and
+nothing about Fresco, a nine-carrier grid with four controls and a liveness row, and abandonment and
 reincarnation each with a negative control beside it. Provider and compound components run through a
 real vendor family with context, slots and a render prop. Teardown is exact everywhere.
 
-- **Unmet — no UIx parent renders Hicasso.** The required result names *Hicasso-native, UIx and raw
+- **Unmet — no UIx parent renders Fresco.** The required result names *Fresco-native, UIx and raw
   React parents*. `h/as-component` is reached by a native parent on a fiber and by a raw React parent
   in the node lane only; no UIx parent renders a bridged view anywhere in the tree. → [`rf2-ap7w`](#5-the-misses)
 - **Unaddressed — "both embedding directions across two frames"** holds for the outward bridge; the
@@ -225,7 +225,7 @@ a semantic-tree claim standing in for server bytes was found anywhere**, which w
 sharpest question.
 
 **[Amended 2026-09-04, `rf2-l67a` — the surfaces this paragraph scores no longer exist.]** Of the set
-it names, only *both hooks* survives: `re-frame.hicasso.native` is 82 lines at tip whose entire
+it names, only *both hooks* survives: `re-frame.fresco.native` is 82 lines at tip whose entire
 public surface is `use-sub` and `use-frame`, and `n/$`, `n/props`, `n/defcomponent` and the
 memo/lazy/ref helpers were deleted with the rest of the grammar by `aa01f0e8a6` on 2026-08-29
 (`rf2-6c12m.31`). The witnesses too: the eight `native_*` suites that carried the `react-dom/server`
@@ -282,12 +282,12 @@ still naming the equality it proves, with server bytes and element shape asserte
   the bridge, not the mechanism, that has gone* — and *the outward bridge this bullet is about is
   gone with them*, four paragraphs up — are both **false at tip**, and they conflate a deleted
   **witness** with a deleted **product surface**. `h/as-component` is live at
-  `implementation/hicasso/src/re_frame/hicasso.cljc`, where the facade's own docstring calls it **the
+  `implementation/fresco/src/re_frame/fresco.cljc`, where the facade's own docstring calls it **the
   outward bridge**, and at `impl/codec.cljs`; that docstring says in terms that it sits on the facade
   *rather than* on the native tier precisely so that a UIx or JavaScript parent need not require the
   native namespace — so it was deliberately placed off the tier that was retired, and `aa01f0e8a6`
   did not reach it. Its client-side witness is live too, at
-  `implementation/hicasso/test/re_frame/hicasso/foreign_root_bridge_dom_cljs_test.cljs`, which mints
+  `implementation/fresco/test/re_frame/fresco/foreign_root_bridge_dom_cljs_test.cljs`, which mints
   the bridge and mounts it from raw-React and UIx parents, and which carries no hydration row.
   [`dispositions.md`](dispositions.md)'s `HS-21` row says the same thing: the native ABI witness
   retired while the outward-bridge scope survived. **What `aa01f0e8a6` deleted is the old native
@@ -313,7 +313,7 @@ still naming the equality it proves, with server bytes and element shape asserte
   whole matrix.
 
   **[Amended 2026-08-21, `rf2-r3dgc`.]** The phrase *the package's only server path* was true when
-  this record was written and stopped being true the same day. `re-frame.hicasso.server/render`
+  this record was written and stopped being true the same day. `re-frame.fresco.server/render`
   landed on 2026-08-14 as `30317bfe0e` (PR #8236, `rf2-b6jkj`), some hours after this page was first
   filed, and `impl/roots.cljs` now names it one of **two** minters of the adoption window rather than
   the one. The second half of the sentence went with it: that module does not emit the bare app
@@ -339,7 +339,7 @@ source-side gate parses `ns` forms to prove nothing outside the tier requires it
   because the exemplar picks an adapter, and `rf-uix-sub-` is carried as a **present control** — and
   refers it to the source-side gate as *"the source-side gate's kind of question"*. The source-side
   gate never asks it: its `native` row guards the door edge only. Each artefact is individually
-  honest; the clause falls through the seam between them. The property holds today — `hicasso/src`
+  honest; the clause falls through the seam between them. The property holds today — `fresco/src`
   names UIx only in docstrings — but nothing would redden if it stopped. → [`rf2-b3gy`](#5-the-misses)
 - **Unaddressed — the second clause has no artefact at all.** *"Native bundles contain no UIx unless
   the application imports it"* has no native-tier release build to measure. Same finding.
@@ -356,7 +356,7 @@ under `implementation/` — the row's *"adds no production evidence machinery"* 
 construction.
 
 - **Unmet — there is no opaque foreign subtree.** The deciding evidence names *one causal trace with an
-  opaque foreign subtree*. The slice runs entirely on interpreted Hicasso boundaries; `tools/xray/`
+  opaque foreign subtree*. The slice runs entirely on interpreted Fresco boundaries; `tools/xray/`
   contains no native-tier subject anywhere. Links 5–7 are `:host-opaque` because React owns commit and
   paint for **any** boundary — not because a foreign subtree was crossed. The witness does not reach
   its named scenario. → [`rf2-t2d3`](#5-the-misses)
@@ -393,7 +393,7 @@ reads one generated component and one `argv` hop.
 - **Unaddressed — the runs are not interleaved.** The deciding evidence names *interleaved three-way
   client and server runs*; what landed is a deterministic `cljs.test` suite with no round loop, no
   arm-order guard and no sampling. Interleaving rigs exist in the bench tree — none carries a
-  Hicasso-native or handwritten-React arm.
+  Fresco-native or handwritten-React arm.
 - **Unaddressed — the budget is not ratified**, as [§2](#2-the-exit-conjunct-by-conjunct) sets out.
 
 **Nothing is filed against this row.** Every part of it is already owned: `rf2-hic-071` holds `C7`'s
@@ -449,7 +449,7 @@ line. **All six reddened, each naming its own row.**
 
 | # | Target row | The plant | What reddened | Exit |
 |---|---|---|---|---|
-| 1 | Dependency and rent | the native tier made reachable from the release entry, exactly as a leak would arrive | `check_bundle_isolation.cjs` named the surface, the sentinel `rf2:hicasso-native-tier` and the remedy — while its own self-test and the erasure gate stayed green | **1** |
+| 1 | Dependency and rent | the native tier made reachable from the release entry, exactly as a leak would arrive | `check_bundle_isolation.cjs` named the surface, the sentinel `rf2:fresco-native-tier` and the remedy — while its own self-test and the erasure gate stayed green | **1** |
 | 2 | Native-language leakage | the intent-in-prop refusal in `prop-slots` made unreachable, so hiccup semantics pass the fence | 10 assertions across four files, including the matched pair at `native_fence_cljs_test.cljs:180-181` and the fence row inside the three-way matrix itself | **1** |
 | 3 | Frame and store lifecycle | the frame dropped from `use-sub`'s cell key, so every island's read shares one cell | `native_hooks_cljs_test.cljs:144` and `three_way_parity_cljs_test.cljs:585` | **1** |
 | 4 | Frame and store lifecycle, on its strongest row | the same plant, taken to the browser lane | `two-frames-are-two-cells-and-an-island-cannot-see-across`, its inward-door twin, and 23 more — and both suites' `declared-population` rosters fired, reporting the states that stopped being reached | **1** |
@@ -495,7 +495,7 @@ the bead; the table below is an index.
 | `rf2-iq0a` | 2 | The native tier is absent from the real HMR gate; no one component crosses every wrapper | coverage |
 | `rf2-b3gy` | 3, 6 | The "nor UIx" clause has no executable gate on either side | coverage |
 | `rf2-sr19` | 3 | Suspense and retry/abandonment have no native-hook witness | coverage |
-| `rf2-ap7w` | 4 | No UIx parent renders Hicasso; inward interop runs under one frame | coverage |
+| `rf2-ap7w` | 4 | No UIx parent renders Fresco; inward interop runs under one frame | coverage |
 | `rf2-s52w` | 5 | Outward-bridge mismatch attribution is unreachable by construction | coverage |
 | `rf2-1qws` | 5 | The row's deciding evidence points at a policy table with no witnesses | quality |
 | `rf2-e0d2` | — | The native namespace's public var surface is unclassified before a freeze | coverage |

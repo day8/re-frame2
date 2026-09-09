@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.slice.extension-dom-cljs-test
+(ns re-frame.fresco.examples.slice.extension-dom-cljs-test
   "L3 — PAGINATION, RUNTIME-SELECTED CONTENT AND A NESTED ERROR REGION,
   MOUNTED.
 
@@ -10,7 +10,7 @@
 
   `flow-dom-cljs-test` is the sibling this file assumes: it owns the
   edit flow, and the two conventions it established are kept here
-  unchanged — a Hicasso intent dispatches synchronously so `hm/settle!`
+  unchanged — a Fresco intent dispatches synchronously so `hm/settle!`
   is all a click owes, while a ROUTE-LINK and an async reply both leave
   work merely enqueued and are waited on with `hm/settle-until!`, the
   facade's door for that kind.
@@ -21,7 +21,7 @@
   available reading of whether the list's keys are domain ids. But this
   file measures BEHAVIOUR and claims nothing about enforcement: the
   substrate does not police the keys a body writes, and the general form
-  of that is Hicasso's unkeyed-children warning, which cannot reach a
+  of that is Fresco's unkeyed-children warning, which cannot reach a
   child array a foreign component owns — so *the
   key is the model id* is a rule an author keeps and not one the runtime
   imposes. What the rows below assert is therefore what React did with
@@ -37,12 +37,12 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso.examples.slice.db :as rf.hicasso.examples.slice.db]
-            [re-frame.hicasso.examples.slice.events :as rf.hicasso.examples.slice.events]
-            [re-frame.hicasso.examples.slice.routes :as rf.hicasso.examples.slice.routes]
-            [re-frame.hicasso.examples.slice.subs :as rf.hicasso.examples.slice.subs]
-            [re-frame.hicasso.examples.slice.views :as rf.hicasso.examples.slice.views]
-            [re-frame.hicasso.test.mounted :as rf.hicasso.test.mounted]
+            [re-frame.fresco.examples.slice.db :as rf.fresco.examples.slice.db]
+            [re-frame.fresco.examples.slice.events :as rf.fresco.examples.slice.events]
+            [re-frame.fresco.examples.slice.routes :as rf.fresco.examples.slice.routes]
+            [re-frame.fresco.examples.slice.subs :as rf.fresco.examples.slice.subs]
+            [re-frame.fresco.examples.slice.views :as rf.fresco.examples.slice.views]
+            [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
             [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@
                       ;; The reset restores the registrar to a baseline
                       ;; captured before `routes` finished loading. See
                       ;; that namespace on why `register!` is exposed.
-                      (rf.hicasso.examples.slice.routes/register!))}))
+                      (rf.fresco.examples.slice.routes/register!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading and driving the page
@@ -80,11 +80,11 @@
 (defn- attrs-of [m sel a] (mapv #(.getAttribute % a) (nodes m sel)))
 
 (defn- click!
-  "A real click on a Hicasso intent, and then a settle. The intent's own
+  "A real click on a Fresco intent, and then a settle. The intent's own
   dispatch is synchronous, so the settle is all that is owed."
   [m sel]
   (.click (node m sel))
-  (rf.hicasso.test.mounted/settle! m))
+  (rf.fresco.test.mounted/settle! m))
 
 (defn- read-sub [m query-v] (rf/subscribe-once query-v {:frame (:frame m)}))
 
@@ -93,10 +93,10 @@
   URL carries; `nil` is a bare `/slice`, which is what a first visit is."
   ([] (at-page! nil))
   ([n]
-   (rf.hicasso.test.mounted/mount! [rf.hicasso.examples.slice.views/app {}]
-              {:initial-events [[::rf.hicasso.examples.slice.events/seed]
+   (rf.fresco.test.mounted/mount! [rf.fresco.examples.slice.views/app {}]
+              {:initial-events [[::rf.fresco.examples.slice.events/seed]
                                 [:rf.route/navigate
-                                 (cond-> {:to rf.hicasso.examples.slice.routes/feed}
+                                 (cond-> {:to rf.fresco.examples.slice.routes/feed}
                                    (some? n) (assoc :query {:page n}))]]})))
 
 (defn- go-to-page!
@@ -104,12 +104,12 @@
   SYNCHRONOUS door, which is what Back and Forward ultimately reach
   through the history listener a real application installs."
   [m n]
-  (rf.hicasso.test.mounted/dispatch-and-settle! m [:rf.route/navigate {:to rf.hicasso.examples.slice.routes/feed :query {:page n}}]))
+  (rf.fresco.test.mounted/dispatch-and-settle! m [:rf.route/navigate {:to rf.fresco.examples.slice.routes/feed :query {:page n}}]))
 
 (defn- finish
   "Tear down, assert this mount left nothing behind, and end the row."
   [m done]
-  (-> (rf.hicasso.test.mounted/unmount! m) (rf.hicasso.test.mounted/assert-clean!) (.then done)))
+  (-> (rf.fresco.test.mounted/unmount! m) (rf.fresco.test.mounted/assert-clean!) (.then done)))
 
 (defn- finish-after
   "End the row when `p` settles, reporting a rejected `p` as a failure
@@ -132,7 +132,7 @@
     (skip! ":node-test has no React DOM")
     (async done
       (let [m (at-page!)]
-        (is (= ["Hicasso, briefly" "Intents are data" "Controlled, synchronously"]
+        (is (= ["Fresco, briefly" "Intents are data" "Controlled, synchronously"]
                (texts m ".article-link"))
             "three of the seven — a bare /slice is page one, and it is
              `:query-defaults` that decided so rather than a view")
@@ -167,7 +167,7 @@
         ;; own `activate-link!` deciding. Nothing here calls preventDefault
         ;; — if the click were not claimed, this page would navigate away.
         (.click (node m ".pager-next"))
-        (-> (rf.hicasso.test.mounted/settle-until! m
+        (-> (rf.fresco.test.mounted/settle-until! m
                               #(= 2 (:page (read-sub m [:rf.route/query])))
                               {:label "the page link's navigate to drain"})
             (.then (fn [_]
@@ -298,8 +298,8 @@
         ;; A payload that arrived cut short — the list block without its
         ;; items — installed through the application's OWN arrival event,
         ;; because that is the door a real truncated response comes in by.
-        (rf.hicasso.test.mounted/dispatch-and-settle! m [::rf.hicasso.examples.slice.events/digest-arrived
-                                    {:blocks rf.hicasso.examples.slice.db/digest-truncated}])
+        (rf.fresco.test.mounted/dispatch-and-settle! m [::rf.fresco.examples.slice.events/digest-arrived
+                                    {:blocks rf.fresco.examples.slice.db/digest-truncated}])
 
         (testing "the region's own boundary caught it"
           (is (some? (node m ".digest-error")))
@@ -316,7 +316,7 @@
                the root would have made this throw take the application
                down, and the only failure mode an application with one
                boundary has is *the screen went away*")
-          (is (= ["Hicasso, briefly" "Intents are data" "Controlled, synchronously"]
+          (is (= ["Fresco, briefly" "Intents are data" "Controlled, synchronously"]
                  (texts m ".article-link"))
               "the list is still on screen")
           (is (some? (node m ".pager")) "and the pager still works")
@@ -342,8 +342,8 @@
     (skip! ":node-test has no React DOM")
     (async done
       (let [m (at-page!)]
-        (rf.hicasso.test.mounted/dispatch-and-settle! m [::rf.hicasso.examples.slice.events/digest-arrived
-                                    {:blocks rf.hicasso.examples.slice.db/digest-truncated}])
+        (rf.fresco.test.mounted/dispatch-and-settle! m [::rf.fresco.examples.slice.events/digest-arrived
+                                    {:blocks rf.fresco.examples.slice.db/digest-truncated}])
         (is (some? (node m ".digest-retry")) "the fallback carries the retry")
 
         (click! m ".digest-retry")
@@ -354,8 +354,8 @@
           (is (true? (.-disabled (node m ".digest-retry")))
               "so a second click cannot queue a second request"))
 
-        (-> (rf.hicasso.test.mounted/settle-until! m
-                              #(= rf.hicasso.examples.slice.db/digest (read-sub m [::rf.hicasso.examples.slice.subs/digest-blocks]))
+        (-> (rf.fresco.test.mounted/settle-until! m
+                              #(= rf.fresco.examples.slice.db/digest (read-sub m [::rf.fresco.examples.slice.subs/digest-blocks]))
                               {:label "the stand-in content server's reply"})
             (.then
               (fn [_]

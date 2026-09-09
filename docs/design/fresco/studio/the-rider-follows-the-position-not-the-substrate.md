@@ -164,13 +164,13 @@ From the **repository root**, one run at a time:
 # the confound-broken arm
 P0_PORT=8471 P0_ALLOC_PLAN=floor P0_ALLOC_WRITE=all \
 P0_ROOTS=4 P0_ALLOC_CELLS=6 P0_ALLOC_ROUNDS=18 P0_ALLOC_SEG_ORDER=fixed \
-P0_RAW_OUT=implementation/hicasso/test/re_frame/bench/hicasso/data/segorder-rs8q6/fixed-1.json \
+P0_RAW_OUT=implementation/fresco/test/re_frame/bench/fresco/data/segorder-rs8q6/fixed-1.json \
   node implementation/core/test/re_frame/bench/p0_run.cjs --only alloc
 
 # the paired control, same revision, same box, interleaved
 P0_PORT=8471 P0_ALLOC_PLAN=floor P0_ALLOC_WRITE=all \
 P0_ROOTS=4 P0_ALLOC_CELLS=6 P0_ALLOC_ROUNDS=18 P0_ALLOC_SEG_ORDER=parity \
-P0_RAW_OUT=implementation/hicasso/test/re_frame/bench/hicasso/data/segorder-rs8q6/parity-1.json \
+P0_RAW_OUT=implementation/fresco/test/re_frame/bench/fresco/data/segorder-rs8q6/parity-1.json \
   node implementation/core/test/re_frame/bench/p0_run.cjs --only alloc
 ```
 
@@ -178,8 +178,8 @@ Every measured figure on this page — every window and leg count, byte value,
 percentage and `z` — is re-derived from the committed records by:
 
 ```bash
-node implementation/hicasso/test/re_frame/bench/hicasso/alloc_position_confound.cjs \
-  implementation/hicasso/test/re_frame/bench/hicasso/data/segorder-rs8q6/*.json
+node implementation/fresco/test/re_frame/bench/fresco/alloc_position_confound.cjs \
+  implementation/fresco/test/re_frame/bench/fresco/data/segorder-rs8q6/*.json
 ```
 
 That reader drives the 14 committed `parity` runs to the previous record's

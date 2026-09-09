@@ -32,7 +32,7 @@ and the paths are the stronger one. **The gate scripts themselves moved.**
 `git diff --name-only 7304e825c9..origin/main` names `implementation/scripts/check-bundle-isolation.cjs`,
 `implementation/shadow-cljs.edn`, five files under `implementation/ssr/src/re_frame/ssr/`
 (`boot`, `emit`, `install`, `manifest`, `payload_policy`) and eight under
-`implementation/hicasso/src/re_frame/hicasso/` including `hicasso.cljc` itself, `impl/boundary.cljs`,
+`implementation/fresco/src/re_frame/fresco/` including `fresco.cljc` itself, `impl/boundary.cljs`,
 `impl/intent.cljs` and `impl/mount.cljs`. A recertification whose instruments and whose subject have
 both moved is due on its own terms, independently of any file count.
 
@@ -48,7 +48,7 @@ what is certified overall; see [§6](#6-what-this-still-does-not-certify).
 | base | `f5b1f1e94fbfe440de2fa5b70170c34dc46a61de`, `origin/main` at 2026-08-18 00:03 AUSEST |
 | worktree | a dedicated worker worktree on `worker/recert-hic090`; `scripts/assert-worker-worktree.sh` ran there and exited `0`. **The literal path is deliberately not written down** — `scripts/check-no-hardcoded-paths.sh` reds a tracked file carrying a personal home path, and it reds correctly: a machine-specific string is not what makes the guard evidence. That the guard ran and passed is. |
 | `node_modules` | a junction into the primary checkout's real one, **103** top-level entries by `Get-ChildItem \| Measure-Object`, removed as the last act of this work |
-| open PRs touching a family surface | none — `#8440` is `tools/xray`, `#8443` is `implementation/core/test/re_frame/bench`, `#8442` is `docs/design/hicasso/studio`, `#8444` is `.github/workflows` |
+| open PRs touching a family surface | none — `#8440` is `tools/xray`, `#8443` is `implementation/core/test/re_frame/bench`, `#8442` is `docs/design/fresco/studio`, `#8444` is `.github/workflows` |
 
 **Every family was run one at a time and never in parallel**, and the reason is not politeness about
 wall-clock. Two heavyweight suites here have once *wedged* rather than failed — each holding several
@@ -67,19 +67,19 @@ half decides reachability over `:require` forms, and the bundle half reads a rea
 
 | Half | Command | Captured exit | What it reported |
 |---|---|---|---|
-| source | `python hicasso/scripts/check_optional_module_reachability.py --self-test` | `0` | self-test OK |
-| source | `python hicasso/scripts/check_optional_module_reachability.py` | `0` | motion, overlay, native, forms and server all unreachable from the public door; UIx required by no `src/` namespace and named by no production coordinate |
-| bundle | `npx shadow-cljs release hicasso-release` | `0` | **162 files, 107 compiled, 0 warnings** |
-| bundle | `node hicasso/scripts/check_production_erasure.cjs --self-test` | `0` | self-test OK (5 sentinels, 3 positive controls) |
-| bundle | `node hicasso/scripts/check_production_erasure.cjs` | `0` | no dev-only Hicasso surface in the bundle — **5 sentinels absent, 3 positive controls present** |
-| bundle | `node hicasso/scripts/check_bundle_isolation.cjs --self-test` | `0` | self-test OK (8 sentinels, 4 positive controls) |
-| bundle | `node hicasso/scripts/check_bundle_isolation.cjs` | `0` | no isolated surface reached the interpreted-only bundle — **8 sentinels absent, 4 positive controls present** |
+| source | `python fresco/scripts/check_optional_module_reachability.py --self-test` | `0` | self-test OK |
+| source | `python fresco/scripts/check_optional_module_reachability.py` | `0` | motion, overlay, native, forms and server all unreachable from the public door; UIx required by no `src/` namespace and named by no production coordinate |
+| bundle | `npx shadow-cljs release fresco-release` | `0` | **162 files, 107 compiled, 0 warnings** |
+| bundle | `node fresco/scripts/check_production_erasure.cjs --self-test` | `0` | self-test OK (5 sentinels, 3 positive controls) |
+| bundle | `node fresco/scripts/check_production_erasure.cjs` | `0` | no dev-only Fresco surface in the bundle — **5 sentinels absent, 3 positive controls present** |
+| bundle | `node fresco/scripts/check_bundle_isolation.cjs --self-test` | `0` | self-test OK (8 sentinels, 4 positive controls) |
+| bundle | `node fresco/scripts/check_bundle_isolation.cjs` | `0` | no isolated surface reached the interpreted-only bundle — **8 sentinels absent, 4 positive controls present** |
 
-**Verdict: GREEN.** The composite `npm run build:hicasso-release` chains all five bundle-half steps; it
+**Verdict: GREEN.** The composite `npm run build:fresco-release` chains all five bundle-half steps; it
 was split into its steps here so that each verdict is a foreground capture of its own rather than one
 status standing for five.
 
-**The bundle byte count at this base is 671290 bytes** (`wc -c out/hicasso-release/main.js`), beside a
+**The bundle byte count at this base is 671290 bytes** (`wc -c out/fresco-release/main.js`), beside a
 4806-byte `manifest.edn`. That figure is recorded because the bead exists on the premise that a
 repo-wide change moves bundle bytes, and a certification that never states the byte count cannot be
 compared against by the next one. **It is stated of `f5b1f1e94f` and of nothing else** — there is no
@@ -88,7 +88,7 @@ rather than reporting a delta.
 
 **The file and compile counts did not move**: 162 files and 107 compiled, exactly as §6.3 recorded at
 `7304e825c9`. That is a finding rather than a null result, because the 122-file trunk movement in §1
-includes eight files under `implementation/hicasso/src/`. The compile *population* is unchanged; what
+includes eight files under `implementation/fresco/src/`. The compile *population* is unchanged; what
 moved inside it did not change its membership.
 
 ## 4. Family 5 — the pinned regression gate
@@ -133,7 +133,7 @@ foreground capture rather than one status standing for a chain.
 | 2, 3 — browser lane, run | `node scripts/serve-and-run-browser-tests.cjs` | `0` | **1015 tests, 5724 assertions, 0 failures, 0 errors** |
 | 2 — SSR JVM arm | `clojure -M:test` in `implementation/ssr` | `0` | **599 tests, 2925 assertions, 0 failures, 0 errors** |
 | 4 — elision arm, build | `npx shadow-cljs release browser-test-prod-elision` | `0` | **312 files, 252 compiled, 0 warnings**; bundle **1968527 bytes** |
-| 4 — elision arm, coordinate check | `node hicasso/scripts/check_source_coord_elision.cjs` | `0` | no `defview`/`defhost` source coordinate in the advanced bundle, **positive control present** |
+| 4 — elision arm, coordinate check | `node fresco/scripts/check_source_coord_elision.cjs` | `0` | no `defview`/`defhost` source coordinate in the advanced bundle, **positive control present** |
 | 4 — elision arm, browser run | `node scripts/serve-and-run-browser-tests.cjs --root out/browser-test-prod-elision --port 8023 --duplicate-done-drift-unverifiable` | `0` | **92 tests, 295 assertions, 0 failures, 0 errors** |
 
 **Verdict: GREEN for families 2, 3 and 4.**
@@ -151,7 +151,7 @@ in reverse — the identity has to be stated rather than passed over.
 | browser lane | 1015 / 5724 | 1015 / 5724 | no |
 | SSR JVM | 599 / 2925 | 599 / 2925 | no |
 | elision lane | 92 / 295 | 92 / 295 | no |
-| `hicasso-release` build | 162 files / 107 compiled | 162 / 107 | no |
+| `fresco-release` build | 162 files / 107 compiled | 162 / 107 | no |
 | node-lane compile | 1985 files / 1984 compiled | 1985 / 1984 | no |
 | browser-lane compile | 1075 files / 1074 compiled | 1075 / 1074 | no |
 
@@ -176,7 +176,7 @@ row above measures.
 **The overall certification remains PARTIAL, and for the same reason as the parent page's.** Nothing
 here disturbs the mayor's 2026-08-15 ruling: what holds `rf2-hic-090` open is not the five families but
 naming-ledger row 18, and row 18 is uncertified because `rf2-t32wg` needs an operator spec ruling on
-admitting zero-arity `rf/capture-frame` and `rf/current-frame-id` inside a Hicasso body.
+admitting zero-arity `rf/capture-frame` and `rf/current-frame-id` inside a Fresco body.
 
 That fence was re-tested at source for this run rather than carried forward. `rf2-t32wg` is `DEFERRED`
 to 2026-09-16 and **unruled** — a defer schedules the question rather than answering it, so the release
@@ -189,7 +189,7 @@ document whose careful sentences get quoted one notch stronger later.
 
 - **Four families green is not five.** Family 5 has no gate, so it has no verdict — not a green one and
   not a red one. See [§4](#4-family-5--the-pinned-regression-gate).
-- **The byte counts here are anchors, not comparisons.** 671290 bytes for `hicasso-release` and 1968527
+- **The byte counts here are anchors, not comparisons.** 671290 bytes for `fresco-release` and 1968527
   for the elision bundle are stated of `f5b1f1e94f`. No earlier byte figure exists in this corpus to
   difference them against, so nothing here licenses a claim about whether the bundle grew or shrank.
 
@@ -206,19 +206,19 @@ translates line endings and a plain byte digest reports a correct restore as fai
 
 | Family | What was planted | Gate under the plant | Captured exit | What the red said |
 |---|---|---|---|---|
-| 1, source half | one `:require` of `re-frame.hicasso.motion` in the public door's `ns` form | `check_optional_module_reachability.py` | `1` | named the file and the optional module by name |
-| 1, bundle half | a `:require` of `re-frame.hicasso.native` plus one reachable `n/marker` call in the consumer app's `-main` | `npx shadow-cljs release hicasso-release` then `check_bundle_isolation.cjs` | build `0`, gate `1` | `OPTIONAL SURFACE LEAKED: native tier`, quoting sentinel `"rf2:hicasso-native-tier"` |
+| 1, source half | one `:require` of `re-frame.fresco.motion` in the public door's `ns` form | `check_optional_module_reachability.py` | `1` | named the file and the optional module by name |
+| 1, bundle half | a `:require` of `re-frame.fresco.native` plus one reachable `n/marker` call in the consumer app's `-main` | `npx shadow-cljs release fresco-release` then `check_bundle_isolation.cjs` | build `0`, gate `1` | `OPTIONAL SURFACE LEAKED: native tier`, quoting sentinel `"rf2:fresco-native-tier"` |
 | 2, SSR JVM arm | one string-literal marker prepended to text-node output in `ssr/emit.cljc`'s `emit-element` | `clojure -M:test` in `implementation/ssr` | `1` | **97 failures, 0 errors**, over the same **599 tests / 2925 assertions** as the control run — so no namespace crashed and the plant was scoped to assertions rather than to the lane |
 | 3, macro expansion | `head-form` in `native.cljc` — the `n/$` macro's expansion-time lowering of a keyword head — made to append a marker to the element name | node lane, compile then run | compile `0`, run `1` | `three_way_parity_cljs_test.cljs:338:15`, **8 failures** on *the-three-routes-render-the-same-server-bytes* and **7** on *the-three-routes-build-the-same-element-shape* — the native arm's expansion no longer agrees with handwritten React |
-| 4, source coordinate | `defview`'s captured coordinate in `hicasso.cljc` given `:line 0` at expansion | node lane, same run | run `1` | `error_shape_cljs_test.cljs:143:11` — expected `:line? true`, actual `:line? false` |
+| 4, source coordinate | `defview`'s captured coordinate in `fresco.cljc` given `:line 0` at expansion | node lane, same run | run `1` | `error_shape_cljs_test.cljs:143:11` — expected `:line? true`, actual `:line? false` |
 
 | Family | Baseline content hash | Under the plant | After restore |
 |---|---|---|---|
-| 1, source half — `hicasso/src/re_frame/hicasso.cljc` | `8641b387629974f2564fe9cbf16748ce1473bfa7` | `a3d28cb07e3a624915ca3f3378176885cc90b455` | `8641b387629974f2564fe9cbf16748ce1473bfa7` |
-| 1, bundle half — `hicasso/test/re_frame/hicasso/consumer_app.cljs` | `2226b91b0c9579aa04bee412c3ef28b4886c844f` | `ff8ceed08d856dee11c3e72cc0c12f96f7febe1c` | `2226b91b0c9579aa04bee412c3ef28b4886c844f` |
+| 1, source half — `fresco/src/re_frame/fresco.cljc` | `8641b387629974f2564fe9cbf16748ce1473bfa7` | `a3d28cb07e3a624915ca3f3378176885cc90b455` | `8641b387629974f2564fe9cbf16748ce1473bfa7` |
+| 1, bundle half — `fresco/test/re_frame/fresco/consumer_app.cljs` | `2226b91b0c9579aa04bee412c3ef28b4886c844f` | `ff8ceed08d856dee11c3e72cc0c12f96f7febe1c` | `2226b91b0c9579aa04bee412c3ef28b4886c844f` |
 | 2 — `ssr/src/re_frame/ssr/emit.cljc` | `484e5f9abdee993a841a46da0583006e22cd23b1` | `7fbc629c7eee7aafce8fa651fd45cf8197d7eb75` | `484e5f9abdee993a841a46da0583006e22cd23b1` |
-| 3 — `hicasso/src/re_frame/hicasso/native.cljc` | `352f1e3d6342e334c39331186454fda8235a4116` | `d7f4272fafc8407cf4e9c49624873d633a4c2902` | `352f1e3d6342e334c39331186454fda8235a4116` |
-| 4 — `hicasso/src/re_frame/hicasso.cljc` | `8641b387629974f2564fe9cbf16748ce1473bfa7` | `7c4659d24bc7791391854615bd9f0c47500a059f` | `8641b387629974f2564fe9cbf16748ce1473bfa7` |
+| 3 — `fresco/src/re_frame/fresco/native.cljc` | `352f1e3d6342e334c39331186454fda8235a4116` | `d7f4272fafc8407cf4e9c49624873d633a4c2902` | `352f1e3d6342e334c39331186454fda8235a4116` |
+| 4 — `fresco/src/re_frame/fresco.cljc` | `8641b387629974f2564fe9cbf16748ce1473bfa7` | `7c4659d24bc7791391854615bd9f0c47500a059f` | `8641b387629974f2564fe9cbf16748ce1473bfa7` |
 
 **Each baseline hash equals the object committed at `f5b1f1e94f`, and each restored hash equals the
 baseline** — so every plant is proved to have applied rather than silently no-opped, and every restore
@@ -278,7 +278,7 @@ commit is only useful if a reader can see how far the trunk has travelled past i
 f5b1f1e94f..origin/main` names six paths and **not one of them is under `implementation/`** —
 `git diff --stat f5b1f1e94f..origin/main -- implementation` is empty. The six are `.beads/issues.jsonl`,
 `.github/workflows/test.yml`, `spec/009-Instrumentation.md` and three pages under
-`docs/design/hicasso/studio/`.
+`docs/design/fresco/studio/`.
 
 **The workflow file is the one that would matter, and it is comment-only.**
 `git diff -U0 f5b1f1e94f..origin/main -- .github/workflows/test.yml`, filtered to lines that are not

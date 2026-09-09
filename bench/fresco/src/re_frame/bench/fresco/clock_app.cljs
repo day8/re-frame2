@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.clock-app
+(ns re-frame.bench.fresco.clock-app
   "THE CANDIDATE'S CLOCK — the page half (rf2-0qj9w).
 
   The programme has no wall-clock measurement of its own candidate. Hook
@@ -6,7 +6,7 @@
   narrow and per-keystroke are not, and every clock figure published so
   far — `M1` mount 1.0150×, bulk-broad 0.6291× — is about the DONORS.
   This entry, its driver `clock_run.cjs` and
-  [[re-frame.bench.hicasso.clock-views]] are the three files that close
+  [[re-frame.bench.fresco.clock-views]] are the three files that close
   that.
 
   ## This page does not decide when a sample starts, and that is the point
@@ -17,7 +17,7 @@
   and the paint that the mutation causes. Under-reporting would be
   tolerable if it were common-mode; it is not. How much work a substrate
   leaves for the browser after its own call stack unwinds is exactly what
-  differs between these arms, and Hicasso's whole design concerns WHEN
+  differs between these arms, and Fresco's whole design concerns WHEN
   work happens. An in-page window flatters whichever arm defers most.
 
   So this entry exposes OPERATIONS and no clock. `clock_run.cjs` reads
@@ -53,7 +53,7 @@
 
       :reagent-subs   floor, reagent-subs, ctl-2x
       :uix-subs       floor, uix-subs,     ctl-2x
-      :hicasso        floor, hicasso,      ctl-2x
+      :fresco        floor, fresco,      ctl-2x
 
   The candidate's segment installs the **UIx adapter** — the one Arm 1's
   own witnesses install, and the substrate its React-hook spine is built
@@ -86,12 +86,12 @@
             ["react-dom/client" :as react-dom-client]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.clock-views :as rf.bench.hicasso.clock-views]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.p0-reagent-views :as rf.bench.hicasso.p0-reagent-views]
-            [re-frame.bench.hicasso.p0-uix-views :as rf.bench.hicasso.p0-uix-views]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.clock-views :as rf.bench.fresco.clock-views]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.p0-reagent-views :as rf.bench.fresco.p0-reagent-views]
+            [re-frame.bench.fresco.p0-uix-views :as rf.bench.fresco.p0-uix-views]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [reagent.core :as r]
@@ -128,13 +128,13 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private segments
-  "Three, one substrate arm each. `:hicasso` installs the UIx adapter —
+  "Three, one substrate arm each. `:fresco` installs the UIx adapter —
   Arm 1's React-hook spine is built over it and its own witnesses install
   it — so the segment names the arm under test rather than the adapter
   underneath it, and the record says which."
   [{:id :reagent-subs :adapter rf.adapter.reagent/adapter :name "Reagent-on-subs"}
    {:id :uix-subs     :adapter rf.adapter.uix/adapter     :name "UIx-on-subs"}
-   {:id :hicasso      :adapter rf.adapter.uix/adapter     :name "Hicasso Arm 1 (UIx adapter)"}])
+   {:id :fresco      :adapter rf.adapter.uix/adapter     :name "Fresco Arm 1 (UIx adapter)"}])
 
 (defn- segment-named [id] (first (filter #(= id (:id %)) segments)))
 
@@ -152,7 +152,7 @@
   `[:sub :p0/cell]` is registered TWICE in this bundle, at load, from two
   namespaces: `p0-reagent-views/register!` — the shared floor accessor
   every other row's arms read — and `clock-views/register-subs!`, which
-  registers the SAME computation (`rf.bench.hicasso.p0-reagent-views/cell-value`, so there is still one
+  registers the SAME computation (`rf.bench.fresco.p0-reagent-views/cell-value`, so there is still one
   body) behind the recompute census the keystroke witness gates on.
 
   A second `reg-sub` from a second namespace does not OVERWRITE the first;
@@ -174,9 +174,9 @@
   the witness's alone."
   [(rf/image {:id :clock/lane
               :select-ns {:include ["**"]
-                          :exclude ["re-frame.bench.hicasso.clock-views"]}})
+                          :exclude ["re-frame.bench.fresco.clock-views"]}})
    (rf/image {:id :clock/witness
-              :select-ns {:include ["re-frame.bench.hicasso.clock-views"]}})])
+              :select-ns {:include ["re-frame.bench.fresco.clock-views"]}})])
 
 (defn enter-segment!
   "Tear down whatever adapter is installed, install this segment's,
@@ -190,26 +190,26 @@
   segment's reactive graph."
   [seg-id]
   (let [{:keys [adapter]} (segment-named seg-id)]
-    (try (rf/destroy-frame! rf.bench.hicasso.p0-reagent-views/subs-frame)
-         (catch :default e (rf.bench.hicasso.lane/teardown-failure! "enter-segment! destroy-frame!" e)))
+    (try (rf/destroy-frame! rf.bench.fresco.p0-reagent-views/subs-frame)
+         (catch :default e (rf.bench.fresco.lane/teardown-failure! "enter-segment! destroy-frame!" e)))
     (when (rf/current-adapter)
       (try (rf/destroy-adapter!)
-           (catch :default e (rf.bench.hicasso.lane/teardown-failure! "enter-segment! destroy-adapter!" e))))
+           (catch :default e (rf.bench.fresco.lane/teardown-failure! "enter-segment! destroy-adapter!" e))))
     ;; `reset-runtime!` drops every cell, edge and cached entry the
     ;; candidate holds — and it calls `forget-frame-ops!` on the way, so a
     ;; destroyed-and-recreated frame cannot hand the arm a memoised bundle
     ;; pointing at the previous incarnation.
-    (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+    (rf.bench.fresco.arm1.runtime/reset-runtime!)
     (rf/init! adapter)
-    ;; `clock-views/register-subs!` and not `rf.bench.hicasso.p0-reagent-views/register!`: it registers
-    ;; BOTH `:p0/cell` (through `rf.bench.hicasso.p0-reagent-views/cell-value`, so there is one body) and
+    ;; `clock-views/register-subs!` and not `rf.bench.fresco.p0-reagent-views/register!`: it registers
+    ;; BOTH `:p0/cell` (through `rf.bench.fresco.p0-reagent-views/cell-value`, so there is one body) and
     ;; the indexed `:p0/draft`, both behind the recompute census the
     ;; keystroke witness gates on.
-    (rf.bench.hicasso.clock-views/register-subs!)
-    (rf/make-frame {:id rf.bench.hicasso.p0-reagent-views/subs-frame :images clock-images})
-    (rf.frame/replace-app-db! rf.bench.hicasso.p0-reagent-views/subs-frame (rf.bench.hicasso.p0-reagent-views/seed-cells rf.bench.hicasso.p0-reagent-views/cells-n 0))
-    (rf.bench.hicasso.lane/leave-act-environment!)
-    (swap! state assoc :segment seg-id :cells (zeros rf.bench.hicasso.p0-reagent-views/cells-n))
+    (rf.bench.fresco.clock-views/register-subs!)
+    (rf/make-frame {:id rf.bench.fresco.p0-reagent-views/subs-frame :images clock-images})
+    (rf.frame/replace-app-db! rf.bench.fresco.p0-reagent-views/subs-frame (rf.bench.fresco.p0-reagent-views/seed-cells rf.bench.fresco.p0-reagent-views/cells-n 0))
+    (rf.bench.fresco.lane/leave-act-environment!)
+    (swap! state assoc :segment seg-id :cells (zeros rf.bench.fresco.p0-reagent-views/cells-n))
     nil))
 
 ;; ---------------------------------------------------------------------------
@@ -238,7 +238,7 @@
    :mount    (fn [container]
                (let [root (react-dom-client/createRoot container)]
                  (react-dom/flushSync
-                   (fn [] (.render root (rf.bench.hicasso.p0-reagent-views/m1-floor (zeros n)))))
+                   (fn [] (.render root (rf.bench.fresco.p0-reagent-views/m1-floor (zeros n)))))
                  root))
    :unmount  (fn [root] (.unmount root))})
 
@@ -333,7 +333,7 @@
   over `[1, 300]`. Marginal cost per dirty cell, tared p50 over 18 blocks
   at 40 samples each:
 
-      interval      reagent    uix    hicasso
+      interval      reagent    uix    fresco
       [1, 100]       11.18    9.70     11.49   µs per dirty cell
       [100, 200]      6.18    5.94      5.25
       [200, 300]      6.19    6.89      7.05
@@ -438,7 +438,7 @@
   denominator of every published ratio instead of the control it is
   supposed to break."
   [id d]
-  (assoc (floor-mount-arm id ctl3-cells (/ ctl3-cells rf.bench.hicasso.p0-reagent-views/cells-n))
+  (assoc (floor-mount-arm id ctl3-cells (/ ctl3-cells rf.bench.fresco.p0-reagent-views/cells-n))
          :dirty d
          :ctl3? true))
 
@@ -473,22 +473,22 @@
 
 (defn- m1-arms [seg-id]
   [plumb-arm
-   (floor-mount-arm :floor rf.bench.hicasso.p0-reagent-views/cells-n 1)
+   (floor-mount-arm :floor rf.bench.fresco.p0-reagent-views/cells-n 1)
    (case seg-id
      :reagent-subs {:id      :reagent-subs
-                    :cells   rf.bench.hicasso.p0-reagent-views/cells-n
+                    :cells   rf.bench.fresco.p0-reagent-views/cells-n
                     :mount   (fn [container]
                                (let [root (rdc/create-root container)]
                                  (react-dom/flushSync
-                                   (fn [] (rdc/render root (rf.bench.hicasso.p0-reagent-views/subs-root rf.bench.hicasso.p0-reagent-views/m1-subs rf.bench.hicasso.p0-reagent-views/cells-n))))
+                                   (fn [] (rdc/render root (rf.bench.fresco.p0-reagent-views/subs-root rf.bench.fresco.p0-reagent-views/m1-subs rf.bench.fresco.p0-reagent-views/cells-n))))
                                  root))
                     :unmount (fn [root] (rdc/unmount root))}
      :uix-subs     {:id      :uix-subs
-                    :cells   rf.bench.hicasso.p0-reagent-views/cells-n
+                    :cells   rf.bench.fresco.p0-reagent-views/cells-n
                     :mount   (fn [container]
                                (let [root (uix-dom/create-root container)]
                                  (react-dom/flushSync
-                                   (fn [] (uix-dom/render-root (rf.bench.hicasso.p0-uix-views/subs-root rf.bench.hicasso.p0-uix-views/m1 rf.bench.hicasso.p0-reagent-views/cells-n) root)))
+                                   (fn [] (uix-dom/render-root (rf.bench.fresco.p0-uix-views/subs-root rf.bench.fresco.p0-uix-views/m1 rf.bench.fresco.p0-reagent-views/cells-n) root)))
                                  root))
                     :unmount (fn [root] (uix-dom/unmount-root root))}
      ;; `mount/root!` is the candidate's own door — what an Arm 1
@@ -503,12 +503,12 @@
      ;; disposes a cell whose last reader unmounted, one macrotask later,
      ;; which is the arm's own behaviour and not the harness's to
      ;; suppress.
-     :hicasso      {:id      :hicasso
-                    :cells   rf.bench.hicasso.p0-reagent-views/cells-n
+     :fresco      {:id      :fresco
+                    :cells   rf.bench.fresco.p0-reagent-views/cells-n
                     :mount   (fn [container]
-                               (rf.bench.hicasso.arm1.mount/root! container rf.bench.hicasso.p0-reagent-views/subs-frame (rf.bench.hicasso.clock-views/m1 rf.bench.hicasso.p0-reagent-views/cells-n)))
+                               (rf.bench.fresco.arm1.mount/root! container rf.bench.fresco.p0-reagent-views/subs-frame (rf.bench.fresco.clock-views/m1 rf.bench.fresco.p0-reagent-views/cells-n)))
                     :unmount (fn [handle] (.unmount ^js (:root handle)))})
-   (floor-mount-arm :ctl-2x (* 2 rf.bench.hicasso.p0-reagent-views/cells-n) 2)])
+   (floor-mount-arm :ctl-2x (* 2 rf.bench.fresco.p0-reagent-views/cells-n) 2)])
 
 (defn- ctl3-arms
   "The three-point statistic's arms, and they exist on BULK ROWS ONLY.
@@ -548,12 +548,12 @@
   refuted classification."
   [id busy]
   {:id           id
-   :cells        rf.bench.hicasso.clock-views/kb-cells-n
+   :cells        rf.bench.fresco.clock-views/kb-cells-n
    :control?     (pos? busy)
    :mount        (fn [container]
                    (let [root (react-dom-client/createRoot container)]
                      (react-dom/flushSync
-                       (fn [] (.render root (rf.bench.hicasso.clock-views/kb-floor-element rf.bench.hicasso.clock-views/kb-cells-n busy))))
+                       (fn [] (.render root (rf.bench.fresco.clock-views/kb-floor-element rf.bench.fresco.clock-views/kb-cells-n busy))))
                      root))
    :unmount      (fn [root] (.unmount root))})
 
@@ -562,25 +562,25 @@
    (kb-floor-arm :floor 0)
    (case seg-id
      :reagent-subs {:id      :reagent-subs
-                    :cells   rf.bench.hicasso.clock-views/kb-cells-n
+                    :cells   rf.bench.fresco.clock-views/kb-cells-n
                     :mount   (fn [container]
                                (let [root (rdc/create-root container)]
                                  (react-dom/flushSync
-                                   (fn [] (rdc/render root (rf.bench.hicasso.clock-views/r-kb-root rf.bench.hicasso.clock-views/kb-cells-n))))
+                                   (fn [] (rdc/render root (rf.bench.fresco.clock-views/r-kb-root rf.bench.fresco.clock-views/kb-cells-n))))
                                  root))
                     :unmount (fn [root] (rdc/unmount root))}
      :uix-subs     {:id      :uix-subs
-                    :cells   rf.bench.hicasso.clock-views/kb-cells-n
+                    :cells   rf.bench.fresco.clock-views/kb-cells-n
                     :mount   (fn [container]
                                (let [root (uix-dom/create-root container)]
                                  (react-dom/flushSync
-                                   (fn [] (uix-dom/render-root (rf.bench.hicasso.clock-views/u-kb-root rf.bench.hicasso.clock-views/kb-cells-n) root)))
+                                   (fn [] (uix-dom/render-root (rf.bench.fresco.clock-views/u-kb-root rf.bench.fresco.clock-views/kb-cells-n) root)))
                                  root))
                     :unmount (fn [root] (uix-dom/unmount-root root))}
-     :hicasso      {:id      :hicasso
-                    :cells   rf.bench.hicasso.clock-views/kb-cells-n
+     :fresco      {:id      :fresco
+                    :cells   rf.bench.fresco.clock-views/kb-cells-n
                     :mount   (fn [container]
-                               (rf.bench.hicasso.arm1.mount/root! container rf.bench.hicasso.p0-reagent-views/subs-frame (rf.bench.hicasso.clock-views/kb-form rf.bench.hicasso.clock-views/kb-cells-n)))
+                               (rf.bench.fresco.arm1.mount/root! container rf.bench.fresco.p0-reagent-views/subs-frame (rf.bench.fresco.clock-views/kb-form rf.bench.fresco.clock-views/kb-cells-n)))
                     :unmount (fn [handle] (.unmount ^js (:root handle)))})
    (kb-floor-arm :ctl-50ms 50)])
 
@@ -595,8 +595,8 @@
 
 (defn- expected-elements [row-key arm]
   (if (= :keystroke row-key)
-    (rf.bench.hicasso.clock-views/kb-elements (:cells arm))
-    (rf.bench.hicasso.p0-reagent-views/m1-elements (:cells arm))))
+    (rf.bench.fresco.clock-views/kb-elements (:cells arm))
+    (rf.bench.fresco.p0-reagent-views/m1-elements (:cells arm))))
 
 ;; ---------------------------------------------------------------------------
 ;; The write, and its read-back
@@ -618,12 +618,12 @@
   and the row would not measure what its name says. K is the number of
   boundaries whose value moves, and this is what makes that true."
   [k val op]
-  (let [n     rf.bench.hicasso.p0-reagent-views/cells-n
+  (let [n     rf.bench.fresco.p0-reagent-views/cells-n
         prev  (:cells @state)
         start (if (= k 1) (mod (* 7 op) n) 0)
         cells (reduce (fn [cs d] (assoc cs (mod (+ start d) n) val)) prev (range k))]
     (swap! state assoc :cells cells)
-    (rf.frame/replace-app-db! rf.bench.hicasso.p0-reagent-views/subs-frame {:cells cells})
+    (rf.frame/replace-app-db! rf.bench.fresco.p0-reagent-views/subs-frame {:cells cells})
     (if (= k 1) [start] [start (mod (+ start (dec k)) n)])))
 
 (defn- drain!
@@ -631,7 +631,7 @@
   window shape that differs between arms prices the window.
 
   Reagent's is `reagent.core/flush` inside one `flushSync`. UIx's and
-  Hicasso's is an EMPTY `flushSync`, because a `useSyncExternalStore`
+  Fresco's is an EMPTY `flushSync`, because a `useSyncExternalStore`
   notification schedules at React's SYNC lane and an empty flush is what
   lets it land. Not `flush-views!` and not `act` — `act` diverts work to a
   queue that is not the browser's, and every window here is taken outside
@@ -681,10 +681,10 @@
   (let [arm (arm-named row-key arm-id)]
     (if (or (:plumb? arm) (= :mount (:kind (get rows row-key))))
       (settle-frame)
-      (let [container (rf.bench.hicasso.lane/fresh-container!)
+      (let [container (rf.bench.fresco.lane/fresh-container!)
             handle    ((:mount arm) container)
             expected  (expected-elements row-key arm)
-            got       (rf.bench.hicasso.lane/element-count container)]
+            got       (rf.bench.fresco.lane/element-count container)]
         (when-not (= expected got)
           (throw (js/Error. (str "the " (name arm-id) " arm built " got
                                  " elements where its own " (:cells arm)
@@ -731,7 +731,7 @@
   "Release this arm's standing mount. Never timed."
   [_row-key arm-id]
   (when-some [p (get-in @state [:prepared arm-id])]
-    (rf.bench.hicasso.lane/release! p)
+    (rf.bench.fresco.lane/release! p)
     (swap! state update :prepared dissoc arm-id))
   (settle-frame))
 
@@ -751,11 +751,11 @@
   or 600 boundaries is real work and charging it to the mount would price
   a teardown as part of a mount row."
   [_row-key arm]
-  (let [container (rf.bench.hicasso.lane/fresh-container!)
+  (let [container (rf.bench.fresco.lane/fresh-container!)
         handle    (volatile! nil)
-        t0        (rf.bench.hicasso.lane/now-ms)
+        t0        (rf.bench.fresco.lane/now-ms)
         _         (vreset! handle ((:mount arm) container))
-        ms        (- (rf.bench.hicasso.lane/now-ms) t0)]
+        ms        (- (rf.bench.fresco.lane/now-ms) t0)]
     (swap! state assoc :pending {:arm arm :container container :handle @handle})
     (.then (settle-frame) (fn [_] #js {:inPageMs ms :ok true}))))
 
@@ -764,9 +764,9 @@
   the driver AFTER it has read the counters, so nothing here is timed."
   [row-key]
   (if-some [p (:pending @state)]
-    (let [ok? (= (expected-elements row-key (:arm p)) (rf.bench.hicasso.lane/element-count (:container p)))]
+    (let [ok? (= (expected-elements row-key (:arm p)) (rf.bench.fresco.lane/element-count (:container p)))]
       (bank! ok?)
-      (rf.bench.hicasso.lane/release! p)
+      (rf.bench.fresco.lane/release! p)
       (swap! state assoc :pending nil)
       (.then (settle-frame) (fn [_] #js {:ok ok?})))
     (.then (settle-frame) (fn [_] #js {:ok true}))))
@@ -794,7 +794,7 @@
         ;; makes the control the only gate that can see it.
         dirty  (when-some [d (:dirty arm)]
                  (if (:ctl3-top? arm) (or (:sabotage @state) d) d))
-        t0     (rf.bench.hicasso.lane/now-ms)
+        t0     (rf.bench.fresco.lane/now-ms)
         ;; The floor renders INSIDE the `flushSync`, element tree and all,
         ;; and neither half is a convenience. `root.render` called outside
         ;; a React event schedules at React's DEFAULT lane and an empty
@@ -814,21 +814,21 @@
         probes (cond
                  (some? dirty)
                  (do (react-dom/flushSync
-                       (fn [] (.render ^js root (rf.bench.hicasso.p0-reagent-views/m1-floor (dirty-cells n dirty val)))))
+                       (fn [] (.render ^js root (rf.bench.fresco.p0-reagent-views/m1-floor (dirty-cells n dirty val)))))
                      (cond-> [[0 (str val)] [(dec dirty) (str val)]]
                        (< dirty n) (conj [(dec n) "0"])))
 
                  (:floor? arm)
                  (do (react-dom/flushSync
-                       (fn [] (.render ^js root (rf.bench.hicasso.p0-reagent-views/m1-floor (vec (repeat n val))))))
+                       (fn [] (.render ^js root (rf.bench.fresco.p0-reagent-views/m1-floor (vec (repeat n val))))))
                      [[0 (str val)] [(dec n) (str val)]])
 
                  :else
                  (let [ps (write-cells! k val op)]
                    (drain! (:id arm))
                    (mapv (fn [i] [i (str val)]) ps)))
-        ms     (- (rf.bench.hicasso.lane/now-ms) t0)
-        ok?    (every? (fn [[i expect]] (= expect (rf.bench.hicasso.lane/text-at cont i))) probes)]
+        ms     (- (rf.bench.fresco.lane/now-ms) t0)
+        ok?    (every? (fn [[i expect]] (= expect (rf.bench.fresco.lane/text-at cont i))) probes)]
     (bank! ok?)
     (.then (settle-frame) (fn [_] #js {:inPageMs ms :ok ok?}))))
 
@@ -918,7 +918,7 @@
          (fn [_]
            (let [els (draft-fields arm-id)
                  got (mapv (fn [i] (str (some-> els (aget i) .-value)))
-                           (range rf.bench.hicasso.clock-views/kb-fields-n))
+                           (range rf.bench.fresco.clock-views/kb-fields-n))
                  exp (mapv str (js->clj expected))]
              #js {:ok (bank! (= exp got)) :got (clj->js got)}))))
 
@@ -957,18 +957,18 @@
       ;; control so the gate exempts it by the same rule that exempts the
       ;; doubling arm.
       #js {:arm (name arm-id) :hash 0 :bytes 0 :control true}
-      (let [c (rf.bench.hicasso.lane/fresh-container!)
+      (let [c (rf.bench.fresco.lane/fresh-container!)
             h ((:mount arm) c)
-            s (rf.bench.hicasso.lane/canonical c)]
-        (rf.bench.hicasso.lane/release! {:arm arm :container c :handle h})
-        ;; The canon mount wrote nothing, but a Hicasso or Reagent arm
+            s (rf.bench.fresco.lane/canonical c)]
+        (rf.bench.fresco.lane/release! {:arm arm :container c :handle h})
+        ;; The canon mount wrote nothing, but a Fresco or Reagent arm
         ;; mounted here has warmed the frame's caches. Re-seed so a row's
         ;; first sample meets the same app-db every other one does.
-        (rf.frame/replace-app-db! rf.bench.hicasso.p0-reagent-views/subs-frame (rf.bench.hicasso.p0-reagent-views/seed-cells rf.bench.hicasso.p0-reagent-views/cells-n 0))
-        (swap! state assoc :cells (zeros rf.bench.hicasso.p0-reagent-views/cells-n))
-        ;; `rf.bench.hicasso.lane/utf8-bytes` and not `count`: the driver prints this under a
+        (rf.frame/replace-app-db! rf.bench.fresco.p0-reagent-views/subs-frame (rf.bench.fresco.p0-reagent-views/seed-cells rf.bench.fresco.p0-reagent-views/cells-n 0))
+        (swap! state assoc :cells (zeros rf.bench.fresco.p0-reagent-views/cells-n))
+        ;; `rf.bench.fresco.lane/utf8-bytes` and not `count`: the driver prints this under a
         ;; `bytes` label, and `count` answers UTF-16 code units (rf2-2rtt6.121).
-        #js {:arm (name arm-id) :hash (str-hash s) :bytes (rf.bench.hicasso.lane/utf8-bytes s)
+        #js {:arm (name arm-id) :hash (str-hash s) :bytes (rf.bench.fresco.lane/utf8-bytes s)
              :control (boolean (:control? arm))}))))
 
 ;; ---------------------------------------------------------------------------
@@ -976,15 +976,15 @@
 ;; ---------------------------------------------------------------------------
 
 (defn -main []
-  (rf.bench.hicasso.lane/leave-act-environment!)
-  (swap! state assoc :tally (rf.bench.hicasso.lane/tally))
+  (rf.bench.fresco.lane/leave-act-environment!)
+  (swap! state assoc :tally (rf.bench.fresco.lane/tally))
   (set! (.-HCLOCK js/window)
-        (rf.bench.hicasso.lane/legible-doors
+        (rf.bench.fresco.lane/legible-doors
         #js {:rows     (clj->js (mapv (fn [[k m]] {:id (name k) :why (:why m)}) rows))
              :segments (clj->js (mapv (fn [s] {:id (name (:id s)) :name (:name s)}) segments))
-             :cellsN    rf.bench.hicasso.p0-reagent-views/cells-n
-             :kbCellsN  rf.bench.hicasso.clock-views/kb-cells-n
-             :kbFieldsN rf.bench.hicasso.clock-views/kb-fields-n
+             :cellsN    rf.bench.fresco.p0-reagent-views/cells-n
+             :kbCellsN  rf.bench.fresco.clock-views/kb-cells-n
+             :kbFieldsN rf.bench.fresco.clock-views/kb-fields-n
              :enterSegment  (fn [seg] (enter-segment! (keyword seg)) true)
              ;; `dirty` is the DECLARED count and never the sabotaged one.
              ;; The driver's prediction is derived from what the page says
@@ -1011,19 +1011,19 @@
              ;; THE RECOMPUTE CENSUS. Armed and read in a WARM-UP sample,
              ;; so no measured sample carries its cost, and around a REAL
              ;; keypress, so what it counts is the path the row publishes.
-             :censusStart   (fn [] (rf.bench.hicasso.clock-views/census-start!) true)
-             :censusTake    (fn [] (rf.bench.hicasso.clock-views/census-take!))
+             :censusStart   (fn [] (rf.bench.fresco.clock-views/census-start!) true)
+             :censusTake    (fn [] (rf.bench.fresco.clock-views/census-take!))
              :settle        (fn [] (settle-frame))
              :sabotage      (fn [d] (sabotage! d))
-             :tally         (fn [] (clj->js (rf.bench.hicasso.lane/tally-value (:tally @state))))
-             :teardownCheck (fn [] (clj->js (mapv :where (rf.bench.hicasso.lane/drain-teardown-failures!))))
-             :runtime       (fn [] (pr-str (rf.bench.hicasso.lane/runtime-label)))
+             :tally         (fn [] (clj->js (rf.bench.fresco.lane/tally-value (:tally @state))))
+             :teardownCheck (fn [] (clj->js (mapv :where (rf.bench.fresco.lane/drain-teardown-failures!))))
+             :runtime       (fn [] (pr-str (rf.bench.fresco.lane/runtime-label)))
              ;; Both censuses, because neither sees the other's references:
-             ;; `rf.bench.hicasso.lane/residue` counts attached containers and the frame's
+             ;; `rf.bench.fresco.lane/residue` counts attached containers and the frame's
              ;; sub-cache, `runtime/residue` counts the candidate's own
              ;; cells, edges and cached entries.
-             :residue       (fn [] (pr-str {:lane (rf.bench.hicasso.lane/residue rf.bench.hicasso.p0-reagent-views/subs-frame)
-                                            :arm1 (rf.bench.hicasso.arm1.runtime/residue)}))}))
+             :residue       (fn [] (pr-str {:lane (rf.bench.fresco.lane/residue rf.bench.fresco.p0-reagent-views/subs-frame)
+                                            :arm1 (rf.bench.fresco.arm1.runtime/residue)}))}))
   (set! (.-HCLOCK_READY js/window) true)
   (js/console.log ";; HCLOCK ready")
   nil)

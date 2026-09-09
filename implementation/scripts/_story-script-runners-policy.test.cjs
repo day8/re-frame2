@@ -290,7 +290,7 @@ test('play-scripts runner gates discovery on checkRowsNonVacuous (rf2-54xbp / rf
 
 // ---- rf2-kttom: the roster, and the per-testbed floors ----
 //
-// The runner drove ONE hardcoded testbed until the Hicasso deck landed.
+// The runner drove ONE hardcoded testbed until the Fresco deck landed.
 // A deck silently dropped from the roster is a gate that stopped running
 // without ever going red, so the roster's membership is pinned here — and
 // so is the property that makes the two floors safe to differ: the opt-out
@@ -304,8 +304,8 @@ test('the play-scripts roster names both Story testbeds (rf2-kttom)', () => {
       "runner's own pass/fail semantics.",
   );
   assert.ok(
-    labels.includes('hicasso-counter'),
-    'the hicasso testbed must be on the roster — it owns proof that a view ' +
+    labels.includes('fresco-counter'),
+    'the fresco testbed must be on the roster — it owns proof that a view ' +
       'authored on the native substrate paints in Story (rf2-kttom).',
   );
   for (const t of TESTBEDS) {
@@ -343,10 +343,10 @@ test('checkRowsNonVacuous: requireBothSides defaults TRUE, so no-opts callers ke
 });
 
 test('checkRowsNonVacuous: an opted-out entry passes on ONE successful play (rf2-kttom)', () => {
-  const hicasso = TESTBEDS.find((t) => t.label === 'hicasso-counter');
+  const fresco = TESTBEDS.find((t) => t.label === 'fresco-counter');
   const v = checkRowsNonVacuous(
-    [{ 'variant-id': 'story.hicasso-counter/tally', 'play-key': null }],
-    hicasso.vacuity,
+    [{ 'variant-id': 'story.fresco-counter/tally', 'play-key': null }],
+    fresco.vacuity,
   );
   assert.equal(v.ok, true);
   assert.equal(v.passRows, 1);
@@ -354,8 +354,8 @@ test('checkRowsNonVacuous: an opted-out entry passes on ONE successful play (rf2
 });
 
 test('checkRowsNonVacuous: an opted-out entry still fails CLOSED on zero rows (rf2-kttom)', () => {
-  const hicasso = TESTBEDS.find((t) => t.label === 'hicasso-counter');
-  const v = checkRowsNonVacuous([], hicasso.vacuity);
+  const fresco = TESTBEDS.find((t) => t.label === 'fresco-counter');
+  const v = checkRowsNonVacuous([], fresco.vacuity);
   assert.equal(v.ok, false);
   assert.match(v.diagnostic, /DRIFTED/);
 });
@@ -365,7 +365,7 @@ test('checkRowsNonVacuous: the opt-out waives expected-fail ONLY — no successf
   // job is to prove one play succeeds, that is vacuous in the direction the
   // opt-out does NOT cover.
   const v = checkRowsNonVacuous(
-    [{ 'variant-id': 'story.hicasso-counter/failing-tally', 'play-key': null }],
+    [{ 'variant-id': 'story.fresco-counter/failing-tally', 'play-key': null }],
     { minRows: 1, requireBothSides: false },
   );
   assert.equal(v.ok, false);

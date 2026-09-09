@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.arm1.lang
+(ns re-frame.bench.fresco.arm1.lang
   "`defview`, `event` and `defhost` — the three macros Arm 1 has
   (rf2-2rtt6.9, rf2-2rtt6.35, rf2-2rtt6.65).
 
@@ -15,7 +15,7 @@
   no subscription, plans no holes, and emits no code that depends on what
   the body contains. Everything the body does — hiccup interpretation,
   subscription reads, intent lowering — happens at runtime in
-  `re-frame.bench.hicasso.arm1.runtime`, on forms the macro never
+  `re-frame.bench.fresco.arm1.runtime`, on forms the macro never
   inspected. The only thing it captures at expansion time is the view's
   *name*, for `displayName`.
 
@@ -30,7 +30,7 @@
   a `.cljc` would invite a JVM-side implementation this arm does not
   have. SSR becoming required scope (the 2026-08-04 HD-020 addendum) did
   not change that: the arm renders on **Node**, calling
-  `react-dom/server` from CLJS ([[re-frame.bench.hicasso.ssr.node]]), so
+  `react-dom/server` from CLJS ([[re-frame.bench.fresco.ssr.node]]), so
   there is still no JVM render path for a `.cljc` to imply.")
 
 (defmacro defview
@@ -48,7 +48,7 @@
         view-name (str (ns-name *ns*) "/" sym)
         body-name (symbol (str sym "-body"))]
     `(def ~(if doc (vary-meta sym assoc :doc doc) sym)
-       (re-frame.bench.hicasso.arm1.runtime/mint-view!
+       (re-frame.bench.fresco.arm1.runtime/mint-view!
          ~view-name
          (fn ~body-name ~argv ~@body)))))
 
@@ -63,15 +63,15 @@
 
       (event [e] (js/Array.from (.. e -target -files)) …)
       ;; =>
-      (re-frame.bench.hicasso.front.intent/callback (fn [e] …))
+      (re-frame.bench.fresco.front.intent/callback (fn [e] …))
 
   The value is an ORDINARY FUNCTION — that is the point of the ruling.
   The contract comes from the position it is written at, so there is
   nothing to choose between and nothing that can fail to be callable
-  where Hicasso does not walk. See
-  [[re-frame.bench.hicasso.front.intent]] for the position table."
+  where Fresco does not walk. See
+  [[re-frame.bench.fresco.front.intent]] for the position table."
   [argv & body]
-  `(re-frame.bench.hicasso.front.intent/callback (fn ~argv ~@body)))
+  `(re-frame.bench.fresco.front.intent/callback (fn ~argv ~@body)))
 
 (defmacro defhost
   "**The interop door — the one-line declaration (HD-011).** Name the
@@ -119,19 +119,19 @@
   walked into one element at the declaration and reused at every use
   site, so a `defview` or `defhost` head written there — an element
   whose body runs later — is refused with
-  `:rf.error/hicasso-host-fallback-boundary-head`. Write plain hiccup,
+  `:rf.error/fresco-host-fallback-boundary-head`. Write plain hiccup,
   or declare `:ssr :render` and render the real subtree.
 
   Policy lives on the declaration, so every use site inherits it; the
   defaults, the refusals and the crossing itself are
-  [[re-frame.bench.hicasso.front.codec/mint-host!]]'s.
+  [[re-frame.bench.fresco.front.codec/mint-host!]]'s.
 
   The callback is an [[event]] and not an intent vector because
   react-datepicker calls `onChange(date, event)` — VALUE-first, with no
   event at argument one — while the vector spelling is EVENT-first
   (HD-024's argument law, in
-  [[re-frame.bench.hicasso.front.intent]]). `[:task/set-due ::h/value]`
-  there raises `:rf.error/hicasso-intent-needs-the-event` naming the
+  [[re-frame.bench.fresco.front.intent]]). `[:task/set-due ::h/value]`
+  there raises `:rf.error/fresco-intent-needs-the-event` naming the
   position, and the one callback form is the spelling that sees the
   library's own arguments, in order. At an EVENT-first foreign callback —
   `onDraft(event)` — the vector and its markers are legal and shorter.
@@ -145,5 +145,5 @@
         [component opts] (if doc (rest more) more)
         host-name   (str (ns-name *ns*) "/" sym)]
     `(def ~(if doc (vary-meta sym assoc :doc doc) sym)
-       (re-frame.bench.hicasso.front.codec/mint-host!
+       (re-frame.bench.fresco.front.codec/mint-host!
          ~host-name ~component ~(or opts {})))))

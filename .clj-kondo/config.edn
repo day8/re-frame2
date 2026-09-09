@@ -12,21 +12,21 @@
 ;; Story's authoring macros (`reg-story` / `reg-variant` / `reg-workspace`
 ;; / `reg-mode` / `reg-story-panel` / `reg-decorator` / `reg-tag`)
 ;; follow the same shape and get lint-as'd here too.
-{;; Hicasso ships its own clj-kondo export from the artefact
- ;; (`implementation/hicasso/resources/clj-kondo.exports/day8/re-frame2-hicasso/`,
+{;; Fresco ships its own clj-kondo export from the artefact
+ ;; (`implementation/fresco/resources/clj-kondo.exports/day8/re-frame2-fresco/`,
  ;; rf2-hic-022; macro shapes only since rf2-r3r00) — `defview`, `event` and
  ;; `defhost` rewritten to their `defn` / `fn` / `def` shapes. Pointing
  ;; `:config-paths` at it makes this repo the export's FIRST CONSUMER rather
  ;; than a second, divergent description of the same macros: the `:lint-as`
  ;; entries below cover the retired bench spelling
- ;; (`re-frame.bench.hicasso.arm1.lang/*`) and nothing covered the moved
- ;; package's `re-frame.hicasso/*` at all, so every view name and every
- ;; destructured prop under `implementation/hicasso/` read as an unresolved
+ ;; (`re-frame.bench.fresco.arm1.lang/*`) and nothing covered the moved
+ ;; package's `re-frame.fresco/*` at all, so every view name and every
+ ;; destructured prop under `implementation/fresco/` read as an unresolved
  ;; symbol until this line landed. It also means the required `clj-kondo`
  ;; job is what proves the export loads and stays quiet on real code.
  ;; Relative to THIS directory, per clj-kondo's `:config-paths` contract.
  :config-paths
- ["../implementation/hicasso/resources/clj-kondo.exports/day8/re-frame2-hicasso"]
+ ["../implementation/fresco/resources/clj-kondo.exports/day8/re-frame2-fresco"]
 
  :linters
  {:unresolved-symbol {:level :warning}
@@ -121,7 +121,7 @@
   ;; a Var, optional docstring + body expression analysed).
   re-frame.core/defmachine          clojure.core/def
 
-  ;; Hicasso Arm 1's `defview` (rf2-2rtt6.9) is
+  ;; Fresco Arm 1's `defview` (rf2-2rtt6.9) is
   ;; `(defview sym [doc] [props] body+)` — a `defn`-shaped wrapper that
   ;; introduces a Var holding the React function component the runtime
   ;; minted. `clojure.core/defn` is the right shape: the name resolves as
@@ -130,17 +130,17 @@
   ;; unresolved nor unused. It lives in the bench/test tree on a spike
   ;; branch (HD-017), so this entry retires with the arm if the P2 ruling
   ;; does not graduate it.
-  re-frame.bench.hicasso.arm1.lang/defview clojure.core/defn
+  re-frame.bench.fresco.arm1.lang/defview clojure.core/defn
 
-  ;; Hicasso's one callback form (rf2-2rtt6.35, HD-024). `(hfn [e] body+)`
+  ;; Fresco's one callback form (rf2-2rtt6.35, HD-024). `(hfn [e] body+)`
   ;; expands to `(intent/callback (fn [e] body+))` and nothing else, so
   ;; `clojure.core/fn` is exactly its shape: the argument vector gets
   ;; ordinary lexical-binding analysis, which is what stops every `hfn`
   ;; parameter reading as an unresolved symbol. Retires with the arm on
   ;; the same terms as `defview` above.
-  re-frame.bench.hicasso.arm1.lang/hfn     clojure.core/fn
+  re-frame.bench.fresco.arm1.lang/hfn     clojure.core/fn
 
-  ;; Hicasso's interop door (rf2-2rtt6.65, HD-011). `(defhost sym [doc]
+  ;; Fresco's interop door (rf2-2rtt6.65, HD-011). `(defhost sym [doc]
   ;; component [opts])` introduces a Var holding the head `mint-host!`
   ;; minted, so `clojure.core\def` is its shape — the name resolves as a
   ;; Var, the optional docstring is accepted, and the component and opts
@@ -148,7 +148,7 @@
   ;; declares no parameter vector, since the props it accepts are the
   ;; foreign component's business rather than the declaration's. Retires
   ;; with the arm on the same terms as `defview` above.
-  re-frame.bench.hicasso.arm1.lang/defhost clojure.core/def
+  re-frame.bench.fresco.arm1.lang/defhost clojure.core/def
 
   ;; `reg-view` is `(reg-view sym [args] body)` — defn-shape, but the
   ;; macro auto-injects `dispatch` / `subscribe` into the body. Handled
@@ -197,8 +197,8 @@
  ;; compiled or wired into a build (the prior TSX reference was never linted
  ;; either). Exclude it from clj-kondo so the mockup's illustrative ns/shape
  ;; doesn't gate production lint. Per rf2-7sxsz (Mike 2026-05-24).
- ;; `implementation/hicasso/lint-fixtures/` holds the macro-shape smoke fixture
- ;; for the Hicasso lint export (rf2-r3r00), linted by the export's own gate
+ ;; `implementation/fresco/lint-fixtures/` holds the macro-shape smoke fixture
+ ;; for the Fresco lint export (rf2-r3r00), linted by the export's own gate
  ;; (`check_lint_export.py`) with the SHIPPED config as `--config-dir` — a
  ;; consumer's view of the export, not this repo's. It carries a deliberate
  ;; sentinel finding, so linting it here would be a second, disagreeing reading

@@ -1,6 +1,6 @@
-# Hicasso glossary
+# Fresco glossary
 
-This glossary defines Hicasso-specific terms. Core re-frame2 terms such as
+This glossary defines Fresco-specific terms. Core re-frame2 terms such as
 [app-db](../glossary.md#app-db),
 [frame](../glossary.md#frame),
 [event](../glossary.md#event), and
@@ -9,10 +9,10 @@ This glossary defines Hicasso-specific terms. Core re-frame2 terms such as
 
 ## Authoring
 
-<a id="hicasso"></a>
-### Hicasso
+<a id="fresco"></a>
+### Fresco
 
-re-frame2's native React view adapter. Hicasso interprets
+re-frame2's native React view adapter. Fresco interprets
 [Hiccup](../glossary.md#hiccup), reads subscriptions with
 [`h/sub`](#hsub), and accepts event vectors as [intents](#intent). App-db,
 events, effects, and the event pipeline remain ordinary re-frame2.
@@ -20,7 +20,7 @@ events, effects, and the event pipeline remain ordinary re-frame2.
 Require it as:
 
 ```clojure
-[re-frame.hicasso :as h]
+[re-frame.fresco :as h]
 ```
 
 Forms, overlays, routing helpers, the island hooks, and test tooling are separate
@@ -32,7 +32,7 @@ Related: [Getting started](01-getting-started.md),
 <a id="defview"></a>
 ### `defview`
 
-`h/defview` defines a Hicasso [view](#view). The view receives one props map and
+`h/defview` defines a Fresco [view](#view). The view receives one props map and
 returns Hiccup, `nil`, a fragment, or a native React element at the direct-return
 performance level.
 
@@ -70,7 +70,7 @@ An independently re-rendering unit created by [`h/defview`](#defview). It:
 - compares props with ClojureScript `=`;
 - supplies the re-frame2 frame used by event [intents](#intent).
 
-Native tags, fragments, and [`h/defhost`](#defhost) heads do not create Hicasso
+Native tags, fragments, and [`h/defhost`](#defhost) heads do not create Fresco
 view boundaries.
 
 Related: [Views and reads](02-views-and-reads.md).
@@ -88,14 +88,14 @@ in the caller's tree, and any `h/sub` calls belong to the enclosing
 ```
 
 A plain function in Hiccup head position raises
-`:rf.error/hicasso-bad-head`.
+`:rf.error/fresco-bad-head`.
 
 Related: [Views and reads](02-views-and-reads.md).
 
 <a id="hsub"></a>
 ### `h/sub`
 
-The only subscription-read form inside a Hicasso view. It is an ordinary
+The only subscription-read form inside a Fresco view. It is an ordinary
 function call and may appear in a `let`, conditional, loop, or synchronous
 helper.
 
@@ -118,8 +118,8 @@ sequence, unforced delay, or other deferred computation may not carry the read
 outside that extent.
 
 A read after the extent raises a structured error such as
-`:rf.error/hicasso-sub-outside-render` or
-`:rf.error/hicasso-deferred-read-at-boundary`. Read the value during render and
+`:rf.error/fresco-sub-outside-render` or
+`:rf.error/fresco-deferred-read-at-boundary`. Read the value during render and
 close over the value instead.
 
 Related: [Views and reads](02-views-and-reads.md).
@@ -139,10 +139,10 @@ Related: [Views and reads](02-views-and-reads.md).
 The props and children contract for a Hiccup head: which values are converted,
 which pass by identity, where `:key` and `:ref` live, and how children arrive.
 
-- Hicasso views receive a ClojureScript props map.
+- Fresco views receive a ClojureScript props map.
 - Declared hosts follow their callback, slot, and server contracts.
 - A React island, reached through a host, receives React props; nothing lowers
-  Hicasso event intents or controlled fields inside it.
+  Fresco event intents or controlled fields inside it.
 
 Related: [Views and reads](02-views-and-reads.md),
 [Interop](09-interop.md), [Islands](10-native-tier.md).
@@ -150,7 +150,7 @@ Related: [Views and reads](02-views-and-reads.md),
 <a id="lowering"></a>
 ### Lowering
 
-The conversion from Hicasso data to React props and elements. It includes the
+The conversion from Fresco data to React props and elements. It includes the
 Hiccup walk, event-intent callback creation, controlled-field behaviour, and
 attribute normalisation.
 
@@ -251,7 +251,7 @@ Related: [Events as data](03-events-as-data.md),
 ### `::h/prevent`
 
 An intent wrapper that calls `preventDefault` and then dispatches one inner
-event vector. Hicasso does not auto-prevent clicks; `:on-submit` is the one
+event vector. Fresco does not auto-prevent clicks; `:on-submit` is the one
 position whose data spelling prevents by default, so a submit intent needs no
 wrapper. A callback always owns its own event and is never auto-prevented.
 
@@ -268,7 +268,7 @@ Related: [Events as data](03-events-as-data.md).
 ### Controlled field
 
 An input whose displayed value comes from app-db and whose user edits return as
-event intents. Hicasso's controlled path provides:
+event intents. Fresco's controlled path provides:
 
 - synchronous same-turn convergence;
 - committed-value echo;
@@ -277,7 +277,7 @@ event intents. Hicasso's controlled path provides:
 - explicit reset through [`::h/revision`](#hrevision).
 
 A React island does not provide this repair. Keep controlled text fields on
-the interpreted Hicasso path.
+the interpreted Fresco path.
 
 Related: [Controlled inputs](04-controlled-inputs.md).
 
@@ -379,7 +379,7 @@ Related: [Interop](09-interop.md),
 <a id="outward-bridge"></a>
 ### `as-component` / outward bridge
 
-`h/as-component` turns a Hicasso view into a real React component that a native
+`h/as-component` turns a Fresco view into a real React component that a native
 React, UIx, or JavaScript parent can mount under the existing frame provider.
 It does not create another root or state owner.
 
@@ -426,11 +426,11 @@ Related: [Interop](09-interop.md).
 ## Islands
 
 <a id="native-tier"></a>
-### `re-frame.hicasso.native`
+### `re-frame.fresco.native`
 
 The optional hooks namespace, usually aliased `n`. It holds exactly two public
 names, [`n/use-sub`](#nuse-sub) and [`n/use-frame`](#nuseframe), which are how a
-React island reaches Hicasso state. It carries no element grammar and no
+React island reaches Fresco state. It carries no element grammar and no
 component macro: an island is written in raw React or UIx.
 
 `[...]` always means interpreted Hiccup. A React element is never interpreted;
@@ -461,7 +461,7 @@ Related: [Islands](10-native-tier.md).
 ### Island
 
 A React component, raw React or UIx, mounted through [`h/defhost`](#defhost)
-under the same React root and re-frame2 frame as the surrounding Hicasso
+under the same React root and re-frame2 frame as the surrounding Fresco
 application. It is appropriate for hooks, vendor widgets, and high-rate
 host-private mechanics.
 
@@ -475,7 +475,7 @@ Related: [Islands](10-native-tier.md).
 
 Five explicit implementation levels:
 
-1. ordinary Hicasso;
+1. ordinary Fresco;
 2. tuned [read topology](#read-topology);
 3. a React element returned directly from an existing view;
 4. a React [island](#native-island);
@@ -502,7 +502,7 @@ Related: [Performance](19-performance.md).
 <a id="one-state-owner"></a>
 ### One state owner
 
-Application-visible state lives in re-frame2 app-db. Hicasso does not add a
+Application-visible state lives in re-frame2 app-db. Fresco does not add a
 component-local reactive store. A host may retain private mechanics only when
 they are not a hidden duplicate of an application fact.
 
@@ -511,7 +511,7 @@ Related: [Ephemeral state](11-ephemeral-state.md).
 <a id="motion-presence"></a>
 ### `motion/presence`
 
-Optional exit-retention head from `re-frame.hicasso.motion`. Keeps keyed
+Optional exit-retention head from `re-frame.fresco.motion`. Keeps keyed
 children for `:timeout-ms` after their data leaves app-db so CSS exit
 transitions can run. Merges each child's `::motion/mounting` /
 `::motion/unmounting` override map into it while it is in that phase — an
@@ -536,7 +536,7 @@ Related: [Ephemeral state](11-ephemeral-state.md).
 <a id="overlay"></a>
 ### Overlay
 
-`re-frame.hicasso.overlay` popover and modal primitives. They use the browser's
+`re-frame.fresco.overlay` popover and modal primitives. They use the browser's
 native top layer. App-db owns `:open?`; `:on-dismiss` is an event; the browser
 owns stacking, light-dismiss, modal focus trapping, and focus restoration.
 
@@ -548,7 +548,7 @@ Related: [Overlays and focus](13-overlays-and-focus.md).
 ### `route-link`
 
 A routing helper on the door, called as `h/route-link`, that returns a real
-anchor and encodes navigation as a Hicasso intent. It supports route ids and
+anchor and encodes navigation as a Fresco intent. It supports route ids and
 params, native link semantics, and link-local veto behaviour. `:prefetch
 :intent` warms the destination on hover, focus and touch, filling those three
 positions with routing's own prefetch event; supply a value at one of them
@@ -589,8 +589,8 @@ Related: [Async resources](08-async-resources.md),
 
 Two namespaces:
 
-- `re-frame.hicasso.test`, usually `ht`, for pure and semantic tests;
-- `re-frame.hicasso.test.mounted`, usually `hm`, for mounted React and DOM
+- `re-frame.fresco.test`, usually `ht`, for pure and semantic tests;
+- `re-frame.fresco.test.mounted`, usually `hm`, for mounted React and DOM
   tests.
 
 Related: [Testing](15-testing.md).
@@ -613,7 +613,7 @@ Related: [Testing](15-testing.md).
 <a id="semantic-harness"></a>
 ### Semantic harness
 
-`ht/tree` runs one hook-free Hicasso view body with injected subscription
+`ht/tree` runs one hook-free Fresco view body with injected subscription
 fixtures and returns a semantic tree. Nested views remain represented as calls.
 Hooks, hosts, and raw React elements are refused and belong at L3.
 
@@ -728,7 +728,7 @@ Related: [Diagnostics](16-diagnostics.md).
 <a id="mount"></a>
 ### `client-root`, `render!`, and `unmount!`
 
-The Hicasso root lifecycle — the same three names every React view adapter
+The Fresco root lifecycle — the same three names every React view adapter
 publishes ([Spec 006 §The client
 root](../../../spec/006-ReactiveSubstrate.md#the-client-root-adapter-owned-reusable)).
 
@@ -768,7 +768,7 @@ Two calls complete hydration, and neither creates the frame:
 - `re-frame.ssr/hydrate!` installs the server payload into a client frame that
   must already exist (`rf/make-frame` made it);
 - `h/render!` with `{:hydrate? true}` on its FIRST call through a handle adopts
-  existing server DOM for one Hicasso root, under an
+  existing server DOM for one Fresco root, under an
   `[h/frame-provider {:frame …}]` that SCOPEs the frame the payload landed in.
   It is a first-call mode, not a verb: a later call through a live handle
   updates the root it already owns and ignores the key.

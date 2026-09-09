@@ -9,7 +9,7 @@ off `88411ed803`, which is an ancestor of `origin/main`.
 
 Runtime, beside every figure below: Chromium **147.0.7727.15** (the build pinned
 by Playwright **1.59.1**, `playwright-core/browsers.json` revision 1217),
-shadow-cljs **3.4.10** `release` on build id `:hicasso-bench`,
+shadow-cljs **3.4.10** `release` on build id `:fresco-bench`,
 `:optimizations :advanced`, `goog.DEBUG false`, `--expose-gc`,
 `--enable-precise-memory-info`, `:init-fn re-frame.bench.p0-app/-main`, Node
 **v24.13.0**. Every reading is a browser reading.
@@ -127,7 +127,7 @@ empty.
 
 **What this design does NOT vary, and therefore does not test.** The intervention
 is `implementation/core/src` and nothing else. A drift living in the adapters,
-in Hicasso, in the bench harness itself or in the resident Chromium binary is
+in Fresco, in the bench harness itself or in the resident Chromium binary is
 outside it. That is deliberate: the bead names the event pipeline as the
 candidate under test, and the event pipeline is in `core/src`.
 
@@ -460,7 +460,7 @@ git checkout 4a1537cb71 -- implementation/core/src
 # the floor arm, B = 24, write-all, eighteen rounds
 P0_PORT=8449 P0_ALLOC_PLAN=floor P0_ALLOC_WRITE=all \
 P0_ROOTS=4 P0_ALLOC_CELLS=6 P0_ALLOC_ROUNDS=18 \
-P0_RAW_OUT=implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-9jrhi/bisect-1-a-4a1537cb71.json \
+P0_RAW_OUT=implementation/fresco/test/re_frame/bench/fresco/data/alloc-9jrhi/bisect-1-a-4a1537cb71.json \
   node implementation/core/test/re_frame/bench/p0_run.cjs --only alloc
 
 # and put it back
@@ -469,7 +469,7 @@ git checkout HEAD -- implementation/core/src
 ```
 
 The eight datasets are committed beside this page under
-`implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-9jrhi/`, on the
+`implementation/fresco/test/re_frame/bench/fresco/data/alloc-9jrhi/`, on the
 convention `rf2-2rtt6.138` set and `rf2-erre5` wrote down. Each retains every
 window's raw sample stream, so the estimator above can be re-derived, and a
 different one driven, without re-running a browser.
@@ -478,7 +478,7 @@ That is what the 2026-08-21 correction did, and it needed no browser at all —
 every figure in the withdrawn-and-narrowed passage above is printed by:
 
 ```bash
-node implementation/hicasso/test/re_frame/bench/hicasso/alloc_heap_trajectory.cjs
+node implementation/fresco/test/re_frame/bench/fresco/alloc_heap_trajectory.cjs
 ```
 
 **It reads seven of the eight committed datasets, and the omission is

@@ -1,5 +1,5 @@
-(ns day8.re-frame2-xray.panels.hicasso-helpers
-  "The pure algebra behind the Hicasso tab — data in, data out, and no
+(ns day8.re-frame2-xray.panels.fresco-helpers
+  "The pure algebra behind the Fresco tab — data in, data out, and no
   runtime read anywhere (rf2-hic-023).
 
   It is a `.cljc` for the ordinary Xray reason: the projection from an
@@ -9,7 +9,7 @@
 
   ## The one thing this namespace exists to get right
 
-  Hicasso's evidence door refuses to encode unknown as an empty
+  Fresco's evidence door refuses to encode unknown as an empty
   collection. That guarantee is worth nothing if the PANEL then renders
   `:unknown` and `[]` the same way — a reader who cannot tell them apart
   is in exactly the position the schema was built to spare them. So every
@@ -25,9 +25,9 @@
 
   | [[presence]] | What it means |
   |---|---|
-  | `:absent`   | this host is not running Hicasso, or this is a production build — the door answered `nil` |
-  | `:mismatch` | Hicasso answered, stamping a schema THIS build was not taught to parse |
-  | `:idle`     | Hicasso answered with an empty roster — and what THAT means is per view, see [[empty-copy]] |
+  | `:absent`   | this host is not running Fresco, or this is a production build — the door answered `nil` |
+  | `:mismatch` | Fresco answered, stamping a schema THIS build was not taught to parse |
+  | `:idle`     | Fresco answered with an empty roster — and what THAT means is per view, see [[empty-copy]] |
   | `:live`     | there are rows |
 
   The third row used to carry one sentence for every view, and that
@@ -43,11 +43,11 @@
 ;; ---------------------------------------------------------------------------
 
 (def consumed-evidence-schema
-  "The Hicasso evidence-schema version THIS Xray build was written to
+  "The Fresco evidence-schema version THIS Xray build was written to
   parse.
 
   A consumer-owned LITERAL, and deliberately not
-  `re-frame.hicasso.evidence/schema`. Deriving support from the producer's
+  `re-frame.fresco.evidence/schema`. Deriving support from the producer's
   own var makes ANY producer bump silently \"supported\", so an evolved
   shape would be mis-parsed as exact and the version boundary would be
   nominal. Pinning a literal makes a producer that evolves its shape a
@@ -61,16 +61,16 @@
   that rendered it. There is no acceptance path for v2 or v1 — pre-alpha
   needs no compatibility adapter, and a shim would restore the very
   mis-parse the pin exists to refuse."
-  :re-frame.hicasso.evidence/v3)
+  :re-frame.fresco.evidence/v3)
 
 (def consumed-producer
   "The producing substrate this tab renders.
 
   Pinned beside the schema because the schema is adapter-neutral: a
   future substrate could stamp the same schema version with its own
-  producer id, and this tab's rows are written against Hicasso's
+  producer id, and this tab's rows are written against Fresco's
   vocabulary of boundaries and read edges."
-  :re-frame/hicasso)
+  :re-frame/fresco)
 
 (defn supported?
   "True when an envelope carries EXACTLY the schema and producer this
@@ -123,9 +123,9 @@
   reclassification.
 
   **It lives in the shared algebra because two derivations consult it and
-  they must not disagree.** They did: `hicasso-advisor` counted a skip as
+  they must not disagree.** They did: `fresco-advisor` counted a skip as
   a memo hit and derived *searched?* from recompute runs alone, while
-  `hicasso-causal` collected every tagged item in the same `:subs` slot
+  `fresco-causal` collected every tagged item in the same `:subs` slot
   without filtering operation. One tagged skip therefore made the advisor
   report `:basis :cap` — *no search happened, raise the retention knob* —
   about a window that had retained exactly that evidence, while the causal
@@ -157,7 +157,7 @@
   (= :rf.sub/skip (:operation ev)))
 
 (def loss-kinds
-  "The five states a Hicasso evidence read can be in about a fact, and
+  "The five states a Fresco evidence read can be in about a fact, and
   the ONE sentence each gets.
 
   Four are `:loss` reasons the producer states; `:unknown` is the value it
@@ -274,7 +274,7 @@
   match the wrong view's empty."
   {:mounted
    {:testid-suffix "empty-mounted"
-    :says (str "Hicasso is running and no boundary holds a live read edge. "
+    :says (str "Fresco is running and no boundary holds a live read edge. "
                "The read-set entry cache is authoritative about that, so this "
                "is a survey result and not an absence of evidence — but it is "
                "a statement about SUBSCRIPTION, not about the screen. A hidden "
@@ -319,19 +319,19 @@
   under.
 
   Written out rather than composed, because the whole point is that a
-  reader can tell *not running Hicasso* from *running it with nothing
+  reader can tell *not running Fresco* from *running it with nothing
   mounted*, and prose assembled from a shared stem is how those two come
   to look alike again. The `:idle` case is not here — it is per view, in
   [[empty-copy]], because there is no one true sentence for it."
   {:absent
    {:testid-suffix "absent"
-    :says (str "No Hicasso evidence on this host. The tool door answered nil, "
-               "which means this application is not running Hicasso, or this "
+    :says (str "No Fresco evidence on this host. The tool door answered nil, "
+               "which means this application is not running Fresco, or this "
                "is a production build — where the door is erased rather than "
                "empty.")}
    :mismatch
    {:testid-suffix "mismatch"
-    :says (str "Hicasso answered with an evidence schema this Xray build was "
+    :says (str "Fresco answered with an evidence schema this Xray build was "
                "not taught to parse. Rows are suppressed rather than "
                "mis-parsed: an evolved shape read as though it were the "
                "expected one is worse than no rows at all.")}})

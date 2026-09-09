@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.front.codec
+(ns re-frame.bench.fresco.front.codec
   "THE HICCUP CODEC — deliverable 1 of the Wave-1 shared front half
   (rf2-2rtt6.8). Runtime interpretation of arbitrary hiccup into React
   elements, built by extracting reagent-slim's *measured* tag/prop/child
@@ -79,7 +79,7 @@
   **The third cache HD-004 names — cached stable component heads — costs
   nothing here, and that is the interesting part.** reagent-slim needs
   one because `:f>` takes a *plain* function and must not mint a fresh
-  React type per render. Hicasso's `defview` mints the function component
+  React type per render. Fresco's `defview` mints the function component
   once, at definition, and [[mark-boundary!]] records that on the fn
   itself; the head is then identity-stable by construction and the cache
   has nothing to do. This is also why HD-016 makes a plain function in
@@ -91,7 +91,7 @@
   Analysis — tag parse, prop names, class merge, child realization, head
   classification — is arm-neutral and is what both tournament arms share.
   **Emission is not**, and this file emits React elements, i.e. Arm 1's
-  representation. Hicasso/PATCH (rf2-2rtt6.10) reuses the analysis and
+  representation. Fresco/PATCH (rf2-2rtt6.10) reuses the analysis and
   brings its own emitter; that is the honest shape of \"the arm's element
   representation\" in architecture.md, and it is the reason the two are
   kept visibly apart below rather than interleaved.
@@ -108,7 +108,7 @@
   makes it free at the authoring surface: the view writes an ordinary
   `:value` / `:on-input` pair, nothing is added to the boundary shell,
   and HD-020's ≤2-hook budget is untouched. See
-  [[re-frame.bench.hicasso.front.controlled]], which owns the mechanism,
+  [[re-frame.bench.fresco.front.controlled]], which owns the mechanism,
   its guards and its one dependency.
 
   ## The component ABI (HD-016)
@@ -130,7 +130,7 @@
   |---|---|
   | `:&` | the caller's remainder map. One merge, one law: **the literal keys written in the map always win** (HD-023, [[merge-caller]]) |
   | `:ref` | a callback ref in v0; a **vector** is the reserved data spelling and is refused loudly (HD-022, [[check-ref!]]) |
-  | `:re-frame.hicasso/revision` | authoring.md's `::h/revision` — a controlled text element's reset trigger. Read off the author's own PRE-MERGE map in [[native-element]], never emitted as an attribute, never reachable from a `:&` remainder ([[revision-key]]) |
+  | `:re-frame.fresco/revision` | authoring.md's `::h/revision` — a controlled text element's reset trigger. Read off the author's own PRE-MERGE map in [[native-element]], never emitted as an attribute, never reachable from a `:&` remainder ([[revision-key]]) |
 
   *Two columns; three body rows; hand-counted.*
 
@@ -153,7 +153,7 @@
   `:onInput` walk straight past.
 
   **The rule itself is not in this file** (rf2-ani6y). It is
-  [[re-frame.bench.hicasso.front.slot/prop-name]], in `.cljc`, because
+  [[re-frame.bench.fresco.front.slot/prop-name]], in `.cljc`, because
   the `[:>]` migration codemod decides the same slots on the JVM and a
   reimplementation there would be the codemod's own defect class turned
   inward: a divergence nothing pins, failing silently. What stays here is
@@ -196,16 +196,16 @@
 
   One consequence of leaving the slot unclaimed is worth stating because
   it is a surprise if undocumented: an element that writes a literal
-  `:re-frame.hicasso/revision` thereby claims the canonical slot
+  `:re-frame.fresco/revision` thereby claims the canonical slot
   `revision` as an OWNED literal, so a `:&` remainder's ordinary bare
   `revision` attribute is denied by [[merge-caller]]'s owned-literal law.
   That is correct conduct — the law is on the slot — but the element's
   author never wrote an attribute named `revision`, so nothing on the
   page explains the denial except this paragraph."
   (:require [clojure.string :as str]
-            [re-frame.bench.hicasso.front.controlled :as rf.bench.hicasso.front.controlled]
-            [re-frame.bench.hicasso.front.intent :as rf.bench.hicasso.front.intent]
-            [re-frame.bench.hicasso.front.slot :as rf.bench.hicasso.front.slot]
+            [re-frame.bench.fresco.front.controlled :as rf.bench.fresco.front.controlled]
+            [re-frame.bench.fresco.front.intent :as rf.bench.fresco.front.intent]
+            [re-frame.bench.fresco.front.slot :as rf.bench.fresco.front.slot]
             ["react" :as react]))
 
 (declare as-element)
@@ -322,7 +322,7 @@
 ;; ---------------------------------------------------------------------------
 
 ;; The slot rule itself is NOT here. It is
-;; [[re-frame.bench.hicasso.front.slot/prop-name]], in `.cljc`, because
+;; [[re-frame.bench.fresco.front.slot/prop-name]], in `.cljc`, because
 ;; the `[:>]` migration codemod has to ask the same question on the JVM
 ;; and a tool that reimplemented it would reproduce — inside the tool —
 ;; the silent divergence the codemod exists to delete (rf2-ani6y). Only
@@ -339,7 +339,7 @@
   ;; one entry per distinct literal, minted on first sight, correct for
   ;; the life of the build.
   ;;
-  ;; `event?` is the name-string's answer (`rf.bench.hicasso.front.intent/event-prop?` on the
+  ;; `event?` is the name-string's answer (`rf.bench.fresco.front.intent/event-prop?` on the
   ;; NAME), and the consumer must gate it on `keyword?` — a symbol
   ;; spelled `on-click` shares the entry but is NOT an event position
   ;; (event-prop? answers false for symbols), which is why the flag is
@@ -353,12 +353,12 @@
   "The [[PropSlot]] for a keyword or symbol prop literal whose name is
   `n`. Every field a pure function of the literal, per the deftype note."
   [k n]
-  (let [js-name (rf.bench.hicasso.front.slot/prop-name k)]
+  (let [js-name (rf.bench.fresco.front.slot/prop-name k)]
     (->PropSlot js-name
                 (reserved-name? js-name)
                 ;; asked of the NAME, not of `k` — a symbol shares the
                 ;; entry, and `event-prop?` already answers a boolean
-                (rf.bench.hicasso.front.intent/event-prop? n)
+                (rf.bench.fresco.front.intent/event-prop? n)
                 ;; "ref" — [[ref-slot]], spelled literally because the def
                 ;; sits below; `identical?` on primitive strings is value
                 ;; comparison.
@@ -374,7 +374,7 @@
   "Pre-warm `cache` with the three React renames, and return it.
 
   **The seeded entries are the RULE, not memos of one** — so each slot
-  name is ASKED of [[re-frame.bench.hicasso.front.slot/prop-name]]
+  name is ASKED of [[re-frame.bench.fresco.front.slot/prop-name]]
   rather than written out again here (rf2-ani6y). A hand-spelled seed is
   the one place this file could still answer a slot the shared rule
   would not, which is this bead's own defect class one level in; and the
@@ -388,9 +388,9 @@
   stated on the emitted name rather than on the key."
   [cache]
   (doto cache
-    (unchecked-set "class" (->PropSlot (rf.bench.hicasso.front.slot/prop-name :class) false false false true))
-    (unchecked-set "for" (->PropSlot (rf.bench.hicasso.front.slot/prop-name :for) false false false false))
-    (unchecked-set "charset" (->PropSlot (rf.bench.hicasso.front.slot/prop-name :charset) false false false false))))
+    (unchecked-set "class" (->PropSlot (rf.bench.fresco.front.slot/prop-name :class) false false false true))
+    (unchecked-set "for" (->PropSlot (rf.bench.fresco.front.slot/prop-name :for) false false false false))
+    (unchecked-set "charset" (->PropSlot (rf.bench.fresco.front.slot/prop-name :charset) false false false false))))
 
 (def ^:private prop-cache (seed-prop-cache! (empty-cache)))
 
@@ -413,7 +413,7 @@
       hit)))
 
 (defn cached-prop-name
-  "[[re-frame.bench.hicasso.front.slot/prop-name]] behind the codec-work
+  "[[re-frame.bench.fresco.front.slot/prop-name]] behind the codec-work
   cache (HD-004).
 
   **Only a keyword or a symbol is cached**, which is the donor's shape and
@@ -430,7 +430,7 @@
   dependence the owned-literal law exists to remove."
   [k]
   (if-not (or (keyword? k) (symbol? k))
-    (if (string? k) (rf.bench.hicasso.front.slot/prop-name k) k)
+    (if (string? k) (rf.bench.fresco.front.slot/prop-name k) k)
     (let [^PropSlot s (prop-slot k (name k))]
       (.-js-name s))))
 
@@ -450,7 +450,7 @@
   all React's key; `:on-input` and `:onInput` are one handler; `:class`,
   `:className` and `\"class\"` are one `className`. Every deny, every
   dissoc and every check in this codec and in
-  [[re-frame.bench.hicasso.front.presence]] asks THIS, and never the key
+  [[re-frame.bench.fresco.front.presence]] asks THIS, and never the key
   it was written as."
   cached-prop-name)
 
@@ -460,7 +460,7 @@
   HD-016's node handle; neither is an attribute, and neither is ever
   taken from a map that is *about* attributes — a `:&` remainder
   ([[merge-caller]]) or a presence phase override
-  ([[re-frame.bench.hicasso.front.presence/with-phase]]).
+  ([[re-frame.bench.fresco.front.presence/with-phase]]).
 
   Held as canonical SLOTS rather than as keys, because the spelling is
   exactly what a hostile or careless map would vary."
@@ -599,7 +599,7 @@
 
 (def merge-key
   "`:&` — the reserved attribute key carrying a caller's remainder map.
-  There is exactly one merge in Hicasso and this is it. It is DATA, not a
+  There is exactly one merge in Fresco and this is it. It is DATA, not a
   call, so a forwarded remainder survives into a structural test and into
   tooling; and it cannot collide with a real DOM attribute."
   :&)
@@ -646,7 +646,7 @@
         (nil? caller) owned
         (map? caller) (merge (without-slots caller (denied-slots owned)) owned)
         :else
-        (fail! :rf.error/hicasso-merge-not-a-map
+        (fail! :rf.error/fresco-merge-not-a-map
                'front.codec/merge-caller
                (str ":& carries a caller's attribute map and nothing else. It was "
                     "given " (pr-str (type caller)) ". Forward a map, or drop the key.")
@@ -658,7 +658,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def revision-key
-  "`:re-frame.hicasso/revision` — authoring.md's `::h/revision`, the third
+  "`:re-frame.fresco/revision` — authoring.md's `::h/revision`, the third
   and last reserved attribute key.
 
   **A trigger, not an attribute.** A change to its value (CLJS `=`)
@@ -696,7 +696,7 @@
 
   **Those three React behaviours are not public contracts** — the same
   class as the `defaultValue` mirror
-  [[re-frame.bench.hicasso.front.controlled/last-rendered]] depends on —
+  [[re-frame.bench.fresco.front.controlled/last-rendered]] depends on —
   and this promotes HD-004's no-caching posture from a
   measurement-honesty stance to a CORRECTNESS DEPENDENCY of the reset
   transport. Any future prop-object memoization must exclude controlled
@@ -706,7 +706,7 @@
   would be a good instance key, it is a good revision value* — a domain
   fact written by events, never a render-order index, never a counter
   minted in render, never `random-uuid`."
-  :re-frame.hicasso/revision)
+  :re-frame.fresco/revision)
 
 ;; ---------------------------------------------------------------------------
 ;; The reserved `:ref` value-space (HD-022)
@@ -733,7 +733,7 @@
   React with the opaque value the reservation exists to stop."
   [k v]
   (when (vector? v)
-    (fail! :rf.error/hicasso-ref-vector-reserved
+    (fail! :rf.error/fresco-ref-vector-reserved
            'front.codec/convert-props
            (str "A vector at " (pr-str k) " is RESERVED and is not a v0 surface. "
                 "`{:ref [registered-id config]}` is the reserved spelling for "
@@ -765,7 +765,7 @@
   lowerable value at an event position, not a marked callback) goes
   straight to [[convert-prop-value]] without entering the lowering at
   all, which is the branch nearly every attribute on a census page
-  takes. The paths [[rf.bench.hicasso.front.intent/lower-prop]] IS entered on reproduce its
+  takes. The paths [[rf.bench.fresco.front.intent/lower-prop]] IS entered on reproduce its
   answers by construction: it re-asks `event-prop?` and re-takes the
   same branch this slot was minted from. A string key keeps the donor's
   uncached path, byte for byte.
@@ -799,12 +799,12 @@
 
                              (and (.-event? s) (keyword? k))
                              (if (or (vector? v) (map? v) (fn? v))
-                               (rf.bench.hicasso.front.intent/lower-prop k v)
+                               (rf.bench.fresco.front.intent/lower-prop k v)
                                v)
 
                              :else
-                             (if (rf.bench.hicasso.front.intent/callback? v)
-                               (rf.bench.hicasso.front.intent/lower-prop k v)
+                             (if (rf.bench.fresco.front.intent/callback? v)
+                               (rf.bench.fresco.front.intent/lower-prop k v)
                                v)))))
         o)
       (let [n (cached-prop-name k)]
@@ -813,7 +813,7 @@
                               (cond
                                 (identical? ref-slot n)   (check-ref! k v)
                                 (identical? class-slot n) (class-names (unchecked-get o class-slot) v)
-                                :else                     (rf.bench.hicasso.front.intent/lower-prop k v)))))
+                                :else                     (rf.bench.fresco.front.intent/lower-prop k v)))))
         o))))
 
 (defn convert-props
@@ -872,10 +872,10 @@
   Per prop, one [[prop-slot]] lookup answers the React name AND the
   classifications the walk used to re-derive per element — reserved slot,
   event position, ref slot, class slot — so a non-event prop no longer
-  pays [[re-frame.bench.hicasso.front.intent/event-prop?]]'s regex, and
+  pays [[re-frame.bench.fresco.front.intent/event-prop?]]'s regex, and
   only a lowerable value at an event position (a vector, a map, a
   function) enters
-  [[re-frame.bench.hicasso.front.intent/lower-prop]] at all. The slot's
+  [[re-frame.bench.fresco.front.intent/lower-prop]] at all. The slot's
   `event?` flag is gated on `keyword?` at the call site — a symbol shares
   the cache entry but is not an event position — and a string-keyed prop
   takes the donor's uncached path unchanged.
@@ -912,7 +912,7 @@
       (when-not (identical? merged props)
         (when (and (contains? merged revision-key)
                    (not (contains? props revision-key)))
-          (fail! :rf.error/hicasso-revision-from-remainder
+          (fail! :rf.error/fresco-revision-from-remainder
                  'front.codec/convert-props
                  (str (pr-str revision-key) " is a RESET TRIGGER the element's own "
                       "author writes, and a `:&` remainder may not arm one. It "
@@ -933,15 +933,15 @@
   "Record that `f` — a React function component an arm's `defview` minted
   — is a legal hiccup head. Returns `f`, so a `defview` can end with it."
   [f]
-  (unchecked-set f "hicassoBoundary" true)
+  (unchecked-set f "frescoBoundary" true)
   f)
 
 (defn boundary-head?
   "Is `f` a marked boundary? One own-property read; no registry, no map."
   [f]
-  (and (fn? f) (true? (unchecked-get f "hicassoBoundary"))))
+  (and (fn? f) (true? (unchecked-get f "frescoBoundary"))))
 
-(def ^:private frame-prop-marker "hicassoFrameProp")
+(def ^:private frame-prop-marker "frescoFrameProp")
 
 (defn mark-frame-prop!
   "Record that `f` — an already-marked boundary head — takes its frame as
@@ -952,16 +952,16 @@
 
   The frame is ordinary data that flows down the tree, and every boundary
   element below the root is created by an ancestor BODY — which runs
-  inside [[re-frame.bench.hicasso.front.intent/with-frame]], so the frame
+  inside [[re-frame.bench.fresco.front.intent/with-frame]], so the frame
   is already bound at the exact moment [[boundary-element]] mints the
   element. Baking it in costs one dynamic-var read and one property
   write per element, and buys the shell its `useContext` back.
 
-  A foreign component sitting between two Hicasso boundaries is harmless:
-  its children were created by the Hicasso body ABOVE it, with the prop
+  A foreign component sitting between two Fresco boundaries is harmless:
+  its children were created by the Fresco body ABOVE it, with the prop
   already in them, so passing `props.children` through preserves it. The
   one creator with no ancestor body is an outward bridge — the root, or a
-  React component that mounts Hicasso itself — and that creator names the
+  React component that mounts Fresco itself — and that creator names the
   frame explicitly ([[root-element]]).
 
   **This is a MEASUREMENT variant, not the default** (rf2-2rtt6.39 is a
@@ -1040,7 +1040,7 @@
       (when ^boolean js/goog.DEBUG
         (when (exists? js/console)
           (.warn js/console
-                 (str "[hicasso] boundary props `=` comparison threw; "
+                 (str "[fresco] boundary props `=` comparison threw; "
                       "re-rendering this boundary (fail-open)."))))
       false)))
 
@@ -1076,7 +1076,7 @@
   [f]
   (let [memo (react/memo f boundary-props=)]
     (unchecked-set memo "displayName" (unchecked-get f "displayName"))
-    (unchecked-set f "hicassoMemo" memo)
+    (unchecked-set f "frescoMemo" memo)
     f))
 
 (defn- element-type
@@ -1084,7 +1084,7 @@
   memo wrapper when it has one, and otherwise the head itself. One
   own-property read on a path that already reads one."
   [head]
-  (or (unchecked-get head "hicassoMemo") head))
+  (or (unchecked-get head "frescoMemo") head))
 
 ;; ---------------------------------------------------------------------------
 ;; Host heads (HD-011) — the declared door for a foreign React component
@@ -1178,10 +1178,10 @@
 ;; the element's own type. A gated declaration mints ONE gate, so a
 ;; crossing under the first two policies costs one fiber and one hook; a
 ;; `:render` crossing costs neither. HD-020(b)'s ≤2 budget is a statement
-;; about Hicasso's BOUNDARY shells and is untouched either way: the gate
+;; about Fresco's BOUNDARY shells and is untouched either way: the gate
 ;; is not a boundary, holds no subscription, and reads no frame.
 
-(def ^:private host-marker "hicassoHost")
+(def ^:private host-marker "frescoHost")
 
 ;; [[host-head?]] is the predicate over that marker and reads naturally
 ;; beside [[host-ssr]], at the end of this section. The fallback walk
@@ -1245,9 +1245,9 @@
   Structural rather than evaluating, and that is the whole repair. The
   fallback's other refusals are what [[as-element]] happens to evaluate
   on its way to an element — an intent vector raises
-  `:rf.error/hicasso-intent-outside-boundary` because there is no
+  `:rf.error/fresco-intent-outside-boundary` because there is no
   frame-locked dispatch to lower it against, a `sub` call in the form
-  raises `:rf.error/hicasso-sub-outside-render` because it is evaluated
+  raises `:rf.error/fresco-sub-outside-render` because it is evaluated
   where the declaration is. A boundary head is neither: it is an element
   whose body runs LATER, so that walk never looks inside it and every
   refusal it carries is deferred past the declaration, which is the one
@@ -1255,7 +1255,7 @@
   therefore never a rule about content; it was a property of the walk.
 
   Two facts made the absence a defect rather than a narrow rule
-  (measured, `re-frame.hicasso.fallback-contents-cljs-test` — ported off
+  (measured, `re-frame.fresco.fallback-contents-cljs-test` — ported off
   this tree, rf2-c78g):
 
   1. **The declared placeholder is not a value.** [[mint-host-gate!]]
@@ -1265,7 +1265,7 @@
      frame, `BRAVO` in another and `ALPHA-TWO` after a write — the
      justification falsified by what it permitted.
   2. **It did not survive the arm's other boundary variant.** A
-     frame-fed head ([[mark-frame-prop!]]) reads `rf.bench.hicasso.front.intent/*frame*` at
+     frame-fed head ([[mark-frame-prop!]]) reads `rf.bench.fresco.front.intent/*frame*` at
      ELEMENT-creation time, which in a fallback is mint time, where the
      var is `nil` — so it baked `nil` in, minted happily, and threw
      `:rf.error/no-frame-prop` one render into the server response.
@@ -1287,7 +1287,7 @@
   third element."
   [host-name path form]
   (if-some [kind (deferring-head-kind form)]
-    (fail! :rf.error/hicasso-host-fallback-boundary-head
+    (fail! :rf.error/fresco-host-fallback-boundary-head
            'front.codec/mint-host!
            (str "defhost " host-name " declares an :ssr fallback carrying the "
                 kind " head " (head-name form) " at position " (pr-str path)
@@ -1335,7 +1335,7 @@
   body runs later. [[refuse-deferring-heads-in-fallback!]] closes that,
   structurally and ahead of the walk, so the sentence is true as
   written. Its docstring carries the two measurements that decided it;
-  `re-frame.hicasso.fallback-contents-cljs-test` is the contract.
+  `re-frame.fresco.fallback-contents-cljs-test` is the contract.
 
   The gate hands its own props straight through to the foreign
   component, so the crossing's props object is exactly the one
@@ -1375,7 +1375,7 @@
                  (= 1 (count policy))
                  (some? (:fallback policy))))
       policy
-      (fail! :rf.error/hicasso-host-bad-ssr-policy
+      (fail! :rf.error/fresco-host-bad-ssr-policy
              'front.codec/mint-host!
              (str "defhost " host-name " declares :ssr " (pr-str policy)
                   ". The policy is :client-only — the default, meaning the "
@@ -1426,7 +1426,7 @@
   ([host-name component] (mint-host! host-name component {}))
   ([host-name component opts]
    (when (nil? component)
-     (fail! :rf.error/hicasso-host-no-component
+     (fail! :rf.error/fresco-host-no-component
             'front.codec/mint-host!
             (str "defhost " host-name " was given nil as its component. The "
                  "usual cause is a JS import that resolved nothing — e.g. "
@@ -1435,7 +1435,7 @@
             {:host host-name}))
    (doseq [k (keys opts)]
      (when-not (contains? host-options k)
-       (fail! :rf.error/hicasso-host-unknown-option
+       (fail! :rf.error/fresco-host-unknown-option
               'front.codec/mint-host!
               (str "defhost " host-name " was declared with " (pr-str k)
                    ", which is not an option. A declaration carries "
@@ -1449,7 +1449,7 @@
            (fn [m k contract]
              (let [slot (cached-prop-name k)]
                (when-not (contains? callback-contracts contract)
-                 (fail! :rf.error/hicasso-unknown-callback-contract
+                 (fail! :rf.error/fresco-unknown-callback-contract
                         'front.codec/mint-host!
                         (str "defhost " host-name " declares " (pr-str k) " with "
                              "the callback contract " (pr-str contract)
@@ -1457,7 +1457,7 @@
                         :declare-event-handler-or-render
                         {:host host-name :position k :contract contract}))
                (when (structural-slot? k)
-                 (fail! :rf.error/hicasso-host-structural-callback
+                 (fail! :rf.error/fresco-host-structural-callback
                         'front.codec/mint-host!
                         (str "defhost " host-name " declares a callback contract on "
                              (pr-str k) ", whose canonical slot is structural. `key` "
@@ -1466,7 +1466,7 @@
                         :declare-contracts-on-ordinary-props-only
                         {:host host-name :position k}))
                (when (contains? m slot)
-                 (fail! :rf.error/hicasso-host-callback-slot-collision
+                 (fail! :rf.error/fresco-host-callback-slot-collision
                         'front.codec/mint-host!
                         (str "defhost " host-name " declares " (pr-str k) ", but the "
                              "slot " (pr-str slot) " already carries a contract from "
@@ -1587,7 +1587,7 @@
     (let [prior (unchecked-get keywarn "owner")]
       (when (and (some? view-name) (some? prior) (exists? js/console))
         (.warn js/console
-               (str "[hicasso] A boundary body began lowering while `" prior
+               (str "[fresco] A boundary body began lowering while `" prior
                     "` was still recorded as the enclosing view. The "
                     "set/clear pair around a body run is unbalanced, so a "
                     "key warning may name the wrong view. The lowering entry "
@@ -1663,7 +1663,7 @@
         (let [member (head-name head)]
           (.warn js/console
                  (if (= kind "missing")
-                   (str "[hicasso] Unkeyed boundary children"
+                   (str "[fresco] Unkeyed boundary children"
                         (if owner (str " in the body of " owner) "")
                         ": a seq of " member " members has no :key (absent or "
                         "nil; first at index " i ")."
@@ -1674,8 +1674,8 @@
                         " the component stack and fires once per parent tag"
                         " name; this one names the authoring site and fires"
                         " once per site, in development builds only."
-                        " [:rf.warning/hicasso-missing-key]")
-                   (str "[hicasso] Entity-valued :key on boundary children"
+                        " [:rf.warning/fresco-missing-key]")
+                   (str "[fresco] Entity-valued :key on boundary children"
                         (if owner (str " in the body of " owner) "")
                         ": a seq of " member " members carries " kind
                         " at :key (first at index " i ")."
@@ -1688,7 +1688,7 @@
                         " onto a single key. Key on a stable identifier instead"
                         " — [child {:key (:id entity), …}]. Warned once per"
                         " site, in development builds only."
-                        " [:rf.warning/hicasso-entity-key]")))))))
+                        " [:rf.warning/fresco-entity-key]")))))))
   nil)
 
 (defn- check-member-key!
@@ -1727,7 +1727,7 @@
   CONTENT-DERIVED and therefore distinct per member — a `js/Date`, a JS
   array, a CLJS map — collides with nothing, so React never warns, and
   the row silently remounts the moment the author edits the entity. That
-  is the same hazard the `:rf.warning/hicasso-entity-key` row already
+  is the same hazard the `:rf.warning/fresco-entity-key` row already
   existed for, and the foreign object is simply its unhandled case.
 
   The reason to warn on BOTH rather than defer the collision half to
@@ -1911,13 +1911,13 @@
   in their own body carries a computed value, derefs to it without
   calling anything, and is harmless wherever it goes."
   [v]
-  (fail! :rf.error/hicasso-deferred-read-at-boundary
+  (fail! :rf.error/fresco-deferred-read-at-boundary
          'front.codec/boundary-element
          (str "An unforced `delay` reached a boundary's props. It would be "
               "forced inside the CHILD's render, so any subscription it reads "
               "becomes the child's edge, is cached by the delay, and is then "
               "dropped the next time the child renders — a value correct on "
-              "screen, frozen thereafter, and attributable to nothing. Hicasso "
+              "screen, frozen thereafter, and attributable to nothing. Fresco "
               "will not force it for you: that would change what your `delay` "
               "means. Hand a FUNCTION instead — the child calls it on every "
               "render, so its reads are the child's edges and are kept — or "
@@ -2114,7 +2114,7 @@
 (defn- native-element
   "One native tag as a React element.
 
-  [[re-frame.bench.hicasso.front.controlled/install!]] is the only thing
+  [[re-frame.bench.fresco.front.controlled/install!]] is the only thing
   here that is not a translation of what the author wrote. It runs on
   the converted props, because the condition it tests is about the
   EMITTED element — a controlled `value`, a change handler, a type with
@@ -2136,7 +2136,7 @@
   reason. `key` and the revision are the two positions a remainder must
   never reach: [[merge-caller]] denies a remainder only the structural
   slots plus the slots owned by literals the element wrote, so
-  `{:& {:re-frame.hicasso/revision r}}` on an element that writes no
+  `{:& {:re-frame.fresco/revision r}}` on an element that writes no
   literal survives the merge. Reading pre-merge is what makes arming it
   from that door impossible rather than merely unlikely — the hostile
   remainder cannot force a field re-baseline the element's author never
@@ -2144,7 +2144,7 @@
   the door is shut loudly as well as shut.
 
   What lands on the emitted object is a marker under a private slot, and
-  [[re-frame.bench.hicasso.front.controlled/install!]] deletes it as it
+  [[re-frame.bench.fresco.front.controlled/install!]] deletes it as it
   reads it — so nothing named `revision` survives to React, to the DOM,
   or to the server bytes, by construction rather than by a special case
   at each of the three."
@@ -2157,8 +2157,8 @@
         ;; map was the whole cost of telling it so (rf2-y1jkm).
         js-props    (convert-props props parsed)
         _           (when-some [r (get props revision-key)]
-                      (unchecked-set js-props rf.bench.hicasso.front.controlled/revision-slot r))
-        component   (rf.bench.hicasso.front.controlled/install! (.-tag parsed) js-props)]
+                      (unchecked-set js-props rf.bench.fresco.front.controlled/revision-slot r))
+        component   (rf.bench.fresco.front.controlled/install! (.-tag parsed) js-props)]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (make-element component js-props argv (if has-props? 2 1))))
 
@@ -2201,11 +2201,11 @@
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     ;; THE FRAME AS DATA (rf2-2rtt6.39). Only for a head that asked for
     ;; it, so the context-fed incumbent's element carries exactly what it
-    ;; always carried and the two variants are comparable. `rf.bench.hicasso.front.intent/*frame*`
+    ;; always carried and the two variants are comparable. `rf.bench.fresco.front.intent/*frame*`
     ;; is bound by the ancestor body this element is being created inside;
     ;; at the root there is no ancestor body and [[root-element]] binds it.
     (when (frame-prop-head? head)
-      (unchecked-set js-props "rfFrame" rf.bench.hicasso.front.intent/*frame*))
+      (unchecked-set js-props "rfFrame" rf.bench.fresco.front.intent/*frame*))
     (react/createElement (element-type head) js-props)))
 
 (def ^:private html-attr-slots
@@ -2216,7 +2216,7 @@
   are one position ([[canonical-slot]]), and a rule written against the
   spelling is a rule the other spellings walk past. The `data-*` /
   `aria-*` families join them by prefix;
-  [[re-frame.bench.hicasso.front.slot/prop-name]] leaves those two
+  [[re-frame.bench.fresco.front.slot/prop-name]] leaves those two
   uncamelCased, so the slot still carries the prefix to test.
 
   The roster is this repo's own, not a guess: the `reagent-slim` adapter
@@ -2289,7 +2289,7 @@
   `reagent-slim` warns once per non-HTML keyword prop because it narrowed
   the rule underneath an installed Reagent codebase and the warning is
   that migration's safety-net (DESIGN-RATIONALE §5: \"the warning exists
-  for the case we did not audit\"). Hicasso has no such codebase to
+  for the case we did not audit\"). Fresco has no such codebase to
   protect, and after this change a keyword at a host prop is the CORRECT
   and taught spelling of HD-011's flagship case — warning on the happy
   path is a nag, not a diagnostic. The guide teaches the rule instead."
@@ -2314,7 +2314,7 @@
   [[refuse-unclaimed-host-callback!]] takes an `h/event` at the same
   position, because that one asked for a contract."
   [^js head k v]
-  (fail! :rf.error/hicasso-host-undeclared-callback
+  (fail! :rf.error/fresco-host-undeclared-callback
          'front.codec/host-element
          (str "The host " (unchecked-get head "displayName") " was handed "
               (pr-str v) " at " (pr-str k) ", which its declaration does not "
@@ -2359,7 +2359,7 @@
   never the form itself, which is legal at every slot a declaration
   claims."
   [^js head k]
-  (fail! :rf.error/hicasso-host-unclaimed-callback
+  (fail! :rf.error/fresco-host-unclaimed-callback
          'front.codec/host-element
          (str "The host " (unchecked-get head "displayName") " was handed an "
               "h/event at " (pr-str k) ", which no position claims — its "
@@ -2437,7 +2437,7 @@
           class?       (if keyword-ish? (.-class? s) (identical? class-slot slot))
           event?       (if keyword-ish?
                          (and (.-event? s) (keyword? k))
-                         (rf.bench.hicasso.front.intent/event-prop? k))]
+                         (rf.bench.fresco.front.intent/event-prop? k))]
       (when-not reserved?
         (unchecked-set o slot
           (cond
@@ -2445,7 +2445,7 @@
             (check-ref! k v)
 
             (contains? declared slot)
-            (rf.bench.hicasso.front.intent/lower-declared-prop k v (get declared slot))
+            (rf.bench.fresco.front.intent/lower-declared-prop k v (get declared slot))
 
             ;; The slot's own coercion, and the slot's own composition —
             ;; the same law [[convert-entry]] takes at the native
@@ -2469,7 +2469,7 @@
                 ;; one. Both live in the `:else` arm only: no claimed
                 ;; slot pays either, and the NATIVE walk
                 ;; ([[convert-entry]]) is not on this path at all.
-                (when (rf.bench.hicasso.front.intent/callback? v)
+                (when (rf.bench.fresco.front.intent/callback? v)
                   (refuse-unclaimed-host-callback! head k))
                 ;; The SLOT, never the key: `:class` and `:className` are
                 ;; one position, and the named-value rule is written
@@ -2483,7 +2483,7 @@
   like every other lowering in this walk, so a declared `:event`
   contract closes over that boundary's frame-locked dispatch and a
   crossing written outside any boundary is the same loud
-  `:rf.error/hicasso-intent-outside-boundary` an intent vector raises.
+  `:rf.error/fresco-intent-outside-boundary` an intent vector raises.
 
   One pass over the attr map, mirroring [[convert-props]] with the
   position table's second row swapped in for the first: fold a `:&`
@@ -2491,7 +2491,7 @@
   position), extract `:key` (React's contract, not an attribute), refuse
   a reserved `:ref` vector and pass a callback ref through untouched,
   lower every DECLARED slot by its declared contract
-  ([[re-frame.bench.hicasso.front.intent/lower-declared-prop]] — an
+  ([[re-frame.bench.fresco.front.intent/lower-declared-prop]] — an
   `h/event` takes the contract's wrapper, an intent vector or key-map
   lowers as at a native position), refuse an event-spelled intent at an
   UNDECLARED slot and an `h/event` at any UNCLAIMED one, and convert
@@ -2512,7 +2512,7 @@
   element where it always was, and the component's hooks, state and
   refs stay React's affair under React's rules — which is the whole
   point of the door, and what keeps HD-020's ≤2-hook budget a statement
-  about Hicasso's BOUNDARIES. A gate is not one: no frame, no
+  about Fresco's BOUNDARIES. A gate is not one: no frame, no
   subscription, no body."
   [argv]
   (let [^js head   (nth argv 0)
@@ -2697,7 +2697,7 @@
          "[:> \"input\" …] would silently drop.")
 
     (boundary-head? c)
-    (str "A Hicasso view is a head in its own right: write [my-view …]. "
+    (str "A Fresco view is a head in its own right: write [my-view …]. "
          "Mounted raw it would read rfProps, get undefined, and receive nil "
          "props — silently.")
 
@@ -2722,7 +2722,7 @@
 (defn- fail-raw-component!
   [c]
   (let [shape (raw-component-shape c)]
-    (fail! :rf.error/hicasso-raw-not-a-component
+    (fail! :rf.error/fresco-raw-not-a-component
            'front.codec/raw-element
            (str "[:>] was handed " shape " in the Component position. "
                 (raw-component-fix c))
@@ -2761,7 +2761,7 @@
   (let [c (nth argv 1 nil)]
     (cond
       (nil? c)
-      (fail! :rf.error/hicasso-raw-no-component
+      (fail! :rf.error/fresco-raw-no-component
              'front.codec/raw-element
              (str "[:>] was given " (if (< (count argv) 2) "no component at all" "nil")
                   " in the Component position. The usual cause is a JS import "
@@ -2859,8 +2859,8 @@
   "Interpret one hiccup vector."
   [argv]
   (when (zero? (count argv))
-    (throw (ex-info (str "Empty hiccup vector. [:rf.error/hicasso-empty-vector]")
-                    {:rf.error/id :rf.error/hicasso-empty-vector
+    (throw (ex-info (str "Empty hiccup vector. [:rf.error/fresco-empty-vector]")
+                    {:rf.error/id :rf.error/fresco-empty-vector
                      :where       'front.codec/vec->element
                      :reason      "A hiccup vector must have a head."
                      :recovery    :supply-a-hiccup-head})))
@@ -2880,8 +2880,8 @@
                            "component is never a silent embedding either — "
                            "declare it with defhost, or write the escape "
                            "[:> Component …] (HD-011). "
-                           "[:rf.error/hicasso-bad-head]")
-                      {:rf.error/id :rf.error/hicasso-bad-head
+                           "[:rf.error/fresco-bad-head]")
+                      {:rf.error/id :rf.error/fresco-bad-head
                        :where       'front.codec/vec->element
                        :reason      (if (fn? head)
                                       "A plain function in head position is a loud error (HD-016)."
@@ -2921,8 +2921,8 @@
     (number? x)      x
     (seq? x)         (expand-seq x)
     (true? x)        (throw (ex-info (str "`true` is not a renderable child. "
-                                          "[:rf.error/hicasso-true-child]")
-                                     {:rf.error/id :rf.error/hicasso-true-child
+                                          "[:rf.error/fresco-true-child]")
+                                     {:rf.error/id :rf.error/fresco-true-child
                                       :where       'front.codec/as-element
                                       :reason      "nil and false render nothing; true is an error (HD-016)."
                                       :recovery    :use-nil-or-false}))
@@ -2933,12 +2933,12 @@
 
 (defn root-element
   "[[as-element]] for a hiccup form written OUTSIDE any boundary body —
-  the root, or an outward React bridge that mounts Hicasso from foreign
+  the root, or an outward React bridge that mounts Fresco from foreign
   code (rf2-2rtt6.39).
 
   Every other element in the tree is created by an ancestor body, which
   is already running inside
-  [[re-frame.bench.hicasso.front.intent/with-frame]]. This is the one
+  [[re-frame.bench.fresco.front.intent/with-frame]]. This is the one
   creator that is not, so it is the one creator that has to NAME the
   frame — which an outward bridge takes explicitly anyway. Binding it
   here rather than in the arm's mount keeps the reason next to the
@@ -2947,9 +2947,9 @@
   `*dispatch*` is deliberately NOT bound: the frame is an identity the
   root genuinely has, while a frame-locked dispatch is what makes an
   intent vector legal, and an intent written outside a boundary stays the
-  loud `:rf.error/hicasso-intent-outside-boundary` it was."
+  loud `:rf.error/fresco-intent-outside-boundary` it was."
   [frame-kw hiccup]
-  (binding [rf.bench.hicasso.front.intent/*frame* frame-kw]
+  (binding [rf.bench.fresco.front.intent/*frame* frame-kw]
     (as-element hiccup)))
 
 ;; ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 (ns app.w3
   "W3 — named prop values (design §4.3), and AMENDMENT (C) at the key
   slot. Reagent answered `(name x)` for any keyword or symbol at every
-  prop; Hicasso keeps the named value whole except at HTML-attribute
+  prop; Fresco keeps the named value whole except at HTML-attribute
   slots (the rf2-vrvv9 narrowing)."
   (:require [reagent.core :as r]))
 

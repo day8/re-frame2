@@ -32,9 +32,9 @@ site_dir: site
 exclude_docs: |
   tools/playground/
   migration/from-re-frame-v1/codemod/
-  migration/reagent-to-hicasso/codemod/
+  migration/reagent-to-fresco/codemod/
   design/freehand/
-  design/hicasso/
+  design/fresco/
   design/retirement/
 
 # Link validation levels (rf2-5exqc).
@@ -240,9 +240,9 @@ nav:
       # DELETED under rf2-7cuns. It left this nav under rf2-pzu4g, and rf2-936ak
       # then RULED it RETIRED rather than rewritten: the recipe was written on
       # Freehand's registered behaviors — `:timing :layout`, `:config`
-      # value-equality re-fire, `v/describe` — and Hicasso has no counterpart
+      # value-equality re-fire, `v/describe` — and Fresco has no counterpart
       # door: no `defbehavior`, no `:timing`, no layout-effect wrapper anywhere
-      # under implementation/hicasso/src/. It was not re-pointed because Hicasso
+      # under implementation/fresco/src/. It was not re-pointed because Fresco
       # does not answer this problem by measuring: `overlay/popover` places an
       # anchored panel with a CSS `position-area` the engine recomputes, so the
       # measure-then-place technique the recipe taught is the very design
@@ -252,7 +252,7 @@ nav:
       - "Report errors in production": core/how-to/report-errors-in-production.md
       - "Configure dev and prod": core/how-to/configure-dev-and-prod.md
       - "Use UIx or slim": core/how-to/use-uix-or-slim.md
-    # Hicasso: re-frame2's own native view layer, and the guide that replaced
+    # Fresco: re-frame2's own native view layer, and the guide that replaced
     # Freehand's in this slot (rf2-0yp7w, Mike 2026-08-14 — "Freehand and
     # re-frame2.ui are to be retired and removed ASAP"). Section label IS the
     # landing page (navigation.indexes). Flat list, because the chapter numbers
@@ -262,36 +262,36 @@ nav:
     # `docs/core/freehand/`'s 22 pages were DELETED under rf2-7cuns, together
     # with the digest roster that pinned them; the `api/re-frame.freehand*.md`
     # pages followed when the code tree retired (rf2-0yp7w.6).
-    - "Hicasso: the view layer":
-      - core/hicasso/index.md
-      - "0. Installation": core/hicasso/00-installation.md
-      - "1. Getting started": core/hicasso/01-getting-started.md
-      - "2. Views and reads": core/hicasso/02-views-and-reads.md
-      - "3. Events as data": core/hicasso/03-events-as-data.md
-      - "4. Controlled inputs": core/hicasso/04-controlled-inputs.md
-      - "5. Forms": core/hicasso/05-forms.md
-      - "6. Lists and collections": core/hicasso/06-lists-and-collections.md
-      - "7. Routing and navigation": core/hicasso/07-routing-and-navigation.md
-      - "8. Async resources": core/hicasso/08-async-resources.md
-      - "9. Interop": core/hicasso/09-interop.md
-      - "10. Islands": core/hicasso/10-native-tier.md
-      - "11. Ephemeral state": core/hicasso/11-ephemeral-state.md
-      - "12. Motion and presence": core/hicasso/12-motion-and-presence.md
-      - "13. Overlays and focus": core/hicasso/13-overlays-and-focus.md
-      - "14. Theming and internationalisation": core/hicasso/14-theming-and-i18n.md
-      - "15. Testing": core/hicasso/15-testing.md
-      - "16. Diagnostics": core/hicasso/16-diagnostics.md
-      - "17. Errors": core/hicasso/17-errors.md
-      - "18. SSR and hydration": core/hicasso/18-ssr-and-hydration.md
-      - "19. Performance": core/hicasso/19-performance.md
-      - "20. Migrating from Reagent": core/hicasso/20-migration-from-reagent.md
-      - "21. Code splitting and lazy loading": core/hicasso/21-code-splitting.md
-      - "22. Accessibility": core/hicasso/22-accessibility.md
-      - "API reference": core/hicasso/api-reference.md
-      - "Cookbook": core/hicasso/cookbook.md
-      - "Troubleshooting": core/hicasso/troubleshooting.md
-      - "The escape ladder": core/hicasso/escape-ladder.md
-      - "Glossary": core/hicasso/glossary.md
+    - "Fresco: the view layer":
+      - core/fresco/index.md
+      - "0. Installation": core/fresco/00-installation.md
+      - "1. Getting started": core/fresco/01-getting-started.md
+      - "2. Views and reads": core/fresco/02-views-and-reads.md
+      - "3. Events as data": core/fresco/03-events-as-data.md
+      - "4. Controlled inputs": core/fresco/04-controlled-inputs.md
+      - "5. Forms": core/fresco/05-forms.md
+      - "6. Lists and collections": core/fresco/06-lists-and-collections.md
+      - "7. Routing and navigation": core/fresco/07-routing-and-navigation.md
+      - "8. Async resources": core/fresco/08-async-resources.md
+      - "9. Interop": core/fresco/09-interop.md
+      - "10. Islands": core/fresco/10-native-tier.md
+      - "11. Ephemeral state": core/fresco/11-ephemeral-state.md
+      - "12. Motion and presence": core/fresco/12-motion-and-presence.md
+      - "13. Overlays and focus": core/fresco/13-overlays-and-focus.md
+      - "14. Theming and internationalisation": core/fresco/14-theming-and-i18n.md
+      - "15. Testing": core/fresco/15-testing.md
+      - "16. Diagnostics": core/fresco/16-diagnostics.md
+      - "17. Errors": core/fresco/17-errors.md
+      - "18. SSR and hydration": core/fresco/18-ssr-and-hydration.md
+      - "19. Performance": core/fresco/19-performance.md
+      - "20. Migrating from Reagent": core/fresco/20-migration-from-reagent.md
+      - "21. Code splitting and lazy loading": core/fresco/21-code-splitting.md
+      - "22. Accessibility": core/fresco/22-accessibility.md
+      - "API reference": core/fresco/api-reference.md
+      - "Cookbook": core/fresco/cookbook.md
+      - "Troubleshooting": core/fresco/troubleshooting.md
+      - "The escape ladder": core/fresco/escape-ladder.md
+      - "Glossary": core/fresco/glossary.md
 
     - "Testing":
       - core/testing/index.md
@@ -330,12 +330,12 @@ nav:
     - "re-frame.trace.projection": api/re-frame.trace.projection.md
     - "re-frame.adapter.reagent": api/re-frame.adapter.reagent.md
     - "re-frame.adapter.uix": api/re-frame.adapter.uix.md
-    - "re-frame.hicasso": api/re-frame.hicasso.md
-    - "re-frame.hicasso.substrate": api/re-frame.hicasso.substrate.md
-    - "re-frame.hicasso.forms": api/re-frame.hicasso.forms.md
-    - "re-frame.hicasso.overlay": api/re-frame.hicasso.overlay.md
-    - "re-frame.hicasso.motion": api/re-frame.hicasso.motion.md
-    - "re-frame.hicasso.native": api/re-frame.hicasso.native.md
+    - "re-frame.fresco": api/re-frame.fresco.md
+    - "re-frame.fresco.substrate": api/re-frame.fresco.substrate.md
+    - "re-frame.fresco.forms": api/re-frame.fresco.forms.md
+    - "re-frame.fresco.overlay": api/re-frame.fresco.overlay.md
+    - "re-frame.fresco.motion": api/re-frame.fresco.motion.md
+    - "re-frame.fresco.native": api/re-frame.fresco.native.md
     - "re-frame.test-support": api/re-frame.test-support.md
     - "re-frame.test-helpers": api/re-frame.test-helpers.md
 
@@ -453,7 +453,7 @@ nav:
     - "8. Machine inspector": xray/08-machine-inspector.md
     - "9. App-DB diff": xray/09-app-db-diff.md
     - "10. Derivation graph": xray/10-derivation-graph.md
-    - "11. The Hicasso tab": xray/11-hicasso-tab.md
+    - "11. The Fresco tab": xray/11-fresco-tab.md
     - "API reference":
       # Sub-section label IS its overview (navigation.indexes, rf2-qgpkm).
       - xray/api/index.md
@@ -468,7 +468,7 @@ nav:
     - re-frame2-improver: skills/re-frame2-improver.md
     - re-frame2-setup: skills/re-frame2-setup.md
     - "re-frame-migration (v1→v2)": skills/re-frame-migration.md
-    - "reagent-migration (views→Hicasso)": skills/reagent-migration.md
+    - "reagent-migration (views→Fresco)": skills/reagent-migration.md
     - re-frame2-implementor: skills/re-frame2-implementor.md
     - re-frame2-xray: skills/re-frame2-xray.md
     - re-frame2-pair: skills/re-frame2-pair.md

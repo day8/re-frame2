@@ -1,7 +1,7 @@
 # Donor view surfaces — the disposition record
 
 re-frame2 spent a year with three overlapping view models in the tree at once. A reader
-arriving today must meet **one** taught story — Hicasso, its native tier, and the
+arriving today must meet **one** taught story — Fresco, its native tier, and the
 supported adapters — and every experimental donor surface must be dispositioned rather
 than merely quiet. This page is that record, filed under `rf2-hic-062`.
 
@@ -20,7 +20,7 @@ Measured on `origin/main` at `83029f9a63`, 2026-08-16 15:31 AUSEST.
 |---|---|---|---|
 | `implementation/ui/` (`re-frame.ui`, the compiled-view substrate) | **REMOVE** — executed | Operator ruling, Mike 2026-08-14 (`rf2-0yp7w`); plan at [`freehand-and-ui.md`](freehand-and-ui.md) | Gone. `git ls-files implementation/ui` returns **0** |
 | `implementation/freehand/` (`re-frame.freehand`) | **REMOVE** — executed | Same ruling and plan | Gone. `git ls-files implementation/freehand` returns **0** |
-| `bench/hicasso/src/re_frame/bench/hicasso/` (the frozen Hicasso bench tree; moved out of `implementation/hicasso/test/re_frame/bench/hicasso/` on 2026-08-29 under rf2-6c12m.1) | **KEEP AS EVIDENCE** | `rf2-0xgk`; tree marker at the tree's own [`README.md`](../../../bench/hicasso/README.md) | Present — 221 tracked files at the stamped commit, before this change adds its marker — and actively worked |
+| `bench/fresco/src/re_frame/bench/fresco/` (the frozen Fresco bench tree; moved out of `implementation/fresco/test/re_frame/bench/fresco/` on 2026-08-29 under rf2-6c12m.1) | **KEEP AS EVIDENCE** | `rf2-0xgk`; tree marker at the tree's own [`README.md`](../../../bench/fresco/README.md) | Present — 221 tracked files at the stamped commit, before this change adds its marker — and actively worked |
 
 ### `re-frame.ui` and Freehand — removed, not archived
 
@@ -35,7 +35,7 @@ a search with a wrong pathspec answer in the same voice:
 
 ```
 git ls-files implementation/ui implementation/freehand | wc -l   ->   0
-git ls-files implementation/hicasso                    | wc -l   -> 459   (positive control)
+git ls-files implementation/fresco                    | wc -l   -> 459   (positive control)
 git ls-files implementation/adapters/uix               | wc -l   ->  16   (positive control)
 ```
 
@@ -53,30 +53,30 @@ deliberate and stays: `tools/xray/src/day8/re_frame2_xray/mount.cljs` holds
 takes React elements, on the same defensive footing as the already-removed
 `:rf.adapter/helix`, because a stale co-loaded build could still present the kind. That is
 Xray's disposition and it is recorded in
-[`../hicasso/product/tool-consumer-census.md`](../hicasso/product/tool-consumer-census.md).
+[`../fresco/product/tool-consumer-census.md`](../fresco/product/tool-consumer-census.md).
 
 Note also that `:rf.ui/*` **keys** are not `re-frame.ui`. They are the surviving tree
 ABI that Spec 004B holds live spec files to, and they are not donor residue.
 
-### The Hicasso bench tree — kept, because it is the evidence
+### The Fresco bench tree — kept, because it is the evidence
 
-This tree is the measurement harness the Hicasso programme's numbers were taken on: the
+This tree is the measurement harness the Fresco programme's numbers were taken on: the
 clock rows, the ladders, the topology tournament and the SSR spike are all readings taken
-from that source. Twelve files in it are the donors `re-frame.hicasso` was copied out of,
+from that source. Twelve files in it are the donors `re-frame.fresco` was copied out of,
 and their divergence from the package is expected and permanent — a fix landing in the
 package leaves the bench file the stale copy, and back-porting is refused because it
 would invalidate the readings the package's own budgets are set against.
 
 Deleting or archiving it would delete the evidence base. It is kept, and the tree now
 carries the marker `rf2-hic-062` owed it: a
-[`README.md`](../../../bench/hicasso/README.md) at
+[`README.md`](../../../bench/fresco/README.md) at
 its root that names the twelve frozen donors, states the four rules a reader can act on,
 and separates them from the live harness around them. That distinction is the point of a
 tree-level marker: *keep as evidence* bounds what the tree may be used for, and does not
 mean *do not touch* — new benchmark arms land there routinely.
 
-`implementation/hicasso/frozen-sources.edn` is the executable authority for both halves,
-and `implementation/hicasso/scripts/check_freeze.py` is its check. It reports
+`implementation/fresco/frozen-sources.edn` is the executable authority for both halves,
+and `implementation/fresco/scripts/check_freeze.py` is its check. It reports
 `1 frozen row(s)` today: only `front/slot.cljc` is still digest-pinned, the other eleven
 donors having been retired across three recorded retirements rather than re-pinned. The
 manifest states what each retirement cost.
@@ -86,7 +86,7 @@ manifest states what each retirement cost.
 - **Spec prose.** `spec/` residue naming either retired tree belongs to `rf2-0yp7w.9`, the
   retirement's own prose sweep, and is deliberately untouched here.
 - **Comment and docstring residue** left in `implementation/core/src`,
-  `implementation/ssr/src`, `examples/` and `migration/reagent-to-hicasso/codemod/`, and
+  `implementation/ssr/src`, `examples/` and `migration/reagent-to-fresco/codemod/`, and
   the two generated-adjacent API pages `docs/api/re-frame.core.md` (its
   `:rf.adapter/freehand` roster) and `docs/api/re-frame.ssr.md` (its `re-frame.ui.tree`
   provenance). Same owner.
@@ -98,8 +98,8 @@ manifest states what each retirement cost.
 ## The taught path, swept
 
 The published guide teaches one view story. `docs/core/views.md` sends a reader to the
-supported adapters (Reagent, reagent-slim, UIx) and to Hicasso as re-frame2's own native
-view layer, and names no donor; the `Hicasso: the view layer` nav section is a
+supported adapters (Reagent, reagent-slim, UIx) and to Fresco as re-frame2's own native
+view layer, and names no donor; the `Fresco: the view layer` nav section is a
 twenty-three-chapter guide plus its landing page, API reference, cookbook,
 troubleshooting, escape ladder and glossary. `docs/core/freehand/`'s twenty-two pages went
 to zero on 2026-08-14 (`rf2-7cuns`) and the site nav changed with them.

@@ -1,5 +1,5 @@
-(ns hooks.re-frame.hicasso
-  "clj-kondo hooks for the Hicasso authoring surface (rf2-hic-022; reduced to
+(ns hooks.re-frame.fresco
+  "clj-kondo hooks for the Fresco authoring surface (rf2-hic-022; reduced to
   macro shapes under rf2-r3r00).
 
   One job. `defview`, `event` and `defhost` are `defn`-, `fn`- and `def`-shaped
@@ -10,7 +10,7 @@
   `hooks.re-frame.core` hook for `reg-view`, and is deliberately no cleverer.
 
   No behavioral findings are registered here. The six bespoke
-  `:re-frame.hicasso/*` checks this file once carried were retired under
+  `:re-frame.fresco/*` checks this file once carried were retired under
   rf2-r3r00: behavior is the runtime's law, refused loudly at its execution
   boundary, and a lint layer that re-derives it is a second grammar to
   maintain."

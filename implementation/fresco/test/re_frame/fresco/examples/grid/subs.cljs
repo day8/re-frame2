@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.grid.subs
+(ns re-frame.fresco.examples.grid.subs
   "THE GRID'S READ TOPOLOGY — the whole of the scaling claim.
 
   Three subscriptions, and the important one is the shape of the first.
@@ -11,14 +11,14 @@
   expensive thing
 
   All hundred do RECOMPUTE, and the distinction is the one
-  `docs/design/hicasso/product/per-keystroke.md` publishes: these are
+  `docs/design/fresco/product/per-keystroke.md` publishes: these are
   layer-1 readers memoised on the whole of `app-db`, so a keystroke re-runs
   every mounted cell's `get-in` and the equality gate on the OUTPUT is what
   keeps ninety-nine of them from notifying. Notification is what scales
   narrowly; recomputation scales with the grid — the per-keystroke census
   counted 111 at 10x10 and 31 at 5x5 against two boundary bodies at both
   sizes, and `grid.row-total-layer2-dom-cljs-test` re-reads the same figures
-  (`docs/core/hicasso/19-performance.md` §Scale the same
+  (`docs/core/fresco/19-performance.md` §Scale the same
   topology to a grid).
 
   [[dimensions]] is read by the grid body and by the row bodies, and it

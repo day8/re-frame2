@@ -3,15 +3,15 @@
 **rf2-6ync** (the unmet third deliverable of rf2-hic-008), 2026-08-11 02:08 AUSEST.
 
 The frozen bench tree holds 69 `*_cljs_test.cljs` / `.cljc`
-suites, 28,035 lines, all still on `re-frame.bench.hicasso.*`. rf2-hic-008's third deliverable
-reads "all existing Hicasso CLJS test suites migrated to the new namespaces and green", and that
+suites, 28,035 lines, all still on `re-frame.bench.fresco.*`. rf2-hic-008's third deliverable
+reads "all existing Fresco CLJS test suites migrated to the new namespaces and green", and that
 sentence assumed a mechanical rename. It is not one. This file is the verdict per suite, and the
 verdict is the deliverable: **a smaller honest set of ported witnesses beats 69 files moved for
 symmetry.**
 
 **Where that tree is, stated once, because it has moved and the paths below have not.** This page
-was written against `implementation/freehand/test/re_frame/bench/hicasso/`; rf2-0yp7w re-homed the
-whole harness to `implementation/hicasso/test/re_frame/bench/hicasso/` in `e61e175341`
+was written against `implementation/freehand/test/re_frame/bench/fresco/`; rf2-0yp7w re-homed the
+whole harness to `implementation/fresco/test/re_frame/bench/fresco/` in `e61e175341`
 (2026-08-14), moving the tree without moving a suite or renaming a namespace. Every
 `implementation/freehand/…` bench path below is therefore the path as it stood at its sentence's
 date, in keeping with this document's census convention — but a path is not a census, and the live
@@ -23,7 +23,7 @@ Three verdicts, defined once:
 
 | verdict | meaning |
 |---|---|
-| **PORT** | a real package-behaviour witness whose dependencies now exist under `implementation/hicasso/`. Move it; make it green. |
+| **PORT** | a real package-behaviour witness whose dependencies now exist under `implementation/fresco/`. Move it; make it green. |
 | **RE-AUTHORED** | the behaviour matters and the package does not assert it, but the suite is written against a runtime that no longer exists as one namespace. Record what it must assert; do not port the mechanics. |
 | **STAYS** | it measures the benchmark, or the package already asserts it, or its move is blocked on a decision a triage may not take. It belongs where it is. |
 
@@ -91,7 +91,7 @@ maintenance and the two drift."*
 Both halves are required — **a recorded reason**, and **a named condition** under which the original
 is deleted later. *"We might still want it"* is not a reason. A reason is **a capability the package
 copy does not have**, and the capability that has actually occurred is a **host**:
-`implementation/hicasso/*` does not arm `implementation_jvm`, so a bench original can be riding a
+`implementation/fresco/*` does not arm `implementation_jvm`, so a bench original can be riding a
 JVM lane the package copy has none for. That is what decided
 [`front/slot_cljs_test.cljc`](#1-frontslot_cljs_testcljc--no-jvm-lane), and it is what the exception
 exists for. An exception written down is cheap; a silent duplicate is not.
@@ -156,7 +156,7 @@ three, not two — see EXECUTED below.) Each of the
 nine namespaces is named by its own `ns` form and by nothing else in the repo. Two docstring mentions
 survive: `arm1/raw_escape_dom_cljs_test.cljs` line 6 wiki-links `front.codec-cljs-test`, and both
 files are in the table, so they go together; and
-`implementation/hicasso/test/re_frame/hicasso/roots_frames_support.cljs` line 53 cites
+`implementation/fresco/test/re_frame/fresco/roots_frames_support.cljs` line 53 cites
 `arm1.hframe-dom-cljs-test` as the provenance of a technique it reimplements. That second one
 dangles when the file goes, and whoever removes it owns re-pointing it — a citation into a deleted
 file is a reference to git history, not a link. Neither is a dependency; see
@@ -176,7 +176,7 @@ staleness class the gate exists to catch"* — so removing nine files changes wh
 and two branches changing one derived roster from opposite ends is a merge nobody should have to
 referee. rf2-bl0j landed first (PR #7907). Executing behind it needed **no edit to the gate at
 all**: the nine live inside the walked directory, so the walk simply narrows, and rf2-bl0j's new
-`OUTSIDE_LANE_ENTRIES` roster names four files that all live outside `hicasso/` — none of them one
+`OUTSIDE_LANE_ENTRIES` roster names four files that all live outside `fresco/` — none of them one
 of these. The `MIN_NAMESPACES` floor was never the obstacle and should not be quoted as one: 40
 against a walk that goes from 129 namespaces to 120.
 
@@ -185,7 +185,7 @@ recorded above found two by searching for the dotted namespace form. A citation 
 suite by its *path*, and two did: `state_cljs_test.cljs` pointed at `arm1/state-dom-cljs-test` and
 the Reagent codemod donor suite
 (`implementation/adapters/reagent/test/re_frame/reagent_codemod_contract_donor_cljs_test.cljs`)
-named the full bench path to `front/codec_cljs_test.cljs` as where its Hicasso half landed. All
+named the full bench path to `front/codec_cljs_test.cljs` as where its Fresco half landed. All
 three now name the landed package suite. **No gate could have caught any of them** — the package
 may not `:require` the bench tree at all, so every reference into it is prose by construction, and
 prose is exactly what compiles fine while pointing at nothing. A search for one spelling of a name
@@ -198,10 +198,10 @@ is not a search for the name.
 `implementation/shadow-cljs.edn` puts `freehand/test` on `:source-paths`, and two selectors reach
 every one of these namespaces:
 
-- `:node-test`'s `:ns-regexp "cljs-test$"` matches all 69 (`re-frame.bench.hicasso.*-cljs-test`);
+- `:node-test`'s `:ns-regexp "cljs-test$"` matches all 69 (`re-frame.bench.fresco.*-cljs-test`);
 - `:browser-test`'s `:ns-regexp "^(?!re-frame\\.freehand\\.bench\\.).*-dom-cljs-test$"` matches
   every `*_dom_cljs_test` among them — the exclusion is `re-frame.freehand.bench.*`, which is a
-  different tree from `re-frame.bench.hicasso.*`.
+  different tree from `re-frame.bench.fresco.*`.
 
 So **nothing here is dark**, and a move buys no coverage of the prototype. What a move buys is
 coverage of the **package**, which since rf2-hic-009 is a genuinely different code path. That is
@@ -210,13 +210,13 @@ surface it would newly cover.
 
 ### 2. The rename table decides a port, not the size of the divergence
 
-`implementation/hicasso/frozen-sources.edn` records what the package was made of, and its three
+`implementation/fresco/frozen-sources.edn` records what the package was made of, and its three
 retirements record how it has since moved:
 
 - `front/{codec,controlled,intent,presence,route_link,slot,state}` → `impl.{codec,controlled,intent,presence,route-link,slot,state}`;
 - `arm1/runtime.cljs` → the six modules `impl.{collector,generation,frames,roots,evidence,inventory}` (rf2-hic-009);
 - `arm1/{boundary,mount,presence}` → `impl.{boundary,mount,presence-react}`;
-- `arm1/lang.clj` → the public door `re-frame.hicasso`.
+- `arm1/lang.clj` → the public door `re-frame.fresco`.
 
 **This section was headed *"The package's divergence is exactly enumerable"* and qualified the first
 bullet as *"rename-only apart from rf2-hic-007's shared `fail!` and rf2-kjf5's additive
@@ -242,7 +242,7 @@ donor has no trace of (HD-025's presence overrides, rf2-34a7's unreachable-overr
 
 **`front/slot.cljc` at zero is the control, and it is the only reason to believe the other six
 readings.** It is the single surviving row in `frozen-sources.edn`, so the freeze gate has an opinion
-about it: `python implementation/hicasso/scripts/check_freeze.py` answers
+about it: `python implementation/fresco/scripts/check_freeze.py` answers
 `1 frozen row(s) match the bench tree` on the same tree that produces the table above. Gate and
 instrument agree on the row they share.
 
@@ -256,12 +256,12 @@ half that rots; the live figure comes from the command:
 # `front/slot.cljc` in the list: it is the pinned row, so a run that does not report
 # 0 for it is measuring wrong. That is this instrument's only self-check.
 python - <<'PY'
-import sys, os; sys.path.insert(0, 'implementation/hicasso/scripts')
+import sys, os; sys.path.insert(0, 'implementation/fresco/scripts')
 import check_freeze as cf
-m = cf.read_edn(open('implementation/hicasso/frozen-sources.edn', encoding='utf-8').read())
+m = cf.read_edn(open('implementation/fresco/frozen-sources.edn', encoding='utf-8').read())
 for b, p in [('front/codec.cljs', 'impl/codec.cljs'), ('front/slot.cljc', 'impl/slot.cljc')]:
     e = cf.rename(cf.read_text(os.path.join(m[':donor-root'], b)), m[':renames']).splitlines()
-    a = cf.read_text('implementation/hicasso/src/re_frame/hicasso/' + p).splitlines()
+    a = cf.read_text('implementation/fresco/src/re_frame/fresco/' + p).splitlines()
     print(b, len(cf.compare_moved(e, a)[0]), 'divergent hunk(s)')
 PY
 ```
@@ -290,7 +290,7 @@ bodies alone, which is a distinction that cost this page a correction
 
 ### 3. What the package already asserts
 
-28 witness suites (11,957 lines) and 4 support namespaces live under `implementation/hicasso/test/`,
+28 witness suites (11,957 lines) and 4 support namespaces live under `implementation/fresco/test/`,
 authored by rf2-hic-007/010/011/012/013/014/015/016/020/022/023 and
 rf2-0oy4/0xgk/2l17/6tmu/kjf5/ouus/q9cf/hic-053. (rf2-hic-008's note counts "31 suites, 12,491
 lines"; that count includes the support namespaces and the consumer app, which are not suites.)
@@ -325,7 +325,7 @@ and presence.
 everything else; they are the first wave. The seven `arm1/*` rows each need `arm1.runtime` call
 sites re-pointed at the six modules, and four of them additionally need `arm1.hook-probe` or
 `arm1.lane/leave-act-environment!` — the latter already has a package counterpart in
-`re-frame.hicasso.roots-frames-support/leave-act-environment!`, which cites the prototype by name.
+`re-frame.fresco.roots-frames-support/leave-act-environment!`, which cites the prototype by name.
 They are ports rather than re-authorings because the *assertions* survive verbatim; only the
 namespace a var is reached through changes.
 
@@ -377,7 +377,7 @@ lines is what the body cost, not what the port cost.
 — 2,744 lines — cost **317 changed lines of suite body**: 11.6% against the `front/*` rows' 0.6%.
 The changes are what the paragraph above predicted — `arm1.runtime` call sites re-pointed at
 whichever of the six modules answers for the var (`rt/reset-runtime!` → `collector/reset-runtime!`),
-plus support namespaces swapped (`front.dogfood` → `re-frame.hicasso.todo-support`) — and still no
+plus support namespaces swapped (`front.dogfood` → `re-frame.fresco.todo-support`) — and still no
 assertion moved, which is why they were ports and not re-authorings. **On suite body alone that
 separation is a factor of nineteen. It is not the number this page is entitled to**: add the support
 work each port required and it is about six.
@@ -446,7 +446,7 @@ should be transcribed.
 | `arm1/frame_prop_dom_cljs_test.cljs` | 300 | That the frame reaches a boundary as an ordinary prop, so the second hook is not structural. Same `hook-probe` blocker; same remedy; one bead with the row above. |
 
 **Since: the `hook-probe` blocker in the last two rows is discharged.** rf2-wjag brought the package
-its own probe — `re-frame.hicasso.hook-probe`, in `35e8fecc1d` — so "a package version must bring
+its own probe — `re-frame.fresco.hook-probe`, in `35e8fecc1d` — so "a package version must bring
 its own probe" is now satisfied rather than pending, and the remedy those two rows name is available
 to whoever takes them. The rows themselves are unchanged: they are still re-authorings, because what
 made them re-authorings was never the probe alone.
@@ -465,7 +465,7 @@ the bench tree is a measured artefact and most of what tests it is measurement.
 `read_profile_baseline_cljs_test.cljs` (173) · `walk_profile_baseline_cljs_test.cljs` (157)
 
 These assert `lane/verified-write!`'s window shapes, `lane/release!`'s refusal, the segment-order
-verdict's arithmetic, and two profiling baselines. Their subject is `re-frame.bench.hicasso.lane`
+verdict's arithmetic, and two profiling baselines. Their subject is `re-frame.bench.fresco.lane`
 and the profile apps. There is no package counterpart because there should not be one.
 
 ### (ii) It is a tier-1 shape witness — the benchmark's own definition of done — 7 suites, 2,185 lines
@@ -492,19 +492,19 @@ package behaviour and would be worth re-expressing **if** the package ever gets 
 implied."*
 
 **[The condition FIRED, and here is what happened — rf2-wehh0, 2026-08-15.]**
-`re-frame.hicasso.server` landed with rf2-b6jkj, so the conditional came due. Both named suites
+`re-frame.fresco.server` landed with rf2-b6jkj, so the conditional came due. Both named suites
 **re-expressed**, and all five **still stay**: they reach `ssr.fixtures`, which is the corpus
 `driver.cjs` bakes and `bake_bytes.test.cjs` pins, and their subject is the PROTOTYPE entry the
 bake is taken from. Re-expression added a package witness beside them; it moved nothing.
 
-- `ssr/hframe_ssr_cljs_test.cljs` → `test/re_frame/hicasso/hframe_ssr_cljs_test.cljs`, whole.
+- `ssr/hframe_ssr_cljs_test.cljs` → `test/re_frame/fresco/hframe_ssr_cljs_test.cljs`, whole.
   All four claims — the per-request id a body reads, determinism when it is kept out of markup,
   the authorable hazard that breaks determinism, and the ambient carry's refusal inside a server
   render — are about the RUNTIME under `renderToString` rather than about the tree's shape, so
   each moved across unchanged. The third is the one the package could not previously make:
   `server_render_ssr_dom_cljs_test`'s `two-renders-of-one-request-are-the-same-bytes` had never
   been watched failing, and a determinism check nobody has seen red is a claim about a check.
-- `ssr/instance_key_payload_dom_cljs_test.cljs` → `test/re_frame/hicasso/instance_key_payload_ssr_dom_cljs_test.cljs`,
+- `ssr/instance_key_payload_dom_cljs_test.cljs` → `test/re_frame/fresco/instance_key_payload_ssr_dom_cljs_test.cljs`,
   **its subject only**. The obligation and its enforcement — `:ui` named, zero mismatch; `:ui`
   omitted, the structured `:rf.ssr/hydration-mismatch` fires and the client's default wins — had
   no package owner. Its other rows do: determinism and the round trip through the real doors are
@@ -568,7 +568,7 @@ would need no build, lane or workflow change.** See
 ### (vi) It is a control arm, or its move is blocked — 13 suites, 8,220 lines
 
 `controlled_restore_dom_cljs_test.cljs` (858) is the clearest case in the tree. It `:require`s **no
-Hicasso namespace at all**: it is what correct means for a controlled input *on plain React*, the
+Fresco namespace at all**: it is what correct means for a controlled input *on plain React*, the
 control arm Arm 2's retirement left behind. A control arm belongs with the instrument.
 
 `arm1/controlled_grid_dom_cljs_test.cljs` (1,374) and `arm1/controlled_burst_dom_cljs_test.cljs`
@@ -577,7 +577,7 @@ validation.md's model, not the package's. `arm1/props_bailout_dom_cljs_test.cljs
 re-render census on the tier-1 feed shape. `arm1/ratom_activation_cljs_test.cljs` (239) and
 `arm1/ratom_activation_dom_cljs_test.cljs` (200) run Arm 1 under the **stock Reagent adapter**,
 while the package's test lane is UIx-only by a deliberate deps decision recorded in
-`implementation/hicasso/deps.edn`; these need a substrate ruling before they can move.
+`implementation/fresco/deps.edn`; these need a substrate ruling before they can move.
 `front/census_article_editor_cljs_test.cljs` (247) demonstrates the `:&` merge on a census-real
 screen, and the merge's own contract is `front/codec_cljs_test`'s.
 
@@ -585,12 +585,12 @@ Four are blocked on something concrete, and the block is the interesting part:
 
 - **`front/codec_cljs_test.cljs`** (1,593, 67 deftests) — the largest single package-behaviour
   witness in the tree, and a clean rename apart from one thing: it `:require`s
-  `re-frame.bench.hicasso.front.slot-cljs-test`'s corpus, and that file cannot move (below). Port
+  `re-frame.bench.fresco.front.slot-cljs-test`'s corpus, and that file cannot move (below). Port
   it once the slot question is settled, or inline the corpus.
   **LANDED (rf2-a15c, PR #7842), and the corpus was what unblocked it.** rf2-b6ja settled the slot
   question and found the queue behind it was never a lane question at all — a namespace that defines
   no `deftest` is not a test file, so the bijection gate never reaches a corpus. The corpus went
-  across as an ordinary support namespace, `re-frame.hicasso.slot-corpus`, and both this row and the
+  across as an ordinary support namespace, `re-frame.fresco.slot-corpus`, and both this row and the
   one below went with it. The verdict here is therefore **PORT, executed**; the bench original stood
   for a further five days and has since been deleted (rf2-3ewp), which is
   [The nine ports whose originals still stand](#the-nine-ports-whose-originals-still-stand).
@@ -600,11 +600,11 @@ Four are blocked on something concrete, and the block is the interesting part:
 - **`arm1/host_ssr_dom_cljs_test.cljs`** (670) and **`arm1/fallback_contents_cljs_test.cljs`** (376)
   — `defhost`'s `:ssr` policy in all three places it has to hold, and the contract for what an
   `:ssr` fallback may contain. Genuine package behaviour, and at census time
-  `implementation/hicasso/` had no `:ssr` witness of its own, so **this pair was the answer to
+  `implementation/fresco/` had no `:ssr` witness of its own, so **this pair was the answer to
   rf2-6rw9** — and it is the answer that was taken: **both are now on the package** (PR #7842), and
   the package's `:ssr` gap is closed. **The bench originals are deleted** (rf2-c78g): a port is a
   move, and neither copy carried a host the package copy could not reach. ~~Blocked twice over: the two files `:require` each
-  other, so they move together; and both reach `re-frame.bench.hicasso.ssr.entry`, which has no
+  other, so they move together; and both reach `re-frame.bench.fresco.ssr.entry`, which has no
   package counterpart. Porting them means giving the package an SSR entry first — which is
   rf2-6rw9's work, not a triage's.~~ **CORRECTED (rf2-b6ja): neither block exists. The files do not
   `:require` each other and neither reaches `ssr.entry`; both readings came from docstring
@@ -618,7 +618,7 @@ Four are blocked on something concrete, and the block is the interesting part:
 - **`front/slot_cljs_test.cljc`** (140) — blocked on a hot-zone change, and the block is worth
   naming precisely. It is `.cljc` on purpose: `scripts/check_test_lane_bijection.py` rule B2
   requires a `.cljc` suite under a CLJS-owned test root to be selected by a CLJS lane as well as a
-  JVM one. `implementation/hicasso/deps.edn`'s `:test` alias runs with `--probe` precisely because
+  JVM one. `implementation/fresco/deps.edn`'s `:test` alias runs with `--probe` precisely because
   **zero JVM tests is the correct outcome there**, and its own comment states the consequence: *"If
   a JVM-runnable suite ever lands in `test/`, drop `--probe` and take the floor."* Taking the floor
   needs an artefact-roster entry, which is only legal with a matching `test.yml` job, and
@@ -645,18 +645,18 @@ written, because the way it was overtaken is worth more than the conclusion. It 
 in one afternoon and neither event was a port:
 
 - `e61e175341` (rf2-0yp7w, 14:43) re-homed the whole benchmark harness into
-  `implementation/hicasso/test/`, carrying `front/slot_cljs_test.cljc` with it. **The move this
+  `implementation/fresco/test/`, carrying `front/slot_cljs_test.cljc` with it. **The move this
   section declined to sequence happened anyway**, to the whole tree at once, and the file arrived in
   exactly the artefact the reasoning below identifies as the one that arms no JVM job. For about an
-  hour and three quarters the cross-host pin's JVM arm ran nowhere — `implementation/hicasso/deps.edn`
+  hour and three quarters the cross-host pin's JVM arm ran nowhere — `implementation/fresco/deps.edn`
   dropped `--probe` and recorded the cost in its own header.
-- `f4c3c53d04` (16:25) then armed it: a `jvm-hicasso` job in `.github/workflows/test.yml`, in
-  `all-required-passed`'s `needs:`, with `implementation/hicasso` added to
+- `f4c3c53d04` (16:25) then armed it: a `jvm-fresco` job in `.github/workflows/test.yml`, in
+  `all-required-passed`'s `needs:`, with `implementation/fresco` added to
   `scripts/test-jvm-implementation.sh`'s roster — both halves together, which is what
   `check_jvm_lane_rosters.py` R1/R2 require and what the "precedent is on the record" paragraph
   below correctly predicted anybody would have to do.
 
-So the answer to *"should a `jvm-hicasso` lane exist"* is now **yes, and it does** — reached not by
+So the answer to *"should a `jvm-fresco` lane exist"* is now **yes, and it does** — reached not by
 re-arguing this row but by a re-home that made the row's premise unavailable. **The reasoning below
 is not thereby refuted; its subject was removed.** It argued that porting one file was not worth a
 hot-zone change *while the file sat somewhere that already gave it two hosts*, and that clause is
@@ -673,7 +673,7 @@ stated in prose, against one anticipated cause, going quietly out of date when r
 different route.
 
 **The verdict as written (kept for the reasoning, not for the conclusion): do not open a
-`jvm-hicasso` lane. The suite stays in the bench tree, and this row is
+`jvm-fresco` lane. The suite stays in the bench tree, and this row is
 closed rather than pending.** The claim it makes is already asserted on both hosts, and the
 package's copy of the rule is held identical to the copy being asserted — by a checker that is
 stronger than the suite.
@@ -682,12 +682,12 @@ stronger than the suite.
 `.cljc` test file in the bench tree — the other 60 suites there are `.cljs`, and a `.cljs` file is
 not loadable by a JVM lane at all: `check_test_lane_bijection.py`'s `loadable_by` gives JVM lanes
 `.clj` and `.cljc` and nothing else. (1 + 60 = 61, the tree's live count, not the census's 69 — see
-the note under the verdict totals at the top.) `implementation/hicasso/test/` carries not one `.cljc`: all 61 files under it are
+the note under the verdict totals at the top.) `implementation/fresco/test/` carries not one `.cljc`: all 61 files under it are
 `.cljs`, read on `origin/main` at 2026-08-11 — the triage counted 35 and the tree has grown since,
 while the extension has not, which is the half of the claim that is load-bearing. So the
 lane would open for one file and stay at one file until somebody *authors* a `.cljc` suite. The
 package has **five** `.cljc` namespaces to author one against, read on `origin/main` at 2026-08-11 —
-this triage counted three, and `re-frame.hicasso` (the public door) and `re-frame.hicasso.native`
+this triage counted three, and `re-frame.fresco` (the public door) and `re-frame.fresco.native`
 have joined since — but the enumeration changes nothing, because the point was always which of them
 is *cheap* to assert on the JVM. Still only `impl/slot.cljc` requires nothing but `clojure.string`:
 `impl/state.cljc` reaches `re-frame.events` and `re-frame.subs`, `impl/error.cljc` is the complaint
@@ -710,31 +710,31 @@ The cross-host claim is armed four ways already, none of them a new lane:
   **both** `cljs_node_test=true` and `implementation_jvm=true`: the `cljs` job, whose
   `npm run test:cljs` is the compile that wrote the cache, and the per-artefact JVM jobs, which
   include `jvm-freehand`. The JVM half is confirmed by running it rather than by reading a lane
-  model — `clojure -M:test -n re-frame.bench.hicasso.front.slot-cljs-test` in
+  model — `clojure -M:test -n re-frame.bench.fresco.front.slot-cljs-test` in
   `implementation/freehand` gives **3 tests, 92 assertions, 0 failures, exit 0**. One corpus, one
   implementation, two runtimes, two jobs it already rides, and no predicate anybody maintains for
   it.
 - **The package's copy is held identical to the pinned one.** `frozen-sources.edn` has exactly one
-  surviving row and it is this rule: `front/slot.cljc` → `src/re_frame/hicasso/impl/slot.cljc`,
+  surviving row and it is this rule: `front/slot.cljc` → `src/re_frame/fresco/impl/slot.cljc`,
   `:whole-file?` unset, so `check_freeze.py`'s MOVED rule applies — it *reconstructs* the package
   file from donor text with `:renames` applied at symbol boundaries and compares line by line. That
   is not a digest of the donor alone; it is an equality between the two files. So a cross-host
   assertion about the bench rule is an assertion about the package rule, and the equality is checked
   rather than believed.
-- **That checker is armed from the package's own surface.** `npm run test:hicasso-invariants` runs
-  it, `implementation/hicasso/*` sets `cljs_node_test=true` in `report-changed-surfaces.sh`, and
+- **That checker is armed from the package's own surface.** `npm run test:fresco-invariants` runs
+  it, `implementation/fresco/*` sets `cljs_node_test=true` in `report-changed-surfaces.sh`, and
   that arm's own comment names the invariants gate as one of the three things the output schedules.
   It also runs unconditionally in `scripts/test-fast-pr.sh`.
 - **The JVM consumer the pin exists for is armed too.** The codemod's `deps.edn` puts
   `../../../implementation/freehand/test` on `:paths` and `shared_rule_test.clj` asserts
   `(identical? dest/canonical-slot slot/prop-name)` — plus that the file came off
   `implementation/freehand/test/…` and not a copy inside the tool. Since rf2-erjv that lane is armed
-  from `implementation/hicasso/*` as well as from `implementation/freehand/*`.
+  from `implementation/fresco/*` as well as from `implementation/freehand/*`.
 
 **And the move is what would break the ride — the measurement that actually settles it.** Ask the
 same classifier about the destination instead of the origin and the asymmetry is stark:
-`implementation/hicasso/*` arms `cljs_node_test`, `cljs_browser`, `hicasso_controlled`,
-`hicasso_hmr` and `migration_hicasso_codemod`, and it does **not** arm `implementation_jvm` —
+`implementation/fresco/*` arms `cljs_node_test`, `cljs_browser`, `fresco_controlled`,
+`fresco_hmr` and `migration_fresco_codemod`, and it does **not** arm `implementation_jvm` —
 there is no JVM job behind that tree, by the same deliberate `--probe` decision quoted above. So
 porting this file would not merely fail to *gain* a JVM lane; it would **surrender the one it
 already has**, and the only thing that could give it back is the job this verdict declines to open.
@@ -744,7 +744,7 @@ table above — those gain package coverage and lose nothing — and it is why t
 rather than a "later".
 
 **The precedent is on the record, and it is the same wall.** rf2-hic-022 walked this exact chain and
-backed out of it: `140620d291` landed a JVM-runnable suite in `implementation/hicasso/test/` and
+backed out of it: `140620d291` landed a JVM-runnable suite in `implementation/fresco/test/` and
 dropped `--probe`; `b18bc8e1ad` found that `check_jvm_lane_rosters.py` R1 refuses a roster entry with
 no `test.yml` job and reverted the roster half; `dd9f31bbc4` re-expressed the witness as
 `scripts/check_lint_export.py`, in a lane it already had. The long comment at the foot of
@@ -757,15 +757,15 @@ retiring as the package diverges — five `front/*` rows and every `arm1/*` row 
 own header anticipates the last one: *"when `front/slot.cljc` diverges for its own reasons"*. On the
 day that row is retired the package's slot rule has no cross-host assertion left, and **nothing will
 say so** — the freeze gate will go green having stopped looking. So: **whoever retires that row owns
-the replacement**, and the replacement is still not a `jvm-hicasso` lane. The cheap shape is to
-repoint the codemod's `:paths` entry at `implementation/hicasso/src` — a `migration/` artefact
+the replacement**, and the replacement is still not a `jvm-fresco` lane. The cheap shape is to
+repoint the codemod's `:paths` entry at `implementation/fresco/src` — a `migration/` artefact
 reading a shared `.cljc` out of `implementation/` is the direction the rule was extracted to serve,
 and the codemod's JVM lane already has a `test.yml` job and is already armed from
-`implementation/hicasso/*`.
+`implementation/fresco/*`.
 
 **What this leaves for the two rows queued behind it.** `front/codec_cljs_test.cljs` (1,593) and
 `arm1/raw_escape_dom_cljs_test.cljs` (403) are queued behind this file's `corpus` var, not behind
-its JVM half, and the corpus needs no lane. A namespace under `implementation/hicasso/test/` that
+its JVM half, and the corpus needs no lane. A namespace under `implementation/fresco/test/` that
 defines no `deftest` is not a test file, so B1 and B2 never reach it — the bijection gate's universe
 is files that evaluate a test-defining form at the top level. Port the corpus as an ordinary support
 namespace beside the codec suite and both rows unblock as plain CLJS ports. **That is a follow-up
@@ -785,7 +785,7 @@ are both misreadings. Read off the files on `origin/main`, 2026-08-11:
   `react-dom/client`. Neither names the other. Each *mentions* the other exactly once, in a
   docstring `[[wiki-link]]` — `host_ssr` line 31, `fallback_contents` line 57. A cross-reference in
   prose is not a dependency.
-- **Neither reaches `re-frame.bench.hicasso.ssr.entry`.** Neither file mentions the namespace at
+- **Neither reaches `re-frame.bench.fresco.ssr.entry`.** Neither file mentions the namespace at
   all. `ssr.entry` has exactly **six** semantic consumers in the tree — six `:require` forms,
   counted outside strings and comments — and they are the five `ssr/*` suites already parked in
   STAYS (iii): `entry_cljs_test`, `hframe_ssr_cljs_test`, `instance_key_payload_dom_cljs_test`,
@@ -798,9 +798,9 @@ are both misreadings. Read off the files on `origin/main`, 2026-08-11:
 
 So the pair is an `arm1/*` port of exactly the shape the PORT table's sequencing paragraph
 describes: re-point `arm1.runtime` at the six modules, `arm1.lang`'s macros at the public door
-`re-frame.hicasso`, `arm1.mount` at `impl.mount`, `front.codec` at `impl.codec`. Their only `lane`
+`re-frame.fresco`, `arm1.mount` at `impl.mount`, `front.codec` at `impl.codec`. Their only `lane`
 call is `lane/leave-act-environment!`, once each, and its package counterpart already exists —
-`re-frame.hicasso.roots-frames-support/leave-act-environment!`, which cites the prototype by name.
+`re-frame.fresco.roots-frames-support/leave-act-environment!`, which cites the prototype by name.
 **They still move together**, but for the reason their own docstrings give rather than for a
 require: each is written as the other's arm, and the bare arm is the one that matters. A witness
 that only ever supplies a fallback proves nothing about the default, and `:client-only` is what an
@@ -823,8 +823,8 @@ and it uses it: `probe/install!`, `probe/record!`. Hook-probe proxies React's in
 slot, and when this section was written it had no package counterpart — precisely the blocker
 RE-AUTHORED records for `hook_ledger_dom_cljs_test` and `frame_prop_dom_cljs_test`. **It belongs
 with that bead**, whose deliverable was the probe, and that is exactly how it resolved:
-`re-frame.hicasso.hook-probe` landed under **rf2-wjag** in `35e8fecc1d`, at
-`implementation/hicasso/test/re_frame/hicasso/hook_probe.cljs`, and **five** package suites already
+`re-frame.fresco.hook-probe` landed under **rf2-wjag** in `35e8fecc1d`, at
+`implementation/fresco/test/re_frame/fresco/hook_probe.cljs`, and **five** package suites already
 `:require` it — `boundary_intent_dom`, `hframe_dom`, `hook_budget`, `presence_intent_dom` and
 `state_dom`. So the third member is unblocked, its port is **rf2-wjag's and not this row's**, and
 that bead is in flight — nothing here to sequence. What the split bought is what it was for:
@@ -837,11 +837,11 @@ wants an SSR entry of its own is a separate question, and the rows that would an
 `ssr/*` suites in STAYS (iii), which genuinely do reach one.
 
 **Landed — and the blocker that was recorded never bound.** Both suites are on the package now, at
-`implementation/hicasso/test/re_frame/hicasso/host_ssr_dom_cljs_test.cljs` and
+`implementation/fresco/test/re_frame/fresco/host_ssr_dom_cljs_test.cljs` and
 `fallback_contents_cljs_test.cljs`, ported by rf2-6rw9 in `d5657428cf` and re-pointed at their
 package siblings by rf2-a15c in `26f55428b3`, both in PR #7842. **The correction that outlasts the
 status is the premise.** This trio was parked on "the package must gain an SSR entry first", and
-`implementation/hicasso/src` *still* has no SSR namespace of any kind — a search of that tree for
+`implementation/fresco/src` *still* has no SSR namespace of any kind — a search of that tree for
 any `*ssr*` file returns nothing — yet both witnesses landed anyway, Client-only, on
 `react-dom/server` directly. A condition that the work satisfied without ever meeting it was never
 the condition. **Nobody should wait on it**, and no bead should be written as though the entry were
@@ -861,15 +861,15 @@ one, measured four ways:
   `shadow-cljs.edn`'s own `:ns-regexp`s, the way
   `implementation/scripts/_browser-dom-lane-partition.test.cjs` derives them rather than by reading
   the patterns off the page: `host_ssr` bench is selected by `:node-test` and `:browser-test`,
-  `host_ssr` package by those two **and** `:node-test-hicasso`; `fallback_contents` bench by
-  `:node-test`, package by that **and** `:node-test-hicasso`. Every host the original reached, the
+  `host_ssr` package by those two **and** `:node-test-fresco`; `fallback_contents` bench by
+  `:node-test`, package by that **and** `:node-test-fresco`. Every host the original reached, the
   port reaches, and one more.
 - **The `implementation_jvm` case — the one the exception exists for — does not reach these two,
   because they are `.cljs`.** The bench paths do arm `implementation_jvm=true` in
   `report-changed-surfaces.sh`, deliberately coarsely, as that arm's own comment says. But arming a
   job is not running a file: `check_test_lane_bijection.py`'s `loadable_by` gives JVM lanes `.clj`
   and `.cljc` and nothing else. Run in `implementation/freehand`,
-  `clojure -M:test -n re-frame.bench.hicasso.arm1.host-ssr-dom-cljs-test` answers **0 tests, 0
+  `clojure -M:test -n re-frame.bench.fresco.arm1.host-ssr-dom-cljs-test` answers **0 tests, 0
   assertions** and fails the test-quiet floor rather than passing vacuously, and so does the
   `fallback-contents-cljs-test` namespace — against **3 tests, 92 assertions** from the same command
   on `front/slot-cljs-test`. The whole difference between this row and that one is the file
@@ -906,12 +906,12 @@ exactly the way the split intends:
   exist for gates whose own definition a PR can edit unrun, which is a different problem.
 
 **And the port the row was actually holding is cheaper than it looked.** `:node-test-perf-nightly`
-declares no `:source-paths`, so it inherits the config's, and `hicasso/src` and `hicasso/test` are
+declares no `:source-paths`, so it inherits the config's, and `fresco/src` and `fresco/test` are
 on that vector. Its selector is `-emit-nightly-test$`, applied with shadow's `re-find`. So a
-package-side `re-frame.hicasso.render-measure-emit-nightly-test` would be selected by the existing
+package-side `re-frame.fresco.render-measure-emit-nightly-test` would be selected by the existing
 nightly build, and its OFF half by `:node-test`'s `cljs-test$` — **no new build, no new lane, no
 `test.yml` change, and no double-selection** (`…-emit-nightly-test` does not end in `cljs-test`, and
-`:node-test-hicasso`'s `^re-frame\.hicasso\..+-cljs-test$` does not reach it either). This is read
+`:node-test-fresco`'s `^re-frame\.fresco\..+-cljs-test$` does not reach it either). This is read
 off the build config rather than run.
 
 **Why the tier matters more than this one couple: the spine is deliberately clock-free.** Keeping a
@@ -948,7 +948,7 @@ row needs no follow-up bead** — it needed the tier named, and the tier is name
   `render_measure` couple was already in the tier it belongs to, and the `:ssr` pair was never
   blocked and has since been ported. **The third has since been overtaken rather than settled**: the
   file's "already rides two jobs where it sits" no longer holds, because rf2-0yp7w re-homed the
-  bench tree out from under it and `f4c3c53d04` armed the `jvm-hicasso` lane this row declined to
+  bench tree out from under it and `f4c3c53d04` armed the `jvm-fresco` lane this row declined to
   open. See [1. `front/slot_cljs_test.cljc`](#1-frontslot_cljs_testcljc--no-jvm-lane).
 - **It does not execute the verdicts it records, and executing one is not finished until the
   original is gone.** Every PORT row is now across, but nine of the ports left their bench originals

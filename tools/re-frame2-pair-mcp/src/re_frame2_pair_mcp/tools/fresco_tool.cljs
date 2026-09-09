@@ -1,25 +1,25 @@
-(ns re-frame2-pair-mcp.tools.hicasso-tool
+(ns re-frame2-pair-mcp.tools.fresco-tool
   "Tools: read-mounted-boundaries / read-read-attribution / explain-render —
-  the reads of the ADAPTER-NEUTRAL Hicasso evidence door
-  (`re-frame.hicasso.tool`).
+  the reads of the ADAPTER-NEUTRAL Fresco evidence door
+  (`re-frame.fresco.tool`).
 
-  These expose, from a RUNNING re-frame2 app, the same evidence Xray's Hicasso
+  These expose, from a RUNNING re-frame2 app, the same evidence Xray's Fresco
   tab reads — so a pairing agent inspects what is mounted, who reads what, and
   which reads moved, WITHOUT reaching a private React / cell / scheduler
   object. Each tool ships ONE self-describing CLJS form that calls a
-  `re-frame.hicasso.tool` read and forwards the bounded, serializable,
+  `re-frame.fresco.tool` read and forwards the bounded, serializable,
   VERSIONED result verbatim; every read answers inside the evidence envelope
   (`:schema`, `:producer`, `:read`, `:complete?`, `:loss`) and egresses only
   plain data.
 
-    | MCP wire tool             | `re-frame.hicasso.tool` read | arg |
+    | MCP wire tool             | `re-frame.fresco.tool` read | arg |
     |---------------------------|------------------------------|-----|
     | `read-mounted-boundaries` | `read-mounted-boundaries`    | —   |
     | `read-read-attribution`   | `read-read-attribution`      | —   |
     | `explain-render`          | `explain-render`             | —   |
 
   The wire names and the framework fn names AGREE, exactly, and
-  [[hicasso-wire-test]] is what keeps them agreeing: the coupling here is a
+  [[fresco-wire-test]] is what keeps them agreeing: the coupling here is a
   STRING interpolated into an nREPL form, so nothing a compiler, a classpath
   scan or a `:require` grep can see stands between a rename on the provider
   and a runtime failure on the wire.
@@ -35,9 +35,9 @@
   reading a current table.)
 
   So the name is not Pair's to shorten. It is ruled rather than incidental —
-  the Hicasso naming ledger read this door name by name and kept all four as
+  the Fresco naming ledger read this door name by name and kept all four as
   shipped, calling the `read-` prefix load-bearing (`rf2-hic-065`, row 51 of
-  `docs/design/hicasso/product/naming-ledger.md`) — and the string below is
+  `docs/design/fresco/product/naming-ledger.md`) — and the string below is
   BOTH the wire tool name and the provider fn name, munged and looked up on the
   door at runtime by [[projection-form]]. A wire-only rename would either break
   that lookup or force the two names apart, which is exactly the agreement the
@@ -53,7 +53,7 @@
   Freehand published a view REGISTRY and a compiler MANIFEST, so it could
   answer `read-view-manifest`, `read-view-dependencies` and
   `read-view-event-sites` — static questions about a view named by its
-  declared id, answerable BEFORE mount. **Hicasso mints no boundary identity
+  declared id, answerable BEFORE mount. **Fresco mints no boundary identity
   and keeps no registry.** A registration is its read set, React's notifier
   and the acquired cells, so a boundary is keyed by its EDGE SET and there is
   no id to ask about and no manifest to read: those three questions have no
@@ -70,7 +70,7 @@
   direction of the same edge. That is the honest analogue of *what feeds this
   view*, asked of a runtime that keeps edges rather than declarations.
 
-  `re-frame.hicasso.tool/read-intents` is deliberately NOT shipped as a fourth
+  `re-frame.fresco.tool/read-intents` is deliberately NOT shipped as a fourth
   tool: it folds Spec 009's retained event ring, which is the question Pair
   already answers with `trace-window` — under richer projection, with cursor
   pagination and the elision walker. A second, thinner window read under a new
@@ -79,8 +79,8 @@
   ## Tier presence — direct eval, no preload coupling (deliberate divergence)
 
   Unlike the `read-ui`/`read-dom` wrapper pattern, these tools DO NOT route
-  through a `re-frame2-pair.runtime` fn. `re-frame.hicasso.tool` lives in
-  `day8/re-frame2-hicasso`, and **nothing in `re-frame.hicasso` requires it** —
+  through a `re-frame2-pair.runtime` fn. `re-frame.fresco.tool` lives in
+  `day8/re-frame2-fresco`, and **nothing in `re-frame.fresco` requires it** —
   that is how the substrate keeps the door out of a production build entirely.
   An app on the Reagent or UIx adapter never has it at all. Requiring it in the
   generic preload would make the preload uncompilable in those apps. So each
@@ -107,15 +107,15 @@
                                         the producer's stamp cannot define
                                         support: an unrecognized schema is a
                                         typed mismatch, never forwarded as
-                                        success. `re-frame.hicasso.evidence`
+                                        success. `re-frame.fresco.evidence`
                                         states there is no acceptance path for
                                         a superseded version and no
                                         compatibility adapter, so this gate is
                                         the consumer half of a boundary the
                                         producer means literally;
-    - `{:ok? false :reason :evidence-tier-unavailable}` — `re-frame.hicasso.tool`
-                                        is not loaded (a non-Hicasso app, or a
-                                        Hicasso app nothing has loaded the door
+    - `{:ok? false :reason :evidence-tier-unavailable}` — `re-frame.fresco.tool`
+                                        is not loaded (a non-Fresco app, or a
+                                        Fresco app nothing has loaded the door
                                         into);
     - `{:ok? false :reason :evidence-tier-inactive}` — every read answers `nil`
                                         under `:advanced` with `goog.DEBUG`
@@ -152,7 +152,7 @@
   [[consumed-evidence-schema]], gives the wire witness the three halves of the
   contract to assert against the provider's own source instead of leaving them
   as literals only a running app can falsify."
-  "re-frame.hicasso.tool")
+  "re-frame.fresco.tool")
 
 (def tier-reads
   "The reader fns of [[tier-ns]] this build calls, in registration order.
@@ -163,29 +163,29 @@
   ["read-mounted-boundaries" "read-read-attribution" "explain-render"])
 
 (def ^:private unavailable-hint
-  (str "the re-frame.hicasso.tool evidence door is not loaded in this app. It "
-       "lives in day8/re-frame2-hicasso and NOTHING in re-frame.hicasso "
+  (str "the re-frame.fresco.tool evidence door is not loaded in this app. It "
+       "lives in day8/re-frame2-fresco and NOTHING in re-frame.fresco "
        "requires it — that is how a production build never loads it — so a "
-       "Hicasso app has it only once something pulls it in (Xray does), and an "
+       "Fresco app has it only once something pulls it in (Xray does), and an "
        "app on the Reagent or UIx adapter does not have it at all. Load "
-       "re-frame.hicasso.tool into the running build and retry."))
+       "re-frame.fresco.tool into the running build and retry."))
 
 (def ^:private inactive-hint
-  (str "every re-frame.hicasso.tool read answers nil under :advanced with "
+  (str "every re-frame.fresco.tool read answers nil under :advanced with "
        "goog.DEBUG false — the evidence door is DEV-ONLY. Read from a "
        "development build."))
 
 (def consumed-evidence-schema
-  "The `re-frame.hicasso.tool` evidence-schema version THIS Pair build was
+  "The `re-frame.fresco.tool` evidence-schema version THIS Pair build was
   written to forward — a CONSUMER-OWNED literal. Pair connects to an ARBITRARY
   running app that may ship an older or newer door, so it CANNOT trust the
   producer's own `:schema` stamp to define support: a projection stamped a
   schema this build does not understand is reported as a typed `:ok? false`
   mismatch, never forwarded as a successful read of a shape it cannot parse.
-  Currently `:re-frame.hicasso.evidence/v3`, matching
-  `re-frame.hicasso.evidence/schema`; bump ONLY when Pair is taught the new
+  Currently `:re-frame.fresco.evidence/v3`, matching
+  `re-frame.fresco.evidence/schema`; bump ONLY when Pair is taught the new
   shape."
-  :re-frame.hicasso.evidence/v3)
+  :re-frame.fresco.evidence/v3)
 
 (defn versioned-envelope-result
   "The `on-value` projection for the door reads: `probe/map-envelope-result`
@@ -205,19 +205,19 @@
                     :reason   :evidence-tier-version-mismatch
                     :expected consumed-evidence-schema
                     :actual   (:schema v)
-                    :hint     (str "the running app's re-frame.hicasso.tool door stamped "
+                    :hint     (str "the running app's re-frame.fresco.tool door stamped "
                                    "evidence schema "
                                    (pr-str (:schema v))
                                    " but this pair build understands "
                                    (pr-str consumed-evidence-schema)
                                    " — the projection shape has evolved. There is "
                                    "no compatibility adapter on either side, by "
-                                   "design. Align the app's day8/re-frame2-hicasso "
+                                   "design. Align the app's day8/re-frame2-fresco "
                                    "with this tool build (or update the tool).")})
     (probe/map-envelope-result v)))
 
 (defn projection-form
-  "Build the self-describing eval form for a `re-frame.hicasso.tool` read. Pure
+  "Build the self-describing eval form for a `re-frame.fresco.tool` read. Pure
   string → string, so the form composition is unit-checkable off the wire.
 
     `read-fn`  the reader fn name (e.g. \"read-mounted-boundaries\").
@@ -234,21 +234,21 @@
 
   ## The door is resolved, never REFERENCED (rf2-t2ec)
 
-  This form names `re-frame.hicasso.tool` in two STRINGS and nowhere as a
+  This form names `re-frame.fresco.tool` in two STRINGS and nowhere as a
   symbol, and that is the whole point rather than a stylistic preference.
-  The guard here used to be `(cljs.core/exists? re-frame.hicasso.tool/<read>)`
+  The guard here used to be `(cljs.core/exists? re-frame.fresco.tool/<read>)`
   around a direct call to the same fully-qualified var. `exists?` is a fair
   test — it resolves under `no-warn` and answers `false` for an absent door —
   but the CALL it guarded is a var reference like any other, and shadow's
   analyzer resolves every form it compiles before any of it runs. Against
-  `:hicasso/hmr-testbed` with the door not required, the emitted form came back:
+  `:fresco/hmr-testbed` with the door not required, the emitted form came back:
 
       {:ok? false, :reason :rf.error/eval-cljs-compile-error,
        :err \"WARNING - :undeclared-var … Use of undeclared Var
-             re-frame.hicasso.tool/read-mounted-boundaries\"}
+             re-frame.fresco.tool/read-mounted-boundaries\"}
 
   So the one case `:evidence-tier-unavailable` names — a Reagent/UIx app, or a
-  Hicasso app nothing pulled the door into — was the one case that branch could
+  Fresco app nothing pulled the door into — was the one case that branch could
   not reach, and the operator got an analyzer warning where the load-the-door
   hint belonged.
 
@@ -259,7 +259,7 @@
   `munge`, so [[tier-ns]] stays on the wire verbatim and Pair never has to
   carry a second munging implementation that could disagree with the compiler's
   (`goog.getObjectByName`, the other candidate, works but wants a pre-munged
-  `re_frame.hicasso.tool.read_mounted_boundaries` built here). It is marked
+  `re_frame.fresco.tool.read_mounted_boundaries` built here). It is marked
   *bootstrap only* in `cljs.core`, meaning it is not the everyday API; it is
   nonetheless public, present in every dev build, and the only supported way to
   reach a namespace object by name. This eval path is dev-only in both
@@ -272,7 +272,7 @@
   `:evidence-tier-inactive` rung, exactly as before. A door that is loaded but
   whose read has been RENAMED resolves to `undefined`, and calling it throws
   into the `catch` as `:evidence-tier-error` rather than claiming the door is
-  absent; [[re-frame2-pair-mcp.hicasso-wire-test]] is what stops that reaching
+  absent; [[re-frame2-pair-mcp.fresco-wire-test]] is what stops that reaching
   a user."
   [read-fn]
   (str "(try"
@@ -293,7 +293,7 @@
     fail-reason versioned-envelope-result))
 
 (defn read-mounted-boundaries-tool
-  "MCP `read-mounted-boundaries` — every Hicasso boundary MOUNTED RIGHT NOW: its
+  "MCP `read-mounted-boundaries` — every Fresco boundary MOUNTED RIGHT NOW: its
   key, the `:views` that rendered it, the number of `:instances` holding that
   key, the frame, and the read edges it holds (each with its `:sub-id`, its
   projected `:query` and the cell's `:epoch` — never the value the read
@@ -342,7 +342,7 @@
 
   Two halves, never blended. PROVEN: `:latest-reads` names the boundary's reads
   standing at its own maximum `:peak-epoch`, read off the cells' own stamps, and
-  `:snapshot` is the exact sum React compares. LEADS: Hicasso's commit seam
+  `:snapshot` is the exact sum React compares. LEADS: Fresco's commit seam
   records no cascade id, so no run can be joined to a re-run — the row's own
   `:loss` says so — and `:candidates` are the retained runs that recomputed a
   subscription this boundary reads, offered as leads. The two loss reasons are

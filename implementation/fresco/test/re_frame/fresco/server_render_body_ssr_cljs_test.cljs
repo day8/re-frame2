@@ -1,10 +1,10 @@
-(ns re-frame.hicasso.server-render-body-ssr-cljs-test
-  "`re-frame.hicasso.server/render-body` — the body-only entry, measured on
+(ns re-frame.fresco.server-render-body-ssr-cljs-test
+  "`re-frame.fresco.server/render-body` — the body-only entry, measured on
   its own (rf2-8arzr.5, slice E of the ssr-node crossing programme; the
   parent's shared contract S2/S3).
 
   The product witness for the whole crossing is
-  `re-frame.hicasso.login-server-crossing-ssr-cljs-test`, which drives the
+  `re-frame.fresco.login-server-crossing-ssr-cljs-test`, which drives the
   real login example through the real sidecar module contract. This file is
   the narrow one: every row here is a claim about the ENTRY, written so a
   failure names the entry rather than the example.
@@ -33,16 +33,16 @@
      refusal row on its own cannot tell 'the check fired' from 'the render
      was broken all along'.
 
-  Runtime: `-cljs-test`, so the focused `:node-test-hicasso` build and the
+  Runtime: `-cljs-test`, so the focused `:node-test-fresco` build and the
   always-on `:node-test`. Every row renders to a string; none needs a DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.server :as rf.hicasso.server]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.server :as rf.fresco.server]
             [re-frame.subs :as rf.subs]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]))
@@ -83,26 +83,26 @@
      :ambient-frame nil
      :init-fn       (fn []
                       (reset! !boot-events-run [])
-                      (rf.hicasso.impl.collector/reset-runtime!))}))
+                      (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The probes
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview both-partitions
+(rf.fresco/defview both-partitions
   "Reads one app-db sub and one runtime-db sub, so a row can tell WHICH
   partition failed to restore rather than only that something did."
   [_]
   [:div.page
-   [:p.greeting (str (rf.hicasso/sub [::greeting]))]
-   [:p.flavour (str (rf.hicasso/sub [::flavour]))]])
+   [:p.greeting (str (rf.fresco/sub [::greeting]))]
+   [:p.flavour (str (rf.fresco/sub [::flavour]))]])
 
-(rf.hicasso/defview detonating
+(rf.fresco/defview detonating
   "Reads the sub that throws. The framework recovers it to `nil`, so this
   body returns normally and the render produces markup — which is exactly
   the hazard §4 is about."
   [_]
-  [:div.page [:p.greeting (str (rf.hicasso/sub [::detonates]))]])
+  [:div.page [:p.greeting (str (rf.fresco/sub [::detonates]))]])
 
 (defn- id-probe
   "One `useId`, rendered as text. A React hook, so it is written where React
@@ -111,9 +111,9 @@
   [^js _props]
   (react/createElement "b" #js {:className "probe"} (react/useId)))
 
-(rf.hicasso/defhost id-host id-probe {:server :render})
+(rf.fresco/defhost id-host id-probe {:server :render})
 
-(rf.hicasso/defview id-page
+(rf.fresco/defview id-page
   [_]
   [:div.page [id-host {}]])
 
@@ -130,7 +130,7 @@
     :rf/runtime-db {::kitchen {:flavour "vanilla"}}}))
 
 (defn- render-body! [hiccup opts]
-  (rf.hicasso.server/render-body (merge {:hiccup hiccup :render-state (state)} opts)))
+  (rf.fresco.server/render-body (merge {:hiccup hiccup :render-state (state)} opts)))
 
 (defn- live-frame-ids []
   (set (keys @rf.frame/frames)))
@@ -202,7 +202,7 @@
         "a sub that throws mid-render must not answer 200 with a hole in the page")
     (let [data (ex-data thrown)]
       (is (= :rf.error/ssr-render-failed (:rf.error/id data)))
-      (is (= 're-frame.hicasso.server/render-body (:where data)))
+      (is (= 're-frame.fresco.server/render-body (:where data)))
       (is (= :fail-the-render (:recovery data)))
       (is (pos? (:recorded data)) "the refusal counts what it saw")
       (is (= :rf.error/sub-exception (:error (:record data)))

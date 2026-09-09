@@ -2,8 +2,8 @@
 // THE FLOOR ARM'S SECOND-MODE **RATE**, AGAINST ELAPSED TIME WITHIN A SESSION —
 // rf2-6kxub, read off committed datasets and nothing else.
 //
-//     node hicasso/test/re_frame/bench/hicasso/alloc_mode_rate_session.cjs
-//     node hicasso/test/re_frame/bench/hicasso/alloc_mode_rate_session.cjs --self-test
+//     node fresco/test/re_frame/bench/fresco/alloc_mode_rate_session.cjs
+//     node fresco/test/re_frame/bench/fresco/alloc_mode_rate_session.cjs --self-test
 //
 // ## THE QUESTION
 //
@@ -55,7 +55,7 @@
 //   control refused            — `alloc.controlVerdict.ok !== true`
 //   no certified segment level — every window was refused, so no level exists
 //
-// The rule is the one `docs/design/hicasso/studio/the-eight-signs-are-one-block.md`
+// The rule is the one `docs/design/fresco/studio/the-eight-signs-are-one-block.md`
 // already applies to the same corpus, and it is applied here identically so the
 // two records cannot disagree about which runs count as readings.
 //

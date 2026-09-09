@@ -1,11 +1,11 @@
-(ns re-frame.bench.hicasso.jsfb-model
+(ns re-frame.bench.fresco.jsfb-model
   "THE ONE MODEL BOTH ARMS RENDER — krausest/js-framework-benchmark's app
   as re-frame2 state (rf2-rguy1).
 
   ## Why a shared model namespace exists at all
 
   This lane's cross-check asks whether an instrument nobody here wrote
-  agrees with ours about `hicasso / reagent`. A ratio only answers that
+  agrees with ours about `fresco / reagent`. A ratio only answers that
   if the two arms differ in EXACTLY ONE thing — the view substrate. So
   the app-db shape, every event handler, every subscription and the
   pseudo-random data are defined once, here, and both arms require this

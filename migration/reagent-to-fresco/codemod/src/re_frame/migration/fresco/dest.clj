@@ -1,5 +1,5 @@
-(ns re-frame.migration.hicasso.dest
-  "**What Hicasso does** — the DESTINATION column of the design's §3 table,
+(ns re-frame.migration.fresco.dest
+  "**What Fresco does** — the DESTINATION column of the design's §3 table,
   and the whole of the design's §6 static-analysis vocabulary.
 
   ## The vocabulary, and the one term that may authorise a rewrite
@@ -45,17 +45,17 @@
   and asserts the two rosters equal rather than leaving this one to the
   convention (rf2-vi11)."
   (:require [clojure.string :as str]
-            [re-frame.hicasso.impl.slot :as rf.hicasso.impl.slot]))
+            [re-frame.fresco.impl.slot :as rf.fresco.impl.slot]))
 
 (def canonical-slot
   "**The one slot resolver**, and it is the codec's own. The React prop
   slot a hiccup attribute key emits into.
 
   `front.codec/canonical-slot` is `cached-prop-name`, which is a cache
-  over `rf.hicasso.impl.slot/prop-name`; a cache changes when a lookup is computed and
+  over `rf.fresco.impl.slot/prop-name`; a cache changes when a lookup is computed and
   nothing about what it answers, so this alias and the codec's are the
   same function of the same key."
-  rf.hicasso.impl.slot/prop-name)
+  rf.fresco.impl.slot/prop-name)
 
 (def key-slot
   "`raw-element` lifts `(:key props)` — the LITERAL keyword, read off the
@@ -80,7 +80,7 @@
 (defn html-attr-slot?
   "Is `slot` one of the HTML-attribute positions? MIRRORS
   `front.codec/html-attr-slot?`, prefix families included —
-  `rf.hicasso.impl.slot/prop-name` leaves `aria-*` and `data-*` uncamelCased, so the slot
+  `rf.fresco.impl.slot/prop-name` leaves `aria-*` and `data-*` uncamelCased, so the slot
   still carries the prefix to test."
   [slot]
   (boolean
@@ -152,7 +152,7 @@
   spelling they used.
 
   The donor DELETED this prop unless it was `UnsafeHTML`-wrapped and
-  Hicasso passes it through, so the migration resurrects it. A decision
+  Fresco passes it through, so the migration resurrects it. A decision
   for a person; never a rewrite (`:dangerous-html`, §5.3)."
   [k]
   (and (or (keyword? k) (string? k) (symbol? k))

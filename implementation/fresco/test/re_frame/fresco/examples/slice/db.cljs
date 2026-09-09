@@ -1,9 +1,9 @@
-(ns re-frame.hicasso.examples.slice.db
+(ns re-frame.fresco.examples.slice.db
   "THE SLICE'S SHAPE, AND THE PURE FUNCTIONS OVER IT.
 
   One `app-db` map, described once, plus the handful of calculations the
   event handlers and subscriptions both need. Nothing here requires
-  re-frame or Hicasso: it is the layer a test can exercise with `=` and
+  re-frame or Fresco: it is the layer a test can exercise with `=` and
   no runtime at all, which is the ladder's L0 and the reason it is its
   own namespace.
 
@@ -25,7 +25,7 @@
   partition of the same `app-db` — `[:rf.runtime/routing :current]`,
   read through `[:rf.route/query]` — rather than a second copy beside
   `:articles` that the address bar could disagree with. That is the same
-  rule [[re-frame.hicasso.examples.slice.views/article-page]] already
+  rule [[re-frame.fresco.examples.slice.views/article-page]] already
   keeps for the slug, and it is what makes Back and Forward work without
   a single line of history code: the browser replays the URL, the URL
   carries the page, and the list follows.
@@ -94,7 +94,7 @@
 
   A vector of BLOCKS. Each carries its own `:block/kind`, and the view
   layer picks the renderer for that kind at render time
-  ([[re-frame.hicasso.examples.slice.views/block-views]]) — so the
+  ([[re-frame.fresco.examples.slice.views/block-views]]) — so the
   hiccup SHAPE of this region is a fact about the data rather than about
   the body that renders it. Specification §3.3 blesses exactly this:
   runtime-selected Hiccup and ordinary Clojure transformations over it
@@ -114,7 +114,7 @@
 
   The text is CONTENT and is not translated. That boundary is already
   the application's — see
-  `re-frame.hicasso.examples.slice.i18n-dom-cljs-test`'s row on it — and
+  `re-frame.fresco.examples.slice.i18n-dom-cljs-test`'s row on it — and
   the digest's chrome (its heading, its failure sentence, its retry) is
   read through `[::subs/t …]` like every other string."
   [{:block/id "intro" :block/kind :block/prose
@@ -148,7 +148,7 @@
 (def seed
   "The application's starting `app-db`. A literal, so a test seeds a frame
   with `[[:rf/set-db db/seed]]` and gets the same page the browser shows."
-  {:articles {"hicasso"    {:slug "hicasso" :title "Hicasso, briefly"
+  {:articles {"fresco"    {:slug "fresco" :title "Fresco, briefly"
                             :body "A boundary is a real React function component."
                             :published? true
                             :tags ["substrate" "react"]}
@@ -176,7 +176,7 @@
                             :body "The page is a query parameter, so Back restores it."
                             :published? false
                             :tags ["routing"]}}
-   :order    ["hicasso" "intents" "controls" "keys" "boundaries" "revision" "pages"]
+   :order    ["fresco" "intents" "controls" "keys" "boundaries" "revision" "pages"]
    :drafts   {}
    :save     {:status :idle}
    :digest   {:status :ready :blocks digest}
@@ -234,7 +234,7 @@
 
   This is the LOCAL half of validation. The server's half —
   `:problem/title-taken` — cannot be decided here, and
-  [[re-frame.hicasso.examples.slice.events]] is where it arrives."
+  [[re-frame.fresco.examples.slice.events]] is where it arrives."
   [draft]
   (cond-> []
     (blank? (:title draft)) (conj :problem/title-blank)

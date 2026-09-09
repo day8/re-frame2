@@ -17,7 +17,7 @@ Xray's main UI is built around that fact:
 - The tab strip chooses which lens you want.
 - The detail panel shows that lens for the focused epoch.
 
-When you click a row in the event spine, the six event lenses — `Epoch`, `app-db`, `Views`, `Trace`, `Machine`, and `Routes` — rebind to that same epoch and stop disagreeing, because they are all projections of the same record. The other Dynamic tabs read live structure rather than the focused epoch: `Resources` mixes the registry with the observed frame's live state, and `Graph`, `Frames`, and `Hicasso` do not follow the row you pick.
+When you click a row in the event spine, the six event lenses — `Epoch`, `app-db`, `Views`, `Trace`, `Machine`, and `Routes` — rebind to that same epoch and stop disagreeing, because they are all projections of the same record. The other Dynamic tabs read live structure rather than the focused epoch: `Resources` mixes the registry with the observed frame's live state, and `Graph`, `Frames`, and `Fresco` do not follow the row you pick.
 
 ## Two Modes
 
@@ -43,7 +43,7 @@ Start by installing Xray, then run one small debugging session on the standard-e
 - [8. Machine inspector](08-machine-inspector.md) covers the event-coupled machine lens and the Static machine browser.
 - [9. App-DB diff](09-app-db-diff.md) teaches the changed-slices-first app-db view.
 - [10. Derivation graph](10-derivation-graph.md) draws subscriptions, flows, resources, routes, and machines as one dependency graph — "where does this value come from?" — with static/live modes and the off-box redaction boundary.
-- [11. The Hicasso tab](11-hicasso-tab.md) reads Hicasso's view layer through six views over one evidence take — mounted boundaries, read attribution, intents, why, the hot-boundary advisor, and one dispatch walked from event to paint.
+- [11. The Fresco tab](11-fresco-tab.md) reads Fresco's view layer through six views over one evidence take — mounted boundaries, read attribution, intents, why, the hot-boundary advisor, and one dispatch walked from event to paint.
 
 ## What Xray Is Not
 

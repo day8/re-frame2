@@ -262,7 +262,7 @@ the converted props — which is the shape `boundary-element` already uses
 object. The cost is one extra JS object per crossing.
 
 **One fiber and one hook — identical to `defhost`.** HD-020(b)'s ≤2-hook budget
-is a statement about Hicasso *boundaries*, and the gate is not one: no frame, no
+is a statement about Fresco *boundaries*, and the gate is not one: no frame, no
 subscription, no body. Untouched.
 
 **A property worth stating:** the shared gate *is* the reduced structural
@@ -316,11 +316,11 @@ extends to cover the escape.
 ### The fact that forces the decision
 
 `h/fn` is **an ordinary function**. `intent/callback` sets one own property
-(`"hicassoFn"`) on the function and returns *the same function*
+(`"frescoFn"`) on the function and returns *the same function*
 (`front/intent.cljs` ~:300–327). So at a prop with no contract it takes
 `host-prop-value`'s first branch, `fn?`, and crosses by identity — callable,
 no error, **and with no contract at all**. `event-callback` never wraps it, so a
-returned intent vector is **not dispatched**. The `"hicassoFn"` marker rides onto
+returned intent vector is **not dispatched**. The `"frescoFn"` marker rides onto
 the foreign props object, inert.
 
 That is a silent no-op on the single most common thing a person writes at a
@@ -459,7 +459,7 @@ person can act on:
 | `nil` | The classic broken-import symptom (`:default` against a library with no default export). `mint-host!` already refuses it at the declaration for exactly this reason | Check the require's `:refer` / `:default` |
 | A string or a keyword | Reagent accepts `[:> "div" …]`; we have a spelling for that | Write the tag directly — `[:div …]`, or `["my-element" …]` for a custom element |
 | A number, a boolean, a ClojureScript collection | Not a component under any reading | — |
-| A **Hicasso view head** | It is a function, so React would accept it and the body would receive shallow-camelCased props instead of the boundary props protocol. **Silent garbage** | Write `[my-view {…}]` |
+| A **Fresco view head** | It is a function, so React would accept it and the body would receive shallow-camelCased props instead of the boundary props protocol. **Silent garbage** | Write `[my-view {…}]` |
 | A **`defhost` declaration** | The minted head is a plain JS object with no `$$typeof`; React's own error names nothing the author wrote | Write `[my-host {…}]` |
 
 Everything that survives is a JS function, a JS object or a JS symbol — which is
@@ -519,7 +519,7 @@ the writer's frame-locked dispatch and fires into the right frame however much
 later, and wherever, the foreign component renders it — a portal, a virtualized
 window, a `Suspense` fallback. This is a *good* property and it is free.
 
-**A Hicasso boundary beneath a `[:>]` gets its frame from React context.**
+**A Fresco boundary beneath a `[:>]` gets its frame from React context.**
 `shell` reads `useContext frame-context`, and React context ignores the JS call
 stack, so a foreign component in the middle is transparent. Already witnessed
 for `defhost` at `arm1/frame_prop_dom_cljs_test.cljs`
@@ -535,10 +535,10 @@ them per invocation, with the arming gate released in a `finally`. That is
 Under the alternative reading, no render contract exists at `[:>]` at all and
 this paragraph is false: an `h/fn` handed to a render prop would cross bare, and
 either its rows would carry no dispatch or its intents would raise
-`:rf.error/hicasso-intent-outside-boundary` at the library's first call.
+`:rf.error/fresco-intent-outside-boundary` at the library's first call.
 
 **A `[:>]` written outside any boundary** is fine for plain props and raises
-`:rf.error/hicasso-intent-outside-boundary` for an intent — the same loud error
+`:rf.error/fresco-intent-outside-boundary` for an intent — the same loud error
 `defhost` raises, from the same check (`require-dispatch` reads `*dispatch*` at
 lowering and throws when it is nil).
 
@@ -569,29 +569,29 @@ and are listed so a reviewer can see the escape adds three ids, not fifteen.
 
 | # | Trigger | Id | What it tells them to do |
 |---|---|---|---|
-| 1 | `nil` in Component position | `:rf.error/hicasso-raw-no-component` **new** | Name the broken-import cause and say to check `:refer` / `:default` — the same sentence `mint-host!` already uses |
-| 2 | String or keyword in Component position | `:rf.error/hicasso-raw-not-a-component` **new** | "Write the tag directly: `[:div …]`" — and for a string, `["my-element" …]` |
-| 3 | Number, boolean or CLJS collection in Component position | `:rf.error/hicasso-raw-not-a-component` **new** | Print the value; say what the position takes |
-| 4 | A Hicasso view head in Component position | `:rf.error/hicasso-raw-hicasso-head` **new** | "`X` is a Hicasso view — write `[X {…}]`. `[:>]` is for foreign React values" |
-| 5 | A `defhost` declaration in Component position | `:rf.error/hicasso-raw-hicasso-head` **new** | "`X` is a declaration — write `[X {…}]`" |
-| 6 | Empty `[:>]` — no component at all | `:rf.error/hicasso-raw-no-component` **new** | "`[:> Component props & children]` — the component is the second element" |
+| 1 | `nil` in Component position | `:rf.error/fresco-raw-no-component` **new** | Name the broken-import cause and say to check `:refer` / `:default` — the same sentence `mint-host!` already uses |
+| 2 | String or keyword in Component position | `:rf.error/fresco-raw-not-a-component` **new** | "Write the tag directly: `[:div …]`" — and for a string, `["my-element" …]` |
+| 3 | Number, boolean or CLJS collection in Component position | `:rf.error/fresco-raw-not-a-component` **new** | Print the value; say what the position takes |
+| 4 | A Fresco view head in Component position | `:rf.error/fresco-raw-fresco-head` **new** | "`X` is a Fresco view — write `[X {…}]`. `[:>]` is for foreign React values" |
+| 5 | A `defhost` declaration in Component position | `:rf.error/fresco-raw-fresco-head` **new** | "`X` is a declaration — write `[X {…}]`" |
+| 6 | Empty `[:>]` — no component at all | `:rf.error/fresco-raw-no-component` **new** | "`[:> Component props & children]` — the component is the second element" |
 | 7 | `h/fn` at an event-spelled prop the library treats as a render prop | *no new id* | Troubleshooting row: "a returned vector dispatches at an event position; `onRenderRow` is event-spelled. Declare the prop `:render` with `defhost`" |
 | 8 | A function child returning hiccup | React's own | Troubleshooting row: the return is not walked and must already be an element — **and no taught spelling makes one** (`rf2-2rtt6.120`) |
 | 9 | Hiccup written in a **prop** | *none — silent* | Troubleshooting row: hiccup becomes elements in child position only — **and no taught spelling converts one here** (`rf2-2rtt6.120`) |
 | 10 | Node missing from server HTML | *none — by design* | Troubleshooting row: foreign regions are `:client-only`; `[:>]` has no declaration to say otherwise, so declare with `defhost` and set `:ssr` |
-| — | Intent vector outside a boundary | `:rf.error/hicasso-intent-outside-boundary` | inherited |
-| — | Vector at `:ref` | `:rf.error/hicasso-ref-vector-reserved` | inherited |
-| — | Non-map at `:&` | `:rf.error/hicasso-merge-not-a-map` | inherited |
-| — | Unforced `delay` reachable from props | `:rf.error/hicasso-deferred-read-at-boundary` | inherited |
+| — | Intent vector outside a boundary | `:rf.error/fresco-intent-outside-boundary` | inherited |
+| — | Vector at `:ref` | `:rf.error/fresco-ref-vector-reserved` | inherited |
+| — | Non-map at `:&` | `:rf.error/fresco-merge-not-a-map` | inherited |
+| — | Unforced `delay` reachable from props | `:rf.error/fresco-deferred-read-at-boundary` | inherited |
 
-**Three new ids across six triggers** — `hicasso-raw-no-component`,
-`hicasso-raw-not-a-component`, `hicasso-raw-hicasso-head` — plus four
+**Three new ids across six triggers** — `fresco-raw-no-component`,
+`fresco-raw-not-a-component`, `fresco-raw-fresco-head` — plus four
 troubleshooting rows that need no id because nothing throws. Every id names the
 value that arrived and the spelling to use instead; none names an internal var
 and none prints a schema.
 
 One inherited message wants a sentence added, and it is cheap: `merge-caller`'s
-`:rf.error/hicasso-merge-not-a-map` says *"Forward a map, or drop the key"*, and
+`:rf.error/fresco-merge-not-a-map` says *"Forward a map, or drop the key"*, and
 the commonest way to reach it at a raw crossing is forwarding a foreign props
 **object** (`{:& rest-props}` from a wrapper). Adding *"a JS object is not a map
 — `(js->clj rest :keywordize-keys true)`"* costs nine words and converts a dead
@@ -606,7 +606,7 @@ Verified against stock Reagent's `reagent/impl/template.cljs` and
 cross-read against this repo's `implementation/adapters/reagent-slim/`, which
 records where it deliberately narrowed stock.
 
-| # | Case | Stock Reagent | Hicasso `[:>]` | Loud? |
+| # | Case | Stock Reagent | Fresco `[:>]` | Loud? |
 |---|---|---|---|---|
 | 1 | Nested map keys | Recursively camelCased (`kv-conv` → `cached-prop-name` at every depth) | **Shallow** — the top key only; nested maps keep the spelling you wrote | **Silent** |
 | 2 | Plain function props | Pass by identity (`js-val?` is true for a function, first `cond` branch) | Pass by identity | — no difference |
@@ -711,7 +711,7 @@ opposite. The two readings differ in whether the escape can attach a handler at
 all, so this is the design's single most consequential open question and the
 adversarial passes should attack it directly.
 
-**R3 — refusing a Hicasso view head or a `defhost` declaration in Component
+**R3 — refusing a Fresco view head or a `defhost` declaration in Component
 position.** Both are values React accepts, so refusing them goes beyond clause
 5's letter. §Edge 4 argues for it on silent-failure grounds. Cheap to overturn.
 
@@ -726,7 +726,7 @@ position.** Both are values React accepts, so refusing them goes beyond clause
    `{:value :theme/dark}` crosses as `"dark"`. This matches stock Reagent, but
    `reagent-slim` deliberately narrowed it after an audit (its own docstring
    names the case: *"a keyword like `:rf/foo` on a React-context Provider's
-   `:value` is preserved"*). Hicasso's broad `(name v)` re-opens the seam that
+   `:value` is preserved"*). Fresco's broad `(name v)` re-opens the seam that
    audit closed, and it lands hardest on providers. A `defhost` question, not the
    escape's.
 3. **`rf2-d03av` (P3) — HD-016's "callback refs only" is not enforced against
@@ -743,7 +743,7 @@ position.** Both are values React accepts, so refusing them goes beyond clause
   and written down where they cannot.
 - Anything about `:r>`, the class-component `__rfArgv` crossing, or bare-head
   auto-hosting. All three stay absent; the last stays rejected.
-- The framework's non-Hicasso SSR emitter already throws on `[:> …]`
+- The framework's non-Fresco SSR emitter already throws on `[:> …]`
   (`implementation/ssr/test/re_frame/ssr_emit_test.clj`). That is a different
-  lane — Hicasso's server walk is React's `renderToString`, not that emitter —
+  lane — Fresco's server walk is React's `renderToString`, not that emitter —
   and nothing here changes it.

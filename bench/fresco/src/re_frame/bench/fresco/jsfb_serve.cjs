@@ -2,9 +2,9 @@
 // SERVE THE THREE BENCHMARK ARMS, so `jsfb_ours_run.cjs` can be run without
 // the upstream clone (rf2-emvod).
 //
-//   node hicasso/test/re_frame/bench/hicasso/jsfb_build.cjs --dest out/jsfb-dest
-//   node hicasso/test/re_frame/bench/hicasso/jsfb_serve.cjs --root out/jsfb-dest &
-//   JSFB_ONLY=run1k node hicasso/test/re_frame/bench/hicasso/jsfb_ours_run.cjs
+//   node fresco/test/re_frame/bench/fresco/jsfb_build.cjs --dest out/jsfb-dest
+//   node fresco/test/re_frame/bench/fresco/jsfb_serve.cjs --root out/jsfb-dest &
+//   JSFB_ONLY=run1k node fresco/test/re_frame/bench/fresco/jsfb_ours_run.cjs
 //
 // ## WHY THIS EXISTS, AND WHAT IT DELIBERATELY DOES NOT DO
 //

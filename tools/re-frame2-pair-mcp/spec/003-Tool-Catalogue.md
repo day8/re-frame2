@@ -2576,10 +2576,10 @@ malformed CSS selector;
 `:reason :rf.error/read-ui-failed` (with `:message`) on any other
 failure.
 
-## The Hicasso evidence door — read-mounted-boundaries / read-read-attribution / explain-render
+## The Fresco evidence door — read-mounted-boundaries / read-read-attribution / explain-render
 
-Three read-only projections of the **adapter-neutral Hicasso evidence
-door** (`re-frame.hicasso.tool`) — the same evidence Xray's Hicasso tab
+Three read-only projections of the **adapter-neutral Fresco evidence
+door** (`re-frame.fresco.tool`) — the same evidence Xray's Fresco tab
 reads, exposed from a **running** re-frame2 app so a pairing agent
 inspects what is mounted, who reads what, and which reads moved WITHOUT
 reaching a private React / cell / scheduler handle. Every read answers
@@ -2588,7 +2588,7 @@ inside the evidence envelope (`:schema`, `:producer`, `:read`,
 **serializable**, and egresses only bounded plain data — no cell or React
 object crosses the wire, and **no read value at all**.
 
-| MCP wire tool             | `re-frame.hicasso.tool` read | arg |
+| MCP wire tool             | `re-frame.fresco.tool` read | arg |
 |---------------------------|------------------------------|-----|
 | `read-mounted-boundaries` | `read-mounted-boundaries`    | —   |
 | `read-read-attribution`   | `read-read-attribution`      | —   |
@@ -2607,7 +2607,7 @@ registry and a compiler manifest, so it could answer
 `read-view-event-sites` — static questions about a view named by its
 declared id, answerable *before* mount.
 
-**Hicasso mints no boundary identity and keeps no registry.** A
+**Fresco mints no boundary identity and keeps no registry.** A
 registration is its read set, React's notifier and the acquired cells,
 so a boundary is keyed by its **edge set**: there is no id to ask about
 and no manifest to read. **Those three questions are unanswerable from
@@ -2625,7 +2625,7 @@ subscription* — is how an agent gets from a subscription it can name to
 the boundaries holding it, and `:reads` on every mounted row is the
 forward direction of the same edge.
 
-`re-frame.hicasso.tool/read-intents` is deliberately **not** shipped as a
+`re-frame.fresco.tool/read-intents` is deliberately **not** shipped as a
 fourth tool: it folds Spec 009's retained event ring, which is the
 question `trace-window` already answers under richer projection, with
 cursor pagination and the elision walker. A second, thinner window read
@@ -2634,8 +2634,8 @@ under a new name would be surface without a question of its own.
 ### Door presence — direct eval, no preload coupling
 
 Unlike the `read-ui` / `read-dom` wrapper pattern, these tools do **not**
-route through a `re-frame2-pair.runtime` fn. `re-frame.hicasso.tool`
-lives in `day8/re-frame2-hicasso`, and **nothing in `re-frame.hicasso`
+route through a `re-frame2-pair.runtime` fn. `re-frame.fresco.tool`
+lives in `day8/re-frame2-fresco`, and **nothing in `re-frame.fresco`
 requires it** — that is how the substrate keeps the door out of a
 production build entirely. An app on the Reagent or UIx adapter never has
 it at all. Requiring it in the generic preload would make the preload
@@ -2651,7 +2651,7 @@ absent evidence explicitly*, not a fabricated emptiness.
 It once did, behind a `cljs.core/exists?` guard, and the guard was fine
 while the branch it guarded was not: shadow's analyzer resolves every
 form it compiles before any of it runs, so against an app that has never
-loaded `re-frame.hicasso.tool` the whole eval came back
+loaded `re-frame.fresco.tool` the whole eval came back
 `:rf.error/eval-cljs-compile-error` with a raw `:undeclared-var`
 warning. The one population `:evidence-tier-unavailable` is written for
 was the one population that could not reach it. A runtime lookup asks the
@@ -2660,18 +2660,18 @@ the analyzer has nothing to reject.
 
 ### The coupling is a wire STRING, and it has a witness
 
-`re-frame2-pair-mcp.tools.hicasso-tool/tier-ns` holds the string
-`"re-frame.hicasso.tool"`, and it is interpolated into every form these
+`re-frame2-pair-mcp.tools.fresco-tool/tier-ns` holds the string
+`"re-frame.fresco.tool"`, and it is interpolated into every form these
 tools emit. Pair has **no `:require` of the provider and no `deps.edn`
 coordinate**, so no compiler, no clj-kondo run and no classpath scan can
 see this dependency: an audit reports Pair clean of the provider while
 every tool in this family calls it.
 
-`test/re_frame2_pair_mcp/hicasso_wire_test.cljs` is what holds the other
+`test/re_frame2_pair_mcp/fresco_wire_test.cljs` is what holds the other
 side. It parses the reader name out of an **actually emitted form** and
 asserts the provider's own source publishes it as a public `defn`, and
 that `consumed-evidence-schema` equals the literal
-`re-frame.hicasso.evidence/schema` stamps. The conformance corpus cannot
+`re-frame.fresco.evidence/schema` stamps. The conformance corpus cannot
 do this: its stubs are keyed on the wire string, so a form naming a read
 no provider publishes matches a stub just as happily as a real one.
 
@@ -2679,19 +2679,19 @@ no provider publishes matches a stub just as happily as a real one.
 
 The eval form resolves to an `{:ok? …}` envelope, which the shared
 `versioned-envelope-result` gates against `consumed-evidence-schema` —
-currently `:re-frame.hicasso.evidence/v3` — before it reaches the wire:
+currently `:re-frame.fresco.evidence/v3` — before it reaches the wire:
 
 - `{:ok? true …projection…}` — the projection, `:schema` **matching**,
   forwarded verbatim;
 - `{:ok? false :reason :evidence-tier-version-mismatch :expected …
   :actual …}` — stamped a schema this build was not written against.
   Pair connects to an arbitrary running app, so the producer's stamp
-  cannot define support. `re-frame.hicasso.evidence` states there is no
+  cannot define support. `re-frame.fresco.evidence` states there is no
   acceptance path for a superseded version and no compatibility adapter,
   so this gate is the consumer half of a boundary the producer means
   literally;
 - `{:ok? false :reason :evidence-tier-unavailable}` —
-  `re-frame.hicasso.tool` is not loaded;
+  `re-frame.fresco.tool` is not loaded;
 - `{:ok? false :reason :evidence-tier-inactive}` — every read answers
   `nil` under `:advanced` with `goog.DEBUG` false. The door is dev-only;
 - `{:ok? false :reason :evidence-tier-error :message …}` — the read
@@ -2715,7 +2715,7 @@ wire, and a second walk here would imply the first is not trusted.
 
 ### read-mounted-boundaries
 
-Every Hicasso boundary **mounted right now**. No arg, deliberately: the
+Every Fresco boundary **mounted right now**. No arg, deliberately: the
 question is *what is mounted*.
 
 `:complete? true` is a claim about **under-reporting** and it is exact —
@@ -2730,8 +2730,8 @@ subscription, not visibility.
 
 ```clojure
 ;; read-mounted-boundaries {}
-{:ok? true :schema :re-frame.hicasso.evidence/v3
- :producer :re-frame/hicasso :read :mounted-boundaries
+{:ok? true :schema :re-frame.fresco.evidence/v3
+ :producer :re-frame/fresco :read :mounted-boundaries
  :complete? true :loss nil
  :boundaries [{:boundary {:parent nil :key [[:app/main :todo [:todo 7]]]}
                :views [{:view   "app.views/todo-row"
@@ -2765,8 +2765,8 @@ this runtime is not holding.
 
 ```clojure
 ;; read-read-attribution {}
-{:ok? true :schema :re-frame.hicasso.evidence/v3
- :producer :re-frame/hicasso :read :read-attribution
+{:ok? true :schema :re-frame.fresco.evidence/v3
+ :producer :re-frame/fresco :read :read-attribution
  :complete? true :loss nil
  :edges [{:sub-id :todo :query [:todo 7] :frame-id :app/main
           :epoch 4 :fan-out 3
@@ -2805,8 +2805,8 @@ scheduler sit above this runtime.
 
 ```clojure
 ;; explain-render {}
-{:ok? true :schema :re-frame.hicasso.evidence/v3
- :producer :re-frame/hicasso :read :explain-render
+{:ok? true :schema :re-frame.fresco.evidence/v3
+ :producer :re-frame/fresco :read :explain-render
  :complete? false :loss {:reason :uncorrelated :dropped :unknown}
  :explanations [{:boundary {:parent nil :key [[:app/main :todo [:todo 7]]]}
                  :views [{:view "app.views/todo-row" :source {…}}]

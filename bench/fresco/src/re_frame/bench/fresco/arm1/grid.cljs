@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.arm1.grid
+(ns re-frame.bench.fresco.arm1.grid
   "THE 100-CELL CONTROLLED GRID, WRITTEN ON ARM 1 (K4, HD-019's full door
   — rf2-2rtt6.41).
 
@@ -12,7 +12,7 @@
   The retired PATCH arm's `:controlled/grid-100` model — four policies
   over one `[:agrid/cell i]` subscription — is the clearest statement in
   the repo of what a store-backed controlled input has to do, and it now
-  drives two files: `bench/hicasso/controlled_restore_dom_cljs_test`
+  drives two files: `bench/fresco/controlled_restore_dom_cljs_test`
   measures the **UIx adapter's** two input implementations against it, and
   this one measures **Arm 1's own element path** against the same four
   policies. Two arms, one model, so a difference between them is a
@@ -48,9 +48,9 @@
   ordinary authoring surface meets HD-019's door, so anything the cell
   needed beyond `:value` / `:on-input` would be part of the finding."
   (:require [clojure.string :as str]
-            [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
+            [re-frame.bench.fresco.arm1.runtime :refer [sub]]
             [re-frame.core :as rf])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 (def cells
   "The witness size validation.md names for the controlled grid."
@@ -153,7 +153,7 @@
   [:input.cell {:id          (str "c" i)
                 :type        "text"
                 :value       (sub [:agrid/cell i])
-                :on-input    [:agrid/edit i :re-frame.hicasso/value]
+                :on-input    [:agrid/edit i :re-frame.fresco/value]
                 :on-key-down {"Enter" [:agrid/commit i]}}])
 
 (defview grid

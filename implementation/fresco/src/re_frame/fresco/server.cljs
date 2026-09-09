@@ -1,13 +1,13 @@
-(ns re-frame.hicasso.server
-  "Hicasso on the server: one request in, one document out, rendered by
-  the Hicasso runtime itself under Node's `react-dom/server`. The optional
-  module `docs/core/hicasso/18-ssr-and-hydration.md` is written against;
-  nothing in `re-frame.hicasso` names it, so a browser build that never
+(ns re-frame.fresco.server
+  "Fresco on the server: one request in, one document out, rendered by
+  the Fresco runtime itself under Node's `react-dom/server`. The optional
+  module `docs/core/fresco/18-ssr-and-hydration.md` is written against;
+  nothing in `re-frame.fresco` names it, so a browser build that never
   requires it carries none of it
-  (`implementation/hicasso/scripts/check_optional_module_reachability.py`).
+  (`implementation/fresco/scripts/check_optional_module_reachability.py`).
 
       (ns app.server
-        (:require [re-frame.hicasso.server :as server]))
+        (:require [re-frame.fresco.server :as server]))
 
       (:document (server/render {:hiccup [views/page {}] …}))
 
@@ -21,9 +21,9 @@
   the composition helpers a host needs to rebuild the envelope without
   writing a second renderer; the roster and the argument for it are
   naming-ledger rows 22 and 50
-  (`docs/design/hicasso/product/naming-ledger.md`). The determinism
+  (`docs/design/fresco/product/naming-ledger.md`). The determinism
   probe over `render` is the test kit's
-  (`re-frame.hicasso.test.server/render-twice`), not this door's.
+  (`re-frame.fresco.test.server/render-twice`), not this door's.
 
   There is ONE renderer. The server runs the same runtime and the same
   codec under `renderToString`, so hydration parity holds by construction
@@ -31,7 +31,7 @@
   `useSyncExternalStore`, so nothing subscribes; nothing commits or runs
   an effect; and the whole render is one synchronous call, which is what
   makes a per-request frame and the render-extent globals safe across
-  concurrent requests (`docs/design/hicasso/product/globals.md`, §Request
+  concurrent requests (`docs/design/fresco/product/globals.md`, §Request
   scope, S1–S3). Streaming is out of scope — absent, not deferred —
   because a render that awaits is the one change that would put S3 at
   risk.
@@ -39,17 +39,17 @@
   Two facts the module exists for, both at `render`: the element is
   `impl.mount/tree`'s, the same fork the hydrating client root adopts, so
   a `useId` React derives from tree position agrees on both sides of the
-  wire (`docs/design/hicasso/product/dispositions.md`, HS-11 obstruction
+  wire (`docs/design/fresco/product/dispositions.md`, HS-11 obstruction
   2); and the adoption window is open around the render, so
   presence-managed children render `:present` on both halves. This is an
   adoption-tier root and ships no `:rf/render-hash`, by Spec 011's tiering
-  (`docs/design/hicasso/studio/ssr-spike-witness.md`). It is not a
+  (`docs/design/fresco/studio/ssr-spike-witness.md`). It is not a
   production HTTP host: the response contract is `re-frame.ssr.ring`'s."
   (:require [re-frame.core :as rf]
             [re-frame.error :as rf.error]
             [re-frame.error-emit :as rf.error-emit]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.impl.roots :as rf.fresco.impl.roots]
             [re-frame.ssr.constants :as rf.ssr.constants]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
@@ -61,18 +61,18 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- fresh-frame-id
-  "A frame id no other request holds: a `gensym` under the `hicasso.ssr`
+  "A frame id no other request holds: a `gensym` under the `fresco.ssr`
   keyword namespace, unique in this process, destroyed before `render`
   returns and never on the wire.
 
-  DO NOT RENAME the `hicasso.ssr` namespace.
-  `implementation/hicasso/scripts/check_bundle_isolation.cjs` pins the
-  source literal `(keyword \"hicasso.ssr\"` as the premise for the server
+  DO NOT RENAME the `fresco.ssr` namespace.
+  `implementation/fresco/scripts/check_bundle_isolation.cjs` pins the
+  source literal `(keyword \"fresco.ssr\"` as the premise for the server
   module's zero-rent sentinel — a runtime argument `:advanced` can neither
   rename nor drop while `render` is reachable — and reds on the rename by
   design."
   []
-  (keyword "hicasso.ssr" (str (gensym "request-"))))
+  (keyword "fresco.ssr" (str (gensym "request-"))))
 
 (defn- setup-events
   "The frame's construction-time setup vector: `[:rf/set-db snapshot]`
@@ -117,7 +117,7 @@
   (str "<!DOCTYPE html>"
        "<html lang=\"en\">"
        "<head><meta charset=\"utf-8\"><title>"
-       (rf.ssr.html-helpers/escape-html (or title "Hicasso SSR")) "</title></head>"
+       (rf.ssr.html-helpers/escape-html (or title "Fresco SSR")) "</title></head>"
        "<body>"
        "<div id=\"" (rf.ssr.html-helpers/escape-attr (or app-element-id "app")) "\">"
        html
@@ -219,7 +219,7 @@
       a record only when THREE things hold: the category is outside the
       recoverable-degradation skip set, the record carries a non-nil
       `:frame`, and that frame is a registered `:platform :server` frame.
-      Hicasso's cold reads go through pure `compute-sub`, whose
+      Fresco's cold reads go through pure `compute-sub`, whose
       `:rf.error/sub-exception` is stamped `:frame nil` BY CONSTRUCTION —
       a pure fn has no frame in scope to stamp — so the SECOND condition
       drops it, and drops it alone: since rf2-323z the request frame IS
@@ -235,7 +235,7 @@
 
   The id is `:rf.error/ssr-render-failed` — the SSR family's render-time
   failure, reused rather than multiplied. Nothing about this failure is
-  Hicasso's: it is the framework's render-failure category, raised from
+  Fresco's: it is the framework's render-failure category, raised from
   the hosts that have to raise it by hand."
   [where frame-id {:keys [error] :as record} recorded]
   (rf.error/throw-error!
@@ -271,7 +271,7 @@
   The always-on registry, not `re-frame.ssr`'s per-frame buffer, and the
   choice is measured rather than stylistic. That buffer is keyed by frame,
   and it is filled only for records that CARRY a routable server frame —
-  while Hicasso's render reads its subscriptions through the pure
+  while Fresco's render reads its subscriptions through the pure
   `compute-sub` path (`impl.collector`'s cold read), whose
   `:rf.error/sub-exception` record is stamped `:frame nil` by construction
   and documented as such in `re-frame.subs` (\"a `compute-sub`-driven SSR
@@ -364,7 +364,7 @@
         ;; Per REQUEST and reachable from nothing else — never a
         ;; module-level flag, which would let one request's throw leave
         ;; every later request born-present.
-        window    (rf.hicasso.impl.roots/open-adoption-window!)
+        window    (rf.fresco.impl.roots/open-adoption-window!)
         ;; Keyed on THIS invocation's frame, so a re-entrant `render`
         ;; cannot unregister the outer one's listener — see `listener-key`.
         listener  (listener-key render-listener-tag frame-id)
@@ -396,7 +396,7 @@
             ;; door calls: `:adoption` is what it branches on, so this is
             ;; the Fragment-plus-closer tree `hydrate-root!` will adopt,
             ;; position for position.
-            element (rf.hicasso.impl.mount/tree {:frame frame-id :adoption window} hiccup)
+            element (rf.fresco.impl.mount/tree {:frame frame-id :adoption window} hiccup)
             ropts   (render-options identifier-prefix)
             html    (if ropts
                       (rdom-server/renderToString element ropts)
@@ -407,7 +407,7 @@
         ;; one first would let `apply-policy`'s own fail-closed refusal
         ;; mask the render's.
         (when (pos? n)
-          (refuse-recovered-render-error! 're-frame.hicasso.server/render
+          (refuse-recovered-render-error! 're-frame.fresco.server/render
                                           frame-id first-record n))
         (let [policy-opts (cond-> {:payload payload}
                             (some? client-frame-id) (assoc :client-frame-id client-frame-id)
@@ -445,7 +445,7 @@
         (rf.error-emit/unregister-error-listener! listener)
         ;; The window before the frame — `destroy-frame!` may itself throw,
         ;; and the window must already be shut when it runs.
-        (rf.hicasso.impl.roots/close-adoption-window! window)
+        (rf.fresco.impl.roots/close-adoption-window! window)
         (rf/destroy-frame! frame-id)))))
 
 ;; ---------------------------------------------------------------------------
@@ -508,7 +508,7 @@
   more than one that returned."
   [{:keys [hiccup render-state identifier-prefix frame-opts]}]
   (let [frame-id  (fresh-frame-id)
-        window    (rf.hicasso.impl.roots/open-adoption-window!)
+        window    (rf.fresco.impl.roots/open-adoption-window!)
         ;; Keyed on THIS invocation's frame — see `listener-key`.
         listener  (listener-key render-body-listener-tag frame-id)
         ;; Armed BEFORE the frame is made, so a fault in construction or in
@@ -524,14 +524,14 @@
                             ;; docstring's first bullet.
                             :initial-events []))
       (rf.ssr.render-state/restore! frame-id render-state)
-      (let [element (rf.hicasso.impl.mount/tree {:frame frame-id :adoption window} hiccup)
+      (let [element (rf.fresco.impl.mount/tree {:frame frame-id :adoption window} hiccup)
             ropts   (render-options identifier-prefix)
             html    (if ropts
                       (rdom-server/renderToString element ropts)
                       (rdom-server/renderToString element))
             {:keys [n first-record]} @!recorded]
         (when (pos? n)
-          (refuse-recovered-render-error! 're-frame.hicasso.server/render-body
+          (refuse-recovered-render-error! 're-frame.fresco.server/render-body
                                           frame-id first-record n))
         html)
       (finally
@@ -542,5 +542,5 @@
         (rf.error-emit/unregister-error-listener! listener)
         ;; The window before the frame — `destroy-frame!` may itself throw,
         ;; and the window must already be shut when it runs.
-        (rf.hicasso.impl.roots/close-adoption-window! window)
+        (rf.fresco.impl.roots/close-adoption-window! window)
         (rf/destroy-frame! frame-id)))))

@@ -57,10 +57,10 @@
   Built and driven by `p0_run.cjs` beside this file.
 
   Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
-  2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
+  2026-08-10, enumerated once in `docs/design/fresco/studio/README.md`;
   this arm rf2-2rtt6.4."
   (:require [cljs.reader :as reader]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.bench.order-guard :as rf.bench.order-guard]
             [re-frame.bench.p0-arms :as rf.bench.p0-arms]
             [re-frame.bench.p0-fixture :as rf.bench.p0-fixture]
@@ -447,7 +447,7 @@
   numerator nor the denominator (see `p0-harness/mount-sample!`): counting
   it as verified would let the control dilute a real failure, and counting
   it as unverified would red every run for ever. The control is
-  adjudicated by its own gate instead — [[rf.bench.hicasso.lane/control-verdict]], below —
+  adjudicated by its own gate instead — [[rf.bench.fresco.lane/control-verdict]], below —
   and the driver reports it beside this figure rather than folding one
   into the other."
   [agg]
@@ -466,7 +466,7 @@
   printed inside the record and nothing read it, and the positive control
   was published as a bare ratio nothing adjudicated.
 
-  The adjudication is the LANE's, not a second copy: [[rf.bench.hicasso.lane/control-verdict]]
+  The adjudication is the LANE's, not a second copy: [[rf.bench.fresco.lane/control-verdict]]
   is what this arm publishes its controls under, and what it DECIDES is not
   this namespace's to change. Read its docstring before quoting `:ok?`: the
   rule is range OVERLAP, not every-round-inside.
@@ -474,7 +474,7 @@
   ## And OVERLAP is the right rule HERE, which is not true of the heap row
   ## (rf2-egdaq, settled)
 
-  The lane spells a second rule — [[rf.bench.hicasso.lane/control-verdict-strict]], every
+  The lane spells a second rule — [[rf.bench.fresco.lane/control-verdict-strict]], every
   round inside the band — and `re-frame.bench.p0-heap` moved this driver's
   OTHER row onto it. This row stays on overlap, on measurement rather than
   on inertia. THIS CONTROL IS A CLOCK RATIO. `control-round!` reads two
@@ -507,7 +507,7 @@
   [round-edns slack]
   (let [agg (aggregate (vec round-edns))
         vt  (verification-totals agg)
-        ctl (rf.bench.hicasso.lane/control-verdict (get-in agg [:control :predicted])
+        ctl (rf.bench.fresco.lane/control-verdict (get-in agg [:control :predicted])
                                   (select-keys (get-in agg [:control :measured])
                                                [:min :max :mean])
                                   slack)

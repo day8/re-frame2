@@ -258,7 +258,7 @@ any of them**, and this window re-prices nothing that `rf2-z143r` published.
   not for the round trip. The bead forbids it and the posture behind it is the
   project's: attribution was bought here, and whether to act on it is a ruling
   nobody has asked for.
-- **It may not touch `docs/design/hicasso/decisions.md`.** The bead leaves that
+- **It may not touch `docs/design/fresco/decisions.md`.** The bead leaves that
   page alone deliberately, *because four queued windows will each want it*.
   Appending belongs to whoever drains that queue, not to this PR.
 - **It may not edit the rig**, widen a band, raise `:warmup` or `:samples`,
@@ -292,7 +292,7 @@ an orphaned SSR bench listener on **port 8139**, started `2026-08-21 02:55`. It
 is not this window's, it predates it, and it is left alone — the rule on this
 lane is *kill only the one you can show is yours*. It holds a socket and
 contends for nothing. This window runs on a different port regardless, and
-`HICASSO_PORT` is a runner variable that reaches no figure.
+`FRESCO_PORT` is a runner variable that reaches no figure.
 
 **The exclusivity condition this window registers.** The fleet is drained for
 its duration: no peer worker is dispatched, no pull request is merged, and no
@@ -320,11 +320,11 @@ anything.
 
 | file | object |
 |---|---|
-| `implementation/hicasso/test/re_frame/bench/hicasso/amp_merge_clock_app.cljs` | `66bc6b1eff60b15aa3dee73edfe1c58cd8dd79be` |
-| `implementation/hicasso/test/re_frame/bench/hicasso/amp_merge_arms_cljs_test.cljs` | `0fc21f48d80049bfd7827b8bce7669697eeba782` |
-| `implementation/hicasso/test/re_frame/bench/hicasso/run.cjs` | `da8a2f3723bfd3345f392e29c1344c582a30b736` |
-| `implementation/hicasso/test/re_frame/bench/hicasso/lane.cljs` | `3d466f77e908d502835de5682e0c6d4b20b1d39e` |
-| `implementation/hicasso/test/re_frame/bench/hicasso/lane_build.cjs` | `c55771d6c90d5dab53bfb02af48c6fcbcf49cffd` |
+| `implementation/fresco/test/re_frame/bench/fresco/amp_merge_clock_app.cljs` | `66bc6b1eff60b15aa3dee73edfe1c58cd8dd79be` |
+| `implementation/fresco/test/re_frame/bench/fresco/amp_merge_arms_cljs_test.cljs` | `0fc21f48d80049bfd7827b8bce7669697eeba782` |
+| `implementation/fresco/test/re_frame/bench/fresco/run.cjs` | `da8a2f3723bfd3345f392e29c1344c582a30b736` |
+| `implementation/fresco/test/re_frame/bench/fresco/lane.cljs` | `3d466f77e908d502835de5682e0c6d4b20b1d39e` |
+| `implementation/fresco/test/re_frame/bench/fresco/lane_build.cjs` | `c55771d6c90d5dab53bfb02af48c6fcbcf49cffd` |
 
 The rig is **frozen for the window** and this branch does not edit it.
 
@@ -333,14 +333,14 @@ hot-zone edit of its own:
 
 ```bash
 cd implementation
-HICASSO_INIT_FN=re-frame.bench.hicasso.amp-merge-clock-app/-main \
-HICASSO_OUT_DIR=out/hicasso-amp-merge \
-HICASSO_PORT=8132 \
-  node hicasso/test/re_frame/bench/hicasso/run.cjs
+FRESCO_INIT_FN=re-frame.bench.fresco.amp-merge-clock-app/-main \
+FRESCO_OUT_DIR=out/fresco-amp-merge \
+FRESCO_PORT=8132 \
+  node fresco/test/re_frame/bench/fresco/run.cjs
 ```
 
 `:advanced` with `goog.DEBUG false`, headless Chromium via Playwright 1.59.1,
-shadow-cljs 3.4.10, React 19.2.0. The driver clears the `:hicasso-bench` build
+shadow-cljs 3.4.10, React 19.2.0. The driver clears the `:fresco-bench` build
 cache before every build, so each invocation pays its own cold compile and two
 runs of this arm emit the same bundle in any order.
 
@@ -549,7 +549,7 @@ excursion to attribute.
 ### 7.10 What this window did not do
 
 It did not recommend an optimisation, for `:&` or anything else. It did not
-touch `docs/design/hicasso/decisions.md`. It did not edit the rig, widen a band,
+touch `docs/design/fresco/decisions.md`. It did not edit the rig, widen a band,
 raise `:warmup` or `:samples`, change the arm count, re-run an excluded
 invocation, or move a budget or ledger cell. **No threshold was guessed and no
 band was fitted to a reading.**
@@ -574,7 +574,7 @@ sentence.
 | 3 | 06:02:02 | 06:02:58 | 56 s | `0` |
 
 Each figure includes that run's own cold `:advanced` compile — the driver clears
-the `:hicasso-bench` build cache before every build, so no run inherited
+the `:fresco-bench` build cache before every build, so no run inherited
 another's. Chromium 147.0.7727.15 via Playwright 1.59.1, shadow-cljs 3.4.10,
 React 19.2.0, `:advanced` with `goog.DEBUG false`, Windows 11, 24 logical cores.
 
@@ -609,13 +609,13 @@ on its first outing. The series is complete: three declared evidence
 invocations, three admissible, **none excluded**.
 
 **Three gates cover this change and no other gate does.** The change is one new
-page under `docs/design/hicasso/studio/` and nothing else — no source file, no
+page under `docs/design/fresco/studio/` and nothing else — no source file, no
 rig file, no configuration.
 
 | gate | what it covers here | captured exit |
 |---|---|---:|
 | `scripts/check_doc_slugs.py` | this page's link targets and in-page anchors, under `docs/` | `0` |
-| `scripts/check_provenance_pins.py --changed-since origin/main` | this page, as a changed page under `docs/design/hicasso/` | `0` |
+| `scripts/check_provenance_pins.py --changed-since origin/main` | this page, as a changed page under `docs/design/fresco/` | `0` |
 | `scripts/check_provenance_pins.py --self-test` | the pin gate's own negative controls | `0` |
 
 **Each was shown able to refuse before its green was believed.** The slug gate
@@ -628,7 +628,7 @@ anchor in [§6](#6-the-instrument-and-the-subject) and not an empty sweep, and
 its `--self-test` exercises its own refusal paths.
 
 **`mkdocs build --strict` is not a gate for any of this and was not run.**
-`mkdocs.yml`'s `exclude_docs` block carries `design/hicasso/`, so the build
+`mkdocs.yml`'s `exclude_docs` block carries `design/fresco/`, so the build
 cannot see this page at all; and `--strict` gates no in-page anchor anywhere,
 since `validation.links` sets only `unrecognized_links: warn` and carries no
 `anchors` key. `scripts/check_readme_links.py` is not this page's gate either —

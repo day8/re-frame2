@@ -9,8 +9,8 @@ const { spawnSync } = require('node:child_process');
 const { resetLaneBuildCache } = require('../lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '..', '..', '..', '..', '..');
-const CLEAR_BUILD = 'hicasso-bench';
-const RELEASE_BUILD = 'hicasso-bench-arm';
+const CLEAR_BUILD = 'fresco-bench';
+const RELEASE_BUILD = 'fresco-bench-arm';
 const CONFIG_MERGE = '{:output-dir "fixture" :init-fn fixture.arm/main}';
 const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
 

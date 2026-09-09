@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.typeahead.service
+(ns re-frame.fresco.examples.typeahead.service
   "THE STAND-IN SEARCH SERVICE — the network, and nothing else.
 
   A typeahead is a witness about resources, so it needs something that
@@ -6,7 +6,7 @@
   ABANDONED before it answers, and that answers whether or not anybody is
   still listening. That is this namespace. A real application deletes it,
   writes `day8/re-frame2-http` in its place, and changes nothing above:
-  the handlers in [[re-frame.hicasso.examples.typeahead.events]] emit an
+  the handlers in [[re-frame.fresco.examples.typeahead.events]] emit an
   effect and take a reply as an event either way.
 
   It is deliberately NOT part of the ceremony census. Nothing here keeps

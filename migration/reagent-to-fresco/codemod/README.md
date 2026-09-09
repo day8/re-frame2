@@ -1,8 +1,8 @@
-# The Reagent → Hicasso migration reporter, and the `[:>]` fixer
+# The Reagent → Fresco migration reporter, and the `[:>]` fixer
 
 A source-text tool that reads a consumer's Reagent `.cljs` namespaces and repairs
 the props dialect at every foreign crossing, so that a codebase whose `[:> …]`
-sites are about to be interpreted by Hicasso keeps behaving the way Reagent
+sites are about to be interpreted by Fresco keeps behaving the way Reagent
 made it behave.
 
 It mints no declaration, hoists nothing, and edits no `ns` form. It writes whole
@@ -10,7 +10,7 @@ files through [rewrite-clj](https://github.com/clj-commons/rewrite-clj) — a
 zipper over the node tree, so formatting and comments survive — skips any file
 it cannot parse, and emits a report.
 
-The design is `docs/design/hicasso/studio/reagent-codemod-against-the-landed-escape.md`,
+The design is `docs/design/fresco/studio/reagent-codemod-against-the-landed-escape.md`,
 ratified as `rf2-2rtt6.106`. This artefact implements it as amended by
 `rf2-2rtt6.143`.
 
@@ -21,22 +21,22 @@ repository:
 
 ```bash
 clojure -Srepro \
-  -Sdeps '{:deps {day8/re-frame2-hicasso-codemod
+  -Sdeps '{:deps {day8/re-frame2-fresco-codemod
                   {:git/url   "https://github.com/day8/re-frame2.git"
                    :git/sha   "6a5194c0aa029ac1ad34aaf3a62974fd3e5c0221"
-                   :deps/root "migration/reagent-to-hicasso/codemod"}}}' \
-  -M -m re-frame.migration.hicasso.codemod src/
+                   :deps/root "migration/reagent-to-fresco/codemod"}}}' \
+  -M -m re-frame.migration.fresco.codemod src/
 ```
 
 `--rewrite` makes that a dry run of the fixer, `--rewrite --write` applies it,
 and `--report out.edn` chooses where the report goes.
 
 **That coordinate is how the tool is delivered, and it is not a stopgap.**
-`implementation/hicasso/deps.edn`'s `:src-dirs` are `["src" "resources"
-"test_kit/src"]`, which excludes this tree, so no published Hicasso jar ever
+`implementation/fresco/deps.edn`'s `:src-dirs` are `["src" "resources"
+"test_kit/src"]`, which excludes this tree, so no published Fresco jar ever
 carries the reporter and there is no Maven coordinate for the command to move to
 (rf2-lb566). The canonical public statement of it is the migration chapter,
-`docs/core/hicasso/20-migration-from-reagent.md`; this tree is deliberately
+`docs/core/fresco/20-migration-from-reagent.md`; this tree is deliberately
 excluded from the built site, so that chapter — not this page — is what a public
 reader is expected to find. The `:git/sha` above is the commit the command was
 last proved against.
@@ -45,7 +45,7 @@ Working *inside* a checkout, which is what contributors to this tool do, the
 `:run` alias is the same entry point:
 
 ```bash
-cd migration/reagent-to-hicasso/codemod
+cd migration/reagent-to-fresco/codemod
 
 clojure -M:run src/                            # scan: report only, touch nothing
 clojure -M:run --rewrite src/                  # dry run: what would change
@@ -54,7 +54,7 @@ clojure -M:run --report out.edn src/           # choose where the report goes
 ```
 
 **Every run writes one EDN report, a scan that changes no source included.**
-Without `--report` it goes to `reagent-to-hicasso-report.edn` beside the first
+Without `--report` it goes to `reagent-to-fresco-report.edn` beside the first
 path scanned — point the tool at `<repo>/src/` and it lands at `<repo>/` — and
 the run prints the absolute path it used. It used to be written to the process's
 working directory under that bare name, which, when the documented first step
@@ -80,7 +80,7 @@ So the same run also produces a census, under `:census` in the report, whose
 population is the view-substrate API call site: `r/atom`, `r/with-let`,
 `r/create-class`, `r/as-element`, `r/cursor`, `r/reactify-component`, root
 mounting, static-markup export, cell teardown, and the rest of the two rosters
-in `src/re_frame/migration/hicasso/census.clj`. On that corpus it reports
+in `src/re_frame/migration/fresco/census.clj`. On that corpus it reports
 75 sites across 33 files, one of them the `with-let` whose teardown no
 mechanical edit can carry. Both are measurements of a corpus that keeps
 growing, and of a roster that grows with it: the corpus was 81 files when the
@@ -157,7 +157,7 @@ declared with `reg-view`, reads are `@(subscribe […])`, and the substrate
 arrives as `re-frame.adapter.reagent`, which is not `reagent.core`. Not one
 `reagent.core` name anywhere. The zero was a true statement about a population
 that was not that application's migration surface — and an application on the
-Reagent adapter is the single most likely thing to be migrated to Hicasso.
+Reagent adapter is the single most likely thing to be migrated to Fresco.
 
 There are two rosters now, and the rule for both is **identity, not spelling: a
 namespace is classified when this project can vouch for what it is.**
@@ -250,7 +250,7 @@ so a tool that reads an `on*` name as "this is an event position" and wraps the
 value blanks them silently. Here an event-spelled name can only ever make the
 tool more conservative.
 
-Silent behaviour change is the only fatal class. `[:>]` is legal in Hicasso,
+Silent behaviour change is the only fatal class. `[:>]` is legal in Fresco,
 so leave it as `[:>]` is a valid output for any site the rewrite cannot make
 behaviour-preserving. A refused site still works; the report is what turns a
 refusal from silence into an instruction.
@@ -264,7 +264,7 @@ refusal from silence into an instruction.
 | W3 | a literal keyword, or a **quoted** symbol, at a prop value | its `name` as a string | Reagent's `(named? x) (name x)` arm |
 | W4 | a literal `(r/partial f a …)` at a prop value | a hygienic `let` capturing the callee and every non-literal argument once, then Reagent's own wrapper | Reagent's `ifn?` wrapper, return and **evaluation time** alike |
 | W5 | `[(r/adapt-react-class X) props & kids]` in head position | `[:> X props & kids]` | Reagent's `NativeWrapper` path is the same `native-element` |
-| W6 | `[:> "tag" props & kids]` with a plain tag string | `[:tag props & kids]` | Reagent's `input-component?` wrapper becomes Hicasso's controlled door |
+| W6 | `[:> "tag" props & kids]` with a plain tag string | `[:tag props & kids]` | Reagent's `input-component?` wrapper becomes Fresco's controlled door |
 
 (4 columns; 6 body rows.)
 
@@ -361,7 +361,7 @@ map is refused and every colliding source key is named.
 
 (C) The key slot carries a dedicated report entry. Excluding `:key` from W3
 is ratified — `:foo` and `"foo"` sibling keys collided under Reagent and are
-distinct under Hicasso, so rewriting would restore a defect. But the cost of
+distinct under Fresco, so rewriting would restore a defect. But the cost of
 not rewriting is understated as "one remount": React reconciles a changed key
 by unmounting the subtree and mounting a fresh one, discarding its state.
 Every key-slot site says so.
@@ -369,7 +369,7 @@ Every key-slot site says so.
 ## Testing
 
 ```bash
-cd migration/reagent-to-hicasso/codemod && clojure -M:test
+cd migration/reagent-to-fresco/codemod && clojure -M:test
 ```
 
 The golden-file corpus is the spec. Each directory under `test/corpus/`
@@ -434,7 +434,7 @@ without a sample reds on the ratchet rather than on somebody's migration.
 
 The tool is otherwise self-contained — it never loads, requires or executes
 re-frame2, so it runs against any Reagent corpus on a bare JVM. The exception is
-`re-frame.hicasso.impl.slot`, the `.cljc` carrying the canonical slot rule,
+`re-frame.fresco.impl.slot`, the `.cljc` carrying the canonical slot rule,
 which is on `:paths`.
 
 That is the whole point of it. The design's own adversarial pass raised "the
@@ -447,19 +447,19 @@ the tool, the exact defect the tool exists to delete — so a test asserts the r
 came out of the shared file.
 
 And out of the SHIPPED file, not the prototype's copy of it (`rf2-r4j91`).
-`rf2-ani6y` ran while the runtime still lived in the Hicasso bench tree, so the
-extracted rule landed at `implementation/freehand/test/…/bench/hicasso/front/
-slot.cljc`; `rf2-hic-001` then moved the runtime into `implementation/hicasso/`,
+`rf2-ani6y` ran while the runtime still lived in the Fresco bench tree, so the
+extracted rule landed at `implementation/freehand/test/…/bench/fresco/front/
+slot.cljc`; `rf2-hic-001` then moved the runtime into `implementation/fresco/`,
 and `frozen-sources.edn` pins the two files byte-for-byte under the rename. Both
 therefore answer identically today, which is precisely why the pin has to
 name one: Freehand was retired and its tree deleted (`rf2-0yp7w`, 2026-08-16),
 and a codemod whose only classpath entry had sat inside it would have gone red
 — `-M:test` and `-M:run` alike — on the day of that cut, in a tool whose whole
 job is to run after the retirement. The path is
-`implementation/hicasso/src`, and `shared_rule_test.clj` fails on a rule loaded
+`implementation/fresco/src`, and `shared_rule_test.clj` fails on a rule loaded
 from the bench tree as loudly as on one copied into `src/`. That cut re-homed the
 prototype rather than deleting it, so the twin this deliberately does NOT read is
-now `implementation/hicasso/test/re_frame/bench/hicasso/front/slot.cljc` — both
+now `implementation/fresco/test/re_frame/bench/fresco/front/slot.cljc` — both
 copies still exist, which is what keeps the guard load-bearing rather than
 vestigial.
 

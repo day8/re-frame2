@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.arm1.hook-probe
+(ns re-frame.bench.fresco.arm1.hook-probe
   "COUNTING HOOKS AT REACT'S OWN DISPATCHER (rf2-2rtt6.9).
 
   HD-020(b) makes the ≤2-hook budget a hard line, and a budget a runtime

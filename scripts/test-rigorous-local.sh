@@ -75,7 +75,7 @@ printf '==> implementation rigorous browser/bundle gates\n'
 # arms it, and until that change none had any arm that ran against main at all,
 # so a cross-surface regression in one sat green there until some PR happened to
 # touch its narrow surface.  They join the nightly sweep and therefore join this
-# mirror.  The `hicasso-controlled` / `hicasso-hmr` / `ui-g8` trio is
+# mirror.  The `fresco-controlled` / `fresco-hmr` / `ui-g8` trio is
 # deliberately NOT here, for the same reason it is not in the nightly — the
 # declared-hole comment in `expensive-tests.yml` carries the exposure each one
 # accepts.

@@ -929,7 +929,7 @@ clause), the findings carry the discussion that locked the opinion.
 - [`018-Event-Spine.md`](018-Event-Spine.md) — the 4-layer chrome
   contract; the spine sub; the 10-tab Dynamic inventory (Routing added per
   rf2-nrbs9; Resources / Graph / Frames added per EP-0016 / EP-0014 /
-  EP-0013; Hicasso added per rf2-hic-023; Issues tab removed per
+  EP-0013; Fresco added per rf2-hic-023; Issues tab removed per
   rf2-gbz39 Option (c)); the popover
   invocation contract.
 - [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — the Machines

@@ -9,7 +9,7 @@ at both, so the derivations here are against one instrument.
 **No allocation window was taken for this page, and no instrument was built.**
 Nothing here is a new measurement. Every figure below is re-derived from the
 eight datasets `rf2-9jrhi` committed under
-`implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-9jrhi/`, or read
+`implementation/fresco/test/re_frame/bench/fresco/data/alloc-9jrhi/`, or read
 out of the instrument's source at the blob the runs were taken on. The
 instrument was not run, not configured, and not edited; no rig file was touched.
 
@@ -252,7 +252,7 @@ no build. From the **repository root**:
 ```bash
 python - <<'PY'
 import json, os, statistics
-D = "implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-9jrhi"
+D = "implementation/fresco/test/re_frame/bench/fresco/data/alloc-9jrhi"
 for f in sorted(os.listdir(D)):
     a = json.load(open(os.path.join(D, f)))["alloc"]
     for seg in ("reagent-subs|grid/floor", "uix-subs|grid/floor"):

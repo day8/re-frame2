@@ -20,7 +20,7 @@
 // guarantee 1 wants: a separate V8 isolate is a separate module registry,
 // so the render module's process-scoped state — the substrate Spec 006
 // allows one of, the framework registrar, the module-level adoption
-// window the Hicasso entry opens around its render — is per-isolate.
+// window the Fresco entry opens around its render — is per-isolate.
 //
 // ## A TERMINATED ISOLATE IS NEVER REUSED
 //

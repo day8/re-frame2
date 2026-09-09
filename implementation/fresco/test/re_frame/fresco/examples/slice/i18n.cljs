@@ -1,17 +1,17 @@
-(ns re-frame.hicasso.examples.slice.i18n
+(ns re-frame.fresco.examples.slice.i18n
   "THE SLICE'S STRINGS AND TOKENS — ordinary data, and nothing else.
 
   Specification §7 rows i18n and theming together, and the row's whole
-  claim is that a Hicasso application needs **no subsystem** for either:
+  claim is that a Fresco application needs **no subsystem** for either:
   a locale is a value in `app-db`, a string table is a map, a theme is a
   map of tokens, and a subscription is how a view reads one. Switching
   either at runtime is then an ordinary event, and the re-render that
   follows is the ordinary re-render every other event gets.
 
   So this namespace requires nothing at all — not `re-frame.core`, not
-  the Hicasso door. It is two maps and two lookups. The subscriptions
+  the Fresco door. It is two maps and two lookups. The subscriptions
   that project them live in
-  [[re-frame.hicasso.examples.slice.subs]] with every other
+  [[re-frame.fresco.examples.slice.subs]] with every other
   subscription, because a translation is not a special kind of read.
 
   ## Why the string table is keyed by a KEYWORD, not by English
@@ -28,7 +28,7 @@
   A token is a value a view can read, assert on and interpolate; a class
   name is a promise about a stylesheet the test cannot see. The views
   write `{:style {:background (i18n/token theme :surface)}}`, so
-  `re-frame.hicasso.examples.slice.theme-dom-cljs-test` can read the
+  `re-frame.fresco.examples.slice.theme-dom-cljs-test` can read the
   applied colour off the real DOM and say the switch took effect. A
   class-swap witness would be asserting that a string changed."
   (:refer-clojure :exclude [t]))

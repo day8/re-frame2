@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.todo.routes
+(ns re-frame.fresco.examples.todo.routes
   "THE FILTER IS A ROUTE.
 
   Two `reg-route` calls, and the whole of what this application stores
@@ -8,7 +8,7 @@
   disagree with the address bar. That is the ordinary Todo shape and it
   is why the filter is worth routing rather than toggling.
 
-  ## Every path is under `/hicasso-todo`, and that is not decoration
+  ## Every path is under `/fresco-todo`, and that is not decoration
 
   Route **ids** are namespaced keywords and cannot collide. Route
   **paths** are strings in a PROCESS-GLOBAL registry, and this
@@ -32,7 +32,7 @@
   other, `todomvc.events` already holds it, and a second registration
   would take it away from an application that needs it more. An
   unmatched URL therefore leaves the route id nil, which
-  `re-frame.hicasso.examples.todo.subs`'s `::showing` already reads as
+  `re-frame.fresco.examples.todo.subs`'s `::showing` already reads as
   `:all` — a URL is user input, so the filter coerces rather than
   trusting.
 
@@ -49,11 +49,11 @@
   (:require [re-frame.routing :as rf.routing]))
 
 (def all
-  "Every to-do. `/hicasso-todo`."
+  "Every to-do. `/fresco-todo`."
   ::all)
 
 (def filtered
-  "One filter's to-dos. `/hicasso-todo/:filter`, where `:filter` is
+  "One filter's to-dos. `/fresco-todo/:filter`, where `:filter` is
   `active` or `completed` — and anything else, because a URL is user
   input and the coercion belongs in the subscription that reads it."
   ::filtered)
@@ -64,10 +64,10 @@
   []
   (rf.routing/reg-route all
     {:doc "Show every to-do."}
-    "/hicasso-todo")
+    "/fresco-todo")
   (rf.routing/reg-route filtered
     {:doc "Show the active or the completed to-dos."}
-    "/hicasso-todo/:filter")
+    "/fresco-todo/:filter")
   nil)
 
 (register!)

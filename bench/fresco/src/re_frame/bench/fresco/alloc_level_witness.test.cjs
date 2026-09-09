@@ -2,7 +2,7 @@
 'use strict';
 // THE LEVEL WITNESS'S FIXTURES AND ITS CORPUS CONTROL, IN A GATE — rf2-a233t.
 //
-//     node hicasso/test/re_frame/bench/hicasso/alloc_level_witness.test.cjs
+//     node fresco/test/re_frame/bench/fresco/alloc_level_witness.test.cjs
 //
 // `alloc_level_witness.cjs` decides whether a floor run held ONE level across
 // its own transition. Two things are checked here and they answer different

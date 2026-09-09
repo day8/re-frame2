@@ -41,7 +41,7 @@ moved.
 
 The bead required the pass find the fixed reset law before designing around it.
 It is found, and it is a ruling body rather than an addendum. From HD-019 in
-`docs/design/hicasso/decisions.md`:
+`docs/design/fresco/decisions.md`:
 
 > Resets are by **explicit caller revision, never value equality** (the
 > predecessor's ruled reset law, kept — `docs/design/freehand/decisions/D016-buffered-and-revision-controls.md`).
@@ -93,7 +93,7 @@ design proposes and marks the proposal.
 Seven points, as the operator recorded them, with today's verification noted
 inline.
 
-**3.1 Spelling.** `::h/revision` = `:re-frame.hicasso/revision`, **[unfrozen]**,
+**3.1 Spelling.** `::h/revision` = `:re-frame.fresco/revision`, **[unfrozen]**,
 matched as the exact namespaced keyword — never slot-claimed. Roster
 re-checked today: the `::h/*` data vocabulary is `::h/value`, `::h/checked`,
 `::h/prevent`, `::h/navigate`, `::h/mounting`, `::h/unmounting`. No `revision`, no
@@ -119,7 +119,7 @@ value* — a domain fact written by events, never a render-order index, never a
 counter minted in render, never `random-uuid`.
 
 **3.3 Mechanism — zero new machinery.** The transport is React's own per-commit
-controlled re-assert, already firing on every re-render of every Hicasso controlled
+controlled re-assert, already firing on every re-render of every Fresco controlled
 element. The codec mints a fresh props object per element per render (HD-004
 refuses prop-object caching); React marks a host update on props *identity*, not
 value; the commit runs `updateInput` unconditionally for an `<input>`; and
@@ -151,7 +151,7 @@ to suppress. Every release path — `compositionend`, a non-composing change, **
 unmount — converges the field to the then-current model.
 
 **3.5 Refusal.** `::h/revision` on a non-controlled element is a loud refusal:
-`:rf.error/hicasso-revision-not-controlled`, per-render, in the codec's existing
+`:rf.error/fresco-revision-not-controlled`, per-render, in the codec's existing
 error shape, on the same cost shape as `check-ref!`. The acceptance predicate is
 `controlled-text-tag?` — the predicate that already chooses the shadow component,
 reused rather than duplicated.
@@ -175,7 +175,7 @@ the existing hydrated-controlled-input witness already asserts, and the
 intents, no `:control` addressing, no controller record, no acknowledgement signal,
 no per-element opt-outs, no caret-policy knobs, no second reserved key. The
 ladder **consumes** this trigger; it never extends the prop — and it is **no longer
-post-v0**: the operator ruled `re-frame.hicasso.forms` into V0 scope on 2026-08-12
+post-v0**: the operator ruled `re-frame.fresco.forms` into V0 scope on 2026-08-12
 (`rf2-sh56`; `rf2-xpq9` ruled the rest of Phase 5 the same day) and
 `forms/buffered-field` has shipped on exactly this trigger. The fence in this
 paragraph is unaffected — what shipped consumes the prop and extends nothing here.
@@ -353,7 +353,7 @@ not have to re-derive that the two are not in tension.
 
 **6.6 — `rf2-2rtt6.122` moves the guide's worked example, not the design.** The
 ambient refusal withdraws the ambient *find* and never the *carrying*, so the
-revision read in a body via Hicasso's own frame-carrying subscription form is
+revision read in a body via Fresco's own frame-carrying subscription form is
 unaffected, and an intent vector at an event position still lowers with the frame
 carried. What changes is the shape of the example the guide should print for the
 revert half of a reset: a handler that calls `rf/dispatch` as a function will not
@@ -424,7 +424,7 @@ the ladder.
    lossy on a namespaced value (§6.3).
 5. **No reset acknowledgement.** A caller cannot observe that the reset landed.
    The ladder's completion protocol is **no longer post-v0** — amended 2026-08-12,
-   the operator having ruled `re-frame.hicasso.forms` into V0 scope (`rf2-sh56`;
+   the operator having ruled `re-frame.fresco.forms` into V0 scope (`rf2-sh56`;
    `rf2-xpq9` ruled the rest of Phase 5 the same day), and `forms/buffered-field`
    ships a commit/cancel protocol on this trigger. **The loss above still stands**:
    that protocol answers for the *draft*, and no caller can yet observe that a

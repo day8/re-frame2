@@ -8,7 +8,7 @@ as independent trials.* The mode landed as `rf2-irxrw` (PR #8461). Measured
 `1f004b15ff`.
 
 Runtime, beside every figure below: Chromium via Playwright, shadow-cljs
-`release` on build id `:hicasso-bench`, `:optimizations :advanced`,
+`release` on build id `:fresco-bench`, `:optimizations :advanced`,
 `goog.DEBUG false`, `--expose-gc`, `:init-fn re-frame.bench.p0-app/-main`. Both
 runs report the same build (`194 files, 139 compiled, 0 warnings`).
 
@@ -19,7 +19,7 @@ R = 20 stayed on the ladder. **No rig file was edited by this window**, and the
 estimator was written down before the first run was taken.
 
 Both runs' raw records are committed beside this page at
-`implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-0gjqi/`.
+`implementation/fresco/test/re_frame/bench/fresco/data/alloc-0gjqi/`.
 
 ## The answer, first
 
@@ -172,20 +172,20 @@ number of rounds in which all four windows certified.
 
 | run | segment \| arm | rung | n | `all` | `page` | ratio-of-medians | median-of-ratios |
 |---|---|---|---|---|---|---|---|
-| 1 | `reagent-subs` \| hicasso | R3 | 4 | 6,559 | 6,589 | +0.46% | +0.09% |
-| 1 | `reagent-subs` \| hicasso | R7 | 4 | 13,713 | 13,768 | +0.41% | +0.04% |
+| 1 | `reagent-subs` \| fresco | R3 | 4 | 6,559 | 6,589 | +0.46% | +0.09% |
+| 1 | `reagent-subs` \| fresco | R7 | 4 | 13,713 | 13,768 | +0.41% | +0.04% |
 | 1 | `reagent-subs` \| reagent | R3 | 5 | 7,582 | 7,565 | −0.22% | −0.78% |
 | 1 | `reagent-subs` \| reagent | R7 | 5 | 15,064 | 15,047 | −0.11% | +0.06% |
-| 1 | `uix-subs` \| hicasso | R3 | 5 | 6,638 | 6,440 | **−2.98%** | −1.21% |
-| 1 | `uix-subs` \| hicasso | R7 | 5 | 13,346 | 13,521 | **+1.31%** | −0.02% |
+| 1 | `uix-subs` \| fresco | R3 | 5 | 6,638 | 6,440 | **−2.98%** | −1.21% |
+| 1 | `uix-subs` \| fresco | R7 | 5 | 13,346 | 13,521 | **+1.31%** | −0.02% |
 | 1 | `uix-subs` \| uix | R3 | 4 | 5,157 | 5,076 | −1.57% | −1.02% |
 | 1 | `uix-subs` \| uix | R7 | 5 | 11,206 | 11,098 | −0.97% | −1.12% |
-| 2 | `reagent-subs` \| hicasso | R3 | 5 | 6,558 | 6,576 | +0.27% | +0.30% |
-| 2 | `reagent-subs` \| hicasso | R7 | 2 | 13,741 | 13,654 | −0.64% | −0.63% |
+| 2 | `reagent-subs` \| fresco | R3 | 5 | 6,558 | 6,576 | +0.27% | +0.30% |
+| 2 | `reagent-subs` \| fresco | R7 | 2 | 13,741 | 13,654 | −0.64% | −0.63% |
 | 2 | `reagent-subs` \| reagent | R3 | 5 | 7,565 | 7,560 | −0.06% | +0.03% |
 | 2 | `reagent-subs` \| reagent | R7 | 4 | 15,027 | 15,017 | −0.06% | −0.01% |
-| 2 | `uix-subs` \| hicasso | R3 | 4 | 6,608 | 6,492 | −1.75% | −1.25% |
-| 2 | `uix-subs` \| hicasso | R7 | 5 | 13,343 | 13,404 | +0.46% | +0.33% |
+| 2 | `uix-subs` \| fresco | R3 | 4 | 6,608 | 6,492 | −1.75% | −1.25% |
+| 2 | `uix-subs` \| fresco | R7 | 5 | 13,343 | 13,404 | +0.46% | +0.33% |
 | 2 | `uix-subs` \| uix | R3 | 5 | 5,072 | 5,114 | +0.83% | +0.70% |
 | 2 | `uix-subs` \| uix | R7 | 6 | 11,166 | 11,123 | −0.39% | −0.34% |
 
@@ -373,9 +373,9 @@ here is excluded on their account.**
 
 | arm family | run 1 (`all` / `page`) | run 2 (`all` / `page`) |
 |---|---|---|
-| `reagent-subs` \| hicasso R20 | 0 of 6 / 0 of 6 | 0 of 6 / 0 of 6 |
+| `reagent-subs` \| fresco R20 | 0 of 6 / 0 of 6 | 0 of 6 / 0 of 6 |
 | `reagent-subs` \| reagent R20 | 0 of 6 / 0 of 6 | 0 of 6 / 0 of 6 |
-| `uix-subs` \| hicasso R20 | 0 of 6 / 0 of 6 | 0 of 6 / 0 of 6 |
+| `uix-subs` \| fresco R20 | 0 of 6 / 0 of 6 | 0 of 6 / 0 of 6 |
 | `uix-subs` \| uix R20 | **6 of 6 / 6 of 6** | **6 of 6 / 6 of 6** |
 
 One of four families, which is exactly what 2026-08-13 and 2026-08-17 found.
@@ -404,7 +404,7 @@ smaller claim.
   numbers do not turn on `rf2-77gz8` being settled.
 
 **One arm-level behaviour is recorded because it is large and was not
-anticipated.** The `lad/hicasso#R1` arm swings **4,232 – 4,848 B/write** on round
+anticipated.** The `lad/fresco#R1` arm swings **4,232 – 4,848 B/write** on round
 parity — even rounds high, odd rounds low — under **both** writes and in the
 **same** direction, on both segments. Because it enters both legs of a pair it
 cancels in `Δ`. **No cause is assigned here.** The arm order inside a pass is

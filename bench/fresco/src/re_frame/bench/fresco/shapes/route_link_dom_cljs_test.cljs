@@ -1,9 +1,9 @@
-(ns re-frame.bench.hicasso.shapes.route-link-dom-cljs-test
+(ns re-frame.bench.fresco.shapes.route-link-dom-cljs-test
   "**THE FIFTH TIER-1 SHAPE'S CLICK WITNESS** (rf2-2rtt6.54).
 
   The census counts 106 route-links and the charter names the form
   tier-1. The roster's ported anchors are now
-  [[re-frame.bench.hicasso.front.route-link/route-link]] calls, and this
+  [[re-frame.bench.fresco.front.route-link/route-link]] calls, and this
   file witnesses the half a grammar test cannot: **a real `MouseEvent`
   on a mounted ported card, a real route change through the routing
   cascade, and the page re-rendering on the navigation commit** — which
@@ -33,23 +33,23 @@
   stated skip."
   (:require [cljs.test :refer-macros [async deftest is use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.front.route-link :as rf.bench.hicasso.front.route-link]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
-            [re-frame.bench.hicasso.shapes.card :as rf.bench.hicasso.shapes.card]
-            [re-frame.bench.hicasso.shapes.model :as rf.bench.hicasso.shapes.model]
-            [re-frame.bench.hicasso.shapes.ordinary :as rf.bench.hicasso.shapes.ordinary]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime :refer [sub]]
+            [re-frame.bench.fresco.front.route-link :as rf.bench.fresco.front.route-link]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
+            [re-frame.bench.fresco.shapes.card :as rf.bench.fresco.shapes.card]
+            [re-frame.bench.fresco.shapes.model :as rf.bench.fresco.shapes.model]
+            [re-frame.bench.fresco.shapes.ordinary :as rf.bench.fresco.shapes.ordinary]
             [re-frame.subs :as rf.subs]
             [re-frame.test-support :as rf.test-support])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
      :ambient-frame nil
      :async?        true
-     :init-fn       (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
+     :init-fn       (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::shape-route-link)
 
@@ -86,17 +86,17 @@
   anchors the clicks below land on."
   [_]
   (ran! :card-host)
-  (rf.bench.hicasso.shapes.card/card (:slug (rf.bench.hicasso.shapes.model/article 0))))
+  (rf.bench.fresco.shapes.card/card (:slug (rf.bench.fresco.shapes.model/article 0))))
 
 (defview veto-pair
   [_]
   (ran! :veto-pair)
   [:div
-   (rf.bench.hicasso.front.route-link/route-link {:to :conduit.profile/show :params {:username "jane"}
+   (rf.bench.fresco.front.route-link/route-link {:to :conduit.profile/show :params {:username "jane"}
                      :class "vetoed" :data-testid "vetoed-link"
-                     :on-click [:re-frame.hicasso/prevent [:conduit/show-your-feed]]}
+                     :on-click [:re-frame.fresco/prevent [:conduit/show-your-feed]]}
      "vetoed")
-   (rf.bench.hicasso.front.route-link/route-link {:to :conduit.profile/show :params {:username "riku"}
+   (rf.bench.fresco.front.route-link/route-link {:to :conduit.profile/show :params {:username "riku"}
                      :class "unvetoed" :data-testid "unvetoed-link"}
      "control")])
 
@@ -113,14 +113,14 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- fresh! []
-  (rf.bench.hicasso.lane/leave-act-environment!)
-  (rf.bench.hicasso.shapes.model/make-frame! frame-id seed)
-  (rf.bench.hicasso.shapes.model/reseed! frame-id seed)
+  (rf.bench.fresco.lane/leave-act-environment!)
+  (rf.bench.fresco.shapes.model/make-frame! frame-id seed)
+  (rf.bench.fresco.shapes.model/reseed! frame-id seed)
   (reset-runs!)
   frame-id)
 
 (defn- mount! []
-  (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [nav-page {}]))
+  (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [nav-page {}]))
 
 (defn- q [handle sel] (.querySelector (:container handle) sel))
 
@@ -149,7 +149,7 @@
   `assert-fn` and `done`."
   [assert-fn done]
   (js/setTimeout (fn []
-                   (rf.bench.hicasso.arm1.mount/settle!)
+                   (rf.bench.fresco.arm1.mount/settle!)
                    (assert-fn)
                    (done))
                  15))
@@ -159,54 +159,54 @@
 ;; ===========================================================================
 
 (deftest the-ported-census-anchors-are-real-routed-anchors
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
       (let [handle (mount!)]
         (try
-          (let [author (:username (:author (rf.bench.hicasso.shapes.model/article 0)))]
-            ;; `#`-prefixed: `rf.bench.hicasso.shapes.model/make-frame!` declares the census's own
+          (let [author (:username (:author (rf.bench.fresco.shapes.model/article 0)))]
+            ;; `#`-prefixed: `rf.bench.fresco.shapes.model/make-frame!` declares the census's own
             ;; hash `:url-strategy` (Conduit is a hash-URL app), so the
             ;; router's synthesis IS the census's `#/…` form — rf2-6c237,
             ;; repairing the rf2-2rtt6.54 parity gap against the
             ;; hand-ported twins in `census_clock_arms`.
             (doseq [[sel href] [[".author-link" (str "#/profile/" author)]
                                 [".author"      (str "#/profile/" author)]
-                                [".preview-link" (str "#/article/" (:slug (rf.bench.hicasso.shapes.model/article 0)))]]]
+                                [".preview-link" (str "#/article/" (:slug (rf.bench.fresco.shapes.model/article 0)))]]]
               (let [a (q handle sel)]
                 (is (instance? js/HTMLAnchorElement a)
                     (str sel " is a real anchor"))
                 (is (= href (.getAttribute a "href"))
                     (str sel "'s href is the router's synthesis — the port no "
                          "longer hand-builds the URL the router owns")))))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 (deftest the-comment-byline-is-a-routed-anchor-too
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
       (fresh!)
-      (let [handle (rf.bench.hicasso.arm1.mount/root! (rf.bench.hicasso.arm1.mount/fresh-container!) frame-id [rf.bench.hicasso.shapes.ordinary/screen {}])]
+      (let [handle (rf.bench.fresco.arm1.mount/root! (rf.bench.fresco.arm1.mount/fresh-container!) frame-id [rf.bench.fresco.shapes.ordinary/screen {}])]
         (try
           (let [a (q handle ".comment-author")]
             (is (instance? js/HTMLAnchorElement a))
             (is (re-matches #"#/profile/.+" (.getAttribute a "href"))
                 "ordinary.cljs's byline names a route, not a URL — encoded
                  through the frame's declared census hash strategy"))
-          (finally (rf.bench.hicasso.arm1.mount/release! handle)))))))
+          (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 ;; ===========================================================================
 ;; 2 — a real click, a real route change, a real re-render
 ;; ===========================================================================
 
 (deftest a-plain-click-navigates-and-the-page-re-renders
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done
       (fresh!)
       (let [handle (mount!)
-            author (:username (:author (rf.bench.hicasso.shapes.model/article 0)))]
+            author (:username (:author (rf.bench.fresco.shapes.model/article 0)))]
         (is (= "nowhere" (text handle "where-am-i")) "no route yet")
         (reset-runs!)
         (click! (q handle ".author"))
@@ -221,11 +221,11 @@
                  navigation commit reached the index like any other")
             (is (= 1 (runs :where)) "exactly one body ran for it")
             (is (= 0 (runs :card-host)) "the card did not — it reads no route")
-            (rf.bench.hicasso.arm1.mount/release! handle))
+            (rf.bench.fresco.arm1.mount/release! handle))
           done)))))
 
 (deftest a-modifier-click-stays-native
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done
       (fresh!)
@@ -239,7 +239,7 @@
                  open-in-new-tab meaning")
             (is (= "nowhere" (text handle "where-am-i")))
             (is (= 0 (runs :where)) "and nothing re-rendered")
-            (rf.bench.hicasso.arm1.mount/release! handle))
+            (rf.bench.fresco.arm1.mount/release! handle))
           done)))))
 
 ;; ===========================================================================
@@ -247,7 +247,7 @@
 ;; ===========================================================================
 
 (deftest a-prevent-veto-cancels-the-navigation-and-dispatches-instead
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done
       (fresh!)
@@ -256,7 +256,7 @@
         (click! (q handle ".vetoed"))
         (js/setTimeout
           (fn []
-            (rf.bench.hicasso.arm1.mount/settle!)
+            (rf.bench.fresco.arm1.mount/settle!)
             (is (nil? (:route-id (current-route)))
                 "the navigation was vetoed — activate-link! saw
                  defaultPrevented and stood down")
@@ -268,12 +268,12 @@
             (click! (q handle ".unvetoed"))
             (js/setTimeout
               (fn []
-                (rf.bench.hicasso.arm1.mount/settle!)
+                (rf.bench.fresco.arm1.mount/settle!)
                 (is (= :conduit.profile/show (:route-id (current-route)))
                     "the unvetoed sibling navigates — the veto, not the
                      machinery, is what cancelled the first click")
                 (is (= {:username "riku"} (:params (current-route))))
-                (rf.bench.hicasso.arm1.mount/release! handle)
+                (rf.bench.fresco.arm1.mount/release! handle)
                 (done))
               15))
           15)))))
@@ -283,7 +283,7 @@
 ;; ===========================================================================
 
 (deftest the-route-link-page-leaves-no-residue
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
     (async done
       (fresh!)
@@ -291,12 +291,12 @@
         (click! (q handle ".author"))
         (js/setTimeout
           (fn []
-            (rf.bench.hicasso.arm1.mount/settle!)
-            (rf.bench.hicasso.arm1.mount/unmount! handle)
+            (rf.bench.fresco.arm1.mount/settle!)
+            (rf.bench.fresco.arm1.mount/unmount! handle)
             (js/setTimeout (fn []
                              (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0}
-                                    (rf.bench.hicasso.arm1.runtime/residue)))
-                             (rf.bench.hicasso.arm1.runtime/reset-runtime!)
+                                    (rf.bench.fresco.arm1.runtime/residue)))
+                             (rf.bench.fresco.arm1.runtime/reset-runtime!)
                              (done))
                            8))
           15)))))

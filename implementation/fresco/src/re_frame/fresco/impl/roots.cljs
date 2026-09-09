@@ -1,12 +1,12 @@
-(ns re-frame.hicasso.impl.roots
+(ns re-frame.fresco.impl.roots
   "THE HYDRATION ADOPTION WINDOW — one window PER ROOT, and the three
   doors that move it.
 
   A window is what tells a render *whether the DOM it is about to produce
-  is already on the screen*. `re-frame.hicasso.impl.mount` opens one
+  is already on the screen*. `re-frame.fresco.impl.mount` opens one
   around each `hydrateRoot` and hands it to that root's closer, which
   shuts it on that root's hydration commit;
-  `re-frame.hicasso.impl.presence-react` is the one reader, and it reads
+  `re-frame.fresco.impl.presence-react` is the one reader, and it reads
   it during a RENDER, through the context `with-adoption` installs.
 
   It is its own namespace because the window is the whole mechanism and
@@ -14,7 +14,7 @@
   doors, the context that carries it down a subtree, and the hook that
   reads it. The root LIFECYCLE proper — `root!`, `hydrate-root!`,
   `render!`, `unmount!`, `release!` — lives in
-  `re-frame.hicasso.impl.mount`.
+  `re-frame.fresco.impl.mount`.
 
   ## PER ROOT, never page-wide — the constraint the code cannot show
 
@@ -51,7 +51,7 @@
   `with-adoption` when the handle carries an `:adoption`:
 
   - `impl.mount/hydrate-root!`, once per hydrating client root; and
-  - `re-frame.hicasso.server/render`, once per REQUEST, closed in that
+  - `re-frame.fresco.server/render`, once per REQUEST, closed in that
     door's `finally`. Because both call `tree`, the fork is decided once
     for both sides of the wire.
 
@@ -59,7 +59,7 @@
   the app element — still finds no provider above it, reads the adoption
   context's `nil` default, and `adopting?` calls that closed. Both
   paths are measured in
-  `re-frame.hicasso.presence-ssr-seam-dom-cljs-test`: §1 the windowless
+  `re-frame.fresco.presence-ssr-seam-dom-cljs-test`: §1 the windowless
   one, §5 the product door.
 
   Born open: the renders that follow it are adopting server-rendered
@@ -106,7 +106,7 @@
 (defonce ^:private adoption-context
   ;; The window, carried down ONE root's subtree. The default is `nil`,
   ;; which `adopting?` reads as closed — so every tree with no provider
-  ;; above it (every ordinary mount, every Hicasso boundary anywhere) gets
+  ;; above it (every ordinary mount, every Fresco boundary anywhere) gets
   ;; the right answer with no provider, no object and no branch. Only a
   ;; hydrating root installs one — the same absence-means-closed discipline
   ;; `re-frame.substrate.spine` holds its root-local adoption flag to.

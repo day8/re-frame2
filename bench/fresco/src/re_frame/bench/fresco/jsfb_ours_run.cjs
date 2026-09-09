@@ -2,14 +2,14 @@
 //
 // OUR CLOCK INSTRUMENT, ON THE BENCHMARK'S APP (rf2-rguy1).
 //
-//   node hicasso/test/re_frame/bench/hicasso/jsfb_ours_run.cjs
+//   node fresco/test/re_frame/bench/fresco/jsfb_ours_run.cjs
 //
 // ## Why this file exists — the cross-check needs a 2x2, not a 1x1
 //
 // The bead asks whether our harness and krausest/js-framework-benchmark
 // AGREE ON THE RATIO. Run naively that comparison is confounded, and badly:
 //
-//   * our published ratio is `hicasso / reagent-subs` on the M1 witness —
+//   * our published ratio is `fresco / reagent-subs` on the M1 witness —
 //     901 elements, 300 boundaries, a COLD MOUNT into an empty container;
 //   * the benchmark's is `create 1,000 rows` — ~8,000 elements, 1,000
 //     boundaries, a CLICK on an already-mounted app.
@@ -95,7 +95,7 @@
 //   0  every gate cleared.
 //   1  a gate did not, or the run threw. The report above names which.
 
-const crypto = require('node:crypto');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -116,8 +116,8 @@ const NAV_TIMEOUT_MS = Number(process.env.JSFB_NAV_TIMEOUT_MS || 60000);
 // ARMS[0] is the DENOMINATOR every ratio is taken against — Reagent-on-subs,
 // which is what HD-012 names the bar. The third arm was added after the first
 // run: the contested bulk-broad row is `UIx / Reagent`, so a Reagent-and-
-// Hicasso pair cannot speak to it. See `jsfb_uix_app`'s docstring.
-const ARMS = ['rf2-reagent', 'rf2-hicasso', 'rf2-uix'];
+// Fresco pair cannot speak to it. See `jsfb_uix_app`'s docstring.
+const ARMS = ['rf2-reagent', 'rf2-fresco', 'rf2-uix'];
 const BASE = ARMS[0];
 const OTHERS = ARMS.slice(1);
 

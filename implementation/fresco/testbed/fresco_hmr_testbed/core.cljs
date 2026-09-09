@@ -1,11 +1,11 @@
-(ns hicasso-hmr-testbed.core
+(ns fresco-hmr-testbed.core
   "THE HMR TESTBED SHELL — two frames, two roots, one `^:dev/after-load`
   hook, and a door that answers the questions the DOM cannot (rf2-vsgq).
 
-  `hicasso-hmr-testbed.views` is the namespace under test and the only
+  `fresco-hmr-testbed.views` is the namespace under test and the only
   file the gate edits. This one is the application around it: it seeds two
   frames, mounts a root per frame, and carries the re-initialising reload
-  hook an ordinary Hicasso app would carry.
+  hook an ordinary Fresco app would carry.
 
   ## Why everything durable here is `defonce`
 
@@ -50,16 +50,16 @@
      cleanup, installed at React's own seam and toggled at run time.
 
   Nothing here reaches past the authoring surface to make an assertion
-  pass. The identity readers are `re-frame.hicasso.test.runtime`'s
+  pass. The identity readers are `re-frame.fresco.test.runtime`'s
   published witness readers, which is what they are for."
   (:require ["react" :as react]
-            [hicasso-hmr-testbed.views :as views]
+            [fresco-hmr-testbed.views :as views]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]))
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]))
 
 ;; ---------------------------------------------------------------------------
 ;; The two frames — the routing row's whole premise
@@ -86,7 +86,7 @@
   ;; the first render through it. `defonce` because a reload re-evaluates
   ;; this namespace and a fresh handle would be a fresh Root — exactly the
   ;; remount this testbed exists to detect.
-  (into {} (for [{:keys [frame]} frames] [frame (rf.hicasso/client-root)])))
+  (into {} (for [{:keys [frame]} frames] [frame (rf.fresco/client-root)])))
 (defonce ^:private !reloads   (volatile! 0))
 (defonce ^:private !baseline  (atom nil))
 (defonce ^:private !instances (atom {}))
@@ -154,7 +154,7 @@
 ;; old-generation cleanup on type replacement". It is a RENDERER fault, so
 ;; it is modelled at the renderer: the function React calls to unsubscribe
 ;; is swallowed, and the runtime — untouched — never learns that the
-;; retired boundary went away. Nothing under `implementation/hicasso/src/`
+;; retired boundary went away. Nothing under `implementation/fresco/src/`
 ;; is modified to produce it.
 ;;
 ;; The wrapper is installed ONCE and unconditionally, on and off alike, and
@@ -249,7 +249,7 @@
   nothing is claimed here about whether the runtime should also protect
   this one."
   [frame-kw query]
-  (mapv identity (rf.hicasso.test.runtime/cell-readers (sub-key frame-kw query))))
+  (mapv identity (rf.fresco.test.runtime/cell-readers (sub-key frame-kw query))))
 
 (defn- capture-baseline!
   "Freeze the objects the next comparison is made against: the view head
@@ -262,7 +262,7 @@
                                      [frame (rf.frame/frame-incarnation-token frame)]))
                            frames)
            :rows     (into {} (map (fn [{:keys [frame]}]
-                                     [frame (rf.hicasso.impl.collector/frame-row frame)]))
+                                     [frame (rf.fresco.impl.collector/frame-row frame)]))
                            frames)
            :readers  (into {} (for [{:keys [frame]} frames
                                     query watched-queries]
@@ -336,7 +336,7 @@
                         {:token-same?    (identical? (get-in base [:tokens frame])
                                                      (rf.frame/frame-incarnation-token frame))
                          :row-same?      (identical? (get-in base [:rows frame])
-                                                     (rf.hicasso.impl.collector/frame-row frame))
+                                                     (rf.fresco.impl.collector/frame-row frame))
                          :instance-same? (identical? (get-in base [:instances frame])
                                                      (get-in @!instances [frame :current]))}]))
              frames)
@@ -359,8 +359,8 @@
   and the reload hook are the same line here."
   []
   (doseq [{:keys [frame container]} frames]
-    (rf.hicasso/render! (get handles frame)
-                        [rf.hicasso/frame-root {:id frame}
+    (rf.fresco/render! (get handles frame)
+                        [rf.fresco/frame-root {:id frame}
                          [views/app {:ref-sink    (get ref-sinks frame)
                                      :island-refs (island-refs-for frame)}]]
                         (js/document.getElementById container))))
@@ -412,7 +412,7 @@
   that takes a frame goes through this, so a typo is a loud `nil` frame
   rather than a silent read of the wrong root."
   [frame-name]
-  (let [kw (keyword "hicasso-hmr-testbed.core" frame-name)]
+  (let [kw (keyword "fresco-hmr-testbed.core" frame-name)]
     (if (some #(= kw (:frame %)) frames)
       kw
       (throw (js/Error. (str "no such frame: " frame-name))))))
@@ -424,7 +424,7 @@
     #js {:reloads       (fn [] @!reloads)
          :model         (fn [frame-name]
                           (js/JSON.stringify (clj->js (rf/app-db-value (frame-of frame-name)))))
-         :residue       (fn [] (clj->js (rf.hicasso.test.runtime/residue)))
+         :residue       (fn [] (clj->js (rf.fresco.test.runtime/residue)))
          :capture       (fn [] (capture-baseline!))
          :identity      (fn [] (identity-report))
          :instance      (fn [frame-name]
@@ -435,7 +435,7 @@
          :note          (fn [frame-name text]
                           (some-> ^js (get-in @!instances [(frame-of frame-name) :current])
                                   (.note text)))
-         :quiesce       (fn [] (rf.hicasso.test.runtime/quiesced!))
+         :quiesce       (fn [] (rf.fresco.test.runtime/quiesced!))
          :sabotage      (fn [on?] (vreset! !sabotage? (boolean on?)) @!sabotage?)
          :staleNotified (fn [] @!stale-notified)
          :setLabel      (fn [frame-name label]

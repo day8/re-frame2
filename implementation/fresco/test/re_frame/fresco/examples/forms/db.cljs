@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.forms.db
+(ns re-frame.fresco.examples.forms.db
   "THE SHAPE, AND THE THREE PURE FUNCTIONS THE RECIPES SHARE.
 
   One support ticket, one buffered field in front of its subject, and one
@@ -35,7 +35,7 @@
   application does not pay for it — and the reason is written down
   because *which of the two* is the question a reader arrives with."
   (:require [clojure.string :as str]
-            [re-frame.hicasso :as rf.hicasso]))
+            [re-frame.fresco :as rf.fresco]))
 
 ;; ---------------------------------------------------------------------------
 ;; The shape
@@ -81,7 +81,7 @@
   `h/reg-state`'s own stated reason: a fixed `[:ui :subject-draft]` would
   be ONE draft shared by every ticket on the page, opening them all
   together with nothing on screen to say so."
-  (rf.hicasso/reg-state ::subject-draft {:default nil}))
+  (rf.fresco/reg-state ::subject-draft {:default nil}))
 
 (defn draft-path
   "`h/reg-state`'s documented `app-db` layout for [[subject-draft]] — the
@@ -90,7 +90,7 @@
   Written out here rather than at three call sites because the `:ui` root
   is app-space and has no name on the door. An ordinary handler may read
   and write it, which is `reg-state`'s own claim about the tier, and this
-  application needs the WRITE half: see [[re-frame.hicasso.examples.forms.events/end-session]]
+  application needs the WRITE half: see [[re-frame.fresco.examples.forms.events/end-session]]
   for the one turn a commit has to be."
   [ikey]
   [:ui subject-draft ikey])

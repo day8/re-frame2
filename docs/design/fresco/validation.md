@@ -1,4 +1,4 @@
-# Hicasso — validation
+# Fresco — validation
 
 The bar, the budgets, the phase plan, the witnesses, and the kill criteria. This
 is the programme's proof spine; EP-0038 sequences it into beads. Decisions cited
@@ -389,7 +389,7 @@ and the two instrument repairs a refusing control forced:
 > the subtracted term carries the page script a protocol command invokes — so on
 > every row driven through `page.evaluate` it removed the operation itself. The
 > mount magnitude below is superseded: on raw `TaskDuration`, script and frame in
-> one number, `hicasso / reagent-subs` on `M1` reads **1.4896×**
+> one number, `fresco / reagent-subs` on `M1` reads **1.4896×**
 > [1.3488 – 1.5989], so **the deficit is worse than published, not milder**. Both
 > bulk rows move above parity and `bulk100` changes sign. The `per-keystroke` row
 > is driven through the Input domain and was **never affected** — its two clocks
@@ -451,7 +451,7 @@ and the two instrument repairs a refusing control forced:
 > magnitude (`rf2-jcm3p`).** The figure the note above substitutes in is itself
 > **withdrawn as a magnitude**: `1.4896×` [1.3488 – 1.5989] against
 > Reagent-on-subs and `1.5001×` against UIx-on-subs no longer publish as
-> numbers. What the row publishes is the regime — *hicasso mounts materially
+> numbers. What the row publishes is the regime — *fresco mounts materially
 > slower than both adapters*; every corroborated reading sits above the amended
 > `≤ 1.10×` UIx gate; the direction is triple-corroborated (worst-case
 > witnesses, census rows, outside benchmark); and **`≤ 1.10×` has NOT been
@@ -506,7 +506,7 @@ row to point it at first.
 **`rf2-rguy1` has now run, and it answers both halves.**
 [Cross-checked against an instrument nobody here wrote](studio/cross-checked-against-an-outside-instrument.md)
 implements the krausest/js-framework-benchmark app in **three** re-frame2 arms —
-Reagent-on-subs, UIx-on-subs and Hicasso Arm 1, one shared model, canonically
+Reagent-on-subs, UIx-on-subs and Fresco Arm 1, one shared model, canonically
 identical DOM — and runs them under **the benchmark's own driver** as well as
 ours.
 
@@ -526,15 +526,15 @@ three arms alike) and the page records that rather than widening the band. The
 benchmark's app has trivial state, so it can price rendering and says nothing
 about subscription fan-out, frame isolation or boundary-scoped reactivity.
 
-### P1 — the tournament, and its one surviving arm (the six-week clock starts at the first Hicasso-arm commit that mounts the dogfood screen — HD-014)
+### P1 — the tournament, and its one surviving arm (the six-week clock starts at the first Fresco-arm commit that mounts the dogfood screen — HD-014)
 
-> **Since 2026-07-31 there is one arm.** Mike ruled Hicasso a React adapter and
+> **Since 2026-07-31 there is one arm.** Mike ruled Fresco a React adapter and
 > dropped Arm 2 (PATCH) on **product direction, not on measurement** — it met its
 > hard gate in real Chromium. P1 is therefore no longer a two-arm contest: the
 > lean-React arm is the product line, measured against the same controls and the
 > same witness set. The Arm 2 bullet is kept below as the record of what ran.
 
-One kill-bounded Hicasso arm plus controls, on the minimal codec and identical
+One kill-bounded Fresco arm plus controls, on the minimal codec and identical
 witnesses; challengers time-boxed to 1–3 days. (It was written for **two**
 kill-bounded arms, and both did run before the ruling.)
 
@@ -543,15 +543,15 @@ kill-bounded arms, and both did run before the ruling.)
   composition (reagent-slim `:f>` + UIx `use-subscribe`) ridden forward as the
   adapters-plus-sugar null hypothesis; the same referent as “the null” in the
   P2 ruling — rides every measurement.
-- **Hicasso lean-React** (architecture.md Arm 1): instrument hooks/boundary,
+- **Fresco lean-React** (architecture.md Arm 1): instrument hooks/boundary,
   retained size, bulk K=100/300, the per-read and per-keystroke paths, and the
   sub-read rungs (HD-002 ladder).
-- **Hicasso/PATCH** (Arm 2): the own differ patching the same witness DOM;
+- **Fresco/PATCH** (Arm 2): the own differ patching the same witness DOM;
   controlled-restore hard-gated. **Withdrawn 2026-07-31** on Mike's ruling that
-  Hicasso is a React adapter — on direction, not on measurement, the arm having
+  Fresco is a React adapter — on direction, not on measurement, the arm having
   met that gate. Its tree is retired (`rf2-m6if4`); the controlled grid it was
   gated on now lives at
-  `bench/hicasso/controlled_restore_dom_cljs_test.cljs`, re-taken on React —
+  `bench/fresco/controlled_restore_dom_cljs_test.cljs`, re-taken on React —
   and re-taken **twice**, because UIx selects between plain React and a port
   of Reagent's controlled-input workaround on what else is on the classpath.
   The grid pins the implementation it measures rather than inheriting one; the
@@ -639,19 +639,19 @@ binding method.
 
 ### P2 — the fork ruling (HD-013)
 
-On P0/P1 numbers: **Hicasso/lean-React vs null**. **The decider is the operator**
+On P0/P1 numbers: **Fresco/lean-React vs null**. **The decider is the operator**
 (HD-013); one adversarial and one creative review pass over the evidence are
 prepared and recorded on the standard bead to advise the ruling. The candidate
 dies if it does not clearly beat the better Reagent path on matched witnesses,
 costs material latency or memory against direct UIx without a commensurate
 ergonomic win, or its win disappears once the sub graph and writes are matched.
-On a "go", it graduates into a tracked `implementation/hicasso/` artefact and the
+On a "go", it graduates into a tracked `implementation/fresco/` artefact and the
 v0 build proceeds under EP-0038's wave 2; on a stop, adapters win and the donors'
 status quo stands.
 
 **What the 2026-07-31 ruling did and did not decide.** It removed Arm 2 from this
 comparison, so the ruling is no longer a three-way choice and no longer picks a
-winner between two Hicasso arms — that half is settled, on direction rather than
+winner between two Fresco arms — that half is settled, on direction rather than
 on numbers. It did **not** decide the arm-versus-null question: the null control
 (Adapter-Prime, adapters-plus-sugar) still rides every measurement, adapters-only
 is still a *successful* outcome, and the kill criteria below still bite. The
@@ -687,7 +687,7 @@ with no admissible attack clearing the bar, and the interpreter was exonerated a
 **The consequence is superseded — the outcome is a formalized narrow-and-price,
 not a stop.** This section's heading names *stop or narrow* as what a tripping
 criterion asks, and that remains the general rule; for K1 it is superseded by the
-operator's [selection of Hicasso](product/decision-brief.md) together with the
+operator's [selection of Fresco](product/decision-brief.md) together with the
 scoped price-acceptance amendment, the **operative default**, whose record is
 [`product/k1-price-acceptance.md`](product/k1-price-acceptance.md) (`rf2-hic-003`):
 a [`1.25×` product ceiling](product/k1-price-acceptance.md#5-the-ratified-ceiling)
@@ -733,17 +733,17 @@ read against this note.
 
 ## The kill table at graduation — the P2 ruling of 2026-08-13
 
-**The P2 fork is ruled: Hicasso graduates, as a success.** Operator ruling given
+**The P2 fork is ruled: Fresco graduates, as a success.** Operator ruling given
 directly in chat on 2026-08-13 at 04:57 AUSEST, pre-empting the packet freeze of
 2026-08-25 and the sitting of 2026-08-27; the decision entry is
-[HD-029](decisions.md#hd-029--the-p2-fork-hicasso-graduates-as-a-success) and
+[HD-029](decisions.md#hd-029--the-p2-fork-fresco-graduates-as-a-success) and
 the ruling in full is on the epic `rf2-2rtt6`. This section closes the K7 clock
 and records where each kill criterion stood **at graduation**. It is a record of
 disposition, not of measurement: **no result below is recoloured, no threshold
 widens, and nothing here marks a missed gate as met.**
 
 **K7 is satisfied, and the clock closes with this record.** It ran from the
-first Hicasso-arm commit that mounted the dogfood screen, per
+first Fresco-arm commit that mounted the dogfood screen, per
 [HD-014](decisions.md#hd-014--the-clock) — commit `b27df87f42`, 2026-07-31 at
 21:22 AUSEST — which put its six-week boundary at 2026-09-11 ~21:00 AUSEST. The
 fork was ruled on 2026-08-13, **well inside that boundary**, so the clock is
@@ -836,7 +836,7 @@ above stands exactly as written.
 
 The programme starts immediately: P0 and the donor arm are ordinary bench-lane
 work and do not contend with the release train's operator actions. The six-week
-clock starts only when a Hicasso arm first mounts the dogfood screen (HD-014).
-Results publish to each bead and to `docs/design/hicasso/studio/` (minted by the
+clock starts only when a Fresco arm first mounts the dogfood screen (HD-014).
+Results publish to each bead and to `docs/design/fresco/studio/` (minted by the
 first P0 worker; HD-017). Arms needing new build ids or dev-http ports touch the
 hot-zone `implementation/shadow-cljs.edn` and are sequenced, never parallel.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// THE HICASSO BENCH DRIVERS' EXIT PATH — a printed refusal must refuse.
+// THE FRESCO BENCH DRIVERS' EXIT PATH — a printed refusal must refuse.
 // rf2-rr6do, following rf2-tb345's repair of the same defect in b8_run.cjs,
 // and rf2-y7mw7, which found the twenty-fourth instance of it — in
 // `clock_run.cjs`, the driver this file's header once held up as the correct
@@ -11,7 +11,7 @@
 // pin belongs wherever the block went. `hd8_run.cjs` (rf2-x6g04) is the
 // fourth and is not a clock driver at all.
 //
-//     node hicasso/test/re_frame/bench/hicasso/clock_exit_path.test.cjs
+//     node fresco/test/re_frame/bench/fresco/clock_exit_path.test.cjs
 //
 // THE DEFECT THIS PINS. Both drivers computed THREE refusals per row —
 // unverified read-backs, a reproducibility band over `seam.cjs`'s ceiling,
@@ -947,7 +947,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
 // --- rf2-y0pkh: the census run-rejection rule's false-refusal rate, MEASURED --
 //
-// rf2-8a746 retired the all-blocks strict rule on the HICASSO CLOCK, and the
+// rf2-8a746 retired the all-blocks strict rule on the FRESCO CLOCK, and the
 // `^18` grep that ruling mandated also landed here — on a different
 // instrument, with a different driver, its own datasets, and a control whose
 // prediction is the row's own element arithmetic rather than a page doubling.
@@ -2206,7 +2206,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   // LOOKS PERFECT: eight clean blocks and one whose denominator has collapsed,
   // median dead on the prediction and inside the band, verdict still FAIL.
   {
-    const SEG = ['reagent-subs', 'uix-subs', 'hicasso'];
+    const SEG = ['reagent-subs', 'uix-subs', 'fresco'];
     const D = [1, 100, 200];
     const plan = ['ctl-d1', 'ctl-d100', 'ctl-d200'].map((id, i) => ({
       id, dirty: D[i], ctl3: true, ctl3Witness: false, cells: 300,
@@ -2364,13 +2364,13 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   t('THE REMAINDER: ONE unadjudicated bar makes the row unadjudicable', () => {
     const a = rowAdjudication({
-      'hicasso / reagent-subs': ADJ,
-      'hicasso / uix-subs': UNADJ,
+      'fresco / reagent-subs': ADJ,
+      'fresco / uix-subs': UNADJ,
       'uix-subs / reagent-subs': ADJ,
     });
     assert.strictEqual(a.adjudicable, false, 'two adjudicated bars may not carry a third that has no band');
     assert.strictEqual(a.barCount, 3);
-    assert.deepStrictEqual(a.unadjudicatedBars, ['hicasso / uix-subs']);
+    assert.deepStrictEqual(a.unadjudicatedBars, ['fresco / uix-subs']);
     assert.strictEqual(a.unadjudicatedWhy, KEYSTROKE_WHY);
   });
 
@@ -2831,7 +2831,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 // small, so the run has a real dispersion without being anywhere near the
 // frozen limit: a fixture that passed only because it had none would not be
 // exercising the dispersion term at all.
-const FIXTURE_SEGMENTS = ['reagent-subs', 'uix-subs', 'hicasso'];
+const FIXTURE_SEGMENTS = ['reagent-subs', 'uix-subs', 'fresco'];
 function fixtureRoundsTask(over) {
   const o = over || {};
   const W = o.W === undefined ? 3.0 : o.W;
@@ -3206,22 +3206,22 @@ function fixtureRoundsTask(over) {
     ...over,
     rows: [
       {
-        ...dsRow({ 'hicasso / reagent-subs': ADJ }),
+        ...dsRow({ 'fresco / reagent-subs': ADJ }),
         granularity: [0.146],
         inPageRounds: [],
         decomposition: {
           'reagent-subs/plumb': { n: 60, task: 36, taskNet: 12, devtools: 24, script: 0.06, layout: 5 },
           'reagent-subs/floor': { n: 60, task: 360, taskNet: 280, devtools: 80, script: 0.06, layout: 40 },
           'reagent-subs/reagent-subs': { n: 60, task: 600, taskNet: 280, devtools: 320, script: 0.06, layout: 60 },
-          'hicasso/hicasso': { n: 60, task: 780, taskNet: 320, devtools: 460, script: 0.06, layout: 70 },
+          'fresco/fresco': { n: 60, task: 780, taskNet: 320, devtools: 460, script: 0.06, layout: 70 },
         },
         ctlTask: { ok: true, measured: { mean: 1.9 } },
         seam: { band: 0.06, verdict: { ceilingBreached: false } },
-        seamTask: { ceilingBreached: false, band: 0.05, rows: { 'hicasso / reagent-subs': ADJ } },
+        seamTask: { ceilingBreached: false, band: 0.05, rows: { 'fresco / reagent-subs': ADJ } },
         bandTask: 0.05,
-        bar: { 'hicasso / reagent-subs': { tared: { mean: 1.1 } } },
-        inPageBar: { 'hicasso / reagent-subs': { mean: 1.2 } },
-        barTask: { 'hicasso / reagent-subs': { mean: 1.3, min: 1.2, max: 1.4 } },
+        bar: { 'fresco / reagent-subs': { tared: { mean: 1.1 } } },
+        inPageBar: { 'fresco / reagent-subs': { mean: 1.2 } },
+        barTask: { 'fresco / reagent-subs': { mean: 1.3, min: 1.2, max: 1.4 } },
       },
     ],
   });
@@ -3321,17 +3321,17 @@ function fixtureRoundsTask(over) {
     rowId: 'keystroke',
     granularity: [0.146, 0.2, 0.3],
     barTask: {
-      'hicasso / reagent-subs': { mean: 0.9491, min: 0.7328, max: 1.1596 },
-      'hicasso / uix-subs': { mean: 0.9968, min: 0.8059, max: 1.2172 },
+      'fresco / reagent-subs': { mean: 0.9491, min: 0.7328, max: 1.1596 },
+      'fresco / uix-subs': { mean: 0.9968, min: 0.8059, max: 1.2172 },
       'uix-subs / reagent-subs': { mean: 0.9548, min: 0.771, max: 1.0546 },
     },
     kbWitness: {
       totals: { sent: 180, observed: 140, censored: 40 },
       perArm: {
-        'hicasso/hicasso': etArm(frames(49)),
+        'fresco/fresco': etArm(frames(49)),
         'reagent-subs/reagent-subs': etArm(frames(46)),
         'uix-subs/uix-subs': etArm(frames(45)),
-        'hicasso/ctl-50ms': etArm(Array(60).fill(48)),
+        'fresco/ctl-50ms': etArm(Array(60).fill(48)),
       },
     },
     ...over,
@@ -3359,9 +3359,9 @@ function fixtureRoundsTask(over) {
         kbWitness: {
           totals: { sent: 180, observed: 140, censored: 40 },
           perArm: {
-            'hicasso/hicasso': etArm(Array(49).fill(24)),
+            'fresco/fresco': etArm(Array(49).fill(24)),
             'reagent-subs/reagent-subs': etArm(frames(46)),
-            'hicasso/ctl-50ms': etArm(Array(60).fill(48)),
+            'fresco/ctl-50ms': etArm(Array(60).fill(48)),
           },
         },
       })
@@ -3374,7 +3374,7 @@ function fixtureRoundsTask(over) {
       kbRow({
         kbWitness: {
           totals: null,
-          perArm: { 'hicasso/hicasso': etArm(frames(49)), 'hicasso/ctl-50ms': etArm(frames(60)) },
+          perArm: { 'fresco/fresco': etArm(frames(49)), 'fresco/ctl-50ms': etArm(frames(60)) },
         },
       })
     );
@@ -3468,7 +3468,7 @@ function fixtureRoundsTask(over) {
   const t = (what, fn) => test(`clock_run.cjs -> clock_readjudicate.cjs: ${what}`, fn);
 
   const ADJ = { unadjudicated: false, band: 0.21, why: 'margin 34.8% clears the band 21.4%' };
-  const BARS = { 'hicasso / reagent-subs': ADJ };
+  const BARS = { 'fresco / reagent-subs': ADJ };
 
   /**
    * ONE OUTCOME AS `runRow` AND `report` HAND IT TO THE WRITE PATH, at every
@@ -3492,7 +3492,7 @@ function fixtureRoundsTask(over) {
         'reagent-subs/plumb': { n: 60, task: 36, taskNet: 12, devtools: 24, script: 0.06, layout: 5 },
         'reagent-subs/floor': { n: 60, task: 360, taskNet: 280, devtools: 80, script: 0.06, layout: 40 },
         'reagent-subs/reagent-subs': { n: 60, task: 600, taskNet: 280, devtools: 320, script: 0.06, layout: 60 },
-        'hicasso/hicasso': { n: 60, task: 780, taskNet: 320, devtools: 460, script: 0.06, layout: 70 },
+        'fresco/fresco': { n: 60, task: 780, taskNet: 320, devtools: 460, script: 0.06, layout: 70 },
       },
       // THE FOUR, at the producer's own internal names.
       pageErrors: [],
@@ -3513,14 +3513,14 @@ function fixtureRoundsTask(over) {
       ctl3Net: null,
       ctl3Layout: null,
       ctl3Parity: null,
-      checkStandard: { ok: true, standard: { id: 'hicasso-clock/ctl-2x-level', version: 1 }, why: null },
+      checkStandard: { ok: true, standard: { id: 'fresco-clock/ctl-2x-level', version: 1 }, why: null },
       constants: null,
       guardVerdict: { refuse: false },
       guardVerdictTask: { refuse: false },
       parityOk: true,
-      bar: { 'hicasso / reagent-subs': { tared: { mean: 1.1 } } },
-      inPageBar: { 'hicasso / reagent-subs': { mean: 1.2 } },
-      barTask: { 'hicasso / reagent-subs': { mean: 1.3, min: 1.2, max: 1.4 } },
+      bar: { 'fresco / reagent-subs': { tared: { mean: 1.1 } } },
+      inPageBar: { 'fresco / reagent-subs': { mean: 1.2 } },
+      barTask: { 'fresco / reagent-subs': { mean: 1.3, min: 1.2, max: 1.4 } },
       ctlTask: { ok: true, measured: { mean: 1.9 } },
       bandTask: 0.05,
       etVerdict: null,
@@ -4324,7 +4324,7 @@ function fixtureRoundsTask(over) {
       rowId: 'bulk300', pageErrors: [], guardRefuse: false, guardRefuseTask: false, parityOk: true,
       ctl3Parity: null, kbWitness: null, tally: { writes: 10, unverified: 0 }, etVerdict: null,
       roundsTask: rt, seam: { verdict: { ceilingBreached: false } },
-      seamTask: { ceilingBreached: false, band: 0.2, rows: { 'hicasso / reagent-subs': ADJ } },
+      seamTask: { ceilingBreached: false, band: 0.2, rows: { 'fresco / reagent-subs': ADJ } },
     });
     assert.strictEqual(reportable(row(fixtureRoundsTask()), CANON), true, 'the clean record must still pool');
     const bad = row(fixtureRoundsTask({ ctlScale: 140 / 300 }));
@@ -4435,7 +4435,7 @@ function fixtureRoundsTask(over) {
       rowId: 'bulk300', pageErrors: [], guardRefuse: false, guardRefuseTask: false, parityOk: true,
       ctl3Parity: null, kbWitness: null, tally: { writes: 10, unverified: 0 }, etVerdict: null,
       roundsTask: fixtureRoundsTask(), seam: { verdict: { ceilingBreached: false } },
-      seamTask: { ceilingBreached: false, band: 0.2, rows: { 'hicasso / reagent-subs': ADJ } },
+      seamTask: { ceilingBreached: false, band: 0.2, rows: { 'fresco / reagent-subs': ADJ } },
     };
     const failing = { premiseMet: false, measured: { p50: 1.2 }, ok: false };
     const passing = { premiseMet: true, measured: { p50: 2.01 }, ok: true };
@@ -4507,12 +4507,12 @@ function fixtureRoundsTask(over) {
     // AMENDED TWICE, AND THE SECOND CONDITION IS GONE. rf2-diaud asks the
     // verdict for a ROW and a PAIR rather than for a bare limit, because the
     // threshold belongs to the row class beside the estimand it was derived
-    // for — and `hicasso / reagent-subs` is the pair validation.md's bulk bar
+    // for — and `fresco / reagent-subs` is the pair validation.md's bulk bar
     // actually names (rf2-vp0j7). rf2-8a746's rule ALSO required the effect to
     // exceed the widest same-run band; rf2-diaud (c) and rf2-vh0e3 retired that
     // from publication authority on every class, so it no longer reaches this
     // verdict. Asserted below rather than assumed.
-    const P = 'hicasso / reagent-subs';
+    const P = 'fresco / reagent-subs';
     const ev = (iv, bandPct) => effectVerdict(iv, BULK, P, { widestSameRunBandPct: bandPct });
     const below = { runs: 8, rounds: [6], point: 0.6, lo: 0.55, hi: 0.65, draws: 1, seed: 1 };
     assert.strictEqual(ev(below, 10).publishes, true, 'wholly below 1.0');
@@ -4549,7 +4549,7 @@ function fixtureRoundsTask(over) {
     { dir: 'clock-w3yxd', runs: 6 },
   ];
   const BULK_ROWS = ['bulk300', 'bulk100', 'narrow'];
-  const PAIRS_8a746 = ['hicasso / reagent-subs', 'hicasso / uix-subs', 'uix-subs / reagent-subs'];
+  const PAIRS_8a746 = ['fresco / reagent-subs', 'fresco / uix-subs', 'uix-subs / reagent-subs'];
 
   t('the committed corpus is 42 bulk row-runs, and every one is IN CONTROL under the standard', () => {
     let n = 0;
@@ -4586,7 +4586,7 @@ function fixtureRoundsTask(over) {
           const ev = effectVerdict(iv, rowId, pair, { widestSameRunBandPct: bands.length ? Math.max(...bands) : NaN });
           assert.ok(typeof ev.why === 'string' && ev.why.length > 0, `${dir}/${rowId}/${pair}: a verdict must carry its reason`);
           // CO-INSTRUMENTED joins the roster under rf2-vp0j7: bulk's bar names
-          // `hicasso / reagent-subs`, so the other two pairs are reported and
+          // `fresco / reagent-subs`, so the other two pairs are reported and
           // not adjudicated. The fence below is unchanged and is what matters
           // here — an un-adjudicated pair publishes nothing either.
           assert.ok(
@@ -4704,7 +4704,7 @@ function fixtureRoundsTask(over) {
     { dir: 'clock-emvod', runs: 8 },
     { dir: 'clock-w3yxd', runs: 6 },
   ];
-  const M1_PAIRS = ['hicasso / reagent-subs', 'hicasso / uix-subs', 'uix-subs / reagent-subs'];
+  const M1_PAIRS = ['fresco / reagent-subs', 'fresco / uix-subs', 'uix-subs / reagent-subs'];
 
   /** Every committed dataset of an ensemble, or `null` when the corpus is absent. */
   const corpus = (dir) => {
@@ -4870,7 +4870,7 @@ function fixtureRoundsTask(over) {
         // The other two pairs publish nothing, and not because they are noisy:
         // `validation.md` states K1's gate against DIRECT UIx-on-subs and says
         // in terms that Reagent-on-subs does not gate this row.
-        const gated = pair === 'hicasso / uix-subs';
+        const gated = pair === 'fresco / uix-subs';
         assert.strictEqual(
           ev.publishes,
           gated,
@@ -5254,9 +5254,9 @@ function fixtureRoundsTask(over) {
     reportable, PUBLICATION, publicationRule,
   } = require('./clock_readjudicate.cjs');
   const t = (what, fn) => test(`rf2-diaud: ${what}`, fn);
-  const GATED = 'hicasso / uix-subs';
-  const M1_PAIRS = ['hicasso / reagent-subs', GATED, 'uix-subs / reagent-subs'];
-  const STUDIO = path.join(__dirname, '..', '..', '..', '..', '..', '..', 'docs', 'design', 'hicasso', 'studio');
+  const GATED = 'fresco / uix-subs';
+  const M1_PAIRS = ['fresco / reagent-subs', GATED, 'uix-subs / reagent-subs'];
+  const STUDIO = path.join(__dirname, '..', '..', '..', '..', '..', '..', 'docs', 'design', 'fresco', 'studio');
 
   /**
    * A page's prose with its line wrapping and blockquote markers removed, so a
@@ -5397,7 +5397,7 @@ function fixtureRoundsTask(over) {
       const iv = m1Interval(dir, GATED);
       if (!iv) return;
       assert.strictEqual(effectVerdict(iv, 'M1', GATED).publishes, true, `${dir}: on its own gate it publishes`);
-      const asBulk = effectVerdict(iv, 'bulk300', 'hicasso / reagent-subs', { widestSameRunBandPct: 1 });
+      const asBulk = effectVerdict(iv, 'bulk300', 'fresco / reagent-subs', { widestSameRunBandPct: 1 });
       assert.strictEqual(asBulk.publishes, false, `${dir}: on bulk's thresholds the same interval publishes nothing`);
       assert.match(asBulk.why, /does not lie wholly on one side of the 1 bar/);
     }
@@ -5611,7 +5611,7 @@ function fixtureRoundsTask(over) {
 // "<= 1.0x Reagent-on-subs, LIKE-FOR-LIKE, both sides reading re-frame2
 // subscriptions" — ONE comparison, exactly as `:15-16` state the mount's
 // against direct UIx-on-subs. The rule adjudicated all three pairs of a bulk
-// row against it, holding `hicasso / uix-subs` and `uix-subs / reagent-subs` to
+// row against it, holding `fresco / uix-subs` and `uix-subs / reagent-subs` to
 // a threshold written for a different question. That is the error `rf2-diaud`
 // fixed one class up, where it would otherwise have printed MOUNT SHIP BAR MET
 // on a donor-against-donor pair.
@@ -5628,7 +5628,7 @@ function fixtureRoundsTask(over) {
 // standing in for a scope guard nobody designed it to be.
 //
 // THE LOAD-BEARING CHECK IS THAT THE GATED PAIR DOES NOT MOVE. If retiring the
-// veto flipped `hicasso / reagent-subs`, the ruling's premise would be wrong
+// veto flipped `fresco / reagent-subs`, the ruling's premise would be wrong
 // and the fence would be breached. It does not: on all six row-ensemble
 // combinations that pair straddles `1.0` and is refused by the WHOLE-INTERVAL
 // rule, which sits ahead of the veto and is untouched by it. That is a fact
@@ -5639,8 +5639,8 @@ function fixtureRoundsTask(over) {
     pairedLogRatios, effectInterval, effectVerdict, reportable, PUBLICATION, publicationRule,
   } = require('./clock_readjudicate.cjs');
   const t = (what, fn) => test(`rf2-vp0j7/rf2-vh0e3: ${what}`, fn);
-  const GATED = 'hicasso / reagent-subs';
-  const UNGATED = ['hicasso / uix-subs', 'uix-subs / reagent-subs'];
+  const GATED = 'fresco / reagent-subs';
+  const UNGATED = ['fresco / uix-subs', 'uix-subs / reagent-subs'];
   const BULK_ROWS = ['bulk300', 'bulk100', 'narrow'];
   const CORPORA = ['clock-emvod', 'clock-w3yxd'];
 
@@ -5682,7 +5682,7 @@ function fixtureRoundsTask(over) {
           const ev = effectVerdict(p.iv, rowId, pair, { widestSameRunBandPct: p.band });
           assert.match(ev.verdict, /^CO-INSTRUMENTED/, `${dir}/${rowId}/${pair}: ${ev.verdict}`);
           assert.strictEqual(ev.publishes, false, `${dir}/${rowId}/${pair}: a pair nobody gates cannot ship`);
-          assert.match(ev.why, /hicasso \/ reagent-subs/, 'the refusal must name the pair the bar does gate');
+          assert.match(ev.why, /fresco \/ reagent-subs/, 'the refusal must name the pair the bar does gate');
           seen += 1;
         }
       }
@@ -5719,7 +5719,7 @@ function fixtureRoundsTask(over) {
   // --- 2. rf2-vp0j7: THE GATED PAIR IS THE ONLY ONE THAT ADJUDICATES --------
 
   t('the gated bulk pair still adjudicates, and is still INSTRUMENT-LIMITED on this corpus', () => {
-    // The fence. `hicasso / reagent-subs` is what `validation.md`'s bulk bar
+    // The fence. `fresco / reagent-subs` is what `validation.md`'s bulk bar
     // names, so it keeps its verdict — and that verdict is unchanged: on all
     // six row-ensemble combinations the interval STRADDLES 1.0 and is refused
     // by the whole-interval rule, which is the first condition and not the
@@ -5909,7 +5909,7 @@ function fixtureRoundsTask(over) {
   const t = (what, fn) => test(`rf2-8a746 audits #7698/#7700: ${what}`, fn);
   const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
   const ROWS_WITH_STANDARD = ['bulk300', 'bulk100', 'narrow', 'M1'];
-  const PAIRS_ALL = ['hicasso / reagent-subs', 'hicasso / uix-subs', 'uix-subs / reagent-subs'];
+  const PAIRS_ALL = ['fresco / reagent-subs', 'fresco / uix-subs', 'uix-subs / reagent-subs'];
 
   const corpus = (dir) => {
     const d = path.join(__dirname, 'data', dir);
@@ -6021,7 +6021,7 @@ function fixtureRoundsTask(over) {
     // `reportability` is the one pure function its exit code comes from — so
     // the cardinality refusal reaching it as `ctlOk: false` is what makes a
     // truncated run red rather than quietly unreportable.
-    const rows = [{ rowId: 'bulk300', ctlOk: false, ctlNote: ' (check standard hicasso-clock/ctl-2x-level v4: 3 block(s) observed where the frozen standard\'s 6-round x 3-segment design requires exactly 18)', adjudicable: true }];
+    const rows = [{ rowId: 'bulk300', ctlOk: false, ctlNote: ' (check standard fresco-clock/ctl-2x-level v4: 3 block(s) observed where the frozen standard\'s 6-round x 3-segment design requires exactly 18)', adjudicable: true }];
     const v = reportability(rows);
     assert.strictEqual(v.code, 1, 'a run the standard refused must not exit 0');
   });
@@ -6041,19 +6041,19 @@ function fixtureRoundsTask(over) {
 
   t('WITNESS (mutation, committed corpus): blanking one raw reading is caught, named, and exits 4', () => {
     // Audit #7700's live witness, end to end: blank ONLY run1's
-    // `roundsTask[0].hicasso.hicasso` on M1. Every serialised gate verdict is
+    // `roundsTask[0].fresco.fresco` on M1. Every serialised gate verdict is
     // untouched, so eligibility is UNCHANGED — which is exactly what made the
-    // old behaviour silent — and the raw evidence behind the hicasso pairs is
+    // old behaviour silent — and the raw evidence behind the fresco pairs is
     // gone.
     const c = corpus('clock-emvod');
     if (!c) return;
     const mutated = JSON.parse(JSON.stringify(c[0].data));
     const m1 = mutated.rows.find((r) => r.rowId === 'M1');
-    m1.roundsTask[0].hicasso.hicasso = [];
+    m1.roundsTask[0].fresco.fresco = [];
     // eligibility survives the mutation — the defect's precondition, asserted
     assert.strictEqual(reportable(m1, mutated), true, 'the run still clears every gate — evidence loss is NOT an eligibility question');
-    assert.strictEqual(pairedLogRatios(m1, 'hicasso / uix-subs', mutated), null, 'and the estimand refuses to form');
-    assert.strictEqual(pairedLogRatios(m1, 'hicasso / reagent-subs', mutated), null);
+    assert.strictEqual(pairedLogRatios(m1, 'fresco / uix-subs', mutated), null, 'and the estimand refuses to form');
+    assert.strictEqual(pairedLogRatios(m1, 'fresco / reagent-subs', mutated), null);
     assert.ok(Array.isArray(pairedLogRatios(m1, 'uix-subs / reagent-subs', mutated)), 'the unblanked pair still forms');
 
     // through the PROGRAM, which is where the audit found the silent subset:
@@ -6084,8 +6084,8 @@ function fixtureRoundsTask(over) {
         ri >= 0
           ? `roster as printed:\n${out.slice(ri, ri + 2000)}`
           : `NO ";; EXIT 4" BLOCK IN THE OUTPUT — tail was:\n${out.slice(-2000)}`;
-      assert.match(out, /run1\.json: row M1, pair `hicasso \/ uix-subs`/, `the exit roster names the file and the pair — ${sawRoster}`);
-      assert.match(out, /run1\.json: row M1, pair `hicasso \/ reagent-subs`/, `both hicasso pairs of the blanked segment — ${sawRoster}`);
+      assert.match(out, /run1\.json: row M1, pair `fresco \/ uix-subs`/, `the exit roster names the file and the pair — ${sawRoster}`);
+      assert.match(out, /run1\.json: row M1, pair `fresco \/ reagent-subs`/, `both fresco pairs of the blanked segment — ${sawRoster}`);
       // THE AUDIT'S OWN SENTENCE, scoped to the row it demonstrated on: the M1
       // block must not publish "an interval over 7 reportable run(s)" where 8
       // cleared the gates. (`narrow` legitimately pools 7 of 8 on this

@@ -1,7 +1,7 @@
 (ns app.w2
   "W2 — nested map keys (design §4.2). Reagent's `convert-prop-value`
   recurses through the `map?` arm, respelling every key with
-  `cached-prop-name`; Hicasso sends the same map to `clj->js`, whose keys
+  `cached-prop-name`; Fresco sends the same map to `clj->js`, whose keys
   keep the spelling the author wrote."
   (:require [reagent.core :as r]))
 

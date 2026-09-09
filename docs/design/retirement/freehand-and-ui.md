@@ -1,14 +1,14 @@
 # Retiring `re-frame.freehand` and `re-frame.ui`
 
 **Operator ruling, Mike, 2026-08-14:** *"Freehand and re-frame2.ui are to be retired and removed
-ASAP."* The target architecture is a Reagent adapter and a UIx adapter, plus hicasso as re-frame2
+ASAP."* The target architecture is a Reagent adapter and a UIx adapter, plus fresco as re-frame2
 native. That is settled; nothing below re-argues it. This page establishes what stands in the way,
 in what order it must fall, and what proves the build never breaks between steps.
 
 Filed under `rf2-0yp7w` phase 1. Census re-taken at `85a70687e4` on 2026-08-15 15:34 AUSEST.
 
 This page is the *plan*, and its subject is the two trees that go. The one-page record of
-what became of all three donor view surfaces — including the Hicasso bench tree, which is
+what became of all three donor view surfaces — including the Fresco bench tree, which is
 kept as evidence and is no part of this plan — is [`donor-surfaces.md`](donor-surfaces.md)
 (`rf2-hic-062`).
 
@@ -22,7 +22,7 @@ ruled `rf2-0moc4` on 2026-08-18. The record of that ruling is in
 [§What is in each phase](#what-is-in-each-phase) below, beside the R6 surface list that used to
 imply otherwise.** The separation stands on the readability reason alone, which is enough.
 
-`docs/design/retirement/` is a new sibling of `design/freehand/` and `design/hicasso/`, added to
+`docs/design/retirement/` is a new sibling of `design/freehand/` and `design/fresco/`, added to
 `mkdocs.yml`'s `exclude_docs` the same way they are: a working design record, tracked and
 greppable, not a page of the built site. `scripts/check_doc_slugs.py` still validates its links and
 anchors, and that checker runs unconditionally in `test.yml`'s `verify-readme-links` job.
@@ -50,9 +50,9 @@ inflated by generated or gitignored output. `rg` honours `.gitignore`, which alr
 required or `.github/` is silently skipped, which cost this survey one wrong count before it was
 caught.
 
-**The epic's headline of 821 files is stale by 214.** PR #8202 and PR #8210 moved the hicasso
-bench harness out of `implementation/freehand/test/` and into `implementation/hicasso/test/`
-(205 files under `implementation/hicasso/test/re_frame/bench/hicasso`, plus four shared Node
+**The epic's headline of 821 files is stale by 214.** PR #8202 and PR #8210 moved the fresco
+bench harness out of `implementation/freehand/test/` and into `implementation/fresco/test/`
+(205 files under `implementation/fresco/test/re_frame/bench/fresco`, plus four shared Node
 helpers now at `implementation/core/test/re_frame/bench/`). That was the epic's own stated phase 0
 and it has already landed.
 
@@ -112,7 +112,7 @@ A `:require … :as ui` severs the donor name from every use site below it, whic
 bare `v/…` on 8 — one section *titled* `ui.test/render` — while returning zero for patterns 1–3.
 But the aliases are generic English, and run repo-wide they match live code overwhelmingly:
 `\bui\.test\b` hits **64 files**, of which **34 are the Story tool's own live `story.ui.test-mode`
-namespace**, and `v/…` hits **85 files** including live hicasso bench apps, an Xray test,
+namespace**, and `v/…` hits **85 files** including live fresco bench apps, an Xray test,
 `re-frame.routing`, `mkdocs.yml` and three binary PNGs. **The alias spelling is only meaningful
 file-locally**: establish first that a given file binds the alias to a donor namespace, then read
 its bare uses. There is no repo-wide form of this check, and a sweeper who invents one will
@@ -196,7 +196,7 @@ destroy recipe** (`spec/002-Frames.md:722`, "Compiled-view observer teardown"), 
 The four tests are worth reading carefully before anyone deletes them. They use
 `:ui/on-frame-destroyed!` as a convenient *live hook key* to exercise generic teardown mechanics —
 ordering against `claim-frame-destroy!`, incarnation scoping, failure accumulation. That machinery
-survives. Those tests get **repointed**, most naturally to the `:hicasso/on-frame-destroyed!`
+survives. Those tests get **repointed**, most naturally to the `:fresco/on-frame-destroyed!`
 sibling at `frame.cljc:4631`, not deleted. Mistaking a repoint for a deletion here would quietly
 drop coverage of the destroy recipe's ordering guarantees.
 
@@ -250,7 +250,7 @@ it, every worker who traces stage 2 will find an undischarged trigger and stall 
 recording it is the first bead rather than a footnote.
 
 Two of the three stage-2 conditions are in any case already met: the frozen-sources donor root now
-sits at `implementation/hicasso/test/re_frame/bench/hicasso` and touches `implementation/freehand/`
+sits at `implementation/fresco/test/re_frame/bench/fresco` and touches `implementation/freehand/`
 not at all, and rf2-hic-062's keep-as-evidence relocation has landed in both halves.
 
 `TESTING.md`'s stage-3 quantities reproduce exactly under `rg`, which is worth recording because
@@ -300,9 +300,9 @@ every build id it touched, in the foreground, to completion. R5 additionally run
 `004-Views.md` alone carries 49 ids behind 17 links. **It raised one question this survey would not
 answer on Mike's behalf, and that question has since been ruled:**
 `spec/004D-Freehand-Compiled-Grammar.md` was named for the thing being retired, so did 004D die, or
-was it renamed and re-aimed at hicasso's grammar? **Ruled DELETED, and not re-aimed** (rf2-0yp7w.11,
+was it renamed and re-aimed at fresco's grammar? **Ruled DELETED, and not re-aimed** (rf2-0yp7w.11,
 executed by `0042a14fe2`), precisely so that donor-era normative text is not laundered into
-hicasso's; a hicasso-native grammar spec is left as a separate later judgement, and the Form-1/2/3
+fresco's; a fresco-native grammar spec is left as a separate later judgement, and the Form-1/2/3
 grammar is deliberately homeless in the meantime. R1 was therefore right to stop at the unpointing.
 For the citations that recur while re-pointing: `spec/API.md`'s `reg-view*` row names Reagent
 Form-3 / `create-class` explicitly, `spec/002-Frames.md` states the plain-fn-cannot-read-context
@@ -395,7 +395,7 @@ with rulings; do not grow it into a second API manual or tracker." That is the w
 permission here — corrective, never additive — and it is narrower than "any other prose surface".
 
 **`docs/design/freehand/studio/` is narrower again: R6 does not edit it.** Those 10 of the 37 files
-are the frozen evidence surface, and the `docs/design/hicasso/studio/README.md` sentence quoted in
+are the frozen evidence surface, and the `docs/design/fresco/studio/README.md` sentence quoted in
 the next paragraph goes on to say the studio "stays exactly as its own programme left it". All
 four of the inbound links measured below land inside it. Its numbers, evidence ids and window
 dates are the baseline a live chain cites, so revising them is not a prose fix but an edit to
@@ -403,13 +403,13 @@ another programme's evidence. **So, in one line: outside `studio/`, correct stal
 links, factual errors and contradictions with rulings — all four of the EP-0036 classes quoted
 above, and no fifth — and add nothing; inside `studio/`, nothing; delete nothing anywhere.**
 
-**The deciding reason is the hicasso coupling.** `docs/design/hicasso/` is itself ruled kept, and it
-anchors its measurement numbers to the frozen studio tree — `docs/design/hicasso/studio/README.md`
+**The deciding reason is the fresco coupling.** `docs/design/fresco/` is itself ruled kept, and it
+anchors its measurement numbers to the frozen studio tree — `docs/design/fresco/studio/README.md`
 records that `docs/design/freehand/studio/` "is frozen and is never extended", which is a statement
 about the tree's role, not merely about its contents. Deleting the design tree would pull that
 measurement baseline out from under a live evidence chain. That coupling is measured rather than
 asserted: deleting the 37 files takes `scripts/check_doc_slugs.py` to **exit 1 with four broken
-targets**, all four inbound from `docs/design/hicasso/` — `hd-002-adjudication.md:158` and `:566`
+targets**, all four inbound from `docs/design/fresco/` — `hd-002-adjudication.md:158` and `:566`
 pointing at `../freehand/studio/bulk-rerender-where-the-time-goes.md`, and `product/requirements-mine.md:15`
 and `:117` pointing at `../../freehand/studio/fitness-harness.md`. Three dispatches have derived
 that same figure independently, the third re-measuring it on 2026-08-21. The count and the two
@@ -426,12 +426,12 @@ published site, so keeping the tree costs the docs build nothing.
 **One support the ruling originally leaned on has since lapsed, and citing it now would be wrong.**
 It rested partly on 11 markdown links from `spec/004-Views.md` that `check_doc_slugs.py` validated
 on every PR; that file has since been deleted and those links went with it. Nothing about the
-hicasso coupling depends on it, so the ruling stands unchanged on the four links above.
+fresco coupling depends on it, so the ruling stands unchanged on the four links above.
 
 **`docs/EP/EP-0030` through `EP-0036` are historical programme records and this plan does not
 delete them.** A withdrawn programme's EP is the reason the withdrawal is legible; deleting it
-would leave the retirement itself unexplained. Same for the `docs/design/hicasso/` pages that cite
-Freehand as the substrate hicasso replaced — those are hicasso's record, not Freehand's.
+would leave the retirement itself unexplained. Same for the `docs/design/fresco/` pages that cite
+Freehand as the substrate fresco replaced — those are fresco's record, not Freehand's.
 
 ### What remains to be broken down
 
@@ -455,14 +455,14 @@ path reads**, not a comment: the adapter kinds whose `:render` takes React eleme
 hiccup shell refuses to mount through. **It needs no change for this retirement.** The file already
 records that `:rf.adapter/freehand` stays on the same defensive footing as `:rf.adapter/helix`
 (removed at S7/W13) because a stale co-loaded build could still present the kind, and it already
-cites `rf2-0yp7w` by name. `docs/design/hicasso/product/tool-consumer-census.md` reaches the same
+cites `rf2-0yp7w` by name. `docs/design/fresco/product/tool-consumer-census.md` reaches the same
 disposition. Leave it.
 
-The health question is the other one, and it is not about Freehand at all: **hicasso appears
-nowhere in that set, and `:rf.adapter/hicasso` does not exist anywhere in the tree.** A repo-wide
+The health question is the other one, and it is not about Freehand at all: **fresco appears
+nowhere in that set, and `:rf.adapter/fresco` does not exist anywhere in the tree.** A repo-wide
 search finds no such keyword and no `:rf.adapter/` value anywhere under
-`implementation/hicasso/src`. So on the substrate that is becoming re-frame2 native, Xray's
-refusal test consults a set that cannot name it. Whether that is correct depends on how hicasso
+`implementation/fresco/src`. So on the substrate that is becoming re-frame2 native, Xray's
+refusal test consults a set that cannot name it. Whether that is correct depends on how fresco
 relates to the adapter contract — it may install no adapter at all, in which case the set is
 simply not the mechanism — but the set enumerates two retired substrates and omits the live one,
 and that asymmetry should be looked at by whoever is getting Xray right. It is filed as **rf2-wtznc**

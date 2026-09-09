@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.p0-uix-views
+(ns re-frame.bench.fresco.p0-uix-views
   "THE FRONTIER ARM, ON rf2-2rtt6.2'S WITNESSES — UIx reading re-frame2
   subscriptions through the published `use-sub` spine (rf2-a4x1o,
   re-pointing rf2-2rtt6.4).
@@ -17,7 +17,7 @@
 
   This namespace is the UIx side of the convergence. There is no new
   witness here and no new markup: every shape is
-  [[re-frame.bench.hicasso.p0-reagent-views]]'s, transcribed into UIx's
+  [[re-frame.bench.fresco.p0-reagent-views]]'s, transcribed into UIx's
   own spelling, and the canonical-DOM parity gate is what proves the
   transcription rather than this docstring. If the two arms build
   different pages the run stops before a clock is read.
@@ -45,7 +45,7 @@
 
   Owner: the operator-owned standard bead rf2-2rtt6.1; this arm rf2-a4x1o."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.p0-reagent-views :as rf.bench.hicasso.p0-reagent-views]
+            [re-frame.bench.fresco.p0-reagent-views :as rf.bench.fresco.p0-reagent-views]
             [uix.core :refer [$ defui]]))
 
 ;; ---------------------------------------------------------------------------
@@ -78,9 +78,9 @@
        ($ :input.inp {:id        (str "f" i)
                       :name      (str "f" i)
                       :type      "text"
-                      :value     (rf.bench.hicasso.p0-reagent-views/field-value i v)
+                      :value     (rf.bench.fresco.p0-reagent-views/field-value i v)
                       :read-only true})
-       ($ :p.err (rf.bench.hicasso.p0-reagent-views/field-error i)))))
+       ($ :p.err (rf.bench.fresco.p0-reagent-views/field-error i)))))
 
 (defui m2 [{:keys [n]}]
   ($ :form.p0form
@@ -100,10 +100,10 @@
   containing `make-frame` and a seeding write would price frame
   construction on whichever arm happened to own it.
 
-  The counterpart of [[re-frame.bench.hicasso.p0-reagent-views/subs-root]],
+  The counterpart of [[re-frame.bench.fresco.p0-reagent-views/subs-root]],
   and it is not ceremony added for the bench — it is how a re-frame2 UIx
   application supplies the frame its boundaries resolve `use-sub`
   against."
   [view n]
-  ($ rf.adapter.uix/frame-provider {:frame rf.bench.hicasso.p0-reagent-views/subs-frame}
+  ($ rf.adapter.uix/frame-provider {:frame rf.bench.fresco.p0-reagent-views/subs-frame}
      ($ view {:n n})))

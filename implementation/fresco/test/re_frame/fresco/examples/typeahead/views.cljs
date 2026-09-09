@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.examples.typeahead.views
+(ns re-frame.fresco.examples.typeahead.views
   "THE TYPEAHEAD'S VIEWS — five boundaries on the public door.
 
   Everything reached for is `h/…`: `defview`, `sub`, and the `::h/value` /
@@ -14,7 +14,7 @@
   resource ownership would need**: mount it and the resource is wanted,
   change `term` and a different one is wanted, stop rendering it and none
   is. Every OWNERSHIP row of the census in
-  [[re-frame.hicasso.examples.typeahead.events]] exists to reconstruct
+  [[re-frame.fresco.examples.typeahead.events]] exists to reconstruct
   that fact from `app-db`, because today nothing carries it out of the
   commit.
 
@@ -37,15 +37,15 @@
   grammar declarative. Nothing about the resource story changes: a
   dismissal is an intent either way, and the census row is the release
   beside it."
-  (:require [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.examples.typeahead.events :as rf.hicasso.examples.typeahead.events]
-            [re-frame.hicasso.examples.typeahead.subs :as rf.hicasso.examples.typeahead.subs]))
+  (:require [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.examples.typeahead.events :as rf.fresco.examples.typeahead.events]
+            [re-frame.fresco.examples.typeahead.subs :as rf.fresco.examples.typeahead.subs]))
 
 ;; ---------------------------------------------------------------------------
 ;; The field
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview field
+(rf.fresco/defview field
   "The controlled search box, and the two buttons that end a read.
 
   `::h/revision` is what makes *clear* work: dropping the model's text
@@ -53,51 +53,51 @@
   showing an empty string React would see nothing to do. A changed
   revision re-baselines the field without remounting it (HD-019)."
   [_]
-  (let [term     (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/term])
-        revision (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/revision])]
+  (let [term     (rf.fresco/sub [::rf.fresco.examples.typeahead.subs/term])
+        revision (rf.fresco/sub [::rf.fresco.examples.typeahead.subs/revision])]
     [:div.typeahead-field
      [:label {:for "typeahead-term"} "Search"]
      [:input#typeahead-term.term
       {:type        "text"
        :value       term
-       ::rf.hicasso/revision revision
+       ::rf.fresco/revision revision
        ;; Positional, because `::h/value` substitutes at the intent
        ;; vector's top level only.
-       :on-input    [::rf.hicasso.examples.typeahead.events/typed ::rf.hicasso/value]
-       :on-focus    [::rf.hicasso.examples.typeahead.events/focus {}]}]
-     [:button.clear {:type "button" :on-click [::rf.hicasso.examples.typeahead.events/clear {}]} "clear"]
-     [:button.dismiss {:type "button" :on-click [::rf.hicasso.examples.typeahead.events/dismiss {}]} "close"]]))
+       :on-input    [::rf.fresco.examples.typeahead.events/typed ::rf.fresco/value]
+       :on-focus    [::rf.fresco.examples.typeahead.events/focus {}]}]
+     [:button.clear {:type "button" :on-click [::rf.fresco.examples.typeahead.events/clear {}]} "clear"]
+     [:button.dismiss {:type "button" :on-click [::rf.fresco.examples.typeahead.events/dismiss {}]} "close"]]))
 
 ;; ---------------------------------------------------------------------------
 ;; The suggestions
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview suggestion-row
+(rf.fresco/defview suggestion-row
   "One suggestion. Hovering it warms the row's detail — a demand no read
   expresses, and the reason C4 records prefetch as out of scope."
   [{:keys [id name]}]
   [:li.suggestion
    [:button.suggestion-choose
     {:type           "button"
-     :on-click       [::rf.hicasso.examples.typeahead.events/choose {:id id}]
-     :on-mouse-enter [::rf.hicasso.examples.typeahead.events/hover {:id id}]}
+     :on-click       [::rf.fresco.examples.typeahead.events/choose {:id id}]
+     :on-mouse-enter [::rf.fresco.examples.typeahead.events/hover {:id id}]}
     name]])
 
-(rf.hicasso/defview panel
+(rf.fresco/defview panel
   "The suggestion list. Rendered only while a read wants a term, so its
   body's `[::subs/suggestions term]` is live exactly when the resource is
   wanted and not otherwise."
   [{:keys [term]}]
-  (let [rows   (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/suggestions term])
-        status (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/status])
+  (let [rows   (rf.fresco/sub [::rf.fresco.examples.typeahead.subs/suggestions term])
+        status (rf.fresco/sub [::rf.fresco.examples.typeahead.subs/status])
         ;; CENSUS P5 | POLICY | refresh-with-data | keep painting the rows held while a request for a NEW term is out
-        painted (or rows (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/held-rows]))
+        painted (or rows (rf.fresco/sub [::rf.fresco.examples.typeahead.subs/held-rows]))
         ;; /CENSUS P5
         ]
     [:div.typeahead-panel
      (cond
        (= :failed status)
-       [:p.panel-problem {:role "alert"} (str (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/problem]))]
+       [:p.panel-problem {:role "alert"} (str (rf.fresco/sub [::rf.fresco.examples.typeahead.subs/problem]))]
 
        (nil? painted)
        [:p.panel-loading "searching"]
@@ -117,11 +117,11 @@
 ;; The detail
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview detail-pane
+(rf.fresco/defview detail-pane
   "The chosen row. Its read is `[::subs/detail id]` — the second resource,
   parameterised by the id rather than by the term."
   [{:keys [id]}]
-  (let [detail (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/detail id])]
+  (let [detail (rf.fresco/sub [::rf.fresco.examples.typeahead.subs/detail id])]
     [:section.typeahead-detail
      (cond
        (= :pending detail) [:p.detail-pending "loading"]
@@ -134,7 +134,7 @@
 ;; The shell
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview screen
+(rf.fresco/defview screen
   "The whole application.
 
   Two conditional children, and each one is a resource read appearing and
@@ -142,9 +142,9 @@
   something is chosen. Those two `when`s are the read liveness the census
   is trying to keep a request in step with."
   [_]
-  (let [term   (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/wanted])
-        open?  (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/open?])
-        chosen (rf.hicasso/sub [::rf.hicasso.examples.typeahead.subs/chosen])]
+  (let [term   (rf.fresco/sub [::rf.fresco.examples.typeahead.subs/wanted])
+        open?  (rf.fresco/sub [::rf.fresco.examples.typeahead.subs/open?])
+        chosen (rf.fresco/sub [::rf.fresco.examples.typeahead.subs/chosen])]
     [:main.typeahead
      [field {}]
      (cond

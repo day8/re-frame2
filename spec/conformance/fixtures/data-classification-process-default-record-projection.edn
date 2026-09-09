@@ -63,7 +63,7 @@
  [{:sensitive [[:auth :token]]}]
 
  :fixture/calls
- [;; [0] FRAMELESS — the shape `:rf.error/no-frame-context` and hicasso's
+ [;; [0] FRAMELESS — the shape `:rf.error/no-frame-context` and fresco's
   ;; compute-sub `:rf.error/sub-exception` carry by construction. The record's
   ;; own `:frame` is nil and the governing frame is explicitly nil.
   {:call              :project-egress

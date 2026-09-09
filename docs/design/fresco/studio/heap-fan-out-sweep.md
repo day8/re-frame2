@@ -125,7 +125,7 @@ schedule is open under `rf2-2rtt6.25`.
 **24.13.0**, headless **Chromium 147.0.7727.15** via Playwright 1.59.1. Windows
 11, single developer workstation; no other agent or bench process was running
 (checked before the published rungs). Every arm is an `:advanced` ClojureScript
-bundle with `goog.DEBUG false`, riding the `:hicasso-bench` build id whose cache
+bundle with `goog.DEBUG false`, riding the `:fresco-bench` build id whose cache
 entry is cleared before every build (`lane_cache.cjs`, `rf2-2rtt6.20`), so both
 runs started cold.
 

@@ -224,27 +224,27 @@
         installed
         :else (recur)))))
 
-(defn- drain-hicasso-client-roots!
-  "Release every React Root `re-frame.hicasso`'s own client-root door still
-  holds, through the `:hicasso/drain-client-roots!` late-bind hook the
-  package publishes at `re-frame.hicasso.impl.mount`'s ns load. A no-op
-  when the day8/re-frame2-hicasso artefact is absent (unbound), and on
+(defn- drain-fresco-client-roots!
+  "Release every React Root `re-frame.fresco`'s own client-root door still
+  holds, through the `:fresco/drain-client-roots!` late-bind hook the
+  package publishes at `re-frame.fresco.impl.mount`'s ns load. A no-op
+  when the day8/re-frame2-fresco artefact is absent (unbound), and on
   every JVM host.
 
   Why this sits at the PROCESS teardown boundary rather than on an adapter
-  (rf2-kuky.59). A Hicasso root is the PACKAGE's, not any adapter's:
+  (rf2-kuky.59). A Fresco root is the PACKAGE's, not any adapter's:
   `h/render!` reaches `createRoot` / `hydrateRoot` through
-  `re-frame.hicasso.impl.mount` and never through the substrate contract's
+  `re-frame.fresco.impl.mount` and never through the substrate contract's
   `render` slot, so no adapter's own active-root set ever sees one. While
-  the drain hung off the Hicasso adapter's `dispose-adapter!` it was
-  reached only when Hicasso was ALSO the installed adapter — and Hicasso
+  the drain hung off the Fresco adapter's `dispose-adapter!` it was
+  reached only when Fresco was ALSO the installed adapter — and Fresco
   over UIx or over Reagent is supported use, not malformed input. In that
   composition `rf/destroy-adapter!` left the Root mounted with its `:live?`
   closure still true, and a `render!` through the retained handle UPDATED
   the leaked Root instead of mounting afresh, against what Spec 006 §The
   client root's Teardown clause promises without an adapter qualifier."
   []
-  (when-let [drain! (rf.late-bind/get-fn :hicasso/drain-client-roots!)]
+  (when-let [drain! (rf.late-bind/get-fn :fresco/drain-client-roots!)]
     (drain!))
   nil)
 
@@ -262,15 +262,15 @@
   disposed.
 
   Package-owned host roots go FIRST, in a `finally` over the adapter's own
-  cleanup — see `drain-hicasso-client-roots!`. The order is the one the
-  Hicasso adapter's own chain used: React unmounts run while the substrate
+  cleanup — see `drain-fresco-client-roots!`. The order is the one the
+  Fresco adapter's own chain used: React unmounts run while the substrate
   is still whole, and a throwing drain still cannot skip the adapter
   disposer or the finalization below it."
   []
   (when-let [{:keys [adapter generation]} (claim-installed-for-dispose!)]
     (try
       (try
-        (drain-hicasso-client-roots!)
+        (drain-fresco-client-roots!)
         (finally
           (when-let [f (:dispose-adapter! adapter)]
             (f))))
@@ -671,7 +671,7 @@
 
   Optional contract fn — returns nil and is a no-op when the installed
   adapter ships no `:flush-render!`. Four of the six shipped adapter kinds
-  install one — Reagent, reagent-slim, UIx and Hicasso; the last two get it
+  install one — Reagent, reagent-slim, UIx and Fresco; the last two get it
   from `spine/make-react-adapter`, which wires the React spine's slot
   unconditionally. The other two omit it for one shared reason: plain-atom
   and SSR render without a live React commit, so there is nothing to flush.

@@ -1,6 +1,6 @@
 # Events as data
 
-Hicasso accepts an event vector directly in an event attribute. The runtime
+Fresco accepts an event vector directly in an event attribute. The runtime
 creates the callback and dispatches that vector when the callback runs.
 
 ```clojure
@@ -13,13 +13,13 @@ retains the frame of the view that created it, which makes the later browser
 event safe even though the original render has ended.
 
 Any prop named `on-` followed by a letter is treated as an event position.
-CamelCase spellings such as `onClick` are also accepted for migration. Hicasso
+CamelCase spellings such as `onClick` are also accepted for migration. Fresco
 does not maintain a fixed roster of DOM event names. An event vector in one of
 these positions is called an [intent](glossary.md#intent).
 
 ## Read values from the browser event
 
-Most input handlers need `.value` or `.checked` from the event target. Hicasso
+Most input handlers need `.value` or `.checked` from the event target. Fresco
 replaces [`::h/value`](glossary.md#hvalue) and
 [`::h/checked`](glossary.md#hchecked) when the callback runs:
 
@@ -35,7 +35,7 @@ replaces [`::h/value`](glossary.md#hvalue) and
 The dispatched events are ordinary vectors such as
 `[:todo.ui/edit 7 "milk"]` and `[:todo/set-done 7 true]`.
 
-Marker replacement occurs only at the top level of the intent vector. Hicasso
+Marker replacement occurs only at the top level of the intent vector. Fresco
 does not search nested data. When an intent contains no marker, the runtime
 does not read the DOM event.
 
@@ -71,7 +71,7 @@ prevented — most often an anchor being used as an application control:
 `[::h/prevent INTENT]` prevents the default and dispatches the one inner intent.
 A real navigation link should normally use the routing module rather than this
 pattern. A modifier-click on a real link must remain available to the browser,
-which is why Hicasso does not prevent clicks by default — and why submit is the
+which is why Fresco does not prevent clicks by default — and why submit is the
 only position that does. No second auto-preventing position will be added.
 
 !!! note "The exception is the data spelling only"
@@ -84,7 +84,7 @@ only position that does. No second auto-preventing position will be added.
 
 The wrapper must contain exactly one inner intent vector. A keyword instead of
 a vector, a second payload, or a nested decorator raises
-`:rf.error/hicasso-malformed-prevent` during rendering and names the attribute.
+`:rf.error/fresco-malformed-prevent` during rendering and names the attribute.
 Markers remain valid inside the inner intent:
 
 ```clojure
@@ -114,14 +114,14 @@ a second API:
 | --- | --- |
 | An `on*` prop — on a native tag, a `defhost` or a `[:>]` crossing alike | **event** — a returned vector is dispatched; other returns are ignored |
 | Any other walked prop (for example a foreign render prop) | **render** — pure; return is output; the wrapper carries the supplying view's frame, so intents inside the returned markup dispatch there |
-| `:ref` | React's own contract; not lowered by Hicasso |
-| Positions Hicasso does not walk | Plain function behaviour |
+| `:ref` | React's own contract; not lowered by Fresco |
+| Positions Fresco does not walk | Plain function behaviour |
 
 The contract is inferred from the spelling at a host exactly as at a native
 tag. Two exceptions, both declared on the host: a `:callbacks` override,
 `{:callbacks {:on-render-item :render}}`, for a vendor's on*-named render
 prop; and a declared ReactNode `:slots` position, which is markup and refuses
-`h/event` with `:rf.error/hicasso-host-unclaimed-callback`. See
+`h/event` with `:rf.error/fresco-host-unclaimed-callback`. See
 [Interop](09-interop.md#callback-contracts).
 
 Rules that follow:
@@ -145,7 +145,7 @@ Rules that follow:
 Marker-carrying intents assume an **event-first** invoker: they read the DOM
 event from argument one. A value-first foreign component has no event there,
 so a marker-carrying intent raises
-`:rf.error/hicasso-intent-needs-the-event`. Use `h/event` and name the real
+`:rf.error/fresco-intent-needs-the-event`. Use `h/event` and name the real
 arguments:
 
 ```clojure
@@ -219,8 +219,8 @@ Application-owned async work should normally move to the event/effect layer,
 where an fx handler already receives the frame id in its context and
 `:dispatch-later` expresses delay as data.
 
-A Hicasso view body does **not** have ambient frame lookup: an ambient
-`rf/subscribe` or `rf/dispatch` written in a body refuses under Hicasso's render
+A Fresco view body does **not** have ambient frame lookup: an ambient
+`rf/subscribe` or `rf/dispatch` written in a body refuses under Fresco's render
 discipline, because a read there would contribute no edge and a dispatch there
 would run in the render phase. The two frame **doors** are core's own, and they
 are legal inside a body and inside a render callback the body supplied:
@@ -228,14 +228,14 @@ are legal inside a body and inside a render callback the body supplied:
 and zero-arity `(rf/capture-frame)` captures a frame api locked to it. Neither
 is a tracked subscription, and neither reads nor dispatches, which is why the
 render discipline admits them. The spelling is the one every other adapter
-writes; Hicasso has no frame verb of its own.
+writes; Fresco has no frame verb of its own.
 
 The carry spelling is core's capture primitive:
 
 ```clojure
 (ns app.map
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
+            [re-frame.fresco :as h]
             [app.sdk :as sdk]))
 
 (h/defview map-panel [{:keys [id]}]
@@ -257,7 +257,7 @@ frame and creating another under the same id does not revive the old handle;
 using it raises `:rf.error/frame-destroyed` and does not reach the successor.
 Capture during the live render rather than keeping a global stash. Do not put
 the frame id into markup: on the server it is process-local identity and would
-break the determinism check (`re-frame.hicasso.test.server/render-twice`).
+break the determinism check (`re-frame.fresco.test.server/render-twice`).
 
 Outside any scope at all, both doors raise core's `:rf.error/no-frame-context`.
 An enclosing `rf/with-frame` that names a frame other than the one the boundary
@@ -278,9 +278,9 @@ surface rather than a custom click handler.
 | Symptom | Error or cause | Fix |
 | --- | --- | --- |
 | A form dispatches and then reloads the page | An `h/event` or plain-function `:on-submit` — a callback owns its own event and is never auto-prevented | Call `.preventDefault` in the callback, or use the data spelling `{:on-submit [:todo/submit]}`, which prevents for you |
-| Rendering reports a malformed prevent wrapper | `:rf.error/hicasso-malformed-prevent` | Wrap exactly one inner intent vector; do not nest decorators or add a second payload |
+| Rendering reports a malformed prevent wrapper | `:rf.error/fresco-malformed-prevent` | Wrap exactly one inner intent vector; do not nest decorators or add a second payload |
 | A handler receives the literal `::h/value` keyword | The marker was nested below the vector's top level | Keep the marker at top level or calculate the payload with `h/event`/the event handler |
-| A foreign callback rejects an intent that needs the event | `:rf.error/hicasso-intent-needs-the-event` | The callback is value-first. Use `h/event` and receive its actual arguments |
+| A foreign callback rejects an intent that needs the event | `:rf.error/fresco-intent-needs-the-event` | The callback is value-first. Use `h/event` and receive its actual arguments |
 | Dispatch from a timer or interval throws | `:rf.error/no-frame-context` | Move application async work to an effect. For foreign retention, capture with `(rf/capture-frame)` during rendering |
 | `(rf/capture-frame)` in a body raises `:rf.error/ambient-frame-refused` naming two frames | An enclosing `rf/with-frame` names a frame the boundary is not rendering | Drop the enclosing scope, or scope it to the boundary's own frame |
 | Enter commits unfinished IME text | A hand-written key handler bypassed the keyboard map | Use the keyboard map so composition events are suppressed centrally |

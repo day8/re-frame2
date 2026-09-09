@@ -1,5 +1,5 @@
 'use strict';
-// THE HICASSO LANE'S ONE BUILD DOOR — rf2-2rtt6.73.
+// THE FRESCO LANE'S ONE BUILD DOOR — rf2-2rtt6.73.
 //
 // Every driver in this lane compiled through a hand-rolled copy of the same
 // eight lines, and every copy carried the same hole:
@@ -13,11 +13,11 @@
 // happen. MEASURED on main, by renaming `M-NO-PROPS`'s def in
 // `walk_profile_app.cljs` and leaving its two use sites alone:
 //
-//     [:hicasso-bench] Build completed. (186 files, 131 compiled, 2 warnings, 37.55s)
+//     [:fresco-bench] Build completed. (186 files, 131 compiled, 2 warnings, 37.55s)
 //     ------ WARNING #1 - :undeclared-var ------
-//      Use of undeclared Var re-frame.bench.hicasso.walk-profile-app/M-NO-PROPS
+//      Use of undeclared Var re-frame.bench.fresco.walk-profile-app/M-NO-PROPS
 //     ...
-//     [hicasso] ok
+//     [fresco] ok
 //     BEFORE_DRIVER_EXIT=0
 //
 // Two undeclared vars, a full run, a printed table of numbers, exit 0. Under
@@ -61,7 +61,7 @@
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 
-// The bench project has no `node_modules` of its own: `bench/hicasso/package.json`
+// The bench project has no `node_modules` of its own: `bench/fresco/package.json`
 // declares the shadow-cljs pin so the CLI does not warn, and the CLI itself is
 // spawned from the implementation install — the same JS entry-point every
 // other lane in the repo spawns. `shadow-cljs.edn` beside the project reaches
@@ -70,7 +70,7 @@ const IMPL = path.resolve(__dirname, '../../../../../../implementation');
 const RUNNER = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
 
 // shadow-cljs colours its output, so every pattern here reads ANSI-stripped
-// text. The lane's build id is a BARE keyword (`[:hicasso-bench]`), unlike the
+// text. The lane's build id is a BARE keyword (`[:fresco-bench]`), unlike the
 // slash-bearing `[:examples/login-uix]` ids `check-examples-compile.cjs`
 // parses — hence a looser bracket match rather than a reuse of that regex.
 //

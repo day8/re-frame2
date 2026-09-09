@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.arm1.dogfood-collector
+(ns re-frame.bench.fresco.arm1.dogfood-collector
   "THE DOGFOOD SCREEN — RENDERING 1 OF 3: the ambient collector (HD-002
   tier 3, the challenger).
 
@@ -11,7 +11,7 @@
   tournament can write that.
 
   The state layer is the shared front half's
-  (`re-frame.bench.hicasso.front.dogfood`) — one app-db shape, one event
+  (`re-frame.bench.fresco.front.dogfood`) — one app-db shape, one event
   set, one subscription set under every rendering. **The intents are
   not shared**: each rendering writes its own event positions in its own
   spelling, because that is precisely what the preference case asks the
@@ -32,14 +32,14 @@
   exit. That matches the tier-1 roster's finding on the spine shapes
   (rf2-2rtt6.57) and is stated as an absence rather than a pass; the
   preference case
-  (`docs/design/hicasso/studio/the-dogfood-preference-case.md`) carries
+  (`docs/design/fresco/studio/the-dogfood-preference-case.md`) carries
   it as evidence.
 
   Mounted by `arm1_dogfood_dom_cljs_test` — and mounting it is what
   started the six-week K7 clock (HD-014)."
-  (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require [re-frame.bench.fresco.arm1.runtime :refer [sub]]
+            [re-frame.bench.fresco.front.dogfood :as rf.bench.fresco.front.dogfood])
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 (defview head [_]
   (let [remaining (sub [:dogfood/remaining])]
@@ -50,10 +50,10 @@
 (defview new-item [_]
   [:form.new {:on-submit [:dogfood/create]}
    [:input.new-input {:type        "text"
-                      :value       (sub [:dogfood/draft rf.bench.hicasso.front.dogfood/new-draft-key])
-                      :on-input    [:dogfood/edit-draft rf.bench.hicasso.front.dogfood/new-draft-key :re-frame.hicasso/value]
+                      :value       (sub [:dogfood/draft rf.bench.fresco.front.dogfood/new-draft-key])
+                      :on-input    [:dogfood/edit-draft rf.bench.fresco.front.dogfood/new-draft-key :re-frame.fresco/value]
                       :on-key-down {"Enter"  [:dogfood/create]
-                                    "Escape" [:dogfood/cancel rf.bench.hicasso.front.dogfood/new-draft-key]}}]
+                                    "Escape" [:dogfood/cancel rf.bench.fresco.front.dogfood/new-draft-key]}}]
    [:button.add {:type "submit"} "Add"]])
 
 (defn- filter-button
@@ -82,7 +82,7 @@
      (when-not (:done? todo)
        [:input.draft {:type        "text"
                       :value       (sub [:dogfood/draft id])
-                      :on-input    [:dogfood/edit-draft id :re-frame.hicasso/value]
+                      :on-input    [:dogfood/edit-draft id :re-frame.fresco/value]
                       :on-key-down {"Enter"  [:dogfood/commit id]
                                     "Escape" [:dogfood/cancel id]}}])
      [:button.remove {:type "button" :on-click [:dogfood/remove id]} "x"]]))

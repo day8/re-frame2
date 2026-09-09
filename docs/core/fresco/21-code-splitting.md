@@ -29,7 +29,7 @@ One gate namespace can own the loadable value, effect, state, and events:
 ```clojure
 (ns app.admin-gate
   (:require [re-frame.core :as rf]
-            [re-frame.hicasso :as h]
+            [re-frame.fresco :as h]
             [shadow.lazy :as lazy]))
 
 (def admin-screen
@@ -126,7 +126,7 @@ Declare loadables and lazy components at namespace top level:
 ```clojure
 (ns app.charts.gate
   (:require ["react" :as react]
-            [re-frame.hicasso :as h]
+            [re-frame.fresco :as h]
             [shadow.lazy :as lazy]))
 
 (def chart-loadable

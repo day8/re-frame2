@@ -1,4 +1,4 @@
-(ns re-frame.hicasso.roots-frames-shared-frame-dom-cljs-test
+(ns re-frame.fresco.roots-frames-shared-frame-dom-cljs-test
   "TWO ROOTS, ONE FRAME — the other axis.
 
   The bead's goal sentence has two nouns in it: independent roots *and*
@@ -11,7 +11,7 @@
   root-shaped were really frame-shaped — passes every one of those rows.
 
   This file is the case that separates them, and it is not a hypothetical:
-  `re-frame.hicasso.impl.roots/open-adoption-window!` rejects a
+  `re-frame.fresco.impl.roots/open-adoption-window!` rejects a
   frame-keyed window registry in its own docstring, on the grounds that
   **several roots may intentionally share a frame**. That sentence is a
   design decision with real consequences (it is why the window is a bare
@@ -52,17 +52,17 @@
   Everything else — why the DOM is corroboration and never the primary
   reading, why node identity is what tells adoption from a re-render, why
   a residue census is taken before the reset and not after —
-  `re-frame.hicasso.roots-frames-support` states once for all three
+  `re-frame.fresco.roots-frames-support` states once for all three
   files."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as rf.hicasso]
-            [re-frame.hicasso.impl.collector :as rf.hicasso.impl.collector]
-            [re-frame.hicasso.impl.mount :as rf.hicasso.impl.mount]
-            [re-frame.hicasso.impl.roots :as rf.hicasso.impl.roots]
-            [re-frame.hicasso.test.runtime :as rf.hicasso.test.runtime]
-            [re-frame.hicasso.roots-frames-support :as rf.hicasso.roots-frames-support]
+            [re-frame.fresco :as rf.fresco]
+            [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
+            [re-frame.fresco.impl.roots :as rf.fresco.impl.roots]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
+            [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
             [re-frame.test-support :as rf.test-support]))
 
 ;; ONE frame. The whole file is about what two roots do to it.
@@ -93,13 +93,13 @@
      ;; refuses an async test under a fn-form fixture and aborts the whole
      ;; browser run at this namespace when it does.
      :async?        true
-     :init-fn       (fn [] (rf.hicasso.impl.collector/reset-runtime!))}))
+     :init-fn       (fn [] (rf.fresco.impl.collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The app — one view, mounted twice, under ONE frame
 ;; ---------------------------------------------------------------------------
 
-(rf.hicasso/defview panel
+(rf.fresco/defview panel
   "The whole app: two subscription reads and one intent, in a single
   boundary body. Takes no frame argument — the frame arrives from the
   root it is mounted under, which here is the same frame for both.
@@ -110,10 +110,10 @@
   number read twice."
   [{:keys [tag]}]
   [:div.panel {:data-tag tag :data-frame (str (rf/current-frame-id))}
-   [:span.label (rf.hicasso/sub label-q)]
-   [:span.count (str (rf.hicasso/sub count-q))]])
+   [:span.label (rf.fresco/sub label-q)]
+   [:span.count (str (rf.fresco/sub count-q))]])
 
-(rf.hicasso/defview screen
+(rf.fresco/defview screen
   "The hydration rows' app. `title` is a PROP, so a server/client
   divergence is a one-argument change at the call site rather than a
   second app; the subscription read is what makes the root acquire a
@@ -121,7 +121,7 @@
   [{:keys [title]}]
   [:div.screen
    [:h1.title title]
-   [:p.value (rf.hicasso/sub label-q)]])
+   [:p.value (rf.fresco/sub label-q)]])
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -130,11 +130,11 @@
 (defn- fresh!
   "One frame, seeded, and an empty runtime."
   []
-  (rf.hicasso.roots-frames-support/leave-act-environment!)
+  (rf.fresco.roots-frames-support/leave-act-environment!)
   (rf/make-frame {:id shared-frame})
   (rf/with-frame shared-frame (rf/dispatch-sync [::seed "alpha"]))
-  (rf.hicasso.impl.collector/reset-runtime!)
-  (rf.hicasso.test.runtime/reset-body-runs!)
+  (rf.fresco.impl.collector/reset-runtime!)
+  (rf.fresco.test.runtime/reset-body-runs!)
   nil)
 
 (defn- text-at [handle sel]
@@ -151,54 +151,54 @@
   predicate would answer true with a root still in flight. Two readers on
   the shared key is the reading that needs both."
   []
-  (= 2 (rf.hicasso.roots-frames-support/readers-of [shared-frame label-q])))
+  (= 2 (rf.fresco.roots-frames-support/readers-of [shared-frame label-q])))
 
 ;; ---------------------------------------------------------------------------
 ;; S1 — one cell, two readers, and both of them real
 ;; ---------------------------------------------------------------------------
 
 (deftest two-roots-under-one-frame-share-one-cell-and-both-read-it
-  (if-not (rf.hicasso.impl.mount/browser?)
-    (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM")
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no DOM")
     (let [_ (fresh!)
-          a (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) shared-frame [panel {:tag "a"}])
-          b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) shared-frame [panel {:tag "b"}])]
+          a (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) shared-frame [panel {:tag "a"}])
+          b (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) shared-frame [panel {:tag "b"}])]
       (try
         (testing "two roots reading two queries under one frame make TWO cells,
                   not four — the sub-key is (frame, query) and mentions no
                   root, so sharing a frame is sharing the cell. This is the
                   exact shape the two-frame suites never produce"
-          (is (= #{[shared-frame label-q] [shared-frame count-q]} (rf.hicasso.roots-frames-support/cell-keys))
-              (str "got " (pr-str (rf.hicasso.roots-frames-support/cell-keys))))
-          (is (= #{shared-frame} (rf.hicasso.roots-frames-support/cell-frames))))
+          (is (= #{[shared-frame label-q] [shared-frame count-q]} (rf.fresco.roots-frames-support/cell-keys))
+              (str "got " (pr-str (rf.fresco.roots-frames-support/cell-keys))))
+          (is (= #{shared-frame} (rf.fresco.roots-frames-support/cell-frames))))
 
         (testing "and each shared key carries TWO readers — the fan-out that
                   makes `release-cell!`'s arithmetic load-bearing, and that
                   every existing row pins at one"
-          (is (= [2 2] [(rf.hicasso.roots-frames-support/readers-of [shared-frame label-q])
-                        (rf.hicasso.roots-frames-support/readers-of [shared-frame count-q])])
-              (str "reader counts: " (pr-str (rf.hicasso.test.runtime/residue)))))
+          (is (= [2 2] [(rf.fresco.roots-frames-support/readers-of [shared-frame label-q])
+                        (rf.fresco.roots-frames-support/readers-of [shared-frame count-q])])
+              (str "reader counts: " (pr-str (rf.fresco.test.runtime/residue)))))
 
         (testing "and the two readers are two DISTINCT boundaries, not one
                   counted twice — `:boundaries` counts registrations and
                   `readers-of` counts slots, so the two numbers can disagree
                   and here they corroborate"
-          (is (= 2 (:boundaries (rf.hicasso.test.runtime/stats)))
-              (str "got " (pr-str (rf.hicasso.test.runtime/stats))))
-          (is (= 4 (:cell-refs (rf.hicasso.test.runtime/residue)))
+          (is (= 2 (:boundaries (rf.fresco.test.runtime/stats)))
+              (str "got " (pr-str (rf.fresco.test.runtime/stats))))
+          (is (= 4 (:cell-refs (rf.fresco.test.runtime/residue)))
               "two keys at fan-out two"))
 
         (testing "one frame is one memo row, however many roots render it —
                   the row is keyed by frame and a second root must not mint a
                   second"
-          (is (= #{shared-frame} (rf.hicasso.roots-frames-support/frame-memo-frames))
-              (str "got " (pr-str (rf.hicasso.roots-frames-support/frame-memo-frames)))))
+          (is (= #{shared-frame} (rf.fresco.roots-frames-support/frame-memo-frames))
+              (str "got " (pr-str (rf.fresco.roots-frames-support/frame-memo-frames)))))
 
         (testing "BOTH roots are live readers of the shared key: one dispatch
                   re-runs TWO bodies. This is what stops the counts above
                   passing vacuously — a second reader slot that never re-ran
                   would satisfy every assertion so far"
-          (let [ran (rf.hicasso.roots-frames-support/body-runs-delta! (fn [] (rf.hicasso.impl.mount/dispatch! a [::bump])))]
+          (let [ran (rf.fresco.roots-frames-support/body-runs-delta! (fn [] (rf.fresco.impl.mount/dispatch! a [::bump])))]
             (is (= 2 ran)
                 (str "a commit on a shared key must notify every reader of it; "
                      ran " bodies ran"))))
@@ -215,7 +215,7 @@
           (is (= (str shared-frame) (.getAttribute (.querySelector (:container b) ".panel")
                                                    "data-frame"))))
 
-        (finally (rf.hicasso.impl.mount/release! a) (rf.hicasso.impl.mount/release! b))))))
+        (finally (rf.fresco.impl.mount/release! a) (rf.fresco.impl.mount/release! b))))))
 
 ;; ---------------------------------------------------------------------------
 ;; S2 — a teardown DECREMENTS a shared key. It does not dispose it.
@@ -252,19 +252,19 @@
 ;; green under all three.
 (deftest unmounting-one-root-decrements-the-shared-key-and-does-not-dispose-it
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
-      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
+    (if-not (rf.fresco.impl.mount/browser?)
+      (do (rf.fresco.roots-frames-support/skip! ":node-test has no DOM") (done))
       (let [_ (fresh!)
-            a (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) shared-frame [panel {:tag "a"}])
-            b (rf.hicasso.impl.mount/root! (rf.hicasso.impl.mount/fresh-container!) shared-frame [panel {:tag "b"}])]
-        (is (= [2 2] [(rf.hicasso.roots-frames-support/readers-of [shared-frame label-q])
-                      (rf.hicasso.roots-frames-support/readers-of [shared-frame count-q])])
+            a (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) shared-frame [panel {:tag "a"}])
+            b (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) shared-frame [panel {:tag "b"}])]
+        (is (= [2 2] [(rf.fresco.roots-frames-support/readers-of [shared-frame label-q])
+                      (rf.fresco.roots-frames-support/readers-of [shared-frame count-q])])
             "precondition: both roots are reading the shared keys")
         ;; `unmount!` and NOT `release!` — `release!` resets the runtime, so
         ;; every count below would read zero whether the teardown released
         ;; anything or not.
-        (rf.hicasso.impl.mount/unmount! a)
-        (-> (rf.hicasso.roots-frames-support/quiesced!)
+        (rf.fresco.impl.mount/unmount! a)
+        (-> (rf.fresco.roots-frames-support/quiesced!)
             (.then
               (fn [_]
                 (try
@@ -272,27 +272,27 @@
                             departure — the reaper is armed on the last reader
                             and root B is still one"
                     (is (= #{[shared-frame label-q] [shared-frame count-q]}
-                           (rf.hicasso.roots-frames-support/cell-keys))
+                           (rf.fresco.roots-frames-support/cell-keys))
                         (str "a sibling's teardown disposed a key root B still
-                              reads; got " (pr-str (rf.hicasso.roots-frames-support/cell-keys)))))
+                              reads; got " (pr-str (rf.fresco.roots-frames-support/cell-keys)))))
 
                   (testing "decremented, not merely present: one reader each,
                             and one boundary. A cell that kept root A's slot
                             would be a leak and reads the same as a survivor
                             unless the number is taken"
-                    (is (= [1 1] [(rf.hicasso.roots-frames-support/readers-of [shared-frame label-q])
-                                  (rf.hicasso.roots-frames-support/readers-of [shared-frame count-q])])
-                        (str "got " (pr-str (rf.hicasso.test.runtime/residue))))
-                    (is (= 1 (:boundaries (rf.hicasso.test.runtime/stats)))
-                        (str "got " (pr-str (rf.hicasso.test.runtime/stats)))))
+                    (is (= [1 1] [(rf.fresco.roots-frames-support/readers-of [shared-frame label-q])
+                                  (rf.fresco.roots-frames-support/readers-of [shared-frame count-q])])
+                        (str "got " (pr-str (rf.fresco.test.runtime/residue))))
+                    (is (= 1 (:boundaries (rf.fresco.test.runtime/stats)))
+                        (str "got " (pr-str (rf.fresco.test.runtime/stats)))))
 
                   (testing "and the survivor is LIVE, which is the half a count
                             cannot show. A cell disposed out from under root B
                             leaves its DOM intact and its body silent — no
                             error, no complaint, just a screen that stopped
                             moving"
-                    (let [ran (rf.hicasso.roots-frames-support/body-runs-delta!
-                                (fn [] (rf.hicasso.impl.mount/dispatch! b [::bump])))]
+                    (let [ran (rf.fresco.roots-frames-support/body-runs-delta!
+                                (fn [] (rf.fresco.impl.mount/dispatch! b [::bump])))]
                       (is (= 1 ran)
                           (str "the surviving root must still re-run on a
                                 commit; " ran " bodies ran")))
@@ -303,10 +303,10 @@
                   (testing "and tearing the survivor down then releases
                             everything — residue read BEFORE the reset, which
                             is the only reading that can go red"
-                    (is (= rf.hicasso.roots-frames-support/released (rf.hicasso.roots-frames-support/teardown-census! b))))
+                    (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/teardown-census! b))))
                   (finally
-                    (rf.hicasso.impl.mount/release! a)
-                    (rf.hicasso.impl.mount/release! b)
+                    (rf.fresco.impl.mount/release! a)
+                    (rf.fresco.impl.mount/release! b)
                     (done))))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -345,26 +345,26 @@
 ;; `a-page-global-adoption-window-steals-an-ordinary-roots-enter-transition`.
 (deftest two-hydrating-roots-on-one-frame-hold-windows-of-their-own
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
-      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
+    (if-not (rf.fresco.impl.mount/browser?)
+      (do (rf.fresco.roots-frames-support/skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
-        (let [html-a (rf.hicasso.roots-frames-support/server-html! shared-frame [screen {:title "A"}])
-              html-b (rf.hicasso.roots-frames-support/server-html! shared-frame [screen {:title "B"}])
-              ca     (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html-a))
-              cb     (rf.hicasso.roots-frames-support/stamp-server-nodes! (rf.hicasso.roots-frames-support/server-dom! html-b))]
-          (is (rf.hicasso.roots-frames-support/every-server-node? ca ".screen, .title, .value")
+        (let [html-a (rf.fresco.roots-frames-support/server-html! shared-frame [screen {:title "A"}])
+              html-b (rf.fresco.roots-frames-support/server-html! shared-frame [screen {:title "B"}])
+              ca     (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html-a))
+              cb     (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html-b))]
+          (is (rf.fresco.roots-frames-support/every-server-node? ca ".screen, .title, .value")
               "premise: the stamps are on the server's own nodes")
-          (rf.hicasso.impl.collector/reset-runtime!)
-          (let [ha (rf.hicasso.impl.mount/hydrate-root! ca shared-frame [screen {:title "A"}])
-                hb (rf.hicasso.impl.mount/hydrate-root! cb shared-frame [screen {:title "B"}])]
+          (rf.fresco.impl.collector/reset-runtime!)
+          (let [ha (rf.fresco.impl.mount/hydrate-root! ca shared-frame [screen {:title "A"}])
+                hb (rf.fresco.impl.mount/hydrate-root! cb shared-frame [screen {:title "B"}])]
             (testing "each root minted a window OF ITS OWN, though both name
                       one frame — the reading a frame-keyed registry cannot
                       produce, taken by construction and not on a timer"
-              (is (true? (rf.hicasso.impl.roots/adopting? (:adoption ha)))
+              (is (true? (rf.fresco.impl.roots/adopting? (:adoption ha)))
                   "root A is in flight — `hydrate-root!` returns before the
                    tree is adopted, so its window outlives the call")
-              (is (true? (rf.hicasso.impl.roots/adopting? (:adoption hb)))
+              (is (true? (rf.fresco.impl.roots/adopting? (:adoption hb)))
                   "and so is root B")
               (is (not (identical? (:adoption ha) (:adoption hb)))
                   "two roots sharing a frame must not share a window"))
@@ -373,28 +373,28 @@
                       the page-global defect rf2-6tmu repaired, asked again at
                       frame granularity — where every existing row happens to
                       be immune because no two of its roots share a frame"
-              (rf.hicasso.impl.roots/close-adoption-window! (:adoption ha))
-              (is (false? (rf.hicasso.impl.roots/adopting? (:adoption ha))))
-              (is (true? (rf.hicasso.impl.roots/adopting? (:adoption hb)))
+              (rf.fresco.impl.roots/close-adoption-window! (:adoption ha))
+              (is (false? (rf.fresco.impl.roots/adopting? (:adoption ha))))
+              (is (true? (rf.fresco.impl.roots/adopting? (:adoption hb)))
                   "root B must still be adopting after its frame-mate closed"))
 
-            (-> (rf.hicasso.roots-frames-support/wait-until! both-committed?)
+            (-> (rf.fresco.roots-frames-support/wait-until! both-committed?)
                 (.then
                   (fn [ok]
                     (try
                       (is (true? ok)
                           (str "both roots must commit; readers on the shared
                                 key were "
-                               (rf.hicasso.roots-frames-support/readers-of [shared-frame label-q])))
+                               (rf.fresco.roots-frames-support/readers-of [shared-frame label-q])))
 
                       (testing "and each root ADOPTED ITS OWN server DOM — the
                                 nodes are the very nodes each container's
                                 markup produced, which no re-render could
                                 reconstruct, and sharing a frame did not make
                                 either root adopt the other's tree"
-                        (is (rf.hicasso.roots-frames-support/every-server-node? ca ".screen, .title, .value")
+                        (is (rf.fresco.roots-frames-support/every-server-node? ca ".screen, .title, .value")
                             "root A kept the server's nodes")
-                        (is (rf.hicasso.roots-frames-support/every-server-node? cb ".screen, .title, .value")
+                        (is (rf.fresco.roots-frames-support/every-server-node? cb ".screen, .title, .value")
                             "root B kept the server's nodes"))
 
                       (testing "the two roots differ where their markup differs
@@ -408,11 +408,11 @@
                                 readers here exactly as it is for two ordinary
                                 mounts — adoption changes the acquisition's
                                 timing and not its shape"
-                        (is (= #{[shared-frame label-q]} (rf.hicasso.roots-frames-support/cell-keys))
-                            (str "got " (pr-str (rf.hicasso.roots-frames-support/cell-keys))))
-                        (is (= 2 (rf.hicasso.roots-frames-support/readers-of [shared-frame label-q]))))
+                        (is (= #{[shared-frame label-q]} (rf.fresco.roots-frames-support/cell-keys))
+                            (str "got " (pr-str (rf.fresco.roots-frames-support/cell-keys))))
+                        (is (= 2 (rf.fresco.roots-frames-support/readers-of [shared-frame label-q]))))
 
-                      (finally (rf.hicasso.impl.mount/release! ha) (rf.hicasso.impl.mount/release! hb) (done))))))))))))
+                      (finally (rf.fresco.impl.mount/release! ha) (rf.fresco.impl.mount/release! hb) (done))))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; S4 — two divergent roots on one frame complain twice
@@ -434,23 +434,23 @@
 ;; a window never shut at all.
 (deftest two-divergent-hydrating-roots-on-one-frame-complain-independently
   (async done
-    (if-not (rf.hicasso.impl.mount/browser?)
-      (do (rf.hicasso.roots-frames-support/skip! ":node-test has no DOM") (done))
+    (if-not (rf.fresco.impl.mount/browser?)
+      (do (rf.fresco.roots-frames-support/skip! ":node-test has no DOM") (done))
       (do
         (fresh!)
-        (let [html-a (rf.hicasso.roots-frames-support/server-html! shared-frame [screen {:title "server-A"}])
-              html-b (rf.hicasso.roots-frames-support/server-html! shared-frame [screen {:title "server-B"}])
-              ca     (rf.hicasso.roots-frames-support/server-dom! html-a)
-              cb     (rf.hicasso.roots-frames-support/server-dom! html-b)]
-          (rf.hicasso.impl.collector/reset-runtime!)
-          (let [{:keys [seen stop!]}      (rf.hicasso.roots-frames-support/watch-mismatches!)
+        (let [html-a (rf.fresco.roots-frames-support/server-html! shared-frame [screen {:title "server-A"}])
+              html-b (rf.fresco.roots-frames-support/server-html! shared-frame [screen {:title "server-B"}])
+              ca     (rf.fresco.roots-frames-support/server-dom! html-a)
+              cb     (rf.fresco.roots-frames-support/server-dom! html-b)]
+          (rf.fresco.impl.collector/reset-runtime!)
+          (let [{:keys [seen stop!]}      (rf.fresco.roots-frames-support/watch-mismatches!)
                 ;; MANUFACTURED here and asserted on here — the only shape of
                 ;; call site at which swallowing an uncaught error is not the
                 ;; fail-open the pageerror rule forbids.
-                {:keys [captured close!]} (rf.hicasso.roots-frames-support/open-console-capture! {:swallow-uncaught? true})
-                ha (rf.hicasso.impl.mount/hydrate-root! ca shared-frame [screen {:title "client-A"}])
-                hb (rf.hicasso.impl.mount/hydrate-root! cb shared-frame [screen {:title "client-B"}])]
-            (-> (rf.hicasso.roots-frames-support/wait-until! both-committed?)
+                {:keys [captured close!]} (rf.fresco.roots-frames-support/open-console-capture! {:swallow-uncaught? true})
+                ha (rf.fresco.impl.mount/hydrate-root! ca shared-frame [screen {:title "client-A"}])
+                hb (rf.fresco.impl.mount/hydrate-root! cb shared-frame [screen {:title "client-B"}])]
+            (-> (rf.fresco.roots-frames-support/wait-until! both-committed?)
                 (.then
                   (fn [ok]
                     (close!)
@@ -479,14 +479,14 @@
                           (is (= 2 (count @seen))
                               (str "`:rf.ssr/hydration-mismatch` count; got "
                                    (count @seen) " — "
-                                   (pr-str (mapv (comp :error rf.hicasso.roots-frames-support/tags-of) @seen))))))
+                                   (pr-str (mapv (comp :error rf.fresco.roots-frames-support/tags-of) @seen))))))
 
                       (testing "and what fired is the framework diagnostic Spec
                                 011 names, tier-discriminated by its door"
                         (doseq [ev @seen]
-                          (let [tags (rf.hicasso.roots-frames-support/tags-of ev)]
+                          (let [tags (rf.fresco.roots-frames-support/tags-of ev)]
                             (is (= :rf.ssr/hydration-mismatch (:operation ev)))
-                            (is (= 're-frame.hicasso.impl.mount/hydrate-root!
+                            (is (= 're-frame.fresco.impl.mount/hydrate-root!
                                    (:where tags)))
                             (is (= :warned-and-replaced (:recovery tags)))
                             (is (string? (:error tags))))))
@@ -499,4 +499,4 @@
                         (is (= "alpha" (text-in ca ".value")))
                         (is (= "alpha" (text-in cb ".value"))))
 
-                      (finally (rf.hicasso.impl.mount/release! ha) (rf.hicasso.impl.mount/release! hb) (done))))))))))))
+                      (finally (rf.fresco.impl.mount/release! ha) (rf.fresco.impl.mount/release! hb) (done))))))))))))

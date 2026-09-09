@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.arm1.hook-ledger-dom-cljs-test
+(ns re-frame.bench.fresco.arm1.hook-ledger-dom-cljs-test
   "THE ≤2-HOOK BUDGET, COUNTED AT REACT'S DISPATCHER (rf2-2rtt6.9).
 
   HD-020(b): \"the ≤2 budget is fully consumed by the subscription/epoch
@@ -22,14 +22,14 @@
   React DOM; under `:node-test` every claim degrades to a stated skip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.bench.hicasso.arm1.hook-probe :as rf.bench.hicasso.arm1.hook-probe]
-            [re-frame.bench.hicasso.arm1.mount :as rf.bench.hicasso.arm1.mount]
-            [re-frame.bench.hicasso.arm1.runtime :as rf.bench.hicasso.arm1.runtime]
-            [re-frame.bench.hicasso.front.dogfood :as rf.bench.hicasso.front.dogfood]
-            [re-frame.bench.hicasso.lane :as rf.bench.hicasso.lane]
+            [re-frame.bench.fresco.arm1.hook-probe :as rf.bench.fresco.arm1.hook-probe]
+            [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
+            [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
+            [re-frame.bench.fresco.front.dogfood :as rf.bench.fresco.front.dogfood]
+            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.test-support :as rf.test-support]
             [uix.core :refer [$ defui]])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require-macros [re-frame.bench.fresco.arm1.lang :refer [defview]]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -43,7 +43,7 @@
      ;; difference. Caught by the frame probe below, which is why the
      ;; probe stays.
      :ambient-frame nil
-     :init-fn (fn [] (rf.bench.hicasso.arm1.runtime/reset-runtime!))}))
+     :init-fn (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!))}))
 
 (def ^:private frame-id ::arm1-hooks)
 
@@ -52,13 +52,13 @@
 ;; ---------------------------------------------------------------------------
 
 (defview reader
-  "One Hicasso boundary reading `n` subscriptions through the collector.
+  "One Fresco boundary reading `n` subscriptions through the collector.
   The reads sit in a `for`, which no hook-shaped surface can do, and
   which is exactly why the count below is interesting."
   [{:keys [n]}]
   [:ul.reads
    (for [i (range n)]
-     [:li.read {:key i} (str (rf.bench.hicasso.arm1.runtime/sub [:dogfood/todo i]))])])
+     [:li.read {:key i} (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo i]))])])
 
 (defui uix-one [{:keys [i]}]
   ($ :li.read (str (rf.adapter.uix/use-sub [:dogfood/todo i]))))
@@ -80,7 +80,7 @@
 (defn- unwitnessed! []
   (is false (str "React's internals slot was not found, so the ≤2-hook budget is "
                  "UNWITNESSED on this build. A gate nobody has watched fire is not "
-                 "evidence — fix " (pr-str 're-frame.bench.hicasso.arm1.hook-probe)
+                 "evidence — fix " (pr-str 're-frame.bench.fresco.arm1.hook-probe)
                  " rather than reading this as a pass.")))
 
 (defn- mount-and-count
@@ -89,18 +89,18 @@
   are identical for every caller, so the only thing that varies between
   readings is the component."
   [hiccup]
-  (rf.bench.hicasso.lane/leave-act-environment!)
-  (rf.bench.hicasso.front.dogfood/make-frame! frame-id 32)
-  (rf.bench.hicasso.front.dogfood/reseed! frame-id 32)
-  (let [container (rf.bench.hicasso.arm1.mount/fresh-container!)
+  (rf.bench.fresco.lane/leave-act-environment!)
+  (rf.bench.fresco.front.dogfood/make-frame! frame-id 32)
+  (rf.bench.fresco.front.dogfood/reseed! frame-id 32)
+  (let [container (rf.bench.fresco.arm1.mount/fresh-container!)
         handle    (volatile! nil)
-        names     (rf.bench.hicasso.arm1.hook-probe/record!
-                    (fn [] (vreset! handle (rf.bench.hicasso.arm1.mount/root! container frame-id hiccup))))]
-    (rf.bench.hicasso.arm1.mount/release! @handle)
+        names     (rf.bench.fresco.arm1.hook-probe/record!
+                    (fn [] (vreset! handle (rf.bench.fresco.arm1.mount/root! container frame-id hiccup))))]
+    (rf.bench.fresco.arm1.mount/release! @handle)
     names))
 
-(defn- hicasso-hooks
-  "The hook names for ONE Hicasso boundary reading `n` subscriptions."
+(defn- fresco-hooks
+  "The hook names for ONE Fresco boundary reading `n` subscriptions."
   [n]
   (mount-and-count [reader {:n n}]))
 
@@ -109,37 +109,37 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-shell-calls-exactly-two-hooks
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (rf.bench.hicasso.arm1.hook-probe/install!)
+    (if-not (rf.bench.fresco.arm1.hook-probe/install!)
       (unwitnessed!)
       (testing "one boundary, one read: the frame hook and the
                subscription/epoch hook, and nothing else"
-        (let [names (hicasso-hooks 1)]
+        (let [names (fresco-hooks 1)]
           (is (= 2 (count names)) (str "hooks React was asked for: " (pr-str names)))
           (is (= ["useContext" "useSyncExternalStore"] names)
               "in the order shell-hook-ledger declares")
-          (is (= (count rf.bench.hicasso.arm1.runtime/shell-hook-ledger) (count names))
+          (is (= (count rf.bench.fresco.arm1.runtime/shell-hook-ledger) (count names))
               "and the declared ledger is the measured one"))))))
 
 (deftest the-count-does-not-move-with-the-read-count
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (rf.bench.hicasso.arm1.hook-probe/install!)
+    (if-not (rf.bench.fresco.arm1.hook-probe/install!)
       (unwitnessed!)
       (testing "1, 7 and 20 reads — the first rung, the census archetype
                and the stress rung — all cost two hooks"
         (doseq [n [1 7 20]]
-          (let [names (hicasso-hooks n)]
+          (let [names (fresco-hooks n)]
             (is (= 2 (count names))
                 (str n " reads still cost two hooks: " (pr-str names)))))))))
 
 (deftest no-use-ref-and-no-use-state-in-the-shell
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (rf.bench.hicasso.arm1.hook-probe/install!)
+    (if-not (rf.bench.fresco.arm1.hook-probe/install!)
       (unwitnessed!)
-      (let [names (set (hicasso-hooks 7))]
+      (let [names (set (fresco-hooks 7))]
         (is (not (contains? names "useRef")) "HD-020(b) bans useRef in the shell")
         (is (not (contains? names "useState"))
             "and this arm holds no per-instance render-phase state at all")
@@ -147,27 +147,27 @@
         (is (not (contains? names "useCallback")))))))
 
 (deftest the-scalar-comparator-pays-per-read-and-is-measured-saying-so
-  (if-not (rf.bench.hicasso.arm1.mount/browser?)
+  (if-not (rf.bench.fresco.arm1.mount/browser?)
     (skip! ":node-test has no DOM")
-    (if-not (rf.bench.hicasso.arm1.hook-probe/install!)
+    (if-not (rf.bench.fresco.arm1.hook-probe/install!)
       (unwitnessed!)
       (testing "the raw UIx spine's per-read hooks, counted by the same
                probe on the same page — a comparator read rather than
                recalled. No bar row is published from this: it is a hook
                count, not a clock or a heap figure."
-        (let [host-1 (rf.bench.hicasso.arm1.runtime/mint-view! "uix-host-1" (fn [_] ($ uix-one {:i 0})))
-              host-3 (rf.bench.hicasso.arm1.runtime/mint-view! "uix-host-3" (fn [_] ($ uix-three {:i 0})))
-              base   (count (hicasso-hooks 1))
+        (let [host-1 (rf.bench.fresco.arm1.runtime/mint-view! "uix-host-1" (fn [_] ($ uix-one {:i 0})))
+              host-3 (rf.bench.fresco.arm1.runtime/mint-view! "uix-host-3" (fn [_] ($ uix-three {:i 0})))
+              base   (count (fresco-hooks 1))
               one    (count (mount-and-count [host-1 {}]))
               three  (count (mount-and-count [host-3 {}]))]
           ;; The host boundary contributes the shell's two; everything above
           ;; that is the comparator's own per-read cost.
           (is (> one base)
-              (str "one UIx read already costs more than the whole Hicasso "
+              (str "one UIx read already costs more than the whole Fresco "
                    "shell (" one " vs " base ")"))
           (is (> three one)
               (str "and three reads cost more again — the count moves WITH the "
                    "read count, which is the property the product budget "
                    "forbids (" three " vs " one ")"))
           (is (= 2 base)
-              "while the Hicasso shell stays at two on every rung"))))))
+              "while the Fresco shell stays at two on every rung"))))))

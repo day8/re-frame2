@@ -141,9 +141,9 @@ main read.
   `realm-ids`, and no `re-frame.frame/frame-realm`. See framework
   [`spec/Spec-Schemas.md` §`:rf/realm`](../../../spec/Spec-Schemas.md).) An
   L4-only Dynamic tab (not in `panel-enum`). Read-only.
-- [027-Hicasso-Evidence.md](027-Hicasso-Evidence.md) — the Hicasso tab:
-  the Xray-side consumer contract for the adapter-neutral Hicasso evidence
-  surface (`re-frame.hicasso.tool`, rf2-hic-023). Four of the tab's 6
+- [027-Fresco-Evidence.md](027-Fresco-Evidence.md) — the Fresco tab:
+  the Xray-side consumer contract for the adapter-neutral Fresco evidence
+  surface (`re-frame.fresco.tool`, rf2-hic-023). Four of the tab's 6
   views over one versioned schema — mounted boundaries, read attribution,
   the intent stream, and explain-render — each envelope stating schema,
   producer, scope, basis, completeness and loss. The other two, Advisor
@@ -156,7 +156,7 @@ main read.
   through unchanged, which is what makes byte-for-byte structural rather
   than separately asserted. An L4-only Dynamic tab (not in `panel-enum`).
   Read-only, dev-only.
-- [028-Hicasso-Advisor.md](028-Hicasso-Advisor.md) — the Hicasso tab's
+- [028-Fresco-Advisor.md](028-Fresco-Advisor.md) — the Fresco tab's
   two derived sub-views (rf2-hic-037). The hot-view advisor ranks the
   mounted census on 4 axes in 4 units — never a composite score —
   classifies what owns the pressure, and looks the route up on the owner
