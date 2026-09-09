@@ -283,7 +283,20 @@
   lifecycle timeline, the invalidation graph, the cache-growth view, and
   the scope audit + lints. Read-only — observing pins no resource."
   ([mount-point]      (mount-resources! mount-point nil))
-  ([mount-point opts] (render-panel! resources/Panel mount-point opts)))
+  ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. The Resources panel's view
+  ;; is now a Fresco boundary (a real React function component), and
+  ;; `re-frame.fresco/defview`'s own contract is that a boundary is
+  ;; mounted as `[head props]` inside a Fresco body or through
+  ;; `as-component` from outside, NEVER as a hiccup render fn in a
+  ;; Reagent tree — which is what `render-panel!` builds. The bridge is
+  ;; Fresco's `as-component` door and is deleted with every other
+  ;; `*-bridge` when the shell itself becomes a Fresco tree.
+  ;;
+  ;; `render-panel!` ITSELF is deliberately untouched: it is the single
+  ;; chokepoint where the frame-provider and adapter/render couplings are
+  ;; severed for the whole embedding contract, and that is one edit in
+  ;; the final commit rather than N edits now.
+  ([mount-point opts] (render-panel! resources/Panel-bridge mount-point opts)))
 
 (defn mount-event-spine!
   "Mount Xray's L2 event spine in isolation at `mount-point`.

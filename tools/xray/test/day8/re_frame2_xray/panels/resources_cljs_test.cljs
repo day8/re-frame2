@@ -75,6 +75,31 @@
   (xray-test-support/install-test-overrides!)
   (rf/make-frame {:id :rf/xray}))
 
+(defn- panel-tree
+  "The panel's hiccup tree, for the section rows below.
+
+  THIS USED TO BE A DIRECT CALL TO THE PANEL VAR. rf2-k97c.3 made `Panel` an
+  `rf.fresco/defview` — a real React function component whose body may
+  only run inside a React render window — so it is no longer a callable
+  that answers hiccup, and every row here walks hiccup.
+
+  The panel's body was split out as `resources/panel-tree`, a pure fn of
+  the one value the boundary reads. That is `re-frame.fresco/defview`'s
+  own documented extract-a-helper spelling, and it keeps the division of
+  labour honest: the section-rendering algebra is data → data and belongs
+  in this fast node-lane suite, while the boundary's OWN behaviour —
+  first paint, liveness on a real invalidation, frame targeting, evidence
+  isolation and teardown release — is
+  `resources_fresco_boundary_dom_cljs_test`'s subject, read off a real
+  React commit.
+
+  The read is spelled `@(rf/subscribe …)` rather than `rf.fresco/sub`
+  deliberately: outside a render window there is no collector edge to
+  record, and what these rows want is the sub's VALUE. That the boundary
+  reads the same query through the collector is the DOM suite's W1."
+  []
+  (resources/panel-tree @(rf/subscribe [:rf.xray/resources-tab-data])))
+
 ;; ---- fixtures: registry + entries + ledger ------------------------------
 
 (def session-scope [:rf.scope/session {:user-id "u-42"}])
@@ -225,7 +250,7 @@
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-overrides!)
-      (let [tree (resources/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-resources")) "panel root")
         (is (some? (find-by-testid tree "rf-xray-resources-registry")) "registry section")
         (is (some? (find-by-testid tree "rf-xray-resources-instances")) "instances section")
@@ -299,7 +324,7 @@
                          scope-resolver-regs]
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray/sync-trace-buffer ep0016-buffer] {:frame :rf/xray})
-      (let [tree (resources/Panel)]
+      (let [tree (panel-tree)]
         ;; D3 — the named-scope-resolver registry row (id + declared inputs)
         (is (some? (find-by-testid tree "rf-xray-resources-scope-resolver-row-realworld/session"))
             "named scope-resolver row rendered")
@@ -364,7 +389,7 @@
     (rf/with-frame :rf/xray
       (seed-overrides!)
       (rf/dispatch-sync [:rf.xray/sync-trace-buffer ep0011-buffer] {:frame :rf/xray})
-      (let [tree (resources/Panel)]
+      (let [tree (panel-tree)]
         ;; "what is still running?" section + the live resource row, joined
         ;; to its latest trace phase (issued via :rf.resource/work-started).
         (is (some? (find-by-testid tree "rf-xray-resources-live-work-caption"))
@@ -396,7 +421,7 @@
       (rf/dispatch-sync [:rf.xray/set-resource-work-ledger-override-for-test {}]
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray/sync-trace-buffer []] {:frame :rf/xray})
-      (let [tree (resources/Panel)]
+      (let [tree (panel-tree)]
         (is (nil? (find-by-testid tree "rf-xray-resources-live-work-caption"))
             "no live-work section when nothing is running / suppressed")
         (is (nil? (find-by-testid tree "rf-xray-resources-stale-races-caption"))
@@ -457,7 +482,7 @@
     (rf/with-frame :rf/xray
       (seed-overrides!)
       (rf/dispatch-sync [:rf.xray/sync-trace-buffer ep0019-buffer] {:frame :rf/xray})
-      (let [tree (resources/Panel)]
+      (let [tree (panel-tree)]
         ;; the section renders
         (is (some? (find-by-testid tree "rf-xray-resources-optimistic"))
             "optimistic-mutations section rendered")
@@ -488,7 +513,7 @@
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-overrides!)
-      (let [tree   (resources/Panel)
+      (let [tree   (panel-tree)
             status (find-by-testid tree "rf-xray-resources-instance-row-article/by-slug-g4-status")]
         (is (some? status))
         (is (re-find #"loaded" (node-text status)) "status reads loaded")))))
@@ -521,7 +546,7 @@
     (rf/with-frame :rf/xray
       (seed-overrides!)
       (seed-live-route!)
-      (let [tree (resources/Panel)
+      (let [tree (panel-tree)
             row  (find-by-testid tree "rf-xray-resources-route-row-route/article")]
         (is (some? row) "the route row renders")
         (is (some? (find-by-testid tree "rf-xray-resources-route-row-route/article-current"))
@@ -545,7 +570,7 @@
     (rf/with-frame :rf/xray
       (seed-overrides! (stale-live-entries))
       (seed-live-route!)
-      (let [tree (resources/Panel)
+      (let [tree (panel-tree)
             row  (find-by-testid tree "rf-xray-resources-route-row-route/article")]
         (is (some? row) "the route row renders")
         (is (re-find #"stale" (node-text row))
@@ -573,7 +598,7 @@
                            :data :rf/redacted :generation 1
                            :active-owners #{}}}]
                         {:frame :rf/xray})
-      (let [tree (resources/Panel)
+      (let [tree (panel-tree)
             data (find-by-testid tree "rf-xray-resources-instance-row-article/by-slug-g1-data")
             scope (find-by-testid tree "rf-xray-resources-instance-row-article/by-slug-g1-scope")]
         (is (some? data))
@@ -685,7 +710,7 @@
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray/set-resource-entries-override-for-test {}]
                         {:frame :rf/xray})
-      (let [tree (resources/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-resources")) "panel root present")
         (is (some? (find-by-testid tree "rf-xray-resources-silent")) "silent caption")
         (is (nil? (find-by-testid tree "rf-xray-resources-registry"))

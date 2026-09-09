@@ -50,9 +50,45 @@
   Same contract as every Xray panel — the view is pure hiccup, no
   Reagent/UIx references. Frame isolation comes from the enclosing
   `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`. Projection
-  algebra lives in `resources_helpers.cljc` (JVM-portable)."
+  algebra lives in `resources_helpers.cljc` (JVM-portable).
+
+  ## THE VIEW IS A FRESCO BOUNDARY (rf2-k97c.3)
+
+  [[Panel]] is an `rf.fresco/defview` — a real React function component
+  minted by the re-frame-native view layer — rather than an
+  `rf/reg-view`. It follows the merged template
+  `panels/module_view.cljs`, which is increment 1 of the epic's ruled
+  design (rf2-k97c.2, Design B): Xray's views are re-authored in Fresco
+  and read through Fresco's shipped collector, so their observation no
+  longer depends on whichever view build the installed adapter happens
+  to supply. That is why Xray cannot paint on an element-shaped adapter
+  today, and why a tool-owned root cannot simply keep rendering
+  `reg-view`s.
+
+  Concretely, the ONE read below is `rf.fresco/sub`, which the collector
+  wires, activates, re-wires and NOTIFIES on invalidation
+  (`re-frame.fresco.impl.collector`) — where a `reg-view` body's
+  `@(rf/subscribe …)` is tracked only by the INSTALLED adapter's
+  reaction machinery.
+
+  ## ONE boundary, at 1,433 lines
+
+  Boundary count tracks READS and head-position use, not file size. This
+  panel has exactly ONE read and every section helper below is CALLED by
+  application rather than used as a hiccup head, so the whole file is one
+  boundary and its interior is substrate-agnostic hiccup. See [[Panel]]
+  and [[panel-tree]] for the split, which is `defview`'s own documented
+  extract-a-helper spelling.
+
+  ## The migration bridge
+
+  [[Panel-bridge]] is how a still-`reg-view` shell — and the standalone
+  `panels/mount-resources!` embed — mounts a boundary. It is MIGRATION
+  SCAFFOLDING with a defined end: when the shell is itself a Fresco tree,
+  the L4 registry takes [[Panel]] directly and the bridge goes."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.resources-helpers :as h]
             [day8.re-frame2-xray.panels.local-render :as local-render]
@@ -1039,56 +1075,152 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(rf/reg-view Panel
-  "The Resources tab's root view (Spec 016 §Xray and AI tooling).
-  Subscribes to `:rf.xray/resources-tab-data` and renders the sections
-  top → bottom: static registry, named scope resolvers (EP-0016 D3), live
-  instances, work ledger, route/resource graph, lifecycle timeline,
-  invalidation graph, scope resolution timeline (EP-0016 D3), mutation
-  continuations + scoped invalidation (EP-0016 D1/D2), optimistic mutations
-  (EP-0019 — the apply→reconcile/rollback lifecycle), cache growth, scope
-  audit + lints. When the host has no resources registered AND no live
-  instances, renders the silent-by-default caption."
+(defn panel-tree
+  "The Resources tab's WHOLE body, as a pure function of the one value
+  [[Panel]] reads — the `:rf.xray/resources-tab-data` composite. Renders
+  the sections top → bottom: static registry, named scope resolvers
+  (EP-0016 D3), live instances, work ledger, route/resource graph,
+  lifecycle timeline, invalidation graph, scope resolution timeline
+  (EP-0016 D3), mutation continuations + scoped invalidation (EP-0016
+  D1/D2), optimistic mutations (EP-0019 — the apply→reconcile/rollback
+  lifecycle), cache growth, scope audit + lints. When the host has no
+  resources registered AND no live instances, renders the
+  silent-by-default caption.
+
+  SPLIT OUT OF [[Panel]] BY rf2-k97c.3, and the split is `defview`'s own
+  documented extract-a-helper spelling (`re-frame.fresco/defview`
+  §\"The fn this expands to is ANONYMOUS\"), not an invention. Two things
+  turn on it:
+
+  * A boundary's body may only run inside a React render window, so
+    `(Panel)` is no longer a callable that answers hiccup. The panel's
+    section-rendering algebra is nonetheless ordinary data → data and is
+    worth testing in the fast node lane rather than behind a real React
+    commit. `resources_cljs_test` drives THIS fn with the value it takes
+    from the sub directly; the boundary's own behaviour — first paint,
+    liveness, frame targeting, evidence isolation and teardown — is
+    `resources_fresco_boundary_dom_cljs_test`'s subject.
+  * It keeps the read on ONE line inside the boundary, where it is easy
+    to see that the panel takes exactly one and that nothing below it
+    reads the substrate at all.
+
+  PURE: every helper it calls is a plain fn of its argument."
+  [{:keys [silent? registry scope-resolvers instances work route-graph
+           live-work stale-races stale-tally
+           timeline invalidations scope-resolutions mutation-invalidations
+           continuations optimistic-mutations optimistic-force-clobbers
+           cache-growth audit]}]
+  [:section {:data-testid "rf-xray-resources"
+             :style {:height         "100%"
+                     :display        "flex"
+                     :flex-direction "column"
+                     :background     (:bg-2 tokens)
+                     :color          (:text-primary tokens)
+                     :font-family    sans-stack
+                     :font-size      "14px"
+                     :overflow       "auto"}}
+   (if silent?
+     (silent-state)
+     [:<>
+      (registry-section registry)
+      (scope-resolvers-section scope-resolvers)
+      (instances-section instances)
+      (work-ledger-section work)
+      ;; EP-0011 uniform reply-envelope reads — "what is still running?"
+      ;; (live work + active-effects tally) and the cross-family stale-races
+      ;; view. Silent-by-default: each renders nothing when its data is
+      ;; empty (quiet baseline for a settled app).
+      (live-work-section {:live-work live-work :stale-tally stale-tally})
+      (stale-races-section stale-races)
+      (route-graph-section route-graph)
+      (timeline-section timeline)
+      (invalidation-section invalidations)
+      (scope-resolution-section scope-resolutions)
+      (continuations-section {:continuations continuations
+                              :mutation-invalidations mutation-invalidations})
+      (optimistic-mutations-section
+        {:optimistic-mutations optimistic-mutations
+         :optimistic-force-clobbers optimistic-force-clobbers})
+      (cache-growth-section cache-growth)
+      (audit-section audit)])])
+
+;; ---- the boundary --------------------------------------------------------
+
+(rf.fresco/defview Panel
+  "The Resources tab's root (Spec 016 §Xray and AI tooling) — the ONE
+  read, and [[panel-tree]] for everything below it.
+
+  A FRESCO BOUNDARY (rf2-k97c.3), not an `rf/reg-view`. Two differences
+  matter and neither is cosmetic.
+
+  The READ is `rf.fresco/sub`, a plain call the collector records an
+  edge for — no deref, no reaction owned by the installed adapter, and a
+  re-wire that NOTIFIES when the substrate disposes the underlying
+  derived value. That is the third of the epic's three couplings, and it
+  is the one a first-paint smoke test cannot see.
+
+  The FRAME the read resolves against comes from React context, which
+  the enclosing frame boundary writes — `rf/frame-provider` and
+  `rf.fresco/frame-provider` write the SAME context (core's
+  `re-frame.adapter.context/frame-context`) — so this boundary resolves
+  `:rf/xray` identically under today's Reagent-rendered shell and under
+  the Fresco root Xray will own. It never consults
+  `:adapter/current-component`, which is the hook a foreign root cannot
+  answer.
+
+  ONE read and ONE boundary, at 1,433 lines. Boundary count tracks reads
+  and head-position use, not file size: every section helper is CALLED,
+  never used as a hiccup head, so Fresco's \"a plain function in head
+  position is a loud error\" rule never meets one and there is nothing
+  in the interior that wants a boundary of its own.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. This panel reads nothing from props — neither the L4 registry
+  nor the standalone embed passes any — so it is destructured away."
+  [_props]
+  (panel-tree (rf.fresco/sub [:rf.xray/resources-tab-data])))
+
+;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;;
+;; Xray's shell is still a `reg-view` tree rendered by the installed
+;; adapter. `shell/detail-panel` mounts the active tab as the hiccup head
+;; `[(:panel tab)]`, and `panel-registry/reg-l4-tab!`'s `:pre` requires
+;; `:panel` to be CALLABLE — neither of which a React component is.
+;;
+;; `rf.fresco/as-component` is Fresco's own outward door for exactly
+;; this: it answers a real React component for a boundary, which a React
+;; parent (UIx, Reagent or plain JavaScript) mounts UNDER THE FRAME IT IS
+;; ALREADY IN, taking the frame from React context rather than from a
+;; second root. So there is no second root here, no adapter-kind branch,
+;; and no props ABI.
+;;
+;; THIS IS SCAFFOLDING WITH A DEFINED END. When the shell is itself a
+;; Fresco tree, `reg-l4-tab!` takes `Panel` directly, `[:>]` goes, and
+;; both defs below are deleted.
+
+(def ^:private Panel-component
+  "The React component `Panel` presents as, for a non-Fresco parent.
+  Declared once at top level beside the view, as `rf.fresco/as-component`'s
+  contract requires — deriving it per render would mint a new component
+  type every time and remount the panel on each parent render."
+  (rf.fresco/as-component Panel))
+
+(defn Panel-bridge
+  "The callable a Reagent parent mounts this panel through. Returns
+  Reagent-shaped hiccup interoping to the React component above; the
+  enclosing `rf/frame-provider` is what puts the frame in React context
+  for it.
+
+  PUBLIC, where the merged `module_view.cljs` template's equivalent is
+  private, and the difference is a real one rather than a slip. That
+  panel is L4-only — a `reg-l4-tab!` surface with no standalone facade —
+  so its bridge has exactly one consumer, in its own namespace. This
+  panel is ALSO in `panel_enum` with a `mount-resources!` facade, and
+  `panels/render-panel!` takes the view to mount as an ARGUMENT, so the
+  embedding contract needs a name it can pass. Every panel carrying a
+  `mount-*!` facade will want the same."
   []
-  (let [{:keys [silent? registry scope-resolvers instances work route-graph
-                live-work stale-races stale-tally
-                timeline invalidations scope-resolutions mutation-invalidations
-                continuations optimistic-mutations optimistic-force-clobbers
-                cache-growth audit]}
-        @(rf/subscribe [:rf.xray/resources-tab-data])]
-    [:section {:data-testid "rf-xray-resources"
-               :style {:height         "100%"
-                       :display        "flex"
-                       :flex-direction "column"
-                       :background     (:bg-2 tokens)
-                       :color          (:text-primary tokens)
-                       :font-family    sans-stack
-                       :font-size      "14px"
-                       :overflow       "auto"}}
-     (if silent?
-       (silent-state)
-       [:<>
-        (registry-section registry)
-        (scope-resolvers-section scope-resolvers)
-        (instances-section instances)
-        (work-ledger-section work)
-        ;; EP-0011 uniform reply-envelope reads — "what is still running?"
-        ;; (live work + active-effects tally) and the cross-family stale-races
-        ;; view. Silent-by-default: each renders nothing when its data is
-        ;; empty (quiet baseline for a settled app).
-        (live-work-section {:live-work live-work :stale-tally stale-tally})
-        (stale-races-section stale-races)
-        (route-graph-section route-graph)
-        (timeline-section timeline)
-        (invalidation-section invalidations)
-        (scope-resolution-section scope-resolutions)
-        (continuations-section {:continuations continuations
-                                :mutation-invalidations mutation-invalidations})
-        (optimistic-mutations-section
-          {:optimistic-mutations optimistic-mutations
-           :optimistic-force-clobbers optimistic-force-clobbers})
-        (cache-growth-section cache-growth)
-        (audit-section audit)])]))
+  [:> Panel-component {}])
 
 ;; ---- production value sources --------------------------------------------
 ;;
@@ -1352,7 +1484,11 @@
      :mnem  "s"
      :modes #{:dynamic}
      :order 7
-     :panel Panel})
+     ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
+     ;; component (a Fresco boundary) and the shell mounts `:panel` as a
+     ;; Reagent hiccup head; the bridge is the one line between them and
+     ;; goes when the shell is a Fresco tree.
+     :panel Panel-bridge})
 
   nil)
 
