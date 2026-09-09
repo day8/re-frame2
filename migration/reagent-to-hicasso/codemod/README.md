@@ -16,6 +16,34 @@ ratified as `rf2-2rtt6.106`. This artefact implements it as amended by
 
 ## Running it
 
+A consumer runs the reporter from their own project, with no checkout of this
+repository:
+
+```bash
+clojure -Srepro \
+  -Sdeps '{:deps {day8/re-frame2-hicasso-codemod
+                  {:git/url   "https://github.com/day8/re-frame2.git"
+                   :git/sha   "6a5194c0aa029ac1ad34aaf3a62974fd3e5c0221"
+                   :deps/root "migration/reagent-to-hicasso/codemod"}}}' \
+  -M -m re-frame.migration.hicasso.codemod src/
+```
+
+`--rewrite` makes that a dry run of the fixer, `--rewrite --write` applies it,
+and `--report out.edn` chooses where the report goes.
+
+**That coordinate is how the tool is delivered, and it is not a stopgap.**
+`implementation/hicasso/deps.edn`'s `:src-dirs` are `["src" "resources"
+"test_kit/src"]`, which excludes this tree, so no published Hicasso jar ever
+carries the reporter and there is no Maven coordinate for the command to move to
+(rf2-lb566). The canonical public statement of it is the migration chapter,
+`docs/core/hicasso/20-migration-from-reagent.md`; this tree is deliberately
+excluded from the built site, so that chapter — not this page — is what a public
+reader is expected to find. The `:git/sha` above is the commit the command was
+last proved against.
+
+Working *inside* a checkout, which is what contributors to this tool do, the
+`:run` alias is the same entry point:
+
 ```bash
 cd migration/reagent-to-hicasso/codemod
 
@@ -29,8 +57,8 @@ clojure -M:run --report out.edn src/           # choose where the report goes
 Without `--report` it goes to `reagent-to-hicasso-report.edn` beside the first
 path scanned — point the tool at `<repo>/src/` and it lands at `<repo>/` — and
 the run prints the absolute path it used. It used to be written to the process's
-working directory under that bare name, which, given that the first line above
-is a `cd` into this directory, meant *into this checkout*: a consumer running
+working directory under that bare name, which, when the documented first step
+was a `cd` into this directory, meant *into this checkout*: a consumer running
 the documented command found the file in their `git status` for a repository
 they were treating as a read-only build input, with nothing having said it would
 be there (rf2-mckf).

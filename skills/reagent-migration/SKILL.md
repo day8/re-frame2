@@ -21,7 +21,7 @@ allowed-tools:
   - Bash(git -C * rev-parse *)
   - Bash(git -C * grep *)
   # Run the project's OWN noninteractive compile/test gates (verify-as-you-go),
-  # and the migration reporter, which is an ordinary `clojure -M:run`.
+  # and the migration reporter, which is an ordinary `clojure -Sdeps … -M -m` run.
   # These routine wildcards are blessed by the published-skill allowed-tools
   # baseline (skills/README.md §Published-skill allowed-tools baseline —
   # trust the explicit invoker); the skill discovers and runs the nearest safe
@@ -68,11 +68,22 @@ So rewriting views into Hicasso is a **separate, optional second step, and it is
 Unlike the view rewrite, the **prop-dialect fixer and the view-substrate API census are automated**, and they run before you touch anything:
 
 ```bash
-cd re-frame2/migration/reagent-to-hicasso/codemod
-clojure -M:run path/to/consumer/src/          # scan: report only, touch nothing
+clojure -Srepro \
+  -Sdeps '{:deps {day8/re-frame2-hicasso-codemod
+                  {:git/url   "https://github.com/day8/re-frame2.git"
+                   :git/sha   "6a5194c0aa029ac1ad34aaf3a62974fd3e5c0221"
+                   :deps/root "migration/reagent-to-hicasso/codemod"}}}' \
+  -M -m re-frame.migration.hicasso.codemod path/to/consumer/src/
 ```
 
-It reads source text on a bare JVM, loads no re-frame2, and writes a deterministic EDN report with two halves that answer different questions:
+Run it from the consumer's own project — no re-frame2 checkout is needed, and
+none is created. The published Hicasso artefact does not carry the reporter, so
+this coordinate is how the tool is delivered rather than a pre-publication
+detour; pin a newer `:git/sha` from
+`git ls-remote https://github.com/day8/re-frame2.git refs/heads/main` whenever
+you want one.
+
+The reporter reads source text on a bare JVM, loads no re-frame2, and writes a deterministic EDN report with two halves that answer different questions:
 
 - **The fixer** (`:entries`) — every `[:> …]`-family crossing into React. Reagent converted the prop dialect at those sites and Hicasso does not, so a crossing can keep rendering while sending different values. Six rewrite families (W1–W6) are decidable from source text; everything else is a named refusal with a recovery sentence.
 - **The census** (`:census`) — every rostered view-substrate API **call site**, across two rosters: Reagent's API (`r/atom`, `r/with-let`, `r/create-class`, `r/cursor`, `r/as-element`, `r/reactify-component`, root mounting, and the `reagent2.*` namespaces the reagent-slim adapter ships), and re-frame2's own substrate adapters under `re-frame.adapter.`. The second roster exists because a re-frame2 application on the Reagent adapter calls no Reagent API of its own, and a Reagent-only census scored it at zero. This is the inventory that tells you how big the job actually is, and it is the half a `[:>]`-only report leaves invisible.

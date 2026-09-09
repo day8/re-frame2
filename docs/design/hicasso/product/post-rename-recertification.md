@@ -35,7 +35,7 @@ live** — the second was discharged on 2026-08-15 and its row says so:
 
 | Remainder | Where it stands | Why it blocks certification |
 |---|---|---|
-| Naming-ledger **row 18** — retire `hframe` | Ruled by the operator (2026-08-11); **still unexecuted at 2026-08-15**. The seam it retires in favour of is `rf2-t32wg`, which on that date was **open and awaiting an operator spec ruling** — zero-arity `rf/capture-frame` refuses inside a Hicasso body, and admitting it contradicts two normative sentences in `spec/002-Frames.md`. It is now **deferred to 2026-09-16**, which schedules the question rather than answering it ([§6.6](#66-what-this-still-does-not-certify)). | **142 `hframe` occurrences across 40 files at `f167edd4bc`** stay put by `rf2-t32wg`'s own instruction — the count is anchored to that commit rather than to "the landed tree", because writing it down moved it: on the head this page landed as, the same command reads **143/40**, and it reads 143/40 again at `7304e825c9` ([§6](#6-the-re-run-2026-08-16-after-the-donor-retire)). Measured by line count of `git grep -o -h -E '\bhframe\b' -- . ':(exclude).beads'` (the row first recorded 152/39, on a differently-scoped count). That is the ledger's header rule working, not drift — and it means the public surface is not final. |
+| Naming-ledger **row 18** — retire `hframe` | Ruled by the operator (2026-08-11); **still unexecuted at 2026-08-15**. The seam it retires in favour of is `rf2-t32wg`, which on that date was **open and awaiting an operator spec ruling** — zero-arity `rf/capture-frame` refuses inside a Hicasso body, and admitting it contradicts two normative sentences in `spec/002-Frames.md`. It has since been **ruled and closed on 2026-08-30**: the operator admitted the pure identity and capture doors inside a refusing extent and retired `h/hframe` with no alias, and execution landed under `rf2-6c12m.13` ([§6.6](#66-what-this-still-does-not-certify)). | **142 `hframe` occurrences across 40 files at `f167edd4bc`** stay put by `rf2-t32wg`'s own instruction — the count is anchored to that commit rather than to "the landed tree", because writing it down moved it: on the head this page landed as, the same command reads **143/40**, and it reads 143/40 again at `7304e825c9` ([§6](#6-the-re-run-2026-08-16-after-the-donor-retire)). Measured by line count of `git grep -o -h -E '\bhframe\b' -- . ':(exclude).beads'` (the row first recorded 152/39, on a differently-scoped count). That is the ledger's header rule working, not drift — and it means the public surface is not final. |
 | Four `:recovery` keywords still spelling `h-fn` — **DISCHARGED 2026-08-15** | `rf2-15bqc`'s **PR #8311 merged at 08:23:16Z**. `grep -rn 'h-fn' implementation/hicasso/src/` returns nothing. | This remainder was the *source-coordinate / error-shape* family's blocker, and it is gone: family 4 was re-run against the landed tree in §5 below. |
 
 **No score on any checkpoint page was recomputed by this bead, and no
@@ -266,10 +266,13 @@ family's evidence that it ran over something.
 
 The certification stays **partial**, and one thing about the partiality has changed since §5.
 
-- **Naming-ledger row 18 is still unexecuted**, and `rf2-t32wg` — the seam it waits on — is no longer
-  merely open: it is **deferred to 2026-09-16**. The horizon now has a date, which is an improvement in
-  the record and no change at all in what is certified. `h/hframe` is still on the door at `HS-43`,
-  and the facade-inventory gate above confirms it on this base.
+- **Naming-ledger row 18's seam is ruled.** `rf2-t32wg` is no longer open, and no longer merely
+  scheduled: it was **ruled and closed on 2026-08-30** — a refusing render extent may expose its
+  declared frame to the pure identity and capture doors, while stateful ambient operations stay
+  refused, with `h/hframe` and its error id retired and no alias — and execution landed under
+  `rf2-6c12m.13`. That is a change in the record and not in what this page certifies: `h/hframe` was
+  on the door at `HS-43` on the base measured here, and the facade-inventory gate above confirms it
+  on that base.
 - **Family 5 still does not exist**, and §4's correction is unchanged rather than merely un-rechecked:
   `budgets.md`'s ledger row `C1` reads `UNPINNED` with instrument `— (none)`, repointed to `rf2-85og2`,
   which is open and sitting in the measurement lane. There is no pinned regression gate to re-run.
