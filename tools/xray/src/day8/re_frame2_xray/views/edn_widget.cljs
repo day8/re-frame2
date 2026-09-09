@@ -22,10 +22,25 @@
 
       (inspect v)               ;; canonical L4 detail-panel renderer
       (inspect v node-key)      ;; with a stable per-mount qualifier
+      (inspect-view v node-key) ;; the same, for a Fresco-authored panel
       (inspect-inline v)        ;; compact one-liner (hover / list cells)
 
       (code-block {:source \"(reg-event :foo …)\"
                    :lang   :clojure})
+
+  ## Two heads, one renderer (rf2-k97c.3)
+
+  `inspect` emits the Reagent head; `inspect-view` emits the Fresco
+  boundary. Same value, same opts, same renderer underneath — only the
+  observer differs. A panel re-authored in the re-frame-native view layer
+  reaches for `inspect-view`; a panel still on `reg-view` keeps `inspect`
+  and changes nothing.
+
+  Everything else here — `inspect-inline`, `code-block`, the tokenizer —
+  is a PLAIN FUNCTION returning pure hiccup, so a migrated panel CALLS it
+  (`(code-block {…})`) rather than putting it in head position, where
+  Fresco refuses a plain fn by design. That is a call-site rule for the
+  migrating panel, not a change here.
 
   ## Posture
 
@@ -75,6 +90,15 @@
 ;; sentinel-routing branches. Call sites may also call `ei/edn-inspector`
 ;; directly.
 
+(defn inspect-opts
+  "The opts map `inspect` and `inspect-view` both hand the widget. Named
+  once so the two heads cannot drift apart on the thing that decides what
+  the operator sees — the panel-id that keys expansion state, and the
+  expand ceiling."
+  [node-key]
+  {:panel-id (keyword (str "rf.xray.inspect/" node-key))
+   :default-expanded-depth 3})
+
 (defn inspect
   "Sentinel-aware current-state rendering for one value — the canonical
   L4 detail-panel renderer. Routes through the first-class
@@ -89,9 +113,34 @@
   mode on `ei/edn-inspector`)."
   ([v] (inspect v "root"))
   ([v node-key]
-   [ei/edn-inspector v
-    {:panel-id (keyword (str "rf.xray.inspect/" node-key))
-     :default-expanded-depth 3}]))
+   [ei/edn-inspector v (inspect-opts node-key)]))
+
+(defn inspect-view
+  "`inspect`, for a panel that has been re-authored in the re-frame-native
+  view layer (rf2-k97c.3).
+
+  Same value, same opts, same renderer — the ONLY difference is the head.
+  `inspect` emits `[ei/edn-inspector …]`, which is a Reagent component;
+  this emits `[ei/edn-inspector-view …]`, which is a Fresco boundary
+  reading through Fresco's own collector. A plain function in head
+  position is a loud error in a Fresco body by design, so a migrated panel
+  cannot keep calling `inspect`, and giving each migrating panel its own
+  hand-rolled head would put the facade's one-renderer-many-call-sites
+  property back where it was before this namespace existed.
+
+  `node-key` does double duty here: it is the panel-id qualifier, as it is
+  for `inspect`, AND the boundary's required `:mount-id`. A Fresco
+  boundary is a React function component with no form-2 outer body, so it
+  cannot mint its own per-mount identity — see `ei/edn-inspector-view`.
+  That makes `node-key` load-bearing rather than decorative: two mounts
+  sharing one `node-key` now share a width slot and a projection cache as
+  well as a panel-id, so give each mount its own."
+  ([v] (inspect-view v "root"))
+  ([v node-key]
+   [ei/edn-inspector-view
+    {:mount-id (str "rf-xray-inspect-" node-key)
+     :value    v
+     :opts     (inspect-opts node-key)}]))
 
 (defn inspect-inline
   "Compact one-line current-state rendering for hover tooltips / list
@@ -370,13 +419,19 @@
                      :box-sizing  "border-box"
                      :overflow-x  "auto"
                      :white-space "pre"}}
+       ;; rf2-k97c.3 — the React key rides in each span's own ATTRIBUTE
+       ;; MAP rather than in vector metadata. Both spellings work under
+       ;; Reagent; only the attribute map is read by the re-frame-native
+       ;; view layer, and this block is pure hiccup that a migrated panel
+       ;; will render inside a Fresco boundary. The whitespace branch
+       ;; gains an attribute map it did not have, which is the whole of
+       ;; the change to it.
        (into [:code]
              (for [[idx [t literal]] (map-indexed vector tokens-seq)]
-               (with-meta
-                 (if (= t :whitespace)
-                   [:span literal]
-                   [:span {:style {:color (get tokens
-                                               (highlight-clojure-token t)
-                                               (:text-primary tokens))}}
-                    literal])
-                 {:key idx})))])))
+               (if (= t :whitespace)
+                 [:span {:key idx} literal]
+                 [:span {:key   idx
+                         :style {:color (get tokens
+                                             (highlight-clojure-token t)
+                                             (:text-primary tokens))}}
+                  literal])))])))
