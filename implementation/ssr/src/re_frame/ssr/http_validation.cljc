@@ -41,7 +41,7 @@
   because the two boundaries surface distinct `:where` tags that are part
   of each layer's documented contract — the fx boundary throws
   `:rf.error/header-invalid-name` /
-  `:rf.error/cookie-invalid-attribute` with `:where 'rf.ssr/response`, the
+  `:rf.error/cookie-invalid-attribute` with `:where 're-frame.ssr.response`, the
   materialiser throws `:rf.error/cookie-invalid-name` /
   `:rf.error/cookie-invalid-attribute` with
   `:where 'rf.ssr/cookie->set-cookie-header`. Both boundaries emit the SAME

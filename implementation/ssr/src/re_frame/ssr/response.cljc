@@ -200,7 +200,7 @@
   [fx-id arg-key value expected]
   (rf.error/throw-error!
     :rf.error/server-fx-args-invalid
-    'rf.ssr/response
+    're-frame.ssr.response
     (str fx-id " " arg-key " must be " expected "; got "
          (pr-str (rf.error/diag-value-summary value))
          ". Fix the fx args map at the dispatch site — the reserved"
@@ -332,7 +332,7 @@
     (when (rf.ssr.http-validation/contains-injection-char? header-value)
       (rf.error/throw-error!
         :rf.error/header-invalid-value
-        'rf.ssr/response
+        're-frame.ssr.response
         (str "header " (pr-str header-name)
              " value contains CR/LF/NUL — forbidden"
              " by RFC 7230 §3.2.4 (header-splitting"
@@ -364,7 +364,7 @@
     (when (rf.ssr.http-validation/contains-injection-char? location-string)
       (rf.error/throw-error!
         :rf.error/redirect-invalid-location
-        'rf.ssr/response
+        're-frame.ssr.response
         (str "redirect :location contains CR/LF/NUL"
              " — forbidden by RFC 7230 §3.2.4"
              " (header-splitting injection). Strip CR/LF/NUL from the"
@@ -397,7 +397,7 @@
     (when-not (rf.ssr.http-validation/valid-token-name? header-name-string)
       (rf.error/throw-error!
         :rf.error/header-invalid-name
-        'rf.ssr/response
+        're-frame.ssr.response
         (str "header :name " (pr-str header-name-string)
              " violates RFC 7230 §3.2.6 token grammar"
              " (no CTLs, whitespace, or separators"
@@ -423,7 +423,7 @@
   (when (nil? cookie-name)
     (rf.error/throw-error!
       :rf.error/cookie-invalid-name
-      'rf.ssr/response
+      're-frame.ssr.response
       "cookie :name is required; supply a non-nil :name on the cookie map."
       {:recovery :supply-a-cookie-name
        :extra    {:name cookie-name}}))
@@ -445,7 +445,7 @@
                    :cljs (or (keyword? cookie-name) (symbol? cookie-name))))
     (rf.error/throw-error!
       :rf.error/cookie-invalid-name
-      'rf.ssr/response
+      're-frame.ssr.response
       (str "cookie :name must be a string or a keyword/symbol; got "
            (pr-str cookie-name)
            #?(:clj (str " (a " (.getName (class cookie-name)) ")") :cljs "")
@@ -457,7 +457,7 @@
     (when-not (rf.ssr.http-validation/valid-token-name? cookie-name-string)
       (rf.error/throw-error!
         :rf.error/cookie-invalid-name
-        'rf.ssr/response
+        're-frame.ssr.response
         (str "cookie :name " (pr-str cookie-name-string)
              " violates RFC 6265 §4.1.1 token grammar"
              " (no CTLs, whitespace, or separators"
@@ -520,7 +520,7 @@
     (when invalid?
       (rf.error/throw-error!
         :rf.error/cookie-invalid-attribute
-        'rf.ssr/response
+        're-frame.ssr.response
         (str "cookie attribute " attribute-key " " (pr-str serialised-value)
              (if value-attribute?
                " contains CR/LF/NUL — forbidden by RFC 7230 §3.2.4"
@@ -809,7 +809,7 @@
     (when (seq retired-keys)
       (rf.error/throw-error!
         :rf.error/redirect-retired-target-key
-        'rf.ssr/response
+        're-frame.ssr.response
         (str "redirect target key(s) " (pr-str retired-keys)
              " are retired — the canonical redirect"
              " target key is :location. The SSR redirect"

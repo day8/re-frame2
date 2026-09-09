@@ -135,7 +135,7 @@
                  (re-matches tag-name-re tag-name))
     (rf.error/throw-error!
       :rf.error/invalid-tag-name
-      'rf.ssr/emit
+      're-frame.ssr.emit
       (str "tag-name " (pr-str tag-name)
            " (from hiccup head " (pr-str source-kw) ")"
            " does not match the HTML5/SVG/MathML"
@@ -325,7 +325,7 @@
   (let [safe-element (rf.error/safe-form element)]
     (rf.error/throw-error!
       :rf.error/invalid-hiccup-head
-      'rf.ssr/emit
+      're-frame.ssr.emit
       (str "hiccup vector head " (pr-str head)
            " (in element " (pr-str safe-element) ") is in the framework-reserved"
            " :rf/* namespace but is not a hiccup head this emitter"
@@ -368,7 +368,7 @@
   (let [safe-element (rf.error/safe-form element)]
     (rf.error/throw-error!
       :rf.error/invalid-hiccup-head
-      'rf.ssr/emit
+      're-frame.ssr.emit
       (str "hiccup vector head " (pr-str (first safe-element))
            " (in element " (pr-str safe-element) ") is not a valid hiccup head — a head"
            " must be a keyword (DOM tag / :<> / :> /"
@@ -568,7 +568,7 @@
         (if (fn? rendered)
           (rf.error/throw-error!
             :rf.error/ssr-nonrenderable-component
-            'rf.ssr/emit
+            're-frame.ssr.emit
             (str "a callable hiccup component resolved to a fn even after the"
                  " Form-2 unwrap (outer fn → inner render fn → still a fn). A"
                  " Form-2 component's inner render fn must return hiccup, not"
@@ -667,7 +667,7 @@
          (let [el (rf.error/safe-form el)]
            (rf.error/throw-error!
              :rf.error/ssr-reagent-native-head
-             'rf.ssr/emit
+             're-frame.ssr.emit
              (str "Reagent-native interop head `:>` "
                   "(element " (pr-str el) ") cannot be "
                   "rendered server-side — it targets a "
@@ -701,7 +701,7 @@
          (let [el (rf.error/safe-form el)]
            (rf.error/throw-error!
              :rf.error/ssr-suspense-boundary-outside-stream
-             'rf.ssr/emit
+             're-frame.ssr.emit
              (str ":rf/suspense-boundary (element "
                   (pr-str el) ") is a streaming-only "
                   "marker recognised by the streaming "

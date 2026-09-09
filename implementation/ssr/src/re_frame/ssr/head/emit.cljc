@@ -83,7 +83,7 @@
                             (not (Double/isFinite (double number))))
                        (rf.error/throw-error!
                          :rf.error/invalid-json-ld-number
-                         'rf.ssr.head/emit
+                         're-frame.ssr.head.emit
                          (str "JSON-LD number " (pr-str number)
                               " is non-finite — JSON has no"
                               " representation for ##Inf /"
@@ -153,7 +153,7 @@
                        (nil? map-key)
                        (rf.error/throw-error!
                          :rf.error/invalid-json-ld-key
-                         'rf.ssr.head/emit
+                         're-frame.ssr.head.emit
                          (str "JSON-LD object key is nil"
                               " — JSON object keys must be"
                               " strings; nil has no key"

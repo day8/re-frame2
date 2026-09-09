@@ -347,7 +347,7 @@
                 ;; precursor with no readable in-token EDN escape.
                 (rf.error/throw-error!
                   :rf.error/ssr-edn-script-breakout
-                  'rf.ssr/html-helpers
+                  're-frame.ssr.html-helpers
                   (str "EDN script body carries a `<"
                        nxt "` HTML breakout precursor "
                        "in a non-string (keyword/symbol) "
@@ -391,7 +391,7 @@
       s
       (rf.error/throw-error!
         :rf.error/ssr-invalid-attribute-name
-        'rf.ssr/html-helpers
+        're-frame.ssr.html-helpers
         (str "attribute name violates the HTML5 grammar "
              "[A-Za-z][A-Za-z0-9_:-]*; got " (pr-str s)
              ". Rename the attribute key to a letter-led name of "

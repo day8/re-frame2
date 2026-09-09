@@ -1066,6 +1066,27 @@ _ROOT_ALIAS = "rf"
 _ROOT_NS = "re-frame.core"
 _FRAMEWORK_NS_PREFIX = "re-frame"
 
+# FORM 2 — a RESERVED PUBLIC EVENT ID written as a symbol (Spec 009 §The
+# thrown-error shape). These name a place a reader can land on: the event is
+# public, reserved and documented, so an author who greps the symbol arrives at
+# a real contract. They are NOT vars and never will be, so the var oracle below
+# would report them as dead doors for ever.
+#
+# A FROZEN TWO-MEMBER SET, DELIBERATELY, and it is not the seed of a catalogue
+# reader. Sanctioning the shape `rf.resource/*` would bless every typo in the
+# namespace, and parsing the event catalogue out of `spec/Conventions.md` would
+# buy a general mechanism for two sites. Each member is listed with the
+# Conventions row that reserves it; a third member is a deliberate edit here,
+# reviewed against that file, not something the gate infers.
+_SANCTIONED_EVENT_ID_WHERE_SYMS: frozenset[str] = frozenset({
+    # `spec/Conventions.md` §The single-root reserved set, `:rf.resource/*` row
+    # — the public resource events, `:rf.resource/invalidate-tags` among them.
+    "rf.resource/invalidate-tags",
+    # `spec/Conventions.md` §The single-root reserved set, `:rf.mutation/*` row
+    # — the public mutation events, `:rf.mutation/execute` among them.
+    "rf.mutation/execute",
+})
+
 
 def _namespace_of_where_sym(qualifier: str) -> str:
     """The namespace a where-sym's QUALIFIER names, under the canonical dialect."""
@@ -1712,14 +1733,41 @@ def _scan_where_syms(path: Path, text: str, raw_lines: list[str]) -> list[WhereS
 def where_sym_findings(
     observed: list[WhereSym], index: PublicVarIndex
 ) -> list[Finding]:
-    """The where-syms that name no reachable var."""
+    """The where-syms that name no place a reader can land on."""
     findings: list[Finding] = []
     for site in observed:
+        if site.symbol in _SANCTIONED_EVENT_ID_WHERE_SYMS:
+            # FORM 2 — a reserved public event id. Not a var; see the set.
+            continue
         if "/" not in site.symbol:
-            # An UNQUALIFIED where-sym names no namespace to check it against,
-            # and inventing one would be guessing. Two exist on trunk
-            # (`'defwrapper`, `'defreg-macro`); both name a macro a reader can
-            # still grep for. Counted, never a finding.
+            if "." not in site.symbol:
+                # An UNQUALIFIED where-sym names no namespace to check it
+                # against, and inventing one would be guessing. Two exist on
+                # trunk (`'defwrapper`, `'defreg-macro`); both name a macro a
+                # reader can still grep for. Counted, never a finding.
+                continue
+            # FORM 3 — a REAL NAMESPACE SPELLED IN FULL (`'re-frame.ssr.emit`).
+            # A slash-free DOTTED symbol names a namespace rather than a var,
+            # so it is graded against the namespace index directly — no alias
+            # expansion, which is the whole point: `'rf.ssr.emit` is the
+            # require-alias spelling, quoting does not expand an alias, and
+            # `(namespace 'rf.ssr.emit)` is nil. Only the full name resolves,
+            # and the reader who most needs this slot is an off-box agent with
+            # no checkout, which can grep a full namespace onto its `ns` form.
+            #
+            # `publics_of` is reused precisely because it separates "namespace
+            # exists but exports nothing" (a set) from "no such namespace"
+            # (None). A namespace that exports nothing is still a place to
+            # land, so only None is a finding.
+            if not _is_framework_family(site.symbol, site.symbol):
+                # A genuinely third-party namespace cannot be checked from this
+                # tree; saying so is honest where a green would not be.
+                continue
+            if index.publics_of(site.symbol) is None:
+                findings.append(Finding(
+                    site.path, site.line, "where-sym-unknown-namespace",
+                    site.snippet, site.symbol,
+                ))
             continue
         qualifier, name = site.symbol.rsplit("/", 1)
         namespace = _namespace_of_where_sym(qualifier)
@@ -2197,9 +2245,23 @@ _WHERE_SYM_FIX_HINT = (
     "A thrown error's where-sym is the second positional argument of "
     "`error/throw-error!` / `error/thrown-ex-info` (and the `:where` slot it "
     "lands in). Its ONE job is that an author who reads the message can grep "
-    "for the symbol and land on something — so it must NAME A REACHABLE VAR.\n"
-    "  * The rule is RESOLVABILITY, not a spelling. `rf/reg-flow` and\n"
-    "    `re-frame.flows/flows` are BOTH right — `re-frame.core`'s own\n"
+    "for the symbol and land on something — so it must NAME A PLACE A READER "
+    "CAN LAND ON. Exactly three spellings satisfy that (Spec 009 §The "
+    "thrown-error shape):\n"
+    "      1. a PUBLIC VAR in the alias dialect — `'rf/reg-flow`,\n"
+    "         `'rf.ssr/emit-ui-tree`;\n"
+    "      2. a RESERVED PUBLIC EVENT ID as a symbol —\n"
+    "         `'rf.resource/invalidate-tags`. A CLOSED two-member set in this\n"
+    "         script, each entry citing the Conventions row reserving it;\n"
+    "         `rf.resource/<anything-else>` is NOT sanctioned by it.\n"
+    "      3. a REAL NAMESPACE SPELLED IN FULL — `'re-frame.ssr.emit`. This is\n"
+    "         the honest answer when the failure belongs to a MODULE and no\n"
+    "         single var owns it: name the module's namespace rather than\n"
+    "         inventing an entry point. Spell it FULLY — `'rf.ssr.emit` is the\n"
+    "         require-alias spelling, quoting does not expand an alias, and it\n"
+    "         is graded as a defect.\n"
+    "  * Within form 1 the rule is RESOLVABILITY, not a spelling. `rf/reg-flow`\n"
+    "    and `re-frame.flows/flows` are BOTH right — `re-frame.core`'s own\n"
     "    `not-queryable-kinds` map writes one of each, side by side — because\n"
     "    the discriminator is whether the namespace exports the name.\n"
     "  * So the fix is whichever of these is true of the site:\n"
@@ -2207,12 +2269,15 @@ _WHERE_SYM_FIX_HINT = (
     "      - the owning namespace exports it but the façade does not: spell it\n"
     "        fully, `'re-frame.<ns>/<name>` (or `'rf.<tail>/<name>` under the\n"
     "        Conventions §Require-alias dialect);\n"
-    "      - nothing exports it (it is private, or it is a MODULE name rather\n"
-    "        than a fn): name the nearest PUBLIC entry point the author would\n"
-    "        actually call.\n"
-    "  * A private var does not resolve for a reader either — a fully-qualified\n"
-    "    `'re-frame.router/build-envelope` still fails, because that var is\n"
-    "    `defn-`.\n"
+    "      - nothing exports it because it is a MODULE name rather than a fn:\n"
+    "        spell the module's namespace in full (form 3). Do NOT invent a\n"
+    "        `'rf/<entry-point>` the author would have to guess at — a\n"
+    "        location is a legitimate answer to \"where did this fail\".\n"
+    "  * A PRIVATE var in the right namespace is an honest location and is\n"
+    "    left alone — but the gate cannot see the difference, so a\n"
+    "    fully-qualified `'re-frame.router/build-envelope` is reported anyway\n"
+    "    (that var is `defn-`). Prefer the enclosing namespace (form 3) at a\n"
+    "    NEW site; an existing one is baselined, not a campaign.\n"
     "  Recorded, already-known dead doors live in " + WHERE_SYM_BASELINE_REL +
     "; that file\n"
     "  ratchets DOWN only, so clearing one is welcome and raising a floor is a\n"
@@ -3041,6 +3106,23 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
             # the pair is what separates "the splice repair is positional"
             # from "the walker descends into every `#?@` it meets".
             (299, "where-sym-unresolvable", "rf.fixture/ghost-splice-discarded"),
+            # (9) FORM 3 — rf2-uewm. Every one of these three was GREEN before
+            # the widening, and not because it resolved: `where_sym_findings`
+            # skipped every slash-free symbol BEFORE consulting the namespace
+            # index, so `'rf.ssr.emit` and `'rf.ssr.does-not-exist` were
+            # treated identically. The dotted spelling did not make the
+            # convention self-enforcing, it made it UNCHECKABLE.
+            #
+            # The first is the load-bearing one and the reason the ruled
+            # spelling is the FULL namespace: `rf.fixture` is the require-alias
+            # of a namespace that really exists as `re-frame.fixture`, and its
+            # resolving twin is pinned OBSERVED in the negative fixture.
+            (321, "where-sym-unknown-namespace", "rf.fixture"),
+            (327, "where-sym-unknown-namespace", "re-frame.nosuch.module"),
+            # The sanctioned event-id set is CLOSED at two members. A sibling
+            # event under the same reserved namespace is not sanctioned by it —
+            # a wildcard over `rf.resource/*` would green every typo there.
+            (338, "where-sym-unknown-namespace", "rf.resource/ensure"),
         )),
         (_WHERE_SYM_NEGATIVE, ()),
     ]
@@ -3070,7 +3152,7 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
     neg_path = _WHERE_SYM_FIXTURE_ROOT / _WHERE_SYM_NEGATIVE
     neg_text = neg_path.read_text(encoding="utf-8", errors="replace")
     neg_observed = _scan_where_syms(neg_path, neg_text, neg_text.splitlines())
-    if len(neg_observed) < 25:
+    if len(neg_observed) < 29:
         fail(
             f"the negative fixture observed only {len(neg_observed)} where-sym(s). "
             "A green there is only evidence while the sites are still being SEEN "
@@ -3111,6 +3193,19 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
         (210, "builder", "rf.fixture/splice-in-do-public"),
         (216, "builder", "rf.fixture/splice-in-conditional-do-public"),
         (222, "builder", "rf.fixture/splice-cljs-only-public"),
+        # FORM 3 AND FORM 2 — rf2-uewm, and the direction is the reversed one
+        # again. These four are green for two DIFFERENT reasons, and neither
+        # reason is visible in a findings assertion: the first names a real
+        # namespace, the middle two are sanctioned event ids that are not vars
+        # at all, and the last is a third-party namespace the oracle has no
+        # opinion about. Every one of them was ALSO green before the widening,
+        # when slash-free symbols were skipped outright — so without an
+        # OBSERVED pin this whole block would re-pass under the very defect it
+        # was written to close.
+        (243, "builder", "re-frame.fixture"),
+        (249, "builder", "rf.resource/invalidate-tags"),
+        (255, "builder", "rf.mutation/execute"),
+        (267, "builder", "reagent2.impl.component"),
     )
     got_observations = {(w.line, w.source, w.symbol) for w in neg_observed}
     for pin in required_observations:

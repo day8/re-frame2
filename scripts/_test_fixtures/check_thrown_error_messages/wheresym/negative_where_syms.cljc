@@ -223,3 +223,48 @@
     :rf.error/ok-twentyfive
     'rf.fixture/splice-cljs-only-public
     "a :cljs-ONLY door: live under ClojureScript, invisible to a JVM oracle"))
+
+;; ---- FORM 3 AND FORM 2: THE TWO NON-VAR SPELLINGS THAT ARE STILL PLACES ---
+;;
+;; rf2-uewm. A where-sym does not have to name a VAR; it has to name a place a
+;; reader can land on. Two further spellings do, and both must stay green:
+;;
+;;   * a REAL NAMESPACE SPELLED IN FULL. `re-frame.fixture` exists, so it is a
+;;     place; its require-alias spelling `rf.fixture` FIRES in the positive
+;;     fixture. Pinned OBSERVED below, because green here alone is also what a
+;;     detector that skips every slash-free symbol looks like - which is
+;;     exactly the state this rule replaced.
+;;   * a RESERVED PUBLIC EVENT ID. These are not vars and never will be, so the
+;;     public-var oracle would call them dead doors for ever. The sanctioned
+;;     set is closed at two members, each citing the Conventions row that
+;;     reserves it; a third spelling under the same namespace fires opposite.
+
+(defn namespace-spelled-in-full-resolves []
+  (rf.error/throw-error!
+    :rf.error/ok-twentysix
+    're-frame.fixture
+    "a real namespace is a place a reader can land on"))
+
+(defn sanctioned-resource-event-id-resolves []
+  (rf.error/throw-error!
+    :rf.error/ok-twentyseven
+    'rf.resource/invalidate-tags
+    "a reserved public event id (Conventions, single-root reserved set)"))
+
+(defn sanctioned-mutation-event-id-resolves []
+  (rf.error/throw-error!
+    :rf.error/ok-twentyeight
+    'rf.mutation/execute
+    "the other sanctioned event id, same reserved-set family"))
+
+;; A THIRD-PARTY namespace cannot be checked from this tree at all, and saying
+;; so is honest where a green would not be. This one stays quiet for a
+;; DIFFERENT reason from the three above - not "it resolves" but "the oracle
+;; has no opinion" - so a widening that began grading foreign namespaces would
+;; redden correct code here.
+
+(defn third-party-namespace-is-not-graded []
+  (rf.error/throw-error!
+    :rf.error/ok-twentynine
+    'reagent2.impl.component
+    "outside the framework family; unknowable from this tree"))

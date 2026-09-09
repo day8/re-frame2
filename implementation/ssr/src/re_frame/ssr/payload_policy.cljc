@@ -212,7 +212,7 @@
     (malformed-allowlist? payload)
     (rf.error/throw-error!
       :rf.error/ssr-malformed-payload-allowlist
-      'rf.ssr/payload-policy
+      're-frame.ssr.payload-policy
       (str "ssr-handler :payload allowlist must be a "
            "non-empty VECTOR of KEYWORD "
            "top-level app-db keys; got "
@@ -232,7 +232,7 @@
     (keyword? payload)
     (rf.error/throw-error!
       :rf.error/ssr-unknown-payload-policy
-      'rf.ssr/payload-policy
+      're-frame.ssr.payload-policy
       (str "ssr-handler :payload keyword must be "
            (pr-str whole-app-db-policy)
            " (or pass a vector allowlist of "
@@ -244,7 +244,7 @@
     :else
     (rf.error/throw-error!
       :rf.error/ssr-missing-payload-policy
-      'rf.ssr/payload-policy
+      're-frame.ssr.payload-policy
       (str "ssr-handler requires an explicit hydration-"
            "payload policy: pass :payload "
            "[<top-level-app-db-keys>] (allowlist, "

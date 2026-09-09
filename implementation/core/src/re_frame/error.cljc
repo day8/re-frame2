@@ -105,9 +105,20 @@
   Args:
     error-id  — the `:rf.error/<category>` keyword. The SOLE canonical
                 machine discriminator; lands in the `:rf.error/id` slot.
-    where-sym — the user-facing fn symbol that threw (`'rf/init!`,
-                `'rf/reg-flow`, …) so a grep-for-symbol lands on the call
-                site; lands in `:where`.
+    where-sym — A PLACE A READER CAN LAND ON, so a grep-for-symbol
+                arrives somewhere real; lands in `:where`. Exactly three
+                spellings satisfy it (Spec 009 §The thrown-error shape):
+                  1. a PUBLIC VAR in the alias dialect — `'rf/init!`,
+                     `'rf.ssr/emit-ui-tree`;
+                  2. a RESERVED PUBLIC EVENT ID as a symbol —
+                     `'rf.resource/invalidate-tags`;
+                  3. a REAL NAMESPACE SPELLED IN FULL —
+                     `'re-frame.ssr.emit`, the FULL namespace and never
+                     the `'rf.ssr.emit` require-alias spelling, because
+                     quoting does not expand an alias.
+                A symbol naming none of the three — a var its namespace
+                does not export, or a qualifier for a namespace absent
+                from the tree — is a defect.
     reason    — the required one-sentence human diagnostic naming the
                 public concept, the expected fix, and key context. Lands
                 in `:reason` AND leads the derived message.

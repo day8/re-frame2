@@ -300,3 +300,42 @@
     :rf.error/ghost-twentyseven
     'rf.fixture/ghost-splice-discarded
     "`#_` swallows the whole `do`, splice and all"))
+
+;; ---- (9) FORM 3 - A NAMESPACE THAT IS NOT A PLACE ------------------------
+;;
+;; rf2-uewm widened the rule: a slash-free DOTTED where-sym names a NAMESPACE
+;; (`'re-frame.ssr.emit`), which is the honest answer to "where did this fail"
+;; when no single var owns the failure. Before that widening EVERY slash-free
+;; symbol was skipped before the namespace index was consulted, so all three
+;; sites below were as green as a correct one - the convention was not
+;; self-enforcing, it was UNCHECKED.
+;;
+;; The first is the load-bearing one. `rf.fixture` is the require-ALIAS
+;; spelling of a namespace that really does exist, as `re-frame.fixture`.
+;; Quoting does not expand an alias and `(namespace 'rf.fixture)` is nil, so
+;; only the FULL name is a place a reader can land on. Its resolving twin sits
+;; in the negative fixture and the PAIR is the assertion: either half alone is
+;; green under a detector that has stopped looking at slash-free symbols.
+
+(defn ghost-namespace-written-as-an-alias []
+  (rf.error/throw-error!
+    :rf.error/ghost-twentyeight
+    'rf.fixture
+    "the alias spelling of a real namespace resolves for nobody"))
+
+(defn ghost-namespace-that-does-not-exist []
+  (rf.error/throw-error!
+    :rf.error/ghost-twentynine
+    're-frame.nosuch.module
+    "a full-namespace spelling still has to name a namespace that EXISTS"))
+
+;; The sanctioned event-id set is CLOSED and holds exactly two members. A
+;; sibling event in the same reserved namespace is NOT sanctioned by it - were
+;; it a wildcard over `rf.resource/*`, every typo under that namespace would be
+;; green, which is the widening rf2-uewm refused by name.
+
+(defn ghost-unsanctioned-event-id []
+  (rf.error/throw-error!
+    :rf.error/ghost-thirty
+    'rf.resource/ensure
+    "a real reserved event, but not one of the two sanctioned where-syms"))
