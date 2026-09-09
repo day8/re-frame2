@@ -937,12 +937,29 @@
   without breaking the deterministic `<type>#<n>` sequencing
   `machine-transition`'s purity contract rests on, and it must not destroy the
   occupant, which Spec 005's *Teardown is explicit in v1* rule reserves to the
-  author. The `reason` therefore names the author-side escapes: a distinct
-  `:id-prefix` (rf2-r9ey made that key load-bearing on the declarative path,
-  where it had been accepted, documented and then ignored — it is the
-  NAMESPACING escape, and the one that fits the two-parents-one-TYPE shape this
-  reject fires on), a distinct `:fixed-actor-id`, or destroying the occupant
-  before spawning over it."
+  author. The `reason` therefore names the author-side escapes, and it names
+  them PER SHAPE, because the three collision shapes do not share a recovery and
+  one of them has neither of the obvious two (rf2-1sip, measured):
+
+    * DISTINCT parent TYPES minting one child type — a distinct `:id-prefix`
+      separates them. rf2-r9ey made that key load-bearing on the declarative
+      path, where it had been accepted, documented and then ignored.
+    * A parent colliding with its OWN live orphan — destroy the orphan first,
+      or name a distinct `:fixed-actor-id`.
+    * TWO LIVE INSTANCES OF ONE PARENT TYPE — NEITHER key can separate them.
+      Both are static literals read off the ONE spec the two instances share,
+      so `:id-prefix` re-mints the same address for both, and a shared
+      `:fixed-actor-id` is worse than useless: it sends the second instance
+      down the occupied-fixed-address path, where it REPLACES the first
+      instance's live child. This shape spawns its child by emitting
+      `[:rf.machine/spawn ...]` from an action instead — the hand-emitted
+      allocator's counter is the FRAME-wide slot at
+      `[:rf.runtime/machines :spawn-counter <id-prefix>]`
+      (`allocate-actor-id-in-runtime-db` above), so siblings get `#1` and `#2`.
+
+  Naming an escape that the shape in front of the author cannot use is worse
+  than naming none: the `:fixed-actor-id` advice, followed on the third shape,
+  destroys a live actor."
   [frame-id args spawned-id]
   (let [machine-id (:machine-id args)
         parent-id  (:rf/parent-id args)
@@ -956,10 +973,20 @@
                           "<type>#<n> counter is per-spawning-snapshot while the "
                           "address space is per-frame, so a respawned parent, or "
                           "a second parent spawning the same machine TYPE, can "
-                          "re-mint an address that is still held. Give this spawn "
-                          "a distinct :id-prefix so its addresses are namespaced "
-                          "apart, or a distinct :fixed-actor-id, or destroy the "
-                          "occupant explicitly before spawning over it."))]
+                          "re-mint an address that is still held. The recovery "
+                          "depends on which of those shapes this is. Two DISTINCT "
+                          "parent types minting one child type: give each spawn a "
+                          "distinct :id-prefix. A parent colliding with its OWN "
+                          "live orphan: destroy the orphan first, or give the "
+                          "spawn a distinct :fixed-actor-id. But TWO LIVE "
+                          "INSTANCES OF ONE PARENT TYPE cannot be separated by "
+                          "either key — both are static literals on the one spec "
+                          "the instances share, and a shared :fixed-actor-id "
+                          "makes the second instance REPLACE the first's child — "
+                          "so spawn the child by emitting [:rf.machine/spawn "
+                          "{:machine-id " machine-id "}] from an action instead, "
+                          "which allocates on the frame-wide counter and cannot "
+                          "collide."))]
     (rf.trace/emit-error! :rf.error/machine-spawn-all-duplicate-id
                        {:machine-id machine-id
                         :failing-id spawned-id

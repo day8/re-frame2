@@ -3069,8 +3069,19 @@ address and the spawning parent. That is the existing category rather than a new
 one — it already means "two distinct spawns resolve to one actor address and one
 would silently overwrite the other", including the fixed-versus-generated shape —
 and `:recovery` is `:no-recovery`: the runtime may not pick a different address
-without breaking the deterministic `<type>#<n>` sequencing, so the author gives
-the spawn a distinct `:fixed-actor-id` or destroys the occupant first. One case
+without breaking the deterministic `<type>#<n>` sequencing. **Which author-side
+recovery exists depends on the shape, and one shape has neither obvious one.**
+Two DISTINCT parent types minting the same child type are separated by giving
+each a distinct `:id-prefix`; a parent colliding with its own live orphan
+destroys that orphan first, or names a distinct `:fixed-actor-id`. But **two live
+instances of ONE parent type share ONE spec**, so neither key can separate them:
+both are static literals read off that one shared spec, and pointing both
+instances at a single fixed address makes the second REPLACE the first's child
+under the occupied-`:fixed-actor-id` rule above. That shape spawns its child by
+emitting `[:rf.machine/spawn {:machine-id <child>}]` from an action instead — the
+hand-emitted allocator's counter is the frame-wide one described under
+[§Spawn-id allocator — counter location](#spawn-id-allocator--counter-location),
+so sibling instances receive `#1` and `#2` and cannot collide. One case
 is deliberately outside the guard: an **admitted `:spawn-all` child** is never
 rejected here, because the invoke-level preflight is that child's sole verdict
 (a second per-child reject would strand a live join naming a child that never

@@ -313,10 +313,11 @@
 ;; (5) The reject's own shape.
 ;; ---------------------------------------------------------------------------
 
-(deftest the-reject-carries-structural-context-only-and-names-both-escapes
+(deftest the-reject-carries-structural-context-only-and-names-a-per-shape-escape
   (testing "rf2-1sip — the diagnostic is structural-only (Spec 009 privacy: the
             spawn args / :data may hold application PII) and its human reason
-            names the two author-side escapes, since :recovery is :no-recovery"
+            names the author-side escape PER SHAPE, since :recovery is
+            :no-recovery and the three shapes do not share one"
     (reg-child! :gac8/child)
     (rf/reg-machine :gac8/parent
       {:initial :idle
@@ -346,9 +347,117 @@
           "the reason names the distinct-address escape")
       (is (re-find #"destroy" (:reason ev))
           "and the destroy-the-occupant-first escape")
+      (is (re-find #":id-prefix" (:reason ev))
+          "and the namespacing escape")
+      ;; rf2-1sip: the three shapes do NOT share a recovery, and the reason
+      ;; must say which is which — see `two-instances-of-one-parent-type-*`
+      ;; below, where BOTH static keys fail and the fixed one destroys an actor.
+      (is (re-find #"TWO LIVE INSTANCES OF ONE PARENT TYPE" (:reason ev))
+          "and it calls out the shape for which NEITHER static key works")
+      (is (re-find #"\[:rf\.machine/spawn" (:reason ev))
+          "naming the hand-emitted escape that shape actually has")
       (is (not (re-find #"hunter2" (:reason ev)))
           "and it never echoes the spawn :data")
       (is (nil? (:data ev)) "no :data rides the record")
       (is (nil? (:args ev)) "nor the raw spawn args")
       (is (not (re-find #"hunter2" (pr-str raw)))
           "and no slot of the WHOLE emitted event smuggles the payload through"))))
+
+;; ---------------------------------------------------------------------------
+;; (4) rf2-1sip — WHICH ESCAPE THE REJECT MAY HONESTLY NAME.
+;;
+;; The reject's `:recovery` is `:no-recovery`, so its human `reason` is the
+;; author's only guidance. These pin that the guidance is SHAPE-SPECIFIC: for
+;; two live instances of ONE parent type neither static key works, and the
+;; `:fixed-actor-id` half — named unconditionally before this — DESTROYS a live
+;; actor when followed. The escape that shape does have is the hand-emitted
+;; spawn, whose counter is the FRAME-wide runtime-db slot rather than the
+;; spawning snapshot's.
+;; ---------------------------------------------------------------------------
+
+(defn- hire!
+  "Register an event that spawns `parent-type` at an explicit address, so a test
+  can stand up N live INSTANCES of one parent TYPE."
+  [ev-id parent-type]
+  (rf/reg-event ev-id
+    (fn [_ [_ addr]] {:fx [[:rf.machine/spawn {:machine-id     parent-type
+                                               :fixed-actor-id addr}]]})))
+
+(deftest two-instances-of-one-parent-type-are-NOT-separated-by-id-prefix
+  (testing "rf2-1sip — `:id-prefix` is a static literal on the ONE spec both
+            instances share, so both mint the SAME <prefix>#1 and the second is
+            refused. The namespacing escape cannot reach this shape."
+    (reg-child! :gac9/child)
+    (rf/reg-machine :gac9/parent
+      {:initial :idle
+       :states  {:idle    {:on {:go :working}}
+                 :working {:spawn {:machine-id :gac9/child
+                                   :id-prefix  :gac9/worker}}}})
+    (hire! :gac9/hire :gac9/parent)
+    (rf/dispatch-sync [:gac9/hire :gac9/a])
+    (rf/dispatch-sync [:gac9/hire :gac9/b])
+    (rf/dispatch-sync [:gac9/a [:go]])
+    (is (some? (snapshot :gac9/worker#1)) "A's child took the id-prefix address")
+    (rf/dispatch-sync [:gac9/worker#1 [:mark :FROM-A]])
+
+    (rf.machines.test-support/reset-captured!)
+    (rf/dispatch-sync [:gac9/b [:go]])
+    (is (= 1 (count (rejects)))
+        "B is refused even though the author supplied the documented :id-prefix")
+    (is (= :gac9/worker#1 (:failing-id (first (rejects)))))
+    (is (nil? (snapshot :gac9/worker#2))
+        "and B gets no child at all — the prefix did not advance the counter")
+    (is (= :FROM-A (:mark (machine-data :gac9/worker#1)))
+        "A's child is untouched")))
+
+(deftest a-shared-fixed-actor-id-makes-the-second-instance-DESTROY-the-firsts-child
+  (testing "rf2-1sip — the `:fixed-actor-id` escape is also static, so both
+            instances name ONE address. That routes the second spawn down the
+            occupied-fixed-address path (rf2-dokz), which REPLACES. Following
+            this advice on this shape costs a live actor — which is why the
+            reason must not offer it here."
+    (reg-child! :gac10/child)
+    (rf/reg-machine :gac10/parent
+      {:initial :idle
+       :states  {:idle    {:on {:go :working}}
+                 :working {:spawn {:machine-id     :gac10/child
+                                   :fixed-actor-id :gac10/thechild}}}})
+    (hire! :gac10/hire :gac10/parent)
+    (rf/dispatch-sync [:gac10/hire :gac10/a])
+    (rf/dispatch-sync [:gac10/hire :gac10/b])
+    (rf/dispatch-sync [:gac10/a [:go]])
+    (rf/dispatch-sync [:gac10/thechild [:mark :FROM-A]])
+    (is (= :FROM-A (:mark (machine-data :gac10/thechild))))
+
+    (rf.machines.test-support/reset-captured!)
+    (rf/dispatch-sync [:gac10/b [:go]])
+    (is (empty? (rejects))
+        "no generated-address reject — a FIXED address is a named request")
+    (is (= :none (:mark (machine-data :gac10/thechild)))
+        "and A's child is GONE, replaced by B's fresh incarnation")))
+
+(deftest sibling-instances-CAN-each-own-a-child-via-the-hand-emitted-spawn
+  (testing "rf2-1sip — the escape this shape DOES have. A hand-emitted
+            `[:rf.machine/spawn ...]` allocates from the FRAME-wide counter at
+            `[:rf.runtime/machines :spawn-counter <id-prefix>]` rather than the
+            spawning snapshot's, so two instances of one parent TYPE receive
+            #1 and #2 and never collide. This is the control that shows the
+            frame-wide allocator already exists and already behaves correctly."
+    (reg-child! :gac11/child)
+    (rf/reg-machine :gac11/parent
+      {:initial :idle
+       :actions {:hire (fn [_] {:fx [[:rf.machine/spawn {:machine-id :gac11/child}]]})}
+       :states  {:idle    {:on {:go :working}}
+                 :working {:entry :hire}}})
+    (hire! :gac11/hire :gac11/parent)
+    (rf/dispatch-sync [:gac11/hire :gac11/a])
+    (rf/dispatch-sync [:gac11/hire :gac11/b])
+    (rf/dispatch-sync [:gac11/a [:go]])
+    (rf/dispatch-sync [:gac11/b [:go]])
+    (is (empty? (rejects)) "no collision anywhere")
+    (is (and (some? (snapshot :gac11/child#1)) (some? (snapshot :gac11/child#2)))
+        "each sibling instance owns its own child")
+    (rf/dispatch-sync [:gac11/child#1 [:mark :FROM-A]])
+    (is (= :FROM-A (:mark (machine-data :gac11/child#1))))
+    (is (= :none (:mark (machine-data :gac11/child#2)))
+        "and they are genuinely distinct actors, not one address twice")))
