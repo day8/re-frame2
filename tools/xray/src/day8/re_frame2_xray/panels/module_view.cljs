@@ -35,9 +35,38 @@
   Same contract as every Xray panel — pure hiccup, no Reagent / UIx /
   The pure data → data projection (the image-view shape) lives in
   `image_view_helpers.cljc` so the algebra runs under the JVM unit-test
-  target."
+  target.
+
+  ## THE VIEW IS A FRESCO BOUNDARY (rf2-k97c.3)
+
+  `Panel` is an `h/defview` — a real React function component minted by
+  the re-frame-native view layer — rather than an `rf/reg-view`. It is the
+  FIRST panel migrated under the epic's ruled design (rf2-k97c.2, Design
+  B): Xray's views are re-authored in Fresco and read through Fresco's
+  shipped collector, so their observation no longer depends on whichever
+  view build the installed adapter happens to supply.
+
+  Concretely, the body's one read is `h/sub`, which the collector wires,
+  activates, and re-wires AND NOTIFIES on invalidation
+  (`re-frame.fresco.impl.collector`). A `reg-view` body's
+  `@(rf/subscribe …)` is tracked only by the INSTALLED adapter's reaction
+  machinery, which is why Xray cannot paint on an element-shaped adapter
+  at all today and why a tool-owned root cannot simply keep rendering
+  `reg-view`s.
+
+  The helper fns below are unchanged and stay PLAIN — they are called by
+  application (`(frame-row fr)`), never used as hiccup heads, so Fresco's
+  \"a plain function in head position is a loud error\" rule never meets
+  them. The one thing that DID move is React keys: a `for` over rows
+  carries `:key` in the row's own attribute map rather than as vector
+  metadata, which is the spelling both substrates read.
+
+  `Panel-bridge` is how a still-`reg-view` shell mounts a boundary. It is
+  MIGRATION SCAFFOLDING with a defined end: when the shell itself is a
+  Fresco tree, the L4 registry takes `Panel` directly and the bridge goes."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.fresco :as h]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.image-view-helpers :as ih]
             [day8.re-frame2-xray.panels.image-view-reads :as image-reads]
@@ -96,29 +125,46 @@
   "Render a frame's resolved image as its `[kind id]` descriptor list —
   the image presented as a registration-set VALUE (EP-0023 §Image). Each row
   is `kind/id   <provenance>`. Capped to keep the browse calm; the count line
-  carries the full total. Pure hiccup."
+  carries the full total. Pure hiccup.
+
+  Each row carries its own `:key` in its ATTRIBUTE map. Under Reagent an
+  unkeyed `for` was a console warning; under Fresco's codec the literal
+  `:key` in the attr map is the one spelling that reaches React (see
+  `re-frame.fresco.impl.codec`'s head table), and it is read the same way
+  by every other substrate, so this is a portability fix rather than a
+  Fresco accommodation. `kind` + `id` is unique within one image's
+  descriptor set by construction — a descriptor IS a `[kind id]` pair."
   [{:keys [descriptors descriptor-count] :as _image}]
   (let [shown (take 24 descriptors)]
     (into [:div]
           (concat
             (for [{:keys [kind id provenance]} shown]
-              [:div {:style descriptor-row-style}
+              [:div {:key   (str kind " " id)
+                     :style descriptor-row-style}
                (str kind " " id)
                " "
                [:span {:style descriptor-prov-style}
                 (ih/provenance-summary provenance)]])
             (when (> descriptor-count (count shown))
-              [[:div {:style descriptor-prov-style}
+              [[:div {:key   "rf-xray-module-view-descriptor-overflow"
+                      :style descriptor-prov-style}
                 (str "… " (- descriptor-count (count shown)) " more")]])))))
 
 (defn- frame-row
   "Render one live frame as an EXECUTION CONTEXT pointing at its resolved
   image generation (EP-0023 §Frame). Shows the frame id, the image summary (N
   descriptors · K kinds), capability requirements, and the resolved `[kind
-  id]` descriptor set (the image as a value). Pure hiccup."
+  id]` descriptor set (the image as a value). Pure hiccup.
+
+  The row owns its own React `:key` (its frame id, which is unique across
+  the live-frame registry by construction). It used to be attached by the
+  caller as vector METADATA, which is a Reagent reading of `:key` that
+  Fresco's codec does not share; putting it in the attribute map is the
+  spelling both read."
   [{:keys [frame-id image capabilities has-adapter?] :as _frame-row}]
   (let [fid-name (if frame-id (str frame-id) "<anonymous>")]
-    [:div {:data-testid (str "rf-xray-module-view-frame-" fid-name)}
+    [:div {:key         fid-name
+           :data-testid (str "rf-xray-module-view-frame-" fid-name)}
      [:div {:data-testid (str "rf-xray-module-view-frame-" fid-name "-id")
             :style       frame-id-style}
       fid-name]
@@ -150,25 +196,49 @@
   [{:keys [frames images?] :as _image-view}]
   (if images?
     (into [:div {:data-testid "rf-xray-module-view-frames-list"}]
-          (for [{:keys [frame-id] :as fr} frames]
-            (with-meta (frame-row fr)
-              {:key (str (or frame-id "<anonymous>"))})))
+          ;; The key rides in `frame-row`'s own attribute map — see its
+          ;; docstring. `frame-row` is CALLED here, never used as a head:
+          ;; a plain fn in head position is a loud error under Fresco and
+          ;; a silent extra component under Reagent, and neither is wanted.
+          (map frame-row frames))
     [:div {:data-testid "rf-xray-module-view-frames-empty"
            :style       awaiting-caption-style}
      ih/no-images-caption]))
 
 ;; ---- public view ---------------------------------------------------------
 
-(rf/reg-view Panel
+(h/defview Panel
   "The Module-view tab's root. Renders the EP-0023 PUBLIC model — the
   FRAMES/IMAGES section (`image -> frame -> event stream`: every live
   image-loaded frame as an execution context carrying its resolved image's
-  `[kind id]` descriptors, rf2-32siq3.12). Subscribes to `:rf.xray/image-view`.
+  `[kind id]` descriptors, rf2-32siq3.12). Reads `:rf.xray/image-view`.
   A process running entirely on the `reg-*` sugar / load-order path with no
-  image-loaded frames renders the honest no-image caption."
-  []
-  (let [{:keys [frame-count] :as image-view}
-        @(rf/subscribe [:rf.xray/image-view])]
+  image-loaded frames renders the honest no-image caption.
+
+  A FRESCO BOUNDARY (rf2-k97c.3), not an `rf/reg-view`. Two differences
+  matter and neither is cosmetic.
+
+  The READ is `h/sub`, a plain call the collector records an edge for —
+  no deref, no reaction owned by the installed adapter, and a re-wire
+  that NOTIFIES when the substrate disposes the underlying derived value.
+  That is the third of the epic's three couplings, and it is the one a
+  first-paint smoke test cannot see.
+
+  The FRAME the read resolves against comes from React context, which the
+  enclosing frame boundary writes — `rf/frame-provider` and
+  `h/frame-provider` write the SAME context (core's
+  `re-frame.adapter.context/frame-context`), so this boundary resolves
+  `:rf/xray` identically under today's Reagent-rendered shell and under
+  the Fresco root Xray will own. It never consults
+  `:adapter/current-component`, which is the hook a foreign root cannot
+  answer and the reason Xray's own root could not simply keep rendering
+  `reg-view`s.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. This panel reads nothing from props — the L4 registry mounts it
+  with none — so it is destructured away."
+  [_props]
+  (let [{:keys [frame-count] :as image-view} (h/sub [:rf.xray/image-view])]
     [:section {:data-testid "rf-xray-module-view"
                :style       panel-root-style}
      [:div {:style panel-scroll-container-style}
@@ -181,6 +251,39 @@
          :testid "rf-xray-module-view-frames"
          :count* frame-count}
         (frames-section-body image-view))]]))
+
+;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;;
+;; Xray's shell is still a `reg-view` tree rendered by the installed
+;; adapter. `shell/detail-panel` mounts the active tab as the hiccup head
+;; `[(:panel tab)]`, and `panel-registry/reg-l4-tab!`'s `:pre` requires
+;; `:panel` to be CALLABLE — neither of which a React component is.
+;;
+;; `h/as-component` is Fresco's own outward door for exactly this: it
+;; answers a real React component for a boundary, which a React parent
+;; (UIx, Reagent or plain JavaScript) mounts UNDER THE FRAME IT IS
+;; ALREADY IN, taking the frame from React context rather than from a
+;; second root. So there is no second root here, no adapter-kind branch,
+;; and no props ABI — the three things the spike's Arm A needed and the
+;; ruling counted against it.
+;;
+;; THIS IS SCAFFOLDING WITH A DEFINED END. When the shell is itself a
+;; Fresco tree, `reg-l4-tab!` takes `Panel` directly, `[:>]` goes, and
+;; both defs below are deleted. Nothing else in the tree references them.
+
+(def ^:private Panel-component
+  "The React component `Panel` presents as, for a non-Fresco parent.
+  Declared once at top level beside the view, as `h/as-component`'s
+  contract requires — deriving it per render would mint a new component
+  type every time and remount the panel on each parent render."
+  (h/as-component Panel))
+
+(defn ^:private Panel-bridge
+  "The callable the L4 tab registry stores. Returns Reagent-shaped hiccup
+  interoping to the React component above; the enclosing shell's
+  `rf/frame-provider` is what puts `:rf/xray` in React context for it."
+  []
+  [:> Panel-component {}])
 
 ;; ---- registration entry --------------------------------------------------
 
@@ -220,6 +323,10 @@
      :mnem  "u"
      :modes #{:dynamic}
      :order 9
-     :panel Panel})
+     ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
+     ;; component (a Fresco boundary) and the shell mounts `:panel` as a
+     ;; Reagent hiccup head; the bridge is the one line between them and
+     ;; goes when the shell is a Fresco tree.
+     :panel Panel-bridge})
 
   nil)
