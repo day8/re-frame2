@@ -1849,16 +1849,24 @@ jobs:
             ${{ runner.os }}-clj-uix-
             ${{ runner.os }}-clj-
 
-      # The UIx artefact's :test alias has no JVM-runnable tests of its
-      # own (the adapter ns is :cljs-only — UIx is a CLJS-only library).
-      # The job exists so the artefact's deps + classpath wiring stay
-      # green. The empty case needs no `|| echo` fallback: the cognitect
-      # test-runner returns 0 when there are no test namespaces matching
-      # its pattern. A non-zero exit therefore means a REAL failure (a
-      # deps/classpath break) and MUST fail the step, so we do not swallow
-      # it (rf2-1s2mhh / follow-up rf2-xcyaei finding 4). Per rf2-3yij
-      # Decision 7 the substrate's smoke-test surface is the browser-side
-      # counter + login specs — see the adapter-testbed-smokes job below.
+      # This lane runs REAL JVM tests — the job name above still calls it a
+      # classpath probe, and it stopped being one (rf2-q8vl).
+      # `test/re_frame/adapter/` carries two JVM namespaces: the
+      # `docs/core/testing/views.md` §4 recipe pin, and the clean-consumer
+      # guard for the uix.dom dependency recipe, which reddened trunk under
+      # rf2-v37n. The adapter ns itself is still :cljs-only (UIx is a
+      # CLJS-only library), so these are JVM-side guards rather than adapter
+      # behaviour tests. Accordingly the :test alias does NOT pass `--probe`:
+      # it claims coverage and takes the runner's test-count floor
+      # (rf2-qqzmf), so a run executing zero tests FAILS here rather than
+      # exiting 0. `jvm-reagent` above IS still a declared probe lane and its
+      # near-identical comment is still true — do not harmonise the two.
+      # No `|| echo` fallback: a non-zero exit means a REAL failure — a
+      # failing test, or a deps/classpath break — and MUST fail the step, so
+      # we do not swallow it (rf2-1s2mhh / follow-up rf2-xcyaei finding 4).
+      # Per rf2-3yij Decision 7 the substrate's smoke-test surface is the
+      # browser-side counter + login specs — see the adapter-testbed-smokes
+      # job below.
       - name: Run JVM tests (uix artefact, classpath probe)
         run: clojure -M:test
 
