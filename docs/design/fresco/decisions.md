@@ -16,16 +16,64 @@ pages: [charter.md](charter.md), [architecture.md](architecture.md),
 
 ---
 
-## HD-001 — Name, namespace, alias
+## HD-001 — Name, namespace, alias — **SUPERSEDED 2026-09-09**
 
-**Ruling.** The product is **Fresco**; namespace `re-frame.fresco`; artifact
-`io.github.day8/re-frame2-fresco`; conventional alias `h`. Single-c spelling.
-**Rationale.** Hiccup + Picasso one letter apart; the wordplay carries the product
-claim (single-line freehand drawing = one-pass interpretation; Cubism =
-decomposition into data primitives). Verified unclaimed on Clojars/GitHub/npm.
-Alias `h` avoids inheriting Freehand's `v` (whose surfaces are deleted on a win,
-HD-018) and `ui`.
-**Reopens** never — names are permanent after first publish.
+> **Superseded by operator ruling, 2026-09-09.** Mike ruled the product renamed
+> before first publish, under epic `rf2-d1nr`. The decisive reason is the only
+> non-taste one there was: the ruling quoted below derives the product name from a
+> living personal-name trademark, says so as its rationale, and is a documented one
+> letter away from it — while the availability check it cites covered
+> **registries, not marks**. Two lesser reasons rode with it: the derivation forked
+> the pronunciation, each half of the wordplay stressing the word differently; and
+> the rationale spent its whole paragraph on the derivation rather than on the
+> product.
+>
+> **The "Reopens never" clause was correct and had simply not bound yet.** It
+> attaches at first publish, and this product had not published — `git ls-remote
+> --tags origin` read zero tags when the rename was ruled. That clause now attaches
+> to **Fresco**, from Fresco's own first publish, and the ruling below it is
+> restated in that form.
+>
+> `rf2-d1nr.1` then put the new name through the check the superseded ruling never
+> had — Clojars, Maven Central, npm, GitHub, the Clojure ecosystem and the USPTO
+> register — and returned PROCEED. Its close reason is the durable record of those
+> six checks, of the trademark finding, and of the one collision knowingly
+> accepted; the **Availability** line below is its summary. Recorded on `rf2-d1nr`.
+>
+> **The superseded ruling is quoted verbatim here, retired product name and all.**
+> A decisions log preserves what was decided, not a retconned version of it, so the
+> mechanical rename deliberately did not reach inside this quotation. These lines
+> are the retired name's one legitimate home in the tree:
+>
+> > **Ruling.** The product is **Hicasso**; namespace `re-frame.hicasso`; artifact
+> > `io.github.day8/re-frame2-hicasso`; conventional alias `h`. Single-c spelling.
+> > **Rationale.** Hiccup + Picasso one letter apart; the wordplay carries the product
+> > claim (single-line freehand drawing = one-pass interpretation; Cubism =
+> > decomposition into data primitives). Verified unclaimed on Clojars/GitHub/npm.
+> > Alias `h` avoids inheriting Freehand's `v` (whose surfaces are deleted on a win,
+> > HD-018) and `ui`.
+> > **Reopens** never — names are permanent after first publish.
+
+**Ruling (2026-09-09, `rf2-d1nr`).** The product is **Fresco**; namespace
+`re-frame.fresco`; artifact `io.github.day8/re-frame2-fresco`; conventional alias
+`h`.
+**Rationale.** A fresco is painted onto wet plaster and must be finished in one
+continuous pass, before the plaster sets — no going back over it, no second layer.
+That is one-pass interpreted rendering stated by the medium itself, which is the
+claim the superseded name made by way of a person's name. The art lineage the
+programme wanted is kept; the celebrity is dropped. Alias `h` is for **hiccup** —
+the universal hiccup/hyperscript alias, never an abbreviation of the product —
+which is why the rename leaves every `h/…` call site untouched; it also still
+avoids inheriting Freehand's `v` (whose surfaces are deleted on a win, HD-018) and
+`ui`.
+**Availability** (`rf2-d1nr.1`): `io.github.day8/re-frame2-fresco` is free on
+Clojars, no party holds a bare FRESCO mark in the software or developer-tools
+classes on the USPTO register, and nothing in the Clojure ecosystem is named
+Fresco. `com.facebook.fresco` — a well-known Android image library sharing the
+artifact id under a different group in a different ecosystem — is a search-results
+nuisance rather than a resolver conflict, and is knowingly accepted.
+**Reopens** never — names are permanent after first publish, and Fresco has not
+published.
 
 ## HD-002 — The sub-read mechanism: grouped default, collector challenger, scalar comparator — **SUPERSEDED 2026-07-31**
 
