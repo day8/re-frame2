@@ -1,0 +1,6 @@
+;; POSITIVE fixture (rule g) — the retired Maven coordinate, in EDN.
+;;
+;; `.edn` is a suffix this gate never opens on any other rule, and a deps map
+;; is where a coordinate actually lives. If rule (g) ever grows a suffix
+;; filter, this fixture is what goes red.
+{:deps {io.github.day8/re-frame2-hicasso {:mvn/version "0.1.0"}}}

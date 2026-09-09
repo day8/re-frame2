@@ -3,8 +3,8 @@
 
 EP-0007 rule 2 ("no stable accepted synonyms") gets the no-floor-lint
 treatment "where shapes allow": a *retired* spelling reappearing in
-repo source is a CI failure, not a doc note. Six renames have merged,
-so six retired spellings are now lintable:
+repo source is a CI failure, not a doc note. Seven renames have merged,
+so seven retired spellings are now lintable:
 
   (a) The bare `:frame` event-context COEFFECT (sweep item 1, rf2-1m6rf1).
       EP-0002 R3 "one carrier, one name" retired the duplicate `:frame`
@@ -54,6 +54,13 @@ so six retired spellings are now lintable:
       193 registration sites moved off it across implementation/ and bench/,
       after three sibling beads swept examples/, tools/, testbeds/, docs/,
       skills/ and the migration corpus.
+
+  (g) The retired PRODUCT NAME `hicasso`, in every case form (rf2-d1nr,
+      PR #9568). Mike ruled the view layer renamed Hicasso -> Fresco before
+      first publish; the sweep touched 1052 files and landed a hard zero.
+      This rule makes that zero stick. It is the one rule here whose subject
+      is a NAME rather than a code shape, and every consequence below follows
+      from that — see WHY RULE (g) IS THE ONLY WIDE ONE.
 
 WHY THE SHAPES ARE SCOPED PRECISELY (the "where shapes allow" caveat)
 
@@ -291,6 +298,61 @@ retired SHAPES:
       same line — green through the allow-list, red from any other path — so a
       rule that had stopped matching altogether cannot pass it looking correct.
 
+WHY RULE (g) IS THE ONLY WIDE ONE
+
+Rules (a)-(f) are narrow because their retired spellings COLLIDE with
+sanctioned vocabulary: `:frame` and `:url` are live public keys, `front.` is a
+directory shorthand, `machine-has-tag?` is a private test helper. Every line of
+scoping above is buying discrimination against a legitimate neighbour.
+
+`hicasso` has no neighbour. It is a coined product name that collides with no
+English word, no Clojure form and no third-party identifier, so the substring
+IS the violation and no shape scoping is needed or wanted. What the rule needs
+instead is REACH, and for the same reason: a product name is not confined to
+Clojure source. The rename moved 24,312 lowercase / 2,995 capitalised / 391
+upper-case occurrences AND 741 PATHS, across `.md`, `.edn`, `.json`, `.cjs`,
+`.yml`, `.html` and `.sh` as well as `.clj*`. A rule scoped to
+`DEFAULT_SCAN_DIRS` and `_SOURCE_SUFFIXES` would have been blind to most of the
+sweep it exists to protect, so rule (g) scans THE WHOLE REPO WITH NO SUFFIX
+FILTER AT ALL. A suffix roster is a list that silently narrows when a new file
+type arrives; the absence of one cannot.
+
+TWO CARRIERS, and the second is not redundant. A file's CONTENT is the obvious
+one. A file's PATH is the other, and a content-only rule cannot see it: an
+`implementation/hicasso/` tree of `.json` alloc records or `.png` assets
+reintroduces the name in 741 places without a single scannable line. Both
+report under the same `retired-product-name` family, so one fix hint serves.
+
+THE MECHANICS THE WIDTH FORCES are three, all small, and each is argued where
+it lives: a NUL sniff instead of a suffix roster and a raw-bytes prefilter
+instead of a line walk (on the patterns, below), and PRUNING instead of a
+roster of trees (`PRODUCT_EXCLUDE_DIR_NAMES` + `PRODUCT_EXCLUDE_PATHS`). Note
+the shape of that last one: rule (g) states what it does NOT scan, where rules
+(a)-(f) state what they DO. That is the honest form for a whole-repo rule — a
+subtraction is visible and has to justify itself, where an omission from a
+roster is invisible.
+
+THE ONE EXEMPTION is `docs/design/fresco/decisions.md`'s HD-001 supersession
+block, which quotes the superseded ruling VERBATIM because a decisions log
+preserves what was decided rather than a retconned version of it. It is carried
+by `PRODUCT_EXEMPTIONS` as a PATH plus a LINE CONSTRUCT — not a file exemption
+and not a line range — and that constant carries the measurement, the reasoning
+and the procedure for adding a second one.
+
+WHY `bench/` IS IN SCOPE, decided rather than defaulted. Rule (f) already
+reaches `bench/` on the argument that no per-PR lane compiles it, so a
+reintroduction there goes SILENT rather than red — and silent is the worse
+shape. `bench/*` is classified to NO surface at all by
+`.github/scripts/report-changed-surfaces.sh`, which makes the bench tree the
+likeliest place for a name to creep back unobserved. It is also where the
+retired name has its most legitimate future use: an archived alloc record
+carries `lad/hicasso` keys and the corpus-recovery command must name
+`bench/hicasso/...` inside a pre-rename commit, because a directory rename on
+main cannot rename a path inside an older commit. Those are historical facts in
+the same category as a git SHA. They belong in `PRODUCT_EXEMPTIONS` with a
+reason, which is exactly what the mechanism is for — not in a hole cut through
+the tree that needs them most.
+
 WHERE A SHAPE IS TOO AMBIGUOUS TO LINT WITHOUT NOISE (documented, not shipped)
 
 EP-0007 §Enforcement says "where shapes allow"; two shapes are deliberately
@@ -398,6 +460,27 @@ and both differences are load-bearing:
     on purpose; so does `implementation/fresco`'s own freeze manifest. The
     subject here is a coordinate a SHIPPED refusal can carry, and that is the
     package's source, its tests, its test-kit and its spec.
+
+Rule (g)'s surface is THE WHOLE REPO — every file under `--repo-root`, with no
+suffix filter — minus `PRODUCT_EXCLUDE_DIR_NAMES` and `PRODUCT_EXCLUDE_PATHS`.
+See WHY RULE (g) IS THE ONLY WIDE ONE above for why width is the right answer
+for a product name where it is the wrong answer for a code shape.
+
+Two contrasts with the rules above are deliberate and will look like mistakes
+until read as decisions:
+
+  * `docs/design/` IS scanned by rule (g), where rule (f) subtracts it and
+    rule (d) never reaches it. Those two subtract a DATED DESIGN RECORD, whose
+    job includes quoting the shape it decided against. Rule (g)'s subject is
+    the opposite: `docs/design/fresco/` is the tree the renamed product is
+    designed IN, so it is where the retired name is likeliest to be typed
+    again by hand. The one place it is legitimately quoted there is carried by
+    `PRODUCT_EXEMPTIONS`, at line-construct granularity — which is narrower
+    than dropping the tree, and says out loud what is being permitted.
+  * Test trees are scanned unconditionally, with no `--include-tests` opt, for
+    rule (d)'s reason rather than rules (a)-(c)'s: a test has no reason to
+    assert that a shipped surface still names the retired PRODUCT, so there is
+    no sanctioned test use to carve out.
 
 Exit code:
     0  no retired spelling in any scanned source tree
@@ -590,6 +673,127 @@ ARROW_PROSE_ALLOWLIST = (
     "skills/re-frame-migration/references/guided-interceptors-subs.md",
 )
 
+# --------------------------------------------------------------------------
+# Rule (g)'s surface — the whole repo, stated as its SUBTRACTIONS
+# --------------------------------------------------------------------------
+#
+# Rule (g) takes no roster of trees and no roster of suffixes. It walks
+# `--repo-root` and reads every file that is not binary, because the thing it
+# retires is a PRODUCT NAME and a product name is not confined to Clojure
+# source (see WHY RULE (g) IS THE ONLY WIDE ONE in the module docstring). What
+# it does carry is a short list of subtractions, each of which has to justify
+# itself here — the honest form for a whole-repo rule, since a subtraction is
+# visible where an omission from a roster is not.
+
+# Generated / vendored directory NAMES, on top of the shared `_EXCLUDE_DIR_NAMES`
+# (which already prunes node_modules, target, .shadow-cljs, .git, .beads and
+# .cpcache). These three are added for rule (g) ALONE rather than to the shared
+# set, because widening the shared set would re-scope rules (a)-(f) as a side
+# effect — the same reason `ARROW_SCAN_DIRS` adds `bench` locally, and the
+# reason `_EXCLUDE_DIR_NAMES` deliberately still does not carry `out`.
+#
+# All three are gitignored build output carrying ZERO tracked files (measured
+# 2026-09-09: `git ls-files | grep -cE '(^|/)(out|site|__pycache__)/'` reads 0
+# for each), so pruning them by name cannot hide a source tree:
+#
+#   * `out`          — cljs build output (`/out/`, `skills/*/out/`).
+#   * `site`         — the mkdocs build, a whole second copy of the docs corpus
+#                      including the staged `spec/` and `migration/` trees.
+#   * `__pycache__`  — bytecode for this gate and its siblings. The NUL sniff
+#                      would drop a `.pyc` anyway; pruning the directory is
+#                      cheaper than reading it to find that out.
+PRODUCT_EXTRA_EXCLUDE_DIR_NAMES = frozenset({
+    "out",
+    "site",
+    "__pycache__",
+})
+
+# ...and the path-scoped subtractions, matched as a ROOT-ANCHORED PREFIX of the
+# repo-relative path — not on the tail, the way `COORD_EXCLUDE_PATHS` and the
+# arrow rosters are. Rule (g)'s surface IS the repo root, so every entry here is
+# a real root and anchoring is both narrower and exactly what is meant: `ai`
+# subtracts the repo's `ai/` tree and could never be read as some future
+# `implementation/ai/`. The same roster holds under the real checkout and under
+# the self-test's synthetic tree, since both are addressed through `--repo-root`.
+# A directory entry prunes the walk; a file entry skips that one file.
+#
+#   * `.git` — pruned by NAME as a directory already, but in a linked worktree
+#     it is a FILE holding `gitdir: <path>`, and that path names the worktree.
+#     A worktree named after the retired product would otherwise report itself.
+#   * `ai` — the local-only AI working tree (`/ai/` is gitignored; per
+#     docs/the-mayor-method/ nothing under it is ever tracked). It is where the
+#     findings docs about THIS RENAME live, so a local run would be red on an
+#     agent's own notes. Nothing tracked sits under any directory named `ai`.
+#   * `docs/spec` and `docs/migration` — mkdocs stages `spec/` and `migration/`
+#     into them before it scans a file, and both are gitignored. The sources
+#     are already scanned; scanning the copies would report every finding twice,
+#     the second time at a path that exists in no checkout git knows about.
+#     Same argument, verbatim, as `ARROW_PROSE_EXCLUDE_PATHS`.
+#   * `scripts/_test_fixtures` — where this gate's own POSITIVE fixtures live.
+#     They plant the retired spellings on purpose; a live scan over them would
+#     be red by construction, for ever. This is the reason `DEFAULT_SCAN_DIRS`
+#     leaves all of `scripts/` off, and rule (g) subtracts the fixture tree
+#     rather than the whole directory so a stale `implementation/hicasso` path
+#     in a shell script is still caught.
+#   * `scripts/check_retired_spellings.py` — THIS FILE. The enforcement has to
+#     name what it refuses: the needle is in the pattern, and the rule cannot be
+#     explained without writing the word. Rule (f)'s `ARROW_SOURCE_ALLOWLIST`
+#     makes exactly this carve-out for exactly this reason, and it is CLOSED by
+#     the same construction — a SECOND file in `scripts/` naming the retired
+#     product is the reintroduction this rule exists to catch.
+PRODUCT_EXCLUDE_PATHS = (
+    ".git",
+    "ai",
+    "docs/spec",
+    "docs/migration",
+    "scripts/_test_fixtures",
+    "scripts/check_retired_spellings.py",
+)
+
+# The exemption roster: (repo-relative path, line regex, reason).
+#
+# A line carrying the retired product name is exempt when its file path matches
+# EXACTLY and the line matches the regex. Both halves are required, which is
+# what makes an entry narrow: neither the file nor the construct is permitted on
+# its own. The path is exact rather than a prefix or a tail, so an entry can
+# never be read as covering a directory. Lines arrive CR-STRIPPED
+# (`str.splitlines()`), so write the regex against the visible text and never
+# against a `\r` at end-of-line.
+#
+# HOW TO ADD ONE (this is the whole procedure):
+#   1. Add a tuple here — the repo-relative path, a regex matching the CONSTRUCT
+#      that makes the occurrence legitimate, and a one-line reason naming the
+#      bead.
+#   2. Prefer a construct to a line range: a range moves silently under an edit
+#      above it, a construct does not.
+#   3. Add the file's real content as a fixture under
+#      `scripts/_test_fixtures/check_retired_spellings/product/` and a row in
+#      `_PRODUCT_SELF_TEST_CASES` attributing it to the real path, plus a second
+#      row attributing the SAME fixture to a different path with a non-zero
+#      expectation. That pair is what proves the exemption is scoped rather than
+#      merely present.
+#
+# THE STANDING ENTRY. `docs/design/fresco/decisions.md` supersedes HD-001
+# instead of deleting it, and the superseding block quotes the original ruling
+# verbatim — retired product name, Picasso derivation and all — because a
+# decisions log preserves what was decided rather than a retconned version of
+# it (rf2-d1nr.3). The quotation is the file's ONLY nested blockquote: measured
+# on the landed file, `^> > ` matches 8 contiguous lines, all of them that one
+# quotation, 3 of which carry the retired name. So the construct identifies the
+# passage exactly, and new prose elsewhere in the file is still graded.
+PRODUCT_EXEMPTIONS: tuple[tuple[str, str, str], ...] = (
+    (
+        "docs/design/fresco/decisions.md",
+        r"^> > ",
+        "HD-001's superseded ruling, quoted verbatim inside the supersession "
+        "block's nested blockquote (rf2-d1nr.3).",
+    ),
+)
+
+_PRODUCT_EXEMPTION_RES = tuple(
+    (tail, re.compile(pattern)) for tail, pattern, _reason in PRODUCT_EXEMPTIONS
+)
+
 # Directory names whose contents are never scannable source for this gate.
 _EXCLUDE_DIR_NAMES = frozenset({
     "node_modules",
@@ -600,10 +804,18 @@ _EXCLUDE_DIR_NAMES = frozenset({
     ".cpcache",
 })
 
+# Rule (g)'s full prune set — the shared names above plus the three generated
+# trees on `PRODUCT_EXTRA_EXCLUDE_DIR_NAMES`. Composed HERE rather than beside
+# that roster only because `_EXCLUDE_DIR_NAMES` is defined after it; the union
+# is the roster's own argument, not a second decision.
+_PRODUCT_EXCLUDE_DIR_NAMES = _EXCLUDE_DIR_NAMES | PRODUCT_EXTRA_EXCLUDE_DIR_NAMES
+
 # `test` / `tests` dirs are excluded by default (see module docstring): a test
 # that ASSERTS a retired spelling is gone, or feeds one to assert the runtime
 # throw, legitimately names it. `--include-tests` lifts the exclusion (the
 # self-test fixtures rely on this so their `*_test`-named files are scanned).
+# Rule (g) does NOT honour this — a test has no reason to name the retired
+# PRODUCT, so there is no sanctioned test use to carve out.
 _TEST_DIR_NAMES = frozenset({"test", "tests"})
 
 
@@ -767,6 +979,29 @@ _RETIRED_ARROW_CLJ_RE = re.compile(
 _RETIRED_ARROW_MD_RE = re.compile(
     r"(?:^|(?<=[\s(\[{,'~@^]))" r":<-" + _ARROW_TOKEN_END
 )
+
+# (g) The retired PRODUCT NAME. No token boundary, no shape scoping, no
+#     masking — the substring IS the violation. `hicasso` is a coined name that
+#     collides with no English word, no Clojure form and no third-party
+#     identifier, so every carrier the rename touched reduces to one
+#     case-insensitive needle: `hicasso`, `Hicasso`, `HICASSO`, `hicasso_`, the
+#     munged path segment `re_frame/hicasso/`, the artifact coordinate
+#     `io.github.day8/re-frame2-hicasso` and the adapter keyword
+#     `:rf.adapter/hicasso` are all the same match.
+#
+#     TWO COMPILATIONS OF ONE NEEDLE, and they are not redundant. The BYTES
+#     form is a prefilter: it runs over the file as read, before any decode or
+#     line split, and 4878 of this repo's 4878 text files skip the line walk on
+#     its verdict (~1s versus ~137s over 110 MB, measured both ways 2026-09-09).
+#     The TEXT form then finds the offending LINE in the handful that survive.
+_RETIRED_PRODUCT_BYTES_RE = re.compile(rb"hicasso", re.IGNORECASE)
+_RETIRED_PRODUCT_TEXT_RE = re.compile(r"hicasso", re.IGNORECASE)
+
+# A file with a NUL byte in its first 8 KiB is not text. Rule (g) carries no
+# suffix filter by design, so this is what keeps 42 PNG/JPEG assets out of the
+# report — a property of the BYTES, which cannot silently narrow the way a
+# roster of extensions can.
+_BINARY_SNIFF_BYTES = 8192
 
 
 class Finding(NamedTuple):
@@ -1255,6 +1490,117 @@ def scan_arrow_prose(scan_root: Path) -> list[Finding]:
 
 
 # --------------------------------------------------------------------------
+# Rule (g) — the retired product name, in file CONTENT and in file PATHS
+# --------------------------------------------------------------------------
+#
+# Rule (g) addresses every file by its REPO-RELATIVE path, and its Findings
+# carry that path rather than an absolute one. Two reasons, and the first is a
+# correctness one: the PATH is a carrier here, so an absolute path would make
+# the gate's verdict depend on where the checkout happens to live — a worktree
+# directory named after the retired product would report every file in the
+# repo. The second is that it makes the rule directly testable: the self-test
+# hands `_scan_product_file` a repo-relative path and some bytes, so a fixture's
+# content can be attributed to the path it is really about. `_report` prints a
+# relative path unchanged.
+
+
+def _product_excluded(rel: Path) -> bool:
+    """True when `rel` is, or sits under, a `PRODUCT_EXCLUDE_PATHS` root."""
+    posix = rel.as_posix()
+    return any(posix == e or posix.startswith(e + "/")
+               for e in PRODUCT_EXCLUDE_PATHS)
+
+
+def _product_exempt(rel_posix: str, line: str) -> bool:
+    """True when this line, in this file, is a rostered legitimate quotation.
+
+    Both halves must match — the exact path AND the line construct. See
+    `PRODUCT_EXEMPTIONS` for the roster and for how to add to it.
+    """
+    return any(rel_posix == tail and pattern.search(line)
+               for tail, pattern in _PRODUCT_EXEMPTION_RES)
+
+
+def _iter_product_files(repo_root: Path) -> Iterable[Path]:
+    """Yield every file under `repo_root`, repo-relative, minus the subtractions.
+
+    NO SUFFIX FILTER, deliberately — see WHY RULE (g) IS THE ONLY WIDE ONE in
+    the module docstring. Pruning is done in `os.walk`'s dirnames IN PLACE, by
+    name (`_PRODUCT_EXCLUDE_DIR_NAMES`) and by root-anchored path
+    (`PRODUCT_EXCLUDE_PATHS`), so an excluded tree is never descended into.
+    """
+    matches: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(repo_root):
+        rel_dir = Path(dirpath).relative_to(repo_root)
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in _PRODUCT_EXCLUDE_DIR_NAMES
+            and not _product_excluded(rel_dir / d)
+        ]
+        for name in filenames:
+            rel = rel_dir / name
+            if not _product_excluded(rel):
+                matches.append(rel)
+    return sorted(matches)
+
+
+def _scan_product_file(rel: Path, data: bytes) -> list[Finding]:
+    """Return rule (g) findings for one file, given its repo-relative path.
+
+    Both carriers, in the order they can be decided: the PATH needs no file
+    content at all, and is reported at line 0 (the file as a whole). The
+    CONTENT walk is guarded twice — a NUL sniff drops binary, and the bytes
+    prefilter drops every file that cannot contain the needle, which is all but
+    a handful.
+
+    Raw lines, no masking. Rules (a)-(f) mask comments and strings because
+    their retired spellings are ordinary vocabulary that prose must stay free
+    to name; a retired PRODUCT NAME has no such use outside `PRODUCT_EXEMPTIONS`,
+    so a comment, a docstring and a heading are all findings.
+    """
+    findings: list[Finding] = []
+    posix = rel.as_posix()
+    if _RETIRED_PRODUCT_TEXT_RE.search(posix):
+        findings.append(
+            Finding(rel, 0, "retired-product-name:path", posix)
+        )
+    if b"\x00" in data[:_BINARY_SNIFF_BYTES]:
+        return findings
+    if not _RETIRED_PRODUCT_BYTES_RE.search(data):
+        return findings
+    text = data.decode("utf-8", errors="replace")
+    for line_no, line in enumerate(text.splitlines(), start=1):
+        if not _RETIRED_PRODUCT_TEXT_RE.search(line):
+            continue
+        if _product_exempt(posix, line):
+            continue
+        findings.append(
+            Finding(rel, line_no, "retired-product-name:content", line.strip())
+        )
+    return findings
+
+
+def scan_product_name(repo_root: Path) -> list[Finding]:
+    """Scan the whole repo for the retired product name (rule (g))."""
+    findings: list[Finding] = []
+    for rel in _iter_product_files(repo_root):
+        try:
+            data = (repo_root / rel).read_bytes()
+        except OSError as exc:
+            # Loud, not silent: an unreadable file is a hole in the surface,
+            # and a hole this gate cannot see is the defect class it exists to
+            # close. Warn and carry on rather than aborting a whole spine run
+            # on one locked log file.
+            sys.stderr.write(
+                f"warning: retired-product-name rule could not read {rel}: "
+                f"{exc}\n"
+            )
+            continue
+        findings.extend(_scan_product_file(rel, data))
+    return findings
+
+
+# --------------------------------------------------------------------------
 # Reporting
 # --------------------------------------------------------------------------
 
@@ -1343,6 +1689,19 @@ _FIX_HINTS = {
         "`defn-` helper of the same name in a test is untouched and "
         "deliberately so (rf2-1e8m classified those correct)."
     ),
+    "retired-product-name": (
+        "The product was renamed Hicasso -> Fresco before first publish "
+        "(rf2-d1nr, PR #9568). Spell it `fresco`: namespace "
+        "`re-frame.fresco`, munged path `re_frame/fresco/`, artifact "
+        "`io.github.day8/re-frame2-fresco`, adapter keyword "
+        "`:rf.adapter/fresco`. The conventional alias `h` is for HICCUP and "
+        "did NOT change — leave every `h/...` call site alone. A finding at "
+        "line 0 is the file's PATH, not its content. If your occurrence is a "
+        "HISTORICAL FACT that must keep the old spelling to work — a path "
+        "inside a pre-rename commit, a key in an archived record — it belongs "
+        "in `PRODUCT_EXEMPTIONS` in scripts/check_retired_spellings.py, which "
+        "carries the procedure for adding one."
+    ),
 }
 
 
@@ -1376,7 +1735,8 @@ def main(argv: list[str]) -> int:
             "repo source (the bare :frame coeffect; redirect :url/:to; "
             "route :query-retain; a fresco front.*/arm1.* bench coordinate, "
             "as a symbol OR as a string; the retired facade fn "
-            "machine-has-tag?, qualified or redefined)."
+            "machine-has-tag?, qualified or redefined; the retired product "
+            "name hicasso, in file content and in file paths)."
         ),
     )
     parser.add_argument(
@@ -1393,7 +1753,8 @@ def main(argv: list[str]) -> int:
             "Directory (relative to repo-root) to scan. Repeatable. Defaults to "
             "every Clojure source tree in the repo: "
             f"{', '.join(DEFAULT_SCAN_DIRS)}. Scopes rules (a)-(c) only; the "
-            "bench-coordinate rule (d) has a fixed roster and always runs."
+            "bench-coordinate rule (d), the arrow rule (f) and the "
+            "product-name rule (g) have fixed surfaces and always run."
         ),
     )
     parser.add_argument(
@@ -1483,6 +1844,12 @@ def main(argv: list[str]) -> int:
             f"(minus {', '.join(ARROW_PROSE_EXCLUDE_PATHS)}) "
             "for the retired `reg-sub` arrow...\n"
         )
+        p = sum(1 for _ in _iter_product_files(repo_root))
+        sys.stderr.write(
+            f"scanning {p} file(s) under the whole repo (minus "
+            f"{', '.join(PRODUCT_EXCLUDE_PATHS)} and the generated trees) "
+            "for the retired product name, in content and in paths...\n"
+        )
 
     findings: list[Finding] = []
     for root in scan_roots:
@@ -1493,6 +1860,12 @@ def main(argv: list[str]) -> int:
         findings.extend(scan_arrow(root, include_tests=args.include_tests))
     for root in arrow_prose_roots:
         findings.extend(scan_arrow_prose(root))
+    # Rule (g)'s surface is the repo root itself, which `--repo-root` has
+    # already been validated to be, so it needs no roster and no `missing`
+    # check. It is deliberately NOT scoped by `--scan-dir`: a product name is
+    # not a Clojure shape, and a narrowed invocation would be a narrowed
+    # ratchet.
+    findings.extend(scan_product_name(repo_root))
     if findings:
         _report(findings, repo_root)
         return 1
@@ -1688,6 +2061,76 @@ _ARROW_PROSE_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
     ("docs/design/fresco/studio/measurement.md",    0),
 )
 
+# Rule (g) fixtures. Each row is (fixture, the repo-relative path the fixture's
+# BYTES are attributed to, expected finding count) — the path is a parameter
+# rather than the fixture's own location because rule (g) grades the path as
+# well as the content, and because its exemption is path-scoped. That is what
+# lets the table make its two sharpest claims on IDENTICAL BYTES:
+#
+#   * `negative/supersession_quote.md` is GREEN at
+#     `docs/design/fresco/decisions.md` and RED one directory over. The
+#     exemption is scoped, not merely present.
+#   * `negative/current_name.cljc` carries no occurrence at all, is GREEN under
+#     `implementation/fresco/`, and reports exactly one finding under
+#     `implementation/hicasso/`. That finding is the PATH, which no line of
+#     content can express and a content-only rule cannot see.
+#
+# `positive/decisions_outside_quote.md` makes the third: in the exempted file
+# itself, a line outside the exempted construct is graded normally. A widening
+# of the exemption to the whole file reads zero here.
+_PRODUCT_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
+    # --- positives: every carrier of the retired product name must FIRE ---
+    ("product/positive/namespace_require.cljc",
+     "implementation/example/src/re_frame/example/view.cljc", 1),
+    ("product/positive/adapter_keyword.cljc",
+     "implementation/example/src/re_frame/example/config.cljc", 1),
+    # `.edn` is a suffix no other rule in this gate opens.
+    ("product/positive/artifact_coordinate.edn",
+     "implementation/example/deps.edn", 1),
+    # Ordinary prose, unmasked and unfenced.
+    ("product/positive/teaching_prose.md", "docs/core/views.md", 1),
+    # The exempted FILE, at a line outside the exempted CONSTRUCT.
+    ("product/positive/decisions_outside_quote.md",
+     "docs/design/fresco/decisions.md", 1),
+    # The PATH carrier, on content that has no occurrence in it at all.
+    ("product/negative/current_name.cljc",
+     "implementation/hicasso/src/re_frame/example/view.cljc", 1),
+    # The exemption's other direction: the same bytes, one directory over.
+    ("product/negative/supersession_quote.md",
+     "docs/design/fresco/studio/measurement.md", 2),
+    # --- negatives ---
+    ("product/negative/supersession_quote.md",
+     "docs/design/fresco/decisions.md", 0),
+    ("product/negative/current_name.cljc",
+     "implementation/fresco/src/re_frame/example/view.cljc", 0),
+)
+
+# Rule (g)'s SURFACE, exercised through `main --repo-root` — phase 8's argument
+# applied to a rule whose surface is the whole repo. What a gate SCANS is a
+# different claim from the shape it MATCHES, and for rule (g) the scanning claim
+# is the load-bearing one: every entry in `PRODUCT_EXCLUDE_PATHS` is a hole by
+# construction, so each is pinned here as a path where the SAME planted sample
+# must stay inert.
+#
+# `bench/fresco/` is in the MUST-BE-REACHED half deliberately. `bench/*` is
+# classified to no per-PR surface at all, which makes it the likeliest place for
+# the name to creep back unobserved — the same argument that put `bench` on
+# `ARROW_SCAN_DIRS`. Legitimate historical occurrences there belong in
+# `PRODUCT_EXEMPTIONS` with a reason, not in a hole cut through the tree.
+_PRODUCT_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
+    # --- the whole repo MUST be reached, including the trees no lane compiles ---
+    ("implementation/core/src/re_frame/example.cljc", 1),
+    ("bench/fresco/scripts/data_archive.cjs",         1),
+    ("docs/design/fresco/notes.md",                   1),
+    ("examples/todomvc/README.md",                    1),
+    ("package.json",                                  1),
+    # --- and every subtraction MUST hold ---
+    ("ai/findings/rename-notes.md",                   0),
+    ("docs/spec/002-Frames.md",                       0),
+    ("docs/migration/from-re-frame-v1/README.md",     0),
+    ("scripts/_test_fixtures/planted.md",             0),
+)
+
 
 def _build_synthetic_repo(root: Path) -> None:
     """Populate `root` with the minimum a `main --repo-root` run demands.
@@ -1736,10 +2179,19 @@ def _run_self_tests(verbose: bool = False) -> int:
     that would red real files fails here first, in this repo, rather than in
     someone else's PR.
 
-    The LAST phase is the only one that does not test a scanner. It drives
-    `main --repo-root` over a synthetic repo to assert what rule (f)'s prose
-    roster REACHES — the claim every direct-scanner phase above takes for
-    granted, and the one that was wrong when rule (f) shipped.
+    Phase 9 runs `_PRODUCT_SELF_TEST_CASES` through `_scan_product_file`, which
+    takes a repo-relative PATH and the file's BYTES: rule (g) grades the path as
+    well as the content, and its exemption is path-scoped, so the path has to be
+    a parameter rather than the fixture's own location. Three of its rows make
+    their claim on IDENTICAL BYTES at two different paths.
+
+    TWO phases do not test a scanner at all. Both drive `main --repo-root` over
+    a synthetic repo to assert what a rule REACHES — the claim every
+    direct-scanner phase above takes for granted, and the one that was wrong
+    when rule (f) shipped. Phase 8 does it for rule (f)'s prose roster; phase 10
+    does it for rule (g)'s whole-repo surface, where each entry in
+    `PRODUCT_EXCLUDE_PATHS` is pinned as a path the same planted sample must not
+    reach.
     """
     cases: list[tuple[str, int]] = [
         # (fixture-file relative to fixture-root, expected finding count)
@@ -1940,6 +2392,66 @@ def _run_self_tests(verbose: bool = False) -> int:
                 sys.stderr.write(captured.getvalue())
                 failures += 1
 
+    # Phase 9: rule (g), through `_scan_product_file`. The fixture supplies the
+    # BYTES and the case supplies the PATH, because rule (g) grades both.
+    for fixture, rel, expected in _PRODUCT_SELF_TEST_CASES:
+        path = _SELF_TEST_FIXTURE_ROOT / fixture
+        if not path.is_file():
+            sys.stderr.write(
+                f"self-test FAIL: fixture {fixture!r} missing at {path}\n"
+            )
+            failures += 1
+            continue
+        got = len(_scan_product_file(Path(rel), path.read_bytes()))
+        if got == expected:
+            if verbose:
+                sys.stderr.write(
+                    f"self-test PASS: {fixture} as {rel} (findings={got})\n"
+                )
+        else:
+            sys.stderr.write(
+                f"self-test FAIL: {fixture} attributed to {rel} expected "
+                f"findings={expected}, got {got}\n"
+            )
+            failures += 1
+
+    # Phase 10: rule (g)'s SURFACE, through `main --repo-root`. Same shape and
+    # same reason as phase 8; see the case table.
+    product_sample = (
+        _SELF_TEST_FIXTURE_ROOT / "product" / "positive" / "teaching_prose.md"
+    )
+    if not product_sample.is_file():
+        sys.stderr.write(
+            "self-test FAIL: fixture 'product/positive/teaching_prose.md' "
+            f"missing at {product_sample}\n"
+        )
+        failures += 1
+    else:
+        for rel, expected in _PRODUCT_ROSTER_SELF_TEST_CASES:
+            captured = io.StringIO()
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                _build_synthetic_repo(root)
+                planted = root / rel
+                planted.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(product_sample, planted)
+                with contextlib.redirect_stderr(captured):
+                    got = main(["--repo-root", str(root)])
+            if got == expected:
+                if verbose:
+                    sys.stderr.write(
+                        f"self-test PASS: product surface {rel} (exit={got})\n"
+                    )
+            else:
+                sys.stderr.write(
+                    f"self-test FAIL: product surface {rel} expected exit="
+                    f"{expected}, got {got}. The retired product name was "
+                    "planted at that path and the whole-repo scan did not "
+                    "reach it (or reached a path it must not).\n"
+                )
+                sys.stderr.write(captured.getvalue())
+                failures += 1
+
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
@@ -1950,7 +2462,9 @@ def _run_self_tests(verbose: bool = False) -> int:
                  + len(_ARROW_SOURCE_SELF_TEST_CASES)
                  + len(_ARROW_PROSE_SELF_TEST_CASES)
                  + len(_ARROW_ALLOWLIST_SELF_TEST_CASES)
-                 + len(_ARROW_PROSE_ROSTER_SELF_TEST_CASES))
+                 + len(_ARROW_PROSE_ROSTER_SELF_TEST_CASES)
+                 + len(_PRODUCT_SELF_TEST_CASES)
+                 + len(_PRODUCT_ROSTER_SELF_TEST_CASES))
         sys.stderr.write(f"all {total} self-tests passed.\n")
     return 0
 
