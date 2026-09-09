@@ -2472,8 +2472,9 @@ def main(argv: list[str]) -> int:
             "keyword-only shape) OR a builder bypass — a raw ex-info carrying "
             "`:rf.error/id` whose message skips the builder + the "
             "`[:rf.<ns>/<id>]` token. rf2-z5lv: also fail on a thrown error "
-            "whose WHERE-SYM names no reachable var, above the floor recorded "
-            "in " + WHERE_SYM_BASELINE_REL + "."
+            "whose WHERE-SYM names no place a reader can land on — a public "
+            "var, a reserved event id, or a full namespace — above the floor "
+            "recorded in " + WHERE_SYM_BASELINE_REL + "."
         ),
     )
     parser.add_argument(
