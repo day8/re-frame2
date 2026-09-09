@@ -176,25 +176,86 @@
         "and the sibling still resolves its handler through that definition")))
 
 (deftest frame-destroy-preserves-the-definition-for-both-actor-kinds
-  (testing "the frame-destroy cascade reaps every actor and clears NO
-            definition — the SPAWNED branch reaches the same registrar cleanup
-            as the singleton branch, so both are covered"
-    (rf/reg-machine :xjee/fd-type
-      {:initial :running :data {} :states {:running {}}})
-    (rf/reg-event :xjee/fd-spawn
-      (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id     :xjee/fd-type
-                                          :fixed-actor-id :xjee/fd-type}]]}))
-    (rf/make-frame {:id :xjee/fd-frame :doc "frame-destroy coverage"})
-    ;; Materialise a singleton and a spawned actor sitting at the TYPE's own
-    ;; keyword in the default frame, then tear the whole frame down.
-    (rf/dispatch-sync [:xjee/fd-type [:kick]])
-    (is (some? (snapshot :xjee/fd-type)))
-    (rf/destroy-frame! :xjee/fd-frame)
-    (is (definition? :xjee/fd-type)
-        "an unrelated frame's destruction certainly clears no definition")
-    (rf/dispatch-sync [:xjee/fd-spawn])
-    (is (some? (snapshot :xjee/fd-type))
-        "the type still spawns after the frame teardown")))
+  (testing "the frame-destroy cascade reaps every actor IN THE FRAME IT
+            DESTROYS and clears NO definition — the SPAWNED branch reaches the
+            same registrar cleanup as the singleton straggler branch, so both
+            are covered"
+    ;; The actors MUST live in the frame that is destroyed. An earlier form of
+    ;; this test materialised them in the DEFAULT frame and destroyed an empty
+    ;; unrelated one, so the cascade walked no actors at all and neither
+    ;; teardown branch it names was ever entered — the definitions survived
+    ;; because nothing had run (rf2-xjee audit of PR #9544). The rule is
+    ;; unchanged; the proof is repaired.
+    (let [exits (atom [])]
+      ;; The singleton TYPE — its instance is materialised at its own
+      ;; registered address, so frame teardown reaps it down the SINGLETON
+      ;; STRAGGLER branch (a snapshot with no `:rf/machine-type`).
+      (rf/reg-machine :xjee/fd-type
+        {:initial :running
+         :data    {}
+         :states  {:running {:exit (fn [_] (swap! exits conj :singleton) {})}}})
+      ;; The spawned TYPE — two instances, reaped down the SPAWNED branch,
+      ;; which is the branch that reaches `registrar/unregister!`.
+      (rf/reg-machine :xjee/fd-spawned
+        {:initial :running
+         :data    {}
+         :states  {:running {:exit (fn [{data :data}]
+                                     (swap! exits conj (:rf/self-id data))
+                                     {})}}})
+      (rf/reg-event :xjee/fd-spawn-pair
+        (fn [_ _]
+          {:fx [;; (i) at the TYPE's OWN keyword — the same-type-address
+                ;; control. This is the dangerous one: unregistering this
+                ;; actor's address would delete the shared DEFINITION.
+                [:rf.machine/spawn {:machine-id     :xjee/fd-spawned
+                                    :fixed-actor-id :xjee/fd-spawned}]
+                ;; (ii) a SIBLING instance of the same type at a plain
+                ;; address, which carries no definition of its own.
+                [:rf.machine/spawn {:machine-id     :xjee/fd-spawned
+                                    :fixed-actor-id :xjee/fd-sibling}]]}))
+      (rf/make-frame {:id :xjee/fd-frame :doc "frame-destroy coverage"})
+      ;; Materialise BOTH actor kinds INSIDE the frame that gets destroyed.
+      (rf/dispatch-sync [:xjee/fd-type [:kick]] {:frame :xjee/fd-frame})
+      (rf/dispatch-sync [:xjee/fd-spawn-pair] {:frame :xjee/fd-frame})
+      (is (some? (snapshot :xjee/fd-frame :xjee/fd-type))
+          "singleton instance live IN the frame under test")
+      (is (some? (snapshot :xjee/fd-frame :xjee/fd-spawned))
+          "spawned instance live at its TYPE's own keyword, in that frame")
+      (is (some? (snapshot :xjee/fd-frame :xjee/fd-sibling))
+          "sibling spawned instance live at a plain address, in that frame")
+
+      (rf/destroy-frame! :xjee/fd-frame)
+
+      ;; The cascade really walked all three — each `:exit` fired exactly once,
+      ;; which is what proves BOTH branches were entered on real actors. (The
+      ;; snapshot assertions below are weaker on their own, since releasing the
+      ;; frame takes its runtime-db with it; the exit log is the discriminator.)
+      (is (= 3 (count @exits))
+          "exactly one :exit per actor in the destroyed frame — no re-run, no
+           actor skipped")
+      (is (= #{:singleton :xjee/fd-spawned :xjee/fd-sibling} (set @exits))
+          "every actor in the destroyed frame ran its :exit — the singleton
+           straggler branch AND the spawned branch both executed")
+      (is (nil? (snapshot :xjee/fd-frame :xjee/fd-type))
+          "the singleton INSTANCE is gone")
+      (is (nil? (snapshot :xjee/fd-frame :xjee/fd-spawned))
+          "the spawned INSTANCE at the type's own keyword is gone")
+      (is (nil? (snapshot :xjee/fd-frame :xjee/fd-sibling))
+          "the sibling spawned INSTANCE is gone")
+
+      ;; ... and NEITHER definition went with them.
+      (is (definition? :xjee/fd-type)
+          "the singleton branch cleared no DEFINITION")
+      (is (definition? :xjee/fd-spawned)
+          "the spawned branch cleared no DEFINITION either — even though one
+           of its instances occupied the type's own keyword")
+      ;; The consequence that matters: both addresses are still creatable.
+      (rf/dispatch-sync [:xjee/fd-type [:kick]])
+      (is (some? (snapshot :xjee/fd-type))
+          "the singleton address still re-creates after the frame teardown")
+      (rf/dispatch-sync [:xjee/fd-spawn-pair])
+      (is (some? (snapshot :xjee/fd-spawned))
+          "the type still spawns after the frame teardown"))))
 
 ;; ===========================================================================
 ;; (3) The amendment — a definition-bearing entry is NOT a liveness signal.

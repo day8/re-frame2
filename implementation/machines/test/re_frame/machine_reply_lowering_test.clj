@@ -348,6 +348,122 @@
         "live parent: :on-done ran with the canonical reply's :value (not suppressed)")))
 
 ;; ===========================================================================
+;; (3b) rf2-xjee residual — the FAILURE half of (3).
+;;
+;;      (3) pins the SUCCESS carrier: a plain `:final?` leaf whose parent died
+;;      first is stale-suppressed. The two FAILURE carriers — the `:error?`
+;;      `:final?` leaf and an uncaught child ACTION EXCEPTION (Spec 005
+;;      §`:on-error` "Two failure triggers") — both mint the reserved
+;;      `[:rf.machine.spawn/error …]` event into the parent, and neither
+;;      consulted parent INSTANCE liveness.
+;;
+;;      That was harmless only while a destroyed singleton's registrar entry
+;;      went with it: the dispatch found no handler and fell into the void.
+;;      Once the `reg-machine` DEFINITION survives teardown (the ruled half of
+;;      rf2-xjee), the same dispatch RESOLVES at the dead parent's address, and
+;;      D5 lazy re-creation synthesises a fresh initial snapshot — the
+;;      framework RESURRECTS an actor the app destroyed, to hand it a dead
+;;      child's failure. Spec 005 §Async completions §Stale suppression says
+;;      the `:on-done` / `:on-error` routing MUST NOT run for such a late
+;;      completion.
+;;
+;;      Both regressions are driven through PUBLIC `reg-machine` /
+;;      `dispatch-sync` only — no registry surgery, no mocked lifecycle.
+;;      D5 itself is untouched: what is fenced is FRAMEWORK-OWNED failure
+;;      delivery, never an ordinary authored event, which still re-creates the
+;;      address (pinned in machine_definition_survives_teardown_cljs_test).
+;; ===========================================================================
+
+(defn- reg-xjee-pair!
+  "A child that can fail two ways (`:fail` → an `:error?` `:final?` leaf;
+  `:throw` → an action that throws) under a parent that declares
+  `:spawn :on-error` and can destroy ITSELF on `:drop`."
+  [child-id parent-id]
+  (rf/reg-machine child-id
+    {:initial :running
+     :data    {}
+     :states  {:running {:on {:fail  {:target :failed}
+                              :throw {:action (fn [_]
+                                                (throw (ex-info "child failure" {})))}}}
+               :failed  {:final? true :error? true}}})
+  (rf/reg-machine parent-id
+    {:initial :idle
+     :data    {}
+     :states  {:idle {:on {:go :working}}
+               :working
+               {:on    {:drop {:action (fn [_]
+                                         {:fx [[:rf.machine/destroy parent-id]]})}}
+                :spawn {:machine-id child-id :on-error {:target :error}}}
+               :error {}}}))
+
+(deftest stale-error-final-leaf-does-not-recreate-a-destroyed-parent
+  (testing "a child reaching an :error? :final? leaf AFTER its parent was destroyed is STALE: NO [:rf.machine.spawn/error …] is dispatched, the parent is NOT resurrected from its initial snapshot, and the :rf.machine/done trace carries the stale completion vocabulary"
+    (let [traces (capture-traces ::xjee-error-final)]
+      (try
+        (reg-xjee-pair! :rl/xchild :rl/xparent)
+        (rf/dispatch-sync [:rl/xparent [:go]])
+        (is (= :working (:state (snapshot :rl/xparent))) "parent spawned the child")
+        (is (some? (snapshot :rl/xchild#1)) "child alive and mid-flight")
+        ;; Destroy the parent BEFORE the child fails. The independently
+        ;; spawned child survives.
+        (rf/dispatch-sync [:rl/xparent [:drop]])
+        (is (nil? (snapshot :rl/xparent)) "parent instance destroyed")
+        (is (some? (snapshot :rl/xchild#1)) "child survives its parent's destroy")
+        (reset! traces [])
+        ;; The child now fails.
+        (rf/dispatch-sync [:rl/xchild#1 [:fail]])
+        (is (nil? (snapshot :rl/xchild#1)) "the error-terminal child auto-destroyed")
+        (is (nil? (snapshot :rl/xparent))
+            "the stale failure did NOT resurrect the destroyed parent")
+        ;; Stale completion vocabulary for the final-leaf case — the same
+        ;; substrate facts (3) pins for the success carrier.
+        (let [done (->> @traces
+                        (filter #(= :rf.machine/done (:operation %)))
+                        first)]
+          (is (some? done) ":rf.machine/done trace fired for the stale failure")
+          (let [tags (:tags done)]
+            (is (= :rl/xchild#1 (:actor-id tags)))
+            (is (true? (:error? tags))
+                "the public :error? shape is preserved — it IS an error leaf")
+            (is (= :stale (:rf.reply/status tags))
+                "an error leaf whose parent died first is :stale, not :error")
+            (is (= :suppressed (:rf.reply/work-status tags))
+                "the ledger terminal is :suppressed, not :failed")
+            (is (= :rf.machine/actor-not-live (:rf.reply/stale-reason tags)))
+            (is (nil? (-> tags :rf.reply/correlation :generation :current))
+                "no live spawn-slot counterpart — the parent is gone")))
+        (finally (rf.trace.tooling/unregister-listener! ::xjee-error-final))))))
+
+(deftest stale-child-action-exception-does-not-recreate-a-destroyed-parent
+  (testing "an uncaught child ACTION EXCEPTION raised AFTER its parent was destroyed routes nowhere: the action-failure projection must check parent INSTANCE liveness, not merely that the surviving DEFINITION declares :on-error"
+    (reg-xjee-pair! :rl/tchild :rl/tparent)
+    (rf/dispatch-sync [:rl/tparent [:go]])
+    (is (some? (snapshot :rl/tchild#1)) "child alive and mid-flight")
+    (rf/dispatch-sync [:rl/tparent [:drop]])
+    (is (nil? (snapshot :rl/tparent)) "parent instance destroyed")
+    (is (some? (snapshot :rl/tchild#1)) "child survives its parent's destroy")
+    ;; The child's action throws. The macrostep aborts atomically (the child
+    ;; keeps its pre-event snapshot) and the failure has nowhere to route.
+    (rf/dispatch-sync [:rl/tchild#1 [:throw]])
+    (is (nil? (snapshot :rl/tparent))
+        "the stale action exception did NOT resurrect the destroyed parent")
+    (is (some? (snapshot :rl/tchild#1))
+        "and the throwing child rolled back atomically rather than being torn down")))
+
+(deftest live-parent-still-takes-on-error-from-both-failure-triggers
+  (testing "the positive control for BOTH fences: with the parent ALIVE, an :error? leaf AND an uncaught action exception each still drive the :on-error transition"
+    (reg-xjee-pair! :rl/lchild :rl/lparent)
+    (rf/dispatch-sync [:rl/lparent [:go]])
+    (rf/dispatch-sync [:rl/lchild#1 [:fail]])
+    (is (= :error (:state (snapshot :rl/lparent)))
+        "live parent: the error leaf still fired :on-error")
+    (reg-xjee-pair! :rl/l2child :rl/l2parent)
+    (rf/dispatch-sync [:rl/l2parent [:go]])
+    (rf/dispatch-sync [:rl/l2child#1 [:throw]])
+    (is (= :error (:state (snapshot :rl/l2parent)))
+        "live parent: the action exception still fired :on-error")))
+
+;; ===========================================================================
 ;; (4) causal :completed-at threading. A spawned machine
 ;;     completion can mutate durable parent-machine data (:on-done writes
 ;;     the parent's :data). Per spec/Managed-Effects.md §155/§231 a

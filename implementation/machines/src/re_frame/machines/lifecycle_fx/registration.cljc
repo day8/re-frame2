@@ -202,13 +202,27 @@
          :recovery          :no-recovery}))
     ;; Additive control-flow routing. Read the spawning
     ;; parent / invoke-id off the child's stamped `:data`; if the parent
-    ;; declares `:spawn :on-error`, dispatch the failure into it. The error
-    ;; payload carries the exception envelope so the parent transition's
-    ;; guard / action can branch on it.
+    ;; is still LIVE and declares `:spawn :on-error`, dispatch the failure into
+    ;; it. The error payload carries the exception envelope so the parent
+    ;; transition's guard / action can branch on it.
+    ;;
+    ;; rf2-xjee — LIVENESS IS ASKED FIRST, AND IT IS A SEPARATE QUESTION FROM
+    ;; RESOLVABILITY. `parent-declares-on-error?` resolves the parent's spec
+    ;; through its `reg-machine` DEFINITION, which now survives the parent's
+    ;; teardown — so it keeps answering `true` for a parent that no longer
+    ;; exists, and the dispatch below would then be answered by D5 lazy
+    ;; re-creation at the dead address: the runtime would RESURRECT a destroyed
+    ;; parent from its initial snapshot in order to hand it a dead child's
+    ;; exception. This is the action-exception twin of the error-leaf route in
+    ;; `finalize`, and it reads the SAME `parent-instance-live?` predicate so
+    ;; the two cannot drift. D5 itself is untouched — an ordinary AUTHORED
+    ;; event still re-creates the address; what is fenced is framework-owned
+    ;; failure delivery.
     (let [child-data (:data snapshot)
           parent-id  (:rf/parent-id child-data)
           invoke-id  (:rf/invoke-id child-data)]
-      (when (rf.machines.lifecycle-fx.spawn-error/parent-declares-on-error? runtime-db parent-id invoke-id)
+      (when (and (rf.machines.lifecycle-fx.spawn-error/parent-instance-live? runtime-db parent-id)
+                 (rf.machines.lifecycle-fx.spawn-error/parent-declares-on-error? runtime-db parent-id invoke-id))
         (rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error!
           frame-id parent-id invoke-id
           {:rf.error/id       :rf.error/machine-action-exception
