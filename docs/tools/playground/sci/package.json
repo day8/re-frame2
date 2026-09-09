@@ -8,8 +8,8 @@
     "build:dev": "shadow-cljs compile rf2 && node scripts/copy-bundle.mjs"
   },
   "dependencies": {
-    "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
     "shadow-cljs": "3.4.10"
