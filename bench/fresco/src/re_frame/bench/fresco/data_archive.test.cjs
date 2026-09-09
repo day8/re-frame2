@@ -122,6 +122,71 @@ corpusTest('the archived alloc-0gjqi record reads its FULL published population'
   );
 });
 
+corpusTest('and the REPORT ITSELF reads it — the boundary is on the path the CLI takes', () => {
+  // THE CHECK ABOVE WAS HOLLOW AND THIS IS WHY THIS ONE EXISTS (the merged-PR
+  // audit of #9571). It proves `readRecord` by CALLING `readRecord`, so it went
+  // green over a `main` that never touched the boundary: the published report
+  // parsed its dataset arguments raw and printed n=[1,4,4,4,2,4], PASS TERM
+  // +0.89% and null arm n=8 over 27 of the 55 cells, exit 0, no remark. A test
+  // that exercises a path the CLI does not take says nothing about the CLI. So
+  // this one SPAWNS the CLI exactly as `bench/fresco/README.md` documents it and
+  // reads the population out of what it printed — a future raw read anywhere on
+  // that path goes red HERE, whatever shape it is written in.
+  const cp = require('node:child_process');
+  const record = path.join(archive.DATA, 'alloc-0gjqi', 'paired-run1.json');
+  const r = cp.spawnSync(
+    process.execPath,
+    [path.join(__dirname, 'alloc_pass_position.cjs'), record],
+    { encoding: 'utf8' }
+  );
+  assert.strictEqual(r.status, 0, `the report must run over the archived record: ${r.stderr}`);
+
+  // Its tables, read as tables: the `;;   a | b | ...` rows under a heading,
+  // less the column line that leads them. Scanned forward to the first such row
+  // rather than taken at a fixed offset, because a heading is prose and runs to
+  // as many lines as it needs. Parsed rather than matched verbatim, so that a
+  // reworded heading or a re-rounded median cannot fail a POPULATION check.
+  const printed = r.stdout.split(/\r?\n/);
+  const isRow = (l) => /^;; {3}.+ \| /.test(l);
+  const table = (heading) => {
+    const at = printed.findIndex((l) => l.startsWith(heading));
+    assert.ok(at >= 0, `the report must print "${heading}" — got:\n${r.stdout}`);
+    let from = at + 1;
+    while (from < printed.length && !isRow(printed[from])) from += 1;
+    const rows = [];
+    for (const l of printed.slice(from)) {
+      if (!isRow(l)) break;
+      rows.push(l.slice(5).split(' | '));
+    }
+    assert.ok(rows.length > 1, `"${heading}" printed no rows under its column line`);
+    return rows.slice(1);
+  };
+
+  assert.deepStrictEqual(
+    table(';; THE ROUND BLOCKS').map((c) => Number(c[4])),
+    [3, 8, 7, 8, 4, 7],
+    'the per-round n the studio pages publish; [1,4,4,4,2,4] is the raw-read population'
+  );
+  assert.strictEqual(
+    Number(table(';; THE NULL ARM')[0][1]),
+    18,
+    'the null arm licenses reading the rest, and a raw read halves it to 8'
+  );
+  assert.ok(r.stdout.includes('PASS TERM +0.68%'), 'the published term');
+  assert.ok(!r.stdout.includes('PASS TERM +0.89%'), 'and not the one the smaller population produces');
+
+  // AND THE CONTROL IN THE OTHER DIRECTION, without which this passes over
+  // bytes that never needed a boundary: the same record parsed RAW must still
+  // read the SMALLER population. That is what makes the figures above evidence
+  // that the translation ran, rather than evidence that the corpus was rewritten.
+  const pass = require('./alloc_pass_position.cjs');
+  assert.deepStrictEqual(
+    pass.blocks(JSON.parse(fs.readFileSync(record, 'utf8')).alloc, 'raw').map((b) => b.n),
+    [1, 4, 4, 4, 2, 4],
+    'a raw parse of the archived record must still lose the native arm'
+  );
+});
+
 corpusTest('the archived corpus really is in the OLD vocabulary — so the translation is doing work', () => {
   // The control for the check above: without this, a corpus that had somehow
   // been rewritten in the current vocabulary would pass it while proving
