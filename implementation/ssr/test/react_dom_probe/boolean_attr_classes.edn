@@ -12,7 +12,7 @@
 ;; Regenerate from `implementation/`:
 ;;   node ssr/test/react_dom_probe/boolean_attr_classes.cjs \
 ;;     > ssr/test/react_dom_probe/boolean_attr_classes.edn
-{:react-dom-version "19.2.0"
+{:react-dom-version "19.3.0"
  :generated-by "implementation/ssr/test/react_dom_probe/boolean_attr_classes.cjs"
  :probe-elements ["div" "input" "option" "select" "video"]
  :rows
@@ -101,6 +101,13 @@
    :empty-string-markup "<div></div>"
    :zero-markup         "<div></div>"
    :string-zero-markup  "<div controls=\"\"></div>"}
+  {:attribute "credentialless" :element "div"
+   :true-markup         "<div credentialless=\"\"></div>"
+   :false-markup        "<div></div>"
+   :string-markup       "<div credentialless=\"\"></div>"
+   :empty-string-markup "<div></div>"
+   :zero-markup         "<div></div>"
+   :string-zero-markup  "<div credentialless=\"\"></div>"}
   {:attribute "data-open" :element "div"
    :true-markup         "<div data-open=\"true\"></div>"
    :false-markup        "<div data-open=\"false\"></div>"

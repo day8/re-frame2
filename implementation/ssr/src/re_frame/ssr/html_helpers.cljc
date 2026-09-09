@@ -602,6 +602,7 @@
   it — see the roster note above and
   `re-frame.ssr-boolean-attr-react-parity-test`."
   #{"allowfullscreen" "async" "autofocus" "autoplay" "checked" "controls"
+    "credentialless"
     "default" "defer" "disabled" "disablepictureinpicture"
     "disableremoteplayback" "formnovalidate" "hidden" "inert" "ismap"
     "itemscope" "loop" "multiple" "muted" "nomodule" "novalidate" "open"
