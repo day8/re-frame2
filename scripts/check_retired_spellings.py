@@ -336,12 +336,17 @@ what it does NOT scan, where rules (a)-(f) state what they DO. That is the
 honest form for a whole-repo rule — a subtraction is visible and has to justify
 itself, where an omission from a roster is invisible.
 
-THE ONE EXEMPTION is `docs/design/fresco/decisions.md`'s HD-001 supersession
-block, which quotes the superseded ruling VERBATIM because a decisions log
-preserves what was decided rather than a retconned version of it. It is carried
-by `PRODUCT_EXEMPTIONS` as a PATH plus a LINE CONSTRUCT — not a file exemption
-and not a line range — and that constant carries the measurement, the reasoning
-and the procedure for adding a second one.
+THE EXEMPTIONS are few and each is a PATH plus a LINE CONSTRUCT — never a file
+exemption and never a line range. `docs/design/fresco/decisions.md`'s HD-001
+supersession block quotes the superseded ruling VERBATIM, because a decisions
+log preserves what was decided rather than a retconned version of it; and
+`bench/fresco`'s archive boundary pins the pre-rename PATH its run corpus is
+archived at, the three translation rows that ARE the retired spellings, and the
+one assertion that reads an archived record's raw bytes (rf2-d1nr.2). Prose
+explaining a rename is NOT on that roster and should not be: it can say what it
+means without spelling the retired name, and where it did, it was reworded.
+`PRODUCT_EXEMPTIONS` carries the measurement, the reasoning and the procedure
+for adding another.
 
 WHY `bench/` IS IN SCOPE, decided rather than defaulted. Rule (f) already
 reaches `bench/` on the argument that no per-PR lane compiles it, so a
@@ -355,7 +360,8 @@ carries `lad/hicasso` keys and the corpus-recovery command must name
 main cannot rename a path inside an older commit. Those are historical facts in
 the same category as a git SHA. They belong in `PRODUCT_EXEMPTIONS` with a
 reason, which is exactly what the mechanism is for — not in a hole cut through
-the tree that needs them most.
+the tree that needs them most. That case arrived (rf2-d1nr.2) and is on the
+roster: three entries, four constructs, two files, and no prose.
 
 WHERE A SHAPE IS TOO AMBIGUOUS TO LINT WITHOUT NOISE (documented, not shipped)
 
@@ -823,12 +829,54 @@ PRODUCT_EXCLUDE_SUFFIXES = frozenset({
 # on the landed file, `^> > ` matches 8 contiguous lines, all of them that one
 # quotation, 3 of which carry the retired name. So the construct identifies the
 # passage exactly, and new prose elsewhere in the file is still graded.
+#
+# THE BENCH ARCHIVE ENTRIES (rf2-d1nr.2) are the case WHY `bench/` IS IN SCOPE
+# in the module docstring anticipates by name. The run corpus was deleted from
+# main and lives in git history; `data_archive.cjs` restores it. Two things
+# about it were fixed on the day it was archived and no commit on main can
+# reach either, so both are historical facts in the same category as the SHA
+# they sit beside:
+#
+#   * ITS PATH inside the archived commit. A directory rename on main cannot
+#     rename a path inside an older commit, and the restore resolves that exact
+#     string — rename it and the restore exits 1, which is the regression this
+#     bead fixed. One line, `ARCHIVE_PATH`.
+#   * ITS VOCABULARY. Every record names the product as it was named when the
+#     run was taken, so the reader translates on the way in. The three
+#     `LEGACY_TOKENS` rows ARE the retired spellings: the left column is the
+#     needle this gate carries, written down as data. The one assertion that
+#     controls the translation reads the archived BYTES and must name the arm
+#     key as those bytes name it.
+#
+# Four constructs, three entries, two files, and NO exemption for prose: the
+# seven remaining occurrences under `bench/fresco` were sentences EXPLAINING the
+# rename, and a sentence explaining a rename does not need to spell the name it
+# retired. They were reworded instead, which is what keeps this roster the size
+# the facts require.
 PRODUCT_EXEMPTIONS: tuple[tuple[str, str, str], ...] = (
     (
         "docs/design/fresco/decisions.md",
         r"^> > ",
         "HD-001's superseded ruling, quoted verbatim inside the supersession "
         "block's nested blockquote (rf2-d1nr.3).",
+    ),
+    (
+        "bench/fresco/src/re_frame/bench/fresco/data_archive.cjs",
+        r"^const ARCHIVE_PATH = '",
+        "The run corpus's path INSIDE the pre-rename commit it is archived at; "
+        "the restore resolves that literal string (rf2-d1nr.2).",
+    ),
+    (
+        "bench/fresco/src/re_frame/bench/fresco/data_archive.cjs",
+        r"^  \['\w+', '(?:fresco|Fresco|FRESCO)'\],$",
+        "A `LEGACY_TOKENS` row: the retired spelling mapped to the current one, "
+        "which is the substitution the archive reader applies (rf2-d1nr.2).",
+    ),
+    (
+        "bench/fresco/src/re_frame/bench/fresco/data_archive.test.cjs",
+        r"^\s*assert\.ok\(raw\.includes\('lad/",
+        "The control that proves an archived record really is in the old "
+        "vocabulary, asserted over its raw bytes (rf2-d1nr.2).",
     ),
 )
 
@@ -2147,11 +2195,27 @@ _PRODUCT_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
     # The exemption's other direction: the same bytes, one directory over.
     ("product/negative/supersession_quote.md",
      "docs/design/fresco/studio/measurement.md", 2),
+    # The bench archive exemptions, both directions, on identical bytes. The
+    # second path in each pair is an ordinary sibling in the same tree: a SECOND
+    # file spelling the retired name is the reintroduction rule (g) is for.
+    ("product/negative/archive_pin.cjs",
+     "bench/fresco/src/re_frame/bench/fresco/data_archive_copy.cjs", 4),
+    ("product/negative/archive_vocabulary_control.cjs",
+     "bench/fresco/src/re_frame/bench/fresco/alloc_pass_position.test.cjs", 1),
+    # ...and each exempted FILE, at a line outside its exempted CONSTRUCT.
+    ("product/positive/archive_pin_outside_construct.cjs",
+     "bench/fresco/src/re_frame/bench/fresco/data_archive.cjs", 1),
+    ("product/positive/archive_control_outside_construct.cjs",
+     "bench/fresco/src/re_frame/bench/fresco/data_archive.test.cjs", 1),
     # --- negatives ---
     ("product/negative/supersession_quote.md",
      "docs/design/fresco/decisions.md", 0),
     ("product/negative/current_name.cljc",
      "implementation/fresco/src/re_frame/example/view.cljc", 0),
+    ("product/negative/archive_pin.cjs",
+     "bench/fresco/src/re_frame/bench/fresco/data_archive.cjs", 0),
+    ("product/negative/archive_vocabulary_control.cjs",
+     "bench/fresco/src/re_frame/bench/fresco/data_archive.test.cjs", 0),
 )
 
 # Rule (g)'s SURFACE, exercised through `main --repo-root` — phase 8's argument
