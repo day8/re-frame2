@@ -88,8 +88,24 @@
 
 (def ^:private subject-value
   "One nested container, because the row W2 drives is a TOGGLE: `:a` has to
-  be a container for it to have an expanded state at all."
-  {:a {:b 1 :c 2}})
+  be a container for it to have an expanded state at all.
+
+  AND IT IS DELIBERATELY TOO WIDE TO INLINE. The first draft used
+  `{:a {:b 1 :c 2}}` and W2's deaf control failed against a DOM reading
+  `{:a {:b 1, :c 2}}` — the whole value on one line, with no `[:a]`
+  container node in it at all. Nothing was broken: the widget's
+  width-aware heuristic had simply done its job. A mount renders
+  depth-driven on its FIRST pass, because no measurement has arrived yet;
+  the container `:ref` then measures, the width reaches the slot, and the
+  next render inlines anything whose `pr-str` fits the measured column.
+  A small value therefore CHANGES SHAPE between the mount and the first
+  settle, which is fatal to a control asserting that nothing moved.
+
+  This value's `:a` runs to several hundred characters, so it cannot fit
+  any plausible column and renders as a container at every width."
+  {:a (into {} (for [i (range 12)]
+                 [(keyword (str "key-" i))
+                  (str "a deliberately long value string number " i)]))})
 
 (def ^:private inspector-opts
   {:panel-id panel-id
@@ -280,12 +296,46 @@
               "PRECONDITION: the node starts expanded, so the toggle below has
                somewhere to move to")
 
-          ;; ---- the deaf control: a write the widget does not read ---------
-          ;; Same frame, same app-db, a key the expansion sub does not
-          ;; project. The sub recomputes to an unchanged value, so nothing
-          ;; the boundary reads was invalidated and it must not re-render.
-          (rf/dispatch-sync [::bump 1] {:frame :rf/xray})
+          ;; ---- settle BEFORE taking the baseline --------------------------
+          ;; A mount's first render is depth-driven, because no width
+          ;; measurement has arrived yet; the container `:ref` measures, the
+          ;; width reaches the slot, and the widget renders again. So the DOM
+          ;; legitimately moves once between the mount and the first idle
+          ;; moment, and a control that straddled that would be asserting
+          ;; against a shape the widget had already left. Settle first, then
+          ;; everything after it is attributable to the dispatches below.
           (-> (settle)
+              (.then
+                (fn [_]
+                  ;; The width having ARRIVED is itself evidence, and worth
+                  ;; banking rather than merely waiting for: the ResizeObserver
+                  ;; is one of the three pieces of per-mount state that moved
+                  ;; out of the form-2 closure for this migration, and this is
+                  ;; the whole loop working through the boundary — observer
+                  ;; fires, `capture-frame`'s dispatcher writes the slot, the
+                  ;; boundary's `rf.fresco/sub` sees it, React commits.
+                  ;; Read the frame's app-db directly rather than taking an
+                  ;; imperative subscription: `unsubscribe`'s own docstring
+                  ;; says an imperative subscriber must not lean on the view
+                  ;; lifecycle to dispose it, and a stray reference here would
+                  ;; be one more thing for W4's counts to have to explain.
+                  (is (pos? (or (get-in (rf/app-db-value :rf/xray)
+                                        [ei/widths-slot mount-id])
+                                0))
+                      "the mount measured itself and the width reached the slot
+                       — the ResizeObserver survived the move out of the form-2
+                       closure and dispatches into the boundary's own frame")
+                  (is (= "1" (a-expanded container))
+                      "and the node is still expanded once the measurement has
+                       landed — this value is too wide to inline at any column")
+
+                  ;; ---- the deaf control: a write the widget does not read --
+                  ;; Same frame, same app-db, a key the expansion sub does not
+                  ;; project. The sub recomputes to an unchanged value, so
+                  ;; nothing the boundary reads was invalidated and it must not
+                  ;; re-render.
+                  (rf/dispatch-sync [::bump 1] {:frame :rf/xray})
+                  (settle)))
               (.then
                 (fn [_]
                   (is (= "1" (a-expanded container))
