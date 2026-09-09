@@ -70,7 +70,8 @@ const CASES = [
   {
     // COUNTED FROM THE STRING BELOW, not from a remembered figure: the
     // title carries the product name, so a rename moves both numbers
-    // (rf2-d1nr.2 — `Hicasso` to `Fresco` cost one code unit and one byte).
+    // (rf2-d1nr.2 — the retired name was one character longer than `Fresco`,
+    // which cost one code unit and one byte).
     what: 'the corpus mix — a title, a fallback and a clef',
     s: `<title>Fresco SSR ${EM_DASH} defhost</title><span>loading${ELLIPSIS}</span>${CLEF}`,
     units: 58,
