@@ -49,12 +49,23 @@
 
 (def ^:private view-lib-coords
   {:reagent '#{reagent/reagent}
-   :uix     '#{com.pitch/uix.core com.pitch/uix.dom}})
+   ;; uix.dom is deliberately ABSENT (rf2-j908): the emitted app mounts
+   ;; through `rf.adapter.uix/client-root` + `render!`, so `uix.dom` is
+   ;; not on its classpath at all.
+   :uix     '#{com.pitch/uix.core}})
 
 (def ^:private retired-coords
   "Coordinates the default scaffold no longer installs, anywhere in
-   deps.edn — `:deps` or any alias."
-  '#{day8/re-frame2-xray
+   deps.edn — `:deps` or any alias.
+
+   `com.pitch/uix.dom` is here because `view-lib-coords` above is a
+   PRESENCE check: dropping a coordinate from it stops asserting the
+   coordinate, it does not assert the coordinate is gone. This set is the
+   absence half, and rf2-j908 is what it guards — the UIx scaffold mounts
+   through the adapter's `client-root` / `render!` and must never
+   reacquire a direct DOM-mount dependency."
+  '#{com.pitch/uix.dom
+     day8/re-frame2-xray
      day8/re-frame2-story
      day8/re-frame2-ssr
      day8/re-frame2-ssr-ring

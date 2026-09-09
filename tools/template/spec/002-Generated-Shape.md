@@ -70,10 +70,10 @@ what a save re-runs:
 
 1. **One retained root.** The React root lives in a `defonce` cell and
    is created once, then rendered into on every later call rather than
-   a second root going over a live DOM node. Reagent puts an
-   adapter-owned `client-root` handle in that cell and lets the first
-   `rf.adapter.reagent/render!` create the underlying Root; UIx puts the
-   `uix.dom/create-root` Root there itself.
+   a second root going over a live DOM node. Both substrates put an
+   adapter-owned `client-root` handle in that cell and let the first
+   `<adapter>/render!` create the underlying Root — the emitted scaffold
+   never constructs a React Root itself.
 2. **The frame is created by the view, and reused.** `rf/frame-root`
    (or `rf.adapter.uix/frame-root`) creates `:rf/default` the first time,
    running `:initial-events [[:counter/initialise]]` synchronously so
@@ -87,8 +87,8 @@ what a save re-runs:
 `template_emission_test.clj` pins these facts on the emitted
 `core.cljs`: exactly one `^:dev/after-load` hook, its body renders,
 `init` calls it, exactly one root allocation
-(`rf.adapter.reagent/client-root` or `uix-dom/create-root`), a `defonce`
-cell holding it, and the
+(`rf.adapter.reagent/client-root` or `rf.adapter.uix/client-root`), a
+`defonce` cell holding it, and the
 `:initial-events` seed. The behavioural tier then proves the page a
 newcomer opens actually mounts and moves the counter 0 → 1 in Chromium.
 
@@ -226,10 +226,12 @@ They are bumped in lockstep with the repo-root `VERSION` and
   :devDependencies/react (and react-dom — those two are kept
   pinned together).
 
-The view-library pins (`reagent/reagent`, `com.pitch/uix.core`,
-`com.pitch/uix.dom`) and the Clojure / ClojureScript pins live in the
-per-substrate `deps.edn` resources and are guarded against the adapter
-and core `deps.edn` files in `implementation/`.
+The view-library pins (`reagent/reagent`, `com.pitch/uix.core`) and the
+Clojure / ClojureScript pins live in the per-substrate `deps.edn`
+resources and are guarded against the adapter and core `deps.edn` files
+in `implementation/`. `com.pitch/uix.dom` is deliberately not among them:
+the UIx scaffold mounts through `rf.adapter.uix/client-root` +
+`render!`, so it never reaches the emitted classpath.
 
 The
 [`version_lockstep_test.clj`](../test/day8/re_frame2_template/version_lockstep_test.clj)

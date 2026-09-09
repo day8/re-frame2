@@ -1,7 +1,6 @@
 (ns {{namespace}}.core
   "Entry point: installs the UIx adapter and mounts the app."
   (:require [uix.core             :refer [$]]
-            [uix.dom              :as uix-dom]
             [re-frame.core        :as rf]
             [re-frame.adapter.uix :as rf.adapter.uix]
             ;; Requiring these installs their registrations.
@@ -9,10 +8,12 @@
             [{{namespace}}.subs]
             [{{namespace}}.views :as views]))
 
-;; One React root for the life of the page: React must not get a second
-;; `create-root` for a live DOM node, and a hot reload has to render into
-;; the root that already owns #app.
-(defonce ^:private react-root (atom nil))
+;; One React root for the life of the page, owned by the adapter: the first
+;; `render!` through this handle creates it, every later one renders into
+;; it. React must not get a second `create-root` for a live DOM node, and a
+;; hot reload has to render into the root that already owns #app — the
+;; handle keeps both true, and allocating it touches no DOM.
+(defonce ^:private app-root (rf.adapter.uix/client-root))
 
 (def app-frame :rf/default)
 
@@ -25,13 +26,11 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (uix-dom/create-root el)))
-    (uix-dom/render-root
+    (rf.adapter.uix/render! app-root
       ($ rf.adapter.uix/frame-root {:id             app-frame
                                     :initial-events [[:counter/initialise]]}
          ($ views/counter-app))
-      @react-root)))
+      el)))
 
 ;; Called ONCE by shadow-cljs (:init-fn in shadow-cljs.edn) when the bundle
 ;; loads. `init!` installs the adapter; it does not create a frame — the

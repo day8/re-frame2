@@ -358,8 +358,8 @@ Every current path consumer, and the root it must read from:
 | `version_lockstep_test` (`:rf2-version`) | `VERSION` | framework |
 | `version_lockstep_test` (react / shadow pins) | `implementation/package.json` | framework |
 | `version_lockstep_test` (clojure + substrate pins) | `implementation/core/deps.edn`, `implementation/adapters/reagent/deps.edn`, `implementation/adapters/uix/deps.edn` | framework |
-| `template_emission_test` (surface audit) | `implementation/core/src/re_frame`, `implementation/adapters/` + substrate | framework |
-| `emitted_test_run_test` (deps rewrite) | `implementation/core`, `implementation/adapters/` + substrate | framework |
+| `template_emission_test` (surface audit) | `implementation/core/src`, plus the source root each `re-frame.*` family is published from (`framework-source-roots`) | framework |
+| `emitted_test_run_test` (deps rewrite) | `implementation/core`, plus the package root each substrate is published from (`substrate-local-roots`) | framework |
 | `emitted_test_run_test` (React resolution) | `implementation/node_modules` | framework |
 | `emitted_test_run_test` (setup-leaf parity) | `skills/re-frame2-setup/references/first-counter.md` | framework |
 | `template_test` | the emitted project in a temp dir | neither |
