@@ -27,19 +27,11 @@
   "rf.http/classify-response-body"           1
   "rf.http/decode-response-body"             2
   "rf.http/json-parse"                       1
-  "rf.mutation/execute"                      1
-  "rf.resource/invalidate-tags"              4
-  "rf.ssr.head/emit"                         2
   "rf.ssr.ring/import-fn"                    1
   "rf.ssr/cookie->set-cookie-header"         5
-  "rf.ssr/emit"                              6
-  "rf.ssr/html-helpers"                      2
   "rf.ssr/manifest-script"                   2
-  "rf.ssr/payload-policy"                    3
-  "rf.ssr/response"                          9
   "rf.ssr/ssr-handler"                       7
   "rf.ssr/stream-handler"                    2
-  "rf.ssr/streaming"                         1
   "rf.ssr/trusted-shell"                     1
   "rf/conformance-eval"                      6
   "rf/invoke-handler"                        2

@@ -429,7 +429,7 @@
     (when-not (suspense-attrs? attrs)
       (rf.error/throw-error!
         :rf.error/suspense-boundary-invalid-attrs
-        'rf.ssr/streaming
+        're-frame.ssr.streaming
         (str ":rf/suspense-boundary requires an attrs map with both "
              ":id and :fallback; give it {:id … :fallback …} as its "
              "second element.")
