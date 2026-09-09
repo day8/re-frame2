@@ -155,10 +155,11 @@
   "Singleton-machine destroy on frame teardown: run the actor's `:exit`
   cascade so Spec 005 §Final states §Composition with `:entry` /
   `:exit` symmetry holds, then abort in-flight HTTP. Does NOT
-  clear the registrar entry — singleton handlers live in the global
-  registrar per Spec 005 §Spawning §v1-partial footnote: the handler
-  outlives any particular frame. Snapshot dissoc is moot at this point
-  (the frame's runtime-db is about to be released).
+  clear the registrar entry — a `reg-machine` registration is a shared
+  load-time DEFINITION whose lifetime is the registrar's, never any one
+  actor's or frame's (Spec 005 §Liveness is derived from runtime-db).
+  Snapshot dissoc is moot at this point (the frame's runtime-db is about
+  to be released).
 
   The HTTP-abort fires the shared `:http/abort-on-actor-destroy`
   late-bind hook via `rf.machines.lifecycle-fx.finalize/abort-actor-in-flight-http!` — the same
@@ -211,9 +212,13 @@
          registrar cleanup → spawn-order forget.
       c. Singletons (registered via `reg-machine`, snapshot present but no
          `:rf/machine-type`): run the `:exit` cascade + HTTP abort, but
-         DO NOT unregister the handler — singleton handlers live in the
-         global registrar per Spec 005 §Spawning v1-partial footnote and
-         outlive any particular frame.
+         DO NOT unregister the handler — a `reg-machine` registration is a
+         shared load-time DEFINITION whose lifetime is the registrar's,
+         never any one actor's or frame's (Spec 005 §Liveness is derived
+         from runtime-db). Since rf2-xjee the SPAWNED branch (b) preserves
+         definitions too, so no destroy path deletes one; this branch is
+         about the `:exit` / abort work a straggler still owes, not about
+         being the one exception.
    4. Clear the frame's spawn-order slot."
   [frame-id]
   (when frame-id

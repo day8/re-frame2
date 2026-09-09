@@ -10,8 +10,10 @@
    D3 — `:output-key` on the child's `:final?` state designates which
         `:data` slot is reported back.
    D4 — Auto-destroy is synchronous on entry to a `:final?` state.
-   D5 — Dispatch to a destroyed actor reuses the existing destroyed-
-        frame trace path (`:rf.error/no-such-handler`).
+   D5 — Dispatch after finality is answered by what the address still
+        CARRIES (revised by rf2-xjee): a surviving `reg-machine` DEFINITION
+        births a fresh instance; an address with no definition reuses the
+        existing destroyed-frame trace path (`:rf.error/no-such-handler`).
    D6 — `:rf.machine/done` event fires with `:actor-id`, `:output`,
         `:parent-id`; `:rf.machine/destroyed` is enriched with `:reason`.
    D7 — Singleton symmetry — a non-spawned machine reaching `:final?`
@@ -108,8 +110,8 @@
     (rf/dispatch-sync [:rf2-gn80/standalone [:end]])
     (is (nil? (snapshot :rf2-gn80/standalone))
         "snapshot was synchronously cleared (D4 + D7 singleton)")
-    (is (nil? (rf.registrar/lookup :event :rf2-gn80/standalone))
-        "event handler was synchronously unregistered (D4)")))
+    (is (some? (rf.registrar/lookup :event :rf2-gn80/standalone))
+        "D4 clears the INSTANCE, never the `reg-machine` DEFINITION (rf2-xjee)")))
 
 ;; ---- (c) :rf.machine/done trace emitted with the right payload -----------
 
@@ -183,8 +185,9 @@
       (rf/dispatch-sync [:rf2-gn80/sing [:end]])
       (is (nil? (snapshot :rf2-gn80/sing))
           "singleton snapshot was cleared on :final? entry")
-      (is (nil? (rf.registrar/lookup :event :rf2-gn80/sing))
-          "singleton handler was unregistered")
+      (is (some? (rf.registrar/lookup :event :rf2-gn80/sing))
+          "D7 destroys the singleton INSTANCE; its DEFINITION survives, so the
+           address stays creatable (rf2-xjee)")
       (let [dones (traces-for traces :rf.machine/done)]
         (is (= 1 (count dones))
             "one :rf.machine/done fired even with no parent")
@@ -231,21 +234,57 @@
         (is (= :sid-child/value (:result (:data (snapshot :rf2-gn80/sid-parent))))
             "the fold still ran and still received the child's :output-key value")))))
 
-;; ---- (g) dispatch to done-then-destroyed actor reuses destroyed-frame path
+;; ---- (g) dispatch after finality — D5 as revised by rf2-xjee -------------
 
-(deftest dispatch-to-done-actor-reuses-no-such-handler
-  (testing "D5: dispatching to a done-then-destroyed actor surfaces :rf.error/no-such-handler"
-    (let [traces (record-traces! ::no-handler)]
+(deftest dispatch-to-done-singleton-recreates-from-its-surviving-definition
+  (testing "D5 (revised, rf2-xjee): a singleton that reached :final? keeps its
+            `reg-machine` DEFINITION, so a later ORDINARY dispatch to the same
+            address births a FRESH instance from the initial snapshot — no
+            :rf.error/no-such-handler, and still no
+            :rf.machine/dispatched-while-done half-state"
+    (let [traces (record-traces! ::recreated)]
       (rf/reg-machine :rf2-gn80/finalised
         {:initial :running
          :states
          {:running {:on {:fin :done}}
           :done    {:final? true}}})
       (rf/dispatch-sync [:rf2-gn80/finalised [:fin]])
-      ;; Now the actor's handler is unregistered. A further dispatch
-      ;; should hit the standard no-such-handler trace path — NOT a new
-      ;; :rf.machine/dispatched-while-done half-state (D5).
+      (is (nil? (snapshot :rf2-gn80/finalised))
+          "the INSTANCE is gone — the auto-destroy cleared the snapshot")
+      (is (some? (rf.registrar/lookup :event :rf2-gn80/finalised))
+          "the DEFINITION survives — the address is still creatable")
+      ;; An ORDINARY event, deliberately NOT [:rf.machine/start]: the revision
+      ;; covers the whole event surface, because an absent snapshot is
+      ;; synthesised for any event.
       (rf/dispatch-sync [:rf2-gn80/finalised [:something]])
+      (is (= :running (:state (snapshot :rf2-gn80/finalised)))
+          "a fresh instance was born at its initial state — the address behaves
+           exactly as it did before its first start")
+      (is (not-any? #(= :rf.error/no-such-handler (:operation %)) @traces)
+          "no :rf.error/no-such-handler — the surviving definition answered it")
+      (is (not-any? #(= :rf.machine/dispatched-while-done (:operation %)) @traces)
+          "still no :rf.machine/dispatched-while-done half-state (D5)"))))
+
+(deftest dispatch-to-destroyed-spawned-actor-still-reuses-no-such-handler
+  (testing "D5's OTHER half, retained unchanged by rf2-xjee: an address carrying
+            NO definition — a destroyed spawned actor at its own `:fixed-actor-id`
+            — still surfaces :rf.error/no-such-handler"
+    (let [traces (record-traces! ::no-handler)]
+      (rf/reg-machine :rf2-gn80/kid
+        {:initial :running :data {} :states {:running {}}})
+      (rf/reg-event :rf2-gn80/install-kid
+        (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id     :rf2-gn80/kid
+                                            :fixed-actor-id :rf2-gn80/kid-at}]]}))
+      (rf/reg-event :rf2-gn80/drop-kid
+        (fn [_ _] {:fx [[:rf.machine/destroy :rf2-gn80/kid-at]]}))
+      (rf/dispatch-sync [:rf2-gn80/install-kid])
+      (is (some? (snapshot :rf2-gn80/kid-at)) "precondition: the actor is live")
+      (is (nil? (rf.registrar/lookup :event :rf2-gn80/kid-at))
+          "precondition: a spawned actor registers nothing — the address carries
+           no definition of its own")
+      (rf/dispatch-sync [:rf2-gn80/drop-kid])
+      (is (nil? (snapshot :rf2-gn80/kid-at)) "the actor was destroyed")
+      (rf/dispatch-sync [:rf2-gn80/kid-at [:something]])
       (is (some #(= :rf.error/no-such-handler (:operation %)) @traces)
           "the existing no-such-handler trace path fired (D5 — no new half-state)")
       (is (not-any? #(= :rf.machine/dispatched-while-done (:operation %)) @traces)
@@ -315,8 +354,9 @@
     ;; final and the auto-destroy fires synchronously.
     (is (nil? (snapshot :rf2-gn80/par))
         "snapshot cleared once every region reached :final?")
-    (is (nil? (rf.registrar/lookup :event :rf2-gn80/par))
-        "parallel machine handler unregistered once every region reached :final?")))
+    (is (some? (rf.registrar/lookup :event :rf2-gn80/par))
+        "the parallel machine's DEFINITION survives its instance's auto-destroy
+         (rf2-xjee)")))
 
 (deftest parallel-one-region-final-stays-alive
   (testing "a parallel-region machine with one region still non-final stays alive (per spec composition rule)"

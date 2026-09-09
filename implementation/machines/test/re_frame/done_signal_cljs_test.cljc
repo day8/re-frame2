@@ -127,8 +127,8 @@
       (rf/dispatch-sync [:rf2-bnjb3/top [:end]])
       (is (nil? (snapshot :rf2-bnjb3/top))
           "top-level final auto-destroyed (snapshot cleared)")
-      (is (nil? (rf.registrar/lookup :event :rf2-bnjb3/top))
-          "handler unregistered on top-level final")
+      (is (some? (rf.registrar/lookup :event :rf2-bnjb3/top))
+          "the DEFINITION survives the top-level-final auto-destroy (rf2-xjee)")
       (is (= 1 (count (traces-for traces :rf.machine/done)))
           "the whole-machine :rf.machine/done fired (actor finality)"))))
 
@@ -227,8 +227,8 @@
     (rf/dispatch-sync [:rf2-bnjb3/par-destroy [:fin]])
     (is (nil? (snapshot :rf2-bnjb3/par-destroy))
         "no :on-done ⇒ all-regions-final auto-destroys (snapshot cleared)")
-    (is (nil? (rf.registrar/lookup :event :rf2-bnjb3/par-destroy))
-        "handler unregistered")))
+    (is (some? (rf.registrar/lookup :event :rf2-bnjb3/par-destroy))
+        "the DEFINITION survives (rf2-xjee)")))
 
 (deftest parallel-one-region-pending-no-on-done-no-destroy
   (testing "negative: with one region still non-final, the parallel :on-done

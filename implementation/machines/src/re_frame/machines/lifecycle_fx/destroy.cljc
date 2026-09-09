@@ -122,9 +122,19 @@
   `destroy-single-actor!` path. An actor with a resolved
   `actor-id` is live iff EITHER of the following survives:
 
-    - **Registrar entry present** at `actor-id`. Normal spawned actors resolve
-      lazily without a per-instance entry, but teardown still recognises and
-      clears a stale or externally installed entry.
+    - **A NON-MACHINE registrar entry present** at `actor-id`. Normal spawned
+      actors resolve lazily without a per-instance entry, but teardown still
+      recognises and clears a stale or externally installed PER-INSTANCE entry.
+      A DEFINITION-bearing entry (`:rf/machine? true` — what `reg-machine`
+      installs) is deliberately NOT a liveness signal: it is a shared load-time
+      TYPE whose lifetime is the registrar's, never any one instance's (Spec 005
+      §Destroy is silent-idempotent). Without that exclusion a destroyed
+      singleton — whose definition now survives its teardown — would still read
+      live, so a second `[:rf.machine/destroy <id>]` would re-run the whole
+      pipeline: phantom `:rf.machine/destroyed` trace plus re-fired resource
+      release, the exact violation `finalize.cljc` names for the sibling
+      spawn-order channel. Destroying a NEVER-STARTED singleton is a genuine
+      no-op for the same reason.
     - **Snapshot present** at `[:rf.runtime/machines :snapshots actor-id]`
       in `runtime-db` — or, when `runtime-db` does not carry it, in the
       frame's LIVE runtime-db. The second read is gated on a hit in the
@@ -160,36 +170,13 @@
   ownership bookkeeping, never a liveness signal."
   [frame-id actor-id runtime-db]
   (and actor-id
-       (or (some? (rf.registrar/lookup :event actor-id))
+       (or (and (some? (rf.registrar/lookup :event actor-id))
+                ;; ... but a DEFINITION-bearing entry is not this actor's own —
+                ;; it is the shared TYPE, and it outlives every instance.
+                (nil? (rf.machines.lifecycle-fx.resolver/spec-from-registry actor-id)))
            (snapshot-present? runtime-db actor-id)
            (and (some #(= actor-id %) (rf.machines.spawn-order/frame-order frame-id))
                 (snapshot-present? (rf.frame/frame-runtime-db-value frame-id) actor-id)))))
-
-(def ^:private ^:dynamic *definition-preserved-at*
-  "The ONE actor-id whose `:event` registrar entry step (8) of
-  `teardown-live-actor!` must NOT clear, or nil (the value everywhere except
-  inside `destroy-occupant-for-replacement!`'s delegated teardown).
-
-  WHY IT EXISTS. A machine TYPE is an `:event` registration carrying
-  `:rf/machine? true` (Spec 005 §Querying machines) — a DEFINITION shared by
-  every actor of that type, never an actor. When a `:fixed-actor-id` equals its
-  own registered `:machine-id`, the address the replacement installs at and the
-  key the definition is registered under are the SAME keyword, so step (8) —
-  which exists to clear a stale or externally installed PER-INSTANCE entry —
-  would delete the definition the replacement is about to resolve through, and
-  every sibling actor of that type with it.
-
-  WHY DYNAMIC. `destroy-occupant-for-replacement!` delegates to
-  `destroy-machine-fx` on purpose (it IS the ordinary destroy path, so it cannot
-  drift from it), and that fn's map grammar is a CLOSED discriminated union
-  (rf2-3phait) an option key would widen. The binding's extent is ONE teardown of
-  ONE address, and step (8) compares the id, so an `:exit` callback that destroys
-  a DIFFERENT actor within that extent still clears its entry exactly as before.
-
-  NOT a licence to preserve on the ordinary destroy path: `[:rf.machine/destroy
-  <id>]` against a singleton machine still clears that machine's registration,
-  which is the long-standing behaviour of destroying a singleton."
-  nil)
 
 (defn- teardown-live-actor!
   "The shared ordered teardown pipeline for a LIVE actor (the caller has
@@ -223,8 +210,8 @@
        REGARDLESS of whether the runtime-db swap landed — by the time
        frame-destroy runs the container may already be nil but the
        spawn-order entry still needs clearing;
-    8. when the swap landed, clear any registrar entry (normal spawned
-       actors have none);
+    8. when the swap landed, clear any PER-INSTANCE registrar entry (normal
+       spawned actors have none) — never a machine DEFINITION;
     9. release the actor's resource owners — fire
        `:rf.resource/release-owner` for owner `[:machine actor-id]` (Spec 016
        §Release authority is per owner kind, 016:290) so a resource the actor
@@ -308,13 +295,20 @@
       ;; ownership here rather than reusing (6)'s precheck, so A's teardown
       ;; never clears B's just-registered handler (the ordinary-destroy
       ;; terminal-fence law, Spec 005 §Destroy is silent-idempotent).
-      ;; rf2-dokz residual — EXCEPT at the one address a replacement is
-      ;; preserving the machine DEFINITION at (see `*definition-preserved-at*`):
-      ;; there the entry is a shared TYPE rather than this actor's own, and
-      ;; clearing it would strand the replacement and every sibling actor of
-      ;; that type.
+      ;; rf2-xjee — EXCEPT when the address carries a machine DEFINITION. A
+      ;; `reg-machine` registration is a shared load-time TYPE, not this actor's
+      ;; own per-instance entry: the registration is the PROGRAM that makes the
+      ;; address creatable, the snapshot is the INSTANCE, and teardown ends the
+      ;; instance and never the program (Spec 005 §Liveness is derived from
+      ;; runtime-db). Clearing it would strand every later spawn of that type
+      ;; with `:rf.error/machine-spawn-unregistered-type`, and — for a singleton
+      ;; — silently delete an authoring artefact the destroy never named.
+      ;; `rf/clear` remains the public spelling for permanent removal. A plain
+      ;; `reg-event` handler squatting here carries no `:rf/machine? true`, so
+      ;; `spec-from-registry` returns nil and step (8) still clears it — which
+      ;; is the stale/externally-installed case this step exists for.
       (when (and db-swapped? (not (owner-gone?))
-                 (not= actor-id *definition-preserved-at*))
+                 (nil? (rf.machines.lifecycle-fx.resolver/spec-from-registry actor-id)))
         (rf.registrar/unregister! :event actor-id))
       ;; (9) release the actor's resource owners once it is gone, so
       ;; a `[:machine actor-id]`-owned resource does not outlive the actor and
@@ -862,13 +856,15 @@
   sitting at the same keyword is not — see that predicate for why the shared
   destroy probe cannot answer this question.
 
-  AND THE DEFINITION SURVIVES. When the address IS a registered machine's own
-  registration key, the teardown's registrar cleanup would delete that shared
-  DEFINITION — stranding the replacement, whose snapshot resolves its handler
-  back through exactly that key, and every sibling actor of the type with it.
-  Binding `*definition-preserved-at*` for the teardown's extent keeps it, and
-  keeps it WITHOUT re-registering afterwards: a re-registration would fire the
-  hot-reload hooks and a `:rf.registry/handler-cleared` +
+  AND THE DEFINITION SURVIVES — for free, since rf2-xjee. When the address IS a
+  registered machine's own registration key, the teardown's registrar cleanup
+  would delete that shared DEFINITION, stranding the replacement (whose snapshot
+  resolves its handler back through exactly that key) and every sibling actor of
+  the type with it. `teardown-live-actor!` step (8) now preserves EVERY
+  definition-bearing address on EVERY destroy path, so this call site needs no
+  exception of its own, and the narrow one-address dynamic exception it used to
+  bind is gone. Preservation still costs no re-registration: a re-registration
+  would fire the hot-reload hooks and a `:rf.registry/handler-cleared` +
   `:rf.registry/handler-registered` pair for a definition that never changed, and
   would open a fresh callback-bearing boundary between the teardown and the
   install.
@@ -882,8 +878,5 @@
   [frame-id actor-id]
   (boolean
     (when (and actor-id (occupant-actor-live? frame-id actor-id))
-      (binding [*definition-preserved-at*
-                (when (rf.machines.lifecycle-fx.resolver/spec-from-registry actor-id)
-                  actor-id)]
-        (destroy-machine-fx {:frame frame-id} actor-id))
+      (destroy-machine-fx {:frame frame-id} actor-id)
       true)))

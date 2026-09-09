@@ -212,11 +212,12 @@
     (let [exit-log (atom [])
           ;; Two distinct machine specs (and id-prefixes) so the
           ;; spawned actor handlers don't collide on the global
-          ;; registrar — the v1-partial relaxation (Spec 005 §Spawning)
-          ;; means cross-frame `:rf.machine/spawn` of the same id-prefix
-          ;; resolves to a single global handler entry, so a test that
-          ;; uses distinct prefixes per frame is the only meaningful
-          ;; isolation assertion at v1.
+          ;; registrar — a `reg-machine` registration is a shared
+          ;; load-time DEFINITION in the global registrar (Spec 005
+          ;; §Liveness is derived from runtime-db), so a cross-frame
+          ;; `:rf.machine/spawn` of the same id-prefix resolves through a
+          ;; single entry and distinct prefixes per frame are the only
+          ;; meaningful isolation assertion here.
           mk-child (fn [_label]
                      {:initial :running
                       :data    {}
