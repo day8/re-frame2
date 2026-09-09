@@ -929,12 +929,26 @@ for tool in "${TOOLS[@]}"; do
   # tools/story/deps.edn pads its dep map with column-aligned whitespace
   # (`day8/re-frame2          {:local/root …}`) so we collapse all
   # runs of whitespace to a single space before matching.
+  #
+  # rf2-qvyr — the file-text match drops the inventory entry's CLOSING BRACE
+  # and matches the `<lib> {:local/root "<path>"` prefix instead. A coordinate
+  # map may legitimately carry keys BESIDE :local/root — Story's Xray edge
+  # carries `:exclusions [day8/reagent-slim]` to keep a second provider of
+  # `re-frame.adapter.reagent` out of the published Story graph — and with the
+  # brace included this check demanded that :local/root be the map's ONLY key,
+  # which is a constraint it never meant to impose and never stated. The
+  # closing brace contributed nothing to the property the entry asserts: the
+  # lib↔path PAIRING is pinned just as exactly by the prefix, which is also
+  # what the release rewrite step itself keys off. The converse pass below is
+  # unaffected — local_root_coords() derives the normalised
+  # `<lib> {:local/root "<path>"}` form regardless of any extra keys, so the
+  # inventory stays in that form and keeps matching it exactly.
   normalised="$(tr -s '[:space:]' ' ' < "${deps_file}")"
   tool_expected=""
   while IFS='|' read -r entry_tool entry_local_root; do
     [[ -z "${entry_tool}" ]] && continue
     [[ "${entry_tool}" == "${tool}" ]] || continue
-    if ! grep -qF "${entry_local_root}" <<< "${normalised}"; then
+    if ! grep -qF "${entry_local_root%\}}" <<< "${normalised}"; then
       echo "::error file=${rel_label}::expected '${entry_local_root}' (lockstep contract; the release workflow rewrites this to :mvn/version at deploy time)"
       errors=$((errors + 1))
     fi
