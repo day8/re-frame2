@@ -137,7 +137,8 @@
   (let [rid (:resource-id row)
         testid (str "rf-xray-resources-registry-row-"
                     (when rid (-> rid str (subs 1))))]
-    [:div {:data-testid testid
+    [:div {:key   (str rid)
+           :data-testid testid
            :data-resource-id (str rid)
            :style {:display       "flex"
                    :align-items   "baseline"
@@ -178,8 +179,7 @@
     (if (seq rows)
       (into [:div {:data-testid "rf-xray-resources-registry-body"
                    :style {:display "flex" :flex-direction "column" :gap "2px"}}]
-            (for [row rows]
-              ^{:key (str (:resource-id row))} (registry-row-view row)))
+            (map registry-row-view rows))
       (empty-caption "No resources registered in the host app."
                      "rf-xray-resources-registry-empty"))))
 
@@ -197,7 +197,8 @@
   (let [sid (:scope-id row)
         testid (str "rf-xray-resources-scope-resolver-row-"
                     (when sid (-> sid str (subs 1))))]
-    [:div {:data-testid testid
+    [:div {:key   (str sid)
+           :data-testid testid
            :data-scope-id (str sid)
            :style {:display "flex" :align-items "baseline" :gap "10px"
                    :flex-wrap "wrap" :padding "3px 0"
@@ -226,8 +227,7 @@
     (if (seq rows)
       (into [:div {:data-testid "rf-xray-resources-scope-resolvers-body"
                    :style {:display "flex" :flex-direction "column" :gap "2px"}}]
-            (for [row rows]
-              ^{:key (str (:scope-id row))} (scope-resolver-row-view row)))
+            (map scope-resolver-row-view rows))
       (empty-caption "No named resource-scope resolvers registered."
                      "rf-xray-resources-scope-resolvers-empty"))))
 
@@ -237,7 +237,8 @@
   (let [testid (str "rf-xray-resources-instance-row-"
                     (when (:resource-id row) (-> row :resource-id str (subs 1)))
                     "-g" (:generation row))]
-    [:div {:data-testid testid
+    [:div {:key   (str (:scoped-key row))
+           :data-testid testid
            :style {:display       "flex"
                    :align-items   "baseline"
                    :gap           "10px"
@@ -301,8 +302,8 @@
            (into [:<>]
                  (map-indexed
                    (fn [i p]
-                     ^{:key i}
-                     [:span {:style {:display "flex" :gap "2px"
+                     [:span {:key   i
+                             :style {:display "flex" :gap "2px"
                                      :align-items "baseline"}}
                       [:span {:style {:color (:text-tertiary tokens)}}
                        (str "p" i)]
@@ -320,8 +321,7 @@
     (if (seq rows)
       (into [:div {:data-testid "rf-xray-resources-instances-body"
                    :style {:display "flex" :flex-direction "column" :gap "2px"}}]
-            (for [row rows]
-              ^{:key (str (:scoped-key row))} (instance-row-view row)))
+            (map instance-row-view rows))
       (empty-caption "No live resource instances in this frame."
                      "rf-xray-resources-instances-empty"))))
 
@@ -330,7 +330,8 @@
 (defn- work-row-view [row]
   (let [testid (str "rf-xray-resources-work-row-"
                     (hash (:work-id row)))]
-    [:div {:data-testid testid
+    [:div {:key   (str (:work-id row))
+           :data-testid testid
            :data-terminal (str (:terminal? row))
            :style {:display     "flex"
                    :align-items "baseline"
@@ -380,8 +381,7 @@
     (if (seq rows)
       (into [:div {:data-testid "rf-xray-resources-work-body"
                    :style {:display "flex" :flex-direction "column" :gap "2px"}}]
-            (for [row rows]
-              ^{:key (str (:work-id row))} (work-row-view row)))
+            (map work-row-view rows))
       (empty-caption "No in-flight or recent resource work in this frame."
                      "rf-xray-resources-work-empty"))))
 
@@ -397,7 +397,8 @@
 
 (defn- live-work-row-view [row]
   (let [testid (str "rf-xray-resources-live-work-row-" (hash (:work-id row)))]
-    [:div {:data-testid testid
+    [:div {:key   (str (:work-id row))
+           :data-testid testid
            :data-work-kind (str (some-> (:work-kind row) name))
            :style {:display     "flex"
                    :align-items "baseline"
@@ -439,8 +440,7 @@
        (if (seq live-work)
          (into [:div {:data-testid "rf-xray-resources-live-work-body"
                       :style {:display "flex" :flex-direction "column" :gap "2px"}}]
-               (for [row live-work]
-                 ^{:key (str (:work-id row))} (live-work-row-view row)))
+               (map live-work-row-view live-work))
          (empty-caption "No live managed-async work in this frame."
                         "rf-xray-resources-live-work-empty"))
        ;; the active-effects tally headline — live count per family.
@@ -451,8 +451,8 @@
                               :font-size "11px" :color (:text-tertiary tokens)}}
                 [:span {:style {:font-weight 600}} "suppressed: "]]
                (for [[kind n] (sort-by (comp str key) stale-tally)]
-                 ^{:key (str kind)}
-                 [:span {:data-testid (str "rf-xray-resources-stale-tally-"
+                 [:span {:key         (str kind)
+                         :data-testid (str "rf-xray-resources-stale-tally-"
                                            (some-> kind name))
                          :style {:color (:warning tokens)}}
                   (str (some-> kind name) " " n)])))])))
@@ -469,7 +469,8 @@
 
 (defn- stale-race-row-view [arc]
   (let [testid (str "rf-xray-resources-stale-race-row-" (hash (:work-id arc)))]
-    [:div {:data-testid testid
+    [:div {:key   (str (:work-id arc))
+           :data-testid testid
            :data-work-kind (str (some-> (:work-kind arc) name))
            :style {:display     "flex"
                    :align-items "baseline"
@@ -501,8 +502,7 @@
         (section-caption "Stale races" "rf-xray-resources-stale-races-caption")
         (into [:div {:data-testid "rf-xray-resources-stale-races-body"
                      :style {:display "flex" :flex-direction "column" :gap "2px"}}]
-              (for [arc suppressed]
-                ^{:key (str (:work-id arc))} (stale-race-row-view arc)))))))
+              (map stale-race-row-view suppressed))))))
 
 ;; ---- §4 ROUTE / RESOURCE GRAPH -----------------------------------------
 
@@ -518,7 +518,8 @@
 (defn- route-graph-row-view [node]
   (let [testid (str "rf-xray-resources-route-row-"
                     (when (:route-id node) (-> node :route-id str (subs 1))))]
-    [:div {:data-testid testid
+    [:div {:key   (str (:route-id node))
+           :data-testid testid
            :style {:display "flex" :flex-direction "column" :gap "2px"
                    :padding "4px 0"}}
      [:div {:style {:display "flex" :gap "10px" :align-items "baseline"
@@ -544,8 +545,8 @@
                           :padding-left "12px" :font-family mono-stack
                           :font-size "11px"}}]
            (for [res (:resources node)]
-             ^{:key (str (:resource res) (:local-id res))}
-             [:span {:style {:color (if (:blocking? res)
+             [:span {:key   (str (:resource res) (:local-id res))
+                     :style {:color (if (:blocking? res)
                                      (:warning tokens)
                                      (:text-tertiary tokens))}}
               (str (:resource res))
@@ -568,15 +569,15 @@
     (if (seq nodes)
       (into [:div {:data-testid "rf-xray-resources-route-graph-body"
                    :style {:display "flex" :flex-direction "column" :gap "4px"}}]
-            (for [node nodes]
-              ^{:key (str (:route-id node))} (route-graph-row-view node)))
+            (map route-graph-row-view nodes))
       (empty-caption "No routes declare :resources."
                      "rf-xray-resources-route-graph-empty"))))
 
 ;; ---- §5 LIFECYCLE TIMELINE ---------------------------------------------
 
 (defn- timeline-row-view [row]
-  [:div {:data-testid (str "rf-xray-resources-timeline-row-" (:id row))
+  [:div {:key         (str (:id row))
+         :data-testid (str "rf-xray-resources-timeline-row-" (:id row))
          :data-op     (str (:operation row))
          :style {:display "flex" :gap "8px" :align-items "baseline"
                  :padding "2px 0" :font-family mono-stack :font-size "11px"}}
@@ -633,15 +634,15 @@
     (if (seq rows)
       (into [:div {:data-testid "rf-xray-resources-timeline-body"
                    :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-            (for [row rows]
-              ^{:key (str (:id row))} (timeline-row-view row)))
+            (map timeline-row-view rows))
       (empty-caption "No resource lifecycle events in this epoch."
                      "rf-xray-resources-timeline-empty"))))
 
 ;; ---- §6 INVALIDATION GRAPH ----------------------------------------------
 
 (defn- invalidation-row-view [row]
-  [:div {:data-testid (str "rf-xray-resources-invalidation-row-" (:id row))
+  [:div {:key         (str (:id row))
+         :data-testid (str "rf-xray-resources-invalidation-row-" (:id row))
          :style {:display "flex" :gap "8px" :align-items "baseline"
                  :padding "2px 0" :font-family mono-stack :font-size "11px"}}
    [:span {:style {:color (:orange tokens) :font-weight 600}} "invalidate"]
@@ -662,8 +663,7 @@
     (if (seq rows)
       (into [:div {:data-testid "rf-xray-resources-invalidation-body"
                    :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-            (for [row rows]
-              ^{:key (str (:id row))} (invalidation-row-view row)))
+            (map invalidation-row-view rows))
       (empty-caption "No invalidations in this epoch."
                      "rf-xray-resources-invalidation-empty"))))
 
@@ -675,7 +675,8 @@
 ;; never an implicit global). Per Spec 016 §Named resource-scope resolvers.
 
 (defn- scope-resolution-row-view [row]
-  [:div {:data-testid (str "rf-xray-resources-scope-resolution-row-" (:id row))
+  [:div {:key         (str (:id row))
+         :data-testid (str "rf-xray-resources-scope-resolution-row-" (:id row))
          :data-resolved-nil (str (:resolved-nil? row))
          :style {:display "flex" :gap "8px" :align-items "baseline"
                  :padding "2px 0" :font-family mono-stack :font-size "11px"}}
@@ -704,8 +705,7 @@
     (if (seq rows)
       (into [:div {:data-testid "rf-xray-resources-scope-resolution-body"
                    :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-            (for [row rows]
-              ^{:key (str (:id row))} (scope-resolution-row-view row)))
+            (map scope-resolution-row-view rows))
       (empty-caption "No named-scope resolutions in this epoch."
                      "rf-xray-resources-scope-resolution-empty"))))
 
@@ -719,7 +719,8 @@
 ;; completion continuations / §Trace evidence for invalidation).
 
 (defn- descriptor-chip [d]
-  [:span {:style {:color (:text-tertiary tokens)}}
+  [:span {:key   (str (get-in d [:scope :preview]) (:tags d))
+          :style {:color (:text-tertiary tokens)}}
    "["
    (if (:cross-scope? d)
      [:span {:style {:color (:warning tokens)}} "cross-scope"]
@@ -736,7 +737,8 @@
    "]"])
 
 (defn- mutation-invalidation-row-view [row]
-  [:div {:data-testid (str "rf-xray-resources-mutation-invalidation-row-" (:id row))
+  [:div {:key         (str (:id row))
+         :data-testid (str "rf-xray-resources-mutation-invalidation-row-" (:id row))
          :data-mutation (str (:mutation row))
          :style {:display "flex" :gap "8px" :align-items "baseline" :flex-wrap "wrap"
                  :padding "2px 0" :font-family mono-stack :font-size "11px"}}
@@ -746,8 +748,7 @@
    [:span {:style {:color (:text-tertiary tokens)}}
     (str (:descriptor-count row) " descriptors")]
    (into [:span {:style {:display "flex" :gap "6px" :flex-wrap "wrap"}}]
-         (for [d (:dispatched row)]
-           ^{:key (str (get-in d [:scope :preview]) (:tags d))} (descriptor-chip d)))
+         (map descriptor-chip (:dispatched row)))
    (when (seq (:unresolved row))
      [:span {:data-testid (str "rf-xray-resources-mutation-invalidation-unresolved-" (:id row))
              :style {:color (:warning tokens)}}
@@ -768,7 +769,8 @@
     mode-accent))
 
 (defn- continuation-row-view [row]
-  [:div {:data-testid (str "rf-xray-resources-continuation-row-" (:id row))
+  [:div {:key         (str (:id row))
+         :data-testid (str "rf-xray-resources-continuation-row-" (:id row))
          :data-mutation (str (:mutation row))
          :data-status (str (some-> (:status row) name))
          :style {:display "flex" :gap "8px" :align-items "baseline" :flex-wrap "wrap"
@@ -790,16 +792,14 @@
      (if (seq mutation-invalidations)
        (into [:div {:data-testid "rf-xray-resources-mutation-invalidation-body"
                     :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-             (for [row mutation-invalidations]
-               ^{:key (str (:id row))} (mutation-invalidation-row-view row)))
+             (map mutation-invalidation-row-view mutation-invalidations))
        (empty-caption "No scoped mutation invalidations in this epoch."
                       "rf-xray-resources-mutation-invalidation-empty"))
      ;; the call-site :reply-to continuation dispatch (workflow)
      (if (seq continuations)
        (into [:div {:data-testid "rf-xray-resources-continuations-body"
                     :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-             (for [row continuations]
-               ^{:key (str (:id row))} (continuation-row-view row)))
+             (map continuation-row-view continuations))
        (empty-caption "No :reply-to continuations dispatched in this epoch."
                       "rf-xray-resources-continuations-empty"))]))
 
@@ -837,7 +837,8 @@
 
 (defn- optimistic-mutation-row-view [row]
   (let [testid (str "rf-xray-resources-optimistic-row-" (:id row))]
-    [:div {:data-testid testid
+    [:div {:key   (str (:id row))
+           :data-testid testid
            :data-mutation (str (:mutation row))
            :data-outcome (str (some-> (:outcome row) name))
            :style {:display "flex" :flex-direction "column" :gap "2px"
@@ -864,9 +865,17 @@
        (into [:div {:style {:display "flex" :flex-wrap "wrap" :gap "6px"
                             :padding-left "12px"}}
               [:span {:style {:color (:text-tertiary tokens)}} "affected"]]
+             ;; `summary-chip` is a SHARED helper called from a dozen
+             ;; positions and it owns no key of its own — the identity is
+             ;; the affected KEY, which the chip never sees. So the key
+             ;; rides on a fragment wrapping the call: `[:<> …]` takes an
+             ;; optional attr map and carries `:key` on the fragment
+             ;; itself (`re-frame.fresco.impl.codec`'s head table), which
+             ;; adds no DOM node and leaves the shared helper's signature
+             ;; alone. Every other row in this file keys its own root.
              (for [k (:affected-keys row)]
-               ^{:key (str (:resource-id k) (get-in k [:params :preview]))}
-               (summary-chip (:scope k) nil))))
+               [:<> {:key (str (:resource-id k) (get-in k [:params :preview]))}
+                (summary-chip (:scope k) nil)])))
      ;; ON RECONCILE — the committed keys (authoritative write owned them)
      (when (= :reconciled (:outcome row))
        [:div {:data-testid (str testid "-committed")
@@ -895,9 +904,9 @@
         ;; per-key restored-vs-conflict disposition (the truthful evidence)
         (into [:div {:style {:display "flex" :flex-direction "column" :gap "1px"}}]
               (for [d (:dispositions row)]
-                ^{:key (str (get-in d [:resource/key :resource-id])
-                            (get-in d [:resource/key :params :preview]))}
-                [:span {:style {:color (if (:conflict d)
+                [:span {:key   (str (get-in d [:resource/key :resource-id])
+                                    (get-in d [:resource/key :params :preview]))
+                        :style {:color (if (:conflict d)
                                          (:warning tokens)
                                          (:text-tertiary tokens))}}
                  (str (get-in d [:resource/key :resource-id]))
@@ -906,7 +915,8 @@
                    (str " · conflict (" (some-> (:on-conflict d) name) ")"))]))])]))
 
 (defn- optimistic-force-clobber-row-view [row]
-  [:div {:data-testid (str "rf-xray-resources-optimistic-clobber-row-" (:id row))
+  [:div {:key         (str (:id row))
+         :data-testid (str "rf-xray-resources-optimistic-clobber-row-" (:id row))
          :data-mutation (str (:mutation row))
          :style {:display "flex" :gap "8px" :align-items "baseline" :flex-wrap "wrap"
                  :padding "2px 0" :font-family mono-stack :font-size "11px"
@@ -929,16 +939,14 @@
      (if (seq optimistic-mutations)
        (into [:div {:data-testid "rf-xray-resources-optimistic-body"
                     :style {:display "flex" :flex-direction "column" :gap "3px"}}]
-             (for [row optimistic-mutations]
-               ^{:key (str (:id row))} (optimistic-mutation-row-view row)))
+             (map optimistic-mutation-row-view optimistic-mutations))
        (empty-caption "No optimistic mutations in this epoch."
                       "rf-xray-resources-optimistic-empty"))
      ;; the loud :force-over-a-concurrent-write clobber warnings
      (when (seq optimistic-force-clobbers)
        (into [:div {:data-testid "rf-xray-resources-optimistic-clobber-body"
                     :style {:display "flex" :flex-direction "column" :gap "1px"}}]
-             (for [row optimistic-force-clobbers]
-               ^{:key (str (:id row))} (optimistic-force-clobber-row-view row))))]))
+             (map optimistic-force-clobber-row-view optimistic-force-clobbers)))]))
 
 ;; ---- §7 CACHE GROWTH ----------------------------------------------------
 
@@ -955,8 +963,8 @@
       (:live-work growth) " live work"]
      (into [:div {:style {:display "flex" :flex-direction "column" :gap "1px"}}]
            (for [r (:by-resource growth)]
-             ^{:key (str (:resource-id r))}
-             [:div {:style {:display "flex" :gap "8px"}}
+             [:div {:key   (str (:resource-id r))
+                    :style {:display "flex" :gap "8px"}}
               [:span {:style {:color mode-accent :min-width "10rem"}}
                (str (:resource-id r))]
               [:span {:style {:color (:text-tertiary tokens)}}
@@ -987,16 +995,16 @@
        (into [:div {:data-testid "rf-xray-resources-audit-suspicious"
                     :style {:display "flex" :flex-direction "column" :gap "1px"}}]
              (for [w suspicious]
-               ^{:key (str (:resource-id w))}
-               [:div {:style {:color (:warning tokens)}}
+               [:div {:key   (str (:resource-id w))
+                      :style {:color (:warning tokens)}}
                 "⚠ " (str (:resource-id w)) " — " (:hint w)])))
      ;; scope-mismatch lint
      (when (seq mismatches)
        (into [:div {:data-testid "rf-xray-resources-audit-mismatch"
                     :style {:display "flex" :flex-direction "column" :gap "1px"}}]
              (for [m mismatches]
-               ^{:key (str (:resource-id m) (get-in m [:sub-scope :preview]))}
-               [:div {:style {:color (:error tokens)}}
+               [:div {:key   (str (:resource-id m) (get-in m [:sub-scope :preview]))
+                      :style {:color (:error tokens)}}
                 "scope mismatch on " (str (:resource-id m))
                 " — sub scope " (get-in m [:sub-scope :preview])
                 " ≠ entry scope " (get-in m [:entry-scope :preview])])))
@@ -1005,8 +1013,8 @@
        (into [:div {:data-testid "rf-xray-resources-audit-orphan"
                     :style {:display "flex" :flex-direction "column" :gap "1px"}}]
              (for [o orphans]
-               ^{:key (str (:owner o))}
-               [:div {:style {:color (:warning tokens)}}
+               [:div {:key   (str (:owner o))
+                      :style {:color (:warning tokens)}}
                 "orphaned owner " (pr-str (:owner o))
                 " pins " (str (:resource-id o))])))]))
 
