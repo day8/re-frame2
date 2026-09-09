@@ -674,9 +674,13 @@
   (let [effects (->classification-effects classification)]
     (when (seq effects)
       (when-let [defect (rf.elision/classification-effect-defect effects)]
+        ;; `:where` is the FULL NAMESPACE rather than a var, because the throw
+        ;; site `apply-variant-classification!` is private — no var spelling
+        ;; names a place a reader can land on. Same shape as the private
+        ;; `reject-arg!` in `re-frame.ssr.response`.
         (rf.error/throw-error!
           :rf.error/classification-effect-shape
-          'rf.story/apply-variant-classification!
+          're-frame.story.frames
           (str "re-frame2-story: " subject-id
                " declares a malformed `:sensitive` / `:large` classification — "
                (:reason defect)

@@ -68,7 +68,7 @@
               (catch Throwable _ nil))
          (rf.error/throw-error!
            :rf.error/story-test-check-absent
-           'rf.story.generate/gen->gen-fn
+           'rf.story.generate.test-check/gen->gen-fn
            absent-msg
            {:recovery :add-test-check-or-use-a-gen-fn
             :extra    {:missing-var sym}}))))
@@ -111,7 +111,7 @@
       :cljs
       (rf.error/throw-error!
         :rf.error/story-test-check-unsupported-host
-        'rf.story.generate/gen->gen-fn
+        'rf.story.generate.test-check/gen->gen-fn
         (str "re-frame.story.generate.test-check is JVM-only — CLJS cannot "
              "dynamically resolve the optional test.check namespace. Use the "
              "dependency-free (fn [seed] event-program) gen-fn over the "

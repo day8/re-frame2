@@ -1927,7 +1927,7 @@
            (when (or (seq failures) (seq redacted))
              (rf.error/throw-error!
                :rf.error/story-prepare-failed
-               'rf.story/prepare-variant
+               'rf.story.runtime/prepare-variant
                (str "re-frame2-story: variant " variant-id
                     " — preparation (phases 0-2) recorded "
                     (count failures)
