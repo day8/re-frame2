@@ -3191,7 +3191,10 @@ test('the FULL plan still makes every claim the narrowed plans may not', () => {
   assert.match(out, /THE PLAN IS `full` — controls, floor and every rung, fitted\./);
   assert.match(out, /THE FITTED LINES/);
   assert.match(out, /---- reagent-subs ----/);
-  assert.match(out, /^;; fresco {8}20 /m, 'the R=20 rung is in the arm table');
+  // The gap is `padEnd(11)` against the arm name, so its WIDTH is a function
+  // of the name's length and carries no claim — pinning a count broke on the
+  // rename (rf2-d1nr.2). What is asserted is that the rung has a row.
+  assert.match(out, /^;; fresco +20 /m, 'the R=20 rung is in the arm table');
   // And it says none of the narrowed plans' absence lines.
   assert.doesNotMatch(out, /NO ARM WAS MOUNTED/);
   assert.doesNotMatch(out, /NO WRITE EVENT WAS DRIVEN/);
