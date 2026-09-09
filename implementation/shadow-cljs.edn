@@ -1399,6 +1399,22 @@
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
+  ;; ---- rf2-k97c.1 SPIKE builds — THROWAWAY, never merged ------------------
+  ;; Sources under tools/xray/testbeds/xspike/. No Xray preload: the spike
+  ;; installs the production registry / collectors / epoch itself and owns
+  ;; its own roots, which is the whole subject.
+  :xspike/slim
+  {:target     :browser
+   :output-dir "out/xspike/slim"
+   :asset-path "."
+   :modules    {:main {:init-fn xspike.slim/run}}}
+
+  :xspike/hicasso
+  {:target     :browser
+   :output-dir "out/xspike/hicasso"
+   :asset-path "."
+   :modules    {:main {:init-fn xspike.hic/run}}}
+
   ;; Single-frame standard-epochs testbed (rf2-gsr6z; renamed per
   ;; rf2-zthnj) — the deliberately simple Xray driving surface that
   ;; SUPERSEDES the old step-deck. A tall column of numbered

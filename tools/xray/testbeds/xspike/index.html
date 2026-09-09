@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>rf2-k97c.1 spike</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #fafafa; }
+    .cols { display: flex; gap: 8px; align-items: flex-start; }
+    #app { flex: 0 0 320px; }
+    #tool-a, #tool-b { flex: 1; min-width: 0; border: 2px solid #444; min-height: 260px;
+                       background: #1c1c1c; }
+    h4 { margin: 4px; font: 12px system-ui; }
+  </style>
+</head>
+<body>
+  <div id="controls"></div>
+  <div class="cols">
+    <main id="app"></main>
+    <div style="flex:1">
+      <h4>ARM A — stock-Reagent root + tool-local binding</h4>
+      <div id="tool-a"></div>
+    </div>
+    <div style="flex:1">
+      <h4>ARM B — Hicasso root + collector</h4>
+      <div id="tool-b"></div>
+    </div>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>
