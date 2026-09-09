@@ -188,7 +188,7 @@
      ;; them together.
      :rf2-version     "0.0.1.alpha"
      :shadow-version  "3.4.10"
-     :react-version   "19.2.0"}))
+     :react-version   "19.3.0"}))
 
 ;; -- template-fn --------------------------------------------------------------
 ;;

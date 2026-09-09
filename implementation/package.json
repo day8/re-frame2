@@ -16,8 +16,8 @@
     "markdown-it-toc-done-right": "^4.2.0",
     "playwright": "1.59.1",
     "punycode": "2.1.1",
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "shadow-cljs": "3.4.10",
     "todomvc-app-css": "2.4.3",
     "todomvc-common": "1.0.5"
