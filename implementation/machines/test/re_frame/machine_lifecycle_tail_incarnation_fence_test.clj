@@ -238,15 +238,29 @@
              :recover {}}})
 
 (defn- run-erroring-finalize
-  "Register the parent (declaring `:spawn :on-error` at `[:waiting]`) + child,
-  seed the child's finishing snapshot, install `on-cleared` as a
-  `:rf.registry/handler-cleared` listener, and drive `finalize-machine` for the
-  child under A's bound event owner. Captures every `:router/dispatch!`."
+  "Register the parent (declaring `:spawn :on-error` at `[:waiting]`), install a
+  PER-INSTANCE registrar entry at the child address, seed the child's finishing
+  snapshot, install `on-cleared` as a `:rf.registry/handler-cleared` listener,
+  and drive `finalize-machine` for the child under A's bound event owner.
+  Captures every `:router/dispatch!`.
+
+  rf2-xjee — THE CHILD ADDRESS CARRIES A PLAIN ENTRY, NOT A `reg-machine`
+  DEFINITION, and that is what makes this seam reachable at all. Finalize's
+  registrar cleanup now clears only a PER-INSTANCE entry: a definition-bearing
+  address is preserved (a `reg-machine` registration is a shared load-time TYPE
+  outliving every instance, per Spec 005 §Liveness is derived from runtime-db),
+  and `rf.registrar/unregister!` emits `:rf.registry/handler-cleared` only when
+  something was actually present — so a `reg-machine`'d child would fire NO
+  callback and this fence would never be exercised. A stale or externally
+  installed plain handler squatting at an actor address is precisely the case
+  the cleanup step exists for, so it is also the faithful subject for its fence.
+  `finalize-machine` takes the child's spec as an argument, so nothing else in
+  this fixture needs the child registered."
   [frame-a parent-id child-id on-cleared]
   (rf.machines.spawn-order/reset-all!)
   (let [invoke-id [:waiting]]
     (rf/reg-machine parent-id (on-error-parent-machine))
-    (rf/reg-machine child-id  (erroring-child-machine parent-id invoke-id))
+    (rf.registrar/register! :event child-id {:fn (fn [db _] db) :rf/provenance :A})
     (rf/make-frame {:id frame-a})
     (rf.frame/swap-runtime-db!
       frame-a (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots child-id]

@@ -243,8 +243,10 @@
         ;; --- resource release (snapshot storage, handler, resource owner) ---
         (is (nil? (snapshot :ed/session))
             "snapshot cleared — the machine's state storage is released")
-        (is (nil? (rf.registrar/lookup :event :ed/session))
-            "event handler unregistered — the machine's handler resource is released")
+        (is (some? (rf.registrar/lookup :event :ed/session))
+            "rf2-xjee — the DEFINITION is NOT a per-instance resource: the
+             explicit destroy releases the instance's storage, timers and
+             resource owners and leaves the registration standing")
         (is (= [[:machine :ed/session]] @released)
             "EXACTLY ONE [:machine actor-id] resource owner released on destroy")))))
 

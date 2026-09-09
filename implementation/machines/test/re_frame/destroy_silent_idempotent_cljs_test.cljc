@@ -83,8 +83,10 @@
       ;; Sanity: the auto-destroy fully tore the actor down.
       (is (nil? (snapshot :rf2-lbjnz/finisher))
           "auto-destroy cleared the snapshot")
-      (is (nil? (rf.registrar/lookup :event :rf2-lbjnz/finisher))
-          "auto-destroy unregistered the handler")
+      (is (some? (rf.registrar/lookup :event :rf2-lbjnz/finisher))
+          "rf2-xjee — the auto-destroy ended the INSTANCE and left the
+           `reg-machine` DEFINITION standing (a load-time TYPE outlives every
+           instance)")
       (let [dests-after-auto (destroyed-traces traces)
             finish-count     (count (filter #(= :rf.machine/finished
                                                 (-> % :tags :reason))
@@ -120,8 +122,10 @@
       ;; World is unchanged.
       (is (nil? (snapshot :rf2-lbjnz/finisher))
           "snapshot stays gone after the silent no-op")
-      (is (nil? (rf.registrar/lookup :event :rf2-lbjnz/finisher))
-          "handler stays unregistered after the silent no-op"))))
+      (is (some? (rf.registrar/lookup :event :rf2-lbjnz/finisher))
+          "the DEFINITION still stands after the silent no-op — and, rf2-xjee,
+           it is NOT a liveness signal, which is what keeps the second destroy
+           silent rather than re-running the teardown"))))
 
 ;; ---- Test 2: double-explicit destroy in the same cascade -----------------
 
@@ -141,7 +145,7 @@
       (is (some? (snapshot :rf2-lbjnz/target))
           "target actor's snapshot is live before the cascade")
       (is (some? (rf.registrar/lookup :event :rf2-lbjnz/target))
-          "target actor's handler is registered before the cascade")
+          "target actor's DEFINITION is registered before the cascade")
       ;; Emit two destroy fxs against the same id in one cascade. The
       ;; first one tears the actor down; the second must be a silent
       ;; no-op — no second :rf.machine/destroyed, no error.
@@ -165,8 +169,9 @@
       ;; World is destroyed exactly once.
       (is (nil? (snapshot :rf2-lbjnz/target))
           "snapshot is cleared exactly once")
-      (is (nil? (rf.registrar/lookup :event :rf2-lbjnz/target))
-          "handler is unregistered exactly once"))))
+      (is (some? (rf.registrar/lookup :event :rf2-lbjnz/target))
+          "rf2-xjee — the DEFINITION survives both destroys; teardown ends the
+           instance and never the registration"))))
 
 ;; ---- Test 3: spawn-all join-cancelled survivor destroyed exactly once ------
 ;;

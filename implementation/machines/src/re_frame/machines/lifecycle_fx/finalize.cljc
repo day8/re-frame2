@@ -14,10 +14,12 @@
        `:output-key` — call it `result`. Absent `:output-key` ⇒ nil. An
        `:error? true` leaf marks the terminal a FAILURE.
     3. Emit the `:rf.machine/done` trace (D6).
-    4. Tear down the child: dissoc snapshot, clear
+    4. Tear down the child INSTANCE: dissoc snapshot, clear
        `[:rf.runtime/machines :spawned ...]` slot,
        emit `:rf.machine/destroyed` with `:reason :rf.machine/finished`
-       (D6 enrichment), abort in-flight HTTP, and clear any registrar entry.
+       (D6 enrichment), abort in-flight HTTP, and clear any PER-INSTANCE
+       registrar entry — never a `reg-machine` DEFINITION, which is a
+       load-time TYPE outliving every instance (rf2-xjee).
     5. Mint the completion carrier into the parent — the reserved event
        `[<parent-id> [:rf.machine.spawn/done <invoke-id> <completion>]]`
        (`dispatch-spawn-done!`), or, for an ERROR leaf whose `:spawn` parent
@@ -32,8 +34,9 @@
 
   For singleton machines (no `:rf/parent-id` on `:data`): skip step 5
   and emit a `:rf.machine/done` with `:parent-id nil` (D7 — singleton
-  symmetry). The teardown still runs — the snapshot is dissoc'd and any
-  registrar entry is cleared.
+  symmetry). The teardown still runs — the snapshot is dissoc'd — but the
+  singleton's own `reg-machine` DEFINITION SURVIVES, so the address stays
+  creatable and a later event re-births it from its initial snapshot (D5, D7).
 
   This namespace also owns `abort-actor-in-flight-http!` — the late-bind
   hook into the http-managed artefact — the single home for
@@ -457,17 +460,30 @@
         ;; :suppressed` via the shared substrate, carrying the full stale
         ;; vocabulary rather than a bare `:ok` reply.
         ;;
-        ;; LIVENESS is the gate (not `:on-done` resolvability): when the
-        ;; parent was destroyed BOTH its snapshot AND — for a singleton
-        ;; parent — its registrar handler are gone, so the `:spawn` spec
-        ;; (and thus its `:on-done`) is no longer resolvable AT ALL. Keying
-        ;; off the callback would miss the case entirely. The robust gate is: a
+        ;; LIVENESS is the gate (not `:on-done` resolvability): keying off the
+        ;; callback would miss the case entirely. The robust gate is: a
         ;; declaratively-spawned child (it carries both `:rf/parent-id` and
-        ;; `:rf/invoke-id`) whose parent is NO LONGER LIVE (no snapshot AND no
-        ;; registered handler). `:on-error` routing (the error-leaf control-
-        ;; flow case) is left to its own dispatch path — a stale error leaf
-        ;; with a dead parent simply dispatches into the void, harmlessly.
-        parent-live?  (or (some? parent-snap) (some? parent-reg))
+        ;; `:rf/invoke-id`) whose parent is NO LONGER LIVE. `:on-error` routing
+        ;; (the error-leaf control-flow case) is left to its own dispatch path
+        ;; — a stale error leaf with a dead parent simply dispatches into the
+        ;; void, harmlessly.
+        ;;
+        ;; rf2-xjee — A DEFINITION-BEARING REGISTRAR ENTRY IS NOT LIVENESS, and
+        ;; that is load-bearing here rather than a tidy-up. A destroyed
+        ;; SINGLETON parent keeps its `reg-machine` DEFINITION (the registration
+        ;; is the load-time PROGRAM; the snapshot was the INSTANCE), so reading
+        ;; the bare registrar entry as liveness would report a destroyed parent
+        ;; LIVE, skip the stale gate, and dispatch the completion carrier at its
+        ;; address — where the surviving definition would synthesise a fresh
+        ;; initial snapshot and RESURRECT the parent to fold a dead child's
+        ;; result into it. Spec 005 §Destroy is silent-idempotent forbids
+        ;; exactly this reading; the same amendment stands at `destroy/
+        ;; actor-live?`. `parent-reg` is still the right source for `parent-meta`
+        ;; above — resolving the `:spawn` spec is what the DEFINITION is FOR;
+        ;; only the liveness question changes. A non-machine entry squatting at
+        ;; the parent address still counts, exactly as before.
+        parent-live?  (or (some? parent-snap)
+                          (and (some? parent-reg) (not (:rf/machine? parent-reg))))
         stale-spawn?  (and parent-id invoke-id (not on-error?)
                            (not parent-live?))
         ;; The carried generation is parsed off THIS finishing actor's id;
@@ -699,7 +715,20 @@
         (when-not (owner-gone?)
           ;; `rf.registrar/unregister!` emits a synchronous callback-bearing
           ;; `:rf.registry/handler-cleared` trace.
-          (rf.registrar/unregister! :event machine-id))
+          ;;
+          ;; rf2-xjee — EXCEPT when the address carries a machine DEFINITION.
+          ;; The D7 `:final?` singleton auto-destroy is reachable with NO
+          ;; teardown code written by the author (a root-level `:final?` leaf is
+          ;; enough), and the entry it would clear is the shared load-time TYPE
+          ;; every `[:rf.machine/spawn {:machine-id <id>}]` resolves through —
+          ;; not this instance's own. Finality ends the INSTANCE; the definition
+          ;; is the PROGRAM that made the address creatable and outlives it
+          ;; (Spec 005 §Liveness is derived from runtime-db, D4/D7). `rf/clear`
+          ;; remains the public spelling for permanent removal. The identical
+          ;; gate stands at `destroy/teardown-live-actor!` step (8); a
+          ;; non-machine entry squatting here still gets cleared.
+          (when (nil? (rf.machines.lifecycle-fx.resolver/spec-from-registry machine-id))
+            (rf.registrar/unregister! :event machine-id)))
         ;; rf2-4ipqe4 — RECHECK after the registrar unregister before the
         ;; completion dispatch. #5856/#5873 grouped the unregister with the
         ;; dispatch under ONE check, so a `:rf.registry/handler-cleared` listener
