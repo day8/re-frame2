@@ -100,6 +100,25 @@
        (filter string?)
        (apply str)))
 
+(defn- panel-tree
+  "The panel's markup for the CURRENT state of `:rf.xray/routing-tab-data`
+  — what calling the panel var directly returned before rf2-k97c.3 made
+  the panel a Fresco boundary.
+
+  `routing/Panel` is now the `as-component` bridge and answers an
+  interop vector, not a tree to walk; the markup is
+  `routing/panel-tree`, a pure fn of the composite's VALUE. So the read
+  the panel used to make inside its own body is made here, one line
+  above it, and every row below asserts on exactly the hiccup it did.
+
+  This is deliberately still the AMBIENT `rf/subscribe`, because these
+  rows run under `rf/with-frame :rf/xray` in the node lane with no
+  React commit at all. What the panel's own read now resolves to — the
+  frame React context names, not the ambient one — is the subject of
+  `routing_fresco_boundary_dom_cljs_test`, which mounts for real."
+  []
+  (routing/panel-tree @(rf/subscribe [:rf.xray/routing-tab-data])))
+
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
   (xray-test-support/install-test-overrides!)
@@ -194,7 +213,7 @@
       (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
                          {:route-id :route/cart :params {} :query {}}]
                         {:frame :rf/xray})
-      (let [tree (routing/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-routing"))
             "panel root present")
         ;; spec/021 §14.1 (rf2-6xezz) — every L4 panel scrubs its
@@ -245,7 +264,7 @@
       (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
                          {:route-id :route/cart :params {:id 42} :path "/cart"}]
                         {:frame :rf/xray})
-      (let [tree (routing/Panel)
+      (let [tree (panel-tree)
             id   (find-by-testid tree "rf-xray-routing-current-id")
             params (find-by-testid tree "rf-xray-routing-current-params")
             path (find-by-testid tree "rf-xray-routing-current-path")]
@@ -262,7 +281,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test {}]
                         {:frame :rf/xray})
-      (let [tree (routing/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-routing"))
             "panel root present")
         (is (nil? (find-by-testid tree "rf-xray-routing-header"))
@@ -287,7 +306,7 @@
       (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
                          {:route-id :route/cart :params {} :query {}}]
                         {:frame :rf/xray})
-      (let [tree (routing/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-routing-current"))
             "CURRENT ROUTE renders")
         (is (some? (find-by-testid tree "rf-xray-routing-table"))
@@ -322,7 +341,7 @@
         (rf/dispatch-sync [:rf.xray/sync-trace-buffer buffer]
                           {:frame :rf/xray})
         (rf/dispatch-sync [:rf.xray/focus-event 99 nil] {:frame :rf/xray}))
-      (let [tree (routing/Panel)]
+      (let [tree (panel-tree)]
         ;; ROUTE TABLE still renders.
         (is (some? (find-by-testid tree "rf-xray-routing-table")))
         ;; :to overlay glyph present on the destination table row.
@@ -369,7 +388,7 @@
         (rf/dispatch-sync [:rf.xray/sync-trace-buffer buffer]
                           {:frame :rf/xray})
         (rf/dispatch-sync [:rf.xray/focus-event 99 nil] {:frame :rf/xray}))
-      (let [tree (routing/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-routing-table-marker-from"))
             ":from overlay glyph rendered on origin route in the table")
         (is (some? (find-by-testid tree "rf-xray-routing-table-marker-to"))

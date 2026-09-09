@@ -72,13 +72,53 @@
   no Reagent / UIx references. Frame isolation comes from the
   enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
 
+  ## THE VIEW IS A FRESCO BOUNDARY (rf2-k97c.3)
+
+  [[PanelView]] is an `rf.fresco/defview` — a real React function
+  component minted by the re-frame-native view layer — rather than an
+  `rf/reg-view`. It follows `panels/module_view.cljs`, increment 1's
+  merged template, under the epic's ruled design (rf2-k97c.2, Design
+  B): Xray's views are re-authored in Fresco and read through Fresco's
+  shipped collector, so their observation no longer depends on
+  whichever view build the installed adapter happens to supply.
+
+  The one read is `rf.fresco/sub`, which the collector wires,
+  activates, and re-wires AND NOTIFIES on invalidation
+  (`re-frame.fresco.impl.collector`). It is not a matter of taste: for
+  the extent of a boundary's body `re-frame.fresco.impl.intent/with-frame`
+  binds core's refusal tier, so an ambient `@(rf/subscribe …)` REFUSES
+  rather than silently reading the wrong frame.
+
+  ## WHERE THIS DEPARTS FROM THE TEMPLATE, AND WHY — THE BRIDGE OWNS THE
+  ## PUBLIC NAME
+
+  In `module_view.cljs` the boundary keeps the name `Panel` and the
+  bridge is a private `Panel-bridge`, because that panel is L4-only:
+  its own `install!` is the sole thing that names it. This panel is one
+  of the seven standalone-mountable ones, so the name `routing/Panel`
+  is read from five places this bead may not edit or would rather not
+  move — `panels.cljs`'s `render-panel!` chokepoint, the panel-gallery
+  testbed, two shell/mount test suites, and `spec/api-manifest.edn`
+  plus its curated metadata sidecar, which are hot-zone files.
+
+  So the assignment is inverted rather than the mechanism: [[Panel]]
+  stays the public callable every one of those sites already holds, and
+  it is the `rf.fresco/as-component` bridge; the boundary is the private
+  [[PanelView]] behind it. Same one door (`as-component`), same defined
+  end — when the shell is itself a Fresco tree the bridge collapses and
+  `PanelView` takes the name.
+
   ## Helpers
 
   Pure-data projection (`project-topology`, `epoch-routing-activity`,
   `project-topology-data`, plus the lens helpers) lives in
   `routing_helpers.cljc` so the algebra runs under the JVM unit-test
-  target."
+  target. The hiccup projection is [[panel-tree]], a plain fn over the
+  composite's VALUE — so the panel's markup stays drivable from the
+  node lane without a React commit, which is what the pre-migration
+  `(routing/Panel)` call gave those tests."
   (:require [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.routing-helpers :as h]
             [day8.re-frame2-xray.theme.tokens
@@ -303,14 +343,28 @@
   marker); other rows are quiet. Nested routes indent by depth and
   their parent rows carry a `▾` disclosure chevron (leaves get an
   aligned spacer). The FROM/TO overlay glyph paints to the right of
-  the path when the focused epoch navigated to/from this route."
+  the path when the focused epoch navigated to/from this route.
+
+  The row owns its own React `:key`, in its ATTRIBUTE map. The caller
+  used to attach it as `^{:key …}` reader metadata on the CALL FORM
+  `(route-table-row entry)` — metadata on a source list, which the call
+  discards when it returns a fresh vector, so no key ever reached React
+  (the same defect `cancellation_cascade.cljs` records under rf2-ppzid
+  and works around with `with-meta`). Putting it in the attribute map
+  is the one spelling BOTH substrates read: Reagent's `get-react-key`
+  and Fresco's codec head table. A portability fix rather than a Fresco
+  accommodation. `route-id` is unique across a topology by
+  construction — the topology is projected from a `{<route-id> <meta>}`
+  map — and a nil id degrades to the same `\"\"` the old expression
+  produced."
   [{:keys [row depth has-children? cycle-root?]}]
   (let [{:keys [route-id path doc marker]} row
         current?  (= marker :here)
         glyph     (marker-glyph marker)
         testid    (str "rf-xray-routing-table-row-"
                        (when route-id (name route-id)))]
-    [:div {:data-testid   testid
+    [:div {:key           (str route-id)
+           :data-testid   testid
            :data-route-id (when route-id (str route-id))
            :data-marker   (when marker (name marker))
            :data-current  (when current? "true")
@@ -378,7 +432,12 @@
 (defn- route-table-section
   "§3 — the full registered route graph as a tree (always visible per
   the topology-plus-overlay contract). Empty topology vector ⇒ the
-  surrounding panel renders the silent state instead."
+  surrounding panel renders the silent state instead.
+
+  `route-table-row` is CALLED here, never used as a hiccup head: a
+  plain fn in head position is a loud error under Fresco and a silent
+  extra component under Reagent, and neither is wanted. The React key
+  rides in the row's own attribute map — see its docstring."
   [topology]
   (section
     {:first? false :testid "rf-xray-routing-table"}
@@ -387,10 +446,7 @@
            :style       {:display        "flex"
                          :flex-direction "column"
                          :gap            "2px"}}
-     (into [:<>]
-           (for [entry topology]
-             ^{:key (str (-> entry :row :route-id))}
-             (route-table-row entry)))]))
+     (into [:<>] (map route-table-row topology))]))
 
 ;; ---- empty (no routes registered) ---------------------------------------
 
@@ -418,10 +474,10 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(rf/reg-view Panel
-  "The Routing tab's root view — three stacked sections per spec/021 §7.2
-  (reconciled to RoutesPanel). Subscribes to
-  `:rf.xray/routing-tab-data` and renders, top → bottom:
+(defn panel-tree
+  "The Routing tab's markup, as a pure function of the
+  `:rf.xray/routing-tab-data` composite's VALUE — three stacked
+  sections per spec/021 §7.2 (reconciled to RoutesPanel), top → bottom:
 
     1. CURRENT ROUTE          — active id + params + matched path.
     2. NAVIGATION THIS EPOCH  — FROM ──► TO + params + outcome
@@ -436,31 +492,108 @@
   identity). This matches the Figma `RoutesPanel`, which opens
   directly on the CURRENT ROUTE section with no header chrome.
 
-  When the host has no routes registered the panel renders the
-  silent-by-default caption (no sections)."
+  When the host has no routes registered this renders the
+  silent-by-default caption (no sections).
+
+  SEPARATED FROM THE BOUNDARY DELIBERATELY (rf2-k97c.3). The read moved
+  into [[PanelView]], leaving this a value → hiccup projection with no
+  reactive surface of its own — the same split
+  `routing_helpers.cljc` already makes for the data algebra, one layer
+  up. It takes NO reads, so it is drivable from the node lane by handing
+  it a composite value, which is what `(routing/Panel)` used to give
+  those tests before the panel became a React component."
+  [{:keys [silent? topology activity from-id to-id navigated? current]
+    :as _data}]
+  [:section {:data-testid "rf-xray-routing"
+             :style       {:height         "100%"
+                           :display        "flex"
+                           :flex-direction "column"
+                           :background     (:bg-2 tokens)
+                           :color          (:text-primary tokens)
+                           :font-family    sans-stack
+                           :font-size      "14px"
+                           :overflow       "auto"}}
+   (if silent?
+     (silent-state)
+     [:<>
+      (current-route-section {:current current})
+      (navigation-section {:activity   activity
+                           :from-id    from-id
+                           :to-id      to-id
+                           :navigated? navigated?
+                           :current    current})
+      (route-table-section topology)])])
+
+(rf.fresco/defview ^:private PanelView
+  "The Routing tab's root — a FRESCO BOUNDARY (rf2-k97c.3), not an
+  `rf/reg-view`. Reads `:rf.xray/routing-tab-data` and hands the value
+  to [[panel-tree]].
+
+  The READ is `rf.fresco/sub`, a plain call the collector records an
+  edge for — no deref, no reaction owned by the installed adapter, and a
+  re-wire that NOTIFIES when the substrate disposes the underlying
+  derived value. That is the third of the epic's three couplings, and it
+  is the one a first-paint smoke test cannot see.
+
+  The FRAME the read resolves against comes from React context, which
+  the enclosing frame boundary writes — `rf/frame-provider` and
+  `rf.fresco/frame-provider` write the SAME context (core's
+  `re-frame.adapter.context/frame-context`) — so this boundary resolves
+  `:rf/xray` identically under today's Reagent-rendered shell and under
+  the Fresco root Xray will own. It never consults
+  `:adapter/current-component`, the hook a foreign root cannot answer.
+
+  PRIVATE, and [[Panel]] in front of it is the public name — see the ns
+  docstring's section on the inverted bridge. The argument is the
+  ordinary one-props-map vector every `defview` takes; this panel reads
+  nothing from props, so it is destructured away."
+  [_props]
+  (panel-tree (rf.fresco/sub [:rf.xray/routing-tab-data])))
+
+;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;;
+;; Xray's shell, `panels.cljs`'s `render-panel!` and the panel-gallery
+;; testbed are all still `reg-view` trees rendered by the installed
+;; adapter, and each mounts this panel as the hiccup head `[routing/Panel]`
+;; — which a React component is not.
+;;
+;; `rf.fresco/as-component` is Fresco's own outward door for exactly
+;; this: it answers a real React component for a boundary, which a React
+;; parent (UIx, Reagent or plain JavaScript) mounts UNDER THE FRAME IT IS
+;; ALREADY IN, taking the frame from React context rather than from a
+;; second root. So there is no second root here, no adapter-kind branch,
+;; and no props ABI — the three things the spike's Arm A needed and the
+;; ruling counted against it.
+;;
+;; THIS IS SCAFFOLDING WITH A DEFINED END. When the shell is itself a
+;; Fresco tree, `PanelView` takes the name `Panel` directly, `[:>]` goes,
+;; and both defs below are deleted.
+
+(def ^:private Panel-component
+  "The React component [[PanelView]] presents as, for a non-Fresco
+  parent. Declared once at top level beside the view, as
+  `rf.fresco/as-component`'s contract requires — deriving it per render
+  would mint a new component type every time and remount the panel on
+  each parent render."
+  (rf.fresco/as-component PanelView))
+
+(defn Panel
+  "The Routing tab's public callable — the one every existing mount site
+  already holds: `panels.cljs`'s `render-panel!` chokepoint (and its
+  `mount-routing!` facade), `shell/detail-panel`'s tab case, the
+  panel-gallery testbed, and the `reg-l4-tab!` entry below.
+
+  Since rf2-k97c.3 it is the migration bridge rather than the view:
+  Reagent-shaped hiccup interoping to the React component
+  [[PanelView]] presents as. The enclosing `rf/frame-provider` is what
+  puts `:rf/xray` in React context for it — this returns no provider of
+  its own and needs none.
+
+  Callers wanting the MARKUP as data — the node-lane view tests — call
+  [[panel-tree]] with the composite's value instead; this returns an
+  interop vector, not a tree to walk."
   []
-  (let [{:keys [silent? topology activity from-id to-id navigated? current]
-         :as _data}
-        @(rf/subscribe [:rf.xray/routing-tab-data])]
-    [:section {:data-testid "rf-xray-routing"
-               :style       {:height         "100%"
-                             :display        "flex"
-                             :flex-direction "column"
-                             :background     (:bg-2 tokens)
-                             :color          (:text-primary tokens)
-                             :font-family    sans-stack
-                             :font-size      "14px"
-                             :overflow       "auto"}}
-     (if silent?
-       (silent-state)
-       [:<>
-        (current-route-section {:current current})
-        (navigation-section {:activity   activity
-                             :from-id    from-id
-                             :to-id      to-id
-                             :navigated? navigated?
-                             :current    current})
-        (route-table-section topology)])]))
+  [:> Panel-component {}])
 
 ;; ---- production value sources --------------------------------------------
 ;;
@@ -569,6 +702,10 @@
      :mnem  "r"
      :modes #{:dynamic}
      :order 6
+     ;; rf2-k97c.3 — still `Panel`, and deliberately so: the registry
+     ;; requires `:panel` to be CALLABLE and the shell mounts it as a
+     ;; Reagent hiccup head, which is what the bridge now is. The
+     ;; boundary behind it is the private `PanelView`.
      :panel Panel})
 
   nil)
