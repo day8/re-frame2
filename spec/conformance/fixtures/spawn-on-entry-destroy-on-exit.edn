@@ -37,10 +37,12 @@
 ;; :rf/transition-pure.
 ;;
 ;; Per rf2-gr8q the spawn-id allocator lives inside the snapshot at
-;; `:rf/spawn-counter` (a per-machine-id integer map). A fresh fixture
-;; snapshot starts without the slot; the first spawn bumps the slot to
-;; `{:http/post 1}` and `:http/post#1` is allocated. The expected
-;; next-snapshot below reflects that.
+;; `:rf/spawn-counter` (a per-id-prefix integer map). A fresh fixture
+;; snapshot starts without the slot; the first spawn bumps the slot under
+;; its `:id-prefix`, which defaults to the child's `:machine-id` when the
+;; spec supplies none — as here — so the slot lands at `{:http/post 1}`
+;; and `:http/post#1` is allocated. The expected next-snapshot below
+;; reflects that.
 
 {:fixture/id           :machine/spawn-on-entry-destroy-on-exit
  :fixture/spec-version "1.0"

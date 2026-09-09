@@ -22,10 +22,11 @@
   absence of a trace side channel.
 
   The spawn-id allocator counter lives inside the snapshot at
-  `:rf/spawn-counter` (a per-machine-id integer map); each spawn bumps
-  the slot via `update-in` and the returned snapshot carries the bumped
-  value. The function is deterministic from its arguments — the property
-  this test locks in.
+  `:rf/spawn-counter` (a per-id-prefix integer map — the spawn-spec's
+  `:id-prefix`, which defaults to the spawned child's `:machine-id` when
+  the spec supplies none); each spawn bumps the slot via `update-in` and
+  the returned snapshot carries the bumped value. The function is
+  deterministic from its arguments — the property this test locks in.
 
   Two flavours of the property:
 

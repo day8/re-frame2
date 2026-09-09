@@ -23,9 +23,10 @@
 ;; :rf/transition-pure.
 ;;
 ;; Per rf2-gr8q the spawn-id allocator lives inside the snapshot at
-;; `:rf/spawn-counter` (a per-machine-id integer map). A fresh fixture
-;; snapshot starts without the slot; each child spawn bumps its own
-;; machine-id slot so the three children land at #1 each.
+;; `:rf/spawn-counter` (a per-id-prefix integer map). A fresh fixture
+;; snapshot starts without the slot; each child spawn bumps the slot under
+;; its `:id-prefix`, which defaults to the child's `:machine-id` when the
+;; spec supplies none — as here — so the three children land at #1 each.
 
 {:fixture/id           :machine/spawn-all-join-all-completes
  :fixture/spec-version "1.0"
@@ -77,8 +78,9 @@
    :expect-effects
    ;; The runtime emits 1 init fx + N spawn fxs in this order. Spawn-id
    ;; allocation is deterministic via the snapshot's `:rf/spawn-counter`
-   ;; (per machine-id) per rf2-gr8q; each spawn-id is `:<machine-id>#1`
-   ;; because each :machine-id has its own counter slot starting from 0.
+   ;; (per id-prefix) per rf2-gr8q; each spawn-id is `:<machine-id>#1`
+   ;; because each child's :id-prefix defaults to its own :machine-id,
+   ;; giving each its own counter slot starting from 0.
    [[:rf.machine/spawn-all-init
      {:rf/parent-id :rf/transition-pure
       :rf/invoke-id [:hydrating]
