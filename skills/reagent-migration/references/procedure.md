@@ -30,12 +30,23 @@ Confirm all three, or stop:
 ## Step 0 — Run the reporter, and read both halves
 
 ```bash
-cd re-frame2/migration/reagent-to-hicasso/codemod
-clojure -M:run path/to/consumer/src/ --report out.edn
+clojure -Srepro \
+  -Sdeps '{:deps {day8/re-frame2-hicasso-codemod
+                  {:git/url   "https://github.com/day8/re-frame2.git"
+                   :git/sha   "6a5194c0aa029ac1ad34aaf3a62974fd3e5c0221"
+                   :deps/root "migration/reagent-to-hicasso/codemod"}}}' \
+  -M -m re-frame.migration.hicasso.codemod path/to/consumer/src/ --report out.edn
 ```
 
 This is the inventory the whole plan is built on, and it is cheap: a bare JVM,
 no re-frame2 loaded, no files touched.
+
+Run it from the consumer's project. It needs no re-frame2 checkout and creates
+none — the published Hicasso artefact does not carry the reporter, so this
+coordinate is the tool's delivery rather than a pre-publication detour. Pin a
+newer `:git/sha` from
+`git ls-remote https://github.com/day8/re-frame2.git refs/heads/main` if you
+want one.
 
 - **The census (`:census`)** tells you how big the job is — every `r/atom`,
   `r/with-let`, `r/create-class`, `r/cursor`, `r/as-element`,
@@ -218,9 +229,16 @@ that must not change.
 ## Step 6 — Apply the mechanical codemod, and re-prove
 
 ```bash
-clojure -M:run --rewrite src/          # dry run — what would change
-clojure -M:run --rewrite --write src/  # apply
+clojure -Srepro \
+  -Sdeps '{:deps {day8/re-frame2-hicasso-codemod
+                  {:git/url   "https://github.com/day8/re-frame2.git"
+                   :git/sha   "6a5194c0aa029ac1ad34aaf3a62974fd3e5c0221"
+                   :deps/root "migration/reagent-to-hicasso/codemod"}}}' \
+  -M -m re-frame.migration.hicasso.codemod --rewrite src/
 ```
+
+The same coordinate as step 0, with `--rewrite` added. As written it is a dry
+run — what would change; add `--write` after `--rewrite` to apply it.
 
 Last, not first. It touches only the six decidable `[:> …]` families (W1–W6),
 preserves formatting, comments and line endings, and every output is outside its

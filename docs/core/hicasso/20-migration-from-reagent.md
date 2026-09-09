@@ -25,11 +25,23 @@ The reporter runs on a JVM without loading the application. Its default mode
 changes no files:
 
 ```bash
-cd re-frame2/migration/reagent-to-hicasso/codemod
-
-clojure -M:run path/to/your/src/
-clojure -M:run --report out.edn src/
+clojure -Srepro \
+  -Sdeps '{:deps {day8/re-frame2-hicasso-codemod
+                  {:git/url   "https://github.com/day8/re-frame2.git"
+                   :git/sha   "6a5194c0aa029ac1ad34aaf3a62974fd3e5c0221"
+                   :deps/root "migration/reagent-to-hicasso/codemod"}}}' \
+  -M -m re-frame.migration.hicasso.codemod path/to/your/src/
 ```
+
+Run it from your own project. It needs no checkout of re-frame2: the coordinate
+fetches the reporter, and `--report out.edn` chooses where the report goes.
+
+**That coordinate is the reporter's delivery, not a stopgap.** The published
+Hicasso artefact does not carry this tool, so there is no Maven coordinate for
+this command to move to later. The `:git/sha` above is the commit it was last
+proved against; pin a newer one whenever you like —
+`git ls-remote https://github.com/day8/re-frame2.git refs/heads/main` prints the
+current head, and a SHA is what makes the run reproducible.
 
 Every run writes one EDN report, a scan that changes no source included.
 Without `--report` it goes to `reagent-to-hicasso-report.edn` beside the first
@@ -449,11 +461,17 @@ Reagent copy.
 ## 4. Apply the mechanical codemod
 
 ```bash
-clojure -M:run --rewrite src/
-clojure -M:run --rewrite --write src/
+clojure -Srepro \
+  -Sdeps '{:deps {day8/re-frame2-hicasso-codemod
+                  {:git/url   "https://github.com/day8/re-frame2.git"
+                   :git/sha   "6a5194c0aa029ac1ad34aaf3a62974fd3e5c0221"
+                   :deps/root "migration/reagent-to-hicasso/codemod"}}}' \
+  -M -m re-frame.migration.hicasso.codemod --rewrite src/
 ```
 
-The first command is a dry run. The second writes files.
+The same coordinate as [step 1](#1-generate-the-migration-report), with
+`--rewrite` added. As written it is a dry run; add `--write` after `--rewrite`
+to write the files.
 
 The codemod uses a lossless parser and preserves formatting, comments, and line
 endings, including CRLF. A completed run exits 0 even when the report contains
