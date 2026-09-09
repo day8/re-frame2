@@ -356,6 +356,17 @@
           "and it calls out the shape for which NEITHER static key works")
       (is (re-find #"\[:rf\.machine/spawn" (:reason ev))
           "naming the hand-emitted escape that shape actually has")
+      ;; rf2-1sip (merged-PR audit of #9563): that escape is unique only WITHIN
+      ;; the hand-emitted allocation stream. See
+      ;; `a-BARE-hand-emitted-spawn-does-NOT-escape-an-OCCUPIED-generated-address`
+      ;; below, where the bare form is refused at this very address on every
+      ;; retry, and the `:id-prefix` form succeeds.
+      (is (re-find #":id-prefix <unused-prefix>" (:reason ev))
+          "and it spells that escape WITH its own :id-prefix, which is the form
+           that works from an occupied allocation namespace")
+      (is (re-find #"does not skip an occupied address" (:reason ev))
+          "and it qualifies the promise rather than offering the bare form as an
+           unconditional escape")
       (is (not (re-find #"hunter2" (:reason ev)))
           "and it never echoes the spawn :data")
       (is (nil? (:data ev)) "no :data rides the record")
@@ -461,3 +472,93 @@
     (is (= :FROM-A (:mark (machine-data :gac11/child#1))))
     (is (= :none (:mark (machine-data :gac11/child#2)))
         "and they are genuinely distinct actors, not one address twice")))
+
+;; ---------------------------------------------------------------------------
+;; (5) rf2-1sip — THE HAND-EMITTED ESCAPE IS UNIQUE ONLY WITHIN ITS OWN STREAM.
+;;
+;; The control directly above is the ALL-MANUAL shape: neither instance ever
+;; spawned declaratively, so the frame-wide counter owns the whole
+;; `<prefix>#<n>` namespace and hands out `#1` and `#2`. The two tests below pin
+;; the shape an author actually MEETS — the reject fires because a DECLARATIVE
+;; child is already installed, and the hand-emitted spawn is reached for as the
+;; recovery FROM that reject, in the same live frame.
+;;
+;; The two counters are SEPARATE (Spec 005 §Spawn-id allocator — counter
+;; location): the frame-wide slot is not advanced by declarative spawns, and
+;; `allocate-actor-id-in-runtime-db` does not skip occupied addresses. So a BARE
+;; hand-emitted spawn re-mints `<child>#1` — the very address the reject named —
+;; and is refused again, on every retry, because the rejected allocation is not
+;; committed either. The usable escape is a distinct `:id-prefix` ON THE
+;; HAND-EMITTED SPAWN, which allocates in an EMPTY namespace; that is what the
+;; reject's `reason` and Spec 005 must say.
+;; ---------------------------------------------------------------------------
+
+(deftest a-BARE-hand-emitted-spawn-does-NOT-escape-an-OCCUPIED-generated-address
+  (testing "rf2-1sip — the frame-wide counter is a SEPARATE stream, not a
+            higher one: a declarative sibling already holding <child>#1 leaves it
+            at zero, and it does not skip occupied addresses, so the bare
+            hand-emitted recovery is refused at the SAME address the reject
+            named — on every retry, since the rejected allocation is not
+            committed"
+    (reg-child! :gac12/child)
+    (rf/reg-machine :gac12/parent
+      {:initial :idle
+       :actions {:hire (fn [_] {:fx [[:rf.machine/spawn {:machine-id :gac12/child}]]})}
+       :states  {:idle    {:on {:go :working}}
+                 :working {:spawn {:machine-id :gac12/child}
+                           :on    {:manual {:action :hire}}}}})
+    (hire! :gac12/hire :gac12/parent)
+    (rf/dispatch-sync [:gac12/hire :gac12/a])
+    (rf/dispatch-sync [:gac12/hire :gac12/b])
+    (rf/dispatch-sync [:gac12/a [:go]])
+    (is (some? (snapshot :gac12/child#1)) "A's declarative child holds #1")
+    (rf/dispatch-sync [:gac12/child#1 [:mark :FROM-A]])
+
+    (rf.machines.test-support/reset-captured!)
+    (rf/dispatch-sync [:gac12/b [:go]])
+    (is (= [:gac12/child#1] (mapv :failing-id (rejects)))
+        "B's declarative spawn is refused, as the earlier shape tests pin")
+
+    ;; B now follows the reject's advice, twice.
+    (rf/dispatch-sync [:gac12/b [:manual]])
+    (rf/dispatch-sync [:gac12/b [:manual]])
+    (is (= [:gac12/child#1 :gac12/child#1 :gac12/child#1]
+           (mapv :failing-id (rejects)))
+        "both hand-emitted attempts are refused at the SAME address — the
+         frame-wide counter began at zero and does not skip an occupant")
+    (is (nil? (snapshot :gac12/child#2))
+        "no #2 is ever installed: the rejected allocation is not committed, so
+         a retry repeats the address rather than advancing past it")
+    (is (= :FROM-A (:mark (machine-data :gac12/child#1)))
+        "and the occupant is untouched throughout — the reject is fail-closed")))
+
+(deftest a-DISTINCT-id-prefix-on-the-hand-emitted-spawn-IS-the-usable-escape
+  (testing "rf2-1sip — the recovery that works in the live frame. The
+            hand-emitted spawn carries its own `:id-prefix`, so it allocates in
+            an EMPTY namespace on the frame-wide counter: the instance gets
+            <prefix>#1 and <prefix>#2, and the declarative occupant survives"
+    (reg-child! :gac13/child)
+    (rf/reg-machine :gac13/parent
+      {:initial :idle
+       :actions {:hire (fn [_] {:fx [[:rf.machine/spawn {:machine-id :gac13/child
+                                                         :id-prefix  :gac13/manual}]]})}
+       :states  {:idle    {:on {:go :working}}
+                 :working {:spawn {:machine-id :gac13/child}
+                           :on    {:manual {:action :hire}}}}})
+    (hire! :gac13/hire :gac13/parent)
+    (rf/dispatch-sync [:gac13/hire :gac13/a])
+    (rf/dispatch-sync [:gac13/hire :gac13/b])
+    (rf/dispatch-sync [:gac13/a [:go]])
+    (rf/dispatch-sync [:gac13/child#1 [:mark :FROM-A]])
+    (rf/dispatch-sync [:gac13/b [:go]])
+
+    (rf.machines.test-support/reset-captured!)
+    (rf/dispatch-sync [:gac13/b [:manual]])
+    (rf/dispatch-sync [:gac13/b [:manual]])
+    (is (empty? (rejects))
+        "the distinct prefix names an EMPTY allocation namespace, so neither
+         hand-emitted spawn collides")
+    (is (and (some? (snapshot :gac13/manual#1)) (some? (snapshot :gac13/manual#2)))
+        "and the frame-wide counter sequences them #1 and #2 under that prefix")
+    (is (= :FROM-A (:mark (machine-data :gac13/child#1)))
+        "the declarative occupant is preserved — the escape costs no live actor")))
