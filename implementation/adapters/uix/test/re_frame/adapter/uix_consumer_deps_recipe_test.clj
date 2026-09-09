@@ -19,6 +19,16 @@
    the generator template. Drop `com.pitch/uix.dom` from any of those and this
    goes red naming the file.
 
+   The generator template is the VERSION SOURCE, not a fourth recipe, and it
+   alone does not name `uix.dom` (rf2-j908): the app it emits mounts through
+   `rf.adapter.uix/client-root` + `render!`, so the Root is minted by the
+   shared React spine and the DOM half is not a day-one dependency. That
+   absence is asserted here positively rather than merely dropped, because a
+   deleted assertion asserts nothing; `retired-coords` in the template suite
+   is the sibling half, which refuses the coordinate's return anywhere in the
+   emitted `deps.edn`. The three examples mint their own Root and so still
+   require `uix.dom` — which is why the recipe pages must still name it.
+
    What this does NOT do is resolve a real classpath. A genuine clean-consumer
    compile would need its own fixture project, its own Maven resolution and its
    own build step — a new CI lane, which this bead is not worth. The invariant
@@ -154,13 +164,23 @@
         owners     (->> example-sources
                         (mapcat #(required-uix-namespaces (slurp-at root %)))
                         set)]
-    (testing "the template pins both UIx coordinates"
-      (is (some? core-ver) (str template-deps-path " has no com.pitch/uix.core."))
-      (is (some? dom-ver)  (str template-deps-path " has no com.pitch/uix.dom.")))
-    (testing "at the same version — the pair moves in lockstep"
-      (is (= core-ver dom-ver)
-          (str template-deps-path " pins uix.core at " core-ver
-               " and uix.dom at " dom-ver ".")))
+    (testing "the template pins uix.core — the one version source"
+      (is (some? core-ver) (str template-deps-path " has no com.pitch/uix.core.")))
+    (testing "and deliberately does NOT pin uix.dom (rf2-j908)"
+      ;; The absence half, asserted rather than assumed. The emitted app
+      ;; mounts through the adapter's `client-root` / `render!`, so uix.dom
+      ;; is not on its classpath and there is no second version to keep in
+      ;; lockstep. Restoring the pin would re-teach the superseded
+      ;; `uix-dom/create-root` boot, so this must go red if it comes back.
+      (is (nil? dom-ver)
+          (str template-deps-path " pins com.pitch/uix.dom at "
+               (pr-str dom-ver) ". rf2-j908 retired that coordinate from the "
+               "scaffold: the emitted app mounts through "
+               "`rf.adapter.uix/client-root` + `render!`, so the React Root "
+               "is minted by the shared spine and uix.dom is not a day-one "
+               "dependency. If the pin was restored deliberately, this guard "
+               "and `retired-coords` in the template suite both need "
+               "revisiting rather than relaxing.")))
     (doseq [rel recipe-pages]
       (testing rel
         (let [found (recipe-coordinates (slurp-at root rel))]
