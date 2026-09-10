@@ -511,6 +511,98 @@
              (rf.ssr.emit/render-to-string [:<> [:div "x"]] {}))
           "without :render-hash the fragment root emits no marker"))))
 
+(deftest fragment-props-map-is-not-a-child
+  (testing "rf2-3357 — a `:<>` fragment's PROPS MAP at slot 1 is not a child.
+            The prior `(rest el)` handed it to `emit-element`, which fell
+            through to `escape-html` and put the map's EDN in the response
+            bytes — garbage text, and a guaranteed hydration mismatch against
+            a client render that emits none of it. `[:<> {:key i} …]` inside a
+            `for` is the canonical fragment idiom, so this was reachable from
+            ordinary application markup."
+    (testing "the three rows the bead measured now agree"
+      ;; Measured at trunk BEFORE the fix, for the record:
+      ;;   [:<> {:key "k"} [:div "x"]] => "{:key &quot;k&quot;}<div>x</div>"
+      ;;   [:<> {}         [:div "x"]] => "{}<div>x</div>"
+      ;;   [:<>            [:div "x"]] => "<div>x</div>"
+      ;; Only the third was right; all three are the same markup now.
+      (is (= "<div>x</div>"
+             (rf.ssr.emit/render-to-string [:<> {:key "k"} [:div "x"]] {}))
+          "a keyed fragment emits its children and nothing else")
+      (is (= "<div>x</div>"
+             (rf.ssr.emit/render-to-string [:<> {} [:div "x"]] {}))
+          "an EMPTY props map is still a props map, not a child")
+      (is (= "<div>x</div>"
+             (rf.ssr.emit/render-to-string [:<> [:div "x"]] {}))
+          "the no-props spelling is unchanged"))
+    (testing "no EDN of the props map survives anywhere on the wire"
+      (let [html (rf.ssr.emit/render-to-string
+                   [:<> {:key "k" :data-x "v"} [:p "body"]] {})]
+        (is (= "<p>body</p>" html) (str "got: " html))
+        (is (not (str/includes? html ":key")) "no keyword EDN on the wire")
+        (is (not (str/includes? html "&quot;")) "no escaped EDN string on the wire")))
+    (testing "a fragment that is ONLY a props map emits nothing"
+      (is (= "" (rf.ssr.emit/render-to-string [:<> {:key "k"}] {})))
+      (is (= "" (rf.ssr.emit/render-to-string [:<>] {}))))
+    (testing "rf2-3357 ruling — a NON-`:key` fragment attribute is DROPPED, not
+              refused. A fragment is not an element, so no attribute on one has
+              a wire representation; React treats a stray Fragment prop as a
+              development warning rather than an error, and refusing here would
+              make the SERVER stricter than the client for markup that renders
+              fine in a browser. Matches the React-side codec (`:key` read,
+              remainder ignored) and reagent-slim's static `emit-fragment`
+              (whole slot skipped)."
+      (is (= "<div>x</div>"
+             (rf.ssr.emit/render-to-string
+               [:<> {:class "nope" :id "nope" :onClick "alert(1)"} [:div "x"]] {}))
+          "non-:key fragment attrs render nothing and throw nothing"))
+    (testing "ONLY a map at slot 1 is skipped — a string / vector / seq there
+              is a genuine first child"
+      (is (= "text<div></div>"
+             (rf.ssr.emit/render-to-string [:<> "text" [:div]] {}))
+          "a string at slot 1 is a child")
+      (is (= "<span>a</span><div>b</div>"
+             (rf.ssr.emit/render-to-string [:<> [:span "a"] [:div "b"]] {}))
+          "a hiccup vector at slot 1 is a child")
+      (is (= "<div>a</div><div>b</div>"
+             (rf.ssr.emit/render-to-string [:<> (list [:div "a"]) [:div "b"]] {}))
+          "a seq at slot 1 is a child, not props"))))
+
+(deftest render-hash-threads-through-a-fragment-that-has-props
+  (testing "rf2-3357 / rf2-58zvy1 finding 2 — skipping the props slot must NOT
+            regress the root-attrs threading, and in fact REPAIRS it for a
+            keyed fragment. Before the fix the map became the first child, so
+            `emit-children-threading-root-attrs` threaded the render-hash onto
+            a value that cannot carry an attribute and the marker VANISHED —
+            silently, on exactly the keyed fragments applications write. This
+            is the row the fix has to keep green in both directions: the marker
+            lands, and it lands on the first CHILD (not the second, and not
+            twice)."
+    (testing "the marker lands on the first DOM child of a PROPS-carrying fragment"
+      (let [html (rf.ssr.emit/render-to-string
+                   [:<> {:key "k"} [:div "a"] [:div "b"]] {:render-hash "deadbeef"})]
+        (is (= "<div data-rf-render-hash=\"deadbeef\">a</div><div>b</div>" html)
+            (str "marker on the first div only; got: " html))
+        (is (= 1 (count (re-seq #"data-rf-render-hash=" html)))
+            "marker appears exactly once across the fragment's children")))
+    (testing "a props-carrying fragment agrees byte-for-byte with the bare one"
+      (is (= (rf.ssr.emit/render-to-string
+               [:<> [:div "a"] [:div "b"]] {:render-hash "deadbeef"})
+             (rf.ssr.emit/render-to-string
+               [:<> {:key "k"} [:div "a"] [:div "b"]] {:render-hash "deadbeef"}))
+          "the props map changes nothing about the emitted markup"))
+    (testing "nested props-carrying fragments keep threading down to the first DOM tag"
+      (is (= "<div data-rf-render-hash=\"deadbeef\">y</div>"
+             (rf.ssr.emit/render-to-string
+               [:<> {:key "outer"} [:<> {:key "inner"} [:div "y"]]]
+               {:render-hash "deadbeef"}))
+          "a fragment whose first child is a keyed fragment still places the marker"))
+    (testing "the canonical `for`-over-keyed-fragments shape"
+      (let [html (rf.ssr.emit/render-to-string
+                   (into [:<>] (for [i [1 2]] [:<> {:key i} [:li i]]))
+                   {:render-hash "deadbeef"})]
+        (is (= "<li data-rf-render-hash=\"deadbeef\">1</li><li>2</li>" html)
+            (str "keyed fragments in a for emit clean markup; got: " html))))))
+
 (deftest render-hash-threads-through-lazy-seq-root
   (testing "rf2-a73idu — root-attrs (the render-hash marker) thread through a
             `lazy-seq` / list ROOT onto the first DOM-tag element, per Spec 011
