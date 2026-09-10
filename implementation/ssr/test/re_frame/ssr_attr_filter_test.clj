@@ -19,7 +19,16 @@
       before the host sees them and serialised by react-dom/server as
       neither. Unlike the handler and prototype rosters this one matches
       CASE-SENSITIVELY, because React extracts the two slots by exact JS
-      property name,
+      property name, and
+    - React's two CONTENT CHANNELS, `:children` and
+      `:dangerouslySetInnerHTML` (rf2-dgyi) — the slots React takes an
+      element's CONTENT from, likewise consumed before the host sees them
+      and likewise serialised as neither, likewise case-sensitive. A
+      SEPARATE roster from the structural slots: those are identity,
+      these are content. Dropping them discards nothing that was being
+      rendered, because this emitter rendered no content for either — the
+      raw-HTML one reached the wire as the escaped EDN print of its
+      `{:__html …}` map,
 
   matching react-dom/server behaviour. The filter is the per-attribute
   prop-name position in the locked emitter composition order, so it runs
@@ -231,6 +240,135 @@
               at `attr-string`, which is the fn `ring.shell` calls"
       (is (= " lang=\"en\"" (rf.ssr.html-helpers/attr-string {:key "k" :lang "en"})))
       (is (= " class=\"c\"" (rf.ssr.html-helpers/attr-string {:ref "R" :class "c"}))))))
+
+(deftest attr-string-drops-reacts-content-channels
+  (testing "rf2-dgyi — `:children` and `:dangerouslySetInnerHTML` are the two
+            slots React takes an element's CONTENT from. Both were reaching
+            the wire as DOM attributes. Measured before the fix:
+            `{:children \"v\"}` emitted ` children=\"v\"`, and the raw-HTML
+            channel emitted the escaped EDN PRINT of its map —
+            ` dangerouslySetInnerHTML=\"{:__html &quot;<b>x</b>&quot;}\"` —
+            which is the measurement that settles the design question. This
+            emitter rendered NO content for either prop, so dropping them
+            discards nothing that was being rendered; it removes the
+            attribute half of a divergence and leaves the content half
+            exactly where it already was."
+    (testing ":children is dropped"
+      (is (= " id=\"x\"" (rf.ssr.html-helpers/attr-string {:children "v" :id "x"})))
+      (is (= "" (rf.ssr.html-helpers/attr-string {:children "v"}))
+          "a props map that is ONLY :children yields the empty string, not a
+           stray leading space")
+      (is (= "" (rf.ssr.html-helpers/attr-string {:children ["a" "b"]}))
+          "a VECTOR of children — the shape a hiccup caller's children slot
+           actually holds — dropped too, rather than printed as EDN"))
+
+    (testing ":dangerouslySetInnerHTML is dropped, in the `{:__html …}` shape
+              React defines and in any other"
+      (is (= " id=\"x\""
+             (rf.ssr.html-helpers/attr-string
+               {:dangerouslySetInnerHTML {:__html "<b>x</b>"} :id "x"})))
+      (is (= "" (rf.ssr.html-helpers/attr-string
+                  {:dangerouslySetInnerHTML {:__html "<b>x</b>"}})))
+      (is (not (str/includes?
+                 (rf.ssr.html-helpers/attr-string
+                   {:dangerouslySetInnerHTML {:__html "<b>x</b>"} :id "x"})
+                 ":__html"))
+          "the raw EDN map text must never reach the wire — the defect was
+           not merely a stray attribute NAME but a printed map as its VALUE"))
+
+    (testing "REAL children still render — dropping the prop does not touch
+              the children slot, which is also React's own precedence rule
+              (variadic children beat `props.children`)"
+      (is (= "<div>real</div>"
+             (rf.ssr.emit/render-to-string [:div {:children "v"} "real"] {}))))
+
+    (testing "the match is CASE-SENSITIVE, like the structural slots and for
+              the same reason: React extracts both channels by exact JS
+              property name, so these reach the host as ordinary unknown
+              props that the CLIENT paints — stripping them here would be the
+              same server/client divergence pointed the other way"
+      (is (str/includes? (rf.ssr.html-helpers/attr-string {:Children "v"})
+                         "Children=\"v\""))
+      (is (str/includes? (rf.ssr.html-helpers/attr-string
+                           {:dangerouslysetinnerhtml "v"})
+                         "dangerouslysetinnerhtml=\"v\"")
+          "the all-lowercase spelling is NOT React's reserved prop"))
+
+    (testing "the filter does not over-reach onto names that merely contain
+              or start with the two words"
+      (doseq [[k expected] {:data-children  "data-children=\"v\""
+                            :aria-children  "aria-children=\"v\""
+                            :childrenish    "childrenish=\"v\""}]
+        (is (str/includes? (rf.ssr.html-helpers/attr-string {k "v"}) expected)
+            (str k " is an ordinary attribute and must round-trip"))))))
+
+(deftest content-channels-drop-on-every-emitter-that-shares-the-roster
+  (testing "rf2-dgyi — the same four-surface obligation rf2-gw87 carried: the
+            argument for editing shared `strip-prop?` rather than
+            `dissoc`-ing in one emitter is that `attr-string` is the single
+            per-attribute emission point every SSR surface goes through, so a
+            change demonstrating only one has not shown the thing that
+            justified its own location."
+    (testing "the hiccup BODY emitter (emit/render-to-string)"
+      (is (= "<div></div>" (rf.ssr.emit/render-to-string [:div {:children "v"}] {})))
+      (is (= "<div></div>"
+             (rf.ssr.emit/render-to-string
+               [:div {:dangerouslySetInnerHTML {:__html "<b>x</b>"}}] {})))
+      (is (= "<div id=\"a\">x</div>"
+             (rf.ssr.emit/render-to-string [:div {:children "c" :id "a"} "x"] {}))
+          "the surviving attributes and the real children are untouched"))
+
+    (testing "the STREAMING shell walker (streaming/render-shell), which
+              reaches this roster through the `emit/attr-string` re-export"
+      (is (= "<div></div>"
+             (:shell-html (rf.ssr.streaming/render-shell [:div {:children "v"}]))))
+      (is (= "<div></div>"
+             (:shell-html (rf.ssr.streaming/render-shell
+                            [:div {:dangerouslySetInnerHTML {:__html "<b>x</b>"}}])))))
+
+    (testing "body and streaming emitters agree byte-for-byte, which is the
+              property the shared roster exists to guarantee"
+      (doseq [tree [[:div {:children "v"}]
+                    [:div {:dangerouslySetInnerHTML {:__html "<b>x</b>"}}]
+                    [:div {:children "v" :id "a"} "x"]
+                    [:main [:div {:children "v"} "x"]]]]
+        (is (= (rf.ssr.emit/render-to-string tree {})
+               (:shell-html (rf.ssr.streaming/render-shell tree)))
+            (str "emitters disagree on " (pr-str tree)))))
+
+    (testing "the HEAD emitter — a DELIBERATE consequence, pinned rather than
+              discovered later. `strip-prop?` is shared, so widening it
+              changes head output too. Measured BEFORE this change:
+              `{:meta [{:children \"v\" :name \"a\"}]}` emitted
+              `<meta children=\"v\" name=\"a\">`, and `<link>` / `<script>`
+              the same. That is the SAME defect in the same direction —
+              react-dom/server emits no `children` attribute on a `<meta>`
+              either — and on a VOID element `<meta>`/`<link>` the prop could
+              not be honoured as children even in principle, which is part of
+              why dropping rather than honouring is right here."
+      (is (= "<meta name=\"a\">"
+             (rf.ssr.head.emit/head-model->html
+               {:meta [{:children "v" :name "a"}]})))
+      (is (= "<meta name=\"a\">"
+             (rf.ssr.head.emit/head-model->html
+               {:meta [{:dangerouslySetInnerHTML {:__html "<b>x</b>"} :name "a"}]})))
+      (is (= "<link rel=\"stylesheet\" href=\"/a.css\">"
+             (rf.ssr.head.emit/head-model->html
+               {:link [{:children "v" :rel "stylesheet" :href "/a.css"}]})))
+      (is (= "<script src=\"/a.js\"></script>"
+             (rf.ssr.head.emit/head-model->html
+               {:script [{:children "v" :src "/a.js"}]}))))
+
+    (testing "the `:html-attrs` / `:body-attrs` bags the Ring host shell
+              stamps onto `<html>` / `<body>` read the same roster — pinned
+              at `attr-string`, which is the fn `ring.shell` calls. (The
+              shell itself lives in the ssr-ring artefact and is exercised by
+              that suite; this row pins the shared function it calls.)"
+      (is (= " lang=\"en\""
+             (rf.ssr.html-helpers/attr-string {:children "v" :lang "en"})))
+      (is (= " class=\"c\""
+             (rf.ssr.html-helpers/attr-string
+               {:dangerouslySetInnerHTML {:__html "<b>x</b>"} :class "c"}))))))
 
 (deftest attr-string-normal-attrs-still-emit
   (testing "the filter does not over-reach — ordinary attrs round-trip"

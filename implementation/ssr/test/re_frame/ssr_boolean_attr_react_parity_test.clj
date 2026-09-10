@@ -412,17 +412,113 @@
   [attribute markup]
   (react-writes? attribute markup "=\""))
 
+;; rf2-dgyi — RESERVED PROPS THAT REACHED THIS CORPUS BY AN ARTEFACT OF THE
+;; PROBE'S INCLUSION TEST, AND FOR WHICH THE MARKUP MODEL BELOW DOES NOT HOLD.
+;;
+;; `boolean_attr_classes.cjs` admits a name when `createElement('div', {name:
+;; true})` neither throws nor warns "Received `true` for a non-boolean
+;; attribute". `dangerouslySetInnerHTML` THROWS, so the probe's own comment
+;; records it as excluded. `children` does neither — it is a perfectly legal
+;; React prop — so it was admitted, and its six rows faithfully record what
+;; react-dom does with it. What they record is that it is NOT AN ATTRIBUTE:
+;;
+;;   :true-markup "<div></div>"        :string-markup       "<div>yes</div>"
+;;   :false-markup "<div></div>"       :empty-string-markup "<div></div>"
+;;   :zero-markup "<div>0</div>"       :string-zero-markup  "<div>0</div>"
+;;
+;; React consumes `children` before the host sees it and renders it as the
+;; element's CONTENT, emitting no `children=` attribute for any of the six
+;; values. So the generic arm below — "every other class keeps the value",
+;; i.e. stringifies it into an attribute — is a MODEL that this one name
+;; falsifies, and it was falsifying it silently: before `children` joined the
+;; SSR strip roster the emitter wrote `<div children="0"></div>`, the model
+;; expected `<div children="0"></div>`, the row said `<div>0</div>`, and the
+;; test was GREEN. The failure message printed react-dom's real markup all
+;; along; nothing compared against it. That is the shape this file's own
+;; docstring exists to rule out — a check that agrees with the thing it
+;; checks — reached through the EXPECTATION function rather than through the
+;; classifier.
+;;
+;; So the expectation for these names is read off the evidence rather than
+;; modelled, and `reserved-prop-row-carries-no-attribute` below asserts the
+;; premise against the fixture instead of trusting this comment.
+;;
+;; THE RESIDUAL IS REAL AND IS NOT PAPERED OVER HERE. For `""`/`true`/`false`
+;; react-dom renders `<div></div>` and so does this emitter — exactly right.
+;; For `"yes"`/`0`/`"0"` react-dom renders the value as CONTENT and this
+;; emitter renders nothing, because honouring a content channel is a
+;; children-path change rather than an attribute-path one (see
+;; `html-helpers/content-channel-names`). That gap is filed on rf2-dgyi, and
+;; `reserved-prop-content-residual-is-known` below PINS it, so it is a
+;; recorded divergence with a test that goes red the day somebody closes it
+;; rather than an omission a later reader has to rediscover.
+(def ^:private reserved-props
+  #{"children"})
+
 (defn- expected-hiccup-markup-for-value
   "The `<div>` markup the hiccup emitters must produce for a NON-boolean
   `value`. For the presence class the expectation is react-dom's OWN verdict
   on the same value — read off the row rather than restated — re-spelled in
-  this grammar's bare presence form. Every other class keeps the value."
+  this grammar's bare presence form. For a RESERVED prop (rf2-dgyi) react-dom
+  writes no attribute at any value and this emitter strips the prop, so the
+  expectation is the bare element. Every other class keeps the value."
   [klass attribute {:keys [field serialised]} row]
-  (if (= :presence klass)
+  (cond
+    (contains? reserved-props attribute)
+    "<div></div>"
+
+    (= :presence klass)
     (if (react-emits? attribute (get row field))
       (str "<div " attribute "></div>")
       "<div></div>")
+
+    :else
     (str "<div " attribute "=\"" serialised "\"></div>")))
+
+(deftest reserved-prop-row-carries-no-attribute
+  (testing "rf2-dgyi — the premise of the `reserved-props` exception, taken
+            from the FIXTURE rather than asserted in a comment: react-dom
+            writes no `children=` attribute at ANY of the six probe values.
+            If a future react-dom ever did, this exception would be wrong and
+            this row is what says so"
+    (doseq [attribute reserved-props
+            row       (rows)
+            :when     (= attribute (:attribute row))
+            field     [:true-markup :false-markup :string-markup
+                       :empty-string-markup :zero-markup :string-zero-markup]]
+      (is (not (react-emits? attribute (get row field)))
+          (str "react-dom wrote a " attribute "= attribute in " field ": "
+               (pr-str (get row field)))))
+
+    (testing "and the exception is not vacuous — the name really is in the
+              corpus, so a probe that stopped emitting the row would fail
+              here rather than silently exercising nothing"
+      (doseq [attribute reserved-props]
+        (is (some #(= attribute (:attribute %)) (rows))
+            (str attribute " is absent from the react-dom evidence"))))))
+
+(deftest reserved-prop-content-residual-is-known
+  (testing "rf2-dgyi — the KNOWN, FILED gap. react-dom renders a reserved
+            content prop's value as the element's CONTENT; this emitter drops
+            the prop and renders nothing, because honouring it is a
+            children-path change (`emit/emit-element`, `streaming/
+            walk-dom-tag`) rather than an attribute-path one, and is
+            undefined on the void `<meta>`/`<link>` and the host shell's
+            attribute bags. Pinned so the divergence is a recorded decision
+            with a red the day it is closed, not an omission to rediscover"
+    (doseq [row   (rows)
+            :when (contains? reserved-props (:attribute row))
+            probe non-boolean-probe-values]
+      (let [react-markup (get row (:field probe))
+            ours         (rf.ssr.emit/render-to-string
+                           [:div {(keyword (:attribute row)) (:value probe)}] {})]
+        (is (= "<div></div>" ours)
+            "this emitter renders the bare element for every value")
+        (when (not= "<div></div>" react-markup)
+          (is (not= react-markup ours)
+              (str "react-dom renders " (pr-str react-markup)
+                   " as CONTENT — if this now matches, the residual has been
+                    closed and this pin should be retired with the bead")))))))
 
 (deftest render-to-string-follows-react-for-every-non-boolean-probe-value
   (testing "rf2-u82a — the PUBLIC hiccup render path over the whole evidence
