@@ -917,6 +917,267 @@
                       ((report-failure! "intent-during-animation row" handle undo) e)))
             (.then (fn [_] (done))))))))
 
+;; ---------------------------------------------------------------------------
+;; 5b. WHERE THE WRITE IS LOST — React's SUSPENDED COMMIT, not the animation
+;; ---------------------------------------------------------------------------
+
+(def ^:private slow-transitions
+  "600 ms. [[fast-transitions]] wants ten rows not to spend three seconds
+  waiting; this row wants ONE animation that outlasts a frame by a wide
+  margin, so that a click landing after the commit window has closed is
+  still unambiguously a click into a LIVE animation. Opposite
+  requirements, so a second duration rather than a shared one."
+  (str "::view-transition-group(*), ::view-transition-old(*), "
+       "::view-transition-new(*) { animation-duration: 600ms; }"))
+
+(def ^:private !win-set-local (atom nil))
+(def ^:private !win-inside-hits (atom 0))
+(def ^:private !win-outside-hits (atom 0))
+(def ^:private !win-native-hits (atom 0))
+(def ^:private !win-in-window (atom nil))
+(def ^:private !win-after-window (atom nil))
+
+(defn- window-host
+  "The ceiling host's shape plus the two doors that decide whose mechanism
+  this is: a PLAIN React `<button onClick>` INSIDE the hosted
+  `<ViewTransition>`, beside the Fresco boundary, and a second one OUTSIDE
+  it in the same root.
+
+  Neither plain button touches fresco, the collector or the router, so a
+  zero on either is a statement about React and not about us; and the
+  inside/outside pair is what tells 'the animating subtree' apart from
+  'this React root is committing'."
+  [_]
+  (let [[local set-local] (react/useState "W0")]
+    (react/useEffect (fn [] (reset! !win-set-local set-local) js/undefined)
+                     #js [set-local])
+    (react/createElement
+      "div" #js {:id "vtw-window-root"}
+      (react/createElement
+        (.-ViewTransition react) #js {:name "vtw-window"}
+        (react/createElement
+          "div" #js {:id "vtw-window-subtree"}
+          (rf.fresco.impl.codec/root-element frame-id [panel {}])
+          (react/createElement
+            "button"
+            #js {:id      "vtw-inside"
+                 :onClick (fn [_] (swap! !win-inside-hits inc))}
+            "inside")
+          (react/createElement "span" #js {:id "vtw-window-local"} local)))
+      (react/createElement
+        "button"
+        #js {:id      "vtw-outside"
+             :onClick (fn [_] (swap! !win-outside-hits inc))}
+        "outside"))))
+
+(unchecked-set window-host "displayName" "vtw/window-host")
+
+(defn- spy-commit-window!
+  "[[spy-transitions!]] plus the two readings this row turns on: WHEN
+  `document.startViewTransition` was called, and WHEN React's own `update`
+  callback ran. The gap between those two is the window under test, so it
+  is measured rather than assumed.
+
+  `!on-open` is an atom holding a zero-argument function or `nil`. It is
+  invoked from a MICROTASK queued the instant `startViewTransition` is
+  called, and cleared as it fires. That is what makes the window
+  deterministic instead of a race against a 5 ms poll: the browser calls
+  `update` no earlier than the next rendering opportunity, and a microtask
+  queued inside the current task always runs first."
+  [!on-open]
+  (let [own?    (.call (.-hasOwnProperty js/Object.prototype) js/document
+                       "startViewTransition")
+        orig    (.-startViewTransition js/document)
+        calls   (atom [])
+        !opened (atom nil)
+        !closed (atom nil)]
+    (set! (.-startViewTransition js/document)
+          (fn [arg]
+            (reset! !opened (js/Date.now))
+            (let [arg' (if (fn? arg)
+                         (fn [] (reset! !closed (js/Date.now)) (arg))
+                         (let [copy (js/Object.assign #js {} arg)
+                               upd  (.-update ^js arg)]
+                           (set! (.-update copy)
+                                 (fn [] (reset! !closed (js/Date.now)) (upd)))
+                           copy))
+                  t    (.call orig js/document arg')]
+              (swap! calls conj t)
+              (when-some [f @!on-open]
+                (reset! !on-open nil)
+                (js/queueMicrotask f))
+              t)))
+    {:calls   calls
+     :opened  !opened
+     :closed  !closed
+     :restore (fn []
+                (if own?
+                  (set! (.-startViewTransition js/document) orig)
+                  (js-delete js/document "startViewTransition"))
+                nil)}))
+
+(deftest the-drop-window-is-reacts-suspended-commit-not-the-animation
+  (async done
+    (if-not (api-supported?)
+      (do (skip! (if (rf.fresco.impl.mount/browser?)
+                   "this browser has no View Transition API"
+                   ":node-test has no DOM"))
+          (done))
+      (let [_        (seeded!)
+            undo     (style! slow-transitions)
+            handle   (mount-concurrent! (staged-container!)
+                                        (rf.fresco.impl.mount/provider
+                                          frame-id (do (reset! !win-set-local nil)
+                                                       (react/createElement window-host nil))))
+            !on-open (atom nil)
+            spy      (spy-commit-window! !on-open)]
+        (reset! !win-inside-hits 0)
+        (reset! !win-outside-hits 0)
+        (reset! !win-native-hits 0)
+        (reset! !win-in-window nil)
+        (reset! !win-after-window nil)
+        (-> (poll #(and (some? (node handle "vtw-button"))
+                        (some? (node handle "vtw-inside"))
+                        (some? (node handle "vtw-outside"))
+                        (some? @!win-set-local))
+                  "the probe tree commits")
+            (.then
+              (fn [_]
+                ;; THE CONTROL, all three doors at once: with nothing
+                ;; animating the Fresco intent reaches app-db AND both plain
+                ;; React buttons fire. Without it the three zeros below are a
+                ;; dead tree rather than a finding.
+                (.click ^js (node handle "vtw-button"))
+                (.click ^js (node handle "vtw-inside"))
+                (.click ^js (node handle "vtw-outside"))
+                (timed-poll #(= 1 @(rf/with-frame frame-id (rf/subscribe [:vtw/clicks])))
+                            "CONTROL: every door works on a quiet document"
+                            4000)))
+            (.then
+              (fn [quiet-ms]
+                (is (= 1 @!win-inside-hits)
+                    (str "control: a plain React `onClick` INSIDE the subtree "
+                         "fires on a quiet document (intent took "
+                         (pr-str quiet-ms) " ms)"))
+                (is (= 1 @!win-outside-hits)
+                    "control: a plain React `onClick` OUTSIDE it fires too")
+                (reset! !win-inside-hits 0)
+                (reset! !win-outside-hits 0)
+                (reset! (:calls spy) [])
+                (reset! !on-open
+                        (fn []
+                          ;; A native listener on the same node, so a zero on
+                          ;; the two React doors can be told apart from a click
+                          ;; that never landed.
+                          (.addEventListener ^js (node handle "vtw-button") "click"
+                                             (fn [_] (swap! !win-native-hits inc)))
+                          (let [closed @(:closed spy)]
+                            (.click ^js (node handle "vtw-button"))
+                            (.click ^js (node handle "vtw-inside"))
+                            (.click ^js (node handle "vtw-outside"))
+                            (reset! !win-in-window
+                                    {:closed  closed
+                                     :native  @!win-native-hits
+                                     :inside  @!win-inside-hits
+                                     :outside @!win-outside-hits}))))
+                (react/startTransition (fn [] (@!win-set-local "W1")))
+                (poll #(some? @!win-in-window)
+                      "React starts a transition and three clicks land inside its commit window"
+                      4000)))
+            (.then
+              (fn [_]
+                (let [{:keys [closed native inside outside]} @!win-in-window]
+                  (testing "THE PREMISE: the clicks landed while React's commit
+                            was SUSPENDED — `document.startViewTransition` had
+                            been called and React's own `update` callback,
+                            which is where the mutation phase runs, had not"
+                    (is (nil? closed)
+                        "React's view-transition `update` callback had not run at the moment of the click")
+                    (is (= 1 native)
+                        "and a native listener on the fresco button fired, so the click really landed"))
+                  (testing "AND HERE IS WHERE THE WRITE IS LOST, AND IT IS NOT
+                            OURS: a PLAIN React `onClick`, on a plain
+                            `<button>`, is dropped in the same window — INSIDE
+                            the animating subtree and OUTSIDE it alike. Neither
+                            button touches fresco, the collector or the router,
+                            so the loss is upstream of everything this library
+                            owns; and the outside zero says the boundary is the
+                            COMMIT, not the animating subtree.
+
+                            React gates its whole synthetic event system on one
+                            module-level flag: `commitBeforeMutationEffects`
+                            clears it and only the mutation phase restores it.
+                            Ordinarily those two are a few microseconds apart
+                            in one task. Under a view transition the mutation
+                            phase is React's `update` callback, which the
+                            browser calls after it has captured the old
+                            snapshot — so the flag stays cleared across an
+                            asynchronous gap, and `dispatchEvent` discards
+                            every event delivered in it. Not queued, not
+                            replayed, and nothing on any console channel"
+                    (is (zero? inside)
+                        "a plain React `onClick` INSIDE the animating subtree did not fire")
+                    (is (zero? outside)
+                        "nor did the one OUTSIDE it — so the animating subtree is not the boundary")))
+                ;; Past this point the browser is really animating, which is
+                ;; also past the point where React restored its event system.
+                (poll #(seq (vt-animations))
+                      "the browser is animating the transition"
+                      4000)))
+            (.then
+              (fn [_]
+                (let [before @(rf/with-frame frame-id (rf/subscribe [:vtw/clicks]))]
+                  (is (some? @(:closed spy))
+                      "premise for the second half: React's `update` callback has now run")
+                  (.click ^js (node handle "vtw-inside"))
+                  (.click ^js (node handle "vtw-outside"))
+                  (.click ^js (node handle "vtw-button"))
+                  (-> (within #(< before @(rf/with-frame frame-id (rf/subscribe [:vtw/clicks]))) 2000)
+                      (.then (fn [ms] {:before before
+                                       :ms     ms
+                                       :anims  (count (vt-animations))}))))))
+            (.then
+              (fn [{:keys [before ms anims]}]
+                (reset! !win-after-window {:before before :ms ms :anims anims})
+                (testing "AND THE SAME THREE CLICKS, MADE WHILE THE SAME
+                          TRANSITION IS STILL ANIMATING but after React's
+                          `update` callback has run, ALL ARRIVE. So the drop
+                          window is the SUSPENDED COMMIT — one frame at the
+                          START of a transition — and not the animation, which
+                          is the distinction
+                          [[an-intent-raised-inside-an-animating-subtree-does-not-reach-app-db]]
+                          could not draw from one click"
+                  (is (= 1 @!win-inside-hits)
+                      "the plain React `onClick` inside the subtree fires again once the commit has flushed")
+                  (is (= 1 @!win-outside-hits)
+                      "and so does the one outside it")
+                  (is (some? ms)
+                      (str "the fresco intent's own write reached app-db in "
+                           (pr-str ms) " ms with " (pr-str anims)
+                           " view-transition animations still running")))
+                (awaited! spy 2000)))
+            (.then
+              (fn [_]
+                (testing "AND THE CLICK MADE INSIDE THE WINDOW IS GONE FOR
+                          GOOD: once every transition has settled app-db
+                          carries the control write and the post-window write
+                          and nothing else. React discards a dropped event
+                          rather than queueing it, so there is nothing to
+                          replay and nothing to wait for"
+                  (is (= 2 @(rf/with-frame frame-id (rf/subscribe [:vtw/clicks])))
+                      (str "app-db reads "
+                           @(rf/with-frame frame-id (rf/subscribe [:vtw/clicks]))
+                           " (control + post-window), never 3 — readings "
+                           (pr-str {:in-window    @!win-in-window
+                                    :after-window @!win-after-window}))))
+                (undo)
+                ((:restore spy))
+                (teardown-census! handle)))
+            (.catch (fn [e]
+                      ((:restore spy))
+                      ((report-failure! "commit-window row" handle undo) e)))
+            (.then (fn [_] (done))))))))
+
 (deftest an-unmount-during-the-animation-leaves-no-residue
   (async done
     (if-not (api-supported?)
