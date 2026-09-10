@@ -809,6 +809,7 @@ claim time and envelopes removed from the real queue at that later check. If no 
 observes the cutoff before the frame is dissociated (for example, a captured scheduled
 tick fires only after destroy returns), no interrupt trace is fabricated; the queued
 work is still discarded.
+
 - Tool-Pair surfaces against the destroyed frame route off their own contract (read returns empty / `nil`; mutate raises `:rf.error/no-such-handler` (kind `:frame`); listener silencing emits a one-shot trace) — see [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames).
 
 <a id="two-destroy-hook-verbs"></a>
@@ -1359,6 +1360,7 @@ For comparison — what the same view looks like without the CLJS reference's le
 Both shapes satisfy the contract: a view *does* render against an explicit frame; the frame *does* travel with each dispatch and subscribe; callbacks created during render *do* carry the frame they were rendered under. The CLJS reference's lexical injection is sugar over this shape — observable behaviour is identical.
 
 A non-CLJS implementation might use:
+
 - **TypeScript-React with hooks:** `const dispatch = useDispatch(); const value = useSubscribe(['count']);` — `useDispatch`/`useSubscribe` read frame from a `React.createContext` value.
 - **Fable (F#) with Feliz / Fable.React hooks:** `let dispatch = useDispatch() in let value = useSubscribe ["count"] in …` — same React-context shape, F# syntax.
 - **PureScript with React.Basic.Hooks:** `do dispatch <- useDispatch; value <- useSubscribe ["count"]; …` — same React-context shape, PureScript syntax.
