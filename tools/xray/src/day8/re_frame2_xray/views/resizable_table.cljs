@@ -510,6 +510,59 @@
   [_left-id]
   [:div {:style body-spacer-style}])
 
+;; ---- React keys ride the ATTRS MAP, never metadata (rf2-fcy5) ------------
+;;
+;; Every woven cell, gutter and row below used to be keyed with `with-meta`
+;; on a vector literal. That reaches React under Reagent — `reagent.impl.
+;; template` reads meta FIRST and the props map second — and reaches it
+;; NOWHERE under Fresco: `re-frame.fresco.impl.codec`'s component-ABI table
+;; (HD-016) takes a literal `:key` from the ATTRIBUTE MAP for every head
+;; kind it accepts (native tag, `defview` boundary, host, fragment), and
+;; the words `meta` / `with-meta` do not occur anywhere in that file.
+;;
+;; So this is not the `^{:key …}`-on-a-call-form defect rf2-hxfy fixed —
+;; these keys DO work today. The hazard is that they stop working silently
+;; the moment the shared widget renders under a Fresco boundary: every row
+;; and every header cell in BOTH consumer panels (`panels/trace.cljs`,
+;; `panels/epoch/view.cljs`) would lose its key with no error and no
+;; warning, leaving React to reconcile by position.
+;;
+;; A `:key` in the attrs map is honoured by BOTH substrates, so moving it
+;; there is a no-op today and a fix on migration — which is why it is worth
+;; doing on its own terms, before anything migrates. Same repair rf2-hxfy
+;; and rf2-twil made at their own sites; this is the shared widget's half.
+
+(defn- keyed
+  "Return hiccup `node` carrying React key `k` in its ATTRIBUTE MAP — the
+  one place both substrates look (see the comment above).
+
+  `node` is frequently NOT ours. `weave-header` and `weave-body` key a
+  `cell` the CONSUMER built via `:row-cells`, whose second element may be
+  an attrs map, a string, a nested vector, or absent. So the obvious
+  `(assoc-in cell [1 :key] k)` is wrong: against `[:span \"txt\"]` it
+  would REPLACE the child with a map and the text would silently vanish.
+  Three cases instead:
+
+    - second element is a map        → `k` is assoc'd into that map;
+    - vector with no attrs map       → one is INSERTED at position 1 and
+                                       the children shift right;
+    - anything but a non-empty vector (a bare string child, nil, a seq)
+                                     → returned untouched, because there
+                                       is no attrs map to reach.
+
+  An existing `:key` is overwritten — the weavers own their children's
+  sibling keys. Note this deliberately does NOT clear a `:key` left in
+  Clojure metadata by a caller: Reagent would still prefer that stale meta
+  key over the attrs one, but no consumer puts key-meta on the cells it
+  hands in (checked at tip across both panels), so policing it here would
+  be machinery for a case that does not exist."
+  [node k]
+  (if (and (vector? node) (seq node))
+    (if (map? (nth node 1 nil))
+      (assoc-in node [1 :key] k)
+      (into [(nth node 0) {:key k}] (subvec node 1)))
+    node))
+
 ;; ---- Header + body row weavers -------------------------------------------
 
 (defn- weave-header
@@ -524,15 +577,19 @@
              (fn [i cell]
                (let [col-id (:id (nth columns i))]
                  (if (< i (dec n))
-                   [(with-meta cell {:key (str "h-" (name col-id))})
-                    (with-meta
-                      [header-gutter
-                       {:table-id    table-id
-                        :left-id     col-id
-                        :right-id    (:id (nth columns (inc i)))
-                        :dispatch-fn dispatch-fn}]
-                      {:key (str "g-" (name col-id))})]
-                   [(with-meta cell {:key (str "h-" (name col-id))})])))
+                   [(keyed cell (str "h-" (name col-id)))
+                    ;; The gutter's key rides the PROPS map of the
+                    ;; component call form. `header-gutter` destructures
+                    ;; named opts and never spreads them, so the extra
+                    ;; entry is inert for its body — the same shape
+                    ;; rf2-hxfy used for `flat-row-list`.
+                    (keyed [header-gutter
+                            {:table-id    table-id
+                             :left-id     col-id
+                             :right-id    (:id (nth columns (inc i)))
+                             :dispatch-fn dispatch-fn}]
+                           (str "g-" (name col-id)))]
+                   [(keyed cell (str "h-" (name col-id)))])))
              header-cells))))
 
 (defn- weave-body
@@ -545,10 +602,9 @@
              (fn [i cell]
                (let [col-id (:id (nth columns i))]
                  (if (< i (dec n))
-                   [(with-meta cell {:key (str "c-" (name col-id))})
-                    (with-meta (body-spacer col-id)
-                               {:key (str "s-" (name col-id))})]
-                   [(with-meta cell {:key (str "c-" (name col-id))})])))
+                   [(keyed cell (str "c-" (name col-id)))
+                    (keyed (body-spacer col-id) (str "s-" (name col-id)))]
+                   [(keyed cell (str "c-" (name col-id)))])))
              row-cells))))
 
 ;; ---- Top-level view ------------------------------------------------------
@@ -661,7 +717,7 @@
                     cells (row-cells row i)
                     extras (when row-extras (row-extras row i))
                     woven (into [:<>] (weave-body cells columns))]
-                (with-meta
+                (keyed
                   (if (some? extras)
                     ;; Extras path — outer wrapper carries the consumer's
                     ;; attrs untouched (preserves border-bottom, click
@@ -676,5 +732,5 @@
                     [:div (-> attrs
                               (assoc :style (merge (:style attrs) grid-style)))
                      woven])
-                  {:key (row-key row i)})))
+                  (row-key row i))))
             rows))))
