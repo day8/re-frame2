@@ -34,7 +34,9 @@
 
     9. **Frame isolation** — sim state stays on `:rf/xray`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [reagent.core :as r]
             [re-frame.core :as rf]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.machines :as rf.machines]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
@@ -778,12 +780,46 @@
 ;; rf2-r4nao rehost source; see ns docstring in `static/machines/sim.cljs`).
 ;;
 ;; Two `for` loops in the Sim rail wrap function-call list forms — the
-;; available-transition rows and audit-trail rows. Reagent's
-;; `get-react-key` only reads `:key` from vector meta, so the keys must
-;; land on the returned `[:li …]` vectors via `with-meta` rather than
-;; reader-meta on the source list. This test asserts the meta is
-;; preserved across the rehost.
+;; available-transition rows and audit-trail rows. Reader meta on the
+;; source list would be lost when the call returns its fresh vector, so
+;; each row's key has to be applied to the value the call ANSWERS.
+;;
+;; rf2-a38l — it is applied as a KEYED FRAGMENT, and these tests grade it
+;; AT THE RENDERER rather than at `(meta …)`. `(:key (meta row))` is a
+;; hollow instrument in both directions: it passes on metadata React
+;; never sees, and fails on a key that reaches React perfectly well. The
+;; two doors below are the real question, and only the second can see
+;; this defect:
+;;
+;;   - `reagent-key` — today's substrate. Reagent reads meta AND props,
+;;     so it returns the same key either way; it is the half that pins
+;;     the sweep as a NO-OP today.
+;;   - `fresco-key` — `re-frame.fresco.impl.codec/as-element`, the
+;;     codec's own hiccup→element door, which takes a literal `:key`
+;;     from an attribute map and reads Clojure metadata NOWHERE. This
+;;     is the half that goes red on a revert to `with-meta`.
+;;
+;; Same shape as `views/resizable_table_key_cljs_test`, which is this
+;; tree's pattern for the question.
 ;; ---------------------------------------------------------------------------
+
+(defn- reagent-key
+  "The key Reagent hands React. Honours meta AND props, so this alone
+  cannot see the defect."
+  [node]
+  (.-key (r/as-element node)))
+
+(defn- fresco-key
+  "The key a Fresco boundary would commit. Reads nil for a meta-only
+  key, which is the whole point."
+  [node]
+  (.-key (rf.fresco.impl.codec/as-element node)))
+
+(defn- keyed-children
+  "The children of hiccup container `node` — the forms after its
+  attribute map, each of which should be a keyed sibling."
+  [node]
+  (remove nil? (drop 2 node)))
 
 (defn- meta-preserving-children [node]
   (cond
@@ -808,9 +844,10 @@
                          (.startsWith prefix))))
           (tree-seq (some-fn vector? seq?) meta-preserving-children tree)))
 
-(deftest sim-available-transitions-carry-key-meta
+(deftest sim-available-transitions-reach-react-with-distinct-keys
   (testing "available-transition-row for-loop ships per-transition <li>
-            children with :key meta on the returned vector (rf2-ppzid)"
+            children whose keys reach React on BOTH substrates
+            (rf2-ppzid; regraded at the renderer under rf2-a38l)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
@@ -828,17 +865,34 @@
                         (fn [n]
                           (= "rf-xray-static-machines-sim-available-list"
                              (:data-testid (second n))))
-                        available)]
+                        available)
+            list-node (first
+                        (filter
+                          (fn [n]
+                            (= "rf-xray-static-machines-sim-available-list"
+                               (:data-testid (second n))))
+                          available))
+            siblings  (keyed-children list-node)]
         (is (>= (count li-rows) 1) "at least one available-transition row")
+        (is (= (count li-rows) (count siblings))
+            "one keyed sibling per rendered row")
         (doseq [row li-rows]
-          (is (vector? row) "available-transition row is a hiccup vector")
-          (is (some? (some-> (meta row) :key))
-              (str "available-transition row carries :key meta — got "
-                   (pr-str (meta row)))))))))
+          (is (vector? row) "available-transition row is a hiccup vector"))
+        (doseq [sib siblings]
+          (is (some? (fresco-key sib))
+              (str "available-transition key reaches a Fresco boundary — got "
+                   (pr-str (fresco-key sib))))
+          (is (= (reagent-key sib) (fresco-key sib))
+              "the same key reaches React on both substrates"))
+        ;; Counted rather than `apply distinct?`, which throws on an
+        ;; empty seq — the count above is an `is`, not a short-circuit.
+        (is (= (count siblings) (count (distinct (map fresco-key siblings))))
+            "sibling keys are distinct")))))
 
-(deftest sim-audit-trail-rows-carry-key-meta
-  (testing "audit-trail-row for-loop ships per-step <li> children with
-            :key meta on the returned vector (rf2-ppzid)"
+(deftest sim-audit-trail-rows-reach-react-with-distinct-keys
+  (testing "audit-trail-row for-loop ships per-step <li> children whose
+            keys reach React on BOTH substrates (rf2-ppzid; regraded at
+            the renderer under rf2-a38l)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
@@ -862,10 +916,24 @@
                                (:data-testid (second n)))
                             (= "rf-xray-static-machines-sim-audit-empty"
                                (:data-testid (second n)))))
-                      rows)]
+                      rows)
+            list-node (first
+                        (filter
+                          (fn [n]
+                            (= "rf-xray-static-machines-sim-audit-list"
+                               (:data-testid (second n))))
+                          rows))
+            siblings  (keyed-children list-node)]
         (is (>= (count li-rows) 2) "two audit rows after two steps")
+        (is (= (count li-rows) (count siblings))
+            "one keyed sibling per rendered row")
         (doseq [row li-rows]
-          (is (vector? row) "audit row is a hiccup vector")
-          (is (some? (some-> (meta row) :key))
-              (str "audit row carries :key meta — got "
-                   (pr-str (meta row)))))))))
+          (is (vector? row) "audit row is a hiccup vector"))
+        (doseq [sib siblings]
+          (is (some? (fresco-key sib))
+              (str "audit row key reaches a Fresco boundary — got "
+                   (pr-str (fresco-key sib))))
+          (is (= (reagent-key sib) (fresco-key sib))
+              "the same key reaches React on both substrates"))
+        (is (= (count siblings) (count (distinct (map fresco-key siblings))))
+            "sibling keys are distinct")))))

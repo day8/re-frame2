@@ -353,8 +353,8 @@
                      :font-size "12px"}}]
      [:datalist {:id datalist-id}
       (for [ev suggestions]
-        ^{:key (str ev)}
-        [:option {:value (str ev)}])]]))
+        [:option {:key   (str ev)
+                  :value (str ev)}])]]))
 
 (defn- pending-data-input
   [dispatch machine-id pending-data]
@@ -527,15 +527,18 @@
                  :style {:list-style "none" :padding 0 :margin 0}}]
            ;; `^{:key …}` reader meta on the `(available-transition-row
            ;; …)` call below would be attached to the source list and
-           ;; lost when the call returns its fresh vector — Reagent's
-           ;; `get-react-key` only reads `:key` meta from vectors (see
-           ;; reagent2.impl.template). `available-transition-row`
-           ;; always returns a `[:li …]` vector, so apply the key
-           ;; directly via `with-meta`.
+           ;; lost when the call returns its fresh vector.
+           ;;
+           ;; rf2-a38l — and `with-meta` on that returned vector, which
+           ;; this used to do, is only half a fix: Reagent's
+           ;; `get-react-key` does read vector meta, but Fresco's codec
+           ;; takes a literal `:key` from an ATTRIBUTE MAP and reads
+           ;; Clojure metadata nowhere, so the key vanished silently
+           ;; under a boundary. A KEYED FRAGMENT carries it on a head
+           ;; both substrates honour without touching the call.
            (for [t transitions]
-             (with-meta
-               (available-transition-row dispatch machine-id pending-event t)
-               {:key (str (:event t))}))))])
+             [:<> {:key (str (:event t))}
+              (available-transition-row dispatch machine-id pending-event t)])))])
 
 (defn- error-toast
   [{:keys [event reason]}]
@@ -595,13 +598,14 @@
                  :style {:list-style "none" :padding 0 :margin 0}}]
            ;; `^{:key …}` reader meta on the `(audit-trail-row …)` call
            ;; below would be attached to the source list and lost when
-           ;; the call returns its fresh vector — Reagent's
-           ;; `get-react-key` only reads `:key` meta from vectors (see
-           ;; reagent2.impl.template). `audit-trail-row` always returns
-           ;; a `[:li …]` vector, so apply the key directly via
-           ;; `with-meta`.
+           ;; the call returns its fresh vector.
+           ;;
+           ;; rf2-a38l — and `with-meta` on that returned vector, which
+           ;; this used to do, dies at a Fresco boundary for the reason
+           ;; given at `available-transitions` above. A KEYED FRAGMENT
+           ;; carries the key on a head both substrates honour.
            (for [[idx row] (map-indexed vector trail)]
-             (with-meta (audit-trail-row idx row) {:key idx}))))])
+             [:<> {:key idx} (audit-trail-row idx row)])))])
 
 (defn SimRail
   "The Sim sub-mode's content rail — banner + current state + event
