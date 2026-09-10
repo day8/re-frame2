@@ -20,6 +20,7 @@
             [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
+            [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
             [day8.re-frame2-xray.panels.machine-canvas :as mc]))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -175,6 +176,49 @@
             "canvas host mounts")
         (is (nil? (find-by-testid tree "rf-xray-machine-canvas-view-mode-toggle"))
             "the retired view-mode toggle never renders")))))
+
+(deftest chart-mounts-the-after-rings-bridge-rf2-k97c-3
+  (testing "rf2-k97c.3 — `machine-after-rings/AfterRingsOverlay` is now an
+            `rf.fresco/defview`, i.e. a real React component, while `Chart`
+            here is still a `reg-view`, i.e. a Reagent tree. So `Chart` must
+            mount the `as-component` BRIDGE and not the boundary: handing
+            Reagent a React component where it expects a render fn is
+            exactly what `defview`'s contract forbids, and it would paint
+            nothing. The boundary's own end-to-end DOM evidence lives in
+            `machine_after_rings_fresco_boundary_dom_cljs_test`, which
+            mounts this same public var — this row is what says CHART is
+            the caller holding it, so the two cannot drift apart silently.
+
+            Both halves are asserted. The bridge being present is the claim;
+            the boundary being ABSENT is what would catch a well-meaning
+            revert to the pre-migration spelling, which type-checks fine and
+            fails only at first paint."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (let [tree  (mc/Chart {:definition fixture-definition :machine-id :m})
+            heads (into #{}
+                        (comp (filter vector?) (map first))
+                        (hiccup-seq tree))]
+        (is (contains? heads after-rings/AfterRingsOverlay-bridge)
+            "Chart mounts AfterRingsOverlay-bridge (:show-after-rings? defaults true)")
+        (is (not (contains? heads after-rings/AfterRingsOverlay))
+            "and NOT the boundary itself, which a Reagent tree cannot mount")))))
+
+(deftest chart-omits-the-after-rings-bridge-when-suppressed
+  (testing "the three Static / topology call sites pass `:show-after-rings?
+            false`; the bridge must then be absent altogether. This is the
+            NON-VACUITY control for the row above — without it, a `heads`
+            set that contained the bridge unconditionally would satisfy it."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (let [tree  (mc/Chart {:definition fixture-definition
+                             :machine-id :m
+                             :show-after-rings? false})
+            heads (into #{}
+                        (comp (filter vector?) (map first))
+                        (hiccup-seq tree))]
+        (is (not (contains? heads after-rings/AfterRingsOverlay-bridge))
+            ":show-after-rings? false drops the overlay mount entirely")))))
 
 ;; ---- 4. SnapshotDrillIn view (rf2-lxvn6 · spec/021 §10) --------------
 

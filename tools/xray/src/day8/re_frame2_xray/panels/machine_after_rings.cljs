@@ -82,13 +82,36 @@
   is below threshold. v1 ships at ~60fps with no skip-frame because
   the typical-app `:after`-timer count is small (1-3).
 
-  ## Pure hiccup
+  ## Substrate (rf2-k97c.3)
 
-  Same contract as every other Xray panel — the view is pure hiccup,
-  no Reagent / UIx references. Frame isolation comes from the
-  enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`."
+  [[AfterRingsOverlay]] is an `rf.fresco/defview` — a real React
+  function component whose four reads are `rf.fresco/sub`, recorded by
+  Fresco's own collector rather than by the installed adapter's
+  observer. That is the epic's coupling (3) OBSERVATION, severed for
+  this overlay. Frame isolation still comes from the enclosing
+  `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`, which the
+  boundary reads out of React context exactly as the `reg-view` did.
+
+  The overlay's markup is NOT pure hiccup, and it is the one panel in
+  the migration where that matters. Its whole job is to delegate to the
+  machines-viz `AfterRingsOverlay`, which is a **Reagent form-3 class**
+  (`chart/scaffold/make-resizing-overlay-class`) in a bundle-isolated
+  sibling artefact that knows nothing of Fresco. A plain function in
+  head position is a loud error under Fresco (HD-016), and CALLING it
+  is not the usual repair either — it answers a Reagent CLASS, not
+  hiccup. The door is Fresco's own ABI: *\"A React element is a legal
+  child anywhere\"* (`re-frame.fresco.impl.codec`'s component-ABI
+  table; `child-kind` classifies `react/isValidElement` as
+  `:react-element` and `as-element` passes it through untouched). So
+  [[overlay-tree]] takes an `:as-child` function — `identity` for a
+  hiccup caller, `reagent.core/as-element` for the boundary — and the
+  CLJS props map crosses to machines-viz BY IDENTITY, because
+  `as-element` carries the hiccup vector itself rather than converting
+  a props object. See [[overlay-tree]]."
   (:require [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [re-frame.interop :as rf.interop]
+            [reagent.core :as r]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings
@@ -385,7 +408,89 @@
                 :state      (:state spec)
                 :epoch      (:epoch spec)}])))
 
-(rf/reg-view AfterRingsOverlay
+(defn overlay-tree
+  "The overlay's markup, as a plain function of the values the boundary
+  READS. Split out of the view by rf2-k97c.3; it is `defview`'s own
+  documented extract-a-helper spelling and the same split
+  `routing/panel-tree` and `resources/panel-tree` already make. A
+  migrated view is a real React component and can no longer be CALLED,
+  so without this split every hiccup-walking row in
+  `machine_after_rings_cljs_test` would have to be rewritten; with it,
+  every one of them asserts on exactly the hiccup it did before.
+
+  Args (one map):
+
+    :timers         — `:rf.xray/active-timers-for-focused-machine`.
+    :live-now       — `:rf.xray/now-ms`, the rAF-bumped live clock.
+    :scrub          — `:rf.xray/machine-scrubber-position`.
+    :focused-detail — `:rf.xray/focused-event-bundle-detail`; the
+                      retro-mode anchor source (rf2-8i1tg3).
+    :frame          — the frame this tree renders in
+                      (`rf/current-frame-id`). It arms the off-render
+                      rAF clock through `kick-tick!` and is the frame
+                      the hover / leave dispatches CARRY (rf2-nesy9).
+    :as-child       — how to spell the delegated machines-viz child for
+                      the calling renderer. `identity` (the default)
+                      leaves it as hiccup, which is what a Reagent
+                      parent and the node-lane rows want;
+                      `reagent.core/as-element` answers a React element,
+                      which is what a Fresco body needs. The ns
+                      docstring records why neither of the migration's
+                      usual repairs — mount it as a head, or CALL it —
+                      is available for a Reagent class.
+
+  Returns nil when the projection has no active timers (the overlay
+  layer drops out so unrelated chart hover handlers aren't shadowed).
+
+  NOT side-effect free, deliberately: it kicks the single per-chart rAF
+  clock at exactly the point the `reg-view` body did (Lock #8). Moving
+  that out would change WHEN the clock arms, which is a behaviour
+  change wearing a tidy-up's clothes."
+  [{:keys [timers live-now scrub focused-detail frame as-child]
+    :or   {as-child identity}}]
+  (let [focused-ms (rings-h/focused-cascade-time-ms focused-detail)
+        now        (rings-h/resolve-now-ms scrub live-now focused-ms)
+        ;; rf2-k97c.3 — `reg-view` LEXICALLY INJECTED a frame-aware
+        ;; `dispatch` into the body; `defview` binds NO name inside a
+        ;; body, so the dispatcher is built here from the carried frame.
+        ;; Same target as before — the surrounding instance frame
+        ;; (rf2-nesy9), never a `{:frame :rf/xray}` literal.
+        dispatch   (fn [event-v] (rf/dispatch event-v {:frame frame}))
+        ;; Kick the rAF loop iff ticking is needed (live mode + at
+        ;; least one armed timer). Cheap to call per render — the
+        ;; `:running?` sentinel collapses duplicate kicks. Per Lock #8
+        ;; this is the SINGLE per-chart clock (O(charts), not
+        ;; O(rings × charts)); the machines-viz overlay runs no clock
+        ;; of its own — it just re-measures the DOM when `:tick` bumps.
+        _          (when (rings-h/needs-ticking? timers scrub)
+                     (kick-tick! frame))
+        specs      (rings-h/timers->ring-specs
+                     timers chart-layout/highlight-id now)]
+    (when (seq specs)
+      [:div {:data-rf-xray-after-rings-host ""
+             ;; rf2-e64drj — the React ref that clears `:mounted?` on unmount
+             ;; so the off-render rAF tick loop stops when this overlay leaves
+             ;; the screen (switch away from the Machine Inspector) even while
+             ;; an `:after` timer stays armed. Stable fn identity ⇒ React fires
+             ;; it only on mount (node) / unmount (nil), never per re-render.
+             ;; Fresco's codec passes `:ref` through untouched, so the
+             ;; lifecycle is the same one under either renderer.
+             :ref overlay-ref!
+             :style {:display "contents"}}
+       (as-child
+         [mv-after-rings/AfterRingsOverlay
+          {:ring-specs specs
+           ;; `now` is the rAF-bumped (or scrubber-pinned) instant —
+           ;; bumping it on every frame forces the overlay to re-measure
+           ;; the DOM + repaint the swept arcs (Lock #8 60Hz-when-visible
+           ;; cadence, driven by THIS ns's clock, not the overlay's).
+           :tick       now
+           :testid     "rf-xray-machine-inspector-after-rings-overlay"
+           :on-hover   (fn [node-id] (timer-hovered! dispatch specs node-id))
+           :on-leave   (fn [_node-id]
+                         (dispatch [:rf.xray/timer-hover nil]))}])])))
+
+(rf.fresco/defview AfterRingsOverlay
   "Mounts the focused machine's `:after` countdown rings over the
   xyflow chart. Subscribes to the active timers + now-ms + scrubber
   internally; projects each timer into a presentation-ready ring-spec
@@ -394,20 +499,34 @@
   rAF clock in live mode; then delegates positioning + paint to the
   machines-viz `AfterRingsOverlay`, which walks the xyflow node DOM.
 
-  rf2-m4xz1 — registered via `reg-view` (was a plain `defn`) so the
-  React-context frame tier carries the enclosing `:rf/xray` frame
+  rf2-m4xz1 — was a `reg-view` (and before that a plain `defn`) so the
+  React-context frame tier carried the enclosing `:rf/xray` frame
   through to the four subscribes inside. As a plain fn rendered under
   `[rf/frame-provider {:frame :rf/xray}]`, the subscribes routed to
   `:rf/default` (the host app's frame), which is a real frame-leak —
   xray-internal slots must be read via xray's own frame. Same surgery
   PR #2110 (rf2-uu3lp) applied to the rest of xray chrome.
 
-  Accepts an optional opts map (currently unused — reserved for a
-  future per-call testid override). Variadic to preserve the prior
-  0-arg + 1-arg call shapes (the hiccup mount carries one arg, tests
-  call with zero or one). The legacy positioned-graph / viewport-
-  transform args are GONE (xyflow owns positions; the overlay reads
-  them off the DOM).
+  rf2-k97c.3 — now an `rf.fresco/defview`. The frame reasoning above is
+  UNCHANGED and still the reason this is a component rather than a fn:
+  a boundary reads its frame from the same `re-frame.adapter.context`
+  React context that `rf/frame-provider` writes, so the four reads
+  still resolve through `:rf/xray`. What changed is the OBSERVER — the
+  reads are `rf.fresco/sub`, recorded by Fresco's collector rather than
+  by the installed adapter's, which is the epic's coupling (3).
+
+  Two consequences of `defview`'s contract, both load-bearing here:
+
+    * It binds NO name inside the body, so `reg-view`'s lexically
+      injected `dispatch` is gone. [[overlay-tree]] builds one from the
+      carried frame instead — same target, same behaviour.
+    * It takes ONE props map, so the old `[& _opts]` variadic (and with
+      it the 0-arg / 1-arg call shapes the node rows used) is gone. The
+      opts map was never read. Node-lane rows drive [[overlay-tree]]
+      directly now.
+
+  The legacy positioned-graph / viewport-transform args are GONE
+  (xyflow owns positions; the overlay reads them off the DOM).
 
   Returns nil when the projection has no active timers (the overlay
   layer drops out so unrelated chart hover handlers aren't shadowed).
@@ -427,61 +546,76 @@
   overlay queries to measure node rects is unchanged because a
   `display: contents` element is not a positioning context). Same
   pattern as `shell.cljs` (rf2-uu3lp)."
-  [& _opts]
-  (let [timers     @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])
-        live-now   @(rf/subscribe [:rf.xray/now-ms])
-        scrub      @(rf/subscribe [:rf.xray/machine-scrubber-position])
-        ;; rf2-8i1tg3 — xray/003 §M.2: in RETRO mode ('scrubber-
-        ;; driven') the ring must freeze at the elapsed-fraction the
-        ;; timer had reached at the FOCUSED CASCADE's timestamp, not
-        ;; wherever the live clock last sat when the tick loop
-        ;; stopped. `needs-ticking?` already suspends the rAF loop when
-        ;; `scrub` leaves `:present`, so `live-now` simply goes stale —
-        ;; nothing was plumbing the scrubbed anchor into the ring
-        ;; projection below. `:rf.xray/focused-event-bundle-detail` is
-        ;; the same cross-panel primitive the Epoch / App-db-diff
-        ;; panels read to find "the event-bundle the spine is pointing
-        ;; at"; referenced by keyword (no ns require — re-frame's
-        ;; registrar resolves subs at runtime, not compile-time,
-        ;; keeping this ns out of the `registry.cljs` require cycle).
-        focused-ms (rings-h/focused-cascade-time-ms
-                     @(rf/subscribe [:rf.xray/focused-event-bundle-detail]))
-        now        (rings-h/resolve-now-ms scrub live-now focused-ms)
-        ;; rf2-nesy9 — capture the surrounding instance frame so the
-        ;; off-render rAF clock + the hover/leave callbacks dispatch
-        ;; into it (not a `:rf/xray` literal). `frame` arms the rAF loop
-        ;; via kick-tick!; `dispatch` is the reg-view-injected dispatcher.
-        frame  (rf/current-frame-id)
-        ;; Kick the rAF loop iff ticking is needed (live mode + at
-        ;; least one armed timer). Cheap to call per render — the
-        ;; `:running?` sentinel collapses duplicate kicks. Per Lock #8
-        ;; this is the SINGLE per-chart clock (O(charts), not
-        ;; O(rings × charts)); the machines-viz overlay runs no clock
-        ;; of its own — it just re-measures the DOM when `:tick` bumps.
-        _      (when (rings-h/needs-ticking? timers scrub)
-                 (kick-tick! frame))
-        specs  (rings-h/timers->ring-specs
-                 timers chart-layout/highlight-id now)]
-    (when (seq specs)
-      [:div {:data-rf-xray-after-rings-host ""
-             ;; rf2-e64drj — the React ref that clears `:mounted?` on unmount
-             ;; so the off-render rAF tick loop stops when this overlay leaves
-             ;; the screen (switch away from the Machine Inspector) even while
-             ;; an `:after` timer stays armed. Stable fn identity ⇒ React fires
-             ;; it only on mount (node) / unmount (nil), never per re-render.
-             :ref overlay-ref!
-             :style {:display "contents"}}
-       [mv-after-rings/AfterRingsOverlay
-        {:ring-specs specs
-         ;; `now` is the rAF-bumped (or scrubber-pinned) instant —
-         ;; bumping it on every frame forces the overlay to re-measure
-         ;; the DOM + repaint the swept arcs (Lock #8 60Hz-when-visible
-         ;; cadence, driven by THIS ns's clock, not the overlay's).
-         :tick       now
-         :testid     "rf-xray-machine-inspector-after-rings-overlay"
-         :on-hover   (fn [node-id] (timer-hovered! dispatch specs node-id))
-         :on-leave   (fn [_node-id]
-                       (dispatch [:rf.xray/timer-hover nil]))}]])))
+  [_props]
+  ;; The four reads, unchanged in identity and unconditional as before —
+  ;; only the OBSERVER moved, from the installed adapter's to Fresco's
+  ;; collector. `rf.fresco/sub` records its edge WHERE THE READ HAPPENS,
+  ;; so keeping all four here keeps the dependency set exactly what the
+  ;; `reg-view` had.
+  ;;
+  ;; rf2-8i1tg3 — xray/003 §M.2: in RETRO mode ('scrubber-driven') the
+  ;; ring must freeze at the elapsed-fraction the timer had reached at
+  ;; the FOCUSED CASCADE's timestamp, not wherever the live clock last
+  ;; sat when the tick loop stopped. `:rf.xray/focused-event-bundle-detail`
+  ;; is the same cross-panel primitive the Epoch / App-db-diff panels
+  ;; read to find "the event-bundle the spine is pointing at"; referenced
+  ;; by keyword (no ns require — re-frame's registrar resolves subs at
+  ;; runtime, not compile-time, keeping this ns out of the
+  ;; `registry.cljs` require cycle).
+  ;;
+  ;; rf2-nesy9 — `rf/current-frame-id` is one of core's PURE frame doors,
+  ;; which `impl.intent/with-frame` answers with the boundary's DECLARED
+  ;; frame precisely because it neither reads nor dispatches. So the
+  ;; surrounding instance frame still reaches the off-render rAF clock
+  ;; and the hover / leave dispatches, and it is still not a `:rf/xray`
+  ;; literal.
+  (overlay-tree
+    {:timers         (rf.fresco/sub [:rf.xray/active-timers-for-focused-machine])
+     :live-now       (rf.fresco/sub [:rf.xray/now-ms])
+     :scrub          (rf.fresco/sub [:rf.xray/machine-scrubber-position])
+     :focused-detail (rf.fresco/sub [:rf.xray/focused-event-bundle-detail])
+     :frame          (rf/current-frame-id)
+     ;; The machines-viz overlay is a Reagent class, so it reaches React
+     ;; as a finished React ELEMENT — a legal child anywhere per Fresco's
+     ;; component ABI — rather than as a hiccup head. `r/as-element`
+     ;; carries the hiccup vector itself, so the CLJS props map crosses
+     ;; BY IDENTITY; see the ns docstring.
+     :as-child       r/as-element}))
+
+;; ---- the migration bridge (rf2-k97c.3) ----------------------------------
+;;
+;; MIGRATION SCAFFOLDING WITH A DEFINED END. `Chart` in
+;; `panels/machine_canvas.cljs` is still a `reg-view`, so it mounts this
+;; overlay from a REAGENT tree, and a boundary is not a Reagent render
+;; fn. `rf.fresco/as-component` is Fresco's own outward door for exactly
+;; that; the crossing is an EMPTY props map, which is the only shape that
+;; survives a Reagent parent's `convert-prop-value` (increment 2 measured
+;; that a payload does not). The overlay never had a payload to cross —
+;; its one call site passed `nil` opts — so nothing is given up here.
+;;
+;; When the shell chain is itself a Fresco tree (step 3), `Chart` mounts
+;; `AfterRingsOverlay` directly and both of these go in that commit.
+;;
+;; Naming follows the mayor's 2026-09-10 ruling: the boundary keeps the
+;; NATURAL name and the caller is handed a PUBLIC bridge (the #9581
+;; spelling). The constraint that forced #9578's opposite spelling — a
+;; fenced `shell.cljs` mounting the var by name — does not exist here:
+;; the sole caller is `machine_canvas/Chart`, which this slice owns.
+
+(def ^:private AfterRingsOverlay-component
+  "The React component [[AfterRingsOverlay]] presents as, for a
+  non-Fresco parent. Declared ONCE at top level, as
+  `rf.fresco/as-component`'s own docstring requires — a fresh one per
+  render is a fresh element type and would remount the subtree on every
+  pass, taking the machines-viz overlay's measured state with it."
+  (rf.fresco/as-component AfterRingsOverlay))
+
+(defn AfterRingsOverlay-bridge
+  "Mount [[AfterRingsOverlay]] from a Reagent hiccup tree. Public
+  because its one consumer is `panels/machine_canvas.cljs`'s `Chart`,
+  a different namespace. Deleted at step 3 with the component above."
+  []
+  [:> AfterRingsOverlay-component {}])
 
 ;; ---- public install entry -----------------------------------------------
 

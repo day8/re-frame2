@@ -18,10 +18,12 @@
        timer-hover slot by node-id).
     6. The rAF tick loop's `needs-ticking?` gate stops the loop when
        no armed timers are present."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+            [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
@@ -38,7 +40,11 @@
   ;; init reset a SECOND time) into one owner; `:post-reset` stops any
   ;; armed rAF tick loop. (`trace-collector` stays required for seeding.)
   (xray-test-support/make-xray-runtime-fixture
-    {:post-reset (fn [] (after-rings/stop-tick!))}))
+    ;; `:async? true` is the map-form `cljs.test/async` shape, needed by
+    ;; `hover-dispatch-lands-on-the-render-frame` below (rf2-k97c.3),
+    ;; which polls a real async dispatch rather than racing the drain.
+    {:async?     true
+     :post-reset (fn [] (after-rings/stop-tick!))}))
 
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
@@ -182,6 +188,35 @@
 ;; SVG-positioned-graph + viewport-transform tests are gone with the
 ;; elk renderer.)
 
+(defn- overlay-tree
+  "Drive `after-rings/overlay-tree` with EXACTLY the reads the
+  `AfterRingsOverlay` boundary makes — same four query vectors, same
+  order, and the frame taken the same way — so what these rows assert on
+  is the tree the mounted boundary actually renders.
+
+  rf2-k97c.3 — the rows below used to call `(overlay-tree)`
+  directly. A migrated view is a real React component and cannot be
+  called, so the markup moved into `overlay-tree`, which can. `:as-child`
+  is left at its `identity` default so the delegated machines-viz child
+  stays HICCUP here and every assertion below reads exactly what it read
+  before; the boundary passes `reagent.core/as-element` instead, and the
+  new `machine_after_rings_fresco_boundary_dom_cljs_test` is what proves
+  that half against a real React commit.
+
+  Call inside `(rf/with-frame :rf/xray ...)`, as every row here does.
+  `extra` is merged last, so a row can vary ONE input (`:as-child`)
+  without drifting the other five away from the boundary's."
+  ([] (overlay-tree nil))
+  ([extra]
+   (after-rings/overlay-tree
+     (merge
+       {:timers         @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])
+        :live-now       @(rf/subscribe [:rf.xray/now-ms])
+        :scrub          @(rf/subscribe [:rf.xray/machine-scrubber-position])
+        :focused-detail @(rf/subscribe [:rf.xray/focused-event-bundle-detail])
+        :frame          (rf/current-frame-id)}
+       extra))))
+
 (defn- delegated-child
   "Pull the inner `[mv-after-rings/AfterRingsOverlay {...}]` hiccup
   past the `display: contents` wrapper `:div` (rf2-fkpuv)."
@@ -203,9 +238,7 @@
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
     (pin-now-ms! 1000)
-    (is (nil? (after-rings/AfterRingsOverlay)))
-    (is (nil? (after-rings/AfterRingsOverlay nil))
-        "opts-arity also returns nil with no timers")))
+    (is (nil? (overlay-tree)))))
 
 (deftest overlay-delegates-one-ring-spec-per-active-timer
   (setup-xray-frame!)
@@ -214,7 +247,7 @@
     (override-definitions! {:auth/login fixture-definition})
     (pin-now-ms! 2000)
     (push-scheduled! 1000 :auth/login :idle 5000 0)
-    (let [tree  (after-rings/AfterRingsOverlay)
+    (let [tree  (overlay-tree)
           child (delegated-child tree)
           props (delegated-props tree)
           specs (:ring-specs props)]
@@ -240,7 +273,7 @@
     (pin-now-ms! 7000)
     (push-scheduled! 1000 :auth/login :idle 5000 0)
     (push-fired!     6000 :auth/login :idle 0)
-    (is (nil? (after-rings/AfterRingsOverlay))
+    (is (nil? (overlay-tree))
         "fired timers are filtered out of the active projection — the
          whole overlay drops out")))
 
@@ -252,7 +285,7 @@
     (pin-now-ms! 2000)
     (push-scheduled! 1000 :auth/login :idle    5000 0)
     (push-scheduled! 1500 :auth/login :authing 3000 0)
-    (let [specs (-> (after-rings/AfterRingsOverlay) delegated-props :ring-specs)]
+    (let [specs (-> (overlay-tree) delegated-props :ring-specs)]
       (is (= 2 (count specs)))
       (is (= #{"idle" "authing"} (set (map :node-id specs)))))))
 
@@ -263,7 +296,7 @@
     (override-definitions! {:auth/login fixture-definition})
     (pin-now-ms! 2000)
     (push-scheduled! 1000 :auth/login :idle 5000 0)
-    (let [props    (-> (after-rings/AfterRingsOverlay) delegated-props)
+    (let [props    (-> (overlay-tree) delegated-props)
           on-hover (:on-hover props)
           on-leave (:on-leave props)
           spec     (-> props :ring-specs first)]
@@ -326,16 +359,106 @@
       ;; the composite a known, non-live anchor timestamp.
       (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:some/event] 4242))
       (rf/dispatch-sync [:rf.xray/set-scrubber-position 3])
-      (let [props (-> (after-rings/AfterRingsOverlay) delegated-props)]
+      (let [props (-> (overlay-tree) delegated-props)]
         (is (= 4242 (:tick props))
             "RETRO tick anchors to the focused cascade's dispatched
              time (4242) — NOT the pinned live now-ms (9999), which is
              the exact rf2-8i1tg3 regression"))
       (rf/dispatch-sync [:rf.xray/set-scrubber-position :present])
-      (let [props (-> (after-rings/AfterRingsOverlay) delegated-props)]
+      (let [props (-> (overlay-tree) delegated-props)]
         (is (= 9999 (:tick props))
             "returning to :present restores the live clock as the tick
              anchor")))))
+
+;; ---- (5c) the substrate seam (rf2-k97c.3) ------------------------------
+
+(deftest as-child-lifts-the-reagent-delegate-to-a-react-element
+  (testing "rf2-k97c.3 — the machines-viz `AfterRingsOverlay` is a REAGENT
+            component, so a Fresco body can neither take it as a hiccup
+            head (a plain function in head position is a loud error,
+            HD-016) nor CALL it (it answers a Reagent CLASS, not hiccup —
+            which is why the migration's usual `(mini v 40)` repair does
+            not apply). `overlay-tree`'s `:as-child` is the seam:
+            `identity` leaves the delegate as hiccup for a Reagent parent
+            and for every row above, while `reagent.core/as-element`
+            answers a React element, which Fresco's component ABI admits
+            as a legal child anywhere.
+
+            The row that matters is the last one: `as-element` carries the
+            hiccup vector itself as Reagent's `argv`, so the CLJS props map
+            reaches machines-viz BY IDENTITY. That is the whole reason this
+            route was taken over `[:> ...]`, whose host walk camelCases the
+            top-level key and `clj->js`es a collection value — under which
+            `:ring-specs` would arrive as `:ringSpecs` holding a JS array
+            and the overlay would destructure nil."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (pin-now-ms! 2000)
+      (push-scheduled! 1000 :auth/login :idle 5000 0)
+      (let [hiccup-child  (delegated-child (overlay-tree))
+            props         (second hiccup-child)
+            element-child (delegated-child (overlay-tree {:as-child r/as-element}))]
+        (is (vector? hiccup-child)
+            "the default :as-child leaves the delegate as hiccup")
+        (is (= mv-after-rings/AfterRingsOverlay (first hiccup-child))
+            "and it is the machines-viz overlay")
+        (is (not (vector? element-child))
+            ":as-child r/as-element answers a React element, not hiccup")
+        (is (some? (.-props element-child))
+            "and it is a real element carrying React props")
+        (is (= props (aget (.-argv (.-props element-child)) 1))
+            "the CLJS props map rides at argv[1] — Reagent reads argv AS
+             IS and never touches the raw props object, so :ring-specs
+             stays a CLJS vector of CLJS maps across the crossing")))))
+
+;; ---- (5d) deferred hover dispatch routing (rf2-nesy9 / rf2-k97c.3) -----
+;;
+;; Sibling in shape to `reactive_panel_disclosure_dispatch_routing_cljs_test`:
+;; pluck the deferred handler off the rendered tree and fire it OUTSIDE any
+;; `with-frame`, reproducing the browser reality that a mouseenter fires
+;; AFTER render commits and the ambient frame scope has unwound.
+;;
+;; The rows in (5) above deliberately declined this claim — "the production
+;; callback dispatches async, so racing the router drain here would be
+;; flaky" — and asserted only that the callbacks are wired and don't throw.
+;; Polling rather than racing makes the claim available, and it is the one
+;; the migration most needs: `reg-view` used to INJECT a frame-aware
+;; `dispatch`, `defview` binds no name inside a body, and this row is what
+;; says the replacement targets the same frame.
+
+(deftest hover-dispatch-lands-on-the-render-frame
+  (testing "rf2-nesy9 — the hover dispatch lands on the frame the TREE
+            named, and does NOT leak to :rf/default, even though it fires
+            long after the render extent has unwound. That is the
+            'carrying' half of the boundary contract: the dispatcher holds
+            an explicit {:frame ...}, so it never has to resolve a frame
+            ambiently at click time."
+    (setup-xray-frame!)
+    (let [on-hover (rf/with-frame :rf/xray
+                     (override-machines!    [:auth/login])
+                     (override-definitions! {:auth/login fixture-definition})
+                     (pin-now-ms! 2000)
+                     (push-scheduled! 1000 :auth/login :idle 5000 0)
+                     (:on-hover (delegated-props (overlay-tree))))]
+      (is (fn? on-hover) "the delegate is handed an :on-hover callback")
+      ;; Frameless, exactly as a real mouseenter is.
+      (on-hover "idle")
+      (async done
+        (-> (rf.test-support/poll-until
+              #(some? (:rings/hover (rf.frame/frame-app-db-value :rf/xray)))
+              {:label      ":rings/hover appears on :rf/xray after a frameless hover"
+               :timeout-ms 1000})
+            (.then (fn [_]
+                     (is (= {:machine-id :auth/login :state :idle :epoch 0}
+                            (:rings/hover (rf.frame/frame-app-db-value :rf/xray)))
+                         "the deferred hover landed on :rf/xray carrying the
+                          full (machine-id, state, epoch) identity tuple")
+                     (is (nil? (:rings/hover (rf.frame/frame-app-db-value :rf/default)))
+                         ":rf/default was NOT polluted — no bare-dispatch leak")))
+            (.catch (fn [e] (is false (.-message e)) nil))
+            (.then (fn [_] (done))))))))
 
 ;; ---- (6) frame isolation ----------------------------------------------
 

@@ -380,7 +380,16 @@
      ;; The overlay walks the chart's node DOM by data-testid to find
      ;; bbox positions; no positioned-graph prop is needed
      ;; post-migration (xyflow owns positions internally).
-     [after-rings/AfterRingsOverlay nil])])
+     ;;
+     ;; rf2-k97c.3 — `AfterRingsOverlay` is now an `rf.fresco/defview`,
+     ;; i.e. a real React component, and `Chart` here is still a
+     ;; `reg-view`, i.e. a Reagent tree. `AfterRingsOverlay-bridge` is
+     ;; the one line between them (`rf.fresco/as-component`, crossing an
+     ;; empty props map — the overlay's opts were never read, which is
+     ;; why the old `nil` argument is no loss). Both the bridge and this
+     ;; call go at step 3, when `Chart` is itself a Fresco body and can
+     ;; mount the boundary directly.
+     [after-rings/AfterRingsOverlay-bridge])])
 
 ;; ---- snapshot drill-in (rf2-lxvn6 · spec/021 §10 widget contract) -----
 ;;
