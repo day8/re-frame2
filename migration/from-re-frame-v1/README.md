@@ -370,12 +370,12 @@ Why: per [Spec-Schemas §:rf/effect-map](../../spec/Spec-Schemas.md#rfeffect-map
 
 1. **Discover the user's fx ids first — this is what makes the sweep complete.** Sweep the codebase for **every** `(reg-fx :id ...)` registration and collect the full set of fx ids the project defines — the custom ones (`:datadog/log`, toast effects, analytics, …) as much as anything. Add the built-ins (`:dispatch`, `:dispatch-later`, `:dispatch-n`, `:http`, navigation effects). Without this set the sweep cannot recognise a custom fx returned as a top-level key, and any such key it fails to recognise is exactly the invisible break described above. Treat the discovered set as authoritative.
 2. For each `reg-event-fx` body, find the returned map literal. For each top-level key other than `:db` and `:fx`:
-   - If the key is in the discovered fx-id set (built-in **or** custom): rewrite per the rules below.
-   - If the key is unknown: leave it alone and **flag for human review** (it might be a destructure key, not an effect). Do not silently drop it — the *runtime* already drops un-migrated keys silently, so a missed flag here reproduces the exact failure this rule exists to prevent.
+    - If the key is in the discovered fx-id set (built-in **or** custom): rewrite per the rules below.
+    - If the key is unknown: leave it alone and **flag for human review** (it might be a destructure key, not an effect). Do not silently drop it — the *runtime* already drops un-migrated keys silently, so a missed flag here reproduces the exact failure this rule exists to prevent.
 3. Rewriting:
-   - Single value (`:dispatch [:foo]`, `:http {:url ...}`, or a custom `:datadog/log {...}`): wrap as `[[:key value]]` inside `:fx`.
-   - Vector of values (`:dispatch-n [[:a] [:b]]`, `:dispatch-later [{...} {...}]`): expand to `:fx [[:key v1] [:key v2] ...]`.
-   - **`:dispatch-later` map key rename** — v1's `:dispatch-later` map used `:dispatch` for the event-to-dispatch (`{:ms n :dispatch [:ev]}`); the v2 fx reads **`:event`** (`{:ms n :event [:ev]}`). Rename the key as you expand each map — `:dispatch-later [{:ms 100 :dispatch [:tick]}]` → `:fx [[:dispatch-later {:ms 100 :event [:tick]}]]`. A left-behind `:dispatch` key compiles and runs but the fx silently ignores it and the deferred event never fires.
+    - Single value (`:dispatch [:foo]`, `:http {:url ...}`, or a custom `:datadog/log {...}`): wrap as `[[:key value]]` inside `:fx`.
+    - Vector of values (`:dispatch-n [[:a] [:b]]`, `:dispatch-later [{...} {...}]`): expand to `:fx [[:key v1] [:key v2] ...]`.
+    - **`:dispatch-later` map key rename** — v1's `:dispatch-later` map used `:dispatch` for the event-to-dispatch (`{:ms n :dispatch [:ev]}`); the v2 fx reads **`:event`** (`{:ms n :event [:ev]}`). Rename the key as you expand each map — `:dispatch-later [{:ms 100 :dispatch [:tick]}]` → `:fx [[:dispatch-later {:ms 100 :event [:tick]}]]`. A left-behind `:dispatch` key compiles and runs but the fx silently ignores it and the deferred event never fires.
 4. If the effect map already has a `:fx`, concat: `:fx (into existing-fx new-fx)`.
 5. Remove the rewritten top-level keys.
 
@@ -691,9 +691,9 @@ re-frame2 does not ship `reg-global-interceptor` or `clear-global-interceptor`. 
   ```
 
 - **Type B — multi-frame app.** Flag every `reg-global-interceptor` call for human review. Three rewrite paths; the user picks based on intent:
-  1. **Apply to each frame.** If the interceptor genuinely needs to fire for every frame's events, add it to each frame config's `:interceptors` vector explicitly. (Rare; usually an architectural smell.)
-  2. **Convert to a trace listener.** If the interceptor is observer-shaped (audit logging, performance instrumentation, schema-validation-via-trace), it is the wrong tool — use `register-listener!` per [009-Instrumentation](../../spec/009-Instrumentation.md). The trace stream sees every dispatch across all frames without modifying behaviour.
-  3. **Restrict to default frame only.** If "global" really meant "the default frame's events" (a common single-frame habit that shouldn't apply to test/story/SSR frames), add it to `:rf/default`'s `:interceptors` only.
+    1. **Apply to each frame.** If the interceptor genuinely needs to fire for every frame's events, add it to each frame config's `:interceptors` vector explicitly. (Rare; usually an architectural smell.)
+    2. **Convert to a trace listener.** If the interceptor is observer-shaped (audit logging, performance instrumentation, schema-validation-via-trace), it is the wrong tool — use `register-listener!` per [009-Instrumentation](../../spec/009-Instrumentation.md). The trace stream sees every dispatch across all frames without modifying behaviour.
+    3. **Restrict to default frame only.** If "global" really meant "the default frame's events" (a common single-frame habit that shouldn't apply to test/story/SSR frames), add it to `:rf/default`'s `:interceptors` only.
 
 `clear-global-interceptor` has no v2 replacement: re-declare the frame (`make-frame`) with an updated `:interceptors` vector — absent-key semantics on re-registration (per [002 §Re-registration — surgical update](../../spec/002-Frames.md#re-registration--surgical-update)) clear the previous binding.
 
@@ -1702,10 +1702,10 @@ The interceptor's `:before` receives a ctx `{:request :args :frame :event}` and 
 
 1. Identify every call site of `(rf/init!)` / `(rf/init! :keyword)`.
 2. For each, add a `:require` of the relevant adapter ns (if not already present):
-   - Reagent: `[re-frame.adapter.reagent :as rf.adapter.reagent]`
-   - UIx: `[re-frame.adapter.uix :as rf.adapter.uix]`
-   - SSR (JVM-side): `[re-frame.ssr :as rf.ssr]`
-   - Plain-atom (headless tests): `[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]`
+    - Reagent: `[re-frame.adapter.reagent :as rf.adapter.reagent]`
+    - UIx: `[re-frame.adapter.uix :as rf.adapter.uix]`
+    - SSR (JVM-side): `[re-frame.ssr :as rf.ssr]`
+    - Plain-atom (headless tests): `[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]`
 3. Replace the call:
 
 ```clojure
@@ -3323,18 +3323,18 @@ After sweeping:
 After applying any rules, in order:
 
 1. **Compile.** Run `shadow-cljs compile` (or the project's equivalent). Resolve any compile errors. Most likely issues:
-   - Unresolved symbols from removed private namespaces (apply M-1).
-   - `apply` / Var-aliasing of `reg-event-*` and so on (apply M-5).
+    - Unresolved symbols from removed private namespaces (apply M-1).
+    - `apply` / Var-aliasing of `reg-event-*` and so on (apply M-5).
 2. **Run tests** if a test suite exists. Watch for:
-   - Tests that depended on intermediate renders between synchronously-chained dispatches (apply M-3).
-   - Tests that asserted on router-queue contents post-dispatch (apply M-3).
-   - Runtime errors with `:reason :drain-depth-exceeded` (apply M-6).
-   - master users only: `dispatch-with` / `dispatch-sync-with` calls (apply M-4).
+    - Tests that depended on intermediate renders between synchronously-chained dispatches (apply M-3).
+    - Tests that asserted on router-queue contents post-dispatch (apply M-3).
+    - Runtime errors with `:reason :drain-depth-exceeded` (apply M-6).
+    - master users only: `dispatch-with` / `dispatch-sync-with` calls (apply M-4).
 3. **Run the application.** Smoke-test that:
-   - The app boots.
-   - Dispatched events still update `app-db` as expected (now living inside the `:rf/default` frame, but transparent to user code).
-   - Subscriptions still update views.
-   - Hot-reload still works.
+    - The app boots.
+    - Dispatched events still update `app-db` as expected (now living inside the `:rf/default` frame, but transparent to user code).
+    - Subscriptions still update views.
+    - Hot-reload still works.
 4. **Report.**
 
 ### What you must not do

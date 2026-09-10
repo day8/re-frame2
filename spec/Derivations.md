@@ -688,11 +688,11 @@ The two axes that **vary** per subscription are the declared **inputs** and the 
 
 - **`:output`** is `[:fact <id>]` — the sub id for a static node, the concrete query vector for a live cache entry.
 - **`:inputs`** lowers from the registered input-producer kind ([§Declared input](#declared-input); the [006](006-ReactiveSubstrate.md) input-producer discriminator):
-  - a layer-1 `:db` reader hands the *whole* `app-db` value to its body, so the conservative declared input is the app-db projection root `[[:db []]]` (a future path-aware source form MAY narrow it; correctness does not depend on the narrowing);
-  - a `reg-runtime-sub` reads the runtime-db partition — `[[:runtime []]]`;
-  - a `reg-frame-state-sub` reads across both partitions (framework-internal) — `[[:frame-state []]]`;
-  - a static declared-input sub lowers each literal input query-vector to a `[:sub query-vector]` edge, in declaration order (args preserved);
-  - a parametric input-fn sub reports the **`:parametric`** marker plus an opaque `:input-producer` token — its realized edge set depends on a concrete query vector and is *not statically enumerable* (the [don't-execute rule](#the-dont-execute-rule-ep-0014-issue-3-disposition); the static graph never runs the input-fn). The **live** sub-cache view reports the realized `[:sub query-vector]` edges per concrete entry — exactly the edges the static graph cannot enumerate.
+    - a layer-1 `:db` reader hands the *whole* `app-db` value to its body, so the conservative declared input is the app-db projection root `[[:db []]]` (a future path-aware source form MAY narrow it; correctness does not depend on the narrowing);
+    - a `reg-runtime-sub` reads the runtime-db partition — `[[:runtime []]]`;
+    - a `reg-frame-state-sub` reads across both partitions (framework-internal) — `[[:frame-state []]]`;
+    - a static declared-input sub lowers each literal input query-vector to a `[:sub query-vector]` edge, in declaration order (args preserved);
+    - a parametric input-fn sub reports the **`:parametric`** marker plus an opaque `:input-producer` token — its realized edge set depends on a concrete query vector and is *not statically enumerable* (the [don't-execute rule](#the-dont-execute-rule-ep-0014-issue-3-disposition); the static graph never runs the input-fn). The **live** sub-cache view reports the realized `[:sub query-vector]` edges per concrete entry — exactly the edges the static graph cannot enumerate.
 
 The node additionally carries the opaque `:derive` body token (never serialized — [§The node shape](#the-node-shape)), the `:source-form` `{:kind :reg-sub :id <id>}`, and the `:source` coordinates / `:schema` / doc when the registration carried them. A live cache-entry node also carries its current `:value` (a value summary, redacted by the graph-inspection helper before egress — [§Redaction metadata](#redaction-metadata-ep-0014-issue-1-disposition-ep-0015)) and its `:ref-count` (the lifecycle evidence the cache-entry owner is kept alive by its readers).
 
@@ -716,8 +716,8 @@ The two axes that **vary** per flow are the declared **inputs** and the **output
 
 - **`:output`** is `[:db <:output-path>]` — the flow's `:output-path`, the app-db address its whole value materializes into.
 - **`:inputs`** lowers each declared `:inputs` path ([§Declared input](#declared-input)), in declaration order:
-  - a bare path is an app-db read — `[:db path]`;
-  - a partition-qualified `[:rf.db/runtime …rest]` path is a runtime-db read — `[:runtime …rest]` (the binary input syntax — any flow may *read* runtime-db, only the *write* side is reserved to app-db; [EP-0001 §535-551](013-Flows.md#input-partition--bare--app-db-rfdbruntime---runtime-db)).
+    - a bare path is an app-db read — `[:db path]`;
+    - a partition-qualified `[:rf.db/runtime …rest]` path is a runtime-db read — `[:runtime …rest]` (the binary input syntax — any flow may *read* runtime-db, only the *write* side is reserved to app-db; [EP-0001 §535-551](013-Flows.md#input-partition--bare--app-db-rfdbruntime---runtime-db)).
 
   Flow inputs are always concrete paths — never `:sub` edges and never the `:parametric` marker — because a flow declares its dependency graph statically as paths, not as an input-producer over a query vector.
 

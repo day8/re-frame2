@@ -2300,14 +2300,14 @@ Two complementary accessors:
 
 - `(rf/current-adapter)` returns the **installed adapter spec map** (the exact value passed to `(rf/init! …)`), or `nil` if no adapter is installed. The map carries the contract fns (`:make-state-container`, `:replace-container!`, `:make-derived-value`, …) plus a `:kind` discriminator. `(:kind (rf/current-adapter))` is the discriminator read. Canonical `:kind` values live under the `:rf.adapter/*` reserved namespace (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned),) so third-party adapters can publish their own unqualified `:kind` keywords without collision risk:
 
-  - `:rf.adapter/reagent` — CLJS browser default (bridge adapter)
-  - `:rf.adapter/reagent-slim` — CLJS browser, slim adapter (no stock-Reagent dep)
-  - `:rf.adapter/uix` — CLJS browser, UIx substrate
-  - `:rf.adapter/fresco` — CLJS browser, Fresco's own view-substrate-owned adapter (the optional `re-frame.fresco.substrate` module of `day8/re-frame2-fresco`)
-  - `:rf.adapter/ui`, `:rf.adapter/freehand` — **retired kinds, still reserved.** Both donor view substrates were removed on 2026-08-16 (rf2-0yp7w) and nothing in the reference produces either value; the kinds remain catalogued because tooling still refuses them defensively against a stale co-loaded build (`tools/xray/src/day8/re_frame2_xray/mount.cljs`), exactly as `:rf.adapter/helix` has since S7/W13
-  - `:rf.adapter/plain-atom` — CLJS JVM headless / tests / Node-based CLJS
-  - `:rf.adapter/ssr` — CLJS JVM SSR (re-frame.ssr adapter)
-  - **no `:kind` at all** — a user-installed custom adapter that picked none of the canonical kinds simply omits the key; nothing is synthesised for it, and its presence is read off the MAP rather than off `:kind`
+    - `:rf.adapter/reagent` — CLJS browser default (bridge adapter)
+    - `:rf.adapter/reagent-slim` — CLJS browser, slim adapter (no stock-Reagent dep)
+    - `:rf.adapter/uix` — CLJS browser, UIx substrate
+    - `:rf.adapter/fresco` — CLJS browser, Fresco's own view-substrate-owned adapter (the optional `re-frame.fresco.substrate` module of `day8/re-frame2-fresco`)
+    - `:rf.adapter/ui`, `:rf.adapter/freehand` — **retired kinds, still reserved.** Both donor view substrates were removed on 2026-08-16 (rf2-0yp7w) and nothing in the reference produces either value; the kinds remain catalogued because tooling still refuses them defensively against a stale co-loaded build (`tools/xray/src/day8/re_frame2_xray/mount.cljs`), exactly as `:rf.adapter/helix` has since S7/W13
+    - `:rf.adapter/plain-atom` — CLJS JVM headless / tests / Node-based CLJS
+    - `:rf.adapter/ssr` — CLJS JVM SSR (re-frame.ssr adapter)
+    - **no `:kind` at all** — a user-installed custom adapter that picked none of the canonical kinds simply omits the key; nothing is synthesised for it, and its presence is read off the MAP rather than off `:kind`
 
 There is exactly ONE adapter read and it is map-shaped (rf2-kuky.4, 2026-09-06). The former keyword/map discriminator pair is struck: `current-adapter-spec` was deleted and `current-adapter` folded onto its behaviour, because the keyword form was literally `(:kind (current-adapter-spec))` — two reads of one value, free to diverge in return type. Branch code that wants the discriminator asks for the KEY, `(:kind (rf/current-adapter))`; tool code that wants the contract fn handles, or an identity check across the install/dispose lifecycle, uses the map directly.
 

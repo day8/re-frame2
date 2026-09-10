@@ -182,12 +182,12 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
 - **`:events`** — handler-position keys (`:on-*`, spelled as authored; **no
   `-capture` name suffixes** — capture is a listener *option* per the handler grammar)
   mapped to exactly one of:
-  1. a **literal event vector**, verbatim — placeholders retained as the authored
-     keywords (`[:todo/toggle 1 :rf.ui/checked]`);
-  2. an **options map** `{:event [:…] :prevent-default true …}`, verbatim;
-  3. the **opaque marker** (below) for fn-carried sites (`v/event`, `v/handler`, bare
-     fn, `v/raw-fn`) — the site's *existence and spelling* are testable, its behaviour
-     is Tier-3.
+    1. a **literal event vector**, verbatim — placeholders retained as the authored
+       keywords (`[:todo/toggle 1 :rf.ui/checked]`);
+    2. an **options map** `{:event [:…] :prevent-default true …}`, verbatim;
+    3. the **opaque marker** (below) for fn-carried sites (`v/event`, `v/handler`, bare
+       fn, `v/raw-fn`) — the site's *existence and spelling* are testable, its behaviour
+       is Tier-3.
   Handler expressions the emitter cannot read statically — which, in the interpreted
   mode, is every one of them — classify **by the value present at
   render** (vector → 1, map → 2, fn → 3, `nil` → the entry is dropped). Absent when
@@ -450,14 +450,14 @@ ABI. But **attribute reads go through the projection**: per the binding ruling,
 under their own keys.
 
 - **`(t/attrs node)`** — the merged projection:
-  - element → `:attrs` merged with `:events` (collision-free by construction; event
-    slots carry vectors/options-maps/opaque markers as data);
-  - view-boundary **and host** → `:props` (so attr-map selectors match views by prop
-    values for free, via the same `rf=` relation; on a host these are the authored
-    ordinary props, each filled callback position recorded as its opaque role marker);
-  - fragment / trusted-HTML → `{}` (no attributes exist; total, not an error);
-  - `nil` → `nil` (nil-punning threads through a missed `find`);
-  - a string (text content) → typed error (text is not a node).
+    - element → `:attrs` merged with `:events` (collision-free by construction; event
+      slots carry vectors/options-maps/opaque markers as data);
+    - view-boundary **and host** → `:props` (so attr-map selectors match views by prop
+      values for free, via the same `rf=` relation; on a host these are the authored
+      ordinary props, each filled callback position recorded as its opaque role marker);
+    - fragment / trusted-HTML → `{}` (no attributes exist; total, not an error);
+    - `nil` → `nil` (nil-punning threads through a missed `find`);
+    - a string (text content) → typed error (text is not a node).
 - **`(t/text node)`** — concatenation of text descendants in document order,
   descending through elements, fragments, view boundaries and hosts; **trusted-HTML
   nodes contribute nothing** (their content is unparsed markup, not text data — by
