@@ -48,6 +48,7 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
+            [reagent.core :as r]
             [day8.re-frame2-xray.panels.trace :as trace]))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -909,4 +910,45 @@
         (is (= "t:22" k22))
         (is (= "t:33" k33))
         (is (= 3 (count (distinct [k11 k22 k33]))))))))
+
+;; ---- feed children reach React with keys (rf2-hxfy) ---------------------
+
+(defn- feed-children
+  "The trace feed's two children, taken from the RAW `Panel` tree.
+
+  Navigated structurally rather than via `find-by-testid`, because
+  `rf.test-helpers/expand-tree` rebuilds nested vectors with `mapv` and
+  STRIPS reader metadata — it would erase the very shape under test and
+  report a false nil for the meta-keyed sibling."
+  [tree]
+  (let [scroll (nth tree 3)
+        feed   (nth scroll 2)]
+    (is (= "rf-xray-trace-feed" (:data-testid (second feed)))
+        "structural navigation landed on the feed container")
+    (vec (drop 2 feed))))
+
+(deftest trace-feed-children-keys-reach-react
+  (testing "rf2-hxfy — the feed's two children were keyed by the author but
+            only ONE key reached React: `^{:key \"ops-header\"}` rides a
+            vector LITERAL (works), while `^{:key \"rows\"}` sat on the
+            `(flat-row-list …)` CALL form, where reader meta attaches to
+            the source list and the returned vector carries none of it.
+            Measured before the repair: `[\"ops-header\" nil]`. The rows
+            key now rides the props map `flat-row-list` builds.
+
+            Asserting on `(meta child)` would be a HOLLOW GATE — it still
+            reads nil for the rows child, because the key is in props."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-history!
+        [(mk-epoch 1 1
+                   [(mk-trace {:id 11 :op-type :rf.event :operation :rf.event/dispatched
+                               :time 100 :dispatch-id 1})])])
+      (focus! 1)
+      (let [kids (feed-children (trace/Panel))
+            ks   (mapv #(.-key (r/as-element %)) kids)]
+        (is (= 2 (count kids)))
+        (is (= ["ops-header" "rows"] ks))
+        (is (every? some? ks) "both feed children reach React with a key")
+        (is (= 2 (count (distinct ks))) "sibling keys are distinct")))))
 

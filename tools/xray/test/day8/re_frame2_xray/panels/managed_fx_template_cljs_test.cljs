@@ -8,6 +8,7 @@
   introspection."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
+            [reagent.core :as r]
             [day8.re-frame2-xray.panels.managed-fx-template :as template]
             [day8.re-frame2-xray.panels.managed-fx-helpers :as h]))
 
@@ -141,6 +142,59 @@
 
 (deftest records-list-nil-for-empty-records
   (is (nil? (template/records-list []))))
+
+;; ---- React keys reaching the renderer (rf2-hxfy) ------------------------
+
+(defn- react-key
+  "The key REACT actually receives for one hiccup node. `r/as-element`
+  runs Reagent's own `key-from-vec` (meta first, then the props map),
+  so this reads the rendered element rather than the authoring shape.
+
+  Asserting on `(meta node)` instead would be a HOLLOW GATE: it reads
+  nil both BEFORE and AFTER this repair, because the key now rides the
+  attribute map — which is the whole point of rf2-hxfy."
+  [node]
+  (.-key (r/as-element node)))
+
+(defn- record-panel-nodes
+  "The per-record panels `records-list` emits, taken from the RAW tree.
+  Walked structurally rather than through `rf.test-helpers/expand-tree`,
+  which rebuilds nested vectors with `mapv` and would strip the very
+  key-bearing shape under test."
+  [out]
+  (vec (nth out 3)))
+
+(deftest records-list-keys-reach-react
+  (testing "rf2-hxfy — `^{:key …}` reader meta on the `(record-panel …)`
+            CALL form attached to the source list, so the returned vector
+            carried no key and React received none (measured before the
+            repair: `.-key` nil for every panel). The key now rides the
+            `:section` attribute map, which Reagent reads via props and
+            Fresco's codec reads as a literal `:key`."
+    (let [recs [(record {:surface :http :fx-id :rf.http/managed :status :ok :http-status 200})
+                (record {:surface :flow :fx-id :rf.fx/reg-flow :status :ok})]
+          kids (record-panel-nodes (template/records-list recs))
+          ks   (mapv react-key kids)]
+      (is (= 2 (count kids)))
+      ;; The composed value is unchanged from the pre-repair call site:
+      ;; surface "-" origin-event-id "-" fx-id.
+      (is (= [":http-99-:rf.http/managed" ":flow-99-:rf.fx/reg-flow"] ks))
+      (is (every? some? ks) "every panel reaches React with a key")
+      (is (= 2 (count (distinct ks))) "sibling keys are distinct")
+      ;; The contract surface stays observable in the hiccup itself.
+      (is (= ks (mapv #(:key (second %)) kids))))))
+
+(deftest records-list-keys-are-stable-across-renders
+  (testing "rf2-hxfy — a key that changes value between renders is worse
+            than no key, so the same record must key identically twice."
+    (let [recs [(record {:surface :http :fx-id :rf.http/managed :status :ok :http-status 200})
+                (record {:surface :flow :fx-id :rf.fx/reg-flow :status :ok})]
+          once  (mapv react-key (record-panel-nodes (template/records-list recs)))
+          twice (mapv react-key (record-panel-nodes (template/records-list recs)))]
+      ;; Guard the guard: `[nil nil]` is trivially stable, so assert
+      ;; presence here too rather than letting this pass on absence.
+      (is (every? some? once))
+      (is (= once twice)))))
 
 ;; ---- "app-db wasn't updated" highlight: OK status + empty paths-touched ----
 

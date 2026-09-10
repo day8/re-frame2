@@ -705,7 +705,19 @@
   on the panel header re-aligns every row live."
   [rows expanded-row-ids]
   [rt/resizable-table
-   {:table-id        trace-ops-table-id
+   ;; rf2-hxfy — the React key lives in this props map rather than as
+   ;; `^{:key "rows"}` reader meta on the `(flat-row-list …)` call in
+   ;; `Panel` below. Reader meta on a CALL form attaches to the source
+   ;; LIST, so the returned vector carried none of it and React received
+   ;; no key (measured against the sibling `ops-header`, whose meta rides
+   ;; a vector LITERAL and does reach React: `REACT .-key ["ops-header"
+   ;; nil]`). Reagent reads meta THEN props, and Fresco's codec reads a
+   ;; literal `:key` off the props map and strips it before the body sees
+   ;; them — so this one attribute satisfies both substrates.
+   ;; `resizable-table` destructures named opts and never spreads them,
+   ;; so `:key` is inert for its body.
+   {:key             "rows"
+    :table-id        trace-ops-table-id
     :header?         false
     :columns         trace-op-columns
     :container-attrs {:data-testid "rf-xray-trace-rows"
@@ -821,7 +833,9 @@
            :header-cell-style trace-header-cell-style}]
          ;; rf2-aqusw — the flat list of every op the focused epoch
          ;; emitted, in fire order (oldest-first). No bands, no envelope.
-         ^{:key "rows"}
+         ;; rf2-hxfy — its `:key` rides the props map `flat-row-list`
+         ;; builds (see there); reader meta on this CALL form would
+         ;; attach to the list and never reach React.
          (flat-row-list rows expanded-ids)])]]))
 
 ;; ---- registration entry --------------------------------------------------

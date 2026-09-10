@@ -341,7 +341,19 @@
   any pre-sweep caller) renders without a captured dispatcher."
   ([record] (record-panel rf/dispatch record))
   ([dispatch record]
-  [:section {:data-testid (str "rf-xray-managed-fx-record-"
+  ;; rf2-hxfy — the React key lives in this ATTRIBUTE MAP rather than as
+  ;; `^{:key …}` reader meta on the `(record-panel …)` call in
+  ;; `records-list` below. Reader meta on a CALL form attaches to the
+  ;; source LIST; the value the call returns carries none of it, so React
+  ;; received no key at all (measured: `REACT .-key [nil nil]` across the
+  ;; two-record fixture). The attribute map is the shape that survives the
+  ;; Fresco migration too — Fresco's codec reads a literal `:key` from the
+  ;; attr map of a native tag and reads Clojure metadata nowhere, while
+  ;; Reagent reads meta THEN props — so one attribute satisfies both
+  ;; substrates. The composed value is unchanged from the call site's:
+  ;; the same three record fields, same order, same separator.
+  [:section {:key         (str (:surface record) "-" (:origin-event-id record) "-" (:fx-id record))
+             :data-testid (str "rf-xray-managed-fx-record-"
                                (name (:surface record))
                                "-" (or (:origin-event-id record) "x"))
              :data-fx-id  (h/format-fx-id (:fx-id record))
@@ -401,6 +413,8 @@
       [:span (str (count records) " managed-fx record"
                   (if (= 1 (count records)) "" "s")
                   " in this event-bundle")]]
+     ;; rf2-hxfy — each panel carries its own `:key` in the `:section`
+     ;; attribute map `record-panel` returns (see the comment there).
+     ;; Reader meta here would attach to the CALL form and be lost.
      (for [rec records]
-       ^{:key (str (:surface rec) "-" (:origin-event-id rec) "-" (:fx-id rec))}
        (record-panel dispatch rec))])))
