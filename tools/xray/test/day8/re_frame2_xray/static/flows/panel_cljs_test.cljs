@@ -367,6 +367,107 @@
              per-mount identity defect rf2-d2aj records")))))
 
 ;; -------------------------------------------------------------------------
+;; (5a) ONE FLOW-ID, TWO FRAMES, ONE RENDER FRAME (rf2-uyg0)
+;; -------------------------------------------------------------------------
+;;
+;; THE ROW ABOVE CANNOT SEE THIS, and that is why this section exists rather
+;; than an extra `is` up there. `sample-flows` is ONE frame carrying two
+;; DIFFERENT ids, so its mount ids are distinct on the flow-id alone and stay
+;; distinct however the node key is built. The browser lane's W5 is no help
+;; either — it removes differently named rows from one frame. So neither
+;; fixture exercises the case the flows registry explicitly supports:
+;; frame-divergence per id (Spec 013), surfaced all at once by the browse-all
+;; projection.
+
+(def one-flow-id-two-frames
+  "ONE flow-id registered against TWO frames — the fixture nothing else in
+  this file reaches.
+
+  `scope-to-frame` with a nil frame-id (the default OBSERVED-target state,
+  `defaults/default-target-frame` = UNSELECTED) passes every frame's flows
+  through, so these two registrations project to TWO rows inside the ONE
+  `:rf/xray` render frame the panel paints in.
+
+  Each row carries its own `:inputs` / `:output-path`, which is the point of
+  frame-divergence: they are two different flows that happen to share a
+  name."
+  {:app/a {:shared/flow {:id          :shared/flow
+                         :inputs      [[:a :in]]
+                         :output-path [:a :out]}}
+   :app/b {:shared/flow {:id          :shared/flow
+                         :inputs      [[:b :in]]
+                         :output-path [:b :out]}}})
+
+(def two-flow-ids-one-frame
+  "THE NON-VACUITY CONTROL, and it is taken from the target in the same run
+  rather than reasoned about: same row COUNT, same input/output shape, same
+  walker, ids that genuinely differ. A `row-identity` that answered a
+  constant — or a walker that silently found nothing — reads red here while
+  the fixture above would read green, so the pair separates \"the panel
+  distinguishes these rows\" from \"this test distinguishes anything\"."
+  {:app/a {:flow/one {:id          :flow/one
+                      :inputs      [[:a :in]]
+                      :output-path [:a :out]}
+           :flow/two {:id          :flow/two
+                      :inputs      [[:b :in]]
+                      :output-path [:b :out]}}})
+
+(defn- mount-ids-for-override [fixture]
+  (rf/dispatch-sync
+    [:rf.xray.static.flows/set-registered-flows-override-for-test fixture])
+  (let [data  @(rf/subscribe [:rf.xray.static.flows/tab-data])
+        heads (inspector-view-forms (panel/panel-tree data nil))]
+    {:rows      (:flows data)
+     :forms     (count heads)
+     :mount-ids (mapv #(:mount-id (second %)) heads)}))
+
+(deftest two-rows-sharing-a-flow-id-across-frames-get-distinct-mount-ids
+  (testing "rf2-uyg0 — the inspector node key is qualified by the row's
+            OWNING FRAME, so two rows sharing a flow-id across two frames do
+            not collide on one `:mount-id`.
+
+            WHY A COLLIDING `:mount-id` IS NOT COSMETIC. `edn-widget/
+            inspect-view` hands the node key straight to the boundary as its
+            `:mount-id` and derives the expansion `:panel-id` from the same
+            string, and the Fresco head TRUSTS that id — unlike the Reagent
+            head, which mints a UUID per mount and so cannot collide.
+            `edn-inspector/container-ref-for` then MEMOISES the ref callback
+            on `[render-frame mount-id]`, and the render frame is `:rf/xray`
+            for both rows, so a shared node key means one ResizeObserver
+            entry for two live mounts: the second never installs an observer,
+            and detaching either row calls `release-mount!` for the
+            SURVIVOR."
+    (setup-xray!)
+    (rf/with-frame :rf/xray
+      (let [{:keys [rows forms mount-ids]} (mount-ids-for-override
+                                             one-flow-id-two-frames)]
+        (is (= [:shared/flow :shared/flow] (mapv :flow-id rows))
+            (str "PRECONDITION: two rows sharing ONE flow-id reached the "
+                 "tree. Rows: " (pr-str (mapv (juxt :frame :flow-id) rows))))
+        (is (= #{:app/a :app/b} (set (map :frame rows)))
+            "PRECONDITION: and they carry DIFFERENT owning frames — the
+             browse-all projection is what puts both in one catalogue")
+        (is (= 4 forms)
+            (str "PRECONDITION: 2 rows x (1 input + 1 output) = 4 inspector "
+                 "mounts. Mount ids: " (pr-str mount-ids)))
+        (is (= 4 (count (set mount-ids)))
+            (str "THE CLAIM: four mounts, four DISTINCT `:mount-id`s. Two "
+                 "rows sharing a flow-id would collapse to 2 without the "
+                 "frame in the key. Mount ids: " (pr-str mount-ids))))
+      (testing "NON-VACUITY CONTROL — distinct ids in ONE frame still separate"
+        (let [{:keys [rows forms mount-ids]} (mount-ids-for-override
+                                               two-flow-ids-one-frame)]
+          (is (= [:flow/one :flow/two] (mapv :flow-id rows))
+              "control fixture projects two genuinely distinct ids")
+          (is (= 4 forms) "same shape as the case above")
+          (is (= 4 (count (set mount-ids)))
+              (str "and they were already distinct — so a red above is the "
+                   "frame qualifier, not a broken walker. Mount ids: "
+                   (pr-str mount-ids)))))
+      (rf/dispatch-sync
+        [:rf.xray.static.flows/set-registered-flows-override-for-test nil]))))
+
+;; -------------------------------------------------------------------------
 ;; (5b) the input-path seq's React keys actually REACH the renderer
 ;;      (rf2-k97c.3, RULING 2's key sweep)
 ;; -------------------------------------------------------------------------
@@ -377,10 +478,11 @@
 
   Keyed off the boundary's `:mount-id`, which `edn-widget/inspect-view`
   derives from the node-key the panel passes —
-  `rf-xray-inspect-static-flows/<flow>/input/<i>` for an input,
-  `…/output` for the single output value. The output value is not in a seq
-  and needs no key, so including it would make the claim below false for a
-  correct panel."
+  `rf-xray-inspect-static-flows/<frame>/<flow>/input/<i>` for an input,
+  `…/output` for the single output value. The FRAME is in there since
+  rf2-uyg0: a flow-id is unique per frame, not per catalogue. The output
+  value is not in a seq and needs no key, so including it would make the
+  claim below false for a correct panel."
   [tree]
   (filterv (fn [node]
              (and (vector? node)

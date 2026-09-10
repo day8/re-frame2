@@ -169,12 +169,34 @@
 
 ;; ---- row -----------------------------------------------------------------
 
+(defn- row-identity
+  "One row's identity — the OWNING FRAME plus the flow-id.
+
+  ONE derivation with TWO consumers, and that shared derivation IS the
+  rf2-uyg0 repair. The catalogue's React key already carried the frame;
+  the inspector node keys below were built from the flow-id ALONE, so
+  under the browse-all projection (`scope-to-frame` with a nil frame-id,
+  which passes every frame's flows through) the same flow-id registered
+  against two frames produced two rows in ONE render frame carrying the
+  SAME `:mount-id`. That is not cosmetic: `edn-widget/inspect-view` hands
+  the node-key straight to the boundary as its `:mount-id`, and
+  `edn-inspector/container-ref-for` MEMOISES the ref callback on it — so
+  the two rows shared one ResizeObserver entry and detaching either row
+  released the SURVIVOR's. Deriving both keys here is what keeps them from
+  drifting apart again.
+
+  Both components keep their leading `:`, which is what makes the join
+  unambiguous — frame `:a/b` + flow `:c` reads `:a/b/:c`, never the
+  `:a/:b/c` that frame `:a` + flow `:b/c` reads."
+  [{:keys [flow-id frame]}]
+  (str frame "/" flow-id))
+
 (defn- flow-row
   ;; Non-interactive `li` chrome via the shared `catalogue-row`; the flow
   ;; rows are catalogue entries (no row-level dispatch). The interactive
   ;; Static surface that earns keyboard activation is the Routes list
   ;; (whose rows toggle an expand surface — see static/routes/browse_list.cljs).
-  [{:keys [flow-id frame inputs output-path doc] :as _row}]
+  [{:keys [flow-id frame inputs output-path doc] :as row}]
   (catalogue/catalogue-row
    {:testid (str "rf-xray-static-flows-row-" (subs (pr-str flow-id) 1))}
    [:div {:style {:display     "flex"
@@ -198,11 +220,15 @@
    ;; `[ei/edn-inspector …]` (a Reagent component). rf2-k97c.3 made the
    ;; swap mandatory rather than stylistic: `ei/edn-inspector` is a plain
    ;; fn, and a plain fn in hiccup head position is a loud error inside a
-   ;; Fresco body. Each value keeps its stable per-flow `node-key`, which
+   ;; Fresco body. Each value keeps its stable per-ROW `node-key`, which
    ;; is now load-bearing twice over — it is the panel-id keying expand
    ;; state AND the boundary's required `:mount-id`, so two mounts sharing
    ;; one node-key would share a width slot and a projection cache.
-   (let [flow-key (subs (pr-str flow-id) 1)]
+   ;;
+   ;; rf2-uyg0 — the qualifier is [[row-identity]] (frame + flow-id), not
+   ;; the flow-id alone. A flow-id is unique per FRAME, not per catalogue,
+   ;; and the browse-all projection lists every frame's flows at once.
+   (let [flow-key (row-identity row)]
      [:div {:style {:margin-left  "12px"
                     :color        (:text-secondary tokens)
                     :font-size    "11px"
@@ -282,11 +308,16 @@
     ;; and by Fresco's codec NOWHERE, so it would reach React as nothing
     ;; once the panel renders through a boundary. The fragment carries the
     ;; key without adding a DOM node, which is what keeps `catalogue-row`'s
-    ;; `li` chrome the shared presentational helper it is; the key
-    ;; expression is unchanged and identity stays domain-shaped and local,
-    ;; exactly as `catalogue-panel`'s `:row-render` contract asks.
+    ;; `li` chrome the shared presentational helper it is; identity stays
+    ;; domain-shaped and local, exactly as `catalogue-panel`'s `:row-render`
+    ;; contract asks.
+    ;;
+    ;; The key EXPRESSION is now [[row-identity]] — the same string the row's
+    ;; inspector node keys are built from (rf2-uyg0). It computes exactly
+    ;; what the inline `(str (:frame row) "/" (:flow-id row))` here computed;
+    ;; naming it is what stops the two key sites diverging again.
     :row-render (fn [row]
-                  [:<> {:key (str (:frame row) "/" (:flow-id row))}
+                  [:<> {:key (row-identity row)}
                    (flow-row row)])}))
 
 ;; ---- root view -----------------------------------------------------------
