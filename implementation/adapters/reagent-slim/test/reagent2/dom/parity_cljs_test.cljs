@@ -511,6 +511,34 @@
     (let [[a b] (=parity [:stop {:stopColor "red"}])]
       (is (= a b)))))
 
+(deftest parity-svg-mask-family-rf2-4ale
+  (testing "rf2-4ale — react-dom 19.3 emits `maskType` as `mask-type`, where
+            19.2 emitted it verbatim. `react-attribute-name-overrides` carried
+            no `maskType` row, so the name fell through to the lowercase rule
+            and this serializer wrote `masktype` — wrong under BOTH versions.
+            The other mask-family names are the unaffected controls: they must
+            keep their camelCase through the same code path, which is what
+            makes the correction narrow rather than a lowercase-rule change.
+
+            The reference here is the INSTALLED react-dom rather than a
+            hand-written expectation, because the defect class is this table
+            drifting from react-dom — an expectation written by the same hand
+            that wrote the table would drift with it"
+    (doseq [hiccup [[:mask {:mask-type "alpha"}]
+                    [:mask {:maskType "alpha"}]
+                    [:mask {:mask-units "userSpaceOnUse"}]
+                    [:mask {:mask-content-units "userSpaceOnUse"}]]]
+      (let [[a b] (=parity hiccup)]
+        (is (= a b)
+            (str "reagent-slim SSR diverges from react-dom for "
+                 (pr-str hiccup)))))
+    (is (= "<mask mask-type=\"alpha\"></mask>"
+           (via-rewrite [:mask {:mask-type "alpha"}])))
+    (is (= "<mask maskUnits=\"userSpaceOnUse\"></mask>"
+           (via-rewrite [:mask {:mask-units "userSpaceOnUse"}])))
+    (is (= "<mask maskContentUnits=\"userSpaceOnUse\"></mask>"
+           (via-rewrite [:mask {:mask-content-units "userSpaceOnUse"}])))))
+
 (deftest parity-html-tab-index-lowercased
   (testing ":tab-index still lowercases to tabindex (HTML camelCase)"
     (let [[a b] (=parity [:div {:tab-index 3}])]
