@@ -106,6 +106,7 @@ The runtime contract for time-travel:
 ```
 
 The properties the retired hook documented are properties of this composition, and they hold for the same reasons:
+
 - **Storage-side mutation is impossible.** Scrubbing happens at the forwarder, over the value `rf/project-egress` returned. The in-process ring buffer and every `register-epoch-listener!` listener deliver the **raw** record: epoch records are causal replay material, and mutating them at rest corrupts the replay contract. Ordinary redaction needs only the frame's `:sensitive?` / `:large?` classification (the frame/profile projection).
 - **Rollup is raw-signal-derived.** The `:rf.epoch/sensitive?` top-level rollup (per [Security §Epoch privacy posture](Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)) is computed from the raw record's schema-declared `:sensitive?` leaves at build-time, so it is a trustworthy off-box-branch signal on the raw ring record regardless of any downstream scrub.
 - **Failure isolation is the caller's.** A scrub that throws throws in the forwarder that called it, where the forwarder's own error handling sees it — rather than inside the framework, behind a warning category the app never registered for.
