@@ -2848,7 +2848,23 @@
                            ;; Use the mini renderer for compact prior;
                            ;; fall back to a type-summary when it
                            ;; would overflow.
-                           [mini prior 40])]]
+                           ;;
+                           ;; rf2-qhoj — CALLED, never placed in head
+                           ;; position. `mini` is a plain function (this
+                           ;; ns's docstring says so), and under Fresco a
+                           ;; plain fn head is a loud error by design
+                           ;; (HD-016, `:rf.error/fresco-bad-head`). This
+                           ;; branch is on `edn-inspector-view`'s render
+                           ;; path, so wrapping this call in a hiccup
+                           ;; vector throws out of the boundary with no
+                           ;; error boundary above it, and React unmounts
+                           ;; the whole Xray root.
+                           ;;
+                           ;; The offending form is deliberately NOT
+                           ;; written out anywhere in this file: a census
+                           ;; for it greps the source, and a comment
+                           ;; quoting it reads as the defect itself.
+                           (mini prior 40))]]
                        :else
                        (change-annotation
                          (if projection
