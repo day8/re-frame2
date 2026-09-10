@@ -971,6 +971,36 @@ jobs:
       - name: Validate doc links across docs, spec, skills, migration + tools/*/spec
         run: python scripts/check_doc_slugs.py --verbose
 
+      # Flattened nested lists (rf2-gyq4).  Python-Markdown wants exactly four
+      # columns per nesting level whatever the parent's marker width, so a
+      # two- or three-column child renders as a SIBLING and eight columns
+      # under a column-0 parent renders as a CODE BLOCK.  Both are valid
+      # markup, which is the whole problem: there is no warning for
+      # `mkdocs build --strict` to promote and no broken target for the two
+      # gates above to resolve, so 205 sites accumulated unseen before
+      # rf2-3bq6 and rf2-qsjr swept them.  Measured on a tree carrying one
+      # deliberately re-flattened item, every one of the 42 existing checkers
+      # exited 0 over it.
+      #
+      # WHY THIS JOB.  Same reasoning as the doc-slug gate above and not a new
+      # one: the checker is NOT pure stdlib — it renders with python-markdown
+      # under mkdocs' own loaded config, so it needs requirements.txt, which
+      # this job already installs for the slugifier.  Dropping it beside the
+      # stdlib checkers in `Repo invariant checks` would red every PR.  Cost
+      # measured locally over the full 291-file corpus: 23-35 s, against this
+      # job's 0.5 min and a 15.2 min longest job, so it stays off the critical
+      # path and no changed-files scoping is needed.
+      #
+      # Self-test first, then the live scan — the self-test is what makes the
+      # green mean anything, and it is exercised in BOTH directions (it must
+      # detect a manufactured flattening and a manufactured code block, and
+      # must pass a correct reindent).
+      - name: Self-test the flattened-list gate
+        run: python scripts/check_flattened_lists.py --self-test
+
+      - name: Verify no nested markdown list renders flat
+        run: python scripts/check_flattened_lists.py
+
       # SKILL.md description-budget gate (rf2-w9p2; armed under rf2-bn5f). Guards
       # the SKILL.md description limits: the portable 1,024 and the Claude 1,536.
       # It hard-fails a description over the 1,024-char Agent Skills packaging cap
