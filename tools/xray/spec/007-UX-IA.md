@@ -1797,8 +1797,10 @@ a master `mount-shell!` for the full 4-layer chrome. This per-panel
 surface is **internal-but-stable**, NOT a v1.0 host-facing embed
 contract: the 4-layer shell + the test suite depend on it and hosts
 MAY use it, but it carries no host-facing-contract guarantee (the
-only opt is `:frame`) — the v1.0 host-facing embed contract is the
-**full-shell** embed per
+opts vocabulary is two keys wide and one of them is a single
+panel's: `:frame` on every mount fn, defaulting to `:rf/xray`, and
+`:instance-id` on `mount-app-db-diff!` alone, per rf2-2n8q) — the
+v1.0 host-facing embed contract is the **full-shell** embed per
 [`008-Embedding-Contract.md`](./008-Embedding-Contract.md)
 §Full-shell embed contract. (rf2-jw2ny — one honest status across
 `panels.cljs`, `008`, and `API.md`.)
