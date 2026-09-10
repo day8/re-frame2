@@ -192,10 +192,21 @@
        (into [:span {:style {:display     "inline-flex"
                              :flex-wrap   "wrap"
                              :gap         "6px"}}]
+             ;; `^{:key …}` reader meta on the `(edn/inspect …)` call below
+             ;; would be attached to the SOURCE LIST and lost when the call
+             ;; returns its fresh vector — Reagent's `get-react-key` only
+             ;; reads `:key` meta from vectors. `edn/inspect` always returns
+             ;; an `[ei/edn-inspector …]` vector, so apply the key directly
+             ;; via `with-meta` (rf2-k97c.3, the same repair
+             ;; `static/machines/sim.cljs` already carries for this defect).
+             ;; Measured before the repair: all three input values in the
+             ;; unit fixture carried nil metadata, so NO key reached React
+             ;; and the inputs seq reconciled by index.
              (for [[i input-path] (map-indexed vector inputs)]
-               ^{:key (str "in-" i)}
-               (edn/inspect input-path
-                            (str "static-flows/" flow-key "/input/" i))))]
+               (with-meta
+                 (edn/inspect input-path
+                              (str "static-flows/" flow-key "/input/" i))
+                 {:key (str "in-" i)})))]
       [:div {:style {:display "flex" :align-items "baseline" :gap "6px"}}
        [:span {:style {:color (:text-tertiary tokens)
                        :flex  "0 0 auto"}}
