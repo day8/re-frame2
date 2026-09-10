@@ -251,6 +251,26 @@
                 container
                 "[data-testid^=\"rf-xray-static-tab-\"][role=\"tab\"]"))))
 
+(defn- click!
+  "Click a committed node, or FAIL THIS ROW rather than aborting the lane.
+
+  MEASURED, and it is why this helper exists rather than a bare
+  `.click`. Two rows below drive the shell through its own affordances,
+  so both hold a node that a regression can make nil. A raw `.click` on
+  nil throws a `TypeError` out of the async block, and
+  `cljs.test/run-block` has no try/catch — under a sabotage plant that
+  emptied the chrome it took the WHOLE browser lane down with NO
+  cljs.test summary at all, and every namespace scheduled after this one
+  never executed. A row whose subject has vanished should redden; it
+  must not silence its neighbours. The subsequent `poll-until` then
+  times out and reddens on its own message, which is the honest report."
+  [node label]
+  (if (some? node)
+    (do (.click node) true)
+    (do (is false (str "cannot click " label ": it is not in the committed "
+                       "DOM, so this row's subject is already gone"))
+        false)))
+
 (defn- cache-of
   "The frame's live sub-cache map. Not `some->`-guarded: a nil here means
   the frame is not live, which is a defect in the row's own setup and
@@ -392,7 +412,8 @@
                        re-rendered here would make phase 3 pass for a reason
                        that is not liveness")
                   ;; ---- phase 3: the shell's OWN affordance, in the DOM ----
-                  (.click (tab-node container :flows))
+                  (click! (tab-node container :flows)
+                          "the shell's own :flows tab button")
                   (rf.test-support/poll-until flows?
                     {:label "the shell committed the :flows L4 slot"})))
               (.then
@@ -632,7 +653,7 @@
                  survivor in document order, so this is a reorder and not a
                  tail truncation"))
           (panel-registry/unreg-l4-tab! :machines)
-          (.click survivor)
+          (click! survivor "the survivor tab button")
           (-> (rf.test-support/poll-until
                 (fn [] (= 4 (count (tab-nodes container))))
                 {:label "the head tab left the committed DOM"})
@@ -651,6 +672,7 @@
                                        " — DOM: " (.-textContent container)))
                         nil))
               (.then (fn [_]
-                       (panel-registry/reg-l4-tab! head-entry)
+                       (when head-entry
+                         (panel-registry/reg-l4-tab! head-entry))
                        (teardown! root container)
                        (done)))))))))
