@@ -45,6 +45,7 @@
   We walk the view's hiccup tree by `data-testid` rather than mounting
   to a DOM. Keeps the suite fast + host-portable on node-test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
@@ -186,6 +187,18 @@
   was reaching for in the first place."
   [tree]
   (tree-seq (some-fn vector? seq?) seq tree))
+
+(defn- widget-mount-ids
+  "The `:mount-id` the panel composed for every edn-inspector widget in
+  `tree`, in render order. The widget's Fresco head is the one SYMBOL in
+  hiccup head position on this path (see `hiccup-seq` above), so a
+  `[fn? {map?}]` node is one mount."
+  [tree]
+  (->> (hiccup-seq tree)
+       (keep (fn [n]
+               (when (and (vector? n) (fn? (first n)) (map? (second n)))
+                 (:mount-id (second n)))))
+       vec))
 
 (defn- find-by-testid [tree testid]
   (some (fn [node]
@@ -780,14 +793,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default]))
     (rf/with-frame :rf/xray
-      (let [mount-ids (fn [tree]
-                        (->> (hiccup-seq tree)
-                             (keep (fn [n]
-                                     (when (and (vector? n)
-                                                (fn? (first n))
-                                                (map? (second n)))
-                                       (:mount-id (second n)))))
-                             vec))
+      (let [mount-ids widget-mount-ids
             plain (mount-ids (panel-tree))
             left  (mount-ids (panel-tree "left"))
             right (mount-ids (panel-tree "right"))]
@@ -806,6 +812,30 @@
             "and the 2-arity — every call site in this tree today — composes
              exactly what it always did")))))
 
+(defn- crossed-instance-id
+  "THE VALUE THAT ACTUALLY ARRIVES AT THE BOUNDARY when a Reagent parent
+  mounts the bridge — read off a real React element rather than off the
+  hiccup the bridge returned.
+
+  `reagent.core/as-element` runs the crossing the shell runs: `[:>]`
+  camelCases each top-level key and puts each VALUE through Reagent's
+  `convert-prop-value` before React sees it, and `rf.fresco/as-component`'s
+  `outward-props` then decodes the key back and takes the value AS IT
+  FINDS IT. So this is the whole of what the boundary's `:instance-id`
+  can be, and asserting on the bridge's pre-conversion hiccup map — which
+  is what this file's first draft of the row below did — inspects a value
+  that no mount ever sees.
+
+  The bridge passes exactly ONE prop, so the single key is read without
+  naming its camelCased spelling; the arity assertion below is what keeps
+  that from silently reading the wrong slot."
+  [props]
+  (let [el (r/as-element (app-db-diff/Panel-bridge props))
+        p  (.-props el)
+        ks (js/Object.keys p)]
+    (when (= 1 (alength ks))
+      (unchecked-get p (aget ks 0)))))
+
 (deftest panel-bridge-carries-the-instance-id-across-the-reagent-door
   (testing "rf2-t3fz — the Reagent-facing bridge passes `:instance-id`
             through to the React component, and its 0-arity — the shell's
@@ -815,7 +845,88 @@
           unnamed (app-db-diff/Panel-bridge)]
       (is (= :> (first named))
           "still an interop vector onto the boundary's React component")
-      (is (= "left" (:instance-id (nth named 2)))
+      (is (= 1 (count (nth named 2)))
+          "control: exactly one prop crosses, so `crossed-instance-id`
+           reading the single key cannot be reading the wrong slot")
+      (is (= "left" (crossed-instance-id {:instance-id "left"}))
           "the caller's instance name reaches the component's props")
       (is (= {} (nth unnamed 2))
           "and the 0-arity mounts with no props, exactly as before"))))
+
+;; ---- (9b) a NAMESPACED keyword must survive the crossing (rf2-4bsq) -----
+;;
+;; rf2-t3fz accepted a keyword `:instance-id` alongside a string, because
+;; the two doors into the boundary disagree about what survives: a Fresco
+;; body hands a keyword over as a keyword, a Reagent parent's `[:>]`
+;; converts the VALUE first. `instance-token` reads a keyword with
+;; `(subs (str id) 1)`, which keeps the namespace — so the Fresco door
+;; composes `left/panel` from `:left/panel`.
+;;
+;; The Reagent door did NOT. Reagent 2.0.1's `convert-prop-value` converts
+;; a named value with `cljs.core/name`, which DROPS the namespace, so
+;; `:left/panel` and `:right/panel` both arrived at the boundary as
+;; `"panel"` — two panels the caller had deliberately named apart sharing
+;; one `mount-id`, one width slot and one expansion/zoom `:site-id`, which
+;; is the same-frame collision rf2-t3fz exists to repair. The asymmetry is
+;; what made it a contract violation rather than a quirk: the contract
+;; accepts keywords without excluding namespaces and promises the two
+;; doors behave alike.
+;;
+;; The repair normalises the prop to its token IN THE BRIDGE, before the
+;; crossing, through the SAME `instance-token` the boundary uses — so a
+;; string crosses (which Reagent preserves) and the two doors compose one
+;; answer. These rows assert on what the mounts RECEIVE, never on what was
+;; passed: a row reading the bridge's own hiccup map passes while both
+;; mounts still collide.
+
+(deftest ns4bsq-namespaced-keyword-instance-id-survives-the-reagent-crossing
+  (testing "rf2-4bsq — two namespaced keywords that differ only in their
+            NAMESPACE arrive at the boundary as two different values."
+    (let [left  (crossed-instance-id {:instance-id :left/panel})
+          right (crossed-instance-id {:instance-id :right/panel})]
+      (is (= "left/panel"  left))
+      (is (= "right/panel" right))
+      (is (not= left right)
+          "THE CLAIM: the namespace is what tells these two panels apart,
+           and it reaches the boundary. Both read \"panel\" before the
+           repair — Reagent's `convert-prop-value` names a keyword")
+      (is (= ["left/panel" "right/panel"]
+             [(crossed-instance-id {:instance-id "left/panel"})
+              (crossed-instance-id {:instance-id "right/panel"})])
+          "live control: plain strings cross distinctly with or without the
+           repair, so the instrument reads the CROSSING and is not merely
+           echoing what it was handed")
+      (is (= "left" (crossed-instance-id {:instance-id :left}))
+          "and an UNQUALIFIED keyword is unchanged — every existing call
+           site composes exactly the token it did before")))
+
+  (testing "rf2-4bsq — and the two entry paths AGREE. What a Reagent parent
+            gets through `[:>]` composes the same ids a Fresco parent gets
+            by handing the keyword straight to the boundary."
+    (seed-host-frame! {:counter 5 :user {:name "ada"}})
+    (registry/register-xray-handlers!)
+    (rf/make-frame {:id :rf/xray})
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default]))
+    (rf/with-frame :rf/xray
+      (let [;; the Reagent door: the value the crossing actually delivered
+            via-reagent (fn [kw] (widget-mount-ids
+                                   (panel-tree (crossed-instance-id
+                                                 {:instance-id kw}))))
+            ;; the Fresco door: the keyword reaches the body unconverted
+            via-fresco  (fn [kw] (widget-mount-ids (panel-tree kw)))
+            left-r  (via-reagent :left/panel)
+            right-r (via-reagent :right/panel)]
+        (is (seq left-r)
+            "control: the panel mounts at least one widget, so a disjoint
+             intersection below is separation and not silence")
+        (is (= (via-fresco :left/panel)  left-r)
+            "the two doors compose ONE set of ids for `:left/panel`")
+        (is (= (via-fresco :right/panel) right-r)
+            "and for `:right/panel`")
+        (is (nil? (some (set left-r) right-r))
+            "THE GATE: no mount-id survives from one namespaced instance to
+             the other. The store key, the width slot and the `:site-id`
+             are all derived from this string, so one shared id is the
+             whole collision — before the repair these two sets were
+             IDENTICAL, both composed from \"panel\"")))))
