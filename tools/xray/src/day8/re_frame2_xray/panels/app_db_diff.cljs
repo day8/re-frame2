@@ -112,8 +112,15 @@
   annotation (rf2-fyd8u), and the added/removed colouring (rf2-9d4j8)
   together give FULL+DIFF the density `:diff` used to provide and the
   comparison-context `:full` lacked, so the three-mode toggle (and its
-  sub/event/slot trio) is gone."
-  [section-model selected-epoch-id]
+  sub/event/slot trio) is gone.
+
+  rf2-t3fz — the 3-arity takes `Panel`'s optional `:instance-id` and
+  hands it to `state-body`, which composes it into every section's
+  edn-inspector `:mount-id` and `:site-id`. The 2-arity is the
+  single-mount call and is unchanged in every id it produces."
+  ([section-model selected-epoch-id]
+   (panel-tree section-model selected-epoch-id nil))
+  ([section-model selected-epoch-id instance-id]
   [:section {:data-testid "rf-xray-app-db-diff"
              ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis on
              ;; the enclosing section. FULL+DIFF is the single mode
@@ -149,7 +156,7 @@
     ;; no DOM node, so the per-epoch clean remount this comment describes
     ;; survives the migration intact.
     [:<> {:key selected-epoch-id}
-     (state/state-body section-model)]]])
+     (state/state-body section-model instance-id)]]]))
 
 (rf.fresco/defview Panel
   "The app-db tab's root — a current-state inspector sectioned by
@@ -172,12 +179,39 @@
   READING BOTH HERE, which is why the two reads stay together in this body
   rather than moving down into the projection.
 
-  The argument is the ordinary one-props-map vector every `defview`
-  takes. This panel reads nothing from props — the L4 registry and the
-  standalone embed both mount it with none — so it is destructured away."
-  [_props]
+  ## `:instance-id` — OPTIONAL, and it names ONE LIVE MOUNT (rf2-t3fz)
+
+  This panel reads no DATA from props: the value it renders comes from
+  the two subs below and from nothing else, and the L4 registry and the
+  standalone embed both mount it with no props at all. The one prop it
+  takes is an IDENTITY.
+
+  Every id the sections compose — the edn-inspector's `:mount-id`, the
+  expansion/zoom `:site-id` — names a logical SURFACE and is deliberately
+  stable, so two `Panel`s on screen at once present the same ones.
+  rf2-d2aj qualified the widget's per-mount store by the FRAME, which
+  separates two panels under two `frame-provider`s; two panels under ONE
+  frame it cannot separate, and nothing inside the widget can — a Fresco
+  boundary is a React function component with no per-instance storage its
+  body may use, so there is no id for it to mint. Left unnamed the two
+  share one store entry, one ResizeObserver, one projection cache and one
+  width slot, and detaching either releases the survivor's state.
+
+  So the distinction is the caller's to make, and this prop is how:
+
+      [Panel {:instance-id \"left\"}]
+      [Panel {:instance-id \"right\"}]
+
+  A non-blank string or a keyword. It must be STABLE across that
+  instance's renders — it is an identity, not a per-render nonce — and
+  `app-db-diff-state`'s `instance-token` refuses, loudly, the shapes that
+  could not be. OMIT IT when only one app-db Panel renders in this frame,
+  which is every call site in this tree today: the ids are then
+  byte-for-byte what they were."
+  [{:keys [instance-id]}]
   (panel-tree (rf.fresco/sub [:rf.xray/app-db-state])
-              (:epoch-id (rf.fresco/sub [:rf.xray/app-db-current+diff]))))
+              (:epoch-id (rf.fresco/sub [:rf.xray/app-db-current+diff]))
+              instance-id))
 
 ;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
 ;;
@@ -211,9 +245,26 @@
   `:rf/xray` in React context for it.
 
   PUBLIC because the standalone `mount-*!` facade in `panels.cljs` passes
-  it by name — unlike the L4-only panels, whose bridge can stay private."
-  []
-  [:> Panel-component {}])
+  it by name — unlike the L4-only panels, whose bridge can stay private.
+
+  rf2-t3fz — the 1-arity is how a REAGENT parent names an instance when
+  it renders two of these under one `frame-provider`:
+
+      [Panel-bridge {:instance-id \"left\"}]
+
+  The 0-arity stays because that is how the shell mounts an L4 tab
+  (`[(:panel tab)]`) and how `render-panel!` mounts the standalone embed
+  (`[panel-view]`) — one panel per frame, no instance to name. The prop
+  crosses `[:>]` as a STRING either way: Reagent converts a prop value
+  before React sees it, so a keyword written here arrives at the boundary
+  as its name (`Panel`'s own `:instance-id` note, and `instance-token`
+  accepts both spellings for exactly that reason)."
+  ([] (Panel-bridge nil))
+  ([props]
+   [:> Panel-component
+    (if-let [instance-id (:instance-id props)]
+      {:instance-id instance-id}
+      {})]))
 
 (defn install!
   "Idempotent install for the app-db tab's Xray-side registrations.

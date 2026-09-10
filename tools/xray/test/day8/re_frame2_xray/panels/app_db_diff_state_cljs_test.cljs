@@ -10,13 +10,30 @@
   The section VALUE bodies render through the canonical EDN widget's
   cljs-devtools `inspect` path; these tests assert section structure +
   testids, not the inner cljs-devtools markup (that engine is covered
-  by `views.edn-widget.*` tests)."
+  by `views.edn-widget.*` tests).
+
+  ## rf2-t3fz — two panel instances under ONE frame
+
+  The last block in this file is the exception to \"no DOM mount\": it
+  drives the edn-inspector's per-mount store directly, with the mount-ids
+  READ OUT OF the hiccup the sections above render. That is the residual
+  rf2-d2aj deliberately left — its `[frame-id mount-id]` lifecycle key
+  separates two panels under two `frame-provider`s and cannot separate two
+  under one — and the block carries the defect as an explicit negative
+  control. See the banner comment there."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [cljs.test :refer-macros [use-fixtures]]
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]
-            [day8.re-frame2-xray.panels.app-db-diff-state :as state]))
+            [day8.re-frame2-xray.panels.app-db-diff-state :as state]
+            ;; rf2-t3fz — READ-ONLY here, and only for the per-mount store's
+            ;; public test surface (`lifecycle-key`, `container-ref-for`,
+            ;; `mount-state-count`, `mount-state-held`). The widget's own
+            ;; rows live in `views/edn_inspector_mount_state_cljs_test`; what
+            ;; these assert is that the PANEL hands that store two distinct
+            ;; keys when the caller names two instances.
+            [day8.re-frame2-xray.views.edn-inspector :as ei]))
 
 ;; `state-body` renders values through the EDN widget's pure `inspect`
 ;; path (cljs-devtools). A plain-atom runtime keeps any reactive read in
@@ -324,8 +341,14 @@
                 (vector? n)
                 (do (when (fn? (first n))
                       (let [props (when (>= (count n) 2) (nth n 1))]
-                        (swap! out conj {:value (:value props)
-                                         :opts  (:opts props)})))
+                        ;; rf2-t3fz — `:mount-id` is carried too. It is the
+                        ;; id the per-mount store is keyed by (qualified by
+                        ;; the frame), and the rows at the foot of this file
+                        ;; read it off the render rather than rebuilding the
+                        ;; panel's composition rule in the test.
+                        (swap! out conj {:mount-id (:mount-id props)
+                                         :value    (:value props)
+                                         :opts     (:opts props)})))
                     (doseq [c (rest n)] (walk c)))
                 (seq? n) (doseq [c n] (walk c))))]
       (walk tree))
@@ -560,3 +583,217 @@
           diff-mts (filter #(contains? (:opts %) :before) mounts)]
       (is (seq diff-mts)
           "the changed-machine instance mount threads `:before`"))))
+
+;; ===========================================================================
+;; rf2-t3fz — TWO PANEL INSTANCES UNDER ONE FRAME PROVIDER
+;; ===========================================================================
+;;
+;; Every id these sections compose names a logical SURFACE — the widget's
+;; `:mount-id`, the expansion/zoom `:site-id` — and is deliberately the same
+;; string from every instance of the panel, because that stability is what
+;; survives a tab-switch round-trip. rf2-d2aj gave the widget's per-mount
+;; store a lifecycle key of `[frame-id mount-id]`, which separates two
+;; panels under two `frame-provider`s. It does not, and cannot, separate two
+;; panels under ONE: a Fresco boundary is a React function component with no
+;; per-instance storage its body may use, so nothing inside the widget can
+;; tell two structurally identical siblings apart. rf2-d2aj's closing ruling
+;; named that residual the CALLER's to name; `Panel`'s `:instance-id` prop is
+;; the naming, and these rows are what says it works.
+;;
+;; They follow R9 in `views/edn_inspector_mount_state_cljs_test` — no DOM,
+;; because the store is where the release actually happens and it is
+;; assertable in milliseconds against a browser lane's seconds — with two
+;; differences that carry the whole of this bead:
+;;
+;;   * ONE DISPATCHER, not two. Both instances render under one frame, so
+;;     the widths they measure land in ONE app-db. Folding both dispatches
+;;     into the slot they write is what exercises the SECOND half of the
+;;     defect: qualifying the store key alone would leave both instances
+;;     writing the same `mount-id`-keyed width slot, so the fix has to move
+;;     both or it is only half a fix.
+;;   * THE MOUNT-IDS ARE READ OFF THE PANEL'S OWN RENDER rather than written
+;;     here. A row that spelled them out would keep passing if the panel
+;;     stopped distinguishing two instances, which is precisely the claim.
+;;
+;; The negative control is the defect verbatim: the same two panels with no
+;; instance named at all.
+
+(def ^:private one-frame
+  "The single frame both instances render under — the case rf2-d2aj's
+  `[frame-id mount-id]` key cannot separate. A test-only id, so these rows
+  cannot collide with another namespace's entries in the module-global
+  store."
+  :rf.xray.test/samefrm)
+
+(defn- section-mount-ids
+  "The `:mount-id`s the panel composed for `tree`, in render order."
+  [tree]
+  (mapv :mount-id (find-edn-inspector-mounts tree)))
+
+(defn- section-site-ids
+  "The expansion/zoom `:site-id`s the panel composed for `tree`."
+  [tree]
+  (mapv #(get-in % [:opts :site-id]) (find-edn-inspector-mounts tree)))
+
+(defn- fake-el
+  "A stand-in container element. `measure-and-dispatch!` reads `clientWidth`
+  and nothing else, and `js/ResizeObserver` does not exist under Node."
+  [w]
+  #js {:clientWidth w})
+
+(defn- attach!
+  "Mount one section the way `edn-inspector-view` does: compose the lifecycle
+  key from the frame and the mount-id the PANEL rendered, take the memoised
+  ref for it, and hand it an element of `width`. Returns the ref callback."
+  [mount-id dispatch-fn width]
+  (let [ref-fn (ei/container-ref-for (ei/lifecycle-key one-frame mount-id)
+                                     mount-id
+                                     dispatch-fn)]
+    (ref-fn (fake-el width))
+    ref-fn))
+
+(defn- unmount!
+  "What React does at unmount: call the container ref with nil."
+  [ref-fn]
+  (ref-fn nil))
+
+(defn- widths-from
+  "Fold the dispatched width events into the app-db slot they write, which is
+  where the renderer reads a measured column back out of. Asserting on the
+  SLOT rather than on the event list is the point: two events that name one
+  key are one width, and that is the half of this defect a store-key-only
+  fix leaves standing."
+  [events]
+  (reduce (fn [acc [ev mount-id w]]
+            (case ev
+              :rf.xray.edn-inspector/set-width   (assoc acc mount-id w)
+              :rf.xray.edn-inspector/clear-width (dissoc acc mount-id)
+              acc))
+          {}
+          events))
+
+(deftest t3fz-named-instances-compose-distinct-ids
+  (testing "rf2-t3fz — two `:instance-id`s over the SAME section model
+            compose two disjoint sets of `:mount-id`s and `:site-id`s, and
+            naming no instance leaves every id exactly what it was."
+    (let [model  (sections {:counter 5} {:rf/route {:id :home}})
+          plain  (state/state-body model)
+          left   (state/state-body model "left")
+          right  (state/state-body model "right")
+          ids-p  (section-mount-ids plain)
+          ids-l  (section-mount-ids left)
+          ids-r  (section-mount-ids right)]
+      (is (< 1 (count ids-p))
+          "control: this model renders more than one widget mount, so the
+           rows below are about a SET of ids and not a single string")
+      (is (= (count ids-p) (count ids-l) (count ids-r))
+          "naming an instance changes the ids, never the sections")
+      (is (nil? (some (set ids-l) ids-r))
+          "no mount-id is shared between two named instances — the store key
+           and the width slot are both derived from this string, so a single
+           shared id is the whole defect")
+      (is (nil? (some (set (section-site-ids left)) (section-site-ids right)))
+          "and no site-id either, so the two expand and zoom independently
+           rather than moving in lockstep")
+      (is (= ["app-db-state/top" "app-db-state/:rf/route"] ids-p)
+          "UNNAMED IS UNCHANGED: the single-mount call sites (the L4 tab, the
+           standalone embed) compose the ids they always did")
+      (is (= ["app-db-state/left/top" "app-db-state/left/:rf/route"] ids-l)
+          "and a named instance qualifies them without disturbing the
+           surface name inside")))
+
+  (testing "rf2-t3fz — a keyword instance-id is accepted, because a Reagent
+            parent's `[:>]` crossing converts a prop value to its name while
+            a Fresco body hands it over as a keyword; refusing one here would
+            make one call site behave two ways."
+    (let [model (sections {:counter 5} {})]
+      (is (= (section-mount-ids (state/state-body model :left))
+             (section-mount-ids (state/state-body model "left")))
+          "`:left` and \"left\" name the same instance")))
+
+  (testing "rf2-t3fz — an instance-id that could not be stable across renders
+            is REFUSED rather than `str`-ed into a fresh id every pass."
+    (let [model (sections {:counter 5} {})]
+      (is (thrown-with-msg? js/Error #":instance-id"
+            (state/state-body model {:not "a name"}))
+          "a map is refused")
+      (is (= (section-mount-ids (state/state-body model))
+             (section-mount-ids (state/state-body model "")))
+          "and a blank string is simply no instance, not a `//` id"))))
+
+(deftest t3fz-two-named-instances-in-one-frame-stay-independent
+  (testing "rf2-t3fz — two app-db Panels under ONE frame provider, each named
+            by the caller, get two ref callbacks, two store entries and two
+            width slots, and detaching one leaves the other whole."
+    (let [model    (sections {:counter 5} {})
+          left-id  (first (section-mount-ids (state/state-body model "left")))
+          right-id (first (section-mount-ids (state/state-body model "right")))
+          sink     (atom [])
+          ;; ONE frame ⇒ ONE dispatcher. Both instances write into the same
+          ;; app-db, which is why the width slot has to separate them.
+          dispatch #(swap! sink conj %)
+          before   (ei/mount-state-count)
+          ref-l    (attach! left-id dispatch 100)
+          ref-r    (attach! right-id dispatch 200)]
+      (is (not= left-id right-id)
+          "the panel composed two mount-ids for two named instances")
+      (is (not (identical? ref-l ref-r))
+          "two live mounts under one frame get two ref callbacks — sharing
+           one is what leaves the second element unobserved and never
+           measured")
+      (is (= (+ before 2) (ei/mount-state-count))
+          "and two store entries, not one")
+      (is (= {left-id 100 right-id 200} (widths-from @sink))
+          "each instance measured itself into its OWN width slot inside the
+           one frame they share")
+
+      (reset! sink [])
+      (unmount! ref-r)
+      (is (nil? (ei/mount-state-held (ei/lifecycle-key one-frame right-id)))
+          "the detached instance is gone")
+      (is (contains? (ei/mount-state-held (ei/lifecycle-key one-frame left-id))
+                     :ref)
+          "and the instance still on screen is untouched — releasing the
+           survivor is what the shared key did, and it disconnected an
+           observer of a node still in the document")
+      (is (= [[:rf.xray.edn-inspector/clear-width right-id]] @sink)
+          "the width clear named the LEAVING instance's slot and only it, so
+           the survivor's measured column is still there")
+
+      (unmount! ref-l)
+      (is (= before (ei/mount-state-count))
+          "both released, store back where it started"))))
+
+(deftest t3fz-negative-control-unnamed-instances-collide
+  (testing "rf2-t3fz — THE DEFECT VERBATIM, so this file cannot go green over
+            a half-repair. The same two panels with no instance named compose
+            ONE mount-id between them; under one frame that is one lifecycle
+            key AND one width slot, so they share a ref, the second
+            instance's measurement lands in the FIRST's slot — a wrong number
+            rather than a missing one — and detaching the second releases the
+            first."
+    (let [model    (sections {:counter 5} {})
+          id-a     (first (section-mount-ids (state/state-body model)))
+          id-b     (first (section-mount-ids (state/state-body model)))
+          sink     (atom [])
+          dispatch #(swap! sink conj %)
+          before   (ei/mount-state-count)]
+      (is (= id-a id-b)
+          "CONTROL BITES: two unnamed instances compose the SAME mount-id")
+      (let [ref-a (attach! id-a dispatch 100)
+            ref-b (attach! id-b dispatch 200)]
+        (is (identical? ref-a ref-b)
+            "one ref callback between two mounts")
+        (is (= (inc before) (ei/mount-state-count))
+            "and one store entry between them")
+        (is (= {id-a 200} (widths-from @sink))
+            "ONE width slot, holding the SECOND instance's measurement: the
+             first panel now lays itself out against a column it does not
+             have")
+        (unmount! ref-b)
+        (is (nil? (ei/mount-state-held (ei/lifecycle-key one-frame id-a)))
+            "detaching the SECOND released the shared entry, so the first —
+             still on screen — has lost its observer, its width debounce and
+             its projection cache together")
+        (is (= before (ei/mount-state-count))
+            "store back where it started")))))

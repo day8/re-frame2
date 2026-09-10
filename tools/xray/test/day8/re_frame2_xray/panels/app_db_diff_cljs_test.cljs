@@ -77,11 +77,17 @@
 
   Only the READS are reproduced here; the MARKUP stays in the panel, as
   `app-db-diff/panel-tree`, so these rows still fail when the panel's own
-  shape drifts."
-  []
-  (app-db-diff/panel-tree
-    @(rf/subscribe [:rf.xray/app-db-state])
-    (:epoch-id @(rf/subscribe [:rf.xray/app-db-current+diff]))))
+  shape drifts.
+
+  rf2-t3fz — the 1-arity reproduces a `Panel` mounted with an
+  `:instance-id` prop, which is how a caller names ONE of two live panels
+  under one `frame-provider`."
+  ([] (panel-tree nil))
+  ([instance-id]
+   (app-db-diff/panel-tree
+     @(rf/subscribe [:rf.xray/app-db-state])
+     (:epoch-id @(rf/subscribe [:rf.xray/app-db-current+diff]))
+     instance-id)))
 
 ;; ---- fixture data --------------------------------------------------------
 
@@ -742,3 +748,66 @@
         (is (= :cart-frame @(rf/subscribe [:rf.xray/observed-frame]))
             "observed-frame reflects the picker selection (rf2-fvplw —
              preserved post-rf2-ug1r6)")))))
+
+;; ---- (9) `:instance-id` — naming one of two live panels (rf2-t3fz) ------
+;;
+;; rf2-d2aj keyed the edn-inspector's per-mount store by `[frame-id
+;; mount-id]`, which separates two panels under two `frame-provider`s and
+;; cannot separate two under ONE — a Fresco boundary has no per-instance
+;; storage its body may use, so the distinction is the caller's to make.
+;; `Panel` takes an optional `:instance-id` prop for it and hands it to
+;; `panel-tree`; what the ids then compose to, and the lifecycle and width
+;; consequences of getting it wrong, are pinned in
+;; `app_db_diff_state_cljs_test`'s closing block (positive half plus the
+;; defect as an explicit negative control). These two rows pin the THREADING
+;; — that the prop reaches the sections at all, and that the two doors into
+;; the boundary both carry it.
+
+(deftest panel-tree-threads-instance-id-to-the-sections
+  (testing "rf2-t3fz — `panel-tree` hands its `:instance-id` down to
+            `state-body`, so two instances of the panel over one frame's
+            app-db render two disjoint sets of widget mount-ids. The
+            2-arity is the single-mount call and is unchanged."
+    (seed-host-frame! {:counter 5 :user {:name "ada"}})
+    (registry/register-xray-handlers!)
+    (rf/make-frame {:id :rf/xray})
+    (rf/with-frame :rf/xray
+      (let [mount-ids (fn [tree]
+                        (->> (hiccup-seq tree)
+                             (keep (fn [n]
+                                     (when (and (vector? n)
+                                                (fn? (first n))
+                                                (map? (second n)))
+                                       (:mount-id (second n)))))
+                             vec))
+            plain (mount-ids (panel-tree))
+            left  (mount-ids (panel-tree "left"))
+            right (mount-ids (panel-tree "right"))]
+        (is (seq plain)
+            "control: the panel mounts at least one edn-inspector widget, so
+             an empty intersection below means separation and not silence")
+        (is (= (count plain) (count left) (count right))
+            "naming an instance changes the ids, never the sections")
+        (is (nil? (some (set left) right))
+            "no mount-id survives from one named instance to the other")
+        (is (= plain
+               (mount-ids
+                 (app-db-diff/panel-tree
+                   @(rf/subscribe [:rf.xray/app-db-state])
+                   (:epoch-id @(rf/subscribe [:rf.xray/app-db-current+diff])))))
+            "and the 2-arity — every call site in this tree today — composes
+             exactly what it always did")))))
+
+(deftest panel-bridge-carries-the-instance-id-across-the-reagent-door
+  (testing "rf2-t3fz — the Reagent-facing bridge passes `:instance-id`
+            through to the React component, and its 0-arity — the shell's
+            `[(:panel tab)]` and `render-panel!`'s `[panel-view]` — still
+            mounts with no props at all."
+    (let [named   (app-db-diff/Panel-bridge {:instance-id "left"})
+          unnamed (app-db-diff/Panel-bridge)]
+      (is (= :> (first named))
+          "still an interop vector onto the boundary's React component")
+      (is (= "left" (:instance-id (nth named 2)))
+          "the caller's instance name reaches the component's props")
+      (is (= {} (nth unnamed 2))
+          "and the 0-arity mounts with no props, exactly as before"))))
