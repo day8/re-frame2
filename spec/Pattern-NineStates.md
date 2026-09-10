@@ -349,10 +349,10 @@ When the page issues a fresh `:counter/load` while a previous one is still in fl
 
 1. **`:request-id` supersession.** Using a stable `:request-id` (e.g. `:counter/load` above), the second `:rf.http/managed` with the same id supersedes the first — the older request is superseded with `:reason :request-id-superseded` (per [014 §`:request-id` (internal)](014-HTTPRequests.md#request-id-internal)). A superseded request's app reply is **suppressed** (trace-only) — it never reaches the handler. A *manual* abort or an actor-destroy cancel, by contrast, delivers a live `:status :cancelled` reply carrying the `:rf.http/aborted` map under `:error`; branch on the `:cancelled` status (a separate branch from `:error`) so a cancellation never lands as a user-visible failure:
 
-   ```clojure
-   :cancelled
-   {:db db}                       ;; a cancel is expected; don't broadcast :fetch-failed
-   ```
+    ```clojure
+    :cancelled
+    {:db db}                       ;; a cancel is expected; don't broadcast :fetch-failed
+    ```
 
 2. **Connection-epoch on the dispatched reply.** For request shapes where `:request-id` isn't enough (e.g. the same id is reused after the user has navigated away and back, and an outstanding earlier reply may still be in flight), the page-level container carries an epoch and the reply suppresses on mismatch. The epoch advances on every life event of the container (a reset, a route re-enter); the dispatched success/failure event carries the epoch it was issued under; the handler compares on receipt. This is the canonical staleness idiom; see [Pattern-StaleDetection](Pattern-StaleDetection.md).
 
