@@ -238,11 +238,38 @@
                           :text-align    "center"}}
      letter]))
 
+(defn- row-identity
+  "One row's identity — the kind, the OWNING FRAME, and the id.
+
+  ONE derivation with TWO consumers, and that shared derivation IS the
+  rf2-uyg0 repair. The catalogue's React key already carried the frame;
+  the inspector node key below was built from `(kind, id)` ALONE, even
+  though `frame` was destructured by name one line above it. Under the
+  browse-all projection (`scope-app-schemas-to-frame` with a nil frame-id,
+  which passes every frame's app-db schemas through) the same path
+  registered against two frames produced two rows in ONE render frame
+  carrying the SAME `:mount-id`. That is not cosmetic:
+  `edn-widget/inspect-view` hands the node-key straight to the boundary as
+  its `:mount-id`, and `edn-inspector/container-ref-for` MEMOISES the ref
+  callback on it — so the two rows shared one ResizeObserver entry and
+  detaching either row released the SURVIVOR's. Deriving both keys here is
+  what keeps them from drifting apart again.
+
+  `pr-str` rather than `str` on both variable components: a `:frame` of
+  nil is the honest answer for the process-global `:event` / `:sub` rows
+  (Spec 001 — the registrar is per-process), and an app-db `:id` is a PATH
+  vector rather than a keyword.
+
+  DELIBERATELY NOT the `row-id` the testids use. Those name a row for a
+  human and a browser selector; this names a MOUNT."
+  [{:keys [kind id frame]}]
+  (str (name kind) "/" (pr-str frame) "/" (pr-str id)))
+
 (defn- schema-row
   ;; Non-interactive catalogue entry (the only row-level affordance is the
   ;; focusable `open-chip` jump-to-source); the shared `catalogue-row` owns
   ;; the `role=listitem` `li` chrome.
-  [{:keys [kind id frame schema doc source-coord] :as _row}]
+  [{:keys [kind id frame schema doc source-coord] :as row}]
   (let [id-text (pr-str id)
         row-id  (str (name kind) "-" id-text)]
     (catalogue/catalogue-row
@@ -281,10 +308,13 @@
      ;; `[ei/edn-inspector …]` (a Reagent component). rf2-k97c.3 made the
      ;; swap mandatory rather than stylistic: `ei/edn-inspector` is a
      ;; plain fn, and a plain fn in hiccup head position is a loud error
-     ;; inside a Fresco body. The `node-key` is stable per (kind,id) so
-     ;; expand state survives reloads and doesn't collide across rows —
-     ;; now load-bearing twice over, since it is also the boundary's
-     ;; required `:mount-id`.
+     ;; inside a Fresco body. The `node-key` is stable per ROW — per
+     ;; (kind, frame, id), via [[row-identity]] — so expand state survives
+     ;; reloads and doesn't collide across rows. It is load-bearing twice
+     ;; over, since it is also the boundary's required `:mount-id`, which is
+     ;; why (kind,id) alone was not enough: the browse-all projection lists
+     ;; every frame's app-db schemas at once, so one path registered against
+     ;; two frames gave two rows ONE mount id (rf2-uyg0).
      [:div {:data-testid (str "rf-xray-static-schemas-schema-" row-id)
             :style {:margin-left "20px"
                     :margin-top  "2px"
@@ -292,7 +322,7 @@
                     :font-size   "11px"
                     :white-space "pre-wrap"
                     :word-break  "break-word"}}
-      (edn/inspect-view schema (str "static-schemas/" row-id))]
+      (edn/inspect-view schema (str "static-schemas/" (row-identity row)))]
      (when doc
        [:div {:style {:margin-left "20px"
                       :margin-top  "2px"
@@ -337,11 +367,15 @@
     ;; lost key does not fail, it degrades silently into index-based
     ;; reconciliation. The fragment carries the key without adding a DOM
     ;; node, so `catalogue-row`'s `li` chrome stays the shared
-    ;; presentational helper it is; the key expression is unchanged.
+    ;; presentational helper it is.
+    ;;
+    ;; The key EXPRESSION is now [[row-identity]] — the same string the
+    ;; row's inspector node key is built from (rf2-uyg0). It computes
+    ;; exactly what the inline `(str (name (:kind row)) "/" (pr-str (:frame
+    ;; row)) "/" (pr-str (:id row)))` here computed; naming it is what stops
+    ;; the two key sites diverging again.
     :row-render (fn [row]
-                  [:<> {:key (str (name (:kind row)) "/"
-                                  (pr-str (:frame row)) "/"
-                                  (pr-str (:id row)))}
+                  [:<> {:key (row-identity row)}
                    (schema-row row)])}))
 
 ;; ---- root view -----------------------------------------------------------
