@@ -175,11 +175,11 @@ The recommended contract is:
    prevents a dropdown and field from accidentally interpreting the same record.
 3. Addresses should name causal ownership, for example:
 
-   ```clojure
-   [:invoice invoice-id :amount]
-   [:editor article-id :title]
-   [:route route-instance :filters :status]
-   ```
+    ```clojure
+    [:invoice invoice-id :amount]
+    [:editor article-id :title]
+    [:route route-instance :filters :status]
+    ```
 
 4. `:key` still identifies siblings for reconciliation. It may equal part of the
    semantic address, but Freehand never derives one from the other.
