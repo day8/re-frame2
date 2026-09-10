@@ -771,6 +771,14 @@
     (seed-host-frame! {:counter 5 :user {:name "ada"}})
     (registry/register-xray-handlers!)
     (rf/make-frame {:id :rf/xray})
+    ;; EP-0002 (rf2-bd4div) — the observed target no longer defaults, and
+    ;; without it the panel projects against nothing: the TOP section still
+    ;; renders (it is the panel's anchor) but with the EMPTY-STATE body, so
+    ;; no edn-inspector mounts at all. That is exactly the silence the
+    ;; control below is here to separate from real separation, and it caught
+    ;; this row's first draft.
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default]))
     (rf/with-frame :rf/xray
       (let [mount-ids (fn [tree]
                         (->> (hiccup-seq tree)
