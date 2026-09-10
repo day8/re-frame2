@@ -56,7 +56,10 @@
 #
 #   Get-MemoryFacts now reconciles the two populations against HEAD by KEY SET.
 #   Unlike the two guards above it WARNS AND DOES NOT REFUSE - see the call site
-#   for why that constraint is deliberate.
+#   for why that constraint is deliberate. It has two arms and they get two
+#   headlines (rf2-q88t): the loss banner when a KEY has gone, and a short note
+#   when only the row-count SUM is off, which is a well-formedness artefact and
+#   not a deletion.
 #
 # The commit carries the rows that changed and nothing else: `bd export` does
 # not fix the order of the memory rows, so the file is written in minimal-diff
@@ -424,8 +427,30 @@ function Get-GitOnlyFacts {
 # KEY SETS, NOT COUNTS. A cull that deletes 210 keys and adds 210 leaves the
 # count flat while losing 210 memories, so the count is the same kind of floor
 # the row count already was. The key set has no such hole.
+#
+# WHICH ARM FIRED IS AN OUT-PARAMETER, SO THE CALLER CAN HEAD THE TWO
+# DIFFERENTLY (rf2-q88t). The split above is a real one, and for one release
+# both answers came out under ONE message - the loss banner. So an ordinary
+# checkpoint whose export carried a TRAILING BLANK LINE printed `MEMORY
+# RECONCILIATION FAILED`, the 210-key incident and four paragraphs of deletion
+# recovery, over a key set that had already reconciled 1063 against 1063 and
+# named no missing key at all. Measured 2026-09-10 in the mayor checkout. A
+# guard that cries wolf on a formatting artefact is worth less than one that
+# stays quiet, and this one is guarding a real incident.
+#
+#   $KeySetShort $true   a memory KEY at HEAD is missing from the export: a
+#                        real loss, whatever the sum says
+#   $KeySetShort $false  the report exists only because the two populations do
+#                        not account for every row: WELL-FORMEDNESS, and NOT a
+#                        deletion
+#
+# It is set on BOTH return paths, so a caller reads it unconditionally. No new
+# detector and no new state stand behind it: both answers were already computed
+# a few lines apart, and only the message was single. The .sh sibling spells the
+# same distinction as an exit status (2 loss, 1 well-formedness); the two are
+# kept in step BY HAND.
 function Get-MemoryFacts {
-    param([string]$Export, [string]$HeadCopy)
+    param([string]$Export, [string]$HeadCopy, [ref]$KeySetShort)
 
     $cap = 10
     $report = New-Object 'System.Collections.Generic.List[string]'
@@ -468,6 +493,9 @@ function Get-MemoryFacts {
             $hoth++
         }
     }
+
+    # Set before either return, so the caller never reads a stale value.
+    if ($null -ne $KeySetShort) { $KeySetShort.Value = ($ngone -gt 0) }
 
     if ($ngone -eq 0 -and $xoth -eq 0 -and $hoth -eq 0 -and $xbad -eq 0 -and $hbad -eq 0) {
         return @()
@@ -1044,10 +1072,18 @@ if ($SelfTest) {
     & git -C $repo add -- '.beads/issues.jsonl' | Out-Null
     & git -C $repo commit -q -m 'restore: the tracker as it stood before the race arm' | Out-Null
 
-    # T8 - a row of an unknown `_type` is reported. This is the "two populations
-    # sum to the row count" half of the bead. It cannot detect the deletion
-    # above - the identity holds trivially whenever every row is one of the two
-    # known types - but it catches a row that is neither.
+    # T8 - a row of an unknown `_type` is reported, AND IT IS NOT REPORTED AS A
+    # DELETION (rf2-q88t). This is the "two populations sum to the row count"
+    # half of the bead. It cannot detect the deletion above - the identity holds
+    # trivially whenever every row is one of the two known types - but it
+    # catches a row that is neither.
+    #
+    # THE NEGATIVE ASSERTIONS ARE THE ONES THAT MATTER, and they are the whole
+    # of rf2-q88t: for one release this arm printed T7's banner, so a checkpoint
+    # whose export carried a trailing blank line announced MEMORY RECONCILIATION
+    # FAILED, the 210-key incident and four paragraphs of key recovery over a
+    # key set that had reconciled exactly. The key set is the loss detector, it
+    # runs on this path too, and here it found nothing.
     Write-Rows -Path $dbPath -Rows ($memHead + @('{"_type":"sprint","id":"s1"}'))
     $before = Get-HeadSha
     $code = Invoke-Child @()
@@ -1056,6 +1092,59 @@ if ($SelfTest) {
     Assert-True ($err -match 'neither an issue nor a memory') `
                 'T8 a row that is neither an issue nor a memory is reported'
     Assert-True ((Get-HeadSha) -ne $before) 'T8 and it still commits'
+    Assert-True (-not ($err -match 'MEMORY RECONCILIATION FAILED')) `
+                'T8 and it does NOT wear the loss banner, because no key is missing' $err
+    Assert-True ($err -match 'NOT a memory deletion') `
+                'T8 and the headline says so in the first line the operator reads' $err
+    Assert-True (-not ($err -match 'git log -S')) `
+                'T8 and the deletion-recovery paragraphs stay out of it' $err
+    Assert-True ($err -match 'USUALLY A BLANK LINE') `
+                'T8 and it names the usual cause and the two-second check instead' $err
+
+    # T8b - THE OBSERVED INCIDENT ITSELF (rf2-q88t). The unclassifiable row that
+    # actually fired in the mayor checkout on 2026-09-10 was a TRAILING BLANK
+    # LINE, not a row of an invented `_type`. Same arm, same verdict, and this
+    # is the fixture that reproduces the reported symptom exactly.
+    Write-Rows -Path (Join-Path $repo '.beads/issues.jsonl') -Rows $memHead
+    & git -C $repo add -- '.beads/issues.jsonl' | Out-Null
+    & git -C $repo commit -q -m 'seed: back to 20 issues and 10 memories' | Out-Null
+    Write-Rows -Path $dbPath -Rows ($memHead + @(''))
+    $before = Get-HeadSha
+    $code = Invoke-Child @()
+    $err  = Get-ChildErr
+    $trackerText = [System.IO.File]::ReadAllText((Join-Path $repo '.beads/issues.jsonl')).Replace("`r", '')
+    Assert-True ($code -eq 0) 'T8b a trailing blank line does not refuse the checkpoint' "exit $code"
+    Assert-True ((Get-HeadSha) -ne $before) 'T8b and it still commits'
+    Assert-True (-not ($err -match 'MEMORY RECONCILIATION FAILED')) `
+                'T8b a BLANK LINE is not announced as a memory deletion' $err
+    Assert-True (($err -match 'NOT a memory deletion') -and ($err -match 'USUALLY A BLANK LINE')) `
+                'T8b and the note names a cause the operator can act on' $err
+    # The discriminator the old message had in hand and did not use: EQUAL
+    # memory populations rule out a memory deletion outright.
+    Assert-True (($err -match 'export  31 rows = 20 issues \+ 10 memories') -and
+                 ($err -match 'HEAD    30 rows = 20 issues \+ 10 memories')) `
+                'T8b and the two memory counts are EQUAL, which is why it is not a loss' $err
+    Assert-True ($trackerText.EndsWith("`n`n")) `
+                'T8b the blank line does ride into this commit, exactly as the note says'
+
+    # T8c - the note's other claim, graded rather than asserted: the NEXT
+    # checkpoint drops it. HEAD now carries the blank line and the fresh export
+    # does not, so Write-MinimalDiffOrder - which takes its rows from the
+    # EXPORT - must leave it behind. The export also adds a memory, so this
+    # checkpoint is a real change and T9's re-seed below still has something to
+    # commit.
+    Write-Rows -Path $dbPath -Rows ($memHead +
+        @('{"_type":"memory","key":"mem-key-12","value":"another lesson"}'))
+    $before = Get-HeadSha
+    $code = Invoke-Child @()
+    $err  = Get-ChildErr
+    $trackerText = [System.IO.File]::ReadAllText((Join-Path $repo '.beads/issues.jsonl')).Replace("`r", '')
+    Assert-True ($code -eq 0) 'T8c the follow-up checkpoint runs clean' "exit $code"
+    Assert-True ((Get-HeadSha) -ne $before) 'T8c and it commits'
+    Assert-True (-not $trackerText.EndsWith("`n`n")) `
+                'T8c and the blank line is GONE - benign and self-healing, as the note promises'
+    Assert-True (-not ($err -match 'MEMORY RECONCILIATION FAILED')) `
+                'T8c and a blank line sitting at HEAD is not a deletion either' $err
 
     # T9 - THE NO-FALSE-POSITIVE CASE. Ordinary forward motion - an issue
     # closes, a memory is ADDED, the rest are shuffled the way `bd export`
@@ -1301,8 +1390,17 @@ try {
     # or single-element array return, so a bare assignment yields $null on the
     # ordinary no-warning path and `.Count` then throws. Caught by -SelfTest T2
     # and T3, which is what that arm is for.
-    $memFacts = @(Get-MemoryFacts -Export $tmpExport -HeadCopy $tmpHead)
-    if ($memFacts.Count -gt 0) {
+    #
+    # TWO ARMS, TWO HEADLINES (rf2-q88t). Get-MemoryFacts reports which of its
+    # two detectors fired, and the loss narrative below - the 210-key incident,
+    # the spelled-out recovery oid, the `git log -S` hunt - is correct for a
+    # LOSS and for nothing else. A short, differently-headed note carries the
+    # other case, so `MEMORY RECONCILIATION FAILED` stays a string that means
+    # what it says. Graded by -SelfTest T7 (loss) and T8 (well-formedness).
+    $keySetShort = $false
+    $memFacts = @(Get-MemoryFacts -Export $tmpExport -HeadCopy $tmpHead `
+                                  -KeySetShort ([ref]$keySetShort))
+    if ($memFacts.Count -gt 0 -and $keySetShort) {
         $lines = New-Object 'System.Collections.Generic.List[string]'
         $lines.Add('')
         $lines.Add('beads-checkpoint: ***** MEMORY RECONCILIATION FAILED (rf2-cve7) *****')
@@ -1342,6 +1440,38 @@ try {
         $lines.Add('  Select on `.key`. A bare grep for the key matches rows that merely MENTION')
         $lines.Add('  it - bead prose naming a deleted key has already been mistaken for the')
         $lines.Add('  memory itself (rf2-cve7, CLAUDE.md instrument item (f)).')
+        $lines.Add('')
+        [Console]::Error.WriteLine(($lines -join "`n"))
+    }
+    elseif ($memFacts.Count -gt 0) {
+        # WELL-FORMEDNESS ONLY (rf2-q88t). The key set reconciled, so nothing is
+        # missing and none of the recovery narrative above applies. Say what
+        # fired, give the two-second check, and get out of the operator's way.
+        $lines = New-Object 'System.Collections.Generic.List[string]'
+        $lines.Add('')
+        $lines.Add('beads-checkpoint: unaccounted rows in the export - NOT a memory deletion.')
+        $lines.Add('  The loss detector is the KEY-SET comparison against HEAD, it ran, and it')
+        $lines.Add('  found nothing missing: every `bd remember` key HEAD carries is present in')
+        $lines.Add('  the fresh export. What fired is the other arm - the two populations do not')
+        $lines.Add('  account for every row of the file (rf2-cve7, rf2-q88t).')
+        $lines.Add('')
+        foreach ($r in $memFacts) { $lines.Add($r) }
+        $lines.Add('')
+        $lines.Add('  A row that is neither an issue nor a memory is USUALLY A BLANK LINE. The')
+        $lines.Add('  count above names the side that carries it - the tracker this checkpoint')
+        $lines.Add('  is about to commit, or HEAD''s copy of it (`git show HEAD:' + $tracker + '`)')
+        $lines.Add('  - and either check settles it in seconds:')
+        $lines.Add('')
+        $lines.Add('      grep -n -v ''^{'' ' + $tracker)
+        $lines.Add('      tail -c 3 ' + $tracker + ' | od -c')
+        $lines.Add('')
+        $lines.Add('  The first names the offending rows; the second shows a trailing blank line')
+        $lines.Add('  as a doubled newline at the end of the file.')
+        $lines.Add('')
+        $lines.Add('  A blank line is BENIGN and does not accumulate: Write-MinimalDiffOrder')
+        $lines.Add('  takes its rows from the fresh export, so one that is absent there is not')
+        $lines.Add('  carried over from HEAD. At worst it rides in one commit and the next')
+        $lines.Add('  checkpoint drops it. Nothing is refused, and nothing needs recovering.')
         $lines.Add('')
         [Console]::Error.WriteLine(($lines -join "`n"))
     }

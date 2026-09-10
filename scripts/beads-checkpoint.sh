@@ -56,7 +56,10 @@
 #
 #   `memory_facts` now reconciles the two populations against HEAD by KEY SET.
 #   Unlike the two guards above it WARNS AND DOES NOT REFUSE — see the call site
-#   for why that constraint is deliberate.
+#   for why that constraint is deliberate. It has two arms and they get two
+#   headlines (rf2-q88t): the loss banner when a KEY has gone, and a short note
+#   when only the row-count SUM is off, which is a well-formedness artefact and
+#   not a deletion.
 #
 # USAGE
 #
@@ -385,6 +388,26 @@ git_only_facts() {
 #
 # (FNR == NR is sound here for the same reason it is in `git_only_facts`: the
 # caller has already refused a zero-row export, so file 1 is never empty.)
+#
+# THE EXIT STATUS SAYS WHICH ARM FIRED, SO THE CALLER CAN HEAD THE TWO
+# DIFFERENTLY (rf2-q88t). The split above is a real one — the sum is
+# well-formedness, the key set is loss — and for one release both answers came
+# out under ONE message, the loss banner. So an ordinary checkpoint whose export
+# carried a TRAILING BLANK LINE printed `MEMORY RECONCILIATION FAILED`, the
+# 210-key incident and four paragraphs of deletion recovery, over a key set that
+# had already reconciled 1063 against 1063 and named no missing key at all.
+# Measured 2026-09-10 in the mayor checkout. A guard that cries wolf on a
+# formatting artefact is worth less than one that stays quiet, and this one is
+# guarding a real incident, so the split now reaches the OUTPUT:
+#
+#   0  both populations reconcile — nothing is printed, which is every
+#      ordinary checkpoint
+#   1  the SUM is short and the KEY SET is intact — well-formedness only, and
+#      NOT a deletion
+#   2  the KEY SET is short — a real loss, whatever the sum says
+#
+# No new detector and no new state stand behind that: both answers were already
+# computed a few lines apart, and only the message was single.
 memory_facts() {
   awk -v cap=10 '
     function jval(line, key,   pfx, re) {
@@ -446,6 +469,10 @@ memory_facts() {
       if (hbad > 0) {
         printf "\n  UNREADABLE  %d memory rows at HEAD carry no readable key\n", hbad
       }
+      # 2 when the LOSS detector fired, 1 when only the well-formedness sum did.
+      # Spelled as an if rather than a ternary so every awk takes it.
+      if (ngone > 0) { exit 2 }
+      exit 1
     }
   ' "$1" "$2"
 }
@@ -609,8 +636,22 @@ rm -f "$REMEDY"
 #
 # It also runs AFTER the divergence guard on purpose, so it speaks only when the
 # checkpoint is genuinely about to commit and can say so truthfully.
-MEMORY_FACTS=$(memory_facts "$TMP_EXPORT" "$TMP_HEAD")
-if [ -n "$MEMORY_FACTS" ]; then
+#
+# TWO ARMS, TWO HEADLINES (rf2-q88t). `memory_facts` reports which of its two
+# detectors fired, and the loss narrative below — the 210-key incident, the
+# spelled-out recovery oid, the `git log -S` hunt — is correct for a LOSS and
+# for nothing else. A short, differently-headed note carries the other case, so
+# `MEMORY RECONCILIATION FAILED` stays a string that means what it says.
+#
+# `|| MEMORY_VERDICT=$?` rather than a bare capture: `set -e` is on, and a
+# non-zero command substitution in a bare assignment would abort the checkpoint
+# on the very warning it is trying to print.
+MEMORY_VERDICT=0
+MEMORY_FACTS=$(memory_facts "$TMP_EXPORT" "$TMP_HEAD") || MEMORY_VERDICT=$?
+# The body has to be non-empty for either headline. GNU awk also exits 2 on a
+# fatal error, which is the loss code, so an awk that died stays silent exactly
+# as it does today rather than printing a loss banner with no facts under it.
+if [ -n "$MEMORY_FACTS" ] && [ "$MEMORY_VERDICT" -eq 2 ]; then
   printf '\n' >&2
   printf 'beads-checkpoint: ***** MEMORY RECONCILIATION FAILED (rf2-cve7) *****\n' >&2
   printf '  The tracker'"'"'s `bd remember` rows do not reconcile against HEAD.\n\n' >&2
@@ -641,6 +682,29 @@ if [ -n "$MEMORY_FACTS" ]; then
   printf '\n  Select on `.key`. A bare grep for the key matches rows that merely MENTION\n' >&2
   printf '  it — bead prose naming a deleted key has already been mistaken for the\n' >&2
   printf '  memory itself (rf2-cve7, CLAUDE.md instrument item (f)).\n\n' >&2
+elif [ -n "$MEMORY_FACTS" ]; then
+  # WELL-FORMEDNESS ONLY (rf2-q88t). The key set reconciled, so nothing is
+  # missing and none of the recovery narrative above applies. Say what fired,
+  # give the two-second check, and get out of the operator's way.
+  printf '\n' >&2
+  printf 'beads-checkpoint: unaccounted rows in the export — NOT a memory deletion.\n' >&2
+  printf '  The loss detector is the KEY-SET comparison against HEAD, it ran, and it\n' >&2
+  printf '  found nothing missing: every `bd remember` key HEAD carries is present in\n' >&2
+  printf '  the fresh export. What fired is the other arm — the two populations do not\n' >&2
+  printf '  account for every row of the file (rf2-cve7, rf2-q88t).\n\n' >&2
+  printf '%s\n' "$MEMORY_FACTS" >&2
+  printf '\n  A row that is neither an issue nor a memory is USUALLY A BLANK LINE. The\n' >&2
+  printf '  count above names the side that carries it — the tracker this checkpoint is\n' >&2
+  printf '  about to commit, or HEAD'"'"'s copy of it (`git show HEAD:%s`) —\n' "$TRACKER" >&2
+  printf '  and either check settles it in seconds:\n' >&2
+  printf '\n      grep -n -v '"'"'^{'"'"' %s\n' "$TRACKER" >&2
+  printf '      tail -c 3 %s | od -c\n' "$TRACKER" >&2
+  printf '\n  The first names the offending rows; the second shows a trailing blank line\n' >&2
+  printf '  as a doubled newline at the end of the file.\n' >&2
+  printf '\n  A blank line is BENIGN and does not accumulate: `minimal_diff_rewrite` takes\n' >&2
+  printf '  its rows from the fresh export, so one that is absent there is not carried\n' >&2
+  printf '  over from HEAD. At worst it rides in one commit and the next checkpoint\n' >&2
+  printf '  drops it. Nothing is refused, and nothing needs recovering.\n\n' >&2
 fi
 
 # The export is trustworthy — it is now the working tracker. From here on the
