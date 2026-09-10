@@ -1932,10 +1932,24 @@ Every `mount-<panel>!` fn:
    of every panel's subs / events / fxs. The orchestrator's
    `defonce`-guarded sentinel collapses repeat installs across
    panel mounts and shadow-cljs `:after-load` cycles.
-2. Calls `(rf/make-frame {:id :rf/xray})` — idempotent register of
-   Xray's state-isolation frame. `make-frame`'s surgical-update-on-
-   re-register semantics (per Spec 002 §make-frame) keep this
-   idempotent.
+2. Calls `mount/ensure-xray-frame!` (via `panels.cljs`'s private
+   `ensure-xray-handlers-installed!`) so Xray's state-isolation frame
+   both **exists and is seeded** — its first-mount hook table has run.
+   The seeding is part of this contract, not an implementation detail:
+   the hooks populate Xray's trace-buffer slot and `:target-frame`
+   from what is already in the framework's per-frame rings. A mount fn
+   that calls `(rf/make-frame {:id …})` directly registers the frame
+   but skips the hooks, and the panel then renders against a frame
+   nothing populated — the empty-Xray-on-Story-RHS class of bug, where
+   a Story-embedded panel shows blank inputs though the host has been
+   dispatching all along. Go through the orchestrator. The frame
+   seated is `shell/default-frame-id` for the per-panel mounts;
+   `mount-shell!` seats the own frame its caller asked for (rf2-lffg).
+   `ensure-xray-frame!` is idempotent — `make-frame`'s surgical-update-
+   on-re-register semantics (per Spec 002 §make-frame), plus a
+   run-once hook guard keyed per frame-id. The hook keywords live in
+   `ensure-xray-handlers-installed!`'s docstring and are deliberately
+   not duplicated here.
 3. Wraps the panel's view in `[rf/frame-provider {:frame :rf/xray}
    [Panel]]` so descendant `subscribe` / `dispatch` re-anchor to
    `:rf/xray` regardless of the host's React-context. A mount fn that
@@ -1996,9 +2010,12 @@ of them.
 
 `register-xray-handlers!` is `defonce`-guarded so shadow-cljs
 `:after-load` cycles do not re-register handlers (which would emit
-`:rf.warning/handler-replaced` traces on every reload). `make-frame`
-is idempotent via surgical-update semantics. Mount fns can be called
-from a host's `init!` path at any frequency without risk.
+`:rf.warning/handler-replaced` traces on every reload).
+`ensure-xray-frame!` is idempotent on both halves — surgical-update
+semantics on the frame itself, and a run-once guard keyed per frame-id
+on the seed hooks — so repeat mounts collapse to one seed pass. Mount
+fns can be called from a host's `init!` path at any frequency without
+risk.
 
 ## Static mode (rf2-o5f5f)
 
