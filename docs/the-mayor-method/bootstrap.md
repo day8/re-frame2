@@ -208,6 +208,13 @@ sentence, a worker handed a task that should not exist will invent one that does
 
 **The work**, with a control that proves it.
 
+But a report is not uniformly measured, and its credibility does not partition the
+way its sentences do. It mixes what the worker checked in its own tree with what it
+inferred about someone else's — a sibling's branch, another dispatch's needs, what a
+file will look like after a change it cannot see. Only the first half was checked.
+Relaying the second as fact is how a brief acquires an error the mayor did not make
+and cannot trace.
+
 The best refusal seen here came with measurement rather than argument. An item claimed a
 CI timeout was too tight; the worker sampled 183 runs of that step — median 13 seconds
 against a 300-second cap — found the real cause was a slow mirror, closed the item, and
