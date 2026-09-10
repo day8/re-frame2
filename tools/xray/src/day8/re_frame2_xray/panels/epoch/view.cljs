@@ -3532,7 +3532,12 @@
         outcome-lbl (fmt/cascade-outcome-label row)
         long?       (and (number? duration-ms)
                          (> duration-ms proj/long-step-threshold-ms))]
-    [:div {:key (str "cascade-row-" step)
+    [:div {;; rf2-wvch — LOAD-BEARING, and the only place this row's React key
+           ;; can live: `machine-cascade-view` CALLS this fn from inside a
+           ;; `for`, so a `^{:key …}` at the call site would be discarded on
+           ;; return. `:step` is re-numbered 1..N by `projection/machine-
+           ;; cascade-rows`, so it is unique across the rendered siblings.
+           :key (str "cascade-row-" step)
            :data-testid (str "rf-xray-epoch-machine-cascade-row-" step)
            :data-cascade-kind (when (keyword? kind) (name kind))
            :data-cascade-phase (when (keyword? phase) (name phase))
@@ -3679,8 +3684,20 @@
         "— (no machine cascade events fired)"]
        (into [:div {:data-testid "rf-xray-epoch-handler-machine-cascade-rows"
                     :style machine-cascade-rows-style}]
+             ;; rf2-wvch — NO `^{:key …}` rides this call form. `cascade-row-view`
+             ;; is a plain `defn-`, so reader metadata here would sit on the
+             ;; SOURCE LIST and be discarded the moment the form is evaluated —
+             ;; the vector it returns would carry none of it. That is the
+             ;; strictly-dead member of the family: unlike metadata on a vector
+             ;; LITERAL (which Reagent still reads, and which only dies at a
+             ;; Fresco boundary), metadata on a CALL FORM reaches React on NO
+             ;; substrate. The sibling key therefore rides the ATTRIBUTE MAP of
+             ;; the `[:div]` `cascade-row-view` returns — `:key (str
+             ;; "cascade-row-" step)`, the one spelling every renderer honours
+             ;; (Reagent reads meta then props; Fresco's codec reads props and
+             ;; Clojure metadata nowhere). `machine-cascade-rows-reach-react-
+             ;; with-distinct-keys` in the view test grades it at the renderer.
              (for [row cascade-rows]
-               ^{:key (str "cascade-row-wrap-" (:step row))}
                (cascade-row-view machine-meta row))))]))
 
 (defn- event-handler-orientation-line

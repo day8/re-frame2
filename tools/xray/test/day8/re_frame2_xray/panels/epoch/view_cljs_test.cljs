@@ -7,6 +7,7 @@
   every step body."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as string]
+            [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
@@ -1354,6 +1355,102 @@
 ;; GUARDS / LIFECYCLE / AFTER-TIMERS / DATA REDUCTION / SNAPSHOT DIFF /
 ;; FX) with a single time-ordered cascade view. Each row interleaves
 ;; source code (always visible) with phase + duration + outcome.
+
+;; ---- rf2-wvch — cascade rows reach React with a key ---------------------
+;;
+;; `machine-cascade-view` emits its rows from a `for`, which is exactly where
+;; sibling keys matter. The key used to be written as `^{:key …}` reader
+;; metadata on the `(cascade-row-view …)` CALL FORM. `cascade-row-view` is a
+;; plain `defn-`, so that metadata rode the source list and was discarded the
+;; moment the form was evaluated — the returned vector carried none of it.
+;;
+;; That is the STRICTLY-DEAD member of the family, and it is why this gate is
+;; not blocked on the Fresco migration: metadata on a vector LITERAL still
+;; reaches React under Reagent (it dies only at a Fresco boundary), whereas
+;; metadata on a CALL FORM reaches React on NO substrate.
+;;
+;; What actually carries the key — before this bead as well as after — is the
+;; attribute map of the `[:div]` `cascade-row-view` returns. All three
+;; renderers honour that spelling: Reagent reads meta then props, and Fresco's
+;; codec reads props and Clojure metadata nowhere. Removing the dead reader
+;; meta leaves the working key the single, findable one.
+;;
+;; Measured, so nobody re-reads this as a live-bug fix: this gate PASSES
+;; against the pre-repair source with the dead meta still in place (React
+;; already received all three keys), and FAILS `[nil nil nil]` the moment the
+;; attribute-map `:key` is deleted with everything else left alone. The dead
+;; meta was never what carried — it was a decoy sitting over a working key,
+;; and a future editor deleting the props `:key` because "the key is at the
+;; call site" is the regression this row exists to catch.
+;;
+;; Asserting `(meta node)` here would be a HOLLOW GATE in BOTH directions:
+;; `rf.test-helpers/expand-tree` rebuilds nested vectors with `mapv` and strips
+;; reader metadata (a false nil), and a correctly-keyed row reads nil anyway
+;; because its key lives in props. Hence the raw walk below and `r/as-element`,
+;; which grades what the RENDERER receives rather than how it is spelled.
+
+(defn- raw-children
+  "Children of a hiccup node WITHOUT rebuilding it. `expand-tree` would
+  `mapv` fresh vectors and strip reader metadata, so this gate could not see
+  a meta-spelled key if one were ever re-introduced — it would read a false
+  nil and fail for the wrong reason."
+  [node]
+  (cond
+    (and (vector? node) (fn? (first node))) [(apply (first node) (rest node))]
+    (vector? node)                          (if (map? (second node)) (drop 2 node) (rest node))
+    (seq? node)                             node
+    :else                                   nil))
+
+(defn- raw-find-by-testid
+  [tree testid]
+  (some (fn [node]
+          (when (and (vector? node) (map? (second node))
+                     (= testid (:data-testid (second node))))
+            node))
+        (tree-seq (some-fn vector? seq?) raw-children tree)))
+
+(defn- react-key
+  "The key REACT actually receives for one row. `r/as-element` runs Reagent's
+  own key resolution — metadata first, then the props map — so this reads the
+  rendered element rather than the authoring shape."
+  [node]
+  (.-key (r/as-element node)))
+
+(def ^:private cascade-key-fixture
+  "THREE rows, because a one-element sequence cannot distinguish a real key
+  from a missing one, and two cannot show a stable 1..N stamp."
+  [{:kind :guard      :step 1 :guard-id :ready? :outcome :pass}
+   {:kind :action     :step 2 :action-id :open-socket :phase :entry}
+   {:kind :transition :step 3 :machine-id :ws/conn
+    :from-state [:idle] :to-state [:connected] :microsteps 1}])
+
+(defn- cascade-row-nodes
+  "The row vectors `machine-cascade-view` emits, taken from the RAW tree.
+  `machine-cascade-mini-pipeline` is the public entry the Epoch panel's
+  EVENT HANDLER step and the Machine tab both render through."
+  [cascade]
+  (let [tree (view/machine-cascade-mini-pipeline cascade :ws/start)
+        rows (raw-find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rows")]
+    (vec (filter vector? (drop 2 rows)))))
+
+(deftest machine-cascade-rows-reach-react-with-distinct-keys
+  (testing "rf2-wvch — every row the cascade `for` emits reaches React
+            carrying a key, and sibling keys are distinct. A lost key does
+            not fail, it DEGRADES into index-based reconciliation, which
+            paints identically and corrupts row identity only once the list
+            changes shape — so no assertion about the markup can see it."
+    (let [rows (cascade-row-nodes cascade-key-fixture)
+          ks   (mapv react-key rows)]
+
+      ;; Precondition — a vacuous pass is the failure mode here, so the row
+      ;; count is asserted before the keys are.
+      (is (= 3 (count rows)) "the fixture's three cascade rows each render")
+
+      (is (every? some? ks) "every cascade row reaches React with a key")
+      (is (= 3 (count (distinct ks))) "sibling keys are distinct")
+      (is (= ["cascade-row-1" "cascade-row-2" "cascade-row-3"] ks)
+          "the key React receives is the one `cascade-row-view` stamps into
+           its own attribute map, off the projection's 1..N `:step`"))))
 
 (deftest machine-handler-renders-cascade-view-test
   (testing "rf2-u69j7 — machine handler renders the time-ordered
