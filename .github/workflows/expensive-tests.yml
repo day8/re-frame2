@@ -881,6 +881,87 @@ jobs:
         run: |
           node -e "require('./src/re_frame/bench/fresco/lane_build.cjs').shadowBuild({project: process.cwd(), mode: 'compile', buildId: 'fresco-bench-node', tag: 'fresco-bench-node'})"
 
+      # rf2-u297 — AND THE 21 NON-COMPILE MEMBERS, WHICH NOTHING ELSE IN CI RUNS.
+      #
+      # Ruled YES by rf2-50fe, narrowly, and for THIS job only: it already pays
+      # for checkout, JDK, Node, `npm ci` and a 30-minute budget, so the whole
+      # marginal cost is the ~35s below. rf2-6c12m.1's ground is untouched —
+      # `bench/*` arms NOTHING on any per-PR lane, this changes no classifier and
+      # no registry, and nothing here may be promoted to `test.yml`. The bench
+      # suites exercise LOCAL COPIES of the runtime, so a per-PR run could not
+      # catch a regression in the shipped one; that is why cheapness was never
+      # the rebuttal, and it is still not.
+      #
+      # WHAT WAS UNCOVERED. `npm run check` is a 22-command chain and CI ran
+      # member 1. `test:scripts` globs `implementation/`-relative paths and so
+      # reaches exactly one of the other 21 (`lane_cache_wiring.test.cjs`);
+      # ESLint lints the files and cannot see a failing assertion. So PR #9580's
+      # corpus-backed boundary check — added to stop a future raw read silently
+      # dropping the native arm from a published population — was a gate nothing
+      # executed.
+      #
+      # MEMBER 1 IS DROPPED, THE OTHER 21 ARE NOT LISTED, so a member added to
+      # `check` tomorrow is covered without editing this job — the same
+      # derive-don't-enumerate rule the compile step above states. Two floors
+      # keep the derivation honest, because a collapsed split would run nothing
+      # and exit 0: the chain must still carry at least its 22 members, and
+      # member 1 must still BE the compile gate, since it is dropped by POSITION
+      # and a reorder would otherwise skip a real member in silence.
+      #
+      # THE ARCHIVE COMMIT IS FETCHED BY ITS FULL 40-CHARACTER OID, which is the
+      # one thing a naive version of this step gets wrong. `data_archive.cjs`
+      # pins the corpus commit as a 10-CHARACTER ABBREVIATION: fine in a full
+      # clone, and not a fetchable ref (`git fetch` exits 128 against
+      # github.com). This checkout is depth-1, so the commit is absent
+      # altogether and `data_archive.test.cjs`'s FIRST check — history-backed,
+      # deliberately not corpus-backed, so that it runs in the state every clone
+      # is in — fails with `fatal: Not a valid object name`, taking the file to
+      # 1 of 4 with exit 1. The full oid is therefore spelled HERE, once, and
+      # this is the only place in the tree it is spelled: which commit is the
+      # readers' business and `ARCHIVE_SHA` stays its single source of truth,
+      # while a fetchable spelling of it is a shallow CLONE's business and
+      # belongs to CI. The prefix test below is what stops the two drifting
+      # apart in silence.
+      #
+      # AND THE CORPUS IS RESTORED, which is the point of the step rather than a
+      # bonus: the 237-file restore costs ~0.5s and takes `data_archive.test.cjs`
+      # from 4/4 plus 3 SKIPPED to 7/7, and those three are precisely the
+      # corpus-backed checks named above. `data/` is git-ignored and the restore
+      # writes the working tree only. A failed fetch REDS this step rather than
+      # falling back to the corpus-free path: a silent fallback would disarm the
+      # checks this exists to arm and report green, which is the failure mode
+      # rf2-u297 was filed against.
+      - name: Run bench members 2..22 of `npm run check` (nothing else in CI does)
+        working-directory: bench/fresco
+        run: |
+          set -euo pipefail
+
+          oid=7b492b98cbee0a5a1e6f2ef157698c033d798d56
+          pin=$(node -p "require('./src/re_frame/bench/fresco/data_archive.cjs').ARCHIVE_SHA")
+          case "$oid" in
+            "$pin"*) ;;
+            *) echo "::error::the corpus pin moved to $pin; re-resolve the full oid with 'git rev-parse $pin' in a full clone and update this step"; exit 1 ;;
+          esac
+          git fetch --depth=1 origin "$oid"
+          node src/re_frame/bench/fresco/data_archive.cjs --restore
+
+          node -e '
+            const { execSync } = require("node:child_process");
+            const chain = require("./package.json").scripts.check.split("&&").map((c) => c.trim()).filter(Boolean);
+            if (chain.length < 22) {
+              throw new Error("the check chain collapsed to " + chain.length + " members; member 1 is dropped by position, so re-read it before lowering this floor");
+            }
+            if (!chain[0].includes("compile_gate.cjs")) {
+              throw new Error("member 1 is no longer the compile gate, so dropping it would drop a real member: " + chain[0]);
+            }
+            for (const [i, cmd] of chain.slice(1).entries()) {
+              console.log("::group::member " + (i + 2) + " of " + chain.length + ": " + cmd);
+              execSync(cmd, { stdio: "inherit" });
+              console.log("::endgroup::");
+            }
+            console.log(";; " + (chain.length - 1) + " members ran");
+          '
+
   # THE GATE-SCHEDULING AUDIT USED TO LIVE HERE, AND NO LONGER DOES (rf2-k78o2).
   # It asserts that every `test:*` / `bench:*` / `build:*` command in
   # implementation/package.json is either reachable from a workflow or carries a
