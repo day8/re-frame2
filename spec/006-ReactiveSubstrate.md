@@ -581,14 +581,14 @@ close this window; either is individually sufficient for its axis, and together 
    running them. A capture whose id was **not** live at capture (the `capture-frame` 1-arity
    lock-to-id form used from outside any scope) pins nothing and stays address-directed.
 
-   A **throwing** synchronous sibling of this fence existed until 2026-08-16, and is recorded rather
-   than dropped because an older cross-reference may still send a reader looking for it: it was the
-   retired `re-frame.ui` `(frame)` operation bundle's own incarnation check, and it went with that
-   artefact (rf2-0yp7w). Nothing replaced it, so the recover-but-emit fence above is the only
-   incarnation fence there is — as [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)
-   records for `:rf.error/frame-destroyed`, whose `:op` realm enum is exactly `:dispatch` /
-   `:dispatch-sync` / `:subscribe` since the fourth value `:capture`, which named that retired read
-   alone, was struck on 2026-09-04 (rf2-xtqs).
+    A **throwing** synchronous sibling of this fence existed until 2026-08-16, and is recorded rather
+    than dropped because an older cross-reference may still send a reader looking for it: it was the
+    retired `re-frame.ui` `(frame)` operation bundle's own incarnation check, and it went with that
+    artefact (rf2-0yp7w). Nothing replaced it, so the recover-but-emit fence above is the only
+    incarnation fence there is — as [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)
+    records for `:rf.error/frame-destroyed`, whose `:op` realm enum is exactly `:dispatch` /
+    `:dispatch-sync` / `:subscribe` since the fourth value `:capture`, which named that retired read
+    alone, was struck on 2026-09-04 (rf2-xtqs).
 
 This is consistent with **"Disposal is total"** and **"no state survives"** (the adapter-revertibility
 contract above): the surviving `:tearing-down` claim is a **host-ownership quarantine** tracking a
