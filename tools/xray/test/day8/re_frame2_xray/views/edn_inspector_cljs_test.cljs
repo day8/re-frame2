@@ -54,15 +54,23 @@
       (walk tree))
     @out))
 
-(defn- find-attr
-  "Return the first node whose attribute-map key `k` equals `v`."
+(defn- nodes-with-attr
+  "Every node whose attribute-map key `k` equals `v`, in document order.
+
+  `find-attr` below takes the first of these, which is the right instrument
+  for \"is it rendered at all\" and the wrong one for \"how many answer this
+  name\" — the distinction rf2-o7p7 turns on."
   [tree k v]
   (->> (walk-hiccup tree)
        (filter (fn [n]
                  (and (vector? n)
                       (map? (second n))
-                      (= v (get (second n) k)))))
-       first))
+                      (= v (get (second n) k)))))))
+
+(defn- find-attr
+  "Return the first node whose attribute-map key `k` equals `v`."
+  [tree k v]
+  (first (nodes-with-attr tree k v)))
 
 (defn- collect-text
   "Flatten string leaves under `tree` into one big string."
@@ -583,6 +591,10 @@
     (is (not (re-find #"▾" text-collapsed)))))
 
 (deftest render-node-includes-data-testid
+  ;; The trailing separator is not a typo and is the pin for rf2-o7p7 (see
+  ;; the block below): a node's testid always carries its path component,
+  ;; and the root's path is empty, so the string ends at the separator. It
+  ;; is what keeps the root node's name off the container's.
   (let [h  (ei/render-node {:value {:a 1}
                             :panel-id :app-db
                             :mount-id "m-42"
@@ -591,7 +603,88 @@
                             :expansion-map {}
                             :opts {}})]
     (is (some? (find-attr h :data-testid
-                          "rf-xray-edn-inspector-app-db-m-42")))))
+                          "rf-xray-edn-inspector-app-db-m-42-")))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-o7p7 — THE CONTAINER TESTID NAMES EXACTLY ONE NODE.
+;;
+;; Two names, for two different things. The widget's outer container is
+;; `[panel-id mount-id]`; a node inside its rendered tree is `[panel-id
+;; mount-id path]`. They used to compose the SAME STRING, because the path
+;; suffix was appended only for a NON-EMPTY path — so the root render-node
+;; at `[]` answered the container's name as well as its own, and one mount
+;; put one testid on two nodes.
+;;
+;; It failed in the direction that reassures. `querySelector` always returns
+;; something, so a helper resolving "the container" got a node and carried
+;; on; WHICH of the two it got was document order. They are not
+;; interchangeable — the container carries the widget chrome, the
+;; measurement `:ref` and `data-rf-mount-id`, the render-node carries the
+;; rendered tree — so a row asserting on geometry through that selector
+;; could pass while measuring the wrong element. A COUNT is the first
+;; instrument that has to care, and W5's first draft duly read 4 panels for
+;; 2 (rf2-d2aj).
+;;
+;; The row is written so that a node coming back is not enough to pass it.
+;; It counts, and it asks every answering node for an attribute only the
+;; container carries — the second assertion is independent of document
+;; order, so neither is carried by the other.
+;; ---------------------------------------------------------------------------
+
+(deftest container-testid-names-exactly-one-node
+  (testing "rf2-o7p7 — the widget's container testid is answered by ONE node,
+            and that node is the container."
+    (let [outer (ei/edn-inspector {:a 1 :b 2} {:panel-id :p})
+          tree  (outer {:a 1 :b 2} {:panel-id :p})
+          cid   (:data-testid (second tree))
+          hits  (nodes-with-attr tree :data-testid cid)]
+      (is (some? cid)
+          "PRECONDITION: the outer container carries a testid at all — the
+           two assertions below are vacuous against a nil name")
+      (is (= 1 (count hits))
+          (str "the container testid names exactly one node. TWO is the "
+               "defect: the root render-node at path [] composed the same "
+               "string, so every count keyed on this selector read double "
+               "and every querySelector took whichever came first. Got "
+               (count hits) " for " (pr-str cid)))
+      (is (every? #(some? (:data-rf-mount-id (second %))) hits)
+          (str "and the selector resolves to the CONTAINER — every node "
+               "answering it carries data-rf-mount-id, which no render-node "
+               "does. This half does not depend on document order, so a "
+               "container that merely happened to come first cannot carry "
+               "it. Kinds answering the name: "
+               (pr-str (mapv #(select-keys (second %)
+                                           [:data-rf-mount-id :data-rf-kind])
+                             hits)))))))
+
+(deftest container-testid-collision-negative-control
+  (testing "rf2-o7p7 — THE DEFECT WRITTEN OUT. Under the pre-fix rule the
+            path suffix was appended only for a non-empty path, so a node at
+            `[]` composed the container's name exactly — and only at `[]`,
+            which is why it survived as long as it did."
+    (let [pre-fix        (fn [panel-id mount-id path]
+                           (str "rf-xray-edn-inspector-"
+                                (name panel-id) "-" mount-id
+                                (when (seq path)
+                                  (str "-" (str/join "/" (map pr-str path))))))
+          container-name (str "rf-xray-edn-inspector-" (name :p) "-" "m")]
+      (is (= container-name (pre-fix :p "m" []))
+          "CONTROL BITES: the old rule gave the root render-node and the
+           container one name between them")
+      (is (not= container-name (pre-fix :p "m" [:a]))
+          "and every non-empty path was already distinct under it, so the
+           collision was the root's alone")
+      (let [shipped (:data-testid
+                       (second (ei/render-node {:value {:a 1}
+                                                :panel-id :p
+                                                :mount-id "m"
+                                                :path []
+                                                :depth 0
+                                                :expansion-map {}
+                                                :opts {}})))]
+        (is (not= container-name shipped)
+            (str "the shipped composer gives the root node a name of its "
+                 "own. Got " (pr-str shipped)))))))
 
 ;; ---- rf2-tzvk9 — triangle hit-box ≥24×24 ---------------------------------
 ;;
@@ -651,7 +744,7 @@
                              :expansion-map {}
                              :opts {:default-expanded-depth 1}})
         tog (find-attr h :data-testid
-                       "rf-xray-edn-inspector-test-m-toggle")]
+                       "rf-xray-edn-inspector-test-m--toggle")]
     (is (some? tog) "collapsed renders carry a toggle span")
     (let [s (-> tog second :style)]
       (is (= ei/triangle-style s)
@@ -666,7 +759,7 @@
                              :expansion-map {k0 {:expanded? true}}
                              :opts {:default-expanded-depth 0}})
         tog (find-attr h :data-testid
-                       "rf-xray-edn-inspector-test-m-toggle")]
+                       "rf-xray-edn-inspector-test-m--toggle")]
     (is (some? tog) "expanded renders carry a toggle span")
     (let [s (-> tog second :style)]
       (is (= ei/triangle-style s)
@@ -682,7 +775,7 @@
                              :expansion-map {}
                              :opts {:default-expanded-depth 5 :max-depth 1}})
         tog (find-attr h :data-testid
-                       "rf-xray-edn-inspector-test-m-toggle")]
+                       "rf-xray-edn-inspector-test-m--toggle")]
     (is (some? tog) "depth-capped renders still carry a toggle span")
     (let [s (-> tog second :style)]
       (is (= ei/triangle-style s)
@@ -721,7 +814,7 @@
                               :path [] :depth 0
                               :expansion-map {k0 {:expanded? true}}
                               :opts {:default-expanded-depth 0}})
-          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m-body")]
+          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m--body")]
       (is (some? body) "expanded map renders a body container")
       (let [s (-> body second :style)]
         (is (= "grid" (:display s))
@@ -747,7 +840,7 @@
                               :path [] :depth 0
                               :expansion-map {k0 {:expanded? true}}
                               :opts {:default-expanded-depth 0}})
-          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m-body")
+          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m--body")
           key-cells   (->> (walk-hiccup body)
                            (filter #(= "key"   (get (second %) :data-rf-cell))))
           value-cells (->> (walk-hiccup body)
@@ -767,7 +860,7 @@
                               :path [] :depth 0
                               :expansion-map {k0 {:expanded? true}}
                               :opts {:default-expanded-depth 0}})
-          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m-body")]
+          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m--body")]
       (is (some? body) "expanded vector renders a body container")
       (let [s (-> body second :style)]
         (is (not= "grid" (:display s))
@@ -825,7 +918,7 @@
                               :path [] :depth 0
                               :expansion-map {k0 {:expanded? true}}
                               :opts {:default-expanded-depth 0}})
-          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m-body")
+          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m--body")
           ;; Filter ONLY this body's direct cells, not the nested
           ;; map's cells.
           direct-children (rest (rest body))]
@@ -847,7 +940,7 @@
                               :path [] :depth 0
                               :expansion-map {k0 {:expanded? true}}
                               :opts {:default-expanded-depth 0}})
-          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m-body")]
+          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m--body")]
       (is (= "0" (-> body second :style :row-gap))))))
 
 ;; ---- toggle handler shape ------------------------------------------------
@@ -905,7 +998,7 @@
                                               (reset! captured event-v))
                                :opts {:default-expanded-depth 2}})
           tog (find-attr h :data-testid
-                         "rf-xray-edn-inspector-test-m2-toggle")
+                         "rf-xray-edn-inspector-test-m2--toggle")
           on-click (-> tog second :on-click)]
       (is (fn? on-click) "toggle glyph must carry an :on-click")
       (when on-click (on-click nil))
@@ -2535,7 +2628,7 @@
                                                 (reset! captured event-v))
                                  :opts {:default-expanded-depth 0}})
         tog     (find-attr h :data-testid
-                           "rf-xray-edn-inspector-app-db-m-toggle")
+                           "rf-xray-edn-inspector-app-db-m--toggle")
         on-click (-> tog second :on-click)]
     (is (fn? on-click))
     (when on-click (on-click nil))

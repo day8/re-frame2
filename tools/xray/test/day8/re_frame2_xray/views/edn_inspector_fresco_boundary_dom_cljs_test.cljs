@@ -608,12 +608,21 @@
 (defn- panel-count
   "How many host panels are on screen.
 
-  COUNTED ON THE HOST PANEL, not on the widget's own container testid, and
-  the first draft of this row got that wrong in a way worth writing down:
-  `testid-for` composes the SAME string for the widget's outer container and
-  for its root render-node at path `[]`, so one mount answers that selector
-  TWICE. `container-node` above never noticed because `querySelector` takes
-  the first match — a count is the first instrument here that has to care."
+  Counted on the HOST PANEL, which is what this row is actually asking about
+  — how many panels are on screen — rather than on the widget nested inside
+  one.
+
+  The first draft counted the widget's container testid instead and read 4
+  for 2, which is worth keeping written down because the cause outlived the
+  draft: `testid-for` composed the SAME string for the widget's outer
+  container and for its root render-node at path `[]`, so one mount answered
+  that selector twice. `container-node` above never noticed, because
+  `querySelector` takes the first match — a count was the first instrument
+  here that had to care. Repaired under rf2-o7p7 (the node testid's path
+  separator is now unconditional, so the root node's name ends at the
+  separator and the container keeps its own), which is why `container-node`
+  can now be relied on to mean the container rather than whichever of the
+  two came first."
   [container]
   (.-length (.querySelectorAll
               container "[data-testid=\"rf-xray-host-panel\"]")))
