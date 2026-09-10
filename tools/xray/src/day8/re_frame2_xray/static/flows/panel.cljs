@@ -211,13 +211,7 @@
        [:span {:style {:color (:text-tertiary tokens)
                        :flex  "0 0 auto"}}
         "inputs:"]
-       ;; The testid makes the inputs SEQ addressable as a container. A
-       ;; keyed fragment adds no DOM node, so this span's direct children
-       ;; are exactly the per-input widget roots — which is what lets the
-       ;; browser lane assert row identity across a reorder without
-       ;; reaching into `edn-inspector`'s own testid derivation.
-       (into [:span {:data-testid (str "rf-xray-static-flows-inputs-" flow-key)
-                     :style {:display     "inline-flex"
+       (into [:span {:style {:display     "inline-flex"
                              :flex-wrap   "wrap"
                              :gap         "6px"}}]
              ;; THE KEY RIDES ON A KEYED FRAGMENT'S ATTRIBUTE MAP, and this

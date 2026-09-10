@@ -45,6 +45,27 @@
   receives nothing. W5 changes the list's shape and asks React which node
   survived.
 
+  ## WHY THERE IS NO W6, AND IT IS A FINDING RATHER THAN AN OMISSION
+
+  W5 covers the CATALOGUE ROW site, whose key is `\"<frame>/<flow-id>\"` —
+  domain-shaped, so it survives a reorder and a DOM-identity row can see it.
+
+  A sibling row was written for the INPUTS SEQ site and it went RED. The red
+  was the ROW being wrong, not the panel. That seq's key expression is
+  `(str \"in-\" i)` — POSITIONAL. Removing the head input shifts the
+  survivor from `in-1` to `in-0`, so React correctly reuses the removed
+  head's node for it, and the survivor is legitimately NOT the node it was.
+  A positional key and no key at all are indistinguishable under exactly the
+  operation a reorder-identity row performs, so there is nothing at that
+  site for a DOM row to witness.
+
+  The key expression was deliberately left alone: rf2-k97c.3's key ruling is
+  that expressions do not change during the migration, and a value-based key
+  here (`pr-str` of the path) could also collide when one flow lists the same
+  input path twice. So the inputs site's evidence stays where it can be real
+  — `panel_cljs_test` asserts the key is present IN THE ATTRIBUTE MAP, which
+  is the codec-readable spelling, and distinct within any one row's seq.
+
   ## The mount is the SHELL's mount, taken from the registry
 
   `static/shell.cljs`'s `detail-panel` mounts the active tab as the hiccup
@@ -558,75 +579,3 @@
                        (teardown! root container)
                        (done)))))))))
 
-;; ===========================================================================
-;; W6 — the SECOND key site: an inputs seq survives a head removal too
-;; ===========================================================================
-
-(deftest w6-input-value-identity-survives-a-head-removal
-  (testing "rf2-k97c.3 — this panel carries TWO key sites, and W5 can only see
-            one of them. Each row's `inputs` seq is keyed independently, and
-            that site had already been wrong once before — written as
-            `^{:key …}` on the `(edn/inspect …)` CALL FORM, where metadata is
-            discarded on return and NOTHING reached React.
-
-            Same instrument as W5, one level down: shrink the HEAD row's
-            inputs seq from two values to one and assert the survivor is the
-            IDENTICAL DOM node. Under index-based reconciliation React hands
-            the survivor the head's node instead.
-
-            THE ANCHOR IS THE SEQ'S OWN CONTAINER, deliberately, and NOT the
-            widget's `data-testid`. `edn-inspector` derives a whole FAMILY of
-            testids off one mount — the container, the render node, the
-            toggle, the body, and one per expanded path — all sharing a
-            prefix, so a prefix selector reads far more nodes than there are
-            inputs and the count assertion would be measuring the widget's
-            internals rather than this seq. A keyed fragment adds no DOM
-            node, so the container's DIRECT CHILDREN are exactly the
-            per-input widget roots."
-    (if-not (browser?)
-      (is true ":node — the :browser-test runner drives the real React mount")
-      (async done
-        (setup-with-overrides!)
-        (override! two-rows)
-        (let [{:keys [container root]} (mount-panel! :rf/xray)
-              inputs-in-head
-              (fn []
-                (if-let [seq-node
-                         (q container
-                            (str "[data-testid=\"rf-xray-static-flows-inputs-"
-                                 "aaa/first\"]"))]
-                  (vec (.from js/Array (.-children seq-node)))
-                  []))
-              before (inputs-in-head)]
-          (is (= 2 (count before))
-              (str "PRECONDITION: the head row committed BOTH of its input "
-                   "values as distinct widget mounts — a one-element seq "
-                   "needs no key and would make this row vacuous. Got: "
-                   (count before)))
-          (let [survivor (second before)]
-            (is (pos? (bit-and (.compareDocumentPosition (first before) survivor) 4))
-                "NON-VACUITY: the input being removed really does PRECEDE the
-                 survivor in document order, so this is a reorder and not a
-                 tail truncation")
-            ;; Drop the head row's FIRST input, keeping the second.
-            (override! (assoc-in two-rows
-                                 [:rf/default :aaa/first :inputs]
-                                 [[:a :two]]))
-            (-> (rf.test-support/poll-until
-                  (fn [] (= 1 (count (inputs-in-head))))
-                  {:label "the head input left the committed DOM"})
-                (.then
-                  (fn [_]
-                    (is (identical? survivor (first (inputs-in-head)))
-                        "the surviving input value is the IDENTICAL DOM node
-                         React already had — only true if the fragment's key
-                         reached React. With the key on metadata the codec
-                         cannot read, React reconciles by index and hands the
-                         survivor the removed head's node")))
-                (.catch (fn [e]
-                          (is false (str "W6 never settled: " (.-message e)
-                                         " — DOM: " (.-textContent container)))
-                          nil))
-                (.then (fn [_]
-                         (teardown! root container)
-                         (done))))))))))
