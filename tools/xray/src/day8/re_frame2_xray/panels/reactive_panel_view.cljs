@@ -292,8 +292,13 @@
   "Render one event-bundle edge. Changed → solid accent line + arrowhead
   (propagates). Unchanged → dashed dim line, NO arrowhead (cut)."
   [{:keys [from-id to-id x1 y1 x2 y2 changed? kind]} i]
-  ^{:key (str "edge-" kind "-" i)}
-  [:line (cond-> {:data-testid (str "rf-xray-reactive-edge-" (name kind))
+  ;; rf2-k97c.3 — the React key is a LITERAL `:key` in the attribute map,
+  ;; not reader metadata on the returned vector. Fresco's codec reads the
+  ;; attr-map slot only (`codec.cljs` head table: "literal `:key` in the
+  ;; attr map"), so a metadata key silently degrades to index-based
+  ;; reconciliation once this subtree renders inside a boundary.
+  [:line (cond-> {:key (str "edge-" kind "-" i)
+                  :data-testid (str "rf-xray-reactive-edge-" (name kind))
                   :data-edge-changed (str (boolean changed?))
                   :data-edge-from (str from-id)
                   :data-edge-to (str to-id)
@@ -324,7 +329,12 @@
   Clicking the node jumps to the sub's registration source."
   [{:keys [id slug label changed? shared-count coord x y w h kind]}]
   (let [click (when coord (fn [e] (open-source! coord e)))]
-    [:g (cond-> {:data-testid (str "rf-xray-reactive-node-" (name kind) "-" slug)
+    [:g (cond-> {;; rf2-k97c.3 — the sequence key rides in the attribute
+                 ;; map. `flow-graph` CALLS this fn (a plain fn in hiccup
+                 ;; head position is a loud error under Fresco), and a
+                 ;; call form discards reader metadata on return anyway.
+                 :key slug
+                 :data-testid (str "rf-xray-reactive-node-" (name kind) "-" slug)
                  :data-node-changed (str (boolean changed?))
                  :data-node-id (str id)}
           click (assoc :on-click click
@@ -376,7 +386,9 @@
                     :else        "← props")
         timing    (elapsed-label elapsed-ms)
         meta-line (->> [cause timing] (remove nil?) (string/join " · "))]
-    [:g {:data-testid (str "rf-xray-reactive-view-node-" slug)
+    [:g {;; rf2-k97c.3 — attribute-map key; see `sub-node`.
+         :key slug
+         :data-testid (str "rf-xray-reactive-view-node-" slug)
          :data-node-id (str id)
          :data-rf-xray-view-id (str id)
          :on-mouse-enter (fn [_e] (apply-highlight! id))
@@ -431,12 +443,16 @@
         (into [:g {:data-testid "rf-xray-reactive-edges"}]
               (map-indexed (fn [i e] (edge e i)) (:edges g)))
         (appdb-node (:appdb g))
+        ;; rf2-k97c.3 — `sub-node` / `view-node` are CALLED, never used as
+        ;; a hiccup head: a plain fn in head position is a loud error in a
+        ;; Fresco body and a silent extra component under Reagent. Each
+        ;; carries its own attribute-map `:key`.
         (into [:g {:data-testid "rf-xray-reactive-l1-nodes"}]
-              (map (fn [n] ^{:key (:slug n)} [sub-node n]) (-> g :nodes :l1)))
+              (map sub-node (-> g :nodes :l1)))
         (into [:g {:data-testid "rf-xray-reactive-l2-nodes"}]
-              (map (fn [n] ^{:key (:slug n)} [sub-node n]) (-> g :nodes :l2)))
+              (map sub-node (-> g :nodes :l2)))
         (into [:g {:data-testid "rf-xray-reactive-view-nodes"}]
-              (map (fn [n] ^{:key (:slug n)} [view-node n]) (-> g :nodes :view)))]])))
+              (map view-node (-> g :nodes :view)))]])))
 
 ;; ---- hoisted row-level styles (rf2-gjiog · audit F9) -------------------
 ;;
@@ -492,8 +508,13 @@
 (defn- list-row
   "One teardown-list row: a small tinted swatch + identifier + a muted
   trailing tag, matching the Figma `divide-y` list rows."
-  [{:keys [testid swatch-token primary tag]}]
-  [:div {:data-testid testid
+  [{:keys [testid swatch-token primary tag row-key]}]
+  [:div {;; rf2-k97c.3 — `row-key` is the caller's React key, carried in
+         ;; the attribute map because this fn is CALLED from a `for`
+         ;; rather than used as a hiccup head. nil when the caller has
+         ;; no sequence to key, which the codec treats as absent.
+         :key row-key
+         :data-testid testid
          :style list-row-style}
    [:span {:style (assoc list-row-swatch-style-base
                          :background (with-alpha swatch-token 20))}]
@@ -513,12 +534,12 @@
              (for [{:keys [view-id]} rows
                    :let [meta (when view-id (rf/handler-meta {:source :store :kind :view :id view-id}))
                          nm   (view-display-name view-id meta)]]
-               ^{:key (str view-id)}
-               [list-row {:testid (str "rf-xray-reactive-unmounted-row-"
+               (list-row {:row-key (str view-id)
+                          :testid (str "rf-xray-reactive-unmounted-row-"
                                        (id-slug view-id))
                           :swatch-token :error
                           :primary nm
-                          :tag "unmounted"}]))
+                          :tag "unmounted"})))
        [:div {:data-testid "rf-xray-reactive-unmounted-empty"
               :style empty-placeholder-style}
         "(no views unmounted)"])]))
@@ -533,12 +554,12 @@
        (into [:div {:data-testid "rf-xray-reactive-destroyed-list"
                     :style list-card-style}]
              (for [{:keys [sub-id]} rows]
-               ^{:key (str sub-id)}
-               [list-row {:testid (str "rf-xray-reactive-destroyed-row-"
+               (list-row {:row-key (str sub-id)
+                          :testid (str "rf-xray-reactive-destroyed-row-"
                                        (id-slug sub-id))
                           :swatch-token :dim
                           :primary (format-id sub-id)
-                          :tag "no readers remaining"}]))
+                          :tag "no readers remaining"})))
        [:div {:data-testid "rf-xray-reactive-destroyed-empty"
               :style empty-placeholder-style}
         "(no subscriptions destroyed)"])
@@ -631,8 +652,8 @@
                       :style       list-card-style}]
                (for [{:keys [query-v] :as row} rows
                      :let [ident (unchanged-row-identity row)]]
-                 ^{:key (str ident)}
-                 [:div {:data-testid (str "rf-xray-reactive-unchanged-row-"
+                 [:div {:key (str ident)
+                        :data-testid (str "rf-xray-reactive-unchanged-row-"
                                           (concrete-query-selector ident))
                         :data-query-v (str query-v)
                         :style       unchanged-row-style}
@@ -699,42 +720,50 @@
 ;; ---- panel root --------------------------------------------------------
 
 (defn reactive-panel
-  "Plain Reagent fn — invoked from `reactive-panel/Panel` (the public
-  facade reg-view) via a function call so the React-context frame tier
-  resolves to `:rf/xray` inside the leaf's subscribes.
+  "The panel's hiccup projection — a PURE FUNCTION of the dispatcher and
+  the `:rf.xray/reactive-data` VALUE. No read of its own.
 
   Renders the left → right REACTIVE FLOW graph (rf2-ad7zx.6) followed by
   the UNMOUNTED VIEWS + DESTROYED SUBSCRIPTIONS sections and the closing
   legend.
 
-  `dispatch` (rf2-16y3x) is the frame-aware dispatcher the facade `Panel`
-  reg-view injects and threads down — the panel-local unchanged-subs
-  disclosure toggle's deferred `:on-click` calls it (never a bare global
-  `rf/dispatch`) so the click lands on the surrounding instance frame after
-  render scope unwinds. The 0-arity is a test convenience (plain-fn mounts
-  that never click the toggle); production always threads a real dispatcher."
-  ([] (reactive-panel nil))
-  ([dispatch]
-   (let [data @(rf/subscribe [:rf.xray/reactive-data])]
-    [:section {:data-testid "rf-xray-reactive"
-               :style {:height "100%"
-                       :display "flex"
-                       :flex-direction "column"
-                       :background (:bg-2 tokens)
-                       :color (:text-primary tokens)
-                       :font-family sans-stack
-                       :font-size "14px"}}
-     [:div {:style {:flex 1 :overflow "auto"}}
-      (if (not (:has-event-bundle? data))
-        [:div {:data-testid "rf-xray-reactive-pipeline-empty"
-               :style {:padding "16px"}}
-         (empty-state data)]
-        [:div {:data-testid "rf-xray-reactive-pipeline"
-               :style {:padding "16px"}}
-         [:section {:data-testid "rf-xray-reactive-flow-section"}
-          (section-label "flow" "Reactive Flow" {:title-case? true})
-          (flow-graph data)]
-         (unchanged-subs-section dispatch data)
-         (unmounted-views-section data)
-         (destroyed-subs-section data)
-         (legend)])]])))
+  rf2-k97c.3 — the read moved UP into `reactive-panel/Panel`, which is now
+  an `rf.fresco/defview` boundary reading `:rf.xray/reactive-data` with
+  `rf.fresco/sub`. Two things forced the split and neither is stylistic.
+  A boundary's body may only run inside a React render window, so `(Panel)`
+  is no longer a callable that answers hiccup; and `intent/with-frame` —
+  which the collector wraps every body in — binds core's REFUSAL tier, so
+  an ambient `@(rf/subscribe …)` left down here would not resolve
+  elsewhere, it would refuse. This is `defview`'s own documented
+  extract-a-helper spelling, and it keeps every hiccup-walking unit row
+  drivable: the row supplies the value the boundary would have read.
+
+  `dispatch` (rf2-16y3x) is the frame-aware dispatcher — `(:dispatch
+  (rf/capture-frame))` inside the boundary — threaded down so the
+  panel-local unchanged-subs disclosure toggle's deferred `:on-click`
+  lands on the surrounding instance frame after render scope unwinds,
+  never on a bare global `rf/dispatch` that would leak to `:rf/default`.
+  nil is legal for a mount that never clicks the toggle."
+  [dispatch data]
+  [:section {:data-testid "rf-xray-reactive"
+             :style {:height "100%"
+                     :display "flex"
+                     :flex-direction "column"
+                     :background (:bg-2 tokens)
+                     :color (:text-primary tokens)
+                     :font-family sans-stack
+                     :font-size "14px"}}
+   [:div {:style {:flex 1 :overflow "auto"}}
+    (if (not (:has-event-bundle? data))
+      [:div {:data-testid "rf-xray-reactive-pipeline-empty"
+             :style {:padding "16px"}}
+       (empty-state data)]
+      [:div {:data-testid "rf-xray-reactive-pipeline"
+             :style {:padding "16px"}}
+       [:section {:data-testid "rf-xray-reactive-flow-section"}
+        (section-label "flow" "Reactive Flow" {:title-case? true})
+        (flow-graph data)]
+       (unchanged-subs-section dispatch data)
+       (unmounted-views-section data)
+       (destroyed-subs-section data)
+       (legend)])]])

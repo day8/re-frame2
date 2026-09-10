@@ -915,8 +915,14 @@
   `:epoch` tab supersedes the retired `:event` tab post rf2-5gl5r
   (Epoch panel is the canonical 'what happened in this epoch' surface)."
   {:epoch           epoch-panel/Panel
-   :app-db          app-db-diff/Panel
-   :views           reactive-panel/Panel
+   ;; rf2-k97c.3 — the app-db and Views panels' roots are now Fresco
+   ;; boundaries (React function components); `reg-l4-tab!` stores the
+   ;; `as-component` BRIDGE, which is what `detail-panel` mounts as a
+   ;; hiccup head. The routing entry stays `Panel` because that slice
+   ;; kept the natural name ON the bridge (the divergence the mayor
+   ;; ruled on 2026-09-10; step 3 converges both onto this spelling).
+   :app-db          app-db-diff/Panel-bridge
+   :views           reactive-panel/Panel-bridge
    :trace           trace/Panel
    :machines        machine-inspector/Panel
    :routing         routing/Panel})

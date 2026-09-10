@@ -127,10 +127,16 @@
       (is (frame-provider-wrap? (captured-tree capture) app-db-diff/Panel)))))
 
 (deftest mount-reactive-panel-wraps-in-frame-provider
+  ;; rf2-k97c.3 — the expected view is `Panel-bridge`. `Panel` is now a
+  ;; Fresco boundary (a React function component) and `render-panel!`
+  ;; builds a REAGENT tree, so the bridge is what the mount fn hands it.
+  ;; The shape this row pins — frame-provider :rf/xray wrapping the view
+  ;; — is unchanged, which is the point: the bridge takes its frame from
+  ;; the same React context the provider writes.
   (let [[capture _ render-stub] (make-render-stub)]
     (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-reactive-panel! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture) reactive-panel/Panel)))))
+      (is (frame-provider-wrap? (captured-tree capture) reactive-panel/Panel-bridge)))))
 
 (deftest mount-trace-wraps-in-frame-provider
   (let [[capture _ render-stub] (make-render-stub)]

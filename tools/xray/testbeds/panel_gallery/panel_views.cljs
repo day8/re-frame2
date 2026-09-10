@@ -128,7 +128,13 @@
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-reactive-card"}
-   [reactive-panel/Panel]])
+   ;; rf2-k97c.3 — `Panel-bridge`. This gallery cell is a Reagent tree, and
+   ;; `reactive-panel/Panel` is now a Fresco boundary (a React function
+   ;; component), which `defview`'s contract forbids mounting as a Reagent
+   ;; hiccup head. The bridge is Fresco's `as-component` door and takes the
+   ;; frame from React context, which the variant `frame-provider` above
+   ;; already wrote — so the variant isolation this ns documents is intact.
+   [reactive-panel/Panel-bridge]])
 
 (defn- trace-tab-panel
   "Embedded mount of the Trace tab body — the trace panel."

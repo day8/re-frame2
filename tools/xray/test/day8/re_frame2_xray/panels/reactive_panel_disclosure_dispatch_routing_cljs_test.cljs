@@ -3,11 +3,22 @@
   disclosure controls (rf2-16y3x).
 
   Sibling in shape to `settings/popup_dispatch_routing_cljs_test.cljs`:
-  it mounts the REAL facade `reg-view` (not the plain `reactive-panel`
-  fn), plucks a deferred `:on-click` off the rendered hiccup, and invokes
-  it OUTSIDE any `with-frame` binding — reproducing the browser reality
-  that a React click fires AFTER render commits and the ambient frame
-  scope has unwound.
+  it plucks a deferred `:on-click` off the rendered hiccup and invokes it
+  OUTSIDE any `with-frame` binding — reproducing the browser reality that
+  a React click fires AFTER render commits and the ambient frame scope has
+  unwound.
+
+  rf2-k97c.3 — the facade's `Panel` is now an `rf.fresco/defview` BOUNDARY,
+  a real React function component whose body may only run inside a React
+  render window, so `reactive-panel/Panel` is no longer callable from the node
+  lane. `render-panel` below REPRODUCES THE BOUNDARY EXACTLY instead — the
+  same `(:dispatch (rf/capture-frame))` dispatcher and the same one
+  `:rf.xray/reactive-data` read, both under the same `with-frame` — and
+  hands them to the pure projection. The subject of these rows is
+  unchanged and is if anything sharper: the dispatcher whose frame-binding
+  they defend is now `capture-frame`'s rather than `reg-view`'s injected
+  name, and `capture-frame` is precisely the door documented for a
+  dispatch that fires long after the render extent has unwound.
 
   ## The two bugs these mounted tests defend against
 
@@ -17,9 +28,11 @@
      resolution falls through to `:rf/default` (or emits
      `:rf.error/no-frame-context`), so the click never flipped Xray's
      `:reactive/show-unchanged?` and the disclosure stayed collapsed.
-     The fix threads the facade `reg-view`-injected frame-aware
-     `dispatch` down through `reactive-panel` → `unchanged-subs-section`,
-     so the deferred click lands on the surrounding instance frame.
+     The fix threads a frame-aware `dispatch` down through
+     `reactive-panel` → `unchanged-subs-section`, so the deferred click
+     lands on the surrounding instance frame. Since rf2-k97c.3 that
+     dispatcher is `(:dispatch (rf/capture-frame))`, taken inside the
+     boundary, rather than the name `reg-view` used to inject.
 
   2. **Settings pin had no UI.** The `:general :show-unchanged-subs?`
      pin (spec/021 §3.4) lost its control on 2026-05-27 while the slot
@@ -27,14 +40,14 @@
 
   The earlier registry tests dispatched inside a manually-bound
   `:rf/xray` frame, which MASKED the click failure (they proved plumbing,
-  not the deferred-click path). These tests render the actual `Panel` and
-  fire its real deferred handler frameless, so the leak reproduces."
+  not the deferred-click path). These tests drive the real boundary's own dispatcher and read, then
+  fire the real deferred handler frameless, so the leak reproduces."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
             [re-frame.test-helpers :as rf.test-helpers]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.panels.reactive-panel :as facade]
+            [day8.re-frame2-xray.panels.reactive-panel-view :as view]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; A test-only event that writes the `:epoch-history` db slot the REAL
@@ -86,8 +99,15 @@
        [{:epoch-id     :ep-1
          :trace-events [(skip-ev :user/name) (skip-ev :cart/total)]}]])))
 
-(defn- render-panel [frame-id]
-  (rf/with-frame frame-id (facade/Panel)))
+(defn- render-panel
+  "The boundary `reactive-panel/Panel` reproduced for the node lane — same
+  dispatcher door, same single read, same frame — handed to the pure
+  projection. See the ns docstring's rf2-k97c.3 paragraph for why this is
+  not `reactive-panel/Panel` any more."
+  [frame-id]
+  (rf/with-frame frame-id
+    (view/reactive-panel (:dispatch (rf/capture-frame))
+                         @(rf/subscribe [:rf.xray/reactive-data]))))
 
 (defn- toggle-on-click [tree]
   (:on-click (second (rf.test-helpers/find-by-testid tree "rf-xray-reactive-unchanged-toggle"))))
