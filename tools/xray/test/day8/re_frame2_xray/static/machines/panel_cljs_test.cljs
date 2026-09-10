@@ -37,7 +37,8 @@
             [day8.re-frame2-xray.static.machines.instances-jump :as jump]
             [day8.re-frame2-xray.static.machines.persistence :as ls]
             [day8.re-frame2-xray.static.persistence :as static-persistence]
-            [day8.re-frame2-xray.static.shell :as static-shell]
+            [day8.re-frame2-xray.test-helpers.static-shell-tree
+             :as static-shell-tree]
             [day8.re-frame2-xray.test-helpers.static-machines-tree
              :as machines-tree]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
@@ -113,7 +114,7 @@
     (xray-setup!)
     (seed-machines! [:m/a :m/b])
     (rf/with-frame :rf/xray
-      (let [tree  (static-shell/surface)
+      (let [tree  (static-shell-tree/surface-tree)
             slot  (rf.test-helpers/find-by-testid
                     tree "rf-xray-static-detail-panel-machines")
             tab   (panel-registry/tab-by-id :static :machines)

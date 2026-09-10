@@ -61,7 +61,8 @@
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.static.machines.instances-jump :as jump]
-            [day8.re-frame2-xray.static.shell :as static-shell]
+            [day8.re-frame2-xray.test-helpers.static-shell-tree
+             :as static-shell-tree]
             [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as e2e]
             [day8.re-frame2-xray.test-helpers.host-fixtures.deep-machine
              :as deep-machine]
@@ -79,13 +80,17 @@
   `static-shell/detail-panel` case-switch on the right axis. Returns
   the expanded hiccup tree.
 
-  The view-fn `static-shell/surface` is `reg-view`-registered so its
-  subscribes resolve to `:rf/xray` when invoked inside a
-  `with-frame :rf/xray` body."
+  RE-POINTED BY rf2-k97c.3. `static-shell/surface` is now an
+  `rf.fresco/defview`, so it is no longer a callable that answers
+  hiccup and `[static-shell/surface]` is no longer a hiccup head the
+  node-lane walker can expand. `test-helpers.static-shell-tree`
+  reproduces the four boundaries' reads and composes the shell through
+  its own exported `*-tree` fns, so what this walk sees is the shipped
+  chrome; the subject of the suite is unchanged."
   []
   (rf/dispatch-sync [:rf.xray/set-mode :static] {:frame :rf/xray})
   (rf/with-frame :rf/xray
-    (rf.test-helpers/expand-tree [static-shell/surface])))
+    (rf.test-helpers/expand-tree (static-shell-tree/surface-tree))))
 
 (defn- render-machines-panel
   "Render the Machines sub-tab's own tree under `:rf/xray`, off the LIVE
