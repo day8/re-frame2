@@ -91,9 +91,35 @@
   (let [idx (.indexOf line ";")]
     (if (neg? idx) line (subs line 0 idx))))
 
+;; POSSESSIVE ON PURPOSE (rf2-ep7u) — do not "simplify" this back to the
+;; natural greedy spelling #"\"(?:\\.|[^\"\\])*\"".
+;;
+;; THE DEFECT. Java compiles a quantified group to a `Loop` node and matches a
+;; greedy loop by RECURSING once per iteration, so scanning an N-character
+;; quoted span costs N stack frames. Past a threshold set by the thread's stack
+;; size the greedy form throws `StackOverflowError` — and because the throw
+;; happens inside the `for` that builds `offenders`, it surfaces as
+;; `expected: (empty? offenders)` beneath this lint's own `:rf/default` prose,
+;; i.e. it reads exactly like a genuine floor finding on a PR that introduced
+;; none. It is DETERMINISTIC in span length; what varies between runs is the
+;; stack, which is why re-running "fixed" it and why re-running is not a remedy.
+;; This lint's step also runs FIRST in test.yml's `jvm-repo-source-walks` job,
+;; whose steps carry no `if:`, so the crash SKIPS the six walks behind it.
+;;
+;; THE REPAIR IS THE SAME LANGUAGE, not merely a faster one. The two branches
+;; are DISJOINT — `[^\"\\]` excludes both the backslash and the quote, `\\.`
+;; requires a backslash — so at most one applies at any position and the loop
+;; never has a choice to backtrack into. Undoing an iteration could only matter
+;; if it let the closing `\"` match, and it cannot: undoing a `\\.` leaves the
+;; cursor on a backslash, undoing a `[^\"\\]` leaves it on a non-quote
+;; character, and `\"` matches neither. Possessive quantifiers compile to a node
+;; that ITERATES, so the scan is constant-stack at any length. Checked
+;; empirically as well: over the 371,268 lines of the real corpus the two forms
+;; produce identical output on every line, with zero disagreements.
 (def ^:private string-literal-re
-  "A double-quoted Clojure string span, `\\\"`-escapes included."
-  #"\"(?:\\.|[^\"\\])*\"")
+  "A double-quoted Clojure string span, `\\\"`-escapes included. Possessive so
+  the scan cannot overflow the stack on a long line — see the comment above."
+  #"\"(?:[^\"\\]++|\\.)*+\"")
 
 (defn- strip-string-literals
   "Replace every double-quoted string span on the line with a space, so a
@@ -186,3 +212,61 @@
                "`:rf/default` is legal only as an EXPLICIT, registered + "
                "selected frame id):\n  "
                (str/join "\n  " offenders))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-ep7u — rows that grade THE INSTRUMENT rather than the corpus.
+;;
+;; The lint above walks a corpus that changes under it, so it cannot pin its own
+;; scanner. These two do. The first is the crash; the second is the contract the
+;; crash fix must not buy its way out of.
+;; ---------------------------------------------------------------------------
+
+(defn- long-span
+  "`n` characters of string CONTENT — the thing whose length drove the old
+  pattern's recursion depth."
+  [n]
+  (str/join (repeat n "x")))
+
+(deftest string-literal-strip-is-constant-stack
+  (testing "a long quoted span is STRIPPED rather than overflowing the stack
+            (rf2-ep7u). The superseded greedy group recursed once per character
+            of span, so this threw `StackOverflowError` — and did it under
+            `expected: (empty? offenders)`, reading as a floor finding. 20000 is
+            an order of magnitude past the longest span in the real corpus and
+            far past any plausible thread stack, so restoring the greedy form
+            turns this row RED rather than leaving it a hollow pass."
+    (is (= "(def x  )"
+           (strip-string-literals (str "(def x \"" (long-span 20000) "\")")))))
+
+  (testing "the escape branch is constant-stack too — a long span made ENTIRELY
+            of `\\\\x` escapes exercises the other alternative of the group."
+    (is (= "(def x  )"
+           (strip-string-literals
+             (str "(def x \"" (str/join (repeat 10000 "\\x")) "\")"))))))
+
+(deftest string-literal-strip-preserves-the-lint-contract
+  (testing "`:rf/default` inside string DATA is stripped, so it is not read as a
+            live positional floor — the false positive the strip exists to
+            remove (rf2-wwt8a3 MCP descriptor prose)."
+    (is (empty? (offending-lines
+                  "(def hint \"-> {:frames [:rf/default :stories]}\")"))))
+
+  (testing "and it is still stripped when the span is LONG. A repair that bought
+            constant stack by declining to scan long lines would pass the crash
+            row above and let this false positive straight back in."
+    (is (empty? (offending-lines
+                  (str "(def hint \"" (long-span 3000)
+                       " [:rf/default :stories]\")")))))
+
+  (testing "a live floor is still REPORTED — all three banned shapes. The strip
+            may only reduce false positives, never mask a genuine floor."
+    (is (seq (offending-lines "(defwrapper foo ([id] [:rf/default id]))")))
+    (is (seq (offending-lines "(let [f (or (:frame opts) :rf/default)] f)")))
+    (is (seq (offending-lines
+               "(defn g [{:keys [frame-id] :or {frame-id :rf/default}}] frame-id)"))))
+
+  (testing "a live floor sitting AFTER a long string span on the same line is
+            still reported — the strip must run to completion and then leave the
+            code outside it intact."
+    (is (seq (offending-lines
+               (str "(def hint \"" (long-span 3000) "\") [:rf/default id]"))))))
