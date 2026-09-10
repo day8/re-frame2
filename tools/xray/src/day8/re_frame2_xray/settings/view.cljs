@@ -356,8 +356,8 @@
            :style       (field-style)}
      [:span {:style (label-style)} "Click-to-source links open in"]
      (for [{:keys [id value label]} editor-override-options]
-       ^{:key id}
-       [:label {:style {:display "flex" :align-items "center" :gap "8px"
+       [:label {:key   id
+                :style {:display "flex" :align-items "center" :gap "8px"
                         :cursor "pointer"
                         :font-size (:body type-scale)
                         :color (:text-primary tokens)}}
@@ -478,8 +478,8 @@
       ;; `(xray/popout!)` API, not via this panel-position radio.
       (for [[pos label] [[:right-rail "Right rail (inline)"]
                          [:fullscreen "Fullscreen overlay"]]]
-        ^{:key pos}
-        [:label {:style {:display "flex" :align-items "center" :gap "8px"
+        [:label {:key   pos
+                 :style {:display "flex" :align-items "center" :gap "8px"
                          :cursor  "pointer"
                          :font-size (:body type-scale)
                          :color   (:text-primary tokens)}}
@@ -869,8 +869,8 @@
            (apply concat
                   (for [{:keys [group rows]} keybinding-rows]
                     (concat
-                      [^{:key (str "g-" group)}
-                       [:div {:style {:padding     "8px 10px"
+                      [[:div {:key   (str "g-" group)
+                              :style {:padding     "8px 10px"
                                       :background  (:bg-1 tokens)
                                       :color       (:text-tertiary tokens)
                                       :font-size   (:caption type-scale)
@@ -882,8 +882,8 @@
                         group]]
                       (map-indexed
                         (fn [idx [chord action]]
-                          ^{:key (str group "-" idx)}
-                          [:div {:style (keybinding-table-row-style (odd? idx))}
+                          [:div {:key   (str group "-" idx)
+                                 :style (keybinding-table-row-style (odd? idx))}
                            [:span {:style {:font-family mono-stack
                                            :color       (:text-primary tokens)
                                            :font-size   (:body type-scale)}}
