@@ -176,9 +176,9 @@ Fresco gives you exactly one escape and it is deliberately plain:
   other return, `nil` included, is ignored. That *is* the guard, expressed as
   data-with-a-filter:
 
-  ```clojure
-  {:on-click (h/event [e] (.preventDefault e) (when ok? [:save]))}
-  ```
+    ```clojure
+    {:on-click (h/event [e] (.preventDefault e) (when ok? [:save]))}
+    ```
 
 - **Pure imperative work whose return is irrelevant → a plain function.** It
   crosses to React by identity and Fresco does not touch it. This is legal and
