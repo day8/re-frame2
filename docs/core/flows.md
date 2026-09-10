@@ -374,19 +374,19 @@ Flows [fail loud](glossary.md#fail-loud-not-silent) and early. Almost everything
 - **`:rf.error/no-frame-context`** — a `reg-flow` with no surrounding `with-frame` scope and no `:frame` metadata key. The framework won't guess a frame; give it one.
 - **`:rf.error/flow-cycle`** — flow A reads B's output and B reads A's (directly or through a chain). The thrown `ex-data` carries `:cycle`, an ordered vector of flow ids with a closing repeat naming the loop, e.g. `[:a :b :a]`. Flows are a DAG; break the cycle.
 
-  ```clojure
-  (rf/reg-flow :a {:inputs [[:b]] :output-path [:a]} identity)
-  (rf/reg-flow :b {:inputs [[:a]] :output-path [:b]} identity)
-  ;; → ex-info ":rf.error/flow-cycle" {:cycle [:a :b :a]}
-  ```
+    ```clojure
+    (rf/reg-flow :a {:inputs [[:b]] :output-path [:a]} identity)
+    (rf/reg-flow :b {:inputs [[:a]] :output-path [:b]} identity)
+    ;; → ex-info ":rf.error/flow-cycle" {:cycle [:a :b :a]}
+    ```
 
 - **`:rf.error/flow-path-overlap`** — two flows in the same frame whose `:output-path`s stand in a prefix relationship (identical paths included). Two flows writing the same slot would race with no defined order, so the framework rejects the second at registration rather than let one silently clobber the other. Sibling paths under a shared parent — `[:x :y]` and `[:x :z]` — are *fine*; only a genuine prefix overlap is an error.
 
-  ```clojure
-  (rf/reg-flow :a {:inputs [[:w]] :output-path [:x]} identity)
-  (rf/reg-flow :b {:inputs [[:h]] :output-path [:x]} identity)
-  ;; → ex-info ":rf.error/flow-path-overlap"  ([:x] vs [:x])
-  ```
+    ```clojure
+    (rf/reg-flow :a {:inputs [[:w]] :output-path [:x]} identity)
+    (rf/reg-flow :b {:inputs [[:h]] :output-path [:x]} identity)
+    ;; → ex-info ":rf.error/flow-path-overlap"  ([:x] vs [:x])
+    ```
 
 - **`:rf.error/flow-frame-not-live`** — `reg-flow` against a frame that was never created or has already been destroyed. The framework won't seat flow state on a dead frame (a later frame reusing that id would inherit the ghost). `clear-flow`, by contrast, is permissive on an absent frame — it just no-ops, so teardown stays idempotent.
 - **`:rf.error/flow-bad-marks`** — a malformed `:sensitive` / `:large` declaration (a non-vector axis, a non-path entry, or the boolean `:sensitive?` spelling). Rejected fail-closed, as covered in [Classifying a flow's output](#classifying-a-flows-output).
