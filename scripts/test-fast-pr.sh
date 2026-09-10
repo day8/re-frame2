@@ -324,6 +324,7 @@ is_doc_surface_path() {
     *.md) return 0 ;;
     mkdocs.yml|mkdocs_hooks.py|requirements.txt) return 0 ;;
     scripts/check_readme_links.py|scripts/check_doc_slugs.py) return 0 ;;
+    scripts/check_flattened_lists.py) return 0 ;;
     scripts/check_provenance_pins.py) return 0 ;;
     scripts/check_ep_status_sync.py|scripts/check_runtime_subsystem_grading.py) return 0 ;;
     scripts/_test_fixtures/check_readme_links/*|scripts/_test_fixtures/check_doc_slugs/*) return 0 ;;
@@ -1362,6 +1363,19 @@ if [ "$run_docs" = true ]; then
 
   run "docs corpus anchor validator" "python scripts/check_doc_slugs.py" \
     python "$spine_root/scripts/check_doc_slugs.py"
+
+  # Flattened nested lists (rf2-gyq4).  Neither gate above can see this class
+  # — a flattened list is valid markup with no broken target and no anchor —
+  # so this is the only thing in the repo that renders the corpus and reads
+  # its list nesting.  CI runs it ALWAYS-ON in verify-readme-links; here it
+  # sits in the classifier-gated documentation tier with its siblings, so
+  # cite CI rather than a green spine for a diff the classifier did not call
+  # documentation.
+  run "flattened-list gate self-test" "python scripts/check_flattened_lists.py --self-test" \
+    python "$spine_root/scripts/check_flattened_lists.py" --self-test
+
+  run "flattened-list gate" "python scripts/check_flattened_lists.py" \
+    python "$spine_root/scripts/check_flattened_lists.py"
 
   # Provenance pins (rf2-kqac1).  This repo rebase-merges, so a Fresco page
   # that pins a measurement to its own authored SHA is stranded the moment its
