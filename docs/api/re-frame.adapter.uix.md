@@ -156,6 +156,7 @@ Three things hold for that head, and they are the point of using the registry ra
     - `:rf.error/frame-provider-given-id` when given an `:id` (the ENSURE key — use `frame-root`)
 
     Children ride the idiomatic `$` trailing-args channel. Pass them after the prop map, as for any other UIx component (there is no `:children` prop-map key).
+
 - **Example**:
   ```clojure
   ($ uix-adapter/frame-provider {:frame :session}
@@ -174,6 +175,7 @@ Three things hold for that head, and they are the point of using the registry ra
     - Re-mounting under the same `:id` (hot reload, React StrictMode dev double-invoke) neither destroys durable state nor re-runs `:initial-events`. A mounted `:id`/opts change raises `:rf.error/frame-root-reconfigured`; a stray `:frame` raises `:rf.error/frame-root-given-frame`.
 
     Children ride the idiomatic `$` trailing-args channel.
+
 - **Example**:
   ```clojure
   ;; create the frame on first mount, seed it once via :initial-events,

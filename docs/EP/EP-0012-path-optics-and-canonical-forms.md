@@ -1496,6 +1496,7 @@ dispositions and riders are inline.
     public home is the `re-frame.path` namespace, **never** `re-frame.core`,
     and **never** the bare name `path` (EP-0022 tombstone —
     `re-frame.core/path` already throws `:rf.error/path-removed`).
+
 2. Should path templates reserve only `'?name` symbols, or should they use an
     explicit data form such as `[:rf.path/param :invoice-id]` to avoid any chance
     of confusing a literal symbol segment with a template variable?
@@ -1507,6 +1508,7 @@ dispositions and riders are inline.
     stored or serialized shape (one fact, one identity); and EP-0015's
     frame-config path maps accept **concrete paths only** (no templates), a
     stated narrowing per §Partition-Relative Paths.
+
 3. Should named path declarations live in a registrar kind, a future feature
     manifest, or both?
     **Recommendation:** defer the registrar kind. Reserve the declaration shape
@@ -1519,6 +1521,7 @@ dispositions and riders are inline.
     grammar so a later generalization is a relocation, not a redesign. The home
     is decided by **whichever of EP-0013/EP-0014 is accepted first, or a
     dedicated ruling if neither** — no dependency on unaccepted proposals.
+
 4. Should route data-form path patterns graduate with this EP or remain a later
     additive front end to the same route prism laws?
     **Recommendation:** remain later, per Non-Goals. The prism laws are
@@ -1528,6 +1531,7 @@ dispositions and riders are inline.
     is a path template over segments, and a second template grammar would be the
     per-subsystem redefinition this EP exists to prevent. No route API redesign
     rides this EP.
+
 5. Should canonical identity expose stable human-readable strings, digests, or
     both? Debugging favors readable EDN; storage and lookup may favor bytes or
     digests.
@@ -1546,6 +1550,7 @@ dispositions and riders are inline.
     identity fact, never required for correctness, and never the authoritative
     stored key in v1 (Runtime-Subsystems derived rule 2: one authoritative home
     per fact; mirrors are recomputable projections).
+
 6. The flow path validator today restricts segments to
     keyword/string/integer/symbol/boolean — narrower than this EP's segment
     domain (no UUID, instant, or `nil` segments), even though UUID-keyed entity

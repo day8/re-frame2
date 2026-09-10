@@ -303,6 +303,7 @@ error by the ABI guard.
     The correction is factual — the shipped scheduler batches at the host
     checkpoint, never at drain quiescence — but per the ruling it is recorded, not
     applied by silently rewriting the settled prose.
+
 - **One effect-dependency equality doctrine: `rf=` across native and interop
     tiers (2026-07-21, rf2-u53yy.6).** The native `ui/effect` compared deps by
     `rf=` (value equality) while the `re-frame.ui.react` interop wrappers

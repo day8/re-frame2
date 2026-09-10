@@ -442,6 +442,7 @@ that list states what is open *now*.
     > unwritten, and nothing deploys or supervises the process. Gates 1, 2 and 4
     > are answered inside the package and witnessed by its own suite, which is not
     > the same as witnessed across the crossing.
+
 - **What this EP's own status is not.** The Graduation section makes `final`
     conditional on v0 *and* the narrow contract graduation landing — the `spec/004`
     view-family re-homing and EP-0036's supersession — and neither has. This EP

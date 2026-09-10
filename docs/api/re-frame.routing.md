@@ -137,6 +137,7 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
     - **Address-only.** `:url`, `:query-merge`, policy keys (`:replace?` / `:scroll` / `:bypass-leave?`), and any unknown key reject **loud** (`:rf.error/route-url-validation`, `:reason :bad-address-keys`) rather than being silently ignored. There is no in-place form — a pure helper cannot read the current route.
 
     Throws:
+
     - `:rf.error/no-such-route` — `:to` route not registered.
     - `:rf.error/missing-route-param` — a required path segment's param is nil or absent.
     - `:rf.error/route-url-validation` — `:params` / `:query` fail the route's `:params` / `:query` schemas, or the map carries non-address keys.

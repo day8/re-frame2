@@ -368,6 +368,7 @@ The view layer is **substrate-agnostic**. The shared dataflow — frames, subscr
     - you are writing **consumer-side library code** that registers without imposing a `def`.
 
     A `reg-view*` body has no auto-injected `dispatch` / `subscribe`. If the view needs frame-bound dispatch, capture a `(rf/capture-frame)` at render and use its ops.
+
 - **Example**:
   ```clojure
   ;; Computed id — the id isn't a literal symbol at the call site.
@@ -514,6 +515,7 @@ The effect map is **closed**, at seven top-level keys: everyday app handlers ret
     - `{:factory f}` for a parameterized family (`f` receives one arg and returns a descriptor; referenced as `[id arg]` — the standard `[:rf.interceptor/path …]` is the canonical factory consumer).
 
     An optional middle slot carries the standard registration-metadata map (`:doc`, `:schema`, `:tags`, …). Use this for any work not covered by the standard interceptors — analytics, logging, validation, ad-hoc context manipulation. (`->interceptor*` is the framework-internal lowering constructor that turns a descriptor into an executable chain entry; it must not appear directly in a public chain.)
+
 - **Example**:
   ```clojure
   (rf/reg-interceptor :log-on-error
@@ -757,11 +759,13 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
     ONE read, map-shaped. Branch code asks for the discriminator as a KEY: `(:kind (rf/current-adapter))` answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/fresco` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr`, or `nil` for a custom adapter map that picked no canonical kind — nothing is synthesised for it. (`:rf.adapter/ui` and `:rf.adapter/freehand` stay reserved and are never recycled, but the two donor view substrates were removed on 2026-08-16 and nothing produces either value now.)
 
     A PRESENCE check inspects the MAP, never `:kind`: a kind-less adapter is installed and present while `(:kind (rf/current-adapter))` reads `nil`.
+
 - **Example**:
   ```clojure
   (rf/current-adapter)          ;; => the adapter spec map passed to (rf/init! …), or nil
   (:kind (rf/current-adapter))  ;; => :rf.adapter/reagent
   ```
+
 - **On Fresco**: `(:kind (rf/current-adapter))` asks *which substrate*, and Fresco is a
     view layer rather than one — it owns Hiccup interpretation and the render boundary,
     while the reactive container comes from an adapter the application installs. What
@@ -799,6 +803,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
     **An unrecognised top-level key applies nothing — and, if it is bare, says so.** The vocabulary above is closed and its keys are *bare*, so `{:epoch-histroy {:depth 100}}` is a typo of a real key rather than an extension point. A bare (or `rf`-namespaced) unknown key therefore emits `:rf.warning/unknown-configure-key` in dev builds, naming every offending key and the known set; the call still returns `nil` and still applies nothing (`:recovery :ignored` — observational, never a refusal), and the whole diagnostic is DCE'd out of production. A **user-namespaced** key (`:myapp/thing`) passes in silence, which is what lets a wrapper hand `configure!` a composed config value without filtering it first.
 
     There is **no `:sub-cache` knob**: sub-cache disposal happens synchronously when the derefer count hits 0. SSR error-projection policy (`:public-error-id`, `:dev-error-detail?`) is **not** a `configure!` key; it is per-frame metadata on the frame's `:ssr` map. Framework-owned semantic sub-keys use a namespaced keyword (`:rf.egress/threshold-bytes`); ergonomic per-knob sub-keys are unqualified (`:depth`, `:trace-events-keep`).
+
 - **Example**:
   ```clojure
   (rf/configure! {:epoch-history {:depth 100}
@@ -823,6 +828,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
     **`:observability` is absent-not-nil for a different reason, and the distinction is normative.** `re-frame.observability` is always loaded, so its key is absent when no process default has been *declared* — a statement about configuration, never about the build. It reports the declared policy **verbatim**: never any frame's effective policy, which is per-stream and resolved per record.
 
     The result is a key-by-key snapshot rather than a transactional one, and it is not promised to be wire-serialisable. A **user-namespaced** pass-through key `configure!` accepted in silence (`:myapp/thing`) is *not* reflected back: the vocabulary is closed, so only keys the runtime reads have live values to report.
+
 - **Example**:
   ```clojure
   (rf/configure! {:epoch-history {:depth 100}})
@@ -845,6 +851,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
 - **Description**: Return a map of every optional feature keyword to its inspection entry: the feature's static coordinate data (`:maven` / `:require` / `:spec`) merged with its live `:loaded?` status. Detection is a pure keyword lookup in the always-loaded feature registry (no exception, no classpath probe). The known features are `:schemas`, `:machines`, `:routing`, `:flows`, `:http`, `:ssr`, `:epoch`, `:resources`.
 
     This is the ONE feature-inspection door. Read the per-feature boolean out of the map; an **unknown** feature keyword has no entry, so the lookup reads `nil`. For boot-time rather than first-call failure, write the guard yourself — one line, and not an elidable `assert`.
+
 - **Example**:
   ```clojure
   (rf/features)
@@ -874,6 +881,7 @@ Two surfaces stacked, and they have different verbs. The first is **dev-only**: 
         - `:epoch` — optional artefact, dev-only.
 
         Both are raw and DCE-able, which is the whole of what this verb means. Production observation is [`register-observability-sink!`](#register-observability-sink).
+
     - Returns `id` (`nil` on the `:epoch` stream when the `day8/re-frame2-epoch` artefact is absent). An unknown `stream` throws `:rf.error/unknown-listener-stream`.
 - **Example**:
   ```clojure
@@ -888,6 +896,7 @@ Two surfaces stacked, and they have different verbs. The first is **dev-only**: 
     (fn [record]
       (js/console.log (:frame record) (:epoch-id record))))
   ```
+
 - **Production note**: this verb is not a production surface. Shipping telemetry
   off-box is [`register-observability-sink!`](#register-observability-sink) against a
   frame's `:observability` policy, or the same entry grammar declared once with
