@@ -240,6 +240,38 @@ cannot be part of the fixed fallback contract.
 
 Use a same-footprint skeleton to reduce layout shift.
 
+### One browser-only leaf inside a server-rendered region
+
+The two policies compose, and the composition is the answer when a region is
+server-safe **except** for one leaf. There is no third policy to reach for:
+declare the region Render and the leaf Client-only, and only the leaf stands
+down.
+
+```clojure
+(h/defhost product-panel ProductPanel
+  {:server :render})
+
+(h/defhost viewport-badge ViewportBadge
+  {:server   :client-only
+   :fallback [:span {:class "badge badge--pending"} "Measures in the browser"]})
+
+[product-panel {}
+ [:p "Server-rendered copy."]
+ [viewport-badge {}]
+ [:p "More server-rendered copy."]]
+```
+
+The response carries the panel, both paragraphs and the badge's fallback; the
+badge's own component never runs on the server. The leaf is an ordinary
+Client-only crossing, so everything above applies to it unchanged — it
+hydrates against the fallback it emitted, and the live component mounts after
+adoption.
+
+Nesting does not narrow what stands down. A Client-only crossing replaces
+itself **and its children**, so moving the region's server-safe content
+*inside* the leaf would delete that content from the response. Keep the leaf
+as small as the browser dependency actually is.
+
 ## Render-safe hosts
 
 Declare `{:server :render}` when a component is deterministic and safe to run
