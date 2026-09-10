@@ -57,8 +57,26 @@
 
   Same discipline as every other Static panel — the enclosing
   `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs` scopes
-  subscribes / dispatches to Xray's frame."
+  subscribes / dispatches to Xray's frame.
+
+  ## Substrate (rf2-k97c.3)
+
+  This sub-tab is THREE Fresco boundaries, not one: [[panel]] here plus
+  `browse-list/browse-list` and `definition-detail/detail`, each an
+  `rf.fresco/defview`. The count is not an accident of file layout — it
+  is the reactive granularity the three `reg-view`s already had, kept.
+  Collapsing the two panes into this one boundary would move their reads
+  up here, and every search keystroke would then re-render the Topology
+  chart. Boundary count tracks READS and head-position use.
+
+  [[panel]] itself reads NOTHING. It is pure two-pane chrome, and it
+  heads the two pane boundaries directly — which is legal, and is the
+  one hiccup head shape that IS: `codec/boundary-head?` reads one own
+  property (`frescoBoundary`) that only `rf.fresco/defview` sets, so a
+  plain `defn` AND an `rf/reg-view` both grade `:invalid` down the same
+  arm while a boundary heads a boundary cleanly."
   (:require [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-machines-viz.mermaid :as mermaid]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.static.machines.browse-list :as browse-list]
@@ -74,13 +92,19 @@
 
 (def ^:private left-pane-width "280px")
 
-(rf/reg-view panel
-  "L4 detail-panel content for the Static Machines tab. Master-detail
-  with a browse-all list on the left and the per-machine definition
-  detail on the right.
+(defn panel-tree
+  "The Static Machines sub-tab's two-pane CHROME, as a pure function of
+  the two pane bodies. Genuinely shared between the two lanes rather
+  than reproduced for them: [[panel]] passes the two BOUNDARY-headed
+  vectors, and `test-helpers.static-machines-tree` passes the two panes'
+  already-expanded plain hiccup. The chrome — the testids, the widths,
+  the borders — is one definition either way, so a node-lane row that
+  walks it is walking the real thing.
 
-  `reg-view`-registered so subscribes resolve to `:rf/xray`."
-  []
+  SPLIT OUT OF [[panel]] BY rf2-k97c.3, for the reason every migrated
+  panel splits: a boundary's body may only run inside a React render
+  window, so `(panel)` is no longer a callable that answers hiccup."
+  [left right]
   [:div {:data-testid "rf-xray-static-machines-panel"
          :style {:display          "flex"
                  :flex-direction   "row"
@@ -100,14 +124,86 @@
                   :flex-direction "column"
                   :border-right  (str "1px solid " (:border-subtle tokens))
                   :background    (:bg-1 tokens)}}
-    [browse-list/browse-list]]
+    left]
    ;; ---- right pane ----
    [:div {:data-testid "rf-xray-static-machines-right"
           :style {:flex        "1 1 auto"
                   :min-width   "0"
                   :overflow    "auto"
                   :background  (:bg-2 tokens)}}
-    [definition-detail/detail]]])
+    right]])
+
+(rf.fresco/defview panel
+  "L4 detail-panel content for the Static Machines tab — a FRESCO
+  BOUNDARY (rf2-k97c.3), not an `rf/reg-view`. Master-detail with a
+  browse-all list on the left and the per-machine definition detail on
+  the right.
+
+  IT READS NOTHING, and it is still a boundary rather than a plain fn
+  for two reasons. First, it is what the L4 registry mounts, so it is
+  where the Reagent→Fresco crossing has to sit — one bridge for the
+  whole sub-tab. Second, a boundary is the only legal hiccup head for
+  the two pane boundaries below it.
+
+  THE NAME IS LOWERCASE `panel`, deliberately and normatively. Every
+  other panel namespace exports a `Panel`; this one is the documented
+  exception (`tools/xray/spec/API.md` §Static-mode Panel reg-views), and
+  BOTH `spec/api-manifest.edn` and its curated
+  `spec/api-manifest-metadata.edn` sidecar row
+  `day8.re-frame2-xray.static.machines.panel/panel` with
+  `:runtime-verified? true`. Both are hot zone. Keeping the natural name
+  on the BOUNDARY — the #9581 spelling the mayor's RULING 1 fixed as the
+  surviving one — means neither file moves.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. The L4 registry mounts it with none, so it is destructured
+  away."
+  [_props]
+  (panel-tree [browse-list/browse-list] [definition-detail/detail]))
+
+;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;;
+;; Xray's Static shell is still a `reg-view` tree rendered by the installed
+;; adapter. `static/shell.cljs`'s `detail-panel` mounts the active tab as
+;; the hiccup head `[(:panel tab)]`, and `panel-registry/reg-l4-tab!`'s
+;; `:pre` requires `:panel` to be CALLABLE — neither of which a React
+;; component is.
+;;
+;; `rf.fresco/as-component` is Fresco's own outward door for exactly this:
+;; it answers a real React component for a boundary, which a React parent
+;; (Reagent, UIx or plain JavaScript) mounts UNDER THE FRAME IT IS ALREADY
+;; IN, taking the frame from React context rather than from a second root.
+;; So there is no second root here, no adapter-kind branch, and no props
+;; ABI.
+;;
+;; BOTH DEFS ARE PRIVATE, and that is measured rather than defaulted:
+;; `panel` is named outside this file only in `static/shell.cljs`'s PROSE
+;; (a docstring listing the L4 tabs) and in the two `spec/api-manifest*.edn`
+;; rows — never mounted or called by name. The L4 registry is the only
+;; consumer, and `install!` below is the only thing that passes the bridge.
+;; A panel carrying a standalone `mount-*!` facade would need a PUBLIC
+;; bridge instead, because `panels/render-panel!` takes the view to mount
+;; as an argument and needs a name to pass; this panel has none —
+;; `panels.cljs` names no Static sub-tab, so no caller line changes and
+;; nothing outside `tools/xray/{src,test}/…/static/machines/` is touched.
+;;
+;; THIS IS SCAFFOLDING WITH A DEFINED END. When the Static shell is itself
+;; a Fresco tree, `reg-l4-tab!` takes `panel` directly, `[:>]` goes, and
+;; both defs below are deleted.
+
+(def ^:private panel-component
+  "The React component `panel` presents as, for a non-Fresco parent.
+  Declared once at top level beside the view, as `rf.fresco/as-component`'s
+  contract requires — deriving it per render would mint a new component
+  type every time and remount the panel on each parent render."
+  (rf.fresco/as-component panel))
+
+(defn ^:private panel-bridge
+  "The callable the L4 tab registry stores. Returns Reagent-shaped hiccup
+  interoping to the React component above; the Static shell's enclosing
+  `rf/frame-provider` is what puts `:rf/xray` in React context for it."
+  []
+  [:> panel-component {}])
 
 ;; ---- subs ---------------------------------------------------------------
 
@@ -332,7 +428,11 @@
      :mnem  "m"
      :modes #{:static}
      :order 0
-     :panel panel})
+     ;; rf2-k97c.3 — `panel-bridge`, not `panel`. `panel` is now a React
+     ;; component (a Fresco boundary) and the Static shell mounts
+     ;; `:panel` as a Reagent hiccup head; the bridge is the one line
+     ;; between them and goes when the shell is a Fresco tree.
+     :panel panel-bridge})
   nil)
 
 ;; ---- test-only override seam --------------------------------------------

@@ -18,8 +18,24 @@
   ## Empty state
 
   When no `:rf/machine?` registration is found: 'No machines registered. reg-
-  machine to add the first.'"
+  machine to add the first.'
+
+  ## Substrate (rf2-k97c.3)
+
+  [[browse-list]] is an `rf.fresco/defview` — a real React function
+  component whose three reads are `rf.fresco/sub`, recorded by Fresco's
+  own collector rather than by the installed adapter's observer. Frame
+  isolation still comes from the enclosing
+  `[rf/frame-provider {:frame :rf/xray}]` in `static/shell.cljs`, which
+  the boundary reads out of React context exactly as the `reg-view` did.
+
+  Every helper below is CALLED rather than used as a hiccup head. A plain
+  function in head position is a loud error under Fresco (HD-016) and the
+  throw escapes with no error boundary above it, so it presents as a pane
+  that never appears; calling a helper that answers hiccup is the repair,
+  and every helper here answers hiccup."
   (:require [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.static.machines.helpers :as h]
             [day8.re-frame2-xray.static.machines.instances-jump :as jump]
@@ -33,22 +49,21 @@
   "Top-of-list search input. Incremental filtering — every keystroke
   dispatches `:rf.xray.static.machines/set-search`. Esc clears.
 
-  `dispatch` is the frame-aware dispatcher threaded from the
-  `browse-list` reg-view (a plain fn invoked as a Reagent component
-  renders in its own cycle, so it cannot recover the frame itself).
+  `dispatch` is the frame-aware dispatcher threaded from
+  [[browse-list-tree]], which takes it from the boundary's
+  `(:dispatch (rf/capture-frame))`.
 
-  `query` is the current search string, threaded from the `browse-list`
-  reg-view's own subscribe — this helper is a plain fn invoked as a
-  Reagent component, so it renders in its OWN cycle and CANNOT recover
-  the `:rf/xray` frame to `rf/subscribe` itself (Spec 000 §Plain Reagent
-  fns do not pick up the surrounding frame; a bare `subscribe` here
-  throws `:rf.error/no-frame-context` and crashes the whole Static
-  surface). The reg-view body already derefs the same
-  `:rf.xray.static.machines/search` sub — pass that value down.
-  The markup lives in the shared `search-box` component's `:pane`
-  variant."
+  `query` is the current search string, threaded down the same way. This
+  helper is a plain fn — it reads nothing itself and holds no frame, so
+  every value it renders arrives as an argument. The markup lives in the
+  shared `search-box` component's `:pane` variant."
   [dispatch query]
-  [search-box/search-box
+  ;; CALLED, not headed. The shared component is a plain fn answering
+  ;; hiccup, and a plain fn in hiccup head position is a loud error under
+  ;; Fresco (HD-016) whose throw escapes with no error boundary above it
+  ;; — the whole Xray root unmounts and the pane presents as one that
+  ;; never appears.
+  (search-box/search-box
    {:variant          :pane
     :testid-prefix    "rf-xray-static-machines"
     :dispatch         dispatch
@@ -56,7 +71,7 @@
     :on-clear-event   :rf.xray.static.machines/clear-search
     :placeholder      "Search machines…"
     :input-aria-label "Search registered machines"
-    :value            query}])
+    :value            query}))
 
 ;; ---- sort cycle button --------------------------------------------------
 
@@ -65,14 +80,9 @@
   Name…`. The label shows the current axis so the affordance is self-
   describing.
 
-  `sort-key` is the current sort axis, threaded from the `browse-list`
-  reg-view's own subscribe — this helper is a plain fn invoked as a
-  Reagent component, so it renders in its OWN cycle and
-  CANNOT recover the `:rf/xray` frame to `rf/subscribe` itself (Spec 000 §Plain Reagent
-  §Plain Reagent fns do not pick up the surrounding frame; a bare
-  `subscribe` here throws `:rf.error/no-frame-context` and crashes the
-  whole Static surface). The reg-view body derefs the sub and passes the
-  value down."
+  `sort-key` is the current sort axis, threaded from
+  [[browse-list-tree]] — this helper is a plain fn that reads nothing
+  itself, so the value arrives as an argument."
   [dispatch sort-key]
   (let [label (get h/sort-key-labels sort-key "Name")]
     [:button
@@ -139,9 +149,15 @@
                             :align-items  "center"
                             :gap          "2px"
                             :margin-left  "6px"}}]
+            ;; THE KEY RIDES IN THE ATTRIBUTE MAP, not on reader metadata
+            ;; (rf2-k97c.3). `^{:key …}` on this vector literal is read by
+            ;; Reagent and by Fresco's codec NOWHERE — the codec reads
+            ;; `:key` from the attribute map and reads Clojure metadata
+            ;; nowhere — so it would reach React as nothing once this pane
+            ;; renders through a boundary. The key EXPRESSION is unchanged.
             (for [i (range count)]
-              ^{:key i}
-              [:span {:style {:display       "inline-block"
+              [:span {:key   i
+                      :style {:display       "inline-block"
                               :width         "5px"
                               :height        "5px"
                               :border-radius "50%"
@@ -161,8 +177,8 @@
   tab with this machine selected — same handler the right-pane
   Instances pill uses (centralised in `instances_jump`).
 
-  `dispatch` is the frame-aware dispatcher threaded from the
-  `browse-list` reg-view (via `row`)."
+  `dispatch` is the frame-aware dispatcher threaded from
+  [[browse-list-tree]] (via `row`)."
   [dispatch machine-id]
    [:button
    {:data-testid (str "rf-xray-static-machines-row-jump-"
@@ -188,7 +204,7 @@
 
 (defn- row
   "Render one browse-list row. `dispatch` is threaded from
-  the `browse-list` reg-view."
+  [[browse-list-tree]]."
   [dispatch {:keys [machine-id state-count live-count source-coord] :as r} active?]
   (let [glyph (if active? "◉" "○")]
     [:button
@@ -266,56 +282,113 @@
 
 ;; ---- the list -----------------------------------------------------------
 
-(rf/reg-view browse-list
-  "L4-left pane of the Static Machines sub-tab — search + sort +
-  scrollable rows. `reg-view`-registered so subscribes resolve to
-  `:rf/xray`."
-  []
-  (let [{:keys [rows total visible selected-id]}
-        @(rf/subscribe [:rf.xray.static.machines/data])
-        query    @(rf/subscribe [:rf.xray.static.machines/search])
-        ;; Deref the sort axis HERE (in the reg-view body, where the
-        ;; `:rf/xray` frame is in context) and thread it into the plain-fn
-        ;; `sort-button` helper, which renders in its own cycle and cannot
-        ;; recover the frame to subscribe itself.
-        sort-key @(rf/subscribe [:rf.xray.static.machines/sort-key])]
-    [:div {:data-testid "rf-xray-static-machines-browse-list"
-           :style {:display        "flex"
-                   :flex-direction "column"
-                   :height         "100%"
-                   :background     (:bg-1 tokens)}}
-     [search-box dispatch query]
-     [:div {:data-testid "rf-xray-static-machines-toolbar"
-            :style {:display       "flex"
-                    :align-items   "center"
-                    :gap           "8px"
-                    :padding       "6px 10px"
-                    :background    (:bg-1 tokens)
-                    :border-bottom (str "1px solid " (:border-subtle tokens))
-                    :font-family   sans-stack
-                    :font-size     (:caption type-scale)
-                    :color         (:text-tertiary tokens)}}
-      [sort-button dispatch sort-key]
-      [:span {:data-testid "rf-xray-static-machines-count"
-              :style {:margin-left "auto"}}
-       (if (= total visible)
-         (str total " machine" (when-not (= total 1) "s"))
-         (str visible " / " total))]]
-     [:div {:data-testid "rf-xray-static-machines-rows"
-            :role "listbox"
-            :aria-label "Registered machines"
-            :style {:flex     "1 1 auto"
-                    :min-height "0"
-                    :overflow "auto"}}
-      (cond
-        (zero? total)
-        (empty-state)
+(defn browse-list-tree
+  "The L4-left pane's WHOLE body, as a pure function of the three values
+  [[browse-list]] reads plus the frame-bound `dispatch` the search box,
+  the sort button and every row need.
 
-        (zero? visible)
-        (no-results-state query)
+  SPLIT OUT OF [[browse-list]] BY rf2-k97c.3, and the split is
+  `defview`'s own documented extract-a-helper spelling rather than an
+  invention. A boundary's body may only run inside a React render
+  window, so `(browse-list)` is no longer a callable that answers
+  hiccup — while the projection from row values to markup is ordinary
+  data → data and is worth testing in the fast node lane.
+  `test-helpers.static-machines-tree` drives THIS fn with the values it
+  takes from the same subs; the boundary's own behaviour — first paint,
+  liveness, frame targeting, evidence isolation, teardown and row
+  identity — is `panel_fresco_boundary_dom_cljs_test`'s subject.
 
-        :else
-        (into [:div]
-              (for [{:keys [machine-id] :as r} rows]
-                ^{:key (str machine-id)}
-                [row dispatch r (= machine-id selected-id)])))]]))
+  PURE: every helper it calls is a plain fn of its arguments."
+  [{:keys [rows total visible selected-id]} query sort-key dispatch]
+  [:div {:data-testid "rf-xray-static-machines-browse-list"
+         :style {:display        "flex"
+                 :flex-direction "column"
+                 :height         "100%"
+                 :background     (:bg-1 tokens)}}
+   (search-box dispatch query)
+   [:div {:data-testid "rf-xray-static-machines-toolbar"
+          :style {:display       "flex"
+                  :align-items   "center"
+                  :gap           "8px"
+                  :padding       "6px 10px"
+                  :background    (:bg-1 tokens)
+                  :border-bottom (str "1px solid " (:border-subtle tokens))
+                  :font-family   sans-stack
+                  :font-size     (:caption type-scale)
+                  :color         (:text-tertiary tokens)}}
+    (sort-button dispatch sort-key)
+    [:span {:data-testid "rf-xray-static-machines-count"
+            :style {:margin-left "auto"}}
+     (if (= total visible)
+       (str total " machine" (when-not (= total 1) "s"))
+       (str visible " / " total))]]
+   [:div {:data-testid "rf-xray-static-machines-rows"
+          :role "listbox"
+          :aria-label "Registered machines"
+          :style {:flex     "1 1 auto"
+                  :min-height "0"
+                  :overflow "auto"}}
+    (cond
+      (zero? total)
+      (empty-state)
+
+      (zero? visible)
+      (no-results-state query)
+
+      :else
+      (into [:div]
+            ;; THE KEY RIDES ON A KEYED FRAGMENT (rf2-k97c.3) — the same
+            ;; move the pip seq above makes in its attribute map, for the
+            ;; same reason: Fresco's codec reads `:key` from the
+            ;; attribute map and reads Clojure metadata nowhere, so the
+            ;; old `^{:key …}` on this vector literal would reach React
+            ;; as nothing. The fragment carries the key without adding a
+            ;; DOM node, which keeps `row` the presentational helper it
+            ;; is; the key expression is unchanged and identity stays
+            ;; domain-shaped (the machine-id).
+            (for [{:keys [machine-id] :as r} rows]
+              [:<> {:key (str machine-id)}
+               (row dispatch r (= machine-id selected-id))])))]])
+
+(rf.fresco/defview browse-list
+  "The L4-left pane of the Static Machines sub-tab — a FRESCO BOUNDARY
+  (rf2-k97c.3), not an `rf/reg-view`. Reads the browse composite, the
+  search text and the sort axis, and hands their values plus a
+  frame-bound dispatcher to [[browse-list-tree]].
+
+  The READS are `rf.fresco/sub`, plain calls the shipped collector
+  records an edge for — no deref, no reaction owned by the installed
+  adapter, and a re-wire that NOTIFIES when the substrate disposes the
+  underlying derived value. That is the third of the epic's three
+  couplings, and the one a first-paint smoke test cannot see.
+
+  The FRAME the reads resolve against comes from React context, which
+  the enclosing frame boundary writes — `rf/frame-provider` and
+  `rf.fresco/frame-provider` write the SAME context — so this resolves
+  `:rf/xray` identically under today's Reagent-rendered Static shell and
+  under the Fresco root Xray will own. It never consults
+  `:adapter/current-component`, the hook a foreign root cannot answer.
+
+  The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
+  which Fresco's authoring surface deliberately does not duplicate, and
+  which answers the boundary's DECLARED frame inside a body. It replaces
+  the `dispatch` name `reg-view` used to inject lexically (`defview`
+  binds no name inside the body, so that injected name is simply
+  unresolved — a loud compile error rather than a silent frame leak).
+  Every keystroke, sort click, row select and per-row JUMP therefore
+  still lands on THIS Xray instance's frame after render scope unwinds.
+
+  ONE BOUNDARY for this pane, and it is where the reads are. Boundary
+  count tracks reads and head-position use, not file size: `search-box`,
+  `sort-button`, `row`, `empty-state` and `no-results-state` are all
+  CALLED, never used as a hiccup head, so Fresco's \"a plain function in
+  head position is a loud error\" rule never meets one.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. This pane reads nothing from props — `static.machines.panel`'s
+  own boundary mounts it with none — so it is destructured away."
+  [_props]
+  (browse-list-tree (rf.fresco/sub [:rf.xray.static.machines/data])
+                    (rf.fresco/sub [:rf.xray.static.machines/search])
+                    (rf.fresco/sub [:rf.xray.static.machines/sort-key])
+                    (:dispatch (rf/capture-frame))))

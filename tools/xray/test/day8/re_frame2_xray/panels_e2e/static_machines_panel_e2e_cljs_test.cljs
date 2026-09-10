@@ -59,11 +59,14 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-helpers :as rf.test-helpers]
             [re-frame.test-support :as rf.test-support]
+            [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.static.machines.instances-jump :as jump]
             [day8.re-frame2-xray.static.shell :as static-shell]
             [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as e2e]
             [day8.re-frame2-xray.test-helpers.host-fixtures.deep-machine
-             :as deep-machine]))
+             :as deep-machine]
+            [day8.re-frame2-xray.test-helpers.static-machines-tree
+             :as machines-tree]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -71,8 +74,8 @@
 ;; ---- helpers -------------------------------------------------------------
 
 (defn- render-static-surface
-  "Render the Static surface under `:rf/xray`. Flips Xray's mode
-  slot to `:static` first so the surface composer + tab bar +
+  "Render the Static SHELL under `:rf/xray`. Flips Xray's mode slot to
+  `:static` first so the surface composer + tab bar +
   `static-shell/detail-panel` case-switch on the right axis. Returns
   the expanded hiccup tree.
 
@@ -83,6 +86,30 @@
   (rf/dispatch-sync [:rf.xray/set-mode :static] {:frame :rf/xray})
   (rf/with-frame :rf/xray
     (rf.test-helpers/expand-tree [static-shell/surface])))
+
+(defn- render-machines-panel
+  "Render the Machines sub-tab's own tree under `:rf/xray`, off the LIVE
+  subs — the same reads `static.machines.panel/panel` performs.
+
+  RE-POINTED BY rf2-k97c.3, and the suite's subject is unchanged. The
+  three views are now Fresco boundaries, so the shell walk above stops
+  at the bridge's `[:>]` interop head and cannot reach the panel's
+  interior; but what this suite exists to walk is the REAL INGRESS —
+  the host registers a machine through `rf/reg-machine`, Xray's
+  `registered-machines` sub sees it, and the projection reaches the
+  markup — and that ingress runs identically here.
+  `test-helpers.static-machines-tree` reproduces the boundaries' reads
+  exactly (same subs, same order, same `:sim` conditional), so every
+  assertion below is still about the shipped projection.
+
+  What moved out is the shell MOUNT, which is now asserted directly in
+  the first test rather than implied by a walk that reaches through it;
+  and the boundaries' React behaviour, which is
+  `static/machines/panel_fresco_boundary_dom_cljs_test`'s subject."
+  []
+  (rf/dispatch-sync [:rf.xray/set-mode :static] {:frame :rf/xray})
+  (rf/with-frame :rf/xray
+    (rf.test-helpers/expand-tree (machines-tree/panel-tree))))
 
 (defn- row-buttons
   "Pull the per-row outer `<button>` nodes out of the expanded tree.
@@ -122,7 +149,11 @@
     (e2e/with-host-and-xray-frames
       {:install-host deep-machine/install-and-init!}
       (fn []
-        (let [tree    (render-static-surface)
+        (let [shell   (render-static-surface)
+              slot    (rf.test-helpers/find-by-attr shell :data-testid
+                                       "rf-xray-static-detail-panel-machines")
+              mount   ((:panel (panel-registry/tab-by-id :static :machines)))
+              tree    (render-machines-panel)
               panel   (rf.test-helpers/find-by-attr tree :data-testid
                                        "rf-xray-static-machines-panel")
               rows    (row-buttons tree)
@@ -130,8 +161,14 @@
                                        "rf-xray-static-machines-topology-chart")
               chart-inner (rf.test-helpers/find-by-attr tree :data-testid
                                            "rf-xray-static-machines-topology-svg")]
+          (is (some? slot)
+              "Static Machines L4 slot did not render — :rf.xray/mode :static + default :machines sub-tab should yield the slot")
+          (is (= (last slot) mount)
+              (str "the L4 slot mounts exactly the registry's :panel — the "
+                   "Fresco boundary's bridge (rf2-k97c.3). Got: "
+                   (pr-str (last slot))))
           (is (some? panel)
-              "Static Machines L4 panel did not mount — :rf.xray/mode :static + default :machines sub-tab should yield the panel")
+              "Static Machines panel tree did not project — the live registrar ingress should yield the panel's own root")
           (is (pos? (count rows))
               (str "browse-list rendered zero machine rows — expected ≥ 1 row "
                    "for the host's :deep/main registration"))
@@ -152,7 +189,7 @@
     (e2e/with-host-and-xray-frames
       {:install-host deep-machine/install-and-init!}
       (fn []
-        (let [tree      (render-static-surface)
+        (let [tree      (render-machines-panel)
               topology  (rf.test-helpers/find-by-attr tree :data-testid
                                          "rf-xray-static-machines-pill-topology")
               sim       (rf.test-helpers/find-by-attr tree :data-testid
@@ -180,7 +217,7 @@
     (e2e/with-host-and-xray-frames
       {:install-host deep-machine/install-and-init!}
       (fn []
-        (let [tree        (render-static-surface)
+        (let [tree        (render-machines-panel)
               rows        (row-buttons tree)
               first-row   (first rows)
               machine-id-str (some-> first-row rf.test-helpers/attrs :data-machine-id)

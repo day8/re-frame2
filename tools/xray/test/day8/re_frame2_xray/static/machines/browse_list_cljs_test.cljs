@@ -16,12 +16,12 @@
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.static.machines.browse-list :as browse-list]
             [day8.re-frame2-xray.static.machines.helpers :as h]
             [day8.re-frame2-xray.static.machines.instances-jump :as jump]
-            [day8.re-frame2-xray.static.machines.panel :as panel]
             [day8.re-frame2-xray.static.machines.persistence :as ls]
             [day8.re-frame2-xray.static.persistence :as static-persistence]
+            [day8.re-frame2-xray.test-helpers.static-machines-tree
+             :as machines-tree]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (use-fixtures :each
@@ -74,7 +74,7 @@
   (seed-machines! [:m/a])
   (seed-snapshots! {}) ;; no live instances
   (rf/with-frame :rf/xray
-    (let [tree (panel/panel)]
+    (let [tree (machines-tree/panel-tree)]
       (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-row-pips"))
           "no pip cluster when live-count is zero"))))
 
@@ -83,7 +83,7 @@
   (seed-machines! [:m/a])
   (seed-snapshots! {:m/a {:state :idle}})
   (rf/with-frame :rf/xray
-    (let [tree (panel/panel)
+    (let [tree (machines-tree/panel-tree)
           pips (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-row-pips")]
       (is (some? pips) "pip cluster mounts for live machine"))))
 
@@ -95,13 +95,13 @@
   (xray-setup!)
   (seed-machines! [:m/a])
   (rf/with-frame :rf/xray
-    (let [tree (panel/panel)
+    (let [tree (machines-tree/panel-tree)
           btn  (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-sort")
           text (->> btn hiccup-seq (filter string?) (apply str))]
       (is (re-find #"Name" text) "default sort axis is Name")))
   (frame-dispatch [:rf.xray.static.machines/cycle-sort])
   (rf/with-frame :rf/xray
-    (let [tree (panel/panel)
+    (let [tree (machines-tree/panel-tree)
           btn  (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-sort")
           text (->> btn hiccup-seq (filter string?) (apply str))]
       (is (re-find #"States" text)))))
@@ -136,7 +136,7 @@
   (xray-setup!)
   (seed-machines! [:m/a])
   (rf/with-frame :rf/xray
-    (let [tree   (panel/panel)
+    (let [tree   (machines-tree/panel-tree)
           rows-el (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-rows")
           attrs  (second rows-el)]
       (is (= "listbox" (:role attrs)))
@@ -147,7 +147,7 @@
   (seed-machines! [:m/a :m/b])
   (frame-dispatch [:rf.xray.static.machines/select :m/a])
   (rf/with-frame :rf/xray
-    (let [tree (panel/panel)
+    (let [tree (machines-tree/panel-tree)
           row-a (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-row-a")
           attrs (second row-a)]
       ;; Note: machine-id is :m/a so name = "a", testid suffix matches.
@@ -161,13 +161,13 @@
   (xray-setup!)
   (seed-machines! [:foo/a :foo/b :bar/c])
   (rf/with-frame :rf/xray
-    (let [tree (panel/panel)
+    (let [tree (machines-tree/panel-tree)
           count-el (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-count")
           text (->> count-el hiccup-seq (filter string?) (apply str))]
       (is (re-find #"3 machines" text))))
   (frame-dispatch [:rf.xray.static.machines/set-search "foo"])
   (rf/with-frame :rf/xray
-    (let [tree (panel/panel)
+    (let [tree (machines-tree/panel-tree)
           count-el (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-count")
           text (->> count-el hiccup-seq (filter string?) (apply str))]
       (is (re-find #"2 / 3" text)))))
@@ -181,5 +181,67 @@
   (seed-machines! [:foo/a :foo/b])
   (frame-dispatch [:rf.xray.static.machines/set-search "nonexistent"])
   (rf/with-frame :rf/xray
-    (let [tree (panel/panel)]
+    (let [tree (machines-tree/panel-tree)]
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-no-results"))))))
+
+;; -------------------------------------------------------------------------
+;; React keys ride the ATTRIBUTE MAP, never Clojure metadata (rf2-k97c.3)
+;; -------------------------------------------------------------------------
+;;
+;; Both of this pane's seqs used to key with reader metadata — `^{:key …}`
+;; on a vector literal. Reagent reads that; Fresco's codec reads `:key`
+;; from the ATTRIBUTE MAP and reads Clojure metadata NOWHERE, so once the
+;; pane renders through a boundary the metadata spelling reaches React as
+;; nothing at all.
+;;
+;; THIS ROW DOES NOT ASSERT WITH `meta`, and that is deliberate: `(meta …)`
+;; reads nil at a REPAIRED site too, because the key now lives in the
+;; attribute map — so a metadata assertion is hollow in BOTH directions,
+;; green on broken code and red on fixed code. It asserts the codec-readable
+;; spelling instead. The other half of the evidence is the browser lane's
+;; W5, which asserts the row key REACHES REACT by surviving a head removal;
+;; the pip key cannot have a row like that, because its expression is
+;; positional (`i`) and a positional key is indistinguishable from no key
+;; under exactly that operation.
+
+(defn- vectors-under [tree]
+  (filter vector? (tree-seq (some-fn vector? seq?) seq tree)))
+
+(deftest row-and-pip-keys-ride-the-attribute-map-not-metadata
+  (xray-setup!)
+  (seed-machines! [:foo/alpha :foo/beta])
+  (seed-snapshots! {:foo/alpha {:state :idle}})
+  (rf/with-frame :rf/xray
+    (let [tree      (machines-tree/browse-list-tree)
+          rows-node (rf.test-helpers/find-by-testid
+                      tree "rf-xray-static-machines-rows")
+          fragments (filterv #(= :<> (first %)) (vectors-under rows-node))
+          pips-node (rf.test-helpers/find-by-testid
+                      tree "rf-xray-static-machines-row-pips")
+          pip-spans (filterv #(and (= :span (first %))
+                                   (map? (second %)))
+                             (rest pips-node))]
+      ;; ---- the row seq ----
+      (is (= 2 (count fragments))
+          "NON-VACUITY: one keyed fragment per registered machine — a zero
+           here would make every assertion below vacuous")
+      (is (every? #(map? (second %)) fragments)
+          "each row fragment carries an ATTRIBUTE MAP, which is the only
+           place Fresco's codec looks for a key")
+      (is (= #{":foo/alpha" ":foo/beta"}
+             (set (map #(:key (second %)) fragments)))
+          "and the keys are the unchanged domain-shaped expressions
+           `(str machine-id)`, distinct within the seq")
+
+      ;; ---- the pip seq ----
+      (is (some? pips-node)
+          "NON-VACUITY: the live machine's pip cluster is on screen, so the
+           pip assertions below have something to read")
+      (is (= 1 (count pip-spans))
+          "one pip span for the one live instance")
+      (is (every? #(contains? (second %) :key) pip-spans)
+          "each pip carries `:key` in its attribute map rather than on
+           reader metadata")
+      (is (= [0] (mapv #(:key (second %)) pip-spans))
+          "and the key expression is unchanged — the positional index the
+           site has always used"))))
