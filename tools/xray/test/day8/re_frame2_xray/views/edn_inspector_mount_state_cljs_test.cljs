@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.views.edn-inspector-mount-state-cljs-test
   "THE PER-MOUNT STORE — the three pieces of state that used to live in the
-  form-2 closure (rf2-k97c.3).
+  form-2 closure (rf2-k97c.3), and the key it is held under (rf2-d2aj).
 
   `edn-inspector` was a form-2 component, so its ResizeObserver, its width
   debounce and its Editscript projection cache lived in an outer body that
@@ -36,6 +36,10 @@
         other row here misses by construction (rf2-9go2).
     R8  and the store answers that retained callback again afterwards,
         so the re-attachment does not cost R1's memo.
+    R9  two live mounts of ONE logical surface — the case a stable
+        `:mount-id` makes routine and which every row above misses by
+        giving each mount an id of its own (rf2-d2aj). Positive half and
+        negative control, the control being the defect written out.
 
   ## No DOM here, deliberately
 
@@ -273,3 +277,110 @@
       (unmount! ref-fn)
       (is (nil? (ei/mount-state-held mid))
           "and the mount still releases cleanly afterwards"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-d2aj — TWO LIVE MOUNTS OF ONE LOGICAL SURFACE.
+;;
+;; Every row above hands each mount an id of its own, so none of them can see
+;; the case that actually reaches this store. A panel's `:mount-id` is a
+;; LOGICAL name and is deliberately stable — it keys the width slot and the
+;; testids, and a panel that leaves and returns wants the same one back — so
+;; several live mounts routinely present the SAME id at once: the gallery
+;; renders twelve variants of a panel side by side, and each embedded panel is
+;; another. R2 looks like the row that covers this and does not: it asks
+;; whether the memo is KEYED, which it always was, not whether the key names
+;; a live mount.
+;;
+;; R9 is that case, in both directions. The positive half is two mounts under
+;; two frames; the negative half is the same two keyed on the logical name
+;; alone, which is what the defect was — and it is written out rather than
+;; described because the symptom is not "the second mount is missing" but
+;; "the second mount's width is dispatched into the FIRST one's frame", which
+;; is the reading that makes a green browser lane look correct.
+;; ---------------------------------------------------------------------------
+
+(def ^:private shared-logical-id
+  "The App-db panel's real top-section mount-id — a logical surface name, the
+  same string from every panel that renders one."
+  "app-db-state/top")
+
+(deftest r9-two-live-mounts-of-one-logical-id-stay-independent
+  (testing "rf2-d2aj — two panels rendering the same stable `mount-id` under
+            two different frames get two refs, two entries and two
+            dispatchers, and releasing one leaves the other whole."
+    (let [before (ei/mount-state-count)
+          k-a    (ei/lifecycle-key :frame/a shared-logical-id)
+          k-b    (ei/lifecycle-key :frame/b shared-logical-id)
+          sink-a (atom [])
+          sink-b (atom [])
+          ref-a  (ei/container-ref-for k-a shared-logical-id
+                                       #(swap! sink-a conj %))
+          ref-b  (ei/container-ref-for k-b shared-logical-id
+                                       #(swap! sink-b conj %))
+          el-a   (fake-el 600)
+          el-b   (fake-el 300)]
+      (is (not (identical? ref-a ref-b))
+          "two live mounts of one logical surface get two ref callbacks —
+           sharing one is what leaves the second element unobserved")
+      (is (= (+ before 2) (ei/mount-state-count))
+          "and two entries, not one")
+
+      (ref-a el-a)
+      (ref-b el-b)
+      (is (= [[:rf.xray.edn-inspector/set-width shared-logical-id 600]] @sink-a)
+          "the first mount measured itself into its OWN frame's dispatcher")
+      (is (= [[:rf.xray.edn-inspector/set-width shared-logical-id 300]] @sink-b)
+          "and the second into its own, at its own width. The event payload
+           is the LOGICAL id in both, because the width slot is per-frame and
+           the frame is what separates them — the two identities doing two
+           jobs at once")
+
+      ;; ---- release one, and only one ---------------------------------
+      (reset! sink-a [])
+      (reset! sink-b [])
+      (unmount! ref-b)
+      (is (nil? (ei/mount-state-held k-b))
+          "the released mount is gone")
+      (is (contains? (ei/mount-state-held k-a) :ref)
+          "and the mount that is still on screen is untouched — releasing the
+           survivor is what the shared key did, and it disconnected an
+           observer of a node still in the document")
+      (is (= [[:rf.xray.edn-inspector/clear-width shared-logical-id]] @sink-b)
+          "the clear went to the leaving mount's own frame")
+      (is (= [] @sink-a)
+          "and NOTHING was written into the surviving mount's frame")
+
+      (unmount! ref-a)
+      (is (= before (ei/mount-state-count))
+          "both released, store back where it started")))
+
+  (testing "rf2-d2aj — THE NEGATIVE CONTROL, and it is the defect verbatim:
+            keyed on the logical name ALONE the same two mounts share one ref,
+            the second one's width is dispatched into the FIRST one's frame,
+            and detaching the second releases the first."
+    (let [before (ei/mount-state-count)
+          mid    "r9-control/top"
+          sink-a (atom [])
+          sink-b (atom [])
+          ref-a  (ei/container-ref-for mid #(swap! sink-a conj %))
+          ref-b  (ei/container-ref-for mid #(swap! sink-b conj %))]
+      (is (identical? ref-a ref-b)
+          "CONTROL BITES: one ref callback between two mounts")
+      (is (= (inc before) (ei/mount-state-count))
+          "and one entry between them")
+      (ref-a (fake-el 600))
+      (ref-b (fake-el 300))
+      (is (= [[:rf.xray.edn-inspector/set-width mid 600]
+              [:rf.xray.edn-inspector/set-width mid 300]]
+             @sink-a)
+          "BOTH widths landed in the first mount's frame — the second panel's
+           measurement overwrites the first's in an app-db it does not belong
+           to, which is a wrong number rather than a missing one")
+      (is (= [] @sink-b)
+          "and the second mount's own dispatcher was never called at all")
+      (unmount! ref-b)
+      (is (nil? (ei/mount-state-held mid))
+          "detaching the SECOND released the shared entry, so the first mount
+           — still on screen — has lost its state")
+      (is (= before (ei/mount-state-count))
+          "store back where it started"))))

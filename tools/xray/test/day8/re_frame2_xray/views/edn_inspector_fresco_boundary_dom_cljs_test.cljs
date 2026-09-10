@@ -33,6 +33,8 @@
     W4  teardown releases BOTH the subscription reference AND the
         per-mount store entry (the ResizeObserver, the width debounce and
         the projection cache)
+    W5  TWO panels mounted at once under one logical `:mount-id` are
+        independent, and one's unmount leaves the other whole (rf2-d2aj)
 
   W4 is the row this widget needed and `module_view` did not. That panel
   holds no per-mount mutable state; this one holds three pieces of it, and
@@ -77,8 +79,12 @@
 (def ^:private mount-id
   "The boundary's REQUIRED `:mount-id`. A Fresco boundary has no form-2
   outer body to mint one in, so the caller names it — see
-  `ei/edn-inspector-view`. Named once here because four rows key off it:
-  it is the store key, the width-slot key and half the expansion key."
+  `ei/edn-inspector-view`. Named once here because five rows key off it: it
+  is the width-slot key, the container testid and half the expansion key.
+
+  It is NOT the store key (rf2-d2aj). That is the LIFECYCLE KEY — this name
+  qualified by the frame the mount renders under — because this name is
+  logical and W5 mounts two panels that both present it."
   "edn-inspector-boundary-test")
 
 (def ^:private expansion-q
@@ -234,6 +240,26 @@
 
 (defn- ref-count-of [frame-id query-v]
   (or (:ref-count (get (cache-of frame-id) query-v)) 0))
+
+(defn- held-in
+  "What the per-mount store holds for this widget's mount UNDER `frame-id`.
+
+  The store's key is the LIFECYCLE KEY — the logical `mount-id` qualified by
+  the frame the mount renders under (rf2-d2aj) — because everything the entry
+  holds is frame-relative: the dispatcher is bound to one frame and the width
+  it writes lands in that frame's app-db."
+  [frame-id]
+  (ei/mount-state-held (ei/lifecycle-key frame-id mount-id)))
+
+(defn- width-in
+  "The width this widget measured for itself in `frame-id`'s app-db, or nil.
+
+  Reads the LOGICAL id, which is what keys the slot and what the renderer
+  reads a width back under — deliberately not the lifecycle key, so this
+  probe is unaffected by how the store is keyed and stays a witness to the
+  measurement rather than to the fix."
+  [frame-id]
+  (get-in (rf/app-db-value frame-id) [ei/widths-slot mount-id]))
 
 ;; ===========================================================================
 ;; W1 — first display, and the read lands in the frame the tree named
@@ -460,12 +486,12 @@
               {:label "no reference held before the first mount"})
             (.then
               (fn [_]
-                (is (nil? (ei/mount-state-held mount-id))
+                (is (nil? (held-in :rf/xray))
                     "PRECONDITION: the store holds nothing for this mount id
                      before it mounts")
                 (let [{:keys [container root]} (mount-host! :rf/xray)
                       mounted (ref-count-of :rf/xray expansion-q)
-                      held    (ei/mount-state-held mount-id)]
+                      held    (held-in :rf/xray)]
                   (is (pos? mounted)
                       "the mount took a subscription reference — otherwise the
                        release below is vacuous")
@@ -482,11 +508,11 @@
                   (teardown! root container)
 
                   ;; ---- the store half: synchronous, asserted directly -----
-                  (is (nil? (ei/mount-state-held mount-id))
+                  (is (nil? (held-in :rf/xray))
                       (str "unmount released the WHOLE entry — observer, width "
                            "debounce and projection cache together — rather "
                            "than emptying part of it. Held after unmount: "
-                           (pr-str (ei/mount-state-held mount-id))))
+                           (pr-str (held-in :rf/xray))))
 
                   ;; ---- the read half: polled, per the collector's grace ---
                   (-> (rf.test-support/poll-until released?
@@ -506,7 +532,7 @@
                                      "open/close cycles is the signature of a "
                                      "release the substrate's own reaction "
                                      "lifecycle cannot see. Got: " remounted))
-                            (is (contains? (ei/mount-state-held mount-id) :ref)
+                            (is (contains? (held-in :rf/xray) :ref)
                                 "and the remount minted a FRESH store entry,
                                  proving the first one really went rather than
                                  being reused")
@@ -516,7 +542,160 @@
             (.then (fn [_]
                      (is (released?)
                          "and the second unmount releases the read too")
-                     (is (nil? (ei/mount-state-held mount-id))
+                     (is (nil? (held-in :rf/xray))
                          "and the store too")))
             (.catch (fn [e] (is false (str "poll timed out: " (.-message e))) nil))
             (.then (fn [_] (done))))))))
+
+;; ===========================================================================
+;; W5 — TWO PANELS AT ONCE, one logical mount-id between them (rf2-d2aj)
+;; ===========================================================================
+;;
+;; Every row above mounts ONE panel, so none of them can see this and none of
+;; them is wrong: the widget's per-mount state was correct for a mount that
+;; had the page to itself. The case the tool actually presents is two of them
+;; standing at the same time under the same logical name — the panel gallery
+;; renders twelve variants of a panel side by side, each wrapped in its own
+;; `frame-provider`, and each embedded panel is another. A `:mount-id` is a
+;; LOGICAL surface name and is deliberately stable, so all of them say
+;; `app-db-state/top`.
+;;
+;; The widths are the load-bearing probe here and are read through the
+;; LOGICAL id, which no part of the repair touched: they witness that each
+;; panel MEASURED ITSELF INTO ITS OWN FRAME, which is the behaviour, rather
+;; than witnessing how the store happens to be keyed. Two deliberately
+;; different column widths, so "independent" is a distinguishable claim and
+;; not two panels agreeing by accident.
+
+(def ^:private slot-a-width-px
+  "The first panel's column. Wide, and unequal to the second — a row that
+  mounted both at one width could not tell one shared measurement from two
+  independent ones."
+  640)
+
+(def ^:private slot-b-width-px
+  "The second panel's column."
+  320)
+
+(defn- two-panel-tree
+  "Two host panels at two widths under two `frame-provider`s, or — when
+  `both?` is false — the first alone. Re-rendering the SAME root with the
+  second gone is what unmounting one panel of a live pair actually is, and is
+  what the last phase of W5 needs: a second root would prove nothing about a
+  sibling's survival."
+  [both?]
+  [:div {:data-testid "rf-xray-two-panel-host"}
+   [:div {:data-testid "rf-xray-slot-a"
+          :style       {:width (str slot-a-width-px "px")}}
+    [rf/frame-provider {:frame :rf/xray}
+     [:> HostPanel-component {}]]]
+   (when both?
+     [:div {:data-testid "rf-xray-slot-b"
+            :style       {:width (str slot-b-width-px "px")}}
+      [rf/frame-provider {:frame app-frame}
+       [:> HostPanel-component {}]]])])
+
+(defn- mount-two!
+  "Commit both panels in ONE synchronous render, the way a gallery commits
+  its variants."
+  []
+  (let [container (.createElement js/document "div")
+        root      (rdc/create-root container)]
+    (.appendChild (.-body js/document) container)
+    (react-dom/flushSync (fn [] (rdc/render root (two-panel-tree true))))
+    {:container container :root root}))
+
+(defn- panel-count
+  "How many host panels are on screen.
+
+  COUNTED ON THE HOST PANEL, not on the widget's own container testid, and
+  the first draft of this row got that wrong in a way worth writing down:
+  `testid-for` composes the SAME string for the widget's outer container and
+  for its root render-node at path `[]`, so one mount answers that selector
+  TWICE. `container-node` above never noticed because `querySelector` takes
+  the first match — a count is the first instrument here that has to care."
+  [container]
+  (.-length (.querySelectorAll
+              container "[data-testid=\"rf-xray-host-panel\"]")))
+
+(deftest w5-two-simultaneous-panels-are-independent
+  (testing "rf2-d2aj — two panels rendering the same stable `:mount-id` at the
+            same time, each under its own frame, measure independently, hold
+            their own observers, and survive each other's unmount.
+
+            The regression this row exists for was invisible to every other
+            row in this file AND to a fully green CI: the panels both PAINT,
+            the DOM is correct, and the damage is that the second one never
+            measured and the first one's state went out with the second one's
+            unmount. Nothing on screen says so."
+    (if-not (browser?)
+      (is true ":node — the :browser-test runner drives the real React mount")
+      (async done
+        (setup!)
+        (let [before (ei/mount-state-count)
+              {:keys [container root]} (mount-two!)]
+          (is (= 2 (panel-count container))
+              "PRECONDITION: both panels committed real DOM — an assertion
+               about the second one's state is vacuous if it never rendered")
+          (-> (settle)
+              (.then
+                (fn [_]
+                  ;; ---- the store holds TWO live mounts, not one ----------
+                  (is (= (+ before 2) (ei/mount-state-count))
+                      (str "two panels on screen, two entries in the per-mount "
+                           "store. ONE entry here is the defect: the second "
+                           "panel's ref was memoised onto the first's identity, "
+                           "so it never installed an observer of its own. Held "
+                           (- (ei/mount-state-count) before) " for 2 mounts"))
+                  (is (contains? (held-in :rf/xray) :observer)
+                      "the first panel holds its own ResizeObserver")
+                  (is (contains? (held-in app-frame) :observer)
+                      (str "and so does the second, in ITS frame. Held there: "
+                           (pr-str (held-in app-frame))))
+
+                  ;; ---- each measured ITSELF, into ITS OWN frame ----------
+                  (is (= slot-a-width-px (width-in :rf/xray))
+                      (str "the first panel measured its own column into its "
+                           "own frame's width slot. Got: "
+                           (pr-str (width-in :rf/xray))))
+                  (is (= slot-b-width-px (width-in app-frame))
+                      (str "and the second measured ITS column into ITS frame. "
+                           "A nil here is the defect in its plainest form — "
+                           "the second panel is on screen and has no width, so "
+                           "its width-aware layout heuristic runs blind for the "
+                           "life of the page. Got: "
+                           (pr-str (width-in app-frame))))
+                  (is (not= (width-in :rf/xray) (width-in app-frame))
+                      "and the two widths are DIFFERENT, so 'independent' is a
+                       claim this row can distinguish rather than two panels
+                       agreeing by accident")
+
+                  ;; ---- unmount the second; the first must be untouched ---
+                  (react-dom/flushSync
+                    (fn [] (rdc/render root (two-panel-tree false))))
+                  (settle)))
+              (.then
+                (fn [_]
+                  (is (= 1 (panel-count container))
+                      "PRECONDITION: the second panel really did unmount")
+                  (is (nil? (held-in app-frame))
+                      "and released everything it held")
+                  (is (= (inc before) (ei/mount-state-count))
+                      "leaving exactly one live mount in the store")
+                  (is (contains? (held-in :rf/xray) :observer)
+                      (str "THE SURVIVOR IS WHOLE: the panel still on screen "
+                           "still holds its own observer. Sharing one entry "
+                           "disconnected it here — an observer torn down under "
+                           "a node still in the document, which no rendering "
+                           "assertion can see. Held: "
+                           (pr-str (held-in :rf/xray))))
+                  (is (= slot-a-width-px (width-in :rf/xray))
+                      (str "and its measured width survived its sibling's "
+                           "unmount rather than being cleared with it. Got: "
+                           (pr-str (width-in :rf/xray))))))
+              (.catch (fn [e]
+                        (is false (str "W5 never settled: " (.-message e)))
+                        nil))
+              (.then (fn [_]
+                       (teardown! root container)
+                       (done)))))))))
