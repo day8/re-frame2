@@ -426,8 +426,8 @@
       ;; value has a matching option even when the pinned frame has no
       ;; events (rf2-v8bule).
       (for [f option-frames]
-        ^{:key (str f)}
-        [:option {:value (str f)}
+        [:option {:key   (str f)
+                  :value (str f)}
          (str (if (= f active) "✓ " "  ") f)])]]))
 
 ;; ---- install -------------------------------------------------------------

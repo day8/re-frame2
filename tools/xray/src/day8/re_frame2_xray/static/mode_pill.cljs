@@ -109,7 +109,7 @@
                             :cursor        "pointer"
                             :flex-shrink   0}}
      (for [{:keys [mode label]} modes]
-       ^{:key mode}
-       [:option {:data-testid (str "rf-xray-mode-pill-" (name mode))
+       [:option {:key         mode
+                 :data-testid (str "rf-xray-mode-pill-" (name mode))
                  :value       (name mode)}
         label])]))
