@@ -62,9 +62,17 @@
 
   A mount owns three pieces of mutable state — its ResizeObserver, the
   width debounce, and the Editscript projection cache. They live in one
-  module-level store keyed by `mount-id`, and are released together when
-  React calls the container `:ref` with `nil`. `mount-state-count` reads
-  the store, so teardown is assertable rather than assumed.
+  module-level store keyed by the mount's LIFECYCLE KEY, and are released
+  together when React calls the container `:ref` with `nil`.
+  `mount-state-count` reads the store, so teardown is assertable rather
+  than assumed.
+
+  THE LIFECYCLE KEY IS NOT THE MOUNT-ID (rf2-d2aj). `mount-id` is a
+  LOGICAL name — the surface, deliberately stable, keying the width slot
+  and the testids — while the lifecycle key names ONE LIVE MOUNT of it and
+  is the mount-id qualified by the frame the mount renders under. Two
+  panels under two `frame-provider`s legitimately render the same stable
+  mount-id; keyed on that alone they shared one entry and one observer.
 
   `opts` keys:
 
@@ -3034,8 +3042,36 @@
   (str (random-uuid)))
 
 ;; =========================================================================
-;; per-mount runtime state — ONE store, keyed by mount-id (rf2-k97c.3)
+;; per-mount runtime state — ONE store, keyed by LIFECYCLE KEY (rf2-k97c.3,
+;; re-keyed rf2-d2aj)
 ;; =========================================================================
+;;
+;; TWO IDENTITIES, AND KEEPING THEM APART IS THE WHOLE OF THIS SECTION.
+;;
+;;   `mount-id`      — the caller's LOGICAL name for the surface. It keys
+;;                     the width slot, the popup id and the container
+;;                     testid, and it is deliberately stable: a panel that
+;;                     leaves and returns to the same surface wants the
+;;                     same one back.
+;;   `lifecycle-key` — the identity of one LIVE MOUNT, and the key of this
+;;                     store. It is the mount-id qualified by the frame the
+;;                     mount renders under.
+;;
+;; The store is MODULE-GLOBAL while every piece of state it holds is
+;; FRAME-RELATIVE: the observer's dispatcher is bound to one frame, and the
+;; width it writes lands in THAT frame's app-db. A global store keyed by a
+;; frame-relative name is the entrenched singleton this widget refuses
+;; everywhere else (see `zoom-trigger-attrs` on why the zoom write must not
+;; name `:rf/xray` literally), and rf2-d2aj is what it costs: two panels in
+;; two frames sharing one stable mount-id got ONE entry and ONE observer
+;; between them, the second panel never measured, and detaching the second
+;; released the FIRST — disconnecting its observer and clearing its frame's
+;; width. Qualifying the key by the frame makes the store's key exactly as
+;; specific as the state under it.
+;;
+;; Nothing else moves. `:site-id` still keys expansion and zoom, `mount-id`
+;; still keys the width slot and every testid, and the two heads' public
+;; shapes are untouched — the collision was in this store's key alone.
 ;;
 ;; The widget carries three pieces of per-mount MUTABLE state: the
 ;; ResizeObserver instance, the last width it dispatched (a debounce), and
@@ -3052,9 +3088,9 @@
 ;; standing it back up on a loop.
 ;;
 ;; So the state moves OUT of the closure and into this module-level store,
-;; keyed by the mount-id. That makes the lifetime EXPLICIT rather than
+;; keyed by the lifecycle key. That makes the lifetime EXPLICIT rather than
 ;; implicit, which is the whole point: the entry is minted on first sight
-;; of a mount-id and RELEASED when React calls the ref with `nil`. One
+;; of a lifecycle key and RELEASED when React calls the ref with `nil`. One
 ;; store serves both heads, so the Reagent head loses its closure atoms
 ;; too and the two heads share one lifecycle rather than each having their
 ;; own.
@@ -3066,6 +3102,19 @@
 
 (defonce ^:private mount-state
   (atom {}))
+
+(defn lifecycle-key
+  "Compose the per-mount store's key — the `mount-id` qualified by the id of
+  the frame the mount renders under (rf2-d2aj).
+
+  PURE, and public because a test that asserts on the store has to be able
+  to name an entry the way the widget named it.
+
+  `frame-id` may be nil, which is the honest answer for a caller whose
+  mount-id is already unique on its own — the Reagent head's is a UUID, so
+  it has nothing to qualify."
+  [frame-id mount-id]
+  [frame-id mount-id])
 
 (defn mount-state-count
   "How many mounts the per-mount store currently holds. A TEST SURFACE:
@@ -3083,50 +3132,75 @@
   (count @mount-state))
 
 (defn mount-state-held
-  "The set of state keys mount `mount-id` currently holds, or nil when the
-  store holds nothing for it. A TEST SURFACE, and the precise one: the
-  teardown claim is about the observer, the width debounce and the
+  "The set of state keys the mount under `lifecycle-key` currently holds, or
+  nil when the store holds nothing for it. A TEST SURFACE, and the precise
+  one: the teardown claim is about the observer, the width debounce and the
   projection cache going TOGETHER, which a count cannot express and which
-  `nil` here does."
-  [mount-id]
-  (when-let [entry (get @mount-state mount-id)]
+  `nil` here does.
+
+  The argument is a LIFECYCLE KEY, not a mount-id (rf2-d2aj) — compose one
+  with [[lifecycle-key]], or pass a bare id for a mount whose id is its own
+  lifecycle key."
+  [lifecycle-key]
+  (when-let [entry (get @mount-state lifecycle-key)]
     (set (keys entry))))
 
 (defn- release-mount!
-  "Tear down everything mount `mount-id` holds: disconnect its
-  ResizeObserver, drop its width debounce and its projection cache, clear
-  the app-db width slot, and remove the entry entirely.
+  "Tear down everything the mount under `lifecycle-key` holds: disconnect
+  its ResizeObserver, drop its width debounce and its projection cache,
+  clear the app-db width slot, and remove the entry entirely.
 
-  The app-db clear matters because a mount-id is not reused — the Reagent
-  head mints a UUID per mount — so a surviving entry is a slow leak in the
-  frame's app-db as well as in this atom."
-  [mount-id dispatch-fn]
-  (when-let [entry (get @mount-state mount-id)]
+  The app-db clear matters because a live mount is not reused — the Reagent
+  head mints a UUID per mount, and the Fresco head's key carries the frame
+  — so a surviving entry is a slow leak in the frame's app-db as well as in
+  this atom. The slot it clears is keyed by the LOGICAL `mount-id`, which
+  the entry carries, because that is the name the renderer reads a width
+  back under."
+  [lifecycle-key dispatch-fn]
+  (when-let [entry (get @mount-state lifecycle-key)]
     (when-let [obs (:observer entry)]
       (try (.disconnect ^js obs)
            (catch :default _ nil)))
-    (swap! mount-state dissoc mount-id)
+    (swap! mount-state dissoc lifecycle-key)
     (when dispatch-fn
-      (dispatch-fn [:rf.xray.edn-inspector/clear-width mount-id])))
+      (dispatch-fn [:rf.xray.edn-inspector/clear-width
+                    (or (:mount-id entry) lifecycle-key)])))
   nil)
 
 (defn- measure-and-dispatch!
   "Measure `el`'s client width and write it to the width slot when it has
   actually MOVED. `clientWidth` is rounded by the browser, so identical
   measurements arrive verbatim on every observer callback; the debounce is
-  what keeps them from churning the app-db slot."
-  [mount-id ^js el]
+  what keeps them from churning the app-db slot.
+
+  Both identities are arguments and neither can stand in for the other: the
+  debounce is per LIVE MOUNT (`lifecycle-key`) while the slot it writes is
+  keyed by the logical `mount-id` the renderer reads back under."
+  [lifecycle-key mount-id ^js el]
   (when el
     (let [w (.-clientWidth el)]
       (when (and (number? w) (pos? w)
-                 (not= w (get-in @mount-state [mount-id :last-width])))
-        (swap! mount-state assoc-in [mount-id :last-width] w)
-        (when-let [d (get-in @mount-state [mount-id :dispatch-fn])]
+                 (not= w (get-in @mount-state [lifecycle-key :last-width])))
+        (swap! mount-state assoc-in [lifecycle-key :last-width] w)
+        (when-let [d (get-in @mount-state [lifecycle-key :dispatch-fn])]
           (d [:rf.xray.edn-inspector/set-width mount-id w])))))
   nil)
 
 (defn container-ref-for
-  "The `:ref` callback for `mount-id`, MEMOISED on the mount-id.
+  "The `:ref` callback for one live mount, MEMOISED on its LIFECYCLE KEY.
+
+  Two arities, and the difference between them is the whole of rf2-d2aj:
+
+    [mount-id dispatch-fn]                 the id IS its own lifecycle key
+    [lifecycle-key mount-id dispatch-fn]   they are separate
+
+  MEMOISING ON A LOGICAL NAME IS WHAT COLLIDES. Two panels rendering the
+  same stable `mount-id` at the same time are two mounts and want two
+  refs; memoised on that name they get one function, so the second element
+  never installs an observer, never measures, and detaching it releases the
+  FIRST mount's entry. The 2-arity is therefore for a caller whose id is
+  unique per live mount by construction — the Reagent head's UUID — and
+  every other caller composes a key with [[lifecycle-key]].
 
   Returning the SAME function for the same mount is the contract, not an
   optimisation: React re-runs a callback ref whenever its identity changes,
@@ -3137,8 +3211,10 @@
 
   `dispatch-fn` is captured on the FIRST call for a mount and not
   refreshed. A mount's frame does not change under it — that is what makes
-  the capture safe — and re-reading a fresh `capture-frame` bundle on every
-  render would write to this atom on every render for no gain.
+  the capture safe, and with the frame now IN the key it is safe by
+  construction rather than by convention — and re-reading a fresh
+  `capture-frame` bundle on every render would write to this atom on every
+  render for no gain.
 
   The returned callback is also SELF-HEALING, which the memo above makes
   necessary: a caller holds it across a nil call that released the mount,
@@ -3149,11 +3225,13 @@
   from a callback ref as a CLEANUP FUNCTION and warns about any other
   value; the implicit return here would otherwise be whatever `swap!` or
   `dispatch` last answered."
-  [mount-id dispatch-fn]
-  (or (get-in @mount-state [mount-id :ref])
+  ([mount-id dispatch-fn]
+   (container-ref-for mount-id mount-id dispatch-fn))
+  ([lifecycle-key mount-id dispatch-fn]
+  (or (get-in @mount-state [lifecycle-key :ref])
       (let [ref-fn
             (fn container-ref [^js el]
-              (let [entry (get @mount-state mount-id)]
+              (let [entry (get @mount-state lifecycle-key)]
                 (cond
                   ;; Mount — reinstate the entry, measure once, then
                   ;; install the observer.
@@ -3172,29 +3250,33 @@
                     ;; re-attachment is silently swallowed while measurement
                     ;; and observer state come back looking healthy
                     ;; (rf2-9go2). On a live entry both updates are no-ops.
-                    (swap! mount-state update mount-id
+                    (swap! mount-state update lifecycle-key
                            (fn [e]
                              (-> (or e {})
+                                 (assoc :mount-id mount-id)
                                  (update :ref #(or % container-ref))
                                  (update :dispatch-fn #(or % dispatch-fn)))))
-                    (measure-and-dispatch! mount-id el)
+                    (measure-and-dispatch! lifecycle-key mount-id el)
                     (when (exists? js/ResizeObserver)
                       (let [obs (js/ResizeObserver.
                                   (fn [_entries]
-                                    (measure-and-dispatch! mount-id el)))]
+                                    (measure-and-dispatch! lifecycle-key
+                                                           mount-id el)))]
                         (.observe obs el)
-                        (swap! mount-state assoc-in [mount-id :observer] obs))))
+                        (swap! mount-state assoc-in
+                               [lifecycle-key :observer] obs))))
 
                   ;; Unmount — release everything this mount holds.
                   (and (nil? el) (some? entry))
-                  (release-mount! mount-id (:dispatch-fn entry))))
+                  (release-mount! lifecycle-key (:dispatch-fn entry))))
               nil)]
-        (swap! mount-state update mount-id
+        (swap! mount-state update lifecycle-key
                (fn [entry]
                  (-> (or entry {})
+                     (assoc :mount-id mount-id)
                      (assoc :ref ref-fn)
                      (update :dispatch-fn #(or % dispatch-fn)))))
-        (get-in @mount-state [mount-id :ref]))))
+        (get-in @mount-state [lifecycle-key :ref])))))
 
 (defn- project-for
   "The Editscript projection of `(before, after)` for this mount, memoised
@@ -3208,15 +3290,17 @@
 
   The cache lives in the per-mount store rather than in a closure so it is
   released by `release-mount!` with everything else, and so both heads
-  share one implementation."
-  [mount-id before after]
-  (let [cached (get-in @mount-state [mount-id :projection])]
+  share one implementation. Keyed by the LIFECYCLE KEY for the same reason
+  the rest of the entry is (rf2-d2aj): two live mounts of one logical
+  surface hold two different values and must not share a memo."
+  [lifecycle-key before after]
+  (let [cached (get-in @mount-state [lifecycle-key :projection])]
     (if (and cached
              (identical? before (:before cached))
              (identical? after (:after cached)))
       (:projection cached)
       (let [p (engine/project before after)]
-        (swap! mount-state assoc-in [mount-id :projection]
+        (swap! mount-state assoc-in [lifecycle-key :projection]
                {:before before :after after :projection p})
         p))))
 
@@ -3566,10 +3650,17 @@
                            destructured here exactly as it always was, so
                            every documented key keeps its meaning and its
                            default.
-  - `:mount-id`          — the per-mount identity string. Keys the width
-                           slot, the popup id and the container testid,
-                           and is the expansion key's second component
-                           when no `:site-id` is supplied.
+  - `:mount-id`          — the caller's LOGICAL name for the surface. Keys
+                           the width slot, the popup id and the container
+                           testid, and is the expansion key's second
+                           component when no `:site-id` is supplied.
+  - `:lifecycle-key`     — the identity of THIS LIVE MOUNT, which keys the
+                           per-mount store (rf2-d2aj). Optional; defaults
+                           to `:mount-id`, which is right only for a caller
+                           whose id is unique per live mount. The head
+                           passes the same key it built `:container-ref`
+                           with, so the projection memo and the observer
+                           live and die together.
   - `:dispatch-fn`       — the frame-aware dispatcher. Threaded down
                            through `render-node` so a toggle fired long
                            after this render unwound still lands on the
@@ -3586,9 +3677,9 @@
                            the epoch panel alone mounts this widget dozens
                            of times.
   - `:widths`            — the measured-width slot's value."
-  [{:keys [value opts mount-id dispatch-fn container-ref
+  [{:keys [value opts mount-id lifecycle-key dispatch-fn container-ref
            expansion-map zoom-map widths]}]
-      (let [
+      (let [lifecycle-key (or lifecycle-key mount-id)
             {:keys [panel-id site-id default-expanded-depth max-inline-width
                     max-depth popup-affordance? card? header zoomable?
                     added?]
@@ -3735,7 +3826,8 @@
             ;; inputs reuse the cached Editscript result rather than
             ;; recomputing the A* edit-script on every render.
             projection    (when diff?
-                            (project-for mount-id displayed-before displayed-value))
+                            (project-for lifecycle-key
+                                         displayed-before displayed-value))
             body-content  (render-node
                             {:value displayed-value
                              :before (if diff? displayed-before ::missing)
@@ -4007,6 +4099,12 @@
           {:value         value
            :opts          opts
            :mount-id      mount-id
+           ;; rf2-d2aj — this head's id IS its lifecycle key: the form-2
+           ;; outer body mints a fresh UUID per mount, so it is already
+           ;; unique across every concurrently live mount on the page and
+           ;; has nothing to qualify. The Fresco head, whose id is a
+           ;; caller-supplied logical name, is the one that must.
+           :lifecycle-key mount-id
            :dispatch-fn   dispatch-fn
            :container-ref (container-ref-for mount-id dispatch-fn)
            ;; `subscribe` is the lexical frame-aware closure injected by
@@ -4049,6 +4147,30 @@
   container testid. `:site-id`, in `opts`, keeps its own separate meaning
   — the expansion key's second component — and is unchanged.
 
+  ## A LOGICAL NAME IS NOT A LIVE-MOUNT IDENTITY (rf2-d2aj)
+
+  Because the id is the caller's and the caller wants it stable, two
+  panels on one page routinely present the SAME one — a gallery rendering
+  twelve variants of a panel, or two embedded panels each under its own
+  `frame-provider`. That is not a caller error; it is what a stable
+  logical name means. So this head qualifies it by the frame it renders
+  under and hands the result down as the `:lifecycle-key` — the key of the
+  per-mount store and of the `:ref` memo — leaving `:mount-id` to go on
+  naming the surface for the width slot, the popup and the testids.
+
+  The frame is the right qualifier and not an arbitrary one: everything in
+  that store is frame-relative already. The dispatcher it captures is bound
+  to one frame and the width it writes lands in that frame's app-db, so a
+  module-global store keyed by a frame-relative name was under-specified
+  by exactly one component.
+
+  What this does NOT reach is two panels in ONE frame presenting one
+  mount-id. A React function component has no per-instance storage a
+  Fresco body may use — hooks do not belong in a body, and
+  `rf.fresco/reg-state` consumes an instance key rather than minting one —
+  so nothing here can tell two structurally identical siblings apart. That
+  case is the caller's to name, which is what the refusal below asks for.
+
   ## Reads, and why the zoom read is conditional
 
   Three slots, each `rf.fresco/sub`. The zoom slot is read ONLY for a
@@ -4080,13 +4202,20 @@
                   "slot's role is usually the whole of it.")
              {:mount-id mount-id})))
   (let [zoomable?   (boolean (:zoomable? opts))
-        dispatch-fn (:dispatch (rf/capture-frame))]
+        ;; ONE capture, read twice. `:frame` is the id this boundary
+        ;; renders under and `:dispatch` is bound to it, so the lifecycle
+        ;; key and the dispatcher that writes under it can never name
+        ;; different frames (rf2-d2aj).
+        frame-api   (rf/capture-frame)
+        dispatch-fn (:dispatch frame-api)
+        lkey        (lifecycle-key (:frame frame-api) mount-id)]
     (render-inspector
       {:value         value
        :opts          opts
        :mount-id      mount-id
+       :lifecycle-key lkey
        :dispatch-fn   dispatch-fn
-       :container-ref (container-ref-for mount-id dispatch-fn)
+       :container-ref (container-ref-for lkey mount-id dispatch-fn)
        :expansion-map (rf.fresco/sub [expansion-slot])
        :zoom-map      (when zoomable? (rf.fresco/sub [zoom-slot]))
        :widths        (rf.fresco/sub [widths-slot])})))

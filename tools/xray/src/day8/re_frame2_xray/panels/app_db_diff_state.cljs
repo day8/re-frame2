@@ -225,6 +225,17 @@
         ;; exactly the stability wanted, and it is what `:site-id` below is
         ;; built from too. (This is the string the pre-migration
         ;; `_node-key` binding already spelled out and discarded.)
+        ;;
+        ;; rf2-d2aj — and a LOGICAL name is all it is. This string is not
+        ;; unique to a mounted panel: the gallery renders twelve variants at
+        ;; once and each embedded panel is another, so several live mounts
+        ;; present `app-db-state/top` together. The widget is what keeps the
+        ;; two identities apart — it qualifies this name by the frame the
+        ;; mount renders under to key its per-mount store — so DO NOT make
+        ;; this string unique per render to fix a lifecycle collision: it
+        ;; would take `:site-id` with it and lose expansion and zoom on
+        ;; every pass, which is the trade the widget's split exists to
+        ;; avoid.
         mount-id  (str "app-db-state/" render-id)
         ;; rf2-pvsxs — stable `:site-id` so expansion overrides survive
         ;; a tab-switch round-trip. `render-id` already identifies the
