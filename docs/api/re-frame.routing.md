@@ -136,7 +136,7 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
     - Query keys are emitted percent-encoded, in a deterministic canonical order.
     - **Address-only.** `:url`, `:query-merge`, policy keys (`:replace?` / `:scroll` / `:bypass-leave?`), and any unknown key reject **loud** (`:rf.error/route-url-validation`, `:reason :bad-address-keys`) rather than being silently ignored. There is no in-place form — a pure helper cannot read the current route.
 
-  Throws:
+    Throws:
     - `:rf.error/no-such-route` — `:to` route not registered.
     - `:rf.error/missing-route-param` — a required path segment's param is nil or absent.
     - `:rf.error/route-url-validation` — `:params` / `:query` fail the route's `:params` / `:query` schemas, or the map carries non-address keys.
@@ -159,7 +159,7 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
   ```
 - **Description**: `true` when any percent-encoded portion of `url` is malformed — a non-empty path segment, a query key or value, or the `#fragment`. The check is purely lexical; no route table is consulted.
 
-  The `:rf.route/handle-url-change` handler uses it to tell two cases apart: a plain route miss (`{:url url}`) and a malformed URL that failed closed (`{:url url :reason :malformed-url}`). Both cases end at `:rf.route/not-found`. The structured `:reason` lets per-route error UIs and SSR projections branch on the cause.
+    The `:rf.route/handle-url-change` handler uses it to tell two cases apart: a plain route miss (`{:url url}`) and a malformed URL that failed closed (`{:url url :reason :malformed-url}`). Both cases end at `:rf.route/not-found`. The structured `:reason` lets per-route error UIs and SSR projections branch on the cause.
 
 ## Introspection and slice access
 

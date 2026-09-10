@@ -73,11 +73,11 @@ Every entry here registers a named handler into the frame's registrar.
   ```
 - **Description**: A computed view over `app-db` and other subs. A subscription declares its dependencies under **`:inputs`** in the metadata map — the same slot `reg-flow` uses — and there are three input-production modes (see the table below). Omitting `:inputs` is a layer-1 `app-db` reader with no producer; a literal `:inputs` vector is a static producer; an `:inputs` fn computes the inputs from the outer `query-v`.
 
-  **Declared inputs always arrive as a vector** — at zero, one or many, in declaration order. Moving a dependency between the literal and the fn form never changes the body, and adding a second input never turns a scalar argument into a vector. `{:inputs []}` declares no dependencies and delivers `[]`; omitting `:inputs` delivers `app-db` itself.
+    **Declared inputs always arrive as a vector** — at zero, one or many, in declaration order. Moving a dependency between the literal and the fn form never changes the body, and adding a second input never turns a scalar argument into a vector. `{:inputs []}` declares no dependencies and delivers `[]`; omitting `:inputs` delivers `app-db` itself.
 
-  An `:inputs` **producer fn** is a *pure* function from the outer `query-v` to a **vector of query vectors**. It must not call `subscribe`, deref `app-db`, dispatch, or perform IO. It must not return live reactions either — it is not a v1 reaction-returning signal fn. It never runs at registration; the runtime resolves each returned query vector in the *same frame* as the outer subscription, at materialization.
+    An `:inputs` **producer fn** is a *pure* function from the outer `query-v` to a **vector of query vectors**. It must not call `subscribe`, deref `app-db`, dispatch, or perform IO. It must not return live reactions either — it is not a v1 reaction-returning signal fn. It never runs at registration; the runtime resolves each returned query vector in the *same frame* as the outer subscription, at materialization.
 
-  This is the only sub-registration form in v2; `reg-sub-raw` is gone (see the [migration reference](../../migration/from-re-frame-v1/README.md)). Full input grammar and error ids: [Subscriptions concept guide](../core/subscriptions.md).
+    This is the only sub-registration form in v2; `reg-sub-raw` is gone (see the [migration reference](../../migration/from-re-frame-v1/README.md)). Full input grammar and error ids: [Subscriptions concept guide](../core/subscriptions.md).
 
 | Mode | Form | Where the inputs come from |
 |---|---|---|
@@ -367,7 +367,7 @@ The view layer is **substrate-agnostic**. The shared dataflow — frames, subscr
     - you are writing a **Form-3 component** (`(rf/reg-view* :id (r/create-class {...}))` — the one app-facing reason to touch the starred form);
     - you are writing **consumer-side library code** that registers without imposing a `def`.
 
-  A `reg-view*` body has no auto-injected `dispatch` / `subscribe`. If the view needs frame-bound dispatch, capture a `(rf/capture-frame)` at render and use its ops.
+    A `reg-view*` body has no auto-injected `dispatch` / `subscribe`. If the view needs frame-bound dispatch, capture a `(rf/capture-frame)` at render and use its ops.
 - **Example**:
   ```clojure
   ;; Computed id — the id isn't a literal symbol at the call site.
@@ -513,7 +513,7 @@ The effect map is **closed**, at seven top-level keys: everyday app handlers ret
     - `{:before f}` / `{:after f}` / `{:before f :after g}`;
     - `{:factory f}` for a parameterized family (`f` receives one arg and returns a descriptor; referenced as `[id arg]` — the standard `[:rf.interceptor/path …]` is the canonical factory consumer).
 
-  An optional middle slot carries the standard registration-metadata map (`:doc`, `:schema`, `:tags`, …). Use this for any work not covered by the standard interceptors — analytics, logging, validation, ad-hoc context manipulation. (`->interceptor*` is the framework-internal lowering constructor that turns a descriptor into an executable chain entry; it must not appear directly in a public chain.)
+    An optional middle slot carries the standard registration-metadata map (`:doc`, `:schema`, `:tags`, …). Use this for any work not covered by the standard interceptors — analytics, logging, validation, ad-hoc context manipulation. (`->interceptor*` is the framework-internal lowering constructor that turns a descriptor into an executable chain entry; it must not appear directly in a public chain.)
 - **Example**:
   ```clojure
   (rf/reg-interceptor :log-on-error
@@ -754,26 +754,26 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```
 - **Description**: The installed adapter spec map — the exact value passed to `rf/init!` — or `nil` when no adapter is installed. It carries the adapter contract fns (`:make-state-container`, `:replace-container!`, `:make-derived-value`, …) plus a `:kind` discriminator.
 
-  ONE read, map-shaped. Branch code asks for the discriminator as a KEY: `(:kind (rf/current-adapter))` answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/fresco` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr`, or `nil` for a custom adapter map that picked no canonical kind — nothing is synthesised for it. (`:rf.adapter/ui` and `:rf.adapter/freehand` stay reserved and are never recycled, but the two donor view substrates were removed on 2026-08-16 and nothing produces either value now.)
+    ONE read, map-shaped. Branch code asks for the discriminator as a KEY: `(:kind (rf/current-adapter))` answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/fresco` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr`, or `nil` for a custom adapter map that picked no canonical kind — nothing is synthesised for it. (`:rf.adapter/ui` and `:rf.adapter/freehand` stay reserved and are never recycled, but the two donor view substrates were removed on 2026-08-16 and nothing produces either value now.)
 
-  A PRESENCE check inspects the MAP, never `:kind`: a kind-less adapter is installed and present while `(:kind (rf/current-adapter))` reads `nil`.
+    A PRESENCE check inspects the MAP, never `:kind`: a kind-less adapter is installed and present while `(:kind (rf/current-adapter))` reads `nil`.
 - **Example**:
   ```clojure
   (rf/current-adapter)          ;; => the adapter spec map passed to (rf/init! …), or nil
   (:kind (rf/current-adapter))  ;; => :rf.adapter/reagent
   ```
 - **On Fresco**: `(:kind (rf/current-adapter))` asks *which substrate*, and Fresco is a
-  view layer rather than one — it owns Hiccup interpretation and the render boundary,
-  while the reactive container comes from an adapter the application installs. What
-  Fresco now ships is one of the answers: `re-frame.fresco.substrate` is an optional
-  module of `day8/re-frame2-fresco` declaring `:kind :rf.adapter/fresco`, and the
-  install chapter teaches `(rf/init! substrate/adapter)` as the default, so
-  `(:kind (rf/current-adapter))` normally reads `:rf.adapter/fresco` in a Fresco
-  application. Installing Reagent or UIx under a Fresco tree instead stays supported,
-  and then the kind is that adapter's — either way `current-adapter` itself answers the
-  installed adapter map, and the `:kind` on it names the substrate the app booted on,
-  never the layer its views are authored in. See
-  [Fresco needs a substrate adapter](../core/fresco/00-installation.md#fresco-needs-a-substrate-adapter).
+    view layer rather than one — it owns Hiccup interpretation and the render boundary,
+    while the reactive container comes from an adapter the application installs. What
+    Fresco now ships is one of the answers: `re-frame.fresco.substrate` is an optional
+    module of `day8/re-frame2-fresco` declaring `:kind :rf.adapter/fresco`, and the
+    install chapter teaches `(rf/init! substrate/adapter)` as the default, so
+    `(:kind (rf/current-adapter))` normally reads `:rf.adapter/fresco` in a Fresco
+    application. Installing Reagent or UIx under a Fresco tree instead stays supported,
+    and then the kind is that adapter's — either way `current-adapter` itself answers the
+    installed adapter map, and the `:kind` on it names the substrate the app booted on,
+    never the layer its views are authored in. See
+    [Fresco needs a substrate adapter](../core/fresco/00-installation.md#fresco-needs-a-substrate-adapter).
 
 ### `configure!`
 
@@ -787,18 +787,18 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
     - the `set-!` / `install-!` setters — adapter-pluggable hooks;
     - per-frame metadata — frame-scoped overrides.
 
-  The key vocabulary is closed-and-additive: existing keys cannot be renamed, and new keys are added by extending the table. Four keys ship:
+    The key vocabulary is closed-and-additive: existing keys cannot be renamed, and new keys are added by extending the table. Four keys ship:
 
-  | Key | Opts | Default | Status | What it tunes |
-  |---|---|---|---|---|
-  | `:epoch-history` | `{:depth N :trace-events-keep N}` | `{:depth 50, :trace-events-keep 50}` | v1 (dev-only) | Per-frame epoch ring depth and trace-event retention cap per record. |
-  | `:trace-buffer` | `{:events-retained N}` | `{:events-retained 50}` | v1 (dev-only) | The dev-only per-frame trace ring's event-slot count: one slot per event, regardless of how many trace events its run emitted. 0 disables retention (the surface stays live). |
-  | `:elision` | `{:rf.egress/threshold-bytes N}` | `{:rf.egress/threshold-bytes 16384}` | v1 | The size threshold above which the internal `re-frame.elision/elide-wire-value` walker emits the `:rf.warning/large-value-unschema'd` advisory for an *undeclared* large string. It is a warning signal, not a cap: the value is forwarded raw. Substituting the `:rf.size/large-elided` marker requires declaring the path `:large`. 0 disables runtime auto-detect. |
-  | `:observability` | `{:handled-events [<entry>…] :errors [<entry>…]}` | none declared | v1 | The **process default** for production observation sinks, in the same closed grammar a frame's `:observability` takes. Precedence is per stream: a frame declaring a stream uses its own entries for it, a frame omitting it inherits this default's, and `{:errors []}` on a frame is that frame's opt-out — exactly one source per record per stream. Inheritance moves the sink list, not the redaction authority. Records with no frame authority (frameless producers; a `:frame` that no longer resolves) reach this default alone, projected with the governing frame explicitly nil. Two departures from its neighbours, both deliberate: an explicit **`nil` clears** it, and it is validated **at the call** (`:rf.error/bad-frame-classification`, `:where 'rf/configure!`). |
+    | Key | Opts | Default | Status | What it tunes |
+    |---|---|---|---|---|
+    | `:epoch-history` | `{:depth N :trace-events-keep N}` | `{:depth 50, :trace-events-keep 50}` | v1 (dev-only) | Per-frame epoch ring depth and trace-event retention cap per record. |
+    | `:trace-buffer` | `{:events-retained N}` | `{:events-retained 50}` | v1 (dev-only) | The dev-only per-frame trace ring's event-slot count: one slot per event, regardless of how many trace events its run emitted. 0 disables retention (the surface stays live). |
+    | `:elision` | `{:rf.egress/threshold-bytes N}` | `{:rf.egress/threshold-bytes 16384}` | v1 | The size threshold above which the internal `re-frame.elision/elide-wire-value` walker emits the `:rf.warning/large-value-unschema'd` advisory for an *undeclared* large string. It is a warning signal, not a cap: the value is forwarded raw. Substituting the `:rf.size/large-elided` marker requires declaring the path `:large`. 0 disables runtime auto-detect. |
+    | `:observability` | `{:handled-events [<entry>…] :errors [<entry>…]}` | none declared | v1 | The **process default** for production observation sinks, in the same closed grammar a frame's `:observability` takes. Precedence is per stream: a frame declaring a stream uses its own entries for it, a frame omitting it inherits this default's, and `{:errors []}` on a frame is that frame's opt-out — exactly one source per record per stream. Inheritance moves the sink list, not the redaction authority. Records with no frame authority (frameless producers; a `:frame` that no longer resolves) reach this default alone, projected with the governing frame explicitly nil. Two departures from its neighbours, both deliberate: an explicit **`nil` clears** it, and it is validated **at the call** (`:rf.error/bad-frame-classification`, `:where 'rf/configure!`). |
 
-  **An unrecognised top-level key applies nothing — and, if it is bare, says so.** The vocabulary above is closed and its keys are *bare*, so `{:epoch-histroy {:depth 100}}` is a typo of a real key rather than an extension point. A bare (or `rf`-namespaced) unknown key therefore emits `:rf.warning/unknown-configure-key` in dev builds, naming every offending key and the known set; the call still returns `nil` and still applies nothing (`:recovery :ignored` — observational, never a refusal), and the whole diagnostic is DCE'd out of production. A **user-namespaced** key (`:myapp/thing`) passes in silence, which is what lets a wrapper hand `configure!` a composed config value without filtering it first.
+    **An unrecognised top-level key applies nothing — and, if it is bare, says so.** The vocabulary above is closed and its keys are *bare*, so `{:epoch-histroy {:depth 100}}` is a typo of a real key rather than an extension point. A bare (or `rf`-namespaced) unknown key therefore emits `:rf.warning/unknown-configure-key` in dev builds, naming every offending key and the known set; the call still returns `nil` and still applies nothing (`:recovery :ignored` — observational, never a refusal), and the whole diagnostic is DCE'd out of production. A **user-namespaced** key (`:myapp/thing`) passes in silence, which is what lets a wrapper hand `configure!` a composed config value without filtering it first.
 
-  There is **no `:sub-cache` knob**: sub-cache disposal happens synchronously when the derefer count hits 0. SSR error-projection policy (`:public-error-id`, `:dev-error-detail?`) is **not** a `configure!` key; it is per-frame metadata on the frame's `:ssr` map. Framework-owned semantic sub-keys use a namespaced keyword (`:rf.egress/threshold-bytes`); ergonomic per-knob sub-keys are unqualified (`:depth`, `:trace-events-keep`).
+    There is **no `:sub-cache` knob**: sub-cache disposal happens synchronously when the derefer count hits 0. SSR error-projection policy (`:public-error-id`, `:dev-error-detail?`) is **not** a `configure!` key; it is per-frame metadata on the frame's `:ssr` map. Framework-owned semantic sub-keys use a namespaced keyword (`:rf.egress/threshold-bytes`); ergonomic per-knob sub-keys are unqualified (`:depth`, `:trace-events-keep`).
 - **Example**:
   ```clojure
   (rf/configure! {:epoch-history {:depth 100}
@@ -816,13 +816,13 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```
 - **Description**: The read twin of `configure!` — the process-level config values currently in effect, in `configure!`'s own nested shape. Use it to answer "what is this process actually running with?" from a tool, a health check, or a diagnostic panel.
 
-  **Process values only.** There are no per-frame effective values here: a frame carrying its own `:rf.trace/events-retained` metadata is not reflected, because this reads back exactly the slots `configure!` writes.
+    **Process values only.** There are no per-frame effective values here: a frame carrying its own `:rf.trace/events-retained` metadata is not reflected, because this reads back exactly the slots `configure!` writes.
 
-  **A subsystem's key is ABSENT when its OWN producer is unavailable** — not `nil`, and never a fabricated default. The two optional keys are **independent**, each read through its own late-bind hook: `:epoch-history` comes from the optional `day8/re-frame2-epoch` artefact, `:trace-buffer` from the dev-only trace-tooling sibling. A production bundle that DCEs the tooling ns therefore omits `:trace-buffer` *alone* — a loaded epoch artefact still reports `:epoch-history` beside it, and vice versa. `(get-in (rf/current-config) [:epoch-history :depth])` reads `nil` when the **epoch** artefact is absent, never merely because trace tooling is; that is the answer a health query wants — and the facade owns that branch, so callers do not resolve optional-artefact vars by symbol.
+    **A subsystem's key is ABSENT when its OWN producer is unavailable** — not `nil`, and never a fabricated default. The two optional keys are **independent**, each read through its own late-bind hook: `:epoch-history` comes from the optional `day8/re-frame2-epoch` artefact, `:trace-buffer` from the dev-only trace-tooling sibling. A production bundle that DCEs the tooling ns therefore omits `:trace-buffer` *alone* — a loaded epoch artefact still reports `:epoch-history` beside it, and vice versa. `(get-in (rf/current-config) [:epoch-history :depth])` reads `nil` when the **epoch** artefact is absent, never merely because trace tooling is; that is the answer a health query wants — and the facade owns that branch, so callers do not resolve optional-artefact vars by symbol.
 
-  **`:observability` is absent-not-nil for a different reason, and the distinction is normative.** `re-frame.observability` is always loaded, so its key is absent when no process default has been *declared* — a statement about configuration, never about the build. It reports the declared policy **verbatim**: never any frame's effective policy, which is per-stream and resolved per record.
+    **`:observability` is absent-not-nil for a different reason, and the distinction is normative.** `re-frame.observability` is always loaded, so its key is absent when no process default has been *declared* — a statement about configuration, never about the build. It reports the declared policy **verbatim**: never any frame's effective policy, which is per-stream and resolved per record.
 
-  The result is a key-by-key snapshot rather than a transactional one, and it is not promised to be wire-serialisable. A **user-namespaced** pass-through key `configure!` accepted in silence (`:myapp/thing`) is *not* reflected back: the vocabulary is closed, so only keys the runtime reads have live values to report.
+    The result is a key-by-key snapshot rather than a transactional one, and it is not promised to be wire-serialisable. A **user-namespaced** pass-through key `configure!` accepted in silence (`:myapp/thing`) is *not* reflected back: the vocabulary is closed, so only keys the runtime reads have live values to report.
 - **Example**:
   ```clojure
   (rf/configure! {:epoch-history {:depth 100}})
@@ -844,7 +844,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```
 - **Description**: Return a map of every optional feature keyword to its inspection entry: the feature's static coordinate data (`:maven` / `:require` / `:spec`) merged with its live `:loaded?` status. Detection is a pure keyword lookup in the always-loaded feature registry (no exception, no classpath probe). The known features are `:schemas`, `:machines`, `:routing`, `:flows`, `:http`, `:ssr`, `:epoch`, `:resources`.
 
-  This is the ONE feature-inspection door. Read the per-feature boolean out of the map; an **unknown** feature keyword has no entry, so the lookup reads `nil`. For boot-time rather than first-call failure, write the guard yourself — one line, and not an elidable `assert`.
+    This is the ONE feature-inspection door. Read the per-feature boolean out of the map; an **unknown** feature keyword has no entry, so the lookup reads `nil`. For boot-time rather than first-call failure, write the guard yourself — one line, and not an elidable `assert`.
 - **Example**:
   ```clojure
   (rf/features)

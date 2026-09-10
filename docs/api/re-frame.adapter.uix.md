@@ -96,11 +96,11 @@ Three things hold for that head, and they are the point of using the registry ra
   ```
 - **Description**: Subscribe inside a UIx component. This is the hook-shaped equivalent of `subscribe`, and it carries the same name `re-frame.fresco.native` publishes for a React island under Fresco: one value-hook name for every React function component. The verb `subscribe` returns a subscription; this noun returns its value.
 
-  Returns the current sub value and re-renders the calling component when the value changes.
+    Returns the current sub value and re-renders the calling component when the value changes.
 
-  - The 1-arg form resolves the frame from **React context only**: the surrounding `frame-provider` (SCOPE) / `frame-root` (ENSURE), and nothing else. It raises `:rf.error/no-frame-context` when there is no boundary above it (there is no `:rf/default` floor).
-  - A `with-frame` / `bind-fn` dynamic scope around a synchronous render does **not** reach a hook — not under `act()`, not under `flushSync`, not under a server render. That is the one rule the whole React hook family follows, `re-frame.fresco.native`'s hooks included, and the reason is that a hook runs when React renders, by which time the block's extent has unwound: the same component tree must resolve the same frame however the flush was driven. To pin a hook to a frame explicitly, wrap it in a `frame-provider` — or pass `{:frame …}` on this read.
-  - The opts form pins ONE read to an explicit frame, bypassing the chain — the same `{:frame target}` opts map `subscribe` takes, where `target` is a frame-id keyword or a live frame value. `:frame` is **required** there: the opts form is the explicit read and the 1-arity is the ambient one. Where a whole subtree shares a frame, scope it with `frame-provider {:frame target}` and read with the 1-arity instead.
+    - The 1-arg form resolves the frame from **React context only**: the surrounding `frame-provider` (SCOPE) / `frame-root` (ENSURE), and nothing else. It raises `:rf.error/no-frame-context` when there is no boundary above it (there is no `:rf/default` floor).
+    - A `with-frame` / `bind-fn` dynamic scope around a synchronous render does **not** reach a hook — not under `act()`, not under `flushSync`, not under a server render. That is the one rule the whole React hook family follows, `re-frame.fresco.native`'s hooks included, and the reason is that a hook runs when React renders, by which time the block's extent has unwound: the same component tree must resolve the same frame however the flush was driven. To pin a hook to a frame explicitly, wrap it in a `frame-provider` — or pass `{:frame …}` on this read.
+    - The opts form pins ONE read to an explicit frame, bypassing the chain — the same `{:frame target}` opts map `subscribe` takes, where `target` is a frame-id keyword or a live frame value. `:frame` is **required** there: the opts form is the explicit read and the 1-arity is the ambient one. Where a whole subtree shares a frame, scope it with `frame-provider {:frame target}` and read with the 1-arity instead.
 - **Example**:
   ```clojure
   (defui cart-total []
@@ -117,11 +117,11 @@ Three things hold for that head, and they are the point of using the registry ra
   ```
 - **Description**: Returns the frame ops map for the ambient frame — exactly what `(rf/capture-frame)` returns (the frame-locked ops map), captured in hook position. This is how a UIx component gets hold of `dispatch` (and the other frame-locked ops) without auto-injection: destructure `dispatch` off it and close over that.
 
-  `capture-frame` is *the* hold primitive; `reg-view` injection (Reagent) and `use-frame` (UIx) are its two ergonomic spellings — one primitive, three faces.
+    `capture-frame` is *the* hold primitive; `reg-view` injection (Reagent) and `use-frame` (UIx) are its two ergonomic spellings — one primitive, three faces.
 
-  - Frame resolution matches `use-sub`: the surrounding `frame-provider` / `frame-root` via React context, and nothing else — a `with-frame` dynamic scope around a synchronous render does not reach it. It raises `:rf.error/no-frame-context` when there is no boundary above it. For an explicit frame there is no hook tax: call `(rf/capture-frame frame-id)` directly.
-  - The returned map is reference-stable across re-renders for the same resolved frame *incarnation* (safe in effect deps and child props). A provider swap re-renders the caller and yields a map locked to the new frame — and so does destroying the resolved frame and creating another under the same id, because a frame keyword is an address and the ops bundle is pinned to the incarnation it was captured against.
-  - No options map, no variants — for an explicit frame, call `(rf/capture-frame frame-id)` directly.
+    - Frame resolution matches `use-sub`: the surrounding `frame-provider` / `frame-root` via React context, and nothing else — a `with-frame` dynamic scope around a synchronous render does not reach it. It raises `:rf.error/no-frame-context` when there is no boundary above it. For an explicit frame there is no hook tax: call `(rf/capture-frame frame-id)` directly.
+    - The returned map is reference-stable across re-renders for the same resolved frame *incarnation* (safe in effect deps and child props). A provider swap re-renders the caller and yields a map locked to the new frame — and so does destroying the resolved frame and creating another under the same id, because a frame keyword is an address and the ops bundle is pinned to the incarnation it was captured against.
+    - No options map, no variants — for an explicit frame, call `(rf/capture-frame frame-id)` directly.
 - **Example**:
   ```clojure
   (defui counter-buttons []
@@ -155,7 +155,7 @@ Three things hold for that head, and they are the point of using the registry ra
     - `:rf.error/bad-frame-provider-arg` on a `:frame` that is neither a keyword nor a live frame value
     - `:rf.error/frame-provider-given-id` when given an `:id` (the ENSURE key — use `frame-root`)
 
-  Children ride the idiomatic `$` trailing-args channel. Pass them after the prop map, as for any other UIx component (there is no `:children` prop-map key).
+    Children ride the idiomatic `$` trailing-args channel. Pass them after the prop map, as for any other UIx component (there is no `:children` prop-map key).
 - **Example**:
   ```clojure
   ($ uix-adapter/frame-provider {:frame :session}
@@ -173,7 +173,7 @@ Three things hold for that head, and they are the point of using the registry ra
     - **Commit-owned two-pass**: the create/seed runs in a client `useLayoutEffect` (at commit), not during render — the first render emits no descendant subtree, and children render only after the frame is live. A render React discards before commit creates + seeds nothing (no ghost frame).
     - Re-mounting under the same `:id` (hot reload, React StrictMode dev double-invoke) neither destroys durable state nor re-runs `:initial-events`. A mounted `:id`/opts change raises `:rf.error/frame-root-reconfigured`; a stray `:frame` raises `:rf.error/frame-root-given-frame`.
 
-  Children ride the idiomatic `$` trailing-args channel.
+    Children ride the idiomatic `$` trailing-args channel.
 - **Example**:
   ```clojure
   ;; create the frame on first mount, seed it once via :initial-events,

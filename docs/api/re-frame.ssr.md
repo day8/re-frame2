@@ -112,13 +112,13 @@ Streaming emits the shell HTML first, then continues rendering boundary subtrees
     - `:id` — the boundary's identity, unique per page. It is how an arriving chunk is paired with its placeholder. A keyword or a string.
     - `:fallback` — hiccup rendered inline in the shell while the body is still resolving, and re-rendered by this component when the boundary is reported failed.
 
-  Per host:
+    Per host:
     - **Server**: expands to the internal `:rf/suspense-boundary` marker the shell walker consumes. That marker is wire syntax, never authored directly; outside a stream the non-streaming emitter still rejects it with `:rf.error/ssr-suspense-boundary-outside-stream`.
     - **Client**: renders `body`, or `:fallback` when `:id` is in the page's failed-boundary record written at stream finalization. No recorded outcome — a plain client mount, a non-streamed page — renders `body`, so it fails soft by construction.
 
-  Malformed `attrs` raise `:rf.error/suspense-boundary-invalid-attrs`.
+    Malformed `attrs` raise `:rf.error/suspense-boundary-invalid-attrs`.
 
-  This is not React Suspense: no promises, no thrown thenables, no selective hydration. The server decides what defers; the client paints the fallback and swaps content as chunks land.
+    This is not React Suspense: no promises, no thrown thenables, no selective hydration. The server decides what defers; the client paints the fallback and swaps content as chunks land.
 - **Example**:
   ```clojure
   (require '[re-frame.ssr :as ssr])
