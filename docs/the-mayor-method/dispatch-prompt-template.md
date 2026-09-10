@@ -41,96 +41,96 @@ word block file, against workers that finished comparable items in a third of th
 four hundred.
 
 1. **Read the tracker item, and order it by the tracker's own TIMESTAMPS** — not by
-   position, and not by dates written in the prose. The full mechanics are spelled out
-   for the worker under *Common preamble* below: the description is usually the oldest
-   text but the bottom is not reliably the newest either, a date in the prose is content
-   rather than a mutation time, the plain history listing names no changed field, you
-   walk adjacent snapshot pairs newest-first to the first text-bearing change, and you
-   re-enumerate a bead's children before concluding a decision is absent. Every one of
-   those binds the mayor writing the brief exactly as it binds the worker reading it.
+    position, and not by dates written in the prose. The full mechanics are spelled out
+    for the worker under *Common preamble* below: the description is usually the oldest
+    text but the bottom is not reliably the newest either, a date in the prose is content
+    rather than a mutation time, the plain history listing names no changed field, you
+    walk adjacent snapshot pairs newest-first to the first text-bearing change, and you
+    re-enumerate a bead's children before concluding a decision is absent. Every one of
+    those binds the mayor writing the brief exactly as it binds the worker reading it.
 
-   **And one cheap query tells you which items are most likely to punish skipping the walk:
-   has this item ever been CLOSED and reopened?** The rule above is unconditional, which is
-   why it gets skipped — an unconditional instruction competes with every other unconditional
-   instruction. A closed-to-open transition is the strongest cheap signal there is that the
-   description is no longer the live instruction: it was written about the defect as originally
-   found, and something later disagreed enough to reopen the item. Nothing about the rendered
-   item says so — the description still reads as a current bug report, because it once was one.
-   Measured across one session: three briefs written from descriptions whose work had already
-   merged, and **all three items showed a closed-to-open transition in their status history
-   while the control, never closed, showed none**. Ask the tracker for the item's status over
-   time rather than its status now.
+    **And one cheap query tells you which items are most likely to punish skipping the walk:
+    has this item ever been CLOSED and reopened?** The rule above is unconditional, which is
+    why it gets skipped — an unconditional instruction competes with every other unconditional
+    instruction. A closed-to-open transition is the strongest cheap signal there is that the
+    description is no longer the live instruction: it was written about the defect as originally
+    found, and something later disagreed enough to reopen the item. Nothing about the rendered
+    item says so — the description still reads as a current bug report, because it once was one.
+    Measured across one session: three briefs written from descriptions whose work had already
+    merged, and **all three items showed a closed-to-open transition in their status history
+    while the control, never closed, showed none**. Ask the tracker for the item's status over
+    time rather than its status now.
 
-   **It is a signal to do the walk, though, not a substitute for it, and the two ways of
-   over-reading it are worth naming because both are natural.** *Closed* does not mean
-   *shipped* — a project whose items close when a change is opened for review will have closed
-   items whose work is still unmerged, so "the closing work has landed" is an inference about
-   this project's conventions rather than a fact about the transition. And a reopening does not
-   always supersede: an item reopened because the same defect REGRESSED has a description that is
-   accurate, and treating it as stale sends the worker looking for a newer instruction that does
-   not exist. **What decides currency is the history and the tree**, which is what the rule above
-   already says; the query tells you where that reading is most likely to change your brief.
+    **It is a signal to do the walk, though, not a substitute for it, and the two ways of
+    over-reading it are worth naming because both are natural.** *Closed* does not mean
+    *shipped* — a project whose items close when a change is opened for review will have closed
+    items whose work is still unmerged, so "the closing work has landed" is an inference about
+    this project's conventions rather than a fact about the transition. And a reopening does not
+    always supersede: an item reopened because the same defect REGRESSED has a description that is
+    accurate, and treating it as stale sends the worker looking for a newer instruction that does
+    not exist. **What decides currency is the history and the tree**, which is what the rule above
+    already says; the query tells you where that reading is most likely to change your brief.
 
-   **The three consequences differ, and only the first is obvious.** The dispatch may re-do
-   finished work; it may point a worker at a defect that no longer exists, whose deliverable is
-   then a refutation; or — the expensive one — it may describe a *smaller* problem than the one
-   the reopening found, so the worker fixes what you asked and the real defect survives with an
-   item now closed over it. The worker's own history walk catches all three, which is why this
-   costs a dispatch rather than a defect. **Do not let that safety net become the plan**: it
-   spends a worker's context re-deriving what one query answers, and the mayor learns nothing,
-   because a brief refuted politely reads much like a brief fulfilled.
+    **The three consequences differ, and only the first is obvious.** The dispatch may re-do
+    finished work; it may point a worker at a defect that no longer exists, whose deliverable is
+    then a refutation; or — the expensive one — it may describe a *smaller* problem than the one
+    the reopening found, so the worker fixes what you asked and the real defect survives with an
+    item now closed over it. The worker's own history walk catches all three, which is why this
+    costs a dispatch rather than a defect. **Do not let that safety net become the plan**: it
+    spends a worker's context re-deriving what one query answers, and the mayor learns nothing,
+    because a brief refuted politely reads much like a brief fulfilled.
 
-   **Do that read before the brief exists, and read it for two things: a HOLD, and SEQUENCING.** It is
-   a step rather than another note because the knowledge is already written down and already travelling —
-   the common preamble below orders the worker to read by tracker timestamps, at length and with the
-   reasoning, and the mayor pastes that into every dispatch and then does not do it. A hold is the newest
-   field often enough that the description cannot be trusted to mention it, so an item reads as an
-   ordinary defect report while the live instruction is *wait*. Sequencing is the mirror case and the
-   easier one to miss, because the brief's instinct is right by default: a triage note naming the
-   predecessors that had to land first is an **authorisation with a precondition**, so restating a
-   generic fence over it converts a satisfied precondition back into a blocker — which either strands
-   the work or, as measured here, costs the worker a justification round it should not have had to
-   write. Both shapes went out in real briefs, and the worker caught both.
+    **Do that read before the brief exists, and read it for two things: a HOLD, and SEQUENCING.** It is
+    a step rather than another note because the knowledge is already written down and already travelling —
+    the common preamble below orders the worker to read by tracker timestamps, at length and with the
+    reasoning, and the mayor pastes that into every dispatch and then does not do it. A hold is the newest
+    field often enough that the description cannot be trusted to mention it, so an item reads as an
+    ordinary defect report while the live instruction is *wait*. Sequencing is the mirror case and the
+    easier one to miss, because the brief's instinct is right by default: a triage note naming the
+    predecessors that had to land first is an **authorisation with a precondition**, so restating a
+    generic fence over it converts a satisfied precondition back into a blocker — which either strands
+    the work or, as measured here, costs the worker a justification round it should not have had to
+    write. Both shapes went out in real briefs, and the worker caught both.
 
-   **Read the INVERSE with more care than either, because it is the one that fails open.** A note
-   lifting a fence names *the fence it lifts*, not the item — so an item can carry a second sequencing
-   the lift says nothing about, and its newest layer then reads *released* while a live precondition
-   sits underneath. The two above merely re-block work that was already clear; this one dispatches into
-   a surface somebody else holds, or into one gated by a decision nobody has made. Measured: an item
-   whose fence had been lifted on the holder's own explicit words still sat behind an older note
-   sequencing it behind an unruled operator call — and the *other* half of that same older note had
-   genuinely cleared, which is exactly what made the whole of it look discharged. **Where the tracker
-   can express a precondition, encode it there rather than leaving it in prose**: a fence that exists
-   only in a note is re-derived every pass, and a fence re-derived every pass is eventually missed.
+    **Read the INVERSE with more care than either, because it is the one that fails open.** A note
+    lifting a fence names *the fence it lifts*, not the item — so an item can carry a second sequencing
+    the lift says nothing about, and its newest layer then reads *released* while a live precondition
+    sits underneath. The two above merely re-block work that was already clear; this one dispatches into
+    a surface somebody else holds, or into one gated by a decision nobody has made. Measured: an item
+    whose fence had been lifted on the holder's own explicit words still sat behind an older note
+    sequencing it behind an unruled operator call — and the *other* half of that same older note had
+    genuinely cleared, which is exactly what made the whole of it look discharged. **Where the tracker
+    can express a precondition, encode it there rather than leaving it in prose**: a fence that exists
+    only in a note is re-derived every pass, and a fence re-derived every pass is eventually missed.
 
-   **And where you sweep a whole board for hold markers, that sweep is a candidate filter and never a
-   verdict.** It narrows the open items to a handful; the hold is then established by READING each
-   candidate, which is affordable at that size and is the only thing that separates a live banner from
-   one quoted, discussed, or already struck. Write the question the sweep answers beside the question you
-   are asking — *does this text contain these characters* against *is this item currently held* — because
-   the gap is invisible in the answer. Measured: a sweep reported eleven of twenty-seven open items held
-   and the number reached the operator before anyone read a candidate; the first two falsified were an
-   item quoting another item's banner and an item whose own text said its banner was struck. Why the
-   sweep fails in both directions, why a second sweep built to tell live from struck fails the same way,
-   and the structured field that is the durable answer where a project wants this machine-checkable, are
-   under *Tracker mechanics* in [`loops.md`](loops.md#tracker-mechanics) — this step is the concrete
-   instance and does not restate them.
+    **And where you sweep a whole board for hold markers, that sweep is a candidate filter and never a
+    verdict.** It narrows the open items to a handful; the hold is then established by READING each
+    candidate, which is affordable at that size and is the only thing that separates a live banner from
+    one quoted, discussed, or already struck. Write the question the sweep answers beside the question you
+    are asking — *does this text contain these characters* against *is this item currently held* — because
+    the gap is invisible in the answer. Measured: a sweep reported eleven of twenty-seven open items held
+    and the number reached the operator before anyone read a candidate; the first two falsified were an
+    item quoting another item's banner and an item whose own text said its banner was struck. Why the
+    sweep fails in both directions, why a second sweep built to tell live from struck fails the same way,
+    and the structured field that is the durable answer where a project wants this machine-checkable, are
+    under *Tracker mechanics* in [`loops.md`](loops.md#tracker-mechanics) — this step is the concrete
+    instance and does not restate them.
 2. **Check every factual claim you are about to write.** Does the symbol resolve?
-   Does the file say what you think? Is the count still true? Is the ruling you cite
-   *ruled*, or only recommended? A recommendation and a decision read identically in
-   a summary and are opposite in force.
-   **Then one question of a different kind: is this work still OUTSTANDING?** The four
-   above ask whether a claim is TRUE. A note saying "X is all that remains" was true when
-   it was written and says nothing about now, so checking it at source confirms the wrong
-   thing. Check the TREE. The sentence that says so is addressed to you and sits in the
-   common preamble below — inside the block you extract and paste without reading, because
-   its audience looks like the worker. A dispatch went out for work that had merged the
-   previous day, and the worker's deliverable was refuting the premise.
+    Does the file say what you think? Is the count still true? Is the ruling you cite
+    *ruled*, or only recommended? A recommendation and a decision read identically in
+    a summary and are opposite in force.
+    **Then one question of a different kind: is this work still OUTSTANDING?** The four
+    above ask whether a claim is TRUE. A note saying "X is all that remains" was true when
+    it was written and says nothing about now, so checking it at source confirms the wrong
+    thing. Check the TREE. The sentence that says so is addressed to you and sits in the
+    common preamble below — inside the block you extract and paste without reading, because
+    its audience looks like the worker. A dispatch went out for work that had merged the
+    previous day, and the worker's deliverable was refuting the premise.
 3. **Establish the fence by asking who is live, not what is open.** A listing of open
-   changes misses a worker that has not pushed yet. **And ask what each nominated gate
-   COMPARES, here, not at dispatch** — a fence derived from files alone misses a gate that
-   couples two surfaces (see *Fences*), and one mayor struck an item's fence and dispatched
-   before asking, then re-fenced it five minutes later on exactly that ground.
+    changes misses a worker that has not pushed yet. **And ask what each nominated gate
+    COMPARES, here, not at dispatch** — a fence derived from files alone misses a gate that
+    couples two surfaces (see *Fences*), and one mayor struck an item's fence and dispatched
+    before asking, then re-fenced it five minutes later on exactly that ground.
 4. **Name the discriminator**, if the task is "find every X".
 5. **Then** assemble the standard blocks.
 

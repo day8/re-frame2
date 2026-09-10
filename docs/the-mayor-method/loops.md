@@ -375,25 +375,25 @@ familiar fix:
   first, *then* clear, *then* retry. Clearing before checkpointing reverts whatever the
   tracker just recorded.
 * **"Not possible to fast-forward"** — genuine divergence, usually your own checkpoint
-  against commits that landed while you made it. Rebase, then **push**: the rebase
-  replays your commit on top and leaves you ahead by one, and the equality check cannot
-  pass until it lands. **That intermediate state is expected, not a second failure.**
-  Both obvious reflexes are wrong — repeating the pull stays ahead, and forcing equality
-  discards the very checkpoint the drill exists to protect.
+    against commits that landed while you made it. Rebase, then **push**: the rebase
+    replays your commit on top and leaves you ahead by one, and the equality check cannot
+    pass until it lands. **That intermediate state is expected, not a second failure.**
+    Both obvious reflexes are wrong — repeating the pull stays ahead, and forcing equality
+    discards the very checkpoint the drill exists to protect.
 
-  **Rebase onto the remote-tracking REF, not with a pull.** *Rebase* names an outcome, and
-  the command that first comes to hand for it is a pull carrying a rebase flag — which reads
-  the same shared scratch file this drill just retired for the fast-forward. The argument two
-  paragraphs up applies here unchanged and is easy to miss, because it was made about the
-  step rather than about the remedy for that step's own failure: retiring the reading command
-  in one place and readmitting it in the next is no protection at all. Measured under a
-  saturated fleet: with remote and branch both named, the pull form aborted a second time
-  wearing the contamination message — peers adding worktrees had left several refs in that
-  file — while rebasing onto the ref succeeded immediately on the same tree. **A remedy
-  inherits the hazards of whatever it reads**, so choose it by what it reads, not by what it
-  is called.
+    **Rebase onto the remote-tracking REF, not with a pull.** *Rebase* names an outcome, and
+    the command that first comes to hand for it is a pull carrying a rebase flag — which reads
+    the same shared scratch file this drill just retired for the fast-forward. The argument two
+    paragraphs up applies here unchanged and is easy to miss, because it was made about the
+    step rather than about the remedy for that step's own failure: retiring the reading command
+    in one place and readmitting it in the next is no protection at all. Measured under a
+    saturated fleet: with remote and branch both named, the pull form aborted a second time
+    wearing the contamination message — peers adding worktrees had left several refs in that
+    file — while rebasing onto the ref succeeded immediately on the same tree. **A remedy
+    inherits the hazards of whatever it reads**, so choose it by what it reads, not by what it
+    is called.
 * **A truncated abort, or a ref-level race** — re-fetch and re-read. Do not reach for
-  any remedy above.
+    any remedy above.
 
 **Never wire a remedy behind a pipe.** `pull … | tail -1 || fallback` never runs the
 fallback, because the pipeline's status is the filter's and the filter succeeded.
@@ -989,188 +989,188 @@ in-progress, read it too — a real signal, never the complete one.
 and both readings went wrong in a single day here, in opposite directions.
 
 1. **Has the *tip revision* on that item's branch changed since the last tick?** Record the revision
-   id, never a count of changes: **an *ahead* count survives a rebase unchanged**, and rebasing onto a
-   moved trunk is what a briefed worker does constantly, so a count fails on the common case. A
-   healthy worker here was called unchanged across two ticks, having rebased two minutes before the
-   second read with all its work committed.
+    id, never a count of changes: **an *ahead* count survives a rebase unchanged**, and rebasing onto a
+    moved trunk is what a briefed worker does constantly, so a count fails on the common case. A
+    healthy worker here was called unchanged across two ticks, having rebased two minutes before the
+    second read with all its work committed.
 
-   **Read the tip from whichever ref the worker's commit updates DIRECTLY, and prefer a read that
-   performs no refresh** — a refresh exposes the shared fetch-head trap under *After each merge*,
-   which is on this path too and is silent here. Where workers share one repository metadata
-   directory, the local ref moves the moment a worker commits while the *published* ref moves only
-   when that worker pushes: the published one lags, in the direction that reads as death.
+    **Read the tip from whichever ref the worker's commit updates DIRECTLY, and prefer a read that
+    performs no refresh** — a refresh exposes the shared fetch-head trap under *After each merge*,
+    which is on this path too and is silent here. Where workers share one repository metadata
+    directory, the local ref moves the moment a worker commits while the *published* ref moves only
+    when that worker pushes: the published one lags, in the direction that reads as death.
 
-   **An unchanged tip says nothing on its own** — a worker inside a long gate commits nothing by
-   design, so a still tip is the *expected* reading for the commonest healthy state. Corroborate with
-   worktree activity, and note that **the corroboration is a WRITE clock, so a worker that is only
-   READING touches nothing**: twice in one day a worker grepping its own gate log was called stranded
-   on twenty-three minutes of no writes. **So look for a signal OUTSIDE the worktree too — where your
-   tracker records that a worker claimed its item, only a running agent could have done that, and it
-   lands in the tracker rather than the tree, where no file-activity clock can ever see it.** That is
-   the one positive signal a purely reading worker still produces, and the opening minutes of every
-   dispatch are exactly when you need it, because the first thing every brief tells a worker to do is
-   read. Its absence proves nothing — not every dispatch claims — which is why the sweep starts from
-   the worktrees in the first place.
+    **An unchanged tip says nothing on its own** — a worker inside a long gate commits nothing by
+    design, so a still tip is the *expected* reading for the commonest healthy state. Corroborate with
+    worktree activity, and note that **the corroboration is a WRITE clock, so a worker that is only
+    READING touches nothing**: twice in one day a worker grepping its own gate log was called stranded
+    on twenty-three minutes of no writes. **So look for a signal OUTSIDE the worktree too — where your
+    tracker records that a worker claimed its item, only a running agent could have done that, and it
+    lands in the tracker rather than the tree, where no file-activity clock can ever see it.** That is
+    the one positive signal a purely reading worker still produces, and the opening minutes of every
+    dispatch are exactly when you need it, because the first thing every brief tells a worker to do is
+    read. Its absence proves nothing — not every dispatch claims — which is why the sweep starts from
+    the worktrees in the first place.
 
-   **And if your tooling maintains a live status for a running agent, read THAT before any of these.**
-   Every signal in this step is indirect — it infers a worker from the traces it leaves — and they
-   share a blind spot wide enough to matter: a worker in its **final minutes**, running a last gate and
-   then tidying scratch files and shared-dependency links, works outside the worktree and outside
-   version control and is too busy to answer. Tip, fetch clock, write clock and a direct message then
-   read as dead *together*, for one cause, which is why corroborating one with another does not help
-   here. **So frozen on every clock, across any number of readings, is AMBIGUOUS — it is exactly what
-   healthy foreground work looks like, and exactly what a stopped worker looks like.** It cannot
-   identify either, and no amount of re-reading the same four clocks converts it into evidence; a
-   freeze that has run an hour is still the same non-signal it was in the first minute. Measured twice
-   in one day: five workers were called dormant and **three of them completed alive, two were never
-   explained either way**; a sixth, recorded later as another instance, also completed. **Do not count
-   a live control among them** — one moving worker was the control for that measurement, and folding
-   it into the numerator is how this count was first written down wrong. On the second occasion the
-   supervisor's own one-line progress string named the phase outright while the four clocks said
-   otherwise. Where no direct
-   status exists, declare a window and re-read rather than acting: not because waiting resolves the
-   ambiguity, but because the two errors are priced differently — waiting costs a tick, and acting
-   costs a duplicate worker in a live worktree.
+    **And if your tooling maintains a live status for a running agent, read THAT before any of these.**
+    Every signal in this step is indirect — it infers a worker from the traces it leaves — and they
+    share a blind spot wide enough to matter: a worker in its **final minutes**, running a last gate and
+    then tidying scratch files and shared-dependency links, works outside the worktree and outside
+    version control and is too busy to answer. Tip, fetch clock, write clock and a direct message then
+    read as dead *together*, for one cause, which is why corroborating one with another does not help
+    here. **So frozen on every clock, across any number of readings, is AMBIGUOUS — it is exactly what
+    healthy foreground work looks like, and exactly what a stopped worker looks like.** It cannot
+    identify either, and no amount of re-reading the same four clocks converts it into evidence; a
+    freeze that has run an hour is still the same non-signal it was in the first minute. Measured twice
+    in one day: five workers were called dormant and **three of them completed alive, two were never
+    explained either way**; a sixth, recorded later as another instance, also completed. **Do not count
+    a live control among them** — one moving worker was the control for that measurement, and folding
+    it into the numerator is how this count was first written down wrong. On the second occasion the
+    supervisor's own one-line progress string named the phase outright while the four clocks said
+    otherwise. Where no direct
+    status exists, declare a window and re-read rather than acting: not because waiting resolves the
+    ambiguity, but because the two errors are priced differently — waiting costs a tick, and acting
+    costs a duplicate worker in a live worktree.
 
-   **Say what the window is FOR, though, because a rule that only forbids leaves the interval empty
-   and a coordinator fills an empty interval with more measurement.** The re-read catches exactly one
-   thing — movement, which is proof of life and needs no corroboration — so read it twice, record the
-   freeze, and go do something else; the tenth reading answers what the second did. And carry a sense
-   of the scale, because that is what makes the non-signal bearable rather than ominous: **a freeze
-   measured in hours is unremarkable on a heavyweight gate.** Measured across one session — six
-   readings over ninety minutes, every one identical, while five workers whose transcripts had not
-   gained a byte were all alive and all completed normally, at durations from an hour and forty
-   minutes to nearly three hours. The coordinator who knows that stops after the second reading; the
-   one who does not keeps going, because silence that long feels like it has to mean something.
+    **Say what the window is FOR, though, because a rule that only forbids leaves the interval empty
+    and a coordinator fills an empty interval with more measurement.** The re-read catches exactly one
+    thing — movement, which is proof of life and needs no corroboration — so read it twice, record the
+    freeze, and go do something else; the tenth reading answers what the second did. And carry a sense
+    of the scale, because that is what makes the non-signal bearable rather than ominous: **a freeze
+    measured in hours is unremarkable on a heavyweight gate.** Measured across one session — six
+    readings over ninety minutes, every one identical, while five workers whose transcripts had not
+    gained a byte were all alive and all completed normally, at durations from an hour and forty
+    minutes to nearly three hours. The coordinator who knows that stops after the second reading; the
+    one who does not keeps going, because silence that long feels like it has to mean something.
 
-   **That clock says "no activity" in four voices and you can only tell them apart with a control.**
-   Besides the reading worker and the poller treated just below, a path that resolves to nothing
-   answers identically — and so does a span shorter than the worktree's own age, where every file is
-   recent and the count is the checkout rather than the worker. That last one is the counter-intuitive
-   half, because it returns a large number that reads as proof of life: measured once at *the same
-   count* over fifteen minutes and over six hours. **And the age itself is the worktree's CREATION
-   time, not its last-modification time**, which the very writes you are trying to detect keep
-   bumping: the wrong clock reads right on an idle tree, where the age does not matter, and seconds
-   old on a live one, where the age is the whole question. Run the clock twice at different spans
-   before believing either reading.
+    **That clock says "no activity" in four voices and you can only tell them apart with a control.**
+    Besides the reading worker and the poller treated just below, a path that resolves to nothing
+    answers identically — and so does a span shorter than the worktree's own age, where every file is
+    recent and the count is the checkout rather than the worker. That last one is the counter-intuitive
+    half, because it returns a large number that reads as proof of life: measured once at *the same
+    count* over fifteen minutes and over six hours. **And the age itself is the worktree's CREATION
+    time, not its last-modification time**, which the very writes you are trying to detect keep
+    bumping: the wrong clock reads right on an idle tree, where the age does not matter, and seconds
+    old on a live one, where the age is the whole question. Run the clock twice at different spans
+    before believing either reading.
 
-   **And "only reading" has a sibling that is not reading at all: a worker that POLLS.** It edits
-   nothing and commits nothing, so both clocks above stay still for hours — but a fetch ordinarily
-   writes as it reads, into exactly one place: the fetch-head file in that item's OWN metadata
-   directory, which each linked worktree gets its own copy of the first time a fetch writes that
-   clock there. Read that file twice, thirty to sixty seconds apart. **Movement is proof of life and
-   needs no corroboration**, which makes this the one test in this section that answers without a
-   control; stillness restores the ambiguity rather than resolving it, so it only ever answers in one
-   direction. **Its PRESENCE says nothing about life** — a stopped worker leaves its copy behind,
-   frozen at that worker's last fetch, which is why one read is worthless and two are decisive. **And
-   its ABSENCE says less than it looks like saying**: only that no fetch has written that clock
-   there, which is not the same as no fetch having run, because the write is suppressible by a flag
-   on the fetch itself — a poller configured that way is invisible to this test altogether. So read
-   absence as a reason to reach for another signal rather than as a history of the tree, though it
-   stays a hint about one you did not create: measured here at four of seven, the three without being
-   trees this method did not make. Measured on a poller that six consecutive sweeps had read as
-   silent, on both of the other clocks, while it fetched every forty-two seconds. **And do not let
-   the fetch-head trap under *After each merge* talk you out of it**: that rule is about the SHARED
-   file being unusable as a merge TARGET because any concurrent process rewrites it. The per-item
-   copy is unusable for that same reason and useful for precisely it — here you are reading the
-   rewriting, not the contents.
+    **And "only reading" has a sibling that is not reading at all: a worker that POLLS.** It edits
+    nothing and commits nothing, so both clocks above stay still for hours — but a fetch ordinarily
+    writes as it reads, into exactly one place: the fetch-head file in that item's OWN metadata
+    directory, which each linked worktree gets its own copy of the first time a fetch writes that
+    clock there. Read that file twice, thirty to sixty seconds apart. **Movement is proof of life and
+    needs no corroboration**, which makes this the one test in this section that answers without a
+    control; stillness restores the ambiguity rather than resolving it, so it only ever answers in one
+    direction. **Its PRESENCE says nothing about life** — a stopped worker leaves its copy behind,
+    frozen at that worker's last fetch, which is why one read is worthless and two are decisive. **And
+    its ABSENCE says less than it looks like saying**: only that no fetch has written that clock
+    there, which is not the same as no fetch having run, because the write is suppressible by a flag
+    on the fetch itself — a poller configured that way is invisible to this test altogether. So read
+    absence as a reason to reach for another signal rather than as a history of the tree, though it
+    stays a hint about one you did not create: measured here at four of seven, the three without being
+    trees this method did not make. Measured on a poller that six consecutive sweeps had read as
+    silent, on both of the other clocks, while it fetched every forty-two seconds. **And do not let
+    the fetch-head trap under *After each merge* talk you out of it**: that rule is about the SHARED
+    file being unusable as a merge TARGET because any concurrent process rewrites it. The per-item
+    copy is unusable for that same reason and useful for precisely it — here you are reading the
+    rewriting, not the contents.
 
-   **The most convincing false signature is on none of the discredited lists: a change fully green at
-   the band, a clean worktree, a tip commit some minutes old, and the change still a DRAFT.** It reads
-   as a worker that finished and forgot to publish — a real state, and the one step 2 exists to catch
-   — but a worker presenting exactly so was on attempt three of its local gate. **A green rollup is
-   evidence about the PUSHED tree, not about the worker**, and a clean tree is what you see *between*
-   edits. It belongs on the list because it reads strong and not one of its four parts observes the
-   agent.
+    **The most convincing false signature is on none of the discredited lists: a change fully green at
+    the band, a clean worktree, a tip commit some minutes old, and the change still a DRAFT.** It reads
+    as a worker that finished and forgot to publish — a real state, and the one step 2 exists to catch
+    — but a worker presenting exactly so was on attempt three of its local gate. **A green rollup is
+    evidence about the PUSHED tree, not about the worker**, and a clean tree is what you see *between*
+    edits. It belongs on the list because it reads strong and not one of its four parts observes the
+    agent.
 
-   **A change carries two clocks recording two different EVENTS, so name the event before you read a
-   clock.** The *authored* time is the author timestamp recorded on the change; the *committed* time is
-   the committer timestamp on the object as it currently stands, and it moves every time that object is
-   rewritten. A rebase rewrites the second and replays the first unchanged, so where a project merges by
-   rebase they differ on essentially every landed change — two honest readers called one change
-   forty-three minutes old and seventy-five seconds old, and neither had misread.
+    **A change carries two clocks recording two different EVENTS, so name the event before you read a
+    clock.** The *authored* time is the author timestamp recorded on the change; the *committed* time is
+    the committer timestamp on the object as it currently stands, and it moves every time that object is
+    rewritten. A rebase rewrites the second and replays the first unchanged, so where a project merges by
+    rebase they differ on essentially every landed change — two honest readers called one change
+    forty-three minutes old and seventy-five seconds old, and neither had misread.
 
-   Liveness asks *did this worker do something recently*, which is the rewrite event, so it reads the
-   committed time. A date in prose asks something else, and **which** something else is the whole
-   question — a record that says only "dated" has not been specified. **Name the event in the sentence**
-   — "authored on", "last rewritten on" — and where that event is one the change itself records, the
-   clock follows from it. Do not write a rule that says prose takes one clock: that trades a defect for
-   its mirror, and the error is invisible once made, because both are real timestamps on the same change
-   and each is correct for its own event.
+    Liveness asks *did this worker do something recently*, which is the rewrite event, so it reads the
+    committed time. A date in prose asks something else, and **which** something else is the whole
+    question — a record that says only "dated" has not been specified. **Name the event in the sentence**
+    — "authored on", "last rewritten on" — and where that event is one the change itself records, the
+    clock follows from it. Do not write a rule that says prose takes one clock: that trades a defect for
+    its mirror, and the error is invisible once made, because both are real timestamps on the same change
+    and each is correct for its own event.
 
-   **Where the event is not one the change records, no clock on the change answers.** Rebase is not the
-   only rewrite: amending, or squashing a fixup, moves the committed time while carrying the original
-   author timestamp forward, and an author date can be set explicitly to any value — so the authored
-   time is no proof of when content was written, and a queued or deferred integration leaves the
-   committed time recording a rewrite rather than an arrival. Ancestry is sound where the fields are
-   not, and it settles ORDER only. **A date tying a change to an EXTERNAL event — a run, a measurement,
-   an outage — therefore needs an anchor that event itself recorded, or a chronology you declare and
-   stand behind.** One change here called its first commit a pre-run registration: authored nine seconds
-   before the first sample, committed twenty minutes after the last, and neither number establishes the
-   claim.
+    **Where the event is not one the change records, no clock on the change answers.** Rebase is not the
+    only rewrite: amending, or squashing a fixup, moves the committed time while carrying the original
+    author timestamp forward, and an author date can be set explicitly to any value — so the authored
+    time is no proof of when content was written, and a queued or deferred integration leaves the
+    committed time recording a rewrite rather than an arrival. Ancestry is sound where the fields are
+    not, and it settles ORDER only. **A date tying a change to an EXTERNAL event — a run, a measurement,
+    an outage — therefore needs an anchor that event itself recorded, or a chronology you declare and
+    stand behind.** One change here called its first commit a pre-run registration: authored nine seconds
+    before the first sample, committed twenty minutes after the last, and neither number establishes the
+    claim.
 
 2. **Is there a live task to message?** Message first — resuming beats redispatching, because the
-   worker's context is still there. **The commonest strand by far is a worker that detached a long gate
-   and then ended its turn**, waiting for a completion event nothing sends. Seven such incidents in one
-   day; every one recovered intact the moment somebody asked for a status.
+    worker's context is still there. **The commonest strand by far is a worker that detached a long gate
+    and then ended its turn**, waiting for a completion event nothing sends. Seven such incidents in one
+    day; every one recovered intact the moment somebody asked for a status.
 
-   **Where the harness itself delivers an agent-stopped event, that event outranks every clock in this
-   section for that agent.** An event defined to fire only when nothing of the agent's remains alive is
-   not one more signal to weigh: arriving from a worker whose last message says it is WAITING for
-   something, it is the diagnosis itself — the awaited wake no longer exists, whatever the worker
-   believed it had armed. Resume without further discrimination; the clocks above are for workers whose
-   harness reports nothing.
+    **Where the harness itself delivers an agent-stopped event, that event outranks every clock in this
+    section for that agent.** An event defined to fire only when nothing of the agent's remains alive is
+    not one more signal to weigh: arriving from a worker whose last message says it is WAITING for
+    something, it is the diagnosis itself — the awaited wake no longer exists, whatever the worker
+    believed it had armed. Resume without further discrimination; the clocks above are for workers whose
+    harness reports nothing.
 
-   **But whether that question has an answer depends on your messaging tool, and it may not.**
-   Measured twice here, a send to an agent stopped mid-turn was ACCEPTED — success returned and
-   delivery promised at the agent's *next tool round*, which for a stopped agent never comes.
-   Acceptance is a queue confirmation, not a liveness report. **The reply is the read; the send is
-   not**, and the asymmetry is total: a reply proves life, while silence proves only that nothing
-   has been delivered yet.
+    **But whether that question has an answer depends on your messaging tool, and it may not.**
+    Measured twice here, a send to an agent stopped mid-turn was ACCEPTED — success returned and
+    delivery promised at the agent's *next tool round*, which for a stopped agent never comes.
+    Acceptance is a queue confirmation, not a liveness report. **The reply is the read; the send is
+    not**, and the asymmetry is total: a reply proves life, while silence proves only that nothing
+    has been delivered yet.
 
-   So the clause below is UNSATISFIABLE if you read *no live task* as something the tool reports
-   — where it behaves this way it never will, and a precondition that cannot be met either blocks
-   a legitimate redispatch forever or gets discharged by an invented proxy, which is the failure
-   this section exists to prevent. Read it instead as a request left unanswered across a window you
-   declare and stand behind, corroborated by the other discriminators. **The error is cheap in one
-   direction only, and it favours waiting**: a late reply costs nothing, because a live worker
-   resumes, while acting on a wrong *no task* destroys the run.
+    So the clause below is UNSATISFIABLE if you read *no live task* as something the tool reports
+    — where it behaves this way it never will, and a precondition that cannot be met either blocks
+    a legitimate redispatch forever or gets discharged by an invented proxy, which is the failure
+    this section exists to prevent. Read it instead as a request left unanswered across a window you
+    declare and stand behind, corroborated by the other discriminators. **The error is cheap in one
+    direction only, and it favours waiting**: a late reply costs nothing, because a live worker
+    resumes, while acting on a wrong *no task* destroys the run.
 
 3. **Only with no live task AND no tip movement:** push any existing commits — pure durability — then
-   set the item back to open with a note on what was found and salvaged, and redispatch.
+    set the item back to open with a note on what was found and salvaged, and redispatch.
 
-   **Read WHY the worker stopped before acting on that last word.** Where the stop reason names an
-   exhausted allowance with a stated reset, redispatch is not a remedy: *a remedy that draws on the
-   resource whose exhaustion caused the failure is not a remedy*, so every attempt fails identically
-   until the reset and every attempt spends. Salvage still applies in full — record the reason and the
-   reset time, and stop dispatching rather than retrying. **Merging is unaffected**, and that is the
-   half that still pays: integrating a finished change draws on none of that allowance, and a change
-   whose author has already stopped can still be the one unblocking everything queued behind it. So
-   the order is salvage, merge whatever is green, then stop. **The reason text, not the symptom,
-   chooses the remedy** — a quota death, a crash, a timeout and step 2's detached-gate strand look
-   identical from outside.
+    **Read WHY the worker stopped before acting on that last word.** Where the stop reason names an
+    exhausted allowance with a stated reset, redispatch is not a remedy: *a remedy that draws on the
+    resource whose exhaustion caused the failure is not a remedy*, so every attempt fails identically
+    until the reset and every attempt spends. Salvage still applies in full — record the reason and the
+    reset time, and stop dispatching rather than retrying. **Merging is unaffected**, and that is the
+    half that still pays: integrating a finished change draws on none of that allowance, and a change
+    whose author has already stopped can still be the one unblocking everything queued behind it. So
+    the order is salvage, merge whatever is green, then stop. **The reason text, not the symptom,
+    chooses the remedy** — a quota death, a crash, a timeout and step 2's detached-gate strand look
+    identical from outside.
 
-   **But the stated reset is a floor, not the only release.** An allowance can be restored by an
-   operator act — re-authenticating, changing plan — well before the clock the harness quoted, and
-   nothing tells the mayor it happened. So before holding the fleet for the whole interval, spend ONE
-   resume message on the worker with the most context to lose: a refusal confirms the hold at no
-   cost beyond what the hold was already costing, and an answer means the interval was over. Measured
-   here: three workers died on a stated reset an hour away; the operator re-authenticated within
-   minutes; one probe resumed all three. Hold on the clock only once the probe has refused.
+    **But the stated reset is a floor, not the only release.** An allowance can be restored by an
+    operator act — re-authenticating, changing plan — well before the clock the harness quoted, and
+    nothing tells the mayor it happened. So before holding the fleet for the whole interval, spend ONE
+    resume message on the worker with the most context to lose: a refusal confirms the hold at no
+    cost beyond what the hold was already costing, and an answer means the interval was over. Measured
+    here: three workers died on a stated reset an hour away; the operator re-authenticated within
+    minutes; one probe resumed all three. Hold on the clock only once the probe has refused.
 
-   **But a probe's ANSWER is not the only reading of it, and its LIVENESS arrives far sooner.**
-   The rule above is written around a reply, and a reply is what step 2 rightly calls the read —
-   yet a resumed worker that is *working* has not replied and will not for many minutes, so a
-   mayor waiting for words waits out most of the interval the probe existed to cut short. Ask the
-   harness whether that agent is RUNNING instead. It costs one call, and it is decisive in one
-   direction: an agent under an exhausted allowance dies within seconds of being resumed, so
-   minutes of running is positive evidence the allowance came back. **Stillness is not the
-   converse** — an empty listing restores the ambiguity rather than settling it — so read this
-   exactly as the per-item fetch-head clock is read under *The stranded sweep*: movement proves
-   life and needs no corroboration, absence only sends you to another signal. Measured here: six
-   workers died together on a reset two and a half hours out, the operator re-authenticated, and
-   the probe read *running* five minutes in; all six were resumed on that reading, none
-   redispatched, and every one kept its context.
+    **But a probe's ANSWER is not the only reading of it, and its LIVENESS arrives far sooner.**
+    The rule above is written around a reply, and a reply is what step 2 rightly calls the read —
+    yet a resumed worker that is *working* has not replied and will not for many minutes, so a
+    mayor waiting for words waits out most of the interval the probe existed to cut short. Ask the
+    harness whether that agent is RUNNING instead. It costs one call, and it is decisive in one
+    direction: an agent under an exhausted allowance dies within seconds of being resumed, so
+    minutes of running is positive evidence the allowance came back. **Stillness is not the
+    converse** — an empty listing restores the ambiguity rather than settling it — so read this
+    exactly as the per-item fetch-head clock is read under *The stranded sweep*: movement proves
+    life and needs no corroboration, absence only sends you to another signal. Measured here: six
+    workers died together on a reset two and a half hours out, the operator re-authenticated, and
+    the probe read *running* five minutes in; all six were resumed on that reading, none
+    redispatched, and every one kept its context.
 
 **A finished change is not a strand — but publishing it is still not yours to infer.** Everything
 above prices redispatch, and prices it to favour waiting because acting on a wrong *no task* destroys
