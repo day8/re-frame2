@@ -45,6 +45,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
+            [re-frame.ssr.emit :as rf.ssr.emit]
             [re-frame.ssr.streaming :as rf.ssr.streaming]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
@@ -328,6 +329,130 @@
           "fragment sibling below the boundary emitted")
       (is (str/includes? shell-html "fragment loading")
           "the buried boundary's fallback materialised inline"))))
+
+(deftest fragment-props-map-is-not-a-child-in-the-streaming-walker
+  (testing "rf2-n2y3 — a `:<>` fragment's PROPS MAP at slot 1 is not a
+            child, on the STREAMING path too. The walker's arm was a plain
+            `(rest element)`, so the map itself was walked as a child, fell
+            through to `emit/emit-element` → `escape-html`, and put its EDN
+            in the streamed shell bytes. `[:<> {:key i} …]` inside a `for`
+            is the canonical fragment idiom, so this was reachable from
+            ordinary application markup. rf2-3357 fixed the IDENTICAL
+            defect in the non-streaming emitter; until this arm matched it
+            the two paths disagreed on the same input."
+    (testing "the three rows rf2-3357 measured now agree on this path"
+      ;; Measured on the streaming walker BEFORE the fix, for the record:
+      ;;   [:<> {:key "k"} [:div "x"]] => "{:key &quot;k&quot;}<div>x</div>"
+      ;;   [:<> {}         [:div "x"]] => "{}<div>x</div>"
+      ;;   [:<>            [:div "x"]] => "<div>x</div>"
+      ;; Only the third was right; all three are the same markup now.
+      (is (= "<div>x</div>"
+             (:shell-html (rf.ssr.streaming/render-shell [:<> {:key "k"} [:div "x"]])))
+          "a keyed fragment streams its children and nothing else")
+      (is (= "<div>x</div>"
+             (:shell-html (rf.ssr.streaming/render-shell [:<> {} [:div "x"]])))
+          "an EMPTY props map is still a props map, not a child")
+      (is (= "<div>x</div>"
+             (:shell-html (rf.ssr.streaming/render-shell [:<> [:div "x"]])))
+          "the no-props spelling is unchanged"))
+    (testing "no EDN of the props map survives anywhere in the shell bytes"
+      (let [html (:shell-html
+                   (rf.ssr.streaming/render-shell
+                     [:<> {:key "k" :data-x "v"} [:p "body"]]))]
+        (is (= "<p>body</p>" html) (str "got: " html))
+        (is (not (str/includes? html ":key")) "no keyword EDN on the wire")
+        (is (not (str/includes? html "&quot;")) "no escaped EDN string on the wire")))
+    (testing "a fragment that is ONLY a props map streams nothing"
+      (is (= "" (:shell-html (rf.ssr.streaming/render-shell [:<> {:key "k"}]))))
+      (is (= "" (:shell-html (rf.ssr.streaming/render-shell [:<>])))))
+    (testing "rf2-3357's ruling holds here — a NON-`:key` fragment attribute
+              is DROPPED, silently, not refused. A fragment is not an
+              element, so no attribute on one has a wire representation."
+      (is (= "<div>x</div>"
+             (:shell-html
+               (rf.ssr.streaming/render-shell
+                 [:<> {:class "nope" :id "nope" :onClick "alert(1)"} [:div "x"]])))
+          "non-:key fragment attrs stream nothing and throw nothing"))
+    (testing "ONLY a map at slot 1 is skipped — a string / vector / seq
+              there is a genuine first child"
+      (is (= "text<div></div>"
+             (:shell-html (rf.ssr.streaming/render-shell [:<> "text" [:div]])))
+          "a string at slot 1 is a child")
+      (is (= "<span>a</span><div>b</div>"
+             (:shell-html (rf.ssr.streaming/render-shell [:<> [:span "a"] [:div "b"]])))
+          "a hiccup vector at slot 1 is a child")
+      (is (= "<div>a</div><div>b</div>"
+             (:shell-html
+               (rf.ssr.streaming/render-shell [:<> (list [:div "a"]) [:div "b"]])))
+          "a seq at slot 1 is a child, not props"))))
+
+(deftest streaming-and-non-streaming-fragments-agree-byte-for-byte
+  (testing "rf2-n2y3 — the pin that stops these two arms drifting apart
+            again. rf2-3357 fixed `emit.cljc`'s `:<>` arm and this walker's
+            was left behind, so for two hours the SAME hiccup rendered one
+            way through `render-to-string` and another through
+            `render-shell`. A boundary-free tree contains nothing the
+            streaming walker is FOR, so its shell HTML must equal what the
+            non-streaming emitter produces, byte for byte."
+    (doseq [tree [[:<> {:key "k"} [:div "x"]]
+                  [:<> {} [:div "x"]]
+                  [:<> [:div "x"]]
+                  [:<> {:key "k"}]
+                  [:<>]
+                  [:<> "text" [:div]]
+                  [:<> {:key "k" :data-x "v"} [:p "body"]]
+                  [:<> {:class "nope" :onClick "alert(1)"} [:div "x"]]
+                  [:<> {:key "outer"} [:<> {:key "inner"} [:div "y"]]]
+                  [:main [:<> {:key "k"} [:span "a"] [:span "b"]]]
+                  (into [:<>] (for [i [1 2]] [:<> {:key i} [:li i]]))]]
+      (is (= (rf.ssr.emit/render-to-string tree {})
+             (:shell-html (rf.ssr.streaming/render-shell tree)))
+          (str "streaming and non-streaming disagree on " (pr-str tree))))))
+
+(deftest fragment-props-map-does-not-displace-a-suspense-boundary
+  (testing "rf2-n2y3 — the STREAMING-SPECIFIC analogue of rf2-3357's worse
+            half. There, the props map becoming the first child displaced
+            the value that was supposed to receive the root-attrs, and the
+            `data-rf-render-hash` marker vanished. This walker threads no
+            attrs at all — `walk-shell` / `walk-children` / `walk-dom-tag`
+            take only `[element continuation-accumulator]` and
+            `render-shell` only `[root-hiccup]` — so there is no marker to
+            lose. What it DOES carry through the children is the
+            continuation accumulator, so the shape worth pinning here is
+            that a props-carrying fragment still reaches its boundaries and
+            drains them."
+    (testing "a boundary inside a KEYED fragment is still registered, and the
+              shell carries no props EDN in front of its placeholder"
+      (let [{:keys [shell-html continuations]}
+            (rf.ssr.streaming/render-shell
+              [:<> {:key "k"}
+               [:h1 "header"]
+               [:rf/suspense-boundary {:id :inside/frag :fallback [:p "loading"]}
+                [:p "body"]]])]
+        (is (= 1 (count continuations))
+            "the walker skipped the props slot and still reached the boundary")
+        (is (= :inside/frag (-> continuations first :id)))
+        (is (str/starts-with? shell-html "<h1>header</h1>")
+            (str "the shell opens with the first real child; got: " shell-html))
+        ;; The boundary id is deliberately free of the substring `:key` —
+        ;; a first spelling of this test used `:keyed/frag` and the probe
+        ;; matched the id stamped on the fallback `<template>` rather than
+        ;; any props EDN, which is a false positive in the direction that
+        ;; looks like a caught bug.
+        (is (not (str/includes? shell-html ":key"))
+            "no props EDN in front of the fallback placeholder")))
+    (testing "a keyed fragment as a continuation SUBTREE drains clean — the
+              drain re-enters the same arm through `render-continuation`"
+      (let [{:keys [continuations]}
+            (rf.ssr.streaming/render-shell
+              [:div
+               [:rf/suspense-boundary {:id :frag/subtree :fallback [:p "loading"]}
+                [:<> {:key "k"} [:div "resolved"]]]])
+            fid    (make-server-frame)
+            result (rf.ssr.streaming/render-continuation fid (first continuations))]
+        (is (not (:failed? result)))
+        (is (= "<div>resolved</div>" (:html result))
+            (str "the drained chunk carries no props EDN; got: " (:html result)))))))
 
 (deftest triple-duplicate-id-keeps-only-last-of-three
   (testing "rf2-u91hb: three boundaries with the same :id — dedup keeps

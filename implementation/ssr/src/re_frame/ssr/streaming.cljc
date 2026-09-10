@@ -479,8 +479,43 @@
     (let [head (first element)]
       (cond
         ;; Fragment — splice children, recurse.
+        ;;
+        ;; rf2-n2y3 — A FRAGMENT MAY CARRY A PROPS MAP AT SLOT 1, AND IT IS
+        ;; NOT A CHILD. This arm was a plain `(rest element)`, so the map
+        ;; itself was walked as a child, fell through to the scalar arm's
+        ;; `emit/emit-element` → `escape-html`, and put its EDN in the
+        ;; streamed shell bytes (`[:<> {:key "k"} [:div "x"]]` →
+        ;; `{:key &quot;k&quot;}<div>x</div>`). `[:<> {:key i} …]` inside a
+        ;; `for` is the canonical fragment idiom, so this is ordinary
+        ;; application markup, and the garbage is a guaranteed hydration
+        ;; mismatch against a client render that emits none of it.
+        ;;
+        ;; The IDENTICAL defect was fixed in the non-streaming emitter by
+        ;; rf2-3357; until this arm matched it the two paths DIVERGED on the
+        ;; same input. The slot test is the same one — `(map? (second …))` —
+        ;; which is also what `walk-dom-tag` above already uses to split a
+        ;; DOM tag's attrs from its children, and the same rule as the
+        ;; React-side codec's `props-map?`.
+        ;;
+        ;; NO ROOT-ATTRS ANALOGUE ON THIS PATH. On the non-streaming side the
+        ;; worse half of the bug was that the map became the first child and
+        ;; displaced the rf2-lxwse `data-rf-render-hash` marker. This walker
+        ;; threads no attrs at all — `walk-shell` / `walk-children` /
+        ;; `walk-dom-tag` take only `[element continuation-accumulator]`, and
+        ;; `render-shell` takes only `[root-hiccup]` — so here the defect was
+        ;; the visible garbage and nothing hid behind it. (The `render-hash`
+        ;; this namespace does carry is a `build-streaming-payload` argument
+        ;; that rides the `__rf_payload` JSON, not a root attr.)
+        ;;
+        ;; WHAT HAPPENS TO THE ATTRIBUTES: dropped, silently, `:key`
+        ;; included — the rf2-3357 ruling, which owns the argument. A
+        ;; fragment is not an element, so no attribute on one has a wire
+        ;; representation, and every sibling emitter here already drops.
         (= :<> head)
-        (walk-children (rest element) continuation-accumulator)
+        (walk-children (if (map? (second element))
+                         (drop 2 element)
+                         (rest element))
+                       continuation-accumulator)
 
         ;; Reagent-native interop head `:>` — cannot be rendered on the
         ;; JVM (no React). rf2-ee38b.10 — mirror the non-streaming
