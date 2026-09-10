@@ -421,6 +421,7 @@ Programmatic navigation is one event carrying ONE flat **request map**:
 ```
 
 Three effect categories flow:
+
 1. The runtime-db `:rf/route` slice (at `[:rf.runtime/routing :current]`) is updated (id, params, query, fragment, transition, nav-token).
 2. The browser URL is pushed via `:rf.nav/push-url` (a registered fx; `:platforms #{:client}`), or replaced via `:rf.nav/replace-url` when the request carries `:replace? true`.
 3. The route's `:on-match` events (if any) are dispatched, and the route's `:scroll` strategy (if any) is emitted as a `:rf.nav/scroll` effect.
@@ -1093,6 +1094,7 @@ When a route is loading and the user navigates away before the load completes, t
     > | `:rf.route/pending-nav-allocation` | `{:id "pn-N" :counter N}` | the leave-guard block (`:rf.route/url-requested` + the same commit handlers) |
     >
     > Each generator mints the next id from the host high-water snapshot at processing-start (router `:live` policy); the cofx machinery **records the produced allocation onto the causal token** (per [001 §`reg-cofx`](001-Registration.md) recordable grade / EP-0017 §5) so the epoch captures it. Strict replay re-presents the recorded id verbatim — the generator does not run — and **FAILS LOUDLY (`:rf.error/missing-required-cofx`) if the recorded allocation is absent** (an incomplete record must not silently re-read the host). The handler writes only the `:token` / `:id` into `runtime-db` and rides the allocation's `:counter` on the `:rf.route/commit-nav-counter` fx, which advances the host high-water with **`max`** — so a restore/replay re-establishes the allocator from the recorded `:counter` and can never rewind it. This is the same write-via-fx seam the scroll cache uses; the read half is the recordable allocation cofx rather than an ambient snapshot read.
+
 2. **Capture.** An `:on-match`-reached handler declares the framework-supplied `:rf.route/nav-token` cofx via `{:rf.cofx/requires [:rf.route/nav-token]}`; the value-returning supplier delivers the current token (read from `[:rf.runtime/routing :current :nav-token]`) flat under `:rf.route/nav-token` in the handler's coeffects, so the handler captures the epoch live at scheduling time. A loader SHOULD also declare the companion `:rf.route/route-id` cofx (the live route id, read from `[:rf.runtime/routing :current :route-id]`) so it captures **both** facts the route-loader [work id](Managed-Effects.md#work-id-correlation) `[:rf.work/route route-id nav-token loader-id]` needs together — the documented path then cannot thread a nil route id into the work-id tuple (the route id is a *carried* fact of the attempt, captured at scheduling time, never read from the live slice at stale-arrival where a cross-route completion's slice id would be the superseding route's):
 
    ```clojure
@@ -1232,6 +1234,7 @@ The `:scroll` value is one of:
 The vocabulary is **closed** to those three keywords. Any other value — including a map — is rejected: the `:rf.nav/scroll` args schema (`:rf.fx.nav/scroll-args`) enumerates exactly `:top`, `:restore`, `:preserve`, so an unsupported strategy fails at the `:fx-args` boundary and the effect is skipped ([010 §Validation order step 5](010-Schemas.md#validation-order-on-event-processing)); and the registered fx handler — the always-on leg, since the schemas artefact is optional — emits `:rf.error/unsupported-scroll-strategy` rather than doing nothing. That handler leg fans through the two-channel error seam (`re-frame.error-emit/emit-error-both!`), so the rejection is genuinely unconditional: it survives `:advanced` + `goog.DEBUG=false` on a host that never loaded the schemas artefact, where the dev trace is elided. See [§Custom scroll strategies](#custom-scroll-strategies) and [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
 
 Resolution order at navigation time:
+
 1. `:scroll` key in `:rf.route/navigate`'s request map (per-call override). Wins.
 2. `:scroll` key on the route's metadata.
 3. Implicit default: `:top` for forward navigation, `:restore` for popstate-driven navigation.
@@ -1490,11 +1493,13 @@ The server does NOT scroll (no DOM); `:rf.nav/scroll` is `:platforms #{:client}`
 ### Conformance
 
 Fixture `route-fragment-change.edn` exercises the **URL-driven** door (`:rf.route/handle-url-change`, cause `:link`):
+
 1. Navigate to `/docs/routing#scroll-restoration`. Verify the slice's `:fragment` is `"scroll-restoration"`.
 2. Navigate to `/docs/routing#caching` (same path/query, different fragment). Verify `:on-match` does NOT re-fire and `:rf.route/fragment-changed` trace event fires.
 3. Navigate to `/docs/instrumentation#scroll-restoration` (different path, same fragment). Verify `:on-match` DOES re-fire (path changed; fragment-only rule does not apply).
 
 Fixture `routing-fragment-navigate.edn` exercises the **programmatic** door (`:rf.route/navigate`):
+
 1. Navigate `[:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}]` — a full commit: `:on-match` fires once, a fresh `:nav-token` is allocated, `:rf.nav/push-url` pushes `/docs/routing#a`.
 2. Navigate `[:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b"}]` (same route-id/params/query, different fragment). Verify `:on-match` does NOT re-fire (loader count unchanged), the `:nav-token` is **unchanged** (no new allocation), `:rf.route/fragment-changed` fires, and `:rf.nav/push-url` pushes `/docs/routing#b`.
 3. Navigate `[:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "c" :replace? true}]`. Verify the same fragment-only short-circuit routes through `:rf.nav/replace-url` (not push) and still does not re-fire `:on-match` or allocate a token.
@@ -1535,6 +1540,7 @@ A more elaborate router with **native nested layouts** — true `<Outlet/>` slot
 **Parent `:resources` DO compose to children (EP-0037 R2).** As of EP-0037 R2, declaring `:parent` opts the child into its ancestors' `:resources` automatically: a full activation plans the effective parent-to-leaf branch, so shared shell reads are declared **once** on the parent rather than duplicated in every child. `:parent` itself is the opt-in (EP-0037 OI-4) — there is no `:inherit-resources?` marker. Only `:resources` fold this way; `:on-match`, `:scroll`, `:head`, `:tags`, and guards are **not** inherited, because unrelated metadata needs incompatible merge rules. Parent-chain resource planning does not imply parent-chain render ownership — there is still no `<Outlet/>`, provider tree, or loader-data hook. Composition, grouped identity dedupe, the redundant-child advisory, the plan diff, attach-before-release owner handoff, and the partial-revalidation law are owned by [016 §Effective parent-chain resource plans](016-Resources.md#effective-parent-chain-resource-plans); readiness over the branch plan is [§Route readiness is a resource projection](#route-readiness-is-a-resource-projection).
 
 Future expansion may still revisit:
+
 - A `:layout` slot on `reg-route` (separate from `:parent`) so a route can declare which layout component wraps its leaf view.
 - An `<Outlet/>`-equivalent primitive for the child render slot.
 
@@ -1715,12 +1721,14 @@ A leave test fires `[:rf.route/url-requested {:url "/cart"}]` against a frame wh
 ### Conformance
 
 Fixture [`route-navigation-blocked.edn`](conformance/fixtures/route-navigation-blocked.edn) exercises the resumable leave:
+
 1. Register a route with `:can-leave [:editor/can-leave?]`; make the sub return `false`.
 2. Dispatch `[:rf.route/url-requested {:url "/cart"}]`.
 3. Assert `:rf/pending-navigation` is set with the `:destination` / `:target` / `:cause` / `:policy` shape; `:rf.nav/push-url` did NOT fire; the `:rf.route/navigation-blocked` trace fired; the `:rf/route` slice is unchanged.
 4. Dispatch `[:rf.route/continue pending-nav-id]`; assert the slot is `nil`, the URL is `/cart`, and `:route/cart` is active.
 
 Fixture [`route-entry-denied.edn`](conformance/fixtures/route-entry-denied.edn) exercises terminal entry through EACH door:
+
 1. Register a target with `:can-enter [:auth/signed-in?]`; the sub returns `false`.
 2. Dispatch `[:rf.route/url-requested {:url "/account"}]` (link click) — assert `:rf.route/entry-denied` fired **exactly once**, `:rf/pending-navigation` is still `nil`, `:rf.nav/push-url` did NOT fire, and the slice is unchanged.
 3. Repeat with `[:rf.route/navigate {:to :account/settings}]` (programmatic) and `[:rf.route/handle-url-change "/account"]` — a rider-free client dispatch, which is the **deep-link / initial-load** door — for the same outcome through every door; the URL-driven arm additionally restores the address bar by `:rf.nav/replace-url`. Spell the **Back/Forward** arm with the rider the framework's own listener stamps, `[:rf.route/handle-url-change "/account" {:rf.route/cause :popstate}]`, and the **SSR** arm as the rider-free dispatch on a `:platform :server` frame. One event stands for three doors and a rider-free dispatch on a client frame resolves as `:initial` ([§popstate drives the URL-owner frame](#popstate-drives-the-url-owner-frame-both-directions)), so a bare dispatch labelled "popstate" asserts the right outcome under the wrong cause — and every cause-bearing diagnostic it produces, the `:rf.route/planned` projection included, names a door the user never used.
