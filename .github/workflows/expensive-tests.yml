@@ -915,22 +915,26 @@ jobs:
       # github.com). This checkout is depth-1, so the commit is absent
       # altogether and `data_archive.test.cjs`'s FIRST check — history-backed,
       # deliberately not corpus-backed, so that it runs in the state every clone
-      # is in — fails with `fatal: Not a valid object name`, taking the file to
-      # 1 of 4 with exit 1. The full oid is therefore spelled HERE, once, and
-      # this is the only place in the tree it is spelled: which commit is the
-      # readers' business and `ARCHIVE_SHA` stays its single source of truth,
-      # while a fetchable spelling of it is a shallow CLONE's business and
-      # belongs to CI. The prefix test below is what stops the two drifting
-      # apart in silence.
+      # is in — fails with `fatal: Not a valid object name`, leaving the file at
+      # 3/4 and exit 1 (measured in a real depth-1 clone of this repo). The full
+      # oid is therefore spelled HERE, once, and this is the only place in the
+      # tree it is spelled: WHICH commit is the readers' business and
+      # `ARCHIVE_SHA` stays its single source of truth, while a FETCHABLE
+      # spelling of it is a shallow CLONE's business and belongs to CI. The
+      # prefix test below is what stops the two drifting apart in silence.
       #
       # AND THE CORPUS IS RESTORED, which is the point of the step rather than a
-      # bonus: the 237-file restore costs ~0.5s and takes `data_archive.test.cjs`
-      # from 4/4 plus 3 SKIPPED to 7/7, and those three are precisely the
-      # corpus-backed checks named above. `data/` is git-ignored and the restore
-      # writes the working tree only. A failed fetch REDS this step rather than
-      # falling back to the corpus-free path: a silent fallback would disarm the
-      # checks this exists to arm and report green, which is the failure mode
-      # rf2-u297 was filed against.
+      # bonus. It costs ~0.5s for 237 files, and it is NOT only about
+      # `data_archive.test.cjs` going from 4/4 plus 3 SKIPPED to 7/7: measured
+      # both ways in that same depth-1 clone, EIGHT members print more with the
+      # corpus than without, and `alloc_null_floor`'s self-test does not run at
+      # all without it — 777 checks corpus-free against 995 with, summing each
+      # member's own printed summary. A corpus-free run therefore exits 0 over
+      # a lane whose corpus-backed checks announced themselves SKIPPED, which is
+      # the present-but-not-executed failure this whole step exists to end. So a
+      # failed fetch REDS this step rather than falling back: `data/` is
+      # git-ignored, the restore writes the working tree only, and a silent
+      # fallback would disarm exactly what rf2-u297 was filed to arm.
       - name: Run bench members 2..22 of `npm run check` (nothing else in CI does)
         working-directory: bench/fresco
         run: |
