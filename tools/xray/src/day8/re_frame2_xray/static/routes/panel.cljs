@@ -119,9 +119,10 @@
   is to CALL the helper instead of heading with it. It works only when
   the helper answers hiccup AND that hiccup is head-free ALL THE WAY
   DOWN — the second limit `static/machines` recorded. It is not met
-  here. Census of every symbol-headed hiccup vector in this tab's render
-  subtree, taken at the base of this slice (line numbers drift — they
-  are here to make the census re-runnable, not to be cited):
+  here. Census of every symbol-headed hiccup vector WRITTEN IN the four
+  `static/routes/*.cljs` files, taken at the base of this slice (line
+  numbers drift — they are here to make the census re-runnable, not to
+  be cited):
 
       panel.cljs        [browse-list/render …]        ×2   (this file)
       browse_list.cljs  [route-row …]                      (:200)
@@ -132,12 +133,34 @@
       row_expand.cljs   [sim-nav/preview …]                (:237)
       simulate_nav.cljs none
 
+  AND A NINTH THAT NO SYNTACTIC CENSUS OF THOSE FILES CAN SEE, because a
+  CALL into a fifth file RETURNS it: `row_expand.cljs:66` calls
+  `edn/inspect`, and `views/edn_widget.cljs`'s `inspect` answers
+  `[ei/edn-inspector …]` — a REAGENT component, hence a plain fn head.
+  That widget namespace already anticipates the migration with a second
+  head, `inspect-view`, emitting the Fresco boundary
+  `[ei/edn-inspector-view …]`; under the island `inspect` stays correct,
+  because the island IS Reagent. So read the census as a LOWER BOUND on
+  a subtree-wide claim, and note the shape: a call site is not evidence
+  of a head-free subtree — only reading what the callee returns is.
+
   Calling this file's two would move the HD-016 site one level down into
   `browse_list.cljs`, and repairing THAT reaches `row_expand.cljs`, and
-  so on — FOUR files for one panel, none of them coupled to this file's
-  reads. `codec/head-kind` grades a plain fn `:invalid` and
-  `vec->element` raises `:rf.error/fresco-bad-head`, so every one of
-  those five out-of-file sites would throw at first paint.
+  so on — FOUR files for one panel plus the widget facade, none of them
+  coupled to this file's reads. `codec/head-kind` grades a plain fn
+  `:invalid` and `vec->element` raises `:rf.error/fresco-bad-head`, so
+  every one of those out-of-file sites would throw at first paint.
+
+  MEASURED, NOT ARGUED, and the measurement is worth more than the
+  census. Planting exactly the naive migration — `rf.fresco/sub` for the
+  reads, `(:dispatch (rf/capture-frame))` for the dispatcher, and the
+  hiccup left as it stood with NO `as-child` — the Static Routes tab
+  never paints at all: the browser gate fails with `expected Static
+  sub-tab :routes real panel root rf-xray-static-routes mounted …
+  (last=null)`. On that same tree `npm run test:cljs` is GREEN, at
+  IDENTICAL totals, because the node lane's `as-child` is `identity` and
+  so the seam is invisible to it BY CONSTRUCTION. A node-lane green is
+  not evidence about this seam; only the browser lane is.
 
   So the door is the same one `static/shell.cljs` and
   `static/machines/definition_detail.cljs` already use: Fresco's own ABI
