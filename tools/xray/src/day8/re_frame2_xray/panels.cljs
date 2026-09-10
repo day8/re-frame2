@@ -74,12 +74,13 @@
 
   1. Calls `(registry/register-xray-handlers!)` — idempotent, registers
      every panel's subs + events + fxs under `:rf.xray/*`.
-  2. Calls `mount/ensure-xray-frame!` so the state-isolation frame exists
-     and first-mount seed hooks have run.
+  2. Calls `mount/ensure-xray-frame!` for `opts :frame` — the SAME frame
+     step 3 provides (rf2-hg3j) — so the state-isolation frame exists and
+     its first-mount seed hooks have run.
   3. Wraps the panel's `Panel` (or equivalent) view in a
-     `rf/frame-provider` for `opts :frame` (default `:rf/xray`) so
-     descendant subscribes and dispatches do not inherit the host's
-     ambient React context accidentally.
+     `rf/frame-provider` for `opts :frame` (default
+     `shell/default-frame-id`) so descendant subscribes and dispatches do
+     not inherit the host's ambient React context accidentally.
   4. Delegates to `rf.substrate.adapter/render` with the wrapped tree +
      the supplied mount-point. The substrate adapter is the host's
      (installed via `rf/init!`); the panels are substrate-agnostic
@@ -232,12 +233,25 @@
     panel's subscribes would route to `:rf/default`).
   - `mount-point` — a DOM element (or substrate-equivalent mount
     target).
-  - `opts` — `{:frame <frame-id>}` minimum. Defaults to `:rf/xray`.
-    The frame the `frame-provider` resolves to. Hosts embedding a
-    panel to observe a specific app frame pass that frame id; the
-    panel's own Xray state still lives on `:rf/xray` (the panel
-    facade always opens with its own `frame-provider :rf/xray`
-    when its body subscribes to `:rf.xray/*` data).
+  - `opts` — `{:frame <frame-id>}` minimum, defaulting to
+    `shell/default-frame-id`. Xray's OWN frame for this panel — the
+    frame the `frame-provider` anchors, and therefore the frame the
+    panel's `:rf.xray/*` subscribes and dispatches resolve to. NOT the
+    inspected host target, which the frame-picker chooses and which
+    lives in `:rf.xray/target-frame` inside that own frame's db
+    (`008-Embedding-Contract.md` §Own frame vs target frame). The
+    frame is SEATED on the way through — the caller is not asked to
+    pre-create it, symmetric with `mount-shell!`.
+
+    rf2-hg3j — this used to call `ensure-xray-handlers-installed!` at
+    its ZERO arity, which always seats `shell/default-frame-id`, and
+    then provide `opts :frame`. On an override those are two different
+    frames and every descendant subscribe anchored at one nothing had
+    seated or seeded. The docstring's old claim that a panel facade
+    opens its own inner `frame-provider :rf/xray` was the reasoning
+    that made that look safe, and it is false: no panel view opens a
+    provider at all — each one's docstring says its isolation comes
+    from the ENCLOSING provider, which is this one.
   - `props` — OPTIONAL (rf2-2n8q), and it is the PANEL's props map, not
     the mount opts. nil — every caller but `mount-app-db-diff!` — mounts
     `[panel-view]`, the element this fn has always built. A map mounts
@@ -253,12 +267,18 @@
   ([panel-view mount-point opts]
    (render-panel! panel-view mount-point opts nil))
   ([panel-view mount-point opts props]
-   (ensure-xray-handlers-installed!)
-   (let [frame (get opts :frame :rf/xray)
+   ;; rf2-hg3j — resolve the frame FIRST, then seat that one. The seated
+   ;; frame and the provided frame are now the same value by construction,
+   ;; so an overriding caller cannot get a provider anchored at an unseated
+   ;; frame. `shell/default-frame-id` IS `:rf/xray`, so the default path is
+   ;; unchanged; naming it also keeps `defaults/default-frame-id` the single
+   ;; permitted bare `:rf/xray` literal (008 §Parameterized shell frame-id).
+   (let [frame (get opts :frame shell/default-frame-id)
          tree  [rf/frame-provider {:frame frame}
                 (if props
                   [panel-view props]
                   [panel-view])]]
+     (ensure-xray-handlers-installed! frame)
      (rf.substrate.adapter/render tree mount-point nil))))
 
 ;; ---- per-panel mount fns ------------------------------------------------
