@@ -1017,11 +1017,24 @@
   (security audit §P3.1).
 
   Props matching `strip-prop?` — `on*` event-handler props, function-
-  valued props, and reserved prototype-pollution keys — are dropped at
+  valued props, reserved prototype-pollution keys, JSX source-coord
+  props, and React's structural slots (`:key` / `:ref`) and content
+  channels (`:children` / `:dangerouslySetInnerHTML`) — are dropped at
   emit time per Spec 011 rule rf2-dwds9 (the per-attribute prop-name
   filter position in the locked emitter composition order). The filter
   runs ahead of the attribute-key grammar gate so a stripped prop never
-  reaches `validate-attr-name!`."
+  reaches `validate-attr-name!`.
+
+  THAT LIST IS A GLOSS, NOT A SECOND ROSTER. `strip-prop?` above is the
+  single realisation point every SSR surface serialises through, and its
+  docstring carries each class's reason and matching rule; this one names
+  the classes only so a caller can see what `attr-string` will silently
+  discard without scrolling back. It is downstream of `strip-prop?` the
+  way Spec 011's enumeration is downstream of both, and the three of them
+  standing apart is a defect in whichever moved without the others. This
+  gloss demonstrates the cost: written 2026-05-21, it went short SIX DAYS
+  later when the JSX class landed 400 lines above it in this same file,
+  and was three classes behind by 2026-09-10."
   [attrs]
   ;; `keep` realises only the surviving attributes; the leading space is
   ;; added once, conditionally. A map that is non-empty but whose every
