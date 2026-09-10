@@ -505,35 +505,35 @@ When the runtime processes an event:
 2. Ensure the envelope has `:rf.cofx` with `:rf/time-ms` (stamped at enqueue;
    EP-0010 unchanged).
 3. For each declared **recordable** id, in declaration order:
-   - present on the token → **deliver** the value. Per-leaf validation
-     (structural EDN + `:schema`) is **Slice B** — see the deferral note
-     below. Failure of that future check is `:rf.error/cofx-value-invalid` —
-     a hard error in dev **and production** (causal-token contract
-     validation, the `:dispatched-at` precedent: folding an out-of-contract
-     value into the ledger is corrupt durable state).
+    - present on the token → **deliver** the value. Per-leaf validation
+      (structural EDN + `:schema`) is **Slice B** — see the deferral note
+      below. Failure of that future check is `:rf.error/cofx-value-invalid` —
+      a hard error in dev **and production** (causal-token contract
+      validation, the `:dispatched-at` precedent: folding an out-of-contract
+      value into the ledger is corrupt durable state).
 
-     > **Slice-A reality — per-leaf validation is Slice B.** As shipped,
-     > `deliver-declared-cofx` (`implementation/core/src/re_frame/cofx.cljc`)
-     > delivers a token-present recordable leaf without a per-leaf structural
-     > EDN check, and the boundary guard `diag/validate-cofx!`
-     > (`router/diagnostics.cljc`) validates only the envelope **map shape**
-     > plus `:rf/time-ms` int-ness — it does not structurally EDN-check each
-     > recordable leaf. The entire per-leaf `:rf.error/cofx-value-invalid`
-     > path (structural-EDN-always **and** `:schema`-when-declared) is
-     > **Slice B**, gated with the generator machinery (slice-B.7) — the only
-     > slice-B step that produces un-boundary-checked recordable values. In
-     > Slice A every requirable fact is provided or ambient, supplied
-     > recordable maps pass through the boundary shape gate, and no generator
-     > mints an un-checked value, so there is nothing for the per-leaf check
-     > to catch yet. (The `:schema` half was already listed as deferred under
-     > *Deferred (Slice B) → Recordable generator machinery*; this note adds
-     > the structural-EDN half so the whole `:rf.error/cofx-value-invalid`
-     > path reads as one slice-B unit.)
-   - absent, generator-backed → consult the mint policy (§6): `:live` /
-     `:explicit-live` run the generator and write the result into the
-     envelope's `:rf.cofx`; `:strict` fails with
-     `:rf.error/missing-required-cofx`.
-   - absent, provided → `:rf.error/missing-required-cofx`, every mode.
+      > **Slice-A reality — per-leaf validation is Slice B.** As shipped,
+      > `deliver-declared-cofx` (`implementation/core/src/re_frame/cofx.cljc`)
+      > delivers a token-present recordable leaf without a per-leaf structural
+      > EDN check, and the boundary guard `diag/validate-cofx!`
+      > (`router/diagnostics.cljc`) validates only the envelope **map shape**
+      > plus `:rf/time-ms` int-ness — it does not structurally EDN-check each
+      > recordable leaf. The entire per-leaf `:rf.error/cofx-value-invalid`
+      > path (structural-EDN-always **and** `:schema`-when-declared) is
+      > **Slice B**, gated with the generator machinery (slice-B.7) — the only
+      > slice-B step that produces un-boundary-checked recordable values. In
+      > Slice A every requirable fact is provided or ambient, supplied
+      > recordable maps pass through the boundary shape gate, and no generator
+      > mints an un-checked value, so there is nothing for the per-leaf check
+      > to catch yet. (The `:schema` half was already listed as deferred under
+      > *Deferred (Slice B) → Recordable generator machinery*; this note adds
+      > the structural-EDN half so the whole `:rf.error/cofx-value-invalid`
+      > path reads as one slice-B unit.)
+    - absent, generator-backed → consult the mint policy (§6): `:live` /
+      `:explicit-live` run the generator and write the result into the
+      envelope's `:rf.cofx`; `:strict` fails with
+      `:rf.error/missing-required-cofx`.
+    - absent, provided → `:rf.error/missing-required-cofx`, every mode.
 4. Assemble the handler's coeffects map: `:db`, `:event` (and the framework
    context keys Spec 002 already stages), plus **exactly the declared
    leaves** — recordable values from the token, ambient values from running
