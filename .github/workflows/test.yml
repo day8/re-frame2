@@ -3206,7 +3206,7 @@ jobs:
       # seven of those is a worse log than one honest one. (rf2-gf3y)
       - name: Absence-repair floor lint for :rf/default (implementation/** + tools/**)
         if: ${{ !cancelled() }}
-        run: clojure -M:test -n re-frame.no-rf-default-floor-lint-test-TEMPORARY-rf2-gf3y-demo
+        run: clojure -M:test -n re-frame.no-rf-default-floor-lint-test
 
       - name: Egress-chokepoint conformance (every implementation/ src root)
         if: ${{ !cancelled() }}
