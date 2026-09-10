@@ -372,6 +372,32 @@
 
 ;; ---- (5c) the substrate seam (rf2-k97c.3) ------------------------------
 
+(defn- crossed-by-identity?
+  "True when `props` is reachable from React element `el`'s props object
+  WITHOUT conversion — as the same object, at a slot or inside a vector
+  or array at a slot.
+
+  Written to the QUESTION rather than to one Reagent version's field
+  layout, and that is the point: the first draft of this asserted
+  `(aget (.-argv (.-props el)) 1)`, copied from
+  `tools/machines-viz`'s `react_chart_cljs_test`, and read nil. The
+  copy was wrong in a way worth recording, because the two cases look
+  identical and are not — `react_chart.cljs` builds its bridge props by
+  hand as `#js {:argv #js [...]}`, a JS ARRAY, so `aget` is right there;
+  `reagent.core/as-element` carries the hiccup vector itself, a CLJS
+  PersistentVector, on which `aget` answers nil rather than erroring.
+  Probing for the object instead of for its address survives both."
+  [el props]
+  (let [p (.-props el)]
+    (boolean
+      (when (some? p)
+        (some (fn [v]
+                (or (identical? v props)
+                    (and (vector? v) (boolean (some #(identical? % props) v)))
+                    (and (array? v)
+                         (boolean (some #(identical? % props) (array-seq v))))))
+              (array-seq (js/Object.values p)))))))
+
 (deftest as-child-lifts-the-reagent-delegate-to-a-react-element
   (testing "rf2-k97c.3 — the machines-viz `AfterRingsOverlay` is a REAGENT
             component, so a Fresco body can neither take it as a hiccup
@@ -399,19 +425,28 @@
       (push-scheduled! 1000 :auth/login :idle 5000 0)
       (let [hiccup-child  (delegated-child (overlay-tree))
             props         (second hiccup-child)
-            element-child (delegated-child (overlay-tree {:as-child r/as-element}))]
+            ;; ONE tree, converted two ways. Two separate `overlay-tree`
+            ;; calls would answer two EQUAL but distinct props maps, and
+            ;; the identity claim below would be false for a reason that
+            ;; has nothing to do with the crossing.
+            element-child (r/as-element hiccup-child)
+            ;; ...and the parameter really is wired through `overlay-tree`,
+            ;; which is the half the boundary depends on.
+            via-param     (delegated-child (overlay-tree {:as-child r/as-element}))]
         (is (vector? hiccup-child)
             "the default :as-child leaves the delegate as hiccup")
         (is (= mv-after-rings/AfterRingsOverlay (first hiccup-child))
             "and it is the machines-viz overlay")
-        (is (not (vector? element-child))
-            ":as-child r/as-element answers a React element, not hiccup")
+        (is (not (vector? via-param))
+            ":as-child is threaded through overlay-tree, not ignored")
         (is (some? (.-props element-child))
-            "and it is a real element carrying React props")
-        (is (= props (aget (.-argv (.-props element-child)) 1))
-            "the CLJS props map rides at argv[1] — Reagent reads argv AS
-             IS and never touches the raw props object, so :ring-specs
-             stays a CLJS vector of CLJS maps across the crossing")))))
+            "as-element answers a real React element carrying React props")
+        (is (crossed-by-identity? element-child props)
+            "THE CLAIM: the CLJS props map reaches the element AS THE SAME
+             OBJECT. Reagent carries the hiccup vector itself and never
+             converts it, so :ring-specs stays a CLJS vector of CLJS maps.
+             A `[:> ...]` crossing would fail this — its host walk
+             camelCases the top-level key and `clj->js`es the value")))))
 
 ;; ---- (5d) deferred hover dispatch routing (rf2-nesy9 / rf2-k97c.3) -----
 ;;
