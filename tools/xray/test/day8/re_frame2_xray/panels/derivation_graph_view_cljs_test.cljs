@@ -9,9 +9,17 @@
   projection algebra, but nothing walked the rendered markup. That gap is
   exactly why the panel accumulated FIVE React keys written as `^{:key …}`
   reader metadata on CALL FORMS, where the metadata is discarded on return
-  and no key ever reaches React. The same defect `rf2-ppzid` records and
-  #9578 found in `routing.cljs`'s route table; the mayor's 2026-09-10 ruling
-  made sweeping it part of every remaining panel dispatch.
+  and no key ever reaches React. The same defect #9578 found in
+  `routing.cljs`'s route table; the mayor's 2026-09-10 ruling made sweeping
+  it part of every remaining panel dispatch.
+
+  (Several comments in this tree cite `rf2-ppzid` as the record for this
+  defect. Checked at source: that id resolves to NO issue in the live
+  ledger — an identity-field scan of the export finds 0 records that ARE it
+  against 3 that merely MENTION it, and `bd show` refuses it. The #9578
+  merged-PR audit reached the same conclusion independently. So the
+  checkable citations are #9578 and rf2-vw80; the dead id is left where it
+  already sits in seven unrelated files rather than swept from them here.)
 
   A LOST KEY DOES NOT FAIL, IT DEGRADES — into index-based reconciliation,
   which paints identically and corrupts identity only once a list changes

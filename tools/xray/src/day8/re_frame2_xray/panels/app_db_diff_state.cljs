@@ -355,7 +355,13 @@
           ;; than on the returned vector's metadata. This subtree now renders
           ;; through Fresco's codec, whose head table reads a literal `:key`
           ;; in the attribute map and nothing else, so a `with-meta` key
-          ;; silently degrades to index-based reconciliation. `instance-section`
+          ;; silently degrades to index-based reconciliation. MEASURED, not
+          ;; inferred: the #9578 merged-PR audit ran the same two families
+          ;; through both renderers and read metadata keys `[k1 k2]` and
+          ;; Reagent React keys `[k1 k2]` against Fresco React keys
+          ;; `[nil nil]`, with a positive control moving the SAME values into
+          ;; the attribute map recovering them (rf2-vw80 owns the surviving
+          ;; instances in `cancellation_cascade.cljs`). `instance-section`
           ;; answers hiccup of no fixed shape, so there is no one attribute
           ;; map to write into; `[:<> …]` takes the key and adds no DOM node.
           [:<> {:key (pr-str id)}
