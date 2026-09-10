@@ -1163,7 +1163,18 @@
 (defn- fragment-element
   "Emit `:<>` — React.Fragment.
   `[:<> & children]` or `[:<> {:key k} & children]`. Props map (if
-  present) is JS-converted; only `:key` is meaningful on Fragments."
+  present) is JS-converted.
+
+  React accepts `key`, `ref` and `children` on a Fragment and nothing
+  else. `:ref` therefore already crosses here and needs no arm of its
+  own: the whole map goes through `convert-prop-value`'s `map?` branch,
+  which camelCases the key to `ref` via `cached-prop-name` and answers a
+  function value from the `fn?` arm BY IDENTITY — which is the part that
+  matters, because React detaches and reattaches on a changed ref
+  identity. An object ref falls to the `:else` arm and is likewise
+  untouched. React answers either with a `FragmentInstance` rather than a
+  DOM node. This docstring previously said only `:key` was meaningful
+  here; that was true before React 19.3 and is no longer."
   [argv]
   (let [slot-value  (nth argv 1 nil)
         has-props?  (props-slot? slot-value)
