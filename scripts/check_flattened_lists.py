@@ -400,8 +400,28 @@ def _pair_defect(prev: Item, cur: Item, prev_at: Placement, cur_at: Placement):
     if cur.indent == prev.indent + 4:
         return None
 
-    if not cur_at.in_li:
-        where = "an indented code block" if cur_at.in_code else "outside any list item"
+    # CODE FIRST, and inside an `li` counts.  Over-indent a child and it does
+    # not become a shallower nest, it becomes an INDENTED CODE BLOCK with its
+    # backticks shown literally — and when the parent is a list item that code
+    # block sits INSIDE the parent's `li`, so an `in_li` test alone reads it as
+    # an ordinary flattening and tells the author it "renders as a SIBLING".
+    # That is the wrong repair advice for the one case where the render is
+    # visibly broken rather than merely wrong, so the kind is decided on
+    # `in_code` before anything else.
+    #
+    # BOUND, stated rather than fixed: the source enumerator does not know
+    # where an INDENTED code block is (telling one from a paragraph
+    # continuation needs paragraph state `_strip_fences` deliberately does not
+    # keep), so a deliberately list-shaped line inside an indented code sample
+    # would be reported here.  The corpus has none — 0 defects across 291
+    # files — and the predecessor rule reported such a line too, just under the
+    # wrong kind, so this narrows the message without widening the net.
+    if cur_at.in_code or not cur_at.in_li:
+        where = (
+            "an indented CODE BLOCK, backticks and all"
+            if cur_at.in_code
+            else "outside any list item"
+        )
         return Defect(
             cur.line_no,
             prev.line_no,
@@ -507,9 +527,19 @@ _CASES = [
         1,
     ),
     (
-        "eight columns under a column-0 parent is a code block",
+        "eight columns after a blank line is a code block",
+        "- parent\n\n        - swallowed\n",
+        1,
+    ),
+    (
+        "eight columns with no blank line is a lazy continuation, still flat",
         "- parent\n        - swallowed\n",
         1,
+    ),
+    (
+        "six columns after a blank line nests correctly",
+        "- parent\n\n      - child\n",
+        0,
     ),
     (
         "ordered parent is not a three-column parent",
@@ -598,6 +628,31 @@ def self_test() -> int:
             failures += 1
         else:
             print(f"ok    {name} ({got} defect(s))")
+
+    # THE KIND IS PART OF THE VERDICT, not decoration: it decides what repair
+    # the author is told to make.  An over-indented child renders as a code
+    # block INSIDE its parent's `li`, so a rule that asks only "is it in an
+    # li?" calls it a SIBLING and sends the author the wrong way.
+    for name, source, kind in [
+        ("a two-column child is FLATTENED", "- parent\n  - child\n", "FLATTENED"),
+        (
+            "an eight-column child after a blank line is ESCAPED, not flattened",
+            "- parent\n\n        - child\n",
+            "ESCAPED",
+        ),
+        (
+            "the same child with no blank line is only FLATTENED",
+            "- parent\n        - child\n",
+            "FLATTENED",
+        ),
+    ]:
+        checks += 1
+        got = [d.kind for d in analyse(source, md)]
+        if got == [kind]:
+            print(f"ok    {name}")
+        else:
+            print(f"FAIL  {name}: expected ['{kind}'], got {got}")
+            failures += 1
 
     # Both directions on one document: the same list, flattened and repaired.
     flat = "Intro.\n\n- alpha\n  - beta\n    - gamma\n\nOutro.\n"
