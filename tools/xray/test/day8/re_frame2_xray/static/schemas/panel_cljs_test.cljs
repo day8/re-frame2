@@ -456,6 +456,104 @@
              per-mount identity defect rf2-d2aj records")))))
 
 ;; -------------------------------------------------------------------------
+;; (5a) ONE APP-DB PATH, TWO FRAMES, ONE RENDER FRAME (rf2-uyg0)
+;; -------------------------------------------------------------------------
+;;
+;; THE ROW ABOVE CANNOT SEE THIS. `sample-registry` is one frame's app-db
+;; schema plus two process-global rows, so every row differs on `(kind, id)`
+;; and the mount ids stay distinct however the node key is built. The browser
+;; lane's W5 is no help either — it removes differently named rows from one
+;; frame. Neither reaches the case the app-db schema registry explicitly
+;; supports: per-frame registration, surfaced all at once by the browse-all
+;; projection.
+
+(def one-path-two-frames
+  "ONE app-db schema path registered against TWO frames — the fixture
+  nothing else in this file reaches.
+
+  `scope-app-schemas-to-frame` with a nil frame-id (the default
+  OBSERVED-target state, `defaults/default-target-frame` = UNSELECTED)
+  passes every frame's app-db schemas through, so these two registrations
+  project to TWO rows inside the ONE `:rf/xray` render frame the panel
+  paints in. Each carries its own schema — they are two different
+  registrations that happen to share a path.
+
+  No event / sub rows: those are process-global and carry `:frame nil`
+  unconditionally, so they cannot exercise a frame qualifier."
+  {:schemas-by-frame {:app/a {[:shared] {:schema [:map [:a :int]]}}
+                      :app/b {[:shared] {:schema [:map [:b :int]]}}}
+   :events {}
+   :subs   {}})
+
+(def two-paths-one-frame
+  "THE NON-VACUITY CONTROL, taken from the target in the same run rather
+  than reasoned about: same row count, same walker, paths that genuinely
+  differ. A `row-identity` answering a constant — or a walker finding
+  nothing — reads red here while the fixture above would read green."
+  {:schemas-by-frame {:app/a {[:one] {:schema [:map [:a :int]]}
+                              [:two] {:schema [:map [:b :int]]}}}
+   :events {}
+   :subs   {}})
+
+(defn- mount-ids-for-override [fixture]
+  (rf/dispatch-sync
+    [:rf.xray.static.schemas/set-registry-override-for-test fixture])
+  (let [data  @(rf/subscribe [:rf.xray.static.schemas/tab-data])
+        heads (inspector-view-forms (panel/panel-tree data nil))]
+    {:rows      (:schemas data)
+     :forms     (count heads)
+     :mount-ids (mapv #(:mount-id (second %)) heads)}))
+
+(deftest two-rows-sharing-a-schema-path-across-frames-get-distinct-mount-ids
+  (testing "rf2-uyg0 — the inspector node key is qualified by the row's
+            OWNING FRAME, so two rows sharing an app-db schema path across
+            two frames do not collide on one `:mount-id`.
+
+            The frame was already destructured BY NAME in `schema-row`, one
+            line above the key that omitted it.
+
+            WHY A COLLIDING `:mount-id` IS NOT COSMETIC. `edn-widget/
+            inspect-view` hands the node key straight to the boundary as its
+            `:mount-id` and derives the expansion `:panel-id` from the same
+            string, and the Fresco head TRUSTS that id — unlike the Reagent
+            head, which mints a UUID per mount and so cannot collide.
+            `edn-inspector/container-ref-for` then MEMOISES the ref callback
+            on `[render-frame mount-id]`, and the render frame is `:rf/xray`
+            for both rows, so a shared node key means one ResizeObserver
+            entry for two live mounts: the second never installs an observer,
+            and detaching either row calls `release-mount!` for the
+            SURVIVOR."
+    (setup-xray!)
+    (rf/with-frame :rf/xray
+      (let [{:keys [rows forms mount-ids]} (mount-ids-for-override
+                                             one-path-two-frames)]
+        (is (= [[:shared] [:shared]] (mapv :id rows))
+            (str "PRECONDITION: two rows sharing ONE app-db path reached the "
+                 "tree. Rows: " (pr-str (mapv (juxt :frame :id) rows))))
+        (is (= #{:app/a :app/b} (set (map :frame rows)))
+            "PRECONDITION: and they carry DIFFERENT owning frames — the
+             browse-all projection is what puts both in one catalogue")
+        (is (= 2 forms)
+            (str "PRECONDITION: one schema value per row, two rows. Mount "
+                 "ids: " (pr-str mount-ids)))
+        (is (= 2 (count (set mount-ids)))
+            (str "THE CLAIM: two mounts, two DISTINCT `:mount-id`s. Without "
+                 "the frame in the key both rows are `static-schemas/"
+                 "app-db-[:shared]`. Mount ids: " (pr-str mount-ids))))
+      (testing "NON-VACUITY CONTROL — distinct paths in ONE frame still separate"
+        (let [{:keys [rows forms mount-ids]} (mount-ids-for-override
+                                               two-paths-one-frame)]
+          (is (= [[:one] [:two]] (mapv :id rows))
+              "control fixture projects two genuinely distinct paths")
+          (is (= 2 forms) "same shape as the case above")
+          (is (= 2 (count (set mount-ids)))
+              (str "and they were already distinct — so a red above is the "
+                   "frame qualifier, not a broken walker. Mount ids: "
+                   (pr-str mount-ids)))))
+      (rf/dispatch-sync
+        [:rf.xray.static.schemas/set-registry-override-for-test nil]))))
+
+;; -------------------------------------------------------------------------
 ;; (6) row React keys reach the RENDERER, not just the reader (rf2-k97c.3)
 ;; -------------------------------------------------------------------------
 
