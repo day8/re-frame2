@@ -1029,12 +1029,14 @@
   single realisation point every SSR surface serialises through, and its
   docstring carries each class's reason and matching rule; this one names
   the classes only so a caller can see what `attr-string` will silently
-  discard without scrolling back. It is downstream of `strip-prop?` the
-  way Spec 011's enumeration is downstream of both, and the three of them
-  standing apart is a defect in whichever moved without the others. This
-  gloss demonstrates the cost: written 2026-05-21, it went short SIX DAYS
-  later when the JSX class landed 400 lines above it in this same file,
-  and was three classes behind by 2026-09-10."
+  discard without scrolling back. It is downstream of `strip-prop?`,
+  which is itself downstream of Spec 011's enumeration — that list is the
+  contract, and what an other-language port implements (011 §XSS at
+  output boundaries says so in terms). The three of them standing apart
+  is a defect in whichever moved without the others, and this gloss
+  demonstrates the cost: written 2026-05-21, it went short SIX DAYS later
+  when the JSX class landed 400 lines above it in this same file, and was
+  three classes behind by 2026-09-10."
   [attrs]
   ;; `keep` realises only the surviving attributes; the leading space is
   ;; added once, conditionally. A map that is non-empty but whose every
