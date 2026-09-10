@@ -541,12 +541,20 @@
             (map-indexed
               (fn [idx mount-id]
                 (let [{:keys [value opts]} (get entries mount-id)]
-                  (with-meta
-                    (popup-chrome
-                      {:mount-id    mount-id
-                       :value       value
-                       :opts        opts
-                       :positioning positioning
-                       :stack-pos   idx})
-                    {:key mount-id})))
+                  ;; rf2-a38l — KEYED FRAGMENT rather than `with-meta` on
+                  ;; the vector `popup-chrome` returns. Reagent reads that
+                  ;; metadata; Fresco's codec takes a literal `:key` from
+                  ;; an ATTRIBUTE MAP and reads Clojure metadata nowhere,
+                  ;; so under a boundary every popup in the stack would
+                  ;; lose its identity and React would reconcile them by
+                  ;; position. The key does NOT go in the opts map — that
+                  ;; is `popup-chrome`'s domain data, and `:key` is
+                  ;; React's.
+                  [:<> {:key mount-id}
+                   (popup-chrome
+                     {:mount-id    mount-id
+                      :value       value
+                      :opts        opts
+                      :positioning positioning
+                      :stack-pos   idx})]))
               stack)))))
