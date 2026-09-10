@@ -288,6 +288,89 @@
             "at least one edn-inspector widget container present")))))
 
 ;; -------------------------------------------------------------------------
+;; (5b) the input-path seq's React keys actually REACH the renderer
+;;      (rf2-k97c.3, RULING 2's key sweep)
+;; -------------------------------------------------------------------------
+
+(defn- hiccup-nodes [tree]
+  (tree-seq (some-fn vector? seq?) seq tree))
+
+(defn- row-bodies
+  "The hiccup each `[flow-row row]` form answers, expanded exactly ONE
+  level.
+
+  Deliberately NOT `rf.test-helpers/expand-tree`, which recurses: it would
+  invoke `ei/edn-inspector` too, and the component vector this row is about
+  — along with the metadata riding on it — would be gone before the
+  assertion saw it. Measured: with the recursive walker the finder below
+  read ZERO, which is the reassuring answer and would have made the whole
+  row vacuous."
+  [tree]
+  (->> (hiccup-nodes tree)
+       (filterv #(and (vector? %) (fn? (first %))))
+       (mapv #(apply (first %) (rest %)))))
+
+(defn- input-inspector-forms
+  "Every `[ei/edn-inspector value opts]` form rendering an INPUT path.
+
+  Keyed off the opts map's `:panel-id`, which `edn-widget/inspect-opts`
+  derives from the node-key the panel passes — `static-flows/<flow>/input/<i>`
+  for an input, `…/output` for the single output value. The output value is
+  not in a seq and needs no key, so including it would make the claim below
+  false for a correct panel."
+  [tree]
+  (->> (row-bodies tree)
+       (mapcat hiccup-nodes)
+       (filterv #(and (vector? %)
+                      (= ei/edn-inspector (first %))
+                      (re-find #"/input/" (str (:panel-id (nth % 2 nil))))))))
+
+(deftest input-path-rows-carry-react-keys
+  (testing "rf2-k97c.3 — each input-path value in a flow row's `for` seq
+            carries a React key Reagent can actually read.
+
+            The key was written as `^{:key …}` reader metadata on the
+            `(edn/inspect …)` CALL FORM. Metadata on a source list is
+            discarded when the call returns a FRESH vector, so no key ever
+            reached React and the inputs list fell back to index-based
+            reconciliation — the same defect `static/machines/sim.cljs`
+            already met and works around with `with-meta`.
+
+            This asserts on VECTOR METADATA and that is NOT the hollow gate
+            the migration warns about, because this panel is still an
+            `rf/reg-view` rendered by Reagent, whose `get-react-key` reads
+            `:key` from exactly there. A panel migrated to a Fresco boundary
+            must move the key into an attribute map instead — the codec
+            reads metadata nowhere."
+    (setup-xray!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync
+        [:rf.xray.static.flows/set-registered-flows-override-for-test
+         sample-flows])
+      (let [tree   (panel/Panel)
+            inputs (input-inspector-forms tree)]
+        (is (<= 2 (count inputs))
+            (str "PRECONDITION: at least two input-path values rendered in "
+                 "one seq — a single-element seq needs no key, so a smaller "
+                 "count would make the claim below vacuous. Got: "
+                 (count inputs)))
+        (is (every? #(some? (:key (meta %))) inputs)
+            (str "every input-path value carries a React key. Metadata seen: "
+                 (pr-str (mapv meta inputs))))
+        ;; Uniqueness is a PER-SEQ property, not a global one: React only
+        ;; needs a key to distinguish SIBLINGS, and each flow row owns its
+        ;; own inputs seq. Grouping by the flow the panel-id names is what
+        ;; makes this a real claim — asserted globally it reads red on a
+        ;; correct panel, because two flows both start their seq at `in-0`.
+        (is (every? (fn [[_ forms]]
+                      (= (count forms)
+                         (count (set (map #(:key (meta %)) forms)))))
+                    (group-by #(second (re-find #"^(.*)/input/"
+                                                (str (:panel-id (nth % 2 nil)))))
+                              inputs))
+            "and within any ONE row's seq the keys are distinct")))))
+
+;; -------------------------------------------------------------------------
 ;; (6) LIVE production data source regression (rf2-20359j)
 ;; -------------------------------------------------------------------------
 ;;
