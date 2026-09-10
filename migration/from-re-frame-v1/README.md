@@ -1897,6 +1897,7 @@ Pre-release framing: `:rf.http/managed` is now ALSO registered as a state machin
 **Direction.** Additive — no user-side change required. Apps that hand-rolled an HTTP-child wrapper (per the auth-machine sketch in the boot-as-state-machine study) may switch to the framework-shipped wrapper; no semantic change in the parent's `:on` handling. Apps using only the fx form pay nothing — the machine registration only materialises an event-kind handler under `:rf.http/managed`, which is invisible to fx-only callers.
 
 **Related additive changes (same release).** Per [Spec 005 §Runtime stamps on the spawned actor's `:data`](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data) and [§Synthetic `[:rf.machine.spawn/spawned]` on spawn](../../spec/005-StateMachines.md#synthetic-rfmachinespawnspawned-on-spawn):
+
 - Every spawned actor's initial `:data` carries `:rf/self-id`, `:rf/parent-id`, `:rf/invoke-id` (the latter two only for declarative-`:spawn` spawns; `:rf/invoke-id` was `:rf/spawn-id` pre-[M-74](#m-74-machine-identity-naming--split-spawn-id-and-de-overloaded-machine-id)) under the framework-reserved `:rf/*` namespace. User code that previously hardcoded a parent-id in a child's spec may now read `:rf/parent-id` from the child's `:data` — no migration required; the change is purely additive.
 - Spawns without an explicit `:start` now receive a synthetic `[:rf.machine.spawn/spawned]` event as their first event. Machines that don't handle it see a no-op; the existing `:start` form continues to work and overrides the synthetic event.
 
@@ -2534,6 +2535,7 @@ Per rf2-uheqq (Mike decision 2026-05-28, rf2-omwua option b + shape iii), the pu
 ```
 
 The interceptor-map carries:
+
 - `:before` (optional) — `(fn [ctx] ctx')`, request-side
 - `:after` (optional) — `(fn [ctx response] response')`, response-side
 - `:frame` (optional, default `:rf/default`)
@@ -2544,6 +2546,7 @@ At least one of `:before` / `:after` MUST be supplied — a no-op interceptor is
 **Detect.** Any `reg-http-interceptor` call site that doesn't match `(rf/reg-http-interceptor :id {…})` — that is, the 2-arity (positional :before) form `(rf/reg-http-interceptor :id (fn [ctx] …))` or the 3-arity (opts + positional :before) form `(rf/reg-http-interceptor :id {…} (fn [ctx] …))` or the older single-map form `(rf/reg-http-interceptor {:id … :before …})`.
 
 **Mechanical sweep.**
+
 - 2-arity `(rf/reg-http-interceptor :id (fn ...))` → `(rf/reg-http-interceptor :id {:before (fn ...)})`
 - 3-arity `(rf/reg-http-interceptor :id {opts...} (fn ...))` → `(rf/reg-http-interceptor :id (merge {opts...} {:before (fn ...)}))`
 - single-map `(rf/reg-http-interceptor {:id :x :before ...})` → `(rf/reg-http-interceptor :x {:before ...})`
@@ -2640,6 +2643,7 @@ Per audit-of-audits #15: the previous arrangement split the HTTP test surface ac
 The require pair looks nearly identical to the pre-rename shape, but the role of `re-frame.http.test-support` widened — it is now the ONLY door to the stub family. None of the three helpers is a `re-frame.core` re-export and none publishes a late-bind hook (rf2-ntwwyt, rf2-kuky.13), so every call site names the namespace. A test that previously required only `re-frame.http.managed`, or reached a helper through the `rf/` facade, now surfaces unresolved-symbol until the test-support require and the qualified call site are both in place.
 
 **Detect.** Test files that:
+
 - reach any stub helper through the `rf/` facade (there is no facade route — every such call site is stale); OR
 - call `re-frame.http.test-support/with-request-stubs` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`; OR
 - call any of the three on `re-frame.http.managed` directly,
@@ -2647,6 +2651,7 @@ The require pair looks nearly identical to the pre-rename shape, but the role of
 without `re-frame.http.test-support` in their require closure.
 
 **Mechanical sweep.**
+
 1. Add `[re-frame.http.test-support :as http-test-support]` to the require list of any test ns that uses the stub family.
 2. Rewrite every stub call site — whether it named `re-frame.http.managed/<fn>` or the `rf/` facade — to `http-test-support/<fn>`. The scoped helper is now `with-request-stubs` and takes a THUNK: `(http-test-support/with-request-stubs route-map (fn [] body…))`.
 
