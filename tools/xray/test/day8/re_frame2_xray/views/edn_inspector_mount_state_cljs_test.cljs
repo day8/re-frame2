@@ -31,6 +31,11 @@
     R6  releasing a mount that holds nothing is a no-op that dispatches
         nothing — the negative case, and the one that fires if React
         calls a ref with nil twice, which it is entitled to do.
+    R7  a RETAINED callback re-attached after a nil call still dispatches
+        — React StrictMode's setup → cleanup → setup cycle, which every
+        other row here misses by construction (rf2-9go2).
+    R8  and the store answers that retained callback again afterwards,
+        so the re-attachment does not cost R1's memo.
 
   ## No DOM here, deliberately
 
@@ -175,3 +180,96 @@
           "two further detaches of an already-released mount dispatch NOTHING")
       (is (nil? (ei/mount-state-held mid))
           "and the store is still empty for it"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-9go2 — RETAINED-CALLBACK RE-ATTACHMENT.
+;;
+;; Every row above either asks for a NEW callback after the release (R3) or
+;; never re-attaches at all (R6). React does neither: StrictMode runs a
+;; callback ref setup → cleanup → setup with the SAME function, and the
+;; cleanup half calls `release-mount!`, which drops the WHOLE entry —
+;; dispatcher included. The second setup then rebuilds measurement and
+;; observer state around a store that has no dispatcher in it, so width
+;; dispatch stops while everything else goes on looking healthy.
+;;
+;; The two rows below are split so each failure names one thing: R7 is the
+;; dispatcher, R8 is the memo.
+;; ---------------------------------------------------------------------------
+
+(defn- fake-el
+  "A stand-in container element. `measure-and-dispatch!` reads `clientWidth`
+  and nothing else, and `js/ResizeObserver` does not exist under Node, so
+  this is the whole of the DOM these rows need. Mutable, so a width CHANGE
+  is `set!` rather than a second element — the point is that ONE element is
+  detached and re-attached."
+  [w]
+  #js {:clientWidth w})
+
+(deftest r7-a-retained-ref-callback-reattaches-with-its-dispatcher
+  (testing "rf2-9go2 — element → nil → the SAME element still dispatches.
+
+            This is the sequence React StrictMode performs on every
+            callback ref, so it is routine rather than adversarial. Before
+            the fix the third step below dispatched NOTHING: the entry came
+            back carrying its width measurement and its observer, but not
+            the dispatcher that had gone with the release, and nothing on
+            screen or in the store said so."
+    (let [before     (ei/mount-state-count)
+          dispatched (atom [])
+          mid        "r7-mount"
+          el         (fake-el 100)
+          ref-fn     (ei/container-ref-for mid #(swap! dispatched conj %))]
+      ;; setup
+      (ref-fn el)
+      (is (= [[:rf.xray.edn-inspector/set-width mid 100]] @dispatched)
+          "first attach measured and dispatched")
+      ;; cleanup — StrictMode's nil call
+      (reset! dispatched [])
+      (ref-fn nil)
+      (is (= [[:rf.xray.edn-inspector/clear-width mid]] @dispatched)
+          "the nil call released the mount and cleared the width slot")
+      (is (nil? (ei/mount-state-held mid))
+          "and the entry really went, dispatcher with it")
+      ;; setup again, with the RETAINED callback — the path that failed
+      (reset! dispatched [])
+      (set! (.-clientWidth el) 200)
+      (ref-fn el)
+      (is (= [[:rf.xray.edn-inspector/set-width mid 200]] @dispatched)
+          "re-attaching the retained callback dispatches the new width")
+      ;; and it keeps working, rather than dispatching once and dying
+      (reset! dispatched [])
+      (set! (.-clientWidth el) 300)
+      (ref-fn el)
+      (is (= [[:rf.xray.edn-inspector/set-width mid 300]] @dispatched)
+          "and subsequent width changes still dispatch")
+      ;; final detach returns to baseline, exactly as R3 requires of a
+      ;; mount that was never re-attached
+      (reset! dispatched [])
+      (unmount! ref-fn)
+      (is (= [[:rf.xray.edn-inspector/clear-width mid]] @dispatched)
+          "the final detach still clears the width slot")
+      (is (nil? (ei/mount-state-held mid))
+          "and removes the whole entry")
+      (is (= before (ei/mount-state-count))
+          "store back to the size it started at"))))
+
+(deftest r8-re-attachment-restores-the-memo
+  (testing "rf2-9go2 — after a retained callback re-attaches, the store
+            answers THAT callback again.
+
+            R1's memo is what stops React tearing the ResizeObserver down
+            on every render. A release drops `:ref` with the rest of the
+            entry, so a re-attachment that rebuilt everything except the
+            memo would leave the next render minting a fresh closure —
+            R1's defect, arriving by a route R1 cannot see."
+    (let [mid    "r8-mount"
+          el     (fake-el 120)
+          ref-fn (ei/container-ref-for mid identity)]
+      (ref-fn el)
+      (ref-fn nil)
+      (ref-fn el)
+      (is (identical? ref-fn (ei/container-ref-for mid identity))
+          "the re-attached callback is the one the store hands back")
+      (unmount! ref-fn)
+      (is (nil? (ei/mount-state-held mid))
+          "and the mount still releases cleanly afterwards"))))
