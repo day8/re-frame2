@@ -16,6 +16,15 @@
   event list, scrubs through history, or a new event-bundle lands at head
   in LIVE mode.
 
+  ## Section disclosure
+
+  This ns also owns the record panel's per-section open/closed state —
+  the `:rf.xray/managed-fx-expanded-sections` read and the
+  `:rf.xray/managed-fx-toggle-section` write. `theme/section/section-row`
+  draws the disclosure glyph but deliberately wires no click, so the
+  state is the caller's; it is held per `[record-key section-id]` pair so
+  one record's REQUEST opens independently of its siblings'.
+
   ## Cross-link
 
   Records carry `:origin-event-id` so the panel's HANDLER DISPATCHED
@@ -54,7 +63,42 @@
          :frame       (:frame focus)
          :records     (if event-bundle
                         (h/event-bundle->managed-fx-records event-bundle)
-                        [])}))))
+                        [])})))
+
+  ;; ---- section disclosure ----------------------------------------------
+  ;;
+  ;; `theme/section/section-row` renders the disclosure glyph and nothing
+  ;; else — "Click-to-toggle wiring is the caller's responsibility" — so the
+  ;; open/closed state is the panel's, held here. The vocabulary
+  ;; (`expansion-slot`, `expansion-key`, `resolve-expanded?`,
+  ;; `section-defaults`) is pure data in `managed_fx_helpers`; this ns owns
+  ;; only the registration.
+  ;;
+  ;; The slot is read at the panel's reactive boundary (`panels/ManagedFxList`)
+  ;; and threaded down as plain data — `record-panel` and `records-list` are
+  ;; plain fns, and per Spec 006 §Plain-fn footgun an ambient `subscribe`
+  ;; inside one raises `:rf.error/no-frame-context` rather than resolving the
+  ;; surrounding frame. Same shape the edn-inspector widget uses: its
+  ;; `reg-view` reads `@(subscribe [expansion-slot])` once and hands the map
+  ;; to the pure renderers.
+
+  (rf/reg-sub :rf.xray/managed-fx-expanded-sections
+    (fn [db _query]
+      (get db h/expansion-slot)))
+
+  ;; Toggle ONE section of ONE record.
+  ;;
+  ;; The next value is computed through `resolve-expanded?` rather than by
+  ;; flipping the stored entry, so the FIRST click inverts what the operator
+  ;; can actually SEE. Flipping a nil override from an assumed `false` would
+  ;; be a silent no-op on the two sections that default OPEN.
+  (rf/reg-event :rf.xray/managed-fx-toggle-section
+    (fn [{:keys [db]} [_ rec-key section-id]]
+      {:db (assoc-in db [h/expansion-slot (h/expansion-key rec-key section-id)]
+                     (not (h/resolve-expanded? (get db h/expansion-slot)
+                                               rec-key section-id)))}))
+
+  nil)
 
 ;; The HANDLER DISPATCHED row's `:on-click` dispatches the spine's
 ;; canonical `:rf.xray/focus-event` directly (managed_fx_template.cljs)

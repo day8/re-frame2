@@ -12,13 +12,18 @@
   ┌─ MANAGED FX [HTTP] · :user/load-profile · 250ms ──────────────┐
   │ STATUS: ✓ 200 OK · correlation: c-abc12 · phase: completed     │
   │                                                                │
-  │ ▼ REQUEST                                                      │
+  │ ▶ REQUEST                                                      │
   │ ▼ WIRE TIMING                                                  │
-  │ ▼ RESPONSE                                                     │
-  │ ▼ HANDLER DISPATCHED                                           │
+  │ ▶ RESPONSE                                                     │
+  │ ▶ HANDLER DISPATCHED                                           │
   │ ▼ APP-DB SLICE TOUCHED                                         │
   └────────────────────────────────────────────────────────────────┘
   ```
+
+  Every section header is a disclosure: clicking one toggles it. The
+  first-paint state is `managed-fx-helpers/section-defaults` (three shut,
+  two open, as drawn above); the operator's overrides live in app-db,
+  keyed per record so sibling panels open independently.
 
   ## Five surfaces, one template
 
@@ -346,6 +351,52 @@
         [:span {:style {:color (:accent tokens)}}
          (pr-str path)]])]))
 
+;; ---- disclosure ---------------------------------------------------------
+;;
+;; `theme/section/section-row` renders the `▶`/`▼` glyph from `:expanded?`
+;; and renders its body under `(when expanded? …)`, but it attaches no
+;; handler — "No interactivity. Click-to-toggle wiring is the caller's
+;; responsibility", stated in its own docstring, and it is shared with
+;; `panels/fresco` and `panels/module_view`, so the wiring is OURS to do.
+;;
+;; The caller's half is a wrapper carrying the click. Two details in it are
+;; load-bearing:
+;;
+;;   - The BODY stops propagation. The wrapper has to enclose the whole
+;;     section (the primitive renders its own header, so there is no inner
+;;     header node to hang the handler on), which would otherwise make every
+;;     click inside an opened payload collapse it again — including the
+;;     '→ focus event ↗' button and the edn-inspector's own expand chevrons.
+;;   - `:expanded?` is passed THROUGH to the primitive, so the glyph and the
+;;     body agree by construction. The primitive stays the single source of
+;;     truth for the visual state; this wrapper only decides what that state is.
+
+(defn- disclosing-section
+  "One `section-row` plus the click-to-toggle the primitive deliberately
+  omits. `expanded?` is the resolved state (see
+  `managed-fx-helpers/resolve-expanded?`); clicking dispatches the panel's
+  toggle for `[rec-key section-id]`."
+  [{:keys [dispatch rec-key section-id label testid expanded?]} body]
+  [:div {:data-testid   (str testid "-toggle")
+         :on-click      (fn [_]
+                          (dispatch [:rf.xray/managed-fx-toggle-section
+                                     rec-key section-id]))
+         :aria-expanded (if expanded? "true" "false")
+         :title         (if expanded?
+                          "Click to collapse this section"
+                          "Click to expand this section")
+         :style         {:cursor "pointer"}}
+   (section/section-row
+     {:label             label
+      :expanded?         expanded?
+      :testid            testid
+      :container-padding "8px 0"}
+     ;; Clicks on the payload belong to the payload, not to the disclosure.
+     [:div {:data-testid (str testid "-body-inner")
+            :on-click    (fn [^js e] (.stopPropagation e))
+            :style       {:cursor "auto"}}
+      body])])
+
 ;; ---- one record's panel ------------------------------------------------
 
 (defn record-panel
@@ -360,12 +411,29 @@
       (one click reveals the payload — keeps the panel scannable on
       first paint).
 
+  Those defaults live in `managed-fx-helpers/section-defaults`, and every
+  section is now a real disclosure: the panel owns the open/closed state
+  and each header toggles it. Before rf2-s6m6 the five `:expanded?` values
+  were literals, so the three collapsed sections drew a `▶` nothing could
+  operate and their payloads — request, response (and the failure tags),
+  and the dispatched handler vector — were unreachable in the UI.
+
+  `expanded` is the per-section override map (the value of
+  `managed-fx-helpers/expansion-slot`), read at the panel's reactive
+  boundary and threaded down. `nil` — the shape the short arities pass —
+  resolves every section to its `section-defaults` value, which is the
+  first-paint state. This fn stays a PURE fn of `(dispatch, expanded,
+  record)`: per Spec 006 §Plain-fn footgun an ambient `subscribe` in a
+  plain fn raises `:rf.error/no-frame-context`, so the read cannot happen
+  here and the sub is read by the `reg-view` that mounts this panel.
+
   `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
   `panels/ManagedFxList` `reg-view` body, threaded to the header /
-  handler affordances. Defaults to `rf/dispatch` so the test seam (and
-  any pre-sweep caller) renders without a captured dispatcher."
-  ([record] (record-panel rf/dispatch record))
-  ([dispatch record]
+  handler / disclosure affordances. Defaults to `rf/dispatch` so the test
+  seam (and any pre-sweep caller) renders without a captured dispatcher."
+  ([record] (record-panel rf/dispatch nil record))
+  ([dispatch record] (record-panel dispatch nil record))
+  ([dispatch expanded record]
   ;; rf2-hxfy — the React key lives in this ATTRIBUTE MAP rather than as
   ;; `^{:key …}` reader meta on the `(record-panel …)` call in
   ;; `records-list` below. Reader meta on a CALL form attaches to the
@@ -377,7 +445,20 @@
   ;; Reagent reads meta THEN props — so one attribute satisfies both
   ;; substrates. The composed value is unchanged from the call site's:
   ;; the same three record fields, same order, same separator.
-  [:section {:key         (str (:surface record) "-" (:origin-event-id record) "-" (:fx-id record))
+  (let [rec-key (h/record-key record)
+        ;; One `section` per row: resolve this record's stored state for
+        ;; the section (falling back to its default) and hand the whole
+        ;; lot to the disclosure wrapper.
+        section (fn [section-id label testid body]
+                  (disclosing-section
+                    {:dispatch   dispatch
+                     :rec-key    rec-key
+                     :section-id section-id
+                     :label      label
+                     :testid     testid
+                     :expanded?  (h/resolve-expanded? expanded rec-key section-id)}
+                    body))]
+  [:section {:key         rec-key
              :data-testid (str "rf-xray-managed-fx-record-"
                                (name (:surface record))
                                "-" (or (:origin-event-id record) "x"))
@@ -389,31 +470,16 @@
                            :background    (:bg-2 tokens)}}
    (panel-header dispatch record)
    [:div {:style {:padding "8px 12px"}}
-    (section/section-row
-      {:label "REQUEST" :expanded? false
-       :testid "rf-xray-managed-fx-section-request"
-       :container-padding "8px 0"}
-      (request-section record))
-    (section/section-row
-      {:label "WIRE TIMING" :expanded? true
-       :testid "rf-xray-managed-fx-section-wire"
-       :container-padding "8px 0"}
-      (wire-section record))
-    (section/section-row
-      {:label "RESPONSE" :expanded? false
-       :testid "rf-xray-managed-fx-section-response"
-       :container-padding "8px 0"}
-      (response-section record))
-    (section/section-row
-      {:label "HANDLER DISPATCHED" :expanded? false
-       :testid "rf-xray-managed-fx-section-handler"
-       :container-padding "8px 0"}
-      (handler-section dispatch record))
-    (section/section-row
-      {:label "APP-DB SLICE TOUCHED" :expanded? true
-       :testid "rf-xray-managed-fx-section-app-db"
-       :container-padding "8px 0"}
-      (app-db-slice-section record))]]))
+    (section :request  "REQUEST"
+             "rf-xray-managed-fx-section-request"  (request-section record))
+    (section :wire     "WIRE TIMING"
+             "rf-xray-managed-fx-section-wire"     (wire-section record))
+    (section :response "RESPONSE"
+             "rf-xray-managed-fx-section-response" (response-section record))
+    (section :handler  "HANDLER DISPATCHED"
+             "rf-xray-managed-fx-section-handler"  (handler-section dispatch record))
+    (section :app-db   "APP-DB SLICE TOUCHED"
+             "rf-xray-managed-fx-section-app-db"   (app-db-slice-section record))]])))
 
 ;; ---- list panel --------------------------------------------------------
 
@@ -424,9 +490,14 @@
   a deterministic stack against canned records.
 
   `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded to each
-  `record-panel`. Defaults to `rf/dispatch` for the test seam."
-  ([records] (records-list rf/dispatch records))
-  ([dispatch records]
+  `record-panel`. Defaults to `rf/dispatch` for the test seam.
+
+  `expanded` is the per-section override map threaded to each
+  `record-panel`; `nil` renders every section at its default. Keyed per
+  record, so opening one panel's REQUEST leaves its siblings shut."
+  ([records] (records-list rf/dispatch nil records))
+  ([dispatch records] (records-list dispatch nil records))
+  ([dispatch expanded records]
   (when (seq records)
     [:div {:data-testid "rf-xray-managed-fx-list"
            :style {:padding "8px 0"
@@ -442,4 +513,4 @@
      ;; attribute map `record-panel` returns (see the comment there).
      ;; Reader meta here would attach to the CALL form and be lost.
      (for [rec records]
-       (record-panel dispatch rec))])))
+       (record-panel dispatch expanded rec))])))

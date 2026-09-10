@@ -228,29 +228,33 @@
 ;; `edn/inspect-view`. Asserting only what is actually true here is the
 ;; point: a row claiming Fresco-readiness would be the hollow one.
 ;;
-;; AND WHAT THIS ROW CANNOT DO, STATED PLAINLY BECAUSE THE FIRST DRAFT OF
-;; IT LIED. All four sites sit inside sections `record-panel` builds with
-;; `:expanded? false` — a LITERAL — and `theme/section/section-row` renders
-;; its body under `(when expanded? …)`, so a collapsed body is computed
-;; (it is a positional argument) and then DISCARDED. The four vectors have
-;; therefore never appeared in any rendered tree, which is the blind spot
-;; all three tiers of coverage shared. So a revert to `[edn/inspect …]`
-;; would NOT turn this row red, and the row does not claim it would: the
-;; absence assertion is a FLOOR against a future head placed somewhere
-;; reachable, and the controls above it are what stop the floor reading as
-;; a proof. Measured, not assumed — the draft that asserted the returned
-;; inspector was present in the tree read zero, and that is how the
-;; discard was found.
+;; WHAT THIS ROW CANNOT DO, STATED PLAINLY BECAUSE THE FIRST DRAFT OF IT
+;; LIED. It walks the DEFAULT tree, where three of the five sections are
+;; shut. `theme/section/section-row` renders its body under `(when expanded?
+;; …)`, so a collapsed body is computed (it is a positional argument) and
+;; then DISCARDED — three of the four `edn/inspect` sites are therefore
+;; absent from the tree this row walks, which is the blind spot all three
+;; tiers of coverage shared. So a revert to `[edn/inspect …]` in one of those
+;; three would NOT turn THIS row red, and it does not claim it would: the
+;; absence assertion is a FLOOR, and the controls above it are what stop the
+;; floor reading as a proof. Measured, not assumed — the draft that asserted
+;; the returned inspector was present in the tree read zero, and that is how
+;; the discard was found.
+;;
+;; THE GAP IS NOW COVERED ELSEWHERE IN THIS FILE. rf2-s6m6 wired the
+;; disclosure, so the sections can be opened, and
+;; `no-plain-fn-in-head-position-with-every-section-open` restates this floor
+;; over the FULLY OPEN tree — where all four sites really are present, as it
+;; asserts before reading the absence. Keep both: this row grades what the
+;; operator sees on first paint, that one grades what a click reveals.
 ;;
 ;; THE PRIMITIVE IS NOT AT FAULT, AND SAYING SO MATTERS because the first
 ;; version of this comment blamed it. `section-row` is non-interactive BY
 ;; DESIGN — `theme/section.cljc` states the contract in terms: "No
-;; interactivity. Click-to-toggle wiring is the caller's responsibility."
-;; Expansion state exists in this tree and has a working caller
-;; (`panels/cancellation_cascade.cljs:689` feeds `:expanded?` from a sub);
-;; this panel simply passes literals and never did that half. rf2-kfoq
-;; carries the repair, and it must land after or with the head-form fix,
-;; since wiring the disclosure is exactly what makes these four reachable.
+;; interactivity. Click-to-toggle wiring is the caller's responsibility." —
+;; and it is shared with `panels/fresco` and `panels/module_view`. The panel
+;; simply passed literals and never did the caller's half; rf2-s6m6 did it,
+;; in the panel, leaving the primitive untouched.
 
 (defn- hiccup-vectors
   "Every hiccup vector in `node`, root included, walked structurally.
@@ -362,6 +366,245 @@
   (doseq [[pat kind] internal-ref-patterns]
     (is (not (re-find pat text))
         (str label " leaks an internal " kind ": " (pr-str (re-find pat text))))))
+
+;; ---- section disclosure (rf2-s6m6) ---------------------------------------
+;;
+;; The defect: all five `:expanded?` values were LITERALS, so REQUEST,
+;; RESPONSE and HANDLER DISPATCHED drew a `▶` that nothing could operate and
+;; their payloads never reached a rendered tree. `theme/section/section-row`
+;; is not at fault and is unchanged — it is non-interactive by design and
+;; shared with two other panels — so the state and the click are the panel's.
+
+(def ^:private disclosure-record
+  (record {:surface :http :fx-id :rf.http/managed
+           :status  :ok   :http-status 200
+           :handler [:user/loaded {:id 1}]
+           :paths   [[:users 42]]}))
+
+(def ^:private section-ids [:request :wire :response :handler :app-db])
+
+(defn- section-testid [section-id]
+  (str "rf-xray-managed-fx-section-" (name section-id)))
+
+(defn- body-shown?
+  "Did `section-id`'s BODY reach the tree? `section-row` renders the body
+  div under `(when expanded? …)`, so its testid is present exactly when the
+  section is open."
+  [tree section-id]
+  (contains? (set (testids tree)) (str (section-testid section-id) "-body")))
+
+(defn- tree-nodes
+  "Every node in a hiccup tree, payload values included. Walked structurally
+  rather than through `rf.test-helpers/expand-tree`, which rebuilds nested
+  vectors with `mapv` — that would substitute its own vectors for the ones
+  under test, and strips reader metadata besides."
+  [node]
+  (cond
+    (vector? node) (cons node (mapcat tree-nodes node))
+    (seq? node)    (cons node (mapcat tree-nodes node))
+    :else          [node]))
+
+(defn- open-all
+  "Override map opening every section of one record."
+  [rec]
+  (let [rk (h/record-key rec)]
+    (into {} (for [s section-ids] [(h/expansion-key rk s) true]))))
+
+(defn- noop-dispatch [_])
+
+(deftest sections-paint-at-their-documented-defaults
+  (testing "`record-panel`'s docstring promises WIRE + APP-DB SLICE TOUCHED
+            open and REQUEST + RESPONSE + HANDLER DISPATCHED shut on first
+            paint. A nil override map is that first-paint state.
+
+            This row is a FLOOR for the defaults, not a gate for the repair —
+            it passed before it too, because the pre-repair literals painted
+            the same thing. The gate is the toggle rows below."
+    (let [tree (template/record-panel disclosure-record)
+          ids  (set (testids tree))]
+      ;; every section draws its header, open or shut
+      (doseq [s section-ids]
+        (is (contains? ids (str (section-testid s) "-header"))
+            (str (name s) " draws a header")))
+      (is (not (body-shown? tree :request)))
+      (is (not (body-shown? tree :response)))
+      (is (not (body-shown? tree :handler)))
+      (is (body-shown? tree :wire))
+      (is (body-shown? tree :app-db)))))
+
+(deftest opening-a-collapsed-section-puts-its-payload-in-the-tree
+  (testing "rf2-s6m6 — the deliverable. A section starts collapsed, the
+            expansion state changes, and the PAYLOAD is present afterwards.
+
+            Asserting the body testid alone would be half a gate: the
+            container can appear while the payload does not. Both are
+            asserted, and both are asserted ABSENT first, so neither reads
+            as present on a tree that never had it."
+    (let [rk     (h/record-key disclosure-record)
+          shut   (template/record-panel noop-dispatch nil disclosure-record)
+          opened (template/record-panel noop-dispatch
+                                        {(h/expansion-key rk :request) true}
+                                        disclosure-record)
+          req    {:method :get :url "/x"}]
+      (is (not (body-shown? shut :request)))
+      (is (not (some #{req} (tree-nodes shut)))
+          "the request payload is absent while the section is shut")
+      (is (body-shown? opened :request))
+      (is (some #{req} (tree-nodes opened))
+          "the request payload reaches the tree once the section is open")
+      ;; the sibling sections are untouched by opening this one
+      (is (not (body-shown? opened :response)))
+      (is (not (body-shown? opened :handler))))))
+
+(deftest opening-response-and-handler-puts-their-payloads-in-the-tree
+  (testing "The other two sections the defect hid. HANDLER DISPATCHED also
+            carries the '→ focus event ↗' cross-link button, which was
+            unreachable for the same reason."
+    (let [rk     (h/record-key disclosure-record)
+          opened (template/record-panel noop-dispatch (open-all disclosure-record)
+                                        disclosure-record)
+          shut   (template/record-panel noop-dispatch nil disclosure-record)]
+      (is (some #{{:ok true}} (tree-nodes opened))
+          "the response payload reaches the tree")
+      (is (not (some #{{:ok true}} (tree-nodes shut))))
+      (is (some #{[:user/loaded {:id 1}]} (tree-nodes opened))
+          "the dispatched handler vector reaches the tree")
+      (is (not (some #{[:user/loaded {:id 1}]} (tree-nodes shut))))
+      (is (contains? (set (testids opened)) "rf-xray-managed-fx-focus-handler")
+          "the cross-link button is reachable once HANDLER DISPATCHED opens")
+      (is (not (contains? (set (testids shut)) "rf-xray-managed-fx-focus-handler"))))))
+
+(deftest opening-response-on-a-failure-record-surfaces-the-failure-tags
+  (testing "The failure branch of RESPONSE is a distinct unreachable payload —
+            it is what the F.3 / F.7 diagnostics are read from."
+    (let [r      (assoc (record {:surface :http :fx-id :rf.http/managed
+                                 :status :error :http-status 500})
+                        :failure {:kind :rf.http/http-5xx
+                                  :tags {:status 500 :body "oops"}})
+          opened (template/record-panel noop-dispatch (open-all r) r)
+          shut   (template/record-panel noop-dispatch nil r)]
+      (is (some #{{:status 500 :body "oops"}} (tree-nodes opened)))
+      (is (not (some #{{:status 500 :body "oops"}} (tree-nodes shut)))))))
+
+(deftest a-default-open-section-can-be-shut
+  (testing "The disclosure runs both ways — WIRE TIMING and APP-DB SLICE
+            TOUCHED drew a `▼` that could not be closed, the same dead
+            affordance in the opposite direction."
+    (let [rk   (h/record-key disclosure-record)
+          tree (template/record-panel noop-dispatch
+                                      {(h/expansion-key rk :wire)   false
+                                       (h/expansion-key rk :app-db) false}
+                                      disclosure-record)]
+      (is (not (body-shown? tree :wire)))
+      (is (not (body-shown? tree :app-db)))
+      ;; and the stored `false` did not leak onto the sections that share
+      ;; the record key
+      (is (not (body-shown? tree :request))))))
+
+(deftest disclosure-state-is-per-record
+  (testing "An event-bundle can carry several managed-fx records. Opening
+            REQUEST on one must not open it on its siblings — which is why
+            the override key carries the record identity and not just the
+            section id."
+    (let [a         (record {:surface :http :fx-id :rf.http/managed
+                             :status :ok :http-status 200})
+          b         (record {:surface :flow :fx-id :rf.fx/reg-flow :status :ok})
+          overrides {(h/expansion-key (h/record-key a) :request) true}]
+      (is (not= (h/record-key a) (h/record-key b))
+          "the two fixture records really do have distinct keys")
+      (is (body-shown? (template/record-panel noop-dispatch overrides a) :request))
+      (is (not (body-shown? (template/record-panel noop-dispatch overrides b) :request))))))
+
+(deftest each-section-header-dispatches-its-own-toggle
+  (testing "The caller's half of `section-row`'s contract — 'Click-to-toggle
+            wiring is the caller's responsibility'. Each section's wrapper
+            carries an :on-click dispatching the panel's toggle for
+            [record-key section-id].
+
+            Reading the handler off the tree and CALLING it is what makes
+            this a gate: a deleted :on-click is nil, and calling nil throws."
+    (doseq [s section-ids]
+      (let [seen   (atom [])
+            tree   (template/record-panel #(swap! seen conj %) nil disclosure-record)
+            node   (first (filter #(= (str (section-testid s) "-toggle")
+                                      (:data-testid (second %)))
+                                  (hiccup-vectors tree)))]
+        (is (some? node) (str (name s) " has a toggle wrapper"))
+        ((:on-click (second node)) nil)
+        (is (= [[:rf.xray/managed-fx-toggle-section
+                 (h/record-key disclosure-record) s]]
+               @seen)
+            (str (name s) " dispatches its own toggle"))))))
+
+(deftest a-click-inside-an-open-payload-does-not-collapse-the-section
+  (testing "The wrapper has to enclose the whole section, because
+            `section-row` renders its own header and there is no inner header
+            node to hang the handler on. Without a stop on the body, every
+            click inside an opened payload — the edn-inspector's chevrons,
+            the '→ focus event ↗' button — would bubble to the wrapper and
+            shut the section the operator just opened."
+    (let [tree  (template/record-panel noop-dispatch (open-all disclosure-record)
+                                       disclosure-record)
+          inner (first (filter #(= "rf-xray-managed-fx-section-request-body-inner"
+                                   (:data-testid (second %)))
+                               (hiccup-vectors tree)))
+          stopped (atom false)]
+      (is (some? inner) "the open body carries the propagation stop")
+      ((:on-click (second inner))
+       #js {:stopPropagation (fn [] (reset! stopped true))})
+      (is (true? @stopped) "a click on the payload is stopped before the wrapper"))))
+
+(deftest aria-expanded-agrees-with-the-rendered-body
+  (testing "The wrapper announces the state the primitive paints, so the two
+            cannot disagree — both are driven by the same resolved value."
+    (let [rk   (h/record-key disclosure-record)
+          tree (template/record-panel noop-dispatch
+                                      {(h/expansion-key rk :request) true}
+                                      disclosure-record)
+          aria (fn [s] (->> (hiccup-vectors tree)
+                            (filter #(= (str (section-testid s) "-toggle")
+                                        (:data-testid (second %))))
+                            first second :aria-expanded))]
+      (is (= "true" (aria :request)))
+      (is (= "true" (aria :wire)))
+      (is (= "false" (aria :response)))
+      (is (= "false" (aria :handler))))))
+
+;; ---- HD-016 on the tree the disclosure MAKES reachable (rf2-s6m6) ---------
+;;
+;; `no-plain-fn-sits-in-hiccup-head-position` above is a floor over the
+;; DEFAULT tree, and its own comment says plainly what it cannot do: with
+;; three sections shut, the four `edn/inspect` sites are constructed as
+;; positional arguments and then discarded by `section-row`'s `(when
+;; expanded? …)`, so they never appear in the tree it walks. Wiring the
+;; disclosure is exactly what makes them reachable — the risk this bead
+;; carries — so the same floor is restated over the FULLY OPEN tree, where
+;; all four are really present.
+
+(deftest no-plain-fn-in-head-position-with-every-section-open
+  (testing "rf2-twil repaired four `edn/inspect` head-position sites that no
+            tier of coverage could reach, because they sat inside collapsed
+            sections. With every section open they are in the rendered tree,
+            and a plain fn in head position is an HD-016 throw that escapes
+            with no error boundary above this panel — a panel that never
+            appears rather than an error (the rf2-qhoj shape)."
+    (let [tree  (template/record-panel noop-dispatch (open-all disclosure-record)
+                                       disclosure-record)
+          heads (hiccup-heads tree)]
+      ;; The tree really is open, so the absence below is not vacuous.
+      (doseq [s section-ids]
+        (is (body-shown? tree s) (str (name s) " is open")))
+      ;; And the inspector call sites really are in it — this is the half the
+      ;; default-tree row could not assert.
+      (is (some #{{:method :get :url "/x"}} (tree-nodes tree)))
+      (is (some #{[:user/loaded {:id 1}]} (tree-nodes tree)))
+      ;; Two controls, because the assertion below is an ABSENCE.
+      (is (= :invalid (rf.fresco.impl.codec/head-kind edn-widget/inspect))
+          "Fresco's own classifier grades the plain fn an invalid head")
+      (is (< 30 (count heads))
+          "the walker reached a populated tree, so a zero below means absence")
+      (is (empty? (filter fn? heads))
+          "no plain function is in head position in the fully-open panel"))))
 
 (deftest user-facing-text-carries-no-internal-refs
   (let [recs [(record {:surface :http :fx-id :rf.http/managed

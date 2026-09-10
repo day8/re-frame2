@@ -440,11 +440,26 @@
   is a `reg-view` so the React-context tier resolves to the wrapping
   frame-provider per Spec 006 §706."
   []
-  (let [records @(rf/subscribe [:rf.xray/managed-fx-for-focused-event])]
+  (let [focused  @(rf/subscribe [:rf.xray/managed-fx-for-focused-event])
+        ;; The panel's per-section disclosure state. Read HERE because
+        ;; `records-list` / `record-panel` are plain fns, and per Spec 006
+        ;; §Plain-fn footgun an ambient `subscribe` inside one raises
+        ;; `:rf.error/no-frame-context` — it carries no `:contextType`
+        ;; wiring and so cannot resolve the surrounding frame. A `reg-view`
+        ;; can, so the read happens at this boundary and the map is threaded
+        ;; down as plain data (the same shape `views/edn-inspector` uses for
+        ;; its own expansion slot).
+        expanded @(rf/subscribe [:rf.xray/managed-fx-expanded-sections])]
     ;; Thread the reg-view-injected frame-aware dispatch so the panel's
-    ;; context-menu / focus affordances land on the surrounding instance
-    ;; frame, not a `{:frame :rf/xray}` literal.
-    (managed-fx/records-list dispatch records)))
+    ;; context-menu / focus / disclosure affordances land on the surrounding
+    ;; instance frame, not a `{:frame :rf/xray}` literal.
+    ;;
+    ;; `:records` — the composite sub answers
+    ;; `{:dispatch-id … :frame … :records […]}`, and `records-list` takes the
+    ;; RECORDS VECTOR. Handing it the whole map made `(for [rec records] …)`
+    ;; walk map entries, so `(name (:status rec))` got nil and threw before
+    ;; the panel could paint (rf2-90kv).
+    (managed-fx/records-list dispatch expanded (:records focused))))
 
 (defn mount-managed-fx!
   "Mount the managed-fx wire-boundary diff list in isolation at
