@@ -42,7 +42,7 @@
 
   `make-reset-runtime-fixture` binds `re-frame.frame/*current-frame*` to
   `:rf/default` by default, and the Xray wrapper deliberately does not
-  thread the option that turns it off. `ht/tree` runs the body under a
+  thread the option that turns it off. `rf.fresco.test/tree` runs the body under a
   probe frame of its own, and `(rf/capture-frame)` inside a boundary body
   refuses when it finds a CARRIED stamp naming a different frame from the
   extent's — `:rf.error/ambient-frame-refused`, on the reasoning that two
@@ -71,7 +71,7 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
-            [re-frame.fresco.test :as ht]
+            [re-frame.fresco.test :as rf.fresco.test]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.views.resizable-table :as rt]))
@@ -152,14 +152,14 @@
 ;; ---- (2) the body actually runs, and reads the slot it claims to -------
 
 (defn- fresco-tree []
-  (ht/tree [rt/resizable-table-view (opts)]
+  (rf.fresco.test/tree [rt/resizable-table-view (opts)]
            {:subs {widths-query overrides}}))
 
 (defn- style-of [node]
-  (:style (ht/attrs node)))
+  (:style (rf.fresco.test/attrs node)))
 
 (defn- testid-of [node]
-  (:data-testid (ht/attrs node)))
+  (:data-testid (rf.fresco.test/attrs node)))
 
 (deftest fresco-head-runs-and-reads-the-column-widths-slot
   (testing "rf2-fcy5 slice 1b — the boundary body runs on the runtime's own
@@ -169,10 +169,10 @@
             `[:rf.xray.column-widths/for-table <table-id>]`."
     (let [tree (fresco-tree)]
       (is (= :div (:tag tree)) "the container is a div")
-      (is (= "fresco" (:data-rf-xray-resizable-table (ht/attrs tree)))
+      (is (= "fresco" (:data-rf-xray-resizable-table (rf.fresco.test/attrs tree)))
           "…and it is this widget's container")
       (is (= (rt/build-template columns overrides)
-             (:grid-template-columns (style-of (ht/find tree #(= "grid" (:display (style-of %)))))))
+             (:grid-template-columns (style-of (rf.fresco.test/find tree #(= "grid" (:display (style-of %)))))))
           "THE READ ROW — the header's grid template is built from the
            fixture's overrides, so the value the boundary read reached
            `build-template`. Compared against the widget's own pure
@@ -187,7 +187,7 @@
             moved to CSS it is a pure fn the weaver CALLS, so what the
             Fresco tree carries here is N-1 ordinary divs."
     (let [tree    (fresco-tree)
-          gutters (ht/find-all tree #(some-> (testid-of %)
+          gutters (rf.fresco.test/find-all tree #(some-> (testid-of %)
                                              (.startsWith "rf-xray-resizable-gutter-")))]
       (is (= 2 (count gutters)) "N-1 gutters for N columns")
       (is (= ["rf-xray-resizable-gutter-fresco-a"
@@ -208,7 +208,7 @@
             through a real Fresco body run rather than through the codec's
             element door alone."
     (let [tree (fresco-tree)
-          rows (ht/find-all tree #(some-> (testid-of %) (.startsWith "r-")))]
+          rows (rf.fresco.test/find-all tree #(some-> (testid-of %) (.startsWith "r-")))]
       (is (= 2 (count rows)) "one node per row")
       (is (= ["row-0" "row-1"] (mapv :key rows))
           "the consumer's `:row-key`, reaching the substrate"))))
@@ -230,7 +230,7 @@
           reagent-header (nth reagent-tree 2)
           reagent-template (get-in reagent-header [1 :style :grid-template-columns])
           fresco-template (:grid-template-columns
-                            (style-of (ht/find (fresco-tree)
+                            (style-of (rf.fresco.test/find (fresco-tree)
                                                #(= "grid" (:display (style-of %))))))]
       (is (= (rt/build-template columns overrides) reagent-template)
           "the Reagent head read the hydrated slot")
