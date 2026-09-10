@@ -245,8 +245,22 @@
       [:div {:style     (:section styles)
              :data-test "story-test-visual-a11y-section"}
        [:div {:style (:section-h styles)} "Visual & accessibility"]
+       ;; THE KEY RIDES ON A KEYED FRAGMENT, not on reader metadata
+       ;; (rf2-32ib). `^{:key …}` here sat on the `(if …)` CALL FORM, and
+       ;; Clojure metadata on a call form is discarded the moment the form
+       ;; evaluates — the vector the `if` returns carries none of it. So no
+       ;; key reached React on ANY substrate, and neither card supplies one
+       ;; by another route (both root at a `[:div]` whose attrs map has no
+       ;; `:key`). A lost key does not fail: it degrades silently into
+       ;; index-based reconciliation, which paints identically and corrupts
+       ;; card identity only once the row seq changes shape.
+       ;;
+       ;; The fragment carries the key without adding a DOM node, and both
+       ;; renderers honour it — Reagent reads meta then props, Fresco's
+       ;; codec reads props and Clojure metadata nowhere. The key
+       ;; EXPRESSION is unchanged.
        (for [[i {:keys [kind] :as row}] (map-indexed vector rows)]
-         ^{:key (str kind "#" i)}
-         (if (= kind :visual)
-           [visual-card row]
-           [a11y-card row]))])))
+         [:<> {:key (str kind "#" i)}
+          (if (= kind :visual)
+            [visual-card row]
+            [a11y-card row])])])))
