@@ -128,12 +128,16 @@
 ;; make the row vacuous — which is why W5 asserts the head position before
 ;; it removes anything.
 ;;
-;; APP-DB rather than event/sub rows DELIBERATELY. The app-db side is keyed
-;; on `:schema`, which is the canonical registration-metadata key; the
-;; event/sub side of this panel reads `:spec`, which M-54 RETIRED — see the
-;; standing finding in this file's sibling note and on rf2-k97c.3. Building
-;; new evidence on the retired spelling would bake a live defect into a
-;; fixture, and the defect is not this slice's to fix.
+;; APP-DB rather than event/sub rows, and the reason is now only the sort
+;; key above: both kinds sort into one flat vector, and an app-db pair is the
+;; shortest fixture that pins a HEAD row.
+;;
+;; The reason it USED to give is spent. rf2-t8a8 repaired the event/sub side,
+;; which read the M-54-RETIRED `:spec` key and so could never be reached by a
+;; real registration; it reads `:schema` now, and
+;; `panel_cljs_test/live-registrations-surface-through-the-production-read`
+;; drives it from a live `rf/reg-event` / `rf/reg-sub`. Either kind would do
+;; here.
 
 (def ^:private two-rows
   {:schemas-by-frame {:rf/default {[:aaa] {:schema [:map [:a :int]] :doc "head"}
@@ -338,12 +342,12 @@
           ;; real app-db schema changes what the read WOULD compute while
           ;; invalidating nothing it watches.
           ;;
-          ;; The APP-DB registry is the lever rather than the event registrar
-          ;; because the event/sub side of this panel reads the RETIRED
-          ;; `:spec` key (M-54 renamed it to `:schema`, and `reg-event` now
-          ;; hard-errors on `:spec`), so no real event registration can ever
-          ;; surface a row there. That is a standing finding on rf2-k97c.3,
-          ;; not something this row is entitled to work around.
+          ;; The APP-DB registry is the lever because it is per-frame, which
+          ;; is what this liveness row needs; the event registrar is now an
+          ;; equally good lever since rf2-t8a8 repaired the event/sub side to
+          ;; read `:schema` rather than the M-54-retired `:spec`. (Before that
+          ;; repair no real registration could surface an event or sub row at
+          ;; all — the standing finding this comment used to carry.)
           (rf/reg-app-schema [:probe] {:frame app-frame} [:map [:p :int]])
           (is (some? (get (rf.schemas/app-schemas {:frame app-frame}) [:probe]))
               "PRECONDITION: the read's UNDERLYING data now carries the new

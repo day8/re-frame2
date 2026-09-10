@@ -7,7 +7,7 @@
   Schemas sub-tab is a flat catalogue of every registered schema —
   app-db slot schemas (via `re-frame.schemas/reg-app-schema`) plus
   event + sub schemas surfaced through the registrar's `:event` /
-  `:sub` slot metadata `:spec` field.
+  `:sub` slot metadata `:schema` field.
 
       ┌───────────────────────────────────────────────────┐
       │ Schemas — header + descriptive prose              │
@@ -32,9 +32,22 @@
       the per-frame projection consumes — without reaching the private
       `re-frame.schemas.storage/schemas-by-frame` atom.
     - `(rf/registrations {:source :store :kind :event})` — events whose metadata carries a
-      `:spec` slot.
-    - `(rf/registrations {:source :store :kind :sub})` — subs whose metadata carries a `:spec`
+      `:schema` slot.
+    - `(rf/registrations {:source :store :kind :sub})` — subs whose metadata carries a `:schema`
       slot.
+
+  ONE key, no fallback. `:schema` is the canonical registration-metadata
+  slot on every kind (`re-frame.reg-meta/base-bare-keys`); its v1 spelling
+  `:spec` was RETIRED by MIGRATION §M-54. A `reg-*` carrying `:spec` does
+  not merely fail to surface here — it HARD-ERRORS at registration
+  (`:rf.error/retired-registration-key`), deliberately, because swallowing
+  it would disable that registration's payload validation. So no live
+  registrar can put a `:spec` slot in front of this projection, and reading
+  one as a fallback would be a branch production cannot reach. That dead
+  branch is exactly what let this panel read `:spec` ALONE — and show zero
+  event rows and zero sub rows against every real host app — without a red
+  test, because the only rows exercising it fed synthetic metadata through
+  the override seam (rf2-t8a8).
 
   ## Jump-to-source
 
@@ -86,8 +99,8 @@
   A nil `frame-id` (no frame resolved yet) returns the snapshot
   verbatim. Pure data — JVM-runnable.
 
-  NOTE: only the app-db-schema rows are frame-scoped. Event-spec and
-  sub-spec rows come from the process-global registrar (Spec 001 —
+  NOTE: only the app-db-schema rows are frame-scoped. Event-schema and
+  sub-schema rows come from the process-global registrar (Spec 001 —
   the registrar is per-process; frames isolate state, not
   registrations), so they are unconditionally cross-frame and carry
   `:frame nil`."
@@ -114,26 +127,29 @@
        vec))
 
 (defn- meta-row
-  "Project one registrar `:event` / `:sub` entry to a row when it
-  carries a `:spec` slot."
+  "Project one registrar `:event` / `:sub` entry to a row when it carries
+  a `:schema` slot — the canonical registration-metadata key a live
+  `rf/reg-event` / `rf/reg-sub` actually stores. The ns docstring's
+  \"ONE key, no fallback\" note says why the retired `:spec` spelling is
+  not read as a fallback (rf2-t8a8)."
   [kind id meta]
-  (when-some [spec (:spec meta)]
+  (when-some [schema (:schema meta)]
     {:kind         kind
      :id           id
      :frame        nil
-     :schema       spec
+     :schema       schema
      :doc          (:doc meta)
      :source-coord (select-keys meta [:file :line :ns])}))
 
 (defn project-registrar-rows
   "Walk one kind's `{id meta}` map and return rows for every entry
-  whose `:spec` slot is non-nil."
+  whose `:schema` slot is non-nil."
   [kind registrations-map]
   (vec (keep (fn [[id meta]] (meta-row kind id meta)) registrations-map)))
 
 (defn project-rows
-  "Combine app-db schema rows + event-spec rows + sub-spec rows into a
-  single flat vector sorted by `(kind, id)`."
+  "Combine app-db schema rows + event-schema rows + sub-schema rows into
+  a single flat vector sorted by `(kind, id)`."
   [schemas-by-frame events-map subs-map]
   (let [rows (concat (project-app-schema-rows schemas-by-frame)
                      (project-registrar-rows :event events-map)
@@ -157,7 +173,7 @@
 (defn project-data
   "View-facing composite. `frame-id` scopes the per-frame app-db
   schemas to the picker's observed frame (nil = every frame; see
-  `scope-app-schemas-to-frame`); event-spec + sub-spec rows are
+  `scope-app-schemas-to-frame`); event-schema + sub-schema rows are
   process-global and always included."
   [schemas-by-frame events-map subs-map frame-id query]
   (let [scoped   (scope-app-schemas-to-frame schemas-by-frame frame-id)
@@ -455,8 +471,8 @@
 
 (defn- registry-value
   "The three input registries assembled from public surfaces: app-db
-  schemas via the `re-frame.schemas` façade, event / sub specs via the HOST
-  app's `:event` / `:sub` registrar.
+  schemas via the `re-frame.schemas` façade, event / sub `:schema` metadata
+  via the HOST app's `:event` / `:sub` registrar.
 
   The event / sub reads go through `rf/registrations` with `{:source :store …}`
   (the SOURCE-STORE read, which never consults a bound image generation),
@@ -521,7 +537,8 @@
   ;; Assembles the three input registries from public surfaces once per
   ;; re-fire: app-db schemas via the `re-frame.schemas` façade
   ;; (`rf/frame-ids` + one `rf.schemas/app-schemas {:frame f}` read per
-  ;; frame) and event / sub specs via `(rf/registrations {:source :store :kind <kind>})`.
+  ;; frame) and event / sub `:schema` metadata via
+  ;; `(rf/registrations {:source :store :kind <kind>})`.
   ;; Declares the trace buffer in its `:inputs` so the sub is reactive
   ;; against the same "something changed" pulse the other Static-mode
   ;; subs ride.
@@ -536,7 +553,7 @@
   ;; selection. App-db schemas are per-frame (the `schemas-by-frame`
   ;; side-table is keyed by frame-id), so the picker scopes the app-db
   ;; rows — switching frames changes which frame's app-db schemas
-  ;; list. Event + sub specs are process-global (Spec 001) and stay
+  ;; list. Event + sub schemas are process-global (Spec 001) and stay
   ;; cross-frame regardless of the picker.
   (rf/reg-sub :rf.xray.static.schemas/tab-data
     {:inputs [[:rf.xray.static.schemas/registry]
