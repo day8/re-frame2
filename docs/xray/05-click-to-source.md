@@ -50,13 +50,13 @@ There are two ways to configure the editor:
 - **Xray Settings (per-dev).** The General tab's "Click-to-source links open in" picker. The choice persists per-developer in `localStorage`, so each teammate picks their own editor on their own machine — and the Open-Settings button on the hint toast lands you right here.
 - **`configure!` at boot (project default).** Set it once in your app's boot code:
 
-  ```clojure
-  (require '[day8.re-frame2-xray.config :as xray-config])
-  (xray-config/configure! {:rf.xray/editor :cursor})
-  ;; :vscode (default) | :cursor | :windsurf | :zed | :idea | {:custom "<uri-template>"}
-  ```
+    ```clojure
+    (require '[day8.re-frame2-xray.config :as xray-config])
+    (xray-config/configure! {:rf.xray/editor :cursor})
+    ;; :vscode (default) | :cursor | :windsurf | :zed | :idea | {:custom "<uri-template>"}
+    ```
 
-  The `{:custom "<uri-template>"}` form supports a team's own editor bridge via `{path}` / `{file}` / `{line}` / `{column}` placeholders.
+    The `{:custom "<uri-template>"}` form supports a team's own editor bridge via `{path}` / `{file}` / `{line}` / `{column}` placeholders.
 
 The two compose: **the Settings picker overrides the boot-time `configure!` value, per machine.** So a mixed-editor team sets a sensible project default in code and individuals override locally without touching the host's boot config — the override is purely client-side and never mutates the shared default.
 

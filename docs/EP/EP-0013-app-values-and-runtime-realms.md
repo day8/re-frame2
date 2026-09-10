@@ -118,31 +118,31 @@ implementation and the `/spec` correction (#4272).
 ### Erratum — module/app fact keys are owner-qualified (`:rf.module/*` / `:rf.app/*`)
 
 - **The module form's `:owns` / `:requires` keys are owner-qualified to
-  `:rf.module/owns` / `:rf.module/requires`; the app value's union key is
-  `:rf.app/requires` (2026-06-14).** The exploratory examples in
-  this EP below (§The Shape At A Glance, §App Values, §Module Values And Feature
-  Ownership, and the worked snippets) spell the module ownership and capability
-  facts with the BARE keys `:owns` / `:requires` and the app union as `:requires`.
-  Those spellings are **superseded.** Per [EP-0007 one-name-per-fact](EP-0007-one-name-per-fact.md)
-  and the [EP-0017](EP-0017-recordable-coeffects.md) v5 ruling (Mike, 2026-06-12)
-  — *structural/section keys stay bare; FACT keys get owner-qualified* — these
-  are facts ABOUT the module/app, so the **KEYS** are owner-qualified (the values
-  were already `:rf.capability/*`-qualified):
+    `:rf.module/owns` / `:rf.module/requires`; the app value's union key is
+    `:rf.app/requires` (2026-06-14).** The exploratory examples in
+    this EP below (§The Shape At A Glance, §App Values, §Module Values And Feature
+    Ownership, and the worked snippets) spell the module ownership and capability
+    facts with the BARE keys `:owns` / `:requires` and the app union as `:requires`.
+    Those spellings are **superseded.** Per [EP-0007 one-name-per-fact](EP-0007-one-name-per-fact.md)
+    and the [EP-0017](EP-0017-recordable-coeffects.md) v5 ruling (Mike, 2026-06-12)
+    — *structural/section keys stay bare; FACT keys get owner-qualified* — these
+    are facts ABOUT the module/app, so the **KEYS** are owner-qualified (the values
+    were already `:rf.capability/*`-qualified):
     - module ownership declaration: `:owns` → **`:rf.module/owns`**;
     - module capability requirement: `:requires` → **`:rf.module/requires`**
       (parallel to `:rf.cofx/requires` over coeffects — naming the contract);
     - app-value union capability set: `:requires` → **`:rf.app/requires`**
       (parallel to `:rf.app/id`).
 
-  The structural section keys (`:id`, `:events`, `:subs`, `:routes`, `:source`,
-  `:modules`, `:registrations`) stay **bare**. The shipped constructor
-  (`re-frame.app-value/module` / `app`) and the normative spec
-  ([API §App values and composition](../../spec/API.md#app-values-and-composition-ep-0013),
-  [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned)
-  — the `:rf.module/*` + `:rf.app/*` rows) carry the qualified spelling; **where
-  this EP's illustrative snippets and the spec differ, the spec governs.** The
-  EP text is retained for design rationale; read the bare keys in the snippets
-  below as the qualified spelling above.
+    The structural section keys (`:id`, `:events`, `:subs`, `:routes`, `:source`,
+    `:modules`, `:registrations`) stay **bare**. The shipped constructor
+    (`re-frame.app-value/module` / `app`) and the normative spec
+    ([API §App values and composition](../../spec/API.md#app-values-and-composition-ep-0013),
+    [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned)
+    — the `:rf.module/*` + `:rf.app/*` rows) carry the qualified spelling; **where
+    this EP's illustrative snippets and the spec differ, the spec governs.** The
+    EP text is retained for design rationale; read the bare keys in the snippets
+    below as the qualified spelling above.
 
 ### Shipped — realm-aware live-dispatch routing
 

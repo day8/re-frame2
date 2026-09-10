@@ -265,28 +265,28 @@ up with `:output-key`. The parent folds that value in `:on-done`:
 ```
 
 - **`:on-done` is a data-fold**, not a transition:
-  `(fn [{:keys [data result]}] new-data)`. The fold itself does not move the
-  parent — but the completion **event** then flows into the parent's ordinary
-  macrostep, so the parent *can* advance on it. Fold the result in `:on-done`
-  and let an `:always` guard read it:
+    `(fn [{:keys [data result]}] new-data)`. The fold itself does not move the
+    parent — but the completion **event** then flows into the parent's ordinary
+    macrostep, so the parent *can* advance on it. Fold the result in `:on-done`
+    and let an `:always` guard read it:
 
-  ```clojure
-  :configuring
-  {:spawn  {:machine-id :app/loader
-            :on-done    (fn [{:keys [data result]}] (assoc data :config result))}
-   :always [{:guard :config-loaded? :target :loading-deps}]}
-  ```
+    ```clojure
+    :configuring
+    {:spawn  {:machine-id :app/loader
+              :on-done    (fn [{:keys [data result]}] (assoc data :config result))}
+     :always [{:guard :config-loaded? :target :loading-deps}]}
+    ```
 
-  An explicit `:on {:rf.machine.spawn/done {:target :loading-deps}}` works too.
-  This is what a child would once have needed a hand-rolled dispatch back to
-  its parent for. `:on-done` is applied on the parent's **next** macrostep, not
-  inside the child's teardown cascade.
+    An explicit `:on {:rf.machine.spawn/done {:target :loading-deps}}` works too.
+    This is what a child would once have needed a hand-rolled dispatch back to
+    its parent for. `:on-done` is applied on the parent's **next** macrostep, not
+    inside the child's teardown cascade.
 - **`:on-error` is a transition.** A child that fails — a `:final?` leaf
-  flagged `:error? true`, or a thrown action — routes the parent through that
-  `:on`-shaped spec.
+    flagged `:error? true`, or a thrown action — routes the parent through that
+    `:on`-shaped spec.
 - Entering a root-level `:final?` destroys the child after the parent is
-  notified. A nested `:final?` only tells the compound "this sub-flow is
-  done"; see [Hierarchical states](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states).
+    notified. A nested `:final?` only tells the compound "this sub-flow is
+    done"; see [Hierarchical states](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states).
 
 ## Imperative spawn and destroy
 

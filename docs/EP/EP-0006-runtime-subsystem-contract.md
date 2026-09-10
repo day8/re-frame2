@@ -217,35 +217,35 @@ table shows the shape is empirical, not speculative.
 ## Open Issues
 
 1. Should the work-ledger's future multi-writer authority (timers, streams,
-   actors as later writers) be a single ledger-owned minting point or
-   per-writer grants? Recommendation: ledger-owned — writers go through the
-   ledger's API, which holds the authority; revisit if a writer needs direct
-   row access.
+    actors as later writers) be a single ledger-owned minting point or
+    per-writer grants? Recommendation: ledger-owned — writers go through the
+    ledger's API, which holds the authority; revisit if a writer needs direct
+    row access.
 
-   **Resolved as deferred (2026-06-10), with a divergence to record
-   honestly.** This is a deferred *implementation* question, not a live decision
-   blocking the contract: the shipped Resources artefact writers stamp
-   framework authority, so the unresolved question is the first writer outside
-   that artefact (timers, streams, route loaders, spawned actors, or machine
-   async work). At that point the general work-ledger EP settles it. The pointer
-   is [`spec/016-Resources.md` §Work-ledger multi-writer
-   authority](../../spec/016-Resources.md#work-ledger-multi-writer-authority--still-blocking-for-the-multi-writer-slice-post-v1-tracked-for-v1),
-   which classifies it `:still-blocking` for the multi-writer slice and
-   `:post-v1 tracked` for v1.
+    **Resolved as deferred (2026-06-10), with a divergence to record
+    honestly.** This is a deferred *implementation* question, not a live decision
+    blocking the contract: the shipped Resources artefact writers stamp
+    framework authority, so the unresolved question is the first writer outside
+    that artefact (timers, streams, route loaders, spawned actors, or machine
+    async work). At that point the general work-ledger EP settles it. The pointer
+    is [`spec/016-Resources.md` §Work-ledger multi-writer
+    authority](../../spec/016-Resources.md#work-ledger-multi-writer-authority--still-blocking-for-the-multi-writer-slice-post-v1-tracked-for-v1),
+    which classifies it `:still-blocking` for the multi-writer slice and
+    `:post-v1 tracked` for v1.
 
-   **The shipped spec diverges from this EP's recommendation, and the spec
-   governs.** This EP recommended *ledger-owned* minting (writers go through the
-   ledger's API, which holds the authority). The shipped `spec/016-Resources.md`
-   instead leans **per-writer** minting: the linked section states each
-   additional writer "MUST be settled per writer at that point — machines imply
-   authority via `:rf/machine? true`; non-machine writers will each need to
-   stamp `:rf/framework-authority? true` at their own registration sites or
-   write through the privileged helpers." That is the per-writer-grants
-   alternative, not the ledger-owned recommendation. The recommendation did
-   **not** win; it stands as one input the future work-ledger EP will weigh
-   against the per-writer default the resources spec currently encodes. Where
-   this EP and the spec differ, the spec governs (per
-   [EP-0009](EP-0009-the-ep-process.md) and the README index note).
+    **The shipped spec diverges from this EP's recommendation, and the spec
+    governs.** This EP recommended *ledger-owned* minting (writers go through the
+    ledger's API, which holds the authority). The shipped `spec/016-Resources.md`
+    instead leans **per-writer** minting: the linked section states each
+    additional writer "MUST be settled per writer at that point — machines imply
+    authority via `:rf/machine? true`; non-machine writers will each need to
+    stamp `:rf/framework-authority? true` at their own registration sites or
+    write through the privileged helpers." That is the per-writer-grants
+    alternative, not the ledger-owned recommendation. The recommendation did
+    **not** win; it stands as one input the future work-ledger EP will weigh
+    against the per-writer default the resources spec currently encodes. Where
+    this EP and the spec differ, the spec governs (per
+    [EP-0009](EP-0009-the-ep-process.md) and the README index note).
 
 ## Recommendation
 

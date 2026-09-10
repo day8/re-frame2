@@ -276,14 +276,14 @@ error by the ABI guard.
   `spec/006-ReactiveSubstrate.md`; this EP's text above states it as
   corrected. The other five invariants were never in question.
 - **Original drain-quiescence wording preserved (2026-07-19, rf2-r7ahi).** The
-  host-checkpoint correction reached five settled passages, not invariant 6
-  alone: PR #6393 reworded the Goals bullet, §One ViewCell, and §Push economics
-  in place from the original drain-quiescence phrasing, and the same drain →
-  host-checkpoint change carries through the Abstract summary and invariant 6.
-  Those rewrites read as current truth above, but the freeze-meaning ruling
-  (rf2-r7ahi) requires the settled originals to stay visible, so all five are
-  preserved here — `spec/006-ReactiveSubstrate.md` (host-checkpoint render
-  batching) remains the current normative truth:
+    host-checkpoint correction reached five settled passages, not invariant 6
+    alone: PR #6393 reworded the Goals bullet, §One ViewCell, and §Push economics
+    in place from the original drain-quiescence phrasing, and the same drain →
+    host-checkpoint change carries through the Abstract summary and invariant 6.
+    Those rewrites read as current truth above, but the freeze-meaning ruling
+    (rf2-r7ahi) requires the settled originals to stay visible, so all five are
+    preserved here — `spec/006-ReactiveSubstrate.md` (host-checkpoint render
+    batching) remains the current normative truth:
     - **§Abstract** originally read "Notification is **push**: *one constant-work
       mark per dirty cell per run-to-completion drain*, committed after the pull
       alternative was falsified by benchmark (4.0×–6.5× worse, gap growing with
@@ -300,23 +300,23 @@ error by the ABI guard.
       drain*, on a true microtask (never a macrotask that could let a torn frame
       paint)".
 
-  The correction is factual — the shipped scheduler batches at the host
-  checkpoint, never at drain quiescence — but per the ruling it is recorded, not
-  applied by silently rewriting the settled prose.
+    The correction is factual — the shipped scheduler batches at the host
+    checkpoint, never at drain quiescence — but per the ruling it is recorded, not
+    applied by silently rewriting the settled prose.
 - **One effect-dependency equality doctrine: `rf=` across native and interop
-  tiers (2026-07-21, rf2-u53yy.6).** The native `ui/effect` compared deps by
-  `rf=` (value equality) while the `re-frame.ui.react` interop wrappers
-  (`use-effect` / `use-layout-effect`) compared per authored slot by `Object.is`
-  — two equality doctrines one keystroke apart, plus a spec/implementation
-  drift. Ruled (Mike, 2026-07-20): converge on `rf=` **everywhere**, native and
-  interop. The interop tier now derives its effect token from the shared `rf=`
-  comparator (`re-frame.ui.hooks/deps-token`), so a distinct-but-value-equal
-  CLJS deps value no longer re-runs an effect in either tier — value semantics,
-  stated plainly. The superseded per-slot `Object.is` interop behaviour (the
-  ".95.12 correction") is retired; `spec/004-Views.md`'s react-tier deps law is
-  the normative statement. Should a future foreign integration demonstrably
-  require identity semantics, that is a new per-wrapper decision made and
-  documented then — never a silent split.
+    tiers (2026-07-21, rf2-u53yy.6).** The native `ui/effect` compared deps by
+    `rf=` (value equality) while the `re-frame.ui.react` interop wrappers
+    (`use-effect` / `use-layout-effect`) compared per authored slot by `Object.is`
+    — two equality doctrines one keystroke apart, plus a spec/implementation
+    drift. Ruled (Mike, 2026-07-20): converge on `rf=` **everywhere**, native and
+    interop. The interop tier now derives its effect token from the shared `rf=`
+    comparator (`re-frame.ui.hooks/deps-token`), so a distinct-but-value-equal
+    CLJS deps value no longer re-runs an effect in either tier — value semantics,
+    stated plainly. The superseded per-slot `Object.is` interop behaviour (the
+    ".95.12 correction") is retired; `spec/004-Views.md`'s react-tier deps law is
+    the normative statement. Should a future foreign integration demonstrably
+    require identity semantics, that is a new per-wrapper decision made and
+    documented then — never a silent split.
 
 ## Open Issues
 

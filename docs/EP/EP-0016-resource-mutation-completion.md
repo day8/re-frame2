@@ -1303,34 +1303,34 @@ as the record of what was ruled; dispositions and riders are inline.
    eliminates the spelling-ambiguity class at the API boundary.
 
 5. How should route-derived tenant scope be represented?
-   **Recommendation:** do not add a second mechanism in this EP. Either mirror
-   route match into frame state or reserve a named resolver input source for a
-   later routing EP.
-   **Disposition: as recommended, with the reservation named precisely:** the
-   route match is already mirrored into the fold — `[:rf.runtime/routing
-   :current]` is durable runtime-db — so the reserved input source is
-   **`[:runtime path]`** (already in EP-0014's input vocabulary); no new
-   mirroring, no anonymous route functions. Deferred until a consumer; the
-   named un-defer consumer is the tenant-switcher testbed.
-   Selection rule: viewer identity that is app state → `[:db …]`; a pure
-   route fact → the reserved `[:runtime …]`.
+    **Recommendation:** do not add a second mechanism in this EP. Either mirror
+    route match into frame state or reserve a named resolver input source for a
+    later routing EP.
+    **Disposition: as recommended, with the reservation named precisely:** the
+    route match is already mirrored into the fold — `[:rf.runtime/routing
+    :current]` is durable runtime-db — so the reserved input source is
+    **`[:runtime path]`** (already in EP-0014's input vocabulary); no new
+    mirroring, no anonymous route functions. Deferred until a consumer; the
+    named un-defer consumer is the tenant-switcher testbed.
+    Selection rule: viewer identity that is app state → `[:db …]`; a pure
+    route fact → the reserved `[:runtime …]`.
 
-   **Addendum (rf2-htbx7i, 2026-07-07 — trigger re-recorded, disposition
-   unchanged):** the named consumer arrived — `testbeds/tenant_switcher` — and
-   demonstrated the OPPOSITE of the trigger above: it models an admin
-   impersonating tenants, so the active tenant is viewer **app state** at
-   `[:viewer :active-tenant]`, correctly resolved `{:from-db :tenant/scope}`
-   over `[:db …]` per the selection rule stated one paragraph up. Nothing
-   in-repo carries a principal in a route path segment, so `[:runtime path]`
-   stays reserved and fail-closed. The un-defer trigger is re-recorded here
-   (not rewritten above, since the original recommendation and selection rule
-   stand): it fires when an in-repo consumer carries a principal in a **path
-   segment** (e.g. `/:tenant-id/...`) and needs **named-resolver** scope at a
-   **non-route** site (a subscription, an event-side ensure, an invalidation
-   descriptor, or `clear-scope`) — route-entry-only demand for a route fact is
-   already served by the `(fn [route ctx] …)` resolver tier (Spec 016 §Route
-   integration), so that narrower case does not un-defer this source. See
-   Spec 016 §Route-derived scope is reserved.
+    **Addendum (rf2-htbx7i, 2026-07-07 — trigger re-recorded, disposition
+    unchanged):** the named consumer arrived — `testbeds/tenant_switcher` — and
+    demonstrated the OPPOSITE of the trigger above: it models an admin
+    impersonating tenants, so the active tenant is viewer **app state** at
+    `[:viewer :active-tenant]`, correctly resolved `{:from-db :tenant/scope}`
+    over `[:db …]` per the selection rule stated one paragraph up. Nothing
+    in-repo carries a principal in a route path segment, so `[:runtime path]`
+    stays reserved and fail-closed. The un-defer trigger is re-recorded here
+    (not rewritten above, since the original recommendation and selection rule
+    stand): it fires when an in-repo consumer carries a principal in a **path
+    segment** (e.g. `/:tenant-id/...`) and needs **named-resolver** scope at a
+    **non-route** site (a subscription, an event-side ensure, an invalidation
+    descriptor, or `clear-scope`) — route-entry-only demand for a route fact is
+    already served by the `(fn [route ctx] …)` resolver tier (Spec 016 §Route
+    integration), so that narrower case does not un-defer this source. See
+    Spec 016 §Route-derived scope is reserved.
 
 6. Should `:reply-to` fire for accepted error replies?
    **Recommendation:** yes. A workflow may need to fold validation errors,
