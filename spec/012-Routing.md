@@ -1097,12 +1097,12 @@ When a route is loading and the user navigates away before the load completes, t
 
 2. **Capture.** An `:on-match`-reached handler declares the framework-supplied `:rf.route/nav-token` cofx via `{:rf.cofx/requires [:rf.route/nav-token]}`; the value-returning supplier delivers the current token (read from `[:rf.runtime/routing :current :nav-token]`) flat under `:rf.route/nav-token` in the handler's coeffects, so the handler captures the epoch live at scheduling time. A loader SHOULD also declare the companion `:rf.route/route-id` cofx (the live route id, read from `[:rf.runtime/routing :current :route-id]`) so it captures **both** facts the route-loader [work id](Managed-Effects.md#work-id-correlation) `[:rf.work/route route-id nav-token loader-id]` needs together — the documented path then cannot thread a nil route id into the work-id tuple (the route id is a *carried* fact of the attempt, captured at scheduling time, never read from the live slice at stale-arrival where a cross-route completion's slice id would be the superseding route's):
 
-   ```clojure
-   (rf/reg-event :cart/load-items
-     {:rf.cofx/requires [:rf.route/nav-token :rf.route/route-id]}    ;; <-- declare BOTH cofx
-     (fn [{:keys [db] :rf.route/keys [nav-token route-id]} _]        ;; <-- "nav-42" + :route/cart, live at scheduling time
-       ...))
-   ```
+    ```clojure
+    (rf/reg-event :cart/load-items
+      {:rf.cofx/requires [:rf.route/nav-token :rf.route/route-id]}    ;; <-- declare BOTH cofx
+      (fn [{:keys [db] :rf.route/keys [nav-token route-id]} _]        ;; <-- "nav-42" + :route/cart, live at scheduling time
+        ...))
+    ```
 
 3. **Threading.** Async completions either (a) carry the captured facts in their follow-up event payload, or (b) use the framework-supplied `:rf.route/with-nav-token` fx wrapper, which names the continuation by the canonical `:rf/reply-to` reply target (the [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) lowering — on match the route loader's `:status :ok` reply map is appended to the target via the shared `re-frame.reply/complete`; on mismatch the completion is suppressed and the app target is never dispatched — a stale completion never app-delivers) and threads the captured token + route id for the gate and the work-id:
 
