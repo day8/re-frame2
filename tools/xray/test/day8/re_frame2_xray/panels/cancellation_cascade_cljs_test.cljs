@@ -31,6 +31,9 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
+            ;; rf2-vw80 — the key assertions read the element the codec
+            ;; BUILDS, so the codec itself is the instrument.
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cc]))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -456,19 +459,34 @@
             "Enter on the dialog dispatched nothing")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ppzid — React unique-key warning regression guard.
+;; rf2-vw80 — the row keys must reach REACT, not merely the hiccup's metadata.
 ;;
-;; The cascade `body` previously attached `^{:key …}` reader meta to two
-;; function-call list forms — `(teardown-row t)` and `(abort-row row last?)`.
-;; Reagent's `get-react-key` only reads `:key` from vector meta, so the
-;; keys were silently lost. The fix routes both per-row children through
-;; `with-meta` so the `:key` meta lands on the returned `[:div …]` vector.
-;; This test asserts every teardown-row + abort-row child carries `:key`
-;; meta so the regression cannot recur silently. (rf2-ppzid)
+;; This REPLACES `cascade-body-rows-carry-key-meta`, which asserted that each
+;; row vector carried `:key` in its Clojure METADATA. That assertion was green
+;; against code whose keys reached React as no key at all, so it proved the
+;; thing the code did rather than the thing the code is for. It was not
+;; patched: a mended hollow control is a second thing that looks like a
+;; control and is not, and the next reader trusts it harder for having a
+;; history of being fixed.
 ;;
-;; Note: the `expand-fn-component` walker above strips element meta
-;; (via `mapv`), so this assertion re-walks the raw rendered tree
-;; without fn expansion to keep keyed vectors intact.
+;; The hollowness has a mechanism worth keeping. Reagent honours `:key` meta
+;; first and the props map second (`react-key-from-meta-or-props`), so
+;; `with-meta` worked for as long as the cascade rendered through the
+;; substrate adapter. The Fresco codec reads `:key` off the ATTRIBUTE MAP and
+;; reads Clojure metadata NOWHERE, so once these views became `defview`
+;; boundaries both row families reached React unkeyed — silently, with the
+;; metadata still sitting on the vector and the old assertion still green.
+;;
+;; So the rows below assert the EMITTED key: each row vector goes through the
+;; real codec and the element's own `.-key` is read. `:key` in the attribute
+;; map satisfies BOTH heads, which is why the fix moves the same key
+;; expressions rather than renaming or recomputing them.
+;;
+;; Note: `expand-fn-component` above strips element meta (via `mapv`), so
+;; these rows re-walk the raw rendered tree without fn expansion. That is now
+;; belt-and-braces rather than load-bearing — the key rides in the attribute
+;; map, which no walker here disturbs — but the raw walk is also the only one
+;; that leaves each container's child SEQ intact at index 2.
 ;; ---------------------------------------------------------------------------
 
 (defn- meta-preserving-children [node]
@@ -494,32 +512,74 @@
             node))
         (tree-seq (some-fn vector? seq?) meta-preserving-children tree)))
 
-(deftest cascade-body-rows-carry-key-meta
-  (testing "teardown-row + abort-row children of the cascade body
-            carry :key meta so React's unique-key prop warning cannot
-            recur (rf2-ppzid)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-trace! cancel-cascade-buffer)
-      (rf/dispatch-sync [:rf.xray/cancellation-cascade-open
-                         {:kind :dispatch-id :id 7}])
-      (let [tree         (popover-tree)
-            teardowns    (raw-find-by-testid tree "rf-xray-cancellation-cascade-teardowns")
-            aborts       (raw-find-by-testid tree "rf-xray-cancellation-cascade-aborts")
-            keyed-children (fn [container]
-                             ;; Container shape is `[:div attrs <doall-seq>]`
-                             ;; — the seq lives at index 2.
-                             (->> (nth container 2)
-                                  (filter vector?)))]
-        (is (some? aborts) "aborts container rendered for the fixture")
-        (when teardowns
-          (doseq [row (keyed-children teardowns)]
-            (is (vector? row) "teardown row is a hiccup vector")
-            (is (some? (some-> (meta row) :key))
-                (str "teardown row carries :key meta — got " (pr-str (meta row))))))
-        (let [abort-rows (keyed-children aborts)]
-          (is (= 2 (count abort-rows)) "two abort rows from the fixture")
-          (doseq [row abort-rows]
-            (is (vector? row) "abort row is a hiccup vector")
-            (is (some? (some-> (meta row) :key))
-                (str "abort row carries :key meta — got " (pr-str (meta row))))))))))
+(defn- emitted-key
+  "The key REACT sees for one row. `as-element` is the codec's own
+  hiccup→element door, so this reads what a Fresco boundary commits rather
+  than what the hiccup happens to be carrying."
+  [row]
+  (.-key (rf.fresco.impl.codec/as-element row)))
+
+(defn- emitted-row-keys
+  "Emitted React keys for every row vector inside `container`.
+  Container shape is `[:div attrs <doall-seq>]` — the seq lives at index 2."
+  [container]
+  (->> (nth container 2)
+       (filter vector?)
+       (mapv emitted-key)))
+
+(defn- cascade-row-containers
+  "Render the popover over `buffer` and hand back the two row containers."
+  [buffer]
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (seed-trace! buffer)
+    (rf/dispatch-sync [:rf.xray/cancellation-cascade-open
+                       {:kind :dispatch-id :id 7}])
+    (let [tree (popover-tree)]
+      {:teardowns (raw-find-by-testid tree "rf-xray-cancellation-cascade-teardowns")
+       :aborts    (raw-find-by-testid tree "rf-xray-cancellation-cascade-aborts")})))
+
+(deftest cascade-body-rows-emit-react-keys
+  (testing "rf2-vw80 — every teardown and abort row reaches React WITH its
+            key, read off the element the Fresco codec actually builds"
+    (let [{:keys [teardowns aborts]} (cascade-row-containers cancel-cascade-buffer)]
+      (is (some? teardowns) "teardown container rendered for the fixture")
+      (is (some? aborts) "abort container rendered for the fixture")
+      (let [t-keys (emitted-row-keys teardowns)
+            a-keys (emitted-row-keys aborts)]
+        ;; Counts first: a container whose rows had gone would make every
+        ;; key assertion below vacuously true. The old test's teardown half
+        ;; was guarded by a bare `when` and would have skipped in silence.
+        (is (= 1 (count t-keys)) "one teardown row from the fixture")
+        (is (= 2 (count a-keys)) "two abort rows from the fixture")
+        ;; The defect: under the Fresco codec every one of these was nil.
+        (is (every? some? t-keys)
+            (str "every teardown row carries an emitted React key — got "
+                 (pr-str t-keys)))
+        (is (every? some? a-keys)
+            (str "every abort row carries an emitted React key — got "
+                 (pr-str a-keys)))
+        ;; The existing naming ruling, pinned against the fixture's own
+        ;; trace-event ids rather than re-derived from the view's expression
+        ;; (which would assert only that the code equals itself).
+        (is (= ["teardown-2"] t-keys)
+            "teardown key is the stable trace-id-derived name")
+        (is (= ["abort-3" "abort-4"] a-keys)
+            "abort keys are the stable trace-id-derived names")
+        (is (= (count a-keys) (count (set a-keys)))
+            "abort keys are distinct, so React can tell the rows apart")))))
+
+(deftest cascade-row-keys-survive-removing-an-earlier-row
+  (testing "rf2-vw80 — a key earns its keep by preserving identity across a
+            list edit. Dropping the FIRST abort must leave the second one's
+            key untouched; an index-derived key would renumber it and React
+            would reuse the wrong DOM node for it."
+    (let [full      (emitted-row-keys
+                      (:aborts (cascade-row-containers cancel-cascade-buffer)))
+          truncated (emitted-row-keys
+                      (:aborts (cascade-row-containers
+                                 (vec (remove #(= 3 (:id %)) cancel-cascade-buffer)))))]
+      (is (= ["abort-3" "abort-4"] full)
+          "both aborts keyed before the edit")
+      (is (= ["abort-4"] truncated)
+          "the surviving row keeps the key it had rather than being renumbered"))))

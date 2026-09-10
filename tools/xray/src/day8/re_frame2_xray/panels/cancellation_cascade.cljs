@@ -302,10 +302,13 @@
 ;; ---- teardown row --------------------------------------------------------
 
 (defn- teardown-row
-  [{:keys [child-id t inflight-count reason dispatch-id trace-id]}]
+  "`row-key` is React's key for this row, in the ATTRIBUTE MAP rather than
+  on the returned vector's metadata — see [[body]] (rf2-vw80)."
+  [{:keys [child-id t inflight-count reason dispatch-id trace-id]} row-key]
   (let [frame      (rf/current-frame-id)
         clickable? (boolean dispatch-id)]
-    [:div {:data-testid (str "rf-xray-cancellation-cascade-teardown-row-"
+    [:div {:key         row-key
+           :data-testid (str "rf-xray-cancellation-cascade-teardown-row-"
                              (str child-id))
            :on-click    (when clickable?
                           (fn [_]
@@ -337,13 +340,16 @@
 ;; ---- abort row -----------------------------------------------------------
 
 (defn- abort-row
+  "`row-key` is React's key for this row, in the ATTRIBUTE MAP rather than
+  on the returned vector's metadata — see [[body]] (rf2-vw80)."
   [{:keys [fx t cancel-cause url correlation-id
            dispatch-id trace-id]
     :as row}
-   last?]
+   last? row-key]
   (let [frame      (rf/current-frame-id)
         clickable? (boolean dispatch-id)]
-    [:div {:data-testid (str "rf-xray-cancellation-cascade-abort-row-"
+    [:div {:key         row-key
+           :data-testid (str "rf-xray-cancellation-cascade-abort-row-"
                              (str (or trace-id correlation-id)))
            :data-cancel-cause (str cancel-cause)
            :data-fx           (name (or fx :unknown))
@@ -465,28 +471,32 @@
        (parent-decision-row parent-decision))
      (when (seq child-teardowns)
        [:div {:data-testid "rf-xray-cancellation-cascade-teardowns"}
-        ;; `^{:key …}` reader meta on the `(teardown-row t)` /
-        ;; `(abort-row …)` call below would be attached to the source
-        ;; list and lost when the call returns its fresh vector —
-        ;; Reagent's `get-react-key` only reads `:key` meta from
-        ;; vectors (see reagent2.impl.template). `teardown-row` and
-        ;; `abort-row` always return a `[:div …]` vector, so apply
-        ;; the key directly via `with-meta`. (rf2-ppzid)
+        ;; THE KEY GOES IN THE ROW'S ATTRIBUTE MAP, which is the only
+        ;; place the Fresco codec looks: it reads `:key` off the attrs
+        ;; and reads Clojure metadata NOWHERE, so the `with-meta` this
+        ;; replaces reached React as no key at all once these views
+        ;; became `defview` boundaries — silently, with the metadata
+        ;; still on the vector. Reagent honours meta first and the attr
+        ;; map second (`react-key-from-meta-or-props` in
+        ;; reagent2.impl.template), so one attribute satisfies both
+        ;; heads. The key EXPRESSIONS are unchanged; only where they are
+        ;; attached moved. (rf2-vw80; the `^{:key …}`-on-a-call-form
+        ;; version this supersedes was rf2-ppzid.)
         (doall
           (for [t child-teardowns]
-            (with-meta (teardown-row t)
-              {:key (str "teardown-" (or (:trace-id t)
-                                         (:child-id t)))})))])
+            (teardown-row t (str "teardown-" (or (:trace-id t)
+                                                 (:child-id t))))))])
      (when (seq visible-aborts)
        [:div {:data-testid "rf-xray-cancellation-cascade-aborts"}
         (doall
           (map-indexed
             (fn [idx row]
               (let [last? (= idx (dec (count visible-aborts)))]
-                (with-meta (abort-row row last?)
-                  {:key (str "abort-" (or (:trace-id row)
-                                          (:correlation-id row)
-                                          idx))})))
+                ;; Attribute-map key, same reasoning as the teardowns
+                ;; above (rf2-vw80).
+                (abort-row row last? (str "abort-" (or (:trace-id row)
+                                                       (:correlation-id row)
+                                                       idx)))))
             visible-aborts))])
      (when (and collapse? (pos? hidden-count) (not expanded?))
        (expand-button hidden-count (count effect-aborts) expanded?))
