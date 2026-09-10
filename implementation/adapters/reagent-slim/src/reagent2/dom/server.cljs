@@ -363,6 +363,13 @@
    "markerUnits" "markerUnits"
    "markerWidth" "markerWidth"
    "maskContentUnits" "maskContentUnits"
+   ;; rf2-4ale — react-dom 19.3 DASHERIZES this one (19.2 emitted it
+   ;; verbatim). With no row here the name fell through to the lowercase
+   ;; rule and this serializer wrote `masktype`, which matched neither
+   ;; version. Its two neighbours below are the unaffected controls: they
+   ;; keep their camelCase, so this is a single-row correction rather than
+   ;; a change to the fallback.
+   "maskType" "mask-type"
    "maskUnits" "maskUnits"
    "maxLength" "maxLength"
    "minLength" "minLength"
