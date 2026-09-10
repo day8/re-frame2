@@ -157,10 +157,10 @@ The retired app-db root `:rf/runtime` is now a **hard error**. A `:db` value car
 
 1. **Strip any `:rf/runtime` key from the fresh db (always).** A wholesale reset is now safe by construction — `{:db fresh-db}` replaces app-db and leaves machines / routing / SSR untouched in runtime-db. Just ensure `fresh-db` carries **no** `:rf/runtime` key (it would hard-error). If a v1-shaped `fresh-db` or an older preview rewrite still stashes runtime state there, drop it:
 
-   ```clojure
-   (rf/reg-event :initialize-db
-     (fn [_ _] {:db fresh-db}))   ; fresh-db carries NO :rf/runtime — the runtime-db partition is left alone
-   ```
+    ```clojure
+    (rf/reg-event :initialize-db
+      (fn [_ _] {:db fresh-db}))   ; fresh-db carries NO :rf/runtime — the runtime-db partition is left alone
+    ```
 
 2. **Genuinely need to write runtime state? Use the `:rf.db/runtime` effect, never an app-db key.** Framework/extension code that must seed or replace runtime-db emits the reserved `:rf.db/runtime` effect, keeping application data under `:db`. Outside a handler, the one facade mutator is `re-frame.epoch`'s `replace-frame-state!` — `(replace-frame-state! frame-id {:rf.db/runtime v})` is the runtime-only injection. (`re-frame.frame/replace-runtime-db!` is **not** on the facade; the earlier four-mutator family collapsed to this one fn, so a call site that requires it is an M-1 off-contract-namespace hit.) App code rarely needs this — boot machines install their own snapshots when they start.
 
