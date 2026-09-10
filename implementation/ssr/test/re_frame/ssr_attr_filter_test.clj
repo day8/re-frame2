@@ -13,7 +13,13 @@
       live XSS hole the camelCase/kebab-only regex missed).
     - function-valued prop values,
     - reserved prototype-pollution keys (`__proto__` / `constructor` /
-      `prototype`), and
+      `prototype`),
+    - JSX source-coord props (`:_jsxFileName` / `:_jsxLineNumber` /
+      `:_jsxColumnNumber`, rf2-fa4ly) — React DevTools internals that
+      have no HTML wire representation. Matched CASE-SENSITIVELY against
+      exactly those three documented names rather than by a broad
+      underscore prefix, so an app's own underscore-led prop still
+      surfaces the grammar error (rf2-ounh), and
     - React's two STRUCTURAL SLOTS, `:key` and `:ref` (rf2-gw87) —
       reconciliation identity and an instance handle, consumed by React
       before the host sees them and serialised by react-dom/server as
@@ -129,6 +135,77 @@
     (testing "the match is case-insensitive on the normalised name"
       (is (= " id=\"x\""
              (rf.ssr.html-helpers/attr-string {(keyword "Constructor") "polluted" :id "x"}))))))
+
+(deftest attr-string-drops-jsx-source-coord-props
+  (testing "rf2-ounh — React DevTools' \"View source\" gesture reads
+            `_jsxFileName` / `_jsxLineNumber` / `_jsxColumnNumber` off the
+            rendered element. The framework does not emit them, but user
+            code, JSX-compiled third-party libraries and hand-stamped
+            DevTools shims can, and they have no HTML wire representation.
+            The class landed with the reference stripper on 2026-05-27
+            (rf2-fa4ly) as a defensive rider on a DevTools commit, and
+            went untested until this deftest."
+    (testing "each of the three documented names is dropped"
+      (doseq [k ["_jsxFileName" "_jsxLineNumber" "_jsxColumnNumber"]]
+        (is (= " id=\"x\""
+               (rf.ssr.html-helpers/attr-string {(keyword k) "v" :id "x"}))
+            (str k " must not survive to wire output"))))
+
+    (testing "THE ORDERING PROPERTY, and it is the assertion with the real
+              value here. The filter sits UPSTREAM of the attribute-name
+              grammar gate, so a JSX source-coord prop is silently dropped
+              instead of surfacing as `:rf.error/ssr-invalid-attribute-name`
+              — the leading underscore fails the conservative HTML5 grammar
+              `[A-Za-z][A-Za-z0-9_:-]*`. If the filter ever moved BELOW
+              `validate-attr-name!` the behaviour would regress from
+              silently-clean to throwing, and nothing else in the lane
+              would notice."
+      (is (= "<div></div>"
+             (rf.ssr.emit/render-to-string
+               [:div {:_jsxFileName     "app.cljs"
+                      :_jsxLineNumber   12
+                      :_jsxColumnNumber 3}]
+               {}))
+          "a fully JSX-stamped element emits clean markup and does NOT throw")
+      (is (= "" (rf.ssr.html-helpers/attr-string {:_jsxFileName "app.cljs"}))
+          "a props map that is ONLY a source-coord prop yields the empty
+           string, not a stray leading space"))
+
+    (testing "surviving attributes on the same element are untouched"
+      (is (= " id=\"x\" class=\"c\""
+             (rf.ssr.html-helpers/attr-string
+               (array-map :_jsxFileName "app.cljs" :id "x" :class "c"))))
+      (is (= "<div id=\"a\">x</div>"
+             (rf.ssr.emit/render-to-string
+               [:div (array-map :_jsxLineNumber 12 :id "a") "x"] {}))))
+
+    (testing "the match is CASE-SENSITIVE against exactly those three
+              names, and that is the half pinning the design decision. The
+              matcher deliberately names the three documented spellings
+              (per `@babel/plugin-transform-react-jsx-source`) rather than
+              a broad underscore prefix, so an app's own underscore-led
+              prop is NOT swallowed here — it still reaches the grammar
+              gate and still surfaces the error, which is what tells the
+              author their attribute name is unservable."
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/ssr-invalid-attribute-name"
+            (rf.ssr.html-helpers/attr-string {:_JsxFileName "app.cljs"}))
+          "a case VARIANT of a rostered name is not in the set, so it falls
+           through to the grammar gate")
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/ssr-invalid-attribute-name"
+            (rf.ssr.html-helpers/attr-string {:_appPrivate "v"}))
+          "an app's own underscore-prefixed prop is not swallowed by a
+           prefix match"))
+
+    (testing "the filter does not over-reach onto grammar-legal names that
+              merely contain the word"
+      (doseq [[k expected] {:data-jsx-file "data-jsx-file=\"v\""
+                            :jsxFileName   "jsxFileName=\"v\""}]
+        (is (str/includes? (rf.ssr.html-helpers/attr-string {k "v"}) expected)
+            (str k " is an ordinary attribute and must round-trip"))))))
 
 (deftest attr-string-drops-reacts-structural-slots
   (testing "rf2-gw87 — `:key` and `:ref` are React's two STRUCTURAL SLOTS.
