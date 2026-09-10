@@ -27,8 +27,12 @@ list": failing on it would demand a repair from an author whose document has
 no defect and who has no repair available — the same shape as reporting
 `spec/009-Instrumentation.md:295`, and the same reason it is refused there.
 The verdict is loud instead: its own line, its own reason, and a count in the
-summary.  The hole this leaves is bounded and was measured — 1 file of 291
-corpus-wide, `docs/EP/EP-template.md`, named on every run.
+summary.  THE HOLE IS CURRENTLY EMPTY — 0 unmeasurable of 291 corpus-wide.
+It was 1, `docs/EP/EP-template.md`, until `8bea22404f` (rf2-9ogc) escaped
+that file's raw `<Title>` placeholder; the refusal MECHANISM is undiminished
+and is described at `place`, so the third verdict stays.  A count is the
+thing to read, never this sentence: re-run rather than trusting a number
+written down here.
 
 MEASURED BY RENDERING, NEVER BY COUNTING SPACES.  The predecessor
 indentation heuristic read 209 sites across 45 files with 23 false
@@ -332,15 +336,19 @@ def place(rendered: str, items: list[Item]) -> dict[str, Placement]:
             "cannot be trusted"
         )
     # WHY A FILE LANDS HERE, recorded so the next reader does not re-diagnose
-    # it.  `docs/EP/EP-template.md` opens `# EP-NNNN: <Title>`, which
-    # python-markdown passes through as a raw `<title>` element in the page
-    # BODY.  Python 3.14's html.parser treats `title` as an RCDATA element, so
-    # everything after it — `</h1>`, every list, every HTML comment, the rest
-    # of the document — arrives as one run of TEXT inside that element.  Every
-    # sentinel would then read depth 0 and "not inside an li", which is not a
-    # benign misreading: it is the shape this gate reports as ESCAPED.  The
-    # balance check is what stands between that and a page of manufactured
-    # defects, so it stays.
+    # it.  NO FILE DOES, TODAY — the corpus reads 0 unmeasurable — but the
+    # mechanism is intact and the worked example is worth keeping, because it
+    # is what the check exists for.  `docs/EP/EP-template.md` opened
+    # `# EP-NNNN: <Title>`, which python-markdown passes through as a raw
+    # `<title>` element in the page BODY.  Python 3.14's html.parser treats
+    # `title` as an RCDATA element, so everything after it — `</h1>`, every
+    # list, every HTML comment, the rest of the document — arrives as one run
+    # of TEXT inside that element.  Every sentinel would then read depth 0 and
+    # "not inside an li", which is not a benign misreading: it is the shape
+    # this gate reports as ESCAPED.  The balance check is what stands between
+    # that and a page of manufactured defects, so it stays.  `8bea22404f`
+    # (rf2-9ogc) escaped that placeholder, which is why the file grades now;
+    # the next raw placeholder anybody writes lands here again.
     missing = [item for item in items if item.sentinel not in walker.placements]
     if missing:
         raise UnmeasurableFile(
