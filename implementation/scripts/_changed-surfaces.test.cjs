@@ -493,12 +493,51 @@ test('the unconditional walk lane runs every namespace whose false arm it excuse
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   const block = jobBlock(workflow, 'jvm-repo-source-walks');
 
+  // "Unconditional" means NO JOB-LEVEL `if:`. That is where a read-set model of
+  // what the walks walk would go, and it is the defect this lane exists to avoid
+  // rather than relocate. Job properties sit at four spaces and step properties
+  // at eight, so the two are told apart by indentation alone. This assertion read
+  // `/^\s+if:/m` until rf2-gf3y — any indentation, which also forbade the step
+  // guards below and made the two halves of that repair inseparable.
   assert.doesNotMatch(
     block,
-    /^\s+if:/m,
-    'jvm-repo-source-walks must stay UNCONDITIONAL — a condition here is a ' +
-      'read-set model of what the walks walk, which is the defect the lane exists ' +
-      'to avoid rather than relocate',
+    /^ {4}if:/m,
+    'jvm-repo-source-walks must stay UNCONDITIONAL — a job-level condition here is ' +
+      'a read-set model of what the walks walk, which is the defect the lane ' +
+      'exists to avoid rather than relocate',
+  );
+
+  // Step conditions are allowed for exactly ONE purpose (rf2-gf3y). The seven
+  // walks are independent of one another, so each carries `if: ${{ !cancelled() }}`
+  // and runs even when an earlier walk has failed. Without it GitHub's default
+  // step condition (`success()`) makes the first failing walk SKIP the six behind
+  // it. That never admitted a bad merge — the job reds either way — but it hid
+  // that the six were never EVALUATED, so the green after the fix was the first
+  // time they had run at all and looked identical to one that had always passed.
+  // Anything OTHER than that exact guard at step level is the same read-set model
+  // wearing a different indentation, so it is refused here.
+  //
+  // `\r` is stripped before the comparison: `jobBlock` preserves CRLF, and this
+  // file is checked out CRLF on Windows, so a trailing carriage return would sit
+  // inside the anchored match and defeat it.
+  const stepConditions = (block.match(/^ {8}if:[^\n]*/gm) || []).map((s) =>
+    s.replace(/\r$/, ''),
+  );
+  for (const cond of stepConditions) {
+    assert.match(
+      cond,
+      /^ {8}if: \$\{\{ !cancelled\(\) \}\}$/,
+      `"${cond.trim()}" is a step condition other than the permitted ` +
+        '`!cancelled()` failure-independence guard',
+    );
+  }
+  assert.equal(
+    stepConditions.length,
+    REPO_SOURCE_WALK_NAMESPACES.length,
+    'every walk step must carry `if: ${{ !cancelled() }}`, so a failing walk cannot ' +
+      'skip the walks behind it. The setup steps (checkout, JDK, Clojure CLI, ' +
+      'Maven cache) deliberately carry no guard: a walk whose JDK never installed ' +
+      'fails for a reason that is not about the walk',
   );
   assert.match(
     workflow,
@@ -520,8 +559,11 @@ test('the unconditional walk lane runs every namespace whose false arm it excuse
   // ONE STEP PER NAMESPACE, which is not decoration: a namespace missing from a
   // multi-`-n` selector is SILENT (exit 0, runs the rest, no warning), so a
   // combined step would rest entirely on a total test-count floor across suites
-  // of 1 / 3 / 27 / 1 / 2 tests. Per-namespace steps each take the runner's own
-  // default floor of 1 and red alone.
+  // that are lopsided — several carry a single test while the error-catalogue
+  // suite carries dozens. Per-namespace steps each take the runner's own
+  // default floor of 1 and red alone. (This comment quoted per-namespace counts
+  // until rf2-gf3y; nothing enforced them and they had gone stale, so they were
+  // removed rather than corrected. Please don't put them back.)
   const runs = block.match(/^\s+run: clojure -M:test[^\n]*/gm) || [];
   assert.equal(
     runs.length,
