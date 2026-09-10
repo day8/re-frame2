@@ -1203,7 +1203,7 @@
                                      (pr-str live) " view-transition animations "
                                      "running and " (pr-str at-arrival)
                                      " still running when it landed"))
-                            nil))))))
+                            nil)))))))
             (.then
               (fn [_] (awaited! spy 2000)))
             (.then
