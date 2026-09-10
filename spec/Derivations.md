@@ -719,7 +719,7 @@ The two axes that **vary** per flow are the declared **inputs** and the **output
     - a bare path is an app-db read — `[:db path]`;
     - a partition-qualified `[:rf.db/runtime …rest]` path is a runtime-db read — `[:runtime …rest]` (the binary input syntax — any flow may *read* runtime-db, only the *write* side is reserved to app-db; [EP-0001 §535-551](013-Flows.md#input-partition--bare--app-db-rfdbruntime---runtime-db)).
 
-  Flow inputs are always concrete paths — never `:sub` edges and never the `:parametric` marker — because a flow declares its dependency graph statically as paths, not as an input-producer over a query vector.
+    Flow inputs are always concrete paths — never `:sub` edges and never the `:parametric` marker — because a flow declares its dependency graph statically as paths, not as an input-producer over a query vector.
 
 Because flows are frame-scoped — the same flow-id may register against two frames with different `:inputs` / `:derive` / `:output-path` — the flow view preserves the frame dimension: it is keyed `{frame-id {flow-id <node>}}`, the same shape as the flow registry it reads. Each node additionally records its owning frame under `:owner` `[:frame <frame-id>]` (the lifecycle owner, distinct from the cause of any one evaluation — [§Lifecycle and owner](#lifecycle-and-owner)), the opaque `:derive` body token (the `:derive` fn, never serialized), the `:source-form` `{:kind :reg-flow :id <id>}`, and the `:source` coordinates / `:schema` / doc when the registration carried them.
 

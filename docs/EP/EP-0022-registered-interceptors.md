@@ -1003,31 +1003,31 @@ graduation (`accepted → final`, 2026-06-15, Mike).
 
 1. **Should the standard set be path-only?**
 
-   Recommendation: yes. `path` is coupled to framework commit semantics and
-   justifies `:factory`; `unwrap` is handler destructuring sugar and should be
-   project-owned when chain-wide event rewriting is intentional.
+    Recommendation: yes. `path` is coupled to framework commit semantics and
+    justifies `:factory`; `unwrap` is handler destructuring sugar and should be
+    project-owned when chain-wide event rewriting is intentional.
 
 2. **Should additive dispatch-opts `:interceptors` be removed?**
 
-   Recommendation: yes. Event metadata and frame metadata are the two homes for
-   authored behavior; dispatch opts should only substitute/remove named refs.
+    Recommendation: yes. Event metadata and frame metadata are the two homes for
+    authored behavior; dispatch opts should only substitute/remove named refs.
 
 3. **Should inline interceptor values be rejected even for tiny local cases?**
 
-   Recommendation: yes. A tiny interceptor can still mutate coeffects, rewrite
-   effects, skip handlers, and change trace/error behavior. If it is in the
-   program, register it.
+    Recommendation: yes. A tiny interceptor can still mutate coeffects, rewrite
+    effects, skip handlers, and change trace/error behavior. If it is in the
+    program, register it.
 
 4. **Should `->interceptor` remain public?**
 
-   Recommendation: no. An internal constructor may remain, but public authoring
-   should be `reg-interceptor`.
+    Recommendation: no. An internal constructor may remain, but public authoring
+    should be `reg-interceptor`.
 
 5. **Should `path` no-op preservation be normative?**
 
-   Recommendation: yes. The framework-owned path interceptor should preserve
-   `identical?` no-op commit behavior. That is the clearest reason to keep path
-   standard rather than vendored.
+    Recommendation: yes. The framework-owned path interceptor should preserve
+    `identical?` no-op commit behavior. That is the clearest reason to keep path
+    standard rather than vendored.
 
 ## Recommendation
 

@@ -729,44 +729,44 @@ Proposed sequence (not a one-PR requirement):
    EP-0016 doctrine pushes onto the registration).
 
 5. **Revision token scope — per-entry vs reuse `:generation`.** The conflict
-   check needs a per-*entry* monotone token. The resource entry already carries
-   `:generation` (the work/stale-suppression identity). Is `:generation`
-   sufficient as the conflict token, or does it move for reasons orthogonal to
-   "the cached value changed" (e.g. a refetch that returns `=` data)?
+    check needs a per-*entry* monotone token. The resource entry already carries
+    `:generation` (the work/stale-suppression identity). Is `:generation`
+    sufficient as the conflict token, or does it move for reasons orthogonal to
+    "the cached value changed" (e.g. a refetch that returns `=` data)?
 
-   **Ruling (2026-06-15) — load-bearing amendment, gates the
-   settle-protocol slice.** Use a **distinct `:revision` fact** (NOT a reuse of
-   `:generation`), bumped on **every authoritative durable entry write a rollback
-   could clobber** — *not* "value-changing only." This corrects the EP's earlier
-   weaker lean toward bumping only on a value-changing write.
+    **Ruling (2026-06-15) — load-bearing amendment, gates the
+    settle-protocol slice.** Use a **distinct `:revision` fact** (NOT a reuse of
+    `:generation`), bumped on **every authoritative durable entry write a rollback
+    could clobber** — *not* "value-changing only." This corrects the EP's earlier
+    weaker lean toward bumping only on a value-changing write.
 
-   - **Why not gate on `(= old new)` of `:data`.** `entry-succeeded` re-stamps
-     `:loaded-at` / `:stale-at` *even when `:data` is `=`-shared* — the
-     structural-sharing branch keeps the old `:data` identity but still writes a
-     fresh `:loaded-at` / `:stale-at` / `:tags` (`state.cljc` 684, 690–691, 697).
-     `patch-entry` and `populate-entry` do the same. So a "value-changing only"
-     token would **miss a refetch-returning-equal-data freshness settle**: a later
-     rollback would then silently clobber newer authoritative
-     `:loaded-at` / `:stale-at` / `:tags` with a stale snapshot — a real
-     cache-coherence bug. The conflict token therefore tracks *any* authoritative
-     durable write to the entry, not just value changes.
-   - **Why a distinct `:revision`, not `:generation`.** `:generation` bumps at
-     load **start** (`entry-start-load`, `state.cljc` ~660), so reusing it would
-     **false-conflict on every in-flight refetch** — the entry's identity would
-     "move" the instant any load begins, before any authoritative write lands.
-     `:revision` is the per-entry write identity; `:generation` is the
-     work/stale-suppression identity. They are distinct facts.
-   - **Bump rule.** Bump `:revision` on `entry-succeeded` **unconditionally** (not
-     gated on `(= old new)`), on populate, on patch, on optimistic apply, and on
-     an invalidation-driven settle — every authoritative durable write.
-   - **Bias to over-bump.** When in doubt, bump. A *false* conflict costs one
-     refetch (and is made safe by the `:on-conflict :invalidate` default — the
-     read path recovers truth). A *missed* conflict means a stale inverse silently
-     clobbers newer truth — silent corruption. The asymmetry favours over-bumping.
-   - **New entry fact (impl note).** The base entry shape (`empty-entry*`,
-     `state.cljc` 188–211) has **no `:revision` key today**; the deferred EP-0019
-     impl wave adds `:revision` as a new durable entry fact (base value `0`,
-     alongside `:generation`).
+    - **Why not gate on `(= old new)` of `:data`.** `entry-succeeded` re-stamps
+      `:loaded-at` / `:stale-at` *even when `:data` is `=`-shared* — the
+      structural-sharing branch keeps the old `:data` identity but still writes a
+      fresh `:loaded-at` / `:stale-at` / `:tags` (`state.cljc` 684, 690–691, 697).
+      `patch-entry` and `populate-entry` do the same. So a "value-changing only"
+      token would **miss a refetch-returning-equal-data freshness settle**: a later
+      rollback would then silently clobber newer authoritative
+      `:loaded-at` / `:stale-at` / `:tags` with a stale snapshot — a real
+      cache-coherence bug. The conflict token therefore tracks *any* authoritative
+      durable write to the entry, not just value changes.
+    - **Why a distinct `:revision`, not `:generation`.** `:generation` bumps at
+      load **start** (`entry-start-load`, `state.cljc` ~660), so reusing it would
+      **false-conflict on every in-flight refetch** — the entry's identity would
+      "move" the instant any load begins, before any authoritative write lands.
+      `:revision` is the per-entry write identity; `:generation` is the
+      work/stale-suppression identity. They are distinct facts.
+    - **Bump rule.** Bump `:revision` on `entry-succeeded` **unconditionally** (not
+      gated on `(= old new)`), on populate, on patch, on optimistic apply, and on
+      an invalidation-driven settle — every authoritative durable write.
+    - **Bias to over-bump.** When in doubt, bump. A *false* conflict costs one
+      refetch (and is made safe by the `:on-conflict :invalidate` default — the
+      read path recovers truth). A *missed* conflict means a stale inverse silently
+      clobbers newer truth — silent corruption. The asymmetry favours over-bumping.
+    - **New entry fact (impl note).** The base entry shape (`empty-entry*`,
+      `state.cljc` 188–211) has **no `:revision` key today**; the deferred EP-0019
+      impl wave adds `:revision` as a new durable entry fact (base value `0`,
+      alongside `:generation`).
 
 6. **Optimistic `:removes` and `:populates`-of-absent.** Decision 1 covers
    forward *patch* of existing entries. Should an optimistic plan also support
