@@ -106,9 +106,9 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
   ```
 - **Description**: Match a URL to route data. Pure; JVM-runnable.
 
-  - Returns `nil` when no route matches. Also fails closed to `nil` on malformed percent-encoding anywhere in the URL.
-  - When the route declares `:params` / `:query` schemas and the parsed values fail them, `:validation-failed?` is `true` and the explanation rides under `:validation-error`.
-  - Query keys the route declares (via `:query` / `:query-defaults`) come back as keyword keys, in a deterministic canonical order. Undeclared keys stay strings.
+    - Returns `nil` when no route matches. Also fails closed to `nil` on malformed percent-encoding anywhere in the URL.
+    - When the route declares `:params` / `:query` schemas and the parsed values fail them, `:validation-failed?` is `true` and the explanation rides under `:validation-error`.
+    - Query keys the route declares (via `:query` / `:query-defaults`) come back as keyword keys, in a deterministic canonical order. Undeclared keys stay strings.
 - **Example**:
   ```clojure
   ;; with (rf/reg-route :user/show {} "/users/:id") registered:
@@ -129,18 +129,18 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
   ```
 - **Description**: Render a route to a URL — the inverse of `match-url`. Takes one **address map**; pure; JVM-runnable.
 
-  - `:to` is the only required key (requests spell the route id `:to`; facts spell it `:route-id`). `:params`, `:query`, and `:fragment` are optional.
-  - `:fragment` appends `#fragment` when it is a non-empty string (`nil` / `""` append nothing).
-  - Nil-valued query keys are silently elided. A nil required path param is an error.
-  - A query key already at the route's declared `:query-defaults` value is **not emitted** — `match-url` fills it back, so spelling it would give one destination two URLs. Validation still runs against the caller's full query.
-  - Query keys are emitted percent-encoded, in a deterministic canonical order.
-  - **Address-only.** `:url`, `:query-merge`, policy keys (`:replace?` / `:scroll` / `:bypass-leave?`), and any unknown key reject **loud** (`:rf.error/route-url-validation`, `:reason :bad-address-keys`) rather than being silently ignored. There is no in-place form — a pure helper cannot read the current route.
+    - `:to` is the only required key (requests spell the route id `:to`; facts spell it `:route-id`). `:params`, `:query`, and `:fragment` are optional.
+    - `:fragment` appends `#fragment` when it is a non-empty string (`nil` / `""` append nothing).
+    - Nil-valued query keys are silently elided. A nil required path param is an error.
+    - A query key already at the route's declared `:query-defaults` value is **not emitted** — `match-url` fills it back, so spelling it would give one destination two URLs. Validation still runs against the caller's full query.
+    - Query keys are emitted percent-encoded, in a deterministic canonical order.
+    - **Address-only.** `:url`, `:query-merge`, policy keys (`:replace?` / `:scroll` / `:bypass-leave?`), and any unknown key reject **loud** (`:rf.error/route-url-validation`, `:reason :bad-address-keys`) rather than being silently ignored. There is no in-place form — a pure helper cannot read the current route.
 
   Throws:
-  - `:rf.error/no-such-route` — `:to` route not registered.
-  - `:rf.error/missing-route-param` — a required path segment's param is nil or absent.
-  - `:rf.error/route-url-validation` — `:params` / `:query` fail the route's `:params` / `:query` schemas, or the map carries non-address keys.
-  - `:rf.error/route-url-non-edn-value` — non-EDN param/query values or a non-string fragment.
+    - `:rf.error/no-such-route` — `:to` route not registered.
+    - `:rf.error/missing-route-param` — a required path segment's param is nil or absent.
+    - `:rf.error/route-url-validation` — `:params` / `:query` fail the route's `:params` / `:query` schemas, or the map carries non-address keys.
+    - `:rf.error/route-url-non-edn-value` — non-EDN param/query values or a non-string fragment.
 - **Example**:
   ```clojure
   ;; with (rf/reg-route :user/show {} "/users/:id") registered:
@@ -278,9 +278,9 @@ The nav-token and pending-nav allocators are host-side, per-frame, monotonic hig
   ```
 - **Description**: The canonical classification of every piece of per-frame routing state, by tier. Consumed by SSR, docs, and Spec-Schemas so the durable/transient split has one home.
 
-  - `:durable-runtime-db` — serializable facts needed to reconstitute a coherent frame on restore / SSR-hydration; the route slice at `:current`.
-  - `:local-subscribable-runtime-db` — runtime-db state that stays subscribable and restores in local replay but is SSR-stripped fail-closed; the `:pending-navigation` slot.
-  - `:host-transient` — host-derived caches never in runtime-db; saved scroll positions and the two allocator high-water marks.
+    - `:durable-runtime-db` — serializable facts needed to reconstitute a coherent frame on restore / SSR-hydration; the route slice at `:current`.
+    - `:local-subscribable-runtime-db` — runtime-db state that stays subscribable and restores in local replay but is SSR-stripped fail-closed; the `:pending-navigation` slot.
+    - `:host-transient` — host-derived caches never in runtime-db; saved scroll positions and the two allocator high-water marks.
 
 ### `reset-nav-counters!`
 
@@ -304,9 +304,9 @@ At most one frame owns the browser URL at a time. A frame claims ownership by re
   ```
 - **Description**: Return the single frame that has explicitly declared browser-history ownership via `(rf/make-frame {:id … :url-bound? true})`, or `nil` when none has.
 
-  - URL ownership is an explicit host/bootstrap policy, not an absence repair. The runtime never infers `:rf/default` as the owner. `:rf/default` owns the URL only when it carries an explicit `{:url-bound? true}`, like any other frame.
-  - Ownership resolves to the first-claimed still-live `:url-bound? true` frame (the incumbent), so a later duplicate cannot steal the URL.
-  - `nil` means no owner is declared. In that case outbound history fxs no-op and the inbound popstate listener skips.
+    - URL ownership is an explicit host/bootstrap policy, not an absence repair. The runtime never infers `:rf/default` as the owner. `:rf/default` owns the URL only when it carries an explicit `{:url-bound? true}`, like any other frame.
+    - Ownership resolves to the first-claimed still-live `:url-bound? true` frame (the incumbent), so a later duplicate cannot steal the URL.
+    - `nil` means no owner is declared. In that case outbound history fxs no-op and the inbound popstate listener skips.
 - **Example**:
   ```clojure
   ;; one frame opts into URL ownership at boot:
@@ -336,9 +336,9 @@ A `:url-strategy` is a frame-level config map declared on the URL-owning frame �
   ```
 - **Description**: The default URL strategy: HTML5 History, path-form. A frame that declares no `:url-strategy` uses this.
 
-  - `:encode` / `:decode` are identity over the app-relative URL (`:decode` reads `pathname + search + hash`).
-  - `:push!` / `:replace!` drive `pushState` / `replaceState`.
-  - `:install-listener!` wires `popstate`.
+    - `:encode` / `:decode` are identity over the app-relative URL (`:decode` reads `pathname + search + hash`).
+    - `:push!` / `:replace!` drive `pushState` / `replaceState`.
+    - `:install-listener!` wires `popstate`.
 
 ### `hash-url-strategy`
 
@@ -349,9 +349,9 @@ A `:url-strategy` is a frame-level config map declared on the URL-owning frame �
   ```
 - **Description**: The hash URL strategy: `#`-prefixed URLs (`#/active`) for no-server-rewrite static hosting and secretary-era v1 migrations. `route-url` still builds path-form `/active`.
 
-  - `:encode` maps it to `#/active` at the `route-link` href and the history fxs.
-  - `:decode` strips the leading `#` from `window.location.hash` (an empty hash decodes to `/`).
-  - `:install-listener!` wires `hashchange`.
+    - `:encode` maps it to `#/active` at the `route-link` href and the history fxs.
+    - `:decode` strips the leading `#` from `window.location.hash` (an empty hash decodes to `/`).
+    - `:install-listener!` wires `hashchange`.
 - **Example**:
   ```clojure
   (rf/make-frame {:id :app
@@ -400,13 +400,13 @@ The `:route/link` registered view renders an `<a href=...>` from a route id. It 
   ```
 - **Description**: The registered `:route/link` view.
 
-  - `:to` is the only required key. `:params`, `:query`, and `:fragment` are forwarded to `route-url` for href synthesis. `:prefetch` is the one behaviour key (below). Every other props key passes through to the `<a>` element — including `:aria-current` and `:class`, which is how an "active link" is styled: `route-link` computes **no** active state, so compare `:to` against `:rf.route/id` (or `:rf.route/chain`) in your own view. See [Routing → Highlighting the active link](../routing/concepts.md#highlighting-the-active-link).
-  - A plain primary-button click (no modifier keys, `defaultPrevented` false) is intercepted. The view calls `preventDefault`, then dispatches `[:rf.route/url-requested {:url ...}]` targeted at the frame that rendered the link. One key: a raw URL is the whole address, and the handler re-derives the route from it.
-  - Modifier-key / middle-button clicks, and anchors carrying native-handling attributes (`:target` other than `_self`, or `:download`), defer to the browser.
-  - A caller-supplied `:on-click` runs first. If it calls `preventDefault`, the framework's interception is skipped.
-  - `:prefetch :intent` warms the destination on hover, focus, or touch by dispatching [`:rf.route/prefetch`](#events) with the link's own address (`:fragment` excluded — a fragment is never a resource input). `:intent` is the only accepted value, and **omitting** `:prefetch` is the only way to opt out — a key present with any other value (including `true`, `false`, `nil`, or a mode borrowed from another router) throws `:rf.error/route-link-bad-prefetch` at the render site rather than quietly rendering a passive link. Caller-supplied `:on-mouse-enter` / `:on-focus` / `:on-touch-start` handlers still run — the framework composes rather than replaces. The intent *handlers* are CLJS-only (SSR renders the anchor with none), but the value is validated on both hosts, so the server shell never accepts a mode the hydrated client rejects. `re-frame.fresco/route-link` honours the same key from the same calculation, reached through the `:routing/link-model` seam; because Fresco's grammar carries one intent per position it *refuses* a caller value at a claimed position rather than composing — see [Fresco → Routing and navigation](../core/fresco/07-routing-and-navigation.md).
-  - The rendered href is encoded through the rendering frame's `:url-strategy` — on both hosts, so the server shell and the hydrated client agree.
-  - On the JVM the `:route/link` registration renders via [`route-link-render-ssr`](#route-link-render-ssr).
+    - `:to` is the only required key. `:params`, `:query`, and `:fragment` are forwarded to `route-url` for href synthesis. `:prefetch` is the one behaviour key (below). Every other props key passes through to the `<a>` element — including `:aria-current` and `:class`, which is how an "active link" is styled: `route-link` computes **no** active state, so compare `:to` against `:rf.route/id` (or `:rf.route/chain`) in your own view. See [Routing → Highlighting the active link](../routing/concepts.md#highlighting-the-active-link).
+    - A plain primary-button click (no modifier keys, `defaultPrevented` false) is intercepted. The view calls `preventDefault`, then dispatches `[:rf.route/url-requested {:url ...}]` targeted at the frame that rendered the link. One key: a raw URL is the whole address, and the handler re-derives the route from it.
+    - Modifier-key / middle-button clicks, and anchors carrying native-handling attributes (`:target` other than `_self`, or `:download`), defer to the browser.
+    - A caller-supplied `:on-click` runs first. If it calls `preventDefault`, the framework's interception is skipped.
+    - `:prefetch :intent` warms the destination on hover, focus, or touch by dispatching [`:rf.route/prefetch`](#events) with the link's own address (`:fragment` excluded — a fragment is never a resource input). `:intent` is the only accepted value, and **omitting** `:prefetch` is the only way to opt out — a key present with any other value (including `true`, `false`, `nil`, or a mode borrowed from another router) throws `:rf.error/route-link-bad-prefetch` at the render site rather than quietly rendering a passive link. Caller-supplied `:on-mouse-enter` / `:on-focus` / `:on-touch-start` handlers still run — the framework composes rather than replaces. The intent *handlers* are CLJS-only (SSR renders the anchor with none), but the value is validated on both hosts, so the server shell never accepts a mode the hydrated client rejects. `re-frame.fresco/route-link` honours the same key from the same calculation, reached through the `:routing/link-model` seam; because Fresco's grammar carries one intent per position it *refuses* a caller value at a claimed position rather than composing — see [Fresco → Routing and navigation](../core/fresco/07-routing-and-navigation.md).
+    - The rendered href is encoded through the rendering frame's `:url-strategy` — on both hosts, so the server shell and the hydrated client agree.
+    - On the JVM the `:route/link` registration renders via [`route-link-render-ssr`](#route-link-render-ssr).
 - **Example**:
   ```clojure
   [rf/route-link {:to :user/show :params {:id 42} :class "nav-item"}
