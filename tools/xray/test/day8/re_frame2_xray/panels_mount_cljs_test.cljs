@@ -404,11 +404,24 @@
     (is (= {:instance-id "left"}
            (crossed (delivered-by {:instance-id "left"})))
         "the name the mount was given is the name the boundary is mounted with")
-    (is (= {:instance-id :left}
+    (is (= {:instance-id "left"}
            (crossed (delivered-by {:instance-id :left})))
-        "a keyword crosses too — Reagent converts a prop value to its name on
-         the way to React, and `instance-token` accepts both spellings for
-         exactly that reason")
+        "rf2-4bsq — a keyword crosses too, as its TOKEN. `Panel-bridge`
+         tokenises the prop with `instance-token` before handing it to
+         `[:>]`, because Reagent would otherwise convert the value with
+         `cljs.core/name` on the way to React. For `:left` the two agree on
+         \"left\", so what the boundary is mounted with is unchanged; what
+         moved is WHERE the conversion happens, and that is the whole repair
+         — see the namespaced row below")
+    (is (= {:instance-id "left/panel"}
+           (crossed (delivered-by {:instance-id :left/panel})))
+        "rf2-4bsq — AND A NAMESPACE SURVIVES, which is why the tokenising
+         moved. `cljs.core/name` drops it, so passed through raw
+         `:left/panel` and `:right/panel` both reached the boundary as
+         \"panel\" — two mounts this opt had deliberately named apart
+         sharing one `:mount-id`, one width slot and one `:site-id`. This is
+         the mount door onto that prop, so it is the door that has to carry
+         it")
     (is (= {:instance-id "right"}
            (crossed (delivered-by {:frame :my-app/cart :instance-id "right"})))
         "and it composes with `:frame` rather than replacing it"))
