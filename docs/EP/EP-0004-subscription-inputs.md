@@ -310,9 +310,9 @@ For `(subscribe [:article/page :a1])`:
 
 1. Resolve `:article/page` in the registrar.
 2. Produce input query vectors:
-   - no query vectors for a layer-1 app-db reader;
-   - literal query vectors for a literal `:inputs`;
-   - `(input-fn [:article/page :a1])` for the parametric form.
+    - no query vectors for a layer-1 app-db reader;
+    - literal query vectors for a literal `:inputs`;
+    - `(input-fn [:article/page :a1])` for the parametric form.
 3. Validate that the result is a vector of query vectors.
 4. Subscribe to each input query vector in the same frame.
 5. Call the computation function with the resolved input values and the outer

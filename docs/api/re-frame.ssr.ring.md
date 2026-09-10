@@ -168,8 +168,8 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
   ;;     :html-shell default-html-shell}
   ```
 - **Description**: The default `ssr-handler` opts, merged under caller-supplied opts at construction (caller values win). This is a data var, not a fn. It is exposed so callers can read or extend the baseline. Two opts are deliberately absent:
-  - `:on-error` — resolved separately, so the defaults stay orthogonal to the on-error precedence.
-  - `:content-type` — **carries no default here, on purpose.** The opt is a genuine override that *force-replaces* the response Content-Type when supplied, so a default in this map would force-replace an app's own `:rf.server/set-header "content-type"` on **every** request. An absent (nil) opt instead leaves the runtime's default-seeded `text/html; charset=utf-8` (Spec 011 §Status defaults) — or the app's explicit Content-Type — in control. The on-the-wire default is `text/html; charset=utf-8` either way; it just does not come from this var.
+    - `:on-error` — resolved separately, so the defaults stay orthogonal to the on-error precedence.
+    - `:content-type` — **carries no default here, on purpose.** The opt is a genuine override that *force-replaces* the response Content-Type when supplied, so a default in this map would force-replace an app's own `:rf.server/set-header "content-type"` on **every** request. An absent (nil) opt instead leaves the runtime's default-seeded `text/html; charset=utf-8` (Spec 011 §Status defaults) — or the app's explicit Content-Type — in control. The on-the-wire default is `text/html; charset=utf-8` either way; it just does not come from this var.
 - **Example**:
   ```clojure
   ;; Read the baseline the handler constructor merges under your opts.
@@ -238,8 +238,8 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
   ```
 - **Description**: The shell prefix flushed as the first streamed chunk. It mirrors `default-html-shell`'s open + `<head>` + body-open + app-div-open. It also shares the `:html-attrs` / `:lang` fallback with the non-streaming shell, so the two envelopes can't diverge.
 
-  - `head-html` — the resolved head fragment.
-  - `opts` — honours `:html-attrs` / `:body-attrs` / `:lang` (default `"en"`) / `:app-element-id` (default `"app"`) / `:render-hash`.
+    - `head-html` — the resolved head fragment.
+    - `opts` — honours `:html-attrs` / `:body-attrs` / `:lang` (default `"en"`) / `:app-element-id` (default `"app"`) / `:render-hash`.
 
   When `:render-hash` is supplied (the handler passes it iff `:emit-hash?` is true), `data-rf-render-hash` is stamped on the `#app` div, the first DOM root of the streamed document. This mirrors the non-streaming handler's root-element marker.
 - **Example**:

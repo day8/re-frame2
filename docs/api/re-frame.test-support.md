@@ -154,8 +154,8 @@ For a full-db assertion, compare directly: `(is (= expected-db (rf/app-db-value 
   ```
 - **Description**: Poll `pred` until it returns truthy, within a bounded deadline.
 
-  - **JVM**: synchronous. Returns the truthy value, or throws `ex-info` on timeout.
-  - **CLJS**: returns a `js/Promise` that resolves with the truthy value, or rejects on timeout. A `pred` that returns a `js/Promise` is awaited; its resolved value drives the truthy check.
+    - **JVM**: synchronous. Returns the truthy value, or throws `ex-info` on timeout.
+    - **CLJS**: returns a `js/Promise` that resolves with the truthy value, or rejects on timeout. A `pred` that returns a `js/Promise` is awaited; its resolved value drives the truthy check.
 
   The timeout error carries `:rf.error/id` `:rf.error/poll-until-timeout` (the canonical discriminator), plus `:elapsed-ms` and `:label` in its data.
 

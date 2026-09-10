@@ -365,22 +365,22 @@ write:
 2. **Send** the managed request.
 3. **Accept / suppress** the host reply (the landed work-id + generation gate).
 4. **Settle the optimistic apply** *then* apply success-time consequences:
-   - **`:ok` (accepted) → COMMIT.** The authoritative `:populates` / `:patches`
-     run (they overwrite the optimistic value with the server's), then
-     `:invalidates`. The optimistic apply is *cleared* from each entry's live
-     list. Populate-as-authoritative-load (Rider 1) means a populated key is
-     not re-fetched by this mutation's own invalidation. The recorded inverse is
-     discarded (the commit superseded it). Emit `:rf.mutation/reconciled`.
-   - **`:error` / accepted `:cancelled` → ROLLBACK.** For each recorded inverse,
-     apply the **conflict rule** below. Emit `:rf.mutation/rolled-back`.
-   - **stale / superseded → NEITHER.** A stale reply (a re-execute under the
-     same instance, or `:rf.mutation/clear`) is suppressed exactly as today
-     (the mandatory stale-suppression boundary). Its optimistic apply was
-     **already superseded** by the newer execute's apply (which re-snapshotted
-     the entry *as the optimistic value*, recording its own inverse), so the
-     stale reply's inverse is **discarded, never replayed** — the current
-     generation owns the entry. This is the determinism guarantee for
-     superseded responses.
+    - **`:ok` (accepted) → COMMIT.** The authoritative `:populates` / `:patches`
+      run (they overwrite the optimistic value with the server's), then
+      `:invalidates`. The optimistic apply is *cleared* from each entry's live
+      list. Populate-as-authoritative-load (Rider 1) means a populated key is
+      not re-fetched by this mutation's own invalidation. The recorded inverse is
+      discarded (the commit superseded it). Emit `:rf.mutation/reconciled`.
+    - **`:error` / accepted `:cancelled` → ROLLBACK.** For each recorded inverse,
+      apply the **conflict rule** below. Emit `:rf.mutation/rolled-back`.
+    - **stale / superseded → NEITHER.** A stale reply (a re-execute under the
+      same instance, or `:rf.mutation/clear`) is suppressed exactly as today
+      (the mandatory stale-suppression boundary). Its optimistic apply was
+      **already superseded** by the newer execute's apply (which re-snapshotted
+      the entry *as the optimistic value*, recording its own inverse), so the
+      stale reply's inverse is **discarded, never replayed** — the current
+      generation owns the entry. This is the determinism guarantee for
+      superseded responses.
 5. **Instance settlement** (settle the row, work-ledger row).
 6. **Continuation** — `:reply-to`, unchanged (fires only for the accepted
    terminal reply, after settle).

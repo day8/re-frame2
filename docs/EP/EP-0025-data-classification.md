@@ -483,7 +483,7 @@ section-by-section map.
    sensitive-vs-large precedence + nested suppression; `[[]]` whole-value; cross-frame
    isolation; profile-aware egress (default-redacts / raw-local-passes); SSR allowlist +
    projection; MCP/Xray/off-box-sink redaction; per-subsystem generated-instance create
-   + teardown; malformed-payload fail-loud.
+    + teardown; malformed-payload fail-loud.
 
 ### Repo-wide propagation — one bead per area (be exhaustive)
 
@@ -491,18 +491,18 @@ Cross-cutting change (every egress boundary; removes "marks"). Sweep, beyond the
 specs (8), `/docs/core` (9), and `/skills` (10):
 
 - **`/tools` — the consumer / egress side (the half that delivers the value):**
-  - **`mcp-base`** — the shared redaction lives here: read the new registry; project
-    every value returned to an AI client.
-  - **`re-frame2-pair-mcp` + `story-mcp`** — every read (app-db, subs, traces, epochs)
-    is projected before it reaches the AI client.
-  - **`xray`** — every panel that shows a value (event detail, app-db diff,
-    subscriptions, machine inspector, schema-violation timeline, AI co-pilot rail)
-    projects; surface "what's classified" from the registry; **strip all "marks"
-    references.**
-  - **`story` + `machines-viz`** — displayed / serialized values project (machine
-    `:data`, variant EDN).
-  - **`mcp-conformance`** — add classification-redaction wire conformance.
-  - **`testbed-support`, `template`** — marks residue + any classification teaching.
+    - **`mcp-base`** — the shared redaction lives here: read the new registry; project
+      every value returned to an AI client.
+    - **`re-frame2-pair-mcp` + `story-mcp`** — every read (app-db, subs, traces, epochs)
+      is projected before it reaches the AI client.
+    - **`xray`** — every panel that shows a value (event detail, app-db diff,
+      subscriptions, machine inspector, schema-violation timeline, AI co-pilot rail)
+      projects; surface "what's classified" from the registry; **strip all "marks"
+      references.**
+    - **`story` + `machines-viz`** — displayed / serialized values project (machine
+      `:data`, variant EDN).
+    - **`mcp-conformance`** — add classification-redaction wire conformance.
+    - **`testbed-support`, `template`** — marks residue + any classification teaching.
 - **`/examples`** — update any example using classification to the four effects;
   confirm no `:sensitive {:app-db}` / schema-prop / marks usage remains.
 - **`/testbeds`** — review the classification-relevant beds (`schema_violation`,
