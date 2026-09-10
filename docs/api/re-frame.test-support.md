@@ -54,19 +54,19 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   ```
 - **Description**: Build a `clojure.test` / `cljs.test` `:each` fixture that resets the per-process runtime around each test. Pair with `use-fixtures :each`.
 
-  Around each test the fixture:
+    Around each test the fixture:
 
-  - reinstates the stable ns-load registrar and source-store baseline captured at fixture-build time, which makes tests independent of run order inside a shared test bundle;
-  - snapshots the registrar;
-  - resets the frames registry, trace listeners, and per-artefact state (flows, schemas, machines, routing, resources, http, epoch). This runs via late-bind hooks that no-op when an artefact is absent from the classpath;
-  - disposes then reinstalls the adapter;
-  - restores everything in a `finally`.
+    - reinstates the stable ns-load registrar and source-store baseline captured at fixture-build time, which makes tests independent of run order inside a shared test bundle;
+    - snapshots the registrar;
+    - resets the frames registry, trace listeners, and per-artefact state (flows, schemas, machines, routing, resources, http, epoch). This runs via late-bind hooks that no-op when an artefact is absent from the classpath;
+    - disposes then reinstalls the adapter;
+    - restores everything in a `finally`.
 
-  `opts` (all optional):
+    `opts` (all optional):
 
-  | Key | Meaning |
-  |-----|---------|
-  | `:adapter` | Substrate adapter to install; also ensures the `:rf/default` frame. When omitted, no adapter is installed. |
+    | Key | Meaning |
+    |-----|---------|
+    | `:adapter` | Substrate adapter to install; also ensures the `:rf/default` frame. When omitted, no adapter is installed. |
 | `:app-ns` | **Bundle co-load hygiene.** A provenance-namespace PREFIX string naming **this suite's own app** (`"realworld-http."` — the whole tree, not one ns; never a sibling's). Rows whose `:rf.provenance/ns` starts with it are captured and removed from the live registrar and the source store when the fixture is **built** — before it takes its baselines, so no suite's baseline holds them — and reinstated through `registrar/register!` before each test, after the reset and before `:init-fn`. The ordinary source-store restore takes them out again, on the exceptional path too. Omit it unless your bundle co-loads rival apps. |
   | `:init-fn` | Zero-arg fn run after adapter install, before the test body, under the same ambient frame scope as the body. |
   | `:clear-kinds` | Collection of registrar kinds cleared after the snapshot capture and before the body (the snapshot restores them on the way out). |
@@ -74,41 +74,41 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   | `:ambient-frame` | Frame id bound as the body's ambient scope when an adapter is installed. Default `:rf/default`; pass `nil` to opt out (for tests that create their own top-level frames). |
   | `:async?` | Boolean, default `false`. Declares the suite **async-capable**; the return shape that delivers it is chosen per host. On CLJS you get a `cljs.test` map-form fixture `{:before … :after …}`, **required** for suites with `(async done …)` tests. On the JVM the option is inert and you always get the fn-form — `clojure.test` has no async tests, and no map-fixture support at all (it *invokes* a fixture, and a Clojure map is `IFn`, so a map fixture would silently skip every test body). |
 - **Example**:
-  ```clojure
-  (use-fixtures :each
-    (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+    ```clojure
+    (use-fixtures :each
+      (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-  ;; CLJS suite with (async done …) tests — map-form fixture:
-  (use-fixtures :each
-    (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter :async? true}))
-  ```
+    ;; CLJS suite with (async done …) tests — map-form fixture:
+    (use-fixtures :each
+      (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter :async? true}))
+    ```
 
-  A `.cljc` suite whose CLJS rows are async writes the same plain `:async? true`
-  — no reader conditional at the call site, because the factory already picks
-  the map on CLJS and the fn-form on the JVM.
+    A `.cljc` suite whose CLJS rows are async writes the same plain `:async? true`
+    — no reader conditional at the call site, because the factory already picks
+    the map on CLJS and the fn-form on the JVM.
 
-  **`:app-ns` — when your bundle co-loads more than one app.** A CLJS node
-  runner loads *every* test namespace into one bundle before any test runs. Two
-  co-loaded apps that register the same per-app id — `:rf.route/not-found`, or
-  shared event vocabulary — leave duplicate provenance rows in the source store,
-  and default-image assembly then fails loud with
-  `:rf.error/image-duplicate-id` for any suite whose baseline was captured after
-  the second app loaded. `:app-ns` folds the whole capture/reinstate cycle into
-  the fixture that already owns the baseline:
+    **`:app-ns` — when your bundle co-loads more than one app.** A CLJS node
+    runner loads *every* test namespace into one bundle before any test runs. Two
+    co-loaded apps that register the same per-app id — `:rf.route/not-found`, or
+    shared event vocabulary — leave duplicate provenance rows in the source store,
+    and default-image assembly then fails loud with
+    `:rf.error/image-duplicate-id` for any suite whose baseline was captured after
+    the second app loaded. `:app-ns` folds the whole capture/reinstate cycle into
+    the fixture that already owns the baseline:
 
-  ```clojure
-  (use-fixtures :each
-    (ts/make-reset-runtime-fixture
-      {:adapter reagent-adapter/adapter
-       :app-ns  "my-app."          ; rows under this provenance prefix are MINE
-       :init-fn init!}))
-  ```
+    ```clojure
+    (use-fixtures :each
+      (ts/make-reset-runtime-fixture
+        {:adapter reagent-adapter/adapter
+         :app-ns  "my-app."          ; rows under this provenance prefix are MINE
+         :init-fn init!}))
+    ```
 
-  Name **your own** app's root namespace and cover its whole tree — never a
-  sibling's. When every app suite hides itself, no suite needs to know its
-  sibling's name, and the suites are independent of each other's load order. A
-  workspace with one app in its bundle never meets the collision and never needs
-  this key.
+    Name **your own** app's root namespace and cover its whole tree — never a
+    sibling's. When every app suite hides itself, no suite needs to know its
+    sibling's name, and the suites are independent of each other's load order. A
+    workspace with one app in its bundle never meets the collision and never needs
+    this key.
 
 ## Test-flavoured helpers
 
@@ -129,9 +129,9 @@ To fire several events in order, call `rf/dispatch-sync` per event — each drai
   ```
 - **Description**: Assert `(get-in db path) == expected-val` against the resolved frame's `app-db`. A mismatch fires a `clojure.test/is`-style failure via `do-report`. Returns `true` on pass and `false` otherwise; the failure has already been reported either way.
 
-  `opts`: `:frame` targets a non-default frame; frame resolution is `:frame` opt → `(current-frame)` → `:rf/default`.
+    `opts`: `:frame` targets a non-default frame; frame resolution is `:frame` opt → `(current-frame)` → `:rf/default`.
 
-  This is the fn-side counterpart to the `:rf.assert/path-equals` story event-family: same name root, different runner channel.
+    This is the fn-side counterpart to the `:rf.assert/path-equals` story event-family: same name root, different runner channel.
 - **Example**:
   ```clojure
   (rf/dispatch-sync [:counter/inc])
@@ -157,9 +157,9 @@ For a full-db assertion, compare directly: `(is (= expected-db (rf/app-db-value 
     - **JVM**: synchronous. Returns the truthy value, or throws `ex-info` on timeout.
     - **CLJS**: returns a `js/Promise` that resolves with the truthy value, or rejects on timeout. A `pred` that returns a `js/Promise` is awaited; its resolved value drives the truthy check.
 
-  The timeout error carries `:rf.error/id` `:rf.error/poll-until-timeout` (the canonical discriminator), plus `:elapsed-ms` and `:label` in its data.
+    The timeout error carries `:rf.error/id` `:rf.error/poll-until-timeout` (the canonical discriminator), plus `:elapsed-ms` and `:label` in its data.
 
-  `opts`: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label`.
+    `opts`: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label`.
 - **Example**:
   ```clojure
   ;; JVM — synchronous; returns the truthy value (throws on timeout).
@@ -183,16 +183,16 @@ For a full-db assertion, compare directly: `(is (= expected-db (rf/app-db-value 
   ```
 - **Description**: Bracket `body` with a fresh trace-tooling listener that accumulates matching trace events into an atom bound to `recs-sym`. The listener is registered before `body` runs and unregistered in a `finally` on the way out, even if `body` throws. Returns the value of `body`'s final form.
 
-  `opts` (optional map literal; keys evaluated at macroexpansion):
+    `opts` (optional map literal; keys evaluated at macroexpansion):
 
-  - `:pred` — a 1-arg `(fn [ev] truthy?)` filter. Default: accept every event.
-  - `:shape` — `:flat` (default; the atom holds a vector of events) or `:by-op` (the atom holds a map keyed by `(:operation ev)`).
-  - `:key` — listener key. Default: a freshly-gensym'd keyword unique to the expansion site, so two brackets in one test do not collide.
+    - `:pred` — a 1-arg `(fn [ev] truthy?)` filter. Default: accept every event.
+    - `:shape` — `:flat` (default; the atom holds a vector of events) or `:by-op` (the atom holds a map keyed by `(:operation ev)`).
+    - `:key` — listener key. Default: a freshly-gensym'd keyword unique to the expansion site, so two brackets in one test do not collide.
 
-  Macro requires:
+    Macro requires:
 
-  - **JVM**: resolves alias-qualified through the normal `(:require [re-frame.test-support :as ts])`.
-  - **CLJS**: the namespace carries no self-`:require-macros` (unlike `re-frame.core`). CLJS test files must therefore require the macro explicitly: `(:require-macros [re-frame.test-support :refer [with-trace-recorder!]])`, or `:as ts` in `:require-macros` for alias-qualified use.
+    - **JVM**: resolves alias-qualified through the normal `(:require [re-frame.test-support :as ts])`.
+    - **CLJS**: the namespace carries no self-`:require-macros` (unlike `re-frame.core`). CLJS test files must therefore require the macro explicitly: `(:require-macros [re-frame.test-support :refer [with-trace-recorder!]])`, or `:as ts` in `:require-macros` for alias-qualified use.
 - **Example**:
   ```clojure
   ;; Flat shape (default), default filter, simple read.
@@ -224,15 +224,15 @@ For a full-db assertion, compare directly: `(is (= expected-db (rf/app-db-value 
   ```
 - **Description**: The always-on sibling of [`with-trace-recorder!`](#with-trace-recorder). Brackets `body` with a fresh listener on one of the two always-on substrates, accumulating records into an atom bound to `recs-sym`. Registered before `body` runs, unregistered in a `finally` on the way out, even if `body` throws. Returns the value of `body`'s final form.
 
-  `opts` (optional map literal; keys evaluated at macroexpansion):
+    `opts` (optional map literal; keys evaluated at macroexpansion):
 
-  - `:stream` — `:errors` (default; brackets `re-frame.error-emit`, one record per promoted `:rf.error/*`) or `:events` (brackets `re-frame.event-emit`, one record per processed event).
-  - `:pred` — a 1-arg `(fn [record] truthy?)` filter. Default: accept every record.
-  - `:key` — listener key. Default: a freshly-gensym'd keyword unique to the expansion site, so two brackets in one test do not collide.
+    - `:stream` — `:errors` (default; brackets `re-frame.error-emit`, one record per promoted `:rf.error/*`) or `:events` (brackets `re-frame.event-emit`, one record per processed event).
+    - `:pred` — a 1-arg `(fn [record] truthy?)` filter. Default: accept every record.
+    - `:key` — listener key. Default: a freshly-gensym'd keyword unique to the expansion site, so two brackets in one test do not collide.
 
-  **These are the framework's own registries, not an application surface.** `re-frame.event-emit` and `re-frame.error-emit` carry no public registration verb: rf2-kuky.69 retired the `register-listener!` `:events` / `:errors` streams, because an unprojected fan-out no frame's policy governs was a second, fail-open production door beside the projected one. They survive as implementation-tier seams for two consumers — the framework's own synchronous-window capture sites, and tests. An application observes production records through a frame's `:observability` sink, or the `(rf/configure! {:observability …})` process default, both of which deliver a projected record. A test brackets the raw substrate on purpose: it wants the unprojected shape, inside a window it owns.
+    **These are the framework's own registries, not an application surface.** `re-frame.event-emit` and `re-frame.error-emit` carry no public registration verb: rf2-kuky.69 retired the `register-listener!` `:events` / `:errors` streams, because an unprojected fan-out no frame's policy governs was a second, fail-open production door beside the projected one. They survive as implementation-tier seams for two consumers — the framework's own synchronous-window capture sites, and tests. An application observes production records through a frame's `:observability` sink, or the `(rf/configure! {:observability …})` process default, both of which deliver a projected record. A test brackets the raw substrate on purpose: it wants the unprojected shape, inside a window it owns.
 
-  Macro requires: the same shape as `with-trace-recorder!` above — JVM refers it through the ordinary `:require`; CLJS test files reach it with `(:require-macros [re-frame.test-support :refer [with-emit-recorder!]])`.
+    Macro requires: the same shape as `with-trace-recorder!` above — JVM refers it through the ordinary `:require`; CLJS test files reach it with `(:require-macros [re-frame.test-support :refer [with-emit-recorder!]])`.
 - **Example**:
   ```clojure
   ;; Default stream (:errors) — capture what one dispatch fails with.

@@ -28,21 +28,21 @@ See [Flows: derived values your handlers can read](../core/flows.md) for the con
   ```
 - **Description**: Register a flow. Returns `flow-id` (per the `reg-*` return-value convention). A rejected registration mutates nothing; the prior definition, if any, survives.
 
-  The 3-slot grammar is `flow-id` first, the pure `derive-fn` last, and `metadata` (the reflection-config map) in the middle. `metadata` carries:
+    The 3-slot grammar is `flow-id` first, the pure `derive-fn` last, and `metadata` (the reflection-config map) in the middle. `metadata` carries:
 
-  - `:inputs` and `:output-path` — both **required**.
-  - `:doc` / `:schema` — optional.
-  - `:sensitive` / `:large` / `:large?` — optional output-classification keys.
-  - `:frame` — optional; selects the owning frame.
+    - `:inputs` and `:output-path` — both **required**.
+    - `:doc` / `:schema` — optional.
+    - `:sensitive` / `:large` / `:large?` — optional output-classification keys.
+    - `:frame` — optional; selects the owning frame.
 
-  Raises:
+    Raises:
 
-  - `:rf.error/invalid-flow-metadata` — non-map metadata, or a `:derive` left inside the metadata map.
-  - `:rf.error/flow-missing-id` / `:rf.error/flow-bad-id` / `:rf.error/flow-bad-inputs` / `:rf.error/flow-bad-output` / `:rf.error/flow-bad-path` / `:rf.error/flow-bad-marks` — shape validation of the id, `:inputs`, `derive-fn`, `:output-path`, and classification keys.
-  - `:rf.error/no-frame-context` — no surrounding scope and no `:frame` key.
-  - `:rf.error/flow-frame-not-live` — the target frame is absent or destroyed.
-  - `:rf.error/flow-path-overlap` — the `:output-path` stands in a prefix relationship with a same-frame sibling's.
-  - `:rf.error/flow-cycle` — the registration would make the frame's dependency graph cyclic.
+    - `:rf.error/invalid-flow-metadata` — non-map metadata, or a `:derive` left inside the metadata map.
+    - `:rf.error/flow-missing-id` / `:rf.error/flow-bad-id` / `:rf.error/flow-bad-inputs` / `:rf.error/flow-bad-output` / `:rf.error/flow-bad-path` / `:rf.error/flow-bad-marks` — shape validation of the id, `:inputs`, `derive-fn`, `:output-path`, and classification keys.
+    - `:rf.error/no-frame-context` — no surrounding scope and no `:frame` key.
+    - `:rf.error/flow-frame-not-live` — the target frame is absent or destroyed.
+    - `:rf.error/flow-path-overlap` — the `:output-path` stands in a prefix relationship with a same-frame sibling's.
+    - `:rf.error/flow-cycle` — the registration would make the frame's dependency graph cyclic.
 - **Example**:
   ```clojure
   (rf/reg-flow :cart/subtotal
