@@ -167,8 +167,8 @@
                           bar-x     (+ label-width bar-padding)
                           bar-w-px  (max 1 (Math/round (* (:width-pct row) bar-area-w)))
                           fill      (bar-fill (:phase row) slow?)]]
-                ^{:key (str (:phase row) "-" i)}
-                [:g {:data-testid (str "rf-xray-waterfall-row-" (phase-label row))
+                [:g {:key         (str (:phase row) "-" i)
+                     :data-testid (str "rf-xray-waterfall-row-" (phase-label row))
                      :data-phase  (phase-label row)
                      :data-slow   (str slow?)}
                  ;; left label
