@@ -104,7 +104,9 @@
 ;; none. It is DETERMINISTIC in span length; what varies between runs is the
 ;; stack, which is why re-running "fixed" it and why re-running is not a remedy.
 ;; This lint's step also runs FIRST in test.yml's `jvm-repo-source-walks` job,
-;; whose steps carry no `if:`, so the crash SKIPS the six walks behind it.
+;; whose seven walks are each guarded to run even after an earlier one fails
+;; (rf2-gf3y), so the crash reds THIS step alone while the six behind it still
+;; run — which makes it easier to read, not harder.
 ;;
 ;; THE REPAIR IS THE SAME LANGUAGE, not merely a faster one. The two branches
 ;; are DISJOINT — `[^\"\\]` excludes both the backslash and the quote, `\\.`
