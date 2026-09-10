@@ -29,6 +29,25 @@
   (xray-test-support/install-test-overrides!)
   (rf/make-frame {:id :rf/xray}))
 
+(defn- panel-tree
+  "The hiccup the view rows below walk, driven through the pure projection.
+
+  rf2-k97c.3 — `panel/Panel` is now an `rf.fresco/defview` boundary, a real
+  React function component whose body may only run inside a React render
+  window, so `(panel/Panel)` is no longer a callable that answers hiccup.
+  This helper REPRODUCES THE BOUNDARY'S READ EXACTLY — the one
+  `:rf.xray.static.interceptors/tab-data` query the boundary issues — and
+  hands the value to `panel/panel-tree`, so every row below asserts on the
+  same hiccup it asserted on before.
+
+  The dispatcher is nil: no row here types into the search box, and the
+  search box only calls it from `:on-change`. The boundary's OWN behaviour
+  — first paint, liveness, frame targeting, evidence isolation, teardown
+  and row identity — is `panel_fresco_boundary_dom_cljs_test`'s subject."
+  []
+  (panel/panel-tree @(rf/subscribe [:rf.xray.static.interceptors/tab-data])
+                    nil))
+
 ;; ---- fixture data -------------------------------------------------------
 
 ;; EP-0018: every event registers under the ONE form — the framework
@@ -201,7 +220,7 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync
       [:rf.xray.static.interceptors/set-registry-override-for-test {}])
-    (let [tree (panel/Panel)]
+    (let [tree (panel-tree)]
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-interceptors-empty"))))))
 
 (deftest panel-renders-rows-from-override
@@ -210,7 +229,7 @@
     (rf/dispatch-sync
       [:rf.xray.static.interceptors/set-registry-override-for-test
        sample-events-with-chains])
-    (let [tree (panel/Panel)
+    (let [tree (panel-tree)
           rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-static-interceptors-row-")]
       (is (= 3 (count rows)) "three collapsed interceptor rows rendered"))))
 
@@ -221,7 +240,7 @@
       [:rf.xray.static.interceptors/set-registry-override-for-test
        sample-events-with-chains])
     (rf/dispatch-sync [:rf.xray.static.interceptors/set-query "no-such-id"])
-    (let [tree (panel/Panel)]
+    (let [tree (panel-tree)]
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-interceptors-empty-filtered"))))))
 
 ;; -------------------------------------------------------------------------
@@ -235,7 +254,7 @@
       (rf/dispatch-sync
         [:rf.xray.static.interceptors/set-registry-override-for-test
          sample-events-with-chains])
-      (let [tree (panel/Panel)
+      (let [tree (panel-tree)
             list-node (rf.test-helpers/find-by-testid tree "rf-xray-static-interceptors-list")
             rows (rf.test-helpers/find-by-testid-prefix
                    tree "rf-xray-static-interceptors-row-")]
@@ -243,3 +262,50 @@
         (is (seq rows) "rows rendered")
         (is (every? #(= "listitem" (:role (second %))) rows)
             "every row carries role=listitem")))))
+
+;; -------------------------------------------------------------------------
+;; (5) row identity reaches the RENDERER, not just Clojure metadata
+;;     (rf2-k97c.3)
+;; -------------------------------------------------------------------------
+
+(deftest panel-rows-carry-their-key-in-an-attribute-map
+  (testing "rf2-k97c.3 — every catalogue row carries its React key in an
+            ATTRIBUTE MAP, which is the ONE spelling Fresco's codec reads
+            (its head table: a literal `:key` in the attr map, on the
+            fragment for `[:<> …]`). It reads Clojure metadata NOWHERE, so
+            the `^{:key …}` this panel used to carry survives Reagent and
+            reaches React as nothing under a boundary.
+
+            A row asserting on that metadata is a HOLLOW GATE: it passes
+            while React receives no key at all. And a lost key does not
+            fail — it degrades into index-based reconciliation, which
+            paints identically and corrupts identity only once the list
+            changes shape, which is why this is asserted at all rather
+            than left to the eye."
+    (setup-xray!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync
+        [:rf.xray.static.interceptors/set-registry-override-for-test
+         sample-events-with-chains])
+      (let [tree      (panel-tree)
+            list-node (rf.test-helpers/find-by-testid
+                        tree "rf-xray-static-interceptors-list")
+            row-forms (rf.test-helpers/children list-node)
+            keys-seen (mapv #(:key (rf.test-helpers/attrs %)) row-forms)]
+        (is (= 3 (count row-forms))
+            "PRECONDITION: three rows rendered — otherwise every claim
+             below is vacuous")
+        (is (every? string? keys-seen)
+            (str "every row's key is in its own attribute map. Got: "
+                 (pr-str keys-seen)))
+        (is (= (count keys-seen) (count (set keys-seen)))
+            "and the keys are distinct, so React can tell the rows apart")
+        (is (= (sort keys-seen)
+               (sort (mapv #(pr-str (:id %))
+                           (panel/collect-interceptors
+                             sample-events-with-chains))))
+            "the key EXPRESSION is unchanged by the move — still the row's
+             own interceptor id, so identity means what it always meant")
+        (is (every? #(nil? (meta %)) row-forms)
+            "and nothing is left riding on Clojure metadata, which would be
+             a second spelling the codec cannot see")))))
