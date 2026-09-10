@@ -35,6 +35,9 @@
         the projection cache)
     W5  TWO panels mounted at once under one logical `:mount-id` are
         independent, and one's unmount leaves the other whole (rf2-d2aj)
+    W6  a leaf TYPE CHANGE renders through the codec — the R7 branch is
+        on this boundary's render path and Fresco grades every head it
+        emits (rf2-osas / rf2-qhoj)
 
   W4 is the row this widget needed and `module_view` did not. That panel
   holds no per-mount mutable state; this one holds three pieces of it, and
@@ -198,16 +201,20 @@
   `as-component` bridge as a Reagent hiccup head inside a
   `frame-provider` scoping `frame`. Committed synchronously — React 19's
   `root.render` is otherwise async and the first assertion would read an
-  empty container."
-  [frame]
-  (let [container (.createElement js/document "div")
-        root      (rdc/create-root container)]
-    (.appendChild (.-body js/document) container)
-    (react-dom/flushSync
-      (fn []
-        (rdc/render root [rf/frame-provider {:frame frame}
-                          [:> HostPanel-component {}]])))
-    {:container container :root root}))
+  empty container.
+
+  The 2-arity names WHICH panel to mount, so W6 drives its own diff-bearing
+  host through this same commit rather than standing up a second one."
+  ([frame] (mount-host! frame HostPanel-component))
+  ([frame component]
+   (let [container (.createElement js/document "div")
+         root      (rdc/create-root container)]
+     (.appendChild (.-body js/document) container)
+     (react-dom/flushSync
+       (fn []
+         (rdc/render root [rf/frame-provider {:frame frame}
+                           [:> component {}]])))
+     {:container container :root root})))
 
 (defn- teardown!
   "Unmount inside `flushSync` so React's cleanup effects — which is where
@@ -222,10 +229,12 @@
 
 (defn- container-node
   "The widget's own root element, addressed by the testid the renderer
-  composes from panel-id and mount-id."
-  [container]
-  (q container (str "[data-testid=\"rf-xray-edn-inspector-"
-                    (name panel-id) "-" mount-id "\"]")))
+  composes from panel-id and mount-id. The 2-arity names another mount's
+  id, which is what W6's separate host needs."
+  ([container] (container-node container mount-id))
+  ([container mid]
+   (q container (str "[data-testid=\"rf-xray-edn-inspector-"
+                     (name panel-id) "-" mid "\"]"))))
 
 (defn- a-expanded
   "The `data-rf-expanded` flag on the `[:a]` container node — \"1\", \"0\",
@@ -708,3 +717,161 @@
               (.then (fn [_]
                        (teardown! root container)
                        (done)))))))))
+
+;; ===========================================================================
+;; W6 — A LEAF TYPE CHANGE, RENDERED THROUGH THE CODEC (rf2-osas / rf2-qhoj)
+;; ===========================================================================
+;;
+;; rf2-qhoj was a P1 whose repair was one token wide, and every suite in this
+;; tree stayed green straight through the defect. This row is the coverage
+;; deliberately withheld from that fix so the one-token repair could land
+;; clean.
+;;
+;; ## What the defect was, and why the codec is the whole point
+;;
+;; The R7 type-change suffix renders the PRIOR side with the widget's `mini`
+;; renderer, which is a plain function. Under Reagent a plain function in
+;; hiccup head position IS a component and renders happily; under Fresco it
+;; is a loud error by design (HD-016, `:rf.error/fresco-bad-head`). That
+;; branch sits on `ei/edn-inspector-view`'s render path with no error
+;; boundary above it, so the throw escaped the boundary and React unmounted
+;; the entire Xray root — which presents as a panel that never appeared
+;; rather than as an error.
+;;
+;; ## Why three tiers of existing coverage all missed it
+;;
+;;   - the smoke-tier scenario clicks the app-db tab on `/counter/`, where
+;;     the diff is number → number and structurally cannot reach a leaf type
+;;     change at all;
+;;   - the panel's unit rows walk `panel-tree` hiccup or read the boundary's
+;;     props, so no codec ever grades the inspector's own body;
+;;   - W1–W5 above DO render through the codec, but pass no `:before`, so the
+;;     widget is never in diff mode.
+;;
+;; This row is the intersection nobody occupied: diff mode AND the codec, in
+;; one real mount.
+;;
+;; ## The witness, and why it is not literally `nil` → `"a string"`
+;;
+;; `engine/type-change?` is set for a CONTAINER KIND FLIP only — the diff
+;; engine's own `yucxn-number-to-string-is-not-type-change` row pins that a
+;; scalar → scalar replacement is not one. The incident's nil → 20 KiB string
+;; reached the branch because the framework's size walk had ALREADY elided
+;; that string into the `{:rf.size/large-elided …}` sentinel, which is a MAP.
+;;
+;; So the two classifiers disagree about that value on purpose, and the
+;; disagreement is exactly what keeps this branch reachable: the diff engine
+;; reads the sentinel as a container (nil → container is R7), while the
+;; inspector reads it as `:sentinel-large` and therefore renders it as a
+;; LEAF. Reproducing the incident means reproducing that PAIR, not the
+;; pre-elision string.
+
+(def ^:private type-change-mount-id
+  "W6's own mount, so its width slot, popup id and container testid cannot
+  collide with the browse-mode mount every row above shares."
+  "edn-inspector-boundary-type-change")
+
+(def ^:private type-change-before
+  "The prior side: the slot exists and holds `nil`.
+
+  Present-and-nil, NOT absent — `engine/value-at` distinguishes the two with
+  `contains?`, and an absent key would classify `:added` and route around the
+  `:modified` branch this row is about."
+  {:a nil})
+
+(def ^:private type-change-after
+  "The after side: the size-elision sentinel the framework substitutes for an
+  over-budget value, shaped as `ei/large-sentinel?` recognises it
+  (`{:rf.size/large-elided <body-map>}`, emitted by core's `elision.cljc`).
+
+  No width dependency here: an ancestor of a changed descendant force-opens
+  regardless of the default-expand heuristic, so the `:a` row is on screen at
+  first paint whatever column the mount measures for itself."
+  {:a {:rf.size/large-elided
+       {:path   [:a]
+        :bytes  20480
+        :type   "string"
+        :reason :rf.size/over-budget}}})
+
+(rf.fresco/defview TypeChangeHostPanel
+  "The same migrated-panel shape as [[HostPanel]], in diff mode. The value
+  and its prior side both live on the Fresco side and reach the widget as
+  ordinary Clojure arguments — the ns docstring's crossing note applies here
+  unchanged, and a diff pair is exactly the sort of value that could not
+  survive a Reagent prop conversion."
+  [_props]
+  [:div {:data-testid "rf-xray-type-change-host-panel"}
+   [ei/edn-inspector-view
+    {:mount-id type-change-mount-id
+     :value    type-change-after
+     :opts     (assoc inspector-opts :before type-change-before)}]])
+
+(def ^:private TypeChangeHostPanel-component
+  "Declared once at top level, as `as-component`'s contract requires."
+  (rf.fresco/as-component TypeChangeHostPanel))
+
+(defn- type-change-annotation
+  "The R7 suffix node, or nil. Its presence is the evidence that the branch
+  under test actually EXECUTED, rather than the pair being classified some
+  other way and this row passing on a render that never reached it."
+  [container]
+  (q container "[data-rf-diff-annotation=\"type-change\"]"))
+
+(defn- mini-in
+  "The `mini` render inside `node`, or nil. Scoped to the annotation rather
+  than to the container, because the sentinel chip beside it is its own
+  render and a container-wide query could not tell the two apart."
+  [node]
+  (some-> node (.querySelector "[data-testid=\"rf-xray-edn-inspector-mini\"]")))
+
+(deftest w6-a-leaf-type-change-renders-through-the-fresco-codec
+  (testing "rf2-osas / rf2-qhoj — a leaf whose type changed renders its R7
+            prior-value suffix through Fresco's codec. The prior side is
+            produced by CALLING the `mini` renderer; handing that plain
+            function to the codec as a hiccup head instead is HD-016, and the
+            throw takes the whole root down with it.
+
+            Read the assertions in order: the first two are the regression —
+            under the defect there is no DOM here at all, because React
+            unmounted the root — and the last three are what makes the green
+            mean something, that the type-change branch is the one that ran
+            and that `mini` contributed a RENDERED CHILD rather than a head."
+    (if-not (browser?)
+      (is true ":node — the :browser-test runner drives the real React mount")
+      (let [_ (setup!)
+            {:keys [container root]} (mount-host! :rf/xray
+                                                  TypeChangeHostPanel-component)]
+        (try
+          (is (some? (q container
+                        "[data-testid=\"rf-xray-type-change-host-panel\"]"))
+              "PRECONDITION: the host panel committed real DOM through the
+               as-component bridge, so a nil below is the widget's own failure
+               rather than a mount that never happened")
+          (is (some? (container-node container type-change-mount-id))
+              (str "THE REGRESSION: the widget rendered its own container. "
+                   "Under the defect this is nil and so is everything after "
+                   "it — the bad head throws out of the boundary, nothing "
+                   "above catches it, and React unmounts the whole root."))
+
+          ;; ---- the branch under test is the one that ran ------------------
+          (let [ann (type-change-annotation container)]
+            (is (some? ann)
+                (str "the R7 type-change suffix is on screen, so the leaf "
+                     "really did take the `:modified` + type-change branch "
+                     "rather than a plain scalar modification. Diff ops "
+                     "present: "
+                     (pr-str (mapv #(.getAttribute % "data-rf-diff-op")
+                                   (array-seq
+                                     (.querySelectorAll
+                                       container "[data-rf-diff-op]"))))))
+            (is (some? (mini-in ann))
+                "and the prior value inside it was RENDERED — the mini span is
+                 a child of the suffix, which is what a called renderer
+                 produces and what a head-position plain function cannot")
+            (is (= "nil" (some-> (mini-in ann) (.getAttribute "title")))
+                (str "over the PRIOR side specifically rather than the after "
+                     "side: the suffix reads the before value out of the "
+                     "projection. Got: "
+                     (pr-str (some-> (mini-in ann) (.getAttribute "title"))))))
+          (finally
+            (teardown! root container)))))))
