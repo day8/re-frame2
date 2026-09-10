@@ -80,6 +80,7 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.schemas :as rf.schemas]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
@@ -121,21 +122,28 @@
 
 ;; ---- W5's two-row fixture -------------------------------------------------
 ;;
-;; Both rows are `:event` kind, so the sort key `[(name kind) (pr-str id)]`
-;; reduces to `(pr-str id)` and `:aaa/first` really is the HEAD row. A tail
+;; Both rows are APP-DB kind, so the sort key `[(name kind) (pr-str id)]`
+;; reduces to `(pr-str id)` and `[:aaa]` really is the HEAD row. A tail
 ;; removal leaves the survivor untouched under EITHER key spelling and would
 ;; make the row vacuous — which is why W5 asserts the head position before
 ;; it removes anything.
+;;
+;; APP-DB rather than event/sub rows DELIBERATELY. The app-db side is keyed
+;; on `:schema`, which is the canonical registration-metadata key; the
+;; event/sub side of this panel reads `:spec`, which M-54 RETIRED — see the
+;; standing finding in this file's sibling note and on rf2-k97c.3. Building
+;; new evidence on the retired spelling would bake a live defect into a
+;; fixture, and the defect is not this slice's to fix.
 
 (def ^:private two-rows
-  {:schemas-by-frame {}
-   :events {:aaa/first  {:spec [:tuple :keyword] :doc "head"}
-            :bbb/second {:spec [:tuple :string]  :doc "survivor"}}
+  {:schemas-by-frame {:rf/default {[:aaa] {:schema [:map [:a :int]] :doc "head"}
+                                   [:bbb] {:schema [:map [:b :int]] :doc "survivor"}}}
+   :events {}
    :subs   {}})
 
 (def ^:private one-row
-  {:schemas-by-frame {}
-   :events {:bbb/second {:spec [:tuple :string] :doc "survivor"}}
+  {:schemas-by-frame {:rf/default {[:bbb] {:schema [:map [:b :int]] :doc "survivor"}}}
+   :events {}
    :subs   {}})
 
 (use-fixtures :each
@@ -317,26 +325,30 @@
         (setup!)
         (let [{:keys [container root]} (mount-panel! :rf/xray)
               section (q container "[data-testid=\"rf-xray-static-schemas\"]")
-              probe?  (fn [] (some? (row-node container "event-:probe/late-spec")))]
+              probe?  (fn [] (some? (row-node container "app-db-[:probe]")))]
           (is (some? section)
               "PRECONDITION: the panel is on screen at all")
           (is (not (probe?))
-              "NON-VACUITY: the spec'd event this row drives in is NOT on
+              "NON-VACUITY: the app-db schema this row drives in is NOT on
                screen before it is registered")
 
           ;; ---- phase 2: the world moves, and the panel is deaf ------------
-          ;; The panel's registry sub reads the process-global `:event`
-          ;; registrar and is gated on `:rf.xray/trace-buffer`. Registering an
-          ;; event carrying a `:spec` changes what the read WOULD compute
-          ;; while invalidating nothing it watches.
-          (rf/reg-event :probe/late-spec
-            {:spec [:tuple :keyword]}
-            (fn [{:keys [db]} _] {:db db}))
-          (is (some? (:spec (get (rf/registrations {:source :store :kind :event})
-                                 :probe/late-spec)))
+          ;; The panel's registry sub assembles its three inputs from public
+          ;; surfaces and is gated on `:rf.xray/trace-buffer`. Registering a
+          ;; real app-db schema changes what the read WOULD compute while
+          ;; invalidating nothing it watches.
+          ;;
+          ;; The APP-DB registry is the lever rather than the event registrar
+          ;; because the event/sub side of this panel reads the RETIRED
+          ;; `:spec` key (M-54 renamed it to `:schema`, and `reg-event` now
+          ;; hard-errors on `:spec`), so no real event registration can ever
+          ;; surface a row there. That is a standing finding on rf2-k97c.3,
+          ;; not something this row is entitled to work around.
+          (rf/reg-app-schema [:probe] {:frame app-frame} [:map [:p :int]])
+          (is (some? (get (rf.schemas/app-schemas {:frame app-frame}) [:probe]))
               "PRECONDITION: the read's UNDERLYING data now carries the new
-               event spec — so a missing row below is the panel failing to
-               re-render, and not the spec failing to exist")
+               app-db schema — so a missing row below is the panel failing to
+               re-render, and not the schema failing to exist")
           (-> (settle)
               (.then
                 (fn [_]
@@ -511,8 +523,8 @@
         (setup-with-overrides!)
         (override! two-rows)
         (let [{:keys [container root]} (mount-panel! :rf/xray)
-              head     (row-node container "event-:aaa/first")
-              survivor (row-node container "event-:bbb/second")]
+              head     (row-node container "app-db-[:aaa]")
+              survivor (row-node container "app-db-[:bbb]")]
           (is (some? head)     "PRECONDITION: the head row is on screen")
           (is (some? survivor) "PRECONDITION: the survivor row is on screen")
           (is (= 2 (count (row-nodes container)))
@@ -530,9 +542,9 @@
                 {:label "the head row left the committed DOM"})
               (.then
                 (fn [_]
-                  (is (nil? (row-node container "event-:aaa/first"))
+                  (is (nil? (row-node container "app-db-[:aaa]"))
                       "the removed row is gone from the committed DOM")
-                  (is (identical? survivor (row-node container "event-:bbb/second"))
+                  (is (identical? survivor (row-node container "app-db-[:bbb]"))
                       "and the survivor is the IDENTICAL DOM node React
                        already had — which is only true if the key reached
                        React. With the key lost to metadata the codec cannot
@@ -569,19 +581,20 @@
         (setup-with-overrides!)
         ;; A row carrying real source coords, so the chip resolves a URI and
         ;; renders rather than returning nil.
-        (override! {:schemas-by-frame {}
-                    :events {:coord/probe {:spec [:tuple :keyword]
-                                           :doc  "carries source coords"
-                                           :file "src/probe.cljs"
-                                           :line 7}}
+        (override! {:schemas-by-frame
+                    {:rf/default {[:coord] {:schema [:map [:c :int]]
+                                            :doc    "carries source coords"
+                                            :file   "src/probe.cljs"
+                                            :line   7}}}
+                    :events {}
                     :subs   {}})
         (let [{:keys [container root]} (mount-panel! :rf/xray)]
           (-> (rf.test-support/poll-until
-                (fn [] (some? (row-node container "event-:coord/probe")))
+                (fn [] (some? (row-node container "app-db-[:coord]")))
                 {:label "the coord-bearing row committed"})
               (.then
                 (fn [_]
-                  (is (some? (row-node container "event-:coord/probe"))
+                  (is (some? (row-node container "app-db-[:coord]"))
                       "PRECONDITION: the row itself is on screen, so a missing
                        chip below is the chip's absence and not the row's")
                   (is (some? (q container "[data-testid=\"xray-open-in-editor\"]"))
