@@ -2151,15 +2151,26 @@
         ;; the header dividers + every row's out-of-render dispatches
         ;; (body-click focus, context menu, col resize) so they land on
         ;; the surrounding instance frame.
+        ;; rf2-a38l — these three sibling keys ride an ATTRIBUTE MAP, never
+        ;; `^{:key …}` reader meta. Meta on a vector literal reaches React
+        ;; under Reagent and reaches it NOWHERE under Fresco, whose codec
+        ;; reads a literal `:key` from the attribute map and Clojure
+        ;; metadata not at all — so the meta spelling works today and would
+        ;; drop every key here, silently, the day this list renders under a
+        ;; boundary. `l2-column-header` takes both arguments positionally,
+        ;; so its key rides a KEYED FRAGMENT (the rf2-k97c.3 shape) rather
+        ;; than a props map that would shift them; `event-row` already
+        ;; takes one opts map, so its key rides that, which is where a
+        ;; boundary head reads `:key` from and where the body never sees it.
         (list
-         ^{:key "header"} [l2-column-header col-widths dispatch]
-         (into ^{:key "rows"}
-               [:ul {:style {:list-style "none" :margin 0 :padding 0
-                            :display "flex" :flex-direction "column"
-                            :gap "2px"}}]
+         [:<> {:key "header"} [l2-column-header col-widths dispatch]]
+         (into [:ul {:key "rows"
+                     :style {:list-style "none" :margin 0 :padding 0
+                             :display "flex" :flex-direction "column"
+                             :gap "2px"}}]
               (for [event-bundle event-bundles]
-                ^{:key (str (:dispatch-id event-bundle))}
-                [event-row {:event-bundle     event-bundle
+                [event-row {:key              (str (:dispatch-id event-bundle))
+                            :event-bundle     event-bundle
                             :focused-id  focused-id
                             :auto-track? auto-track?
                             :now-ms      now-ms
@@ -2328,11 +2339,16 @@
       "selected"]
      ;; rf2-2moh1 — iterate `dynamic-tabs` (registry-derived) rather
      ;; than a literal vector. Tab order follows each entry's `:order`.
+     ;; rf2-a38l — KEYED FRAGMENT rather than `^{:key …}` reader meta, which
+     ;; Reagent honours and Fresco's codec reads nowhere. `tab-button`'s one
+     ;; argument is the tab map itself, so the key does NOT go there: it is
+     ;; registry-derived domain data the body destructures, and `:key` is
+     ;; React's. The fragment keeps the two apart.
      (for [{:keys [id] :as tab} (dynamic-tabs)]
-       ^{:key id}
-       ;; rf2-r0o63 — thread the captured frame-aware dispatcher so the
-       ;; tab click's select-tab write lands on the instance frame.
-       [tab-button (assoc tab :active? (= id selected) :dispatch-fn dispatch)])
+       [:<> {:key id}
+        ;; rf2-r0o63 — thread the captured frame-aware dispatcher so the
+        ;; tab click's select-tab write lands on the instance frame.
+        [tab-button (assoc tab :active? (= id selected) :dispatch-fn dispatch)]])
      ;; rf2-hga49 — `margin-left:auto` spacer pushes the Reset cluster to
      ;; the FAR RIGHT of the ribbon, past the tab buttons.
      [:span {:data-testid "rf-xray-tab-bar-spacer"
@@ -2440,13 +2456,18 @@
                    :background  (:bg-2 tokens)
                    :color       (:text-primary tokens)}}
      ;; rf2-5kfxe.3 — re-mount on selected-tab change so the fade-in
-     ;; keyframes auto-play. The `^{:key selected}` reader-meta is on a
-     ;; *vector literal* (the wrapper `[:div ...]`), so Reagent's
-     ;; `get-react-key` picks it up via the vector's meta (no
-     ;; `with-meta` needed here — different from the function-call
-     ;; case in `render-sections`).
-     ^{:key selected}
-     [:div {:data-testid (str "rf-xray-detail-panel-fade-"
+     ;; keyframes auto-play.
+     ;;
+     ;; rf2-a38l — the remount key rides the ATTRIBUTE MAP below. It used
+     ;; to be `^{:key selected}` reader meta on that vector literal, which
+     ;; Reagent's `get-react-key` does read — but Fresco's codec takes a
+     ;; literal `:key` from the attribute map and reads Clojure metadata
+     ;; nowhere, so under a boundary the wrapper would keep ONE identity
+     ;; across every tab change and the fade would simply stop playing:
+     ;; no error, no warning, just an animation that never re-triggers.
+     ;; The attribute map is honoured by both substrates.
+     [:div {:key         selected
+            :data-testid (str "rf-xray-detail-panel-fade-"
                               (name selected))
             :style {:height     "100%"
                     ;; Keyframes named in `global-styles/motion-css`.
