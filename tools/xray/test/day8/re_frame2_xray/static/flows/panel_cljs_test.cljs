@@ -26,7 +26,6 @@
             ;; registers real flows through `rf/reg-flow`.
             [re-frame.flows :as rf.flows]
             [re-frame.frame :as rf.frame]
-            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.flows.panel :as panel]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -42,15 +41,61 @@
 
 ;; ---- hiccup walkers ------------------------------------------------------
 ;;
-;; The private expand-tree / hiccup-seq / find-by-testid* copies this file
-;; carried are semantically identical to `re-frame.test-helpers`; the tests
-;; below call `rf.test-helpers/find-by-testid` / `rf.test-helpers/find-by-testid-prefix` directly
-;; (rf2-vj80u8 — no Xray walker facade).
+;; PLAIN DESCENT — nothing is CALLED. These rows used
+;; `rf.test-helpers/find-by-testid` / `…/find-by-testid-prefix`, which EXPAND
+;; function components as they walk (rf2-vj80u8 retired this file's private
+;; copies in favour of them).
+;;
+;; rf2-k97c.3 made that expansion UNSAFE. Every plain helper the panel used
+;; to head with is now CALLED, so its markup is already realized in the tree
+;; and a shallow walk suffices again — but the one fn-headed vector that
+;; REMAINS is `[ei/edn-inspector-view …]`, a FRESCO BOUNDARY: a React
+;; function component whose body may only run inside a React render window.
+;; Applying it here would run `rf.fresco/sub` outside the collector, which
+;; is not a leaf-expansion at all. So the widget stays a LEAF, exactly as
+;; `panels/app_db_diff_cljs_test` already settled for the same reason.
+
+(defn- hiccup-nodes [tree]
+  (tree-seq (some-fn vector? seq?) seq tree))
+
+(defn- find-by-testid [tree testid]
+  (some (fn [node]
+          (when (and (vector? node)
+                     (map? (second node))
+                     (= testid (:data-testid (second node))))
+            node))
+        (hiccup-nodes tree)))
+
+(defn- find-by-testid-prefix [tree prefix]
+  (filterv (fn [node]
+             (and (vector? node)
+                  (map? (second node))
+                  (some-> (:data-testid (second node))
+                          (.startsWith prefix))))
+           (hiccup-nodes tree)))
 
 (defn- setup-xray! []
   (registry/register-xray-handlers!)
   (xray-test-support/install-test-overrides!)
   (rf/make-frame {:id :rf/xray}))
+
+(defn- panel-tree
+  "The hiccup the view rows below walk, driven through the pure projection.
+
+  rf2-k97c.3 — `panel/Panel` is now an `rf.fresco/defview` boundary, a real
+  React function component whose body may only run inside a React render
+  window, so `(panel/Panel)` is no longer a callable that answers hiccup.
+  This helper REPRODUCES THE BOUNDARY'S READ EXACTLY — the one
+  `:rf.xray.static.flows/tab-data` query the boundary issues — and hands the
+  value to `panel/panel-tree`, so every row below asserts on the same hiccup
+  it asserted on before.
+
+  The dispatcher is nil: no row here types into the search box, and the
+  search box only calls it from `:on-change`. The boundary's OWN behaviour
+  — first paint, liveness, frame targeting, evidence isolation, teardown
+  and row identity — is `panel_fresco_boundary_dom_cljs_test`'s subject."
+  []
+  (panel/panel-tree @(rf/subscribe [:rf.xray.static.flows/tab-data]) nil))
 
 ;; ---- fixture data -------------------------------------------------------
 
@@ -220,8 +265,8 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync
       [:rf.xray.static.flows/set-registered-flows-override-for-test {}])
-    (let [tree (panel/Panel)]
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-flows-empty"))
+    (let [tree (panel-tree)]
+      (is (some? (find-by-testid tree "rf-xray-static-flows-empty"))
           "empty-state surface mounts"))))
 
 (deftest panel-renders-rows-from-override
@@ -230,10 +275,10 @@
     (rf/dispatch-sync
       [:rf.xray.static.flows/set-registered-flows-override-for-test
        sample-flows])
-    (let [tree (panel/Panel)
-          rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-static-flows-row-")]
+    (let [tree (panel-tree)
+          rows (find-by-testid-prefix tree "rf-xray-static-flows-row-")]
       (is (= 2 (count rows)) "two row surfaces rendered")
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-flows-search"))
+      (is (some? (find-by-testid tree "rf-xray-static-flows-search"))
           "search box rendered"))))
 
 (deftest panel-renders-filtered-state
@@ -243,8 +288,8 @@
       [:rf.xray.static.flows/set-registered-flows-override-for-test
        sample-flows])
     (rf/dispatch-sync [:rf.xray.static.flows/set-query "no-such-flow"])
-    (let [tree (panel/Panel)]
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-flows-empty-filtered"))
+    (let [tree (panel-tree)]
+      (is (some? (find-by-testid tree "rf-xray-static-flows-empty-filtered"))
           "empty-filtered surface mounts when query removes every row"))))
 
 ;; -------------------------------------------------------------------------
@@ -258,9 +303,9 @@
       (rf/dispatch-sync
         [:rf.xray.static.flows/set-registered-flows-override-for-test
          sample-flows])
-      (let [tree (panel/Panel)
-            list-node (rf.test-helpers/find-by-testid tree "rf-xray-static-flows-list")
-            rows      (rf.test-helpers/find-by-testid-prefix
+      (let [tree (panel-tree)
+            list-node (find-by-testid tree "rf-xray-static-flows-list")
+            rows      (find-by-testid-prefix
                         tree "rf-xray-static-flows-row-")]
         (is (= "list" (:role (second list-node))) "<ul> carries role=list")
         (is (seq rows) "rows rendered")
@@ -269,106 +314,182 @@
 
 ;; -------------------------------------------------------------------------
 ;; (5) EDN values render through the shared widget (rf2-2kwhw + rf2-f026h)
+;;     — since rf2-k97c.3, through its FRESCO head
 ;; -------------------------------------------------------------------------
 
-(deftest input-output-render-through-edn-widget
+(defn- inspector-view-forms
+  "Every `[ei/edn-inspector-view {…}]` form in the tree — the widget's
+  FRESCO head, and now the only fn-headed vector the panel emits.
+
+  No expansion of any kind. The panel CALLS every plain helper since
+  rf2-k97c.3, so the tree is already realized down to this leaf, and the
+  leaf must STAY a leaf: applying a boundary here would run
+  `rf.fresco/sub` outside the collector."
+  [tree]
+  (filterv #(and (vector? %) (= ei/edn-inspector-view (first %)))
+           (hiccup-nodes tree)))
+
+(deftest input-output-render-through-the-widgets-fresco-head
   (testing "rf2-2kwhw + rf2-oqa60 — input + output paths render via the
-            shared EDN widget, which post-rf2-oqa60 phase 1 delegates
-            to the first-class edn-inspector widget. The rendered tree
-            contains `rf-xray-edn-inspector-*` container testids."
+            shared EDN widget; rf2-k97c.3 — through its FRESCO head.
+
+            This row used to assert on the widget's expanded
+            `rf-xray-edn-inspector-*` CONTAINER testid, which only exists
+            once the widget has been invoked. The walker above no longer
+            invokes anything, and it must not: `ei/edn-inspector-view` is a
+            boundary whose body may only run inside a React render window.
+            So the claim moves up one level to the thing the panel actually
+            emits — and in doing so it pins the HD-016 repair directly,
+            which the old spelling could not: `ei/edn-inspector` is a plain
+            fn, and a plain fn in hiccup head position is a loud error
+            inside a Fresco body."
     (setup-xray!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync
         [:rf.xray.static.flows/set-registered-flows-override-for-test
          sample-flows])
-      (let [tree (panel/Panel)
-            widget-nodes (rf.test-helpers/find-by-testid-prefix
-                           tree "rf-xray-edn-inspector-")]
-        (is (seq widget-nodes)
-            "at least one edn-inspector widget container present")))))
+      (let [tree  (panel-tree)
+            heads (inspector-view-forms tree)]
+        ;; Two flows: 2 + 1 input paths, plus one output path each = 5.
+        (is (= 5 (count heads))
+            (str "every input and output path renders through the widget's "
+                 "Fresco head. Mount ids: "
+                 (pr-str (mapv #(:mount-id (second %)) heads))))
+        (is (empty? (filterv #(and (vector? %) (= ei/edn-inspector (first %)))
+                             (hiccup-nodes tree)))
+            "and NOT ONE `[ei/edn-inspector …]` Reagent head survives — that
+             head is a plain fn, which is a loud error in a Fresco body, so
+             a single survivor would take the whole panel down at runtime
+             rather than degrade")
+        (is (= (count heads) (count (set (map #(:mount-id (second %)) heads))))
+            "each mount gets its OWN `:mount-id` — two mounts sharing one
+             would share a width slot and a projection cache, which is the
+             per-mount identity defect rf2-d2aj records")))))
 
 ;; -------------------------------------------------------------------------
 ;; (5b) the input-path seq's React keys actually REACH the renderer
 ;;      (rf2-k97c.3, RULING 2's key sweep)
 ;; -------------------------------------------------------------------------
 
-(defn- hiccup-nodes [tree]
-  (tree-seq (some-fn vector? seq?) seq tree))
+(defn- keyed-input-fragments
+  "Every `[:<> {:key …} [ei/edn-inspector-view {…}]]` fragment wrapping an
+  INPUT path's value.
 
-(defn- row-bodies
-  "The hiccup each `[flow-row row]` form answers, expanded exactly ONE
-  level.
-
-  Deliberately NOT `rf.test-helpers/expand-tree`, which recurses: it would
-  invoke `ei/edn-inspector` too, and the component vector this row is about
-  — along with the metadata riding on it — would be gone before the
-  assertion saw it. Measured: with the recursive walker the finder below
-  read ZERO, which is the reassuring answer and would have made the whole
-  row vacuous."
+  Keyed off the boundary's `:mount-id`, which `edn-widget/inspect-view`
+  derives from the node-key the panel passes —
+  `rf-xray-inspect-static-flows/<flow>/input/<i>` for an input,
+  `…/output` for the single output value. The output value is not in a seq
+  and needs no key, so including it would make the claim below false for a
+  correct panel."
   [tree]
-  (->> (hiccup-nodes tree)
-       (filterv #(and (vector? %) (fn? (first %))))
-       (mapv #(apply (first %) (rest %)))))
+  (filterv (fn [node]
+             (and (vector? node)
+                  (= :<> (first node))
+                  (map? (second node))
+                  (let [child (nth node 2 nil)]
+                    (and (vector? child)
+                         (= ei/edn-inspector-view (first child))
+                         (re-find #"/input/"
+                                  (str (:mount-id (second child))))))))
+           (hiccup-nodes tree)))
 
-(defn- input-inspector-forms
-  "Every `[ei/edn-inspector value opts]` form rendering an INPUT path.
+(defn- fragment-mount-id [fragment]
+  (str (:mount-id (second (nth fragment 2 nil)))))
 
-  Keyed off the opts map's `:panel-id`, which `edn-widget/inspect-opts`
-  derives from the node-key the panel passes — `static-flows/<flow>/input/<i>`
-  for an input, `…/output` for the single output value. The output value is
-  not in a seq and needs no key, so including it would make the claim below
-  false for a correct panel."
-  [tree]
-  (->> (row-bodies tree)
-       (mapcat hiccup-nodes)
-       (filterv #(and (vector? %)
-                      (= ei/edn-inspector (first %))
-                      (re-find #"/input/" (str (:panel-id (nth % 2 nil))))))))
-
-(deftest input-path-rows-carry-react-keys
+(deftest input-path-rows-carry-react-keys-in-the-attribute-map
   (testing "rf2-k97c.3 — each input-path value in a flow row's `for` seq
-            carries a React key Reagent can actually read.
+            carries a React key THE SHIPPED RENDERER CAN ACTUALLY READ.
 
-            The key was written as `^{:key …}` reader metadata on the
-            `(edn/inspect …)` CALL FORM. Metadata on a source list is
-            discarded when the call returns a FRESH vector, so no key ever
-            reached React and the inputs list fell back to index-based
-            reconciliation — the same defect `static/machines/sim.cljs`
-            already met and works around with `with-meta`.
+            THIS ROW HAS BEEN WRONG TWICE, in two different ways, and the
+            second way is the one worth recording. The key started life as
+            `^{:key …}` reader metadata on the `(edn/inspect …)` CALL FORM —
+            discarded on return, so nothing ever reached React. It was then
+            repaired to `with-meta` on the returned VECTOR, and this row was
+            written to assert on exactly that metadata.
 
-            This asserts on VECTOR METADATA and that is NOT the hollow gate
-            the migration warns about, because this panel is still an
-            `rf/reg-view` rendered by Reagent, whose `get-react-key` reads
-            `:key` from exactly there. A panel migrated to a Fresco boundary
-            must move the key into an attribute map instead — the codec
-            reads metadata nowhere."
+            THAT ASSERTION IS NOW A HOLLOW GATE, and it would have stayed
+            green through this migration while React received nothing:
+            Fresco's codec reads `:key` from an ATTRIBUTE MAP and reads
+            Clojure metadata NOWHERE. A lost key does not fail — it degrades
+            into index-based reconciliation, which paints identically. So
+            this row no longer looks at metadata at all; it reads the key off
+            the keyed fragment's attribute map, which is the one spelling
+            that reaches the renderer.
+
+            The browser lane's W5 closes the loop from the other side, on a
+            real React commit: it removes the HEAD of a two-row list and
+            asserts the survivor is the same DOM node."
     (setup-xray!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync
         [:rf.xray.static.flows/set-registered-flows-override-for-test
          sample-flows])
-      (let [tree   (panel/Panel)
-            inputs (input-inspector-forms tree)]
-        (is (<= 2 (count inputs))
+      (let [tree      (panel-tree)
+            fragments (keyed-input-fragments tree)]
+        (is (<= 2 (count fragments))
             (str "PRECONDITION: at least two input-path values rendered in "
                  "one seq — a single-element seq needs no key, so a smaller "
                  "count would make the claim below vacuous. Got: "
-                 (count inputs)))
-        (is (every? #(some? (:key (meta %))) inputs)
-            (str "every input-path value carries a React key. Metadata seen: "
-                 (pr-str (mapv meta inputs))))
+                 (count fragments)))
+        (is (every? #(some? (:key (second %))) fragments)
+            (str "every input-path value carries a React key IN THE "
+                 "ATTRIBUTE MAP, which is where both Reagent's "
+                 "`get-react-key` and Fresco's codec look. Attribute maps "
+                 "seen: " (pr-str (mapv second fragments))))
         ;; Uniqueness is a PER-SEQ property, not a global one: React only
         ;; needs a key to distinguish SIBLINGS, and each flow row owns its
-        ;; own inputs seq. Grouping by the flow the panel-id names is what
+        ;; own inputs seq. Grouping by the flow the mount-id names is what
         ;; makes this a real claim — asserted globally it reads red on a
         ;; correct panel, because two flows both start their seq at `in-0`.
-        (is (every? (fn [[_ forms]]
-                      (= (count forms)
-                         (count (set (map #(:key (meta %)) forms)))))
+        (is (every? (fn [[_ frags]]
+                      (= (count frags)
+                         (count (set (map #(:key (second %)) frags)))))
                     (group-by #(second (re-find #"^(.*)/input/"
-                                                (str (:panel-id (nth % 2 nil)))))
-                              inputs))
+                                                (fragment-mount-id %)))
+                              fragments))
             "and within any ONE row's seq the keys are distinct")))))
+
+(deftest row-keys-ride-the-attribute-map-not-metadata
+  (testing "rf2-k97c.3, RULING 2's key sweep — the catalogue ROW key (a
+            second, independent key site in this panel) is carried on a
+            keyed FRAGMENT'S ATTRIBUTE MAP too.
+
+            It was `^{:key …}` reader metadata on the row's vector literal.
+            Reagent's `get-react-key` does read that, so it worked; Fresco's
+            codec reads `:key` from an attribute map and reads Clojure
+            metadata NOWHERE, so it would have gone inert the moment this
+            panel started rendering through a boundary — silently, since a
+            lost key degrades into index-based reconciliation rather than
+            failing."
+    (setup-xray!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync
+        [:rf.xray.static.flows/set-registered-flows-override-for-test
+         sample-flows])
+      (let [tree      (panel-tree)
+            rows      (find-by-testid-prefix tree "rf-xray-static-flows-row-")
+            fragments (filterv (fn [node]
+                                 (and (vector? node)
+                                      (= :<> (first node))
+                                      (map? (second node))
+                                      (contains? (second node) :key)
+                                      ;; the ROW fragments, not the input-seq
+                                      ;; ones, which wrap a boundary rather
+                                      ;; than an `<li>`
+                                      (let [child (nth node 2 nil)]
+                                        (and (vector? child)
+                                             (= :li (first child))))))
+                               (hiccup-nodes tree))]
+        (is (= 2 (count rows))
+            "PRECONDITION: the fixture's two rows rendered — a smaller count
+             would make the key claim vacuous")
+        (is (= (count rows) (count fragments))
+            (str "every row is wrapped in a keyed fragment. Keys seen: "
+                 (pr-str (mapv #(:key (second %)) fragments))))
+        (is (every? #(some? (:key (second %))) fragments)
+            "and each key is non-nil IN THE ATTRIBUTE MAP")
+        (is (= (count fragments) (count (set (map #(:key (second %)) fragments))))
+            "and the row keys are distinct from one another")))))
 
 ;; -------------------------------------------------------------------------
 ;; (6) LIVE production data source regression (rf2-20359j)
