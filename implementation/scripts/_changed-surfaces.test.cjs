@@ -507,15 +507,29 @@ test('the unconditional walk lane runs every namespace whose false arm it excuse
       'exists to avoid rather than relocate',
   );
 
-  // Step conditions are allowed for exactly ONE purpose (rf2-gf3y). The seven
-  // walks are independent of one another, so each carries `if: ${{ !cancelled() }}`
-  // and runs even when an earlier walk has failed. Without it GitHub's default
-  // step condition (`success()`) makes the first failing walk SKIP the six behind
-  // it. That never admitted a bad merge — the job reds either way — but it hid
-  // that the six were never EVALUATED, so the green after the fix was the first
-  // time they had run at all and looked identical to one that had always passed.
-  // Anything OTHER than that exact guard at step level is the same read-set model
-  // wearing a different indentation, so it is refused here.
+  // Step conditions are allowed for exactly ONE spelling (rf2-gf3y, rf2-7lj2):
+  //
+  //     if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+  //
+  // The seven walks are independent OF ONE ANOTHER, so each runs even when an
+  // earlier WALK has failed. Without a condition, GitHub's default step
+  // condition (`success()`) makes the first failing walk SKIP the six behind it.
+  // That never admitted a bad merge — the job reds either way — but it hid that
+  // the six were never EVALUATED, so the green after the fix was the first time
+  // they had run at all and looked identical to one that had always passed.
+  //
+  // The `steps.setup` conjunct is NOT decoration, and this pin is what stops it
+  // being trimmed back to a bare `!cancelled()`: a status-check function
+  // REPLACES the implicit `success()` rather than adding to it, and
+  // `cancelled()` reports cancellation and never a preceding failure — so
+  // `!cancelled()` ALONE selects all seven walks after a failed checkout or a
+  // failed Clojure CLI install, turning one honest setup failure into seven
+  // missing-tool ones. That was the defect in rf2-gf3y's own repair, and
+  // leaving the setup steps at their default `success()` does not restore the
+  // prerequisite on the steps behind them.
+  //
+  // Anything OTHER than that exact guard at step level is the read-set model of
+  // the job-level `if:` above wearing a different indentation, so it is refused.
   //
   // `\r` is stripped before the comparison: `jobBlock` preserves CRLF, and this
   // file is checked out CRLF on Windows, so a trailing carriage return would sit
@@ -526,18 +540,38 @@ test('the unconditional walk lane runs every namespace whose false arm it excuse
   for (const cond of stepConditions) {
     assert.match(
       cond,
-      /^ {8}if: \$\{\{ !cancelled\(\) \}\}$/,
+      /^ {8}if: \$\{\{ !cancelled\(\) && steps\.setup\.outcome == 'success' \}\}$/,
       `"${cond.trim()}" is a step condition other than the permitted ` +
-        '`!cancelled()` failure-independence guard',
+        'setup-gated failure-independence guard',
     );
   }
   assert.equal(
     stepConditions.length,
     REPO_SOURCE_WALK_NAMESPACES.length,
-    'every walk step must carry `if: ${{ !cancelled() }}`, so a failing walk cannot ' +
-      'skip the walks behind it. The setup steps (checkout, JDK, Clojure CLI, ' +
-      'Maven cache) deliberately carry no guard: a walk whose JDK never installed ' +
-      'fails for a reason that is not about the walk',
+    "every walk step must carry `if: ${{ !cancelled() && steps.setup.outcome == " +
+      "'success' }}`, so a failing walk cannot skip the walks behind it while a " +
+      'failed prerequisite still can. The setup steps deliberately carry no ' +
+      'guard of their own: that is what makes the `setup` marker transitive',
+  );
+
+  // The guard above names a step id, and a MISSING id fails OPEN — GitHub
+  // evaluates `steps.setup.outcome` to null, `null == 'success'` is false, so
+  // all seven walks SKIP and the job still reports green. Pin the marker.
+  assert.match(
+    block,
+    /^ {6}- name: Essential setup complete\r?\n {8}id: setup\r?\n {8}run:[^\n]*\r?\n/m,
+    'the `setup` marker step must sit after the Clojure CLI install and carry ' +
+      'NO condition of its own. Its default `success()` is what makes it ' +
+      'transitive: it reaches `success` only when the checkout, the JDK and the ' +
+      'Clojure CLI install all succeeded, since a step skipped by a failure ' +
+      'ahead of it reports `skipped`. Delete it and every walk condition reads ' +
+      'null, so all seven SKIP on a green job',
+  );
+  assert.ok(
+    block.indexOf('id: setup') < block.indexOf('        if: ${{ !cancelled()'),
+    'the `setup` marker must be declared BEFORE the walks that gate on it — a ' +
+      'step id reads null until its step has run, so a marker below them skips ' +
+      'all seven on a green job',
   );
   assert.match(
     workflow,

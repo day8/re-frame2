@@ -3203,6 +3203,26 @@ jobs:
       - name: Set up Clojure CLI
         run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
 
+      # The ESSENTIAL-SETUP MARKER the seven walks below gate on. It carries
+      # GitHub's default step condition (`success()`) and nothing else, so it
+      # reaches `success` only when the checkout, the JDK install and the
+      # Clojure CLI install ALL succeeded — a step skipped by a failure ahead of
+      # it reports `skipped`, not `success`, so one id covers all three. The
+      # walks name `steps.setup.outcome` rather than `.conclusion` so that a
+      # `continue-on-error:` could not launder a failure into a success.
+      # `_changed-surfaces.test.cjs` pins this step: delete it and
+      # `steps.setup.outcome` reads null, which SKIPS all seven walks on a
+      # GREEN job. A separate step rather than an `id:` on the installer step
+      # above, whose exact two-line shape is pinned across ~50 call sites by
+      # rf2-e7ja9.
+      #
+      # It sits ABOVE the Maven cache deliberately: a cache miss or a
+      # cache-service error is not a reason to skip the walks, only to run them
+      # slower.
+      - name: Essential setup complete
+        id: setup
+        run: echo "checkout, JDK 21 and the Clojure CLI all installed"
+
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
@@ -3218,48 +3238,63 @@ jobs:
             ${{ runner.os }}-clj-
 
       # The seven walks below are INDEPENDENT — they share only the JDK and the
-      # Maven cache — so each carries `if: ${{ !cancelled() }}` and runs even
-      # when an earlier walk has failed. Without it, GitHub's default step
-      # condition (`success()`) makes the first failing walk SKIP the six behind
-      # it. That does not admit a bad merge — the job reds either way — but it
-      # is badly misread: "the lane is red because of step 1" hides that the six
-      # behind it were never EVALUATED, so the green after the fix is the first
-      # time they have run at all and looks identical to one that was passing
-      # all along. That is the incident behind rf2-ep7u. It bites hardest on a
-      # prose-only PR, where `implementation_jvm` is false, `jvm-core` never
-      # runs, and this lane is the only place those walks execute anywhere.
+      # Maven cache — so each carries
+      #     if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+      # and runs even when an earlier WALK has failed. Without a condition,
+      # GitHub's default step condition (`success()`) makes the first failing
+      # walk SKIP the six behind it. That does not admit a bad merge — the job
+      # reds either way — but it is badly misread: "the lane is red because of
+      # step 1" hides that the six behind it were never EVALUATED, so the green
+      # after the fix is the first time they have run at all and looks identical
+      # to one that was passing all along. That is the incident behind rf2-ep7u.
+      # It bites hardest on a prose-only PR, where `implementation_jvm` is false,
+      # `jvm-core` never runs, and this lane is the only place those walks
+      # execute anywhere.
+      #
+      # BOTH CONJUNCTS ARE LOAD-BEARING, and the condition guarantees exactly
+      # this much: a walk runs when essential setup succeeded and the run has
+      # not been cancelled, whatever the six walks beside it did.
       #
       # `!cancelled()` rather than `always()`, so a cancelled run stops burning
-      # the lane instead of grinding through seven more walks. The three SETUP
-      # steps above are deliberately NOT guarded: a walk whose JDK never
-      # installed fails for a reason that has nothing to do with the walk, and
-      # seven of those is a worse log than one honest one. (rf2-gf3y)
+      # the lane instead of grinding through seven more walks.
+      #
+      # `steps.setup.outcome == 'success'` is what keeps a failed PREREQUISITE
+      # from selecting all seven. A status-check function REPLACES the implicit
+      # `success()` rather than adding to it
+      # (https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#status-check-functions),
+      # and `cancelled()` reports cancellation, never a preceding failure — so
+      # `!cancelled()` ALONE runs the walks after a failed checkout or a failed
+      # Clojure CLI install, turning one honest setup failure into seven
+      # missing-tool ones. Leaving the setup steps at their own default
+      # `success()` does not restore that prerequisite on the steps behind them;
+      # only naming it does. That was the defect in rf2-gf3y's repair, caught by
+      # the merged-PR audit and fixed here (rf2-7lj2).
       - name: Absence-repair floor lint for :rf/default (implementation/** + tools/**)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: clojure -M:test -n re-frame.no-rf-default-floor-lint-test
 
       - name: Egress-chokepoint conformance (every implementation/ src root)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: clojure -M:test -n re-frame.egress-chokepoint-conformance-test
 
       - name: Error-catalogue channel conformance (every implementation/ src root)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: clojure -M:test -n re-frame.error-catalogue-channel-conformance-test
 
       - name: Warn-once-clear governance (file-seq over implementation/)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: clojure -M:test -n re-frame.warn-once-clear-governance-test
 
       - name: Production-gate naming drift (every artefact's test/ tree)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: clojure -M:test -n re-frame.prod-gate-naming-drift-test
 
       - name: Late-bind directory drift (every implementation/ src root)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: clojure -M:test -n re-frame.late-bind-drift-test
 
       - name: Observation render-law drift (every tracked prose file, git ls-files)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: clojure -M:test -n re-frame.observation-render-law-drift-test
 
   cljs:
