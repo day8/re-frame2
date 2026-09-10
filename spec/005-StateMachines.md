@@ -3809,10 +3809,10 @@ Two differences from the single-`:spawn` vocabulary, both enforced at registrati
 
 - **`:on-done` IS honoured on a child spec.** It is the same `(fn [{:keys [data result]}] new-data)` fold a single `:spawn` declares, run against the **parent's** `:data` at that child's finality, **before** the join fold. It is what lets a fan-out land each child's result under its own key without a staging slot:
 
-  ```clojure
-  {:id :cfg :machine-id :load-config
-   :on-done (fn [{:keys [data result]}] (assoc-in data [:loaded :cfg] result))}
-  ```
+    ```clojure
+    {:id :cfg :machine-id :load-config
+     :on-done (fn [{:keys [data result]}] (assoc-in data [:loaded :cfg] result))}
+    ```
 
 - **`:on-error` is NOT.** A join child has no per-child error transition: failure control flow under a join is the block's own `:on-any-failed`, which decides for the whole fan-out. Declaring `:on-error` on a child spec is rejected at registration with `:rf.error/machine-unknown-spawn-key` rather than silently ignored.
 
