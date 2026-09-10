@@ -639,8 +639,55 @@
          ;; the docstring promises threading "past … fragments". Thread
          ;; onto the first child only; nested fragments / fn-heads /
          ;; view-refs keep threading down their own root path.
+         ;;
+         ;; rf2-3357 — A FRAGMENT MAY CARRY A PROPS MAP AT SLOT 1, and it
+         ;; is NOT a child. `[:<> {:key i} …]` inside a `for` is the
+         ;; canonical fragment idiom, so this is ordinary application
+         ;; markup, not a corner. The prior plain `(rest el)` handed that
+         ;; map to `emit-element` as the FIRST child, which fell through
+         ;; to `escape-html` and put the map's EDN in the response bytes
+         ;; (`[:<> {:key "k"} [:div "x"]]` → `{:key &quot;k&quot;}<div>x
+         ;; </div>`) — garbage text, and a guaranteed hydration mismatch
+         ;; against a client render that emits none of it. It ALSO ate the
+         ;; root-attrs above: the map became the first child, so the
+         ;; `data-rf-render-hash` marker was threaded onto a value that
+         ;; cannot carry an attribute and vanished, silently, on exactly
+         ;; the keyed fragments applications write. Skipping the slot
+         ;; repairs both. This is the failure the `:>` arm below states it
+         ;; refuses to commit ("dump the props map as raw EDN into the
+         ;; markup"); the fragment arm was committing it.
+         ;;
+         ;; The slot test is `(map? (second el))` — the same spelling the
+         ;; DOM-tag branch below already uses, and the same rule as the
+         ;; React-side codec's `props-map?` (a map is props; a seq, string
+         ;; or hiccup vector there is a child).
+         ;;
+         ;; WHAT HAPPENS TO THE ATTRIBUTES: they are DROPPED, silently and
+         ;; whatever they are, `:key` included. A fragment is not an
+         ;; element, so no attribute on one has a wire representation —
+         ;; `:key` is reconciliation identity, which the client recomputes
+         ;; from the same tree, and there is no tag to hang the rest on.
+         ;; Dropping is what every sibling emitter in this repo already
+         ;; does (reagent-slim's static `emit-fragment` skips the whole
+         ;; slot; the React-side codec reads `:key` off it and ignores the
+         ;; remainder) and what React does at runtime — a stray prop on a
+         ;; Fragment is a development warning, never an error. Refusing
+         ;; here would make the SERVER stricter than the client for markup
+         ;; that renders fine in a browser, i.e. a server-only failure on a
+         ;; shared `.cljc` view — the one divergence direction this
+         ;; artefact takes deliberately and narrowly elsewhere
+         ;; (`invoke-form-2-render-fn` §THE SUPPORTED CONTRACT), and there
+         ;; it buys a caught mistake. Here it would buy nothing: the arm
+         ;; already emits exactly what the client paints. The loud arms in
+         ;; this emitter (`:>`, `:rf/suspense-boundary`, reserved `:rf/*`,
+         ;; a malformed head) all guard shapes with NO safe wire meaning,
+         ;; where the alternative was a phantom element or unescaped EDN.
+         ;; A fragment attribute's safe wire meaning is nothing, and
+         ;; nothing is what this emits.
          (= :<> head)
-         (emit-children-threading-root-attrs (rest el) root-attrs)
+         (emit-children-threading-root-attrs
+           (if (map? (second el)) (drop 2 el) (rest el))
+           root-attrs)
 
          ;; Reagent-native interop head `:>` — `[:> Component {props} …]`
          ;; passes its children through to a React COMPONENT, not a DOM
