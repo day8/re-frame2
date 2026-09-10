@@ -546,6 +546,77 @@
 (def ^:private structural-slot-names
   #{"key" "ref"})
 
+;; rf2-dgyi — REACT'S TWO CONTENT CHANNELS. A SEPARATE ROSTER FROM THE
+;; STRUCTURAL SLOTS ABOVE, DELIBERATELY. `key` and `ref` are IDENTITY —
+;; reconciliation identity and an instance handle, neither of which has
+;; anything to render. `children` and `dangerouslySetInnerHTML` are the
+;; two channels React takes an element's CONTENT from, so they fail the
+;; same way on the wire and for a different reason, and folding them into
+;; one roster entry for tidiness would lose that reason. React consumes
+;; all four before the host sees them; only these two were ever about
+;; what the element CONTAINS.
+;;
+;; Measured on all four surfaces before this entry existed:
+;;
+;;   [:div {:children "v"}]        => <div children="v"></div>
+;;   [:div {:dangerouslySetInnerHTML {:__html "<b>x</b>"}}]
+;;                                 => <div dangerouslySetInnerHTML="{:__html
+;;                                    &quot;<b>x</b>&quot;}"></div>
+;;   {:meta [{:children "v" :name "a"}]}  => <meta children="v" name="a">
+;;
+;; WHY DROPPING LOSES NOTHING, WHICH IS THE WHOLE ARGUMENT AND IS A
+;; MEASUREMENT RATHER THAN A JUDGEMENT. The obvious objection is that
+;; `dangerouslySetInnerHTML` is CONTENT, so dropping it silently discards
+;; something the author asked to render — a worse failure than a stray
+;; attribute, and a new server-stricter-than-client divergence. It is not,
+;; because this emitter renders NO content for either prop TODAY: both
+;; land in the ATTRIBUTE stream, and the raw-HTML one arrives there as the
+;; escaped EDN PRINT of the `{:__html …}` map, which no browser renders as
+;; anything. The content divergence is therefore PRE-EXISTING and is not
+;; created here. Dropping strictly REDUCES the disagreement with the
+;; client — it removes the attribute half and leaves the content half
+;; exactly where it already was.
+;;
+;; WHAT THE CLIENT DOES, established rather than assumed. The client
+;; adapters pass both straight through to React: `reagent2.impl.template`
+;; drops only the three prototype-pollution names, so both reach
+;; `createElement`, and React then renders `props.children` as the
+;; element's children and `dangerouslySetInnerHTML.__html` as its raw
+;; body — painting NEITHER as an attribute. react-dom's own output for
+;; the raw-HTML case is pinned in-repo against the real serialiser by
+;; `reagent2.dom.parity-cljs-test/parity-dangerously-set-inner-html`, and
+;; the peer hiccup serialiser `reagent2.dom.server` already strips both
+;; from its attribute stream for exactly this reason (`emit-attribute`).
+;;
+;; SO HONOURING THEM, RATHER THAN DROPPING, IS THE REAL REPAIR — AND IT IS
+;; NOT AN ATTRIBUTE-PATH CHANGE, WHICH IS WHY IT IS NOT DONE HERE. It
+;; belongs to the CHILDREN path (`emit/emit-element`, `streaming/
+;; walk-dom-tag`), needs React's precedence rule (variadic children beat
+;; `props.children`), and is undefined on three of this roster's four
+;; surfaces: `<meta>` / `<link>` are void and take no children at all, and
+;; the Ring host shell's `:html-attrs` / `:body-attrs` are attribute bags
+;; with no children slot. For the raw-HTML channel it would additionally
+;; mint a SECOND trusted-markup spelling, which 004B refuses in terms
+;; ("`v/html` is the one visible trusted-markup spelling"). Filed rather
+;; than absorbed; see this entry's bead.
+;;
+;; NOT A THROW, THOUGH 004B SAYS "REFUSED" FOR THE TREE-SPACE GRAMMAR.
+;; That refusal is a compile/walk-time gate in a grammar that HAS a
+;; trusted-markup node; this fn's contract is narrower and says so above —
+;; it recognises "exactly the props that are *safe to silently drop*",
+;; and malformed input is `validate-attr-name!`'s job. A throw here would
+;; also take the Ring host shell down on a config typo in an attribute
+;; bag, and would diverge from react-dom/server harder than either drop
+;; or honour: react-dom throws for neither.
+;;
+;; MATCHED CASE-SENSITIVELY, for the same reason as the structural slots:
+;; React extracts both by exact JS property name, so `:Children` and the
+;; all-lowercase `:dangerouslysetinnerhtml` really do reach the host as
+;; ordinary unknown props that the client paints — stripping those would
+;; be this same divergence pointed the other way.
+(def ^:private content-channel-names
+  #{"children" "dangerouslySetInnerHTML"})
+
 (defn strip-prop?
   "True when the attribute `[k v]` MUST be dropped at SSR static-markup
   emission:
@@ -571,6 +642,18 @@
       React before the host sees them and neither serialised by
       react-dom/server. Matched case-sensitively; see
       `structural-slot-names`.
+    - React's two CONTENT CHANNELS, `:children` and
+      `:dangerouslySetInnerHTML` (rf2-dgyi) — the two slots React takes
+      an element's CONTENT from, likewise consumed before the host sees
+      them and likewise serialised by react-dom/server as neither. A
+      SEPARATE roster from the structural slots because the reason
+      differs: those are identity, these are content, and this emitter
+      renders no content for either today — the raw-HTML one reached the
+      wire as the escaped EDN print of its `{:__html …}` map. Dropping
+      therefore removes a stray attribute without discarding anything
+      that was being rendered; HONOURING them is a children-path change
+      and is deliberately not done here. Matched case-sensitively; see
+      `content-channel-names`, which carries the full argument.
 
   Mirrors react-dom/server behaviour. Recognised here are exactly the
   props that are *safe to silently drop*; malformed keys (breakout chars)
@@ -594,7 +677,8 @@
         (fn? v)
         (contains? reserved-prop-keys (str/lower-case nm))
         (contains? jsx-source-prop-names nm)
-        (contains? structural-slot-names nm))))
+        (contains? structural-slot-names nm)
+        (contains? content-channel-names nm))))
 
 ;; ---- boolean attribute-value classes (rf2-r9kf) ---------------------------
 ;;
