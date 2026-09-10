@@ -181,10 +181,90 @@
   [:div {:style empty-body-style}
    label])
 
+;; ---- panel-instance identity (rf2-t3fz) ---------------------------------
+;;
+;; Every id below — the widget's `:mount-id`, the expansion/zoom
+;; `:site-id` — names a LOGICAL SURFACE of the app-db panel, and is
+;; deliberately stable so a tab-switch round-trip comes back to the same
+;; expansion, the same zoom and the same measured column. That stability
+;; is the whole point, and it is also why a surface name cannot double as
+;; a LIVE-MOUNT identity: two `Panel`s on screen at once present the same
+;; surface names.
+;;
+;; rf2-d2aj fixed HALF of that. The widget's per-mount store — the
+;; ResizeObserver, the width debounce, the Editscript projection cache —
+;; is keyed by `[frame-id mount-id]`, so two panels under two DIFFERENT
+;; `frame-provider`s no longer collide. Two panels under ONE frame still
+;; do, and nothing inside the widget can separate them: a Fresco boundary
+;; is a real React function component with no per-instance storage its
+;; body may use (hooks do not belong in a body, and `rf.fresco/reg-state`
+;; consumes an instance key rather than minting one). rf2-d2aj's closing
+;; ruling named that case the CALLER's to name, which is what this is.
+;;
+;; So `Panel` takes an optional `:instance-id` prop and it is threaded
+;; down to here. When the caller names one it qualifies BOTH ids, and
+;; that pair is deliberate rather than belt-and-braces: qualifying the
+;; store key alone would leave both instances writing the SAME width
+;; slot, which is keyed by the logical `mount-id` inside the frame — a
+;; wrong number rather than a missing one. When no instance is named
+;; every id is byte-for-byte what it was, so the single-mount callers
+;; (the L4 tab, the standalone `mount-app-db-diff!` facade) are
+;; untouched.
+;;
+;; `:site-id` is qualified too because a caller who has bothered to name
+;; two instances wants them independent: unqualified, expanding a node in
+;; one expands it in the other and zooming one zooms both. It stays
+;; stable across THAT instance's remounts, which is all rf2-pvsxs asked
+;; of it, because a caller-supplied instance id is an identity and not a
+;; per-render nonce — see [[instance-token]] for what is refused to keep
+;; it that way.
+
+(defn- instance-token
+  "Normalise `Panel`'s optional `:instance-id` prop to the string that
+  qualifies one instance's section ids, or nil when the caller named no
+  instance (the single-mount default — every composed id is then exactly
+  what it was before rf2-t3fz).
+
+  A KEYWORD is accepted alongside a string because the two doors into
+  `Panel` disagree about what survives the crossing: mounted from a
+  Fresco body a keyword arrives as a keyword, while a Reagent parent's
+  `[:>]` converts a prop VALUE first and it arrives as its name (Fresco's
+  `as-component` puts it in terms — names round-trip across a crossing,
+  values do not). Refusing one here would make one call site behave two
+  ways depending on which head mounted it.
+
+  Anything else is REFUSED rather than `str`-ed, and that is the point of
+  the fn. The token has to be stable across the instance's renders; a
+  value whose printed form is minted per render — a map, a JS object —
+  would compose a fresh `:mount-id` and `:site-id` on every pass and
+  silently throw away expansion, zoom and the measured column width each
+  time. That is the same failure `edn-inspector-view`'s own `:mount-id`
+  refusal exists to prevent, one level up."
+  [instance-id]
+  (cond
+    (nil? instance-id)     nil
+    (keyword? instance-id) (subs (str instance-id) 1)
+    (string? instance-id)  (when (seq instance-id) instance-id)
+    :else
+    (throw (ex-info
+             (str "The app-db Panel's :instance-id must be a non-blank string "
+                  "or a keyword naming ONE live mount of the panel; it was "
+                  (pr-str instance-id) ". It is composed into the "
+                  "edn-inspector's :mount-id and :site-id, so it must be "
+                  "stable across that mount's renders — a value minted per "
+                  "render would lose expansion, zoom and the measured column "
+                  "width on every pass. Omit it entirely when only one "
+                  "app-db Panel is on screen in this frame.")
+             {:instance-id instance-id}))))
+
 (defn- value-body
   "Render a current-state VALUE, with the inline `← changed` diff
   annotation when a pre-image is supplied (spec/021 §4.3). `render-id`
   keeps adjacent renders' testids independent across the panel.
+
+  The 5-arity's `instance-id` is `Panel`'s optional per-instance name;
+  see the block comment above for what it separates and why. The 4-arity
+  is the single-mount call and composes exactly the ids it always did.
 
   `f/display-value` runs first so giant string leaves collapse to the
   `:rf.size/large-elided` display marker before rendering — the same
@@ -216,8 +296,14 @@
   slice rendered identically to an unchanged one and the per-event diff
   was near-invisible — the focused epoch's actual change (a new instance
   appearing) carried no visual marker at all."
-  [value before render-id title]
-  (let [;; rf2-k97c.3 — `:mount-id` is REQUIRED by the Fresco head and must
+  ([value before render-id title]
+   (value-body value before render-id title nil))
+  ([value before render-id title instance-id]
+  (let [;; rf2-t3fz — the caller's per-instance name, or nil for the
+        ;; single-mount default. Normalised (and type-refused) ONCE here so
+        ;; the two compositions below can never disagree about it.
+        instance (instance-token instance-id)
+        ;; rf2-k97c.3 — `:mount-id` is REQUIRED by the Fresco head and must
         ;; be a stable string: a boundary is a React function component with
         ;; no form-2 outer body, so an id minted in the body would be fresh
         ;; every render and the widget would lose its expansion state each
@@ -236,14 +322,30 @@
         ;; would take `:site-id` with it and lose expansion and zoom on
         ;; every pass, which is the trade the widget's split exists to
         ;; avoid.
-        mount-id  (str "app-db-state/" render-id)
+        ;;
+        ;; rf2-t3fz — the frame qualifier does not reach two panels in ONE
+        ;; frame, and the caller's `instance` is what does. It is a stable
+        ;; NAME and not a per-render nonce (`instance-token` refuses the
+        ;; shapes that would not be), so this stays exactly the stable
+        ;; string the paragraph above requires — it now names one live
+        ;; instance's surface rather than every instance's at once.
+        mount-id  (if instance
+                    (str "app-db-state/" instance "/" render-id)
+                    (str "app-db-state/" render-id))
         ;; rf2-pvsxs — stable `:site-id` so expansion overrides survive
         ;; a tab-switch round-trip. `render-id` already identifies the
         ;; logical surface (e.g. "top" for the user-domain section, an
         ;; area name for the per-:rf/* sections), so passing it AS the
         ;; site-id reuses the existing per-surface key without
         ;; introducing a new namespace.
-        site-id [:rf.xray/app-db render-id]
+        ;;
+        ;; rf2-t3fz — qualified by the same instance name when the caller
+        ;; supplies one, so two named instances expand and zoom
+        ;; independently. Unqualified it is unchanged, which is every
+        ;; single-mount call site.
+        site-id (if instance
+                  [:rf.xray/app-db instance render-id]
+                  [:rf.xray/app-db render-id])
         ;; rf2-227cz — three before-states: `no-diff` (render plain),
         ;; `added` (this whole slice is new this epoch → `:added? true`),
         ;; or a real pre-image (diff against it → `:before`).
@@ -292,7 +394,7 @@
                   ;; `:added?` path so the entire subtree washes `:added`
                   ;; (green) rather than rendering as plain unchanged state.
                   added?
-                  (assoc :added? true))}]))
+                  (assoc :added? true))}])))
 
 ;; ---- top (user-domain) section ------------------------------------------
 
@@ -307,9 +409,13 @@
   the panel's anchor; an empty user-domain app-db is itself meaningful
   operator information). Empty reserved-area sections are filtered at
   projection time and never reach the renderer; only the TOP carries
-  an empty-state body."
+  an empty-state body.
+
+  rf2-t3fz — the 3-arity carries `Panel`'s optional `:instance-id` down
+  to the value body; see the block comment above [[instance-token]]."
   ([top] (top-section top h/no-diff))
-  ([top before]
+  ([top before] (top-section top before nil))
+  ([top before instance-id]
    (let [title  [:span "app-db"]
          empty? (and (map? top) (empty? top))]
      (section-shell
@@ -318,7 +424,7 @@
         :hide-header? (not empty?)
         :body         (if empty?
                         (empty-body "app-db has no user-domain keys yet.")
-                        (value-body top before "top" title))}))))
+                        (value-body top before "top" title instance-id))}))))
 
 ;; ---- reserved-area sections ---------------------------------------------
 
@@ -335,22 +441,26 @@
   (`:rf/machines`) and per parent (`:rf/spawned`). The instance carries
   its own `:before` pre-image so the body diff-annotates the changed
   snapshot in place. The section-shell H3 is suppressed — the
-  edn-inspector card's own header ribbon carries the title."
-  [area {:keys [id value] :as inst}]
-  (let [title [:span
-               (area-label area)
-               [:span {:style instance-section-separator-style}
-                "›"]
-               [:span {:style instance-section-id-style}
-                (pr-str id)]]]
-    (section-shell
-      {:testid       (str "rf-xray-app-db-state-instance-"
-                          (pr-str area) "-" (pr-str id))
-       :title        title
-       :hide-header? true
-       :body         (value-body value (get inst :before h/no-diff)
-                                 (str (pr-str area) "/" (pr-str id))
-                                 title)})))
+  edn-inspector card's own header ribbon carries the title.
+
+  rf2-t3fz — the 3-arity carries `Panel`'s optional `:instance-id`."
+  ([area inst] (instance-section area inst nil))
+  ([area {:keys [id value] :as inst} instance-id]
+   (let [title [:span
+                (area-label area)
+                [:span {:style instance-section-separator-style}
+                 "›"]
+                [:span {:style instance-section-id-style}
+                 (pr-str id)]]]
+     (section-shell
+       {:testid       (str "rf-xray-app-db-state-instance-"
+                           (pr-str area) "-" (pr-str id))
+        :title        title
+        :hide-header? true
+        :body         (value-body value (get inst :before h/no-diff)
+                                  (str (pr-str area) "/" (pr-str id))
+                                  title
+                                  instance-id)}))))
 
 (defn instances-area
   "Render a map-of-instances reserved area (`:rf/machines`,
@@ -358,8 +468,11 @@
 
   rf2-jcdvo — empty registries are filtered at projection time
   (`current-state-sections` omits `:empty?` entries) so this fn is
-  only invoked for populated registries; no empty-state branch."
-  [{:keys [area instances]}]
+  only invoked for populated registries; no empty-state branch.
+
+  rf2-t3fz — the 2-arity carries `Panel`'s optional `:instance-id`."
+  ([area-entry] (instances-area area-entry nil))
+  ([{:keys [area instances]} instance-id]
   (into [:div {:data-testid (str "rf-xray-app-db-state-area-" (pr-str area))}]
         (for [{:keys [id] :as inst} instances]
           ;; rf2-k97c.3 — the sequence key rides on a keyed FRAGMENT rather
@@ -376,7 +489,7 @@
           ;; answers hiccup of no fixed shape, so there is no one attribute
           ;; map to write into; `[:<> …]` takes the key and adds no DOM node.
           [:<> {:key (pr-str id)}
-           (instance-section area inst)])))
+           (instance-section area inst instance-id)]))))
 
 (defn singleton-area
   "Render a singleton-slice reserved area (`:rf/route`,
@@ -387,29 +500,36 @@
   (`current-state-sections` omits `:empty?` entries) so this fn is
   only invoked for populated slices; no empty-state branch. The
   section-shell H3 is suppressed — the edn-inspector card's own header
-  ribbon carries the title."
-  [{:keys [area value] :as area-entry}]
-  (let [title (area-label area)]
-    (section-shell
-      {:testid       (str "rf-xray-app-db-state-area-" (pr-str area))
-       :title        title
-       :hide-header? true
-       :body         (value-body value (get area-entry :before h/no-diff)
-                                 (pr-str area)
-                                 title)})))
+  ribbon carries the title.
+
+  rf2-t3fz — the 2-arity carries `Panel`'s optional `:instance-id`."
+  ([area-entry] (singleton-area area-entry nil))
+  ([{:keys [area value] :as area-entry} instance-id]
+   (let [title (area-label area)]
+     (section-shell
+       {:testid       (str "rf-xray-app-db-state-area-" (pr-str area))
+        :title        title
+        :hide-header? true
+        :body         (value-body value (get area-entry :before h/no-diff)
+                                  (pr-str area)
+                                  title
+                                  instance-id)}))))
 
 (defn area-section
   "Dispatch one reserved-area section entry (from
   `current-state-sections`'s `:areas`) to the matching renderer based
   on its `:kind`. Only invoked for non-empty areas — empty entries are
-  filtered at projection time (rf2-jcdvo)."
-  [{:keys [kind] :as area-entry}]
-  (case kind
-    :instances (instances-area area-entry)
-    :singleton (singleton-area area-entry)
-    ;; Defensive — an unknown kind still renders the bare key so the
-    ;; area never silently vanishes.
-    (singleton-area area-entry)))
+  filtered at projection time (rf2-jcdvo).
+
+  rf2-t3fz — the 2-arity carries `Panel`'s optional `:instance-id`."
+  ([area-entry] (area-section area-entry nil))
+  ([{:keys [kind] :as area-entry} instance-id]
+   (case kind
+     :instances (instances-area area-entry instance-id)
+     :singleton (singleton-area area-entry instance-id)
+     ;; Defensive — an unknown kind still renders the bare key so the
+     ;; area never silently vanishes.
+     (singleton-area area-entry instance-id))))
 
 ;; ---- panel body ----------------------------------------------------------
 
@@ -425,12 +545,19 @@
   lens both retired with the toggle.
 
   Pure hiccup; nil-safe (a nil model degrades to an empty TOP + no
-  areas)."
-  [{:keys [top areas] :as model}]
-  (let [before-top (get model :before-top h/no-diff)]
-    (into [:div {:data-testid "rf-xray-app-db-state"}
-           (top-section top before-top)]
-          (for [{:keys [area] :as area-entry} areas]
-            ;; rf2-k97c.3 — keyed fragment; see `instances-area` above.
-            [:<> {:key (pr-str area)}
-             (area-section area-entry)]))))
+  areas).
+
+  rf2-t3fz — the 2-arity takes `Panel`'s optional `:instance-id` and
+  threads it to every section, which is what lets two `Panel`s under ONE
+  `frame-provider` own separate edn-inspector lifecycles. The 1-arity is
+  the single-mount call and composes exactly the ids it always did; see
+  the block comment above `instance-token`."
+  ([model] (state-body model nil))
+  ([{:keys [top areas] :as model} instance-id]
+   (let [before-top (get model :before-top h/no-diff)]
+     (into [:div {:data-testid "rf-xray-app-db-state"}
+            (top-section top before-top instance-id)]
+           (for [{:keys [area] :as area-entry} areas]
+             ;; rf2-k97c.3 — keyed fragment; see `instances-area` above.
+             [:<> {:key (pr-str area)}
+              (area-section area-entry instance-id)])))))
