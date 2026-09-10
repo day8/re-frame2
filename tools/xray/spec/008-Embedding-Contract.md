@@ -546,7 +546,8 @@ that needs it, not in a central shim layer.
   `mount-<panel>!` aggregator surface is documented at
   [`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract for
   internal use (shell composition, tests, future tools); it carries
-  one `opts` key — `:frame` — and is not a host-facing embed contract.
+  `:frame` universally and `:instance-id` on `mount-app-db-diff!`
+  alone (rf2-2n8q), and is not a host-facing embed contract.
 - **No two-way binding.** Beyond the `configure!` slots and the
   one-way **focus command** (§Host-facing focus API — the host pushes
   a focus *intent*, not arbitrary state, and Xray owns what it means),
