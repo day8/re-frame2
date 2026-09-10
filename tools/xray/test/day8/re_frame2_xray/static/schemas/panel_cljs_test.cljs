@@ -88,18 +88,18 @@
       :ns     'user}}}
    :events
    {:user/login
-    {:spec [:tuple :keyword :string]
-     :doc  "login event"
-     :file "src/user.cljs"
-     :line 42}
-    :no-spec/event
-    {:doc "no spec — should not surface"}}
+    {:schema [:tuple :keyword :string]
+     :doc    "login event"
+     :file   "src/user.cljs"
+     :line   42}
+    :no-schema/event
+    {:doc "no :schema — should not surface"}}
    :subs
    {:user/full-name
-    {:spec :string
-     :doc  "full name sub"
-     :file "src/user.cljs"
-     :line 88}}})
+    {:schema :string
+     :doc    "full name sub"
+     :file   "src/user.cljs"
+     :line   88}}})
 
 ;; -------------------------------------------------------------------------
 ;; (1) pure helpers
@@ -115,10 +115,10 @@
       (is (= [:map [:id :int] [:name :string]] schema))
       (is (= "src/user.cljs" (:file source-coord))))))
 
-(deftest project-registrar-rows-keeps-spec-only
+(deftest project-registrar-rows-keeps-schema-bearing-only
   (let [event-rows (panel/project-registrar-rows :event (:events sample-registry))]
     (is (= 1 (count event-rows))
-        "entry without :spec is dropped"))
+        "entry without :schema is dropped"))
   (let [sub-rows (panel/project-registrar-rows :sub (:subs sample-registry))]
     (is (= 1 (count sub-rows)))
     (is (= :sub (:kind (first sub-rows))))))
@@ -161,23 +161,23 @@
     (testing "an absent frame-id yields an empty map"
       (is (= {} (panel/scope-app-schemas-to-frame multi :rf/nope))))))
 
-(deftest project-data-scopes-app-db-schemas-but-not-global-specs
+(deftest project-data-scopes-app-db-schemas-but-not-global-schemas
   (let [multi-by-frame {:rf/default {[:user] {:schema :map}}
                         :rf/cart    {[:cart] {:schema :map}}}
-        events         (:events sample-registry)   ;; one spec'd event
-        subs           (:subs   sample-registry)]  ;; one spec'd sub
-    (testing "frame :rf/default → its 1 app-db schema + the 2 global specs"
+        events         (:events sample-registry)   ;; one schema-bearing event
+        subs           (:subs   sample-registry)]  ;; one schema-bearing sub
+    (testing "frame :rf/default → its 1 app-db schema + the 2 global schemas"
       (let [data (panel/project-data multi-by-frame events subs :rf/default nil)]
         (is (= 3 (:total data)) "1 app-db (default) + 1 event + 1 sub")
         (is (= 1 (count (filterv #(= :app-db (:kind %)) (:schemas data))))
             "only :rf/default's app-db schema, not :rf/cart's")))
-    (testing "frame :rf/cart → its 1 app-db schema + the same 2 global specs"
+    (testing "frame :rf/cart → its 1 app-db schema + the same 2 global schemas"
       (let [data (panel/project-data multi-by-frame events subs :rf/cart nil)]
         (is (= 3 (:total data)))
         (is (= [[:cart]]
                (mapv :id (filterv #(= :app-db (:kind %)) (:schemas data))))
             "only :rf/cart's app-db schema surfaces")))
-    (testing "nil frame-id → both frames' app-db schemas + global specs"
+    (testing "nil frame-id → both frames' app-db schemas + global schemas"
       (is (= 4 (:total (panel/project-data multi-by-frame events subs nil nil)))))))
 
 ;; -------------------------------------------------------------------------
@@ -206,34 +206,138 @@
       (is (= 3 (:total data)))
       (is (false? (:silent? data))))))
 
+;; -------------------------------------------------------------------------
+;; (2b) THE PRODUCTION PATH — rows that reach the panel through REAL
+;;      registrations, with no override seam anywhere (rf2-t8a8)
+;; -------------------------------------------------------------------------
+;;
+;; Every row above this point feeds the panel a SYNTHETIC metadata map through
+;; `:rf.xray.static.schemas/set-registry-override-for-test`. That is a hollow
+;; gate for the registrar side of this panel in the precise sense the project
+;; means it: a synthetic map can carry any key at all, so the whole suite stayed
+;; green for the panel's entire life while it read the RETIRED `:spec` key and
+;; showed zero event rows and zero sub rows against every real host app. A
+;; synthetic map can carry `:spec`; a live `rf/reg-event` CANNOT — the
+;; registrar hard-errors on it (`:rf.error/retired-registration-key`, pinned by
+;; `re-frame.reg-meta-noswallow-cljs-test/retired-spec-key-hard-errors-per-registrar`).
+;;
+;; So these two rows take the path production takes. They register through the
+;; PUBLIC registrars and read through the PRODUCTION `:rf.xray.static.schemas/
+;; registry` sub — the one that assembles its three inputs from the live
+;; registries and has no override branch to fall into. Revert `meta-row` to
+;; `:spec` and both rows go red on a real absent row, which is the mechanical
+;; test this repair had to satisfy: delete the signal, keep the fault, and the
+;; row must NOT still pass.
+
+(def ^:private live-event-id ::live-event)
+(def ^:private live-sub-id   ::live-sub)
+(def ^:private live-bare-id  ::live-event-without-schema)
+
+(defn- setup-xray-production!
+  "`setup-xray!` WITHOUT `install-test-overrides!`, so
+  `:rf.xray.static.schemas/registry` stays the PRODUCTION sub. Nothing in
+  this section can inject a registry value; the only way to move the panel
+  is to register something."
+  []
+  (registry/register-xray-handlers!)
+  (rf/make-frame {:id :rf/xray}))
+
+(defn- register-live-schemas!
+  "Three REAL registrations through the public registrars: an event and a
+  sub carrying the canonical `:schema` metadata key, plus one event
+  carrying none (the non-vacuity control — the panel must drop it)."
+  []
+  (rf/reg-event live-event-id
+    {:doc "a really-registered event" :schema [:tuple :keyword :string]}
+    (fn [{:keys [db]} _] {:db db}))
+  (rf/reg-sub live-sub-id
+    {:doc "a really-registered sub" :schema :string}
+    (fn [db _] (str db)))
+  (rf/reg-event live-bare-id
+    {:doc "carries no :schema — must not surface"}
+    (fn [{:keys [db]} _] {:db db})))
+
+(deftest live-registrations-surface-through-the-production-read
+  (testing "rf2-t8a8 — an event and a sub registered through the PUBLIC
+            registrars surface as rows in the panel's own composite, read
+            through the PRODUCTION registry sub with no override installed"
+    (setup-xray-production!)
+    (register-live-schemas!)
+    (is (= [:tuple :keyword :string]
+           (:schema (rf/handler-meta {:source :store :kind :event :id live-event-id})))
+        "PRECONDITION: the live registration really stored `:schema` under
+         the id the panel will look for — so a missing row below is the
+         PANEL failing to read the key, not the registrar failing to keep it")
+    (rf/with-frame :rf/xray
+      (let [data  @(rf/subscribe [:rf.xray.static.schemas/tab-data])
+            by-id (into {} (map (juxt :id identity)) (:schemas data))
+            evt   (get by-id live-event-id)
+            sub   (get by-id live-sub-id)]
+        (is (some? evt)
+            (str "the really-registered EVENT is on the catalogue. Ids seen: "
+                 (pr-str (mapv :id (:schemas data)))))
+        (is (= :event (:kind evt)))
+        (is (= [:tuple :keyword :string] (:schema evt))
+            "carrying the Malli schema the registration declared")
+        (is (= "a really-registered event" (:doc evt)))
+        (is (nil? (:frame evt))
+            "and cross-frame — the registrar is process-global (Spec 001)")
+        (is (some? sub) "the really-registered SUB is on the catalogue too")
+        (is (= :sub (:kind sub)))
+        (is (= :string (:schema sub)))
+        (is (not (contains? by-id live-bare-id))
+            "NON-VACUITY: a real registration carrying NO `:schema` is
+             dropped, so the two rows above are the key being read and not
+             every registration being listed")))))
+
+(deftest live-registration-renders-a-row-surface
+  (testing "rf2-t8a8 — and it reaches the SCREEN: the live event's row
+            surface is in the hiccup the boundary renders, so the repair is
+            end-to-end and not merely a projection that nobody paints"
+    (setup-xray-production!)
+    (register-live-schemas!)
+    (rf/with-frame :rf/xray
+      (let [tree (panel-tree)]
+        (is (some? (find-by-testid
+                     tree
+                     (str "rf-xray-static-schemas-row-event-" (pr-str live-event-id))))
+            "the live event's row is rendered")
+        (is (some? (find-by-testid
+                     tree
+                     (str "rf-xray-static-schemas-row-sub-" (pr-str live-sub-id))))
+            "and the live sub's")
+        (is (nil? (find-by-testid tree "rf-xray-static-schemas-empty"))
+            "and the panel is NOT showing its empty state — which is exactly
+             what it showed against every real registrar before this repair")))))
+
 (def two-frame-registry
   "Two frames each carrying a distinct app-db schema, plus the shared
-  process-global event + sub specs — fixture for the picker-scoping
+  process-global event + sub schemas — fixture for the picker-scoping
   regression."
   {:schemas-by-frame
    {:rf/default    {[:user] {:schema [:map [:id :int]]}}
     :rf/cart-frame {[:cart] {:schema [:map [:n :int]]}}}
-   :events {:user/login {:spec [:tuple :keyword]}}
-   :subs   {:user/full-name {:spec :string}}})
+   :events {:user/login {:schema [:tuple :keyword]}}
+   :subs   {:user/full-name {:schema :string}}})
 
 (deftest tab-data-scopes-app-db-schemas-to-picker-frame
   (testing "the L1 frame picker scopes the app-db-schema rows — switching
             the picker frame changes which frame's app-db schemas list,
-            while the process-global event + sub specs stay visible in
+            while the process-global event + sub schemas stay visible in
             every frame"
     (setup-xray!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync
         [:rf.xray.static.schemas/set-registry-override-for-test
          two-frame-registry])
-      (testing "picker on :rf/default → its 1 app-db schema + 2 global specs"
+      (testing "picker on :rf/default → its 1 app-db schema + 2 global schemas"
         (rf/dispatch-sync [:rf.xray/select-frame :rf/default])
         (let [data    @(rf/subscribe [:rf.xray.static.schemas/tab-data])
               app-dbs (filterv #(= :app-db (:kind %)) (:schemas data))]
           (is (= 3 (:total data)) "1 app-db (default) + 1 event + 1 sub")
           (is (= [[:user]] (mapv :id app-dbs))
               "only :rf/default's app-db schema, not :rf/cart-frame's")))
-      (testing "picker on :rf/cart-frame → its 1 app-db schema + 2 global specs"
+      (testing "picker on :rf/cart-frame → its 1 app-db schema + 2 global schemas"
         (rf/dispatch-sync [:rf.xray/select-frame :rf/cart-frame])
         (let [data    @(rf/subscribe [:rf.xray.static.schemas/tab-data])
               app-dbs (filterv #(= :app-db (:kind %)) (:schemas data))]
