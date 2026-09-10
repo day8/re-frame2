@@ -1001,6 +1001,42 @@ jobs:
       - name: Verify no nested markdown list renders flat
         run: python scripts/check_flattened_lists.py
 
+      # Escaped continuation blocks (rf2-jzv2).  The SIBLING GATE ABOVE CANNOT
+      # SEE THIS CLASS, and that false coverage claim is why this exists: it
+      # matches list MARKERS and grades consecutive ITEM pairs, so a
+      # continuation PARAGRAPH under a bullet — under-indented, and therefore
+      # rendered OUTSIDE every `li` — is invisible to it.  Measured on the
+      # landed tree: a file whose two-space continuation renders outside its
+      # item exits 0 under the gate above while the real render puts the
+      # paragraph in a sibling `<p>`.  Same shape as its sibling's own
+      # argument: valid markup, no broken target, no anchor, nothing for
+      # `mkdocs build --strict` to promote — 542 escaped LINES corpus-wide
+      # stood before rf2-6ml6 and rf2-2brt cleared them, and nothing on screen
+      # said so.  (The unit matters and has already confused three readers of
+      # this corpus: rf2-6ml6 counts that same surface as 438 BLOCKS.  The tool
+      # prints lines, blocks and tables separately and never one headline
+      # number.)  A zero is only kept at zero by something that checks.
+      #
+      # WHY THIS JOB.  Identical reasoning to the two gates above, and NOT a new
+      # one: it imports the sibling's renderer, so it needs python-markdown and
+      # mkdocs' config loader and cannot sit beside the stdlib checkers in
+      # `Repo invariant checks`.  Unguarded like its neighbours, because no
+      # classifier surface arms for `scripts/**` — all 29 read false — so there
+      # is nothing to scope it to.  Cost measured over the same 291-file corpus:
+      # 19-24 s, the CHEAPER of this pair, against this job's 0.5 min and a
+      # 15.2 min longest job.
+      #
+      # Self-test first, then the live scan — the self-test is what makes the
+      # green mean anything, and it pins BOTH disjuncts of the union rule in
+      # opposite directions (depth-only and outside-`li`-only each miss a case
+      # the other catches), plus the deliberate non-detection of an escaped
+      # FENCE, which is a different instrument's job (rf2-tdlg).
+      - name: Self-test the escaped-continuation gate
+        run: python scripts/check_escaped_continuations.py --self-test
+
+      - name: Verify no continuation block renders outside its list item
+        run: python scripts/check_escaped_continuations.py
+
       # SKILL.md description-budget gate (rf2-w9p2; armed under rf2-bn5f). Guards
       # the SKILL.md description limits: the portable 1,024 and the Claude 1,536.
       # It hard-fails a description over the 1,024-char Agent Skills packaging cap

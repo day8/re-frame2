@@ -325,6 +325,11 @@ is_doc_surface_path() {
     mkdocs.yml|mkdocs_hooks.py|requirements.txt) return 0 ;;
     scripts/check_readme_links.py|scripts/check_doc_slugs.py) return 0 ;;
     scripts/check_flattened_lists.py) return 0 ;;
+    # Same rule as its sibling above — a gate whose own script changed has to
+    # run.  CI's classifier does not list it (no surface arms for `scripts/**`),
+    # so this is the `check_retired_image_keys.py` case below rather than the
+    # mirroring one: over-arming a ~20 s check on a diff that edits it.
+    scripts/check_escaped_continuations.py) return 0 ;;
     scripts/check_provenance_pins.py) return 0 ;;
     scripts/check_ep_status_sync.py|scripts/check_runtime_subsystem_grading.py) return 0 ;;
     scripts/_test_fixtures/check_readme_links/*|scripts/_test_fixtures/check_doc_slugs/*) return 0 ;;
@@ -1376,6 +1381,19 @@ if [ "$run_docs" = true ]; then
 
   run "flattened-list gate" "python scripts/check_flattened_lists.py" \
     python "$spine_root/scripts/check_flattened_lists.py"
+
+  # Escaped continuation blocks (rf2-jzv2).  The gate above cannot see this
+  # class either: it grades consecutive list ITEMS, so a continuation
+  # PARAGRAPH that renders outside every `li` is invisible to it — which is
+  # how 542 escaped lines accumulated corpus-wide under a gate reporting zero.
+  # Same schedule as its sibling: ALWAYS-ON in CI's verify-readme-links,
+  # classifier-gated here, so cite CI and not a green spine for a diff the
+  # classifier did not call documentation.
+  run "escaped-continuation gate self-test" "python scripts/check_escaped_continuations.py --self-test" \
+    python "$spine_root/scripts/check_escaped_continuations.py" --self-test
+
+  run "escaped-continuation gate" "python scripts/check_escaped_continuations.py" \
+    python "$spine_root/scripts/check_escaped_continuations.py"
 
   # Provenance pins (rf2-kqac1).  This repo rebase-merges, so a Fresco page
   # that pins a measurement to its own authored SHA is stranded the moment its
