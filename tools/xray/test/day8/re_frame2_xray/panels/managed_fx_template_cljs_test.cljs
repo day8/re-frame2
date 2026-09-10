@@ -230,18 +230,27 @@
 ;;
 ;; AND WHAT THIS ROW CANNOT DO, STATED PLAINLY BECAUSE THE FIRST DRAFT OF
 ;; IT LIED. All four sites sit inside sections `record-panel` builds with
-;; `:expanded? false`, and `theme/section/section-row` renders its body
-;; under `(when expanded? …)` — nothing in this tree wires a click, so the
-;; `▶` glyph opens nothing and a collapsed body is computed and then
-;; DISCARDED. The four vectors have therefore never appeared in any
-;; rendered tree, which is the blind spot all three tiers of coverage
-;; shared. So a revert to `[edn/inspect …]` would NOT turn this row red,
-;; and the row does not claim it would: the absence assertion is a FLOOR
-;; against a future head placed somewhere reachable, and the control above
-;; it is what stops the floor reading as a proof. Measured, not assumed —
-;; the draft that asserted the returned inspector was present in the tree
-;; read zero, and that is how the discard was found. rf2-fcy5 carries what
-;; would make these four gradeable.
+;; `:expanded? false` — a LITERAL — and `theme/section/section-row` renders
+;; its body under `(when expanded? …)`, so a collapsed body is computed
+;; (it is a positional argument) and then DISCARDED. The four vectors have
+;; therefore never appeared in any rendered tree, which is the blind spot
+;; all three tiers of coverage shared. So a revert to `[edn/inspect …]`
+;; would NOT turn this row red, and the row does not claim it would: the
+;; absence assertion is a FLOOR against a future head placed somewhere
+;; reachable, and the controls above it are what stop the floor reading as
+;; a proof. Measured, not assumed — the draft that asserted the returned
+;; inspector was present in the tree read zero, and that is how the
+;; discard was found.
+;;
+;; THE PRIMITIVE IS NOT AT FAULT, AND SAYING SO MATTERS because the first
+;; version of this comment blamed it. `section-row` is non-interactive BY
+;; DESIGN — `theme/section.cljc` states the contract in terms: "No
+;; interactivity. Click-to-toggle wiring is the caller's responsibility."
+;; Expansion state exists in this tree and has a working caller
+;; (`panels/cancellation_cascade.cljs:689` feeds `:expanded?` from a sub);
+;; this panel simply passes literals and never did that half. rf2-kfoq
+;; carries the repair, and it must land after or with the head-form fix,
+;; since wiring the disclosure is exactly what makes these four reachable.
 
 (defn- hiccup-vectors
   "Every hiccup vector in `node`, root included, walked structurally.
