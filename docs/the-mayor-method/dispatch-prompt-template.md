@@ -1068,6 +1068,15 @@ compile failure, a genuine two-assertion failure and a browser run standing over
 believing the reported zero would have read as "the control does not bite" and inverted the
 conclusion.
 
+**A captured exit code is honest about its own phase and silent about the one before it.** Where
+a gate chains a compile step to a serve step, a failed compile leaves the previously built
+artefact in place and the serve step serves it — so the run executes against stale code, passes,
+and returns its own truthful zero. **Capture discipline cannot reach this**: the runner ran, its
+tests passed, and it is not the component that knows what it was handed. **Gate the second phase
+on the first's captured exit rather than chaining the two and reading the second.** Counts do not
+catch it either — measured, the stale artefact ran 885 tests and read entirely plausibly, and a
+count that does NOT move where you expected is a question rather than an answer.
+
 **An ABSENT exit-code file is NO VERDICT, not a pass.** It reads as success because the log ends
 with the gate's own output and nothing contradicts it. Any death between the last line and the
 exit does it. **A gate you cannot quote a captured number for has not run** — re-run it, and say
