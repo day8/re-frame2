@@ -392,6 +392,7 @@ familiar fix:
     file — while rebasing onto the ref succeeded immediately on the same tree. **A remedy
     inherits the hazards of whatever it reads**, so choose it by what it reads, not by what it
     is called.
+
 * **A truncated abort, or a ref-level race** — re-fetch and re-read. Do not reach for
     any remedy above.
 
