@@ -47,18 +47,18 @@ unrenamed.
   ```
 - **Description**: An anchored, light-dismissable panel on the browser's own top
   layer.
-  - `:anchor` is the **DOM id** of the trigger. The module gives that element a
-    generated CSS anchor name while the panel is open and puts back whatever it
-    found on the way out. An `:anchor` naming no element refuses with
-    `:rf.error/fresco-overlay-anchor-missing`; omitting it stays legal and
-    silent.
-  - `:placement` is the compass word that becomes a `position-area` against the
-    anchor. A `:placement` outside the known table is **not refused** — it is
-    passed through as a literal `position-area` value.
-  - With `:on-dismiss` the panel is a `popover="auto"` and takes its place in the
-    platform's LIFO stack; without one it is `popover="manual"` and dismisses for
-    nothing, because a dismissal with nowhere to go is how an open flag acquires a
-    second owner.
+    - `:anchor` is the **DOM id** of the trigger. The module gives that element a
+      generated CSS anchor name while the panel is open and puts back whatever it
+      found on the way out. An `:anchor` naming no element refuses with
+      `:rf.error/fresco-overlay-anchor-missing`; omitting it stays legal and
+      silent.
+    - `:placement` is the compass word that becomes a `position-area` against the
+      anchor. A `:placement` outside the known table is **not refused** — it is
+      passed through as a literal `position-area` value.
+    - With `:on-dismiss` the panel is a `popover="auto"` and takes its place in the
+      platform's LIFO stack; without one it is `popover="manual"` and dismisses for
+      nothing, because a dismissal with nowhere to go is how an open flag acquires a
+      second owner.
 - **Example**:
   ```clojure
   [overlay/popover {:open?      (h/sub [:menu/open? id])
@@ -81,17 +81,17 @@ unrenamed.
   ```
 - **Description**: A blocking dialog on the browser's own top layer, opened with
   `showModal`.
-  - Modality is the engine's: the rest of the document is inert and `::backdrop`
-    is a real CSS selector. Focus cannot Tab out of the dialog — inertness is what
-    stops it reaching the page, and the module's own two-edge wrap is what makes
-    the last control Tab straight back to the first rather than through `<body>`.
-  - Escape dispatches `:on-dismiss`; a backdrop click does so only with
-    `:light-dismiss? true` (default false), because a destructive confirmation
-    must not go away on a stray click. Without `:on-dismiss` the dialog honours no
-    close request at all.
-  - Initial focus is **tree order** — the platform's own dialog-focusing steps
-    take the first focusable control, so order the controls rather than reaching
-    for an autofocus attribute.
+    - Modality is the engine's: the rest of the document is inert and `::backdrop`
+      is a real CSS selector. Focus cannot Tab out of the dialog — inertness is what
+      stops it reaching the page, and the module's own two-edge wrap is what makes
+      the last control Tab straight back to the first rather than through `<body>`.
+    - Escape dispatches `:on-dismiss`; a backdrop click does so only with
+      `:light-dismiss? true` (default false), because a destructive confirmation
+      must not go away on a stray click. Without `:on-dismiss` the dialog honours no
+      close request at all.
+    - Initial focus is **tree order** — the platform's own dialog-focusing steps
+      take the first focusable control, so order the controls rather than reaching
+      for an autofocus attribute.
 - **Example**:
   ```clojure
   [overlay/modal {:open?      (h/sub [:invoice/confirm-delete? id])

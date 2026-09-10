@@ -39,15 +39,15 @@ application live in [Forms](../core/fresco/05-forms.md) and the
   what a rejection is made of. `:value`, `:on-commit`, `:on-cancel`, `:key` and
   `::h/revision` are the field's own — every other prop reaches the `<input>`
   unchanged, with `:type` defaulting to `"text"`.
-  - The protocol is three ordinary events in the module's own keyword namespace
-    (`::edit` on `:on-input`, `::commit` on Enter and blur alike, `::cancel` on
-    Escape), written into the field's intents rather than exported as names. A
-    test that drives the field by hand spells them through
-    `re-frame.fresco.test.forms`.
-  - It mints no refusal id of its own: a bad `:control` is `reg-state`'s
-    `:rf.error/fresco-state-bad-argument` at the field's first render, and
-    `::h/revision` on a non-text field is
-    `:rf.error/fresco-revision-not-controlled`.
+    - The protocol is three ordinary events in the module's own keyword namespace
+      (`::edit` on `:on-input`, `::commit` on Enter and blur alike, `::cancel` on
+      Escape), written into the field's intents rather than exported as names. A
+      test that drives the field by hand spells them through
+      `re-frame.fresco.test.forms`.
+    - It mints no refusal id of its own: a bad `:control` is `reg-state`'s
+      `:rf.error/fresco-state-bad-argument` at the field's first render, and
+      `::h/revision` on a non-text field is
+      `:rf.error/fresco-revision-not-controlled`.
 - **Example**:
   ```clojure
   [forms/buffered-field

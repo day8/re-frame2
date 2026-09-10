@@ -27,9 +27,9 @@ The adapter ships in two artefacts: `day8/re-frame2-reagent` (full) and `day8/re
    :dispose-adapter! …}
   ```
 - **Description**: The Reagent adapter map: the substrate spec you pass to `(rf/init! ...)` to install the browser-default Reagent substrate (stock `reagent.core` / `reagent.dom.client`).
-  - There is no default-adapter registry and no keyword form. Require the adapter ns and pass its `adapter` Var explicitly at the call site.
-  - When this adapter is installed, `current-adapter` (in [`re-frame.core`](re-frame.core.md)) returns this map itself — that is the installed-adapter value, and its presence is how you ask whether an adapter is seated. The discriminator is a KEY on it: `(:kind (rf/current-adapter))` reads `:rf.adapter/reagent`.
-  - The Reagent `frame-provider` is the substrate-agnostic provider from [`re-frame.core`](re-frame.core.md); children stay trailing-positional hiccup (`[rf/frame-provider {:frame …} & children]`).
+    - There is no default-adapter registry and no keyword form. Require the adapter ns and pass its `adapter` Var explicitly at the call site.
+    - When this adapter is installed, `current-adapter` (in [`re-frame.core`](re-frame.core.md)) returns this map itself — that is the installed-adapter value, and its presence is how you ask whether an adapter is seated. The discriminator is a KEY on it: `(:kind (rf/current-adapter))` reads `:rf.adapter/reagent`.
+    - The Reagent `frame-provider` is the substrate-agnostic provider from [`re-frame.core`](re-frame.core.md); children stay trailing-positional hiccup (`[rf/frame-provider {:frame …} & children]`).
 - **Example**:
   ```clojure
   (:require [re-frame.core :as rf]
@@ -79,7 +79,7 @@ The Root these functions manage is tracked by the same active-root ownership as 
   (client-root)
   ```
 - **Description**: Allocate an inert client-root handle and return it. Does no DOM work, so it is safe at namespace load under a `defonce`, in tests, and on Node. The React Root is created (or hydrated) by the first `render!` through the handle.
-  - The handle is opaque: hold it, hand it to `render!` and `unmount!`, and nothing else.
+    - The handle is opaque: hold it, hand it to `render!` and `unmount!`, and nothing else.
 - **Example**:
   ```clojure
   (defonce app-root (reagent-adapter/client-root))   ;; inert until the first render!
@@ -94,9 +94,9 @@ The Root these functions manage is tracked by the same active-root ownership as 
   (render! handle render-tree mount-point opts)
   ```
 - **Description**: Render `render-tree` (hiccup) through the client-root `handle` at the DOM element `mount-point`. Returns nil.
-  - The first call creates the React Root at `mount-point` and renders into it. With `{:hydrate? true}` it hydrates the server-rendered markup already inside `mount-point` instead (once; see [`re-frame.ssr`](re-frame.ssr.md)).
-  - Every later call updates that same Root with the new tree: no second `create-root`, no second hydration. That is what makes one call both the boot path and the `^:dev/after-load` hook. `mount-point` is read on the first call only.
-  - After `unmount!`, or after `rf/destroy-adapter!` has released the Root, the next `render!` mounts afresh.
+    - The first call creates the React Root at `mount-point` and renders into it. With `{:hydrate? true}` it hydrates the server-rendered markup already inside `mount-point` instead (once; see [`re-frame.ssr`](re-frame.ssr.md)).
+    - Every later call updates that same Root with the new tree: no second `create-root`, no second hydration. That is what makes one call both the boot path and the `^:dev/after-load` hook. `mount-point` is read on the first call only.
+    - After `unmount!`, or after `rf/destroy-adapter!` has released the Root, the next `render!` mounts afresh.
 - **Example**:
   ```clojure
   (reagent-adapter/render! app-root [app-view] el)                   ;; first call: create + render
@@ -112,7 +112,7 @@ The Root these functions manage is tracked by the same active-root ownership as 
   (unmount! handle)
   ```
 - **Description**: Unmount the React Root `handle` holds and return the handle to inert. Returns nil.
-  - Idempotent: a second call, or a call after `rf/destroy-adapter!` has already released the Root, does nothing.
+    - Idempotent: a second call, or a call after `rf/destroy-adapter!` has already released the Root, does nothing.
 - **Example**:
   ```clojure
   (reagent-adapter/unmount! app-root)   ;; releases the Root; a repeat call is a no-op
@@ -129,10 +129,10 @@ The Root these functions manage is tracked by the same active-root ownership as 
   (flush-views! f)
   ```
 - **Description**: Wraps React's `act()` for tests. Flushes pending Reagent renders synchronously and returns nil.
-  - 0-arity: drains the queued renders and effects.
-  - 1-arity: runs the thunk `f`, then the synchronous render drain, inside `act()`.
-  - When `act()` is unreachable in the current React build, this degrades to a plain synchronous flush. `f` still runs and the render queue still drains, just without the `act()` wrapper.
-  - Surfaced identically across all substrates: same name, same adapter-ns location, same nil-return.
+    - 0-arity: drains the queued renders and effects.
+    - 1-arity: runs the thunk `f`, then the synchronous render drain, inside `act()`.
+    - When `act()` is unreachable in the current React build, this degrades to a plain synchronous flush. `f` still runs and the render queue still drains, just without the `act()` wrapper.
+    - Surfaced identically across all substrates: same name, same adapter-ns location, same nil-return.
 - **Example**:
   ```clojure
   ;; Test-only: flush pending renders synchronously, returns nil.
@@ -150,9 +150,9 @@ The Root these functions manage is tracked by the same active-root ownership as 
   (set-hiccup-emitter! f)
   ```
 - **Description**: Install a render-tree → HTML fn: the hiccup → HTML emitter used by render-to-string.
-  - Last call wins; pass `nil` to reset.
-  - Normally you don't call this directly. Requiring [`re-frame.ssr`](re-frame.ssr.md) resolves the late-bind hook and wires the emitter for you.
-  - It is the Reagent-side late-bind seam for SSR, matching the parallel seam on the UIx adapter.
+    - Last call wins; pass `nil` to reset.
+    - Normally you don't call this directly. Requiring [`re-frame.ssr`](re-frame.ssr.md) resolves the late-bind hook and wires the emitter for you.
+    - It is the Reagent-side late-bind seam for SSR, matching the parallel seam on the UIx adapter.
 - **Example**:
   ```clojure
   ;; SSR: install a render-tree → HTML emitter (normally wired for you by

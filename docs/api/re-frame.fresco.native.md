@@ -38,15 +38,15 @@ same frame. The islands themselves are taught in
   under the frame this island is mounted in. The island counterpart to `h/sub` —
   and one call per read, so two calls are **two** subscriptions where a `defview`
   body's several `h/sub` reads are one.
-  - It hands `useSyncExternalStore` the same `subscribe` and `getSnapshot` a
-    boundary reading this key gets, so the read builds the same cell, joins the
-    same reader membership and residue census, wakes on the same commit, and
-    appears in the same `re-frame.fresco.tool` rosters Xray reads.
-  - A re-render that changed no read performs no re-subscribe; unmount releases
-    what mount acquired, StrictMode's double mount included.
-  - A commit observed through it is a **blocking** update — React's rule for an
-    external store — so nothing here is transition-aware, and it is not a door to
-    a promise-driven resource.
+    - It hands `useSyncExternalStore` the same `subscribe` and `getSnapshot` a
+      boundary reading this key gets, so the read builds the same cell, joins the
+      same reader membership and residue census, wakes on the same commit, and
+      appears in the same `re-frame.fresco.tool` rosters Xray reads.
+    - A re-render that changed no read performs no re-subscribe; unmount releases
+      what mount acquired, StrictMode's double mount included.
+    - A commit observed through it is a **blocking** update — React's rule for an
+      external store — so nothing here is transition-aware, and it is not a door to
+      a promise-driven resource.
 - **Example**:
   ```clojure
   (defui ticker [{:keys [sym]}]
@@ -63,14 +63,14 @@ same frame. The islands themselves are taught in
 - **Description**: Frame-locked operations for the frame this island is mounted
   in — `rf/capture-frame`'s bundle,
   `{:frame :dispatch :dispatch-sync :subscribe}`.
-  - The frame is the surrounding tree's, the one React context the boundary shell
-    reads, and no argument reaches another; for a **named** frame call
-    `(rf/capture-frame frame-id)` directly.
-  - The map is the same object on every render under one frame **incarnation**, so
-    it is safe in effect deps and safe to close over. Destroy the frame and
-    recreate it under the same id and the next render gets the successor's ops,
-    while a callback still holding the predecessor's is refused by core's
-    `:rf.error/frame-destroyed` fence.
+    - The frame is the surrounding tree's, the one React context the boundary shell
+      reads, and no argument reaches another; for a **named** frame call
+      `(rf/capture-frame frame-id)` directly.
+    - The map is the same object on every render under one frame **incarnation**, so
+      it is safe in effect deps and safe to close over. Destroy the frame and
+      recreate it under the same id and the next render gets the successor's ops,
+      while a callback still holding the predecessor's is refused by core's
+      `:rf.error/frame-destroyed` fence.
 - **Example**:
   ```clojure
   (defui col-resizer [_]
