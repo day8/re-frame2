@@ -217,7 +217,15 @@
   was near-invisible — the focused epoch's actual change (a new instance
   appearing) carried no visual marker at all."
   [value before render-id title]
-  (let [_node-key (str "app-db-state/" render-id)
+  (let [;; rf2-k97c.3 — `:mount-id` is REQUIRED by the Fresco head and must
+        ;; be a stable string: a boundary is a React function component with
+        ;; no form-2 outer body, so an id minted in the body would be fresh
+        ;; every render and the widget would lose its expansion state each
+        ;; pass. `render-id` already names the logical surface, which is
+        ;; exactly the stability wanted, and it is what `:site-id` below is
+        ;; built from too. (This is the string the pre-migration
+        ;; `_node-key` binding already spelled out and discarded.)
+        mount-id  (str "app-db-state/" render-id)
         ;; rf2-pvsxs — stable `:site-id` so expansion overrides survive
         ;; a tab-switch round-trip. `render-id` already identifies the
         ;; logical surface (e.g. "top" for the user-domain section, an
@@ -247,22 +255,33 @@
     ;; full+diff renderer: when a before is present the widget re-roots
     ;; BOTH value and before along the zoom path, so the diff annotations
     ;; paint relative to the focused subtree.
-    [ei/edn-inspector
-     (f/display-value value)
-     (cond-> {:panel-id :rf.xray/app-db
-              :site-id  site-id
-              :default-expanded-depth 3
-              :card? true
-              :zoomable? true
-              :header title}
-       has-before?
-       (assoc :before (f/display-value before))
-       ;; rf2-227cz — a wholly-new slice (absent in the focused epoch's
-       ;; pre-image) opts into the inspector's first-run `:added?` path
-       ;; so the entire subtree washes `:added` (green) rather than
-       ;; rendering as plain unchanged state.
-       added?
-       (assoc :added? true))]))
+    ;;
+    ;; rf2-k97c.3 — `ei/edn-inspector-view`, the widget's FRESCO head,
+    ;; rather than `ei/edn-inspector`, its Reagent one. Both render the
+    ;; same `render-inspector` body over the same opts; only the OBSERVER
+    ;; differs, which is the whole subject of this epic — the Fresco head
+    ;; reads its three slots with `rf.fresco/sub` so the shipped collector
+    ;; wires them, where the Reagent head derefs reactions the installed
+    ;; adapter owns. A boundary head is legal in a boundary body (`[head
+    ;; props]` is `defview`'s own mount spelling); what would be a loud
+    ;; error is a PLAIN fn in head position.
+    [ei/edn-inspector-view
+     {:mount-id mount-id
+      :value    (f/display-value value)
+      :opts     (cond-> {:panel-id :rf.xray/app-db
+                         :site-id  site-id
+                         :default-expanded-depth 3
+                         :card? true
+                         :zoomable? true
+                         :header title}
+                  has-before?
+                  (assoc :before (f/display-value before))
+                  ;; rf2-227cz — a wholly-new slice (absent in the focused
+                  ;; epoch's pre-image) opts into the inspector's first-run
+                  ;; `:added?` path so the entire subtree washes `:added`
+                  ;; (green) rather than rendering as plain unchanged state.
+                  added?
+                  (assoc :added? true))}]))
 
 ;; ---- top (user-domain) section ------------------------------------------
 
@@ -332,8 +351,15 @@
   [{:keys [area instances]}]
   (into [:div {:data-testid (str "rf-xray-app-db-state-area-" (pr-str area))}]
         (for [{:keys [id] :as inst} instances]
-          (with-meta (instance-section area inst)
-                     {:key (pr-str id)}))))
+          ;; rf2-k97c.3 — the sequence key rides on a keyed FRAGMENT rather
+          ;; than on the returned vector's metadata. This subtree now renders
+          ;; through Fresco's codec, whose head table reads a literal `:key`
+          ;; in the attribute map and nothing else, so a `with-meta` key
+          ;; silently degrades to index-based reconciliation. `instance-section`
+          ;; answers hiccup of no fixed shape, so there is no one attribute
+          ;; map to write into; `[:<> …]` takes the key and adds no DOM node.
+          [:<> {:key (pr-str id)}
+           (instance-section area inst)])))
 
 (defn singleton-area
   "Render a singleton-slice reserved area (`:rf/route`,
@@ -388,6 +414,6 @@
     (into [:div {:data-testid "rf-xray-app-db-state"}
            (top-section top before-top)]
           (for [{:keys [area] :as area-entry} areas]
-            (with-meta
-              (area-section area-entry)
-              {:key (pr-str area)})))))
+            ;; rf2-k97c.3 — keyed fragment; see `instances-area` above.
+            [:<> {:key (pr-str area)}
+             (area-section area-entry)]))))

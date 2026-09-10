@@ -304,18 +304,28 @@
 ;; threaded through when the pre-image differs, omitted when not.
 
 (defn- find-edn-inspector-mounts
-  "Walk the hiccup tree and collect every `[ei/edn-inspector value opts]`
-  mount. Returns a vec of `{:value :opts}` maps so tests can assert
-  against the threaded opts (in particular `:before`)."
+  "Walk the hiccup tree and collect every edn-inspector-widget mount.
+  Returns a vec of `{:value :opts}` maps so tests can assert against the
+  threaded opts (in particular `:before`).
+
+  rf2-k97c.3 — the mount is now `[ei/edn-inspector-view {:mount-id …
+  :value … :opts …}]`, the widget's FRESCO head, where it used to be
+  `[ei/edn-inspector value opts]`, its Reagent one. Both render the same
+  body over the same opts; the head takes ONE props map, as every
+  `defview` boundary does, so the value and opts are read out of it
+  rather than off positions 1 and 2. The head is still detected by being
+  a function — a Fresco boundary is a real React function component —
+  and is never CALLED here: its body may only run inside a React render
+  window."
   [tree]
   (let [out (atom [])]
     (letfn [(walk [n]
               (cond
                 (vector? n)
-                (do (when (and (fn? (first n)))
-                      (let [a (when (>= (count n) 2) (nth n 1))
-                            b (when (>= (count n) 3) (nth n 2))]
-                        (swap! out conj {:value a :opts b})))
+                (do (when (fn? (first n))
+                      (let [props (when (>= (count n) 2) (nth n 1))]
+                        (swap! out conj {:value (:value props)
+                                         :opts  (:opts props)})))
                     (doseq [c (rest n)] (walk c)))
                 (seq? n) (doseq [c n] (walk c))))]
       (walk tree))
