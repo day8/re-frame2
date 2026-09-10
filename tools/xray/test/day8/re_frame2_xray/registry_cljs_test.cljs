@@ -268,6 +268,9 @@
    :rf.xray/machine-snapshots
    ;; rf2-uyp86 — managed-fx wire-boundary diff composite.
    :rf.xray/managed-fx-for-focused-event
+   ;; rf2-s6m6 — the record panel's per-section disclosure state. Read at
+   ;; `panels/ManagedFxList` and threaded to the pure renderers.
+   :rf.xray/managed-fx-expanded-sections
    ;; rf2-7hwwe — `:after` ring tick driver wall-clock surface + hover slot.
    :rf.xray/now-ms
    ;; rf2-39n8h discovered — focused-frame slot consumed across panels.
@@ -631,6 +634,8 @@
    :rf.xray/open-mute-manager
    :rf.xray/open-row-context-menu
    :rf.xray/unmute-event-id
+   ;; rf2-s6m6 — toggle one managed-fx record's section disclosure.
+   :rf.xray/managed-fx-toggle-section
    ;; Phase 4 (rf2-m7co9) — ELK chart layout pulse.
    :rf.xray/machine-chart-layout-pulse
    :rf.xray/machine-state-clicked

@@ -598,13 +598,30 @@
       ;; default-tree row could not assert.
       (is (some #{{:method :get :url "/x"}} (tree-nodes tree)))
       (is (some #{[:user/loaded {:id 1}]} (tree-nodes tree)))
-      ;; Two controls, because the assertion below is an ABSENCE.
+      ;; Controls, because the assertions below are ABSENCES.
       (is (= :invalid (rf.fresco.impl.codec/head-kind edn-widget/inspect))
           "Fresco's own classifier grades the plain fn an invalid head")
       (is (< 30 (count heads))
           "the walker reached a populated tree, so a zero below means absence")
-      (is (empty? (filter fn? heads))
-          "no plain function is in head position in the fully-open panel"))))
+      ;; `(empty? (filter fn? heads))` — the shape the DEFAULT-tree row above
+      ;; can use — would be WRONG here, and measuring it is how that was
+      ;; found: it reads three `cljs.core.MetaFn`s, which are the three
+      ;; `edn/inspect` returns now in the tree. `inspect` answers
+      ;; `[ei/edn-inspector …]`, a REG-VIEW head, and a reg-view head IS a fn
+      ;; value on CLJS — `build-frame-aware-view` returns `(with-meta (fn …)
+      ;; {:contextType …})`. That head is the CORRECT one while this panel
+      ;; mounts under `reg-view`; `head-kind` cannot separate the two, since
+      ;; Fresco's codec grades a reg-view head `:invalid` as well.
+      ;;
+      ;; The discriminator is the metadata: a registered frame-aware view
+      ;; head carries some, a bare `defn` carries none.
+      (let [fn-heads (filter fn? heads)]
+        (is (pos? (count fn-heads))
+            "the inspector heads are in the tree, so `every?` below is not vacuous")
+        (is (not-any? #(identical? edn-widget/inspect %) heads)
+            "`edn/inspect` is a plain defn and is never itself a hiccup head")
+        (is (every? #(some? (meta %)) fn-heads)
+            "every fn in head position is a registered view head, not a plain fn")))))
 
 (deftest user-facing-text-carries-no-internal-refs
   (let [recs [(record {:surface :http :fx-id :rf.http/managed
