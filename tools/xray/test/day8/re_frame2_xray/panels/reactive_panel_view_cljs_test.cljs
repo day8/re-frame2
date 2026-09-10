@@ -36,6 +36,21 @@
   (mapv #(:data-testid (rf.test-helpers/attrs %))
         (rf.test-helpers/find-by-testid-prefix tree "rf-xray-reactive-unchanged-row-")))
 
+(defn- panel-tree
+  "The hiccup these rows walk, driven through the pure projection.
+
+  rf2-k97c.3 — `facade/Panel` is now an `rf.fresco/defview` boundary, a
+  real React function component whose body may only run inside a React
+  render window, so it is no longer callable and neither is the old
+  0-arity `view/reactive-panel`. This helper REPRODUCES THE BOUNDARY'S
+  READ EXACTLY — the one `:rf.xray/reactive-data` query the boundary
+  issues — and hands the value to the projection, so every row below
+  asserts on the same hiccup it asserted on before. The dispatcher is nil:
+  no row here clicks the disclosure toggle (that is
+  `reactive_panel_disclosure_dispatch_routing_cljs_test`'s subject)."
+  []
+  (view/reactive-panel nil @(rf/subscribe [:rf.xray/reactive-data])))
+
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
@@ -43,7 +58,7 @@
   (testing "the panel root surfaces `rf-xray-reactive` data-testid"
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
-    (let [tree (view/reactive-panel)]
+    (let [tree (panel-tree)]
       (is (has-testid? tree "rf-xray-reactive")
           "the root :section data-testid is present"))))
 
@@ -51,7 +66,7 @@
   (testing "Empty-state copy renders when no cascade is focused"
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
-    (let [tree (view/reactive-panel)]
+    (let [tree (panel-tree)]
       (is (has-testid? tree "rf-xray-reactive-empty")
           "empty-state surfaces when no cascade exists"))))
 
@@ -60,7 +75,7 @@
             tab strip is the panel-name source-of-truth."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
-    (let [tree (view/reactive-panel)
+    (let [tree (panel-tree)
           icon (rf.test-helpers/find-by-testid tree "rf-xray-reactive-panel-icon")]
       (is (nil? icon) "panel-icon span is gone (lived in the deleted h1)"))))
 
@@ -97,7 +112,7 @@
        :view-rows [{:view-id :cart/Summary :action :rerender
                     :reason {:kind :reactive :subs [:cart/total]}
                     :triggered-by :cart/total :elapsed-ms 1.5}]})
-    (let [tree (view/reactive-panel)]
+    (let [tree (panel-tree)]
       (is (has-testid? tree "rf-xray-reactive-flow-svg") "the SVG canvas renders")
       (is (has-testid? tree "rf-xray-reactive-appdb-node") "app-db source node renders")
       (is (has-testid? tree "rf-xray-reactive-node-l1-_cart_state") "Level-1 node renders")
@@ -115,7 +130,7 @@
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
-    (let [tree (view/reactive-panel)]
+    (let [tree (panel-tree)]
       (is (= "Reactive Flow" (text-of tree "rf-xray-reactive-section-flow-label"))
           "graph section heading is `Reactive Flow`"))))
 
@@ -130,7 +145,7 @@
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :unmounted-views [] :destroyed-subs []})
-    (let [tree (view/reactive-panel)
+    (let [tree (panel-tree)
           flow (rf.test-helpers/find-by-testid tree "rf-xray-reactive-section-flow-label")
           unmnt (rf.test-helpers/find-by-testid tree
                                    "rf-xray-reactive-section-unmounted-label")]
@@ -154,7 +169,7 @@
        :counts {}
        :level-1-subs [{:sub-id :cart/state :changed? true}]
        :level-2-subs [] :view-rows []})
-    (let [tree (view/reactive-panel)
+    (let [tree (panel-tree)
           card (rf.test-helpers/find-by-testid tree "rf-xray-reactive-graph-card")
           border (get-in card [1 :style :border])]
       (is (some? card) "the graph card renders")
@@ -172,7 +187,7 @@
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-2-subs [] :view-rows []
        :level-1-subs [{:sub-id :cart/state :changed? true}]})
-    (let [tree (view/reactive-panel)
+    (let [tree (panel-tree)
           node (rf.test-helpers/find-by-testid tree "rf-xray-reactive-node-l1-_cart_state")]
       (is (some? node) "changed node renders")
       (is (= "true" (get-in node [1 :data-node-changed]))
@@ -189,7 +204,7 @@
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-2-subs [] :view-rows []
        :level-1-subs [{:sub-id :cart/title :changed? false}]})
-    (let [tree (view/reactive-panel)
+    (let [tree (panel-tree)
           node (rf.test-helpers/find-by-testid tree "rf-xray-reactive-node-l1-_cart_title")]
       (is (= "false" (get-in node [1 :data-node-changed]))
           "unchanged node tagged data-node-changed=false"))))
@@ -205,7 +220,7 @@
        :view-rows [{:view-id :cart/Summary :action :rerender
                     :reason {:kind :reactive :subs [:cart/total]}
                     :triggered-by :cart/total :elapsed-ms 2.0}]})
-    (let [tree (view/reactive-panel)
+    (let [tree (panel-tree)
           meta (text-of tree "rf-xray-reactive-view-meta-_cart_Summary")]
       (is (some? meta) "view-node meta label renders")
       (is (re-find #"rerendered" meta) "labelled (rerendered)")
@@ -224,7 +239,7 @@
        :counts {} :level-1-subs [] :level-2-subs []
        :view-rows [{:view-id :cart/Badge :action :rerender
                     :reason {:kind :structural} :elapsed-ms 0.5}]})
-    (let [tree (view/reactive-panel)
+    (let [tree (panel-tree)
           meta (text-of tree "rf-xray-reactive-view-meta-_cart_Badge")]
       (is (some? meta) "view-node meta label renders")
       (is (re-find #"rerendered" meta) "labelled (rerendered)")
@@ -242,7 +257,7 @@
        :counts {} :level-1-subs [] :level-2-subs []
        :view-rows [{:view-id :cart/Fresh :action :mount
                     :reason {:kind :structural}}]})
-    (let [tree (view/reactive-panel)
+    (let [tree (panel-tree)
           meta (text-of tree "rf-xray-reactive-view-meta-_cart_Fresh")]
       (is (re-find #"mounted" meta) "labelled (mounted)")
       (is (not (re-find #"← " meta))
@@ -260,7 +275,7 @@
                        :readers [:app/Header :app/Sidebar]}]
        :view-rows [{:view-id :app/Header :action :rerender :reason {:kind :structural}}
                    {:view-id :app/Sidebar :action :rerender :reason {:kind :structural}}]})
-    (let [tree (view/reactive-panel)]
+    (let [tree (panel-tree)]
       (is (= "×2" (text-of tree "rf-xray-reactive-shared-_app_session"))
           "shared sub carries a ×2 annotation")
       (is (has-testid? tree "rf-xray-reactive-view-node-_app_Header") "fans out to Header")
@@ -276,7 +291,7 @@
        :counts {} :level-1-subs [] :level-2-subs []
        :view-rows [{:view-id :cart/Summary :action :rerender
                     :reason {:kind :structural}}]})
-    (let [tree (view/reactive-panel)
+    (let [tree (panel-tree)
           node (rf.test-helpers/find-by-testid tree "rf-xray-reactive-view-node-_cart_Summary")]
       (is (some? node) "the view node renders")
       (is (fn? (rf.test-helpers/extract-handler node :on-mouse-enter))
@@ -292,7 +307,7 @@
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
-    (let [tree (view/reactive-panel)]
+    (let [tree (panel-tree)]
       (is (has-testid? tree "rf-xray-reactive-graph-empty")
           "sparse cascade shows the graph empty placeholder")
       (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-flow-svg"))
@@ -309,7 +324,7 @@
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :unmounted-views [{:view-id :app/Modal} {:view-id :app/Tooltip}]})
-    (let [tree (view/reactive-panel)]
+    (let [tree (panel-tree)]
       (is (= "Unmounted Views"
              (text-of tree "rf-xray-reactive-section-unmounted-label"))
           "section heading renders")
@@ -327,7 +342,7 @@
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :unmounted-views []})
-    (let [tree (view/reactive-panel)]
+    (let [tree (panel-tree)]
       (is (has-testid? tree "rf-xray-reactive-unmounted-empty")
           "empty placeholder renders when nothing unmounted"))))
 
@@ -340,7 +355,7 @@
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :destroyed-subs [{:sub-id :app/modal-state}]})
-    (let [tree (view/reactive-panel)]
+    (let [tree (panel-tree)]
       (is (= "Destroyed Subscriptions"
              (text-of tree "rf-xray-reactive-section-destroyed-label"))
           "section heading renders")
@@ -361,7 +376,7 @@
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
-    (let [tree (view/reactive-panel)
+    (let [tree (panel-tree)
           legend-text (text-of tree "rf-xray-reactive-legend")]
       (is (some? legend-text) "legend renders")
       (is (re-find #"changed \(propagates" legend-text) "changed swatch labelled")
@@ -387,7 +402,7 @@
                        :reason :input-value-equal :input-paths-unchanged []}
                       {:sub-id :item/derived :query-v [:item/derived 2]
                        :reason :input-value-equal :input-paths-unchanged []}]})
-    (let [tree    (view/reactive-panel)
+    (let [tree    (panel-tree)
           testids (unchanged-row-testids tree)
           id-for  (fn [stem]
                     (some #(when (str/starts-with?
@@ -427,7 +442,7 @@
                        :reason :input-value-equal :input-paths-unchanged []}
                       {:sub-id :item/derived :query-v [:item/derived :a/b]
                        :reason :input-value-equal :input-paths-unchanged []}]})
-    (let [tree    (view/reactive-panel)
+    (let [tree    (panel-tree)
           testids (unchanged-row-testids tree)]
       (is (= 2 (count testids)) "both colliding parameterizations render a row")
       (is (= 2 (count (distinct testids)))
@@ -459,7 +474,7 @@
                        :reason :input-value-equal :input-paths-unchanged []}
                       {:sub-id :item/derived :query-v [:item/derived "!!"]
                        :reason :input-value-equal :input-paths-unchanged []}]})
-    (let [tree    (view/reactive-panel)
+    (let [tree    (panel-tree)
           testids (unchanged-row-testids tree)]
       (is (= 2 (count testids)) "both hash-colliding parameterizations render a row")
       (is (= 2 (count (distinct testids)))
@@ -491,7 +506,7 @@
                        :reason :input-value-equal :input-paths-unchanged []}
                       {:sub-id :cfg/derived :query-v [:cfg/derived {:a 1 :b 3}]
                        :reason :input-value-equal :input-paths-unchanged []}]})
-    (let [tree    (view/reactive-panel)
+    (let [tree    (panel-tree)
           testids (unchanged-row-testids tree)]
       (is (= 3 (count testids)) "all three seeded rows render")
       (is (= 2 (count (distinct testids)))
@@ -531,7 +546,7 @@
                        :reason :input-value-equal :input-paths-unchanged []}
                       {:sub-id :cfg/derived :query-v [:cfg/derived {:x 1}]
                        :reason :input-value-equal :input-paths-unchanged []}]})
-    (let [tree    (view/reactive-panel)
+    (let [tree    (panel-tree)
           testids (unchanged-row-testids tree)]
       (is (= 3 (count testids)) "all three seeded rows render")
       (is (= 3 (count (distinct testids)))
@@ -567,7 +582,7 @@
                       {:sub-id  :cfg/derived
                        :query-v [:cfg/derived (assoc (->RecA 1) :b 2 :c 4)]
                        :reason :input-value-equal :input-paths-unchanged []}]})
-    (let [tree    (view/reactive-panel)
+    (let [tree    (panel-tree)
           testids (unchanged-row-testids tree)]
       (is (= 3 (count testids)) "all three seeded rows render")
       (is (= 2 (count (distinct testids)))
@@ -596,7 +611,7 @@
                       {:sub-id  :cfg/derived
                        :query-v [:cfg/derived {:k {:x 1}}]
                        :reason :input-value-equal :input-paths-unchanged []}]})
-    (let [tree    (view/reactive-panel)
+    (let [tree    (panel-tree)
           testids (unchanged-row-testids tree)]
       (is (= 3 (count testids)) "all three seeded rows render")
       (is (= 3 (count (distinct testids)))
@@ -619,7 +634,7 @@
        :show-unchanged? true
        :subs-skipped [{:sub-id :user/name :query-v [:user/name]
                        :reason :input-value-equal :input-paths-unchanged []}]})
-    (let [tree    (view/reactive-panel)
+    (let [tree    (panel-tree)
           testids (unchanged-row-testids tree)
           id      (first testids)
           row     (text-of tree id)]

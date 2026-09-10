@@ -252,7 +252,12 @@
   Renders the canonical sub-cascade + view-re-render visualisation
   per spec/021 §3."
   ([mount-point]      (mount-reactive-panel! mount-point nil))
-  ([mount-point opts] (render-panel! reactive-panel/Panel mount-point opts)))
+  ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`; the same one-line caller
+  ;; change `mount-resources!` carries below, for the same reason. The
+  ;; view is now a Fresco boundary and `render-panel!` builds a Reagent
+  ;; tree, which `defview`'s contract forbids mounting a boundary into.
+  ;; `render-panel!` itself is untouched.
+  ([mount-point opts] (render-panel! reactive-panel/Panel-bridge mount-point opts)))
 
 (defn mount-trace!
   "Mount Xray's Trace tab in isolation at `mount-point`. Renders the
