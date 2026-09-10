@@ -44,6 +44,8 @@
             [day8.re-frame2-xray.static.mode-pill :as mode-pill]
             [day8.re-frame2-xray.static.persistence :as static-persistence]
             [day8.re-frame2-xray.static.shell :as static-shell]
+            [day8.re-frame2-xray.test-helpers.static-shell-tree
+             :as static-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
@@ -172,7 +174,7 @@
             (NO L2 event list — Static is event-INDEPENDENT)"
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (static-shell/surface)]
+      (let [tree (static-shell-tree/surface-tree)]
         (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-surface"))
             "Static surface envelope present")
         (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-ribbon"))
@@ -195,7 +197,7 @@
             has no spine)."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (static-shell/surface)]
+      (let [tree (static-shell-tree/surface-tree)]
         (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-mode-pill"))
             "mode pill present at ribbon-left")
         ;; L1 frame picker mounts in Static (the picker collapses to a
@@ -232,7 +234,7 @@
             (Machines / Routes / Schemas / Flows / Interceptors)"
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (static-shell/surface)]
+      (let [tree (static-shell-tree/surface-tree)]
         (doseq [tab-id expected-static-tab-ids]
           (is (some? (rf.test-helpers/find-by-testid tree (str "rf-xray-static-tab-" (name tab-id))))
               (str "tab button for " tab-id)))))))
@@ -243,14 +245,14 @@
             button, aria-selected matching the active state)"
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree    (static-shell/surface)
+      (let [tree    (static-shell-tree/surface-tree)
             tab-bar (rf.test-helpers/find-by-testid tree "rf-xray-static-tab-bar")
             attrs   (second tab-bar)]
         (is (= "tablist" (:role attrs))
             "container carries role='tablist'")
         (is (string? (:aria-label attrs))
             "container has an accessible name"))
-      (let [tree (static-shell/surface)]
+      (let [tree (static-shell-tree/surface-tree)]
         (doseq [tab-id expected-static-tab-ids]
           (let [btn   (rf.test-helpers/find-by-testid tree (str "rf-xray-static-tab-" (name tab-id)))
                 attrs (second btn)]
@@ -284,7 +286,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (frame-dispatch [:rf.xray.static/select-tab :machines])
-      (let [tree  (static-shell/surface)
+      (let [tree  (static-shell-tree/surface-tree)
             slot  (rf.test-helpers/find-by-testid
                     tree "rf-xray-static-detail-panel-machines")
             mount ((:panel (panel-registry/tab-by-id :static :machines)))]
@@ -396,13 +398,28 @@
 
 (deftest surface-composer-renders-static-when-mode-static
   (testing "with mode :static, the composer renders the Static surface
-            (per rf2-8l3uk — Static mode is unconditionally available)"
+            (per rf2-8l3uk — Static mode is unconditionally available).
+
+            RE-AUTHORED ONE LEVEL UP BY rf2-k97c.3, the same repair the
+            mayor ruled correct for `static-machines-mounts-live-panel`.
+            `static-shell/surface` is now an `rf.fresco/defview` behind
+            an `as-component` bridge, so this hiccup walk reaches the
+            bridge's `[:>]` interop head and STOPS —
+            `rf-xray-static-surface` is committed by React, not present
+            in the tree. Asserting that testid here would from now on be
+            asserting the walker's reach rather than the mount, which is
+            the hollow-gate shape. What the COMPOSER owes is that the
+            Static arm mounts exactly `surface-bridge` and that no
+            Dynamic region mounts beside it; the Static surface's own
+            first paint is W1 in
+            `static/shell_fresco_boundary_dom_cljs_test`."
     (xray-setup!)
     (frame-dispatch [:rf.xray/set-mode :static])
     (rf/with-frame :rf/xray
       (let [tree (shell/surface-composer)]
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-surface"))
-            "Static surface mounts")
+        (is (= [static-shell/surface-bridge] (last tree))
+            (str "the Static arm mounts exactly `surface-bridge`. "
+                 "Got: " (pr-str (last tree))))
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon"))
             "Dynamic ribbon does NOT mount")
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-event-list"))
@@ -459,11 +476,18 @@
             Static tabs project a per-frame surface (machines snapshots,
             current-route slice, app-db schemas, flows), so the picker
             is mode-INDEPENDENT and persists across mode toggles even
-            though the registrar itself is process-global"
+            though the registrar itself is process-global.
+
+            rf2-k97c.3 — driven through the Static shell's own tree
+            composer rather than through `shell/surface-composer`, whose
+            walk now stops at the Fresco bridge. The claim is unchanged
+            and the ribbon under test is the shipped one; only the door
+            onto it moved. `surface-composer-renders-static-when-mode-
+            static` above is what still pins the composer's Static arm."
     (xray-setup!)
     (frame-dispatch [:rf.xray/set-mode :static])
     (rf/with-frame :rf/xray
-      (let [tree (shell/surface-composer)]
+      (let [tree (static-shell-tree/surface-tree)]
         (is (or (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-picker"))
                 (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame")))
             "L1 frame picker (or single-frame label) present in Static")))))

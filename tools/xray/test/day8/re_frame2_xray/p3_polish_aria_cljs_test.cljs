@@ -37,7 +37,8 @@
             [day8.re-frame2-xray.settings.view :as settings-view]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
-            [day8.re-frame2-xray.static.shell :as static-shell]
+            [day8.re-frame2-xray.test-helpers.static-shell-tree
+             :as static-shell-tree]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
@@ -125,7 +126,7 @@
   (testing "rf2-plajx — Static L4 panel mirrors the Dynamic pattern."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree        (static-shell/surface)
+      (let [tree        (static-shell-tree/surface-tree)
             active-tab  :machines ;; the default Static tab
             tab-button  (rf.test-helpers/find-by-testid tree (str "rf-xray-static-tab-" (name active-tab)))
             tab-attrs   (props tab-button)

@@ -2546,18 +2546,30 @@
   ## rf2-uu3lp — DOM-rooted via `display: contents`
 
   Returning the inner component head directly (`[dynamic-chrome]` /
-  `[static-shell/surface]`) would skip the source-coord DOM
+  `[static-shell/surface-bridge]`) would skip the source-coord DOM
   annotation (Spec 006 §Documented exemption: component head) and
   emit a one-shot warning. A `display: contents` wrapper lets
   `data-rf2-source-coord` land on a real DOM node while keeping the
   inner surface as the effective layout child of `shell-view`'s flex
-  column."
+  column.
+
+  ## rf2-k97c.3 — the Static arm is a Fresco boundary behind a bridge
+
+  `static-shell/surface` is now an `rf.fresco/defview`, so this
+  `reg-view` body mounts `static-shell/surface-bridge` — the
+  `as-component` crossing Fresco documents for exactly this direction.
+  The Static chrome therefore renders under THIS shell's enclosing
+  `rf/frame-provider`, taking `:rf/xray` from React context rather than
+  from a second root, and a hiccup walk of this composer now STOPS at
+  the bridge's `[:>]` interop head: what the composer owes is that the
+  Static arm mounts the bridge, and the Static surface's own first
+  paint is `static/shell_fresco_boundary_dom_cljs_test`'s subject."
   []
   (let [mode @(rf/subscribe [:rf.xray/mode])]
     [:div {:data-rf-xray-surface-composer ""
            :style {:display "contents"}}
      (case mode
-       :static  [static-shell/surface]
+       :static  [static-shell/surface-bridge]
        [dynamic-chrome])]))
 
 ;; ---- shell view ----------------------------------------------------------

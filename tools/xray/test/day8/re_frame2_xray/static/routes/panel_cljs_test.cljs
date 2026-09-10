@@ -39,6 +39,8 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.routes.panel :as panel]
             [day8.re-frame2-xray.static.shell :as static-shell]
+            [day8.re-frame2-xray.test-helpers.static-shell-tree
+             :as static-shell-tree]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -341,7 +343,7 @@
       (rf/dispatch-sync [:rf.xray.static/select-tab :routes] {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
                         {:frame :rf/xray})
-      (let [tree (static-shell/surface)]
+      (let [tree (static-shell-tree/surface-tree)]
         ;; When the :routes tab is selected the Static shell mounts the
         ;; Static Routes panel (not the placeholder card).
         (is (some? (find-by-testid tree "rf-xray-static-routes"))
