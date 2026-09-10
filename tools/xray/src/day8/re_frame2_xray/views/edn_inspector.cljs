@@ -1578,12 +1578,45 @@
     false))
 
 (defn- testid-for
-  "Compose a stable data-testid for a node — `[panel-id mount-id path]`."
+  "Compose a stable data-testid for a NODE — `[panel-id mount-id path]`.
+
+  The path separator is UNCONDITIONAL, so the root node at `[]` reads
+  `…-<mount-id>-` with a trailing separator and an empty path after it.
+  That is deliberate and is the whole of rf2-o7p7.
+
+  A node's name is `[panel-id mount-id path]`; the widget's outer container
+  has a name of its own, `[panel-id mount-id]`, composed at the render site
+  as `container-id`. Two names for two different things. Appending the
+  separator only `(when (seq path))` collapsed them: the root node at `[]`
+  composed the container's string exactly, so ONE MOUNT PUT ONE TESTID ON
+  TWO NODES — the container carrying the widget chrome, the measurement
+  `:ref` and `data-rf-mount-id`, and the render-node carrying the rendered
+  tree.
+
+  It failed in the direction that reassures, which is why it went unseen for
+  as long as it existed: `querySelector` always returned something, so a
+  helper resolving \"the container\" got a node and carried on, and which of
+  the two it got was document order. A count is the first instrument that
+  has to care, and the first one written duly read 4 panels for 2 (rf2-d2aj,
+  PR #9597's W5).
+
+  The separator, rather than a word like `-root`, is what makes the node
+  namespace TOTAL: every path composes a suffix, no path composes the empty
+  one, and no path can collide with the container. A word could — `pr-str`
+  of the SYMBOL `root` is the bare string `root`, so a value keyed by it
+  would put a node at `…-<mount-id>-root` beside the root's own, which is
+  the very defect this repairs, reintroduced one level along.
+
+  This MOVES the root node's testid (and the `-toggle` / `-body` derived
+  from it) and leaves the container's ALONE — the direction that matters,
+  because the container's is the public handle every existing DOM-level
+  consumer reaches for. Under the reverse repair those consumers would keep
+  resolving, silently, to the render-node."
   [panel-id mount-id path]
   (str "rf-xray-edn-inspector-"
        (name (or panel-id :anon))
        "-" mount-id
-       (when (seq path) (str "-" (str/join "/" (map pr-str path))))))
+       "-" (str/join "/" (map pr-str path))))
 
 ;; rf2-tzvk9 — triangle expand/collapse glyph carries an explicit
 ;; ≥24×24 click target. The padding inside the existing key-column
