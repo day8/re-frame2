@@ -117,6 +117,11 @@ maintainer has. Two audits were lost that way here, and a mayor re-ran an entire
 stay local. The conclusion gets promoted into whatever tracked record already
 owns the surface.
 
+A file there whose header says it was regenerated from somewhere else reads as
+wholly disposable, and usually isn't: hand-added material accretes below the
+generated part, under a header that is still true. Check which parts actually
+regenerate before discarding one.
+
 That invisibility runs both ways, and the second direction bites at dispatch
 time. A worker in its own isolated checkout cannot see the tree at all, so a
 brief that cites a file there by a path relative to the worker's own checkout

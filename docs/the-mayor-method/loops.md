@@ -41,6 +41,11 @@ the pipeline moving. What you must never do is *block* on CI: no watch commands,
 no polling loops that occupy the session. One-shot queries, merge what passes now,
 re-check the rest on the next signal.
 
+**And the same holds for any long LOCAL operation** — a bulk cleanup, a dependency install, a
+batch of tracker queries. The operator cannot distinguish a session busy on one from a session
+that has stalled, and will read a long silence as the latter. Run it detached and stay
+answerable.
+
 ---
 
 ## 1. Merge
@@ -1630,6 +1635,13 @@ Watch specifically for:
   discriminator **is worse than no remedy at all** — that judgement applies to its own prose, and
   this loop is the only place that checks whether it does.
 
+**Read a loop's page when you are about to do that loop's work, whatever this loop's cadence says.**
+The cadence is decoupled from need: a destructive or unfamiliar step performed hours before its page
+comes round is a step taken without it, and the reread that follows finds nothing wrong because the
+damage is already done. One branch sweep here re-derived, at length, a test its own page states
+outright. That is not an argument for re-reading everything — it is the reason this loop is a drift
+check rather than the only time a page gets opened.
+
 Report one or two lines unless you find real drift. If you find drift, fix the document or the command
 file — do not just note it.
 
@@ -1793,6 +1805,13 @@ words each time, and give the writer one full pass of this loop. If nothing has 
 restoring the original close reason — the flip cleared it — and recording the reopen's emptiness alongside.
 Measured against the twelve above: two such flips in one session, distinguishable from the legitimate
 reopens around them only by the absence of any recorded residual.
+
+**And a wiped closure makes any brief that CITES it unsatisfiable.** A worker sent to read closure text
+the reopen deleted finds an empty field, and reads the absence as its own failure rather than the
+tracker's. Restore the text or cite where it was preserved, **before** dispatching. Having verified the
+preservation yourself is no protection: the verification and the brief are separate acts, and one mayor
+here confirmed a closure had been preserved into notes and an hour later still pointed a worker at the
+erased field.
 
 **Checkpoint tracker state on the heartbeat.** Many trackers auto-stage but never commit, so a long
 session's state strands locally. Commit and push it each cycle.
