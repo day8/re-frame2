@@ -202,12 +202,21 @@
       [Panel {:instance-id \"left\"}]
       [Panel {:instance-id \"right\"}]
 
-  A non-blank string or a keyword. It must be STABLE across that
-  instance's renders — it is an identity, not a per-render nonce — and
-  `app-db-diff-state`'s `instance-token` refuses, loudly, the shapes that
-  could not be. OMIT IT when only one app-db Panel renders in this frame,
-  which is every call site in this tree today: the ids are then
-  byte-for-byte what they were."
+  A non-blank string or a keyword — and a keyword's NAMESPACE is part of
+  the name, so `:left/panel` and `:right/panel` are two instances and not
+  one (rf2-4bsq). It must be STABLE across that instance's renders — it
+  is an identity, not a per-render nonce — and `app-db-diff-state`'s
+  `instance-token` refuses, loudly, the shapes that could not be. OMIT IT
+  when only one app-db Panel renders in this frame, which is every call
+  site in this tree today: the ids are then byte-for-byte what they were.
+
+  BOTH DOORS INTO THIS BOUNDARY ANSWER THE SAME. Mounted from a Fresco
+  body the prop arrives as written; mounted through `Panel-bridge` from a
+  Reagent parent it arrives already tokenised, because `[:>]` would
+  otherwise convert a keyword with `cljs.core/name` and drop its
+  namespace. `Panel-bridge`'s own note carries the mechanism; what
+  matters here is that one value composes one set of ids whichever head
+  mounted it."
   [{:keys [instance-id]}]
   (panel-tree (rf.fresco/sub [:rf.xray/app-db-state])
               (:epoch-id (rf.fresco/sub [:rf.xray/app-db-current+diff]))
@@ -254,15 +263,40 @@
 
   The 0-arity stays because that is how the shell mounts an L4 tab
   (`[(:panel tab)]`) and how `render-panel!` mounts the standalone embed
-  (`[panel-view]`) — one panel per frame, no instance to name. The prop
-  crosses `[:>]` as a STRING either way: Reagent converts a prop value
-  before React sees it, so a keyword written here arrives at the boundary
-  as its name (`Panel`'s own `:instance-id` note, and `instance-token`
-  accepts both spellings for exactly that reason)."
+  (`[panel-view]`) — one panel per frame, no instance to name.
+
+  ## The prop is TOKENISED HERE, before the crossing (rf2-4bsq)
+
+  `[:>]` converts each prop VALUE before React sees it, and Reagent
+  2.0.1's `convert-prop-value` converts a named value with
+  `cljs.core/name` — which DROPS THE NAMESPACE. Passed through raw,
+  `:left/panel` and `:right/panel` both arrived at the boundary as
+  `\"panel\"`, so two panels the caller had deliberately named apart
+  composed the same `app-db-state/panel/top` and the same
+  `[:rf.xray/app-db \"panel\" \"top\"]` — one lifecycle entry, one width
+  slot, one expansion/zoom identity, and detaching either could release
+  the other's state. That is precisely the same-frame collision rf2-t3fz
+  repaired, restored by the crossing.
+
+  It was ASYMMETRIC, which is what made it a contract violation rather
+  than a quirk: the direct Fresco path tokenises with
+  `(subs (str id) 1)` and keeps `left/panel`, and plain strings survive
+  `[:>]` distinctly, so the one accepted spelling that lost information
+  was the one this door converted.
+
+  So the bridge runs `state/instance-token` — the SAME normaliser the
+  boundary uses — and a STRING crosses, which Reagent preserves intact.
+  The boundary's own call on the far side is then a no-op (the fn is
+  idempotent on its own output), and the two entry paths compose one
+  answer for one value. A refused shape now throws naming the CALLER's
+  value rather than whatever the crossing had turned it into.
+
+  A blank string tokenises to nil and so mounts with no props, exactly as
+  naming no instance does."
   ([] (Panel-bridge nil))
   ([props]
    [:> Panel-component
-    (if-let [instance-id (:instance-id props)]
+    (if-let [instance-id (state/instance-token (:instance-id props))]
       {:instance-id instance-id}
       {})]))
 

@@ -219,19 +219,37 @@
 ;; per-render nonce — see [[instance-token]] for what is refused to keep
 ;; it that way.
 
-(defn- instance-token
+(defn instance-token
   "Normalise `Panel`'s optional `:instance-id` prop to the string that
   qualifies one instance's section ids, or nil when the caller named no
   instance (the single-mount default — every composed id is then exactly
   what it was before rf2-t3fz).
 
-  A KEYWORD is accepted alongside a string because the two doors into
-  `Panel` disagree about what survives the crossing: mounted from a
-  Fresco body a keyword arrives as a keyword, while a Reagent parent's
-  `[:>]` converts a prop VALUE first and it arrives as its name (Fresco's
-  `as-component` puts it in terms — names round-trip across a crossing,
-  values do not). Refusing one here would make one call site behave two
-  ways depending on which head mounted it.
+  A KEYWORD is accepted alongside a string, and its NAMESPACE is part of
+  the name: `:left/panel` tokenises to `left/panel`. `(subs (str id) 1)`
+  is the whole of it — the keyword minus its leading colon.
+
+  ## PUBLIC, and called TWICE on the way in (rf2-4bsq)
+
+  This is the panel family's ONE normaliser, and `app-db-diff`'s
+  `Panel-bridge` calls it BEFORE handing the prop across `[:>]`. That is
+  the fix for a real collision, not tidiness: Reagent 2.0.1's
+  `convert-prop-value` converts a named value with `cljs.core/name`,
+  which DROPS the namespace, so `:left/panel` and `:right/panel` both
+  reached the boundary as `\"panel\"` and the two panels a caller had
+  deliberately named apart shared one `:mount-id`, one width slot and one
+  expansion/zoom `:site-id` — the same-frame collision rf2-t3fz exists to
+  repair, restored by the crossing. Normalising first means a STRING
+  crosses, which Reagent preserves intact.
+
+  So the boundary's own call (from [[value-body]]) sees an
+  already-normalised string on that path, which is exactly why this fn is
+  IDEMPOTENT: a non-blank string answers itself. The two doors into
+  `Panel` — a Fresco body handing over a keyword, a Reagent parent's
+  `[:>]` — therefore compose ONE answer for one value, which is what the
+  contract promises. (Fresco's `as-component` puts the underlying rule in
+  terms: names round-trip across a crossing, values do not. Tokenising to
+  the name here is following that rule rather than working around it.)
 
   Anything else is REFUSED rather than `str`-ed, and that is the point of
   the fn. The token has to be stable across the instance's renders; a
@@ -239,7 +257,9 @@
   would compose a fresh `:mount-id` and `:site-id` on every pass and
   silently throw away expansion, zoom and the measured column width each
   time. That is the same failure `edn-inspector-view`'s own `:mount-id`
-  refusal exists to prevent, one level up."
+  refusal exists to prevent, one level up. Refusing at the BRIDGE now
+  means that throw names the caller's own value, before a crossing has
+  had a chance to convert it into something else."
   [instance-id]
   (cond
     (nil? instance-id)     nil

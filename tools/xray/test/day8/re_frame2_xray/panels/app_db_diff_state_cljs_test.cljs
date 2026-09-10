@@ -711,6 +711,27 @@
              (section-mount-ids (state/state-body model "left")))
           "`:left` and \"left\" name the same instance")))
 
+  (testing "rf2-4bsq — a NAMESPACED keyword keeps its namespace. The
+            contract accepts keywords without excluding namespaces, so
+            `:left/panel` and `:right/panel` are two names and must compose
+            two sets of ids. `instance-token` reads a keyword with
+            `(subs (str id) 1)` and so has always done this; what did not
+            was the Reagent crossing, which named the keyword and collapsed
+            both to \"panel\" — see the bridge rows in
+            `app_db_diff_cljs_test`, which pin the other door."
+    (let [model (sections {:counter 5} {})
+          left  (section-mount-ids (state/state-body model :left/panel))
+          right (section-mount-ids (state/state-body model :right/panel))]
+      (is (= (section-mount-ids (state/state-body model "left/panel")) left)
+          "`:left/panel` and \"left/panel\" name the same instance, which is
+           what lets the bridge normalise to the string form before the
+           crossing without changing what anything composes")
+      (is (nil? (some (set left) right))
+          "and two namespaces that differ compose disjoint ids")
+      (is (= ["app-db-state/left/panel/top"] left)
+          "the token is the keyword MINUS its leading colon — readable, and
+           stable across that instance's renders")))
+
   (testing "rf2-t3fz — an instance-id that could not be stable across renders
             is REFUSED rather than `str`-ed into a fresh id every pass."
     (let [model (sections {:counter 5} {})]
