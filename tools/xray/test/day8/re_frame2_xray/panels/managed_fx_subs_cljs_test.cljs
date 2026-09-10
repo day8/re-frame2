@@ -13,7 +13,12 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-collector :as trace-collector]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]
+            ;; rf2-s6m6 — the disclosure rows below close the loop between the
+            ;; state this ns owns and the renderer that consumes it, so the
+            ;; template and its pure helpers are the instruments.
+            [day8.re-frame2-xray.panels.managed-fx-helpers :as h]
+            [day8.re-frame2-xray.panels.managed-fx-template :as template]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -115,3 +120,104 @@
         (is (= 400 (:dispatch-id focus)))
         (is (= :rf/default (:frame focus)))
         (is (= :retro (:mode focus)))))))
+
+;; ---- section disclosure state (rf2-s6m6) ---------------------------------
+;;
+;; The record panel's five sections each draw a `▶`/`▼` glyph that
+;; `theme/section/section-row` renders from `:expanded?` and nothing else —
+;; "Click-to-toggle wiring is the caller's responsibility". This ns holds the
+;; caller's half: the slot's read and its toggle write.
+
+(def ^:private rec-key
+  "The record key `managed-fx-helpers/record-key` composes for the HTTP
+  fixture — `\"<surface>-<origin-event-id>-<fx-id>\"`, keyword prefixes and
+  all. Written out rather than derived so a drift in the composer shows up
+  here as a failure rather than being silently tracked."
+  ":http-99-:rf.http/managed")
+
+(defn- expanded-map []
+  @(rf/subscribe [:rf.xray/managed-fx-expanded-sections]))
+
+(defn- tree-nodes
+  "Every node in a hiccup tree, payload values included. Walked structurally
+  rather than through `rf.test-helpers/expand-tree`, which rebuilds nested
+  vectors with `mapv` and would substitute its own vectors for the ones under
+  test (it strips reader metadata besides)."
+  [node]
+  (cond
+    (vector? node) (cons node (mapcat tree-nodes node))
+    (seq? node)    (cons node (mapcat tree-nodes node))
+    :else          [node]))
+
+(deftest expanded-sections-slot-starts-empty
+  (testing "Nothing is stored before the operator touches a disclosure, and
+            an empty slot resolves every section to its default — which is
+            NOT the same as every section closed, since two default open."
+    (seed-buffer! [])
+    (rf/with-frame :rf/xray
+      (is (nil? (expanded-map)))
+      (is (false? (h/resolve-expanded? (expanded-map) rec-key :request)))
+      (is (true?  (h/resolve-expanded? (expanded-map) rec-key :wire))))))
+
+(deftest toggle-inverts-the-state-the-operator-can-see
+  (testing "The first click must invert what is RENDERED, not a hard-coded
+            assumption. A reducer flipping a nil override from `false` would
+            be a silent no-op on the two sections that default OPEN — the
+            operator clicks `▼ WIRE TIMING` and nothing happens. The event
+            resolves through `section-defaults`, so both directions work.
+
+            Not hollow: replace the resolve with a bare `(not (get …))` and
+            the WIRE assertions below go red."
+    (seed-buffer! [])
+    (rf/with-frame :rf/xray
+      ;; default-CLOSED section: first click opens, second shuts
+      (rf/dispatch-sync [:rf.xray/managed-fx-toggle-section rec-key :request])
+      (is (true? (h/resolve-expanded? (expanded-map) rec-key :request)))
+      (rf/dispatch-sync [:rf.xray/managed-fx-toggle-section rec-key :request])
+      (is (false? (h/resolve-expanded? (expanded-map) rec-key :request)))
+      ;; default-OPEN section: first click SHUTS it
+      (rf/dispatch-sync [:rf.xray/managed-fx-toggle-section rec-key :wire])
+      (is (false? (h/resolve-expanded? (expanded-map) rec-key :wire)))
+      (rf/dispatch-sync [:rf.xray/managed-fx-toggle-section rec-key :wire])
+      (is (true? (h/resolve-expanded? (expanded-map) rec-key :wire))))))
+
+(deftest toggle-is-keyed-per-record-and-per-section
+  (testing "One event-bundle can carry several managed-fx records, and each
+            record has five sections. A toggle must move exactly one pair."
+    (seed-buffer! [])
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/managed-fx-toggle-section rec-key :request])
+      (let [m (expanded-map)]
+        (is (= 1 (count m)) "exactly one override was written")
+        (is (true? (h/resolve-expanded? m rec-key :request)))
+        ;; a sibling SECTION of the same record is untouched
+        (is (false? (h/resolve-expanded? m rec-key :response)))
+        ;; and so is the same section of a DIFFERENT record
+        (is (false? (h/resolve-expanded? m ":flow-99-:rf.fx/reg-flow" :request)))))))
+
+(deftest toggling-puts-the-request-payload-in-the-rendered-tree
+  (testing "rf2-s6m6 end-to-end, across the two namespaces: the real event
+            writes the slot, the real sub reads it back, and the renderer
+            turns that into a payload the operator can actually see. Before
+            the repair `record-panel` passed `:expanded? false` as a literal,
+            so no state anywhere could put this payload in a tree."
+    (seed-buffer! [])
+    (rf/with-frame :rf/xray
+      (let [req  {:method :get :url "/api/users/42"}
+            rec  {:surface :http :fx-id :rf.http/managed
+                  :req req
+                  :res nil :handler nil :status :ok :phase :completed
+                  :http-status 200 :duration-ms 250 :paths-touched []
+                  :origin-event-id 99 :dispatch-id 7 :frame :rf/default}
+            rk   (h/record-key rec)
+            ;; Render through the panel exactly as `panels/ManagedFxList`
+            ;; does — the sub's value threaded in as plain data.
+            shown? (fn [] (->> (template/record-panel (fn [_]) (expanded-map) rec)
+                               (tree-nodes)
+                               (some #{req})
+                               boolean))]
+        (is (false? (shown?))
+            "REQUEST is shut on first paint, so its payload is not in the tree")
+        (rf/dispatch-sync [:rf.xray/managed-fx-toggle-section rk :request])
+        (is (true? (shown?))
+            "one toggle later the request payload is in the rendered tree")))))

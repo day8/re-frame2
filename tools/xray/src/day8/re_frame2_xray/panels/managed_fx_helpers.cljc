@@ -689,3 +689,76 @@
    :F.9  [:status]                       ;; skipped-on-platform visibility
    :F.10 [:surface]                      ;; surface badge taxonomy
    :F.11 [:cancel-cause]})               ;; cross-surface stale-suppression
+
+;; ---- section disclosure state -------------------------------------------
+;;
+;; `theme/section/section-row` draws the `▶`/`▼` glyph but wires no click:
+;; its own docstring states the contract deliberately — "No interactivity.
+;; Click-to-toggle wiring is the caller's responsibility." The primitive is
+;; shared with `panels/fresco` and `panels/module_view`, so the open/closed
+;; state belongs to THIS panel and not to the widget.
+;;
+;; Shape copied from the edn-inspector widget's own expansion slot
+;; (`views/edn_inspector_state.cljs`): a SPARSE override map plus a pure
+;; `resolve-expanded?` projection that falls back to a static default.
+;; Sparse-with-default is what lets the panel paint correctly before the
+;; operator has touched anything — an absent entry means "at its default",
+;; which is not the same as "closed", and two of the five sections default
+;; open.
+;;
+;; Pure data, JVM-portable — no tokens, no hiccup, no re-frame registration.
+;; The `reg-sub` / `reg-event` that own the slot live in `managed_fx_subs`.
+
+(def expansion-slot
+  "App-db slot holding the record panel's per-section expansion
+  overrides — a sparse map of `(expansion-key …)` → boolean."
+  :rf.xray.managed-fx/expanded-sections)
+
+(def section-defaults
+  "First-paint `:expanded?` for each of the record panel's five sections,
+  per `record-panel`'s documented contract: WIRE TIMING and APP-DB SLICE
+  TOUCHED open, REQUEST / RESPONSE / HANDLER DISPATCHED closed so the
+  panel stays scannable until the operator drills in.
+
+  Read by BOTH the renderer (to paint the untouched section) and the
+  toggle event (to know what the first click must invert). One map, so
+  the two cannot disagree — the edn-inspector widget has to pass the
+  rendered state through the dispatch payload precisely because its
+  defaults are computed per node rather than fixed per section."
+  {:request  false
+   :wire     true
+   :response false
+   :handler  false
+   :app-db   true})
+
+(defn record-key
+  "Stable per-record identity — `\"<surface>-<origin-event-id>-<fx-id>\"`.
+
+  One composer for two consumers that MUST agree: the React `:key` the
+  panel carries in its `:section` attribute map, and the expansion key
+  below. If they drifted, toggling a section on one record would move a
+  different record's disclosure."
+  [record]
+  (str (:surface record) "-" (:origin-event-id record) "-" (:fx-id record)))
+
+(defn expansion-key
+  "Compose the per-section override key. Pure data, JVM-portable.
+
+  Keyed per RECORD as well as per section: an event-bundle can carry
+  several managed-fx records, and opening REQUEST on one of them must
+  not open it on all of them."
+  [rec-key section-id]
+  [rec-key section-id])
+
+(defn resolve-expanded?
+  "Pure projection — does this record's `section-id` render expanded?
+  The operator's stored override wins; absent one, the section's
+  `section-defaults` entry does.
+
+  `overrides` is the value of `expansion-slot` (nil before the operator
+  has touched anything, which resolves every section to its default)."
+  [overrides rec-key section-id]
+  (let [override (get overrides (expansion-key rec-key section-id))]
+    (if (some? override)
+      (boolean override)
+      (boolean (get section-defaults section-id)))))
