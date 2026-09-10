@@ -115,6 +115,7 @@ four hundred.
     and the structured field that is the durable answer where a project wants this machine-checkable, are
     under *Tracker mechanics* in [`loops.md`](loops.md#tracker-mechanics) — this step is the concrete
     instance and does not restate them.
+
 2. **Check every factual claim you are about to write.** Does the symbol resolve?
     Does the file say what you think? Is the count still true? Is the ruling you cite
     *ruled*, or only recommended? A recommendation and a decision read identically in
@@ -126,12 +127,15 @@ four hundred.
     common preamble below — inside the block you extract and paste without reading, because
     its audience looks like the worker. A dispatch went out for work that had merged the
     previous day, and the worker's deliverable was refuting the premise.
+
 3. **Establish the fence by asking who is live, not what is open.** A listing of open
     changes misses a worker that has not pushed yet. **And ask what each nominated gate
     COMPARES, here, not at dispatch** — a fence derived from files alone misses a gate that
     couples two surfaces (see *Fences*), and one mayor struck an item's fence and dispatched
     before asking, then re-fenced it five minutes later on exactly that ground.
+
 4. **Name the discriminator**, if the task is "find every X".
+
 5. **Then** assemble the standard blocks.
 
 ---
