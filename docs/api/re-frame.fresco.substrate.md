@@ -55,19 +55,19 @@ the shipped alternatives and their coordinates are in
   Installation is explicit and there is no default-adapter registry, so a Fresco
   application that installs Reagent or UIx instead keeps working and never reaches
   this namespace.
-  - It stands on `re-frame.substrate.spine`, core's shared spine for React-shaped
-    adapters that lack a native reactive-atom primitive. The spine's
-    `make-derived-value` wires **one watch per source at construction** and
-    coalesces through a per-adapter epoch scheduler, so a derived value is live
-    the moment it exists.
-  - That push-from-birth property is the one Fresco's collector needs.
-    `re-frame.substrate.plain-atom` cannot give it: its derived value registers no
-    watch, so the runtime paints once and is deaf thereafter — which is why the
-    headless adapter is right for an SSR render and wrong under a live view.
-  - It takes no new dependency: Fresco already requires `react`, and the spine
-    already lives in core.
-  - Asking for a state container before `init!` throws
-    `:rf.error/no-adapter-installed`.
+    - It stands on `re-frame.substrate.spine`, core's shared spine for React-shaped
+      adapters that lack a native reactive-atom primitive. The spine's
+      `make-derived-value` wires **one watch per source at construction** and
+      coalesces through a per-adapter epoch scheduler, so a derived value is live
+      the moment it exists.
+    - That push-from-birth property is the one Fresco's collector needs.
+      `re-frame.substrate.plain-atom` cannot give it: its derived value registers no
+      watch, so the runtime paints once and is deaf thereafter — which is why the
+      headless adapter is right for an SSR render and wrong under a live view.
+    - It takes no new dependency: Fresco already requires `react`, and the spine
+      already lives in core.
+    - Asking for a state container before `init!` throws
+      `:rf.error/no-adapter-installed`.
 - **Example**:
   ```clojure
   (require '[re-frame.core :as rf]

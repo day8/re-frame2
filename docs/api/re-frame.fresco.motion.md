@@ -38,14 +38,14 @@ keywords and the phase table are taught in
   each child's own `::motion/mounting` / `::motion/unmounting` override map into
   it while it is in that phase — into an element's attributes, or into a view's
   props, the same map either way.
-  - It inserts **no wrapper node** and stamps no `data-*`: every child it renders
-    is the author's own node with the author's own attributes merged.
-  - `:timeout-ms` is **mandatory**. It is the retention length and the hard
-    terminal bound at once, so a child leaves on time whether or not any CSS ran.
-  - Per-frame work is zero: a transition costs one timer per outstanding deadline
-    and nothing between frames. A key that returns while it is exiting cancels —
-    it goes back to present on the node it already had, with no remount and no
-    restarted exit.
+    - It inserts **no wrapper node** and stamps no `data-*`: every child it renders
+      is the author's own node with the author's own attributes merged.
+    - `:timeout-ms` is **mandatory**. It is the retention length and the hard
+      terminal bound at once, so a child leaves on time whether or not any CSS ran.
+    - Per-frame work is zero: a transition costs one timer per outstanding deadline
+      and nothing between frames. A key that returns while it is exiting cancels —
+      it goes back to present on the node it already had, with no remount and no
+      restarted exit.
 - **Example**:
   ```clojure
   (h/defview toast-tray [_]

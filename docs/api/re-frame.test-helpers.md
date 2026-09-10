@@ -19,8 +19,8 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
   ```
 - **Description**: Recursively expand the components inside a hiccup tree, invoking each with its args just as Reagent's renderer would. This covers function components, Form-2 fn-returning-fn components, and Form-3 class components. After expansion, every vector's first element is a keyword tag or a non-component value.
 
-  - Form-3 classes expand by calling the stashed `:reagent-render` fn directly. No React is instantiated and no lifecycle methods run. (On the JVM, class detection is a no-op.)
-  - The `find-*` and `text-content` walkers already expand internally. Call `expand-tree` directly only to re-expand a sub-tree mid-walk.
+    - Form-3 classes expand by calling the stashed `:reagent-render` fn directly. No React is instantiated and no lifecycle methods run. (On the JVM, class detection is a no-op.)
+    - The `find-*` and `text-content` walkers already expand internally. Call `expand-tree` directly only to re-expand a sub-tree mid-walk.
 - **Example**:
   ```clojure
   (th/expand-tree [parent-view {:n 5}])  ; => hiccup whose vectors all start
@@ -183,8 +183,8 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
   ```
 - **Description**: Find the handler under `event-key` on `node`, call it with `args`, and return its value. A missing handler is treated as a test bug, so this throws:
 
-  - `:rf.error/invoke-handler-bad-node` — `node` is not a hiccup vector.
-  - `:rf.error/invoke-handler-missing` — no handler fn exists under `event-key` (including when the node has no attrs map at all).
+    - `:rf.error/invoke-handler-bad-node` — `node` is not a hiccup vector.
+    - `:rf.error/invoke-handler-missing` — no handler fn exists under `event-key` (including when the node has no attrs map at all).
 - **Example**:
   ```clojure
   (let [btn (th/find-by-testid tree "counter-inc")]

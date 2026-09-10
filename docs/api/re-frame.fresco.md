@@ -39,20 +39,20 @@ silently gain or lose a public.
 - **Description**: Mints a boundary — a real React function component, and a legal
   hiccup head. `argv` is the ordinary one-props-map argument vector, so
   destructuring reads as it does in any Clojure fn.
-  - The macro **reads no body**. It expands to a `def` of the minted head plus a
-    source coordinate, so a refusal raised while the body runs can name where the
-    boundary was written.
-  - The `fn` it emits is **anonymous**, so nothing it binds can shadow a helper of
-    the same name — `(h/defview todo-row [p] (todo-row-body p))` is safe at the
-    ordinary spelling.
-  - The name is also registered in re-frame's `:view` registrar under
-    `(keyword "<ns>" "<sym>")`, for **forward resolution only** — a tool holding a
-    keyword the author wrote reaches the view they meant. It carries no
-    `:handler-fn`, and rides the `debug-enabled?` gate, so a production build
-    registers nothing.
-  - Hooks do not belong in a body: a body is dynamically composed, so a hook
-    written there would make its own call order depend on a data path. Put
-    hook-intensive behaviour in a React island reached through `defhost`.
+    - The macro **reads no body**. It expands to a `def` of the minted head plus a
+      source coordinate, so a refusal raised while the body runs can name where the
+      boundary was written.
+    - The `fn` it emits is **anonymous**, so nothing it binds can shadow a helper of
+      the same name — `(h/defview todo-row [p] (todo-row-body p))` is safe at the
+      ordinary spelling.
+    - The name is also registered in re-frame's `:view` registrar under
+      `(keyword "<ns>" "<sym>")`, for **forward resolution only** — a tool holding a
+      keyword the author wrote reaches the view they meant. It carries no
+      `:handler-fn`, and rides the `debug-enabled?` gate, so a production build
+      registers nothing.
+    - Hooks do not belong in a body: a body is dynamically composed, so a hook
+      written there would make its own call order depend on a data path. Put
+      hook-intensive behaviour in a React island reached through `defhost`.
 - **Example**:
   ```clojure
   (h/defview todo-row [{:keys [id]}]

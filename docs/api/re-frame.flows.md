@@ -61,12 +61,12 @@ See [Flows: derived values your handlers can read](../core/flows.md) for the con
   ```
 - **Description**: Deregister the flow from the named frame and `dissoc-in` its `:output-path` from that frame's `app-db` only. Returns `id`.
 
-  - There is **no** `clear-flow` name: it was never a `re-frame.core` facade export, and `re-frame.flows` dropped its own re-export — `:flow` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.flows.registry/clear-flow` survives as the late-bind hook target that dispatch routes to, and `:rf.fx/clear-flow` (below) survives as an fx-id keyword; neither is a public call by that name (rf2-kuky.80).
-  - Leaf-only removal: an emptied parent map is left in place.
-  - Sibling frames' state is preserved.
-  - The frame resolves from the opts `:frame` key (a frame-id keyword or a live frame value), else the surrounding scope. With no scope and no `:frame`, it raises `:rf.error/no-frame-context`. The opts map is **exact** — sole key `:frame` — and a near-miss such as `{:fram :session}` raises `:rf.error/registrar-clear-bad-request` before any frame is resolved, rather than silently clearing the ambient frame's flow.
-  - A no-op when `id` is not registered against the frame.
-  - Called outside an event drain, it **settles before it returns**: any flow that declared the cleared flow's `:output-path` as an input has already recomputed against its absence, so the returned-to code never sees a dependent still publishing a value derived from the removed slot. You do not dispatch a follow-up event. A dependent's `:derive` throwing during that settle propagates `:rf.error/flow-eval-exception` to the caller; the deregistration and vacation stand. Called from inside a handler or a `:rf.fx/*` effect, the current drain's flow pass performs the settle instead — the boundary is the same either way.
+    - There is **no** `clear-flow` name: it was never a `re-frame.core` facade export, and `re-frame.flows` dropped its own re-export — `:flow` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.flows.registry/clear-flow` survives as the late-bind hook target that dispatch routes to, and `:rf.fx/clear-flow` (below) survives as an fx-id keyword; neither is a public call by that name (rf2-kuky.80).
+    - Leaf-only removal: an emptied parent map is left in place.
+    - Sibling frames' state is preserved.
+    - The frame resolves from the opts `:frame` key (a frame-id keyword or a live frame value), else the surrounding scope. With no scope and no `:frame`, it raises `:rf.error/no-frame-context`. The opts map is **exact** — sole key `:frame` — and a near-miss such as `{:fram :session}` raises `:rf.error/registrar-clear-bad-request` before any frame is resolved, rather than silently clearing the ambient frame's flow.
+    - A no-op when `id` is not registered against the frame.
+    - Called outside an event drain, it **settles before it returns**: any flow that declared the cleared flow's `:output-path` as an input has already recomputed against its absence, so the returned-to code never sees a dependent still publishing a value derived from the removed slot. You do not dispatch a follow-up event. A dependent's `:derive` throwing during that settle propagates `:rf.error/flow-eval-exception` to the caller; the deregistration and vacation stand. Called from inside a handler or a `:rf.fx/*` effect, the current drain's flow pass performs the settle instead — the boundary is the same either way.
 - **Example**:
   ```clojure
   ;; Deregister :cart/subtotal; clears [:cart :subtotal] in this frame's app-db.
@@ -196,8 +196,8 @@ Read-only views over the per-frame flow registry. They never touch the registrat
   ```
 - **Description**: Return every flow registered in one frame, or `{}` when that frame holds none.
 
-  - `:frame` is **required** and names a frame target (a frame-id keyword or a frame value), the same targets `rf/registrations` accepts. A frameless or non-map call raises `:rf.error/no-frame-context`.
-  - The whole-registry read is `flows-snapshot`; this is its per-frame slice.
+    - `:frame` is **required** and names a frame target (a frame-id keyword or a frame value), the same targets `rf/registrations` accepts. A frameless or non-map call raises `:rf.error/no-frame-context`.
+    - The whole-registry read is `flows-snapshot`; this is its per-frame slice.
 - **Example**:
   ```clojure
   ;; Which flows does the :app frame carry?
@@ -213,9 +213,9 @@ Read-only views over the per-frame flow registry. They never touch the registrat
   ```
 - **Description**: Return the registration metadata map for one flow in a frame, or `nil`. This is the canonical per-frame flow introspection surface.
 
-  - Returns the full flow-map stamped at `reg-flow`: its source-coords `:ns` / `:line` / `:file`, `:inputs`, `:derive`, `:output-path`, and any output-classification keys.
-  - Frame-divergent by construction: the same `flow-id` registered against two frames returns each frame's own definition.
-  - Both keys are **required**. There is no ambient default and no trailing frame-target sugar — a live frame value is itself a map, so a type-sniffing positional argument could never be read locally. A frameless or non-map call raises `:rf.error/no-frame-context`.
+    - Returns the full flow-map stamped at `reg-flow`: its source-coords `:ns` / `:line` / `:file`, `:inputs`, `:derive`, `:output-path`, and any output-classification keys.
+    - Frame-divergent by construction: the same `flow-id` registered against two frames returns each frame's own definition.
+    - Both keys are **required**. There is no ambient default and no trailing frame-target sugar — a live frame value is itself a map, so a type-sniffing positional argument could never be read locally. A frameless or non-map call raises `:rf.error/no-frame-context`.
 - **Example**:
   ```clojure
   ;; The :app frame's own definition of :cart/subtotal.
@@ -237,10 +237,10 @@ The flow-transform entry point the router installs, plus the test-fixture resets
   ```
 - **Description**: The outermost-`:after` flow transform. It walks this frame's registered flows in topological order over the pending frame-state, dirty-checks each one, and `assoc-in`s each recomputed result into a transformed `app-db`. It returns the flow-augmented `app-db` value.
 
-  - `db` is the pending `app-db` partition; `runtime-db` is the pending `runtime-db` partition (pass `nil` to resolve only bare `app-db` inputs).
-  - The router installs and calls this as the outermost `:after` interceptor. It fires last, against the chain's pending `:db` effect and before the `:db` install. Applications never call it.
-  - Flow outputs write `app-db` only.
-  - A flow evaluation throw halts the walk (downstream flows do not run), rolls back the frame's dirty-check bookkeeping, and re-raises as `:rf.error/flow-eval-exception`. The router discards the pending `:db` effect, so the event aborts with no partial commit. The ex-data names both the flow and the failing phase — `:rf.flow/failed-id`, `:rf.flow/failed-phase` (`:derive` when your `:derive` fn threw, `:output-write` when it returned and the `assoc-in` of that value at the flow's `:output-path` threw) and `:rf.flow/output-path`.
+    - `db` is the pending `app-db` partition; `runtime-db` is the pending `runtime-db` partition (pass `nil` to resolve only bare `app-db` inputs).
+    - The router installs and calls this as the outermost `:after` interceptor. It fires last, against the chain's pending `:db` effect and before the `:db` install. Applications never call it.
+    - Flow outputs write `app-db` only.
+    - A flow evaluation throw halts the walk (downstream flows do not run), rolls back the frame's dirty-check bookkeeping, and re-raises as `:rf.error/flow-eval-exception`. The router discards the pending `:db` effect, so the event aborts with no partial commit. The ex-data names both the flow and the failing phase — `:rf.flow/failed-id`, `:rf.flow/failed-phase` (`:derive` when your `:derive` fn threw, `:output-write` when it returned and the `assoc-in` of that value at the flow's `:output-path` threw) and `:rf.flow/output-path`.
 
 ### `reset-flows!`
 
