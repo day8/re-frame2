@@ -159,6 +159,10 @@
                             :display        "flex"
                             :flex-direction "column"
                             :gap            "1px"}}]
+              ;; rf2-a38l — KEYED FRAGMENT rather than `^{:key …}` reader
+              ;; meta, which Reagent honours and Fresco's codec reads
+              ;; nowhere. `candidate-row` takes its candidate
+              ;; positionally, so there is no props map to hold the key.
               (for [c candidates]
-                ^{:key (str (:route-id c))}
-                [candidate-row c]))]))])
+                [:<> {:key (str (:route-id c))}
+                 [candidate-row c]]))]))])

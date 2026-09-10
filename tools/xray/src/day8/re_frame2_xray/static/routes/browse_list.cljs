@@ -195,12 +195,17 @@
                                  :display        "flex"
                                  :flex-direction "column"
                                  :gap            "1px"}}]
+             ;; rf2-a38l — KEYED FRAGMENT rather than `^{:key …}` reader
+             ;; meta, which Reagent honours and Fresco's codec reads
+             ;; nowhere. `route-row` takes `dispatch` and `row`
+             ;; positionally ahead of its opts map, so there is no props
+             ;; map at index 1 to write the key into.
              (for [row routes]
-               ^{:key (str (:route-id row))}
-               [route-row dispatch row
-                {:expanded?  (contains? expanded (:route-id row))
-                 :sim-open?  (contains? sim-open (:route-id row))
-                 :routes-map routes-map
-                 :on-toggle  (fn [_]
-                               (dispatch [:rf.xray.static.routes/toggle-row
-                                          (:route-id row)]))}])))]))
+               [:<> {:key (str (:route-id row))}
+                [route-row dispatch row
+                 {:expanded?  (contains? expanded (:route-id row))
+                  :sim-open?  (contains? sim-open (:route-id row))
+                  :routes-map routes-map
+                  :on-toggle  (fn [_]
+                                (dispatch [:rf.xray.static.routes/toggle-row
+                                           (:route-id row)]))}]])))]))
