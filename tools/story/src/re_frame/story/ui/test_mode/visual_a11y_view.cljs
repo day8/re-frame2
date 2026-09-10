@@ -159,9 +159,16 @@
   so it surfaces only its hiccup-tag locus, honestly."
   [findings]
   [:ul {:style (:findings styles) :data-test "story-va-findings"}
+   ;; The key rides in the `:li`'s own ATTRIBUTE MAP (rf2-32ib), not on
+   ;; reader metadata. Metadata on a vector LITERAL is read by Reagent, so
+   ;; unlike the call-form site in `visual-a11y-section` this one is not
+   ;; dead today — it is LATENT, dying if/when Story's view layer renders
+   ;; through a Fresco boundary, whose codec reads `:key` from props and
+   ;; Clojure metadata nowhere. The attrs map satisfies both renderers, and
+   ;; the key expression is unchanged.
    (for [[i {:keys [finding locus detail impact rule selector]}] (map-indexed vector findings)]
-     ^{:key (str rule "#" i)}
-     [:li {:style       (:finding-row styles)
+     [:li {:key         (str rule "#" i)
+           :style       (:finding-row styles)
            :data-test   "story-va-finding"
            :data-rule   (str rule)}
       (when locus
