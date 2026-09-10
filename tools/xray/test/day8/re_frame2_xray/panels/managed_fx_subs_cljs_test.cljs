@@ -8,8 +8,12 @@
   `trace-collector/seed-trace-for-test!` path, then read the composite via
   `subscribe`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as string]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            ;; rf2-90kv — the reg-view that composes the sub with the renderer
+            ;; is itself the defect surface, so it is the instrument.
+            [day8.re-frame2-xray.panels]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -221,3 +225,92 @@
         (rf/dispatch-sync [:rf.xray/managed-fx-toggle-section rk :request])
         (is (true? (shown?))
             "one toggle later the request payload is in the rendered tree")))))
+
+;; ---- the reg-view's own composition (rf2-90kv) ----------------------------
+;;
+;; `panels/ManagedFxList` is the ONLY caller of `records-list`, and it is where
+;; the composite sub's value meets the renderer. Nothing graded that seam:
+;; `panels_mount_cljs_test`'s `mount-managed-fx-wraps-ManagedFxList` stubs
+;; `rf.substrate.adapter/render`, so the view's BODY never executes, and every
+;; template test calls `records-list` / `record-panel` directly with a vector
+;; already in hand. Both tiers were blind to the one line that composes them,
+;; which is how the panel came to throw before painting without a red row
+;; anywhere.
+
+(defn- cascade-evs-two-managed-fx
+  "One cascade carrying TWO managed-fx invocations.
+
+  Two is what makes this row discriminating: the composite map has THREE
+  entries (`:dispatch-id`, `:frame`, `:records`), so a renderer handed the
+  map instead of the vector cannot answer 2.
+
+  Seeded through the production trace path and read back through the real
+  composite sub rather than a stub — a stub is not available here, and the
+  refusal is the framework's rather than a limitation of the fixture:
+  re-registering `:rf.xray/managed-fx-for-focused-event` from this ns makes
+  `rf/make-frame` refuse image assembly with
+  `:rf.error/image-duplicate-id`, because the id would then be selected from
+  two source namespaces with different implementations. Measured."
+  [dispatch-id id-base]
+  [{:id (+ id-base 1) :op-type :rf.event :operation :rf.event/dispatched
+    :tags {:rf.trace/dispatch-id dispatch-id :rf.event/v [:user/load]}}
+   {:id (+ id-base 2) :op-type :rf.fx :operation :rf.fx/do-fx
+    :tags {:rf.trace/dispatch-id dispatch-id}}
+   {:id (+ id-base 3) :op-type :rf.fx :operation :rf.fx/handled
+    :tags {:rf.trace/dispatch-id dispatch-id
+           :rf.fx/id :rf.http/managed
+           :rf.fx/args {:request    {:method :get :url "/api/users/1"}
+                        :request-id :req-a
+                        :on-success [:user/loaded]}}}
+   {:id (+ id-base 4) :op-type :rf.fx :operation :rf.fx/handled
+    :tags {:rf.trace/dispatch-id dispatch-id
+           :rf.fx/id :rf.http/managed
+           :rf.fx/args {:request    {:method :get :url "/api/users/2"}
+                        :request-id :req-b
+                        :on-success [:user/loaded]}}}])
+
+(defn- record-panel-testids
+  "Every record-panel `data-testid` in a rendered tree. One per record."
+  [tree]
+  (->> (tree-nodes tree)
+       (keep (fn [n]
+               (when (and (vector? n) (map? (second n)))
+                 (:data-testid (second n)))))
+       (filter #(string/starts-with? % "rf-xray-managed-fx-record-"))))
+
+(deftest managed-fx-list-renders-one-panel-per-record
+  (testing "rf2-90kv — the composite sub answers
+            `{:dispatch-id … :frame … :records […]}`, and `records-list` takes
+            the RECORDS VECTOR. Handing it the whole MAP made `(seq records)`
+            truthy, `(count records)` read the map's ENTRY COUNT — 3, whatever
+            the real record count — and `(for [rec records] …)` walk map
+            entries, so `(name (:status rec))` got nil and threw before the
+            panel could paint. No error boundary sits above this render path,
+            so it presented as a panel that never appears (the rf2-qhoj shape).
+
+            TWO records is what separates a pass from the bug: 2 panels against
+            the map's 3 entries. Measured against the old binding
+            `(managed-fx/records-list dispatch focused)` — it goes red by
+            THROWING inside `record-panel` before the count is ever read, which
+            is red either way and is why the count assertion is stated over a
+            tree that has to have been built at all.
+
+            The view's body is invoked headlessly through `((rf/view id))`,
+            which runs the real reg-view render path under the plain-atom
+            substrate the Xray suite installs."
+    (seed-buffer! (cascade-evs-two-managed-fx 600 0))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/focus-event 600 :rf/default])
+      ;; CONTROL FIRST, so a zero below is the renderer's answer and not the
+      ;; seeding's — without it the two readings are indistinguishable, and a
+      ;; seeding that quietly produced no records would read exactly like a
+      ;; renderer that dropped them.
+      (is (= 2 (count (:records @(rf/subscribe
+                                   [:rf.xray/managed-fx-for-focused-event]))))
+          "control: the composite really answers two records")
+      (let [tree    ((rf/view :day8.re-frame2-xray.panels/ManagedFxList))
+            testids (record-panel-testids tree)]
+        (is (= 2 (count testids))
+            "one record panel per RECORD, not one per entry of the composite map")
+        (is (= 2 (count (distinct testids)))
+            "and the two panels are distinct, so this is not one record twice")))))
