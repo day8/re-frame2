@@ -165,9 +165,9 @@ Two per-adapter React-context components, one verb each — **roots ensure; prov
 
 - **`frame-provider {:frame existing-id}`** — **SCOPE-only**. Wraps a Reagent / UIx subtree so descendants resolve `current-frame-id` to a frame that **already exists** (created elsewhere by `make-frame`, a tool runtime, or an enclosing boundary). It creates / refreshes / destroys nothing, and **fails loud if the frame is absent** (`:rf.error/frame-provider-frame-absent`):
 
-  ```clojure
-  [rf/frame-provider {:frame :stories} [my-story-shell]]
-  ```
+    ```clojure
+    [rf/frame-provider {:frame :stories} [my-story-shell]]
+    ```
 
 - **`frame-root {:id the-id …}`** — **ENSURE**, a commit-owned boundary (creation runs in a client `useLayoutEffect`, never during render). **Creates the frame if absent, reuses it without re-seeding if present** (idempotent re-mount preserves durable state and does NOT replay `:initial-events`), and provides its id to descendants; **no destroy-on-unmount**. It takes the **same constructor opts as `make-frame`** (`:id` / `:images` / `:initial-events` / record-config) — for view-driven named-frame lifetimes: comparison pages, Story canvases, embedded widgets:
 
