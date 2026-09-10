@@ -52,8 +52,7 @@
             [day8.re-frame2-xray.egress :as egress]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
-            [day8.re-frame2-xray.panels.app-db-diff-state :as state]))
+            [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -63,6 +62,26 @@
   ;; which already includes the trace-collector ring reset the old init
   ;; called a SECOND, redundant time.
   (xray-test-support/make-xray-runtime-fixture))
+
+;; ---- the panel under test ------------------------------------------------
+
+(defn- panel-tree
+  "The app-db panel's hiccup, driven the way the rows below need it.
+
+  rf2-k97c.3 — `app-db-diff/Panel` is now an `rf.fresco/defview` boundary,
+  a real React function component whose body may only run inside a React
+  render window, so it is no longer callable. This helper REPRODUCES THE
+  BOUNDARY EXACTLY — the same two reads, in the same order, with the same
+  query vectors, and the same keyed-fragment wrapper around
+  `state-body` — so every row keeps asserting on the hiccup it did before.
+
+  Only the READS are reproduced here; the MARKUP stays in the panel, as
+  `app-db-diff/panel-tree`, so these rows still fail when the panel's own
+  shape drifts."
+  []
+  (app-db-diff/panel-tree
+    @(rf/subscribe [:rf.xray/app-db-state])
+    (:epoch-id @(rf/subscribe [:rf.xray/app-db-current+diff]))))
 
 ;; ---- fixture data --------------------------------------------------------
 
@@ -141,46 +160,26 @@
 
 ;; ---- hiccup walker (mirrors event_detail_cljs_test.cljs) ----------------
 
-(defn- structural-component?
-  "True when `node` is one of the App-DB Panel's OWN pure-hiccup
-  structural fn-components — currently just `state/state-body`, the
-  per-epoch keyed body wrapper the Panel mounts (rf2-yng0y). These
-  realize to plain section `:div`s carrying the `data-testid` hooks the
-  assertions below pin. Leaf widgets like the `edn-inspector` (which
-  produce render-context-bound wrapper fns that are not ISeqable) are
-  deliberately NOT structural — they stay un-expanded so the walker
-  treats them as leaves, exactly as the pre-rf2-yng0y shallow walker
-  did when `state-body` was called inline."
-  [node]
-  (and (vector? node) (= state/state-body (first node))))
-
-(defn- expand-fn-component [node]
-  (if (and (vector? node) (fn? (first node)))
-    (apply (first node) (rest node))
-    node))
-
 (defn- hiccup-seq
-  "Walk a (possibly component-wrapped) hiccup tree, expanding the
-  Panel's own structural fn-components (see `structural-component?`) AS
-  the walk descends so their nested section testids are realized.
+  "Walk the panel's hiccup tree. Plain descent — nothing is CALLED.
 
-  rf2-yng0y — the App-DB Panel now wraps its body as a KEYED component
-  `^{:key epoch-id} [state/state-body model]` (to force a clean per-epoch
-  React remount). The pre-rf2-yng0y walker expanded one component deep at
-  each leaf, which sufficed when `state-body` was called inline; the new
-  wrapper hides the section testids one level down. Expanding the
-  structural wrapper during descent restores full visibility while
-  leaving the leaf widgets (edn-inspector) un-expanded, as before."
+  rf2-yng0y wrapped the body as a keyed COMPONENT
+  `^{:key epoch-id} [app-db-diff-state/state-body model]`, which hid the section
+  testids one level down, so this walker used to expand structural
+  fn-components as it descended.
+
+  rf2-k97c.3 removed the need and, more importantly, made the expansion
+  UNSAFE. `state-body` is now CALLED by the panel (a plain fn in hiccup
+  head position is a loud error under Fresco), so its sections are already
+  realized in the tree and the pre-rf2-yng0y shallow walk suffices again.
+  And the one remaining fn-headed vector is `[ei/edn-inspector-view …]`,
+  a FRESCO BOUNDARY — a React function component whose body may only run
+  inside a React render window. Applying it here would run `rf.fresco/sub`
+  outside the collector, which is not a leaf-expansion at all. So the
+  widget stays a leaf, which is what the old walker's `structural?` test
+  was reaching for in the first place."
   [tree]
-  (let [descend (fn [node]
-                  (seq (if (structural-component? node)
-                         (expand-fn-component node)
-                         node)))
-        seed    (if (structural-component? tree)
-                  (expand-fn-component tree)
-                  tree)]
-    (->> (tree-seq (some-fn vector? seq?) descend seed)
-         (map expand-fn-component))))
+  (tree-seq (some-fn vector? seq?) seq tree))
 
 (defn- find-by-testid [tree testid]
   (some (fn [node]
@@ -534,7 +533,7 @@
     (registry/register-xray-handlers!)
     (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
-      (let [tree (app-db-diff/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-app-db-diff"))
             "panel root present")
         (is (some? (find-by-testid tree "rf-xray-app-db-state"))
@@ -564,7 +563,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default]))
     (rf/with-frame :rf/xray
-      (let [tree (app-db-diff/Panel)]
+      (let [tree (panel-tree)]
         ;; machines fan out one section per id (title = machine id).
         (is (some? (find-by-testid
                      tree "rf-xray-app-db-state-instance-:rf/machines-:auth"))
@@ -590,7 +589,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default]))
     (rf/with-frame :rf/xray
-      (let [tree (app-db-diff/Panel)]
+      (let [tree (panel-tree)]
         (doseq [area [:rf/machines :rf/spawned :rf/route
                       :rf/pending-navigation :rf/elision]]
           (is (nil? (find-by-testid
@@ -649,7 +648,7 @@
     (rf/replace-frame-state! :checkout-frame {:rf.db/app {:checkout {:step :payment}}})
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-frame :checkout-frame])
-      (let [tree (app-db-diff/Panel)
+      (let [tree (panel-tree)
             top  (find-by-testid tree "rf-xray-app-db-state-top")]
         (is (some? top) "TOP section present")
         (is (= :checkout-frame @(rf/subscribe [:rf.xray/observed-frame]))

@@ -121,10 +121,11 @@
             ":rf/xray frame is registered as a side-effect of mount")))))
 
 (deftest mount-app-db-diff-wraps-in-frame-provider
+  ;; rf2-k97c.3 — `Panel-bridge`; see `mount-reactive-panel-…` below.
   (let [[capture _ render-stub] (make-render-stub)]
     (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-app-db-diff! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture) app-db-diff/Panel)))))
+      (is (frame-provider-wrap? (captured-tree capture) app-db-diff/Panel-bridge)))))
 
 (deftest mount-reactive-panel-wraps-in-frame-provider
   ;; rf2-k97c.3 — the expected view is `Panel-bridge`. `Panel` is now a

@@ -109,7 +109,8 @@
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-app-db-card"}
-   [app-db-diff/Panel]])
+   ;; rf2-k97c.3 — `Panel-bridge`; see the Reactive cell below for why.
+   [app-db-diff/Panel-bridge]])
 
 (defn- epoch-tab-panel
   "Embedded mount of the Epoch panel — `panels.epoch.view/Panel` via the

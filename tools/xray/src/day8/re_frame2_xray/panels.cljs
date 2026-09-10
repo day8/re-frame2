@@ -245,7 +245,9 @@
   "Mount Xray's App-DB tab in isolation at `mount-point`. Renders the
   sections-per-cluster structural diff for the focused event-bundle."
   ([mount-point]      (mount-app-db-diff! mount-point nil))
-  ([mount-point opts] (render-panel! app-db-diff/Panel mount-point opts)))
+  ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`; see `mount-resources!` below
+  ;; for the reasoning. `render-panel!` itself is untouched.
+  ([mount-point opts] (render-panel! app-db-diff/Panel-bridge mount-point opts)))
 
 (defn mount-reactive-panel!
   "Mount Xray's Reactive tab in isolation at `mount-point`.

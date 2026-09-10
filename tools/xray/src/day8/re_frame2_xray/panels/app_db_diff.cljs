@@ -57,6 +57,7 @@
     through `diff.engine/project` (runtime.cljs) — neither consumed the
     composite."
   (:require [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.app-db-diff-events :as events]
             [day8.re-frame2-xray.panels.app-db-diff-state :as state]
@@ -89,9 +90,17 @@
   {:flex     1
    :overflow "auto"})
 
-(rf/reg-view Panel
-  "The app-db tab's root view — a current-state inspector sectioned by
-  reserved `:rf/*` area.
+(defn panel-tree
+  "The app-db panel's hiccup projection — a PURE FUNCTION of the two
+  values `Panel` reads. No read of its own.
+
+  rf2-k97c.3 — split out of `Panel` when `Panel` became a Fresco boundary.
+  A boundary's body may only run inside a React render window, so `(Panel)`
+  is no longer a callable that answers hiccup, and the unit rows that walk
+  this markup by `data-testid` need something they can drive. This is
+  `defview`'s own documented extract-a-helper spelling, and keeping the
+  MARKUP here rather than transcribed into a test is what keeps those rows
+  honest: they still fail when the panel's own shape drifts.
 
   rf2-vv3m6 (2026-05-29) — the prior `[diff][full][full+diff]` mode
   toggle (rf2-yqjrd) is retired. FULL+DIFF is the single rendering:
@@ -102,40 +111,107 @@
   together give FULL+DIFF the density `:diff` used to provide and the
   comparison-context `:full` lacked, so the three-mode toggle (and its
   sub/event/slot trio) is gone."
+  [section-model selected-epoch-id]
+  [:section {:data-testid "rf-xray-app-db-diff"
+             ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis on
+             ;; the enclosing section. FULL+DIFF is the single mode
+             ;; post-rf2-vv3m6 so the attribute is now a constant
+             ;; (kept for selector compatibility — tools + e2e specs
+             ;; can still pin "this section is rendering FULL+DIFF").
+             :data-rf-xray-diff-mode "full+diff"
+             :style       panel-root-style}
+   ;; rf2-6xezz — the L4 tab strip is the panel-name source-of-truth;
+   ;; content starts immediately under the tab bar.
+   [:div {:style panel-body-host-style}
+    ;; rf2-5kfxe.2 / rf2-yng0y — key the state body by the focused
+    ;; epoch-id so each epoch navigation forces a clean React re-mount
+    ;; per event-bundle (replaying the diff-flash CSS animation as
+    ;; originally intended, and flushing any per-mount carryover). This
+    ;; is a COMPLEMENT to the atomic sub above, not a substitute: a
+    ;; remount alone does not fix a sub-level stale-`before` (a fresh
+    ;; mount would still receive whatever `before` the sub hands it) —
+    ;; the atomic sub guarantees that `before` is never stale; the key
+    ;; guarantees a clean per-epoch mount. Zoom + expansion survive the
+    ;; remount because both are keyed by the stable `:site-id
+    ;; [:rf.xray/app-db render-id]` (e.g. ["top"]) in the `:rf/xray`
+    ;; frame's app-db (value-body, app_db_diff_state.cljs), not by
+    ;; React component identity.
+    ;;
+    ;; rf2-k97c.3 — two changes, both forced by the boundary. `state-body`
+    ;; is CALLED, never used as a hiccup head: a plain fn in head position
+    ;; is a loud error under Fresco (and a silent extra component under
+    ;; Reagent). And the remount key moves off reader metadata onto a
+    ;; keyed FRAGMENT — Fresco's codec reads a literal `:key` in the
+    ;; attribute map and nothing else, `state-body` answers hiccup with no
+    ;; attribute map of the panel's own to write into, and `[:<> …]` adds
+    ;; no DOM node, so the per-epoch clean remount this comment describes
+    ;; survives the migration intact.
+    [:<> {:key selected-epoch-id}
+     (state/state-body section-model)]]])
+
+(rf.fresco/defview Panel
+  "The app-db tab's root — a current-state inspector sectioned by
+  reserved `:rf/*` area. The markup is [[panel-tree]]; this is the READ.
+
+  A FRESCO BOUNDARY (rf2-k97c.3), not an `rf/reg-view`. Both reads are
+  `rf.fresco/sub`, plain calls the shipped collector records an edge for
+  — no deref and no reaction owned by the installed adapter, which is the
+  third of the epic's three couplings and the one a first-paint smoke
+  test cannot see. The FRAME they resolve against comes from React
+  context, which the enclosing frame boundary writes; `rf/frame-provider`
+  and `rf.fresco/frame-provider` write the SAME context, so this resolves
+  `:rf/xray` identically under today's Reagent-rendered shell and under
+  the Fresco root Xray will own.
+
+  rf2-yng0y — the focused epoch-id is sourced from the SAME atomic sub the
+  section model derives from (`:rf.xray/app-db-current+diff`), so the
+  render key and the threaded `:before` move in lockstep and can never
+  name different epochs on the same frame. That property is a property of
+  READING BOTH HERE, which is why the two reads stay together in this body
+  rather than moving down into the projection.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. This panel reads nothing from props — the L4 registry and the
+  standalone embed both mount it with none — so it is destructured away."
+  [_props]
+  (panel-tree (rf.fresco/sub [:rf.xray/app-db-state])
+              (:epoch-id (rf.fresco/sub [:rf.xray/app-db-current+diff]))))
+
+;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;;
+;; Xray's shell is still a `reg-view` tree rendered by the installed
+;; adapter, and `panels/render-panel!` takes the view to mount as an
+;; ARGUMENT and builds a Reagent tree around it. `defview`'s contract is
+;; that a boundary is mounted as `[head props]` inside a Fresco body or
+;; through `as-component` from outside — never as a hiccup render fn in a
+;; Reagent tree. `panel-registry/reg-l4-tab!`'s `:pre` likewise requires
+;; `:panel` to be CALLABLE, which a React component is not.
+;;
+;; `rf.fresco/as-component` is Fresco's own outward door for exactly this:
+;; a React parent mounts the component UNDER THE FRAME IT IS ALREADY IN,
+;; taking the frame from React context rather than from a second root.
+;;
+;; THIS IS SCAFFOLDING WITH A DEFINED END. When the shell is itself a
+;; Fresco tree, `reg-l4-tab!` and `mount-app-db-diff!` take `Panel`
+;; directly, `[:>]` goes, and both defs below are deleted.
+
+(def ^:private Panel-component
+  "The React component `Panel` presents as, for a non-Fresco parent.
+  Declared once at top level beside the view, as `rf.fresco/as-component`'s
+  contract requires — deriving it per render would mint a new component
+  type every time and remount the panel on each parent render."
+  (rf.fresco/as-component Panel))
+
+(defn Panel-bridge
+  "The callable the L4 tab registry stores and `panels/mount-app-db-diff!`
+  hands to `render-panel!`. Returns Reagent-shaped hiccup interoping to the
+  React component above; the enclosing `rf/frame-provider` is what puts
+  `:rf/xray` in React context for it.
+
+  PUBLIC because the standalone `mount-*!` facade in `panels.cljs` passes
+  it by name — unlike the L4-only panels, whose bridge can stay private."
   []
-  (let [section-model @(rf/subscribe [:rf.xray/app-db-state])
-        ;; rf2-yng0y — the focused epoch-id, sourced from the SAME
-        ;; atomic sub the section model derives from
-        ;; (`:rf.xray/app-db-current+diff`), so the render key and the
-        ;; threaded `:before` move in lockstep — they can never name
-        ;; different epochs on the same frame.
-        selected-epoch-id (:epoch-id @(rf/subscribe [:rf.xray/app-db-current+diff]))]
-    [:section {:data-testid "rf-xray-app-db-diff"
-               ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis on
-               ;; the enclosing section. FULL+DIFF is the single mode
-               ;; post-rf2-vv3m6 so the attribute is now a constant
-               ;; (kept for selector compatibility — tools + e2e specs
-               ;; can still pin "this section is rendering FULL+DIFF").
-               :data-rf-xray-diff-mode "full+diff"
-               :style       panel-root-style}
-     ;; rf2-6xezz — the L4 tab strip is the panel-name source-of-truth;
-     ;; content starts immediately under the tab bar.
-     [:div {:style panel-body-host-style}
-      ;; rf2-5kfxe.2 / rf2-yng0y — key the state body by the focused
-      ;; epoch-id so each epoch navigation forces a clean React re-mount
-      ;; per event-bundle (replaying the diff-flash CSS animation as
-      ;; originally intended, and flushing any per-mount carryover). This
-      ;; is a COMPLEMENT to the atomic sub above, not a substitute: a
-      ;; remount alone does not fix a sub-level stale-`before` (a fresh
-      ;; mount would still receive whatever `before` the sub hands it) —
-      ;; the atomic sub guarantees that `before` is never stale; the key
-      ;; guarantees a clean per-epoch mount. Zoom + expansion survive the
-      ;; remount because both are keyed by the stable `:site-id
-      ;; [:rf.xray/app-db render-id]` (e.g. ["top"]) in the `:rf/xray`
-      ;; frame's app-db (value-body, app_db_diff_state.cljs), not by
-      ;; React component identity.
-      ^{:key selected-epoch-id}
-      [state/state-body section-model]]]))
+  [:> Panel-component {}])
 
 (defn install!
   "Idempotent install for the app-db tab's Xray-side registrations.
@@ -152,5 +228,9 @@
      :mnem  "a"
      :modes #{:dynamic}
      :order 1
-     :panel Panel})
+     ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
+     ;; component (a Fresco boundary) and the shell mounts `:panel` as a
+     ;; Reagent hiccup head; the bridge is the one line between them and
+     ;; goes when the shell is a Fresco tree.
+     :panel Panel-bridge})
   nil)
