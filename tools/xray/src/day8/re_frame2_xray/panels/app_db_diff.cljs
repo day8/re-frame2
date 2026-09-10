@@ -56,8 +56,10 @@
     `db-diff-paths`; the MCP `get-app-db-diff` tool projects directly
     through `diff.engine/project` (runtime.cljs) — neither consumed the
     composite."
-  (:require [re-frame.core :as rf]
-            [re-frame.fresco :as rf.fresco]
+  ;; rf2-k97c.3 — `re-frame.core` is no longer required here. Both reads
+  ;; moved to `rf.fresco/sub` inside the boundary, and this panel dispatches
+  ;; nothing, so nothing in the file resolves through core's door any more.
+  (:require [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.app-db-diff-events :as events]
             [day8.re-frame2-xray.panels.app-db-diff-state :as state]
