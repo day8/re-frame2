@@ -1938,7 +1938,9 @@ Every `mount-<panel>!` fn:
    idempotent.
 3. Wraps the panel's view in `[rf/frame-provider {:frame :rf/xray}
    [Panel]]` so descendant `subscribe` / `dispatch` re-anchor to
-   `:rf/xray` regardless of the host's React-context. The
+   `:rf/xray` regardless of the host's React-context. A mount fn that
+   takes further per-panel opts threads them as props onto the wrapped
+   view — `[Panel {…}]` in place of the bare `[Panel]`. The
    `:rf/xray` default may be overridden via `opts {:frame
    :my-app/frame}` per the embedding contract
    ([008-Embedding-Contract.md](./008-Embedding-Contract.md) §State
