@@ -11,8 +11,10 @@
   **Status: internal-but-stable, not a host-facing v1.0 embed
   contract.** The mount fns are stable (the shell + tests depend on
   them; hosts MAY use them) but carry NO v1.0 host-facing-contract
-  guarantee — there is no per-panel props vocabulary beyond the single
-  `:frame` opt (defaulting to `:rf/xray`). The v1.0 host-facing embed
+  guarantee — the props vocabulary is two keys wide and one of them is
+  a single panel's: `:frame` (every mount fn, defaulting to `:rf/xray`)
+  and `:instance-id` (`mount-app-db-diff!` only — see §`:instance-id`
+  opt below). The v1.0 host-facing embed
   contract is the **full-shell** embed per
   `tools/xray/spec/008-Embedding-Contract.md` §Full-shell embed
   contract. This matches the status stated in
@@ -140,6 +142,29 @@
   Xray's own UI state, while the panel-internal frame-selection sub
   (`:rf.xray/observed-frame`) drives the data axis.
 
+  ## `:instance-id` opt — `mount-app-db-diff!` ONLY (rf2-2n8q)
+
+  Two mounts under two DIFFERENT `:frame`s are already told apart:
+  rf2-d2aj keys the edn-inspector's per-mount store by `[frame-id
+  mount-id]`. Two mounts sharing ONE `:frame` are not, and nothing
+  inside the panel can separate them — its view is a Fresco boundary,
+  a React function component with no per-instance storage its body may
+  use. So the caller names them, and `:instance-id` is how a STANDALONE
+  mount does it:
+
+      (mount-app-db-diff! left-el  {:instance-id \"left\"})
+      (mount-app-db-diff! right-el {:instance-id \"right\"})
+
+  rf2-t3fz gave `app-db-diff/Panel` the prop; this opt is the door for
+  a caller that mounts rather than renders, which passes opts and never
+  props. Omit it and every id is byte-for-byte what it was.
+
+  It is ONE panel's opt rather than the surface's, and deliberately so:
+  it is only meaningful where a panel's view accepts it, and handing a
+  props map to a panel whose view takes none is an arity error rather
+  than an ignored key. `render-panel!`'s `props` argument is the seam —
+  see its docstring.
+
   See `tools/xray/spec/007-UX-IA.md` §Mountable panel contract and
   `tools/xray/spec/008-Embedding-Contract.md` for the full
   embedding contract."
@@ -212,13 +237,29 @@
     panel to observe a specific app frame pass that frame id; the
     panel's own Xray state still lives on `:rf/xray` (the panel
     facade always opens with its own `frame-provider :rf/xray`
-    when its body subscribes to `:rf.xray/*` data)."
-  [panel-view mount-point opts]
-  (ensure-xray-handlers-installed!)
-  (let [frame (get opts :frame :rf/xray)
-        tree  [rf/frame-provider {:frame frame}
-               [panel-view]]]
-    (rf.substrate.adapter/render tree mount-point nil)))
+    when its body subscribes to `:rf.xray/*` data).
+  - `props` — OPTIONAL (rf2-2n8q), and it is the PANEL's props map, not
+    the mount opts. nil — every caller but `mount-app-db-diff!` — mounts
+    `[panel-view]`, the element this fn has always built. A map mounts
+    `[panel-view props]`. The caller decides, because only the caller
+    knows whether its panel's view takes props at all: `[trace/Panel
+    {…}]` is an arity error, not an ignored map, so this must NOT be
+    filled in from `opts` here on every panel's behalf.
+
+  rf2-2n8q — the 4-arity is an ADDITION and the couplings `mount-resources!`
+  reserves this fn for are untouched: the frame-provider wrap and the
+  `adapter/render` delegation are still written once, here, and are still
+  one edit when the shell becomes a Fresco tree."
+  ([panel-view mount-point opts]
+   (render-panel! panel-view mount-point opts nil))
+  ([panel-view mount-point opts props]
+   (ensure-xray-handlers-installed!)
+   (let [frame (get opts :frame :rf/xray)
+         tree  [rf/frame-provider {:frame frame}
+                (if props
+                  [panel-view props]
+                  [panel-view])]]
+     (rf.substrate.adapter/render tree mount-point nil))))
 
 ;; ---- per-panel mount fns ------------------------------------------------
 ;;
@@ -243,11 +284,36 @@
 
 (defn mount-app-db-diff!
   "Mount Xray's App-DB tab in isolation at `mount-point`. Renders the
-  sections-per-cluster structural diff for the focused event-bundle."
+  sections-per-cluster structural diff for the focused event-bundle.
+
+  `opts :instance-id` — OPTIONAL (rf2-2n8q). A non-blank string or a
+  keyword naming THIS mount, for the case where two standalone mounts
+  share one `:frame`. It qualifies every id the sections compose — the
+  edn-inspector's `:mount-id` AND the expansion/zoom `:site-id` — and
+  both halves are the fix: the store's lifecycle key is `[frame-id
+  mount-id]` while the measured-width slot is keyed by the bare
+  `mount-id` inside the frame, so qualifying one and not the other
+  leaves two panels writing one width slot. Left unnamed, two mounts in
+  one frame share one store entry, one ResizeObserver and one width
+  slot, and detaching either releases the survivor's state.
+
+  OMIT IT when only one app-db panel is on screen in this frame, which
+  is every call site in this tree today: the ids are then byte-for-byte
+  what they were. `app-db-diff-state/instance-token` refuses, loudly,
+  the shapes that could not be stable across renders.
+
+  See `app-db-diff/Panel`'s own `:instance-id` note for what the prop
+  means once it arrives, and the ns docstring §`:instance-id` opt for
+  why this is one panel's key rather than the surface's."
   ([mount-point]      (mount-app-db-diff! mount-point nil))
   ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`; see `mount-resources!` below
-  ;; for the reasoning. `render-panel!` itself is untouched.
-  ([mount-point opts] (render-panel! app-db-diff/Panel-bridge mount-point opts)))
+  ;; for the reasoning. rf2-2n8q — and the props map is what carries
+  ;; `:instance-id` across that bridge; `Panel-bridge`'s 1-arity is the
+  ;; door, its 0-arity is what an unnamed mount still takes.
+  ([mount-point opts]
+   (render-panel! app-db-diff/Panel-bridge mount-point opts
+                  (when-let [id (:instance-id opts)]
+                    {:instance-id id}))))
 
 (defn mount-reactive-panel!
   "Mount Xray's Reactive tab in isolation at `mount-point`.

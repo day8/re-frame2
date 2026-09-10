@@ -358,6 +358,96 @@
           (is (= {:frame :my-app/cart} (second tree))
               "explicit :frame opt overrides the default :rf/xray"))))))
 
+;; ---- contract — instance-id opt (rf2-2n8q) ----------------------------
+;;
+;; THE EVIDENCE THAT TWO NAMED MOUNTS ARE ACTUALLY SEPARATED IS NOT HERE. It
+;; is `panels/app_db_diff_mount_instance_id_dom_cljs_test`, which mounts two
+;; of them for real and reads `data-rf-mount-id` / `data-rf-site-id` off the
+;; committed DOM, plus the widget's per-mount store across an unmount. These
+;; rows pin the MOUNT-API half in the file that owns the mount API, and they
+;; are deliberately not written as "the opts key was threaded": nothing below
+;; reads the opts map or the captured props. Each row takes the ELEMENT the
+;; mount delivered and APPLIES it — which is what the substrate does to a
+;; Reagent form-1 element — so the real `Panel-bridge` runs and what is
+;; asserted is the props the boundary is mounted with.
+
+(defn- delivered-element
+  "The element `render-panel!` put inside the frame-provider — the hiccup the
+  substrate is asked to render, taken off the captured tree rather than
+  rebuilt here."
+  [capture]
+  (nth (captured-tree capture) 2))
+
+(defn- delivered-by
+  "Mount the app-db panel through the public facade with `opts`; return the
+  element it delivered to the substrate."
+  [opts]
+  (let [[capture _ render-stub] (make-render-stub)]
+    (with-redefs [rf.substrate.adapter/render render-stub]
+      (panels/mount-app-db-diff! :mount-point opts))
+    (delivered-element capture)))
+
+(defn- crossed
+  "Apply `el`'s head to its arguments — what a substrate does with a Reagent
+  form-1 element — and return the props map the resulting `[:> Component
+  props]` mounts the boundary with. The real bridge runs, so this is what the
+  panel RECEIVES rather than what the caller passed."
+  [el]
+  (nth (apply (first el) (rest el)) 2))
+
+(deftest mount-app-db-diff-instance-id-reaches-the-boundary
+  (testing "rf2-2n8q — `mount-app-db-diff!`'s `:instance-id` opt reaches the
+            Fresco boundary's props, across the real `Panel-bridge`. This is
+            the mount door onto the prop rf2-t3fz gave `Panel`: a caller that
+            MOUNTS passes opts and never props, so before this the standalone
+            embed could not name an instance at all."
+    (is (= {:instance-id "left"}
+           (crossed (delivered-by {:instance-id "left"})))
+        "the name the mount was given is the name the boundary is mounted with")
+    (is (= {:instance-id :left}
+           (crossed (delivered-by {:instance-id :left})))
+        "a keyword crosses too — Reagent converts a prop value to its name on
+         the way to React, and `instance-token` accepts both spellings for
+         exactly that reason")
+    (is (= {:instance-id "right"}
+           (crossed (delivered-by {:frame :my-app/cart :instance-id "right"})))
+        "and it composes with `:frame` rather than replacing it"))
+
+  (testing "rf2-2n8q — the `:frame` opt is untouched by the addition."
+    (let [[capture _ render-stub] (make-render-stub)]
+      (with-redefs [rf.substrate.adapter/render render-stub]
+        (panels/mount-app-db-diff! :mount-point
+                                   {:frame :my-app/cart :instance-id "right"})
+        (is (= {:frame :my-app/cart} (second (captured-tree capture)))
+            "the frame-provider still wraps the frame the host named")))))
+
+(deftest mount-fns-without-an-instance-name-deliver-exactly-what-they-did
+  (testing "rf2-2n8q — an UNNAMED app-db mount delivers the bare
+            `[Panel-bridge]` element it always delivered, not `[Panel-bridge
+            {}]`. The 0-arity is the shape the shell's `[(:panel tab)]` and
+            every standalone call site in this tree take today, and it is what
+            keeps their composed ids byte-for-byte unchanged."
+    (is (= [app-db-diff/Panel-bridge] (delivered-by nil))
+        "no opts at all")
+    (is (= [app-db-diff/Panel-bridge] (delivered-by {:frame :my-app/cart}))
+        "opts carrying no instance name")
+    (is (= {} (crossed (delivered-by nil)))
+        "and the bridge's 0-arity mounts the boundary with no props"))
+
+  (testing "rf2-2n8q — `:instance-id` is ONE PANEL's opt, not the surface's.
+            Only `app-db-diff/Panel` takes the prop; handing a props map to a
+            panel view that takes none is an arity error, not an ignored key,
+            so every other mount fn must keep delivering a bare element even
+            when its caller sets the opt."
+    (let [[capture _ render-stub] (make-render-stub)]
+      (with-redefs [rf.substrate.adapter/render render-stub]
+        (panels/mount-trace! :mount-point {:instance-id "left"})
+        (panels/mount-epoch-panel! :mount-point {:instance-id "left"})
+        (is (= [trace/Panel] (delivered-element capture))
+            "the trace mount delivers its view with no props")
+        (is (= [epoch-panel/Panel] (nth (:tree (second @capture)) 2))
+            "and so does the epoch mount")))))
+
 ;; ---- contract — idempotency under repeat mount ------------------------
 
 (deftest repeat-mount-is-idempotent-for-handler-registration
