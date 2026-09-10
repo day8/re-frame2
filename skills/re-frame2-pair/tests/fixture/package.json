@@ -3,6 +3,7 @@
  "version": "0.0.0-SNAPSHOT",
  "private": true,
  "description": "Minimal re-frame2 fixture app for re-frame2-pair validation tests.",
+ "//": "React pin, recorded so version sweeps stop re-deriving it (rf2-2z4c): test:pure is a :node-test build and never loads react, but the app build does, and tools/mcp-conformance's hermetic live suite renders this fixture in headless Chromium -- per PR via the mcp_live surface, and again nightly. The pin is therefore exercised, and moving it changes what that lane covers rather than being a free version sweep.",
  "devDependencies": {
  "shadow-cljs": "3.4.10",
  "react": "18.3.1",
