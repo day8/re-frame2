@@ -13,7 +13,7 @@
   | Native tag | attr map, each key emitted under one canonical slot, the tag's `#id.class` shorthand folded onto the emitted object | trailing forms; a seq realized once and spliced; `nil`/`false` render nothing, `true` is an error | literal `:key` in the attr map |
   | Boundary (a marked `defview` head) | one props map crossing as a CLJS value, every lazy seq in it forced and an unforced `delay` refused (`realize-deep`) | trailing forms as `(:children props)`, a realized vector | literal `:key`, taken off before the body sees props |
   | Host (a `defhost` head), or `[:> Component …]` | attr map converted shallowly (`host-entry`): declared `:callbacks` contracts applied, declared `:slots` lowered to elements, `:ref` untouched, the class slot coerced and composed, the rest inferred by position | trailing forms lowered to elements in the writing boundary's render window, handed on as React children | literal `:key` |
-  | Fragment `[:<> …]` | optional attr map | trailing forms | on the fragment |
+  | Fragment `[:<> …]` | optional attr map, read for the two slots React accepts there and no others: `:ref` crosses untouched onto the fragment, where React answers it with a `FragmentInstance` over the run of children | trailing forms | on the fragment |
 
   A React element is a legal child anywhere; a plain function in head
   position is a loud error. Five keys are never emitted as attributes:
@@ -1641,11 +1641,47 @@
     (when-some [k (:key props)] (unchecked-set carrier "key" k))
     (make-element raw-gate carrier argv (if has-props? 3 2))))
 
-(defn- fragment-element [argv]
+(defn- fragment-ref-entry
+  "`fragment-element`'s reducing function over a fragment's attr map: the
+  value at whichever key lands on the `ref` slot, `reduced` so a map that
+  carries one stops there and one that does not costs a `canonical-slot`
+  per key and no allocation. A named var so the walk allocates no
+  closure, like `convert-entry` and `host-entry`.
+
+  The SLOT and never the spelling, because `ref` is an ATTRIBUTE and this
+  codec asks `canonical-slot` about every rule concerning one — so
+  `{\"ref\" f}` and `{:x/ref f}` land where `:ref` does, exactly as
+  `structural-slot?` already reads them. `:key`, read literally by the
+  caller, is the exact-keyword exception this namespace's docstring
+  names: it is a trigger rather than an attribute."
+  [found k v]
+  (if (identical? ref-slot (canonical-slot k)) (reduced v) found))
+
+(defn- fragment-element
+  "`[:<> …]` as a `React.Fragment` element. React accepts exactly `key`,
+  `ref` and `children` on a fragment — its own words, in its
+  `validateFragmentProps` warning — so those two slots are the whole of
+  what this reads off the optional attr map, and anything else written
+  there is dropped as it always was.
+
+  `:ref` crosses UNTOUCHED: the identity the author wrote, the same
+  crossing `convert-entry` and `host-entry` give HD-016's node handle.
+  That is the contract rather than an optimisation — React detaches and
+  reattaches whenever a ref's identity changes, so a handle this codec
+  re-wrapped per render would re-run a callback ref, and its cleanup, on
+  every commit. What React hands back is a `FragmentInstance` rather than
+  a DOM node: a fragment has no element of its own, so the handle
+  addresses the run of children it holds.
+
+  Before React 19.3 a fragment took no ref at all and this dropped one
+  silently."
+  [argv]
   (let [has-props? (props-map? argv 1)
         props      (if has-props? (nth argv 1) nil)
         js-props   #js {}]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
+    (when-some [r (reduce-kv fragment-ref-entry nil props)]
+      (unchecked-set js-props ref-slot r))
     (make-element (.-Fragment react) js-props argv (if has-props? 2 1))))
 
 (defn- fragment-head?

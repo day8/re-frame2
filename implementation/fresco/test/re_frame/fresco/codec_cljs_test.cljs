@@ -348,6 +348,56 @@
   (testing "a keyed fragment carries its key"
     (is (= "k" (el-key (rf.fresco.impl.codec/as-element [:<> {:key "k"} [:li "a"]]))))))
 
+(deftest a-fragment-forwards-its-ref-to-react-by-identity
+  (testing "React reads a fragment's ref off `element.props.ref` — its own
+            `coerceRef` does, and its `validateFragmentProps` names `key`,
+            `ref` and `children` as the whole of what a fragment accepts. So
+            the handle has to be IN THE PROPS, and it has to be the author's
+            own object: React detaches and reattaches on a changed ref
+            identity, so a handle rewrapped per render would re-run a
+            callback ref and its cleanup on every commit."
+    (let [f (fn [_instance] nil)
+          e (rf.fresco.impl.codec/as-element [:<> {:ref f} [:li "a"]])]
+      (is (identical? (.-Fragment react) (el-type e)))
+      (is (identical? f (prop e "ref")))))
+  (testing "an object ref crosses the same way — the codec claims nothing
+            about the slot's value-space here either"
+    (let [r (react/createRef)
+          e (rf.fresco.impl.codec/as-element [:<> {:ref r} [:li "a"]])]
+      (is (identical? r (prop e "ref")))))
+  (testing "and by the SLOT rather than the spelling, exactly as a tag's ref
+            is read — `ref` is an attribute, and every rule about one is
+            asked of `canonical-slot`"
+    (let [f (fn [_instance] nil)]
+      (doseq [k ["ref" 'ref :x/ref]]
+        (is (identical? f (prop (rf.fresco.impl.codec/as-element [:<> {k f} [:li "a"]]) "ref"))
+            (str "ref, spelled " (pr-str k)))))))
+
+(deftest a-fragment-emits-the-two-slots-react-accepts-there-and-nothing-else
+  (testing "no attr map, and no ref: children alone. A ref slot standing
+            empty on every fragment on the page would be a prop React has to
+            read and reject"
+    (is (= ["children"] (prop-names (rf.fresco.impl.codec/as-element [:<> [:li "a"]])))))
+  (testing "a fragment written with a key emits no `key` PROP — the key
+            addresses the element, and React strips it in `createElement`"
+    (let [e (rf.fresco.impl.codec/as-element [:<> {:key "k"} [:li "a"]])]
+      (is (= ["children"] (prop-names e)))
+      (is (= "k" (el-key e)))))
+  (testing "a ref and a key together: the key on the element, the ref in the
+            props, both from one attr map"
+    (let [f (fn [_instance] nil)
+          e (rf.fresco.impl.codec/as-element [:<> {:key "k" :ref f} [:li "a"]])]
+      (is (= "k" (el-key e)))
+      (is (= ["children" "ref"] (prop-names e)))
+      (is (identical? f (prop e "ref")))))
+  (testing "and an attribute React would refuse on a fragment is dropped
+            before React sees it, exactly as it always was — this bead
+            forwards the ref, it does not open the fragment to attributes"
+    (let [e (rf.fresco.impl.codec/as-element [:<> {:class "x" :on-click [:evt]} [:li "a"]])]
+      (is (= ["children"] (prop-names e)))))
+  (testing "a nil ref sets no slot, the same `when-some` reading `:key` gets"
+    (is (= ["children"] (prop-names (rf.fresco.impl.codec/as-element [:<> {:ref nil} [:li "a"]]))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Boundaries — the HD-016 head rules
 ;; ---------------------------------------------------------------------------

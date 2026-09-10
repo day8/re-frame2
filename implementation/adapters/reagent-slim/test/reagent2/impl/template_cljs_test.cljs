@@ -529,6 +529,31 @@
       (is (= (.-Fragment react) (.-type el)))
       (is (= "k" (.-key el))))))
 
+(deftest as-element-fragment-with-ref
+  (testing "React accepts `key`, `ref` and `children` on a Fragment, and this
+            path converts the WHOLE props map — so a fragment ref crosses here
+            with no arm of its own. Measured rather than read off the
+            conversion rules, because the identity is the part that matters:
+            React detaches and reattaches on a changed ref identity, so a
+            wrapper allocated per render would re-run the author's callback,
+            and its cleanup, on every commit."
+    (let [f      (fn [_instance] nil)
+          ^js el (template/as-element [:<> {:ref f} [:div "a"]])]
+      (is (= (.-Fragment react) (.-type el)))
+      (is (identical? f (-> el .-props .-ref))
+          "the author's own function, not a wrapper")))
+  (testing "an object ref crosses untouched too — it takes the `:else` arm
+            rather than any of the converting ones"
+    (let [r      (react/createRef)
+          ^js el (template/as-element [:<> {:ref r} [:div "a"]])]
+      (is (identical? r (-> el .-props .-ref)))))
+  (testing "and a key and a ref from one map land in their two different
+            places: the key on the element, the ref in the props"
+    (let [f      (fn [_instance] nil)
+          ^js el (template/as-element [:<> {:key "k" :ref f} [:div "a"]])]
+      (is (= "k" (.-key el)))
+      (is (identical? f (-> el .-props .-ref))))))
+
 (deftest as-element-interop-react-component
   (testing "[:> Comp {:foo \"bar\"} child] → React.createElement on Comp"
     (let [Comp (fn FakeComp [_props] nil)
