@@ -36,6 +36,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
+            [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.routes.panel :as panel]
             [day8.re-frame2-xray.static.shell :as static-shell]
@@ -99,6 +100,44 @@
   (xray-test-support/install-test-overrides!)
   (rf/make-frame {:id :rf/xray}))
 
+;; ---- the node lane's door onto the panel --------------------------------
+
+(defn- panel-tree
+  "The hiccup the view rows below walk.
+
+  rf2-k97c.3 — `panel/Panel` is now an `rf.fresco/defview` boundary, a
+  real React function component whose body may only run inside a React
+  render window, so calling `panel/Panel` no longer answers hiccup.
+  This helper REPRODUCES THE BOUNDARY'S READS EXACTLY — the same
+  four queries in the same ORDER — and hands their values to
+  `panel/panel-tree`, so every row below asserts on the same hiccup it
+  asserted on before.
+
+  The DISPATCHER is `(:dispatch (rf/capture-frame))`, the SAME door the
+  boundary uses, so a handler a row pulls off the tree and fires later
+  (`routes-row-enter-key-activates-toggle` does exactly that) carries the
+  frame the shipped one does.
+
+  `identity` is the `as-child` spelling for the node lane, so the browse
+  list and the Simulate-URL header stay fn-headed hiccup the walker above
+  expands precisely as it always has. The boundary passes
+  `reagent.core/as-element` there; that crossing's evidence is the
+  browser lane's, not this one's.
+
+  Call it inside `(rf/with-frame :rf/xray …)` — it subscribes ambiently,
+  the same requirement the `reg-view` body had."
+  []
+  (let [data       @(rf/subscribe [:rf.xray.static.routes/tab-data])
+        expanded   @(rf/subscribe [:rf.xray.static.routes/expanded])
+        sim-open   @(rf/subscribe [:rf.xray.static.routes/sim-nav-open])
+        routes-map @(rf/subscribe [:rf.xray/registered-routes])]
+    (panel/panel-tree data
+                      {:expanded   expanded
+                       :sim-open   sim-open
+                       :routes-map routes-map}
+                      (:dispatch (rf/capture-frame))
+                      identity)))
+
 ;; ---- fixture data -------------------------------------------------------
 
 (def cart-routes
@@ -143,7 +182,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test {}]
                         {:frame :rf/xray})
-      (let [tree (panel/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-static-routes"))
             "panel root present")
         (is (some? (find-by-testid tree "rf-xray-static-routes-header"))
@@ -165,7 +204,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
                         {:frame :rf/xray})
-      (let [tree (panel/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-static-routes-list"))
             "flat list rendered")
         (is (some? (find-by-testid tree "rf-xray-static-routes-search"))
@@ -188,7 +227,7 @@
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray.static.routes/set-query "checkout"]
                         {:frame :rf/xray})
-      (let [tree (panel/Panel)
+      (let [tree (panel-tree)
             rows (find-all-by-testid-prefix tree "rf-xray-static-routes-row-")]
         (is (= #{"rf-xray-static-routes-row-route/checkout"
                  "rf-xray-static-routes-row-route/payment"
@@ -203,7 +242,7 @@
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray.static.routes/set-query "zzz-not-found"]
                         {:frame :rf/xray})
-      (let [tree (panel/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-static-routes-empty-filtered"))
             "empty-filtered surface rendered when the query matches no rows")))))
 
@@ -217,7 +256,7 @@
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url "/cart"]
                         {:frame :rf/xray})
-      (let [tree (panel/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-result"))
             "simulator result rendered")
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-candidate-route/cart"))
@@ -230,7 +269,7 @@
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url "/nope-not-here"]
                         {:frame :rf/xray})
-      (let [tree (panel/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-result"))
             "simulator result rendered even on no-match")))))
 
@@ -243,12 +282,12 @@
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
                         {:frame :rf/xray})
       ;; Initial render — expand absent.
-      (let [tree (panel/Panel)]
+      (let [tree (panel-tree)]
         (is (nil? (find-by-testid tree "rf-xray-static-routes-expand-route/cart"))
             "expand surface absent before toggle"))
       (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/cart]
                         {:frame :rf/xray})
-      (let [tree (panel/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-static-routes-expand-route/cart"))
             "expand surface rendered after toggle")
         ;; Inline expand carries the meta + jump button + sim-nav toggle.
@@ -260,7 +299,7 @@
             "Simulate-navigation toggle rendered"))
       (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/cart]
                         {:frame :rf/xray})
-      (let [tree (panel/Panel)]
+      (let [tree (panel-tree)]
         (is (nil? (find-by-testid tree "rf-xray-static-routes-expand-route/cart"))
             "expand surface hidden after second toggle")))))
 
@@ -279,7 +318,7 @@
                           {:frame :rf/xray})
         (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/article]
                           {:frame :rf/xray})
-        (let [tree (panel/Panel)]
+        (let [tree (panel-tree)]
           (is (some? (find-by-testid tree "rf-xray-static-routes-params-schema-route/article"))
               ":params schema block rendered")
           (is (some? (find-by-testid tree "rf-xray-static-routes-query-schema-route/article"))
@@ -302,7 +341,7 @@
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray.static.routes/toggle-sim-nav :route/confirm]
                         {:frame :rf/xray})
-      (let [tree (panel/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-route/confirm"))
             "preview surface rendered")
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-on-match"))
@@ -335,7 +374,20 @@
 ;; ---- (9) Static tab inventory exposes :routes --------------------------
 
 (deftest static-shell-routes-tab-is-in-inventory
-  (testing ":routes is in the Static tab inventory + the shell can render it"
+  (testing ":routes is in the Static tab inventory + the shell mounts it.
+
+            RE-AUTHORED ONE LEVEL UP BY rf2-k97c.3, exactly as
+            `static/shell_cljs_test`'s `static-machines-mounts-live-panel`
+            already was and for the same reason. `static.routes.panel/
+            Panel` is now an `rf.fresco/defview` behind an `as-component`
+            bridge, so this hiccup walk reaches the bridge's `[:>]`
+            interop head and stops — `rf-xray-static-routes` is committed
+            by React, not present in the tree. Asserting that testid here
+            would from now on be asserting the WALKER'S REACH rather than
+            the mount, which is the hollow-gate shape. What the shell owes
+            is that the `:routes` slot mounts the REGISTRY's `:panel` and
+            that no placeholder renders; the boundary's own first paint is
+            the browser lane's subject, and its body is every row above."
     (is (contains? (set (map :id (static-shell/tabs))) :routes)
         ":routes is in the Static tab inventory")
     (setup-xray-frame!)
@@ -343,11 +395,13 @@
       (rf/dispatch-sync [:rf.xray.static/select-tab :routes] {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
                         {:frame :rf/xray})
-      (let [tree (static-shell-tree/surface-tree)]
-        ;; When the :routes tab is selected the Static shell mounts the
-        ;; Static Routes panel (not the placeholder card).
-        (is (some? (find-by-testid tree "rf-xray-static-routes"))
-            "Static Routes panel mounted via the shell's :routes branch")
+      (let [tree  (static-shell-tree/surface-tree)
+            slot  (find-by-testid tree "rf-xray-static-detail-panel-routes")
+            mount ((:panel (panel-registry/tab-by-id :static :routes)))]
+        (is (some? slot) "the :routes L4 slot renders")
+        (is (= (last slot) mount)
+            (str "the slot mounts exactly the registry's :panel value. "
+                 "Got: " (pr-str (last slot))))
         (is (nil? (find-by-testid tree "rf-xray-static-placeholder-routes"))
             "the :routes placeholder card is no longer rendered")))))
 
@@ -376,7 +430,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
                         {:frame :rf/xray})
-      (let [tree      (panel/Panel)
+      (let [tree      (panel-tree)
             list-node (find-by-testid tree "rf-xray-static-routes-list")
             listitems (find-all-by-role tree "listitem")
             buttons   (find-all-by-role tree "button")]
@@ -400,7 +454,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
                         {:frame :rf/xray})
-      (let [tree     (panel/Panel)
+      (let [tree     (panel-tree)
             ;; the cart row's clickable body is the role=button whose
             ;; aria-label mentions the cart route.
             row-body (some (fn [node]
@@ -443,7 +497,7 @@
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/cart]
                         {:frame :rf/xray})
-      (let [tree (panel/Panel)
+      (let [tree (panel-tree)
             widget (find-all-by-testid-prefix
                      tree "rf-xray-edn-inspector-")]
         (is (some? (find-by-testid tree "rf-xray-static-routes-meta-route/cart"))

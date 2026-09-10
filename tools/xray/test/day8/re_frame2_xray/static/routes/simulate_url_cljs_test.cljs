@@ -13,8 +13,10 @@
     - result block renders one candidate row per match, with the
       winner highlighted.
 
-  Drives the view via the `panel/Panel` root so the dispatch round-
-  trip lands through the registered subs/events."
+  Drives the view through [[panel-tree]] below — the node lane's
+  reproduction of `panel/Panel`'s reads (rf2-k97c.3 made that root an
+  `rf.fresco/defview` boundary) — so the dispatch round-trip still lands
+  through the registered subs/events."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -70,6 +72,39 @@
   (xray-test-support/install-test-overrides!)
   (rf/make-frame {:id :rf/xray}))
 
+;; ---- the node lane's door onto the panel --------------------------------
+
+(defn- panel-tree
+  "The hiccup the rows below walk.
+
+  rf2-k97c.3 — `panel/Panel` is now an `rf.fresco/defview` boundary, a
+  real React function component whose body may only run inside a React
+  render window, so calling `panel/Panel` no longer answers hiccup.
+  This helper REPRODUCES THE BOUNDARY'S READS EXACTLY — the same
+  four queries in the same ORDER — and hands their values to
+  `panel/panel-tree`, so every row below asserts on the same hiccup it
+  asserted on before, and the dispatch round-trip still lands through the
+  registered subs / events as this file's ns docstring promises.
+
+  KEPT IN STEP WITH `static/routes/panel_cljs_test`'s private twin, which
+  is the same reproduction. Two copies is the established repair at two
+  files (#9578); the shared-composer form
+  (`test_helpers/static_machines_tree`) is what a THIRD consumer would
+  earn.
+
+  Call it inside `(rf/with-frame :rf/xray …)` — it subscribes ambiently."
+  []
+  (let [data       @(rf/subscribe [:rf.xray.static.routes/tab-data])
+        expanded   @(rf/subscribe [:rf.xray.static.routes/expanded])
+        sim-open   @(rf/subscribe [:rf.xray.static.routes/sim-nav-open])
+        routes-map @(rf/subscribe [:rf.xray/registered-routes])]
+    (panel/panel-tree data
+                      {:expanded   expanded
+                       :sim-open   sim-open
+                       :routes-map routes-map}
+                      (:dispatch (rf/capture-frame))
+                      identity)))
+
 (def cart-routes
   {:route/cart      {:path "/cart"      :doc "cart"}
    :route/checkout  {:path "/checkout"  :doc "checkout"}
@@ -83,7 +118,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
                         {:frame :rf/xray})
-      (let [tree (panel/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim"))
             "Simulate-URL section present")
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-input"))
@@ -99,7 +134,7 @@
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url "/cart"]
                         {:frame :rf/xray})
-      (let [tree (panel/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-clear"))
             "clear button surfaces when input is non-blank")))))
 
@@ -113,7 +148,7 @@
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url "/cart"]
                         {:frame :rf/xray})
-      (let [tree (panel/Panel)
+      (let [tree (panel-tree)
             winner (find-by-testid tree "rf-xray-static-routes-sim-candidate-route/cart")]
         (is (some? winner) "winner candidate row rendered")
         (is (= "true" (:data-winner (second winner)))
@@ -127,7 +162,7 @@
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url "/no-such-path"]
                         {:frame :rf/xray})
-      (let [tree (panel/Panel)
+      (let [tree (panel-tree)
             candidates (find-all-by-testid-prefix
                          tree "rf-xray-static-routes-sim-candidate-")]
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-result"))
@@ -142,7 +177,7 @@
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
                         {:frame :rf/xray})
       ;; Default — no sim-url set.
-      (let [tree (panel/Panel)]
+      (let [tree (panel-tree)]
         (is (nil? (find-by-testid tree "rf-xray-static-routes-sim-result"))
             "no result block when input is blank")))))
 
