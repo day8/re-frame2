@@ -60,9 +60,22 @@
 
   So the composition holds for CONTENT and fails for INTERACTION, and a
   recipe that said \"wrap the region in a ViewTransition\" would ship a UI
-  that silently discards what the user does to it for the length of every
-  animation. The mechanism is deliberately NOT guessed at here; what has
-  been ruled out is on the row.
+  that silently discards what the user does to it.
+
+  [[the-drop-window-is-reacts-suspended-commit-not-the-animation]] says
+  WHERE, and the answer is not ours and not the animation. React gates its
+  whole synthetic event system on one module-level flag that
+  `commitBeforeMutationEffects` clears and only the mutation phase
+  restores; under a view transition the mutation phase is the browser's
+  `update` callback, so the flag stays cleared across an asynchronous gap
+  and `dispatchEvent` discards everything delivered in it. That row puts
+  two PLAIN React buttons in the tree, one inside the animating subtree
+  and one outside it in the same root, and both are dropped in the same
+  window while a native listener on the same node fires — so the loss is
+  upstream of the collector, the intent lowering and the router alike, and
+  the animating subtree is not the boundary. The window is the SUSPENDED
+  COMMIT, not the animation: the identical clicks made once the `update`
+  callback has run, with the transition still animating, all arrive.
 
   ## The instrument
 
@@ -875,17 +888,22 @@
                           recipe: an interaction inside a subtree a hosted
                           `<ViewTransition>` is animating lands on the DOM and
                           produces no app-db write — not late, not queued, not
-                          replayed after the animation. A region wrapped this
-                          way silently drops what the user does to it for the
-                          duration of every animation.
+                          replayed after the animation.
 
-                          The mechanism is NOT established. Measured and ruled
-                          out: the browser (a native listener fires), React's
-                          event delivery (an isolated page's `onClick` fires
-                          throughout), task scheduling (setTimeout,
-                          MessageChannel, microtasks and rAF all fire within a
-                          few ms), and the router (the direct dispatch above).
-                          Left open deliberately rather than guessed at"
+                          WHERE it is lost is
+                          [[the-drop-window-is-reacts-suspended-commit-not-the-animation]],
+                          which was written against this row and narrows it:
+                          the loss is React's, and the window is the SUSPENDED
+                          COMMIT rather than the animation. What this row
+                          rules out stands — the browser (the native listener
+                          above), task scheduling (setTimeout, MessageChannel,
+                          microtasks and rAF all fire within a few ms) and the
+                          router (the direct dispatch above) — but read its
+                          fourth rule-out narrowly: an isolated page's
+                          `onClick` fires throughout an animation because a
+                          click made THERE lands outside the window, and a
+                          plain React `onClick` in THIS tree is dropped inside
+                          it"
                   (is (nil? click-ms)
                       (str "the intent's write did not arrive within 3000 ms — "
                            "quiet-document control " @!quiet-latency " ms, "
@@ -1133,12 +1151,14 @@
                   (.click ^js (node handle "vtw-outside"))
                   (.click ^js (node handle "vtw-button"))
                   (-> (within #(< before @(rf/with-frame frame-id (rf/subscribe [:vtw/clicks]))) 2000)
-                      (.then (fn [ms] {:before before
-                                       :ms     ms
-                                       :anims  (count (vt-animations))}))))))
+                      (.then (fn [ms] {:before    before
+                                       :ms        ms
+                                       :anims     (count (vt-animations))
+                                       :window-ms (when-some [c @(:closed spy)]
+                                                    (- c @(:opened spy)))}))))))
             (.then
-              (fn [{:keys [before ms anims]}]
-                (reset! !win-after-window {:before before :ms ms :anims anims})
+              (fn [{:keys [ms anims] :as readings}]
+                (reset! !win-after-window readings)
                 (testing "AND THE SAME THREE CLICKS, MADE WHILE THE SAME
                           TRANSITION IS STILL ANIMATING but after React's
                           `update` callback has run, ALL ARRIVE. So the drop
@@ -1155,7 +1175,37 @@
                       (str "the fresco intent's own write reached app-db in "
                            (pr-str ms) " ms with " (pr-str anims)
                            " view-transition animations still running")))
-                (awaited! spy 2000)))
+                ;; AND THE ROUTER, RE-MEASURED WITH THE PHASE ASSERTED rather
+                ;; than inferred. `an-intent-raised-inside-an-animating-subtree-
+                ;; does-not-reach-app-db` makes its direct-dispatch reading
+                ;; only after a 3000 ms `within` has run to exhaustion over a
+                ;; 240 ms animation, so that reading is post-transition and
+                ;; eliminates nothing (rf2-hk8c). This one dispatches with
+                ;; view-transition animations demonstrably running and reads
+                ;; the count again at arrival, so the phase is a measurement
+                ;; at both ends.
+                (let [live (count (vt-animations))]
+                  (is (pos? live)
+                      "premise: view-transition animations are running at the moment of the direct dispatch")
+                  (rf/with-frame frame-id (rf/dispatch [:vtw/set-label "MID"]))
+                  (-> (within #(= "MID" @(rf/with-frame frame-id (rf/subscribe [:vtw/label])))
+                              2000)
+                      (.then
+                        (fn [direct-ms]
+                          (let [at-arrival (count (vt-animations))]
+                            (swap! !win-after-window assoc
+                                   :direct-ms          direct-ms
+                                   :anims-at-dispatch  live
+                                   :anims-at-arrival   at-arrival)
+                            (is (some? direct-ms)
+                                (str "a direct `rf/dispatch` reached app-db in "
+                                     (pr-str direct-ms) " ms, dispatched with "
+                                     (pr-str live) " view-transition animations "
+                                     "running and " (pr-str at-arrival)
+                                     " still running when it landed"))
+                            nil))))))
+            (.then
+              (fn [_] (awaited! spy 2000)))
             (.then
               (fn [_]
                 (testing "AND THE CLICK MADE INSIDE THE WINDOW IS GONE FOR
@@ -1176,6 +1226,89 @@
             (.catch (fn [e]
                       ((:restore spy))
                       ((report-failure! "commit-window row" handle undo) e)))
+            (.then (fn [_] (done))))))))
+
+(def ^:private !win-direct (atom nil))
+
+(deftest a-direct-dispatch-made-inside-that-window-still-reaches-app-db
+  (async done
+    (if-not (api-supported?)
+      (do (skip! (if (rf.fresco.impl.mount/browser?)
+                   "this browser has no View Transition API"
+                   ":node-test has no DOM"))
+          (done))
+      (let [_        (seeded!)
+            undo     (style! slow-transitions)
+            handle   (mount-concurrent! (staged-container!)
+                                        (rf.fresco.impl.mount/provider
+                                          frame-id (do (reset! !win-set-local nil)
+                                                       (react/createElement window-host nil))))
+            !on-open (atom nil)
+            spy      (spy-commit-window! !on-open)
+            !noise   (atom [])
+            orig-w   (.-warn js/console)
+            orig-e   (.-error js/console)]
+        (reset! !win-direct nil)
+        (-> (poll #(and (some? (node handle "vtw-button")) (some? @!win-set-local))
+                  "the probe tree commits")
+            (.then
+              (fn [_]
+                (reset! (:calls spy) [])
+                ;; React reports a flush made during its own commit on
+                ;; `console.error`. Captured rather than asserted about: what
+                ;; this row measures is whether the WRITE lands, and React's
+                ;; opinion of the flush is a separate question this row has no
+                ;; standing to settle. It is reported in the message so the
+                ;; number is never read without it.
+                (set! (.-warn js/console)
+                      (fn [& args] (swap! !noise conj [:warn (pr-str (vec args))]) nil))
+                (set! (.-error js/console)
+                      (fn [& args] (swap! !noise conj [:error (pr-str (vec args))]) nil))
+                (reset! !on-open
+                        (fn []
+                          (let [closed @(:closed spy)]
+                            (rf/with-frame frame-id (rf/dispatch [:vtw/set-label "IW"]))
+                            (reset! !win-direct {:closed closed}))))
+                (react/startTransition (fn [] (@!win-set-local "W1")))
+                (poll #(some? @!win-direct)
+                      "React starts a transition and a direct dispatch is made inside its commit window"
+                      4000)))
+            (.then
+              (fn [_]
+                (is (nil? (:closed @!win-direct))
+                    "premise: the dispatch was made with React's commit SUSPENDED — its `update` callback had not run")
+                (within #(= "IW" @(rf/with-frame frame-id (rf/subscribe [:vtw/label]))) 3000)))
+            (.then
+              (fn [ms]
+                (set! (.-warn js/console) orig-w)
+                (set! (.-error js/console) orig-e)
+                (testing "THE ROUTER IS NOT THE MECHANISM, AND THIS IS THE
+                          CONTROL THAT SAYS SO FROM INSIDE THE WINDOW ITSELF:
+                          a direct `rf/dispatch` made in the same suspended
+                          commit in which a click is discarded DOES reach
+                          app-db. So what the window stops is React's EVENT
+                          DELIVERY and not an app-db write — two candidates
+                          [[an-intent-raised-inside-an-animating-subtree-does-not-reach-app-db]]
+                          could not separate, because the direct dispatch it
+                          makes runs only after its own 3000 ms `within` has
+                          gone to exhaustion over a 240 ms animation, which
+                          puts that reading after the transition rather than
+                          inside it (rf2-hk8c)"
+                  (is (some? ms)
+                      (str "a direct dispatch made inside the commit window reached app-db in "
+                           (pr-str ms) " ms; console traffic during the window was "
+                           (pr-str @!noise))))
+                (awaited! spy 2000)))
+            (.then
+              (fn [_]
+                (undo)
+                ((:restore spy))
+                (teardown-census! handle)))
+            (.catch (fn [e]
+                      (set! (.-warn js/console) orig-w)
+                      (set! (.-error js/console) orig-e)
+                      ((:restore spy))
+                      ((report-failure! "in-window direct dispatch row" handle undo) e)))
             (.then (fn [_] (done))))))))
 
 (deftest an-unmount-during-the-animation-leaves-no-residue
