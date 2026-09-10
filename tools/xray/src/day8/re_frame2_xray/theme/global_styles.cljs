@@ -861,6 +861,30 @@
     "    transparent\n"
     "  ) !important;\n"
     "}\n"
+    ;; rf2-fcy5 — shared resizable-table header-gutter hover affordance.
+    ;; The 4px track between adjacent header columns IS the drag handle
+    ;; (`views/resizable_table.cljs` §Header gutter): `cursor: col-resize`
+    ;; on the element is the always-visible signal, the accent fill is the
+    ;; hover one.
+    ;;
+    ;; It lives here rather than in a component-local hover flag because a
+    ;; Fresco boundary is a React function component with no form-2 outer
+    ;; body to hold one, and `rf.fresco/reg-state` CONSUMES an instance key
+    ;; without minting one — so keeping the hover as STATE would force a
+    ;; stable instance key onto every `resizable-table` call site. Pure CSS
+    ;; needs none, and the gutter already stamps a stable `data-testid`, so
+    ;; this selector matched with no markup change at all.
+    ;;
+    ;; `!important` because the gutter carries `background: transparent`
+    ;; INLINE and an inline declaration beats a stylesheet rule without it
+    ;; — the same reason the column-divider rule above carries one. The
+    ;; fill is the WHOLE 4px track rather than that rule's 1px stripe
+    ;; because that is what the retired Ratom painted: this is a faithful
+    ;; port of the widget's existing look, not a redesign. The 0.15s
+    ;; cross-fade stays inline on the element, where it already was.
+    "[data-testid^=\"rf-xray-resizable-gutter-\"]:hover {\n"
+    "  background: var(--rf-xray-accent) !important;\n"
+    "}\n"
     ;; rf2-t2dsh — L2/L3 seam handle hover treatment. The seam ships
     ;; with an always-visible 1px accent hairline at 33% alpha (inline
     ;; `box-shadow` in `resize_handle.cljs` §seam-handle-style). On

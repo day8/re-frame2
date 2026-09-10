@@ -43,13 +43,17 @@
   attrs-map key that works perfectly. `meta-is-not-where-the-key-lives`
   states that as an executable claim instead of a comment.
 
-  ## The gutter is deliberately not graded by the codec
+  ## The gutter IS graded by the codec now (rf2-fcy5 slice 1b)
 
-  `[header-gutter {…}]` is a plain `defn` in head position, which the
-  codec grades `:invalid` and refuses outright — that refusal is
-  rf2-fcy5's REMAINING work (the Fresco sibling), not this change's.
-  Its key is graded at the Reagent door and in the props map, which is
-  where a boundary would later read it from.
+  It was not, at slice 1: `[header-gutter {…}]` was a plain `defn` in
+  head position, which the codec grades `:invalid` and refuses outright,
+  so its key could only be read at the Reagent door and out of the props
+  map. Slice 1b retired the Form-2 hover Ratom that made it a component
+  at all — the hover paint is a CSS rule keyed on the gutter's own
+  `data-testid` — so `header-gutter` is now a pure fn CALLED like
+  `body-spacer`, there is no head to refuse, and the gutter's key rides
+  the emitted div's attrs map like every other woven node. It is graded
+  at BOTH doors below.
 
   ## The helper's three cases
 
@@ -60,11 +64,16 @@
   five shapes through `:row-cells` and asserts both that the key reaches
   React and that the cell's own children SURVIVE."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
+            ;; rf2-fcy5 slice 1b — the gutter's hover paint is a global CSS
+            ;; rule now, so its selector is part of this widget's contract
+            ;; and is pinned here beside the markup it selects on.
+            [day8.re-frame2-xray.theme.global-styles :as gs]
             [day8.re-frame2-xray.views.resizable-table :as rt]))
 
 ;; ---- fixture ------------------------------------------------------------
@@ -183,25 +192,79 @@
       (is (= 3 (count (distinct (mapv fresco-key cells))))
           "sibling keys are distinct"))))
 
-;; ---- (2) gutters: Reagent + props map only ------------------------------
+;; ---- (2) gutters: a CALLED pure fn, graded at BOTH doors ----------------
 
-(deftest header-gutters-carry-their-key-in-the-props-map
-  (testing "rf2-fcy5 — the gutter is a component call form, so its key
-            rides the PROPS map `header-gutter` receives (it destructures
-            named opts and never spreads them, so the entry is inert for
-            its body — the shape rf2-hxfy used for `flat-row-list`).
-            NOT graded at the Fresco door: a plain `defn` in head
-            position is `:invalid` to the codec and is refused, which is
-            this bead's remaining work, not this change's."
+(deftest header-gutters-reach-both-renderers-with-keys
+  (testing "rf2-fcy5 slice 1b — the gutter is no longer a head. Retiring
+            its Form-2 hover Ratom made `header-gutter` a pure fn, so
+            `weave-header` CALLS it and what lands in the woven seq is the
+            gutter's own `[:div …]`, keyed in its attrs map and gradeable
+            at the Fresco door like every other node. At slice 1 this row
+            could only read the Reagent door and the props map."
     (xray-setup!)
     (let [woven   (header-woven (render (three-column-opts {})))
           gutters (vec (take-nth 2 (rest woven)))]
       (is (= 2 (count gutters)) "N-1 gutters for N columns")
-      (is (= ["g-a" "g-b"] (mapv reagent-key gutters)))
-      (is (= ["g-a" "g-b"] (mapv #(:key (nth % 1)) gutters))
-          "the key is in the props map, where a boundary would read it")
-      (is (every? #(contains? (nth % 1) :dispatch-fn) gutters)
-          "the gutter's own props survive the key injection"))))
+      (is (every? #(= :div (nth % 0)) gutters)
+          "a CALLED pure fn — the node is a native div, not a component
+           call form the codec would grade `:invalid`")
+      (is (= ["g-a" "g-b"] (mapv reagent-key gutters)) "REAGENT")
+      (is (= ["g-a" "g-b"] (mapv fresco-key gutters))  "FRESCO")
+      (is (= ["rf-xray-resizable-gutter-keys-a"
+              "rf-xray-resizable-gutter-keys-b"]
+             (mapv #(:data-testid (nth % 1)) gutters))
+          "the stable testid survives — it is what the CSS hover rule
+           selects on, so the widget's affordance rides on this string")
+      (is (every? #(fn? (:on-pointer-down (nth % 1))) gutters)
+          "the drag affordance survives the key injection")
+      (is (every? #(and (not (contains? (nth % 1) :on-pointer-enter))
+                        (not (contains? (nth % 1) :on-pointer-leave)))
+                  gutters)
+          "THE RETIREMENT ROW — the hover handlers the Ratom needed are
+           gone; the paint is CSS now"))))
+
+;; ---- (2b) the hover paint is stateless, and the CSS is its other half ---
+
+(deftest gutter-carries-no-hover-state
+  (testing "rf2-fcy5 slice 1b — the gutter renders ONE style regardless of
+            pointer state, because there is no state left to render from.
+            Two independent renders of the same table produce byte-equal
+            gutter nodes bar their handler identities; the style map is
+            the transparent base, never an accent fill."
+    (xray-setup!)
+    (let [style-of (fn [] (mapv #(:style (nth % 1))
+                                (take-nth 2 (rest (header-woven
+                                                    (render (three-column-opts {})))))))
+          a (style-of)
+          b (style-of)]
+      (is (= a b) "the same style on every render — nothing to toggle")
+      (is (every? #(= "transparent" (:background %)) a)
+          "the base state is transparent; the accent is the CSS rule's")
+      (is (every? #(= "col-resize" (:cursor %)) a)
+          "the always-visible affordance signal stays inline"))))
+
+(deftest global-styles-paints-the-gutter-hover
+  (testing "rf2-fcy5 slice 1b — the OTHER half of the retirement. The
+            hover affordance is now a global CSS rule keyed on the
+            gutter's `data-testid` prefix, so this row pins the selector,
+            the accent token, and the `!important` WITHOUT which the
+            gutter's inline `background: transparent` would win and the
+            handle would never light up. Nothing else in the tree can see
+            a broken CSS rule — no gate renders CSS."
+    (let [css @#'gs/motion-css]
+      (is (string? css))
+      (is (str/includes? css "[data-testid^=\"rf-xray-resizable-gutter-\"]:hover")
+          "the selector matches the prefix `header-gutter` stamps")
+      (is (str/includes? css
+                         (str "[data-testid^=\"rf-xray-resizable-gutter-\"]:hover {\n"
+                              "  background: var(--rf-xray-accent) !important;\n"
+                              "}\n"))
+          "accent token + !important — the inline `background: transparent`
+           beats a stylesheet rule without it")
+      (is (str/includes? css "[data-testid^=\"rf-xray-event-list-col-divider-\"]:hover")
+          "the sibling rule this one was modelled on is still there — a
+           control, so a broken read of `motion-css` cannot pass this
+           test vacuously"))))
 
 ;; ---- (3) body cells + spacers reach BOTH renderers with keys ------------
 
