@@ -6,16 +6,16 @@
 ## Conventions
 
 - **Status** — exactly one base value, optionally combined with one or more parenthesised qualifiers. The closed set below is the same vocabulary the generated [`api-manifest.edn`](api-manifest.edn) curates (its `:status` field) — the two MUST agree:
-  - Base values:
-    - `v1` (ships in v1).
-    - `v1 (preserved)` (exists in current re-frame; preserved unchanged).
-    - `v1 (preserved + extended)` (exists today; v1 adds new arity or behaviour).
-    - `EP-NNNN` (a surface introduced or reshaped by a named pre-alpha EP, shipping in v1 — e.g. `reg-event` (EP-0018), `reg-interceptor` (EP-0022); the canonical lineage is the named EP, cited in the row's Notes).
-    - `post-v1 lib` (design spec in v1 Specs but ships in a post-v1 library).
-    - `post-v1 (planned, rf2-<id>)` (specced normatively but not yet shipped; the impl is tracked by the named bead — per the Projection-maintenance rule below).
-  - Qualifiers (parenthesised, combinable): `dev-only` (elided in production builds — the macro emit site or runtime body, depending on the API); `changed, EP-NNNN` (a preserved v1 surface a named EP changed — e.g. `v1 (changed, EP-0017)`); `optional capability` (ships only when the owning optional artefact is on the classpath, optionally narrowed `optional capability, dev/test`); `internal lowering only` (an EP surface retained as a framework-internal lowering seam, not a public authoring form — e.g. `EP-0022 (internal lowering only)`).
-  - Examples: `v1`, `v1 (preserved)`, `v1 (dev-only)`, `v1 (preserved, dev-only)`, `v1 (changed, EP-0017)`, `EP-0018`, `EP-0022 (internal lowering only)`, `v1 (optional capability)`, `post-v1 lib`, `post-v1 (planned, rf2-<id>)`.
-  - The `re-frame.alpha` namespace is dissolved — no APIs in this reference live outside `re-frame.core` (with the documented per-namespace exceptions: `re-frame.test-support` and `re-frame.test-helpers`).
+    - Base values:
+        - `v1` (ships in v1).
+        - `v1 (preserved)` (exists in current re-frame; preserved unchanged).
+        - `v1 (preserved + extended)` (exists today; v1 adds new arity or behaviour).
+        - `EP-NNNN` (a surface introduced or reshaped by a named pre-alpha EP, shipping in v1 — e.g. `reg-event` (EP-0018), `reg-interceptor` (EP-0022); the canonical lineage is the named EP, cited in the row's Notes).
+        - `post-v1 lib` (design spec in v1 Specs but ships in a post-v1 library).
+        - `post-v1 (planned, rf2-<id>)` (specced normatively but not yet shipped; the impl is tracked by the named bead — per the Projection-maintenance rule below).
+    - Qualifiers (parenthesised, combinable): `dev-only` (elided in production builds — the macro emit site or runtime body, depending on the API); `changed, EP-NNNN` (a preserved v1 surface a named EP changed — e.g. `v1 (changed, EP-0017)`); `optional capability` (ships only when the owning optional artefact is on the classpath, optionally narrowed `optional capability, dev/test`); `internal lowering only` (an EP surface retained as a framework-internal lowering seam, not a public authoring form — e.g. `EP-0022 (internal lowering only)`).
+    - Examples: `v1`, `v1 (preserved)`, `v1 (dev-only)`, `v1 (preserved, dev-only)`, `v1 (changed, EP-0017)`, `EP-0018`, `EP-0022 (internal lowering only)`, `v1 (optional capability)`, `post-v1 lib`, `post-v1 (planned, rf2-<id>)`.
+    - The `re-frame.alpha` namespace is dissolved — no APIs in this reference live outside `re-frame.core` (with the documented per-namespace exceptions: `re-frame.test-support` and `re-frame.test-helpers`).
 - **Macro/Fn:** marked `M` (macro) or `Fn`.
 - **Spec column** — names exactly the **canonical owning Spec** (the per-Spec doc whose contract this API implements). Migration rules and other cross-references are NOT in the Spec column; they appear in the Notes column when relevant.
 - **Configure keys** — runtime configuration is uniformly via `(rf/configure! {<key> <opts>, …})`, a single nested map. Every `<key>` is enumerated in [§Configure keys](#configure-keys) below; per-area tables call out which keys their APIs read but do not redefine the key's vocabulary.

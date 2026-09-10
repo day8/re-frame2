@@ -269,41 +269,41 @@ left as accident.** Spelled out:
 3. **Cross-layer distinctions are named rules.** Where layers legitimately use
    different words for related concepts, the distinction is *recorded as a rule
    here*, so it reads as intent rather than inconsistency. The standing rules:
-   - **Public-opt vs runtime-context spelling.** `:frame` is the public
-     dispatch/subscribe opt and the universal per-event routing trace tag (the
-     bare carve-out noted in [§Reserved namespaces](#reserved-namespaces-framework-owned)
-     and [009 §`:tags` is the open-ended bag](009-Instrumentation.md#tags-is-the-open-ended-bag));
-     `:rf.frame/id` is the *same stamp's* runtime-context coeffect spelling.
-     Two layers, two different spellings for one fact (per
-     [EP-0002 R3](../docs/EP/EP-0002-frame-target-resolution.md)).
-   - **Partition slot vs subsystem child.** `:rf.db/*` names partition *slots*
-     of frame-state (`:rf.db/app`, `:rf.db/runtime`); `:rf.runtime/*` names
-     subsystem *children* inside the runtime partition (`:rf.runtime/machines`,
-     `:rf.runtime/routing`, …). The different prefixes are this rule: each
-     `:rf.runtime/*` child is globally greppable when detached
-     from its parent slot. (The two rows are defined in
-     [§The single-root reserved set](#the-single-root-reserved-set).)
-   - **HTTP-response vocabulary vs navigation vocabulary.** Server
-     response-shape surfaces use HTTP **header** vocabulary — `:location` for a
-     redirect target (per [011 §Effect handling on the server](011-SSR.md#effect-handling-on-the-server));
-     client **navigation** surfaces use `:url` (per [012-Routing](012-Routing.md)).
-     Different concepts, different words — not synonyms for one
-     fact.
-   - **The async reply-target spelling is `:rf/reply-to` (never bare
-     `:reply-to`).** The one direct continuation-target key for a managed
-     async effect is `:rf/reply-to` — the routing `:rf.route/with-nav-token`
-     wrapper, and any framework-internal direct reply target, spell it that
-     way ([EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) §Reply
-     Target; [Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope)).
-     A bare `:reply-to` is **not** the framework spelling. Managed HTTP's
-     `:on-success` / `:on-failure` are the two-target **routing sugar** over
-     that one target — they do not reshape the reply (both receive the one
-     [canonical reply envelope](Managed-Effects.md#the-uniform-reply-envelope)
-     verbatim; the retired `{:kind :success/:failure}` HTTP dialect and its
-     compat-reply reshape do not exist). The resources/mutations
-     call-site `:reply-to` ([Spec 016](016-Resources.md)) is EP-0016's
-     mutation-completion key and carries the same canonical reply map — a
-     distinct surface, not a second async-reply dialect.
+    - **Public-opt vs runtime-context spelling.** `:frame` is the public
+      dispatch/subscribe opt and the universal per-event routing trace tag (the
+      bare carve-out noted in [§Reserved namespaces](#reserved-namespaces-framework-owned)
+      and [009 §`:tags` is the open-ended bag](009-Instrumentation.md#tags-is-the-open-ended-bag));
+      `:rf.frame/id` is the *same stamp's* runtime-context coeffect spelling.
+      Two layers, two different spellings for one fact (per
+      [EP-0002 R3](../docs/EP/EP-0002-frame-target-resolution.md)).
+    - **Partition slot vs subsystem child.** `:rf.db/*` names partition *slots*
+      of frame-state (`:rf.db/app`, `:rf.db/runtime`); `:rf.runtime/*` names
+      subsystem *children* inside the runtime partition (`:rf.runtime/machines`,
+      `:rf.runtime/routing`, …). The different prefixes are this rule: each
+      `:rf.runtime/*` child is globally greppable when detached
+      from its parent slot. (The two rows are defined in
+      [§The single-root reserved set](#the-single-root-reserved-set).)
+    - **HTTP-response vocabulary vs navigation vocabulary.** Server
+      response-shape surfaces use HTTP **header** vocabulary — `:location` for a
+      redirect target (per [011 §Effect handling on the server](011-SSR.md#effect-handling-on-the-server));
+      client **navigation** surfaces use `:url` (per [012-Routing](012-Routing.md)).
+      Different concepts, different words — not synonyms for one
+      fact.
+    - **The async reply-target spelling is `:rf/reply-to` (never bare
+      `:reply-to`).** The one direct continuation-target key for a managed
+      async effect is `:rf/reply-to` — the routing `:rf.route/with-nav-token`
+      wrapper, and any framework-internal direct reply target, spell it that
+      way ([EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) §Reply
+      Target; [Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope)).
+      A bare `:reply-to` is **not** the framework spelling. Managed HTTP's
+      `:on-success` / `:on-failure` are the two-target **routing sugar** over
+      that one target — they do not reshape the reply (both receive the one
+      [canonical reply envelope](Managed-Effects.md#the-uniform-reply-envelope)
+      verbatim; the retired `{:kind :success/:failure}` HTTP dialect and its
+      compat-reply reshape do not exist). The resources/mutations
+      call-site `:reply-to` ([Spec 016](016-Resources.md)) is EP-0016's
+      mutation-completion key and carries the same canonical reply map — a
+      distinct surface, not a second async-reply dialect.
 4. **One authoritative home per fact; mirrors are projections.** Denormalised
    copies — indexes, dual-homed owners, derived fields — are declared
    recomputable projections of the authoritative home, never co-equal sources,

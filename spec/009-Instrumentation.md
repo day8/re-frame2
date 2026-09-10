@@ -1178,11 +1178,11 @@ The contract above is enforced by an automated test in CI:
 
 1. `implementation/core/test/re_frame/elision_probe.cljs` is a probe namespace that exercises every gated surface — `register-listener!`, `emit-trace-event!`, the per-frame trace rings (`trace-buffer` / `clear-trace-buffer!` / `(configure! {:trace-buffer {:events-retained N}})`), `validate-{app-db,event,sub-return,cofx}!`, `register!` / `unregister!` / `clear-kind!`, the epoch surface (`register-epoch-listener!` / `epoch-history` / `restore-epoch!` / `(configure! {:epoch-history …})`), plus a representative `dispatch-sync` flow. The probe roots the dead-code-elimination graph at every surface so a leak surfaces in the bundle.
 2. `implementation/shadow-cljs.edn` declares two `:advanced` builds with `re-frame.elision-probe/run` as the entry point:
-   - `:elision-probe` — `:closure-defines {goog.DEBUG false}` (production)
-   - `:elision-probe-control` — `:closure-defines {goog.DEBUG true}` (control)
+    - `:elision-probe` — `:closure-defines {goog.DEBUG false}` (production)
+    - `:elision-probe-control` — `:closure-defines {goog.DEBUG true}` (control)
 3. `implementation/scripts/check-elision.cjs` greps both bundles for sentinel strings drawn from the gated branches (schema reason fragments and `:rf.registry/*` trace operation keywords). The contract:
-   - Production bundle: every sentinel MUST be ABSENT.
-   - Control bundle: every sentinel MUST be PRESENT.
+    - Production bundle: every sentinel MUST be ABSENT.
+    - Control bundle: every sentinel MUST be PRESENT.
 4. The CI workflow runs `npm run test:elision` (`shadow-cljs release elision-probe elision-probe-control && node scripts/check-elision.cjs`) on every push/PR.
 
 The control build is what gives the test teeth: without it, a refactor that *moved* a sentinel string out of a gated branch would silently turn the negative assertion into a vacuous pass. With both bundles checked, any change that either breaks elision *or* loses methodology signal fails CI loudly.
@@ -1533,8 +1533,8 @@ The bundle-isolation contract is enforced in CI by `npm run test:perf-bundle` (t
 1. `:examples/counter` builds the standard counter example under `:advanced` with the perf flag off (the goog-define default).
 2. `:examples/counter-perf` builds the same source under `:advanced` with `:closure-defines {re-frame.performance/enabled? true}`.
 3. `scripts/check-perf-bundle.cjs` greps both bundles. The contract:
-   - **Off bundle** MUST NOT contain `performance.measure`, `clearMeasures`, or any `"rf:` entry-name fragment (and — since the bracket allocates no marks — MUST NOT contain `performance.mark` either, in *both* bundles).
-   - **On bundle** MUST contain `performance.measure`, `clearMeasures`, and the `"rf:` fragment.
+    - **Off bundle** MUST NOT contain `performance.measure`, `clearMeasures`, or any `"rf:` entry-name fragment (and — since the bracket allocates no marks — MUST NOT contain `performance.mark` either, in *both* bundles).
+    - **On bundle** MUST contain `performance.measure`, `clearMeasures`, and the `"rf:` fragment.
 
 Without the on bundle the off-bundle assertion would be vacuous — a refactor that *moved* the strings out of the gated branch would silently turn the negative grep into a false pass. The same dual-bundle methodology that gives the trace-surface elision contract its teeth (per [§Production-elision verification](#production-elision-verification)) extends to the perf surface here.
 
@@ -1696,8 +1696,8 @@ A failure category MUST ride the **always-on error axis** when **all three legs*
 
 1. **Production-reachable** — it can occur in a production build, not exclusively as dev-time misuse (registration-shape rejections, dev-only schema validation, and the like stay diagnostic: production never re-runs those paths).
 2. **Locally invisible** — the failure leaves the process in a state nobody standing at the call site can read back. **Two shapes qualify:**
-   - **(a) Contract breach or resource leakage** — leaked handles, skipped teardown, suppressed writes, corrupted invariants. The damage outlives the call, and the next operation cannot see it.
-   - **(b) A refusal whose only local effect is the ABSENCE of the action** — a fail-closed gate that declines as a **no-op**: nothing thrown, nothing returned, the cascade continuing exactly as if the call had never been made. The call site therefore receives no value with which to distinguish *refused* from *never asked*.
+    - **(a) Contract breach or resource leakage** — leaked handles, skipped teardown, suppressed writes, corrupted invariants. The damage outlives the call, and the next operation cannot see it.
+    - **(b) A refusal whose only local effect is the ABSENCE of the action** — a fail-closed gate that declines as a **no-op**: nothing thrown, nothing returned, the cascade continuing exactly as if the call had never been made. The call site therefore receives no value with which to distinguish *refused* from *never asked*.
 
    Excluded under both, and this is the line the legs draw: a **malformed input the caller can observe and fix at the call site**. "Observe" is the operative word — a guard that THROWS or returns a failure value has already told the caller, so the diagnostic channel suffices. `:rf.server/safe-redirect` carries the contrast inside one effect: its CR/LF/NUL gate throws, so the caller is told and the record rides `:rf.error/fx-handler-exception`; its scheme / host gate no-ops, so before promotion the identical class of refusal reached nobody. Two halves of one security surface, and only the silent half needed leg 2(b).
 3. **Silence compounds** — the failure's cost grows with process lifetime or recurrence (long-lived SSR, tooling hosts, retry loops).

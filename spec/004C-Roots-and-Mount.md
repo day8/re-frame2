@@ -40,12 +40,12 @@ so the single-root common case stays one-liner clean:
    joins the compile-error roster, not the runtime catalogue).
 2. **Derived otherwise.** When `:root-id` is absent, the root-id derives from the
    **mounted view's registered id**:
-   - no `:disambiguator` → root-id = the view id itself (e.g. `:shop/app`). A
-     **single-root page may omit the disambiguator** — this is the guide-01 counter
-     path, zero ceremony.
-   - `:disambiguator d` (scalar: keyword, string, or integer) → root-id =
-     `[view-id d]` (e.g. `[:shop/product-panel :left]`). Required whenever the same
-     view mounts twice on one page and neither site authors `:root-id`.
+    - no `:disambiguator` → root-id = the view id itself (e.g. `:shop/app`). A
+      **single-root page may omit the disambiguator** — this is the guide-01 counter
+      path, zero ceremony.
+    - `:disambiguator d` (scalar: keyword, string, or integer) → root-id =
+      `[view-id d]` (e.g. `[:shop/product-panel :left]`). Required whenever the same
+      view mounts twice on one page and neither site authors `:root-id`.
 3. **The mounted view** (derivation source) is defined precisely: the extractor walks
    the root form's static top region (§6) and requires **exactly one internal view**
    there. Zero internal views (bare DOM root, foreign-component root) or more than one
@@ -337,16 +337,16 @@ positional locators — an id is stable under fragment reordering, which is the 
   root form is the invariant the extractor enforces; nested internal views inside it
   are ordinary template content, not root identity.
 - **Props:** the mounted view's props map in the root form.
-  - Every value a literal EDN datum → `:props-shape :literal`, recorded verbatim as
-    `:static-props` in the descriptor.
-  - Any non-literal expression → `:props-shape :dynamic`; no static props are recorded
-    (no guessing).
-  - Either way, the **manifest** `:props` records the *render-time values*, serialised
-    through the Spec 011 EDN-safe encoder at server render. A value the encoder cannot
-    carry fails the server render for that root: `:rf.error/root-manifest-invalid`,
-    data `{:unserialisable-prop :chart-fn}` — fail-loud, never a silently truncated
-    manifest. Hydration then applies the manifest's props (the server-rendered truth),
-    and `:props-shape :dynamic` tells tools why descriptor and manifest may differ.
+    - Every value a literal EDN datum → `:props-shape :literal`, recorded verbatim as
+      `:static-props` in the descriptor.
+    - Any non-literal expression → `:props-shape :dynamic`; no static props are recorded
+      (no guessing).
+    - Either way, the **manifest** `:props` records the *render-time values*, serialised
+      through the Spec 011 EDN-safe encoder at server render. A value the encoder cannot
+      carry fails the server render for that root: `:rf.error/root-manifest-invalid`,
+      data `{:unserialisable-prop :chart-fn}` — fail-loud, never a silently truncated
+      manifest. Hydration then applies the manifest's props (the server-rendered truth),
+      and `:props-shape :dynamic` tells tools why descriptor and manifest may differ.
 
 ## 6. Frame-plan extraction and payload references
 
@@ -654,15 +654,15 @@ carried at S1, recorded as history and never as a surface to build on.
    (§1.1's authored-`:root-id` multi-view allowance did not apply here; two views →
    `:rf.ui.compile/bad-test-root`, remedy: wrap the composition in one `defview`).
    Then:
-   - `{:props p}` was **rejected** (didactic: props lived in the form);
-   - the form's `frame-root` plans ran preflight ENSURE against the test registrar,
-     minting fresh test frames from the plans;
-   - `{:frame f}` alongside a plan-bearing root form was **rejected**
-     (*"the root form owns its frames — pass a bare view to control the frame"*);
-     with a plan-free form it combined.
-     No other Spec ruled this combination; rejection was the conservative contract
-     (no ambiguity about which frame is ambient), and it shipped as the
-     `:rf.error/ui-test-bad-opts` `:frame`-branch.
+    - `{:props p}` was **rejected** (didactic: props lived in the form);
+    - the form's `frame-root` plans ran preflight ENSURE against the test registrar,
+      minting fresh test frames from the plans;
+    - `{:frame f}` alongside a plan-bearing root form was **rejected**
+      (*"the root form owns its frames — pass a bare view to control the frame"*);
+      with a plan-free form it combined.
+      No other Spec ruled this combination; rejection was the conservative contract
+      (no ambiguity about which frame is ambient), and it shipped as the
+      `:rf.error/ui-test-bad-opts` `:frame`-branch.
 
 A runtime-assembled vector was the same compile error as at `mount` (§3). In both
 forms, `{:sub-overrides {query value}}` combined freely — the explicit JVM

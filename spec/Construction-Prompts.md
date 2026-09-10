@@ -619,10 +619,10 @@ For projections, compose against `:rf/machine` by declaring it under `:inputs`:
 
 1. **Choose the feature id-prefix.** A short, namespaced keyword: `:auth`, `:cart`, `:tagging`. Sub-areas use dotted children: `:cart.item`, `:cart.checkout`. Every registration the feature ships uses this prefix.
 2. **Verify the prefix is unused.** Query each kind:
-   - `(rf/registrations {:source :store :kind :event})` — none should start with your prefix.
-   - `(rf/registrations {:source :store :kind :sub})` — likewise.
-   - `(rf/registrations {:source :store :kind :view})` — likewise.
-   - `(re-frame.schemas/app-schemas {:frame f})` — your `app-db` paths must be free.
+    - `(rf/registrations {:source :store :kind :event})` — none should start with your prefix.
+    - `(rf/registrations {:source :store :kind :sub})` — likewise.
+    - `(rf/registrations {:source :store :kind :view})` — likewise.
+    - `(re-frame.schemas/app-schemas {:frame f})` — your `app-db` paths must be free.
 3. **Identify the feature's `app-db` shape.** Pick a single root key matching the prefix: `:cart`, `:auth`, etc. All feature state lives under that key. No exceptions.
 4. **Identify external dependencies.** Other features (e.g., `:auth` reads `:user`), registered fx (e.g., `:http`, `:localstorage`), schemas the feature consumes.
 
@@ -762,8 +762,8 @@ When the user says "duplicate this feature for wishlists," the AI runs the same 
 1. **Choose route ids.** Convention: `:route/page-name`. Examples: `:route/home`, `:route/cart`, `:route/cart.item-detail`.
 2. **Identify the URL pattern for each.** Use the canonical grammar — [012 §Path-pattern grammar](012-Routing.md#path-pattern-grammar-canonical) is the single source of truth (literal segments, `:name` path params, `{...}?` optional groups, `*name` splats). Do not restate the grammar in handler comments or auxiliary docs; cross-reference 012.
 3. **Distinguish path params from query params.**
-   - Path: captured by `:name` / `*name` segments — declared in `:params` schema.
-   - Query: parsed from `?key=value&...` — declared in the `:query` schema, with `:query-defaults` for absent keys. Carrying query state ACROSS routes is an application-level pure fold over the destination address, not route metadata.
+    - Path: captured by `:name` / `*name` segments — declared in `:params` schema.
+    - Query: parsed from `?key=value&...` — declared in the `:query` schema, with `:query-defaults` for absent keys. Carrying query state ACROSS routes is an application-level pure fold over the destination address, not route metadata.
 4. **Identify per-route data dependencies.** Use `:on-match` (vector of events the runtime dispatches when this route becomes active, server- and client-side).
 5. **Verify the route ids are unused.** `(rf/registrations {:source :store :kind :route})` enumerates registered routes.
 
@@ -1073,9 +1073,9 @@ The Story authoring surface lives in the `re-frame.story` tools artefact (`(:req
 **Pre-flight delta (in addition to the shared preamble above — the registry is Story's, not the framework registrar's):**
 
 - **Id-shape convention (library-owned prefixes, per [Conventions §Library-owned prefixes](Conventions.md#library-owned-prefixes)):**
-  - Story: `:story.<path>` — dotted segments organise the tool's navigator tree. Examples: `:story.auth.login-form`, `:story.cart.summary`.
-  - Variant: `:story.<path>/<variant>` — always belongs to exactly one story; the story id is everything before `/`. Examples: `:story.auth.login-form/empty`, `:story.auth.login-form/validation-error`.
-  - Workspace: `:Workspace.<Path>/<name>` — a layout artefact. Examples: `:Workspace.Auth/all-states`, `:Workspace.Auth/docs`.
+    - Story: `:story.<path>` — dotted segments organise the tool's navigator tree. Examples: `:story.auth.login-form`, `:story.cart.summary`.
+    - Variant: `:story.<path>/<variant>` — always belongs to exactly one story; the story id is everything before `/`. Examples: `:story.auth.login-form/empty`, `:story.auth.login-form/validation-error`.
+    - Workspace: `:Workspace.<Path>/<name>` — a layout artefact. Examples: `:Workspace.Auth/all-states`, `:Workspace.Auth/docs`.
 - **Verify the ids are unused** on the Story side-table: `(story/registrations :story)`, `(story/registrations :variant)`, `(story/registrations :workspace)` (NOT `(rf/registrations {:source :store :kind ...})` — these kinds are library-owned).
 - **Identify the component.** The `:component` slot on `reg-story` is a **registered `:view` id** — verify it via `(rf/registrations {:source :store :kind :view})`; if the view doesn't exist yet, scaffold it via CP-4 first.
 - **Identify the events each variant drives.** `:setup` / `:script` steps dispatch registered events — each must be registered (`(rf/registrations {:source :store :kind :event})`) or scaffolded via CP-1.
