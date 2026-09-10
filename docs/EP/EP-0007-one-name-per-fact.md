@@ -129,14 +129,14 @@ class that dominated this review cycle.
    the stable contract.
 3. **Cross-layer distinctions are named rules.** Where layers use different
    words for related concepts, Conventions records the rule. Initial rules:
-   - *Public-opt vs runtime-context*: `:frame` is the public dispatch/subscribe
-     opt and trace tag; `:rf.frame/id` is the same stamp's runtime-context
-     spelling. (Already ruled by EP-0002 R3; recorded here as the pattern's
-     first instance.)
-   - *HTTP-response vocabulary vs navigation vocabulary*: server response
-     surfaces use header vocabulary (`:location` for redirects); client
-     navigation surfaces use `:url`. Different concepts, deliberately different
-     words.
+    - *Public-opt vs runtime-context*: `:frame` is the public dispatch/subscribe
+      opt and trace tag; `:rf.frame/id` is the same stamp's runtime-context
+      spelling. (Already ruled by EP-0002 R3; recorded here as the pattern's
+      first instance.)
+    - *HTTP-response vocabulary vs navigation vocabulary*: server response
+      surfaces use header vocabulary (`:location` for redirects); client
+      navigation surfaces use `:url`. Different concepts, deliberately different
+      words.
 4. **One authoritative home per fact; mirrors are projections.** Denormalized
    copies (indexes, dual-homed owners, derived fields) are declared
    recomputable projections of the authoritative home, never co-equal sources.

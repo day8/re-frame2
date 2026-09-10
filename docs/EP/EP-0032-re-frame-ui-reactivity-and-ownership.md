@@ -284,21 +284,21 @@ error by the ABI guard.
   (rf2-r7ahi) requires the settled originals to stay visible, so all five are
   preserved here — `spec/006-ReactiveSubstrate.md` (host-checkpoint render
   batching) remains the current normative truth:
-  - **§Abstract** originally read "Notification is **push**: *one constant-work
-    mark per dirty cell per run-to-completion drain*, committed after the pull
-    alternative was falsified by benchmark (4.0×–6.5× worse, gap growing with
-    scale)".
-  - **Goals** originally read "committed push economics with *drain-quiescence
-    batching* and a test flush".
-  - **§One ViewCell per view** originally read "one `useSyncExternalStore` over a
-    scalar revision snapshot, one *notification per drain*".
-  - **Invariant 6** originally read "one notification per dirty cell *per drain
-    (boundary at quiescence, never epoch close)*".
-  - **§Push economics** originally read "Every queued event commits its own epoch
-    record inside the run-to-completion drain; *at quiescence each dirty cell
-    flushes exactly once and React performs one read/render batch for the whole
-    drain*, on a true microtask (never a macrotask that could let a torn frame
-    paint)".
+    - **§Abstract** originally read "Notification is **push**: *one constant-work
+      mark per dirty cell per run-to-completion drain*, committed after the pull
+      alternative was falsified by benchmark (4.0×–6.5× worse, gap growing with
+      scale)".
+    - **Goals** originally read "committed push economics with *drain-quiescence
+      batching* and a test flush".
+    - **§One ViewCell per view** originally read "one `useSyncExternalStore` over a
+      scalar revision snapshot, one *notification per drain*".
+    - **Invariant 6** originally read "one notification per dirty cell *per drain
+      (boundary at quiescence, never epoch close)*".
+    - **§Push economics** originally read "Every queued event commits its own epoch
+      record inside the run-to-completion drain; *at quiescence each dirty cell
+      flushes exactly once and React performs one read/render batch for the whole
+      drain*, on a true microtask (never a macrotask that could let a torn frame
+      paint)".
 
   The correction is factual — the shipped scheduler batches at the host
   checkpoint, never at drain quiescence — but per the ruling it is recorded, not

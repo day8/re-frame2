@@ -62,22 +62,22 @@ ruling:
   panel were updated. A stale `:loaded` entry still refetches (fresh-skip never
   swallows a stale refresh).
 - **Fixed (PR #3794, ssr-restore cluster)** — three P1 SSR/restore correctness gaps:
-  - **SSR blocking-resource drain** — the SSR blocking-resource drain/timeout loop was helper-only
-    and not wired into the Ring and streaming render paths; a never-settling
-    blocking resource could render against an unchecked loading/skeleton state.
-    The drain/timeout policy is now integrated into both SSR render paths so
-    current-navigation blocking resources settle before render or install a
-    settled timeout error entry.
-  - **Hydration refetch planner** — the hydration refetch planner only invoked reconciliation, and
-    redacted projected data could be misclassified as usable data. Hydration now
-    refetches stale/omitted/redacted entries needed by the live route while fresh
-    serialized entries do not double-fetch, and the redacted sentinel is treated as
-    metadata-only, not usable data.
-  - **Epoch restore** — epoch restore reconciled dangling work-ledger rows and settled
-    resource entries but left pending mutation instances holding current-work and
-    generation, so a late pre-restore mutation reply could still patch/populate/
-    invalidate post-restore state. Restore now terminally settles restored pending
-    mutation instances, so stale pre-restore mutation replies are suppressed.
+    - **SSR blocking-resource drain** — the SSR blocking-resource drain/timeout loop was helper-only
+      and not wired into the Ring and streaming render paths; a never-settling
+      blocking resource could render against an unchecked loading/skeleton state.
+      The drain/timeout policy is now integrated into both SSR render paths so
+      current-navigation blocking resources settle before render or install a
+      settled timeout error entry.
+    - **Hydration refetch planner** — the hydration refetch planner only invoked reconciliation, and
+      redacted projected data could be misclassified as usable data. Hydration now
+      refetches stale/omitted/redacted entries needed by the live route while fresh
+      serialized entries do not double-fetch, and the redacted sentinel is treated as
+      metadata-only, not usable data.
+    - **Epoch restore** — epoch restore reconciled dangling work-ledger rows and settled
+      resource entries but left pending mutation instances holding current-work and
+      generation, so a late pre-restore mutation reply could still patch/populate/
+      invalidate post-restore state. Restore now terminally settles restored pending
+      mutation instances, so stale pre-restore mutation replies are suppressed.
 - **Fixed (PR #3795, xray-resources cluster)** — resource
   accessors redacted live entries *before* projection, so default
   `list-resource-instances` / `get-resource-state` could lose status, owners,
@@ -313,12 +313,12 @@ dependencies.
   resources — see §Non-Goals) each landed in a dedicated
   successor EP, all now **final**, all amending `spec/016-Resources.md` (which
   governs):
-  - **[EP-0019](EP-0019-optimistic-mutation-rollback.md)** — optimistic mutation
-    apply / commit / rollback / reconcile (the deferred optimistic-update slice).
-  - **[EP-0020](EP-0020-active-owner-polling.md)** — active-owner polling (the
-    deferred polling slice).
-  - **[EP-0021](EP-0021-infinite-resources.md)** — infinite / load-more resources
-    (the deferred infinite-resources slice).
+    - **[EP-0019](EP-0019-optimistic-mutation-rollback.md)** — optimistic mutation
+      apply / commit / rollback / reconcile (the deferred optimistic-update slice).
+    - **[EP-0020](EP-0020-active-owner-polling.md)** — active-owner polling (the
+      deferred polling slice).
+    - **[EP-0021](EP-0021-infinite-resources.md)** — infinite / load-more resources
+      (the deferred infinite-resources slice).
   This EP remains the unamended record of the original scope; each successor back-links here.
 
 - **Graduation graded by [EP-0006](EP-0006-runtime-subsystem-contract.md)

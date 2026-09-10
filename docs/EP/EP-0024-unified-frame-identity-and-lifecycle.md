@@ -173,26 +173,26 @@ Non-goals:
   to final EP-0023. If accepted, this EP records the amendment and graduates
   into the named specs.
 - **API-review findings**:
-  - `ai/findings/API-review/codex/frame-object-record-unification.md`
-  - `ai/findings/API-review/codex/frame-targeting-and-lifecycle.md`
-  - `ai/findings/API-review/codex/registrar-query-addressing.md`
-  - `ai/findings/API-review/claude/frame-targeting-and-carrying.md` — the
-    empirical 0-caller backbone (`frame-first` `(dispatch f ev)`,
-    `frame-bound-fn`/`frame-bound-fn*`, `subscribe*` have zero real call sites in
-    examples and tools) that grounds the helper-removal slices below.
+    - `ai/findings/API-review/codex/frame-object-record-unification.md`
+    - `ai/findings/API-review/codex/frame-targeting-and-lifecycle.md`
+    - `ai/findings/API-review/codex/registrar-query-addressing.md`
+    - `ai/findings/API-review/claude/frame-targeting-and-carrying.md` — the
+      empirical 0-caller backbone (`frame-first` `(dispatch f ev)`,
+      `frame-bound-fn`/`frame-bound-fn*`, `subscribe*` have zero real call sites in
+      examples and tools) that grounds the helper-removal slices below.
 - **Related work already identified**:
-  - Unsubscribe target normalization symmetry is fixed separately.
-  - An internal frame-record resolver is factored separately if not absorbed by
-    this EP.
-  - HTTP test-support helpers are moved out of the core facade separately.
-  - The registrar query/read address grammar after EP-0023 has its own **home**
-    (ruled: drop `:realm`, keep `:frame`). EP-0024 references that home and does
-    not re-decide it (see §Registrar and generation reads).
-  - A separate item recorded the `spec/002-Frames.md` ↔ `spec/API.md` `make-frame`
-    contradiction (002-Frames still documented the pre-EP-0023 keyword-returning
-    `make-frame`). This EP's §One constructor partially resolves it by unifying
-    `make-frame`; the spec-graduation wave for `spec/002-Frames.md` subsumes or
-    hands off to that fix.
+    - Unsubscribe target normalization symmetry is fixed separately.
+    - An internal frame-record resolver is factored separately if not absorbed by
+      this EP.
+    - HTTP test-support helpers are moved out of the core facade separately.
+    - The registrar query/read address grammar after EP-0023 has its own **home**
+      (ruled: drop `:realm`, keep `:frame`). EP-0024 references that home and does
+      not re-decide it (see §Registrar and generation reads).
+    - A separate item recorded the `spec/002-Frames.md` ↔ `spec/API.md` `make-frame`
+      contradiction (002-Frames still documented the pre-EP-0023 keyword-returning
+      `make-frame`). This EP's §One constructor partially resolves it by unifying
+      `make-frame`; the spec-graduation wave for `spec/002-Frames.md` subsumes or
+      hands off to that fix.
 
 ## Specification
 

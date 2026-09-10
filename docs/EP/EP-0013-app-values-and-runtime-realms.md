@@ -128,11 +128,11 @@ implementation and the `/spec` correction (#4272).
   — *structural/section keys stay bare; FACT keys get owner-qualified* — these
   are facts ABOUT the module/app, so the **KEYS** are owner-qualified (the values
   were already `:rf.capability/*`-qualified):
-  - module ownership declaration: `:owns` → **`:rf.module/owns`**;
-  - module capability requirement: `:requires` → **`:rf.module/requires`**
-    (parallel to `:rf.cofx/requires` over coeffects — naming the contract);
-  - app-value union capability set: `:requires` → **`:rf.app/requires`**
-    (parallel to `:rf.app/id`).
+    - module ownership declaration: `:owns` → **`:rf.module/owns`**;
+    - module capability requirement: `:requires` → **`:rf.module/requires`**
+      (parallel to `:rf.cofx/requires` over coeffects — naming the contract);
+    - app-value union capability set: `:requires` → **`:rf.app/requires`**
+      (parallel to `:rf.app/id`).
 
   The structural section keys (`:id`, `:events`, `:subs`, `:routes`, `:source`,
   `:modules`, `:registrations`) stay **bare**. The shipped constructor

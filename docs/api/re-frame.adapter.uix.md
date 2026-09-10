@@ -150,10 +150,10 @@ Three things hold for that head, and they are the point of using the registry ra
   ($ uix-adapter/frame-provider {:frame :session} child…)   ;; SCOPE an existing frame
   ```
 - **Description**: The UIx-shaped SCOPE-only frame provider (rf2-nyea0r split — **roots ensure; providers scope**; for create-if-absent, use [`frame-root`](#frame-root)). Scopes an already-created frame; creates nothing. Raises:
-  - `:rf.error/frame-provider-frame-absent` when the frame does not exist
-  - `:rf.error/no-frame-context` on a nil `:frame`
-  - `:rf.error/bad-frame-provider-arg` on a `:frame` that is neither a keyword nor a live frame value
-  - `:rf.error/frame-provider-given-id` when given an `:id` (the ENSURE key — use `frame-root`)
+    - `:rf.error/frame-provider-frame-absent` when the frame does not exist
+    - `:rf.error/no-frame-context` on a nil `:frame`
+    - `:rf.error/bad-frame-provider-arg` on a `:frame` that is neither a keyword nor a live frame value
+    - `:rf.error/frame-provider-given-id` when given an `:id` (the ENSURE key — use `frame-root`)
 
   Children ride the idiomatic `$` trailing-args channel. Pass them after the prop map, as for any other UIx component (there is no `:children` prop-map key).
 - **Example**:
@@ -170,8 +170,8 @@ Three things hold for that head, and they are the point of using the registry ra
   ($ uix-adapter/frame-root {:id :session :images [session-image]} child…)   ;; ENSURE create-if-absent / reuse
   ```
 - **Description**: The UIx-shaped ENSURE component (rf2-nyea0r split). Creates the named frame if absent, or reuses it without re-seeding if present; **never destroys the frame on unmount**. Accepts `make-frame` opts, including `:images` / `:initial-events`. `:id` must be a keyword; a missing/nil/non-keyword `:id` raises `:rf.error/frame-root-missing-id`.
-  - **Commit-owned two-pass**: the create/seed runs in a client `useLayoutEffect` (at commit), not during render — the first render emits no descendant subtree, and children render only after the frame is live. A render React discards before commit creates + seeds nothing (no ghost frame).
-  - Re-mounting under the same `:id` (hot reload, React StrictMode dev double-invoke) neither destroys durable state nor re-runs `:initial-events`. A mounted `:id`/opts change raises `:rf.error/frame-root-reconfigured`; a stray `:frame` raises `:rf.error/frame-root-given-frame`.
+    - **Commit-owned two-pass**: the create/seed runs in a client `useLayoutEffect` (at commit), not during render — the first render emits no descendant subtree, and children render only after the frame is live. A render React discards before commit creates + seeds nothing (no ghost frame).
+    - Re-mounting under the same `:id` (hot reload, React StrictMode dev double-invoke) neither destroys durable state nor re-runs `:initial-events`. A mounted `:id`/opts change raises `:rf.error/frame-root-reconfigured`; a stray `:frame` raises `:rf.error/frame-root-given-frame`.
 
   Children ride the idiomatic `$` trailing-args channel.
 - **Example**:
@@ -210,7 +210,7 @@ The Root these functions manage is minted by the shared React spine through `rea
   (client-root)
   ```
 - **Description**: Allocate an inert client-root handle and return it. Does no DOM work, so it is safe at namespace load under a `defonce`, in tests, and on Node. The React Root is created (or hydrated) by the first `render!` through the handle.
-  - The handle is opaque: hold it, hand it to `render!` and `unmount!`, and nothing else.
+    - The handle is opaque: hold it, hand it to `render!` and `unmount!`, and nothing else.
 - **Example**:
   ```clojure
   (defonce app-root (uix-adapter/client-root))   ;; inert until the first render!
@@ -225,11 +225,11 @@ The Root these functions manage is minted by the shared React spine through `rea
   (render! handle element mount-point opts)
   ```
 - **Description**: Render `element` — a React element built with `uix.core/$` — through the client-root `handle` at the DOM element `mount-point`. Returns nil.
-  - The first call creates the React Root at `mount-point` and renders into it. With `{:hydrate? true}` it hydrates the server-rendered markup already inside `mount-point` instead (once; see [`re-frame.ssr`](re-frame.ssr.md)).
-  - Every later call updates that same Root with the new element: no second `createRoot`, no second hydration. That is what makes one call both the boot path and the `^:dev/after-load` hook. `mount-point` is read on the first call only.
-  - `opts` is the map the substrate `render` slot takes — `:hydrate?`, and `:on-recoverable-error`, over which the hydration-mismatch reporter is composed. There are no UIx-only keys.
-  - CLJS data in the element slot — a hiccup vector, seq or map — raises `:rf.error/hiccup-on-element-render-slot`, on the first render and on every later one alike. Hiccup mounts only on the ratom-family adapters.
-  - After `unmount!`, or after `rf/destroy-adapter!` has released the Root, the next `render!` mounts afresh.
+    - The first call creates the React Root at `mount-point` and renders into it. With `{:hydrate? true}` it hydrates the server-rendered markup already inside `mount-point` instead (once; see [`re-frame.ssr`](re-frame.ssr.md)).
+    - Every later call updates that same Root with the new element: no second `createRoot`, no second hydration. That is what makes one call both the boot path and the `^:dev/after-load` hook. `mount-point` is read on the first call only.
+    - `opts` is the map the substrate `render` slot takes — `:hydrate?`, and `:on-recoverable-error`, over which the hydration-mismatch reporter is composed. There are no UIx-only keys.
+    - CLJS data in the element slot — a hiccup vector, seq or map — raises `:rf.error/hiccup-on-element-render-slot`, on the first render and on every later one alike. Hiccup mounts only on the ratom-family adapters.
+    - After `unmount!`, or after `rf/destroy-adapter!` has released the Root, the next `render!` mounts afresh.
 - **Example**:
   ```clojure
   (uix-adapter/render! app-root ($ app-view) el)                   ;; first call: create + render
@@ -245,7 +245,7 @@ The Root these functions manage is minted by the shared React spine through `rea
   (unmount! handle)
   ```
 - **Description**: Unmount the React Root `handle` holds and return the handle to inert. Returns nil.
-  - Idempotent: a second call, or a call after `rf/destroy-adapter!` has already released the Root, does nothing.
+    - Idempotent: a second call, or a call after `rf/destroy-adapter!` has already released the Root, does nothing.
 - **Example**:
   ```clojure
   (uix-adapter/unmount! app-root)   ;; releases the Root; a repeat call is a no-op

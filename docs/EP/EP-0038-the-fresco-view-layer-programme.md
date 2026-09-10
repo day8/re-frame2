@@ -282,34 +282,34 @@ taken by the operator. The design record carries the matching HD-020 addendum
 (`docs/design/fresco/decisions.md`).
 
 - **The requirement set, R0–R8.**
-  - **R0 — one SSR story.** Fresco participates in re-frame2's *existing*
-    Spec 011 (`spec/011-SSR.md`) mechanism — the payload policy, the
-    `#__rf_payload` EDN embed, the `hydrate!` boot helper and the reserved
-    `:rf/hydrate` db adoption before first render, the hydration-mismatch
-    machinery, `ssr-ring` as the HTTP host — **never a parallel Fresco-only
-    mechanism**.
-  - **R1 — pure server render.** A server render is produced purely from a db
-    snapshot.
-  - **R2 — hydration adopts.** Zero hydration mismatch, server node identity
-    preserved (React adopts the server DOM, never re-creates it), and exactly
-    one body pass.
-  - **R3 — reactivity adopted on hydrateRoot's schedule.** Subscriptions come
-    live on React's own hydration schedule; the settle horizon is best-effort,
-    never a caller contract.
-  - **R4 — the live page.** Events and the controlled door work
-    post-hydration to the `rf2-2rtt6.67` equivalence standard.
-  - **R5 — the `defhost` SSR policy is activated.** HD-011's declared
-    placeholder becomes the real `:ssr` option — **three values as of
-    2026-08-05** (`rf2-l0wfx`): `:client-only` (the default), a
-    `{:fallback …}`, and `:render`, which is the author asserting the
-    component is server-safe and is the only policy under which a crossing's
-    children reach the server response. A declared fallback is inert markup by
-    enforcement (`rf2-nv07k`).
-  - **R6 — the ledger discipline holds server-side.** HD-002's discipline is
-    unbroken on the server: a server render is an abandoned render, leaving
-    zero durable registration.
-  - **R7 — scope is stated known-losses style.**
-  - **R8 — witnesses carry SHA + repro commands.**
+    - **R0 — one SSR story.** Fresco participates in re-frame2's *existing*
+      Spec 011 (`spec/011-SSR.md`) mechanism — the payload policy, the
+      `#__rf_payload` EDN embed, the `hydrate!` boot helper and the reserved
+      `:rf/hydrate` db adoption before first render, the hydration-mismatch
+      machinery, `ssr-ring` as the HTTP host — **never a parallel Fresco-only
+      mechanism**.
+    - **R1 — pure server render.** A server render is produced purely from a db
+      snapshot.
+    - **R2 — hydration adopts.** Zero hydration mismatch, server node identity
+      preserved (React adopts the server DOM, never re-creates it), and exactly
+      one body pass.
+    - **R3 — reactivity adopted on hydrateRoot's schedule.** Subscriptions come
+      live on React's own hydration schedule; the settle horizon is best-effort,
+      never a caller contract.
+    - **R4 — the live page.** Events and the controlled door work
+      post-hydration to the `rf2-2rtt6.67` equivalence standard.
+    - **R5 — the `defhost` SSR policy is activated.** HD-011's declared
+      placeholder becomes the real `:ssr` option — **three values as of
+      2026-08-05** (`rf2-l0wfx`): `:client-only` (the default), a
+      `{:fallback …}`, and `:render`, which is the author asserting the
+      component is server-safe and is the only policy under which a crossing's
+      children reach the server response. A declared fallback is inert markup by
+      enforcement (`rf2-nv07k`).
+    - **R6 — the ledger discipline holds server-side.** HD-002's discipline is
+      unbroken on the server: a server render is an abandoned render, leaving
+      zero durable registration.
+    - **R7 — scope is stated known-losses style.**
+    - **R8 — witnesses carry SHA + repro commands.**
 - **Non-goals, explicitly:** streaming, RSC, islands/partial hydration, no-JS
   progressive enhancement, SEO metadata, and SSR-speed-as-bar — HD-012 and the
   Motivation's "fast applications, not fast SSR" line stand unchanged.
