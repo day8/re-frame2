@@ -444,8 +444,12 @@
                       :gap "4px"
                       :overflow-y "auto"
                       :max-height "44vh"}}]
+        ;; rf2-a38l — KEYED FRAGMENT rather than `^{:key …}` reader meta,
+        ;; which Reagent honours and Fresco's codec reads nowhere. Both
+        ;; of `mute-row`'s arguments are positional, so there is no props
+        ;; map to hold the key and inserting one would shift them.
         (for [id (sort-by str muted-ids)]
-          ^{:key (str id)} [mute-row dispatch id])))
+          [:<> {:key (str id)} [mute-row dispatch id]])))
 
 (defn- clear-all-button
   [dispatch]

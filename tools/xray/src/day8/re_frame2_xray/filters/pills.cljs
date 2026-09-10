@@ -322,9 +322,17 @@
                  :align-items "center"
                  :gap         "6px"
                  :flex-wrap   "wrap"}}
+   ;; rf2-a38l — KEYED FRAGMENT rather than `^{:key …}` reader meta. The
+   ;; meta reaches React under Reagent and NOWHERE under Fresco, whose
+   ;; codec reads a literal `:key` from an attribute map and Clojure
+   ;; metadata not at all. `pill` takes `dispatch` positionally, so there
+   ;; is no props map at index 1 to write the key into and inserting one
+   ;; would shift its arguments — `[:<> {:key …} …]` carries the key on a
+   ;; head BOTH substrates honour and leaves the call untouched (the same
+   ;; shape `views/edn_inspector` uses under rf2-k97c.3).
    (for [[idx p] (map-indexed vector (:in filters))]
-     ^{:key (str "in-" idx)}
-     [pill dispatch {:mode :in :pill p :idx idx}])
+     [:<> {:key (str "in-" idx)}
+      [pill dispatch {:mode :in :pill p :idx idx}]])
    (for [[idx p] (map-indexed vector (:out filters))]
-     ^{:key (str "out-" idx)}
-     [pill dispatch {:mode :out :pill p :idx idx}])])
+     [:<> {:key (str "out-" idx)}
+      [pill dispatch {:mode :out :pill p :idx idx}]])])
