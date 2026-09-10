@@ -51,9 +51,21 @@
 
   Same contract as every Xray view — pure hiccup. Frame isolation
   comes from the enclosing `[rf/frame-provider {:frame :rf/xray}]`
-  in `static/shell.cljs`."
+  in `static/shell.cljs`.
+
+  ## Public surface
+
+  - `Panel`        — the tab's root. Since rf2-k97c.3 an
+                     `rf.fresco/defview` BOUNDARY — a real React function
+                     component, not an `rf/reg-view`.
+  - `panel-tree`   — the whole body, as a pure fn of the read's VALUE and
+                     a frame-bound dispatcher. `Panel` is the read plus a
+                     call to this.
+  - `install!`     — idempotent install for the subs, events and the L4
+                     tab registration."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [re-frame.schemas :as rf.schemas]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
@@ -161,20 +173,26 @@
 ;; ---- search box ----------------------------------------------------------
 
 (defn- search-box
-  [query total filtered?]
-  ;; Render-time frame capture (rendered inside the schemas Panel
-  ;; reg-view), not a `:rf/xray` literal. The flex-row markup lives in
-  ;; the shared `search-box` component.
-  (let [frame (rf/current-frame-id)]
-    [search-box/search-box
-     {:testid-prefix   "rf-xray-static-schemas"
-      :dispatch        (fn [ev] (rf/dispatch ev {:frame frame}))
-      :set-query-event :rf.xray.static.schemas/set-query
-      :placeholder     "kind, id, frame, or doc…"
-      :value           query
-      :count-noun      "schema"
-      :total           total
-      :filtered?       filtered?}]))
+  ;; CALLED, never used as a hiccup head (rf2-k97c.3). `search-box/search-box`
+  ;; is a plain fn, and a plain function in head position is a loud error
+  ;; inside a Fresco body by design; applying it renders the identical
+  ;; markup. The flex-row chrome still lives in the shared component.
+  ;;
+  ;; `dispatch` arrives from the boundary rather than being captured here.
+  ;; The keystroke dispatch is an OUT-OF-RENDER affordance — it fires after
+  ;; render unwinds, when the ambient frame is gone — so it must be bound to
+  ;; a frame at render time; `Panel` binds it once with `rf/capture-frame`
+  ;; and threads it down. nil is legal for a mount that never types.
+  [dispatch query total filtered?]
+  (search-box/search-box
+    {:testid-prefix   "rf-xray-static-schemas"
+     :dispatch        dispatch
+     :set-query-event :rf.xray.static.schemas/set-query
+     :placeholder     "kind, id, frame, or doc…"
+     :value           query
+     :count-noun      "schema"
+     :total           total
+     :filtered?       filtered?}))
 
 ;; ---- row -----------------------------------------------------------------
 
@@ -226,15 +244,31 @@
                 :style       {:color     (:text-tertiary tokens)
                               :font-size "10px"}}
          (pr-str frame)])
+      ;; CALLED, never used as a hiccup head (rf2-k97c.3).
+      ;; `open-in-editor/open-chip` is a plain fn answering hiccup (or nil
+      ;; when the coord carries no usable `:file`), and a plain fn in head
+      ;; position is a loud error inside a Fresco body; applying it renders
+      ;; the identical `<a>` chrome, and a nil is a legal child either way.
+      ;; Its click handler is untouched — `defview`'s contract passes a
+      ;; plain fn at an `on-*` prop through, and `chip-click!` already
+      ;; carries its own explicit `{:frame …}`.
       (when (and source-coord (:file source-coord))
-        [open-in-editor/open-chip source-coord])]
+        (open-in-editor/open-chip source-coord))]
      ;; The Malli schema EDN renders through the shared cljs-devtools EDN
      ;; widget (spec 007:119 — "all values rendered via the
      ;; cljs-devtools-shaped renderer") rather than raw `pr-str` +
      ;; `[:code]`, so it gains expand/collapse, syntax-colouring parity,
-     ;; and the per-node copy host. The `node-key` is stable per
-     ;; (kind,id) so expand state survives reloads and doesn't collide
-     ;; across rows.
+     ;; and the per-node copy host. `edn/inspect-view` is the widget's
+     ;; FRESCO head — same value, same opts, same renderer as
+     ;; `edn/inspect`, differing ONLY in that it emits
+     ;; `[ei/edn-inspector-view …]` (a boundary) rather than
+     ;; `[ei/edn-inspector …]` (a Reagent component). rf2-k97c.3 made the
+     ;; swap mandatory rather than stylistic: `ei/edn-inspector` is a
+     ;; plain fn, and a plain fn in hiccup head position is a loud error
+     ;; inside a Fresco body. The `node-key` is stable per (kind,id) so
+     ;; expand state survives reloads and doesn't collide across rows —
+     ;; now load-bearing twice over, since it is also the boundary's
+     ;; required `:mount-id`.
      [:div {:data-testid (str "rf-xray-static-schemas-schema-" row-id)
             :style {:margin-left "20px"
                     :margin-top  "2px"
@@ -242,7 +276,7 @@
                     :font-size   "11px"
                     :white-space "pre-wrap"
                     :word-break  "break-word"}}
-      (edn/inspect schema (str "static-schemas/" row-id))]
+      (edn/inspect-view schema (str "static-schemas/" row-id))]
      (when doc
        [:div {:style {:margin-left "20px"
                       :margin-top  "2px"
@@ -252,29 +286,140 @@
                       :font-size   "11px"}}
         doc]))))
 
+;; ---- the body, as a pure fn of the read's value ---------------------------
+
+(defn panel-tree
+  "The Static Schemas tab's WHOLE body, as a pure function of the one
+  value [[Panel]] reads — the `:rf.xray.static.schemas/tab-data`
+  composite — and the frame-bound `dispatch` the search box needs.
+
+  SPLIT OUT OF [[Panel]] BY rf2-k97c.3, and the split is `defview`'s own
+  documented extract-a-helper spelling rather than an invention. A
+  boundary's body may only run inside a React render window, so `(Panel)`
+  is no longer a callable that answers hiccup — while the catalogue's
+  projection is ordinary data → data and is worth testing in the fast node
+  lane. `panel_cljs_test` drives THIS fn with the value it takes from the
+  sub directly; the boundary's own behaviour — first paint, liveness,
+  frame targeting, evidence isolation, teardown and row identity — is
+  `panel_fresco_boundary_dom_cljs_test`'s subject.
+
+  PURE: every helper it calls is a plain fn of its arguments."
+  [{:keys [silent? schemas total filtered? query]} dispatch]
+  (catalogue/catalogue-panel
+   {:testid     "rf-xray-static-schemas"
+    :noun       "schema"
+    :query      query
+    :silent?    silent?
+    :rows       schemas
+    :gap        "4px"
+    :search     (search-box dispatch query total filtered?)
+    ;; THE KEY RIDES ON A KEYED FRAGMENT, not on reader metadata
+    ;; (rf2-k97c.3). Fresco's codec reads a literal `:key` from an
+    ;; ATTRIBUTE MAP and reads Clojure metadata nowhere, so the
+    ;; `^{:key …}` this line used to carry survives Reagent and reaches
+    ;; React as NOTHING once the panel renders through the codec — and a
+    ;; lost key does not fail, it degrades silently into index-based
+    ;; reconciliation. The fragment carries the key without adding a DOM
+    ;; node, so `catalogue-row`'s `li` chrome stays the shared
+    ;; presentational helper it is; the key expression is unchanged.
+    :row-render (fn [row]
+                  [:<> {:key (str (name (:kind row)) "/"
+                                  (pr-str (:frame row)) "/"
+                                  (pr-str (:id row)))}
+                   (schema-row row)])}))
+
 ;; ---- root view -----------------------------------------------------------
 
-(rf/reg-view Panel
-  "Static Schemas panel root view. Subscribes to the schemas composite
-  + the search-query slot and composes the header + search + flat list.
+(rf.fresco/defview Panel
+  "The Static Schemas tab's root — a FRESCO BOUNDARY (rf2-k97c.3), not an
+  `rf/reg-view`. Reads the schemas composite and hands its value plus a
+  frame-bound dispatcher to [[panel-tree]].
 
-  `reg-view`-registered so subscribes resolve to `:rf/xray`."
+  The READ is `rf.fresco/sub`, a plain call the shipped collector records
+  an edge for — no deref, no reaction owned by the installed adapter, and
+  a re-wire that NOTIFIES when the substrate disposes the underlying
+  derived value. That is the third of the epic's three couplings, and the
+  one a first-paint smoke test cannot see.
+
+  The FRAME the read resolves against comes from React context, which the
+  enclosing frame boundary writes — `rf/frame-provider` and
+  `rf.fresco/frame-provider` write the SAME context — so this resolves
+  `:rf/xray` identically under today's Reagent-rendered Static shell and
+  under the Fresco root Xray will own. It never consults
+  `:adapter/current-component`, the hook a foreign root cannot answer.
+
+  The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
+  which Fresco's authoring surface deliberately does not duplicate, and
+  which answers the boundary's DECLARED frame inside a body. It replaces
+  the render-time `(rf/current-frame-id)` capture the `reg-view` body did:
+  same guarantee, one call, and it is the spelling every migrated panel
+  now uses. The search box's keystroke dispatch therefore still lands on
+  THIS Xray instance's frame after render scope unwinds rather than
+  leaking to `:rf/default`.
+
+  ONE read and ONE boundary. Boundary count tracks reads and
+  head-position use, not file size: `catalogue-panel`, `catalogue-row`,
+  `search-box`, `kind-badge`, `open-in-editor/open-chip` and `schema-row`
+  are all CALLED, never used as a hiccup head, so Fresco's \"a plain
+  function in head position is a loud error\" rule never meets one. The
+  one fn-headed vector that REMAINS in the tree is `edn/inspect-view`'s
+  `[ei/edn-inspector-view …]`, which is itself a boundary and so is a
+  legal head; nothing else in the interior wants a boundary of its own.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. This panel reads nothing from props — the L4 registry mounts it
+  with none — so it is destructured away."
+  [_props]
+  (panel-tree (rf.fresco/sub [:rf.xray.static.schemas/tab-data])
+              (:dispatch (rf/capture-frame))))
+
+;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;;
+;; Xray's Static shell is still a `reg-view` tree rendered by the installed
+;; adapter. `static/shell.cljs`'s `detail-panel` mounts the active tab as
+;; the hiccup head `[(:panel tab)]`, and `panel-registry/reg-l4-tab!`'s
+;; `:pre` requires `:panel` to be CALLABLE — neither of which a React
+;; component is.
+;;
+;; `rf.fresco/as-component` is Fresco's own outward door for exactly this:
+;; it answers a real React component for a boundary, which a React parent
+;; (Reagent, UIx or plain JavaScript) mounts UNDER THE FRAME IT IS ALREADY
+;; IN, taking the frame from React context rather than from a second root.
+;; So there is no second root here, no adapter-kind branch, and no props
+;; ABI.
+;;
+;; BOTH DEFS ARE PRIVATE, and that is a measured property of this panel
+;; rather than a default: `Panel` is named outside this file only in
+;; `static/shell.cljs`'s PROSE (a docstring listing the L4 tabs) and in
+;; `spec/api-manifest*.edn`'s rows — never mounted or called by name. The
+;; L4 registry is the only consumer, and `install!` below is the only
+;; thing that passes the bridge. A panel carrying a standalone `mount-*!`
+;; facade needs a PUBLIC bridge instead, because `panels/render-panel!`
+;; takes the view to mount as an argument and needs a name to pass; this
+;; panel has none — `panels.cljs` names no Static sub-tab.
+;;
+;; `Panel` KEEPS THE NATURAL NAME, which is the spelling ruled to survive
+;; (the #9581 assignment) and is also what keeps the two hot-zone
+;; api-manifest rows for `static.schemas.panel/Panel` valid without
+;; touching either file.
+;;
+;; THIS IS SCAFFOLDING WITH A DEFINED END. When the Static shell is itself
+;; a Fresco tree, `reg-l4-tab!` takes `Panel` directly, `[:>]` goes, and
+;; both defs below are deleted.
+
+(def ^:private Panel-component
+  "The React component `Panel` presents as, for a non-Fresco parent.
+  Declared once at top level beside the view, as `rf.fresco/as-component`'s
+  contract requires — deriving it per render would mint a new component
+  type every time and remount the panel on each parent render."
+  (rf.fresco/as-component Panel))
+
+(defn ^:private Panel-bridge
+  "The callable the L4 tab registry stores. Returns Reagent-shaped hiccup
+  interoping to the React component above; the Static shell's enclosing
+  `rf/frame-provider` is what puts `:rf/xray` in React context for it."
   []
-  (let [data @(rf/subscribe [:rf.xray.static.schemas/tab-data])
-        {:keys [silent? schemas total filtered? query]} data]
-    (catalogue/catalogue-panel
-     {:testid     "rf-xray-static-schemas"
-      :noun       "schema"
-      :query      query
-      :silent?    silent?
-      :rows       schemas
-      :gap        "4px"
-      :search     (search-box query total filtered?)
-      :row-render (fn [row]
-                    ^{:key (str (name (:kind row)) "/"
-                                (pr-str (:frame row)) "/"
-                                (pr-str (:id row)))}
-                    [schema-row row])})))
+  [:> Panel-component {}])
 
 ;; ---- public-surface registry read ----------------------------------------
 
@@ -407,7 +552,11 @@
      :mnem  "c"
      :modes #{:static}
      :order 2
-     :panel Panel})
+     ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
+     ;; component (a Fresco boundary) and the Static shell mounts `:panel`
+     ;; as a Reagent hiccup head; the bridge is the one line between them
+     ;; and goes when the shell is a Fresco tree.
+     :panel Panel-bridge})
 
   nil)
 
