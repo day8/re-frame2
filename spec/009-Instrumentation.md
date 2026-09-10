@@ -3051,13 +3051,13 @@ With the five other wire mechanisms catalogued in [Tool-Pair.md](Tool-Pair.md), 
 
 - **× `:sensitive?` (privacy).** Sensitive drops **before** size elides. A value matching both predicates produces a `:sensitive? true` trace event with the value already redacted; no `:rf.size/large-elided` marker is emitted (the marker itself would leak `:path` / `:bytes` / `:digest`). The walker's predicate cascade is:
 
-  ```clojure
-  (cond
-    (and sensitive? large?)  ::drop                  ; no marker; emit :sensitive? true
-    sensitive?               ::redact-or-drop        ; today's :rf/redacted sentinel
-    large?                   ::elide-with-marker     ; :rf.size/large-elided
-    :else                    ::pass-through)
-  ```
+    ```clojure
+    (cond
+      (and sensitive? large?)  ::drop                  ; no marker; emit :sensitive? true
+      sensitive?               ::redact-or-drop        ; today's :rf/redacted sentinel
+      large?                   ::elide-with-marker     ; :rf.size/large-elided
+      :else                    ::pass-through)
+    ```
 
 - **× `:rf.mcp/diff-from` (epoch diff-encoding).** When a diff patch points at a large value, the walker substitutes the marker inside the patch's `:assoc` slot. The patch itself stays small (path + marker). The `:handle` carries `:as-of-epoch <epoch-id>` when the marker rides a past-epoch payload — `get-path` resolves against the existing epoch-record's `:db-after` snapshot so the agent sees that-epoch's value, not now's.
 - **× `:rf.mcp/dedup-table`.** Marker shapes are small (~150 bytes) — a 5 MB blob referenced from N epoch records produces N markers (~150N bytes) rather than one dedup-table entry plus N references. The marker IS the dedup for large values; no extra dedup work needed. If the agent opts in (`:rf.egress/include-large? true`), the underlying values ride the wire and the dedup table picks them up at the slice boundary — the two mechanisms compose cleanly because they operate at different pipeline points.
