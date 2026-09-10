@@ -175,18 +175,27 @@
   nil)
 
 (defn- seed-one-armed-timer!
-  "Put exactly one ARMED `:after` timer in front of the overlay, in
-  `frame`. Without this the projection is empty and the overlay returns
-  nil — so every row that asserts DOM depends on this having worked, and
-  W1 checks it did."
-  [frame]
+  "Put exactly one ARMED `:after` timer in front of the overlay. Without
+  this the projection is empty and the overlay returns nil, so every row
+  that asserts DOM depends on it — and W1 checks it worked.
+
+  TARGETS `:rf/xray` AND TAKES NO FRAME ARGUMENT, because it cannot
+  honestly offer one. `trace-collector/refresh-trace-rings!`, which
+  `seed-trace-for-test!` calls, snapshots the rings into **`:rf/xray`'s**
+  `:trace-buffer` slot and its own docstring says the dispatch is a
+  silent no-op when `:rf/xray` is not registered. Seeding \"into\" any
+  other frame would therefore leave `:rf.xray/trace-buffer` empty there,
+  the projection empty, and the overlay rendering nil — while the three
+  override dispatches above all appeared to succeed. An earlier draft of
+  W3 did exactly that and would have asserted a zero against a container
+  with nothing in it."
+  []
   (rf/dispatch-sync [:rf.xray/set-registered-machines-override-for-test
-                     [:auth/login]] {:frame frame})
+                     [:auth/login]] {:frame :rf/xray})
   (rf/dispatch-sync [:rf.xray/set-machine-definitions-override-for-test
-                     {:auth/login fixture-definition}] {:frame frame})
-  (rf/dispatch-sync [:rf.xray/set-now-ms-override-for-test 2000] {:frame frame})
-  ;; The trace buffer is the collector's, not a frame's, so this one seed
-  ;; is visible to whichever frame the overlay is mounted in.
+                     {:auth/login fixture-definition}] {:frame :rf/xray})
+  (rf/dispatch-sync [:rf.xray/set-now-ms-override-for-test 2000]
+                    {:frame :rf/xray})
   (trace-collector/seed-trace-for-test!
     {:id 1000 :time 1000
      :operation :rf.machine.timer/scheduled
@@ -251,9 +260,15 @@
 (defn- mounted-flag
   "The rAF tick loop's `:mounted?` liveness (rf2-e64drj), owned by the
   overlay's `:ref` callback. Private var, reached the same way
-  `machine_after_rings_tick_loop_cljs_test` reaches it."
+  `machine_after_rings_tick_loop_cljs_test` reaches it.
+
+  TWO derefs, and the count is load-bearing: `@#'v` unwraps the Var to
+  the ATOM, and the second reads the atom's map. With one deref every
+  key answers nil, which reads as `:mounted? false` — so the two
+  assertions W5 makes about the gate being CLOSED would both pass while
+  measuring nothing."
   []
-  (:mounted? @#'day8.re-frame2-xray.panels.machine-after-rings/tick-state))
+  (:mounted? @@#'day8.re-frame2-xray.panels.machine-after-rings/tick-state))
 
 ;; ===========================================================================
 ;; W1 — first display, the foreign child really crossed, and the read lands
@@ -274,7 +289,7 @@
             ;; targeting claim below is measured with an instrument that is
             ;; demonstrably able to see an entry in that frame's cache.
             _probe (rf/subscribe [::n] {:frame app-frame})
-            _ (seed-one-armed-timer! :rf/xray)
+            _ (seed-one-armed-timer!)
             {:keys [container root]} (mount-overlay! :rf/xray)]
         (try
           (is (some? (q container "[data-rf-xray-after-rings-host]"))
@@ -330,7 +345,7 @@
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
         (setup!)
-        (seed-one-armed-timer! :rf/xray)
+        (seed-one-armed-timer!)
         (let [{:keys [container root]} (mount-overlay! :rf/xray)]
           (is (= "2000" (tick-attr container))
               "PRECONDITION: the committed DOM carries the pinned clock, so
@@ -343,9 +358,16 @@
           ;; so nothing downstream may move. A boundary that repainted here
           ;; would make phase 3 pass for a reason that is not liveness.
           (rf/dispatch-sync [:rf.xray/timer-tick 8888] {:frame :rf/xray})
-          (is (= 2000 (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/now-ms])))
-              "PRECONDITION: the override still wins, so the read's answer
-               genuinely did not move")
+          ;; Read the db directly rather than through `rf/subscribe`: an
+          ;; imperative subscription here would take a reference nothing
+          ;; releases, in the same frame and for a query W4 counts.
+          (let [db (rf.frame/frame-app-db-value :rf/xray)]
+            (is (= 8888 (:rings/now-ms db))
+                "PRECONDITION: the live slot really did move — otherwise the
+                 control below is asserting against an event that did nothing")
+            (is (= 2000 (:rings/now-ms-override db))
+                "PRECONDITION: and the override that shadows it is still in
+                 place, so the read RECOMPUTES and answers what it did before"))
           (-> (settle)
               (.then
                 (fn [_]
@@ -389,7 +411,16 @@
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_        (setup!)
-            _        (seed-one-armed-timer! app-frame)
+            ;; Give the composite a DEFINED answer in the application
+            ;; frame — `active-timers-empty-when-no-selection` in the node
+            ;; suite pins that an empty machine override yields `[]` rather
+            ;; than throwing. No timer is seeded: the trace snapshot only
+            ;; ever lands in `:rf/xray`'s slot (see `seed-one-armed-timer!`),
+            ;; so there would be nothing to paint here in any case, and this
+            ;; row's precondition is the READ rather than the DOM.
+            _        (rf/dispatch-sync
+                       [:rf.xray/set-registered-machines-override-for-test []]
+                       {:frame app-frame})
             traces   (atom [])
             view-op? #(and (keyword? (:operation %))
                            (= "rf.view" (namespace (:operation %))))]
@@ -399,9 +430,28 @@
           (let [{:keys [container root]} (mount-overlay! app-frame)
                 subject-views (filterv view-op? @traces)]
             (try
-              (is (some? (q container overlay-sel))
-                  "precondition: the overlay really did render in this commit
-                   — an empty container would make the zero below vacuous")
+              ;; THE PRECONDITION IS THE READ, NOT THE DOM, and that is
+              ;; forced rather than chosen. The projection this overlay
+              ;; paints from is fed by `trace-collector`, which snapshots
+              ;; into `:rf/xray`'s slot ALONE — so inside an application
+              ;; frame there are no timers, and the boundary correctly
+              ;; renders nil. A DOM precondition is therefore unavailable
+              ;; HERE, and reaching for one would have made the zero below
+              ;; vacuous in the quietest possible way.
+              ;;
+              ;; A reference in this frame's sub-cache is the better
+              ;; evidence anyway: it says the BODY RAN in this commit,
+              ;; which is precisely the act that would have emitted a
+              ;; `:rf.view/*` op had this been a substrate view render.
+              ;; The DOM half of the claim is W1's, in the frame that has
+              ;; something to paint.
+              (is (pos? (ref-count-of app-frame timers-q))
+                  (str "precondition: the boundary's body really did RUN in "
+                       "this commit, inside an application frame — it took "
+                       "a reference in that frame's sub-cache. Without this "
+                       "the zero below would be the zero of a body that "
+                       "never executed. Cache keys: "
+                       (pr-str (keys (cache-of app-frame)))))
               (is (zero? (count subject-views))
                   (str "the boundary's render put NO :rf.view/* op in the "
                        "trace stream while rendering inside an application "
@@ -452,12 +502,23 @@
             reorder that unmounts and remounts within a single turn reuses
             the reaction instead of rebuilding it. A synchronous assertion
             would report a LEAK against a collector behaving exactly as
-            documented."
+            documented.
+
+            THIS ROW DELIBERATELY SEEDS NO TIMER, and that is a choice
+            rather than an oversight. The boundary reads all four of its
+            slots UNCONDITIONALLY, at the top of the body, so the
+            reference this row is about is taken whether or not the
+            projection has anything to paint — the DOM is nil here and
+            the ref-count is not. Seeding one would arm the rAF clock,
+            and `tick-loop!` then takes its own reads off-render through
+            the imperative `(rf/subscribe q {:frame f})` form. Whatever
+            those hold, they are not the boundary's, and the subject of
+            this row is precisely whether the BOUNDARY released. Leaving
+            the clock disarmed keeps it the only holder."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
         (setup!)
-        (seed-one-armed-timer! :rf/xray)
         ;; The starting point is polled, not asserted: a neighbouring row's
         ;; teardown grace may still be in flight when this one begins.
         (-> (rf.test-support/poll-until released?
@@ -522,7 +583,7 @@
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_ (setup!)
-            _ (seed-one-armed-timer! :rf/xray)]
+            _ (seed-one-armed-timer!)]
         (after-rings/stop-tick!)
         (is (false? (boolean (mounted-flag)))
             "PRECONDITION: nothing is holding the gate open before the mount")
