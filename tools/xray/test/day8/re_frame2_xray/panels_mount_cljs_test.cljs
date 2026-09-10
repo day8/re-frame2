@@ -358,6 +358,44 @@
           (is (= {:frame :my-app/cart} (second tree))
               "explicit :frame opt overrides the default :rf/xray"))))))
 
+;; ---- rf2-hg3j — the per-panel mount SEATS the frame it PROVIDES --------
+;;
+;; The deftest above pins the WRAPPER, and the wrapper was always right. What
+;; was wrong sat one line above it: `render-panel!` called
+;; `ensure-xray-handlers-installed!` at its ZERO arity, which always seats
+;; `shell/default-frame-id`, and then anchored the provider at `opts :frame`.
+;; On an override those are two different frames, and since no panel view
+;; opens an inner provider of its own — every panel's docstring says its
+;; isolation comes from the ENCLOSING one — the panel body's whole
+;; `:rf.xray/*` surface resolved into a frame nothing had seated or seeded.
+;;
+;; So this row is deliberately NOT taken off the captured tree: the stubbed
+;; `adapter/render` observes the wrapper, which passes either way. It reads
+;; the frame REGISTRY, which the real `ensure-xray-handlers-installed!` wrote
+;; on the way past the stub. Same assertion shape rf2-lffg used for
+;; `mount-shell!`, which has threaded its resolved frame through all along.
+
+(def ^:private panel-cell-frame :review/xray-panel-cell)
+
+(deftest mount-panel-seats-the-own-frame-it-provides
+  (testing "rf2-hg3j — a per-panel mount given an explicit `:frame` seats
+            THAT frame. Pre-fix `mount-epoch-panel!` seated
+            `shell/default-frame-id` and provided the override, so the
+            first row below read nil and the panel's subscribes landed in
+            an empty frame."
+    (let [[capture _ render-stub] (make-render-stub)]
+      (with-redefs [rf.substrate.adapter/render render-stub]
+        (panels/mount-epoch-panel! :mount-point {:frame panel-cell-frame}))
+      (is (some? (rf.frame/frame panel-cell-frame))
+          "the requested own frame is SEATED — the mount contract does not
+           ask the host to pre-seat one (008 §Frame-provider wraps the shell)")
+      (is (= panel-cell-frame (:frame (second (captured-tree capture))))
+          "and it is the SAME frame the provider anchors — seated and
+           provided are one value by construction")
+      (is (some? (read-in-frame panel-cell-frame [:rf.xray/selected-tab]))
+          "and the seed hooks ran in it, so a panel body's `:rf.xray/*`
+           subscribe resolves there rather than reading an empty frame"))))
+
 ;; ---- contract — instance-id opt (rf2-2n8q) ----------------------------
 ;;
 ;; THE EVIDENCE THAT TWO NAMED MOUNTS ARE ACTUALLY SEPARATED IS NOT HERE. It
