@@ -494,19 +494,19 @@ never rewrites it.
 1. Extend `parse-reg-sub-args` to recognize the two-function form.
 2. Store sub metadata with an input-kind discriminator:
 
-   ```clojure
-   {:handler-fn handler-fn
-    :input-kind :db | :static | :parametric
-    :input-signals [...]
-    :input-fn input-fn}
-   ```
+    ```clojure
+    {:handler-fn handler-fn
+     :input-kind :db | :static | :parametric
+     :input-signals [...]
+     :input-fn input-fn}
+    ```
 
 3. Add a pure input normalizer:
 
-   ```clojure
-   (normalize-sub-inputs input-return)
-   ;; => {:queries [query-v ...]}
-   ```
+    ```clojure
+    (normalize-sub-inputs input-return)
+    ;; => {:queries [query-v ...]}
+    ```
 
 4. Use the normalizer in both the reactive cache path and `compute-sub`.
 5. Store realized input query vectors on cache entries for disposal, trace, and
