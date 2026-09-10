@@ -869,12 +869,12 @@ Two surfaces stacked, and they have different verbs. The first is **dev-only**: 
   (register-listener! stream id callback-fn)
   ```
 - **Description**: Register `callback-fn` under `id` to receive every record the runtime emits on `stream`. Delivery is synchronous: the callback returns before the next record. On the JVM, where emits can race across threads, each listener is invoked serially — a callback is never entered concurrently with itself, so tool appenders and stateful folds need no locking of their own. Re-registering the same id on a stream replaces.
-  - Streams:
-    - `:trace` — dev-only, DCE'd in production.
-    - `:epoch` — optional artefact, dev-only.
+    - Streams:
+        - `:trace` — dev-only, DCE'd in production.
+        - `:epoch` — optional artefact, dev-only.
 
-    Both are raw and DCE-able, which is the whole of what this verb means. Production observation is [`register-observability-sink!`](#register-observability-sink).
-  - Returns `id` (`nil` on the `:epoch` stream when the `day8/re-frame2-epoch` artefact is absent). An unknown `stream` throws `:rf.error/unknown-listener-stream`.
+        Both are raw and DCE-able, which is the whole of what this verb means. Production observation is [`register-observability-sink!`](#register-observability-sink).
+    - Returns `id` (`nil` on the `:epoch` stream when the `day8/re-frame2-epoch` artefact is absent). An unknown `stream` throws `:rf.error/unknown-listener-stream`.
 - **Example**:
   ```clojure
   ;; Dev-only: tap every trace event the runtime emits (DCE'd in production).

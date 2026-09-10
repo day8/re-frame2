@@ -608,13 +608,13 @@ Resource events take a **map payload**, not a positional argument vector. The re
 - **Kind**: event
 - **Payload**: `{:scope :cause}` — `:scope` is a **concrete** scope, never a `{:from-db <id>}` reference
 - **Description**: Causal scope teardown. It:
-  - removes (or marks unusable) every entry in the scope
-  - releases owners
-  - aborts in-flight requests with no owner outside the scope
-  - suppresses late replies by scope + generation
-  - emits explanatory trace rows
+    - removes (or marks unusable) every entry in the scope
+    - releases owners
+    - aborts in-flight requests with no owner outside the scope
+    - suppresses late replies by scope + generation
+    - emits explanatory trace rows
 
-  Required on logout / account / tenant / permission / locale / impersonation change.
+    Required on logout / account / tenant / permission / locale / impersonation change.
 
   - **`:scope` is concrete, and this is the one event where that differs from `ensure` / `invalidate-tags`.** Those resolve a `{:from-db …}` reference against their own handler's db, which is the right world for them. `clear-scope` is dispatched from a logout handler's `:fx`, so it runs in the *next* event — against the **post**-logout db, where the resolver's inputs are already gone. Resolve in the handler instead, with the pure [`resolve-resource-scope`](#resolve-resource-scope) helper over its coeffect `db`, and pass the concrete result.
   - A `{:from-db …}` map on the payload is **refused loud** (`:rf.error/resource-invalid-scope`, `:recovery :fix-scope`) before anything is cleared — not ignored, because a map is a valid *literal* scope and would otherwise key nothing and clear nothing silently.
