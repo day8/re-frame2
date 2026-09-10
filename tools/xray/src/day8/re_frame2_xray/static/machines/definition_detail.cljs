@@ -43,8 +43,45 @@
 
   When no `:rf/machine?` registration is found the browse-list renders the
   empty-state hint; the right pane mounts a matching empty surface
-  to keep the visual balance."
+  to keep the visual balance.
+
+  ## Substrate (rf2-k97c.3)
+
+  [[detail]] is an `rf.fresco/defview` — a real React function component
+  whose reads are `rf.fresco/sub`, recorded by Fresco's own collector
+  rather than by the installed adapter's observer. Frame isolation still
+  comes from the enclosing `[rf/frame-provider {:frame :rf/xray}]` in
+  `static/shell.cljs`, which the boundary reads out of React context
+  exactly as the `reg-view` did.
+
+  ## The Topology and Sim bodies stay REAGENT ISLANDS, and that is the
+  ## one thing about this pane worth knowing before editing it
+
+  Every helper in THIS file answers hiccup and is therefore CALLED rather
+  than headed — the standard HD-016 repair. The two per-mode bodies are
+  the exception: `topology/body` reaches `machine-canvas/Chart`, which is
+  still an `rf/reg-view`, and `sim/body` reaches `SimChart` which mounts
+  the same `Chart`. A `reg-view` in hiccup head position grades
+  `:invalid` under Fresco exactly as a plain `defn` does — `codec/
+  boundary-head?` reads one own property (`frescoBoundary`) and only
+  `rf.fresco/defview` sets it — so neither repair applies: heading is a
+  loud throw that unmounts the whole Xray root, and CALLING the body only
+  moves the problem one level down into `topology.cljs`'s own fn heads.
+
+  The door is Fresco's own ABI, and it is the one `panels/
+  machine_after_rings.cljs` already uses for the machines-viz overlay: a
+  React ELEMENT is a legal child anywhere (`codec`'s `child-kind`
+  classifies `react/isValidElement` as `:react-element`). So
+  [[detail-tree]] takes an `:as-child` function — `identity` for a
+  hiccup caller and for the node lane, `reagent.core/as-element` for the
+  boundary — and the whole Reagent subtree crosses as one finished
+  element, rendered by Reagent's own machinery under the SAME React
+  context the frame-provider wrote. MIGRATION SCAFFOLDING WITH A DEFINED
+  END: when `Chart` is itself a Fresco body the `as-child` seam goes and
+  the bodies are headed directly."
   (:require [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
+            [reagent.core :as r]
             [day8.re-frame2-machines-viz.grammar :as grammar]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.static.machines.cascade-dimmed
@@ -112,8 +149,8 @@
 
 (defn- header
   "Render the definition-detail header. Sticks at the top of the right
-  pane. `dispatch` is the frame-aware dispatcher threaded from the
-  `detail` reg-view (same convention as `sub-strip`) — the Copy Mermaid
+  pane. `dispatch` is the frame-aware dispatcher threaded from
+  [[detail-tree]] (same convention as `sub-strip`) — the Copy Mermaid
   button dispatches through it."
   [dispatch {:keys [machine-id source-coord state-count live-count
                     definition copy-status]}]
@@ -162,9 +199,9 @@
                             (:text-tertiary tokens))
                    :margin-left "auto"}}
     (str (or live-count 0) " live")]
-   [copy-mermaid-button dispatch {:machine-id  machine-id
+   (copy-mermaid-button dispatch {:machine-id  machine-id
                                   :definition  definition
-                                  :copy-status copy-status}]])
+                                  :copy-status copy-status})])
 
 ;; ---- sub-strip ----------------------------------------------------------
 
@@ -196,9 +233,9 @@
   "Render the 4-mode pill row. The strip is the same DOM as the Dynamic
   sub-strip (muscle-memory consistency), but Cascade is dimmed.
 
-  `dispatch` is the frame-aware dispatcher threaded from the `detail`
-  reg-view (a plain fn invoked as a Reagent component renders in its own
-  cycle, so it cannot recover the frame itself)."
+  `dispatch` is the frame-aware dispatcher threaded from
+  [[detail-tree]] — this helper reads nothing itself, so every value it
+  renders arrives as an argument."
   [dispatch {:keys [machine-id sub-mode live-count]}]
   (let [set-mode! (fn [mode]
                     (dispatch
@@ -212,40 +249,47 @@
                    :padding     "8px 16px"
                    :background  (:bg-2 tokens)
                    :border-bottom (str "1px solid " (:border-subtle tokens))}}
-     [topology-pill {:active?  (= sub-mode :topology)
-                     :on-click (fn [_] (set-mode! :topology))}]
-     [sim/pill {:active?  (= sub-mode :sim)
-                :on-click (fn [_] (set-mode! :sim))}]
-     [instances-jump/pill dispatch {:machine-id machine-id
+     (topology-pill {:active?  (= sub-mode :topology)
+                     :on-click (fn [_] (set-mode! :topology))})
+     (sim/pill {:active?  (= sub-mode :sim)
+                :on-click (fn [_] (set-mode! :sim))})
+     (instances-jump/pill dispatch {:machine-id machine-id
                                     :live-count live-count
-                                    :active?    false}]
-     [cascade-dimmed/pill]]))
+                                    :active?    false})
+     (cascade-dimmed/pill)]))
 
 ;; ---- body dispatch ------------------------------------------------------
 
 (defn- body
   "Dispatch to the per-mode body renderer. Topology + Sim render a
   body; Instances + Cascade do not (Instances is a JUMP affordance,
-  Cascade is dimmed). `dispatch` is threaded from `detail`.
+  Cascade is dimmed). `dispatch` is threaded from [[detail-tree]].
 
   The Sim sub-mode's plain-fn subtree (`sim/body` → `SimChart` /
-  `SimRail`) cannot recover the `:rf/xray` frame to subscribe (Spec
-  004), so its sub values (`sim-values`) are derefed in the `detail`
-  reg-view and threaded down through here (mirroring the browse-list
-  pattern)."
-  [dispatch {:keys [sub-mode machine-id definition source-coord fit-signal
-                    sim-values]}]
+  `SimRail`) reads nothing itself, so its sub values (`sim-values`) are
+  read in [[detail]] and threaded down through here (mirroring the
+  browse-list pattern).
+
+  `as-child` is how the two REAGENT ISLANDS are spelled for the calling
+  renderer — see the ns docstring. `identity` (the node lane, and any
+  Reagent caller) leaves each body as a fn-headed hiccup vector, which
+  is exactly what it has always been; `reagent.core/as-element` (the
+  boundary) answers a React element, a legal child anywhere per Fresco's
+  component ABI. The Instances and Cascade arms are pure keyword hiccup
+  and cross unchanged either way."
+  [dispatch as-child {:keys [sub-mode machine-id definition source-coord
+                             fit-signal sim-values]}]
   (case sub-mode
     :topology
-    [topology/body dispatch {:machine-id   machine-id
-                             :definition   definition
-                             :source-coord source-coord
-                             :fit-signal   fit-signal}]
+    (as-child [topology/body dispatch {:machine-id   machine-id
+                                       :definition   definition
+                                       :source-coord source-coord
+                                       :fit-signal   fit-signal}])
 
     :sim
-    [sim/body dispatch (merge {:machine-id machine-id
-                               :definition definition}
-                              sim-values)]
+    (as-child [sim/body dispatch (merge {:machine-id machine-id
+                                         :definition definition}
+                                        sim-values)])
 
     ;; :instances + :cascade — no body. Render an explanatory placeholder
     ;; so the user understands the strip click landed.
@@ -278,55 +322,28 @@
 
 ;; ---- main view ----------------------------------------------------------
 
-(rf/reg-view detail
-  "L4-right pane — definition detail. Reads:
+(defn detail-tree
+  "The L4-right pane's WHOLE body, as a pure function of the values
+  [[detail]] reads, the frame-bound `dispatch` its controls need, and
+  the `as-child` spelling for the two Reagent islands (see the ns
+  docstring).
 
-    - `:rf.xray.static.machines/data` for the selected row +
-      enrichment (rows, total, visible, selected-id)
-    - `:rf.xray/machine-definitions` for the registrar spec map of
-      the selected machine
-    - `:rf.xray.static.machines/sub-mode` for the per-machine sub-
-      mode (defaults to :topology)
+  SPLIT OUT OF [[detail]] BY rf2-k97c.3, and the split is `defview`'s
+  own documented extract-a-helper spelling rather than an invention. A
+  boundary's body may only run inside a React render window, so
+  `(detail)` is no longer a callable that answers hiccup — while the
+  projection from read values to markup is ordinary data → data and is
+  worth testing in the fast node lane.
+  `test-helpers.static-machines-tree` drives THIS fn with the values it
+  takes from the same subs, and with `identity` as `as-child` so the
+  Topology / Sim subtrees stay fn-headed hiccup the node-lane walker can
+  expand exactly as it always has.
 
-  `reg-view`-registered so subscribes resolve to `:rf/xray`."
-  []
-  (let [{:keys [rows selected-id]}
-        @(rf/subscribe [:rf.xray.static.machines/data])
-        row (some #(when (= selected-id (:machine-id %)) %) rows)
-        definitions @(rf/subscribe [:rf.xray/machine-definitions])
-        sub-mode @(rf/subscribe [:rf.xray.static.machines/sub-mode selected-id])
-        ;; Fit-on-entry nonce (bumped by `:rf.xray.static/select-tab
-        ;; :machines`). Threaded down to the Topology body's
-        ;; `machine-canvas/Chart` `:fit-signal` so entering the Static
-        ;; Machines tab re-frames the topology to view.
-        fit-signal @(rf/subscribe [:rf.xray/machine-tab-fit-signal])
-        ;; The Sim sub-mode's plain-fn subtree (`sim/body` →
-        ;; `SimChart` / `SimRail`) renders in its OWN React cycle and so
-        ;; cannot recover the `:rf/xray` frame to `rf/subscribe` itself
-        ;; (Spec 000 §Plain Reagent fns under non-default frames). Deref
-        ;; the sim sub family HERE (in this reg-view,
-        ;; where the frame IS in context) and thread the values down —
-        ;; mirroring the browse-list pattern. Only derefed on the
-        ;; `:sim` sub-mode so the Topology/Instances/Cascade modes don't
-        ;; subscribe to sim state. The subs short-circuit to nil when sim
-        ;; isn't active for the selected machine, so this is cheap.
-        ;; Copy-Mermaid settled outcome for the selected machine
-        ;; (rf2-sxw06) — nil unless a copy gesture on THIS machine has
-        ;; settled; cleared by `:rf.xray.static.machines/select`.
-        copy-status @(rf/subscribe
-                       [:rf.xray.static.machines/copy-mermaid-status
-                        selected-id])
-        sim-values (when (= sub-mode :sim)
-                     {:sim         @(rf/subscribe
-                                      [:rf.xray.static.machines/sim-state])
-                      :transitions @(rf/subscribe
-                                      [:rf.xray.static.machines/sim-available-transitions])
-                      :suggestions @(rf/subscribe
-                                      [:rf.xray.static.machines/sim-event-suggestions])
-                      :current     @(rf/subscribe
-                                      [:rf.xray.static.machines/sim-current-state])
-                      :last-trans  @(rf/subscribe
-                                      [:rf.xray.static.machines/sim-last-transition])})]
+  PURE: every helper it calls is a plain fn of its arguments."
+  [{:keys [data definitions sub-mode fit-signal copy-status sim-values]}
+   dispatch as-child]
+  (let [{:keys [rows selected-id]} data
+        row (some #(when (= selected-id (:machine-id %)) %) rows)]
     (if (nil? row)
       (empty-detail)
       (let [{:keys [machine-id state-count live-count source-coord]} row
@@ -339,22 +356,95 @@
                        :height         "100%"
                        :background     (:bg-2 tokens)
                        :color          (:text-primary tokens)}}
-         [header dispatch {:machine-id   machine-id
+         (header dispatch {:machine-id   machine-id
                            :source-coord source-coord
                            :state-count  state-count
                            :live-count   live-count
                            :definition   definition
-                           :copy-status  copy-status}]
-         [sub-strip dispatch {:machine-id machine-id
+                           :copy-status  copy-status})
+         (sub-strip dispatch {:machine-id machine-id
                               :sub-mode   sub-mode
-                              :live-count live-count}]
+                              :live-count live-count})
          [:div {:data-testid "rf-xray-static-machines-detail-body"
                 :style {:flex     "1 1 auto"
                         :min-height "0"
                         :overflow "auto"}}
-          [body dispatch {:sub-mode     sub-mode
-                          :machine-id   machine-id
-                          :definition   definition
-                          :source-coord source-coord
-                          :fit-signal   fit-signal
-                          :sim-values   sim-values}]]]))))
+          (body dispatch as-child
+                {:sub-mode     sub-mode
+                 :machine-id   machine-id
+                 :definition   definition
+                 :source-coord source-coord
+                 :fit-signal   fit-signal
+                 :sim-values   sim-values})]]))))
+
+(rf.fresco/defview detail
+  "The L4-right pane — definition detail. A FRESCO BOUNDARY
+  (rf2-k97c.3), not an `rf/reg-view`. Reads:
+
+    - `:rf.xray.static.machines/data` for the selected row +
+      enrichment (rows, total, visible, selected-id)
+    - `:rf.xray/machine-definitions` for the registrar spec map of
+      the selected machine
+    - `:rf.xray.static.machines/sub-mode` for the per-machine sub-
+      mode (defaults to :topology)
+    - `:rf.xray/machine-tab-fit-signal` for the fit-on-entry nonce
+    - `:rf.xray.static.machines/copy-mermaid-status` for the header's
+      settled Copy-Mermaid outcome
+    - the five `sim-*` slots, on the `:sim` sub-mode ONLY
+
+  The READS are `rf.fresco/sub`, plain calls the shipped collector
+  records an edge for, and THE CONDITIONAL ONES STAY CONDITIONAL: the
+  collector records an edge WHERE THE READ HAPPENS, so a branch not
+  taken contributes no edge and the Topology / Instances / Cascade modes
+  still subscribe to no sim state at all. Two reads are also SEQUENCED
+  rather than independent — `sub-mode` and `copy-mermaid-status` are
+  parameterised by the `selected-id` the first read answers — which is
+  ordinary inside a body and is the read ORDER the node lane reproduces.
+
+  The FRAME comes from React context, which the enclosing frame boundary
+  writes; the DISPATCHER is `(:dispatch (rf/capture-frame))`, core's own
+  door, which answers the boundary's DECLARED frame inside a body and
+  replaces the name `reg-view` used to inject lexically.
+
+  `r/as-element` is the `as-child` spelling for the two Reagent islands
+  — the ns docstring records why neither of the migration's usual
+  repairs is available for them.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. This pane reads nothing from props — `static.machines.panel`'s
+  own boundary mounts it with none — so it is destructured away."
+  [_props]
+  (let [{:keys [selected-id] :as data}
+        (rf.fresco/sub [:rf.xray.static.machines/data])
+        sub-mode (rf.fresco/sub [:rf.xray.static.machines/sub-mode selected-id])]
+    (detail-tree
+      {:data        data
+       :definitions (rf.fresco/sub [:rf.xray/machine-definitions])
+       :sub-mode    sub-mode
+       ;; Fit-on-entry nonce (bumped by `:rf.xray.static/select-tab
+       ;; :machines`). Threaded down to the Topology body's
+       ;; `machine-canvas/Chart` `:fit-signal` so entering the Static
+       ;; Machines tab re-frames the topology to view.
+       :fit-signal  (rf.fresco/sub [:rf.xray/machine-tab-fit-signal])
+       ;; Copy-Mermaid settled outcome for the selected machine
+       ;; (rf2-sxw06) — nil unless a copy gesture on THIS machine has
+       ;; settled; cleared by `:rf.xray.static.machines/select`.
+       :copy-status (rf.fresco/sub
+                      [:rf.xray.static.machines/copy-mermaid-status
+                       selected-id])
+       ;; Only read on the `:sim` sub-mode, so the other three modes
+       ;; record no edge on sim state at all. The subs short-circuit to
+       ;; nil when sim isn't active for the selected machine.
+       :sim-values  (when (= sub-mode :sim)
+                      {:sim         (rf.fresco/sub
+                                      [:rf.xray.static.machines/sim-state])
+                       :transitions (rf.fresco/sub
+                                      [:rf.xray.static.machines/sim-available-transitions])
+                       :suggestions (rf.fresco/sub
+                                      [:rf.xray.static.machines/sim-event-suggestions])
+                       :current     (rf.fresco/sub
+                                      [:rf.xray.static.machines/sim-current-state])
+                       :last-trans  (rf.fresco/sub
+                                      [:rf.xray.static.machines/sim-last-transition])})}
+      (:dispatch (rf/capture-frame))
+      r/as-element)))

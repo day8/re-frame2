@@ -48,9 +48,10 @@
             [day8.re-frame2-machines-viz.mermaid :as mermaid]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.static.machines.panel :as panel]
             [day8.re-frame2-xray.static.machines.persistence :as ls]
             [day8.re-frame2-xray.static.persistence :as static-persistence]
+            [day8.re-frame2-xray.test-helpers.static-machines-tree
+             :as machines-tree]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; ---- fixture ------------------------------------------------------------
@@ -124,7 +125,7 @@
     (seed-definitions! {:m/a fixture-definition})
     (frame-dispatch [:rf.xray.static.machines/select :m/a])
     (rf/with-frame :rf/xray
-      (let [tree  (panel/panel)
+      (let [tree  (machines-tree/panel-tree)
             btn   (find-copy-button tree)
             attrs (rf.test-helpers/attrs btn)]
         (is (some? btn) "the Copy Mermaid control renders")
@@ -145,7 +146,7 @@
     (seed-definitions! {})
     (frame-dispatch [:rf.xray.static.machines/select :m/a])
     (rf/with-frame :rf/xray
-      (let [tree (panel/panel)]
+      (let [tree (machines-tree/panel-tree)]
         (is (some? (rf.test-helpers/find-by-testid
                      tree "rf-xray-static-machines-detail-header"))
             "header still renders")
@@ -162,7 +163,7 @@
     (seed-definitions! {:m/a {:states {:idle {}}}})
     (frame-dispatch [:rf.xray.static.machines/select :m/a])
     (rf/with-frame :rf/xray
-      (let [tree (panel/panel)]
+      (let [tree (machines-tree/panel-tree)]
         (is (some? (rf.test-helpers/find-by-testid
                      tree "rf-xray-static-machines-detail-header"))
             "header still renders")
@@ -181,7 +182,7 @@
     (frame-dispatch [:rf.xray.static.machines/select :m/a])
     (let [captured (capture-copy!)
           on-click (rf/with-frame :rf/xray
-                     (:on-click (rf.test-helpers/attrs (find-copy-button (panel/panel)))))]
+                     (:on-click (rf.test-helpers/attrs (find-copy-button (machines-tree/panel-tree)))))]
       (is (fn? on-click) "sanity: the rendered control is wired")
       ;; Activate the REAL control. The reg-view-injected dispatcher is
       ;; the queued (async) frame dispatch, so the event lands on the
@@ -205,7 +206,7 @@
                                   :m/a]))
                 "no settled status while the write is in flight")
             (rf/with-frame :rf/xray
-              (is (nil? (find-status-span (panel/panel)))
+              (is (nil? (find-status-span (machines-tree/panel-tree)))
                   "no feedback span while the write is in flight"))
             ;; Settle success — the exact vector the real fx dispatches
             ;; when the writeText Promise resolves.
@@ -214,7 +215,7 @@
                    (frame-sub [:rf.xray.static.machines/copy-mermaid-status
                                :m/a])))
             (rf/with-frame :rf/xray
-              (let [span (find-status-span (panel/panel))]
+              (let [span (find-status-span (machines-tree/panel-tree))]
                 (is (some? span) "feedback span renders on success")
                 (is (= "status" (:role (rf.test-helpers/attrs span)))
                     "non-modal accessible status feedback")
@@ -246,7 +247,7 @@
              (frame-sub [:rf.xray.static.machines/copy-mermaid-status :m/a]))
           "rejection lands as :failed")
       (rf/with-frame :rf/xray
-        (let [span (find-status-span (panel/panel))]
+        (let [span (find-status-span (machines-tree/panel-tree))]
           (is (= "Copy failed" (rf.test-helpers/text-content span)))
           (is (not= "Copied" (rf.test-helpers/text-content span))
               "a failed write is never reported as copied"))))))
@@ -311,7 +312,7 @@
       (is (nil? (frame-sub [:rf.xray.static.machines/copy-mermaid-status
                             :m/b])))
       (rf/with-frame :rf/xray
-        (is (nil? (find-status-span (panel/panel)))
+        (is (nil? (find-status-span (machines-tree/panel-tree)))
             "no feedback span survives onto another machine's header")))))
 
 (deftest late-settlement-after-reselect-does-not-repopulate
@@ -333,4 +334,4 @@
                             :m/a]))
           "stale settlement is dropped, not recorded")
       (rf/with-frame :rf/xray
-        (is (nil? (find-status-span (panel/panel))))))))
+        (is (nil? (find-status-span (machines-tree/panel-tree))))))))

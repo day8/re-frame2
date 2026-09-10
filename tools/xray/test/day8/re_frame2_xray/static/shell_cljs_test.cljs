@@ -39,6 +39,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.mode-pill :as mode-pill]
             [day8.re-frame2-xray.static.persistence :as static-persistence]
@@ -267,13 +268,30 @@
 
 (deftest static-machines-mounts-live-panel
   (testing "rf2-o5f5f.2 — the :machines sub-tab mounts the live Static
-            Machines panel"
+            Machines panel.
+
+            RE-AUTHORED ONE LEVEL UP BY rf2-k97c.3. `static.machines.
+            panel/panel` is now an `rf.fresco/defview` behind an
+            `as-component` bridge, so this hiccup walk reaches the
+            bridge's `[:>]` interop head and stops — `rf-xray-static-
+            machines-panel` is committed by React, not present in the
+            tree. Asserting the testid here would from now on be
+            asserting the walker's reach rather than the mount, which is
+            the hollow-gate shape. What the shell owes is that the slot
+            mounts the REGISTRY's `:panel` and that no placeholder
+            renders; the boundary's own first paint is W1 in
+            `static/machines/panel_fresco_boundary_dom_cljs_test`."
     (xray-setup!)
     (rf/with-frame :rf/xray
       (frame-dispatch [:rf.xray.static/select-tab :machines])
-      (let [tree (static-shell/surface)]
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-panel"))
-            "live Machines panel mounts")
+      (let [tree  (static-shell/surface)
+            slot  (rf.test-helpers/find-by-testid
+                    tree "rf-xray-static-detail-panel-machines")
+            mount ((:panel (panel-registry/tab-by-id :static :machines)))]
+        (is (some? slot) "the :machines L4 slot renders")
+        (is (= (last slot) mount)
+            (str "the slot mounts exactly the registry's :panel value. "
+                 "Got: " (pr-str (last slot))))
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-static-placeholder-machines"))
             "no placeholder card renders for :machines")))))
 
