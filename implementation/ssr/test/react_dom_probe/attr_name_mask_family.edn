@@ -1,0 +1,34 @@
+;; GENERATED FILE — do not hand-edit.
+;;
+;; react-dom EMITTED-ATTRIBUTE-NAME evidence for the mask family
+;; (rf2-4ale). `:emitted` is the name react-dom/server wrote in front
+;; of the sentinel value; `:markup` is its whole output, kept so a
+;; future reader can see the bytes the name was read out of. The
+;; candidate names are react-dom's own `possibleStandardNames`
+;; values, not a re-frame roster. Measured by
+;; `react_dom_probe/attr_name_mask_family.cjs` against the installed
+;; package; compared with `re-frame.ssr.ui-tree` in
+;; `re_frame/ssr_attr_name_react_parity_test.clj`.
+;;
+;; Regenerate from `implementation/`:
+;;   node ssr/test/react_dom_probe/attr_name_mask_family.cjs \
+;;     > ssr/test/react_dom_probe/attr_name_mask_family.edn
+{:react-dom-version "19.3.0"
+ :generated-by "implementation/ssr/test/react_dom_probe/attr_name_mask_family.cjs"
+ :element "mask"
+ :sentinel "rf2SentinelValue"
+ :rows
+ [
+  {:react-prop "mask"
+   :emitted    "mask"
+   :markup     "<svg><mask mask=\"rf2SentinelValue\"></mask></svg>"}
+  {:react-prop "maskContentUnits"
+   :emitted    "maskContentUnits"
+   :markup     "<svg><mask maskContentUnits=\"rf2SentinelValue\"></mask></svg>"}
+  {:react-prop "maskType"
+   :emitted    "mask-type"
+   :markup     "<svg><mask mask-type=\"rf2SentinelValue\"></mask></svg>"}
+  {:react-prop "maskUnits"
+   :emitted    "maskUnits"
+   :markup     "<svg><mask maskUnits=\"rf2SentinelValue\"></mask></svg>"}
+ ]}

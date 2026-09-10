@@ -408,10 +408,21 @@
 
 (def dom-attr-aliases
   "React prop name -> the DOM attribute name react-dom/server writes when
-  the two differ — the serialiser half of the conversion table. Tracks
-  react-dom 19.2.0. Everything NOT in this map serialises as the prop name verbatim
+  the two differ — the serialiser half of the conversion table. Seeded from
+  react-dom 19.2.0; `maskType` was corrected against 19.3.0 under rf2-4ale,
+  the only emitted-name move that bead measured across the two versions (the
+  table as a whole has not been re-derived, and `standard-names` above is the
+  OTHER half — author name to React prop name — which #9576 did re-derive).
+  Everything NOT in this map serialises as the prop name verbatim
   (react-dom 19.2.0 emits e.g. `readOnly` verbatim — HTML attribute names
-  are ASCII case-insensitive)."
+  are ASCII case-insensitive).
+
+  The `keep` below inverts only `standard-names` entries whose KEY carries a
+  hyphen, which is why `masktype -> maskType` landing in `standard-names`
+  contributed nothing here: the hyphen-collapsed key is not a kebab spelling.
+  `maskType` therefore needs an explicit row, and `react_dom_probe/
+  attr_name_mask_family.cjs` + `re-frame.ssr-attr-name-react-parity-test`
+  pin that row against the installed package rather than against this prose."
   (merge (into {}
                (keep (fn [[attribute-key attribute-value]]
                        (when (str/includes? attribute-key "-")
@@ -419,6 +430,7 @@
                standard-names)
          {"className"    "class"
           "htmlFor"      "for"
+          "maskType"     "mask-type"
           "tabIndex"     "tabindex"
           "xlinkActuate" "xlink:actuate"
           "xlinkArcrole" "xlink:arcrole"
