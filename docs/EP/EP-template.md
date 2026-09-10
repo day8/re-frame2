@@ -1,8 +1,8 @@
-# EP-NNNN: <Title>
+# EP-NNNN: &lt;Title&gt;
 
 Status: proposal
 Type: standards-track
-Created: <YYYY-MM-DD>
+Created: &lt;YYYY-MM-DD&gt;
 
 <!--
 AUTHORING TEMPLATE — copy this file to `EP-NNNN-<slug>.md`, fill it in, and
