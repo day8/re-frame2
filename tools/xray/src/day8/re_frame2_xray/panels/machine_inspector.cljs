@@ -543,8 +543,16 @@
        ;; ordinary re-render, so the per-epoch repaint needs no remount.
        ;; Re-fitting on navigation rides the orthogonal `:fit-signal`
        ;; nonce (rf2-6tw7t). See `h/focused-event-section-key`.
-       (with-meta (focused-event-section cascade record)
-         {:key (h/focused-event-section-key target-frame record)})])))
+       ;; rf2-a38l — KEYED FRAGMENT rather than `with-meta` on the vector
+       ;; the call returns. Reagent's `get-react-key` reads that metadata,
+       ;; but Fresco's codec takes a literal `:key` from an ATTRIBUTE MAP
+       ;; and reads Clojure metadata nowhere — so under a boundary this
+       ;; section would keep one identity across epochs and the remount
+       ;; this key exists to force would silently stop happening.
+       ;; `focused-event-section` answers hiccup whose own attribute map
+       ;; is not ours to write into, so the key rides the fragment.
+       [:<> {:key (h/focused-event-section-key target-frame record)}
+        (focused-event-section cascade record)]])))
 
 (defn- blank-state
   "Rendered when the focused event has no machine activity in its

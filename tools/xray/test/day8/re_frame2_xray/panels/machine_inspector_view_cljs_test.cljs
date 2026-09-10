@@ -16,7 +16,12 @@
   hiccup tree by `data-testid` rather than mounting to the DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
+            [reagent.core :as r]
             [re-frame.core :as rf]
+            ;; rf2-a38l — the codec's own hiccup→element door, so the
+            ;; focused-event section's key is graded where a Fresco
+            ;; boundary would actually read it rather than at `(meta …)`.
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.frame :as rf.frame]
             ;; Boot the optional machines artefact's late-bind hooks so
             ;; `reg-machine*` resolves rather than throwing
@@ -1252,10 +1257,41 @@
                          (.startsWith prefix))))
           (tree-seq (some-fn vector? seq?) meta-preserving-children tree)))
 
-(deftest focused-event-sections-carry-key-meta
-  (testing "focused-event-section per-record for-loop ships per-section
-            children carrying :key meta on the returned [:section …]
-            vector (rf2-ppzid)"
+;; rf2-a38l — graded AT THE RENDERER, not at `(meta …)`. `(:key (meta
+;; node))` is hollow in both directions: it passes on metadata React
+;; never sees and fails on a key that reaches React perfectly well. The
+;; section's key rides a KEYED FRAGMENT, which Reagent and Fresco's
+;; codec both honour; the codec door is the half that can see a revert
+;; to `with-meta`, since it reads Clojure metadata nowhere.
+
+;; Both doors are asked about the keyed node with its CHILDREN DROPPED
+;; (`subvec … 0 2` — head plus attribute map). That is deliberate and it
+;; does not weaken the question: `:key` is read off the node's own
+;; attribute map by both renderers, so dropping the subtree changes
+;; nothing about the answer. It is necessary because the codec lowers
+;; children EAGERLY, and this section's subtree still contains a plain
+;; function in head position — `[machine-canvas/Chart …]` and friends —
+;; which the codec refuses outright as HD-016 `:rf.error/fresco-bad-head`.
+;; That refusal is the Fresco MIGRATION's business (those heads become
+;; views when the panel crosses); it is a different defect from this one,
+;; and letting it throw here would hide the key answer behind it.
+
+(defn- reagent-key
+  "The key Reagent hands React — meta OR props, so it cannot see the
+  defect alone; it pins the sweep as a no-op today."
+  [node]
+  (.-key (r/as-element (subvec node 0 2))))
+
+(defn- fresco-key
+  "The key a Fresco boundary would commit, read off the node's own
+  attribute map. nil for a meta-only key, which is the whole point."
+  [node]
+  (.-key (rf.fresco.impl.codec/as-element (subvec node 0 2))))
+
+(deftest focused-event-sections-reach-react-with-a-key
+  (testing "focused-event-section ships a per-section child whose key
+            reaches React on BOTH substrates (rf2-ppzid; regraded at the
+            renderer under rf2-a38l)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login :checkout/flow])
@@ -1277,13 +1313,22 @@
       (focus-epoch! 1)
       (let [tree     (machine-inspector/Panel)
             sections (raw-find-all-by-testid-prefix
-                       tree "rf-xray-machine-focused-event-section-")]
+                       tree "rf-xray-machine-focused-event-section-")
+            ;; The keyed sibling is the fragment the host <div> holds,
+            ;; not the [:section …] the call answers.
+            host     (first (raw-find-all-by-testid-prefix
+                              tree "rf-xray-machine-focused-event"))
+            keyed    (remove nil? (drop 2 host))]
         (when (seq sections)
           (doseq [section sections]
-            (is (vector? section) "focused-event-section is a hiccup vector")
-            (is (some? (some-> (meta section) :key))
-                (str "focused-event-section carries :key meta — got "
-                     (pr-str (meta section))))))))))
+            (is (vector? section) "focused-event-section is a hiccup vector"))
+          (is (= 1 (count keyed)) "exactly one keyed section child")
+          (doseq [node keyed]
+            (is (some? (fresco-key node))
+                (str "focused-event-section key reaches a Fresco boundary — got "
+                     (pr-str (fresco-key node))))
+            (is (= (reagent-key node) (fresco-key node))
+                "the same key reaches React on both substrates")))))))
 
 ;; ---- (6) rf2-3d987 layout fixes -----------------------------------------
 ;;
