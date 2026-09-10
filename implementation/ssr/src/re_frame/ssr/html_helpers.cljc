@@ -517,6 +517,35 @@
 (def ^:private jsx-source-prop-names
   #{"_jsxFileName" "_jsxLineNumber" "_jsxColumnNumber"})
 
+;; rf2-gw87 — REACT'S TWO STRUCTURAL SLOTS. `key` and `ref` are read off a
+;; props map by React itself (the JSX transform / `createElement`) and are
+;; never handed to the host as DOM attributes: `key` is reconciliation
+;; identity and `ref` is an instance handle, and neither has an HTML wire
+;; representation. This emitter passed both straight through, so
+;; `[:div {:key "k"}]` served `<div key="k">` and a string `[:div {:ref "R"}]`
+;; served `<div ref="R">` — measured live before this fix.
+;;
+;; A function-valued `:ref` was already dropped by the `fn?` arm below, which
+;; is what kept this narrow: the REACHABLE case is `:key`, and `:key` on a
+;; native tag is ordinary application markup rather than a curiosity — the
+;; same `[:div {:key i}]`-inside-a-`for` idiom that produced rf2-3357's
+;; fragment defect one slot over.
+;;
+;; WHY DROPPING IS RIGHT RATHER THAN MERELY TIDY. The client paints no such
+;; attribute, so emitting one server-side is precisely a hydration
+;; divergence — the emitter's whole contract here is agreeing with
+;; react-dom/server, and react-dom/server emits neither. A custom element
+;; genuinely wanting a `key` attribute cannot get one out of React either,
+;; so refusing it costs nothing that was reachable on the client.
+;;
+;; MATCHED CASE-SENSITIVELY, unlike the event-handler and prototype-pollution
+;; rosters above. React extracts these two slots by exact JS property name,
+;; so `:Key` really does reach the host as an ordinary unknown prop; matching
+;; loosely here would make the SERVER strip a name the client paints, which
+;; is the divergence this entry exists to remove, pointed the other way.
+(def ^:private structural-slot-names
+  #{"key" "ref"})
+
 (defn strip-prop?
   "True when the attribute `[k v]` MUST be dropped at SSR static-markup
   emission:
@@ -537,17 +566,35 @@
       shims (the framework itself does not emit them; see Spec 006
       §Historical: JSX source-coord props). They have no HTML wire
       representation and would fail the HTML5 attribute-name grammar.
+    - React's two STRUCTURAL SLOTS, `:key` and `:ref` (rf2-gw87) —
+      reconciliation identity and an instance handle, both consumed by
+      React before the host sees them and neither serialised by
+      react-dom/server. Matched case-sensitively; see
+      `structural-slot-names`.
 
   Mirrors react-dom/server behaviour. Recognised here are exactly the
   props that are *safe to silently drop*; malformed keys (breakout chars)
   are NOT this fn's concern — they surface at the `validate-attr-name!`
-  grammar gate (rf2-vl8ir)."
+  grammar gate (rf2-vl8ir).
+
+  ONE ROSTER, READ BY EVERY SSR SURFACE THAT EMITS AN ATTRIBUTE. This fn
+  is called only from `attr-string` below, and `attr-string` is what the
+  hiccup body emitter (`emit/emit-element`), the streaming shell walker
+  (`streaming/walk-dom-tag`, via the `emit/attr-string` re-export), the
+  head emitter (`head.emit`'s `<meta>` / `<link>` / `<script>`) and the
+  Ring host shell (`ring.shell`'s `<html>` / `<body>`) all serialise
+  through. That is the whole reason rf2-gw87 was fixed HERE rather than
+  as a `dissoc` local to one emitter: a second stripping roster is a
+  drift surface, and a local fix would have left the streaming path
+  divergent from the non-streaming one — the class of split that
+  produced rf2-n2y3 next door."
   [[k v]]
   (let [nm (name k)]
     (or (event-handler-name? nm)
         (fn? v)
         (contains? reserved-prop-keys (str/lower-case nm))
-        (contains? jsx-source-prop-names nm))))
+        (contains? jsx-source-prop-names nm)
+        (contains? structural-slot-names nm))))
 
 ;; ---- boolean attribute-value classes (rf2-r9kf) ---------------------------
 ;;

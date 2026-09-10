@@ -11,9 +11,15 @@
       round-trip (rf2-1uex4 — HTML attribute names are case-insensitive,
       so the canonical lowercase + arbitrary `on`-prefix casings were the
       live XSS hole the camelCase/kebab-only regex missed).
-    - function-valued prop values, and
+    - function-valued prop values,
     - reserved prototype-pollution keys (`__proto__` / `constructor` /
-      `prototype`),
+      `prototype`), and
+    - React's two STRUCTURAL SLOTS, `:key` and `:ref` (rf2-gw87) —
+      reconciliation identity and an instance handle, consumed by React
+      before the host sees them and serialised by react-dom/server as
+      neither. Unlike the handler and prototype rosters this one matches
+      CASE-SENSITIVELY, because React extracts the two slots by exact JS
+      property name,
 
   matching react-dom/server behaviour. The filter is the per-attribute
   prop-name position in the locked emitter composition order, so it runs
@@ -25,7 +31,9 @@
   the head emitter, and the streaming emitter)."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
+            [re-frame.ssr.head.emit :as rf.ssr.head.emit]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
+            [re-frame.ssr.streaming :as rf.ssr.streaming]
             [re-frame.ssr.emit :as rf.ssr.emit]))
 
 (deftest attr-string-strips-event-handler-props
@@ -112,6 +120,117 @@
     (testing "the match is case-insensitive on the normalised name"
       (is (= " id=\"x\""
              (rf.ssr.html-helpers/attr-string {(keyword "Constructor") "polluted" :id "x"}))))))
+
+(deftest attr-string-drops-reacts-structural-slots
+  (testing "rf2-gw87 — `:key` and `:ref` are React's two STRUCTURAL SLOTS.
+            React reads them off the props map itself and hands the host
+            neither, so react-dom/server serialises neither. This emitter
+            passed both straight through. Measured before the fix:
+            `[:div {:key \"k\"}]` served `<div key=\"k\">` and a string
+            `[:div {:ref \"R\"}]` served `<div ref=\"R\">`."
+    (testing ":key is dropped"
+      (is (= " id=\"x\"" (rf.ssr.html-helpers/attr-string {:key "k" :id "x"})))
+      (is (= " id=\"x\"" (rf.ssr.html-helpers/attr-string {:key 1 :id "x"}))
+          "a numeric :key — the `for`-loop spelling — drops too")
+      (is (= "" (rf.ssr.html-helpers/attr-string {:key "k"}))
+          "a props map that is ONLY a :key yields the empty string, not a
+           stray leading space"))
+
+    (testing ":ref is dropped whatever its value"
+      (is (= " id=\"x\"" (rf.ssr.html-helpers/attr-string {:ref "R" :id "x"}))
+          "a STRING ref — illegal in React, and the arm that was reachable
+           past the fn? filter")
+      (is (= " id=\"x\"" (rf.ssr.html-helpers/attr-string {:ref (fn [_]) :id "x"}))
+          "a function-valued ref was already dropped by the fn? arm and
+           still is"))
+
+    (testing "the match is CASE-SENSITIVE, unlike the handler and
+              prototype-pollution rosters. React extracts these two slots
+              by exact JS property name, so `:Key` reaches the host as an
+              ordinary unknown prop and the client paints it — stripping it
+              here would be the same server/client divergence pointed the
+              other way."
+      (is (str/includes? (rf.ssr.html-helpers/attr-string {:Key "k"}) "Key=\"k\""))
+      (is (str/includes? (rf.ssr.html-helpers/attr-string {:REF "r"}) "REF=\"r\"")))
+
+    (testing "the filter does not over-reach onto names that merely start
+              with or contain the two words"
+      (doseq [[k expected] {:keygen        "keygen=\"v\""
+                            :data-key      "data-key=\"v\""
+                            :aria-keyshortcuts "aria-keyshortcuts=\"v\""
+                            :referrerpolicy "referrerpolicy=\"v\""
+                            :data-ref      "data-ref=\"v\""}]
+        (is (str/includes? (rf.ssr.html-helpers/attr-string {k "v"}) expected)
+            (str k " is an ordinary attribute and must round-trip"))))))
+
+(deftest structural-slots-drop-on-every-emitter-that-shares-the-roster
+  (testing "rf2-gw87 — the whole argument for fixing `strip-prop?` rather
+            than `dissoc`-ing in one emitter is that `attr-string` is the
+            single per-attribute emission point every SSR surface goes
+            through. A change that only demonstrated the body emitter would
+            not have shown the thing that justified its own location, so
+            each surface is exercised here."
+    (testing "the hiccup BODY emitter (emit/render-to-string)"
+      (is (= "<div></div>" (rf.ssr.emit/render-to-string [:div {:key "k"}] {})))
+      (is (= "<div></div>" (rf.ssr.emit/render-to-string [:div {:ref "R"}] {})))
+      (is (= "<div id=\"a\">x</div>"
+             (rf.ssr.emit/render-to-string [:div {:key 1 :id "a"} "x"] {}))
+          "the surviving attributes are untouched")
+      (is (= "<li>1</li><li>2</li>"
+             (rf.ssr.emit/render-to-string
+               (into [:<>] (for [i [1 2]] [:li {:key i} i])) {}))
+          "the canonical keyed-list idiom — the reachable case — is clean"))
+
+    (testing "the STREAMING shell walker (streaming/render-shell), which
+              reaches this roster through the `emit/attr-string` re-export"
+      (is (= "<div></div>"
+             (:shell-html (rf.ssr.streaming/render-shell [:div {:key "k"}]))))
+      (is (= "<div></div>"
+             (:shell-html (rf.ssr.streaming/render-shell [:div {:ref "R"}]))))
+      (is (= "<main><div>x</div></main>"
+             (:shell-html
+               (rf.ssr.streaming/render-shell [:main [:div {:key "k"} "x"]])))
+          "nested under a DOM tag, where walk-dom-tag does the merging"))
+
+    (testing "streaming and non-streaming agree, which is the property the
+              shared roster exists to guarantee"
+      (doseq [tree [[:div {:key "k"}]
+                    [:div {:ref "R"}]
+                    [:div {:key 1 :id "a"} "x"]
+                    [:main [:div {:key "k"} "x"]]
+                    [:ul (for [i [1 2]] [:li {:key i} i])]]]
+        (is (= (rf.ssr.emit/render-to-string tree {})
+               (:shell-html (rf.ssr.streaming/render-shell tree)))
+            (str "emitters disagree on " (pr-str tree)))))
+
+    (testing "the HEAD emitter, and this one is a DELIBERATE consequence
+              rather than a side effect. `strip-prop?` is shared, so
+              widening it changes head output too — measured before the
+              change, `{:meta [{:key \"m1\" :name \"a\"}]}` emitted
+              `<meta key=\"m1\" name=\"a\">`. That is the SAME defect in the
+              same direction: react-dom/server would emit no `key` on a
+              `<meta>` either, and a head model built from a keyed component
+              list is exactly where a stray `:key` comes from. Pinned so the
+              shared-roster consequence is a recorded decision rather than
+              something a future reader discovers."
+      (is (= "<meta name=\"a\" content=\"b\">"
+             (rf.ssr.head.emit/head-model->html
+               {:meta [{:key "m1" :name "a" :content "b"}]})))
+      (is (= "<link rel=\"stylesheet\" href=\"/a.css\">"
+             (rf.ssr.head.emit/head-model->html
+               {:link [{:key "l1" :rel "stylesheet" :href "/a.css"}]})))
+      (is (= "<script src=\"/a.js\"></script>"
+             (rf.ssr.head.emit/head-model->html
+               {:script [{:key "s1" :src "/a.js"}]})))
+      (is (= "<head><title>T</title><meta charset=\"utf-8\"></head>"
+             (rf.ssr.head.emit/head-model->html
+               {:title "T" :meta [{:key 1 :charset "utf-8"}]} {:wrap? true}))))
+
+    (testing "the `:html-attrs` / `:body-attrs` bags the Ring host shell
+              stamps onto `<html>` / `<body>` read the same roster — pinned
+              at `attr-string`, which is the fn `ring.shell` calls"
+      (is (= " lang=\"en\"" (rf.ssr.html-helpers/attr-string {:key "k" :lang "en"})))
+      (is (= " class=\"c\"" (rf.ssr.html-helpers/attr-string {:ref "R" :class "c"}))))))
 
 (deftest attr-string-normal-attrs-still-emit
   (testing "the filter does not over-reach — ordinary attrs round-trip"
