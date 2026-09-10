@@ -207,6 +207,31 @@
    (stub-pill stubbed?)])
 
 ;; ---- section bodies ----------------------------------------------------
+;;
+;; rf2-twil — `edn/inspect` IS CALLED, NEVER PUT IN HEAD POSITION.
+;;
+;; `views/edn-widget/inspect` is a plain `defn`. Under Reagent a plain
+;; function in hiccup head position is a form-1 component and renders
+;; happily, so `[edn/inspect v k]` worked; under Fresco it is a LOUD ERROR
+;; by design (HD-016, `:rf.error/fresco-bad-head`), and the throw escapes
+;; with no error boundary above it — React unmounts the entire Xray root,
+;; which presents as a panel that never appears rather than as an error.
+;; That is exactly the shape of the rf2-qhoj P1, one token wide.
+;;
+;; The four sites below were this tree's ONLY head-position users of
+;; `inspect`; the other six caller files already call it. Calling it is
+;; correct on BOTH substrates — the value rendered is the vector `inspect`
+;; RETURNS — so this is the shape that survives the migration, and the
+;; facade keeps its one-renderer-many-call-sites property because
+;; `inspect`'s own shape is untouched.
+;;
+;; NOT THE SAME THING AS BEING FRESCO-READY. `inspect` returns
+;; `[ei/edn-inspector …]`, a `reg-view` head, which Fresco's codec also
+;; refuses — `views/edn_inspector.cljs`'s own ns docstring puts it plainly:
+;; "Only `edn-inspector-view` is a head in a Fresco body." The day
+;; `panels/ManagedFxList` becomes a boundary, these four calls become
+;; `edn/inspect-view`, which exists for precisely that and takes the same
+;; `node-key`. Until then the Reagent head is the correct one.
 
 (defn- request-section
   [{:keys [req surface fx-id]}]
@@ -218,7 +243,7 @@
     [:span {:style {:color (:text-tertiary tokens)}} "(no request payload)"]
 
     :else
-    [edn/inspect req (str "managed-fx/" (h/format-fx-id fx-id) "/req")]))
+    (edn/inspect req (str "managed-fx/" (h/format-fx-id fx-id) "/req"))))
 
 (defn- wire-section
   "Wire timing section. When the surface emits per-phase wire data we
@@ -244,8 +269,8 @@
                     :font-weight 600
                     :margin-bottom "4px"}}
       (str "✗ " (or (some-> failure :kind name) "FAILURE"))]
-     [edn/inspect (or (:tags failure) failure)
-      (str "managed-fx/" (h/format-fx-id fx-id) "/failure")]]
+     (edn/inspect (or (:tags failure) failure)
+                  (str "managed-fx/" (h/format-fx-id fx-id) "/failure"))]
 
     (and (nil? res) (= surface :flow))
     [:span {:style {:color (:text-tertiary tokens)}}
@@ -256,7 +281,7 @@
      "(no response payload yet)"]
 
     :else
-    [edn/inspect res (str "managed-fx/" (h/format-fx-id fx-id) "/res")]))
+    (edn/inspect res (str "managed-fx/" (h/format-fx-id fx-id) "/res"))))
 
 (defn- handler-section
   "Renders the dispatched handler event vector + a click-to-focus
@@ -269,7 +294,7 @@
                    :gap "12px"
                    :flex-wrap "wrap"}}
      [:div {:style {:flex 1 :min-width 0}}
-      [edn/inspect handler "managed-fx/handler"]]
+      (edn/inspect handler "managed-fx/handler")]
      [:button {:data-testid "rf-xray-managed-fx-focus-handler"
                :on-click    #(dispatch [:rf.xray/focus-event dispatch-id frame])
                :style       {:background  "transparent"

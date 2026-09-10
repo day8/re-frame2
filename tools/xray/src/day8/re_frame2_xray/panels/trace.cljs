@@ -822,9 +822,21 @@
          ;; `:rf.xray.trace/ops` table-id; the flat row list renders its
          ;; own resizable-table with `:header? false` reading the SAME
          ;; slot, so a drag here re-aligns every row.
-         ^{:key "ops-header"}
+         ;; rf2-twil — the React key lives in this props map rather than as
+         ;; `^{:key "ops-header"}` reader meta on the vector below. The meta
+         ;; form was CORRECT here and is the sibling rf2-hxfy measured
+         ;; against (`REACT .-key ["ops-header" nil]`): reader meta rides a
+         ;; vector LITERAL, and Reagent reads meta THEN props. But Fresco's
+         ;; codec reads `:key` from the ATTRIBUTE MAP and reads Clojure
+         ;; metadata NOWHERE, so faithfully preserving the meta form through
+         ;; the migration would preserve a NO-OP — the key silently stops
+         ;; reaching React with nothing on screen to say so. The props map is
+         ;; the one place BOTH substrates read, which is why the sibling
+         ;; below already keys there. `resizable-table` destructures named
+         ;; opts and never spreads them, so `:key` is inert for its body.
          [rt/resizable-table
-          {:table-id        trace-ops-table-id
+          {:key             "ops-header"
+           :table-id        trace-ops-table-id
            :columns         trace-op-columns
            :rows            []
            :row-key         (fn [_ _] "")

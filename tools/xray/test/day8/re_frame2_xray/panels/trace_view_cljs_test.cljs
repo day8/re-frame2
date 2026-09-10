@@ -952,3 +952,48 @@
         (is (every? some? ks) "both feed children reach React with a key")
         (is (= 2 (count (distinct ks))) "sibling keys are distinct")))))
 
+;; ---- both feed keys live where BOTH substrates read (rf2-twil) -----------
+
+(deftest trace-feed-children-keys-live-in-the-attribute-map
+  (testing "rf2-twil — the `ops-header` key was CORRECT and is the sibling
+            rf2-hxfy measured against: `^{:key \"ops-header\"}` rode a
+            vector LITERAL, and Reagent reads meta THEN props, so React
+            received it. Fresco's codec reads `:key` from the ATTRIBUTE MAP
+            and reads Clojure metadata NOWHERE — so carrying the meta form
+            faithfully through the migration would have carried a NO-OP,
+            with the key silently ceasing to reach React and nothing on
+            screen to say so. It now rides the props map, which is the one
+            place both substrates read.
+
+            The row above pins the REAGENT renderer and stays green either
+            way, so it cannot see this move; that is why this row exists
+            and why its first assertion is the attribute map. A
+            `(meta child)` assertion would be hollow in BOTH directions —
+            it reads nil at a repaired site precisely because the key is in
+            props — so metadata appears here only as the negative below.
+
+            Not a Fresco DOM row: `rt/resizable-table` is a `reg-view`, a
+            head Fresco's codec refuses, so neither child can be handed to
+            `codec/as-element` until that widget grows a boundary."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-history!
+        [(mk-epoch 1 1
+                   [(mk-trace {:id 11 :op-type :rf.event :operation :rf.event/dispatched
+                               :time 100 :dispatch-id 1})])])
+      (focus! 1)
+      (let [kids  (feed-children (trace/Panel))
+            props (mapv second kids)]
+        (is (= 2 (count kids)))
+        ;; The Fresco-side read. RED before the repair: `[nil "rows"]`.
+        (is (= ["ops-header" "rows"] (mapv :key props))
+            "each feed child carries :key in its attribute map")
+        ;; The Reagent-side read, kept beside it so one attribute is shown
+        ;; to satisfy both rather than trading one substrate for the other.
+        (is (= ["ops-header" "rows"] (mapv #(.-key (r/as-element %)) kids))
+            "and React still receives it under Reagent")
+        ;; Guard the guard: neither key is also in metadata, so the
+        ;; assertion above cannot be passing on a shape Fresco can't see.
+        (is (every? nil? (mapv #(:key (meta %)) kids))
+            "no feed child depends on reader metadata")))))
+

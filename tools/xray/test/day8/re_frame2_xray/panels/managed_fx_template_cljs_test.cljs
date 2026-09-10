@@ -9,6 +9,13 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [reagent.core :as r]
+            ;; rf2-twil — the HD-016 row's positive control is the
+            ;; renderer's own head classifier, so the codec is the
+            ;; instrument (same reason `cancellation_cascade_cljs_test`
+            ;; requires it).
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
+            [day8.re-frame2-xray.views.edn-widget :as edn-widget]
+            [day8.re-frame2-xray.views.edn-inspector :as edn-inspector]
             [day8.re-frame2-xray.panels.managed-fx-template :as template]
             [day8.re-frame2-xray.panels.managed-fx-helpers :as h]))
 
@@ -195,6 +202,73 @@
       ;; presence here too rather than letting this pass on absence.
       (is (every? some? once))
       (is (= once twice)))))
+
+;; ---- HD-016: `edn/inspect` is CALLED, never a hiccup head (rf2-twil) -------
+;;
+;; `views/edn-widget/inspect` is a plain `defn`. Under Reagent a plain
+;; function in hiccup head position is a form-1 component, so the four
+;; `[edn/inspect …]` sites this file used to carry rendered happily; under
+;; Fresco a plain function in head position is a LOUD ERROR by design
+;; (HD-016), and on this panel's render path there is no error boundary
+;; above it — the throw escapes and React unmounts the entire Xray root,
+;; which presents as a panel that never appears rather than as an error.
+;; That is the rf2-qhoj P1, and it was one token wide there too.
+;;
+;; The instrument is Fresco's OWN head classifier rather than a shape
+;; assertion of ours, so the zero below is the renderer's answer and not
+;; a claim about what we think the renderer would say.
+;;
+;; WHY THIS IS NOT A FRESCO DOM ROW. A DOM row would mount the panel
+;; through the codec, which is not reachable for this file today: the
+;; value `inspect` returns is `[ei/edn-inspector …]`, a `reg-view` head,
+;; which the codec also refuses — `views/edn_inspector.cljs` says it
+;; outright, "Only `edn-inspector-view` is a head in a Fresco body" — and
+;; the panel's own mount, `panels/ManagedFxList`, is still a `reg-view`.
+;; So the repair below removes ONE of two blocking classes; the other is
+;; the migration's, and the day it happens these four calls become
+;; `edn/inspect-view`. Asserting only what is actually true here is the
+;; point: a row claiming Fresco-readiness would be the hollow one.
+
+(defn- hiccup-vectors
+  "Every hiccup vector in `node`, root included, walked structurally.
+  Deliberately NOT through `rf.test-helpers/expand-tree`, which rebuilds
+  nested vectors with `mapv` — it would substitute its own vectors for
+  the ones under test and `identical?` below would answer about the
+  rebuild rather than about the panel."
+  [node]
+  (cond
+    (vector? node) (cons node (mapcat hiccup-vectors (rest node)))
+    (seq? node)    (mapcat hiccup-vectors node)
+    :else          nil))
+
+(defn- hiccup-heads [node]
+  (map first (hiccup-vectors node)))
+
+(deftest inspect-is-called-never-placed-in-head-position
+  (testing "rf2-twil — the four `edn/inspect` sites are CALLS. In head
+            position they are four HD-016 throws the day this panel's
+            mount becomes a Fresco boundary; called, they are correct on
+            both substrates and the rendered value is unchanged."
+    (let [r     (record {:surface     :http
+                         :fx-id       :rf.http/managed
+                         :status      :ok
+                         :http-status 200
+                         :handler     [:user/profile-loaded {:id 1}]})
+          heads (hiccup-heads (template/record-panel r))]
+      ;; Positive control, taken from the renderer itself: the plain fn IS
+      ;; a bad head under Fresco. Without this the zero below could mean
+      ;; a dead probe just as easily as an absent head.
+      (is (= :invalid (rf.fresco.impl.codec/head-kind edn-widget/inspect))
+          "Fresco's own classifier grades the plain fn an invalid head")
+      ;; The repair.
+      (is (zero? (count (filter #(identical? edn-widget/inspect %) heads)))
+          "`edn/inspect` appears in head position nowhere in this panel")
+      ;; And the value is still rendered — the vector `inspect` RETURNS is
+      ;; in the tree. Pre-repair this read zero, because `inspect` was
+      ;; never called; so the pair moves red→green together and neither
+      ;; passes on an empty tree.
+      (is (pos? (count (filter #(identical? edn-inspector/edn-inspector %) heads)))
+          "the inspector the call form returns is present in the tree"))))
 
 ;; ---- "app-db wasn't updated" highlight: OK status + empty paths-touched ----
 
