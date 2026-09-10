@@ -220,8 +220,8 @@
           (into [:ul {:style {:list-style "none" :margin 0 :padding 0}}]
                 (concat
                   (for [row shown]
-                    ^{:key (:slug row)}
-                    [:li {:data-testid (str "rf-xray-" panel-id "-boundary-" (:slug row))
+                    [:li {:key         (:slug row)
+                          :data-testid (str "rf-xray-" panel-id "-boundary-" (:slug row))
                           :style       row-style}
                      [:div
                       ;; The VIEW leads when the producer names it — that is
@@ -261,8 +261,8 @@
          (into [:ul {:style {:list-style "none" :margin 0 :padding 0}}]
                (concat
                  (for [row shown]
-                   ^{:key (:slug row)}
-                   [:li {:data-testid (str "rf-xray-" panel-id "-edge-" (:slug row))
+                   [:li {:key         (:slug row)
+                         :data-testid (str "rf-xray-" panel-id "-edge-" (:slug row))
                          :style       row-style}
                     ;; The PROJECTED QUERY, not the bare sub-id. `[:row 1]`
                     ;; and `[:row 2]` are one registration and two cells, and
@@ -302,8 +302,8 @@
          (into [:ol {:style {:list-style "none" :margin 0 :padding 0}}]
                (concat
                  (for [[i row] (map-indexed vector shown)]
-                   ^{:key i}
-                   [:li {:data-testid (str "rf-xray-" panel-id "-intent-" (:slug row))
+                   [:li {:key         i
+                         :data-testid (str "rf-xray-" panel-id "-intent-" (:slug row))
                          :style       row-style}
                     [:div [:span {:style {:font-family mono-stack}}
                            (hh/format-id (:event-id row))]
@@ -339,8 +339,8 @@
          (into [:ul {:style {:list-style "none" :margin 0 :padding 0}}]
                (concat
                  (for [row shown]
-                   ^{:key (:slug row)}
-                   [:li {:data-testid (str "rf-xray-" panel-id "-explain-" (:slug row))
+                   [:li {:key         (:slug row)
+                         :data-testid (str "rf-xray-" panel-id "-explain-" (:slug row))
                          :style       row-style}
                     ;; The frame rides beside the label. Frames are isolated
                     ;; contexts, so one query read in two of them is two facts
@@ -454,14 +454,14 @@
          [:div (:says r)]
          (into [:ul {:style {:margin "4px 0 0 16px" :padding 0}}]
                (for [n (:next r)]
-                 ^{:key (str (:class n))}
-                 [:li {:data-testid (str stem "-refusal-" (name (:class n)))}
+                 [:li {:key         (str (:class n))
+                       :data-testid (str stem "-refusal-" (name (:class n)))}
                   (str (:label n) " — " (:authority n))]))])
       (into [:ol {:data-testid (str stem "-loop")
                   :style {:margin "6px 0 0 16px" :padding 0
                           :color (:text-tertiary tokens)}}]
             (for [[i s] (map-indexed vector (:working-loop advice))]
-              ^{:key i} [:li s]))]]))
+              [:li {:key i} s]))]]))
 
 (defn- advisor-view
   [{:keys [advice envelope]}]
@@ -470,7 +470,12 @@
     [:div {:data-testid (str "rf-xray-" panel-id "-advisor")}
      (or (presence-note (hh/presence envelope (empty? rows)) :advisor)
          (into [:ol {:style {:list-style "none" :margin 0 :padding 0}}]
-               (concat (for [row shown] ^{:key (:slug row)} [advice-row row])
+               ;; rf2-a38l — KEYED FRAGMENT rather than `^{:key …}` reader
+               ;; meta (Reagent honours it, Fresco's codec reads it
+               ;; nowhere). `advice-row` takes its row positionally, so
+               ;; there is no props map at index 1 to hold the key.
+               (concat (for [row shown]
+                         [:<> {:key (:slug row)} [advice-row row]])
                        [(overflow/overflow-row {:panel-id     (str panel-id "-advisor")
                                                 :over-cap?    over?
                                                 :hidden-count hidden})])))
@@ -483,8 +488,8 @@
       [:div "Three of the five pressure classes are not measured here:"]
       (into [:ul {:style {:margin "4px 0 0 16px" :padding 0}}]
             (for [c (:unmeasured advice)]
-              ^{:key (str (:class c))}
-              [:li {:data-testid (str "rf-xray-" panel-id "-advisor-unmeasured-"
+              [:li {:key         (str (:class c))
+                    :data-testid (str "rf-xray-" panel-id "-advisor-unmeasured-"
                                       (name (:class c)))}
                [:strong (:label c)] " — " (:authority c) ". " (:why c)]))]]))
 
@@ -522,8 +527,12 @@
    (if (nil? slice)
      (presence-note :idle :causal)
      (into [:ol {:style {:list-style "none" :margin 0 :padding 0}}]
+           ;; rf2-a38l — KEYED FRAGMENT rather than `^{:key …}` reader meta
+           ;; (Reagent honours it, Fresco's codec reads it nowhere).
+           ;; `causal-link` takes its link positionally, so there is no
+           ;; props map at index 1 to hold the key.
            (for [link (:links slice)]
-             ^{:key (name (:id link))} [causal-link link])))])
+             [:<> {:key (name (:id link))} [causal-link link]])))])
 
 ;; ---- the sub-strip and the panel -----------------------------------------
 
@@ -539,8 +548,8 @@
                :role        "tablist"
                :style       strip-style}]
         (for [{:keys [id label asks]} hh/sub-modes]
-          ^{:key id}
-          [:button {:data-testid   (str "rf-xray-" panel-id "-sub-" (name id))
+          [:button {:key           id
+                    :data-testid   (str "rf-xray-" panel-id "-sub-" (name id))
                     :role          "tab"
                     :aria-selected (= id selected)
                     :title         asks
