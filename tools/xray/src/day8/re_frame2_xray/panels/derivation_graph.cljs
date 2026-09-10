@@ -244,8 +244,12 @@
     ;; rf2-k97c.3 — this was `^{:key (name role)}` reader metadata on a
     ;; `when-let` FORM. Metadata on a source list is discarded when the
     ;; form returns a fresh vector, so NO key ever reached React — the
-    ;; same silently-inert defect rf2-ppzid records and #9578 found in
-    ;; `routing.cljs`'s route table. The key now sits in the row's own
+    ;; same silently-inert defect #9578 found in `routing.cljs`'s route
+    ;; table. (Neighbouring comments in this tree cite `rf2-ppzid` for it;
+    ;; that id resolves to no issue in the live ledger — 0 records ARE it
+    ;; against 3 that merely mention it — so the checkable citation is
+    ;; #9578, and rf2-vw80 for the surviving `with-meta` instances.) The
+    ;; key now sits in the row's own
     ;; attribute map, and the absent-role case is a `:when` on the
     ;; comprehension rather than a nil the key was riding on anyway.
     (for [role h/edge-roles
