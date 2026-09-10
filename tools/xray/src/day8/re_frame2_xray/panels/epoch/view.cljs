@@ -2085,11 +2085,25 @@
     (let [machine-meta (try (rf/handler-meta {:source :store :kind :event :id machine-id})
                             (catch :default _ nil))
           ;; Resolve the machine spec: the stamped spec lives under
-          ;; `:rf/machine`, with fixture-shape fallbacks for unit tests
-          ;; (mirrors the cascade path's `projection/machine-spec-from-meta`).
+          ;; `:rf/machine`, with legacy-shape fallbacks (mirrors the cascade
+          ;; path's `machine-spec-from-meta` below).
+          ;;
+          ;; rf2-hqti — a bare `:spec` alternative used to sit between the
+          ;; two below. `machine-meta` comes off a REAL `:event`
+          ;; registration, and `reg-meta/retired-bare-keys` carries
+          ;; `{:spec :schema}` (MIGRATION §M-54), so a registration
+          ;; declaring bare `:spec` throws `:rf.error/retired-registration-key`
+          ;; at registration time — in dev AND prod. The branch was therefore
+          ;; satisfiable only by a hand-built fixture, and per rf2-t8a8's
+          ;; ruling a fallback unreachable from production BY CONSTRUCTION is
+          ;; what lets a fixture written on a retired spelling stay green
+          ;; while the real path is empty. The two survivors stay: neither
+          ;; `:machine-spec` (bare, legacy, NOT retired — an unknown bare key
+          ;; is a dev-gated warning, so it can exist) nor the namespaced
+          ;; `:rf.machine/spec` (the retired-BARE-key rule does not reach a
+          ;; namespaced key) is unreachable the same way.
           spec         (or (:rf/machine machine-meta)
                            (:machine-spec machine-meta)
-                           (:spec machine-meta)
                            (:rf.machine/spec machine-meta))
           spec-path    (proj/state-spec-path-prefix state-path)
           c            (proj/state-node-source-coords spec spec-path)]
