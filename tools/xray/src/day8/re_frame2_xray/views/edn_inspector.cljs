@@ -3140,6 +3140,11 @@
   the capture safe — and re-reading a fresh `capture-frame` bundle on every
   render would write to this atom on every render for no gain.
 
+  The returned callback is also SELF-HEALING, which the memo above makes
+  necessary: a caller holds it across a nil call that released the mount,
+  so re-attaching it has to put the dispatcher and the memo back rather
+  than assume the entry survived (rf2-9go2).
+
   The callback returns `nil` explicitly. React 19 treats a non-nil return
   from a callback ref as a CLEANUP FUNCTION and warns about any other
   value; the implicit return here would otherwise be whatever `swap!` or
@@ -3150,9 +3155,28 @@
             (fn container-ref [^js el]
               (let [entry (get @mount-state mount-id)]
                 (cond
-                  ;; Mount — measure once, then install the observer.
+                  ;; Mount — reinstate the entry, measure once, then
+                  ;; install the observer.
                   (and el (nil? (:observer entry)))
                   (do
+                    ;; A RETAINED callback can be re-attached after a nil
+                    ;; call released the mount: React StrictMode runs a
+                    ;; callback ref setup → cleanup → setup with the SAME
+                    ;; function, and `release-mount!` drops the WHOLE entry,
+                    ;; dispatcher included. Reinstate the dispatcher — and
+                    ;; this callback's own identity, so the next render still
+                    ;; finds the memo above rather than minting a fresh
+                    ;; closure — BEFORE measuring, because
+                    ;; `measure-and-dispatch!` reads the dispatcher out of
+                    ;; the store: after it, the first width following a
+                    ;; re-attachment is silently swallowed while measurement
+                    ;; and observer state come back looking healthy
+                    ;; (rf2-9go2). On a live entry both updates are no-ops.
+                    (swap! mount-state update mount-id
+                           (fn [e]
+                             (-> (or e {})
+                                 (update :ref #(or % container-ref))
+                                 (update :dispatch-fn #(or % dispatch-fn)))))
                     (measure-and-dispatch! mount-id el)
                     (when (exists? js/ResizeObserver)
                       (let [obs (js/ResizeObserver.
