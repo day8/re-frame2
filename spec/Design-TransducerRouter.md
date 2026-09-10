@@ -264,16 +264,20 @@ re-evaluated under the new code, but the envelope-seq is replayed verbatim.
 ## 5. Implementation roadmap
 
 **Phase 1 — scaffold (this bead).**
+
 - `implementation/core/src/re_frame/router_transducer.cljc` — pure functions: the
   `frame-transducer-factory` stub, the three reducing-fn presets, the manual-driver shape.
   No wiring into the live runtime. CLJS/CLJ-unit-test-covered.
 
 **Phase 2 — v1.1 additive (separate bead).**
+
 - Wire `manual-driver` + `batch-rf` to the SSR loader fan-in and replace the ad-hoc code in
   `re-frame.ssr`. Single isolated change; no behavioural impact outside SSR.
+
 - Publish the transducer + driver primitives at `re-frame.core`. Document as opt-in.
 
 **Phase 3 — v2.0 replacement (separate bead, post-v1.1).**
+
 - Re-express `re-frame.router/drain-loop!` as `(queued-rf + macrotask-driver)`. Run the full
   conformance corpus on the rewrite; require bit-exact equivalence on trace event order,
   app-db value sequence, and epoch record shape. Remove the v1 drain-loop ad-hoc code.

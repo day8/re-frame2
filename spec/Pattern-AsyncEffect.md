@@ -200,6 +200,7 @@ All of these instantiate the same shape:
     (fn handler-scene-tick [{:keys [db]} [_ dt-ms]]
       {:db (update db :scene physics/step dt-ms)}))
   ```
+
 - **Geolocation, sensor APIs, background sync** — registered listener dispatches reply events on each emission.
 
 Pattern-RemoteData is the specific case of Pattern-AsyncEffect for HTTP requests with the standard 5-key slice. Other instances may carry a different slice shape (or no slice at all, e.g., a fire-and-forget log fx); the shape — fx posts, listener replies, event commits — is what they share.

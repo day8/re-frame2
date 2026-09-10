@@ -73,6 +73,7 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   | `:clear-app-schemas?` | Boolean; clear the schemas artefact's per-frame side-table for the test's duration. |
   | `:ambient-frame` | Frame id bound as the body's ambient scope when an adapter is installed. Default `:rf/default`; pass `nil` to opt out (for tests that create their own top-level frames). |
   | `:async?` | Boolean, default `false`. Declares the suite **async-capable**; the return shape that delivers it is chosen per host. On CLJS you get a `cljs.test` map-form fixture `{:before … :after …}`, **required** for suites with `(async done …)` tests. On the JVM the option is inert and you always get the fn-form — `clojure.test` has no async tests, and no map-fixture support at all (it *invokes* a fixture, and a Clojure map is `IFn`, so a map fixture would silently skip every test body). |
+
 - **Example**:
     ```clojure
     (use-fixtures :each
@@ -132,6 +133,7 @@ To fire several events in order, call `rf/dispatch-sync` per event — each drai
     `opts`: `:frame` targets a non-default frame; frame resolution is `:frame` opt → `(current-frame)` → `:rf/default`.
 
     This is the fn-side counterpart to the `:rf.assert/path-equals` story event-family: same name root, different runner channel.
+
 - **Example**:
   ```clojure
   (rf/dispatch-sync [:counter/inc])
@@ -160,6 +162,7 @@ For a full-db assertion, compare directly: `(is (= expected-db (rf/app-db-value 
     The timeout error carries `:rf.error/id` `:rf.error/poll-until-timeout` (the canonical discriminator), plus `:elapsed-ms` and `:label` in its data.
 
     `opts`: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label`.
+
 - **Example**:
   ```clojure
   ;; JVM — synchronous; returns the truthy value (throws on timeout).
@@ -233,6 +236,7 @@ For a full-db assertion, compare directly: `(is (= expected-db (rf/app-db-value 
     **These are the framework's own registries, not an application surface.** `re-frame.event-emit` and `re-frame.error-emit` carry no public registration verb: rf2-kuky.69 retired the `register-listener!` `:events` / `:errors` streams, because an unprojected fan-out no frame's policy governs was a second, fail-open production door beside the projected one. They survive as implementation-tier seams for two consumers — the framework's own synchronous-window capture sites, and tests. An application observes production records through a frame's `:observability` sink, or the `(rf/configure! {:observability …})` process default, both of which deliver a projected record. A test brackets the raw substrate on purpose: it wants the unprojected shape, inside a window it owns.
 
     Macro requires: the same shape as `with-trace-recorder!` above — JVM refers it through the ordinary `:require`; CLJS test files reach it with `(:require-macros [re-frame.test-support :refer [with-emit-recorder!]])`.
+
 - **Example**:
   ```clojure
   ;; Default stream (:errors) — capture what one dispatch fails with.

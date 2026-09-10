@@ -94,6 +94,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 **Outputs.** Lookup returns the metadata map (or `nil`); query API returns id sets per [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api).
 
 **Invariants.**
+
 - One global registry; not per-frame. Frames isolate state, not behaviour.
 - Surgical re-registration is the only mutation primitive — replace the slot atomically, emit a `:rf.registry/handler-replaced` trace, in-flight events keep the old fn (per [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics)).
 - Reserved namespaces ([Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) are protected; user registrations under them warn.
@@ -120,6 +121,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 **Outputs.** Frame-keyword handles. Tools query via `frame-meta`, `frame-ids`.
 
 **Invariants.**
+
 - The `app-db` reactive container is opaque to the core; the [substrate adapter](006-ReactiveSubstrate.md) decides what it is (Reagent ratom in CLJS reference; plain atom for JVM/SSR/headless).
 - The frame's full state is reconstructible from its `app-db` *value* — adapter-internal state (Reagent reactions, React fibers, etc.) is not part of the frame value (load-bearing for [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility) per [006 §Revertibility constraints](006-ReactiveSubstrate.md#revertibility-constraints-on-adapters)).
 - Frame identity is **carried, not found**: a dispatch resolves its frame from the scope it runs under, and the runtime never synthesises one from absence. There is **no** always-present `:rf/default`; a frameless dispatch fails with `:rf.error/no-frame-context` ([002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)).
@@ -134,6 +136,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 **Outputs.** One event at a time to the drain loop.
 
 **Invariants.**
+
 - Per-frame. Cross-frame dispatch is ordinary async — no drain spans frames ([002 §Run-to-completion §Rules](002-Frames.md#rules)).
 - FIFO. Dispatch ordering is the router's enqueue/dequeue order — identical to the order the trace events are emitted (correlate via `:rf.trace/dispatch-id`). (The retired `:dispatched-at` field is **gone** — see [002 §`:dispatched-at` is retired](002-Frames.md#dispatched-at-is-retired).)
 - The router schedules drain via the interop layer's `next-tick` (CLJS reference: `goog.async.nextTick`); the loop yields between drain cycles so the host's event loop can interleave rendering and other work.
@@ -189,6 +192,7 @@ If an `:fx` entry's handler throws, subsequent entries **continue** ([002 §Erro
 **Outputs.** Sub values to views (through the substrate adapter). Disposal calls when subs lose their last reader.
 
 **Invariants.**
+
 - Per-frame. Two frames running the same sub query compute against their own `app-db`s, cache against their own sub-caches.
 - Invalidation is triggered after the `:db` write and before the first `:fx` entry runs ([002 §`:fx` ordering rule 4](002-Frames.md#fx-ordering-and-atomicity-guarantees)).
 - A frame's disposal releases every cached sub for that frame ([006 §Adapter disposal lifecycle](006-ReactiveSubstrate.md#adapter-disposal-lifecycle)).
@@ -203,6 +207,7 @@ If an `:fx` entry's handler throws, subsequent entries **continue** ([002 §Erro
 **Outputs.** Substrate-specific containers (Reagent ratoms in CLJS reference; plain atoms on JVM; Solid signals in a TS port). Render side-effects on the host.
 
 **Invariants.**
+
 - Adapter-internal state is **derivable from the frame's `app-db` value alone**. No private side channel ([006 §What an adapter MUST NOT do](006-ReactiveSubstrate.md#what-an-adapter-must-not-do)).
 - One adapter per process ([006 §Single adapter per process](006-ReactiveSubstrate.md#single-adapter-per-process)).
 - The adapter is replaceable. The CLJS reference ships Reagent-default; SSR uses a plain-atom adapter; tests use headless.
@@ -218,6 +223,7 @@ The Reagent-specific bridging pseudocode — which Reagent primitive realises wh
 **Outputs.** Synchronous, event-at-a-time delivery to listeners ([009 §The listener API](009-Instrumentation.md#the-listener-api)). Listener-side: 10x panel, re-frame-pair, agent tools.
 
 **Invariants.**
+
 - Open shape ([009 §Open shape; new fields are additive](009-Instrumentation.md#open-shape-new-fields-are-additive)).
 - Compile-time elidable in production ([009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
 - Listener invocation is synchronous, on the runtime's emit call stack — every emit returns once every listener has run. Listener-invocation order is **not contract** ([009 §Listener invocation rules](009-Instrumentation.md#listener-invocation-rules)).

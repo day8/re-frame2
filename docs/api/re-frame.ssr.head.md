@@ -28,6 +28,7 @@ There is **no `:rf/head` subscription** — `:rf/head-model` names a data shape,
     3. The head fn is evaluated against that **same** effective route, so `{:route r}` with no `:head-id` previews `r` end to end.
 
     `frame-id` is **carried, not ambient** (EP-0002): the no-arg form was removed and a `nil` frame raises `:rf.error/no-frame-context` rather than resolving against a synthesised `:rf/default`. The carried frame selects the REGISTRATIONS as well as the data, so a head declared in one image cannot run against another image's `app-db`. Also available as `ssr/head-model` on [`re-frame.ssr`](re-frame.ssr.md); the two names are the same function.
+
 - **Example**:
   ```clojure
   (head/head-model :app/request-17)

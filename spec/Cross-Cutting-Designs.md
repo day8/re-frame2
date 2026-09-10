@@ -14,6 +14,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Design problem.** Some values must not (or should not) appear on the wire between the runtime and a tool consumer: very-large `app-db` paths whose serialisation would drown the agent's response budget; sensitive values (passwords, tokens, PII) whose appearance in a trace event or pair-tool response would leak past the boundary. The framework needs one elision walker, one wire-marker vocabulary, and one composition rule covering both cases — applied uniformly anywhere a value crosses the wire (trace listener payloads, `get-path` returns, `snapshot` slices, schema-validation failure traces).
 
 **Canonical homes.**
+
 - [009-Instrumentation.md §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) — the `re-frame.elision/elide-wire-value` walker, the `:rf.size/large-elided` marker shape, the per-call `:rf.egress/elision-policy` map, the predicate cascade with sensitivity precedence, and the `:rf.warning/large-value-unschema'd` dev-mode advisory.
 - [010-Schemas.md §`:large?`](010-Schemas.md) and [010-Schemas.md §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md) — schema-driven nominations: per-slot Malli props that feed the unified elision registry at `runtime-db [:rf.runtime/elision :declarations]` / `runtime-db [:rf.runtime/elision :sensitive-declarations]`.
 - [009 §Schema-installed redaction](009-Instrumentation.md#schema-installed-redaction) + [015 §Frame-owned durable classification](015-Data-Classification.md) — registration-owned `:sensitive` payload classification (declared on `reg-event` / `reg-sub` / `reg-flow`) and schema-installed redaction for `:rf.interceptor/path`-scoped handlers; the router's internal redaction plumbing drops sensitive event-payload keys on the trace surface while the handler body still receives the raw value. (There is no positional public `redact-interceptor` on the façade; the underlying fn is internal router plumbing only.)
@@ -21,6 +22,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 - [Spec-Schemas.md §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker) — the marker's Malli shape.
 
 **Consumers.**
+
 - [Tool-Pair.md](Tool-Pair.md) — pair-shaped tools consume the walker at the wire boundary; the `:rf.size/large-elided` marker is the sixth of six normative wire-protocol markers catalogued in [`tools/mcp-conformance/wire-vocab/`](../tools/mcp-conformance/wire-vocab/README.md) — the four MCP-side response shapes (`:rf.mcp/overflow`, `:rf.mcp/summary`, `:rf.mcp/dedup-table`, `:rf.mcp/diff-from`), the `:rf.size/large-elided` per-value elision marker, and the `:rf.elision/at` fetch-handle tag that pairs with it.
 - `tools/re-frame2-pair-mcp/` — applies the walker in `tools.cljs` invoke pipeline; the `elision_test.cljs` suite pins the wire shape.
 - `tools/xray/` — on-box trace listener panels default `:rf.egress/include-large?` to `false`; the `[● ELIDED N]` indicator surfaces the marker.
@@ -34,9 +36,11 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Design problem.** Multiple skills produce structured critiques of a body of evidence — `re-frame2-pair-retro` retrospects on a `re-frame2-pair` session; `re-frame2-improver` critiques a body of re-frame2 source code; future skills will follow (error-trace retros, schema-violation post-mortems). Each shares the same workflow shape — read evidence, classify against a catalogue, route findings to the layer where the fix lives, offer fixes / draft beads only with opt-in — but each carries a *different domain catalogue*. The protocol must be extracted once so new retro-style skills inherit the discipline without re-deriving it.
 
 **Canonical home.**
+
 - Retired 2026-08-31 (rf2-fqjys): the shared `skills/shared/retro-protocol.md` leaf is removed — each retro-style skill now inlines its complete workflow (diagnosis-first cadence, evidence discipline, layer routing, opt-in drafting) in its own `SKILL.md`, so there is no runtime protocol leaf to cite.
 
 **Consumers.**
+
 - [`skills/re-frame2-pair-retro/`](../skills/re-frame2-pair-retro) — session-shaped consumer; supplies its own catalogues at `references/analysis-lenses.md` and `references/known-frictions.md`.
 - [`skills/re-frame2-improver/`](../skills/re-frame2-improver) — code-shaped consumer; supplies its own catalogue under `references/`.
 
@@ -47,10 +51,12 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Design problem.** MCP tool responses are expensive in the agent's context window — anywhere from 5x to 10x larger in tokens than the equivalent CLI output. A single oversized response burns the budget the agent needs across the whole task. Multiple MCP servers (re-frame2-pair-mcp, story-mcp) each face the same set of decisions: where in the stack does the cap live; how is it configured per-call; what shape does an over-budget response take; how do per-tool trim mechanisms (pagination, lazy summary, path slicing, diff encoding, dedup, size elision) compose with the cap.
 
 **Canonical homes.**
+
 - [`tools/re-frame2-pair-mcp/spec/Principles.md` §Tight token budget per response](../tools/re-frame2-pair-mcp/spec/Principles.md) — the 5,000-token default, the per-call `max-tokens` override slot, the `{:rf.mcp/overflow ...}` over-budget shape, the egress-centralised enforcement decision, and the eight mechanisms (wire-boundary cap → path slicing → per-tool budget → diff encoding → dedup → size elision → cursor pagination → streaming subscribe byte+event budget) in order.
 - [`tools/re-frame2-pair-mcp/spec/DESIGN-RATIONALE.md` §Lock #7 — Wire-boundary token cap](../tools/re-frame2-pair-mcp/spec/DESIGN-RATIONALE.md) — the locked decision record: egress-centralised, pluggable strategy, truncate-with-marker, default 5K, per-tool override, cumulative across multi-content responses.
 
 **Consumers.**
+
 - `tools/re-frame2-pair-mcp/` — enforces the cap in `tools.cljs` at the `invoke` boundary; fourteen tools each declare their typical-token hint and cap-reached behaviour in their tool spec.
 - `tools/story-mcp/` — enforces the cap in `tools/wire_pipeline.cljc` at the `invoke-tool` egress; nineteen tools each declare their typical-token hint and inherit the `:max-tokens` per-call override.
 
@@ -61,9 +67,11 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Design problem.** The re-frame2 MCP servers (re-frame2-pair-mcp, story-mcp) expose ~33 tools today (14 + 19), trending upwards. An agent host with both servers attached sees the union as one surface. The verb a tool uses is the first signal the agent parses; verb drift across siblings (`snapshot` in re-frame2-pair vs `snapshot-identity` in story) makes that signal lossy and pushes the agent towards trial-and-error rather than pattern-match.
 
 **Canonical home.**
+
 - [`tools/mcp-conformance/NAMING.md`](../tools/mcp-conformance/NAMING.md) — the cross-MCP verb table with semantics and examples per verb (`get-` / `list-` / `read-` / `discover-` / `dispatch` / `eval-cljs` / `restore-` / `reset-` / `register-` / `unregister-` / `run-` / `preview-` / `record-as-` / `subscribe` / `unsubscribe` / `tail-` / bare-name mega-ops); the explicitly-rejected verbs (`fetch-`, `query-`, `find-`, `lookup-`, `update-`, `set-`, `enumerate-`, `call-`, `invoke-`, `stream-`, `observe-`); the catalogued bare-noun and `->edn` exceptions; and a per-server audit table.
 
 **Consumers.**
+
 - `tools/re-frame2-pair-mcp/` — 14 tools, audited as fully conformant.
 - `tools/story-mcp/` — 19 tools, audited; two named deviations (`variant->edn`, `snapshot-identity`) catalogued as accepted exceptions.
 - [`tools/mcp-conformance/wire-vocab/`](../tools/mcp-conformance/wire-vocab) — sibling harness that pins the *payload* vocabulary (`:rf.mcp/*` keys). NAMING.md covers the catalogue surface; wire-vocab covers the wire shape.
@@ -75,10 +83,12 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Design problem.** When multiple actors dispatch events into a frame — the user's application, a pair tool, a story runner, the REPL, the SSR boot path — every dispatch becomes indistinguishable downstream. Post-mortem trace views need to answer "show me only the dispatches the pair tool issued during this session" and "did this transition come from `:rf/router` or from user code?" The runtime needs one keyword convention, one carrying slot, and one lifting rule so every consumer (10x panel, xray trace filter, pair-tool's own filter, story scrubber) reads it the same way.
 
 **Canonical homes.**
+
 - [002-Frames.md §Dispatch origin tagging](002-Frames.md#dispatch-origin-tagging) — the `:origin` opt accepted on the dispatch envelope; open-vocabulary default `:app`; framework-reserved values (`:rf/router`, `:rf/ssr`, etc.); the distinction from `:source` (trigger-kind axis).
 - [009-Instrumentation.md §Origin tagging: `:rf.event/origin`](009-Instrumentation.md#origin-tagging-rfeventorigin) — the trace lift: the runtime promotes the dispatch opt onto every `:rf.event/dispatched` event under `:tags :rf.event/origin`; example values (`:pair`, `:claude`, `:story`, `:test`); the filter axis it enables.
 
 **Consumers.**
+
 - `tools/re-frame2-pair-mcp/` — tags every dispatch / eval-cljs / restore-epoch! / replace-app-db with `:origin :re-frame2-pair-mcp` (per its NAMING.md row).
 - `tools/story-mcp/` — does not ship `dispatch` directly, but its `register-variant` writes carry `:origin :story-mcp`.
 - `tools/xray/` — trace panel filter axis.

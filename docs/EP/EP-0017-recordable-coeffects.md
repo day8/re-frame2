@@ -529,15 +529,18 @@ When the runtime processes an event:
         > *Deferred (Slice B) → Recordable generator machinery*; this note adds
         > the structural-EDN half so the whole `:rf.error/cofx-value-invalid`
         > path reads as one slice-B unit.)
+
     - absent, generator-backed → consult the mint policy (§6): `:live` /
       `:explicit-live` run the generator and write the result into the
       envelope's `:rf.cofx`; `:strict` fails with
       `:rf.error/missing-required-cofx`.
+
     - absent, provided → `:rf.error/missing-required-cofx`, every mode.
 4. Assemble the handler's coeffects map: `:db`, `:event` (and the framework
    context keys Spec 002 already stages), plus **exactly the declared
    leaves** — recordable values from the token, ambient values from running
    their suppliers now, each flat under its own id.
+
 5. Run the interceptor chain and handler.
 
 **Delivery is flat and declared-only.** A leaf on the token but undeclared by

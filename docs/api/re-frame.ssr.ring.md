@@ -67,6 +67,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
     - `:script-src` (default `"/main.js"`) and `:app-element-id` (default `"app"`) — escaped attribute hooks, escape-attr'd into a quoted attribute value.
 
     Non-string non-nil values throw `:rf.error/ssr-trusted-shell-opt-invalid` at construction. Wiring the raw content hooks from untrusted input (a CMS field, a tenant-admin form, a query-string parameter) is an arbitrary-script-injection XSS vector. When content originates upstream of the trust boundary, use the structured alternatives: [`reg-head`](re-frame.ssr.md) for head fragments, and registered views plus the [`:rf.server/*` fx](re-frame.ssr.md) for body content.
+
 - **Example**:
   ```clojure
   (require '[ring.adapter.jetty :as jetty]
@@ -114,6 +115,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
     One exception: `:html-shell` is not supported and is rejected at construction (`:rf.error/ssr-streaming-unsupported-opt`). The streaming path flushes a split prefix/suffix straddling the continuation chunks, so a one-piece shell callback can never run. Customise the streaming envelope through the trusted shell-hook opts, or use `ssr-handler` when a bespoke one-piece shell is required.
 
     Concurrency model: one raw daemon `java.lang.Thread` per in-flight streamed request. There is no framework pool and no framework in-flight cap. Every writer's `catch`/`finally` closes the pipe and tears the frame down on every exit path (no-leak). The in-flight ceiling is the host server's accept-queue / worker-thread limit (Jetty / http-kit / Aleph). Operators size that limit as the one knob for high streaming concurrency or slow-client hardening.
+
 - **Example**:
   ```clojure
   (require '[ring.adapter.jetty :as jetty]
@@ -141,6 +143,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
 - **Description**: Returns Ring middleware that delegates to `ssr-handler` for requests its `:match?` predicate accepts, and to the wrapped handler otherwise. Curried: `(ssr-middleware opts)` returns a `(handler) → wrapped-handler` middleware.
 
     Opts are `ssr-handler`'s opts (including the required, fail-closed `:payload`) plus `:match?`, a `(request) → boolean` predicate. When it returns truthy, SSR renders. When it returns falsy, the call falls through to the wrapped handler. `:match?` defaults to matching every GET request.
+
 - **Example**:
   ```clojure
   ;; ssr-middleware is CURRIED: (ssr-middleware opts) returns a Ring
@@ -218,6 +221,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
 - **Description**: The minimal 500 response used when a handler caller omits `:on-error`. Shared by `ssr-handler` and `stream-handler`, so the topology-leak contract lives in one place. It covers exceptions the SSR error projector can't see: Ring-layer throws, render-time CLJ exceptions, and writer-thread-pre-spawn throws. Trace-emitted drain errors are handled by the projector instead.
 
     The body must not leak the throwable's message: `.getMessage` carries internal topology, such as JDBC URLs, deploy-root file paths, partial SQL, and server-internal class names. So the fn ignores the throwable and emits a fixed generic plaintext body. Apps wanting a branded transport-failure body supply an explicit leak-safe `:on-error` fn that returns a fixed response and ignores the throwable. Exposed as a value: a 2-arity fn, not a `defn`, so it carries no `:arglists`.
+
 - **Example**:
   ```clojure
   ;; The host-locked transport-failure net (used when :on-error is omitted).
@@ -242,6 +246,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
     - `opts` — honours `:html-attrs` / `:body-attrs` / `:lang` (default `"en"`) / `:app-element-id` (default `"app"`) / `:render-hash`.
 
     When `:render-hash` is supplied (the handler passes it iff `:emit-hash?` is true), `data-rf-render-hash` is stamped on the `#app` div, the first DOM root of the streamed document. This mirrors the non-streaming handler's root-element marker.
+
 - **Example**:
   ```clojure
   ;; The first streamed chunk — open + <head> + <body> + app-div-open.
@@ -261,6 +266,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
 - **Description**: The shell suffix flushed after the final-payload chunk. It emits the bootstrap `<script>` (if `:script-src` is set; default `"/main.js"`, escape-attr'd), the raw `:body-end` HTML, and the document close (`</body></html>`).
 
     The app root (`</div>`) is not closed here. It is closed at the end of the shell chunk, so the resolved templates, hydration-delta scripts, and the final `__rf_payload` script all stream outside `#app`. The suffix is therefore purely bootstrap script + raw `:body-end` + document close. All of it is already outside `#app`, mirroring the non-streaming `default-html-shell`.
+
 - **Example**:
   ```clojure
   ;; The trailing chunk — bootstrap <script>, raw :body-end, document close.

@@ -93,6 +93,7 @@ _As-of 2026-07-04._
 | Data is code | ✓ | Events, effects, frames, registrations all data interpreted by the runtime. |
 
 **Gaps:**
+
 1. ~~Override seam still presents function-valued as default.~~ **Resolved** — the override seam is id-based and canonical-reference-matched, id-valued leading (see **G-C** below, RESOLVED).
 2. ~~Error contract is gestured at but not specified.~~ **Resolved** — [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) is the single normative catalogue (see **G-A** below, RESOLVED).
 3. View ergonomics section's narrative still reads CLJS-context-primary; needs a top-down rewrite to lead with explicit-frame.
@@ -124,6 +125,7 @@ _As-of 2026-07-04._
 | Data is code | ✓ | Hiccup is the canonical example of data-is-code. |
 
 **Gaps:**
+
 1. Pick a canonical hiccup-invocation form and document the others as alternatives — three forms is a P1 hit. (Tracked as **G-E**.)
 2. ~~Make the plain-Reagent-fn-routes-to-default footgun loud.~~ **Resolved by EP-0002** (see **G-D** below): there is no ambient `:rf/default`, so a plain fn that can't read the provider's frame raises `:rf.error/no-frame-context` — a structured runtime error, not a warning.
 3. ~~Consider whether Form-2's outer-fn-side-effects should be discouraged.~~ **Resolved** — Form-1 is canonical, Form-2 stays supported but Form-1 + an explicit setup event is preferred (see **G-F** below, RESOLVED).
@@ -147,6 +149,7 @@ _As-of 2026-07-04._
 | Data is code | ✓ | Transition tables ARE the canonical "data is code" example for stateful flows. |
 
 **Gaps:**
+
 1. Register transition tables as a queryable `:machine` kind in the registrar. (Resolved in part by the `:rf/machine?` filter plus the per-id `:rf/machine` projection — a derived lens over `(rf/registrations {:source :store :kind :event})` filtered by `:rf/machine?` metadata; see [005 §Querying machines](005-StateMachines.md#querying-machines).)
 2. Ship a Malli schema for the transition-table grammar.
 
@@ -183,6 +186,7 @@ _As-of 2026-07-04._
 | P8 Low hidden context | ✓ | All emit sites are visible in source. |
 
 **Gaps:**
+
 1. ~~Register a Malli schema for the trace event shape.~~ **Resolved** — [Spec-Schemas §`:rf/trace-event`](Spec-Schemas.md) registers it (one of the five load-bearing schemas per §SA-3).
 2. ~~Define error trace events as a first-class subset.~~ **Resolved** — [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) defines them as the single normative subset (per **G-A**, RESOLVED).
 
@@ -248,6 +252,7 @@ _As-of 2026-07-04._
 | Data is code | ✓ | A flow is a materialised `:after-event` derivation (per [Derivations](013-Flows.md#cross-references)) — the same whole-value function as the equivalent subscription, differing only in storage/evaluation/lifecycle policy. |
 
 **Gaps:**
+
 1. P3/P9 — `:derive` is a host fn (data-DSL-vs-fn rule) and `:inputs` is positional. The map-keyed `:inputs` reconsideration is an untracked post-v1 note with a falsifiable trigger ([013 §Open questions](013-Flows.md#open-questions)); not a v1 blocker.
 2. None blocking. The v1 design (vector `:inputs`, pending-`:db`-effect transform as the outermost `:after`, atomic-commit-on-throw, always-on error substrate) is settled in [§Resolved decisions](013-Flows.md#resolved-decisions).
 
@@ -270,6 +275,7 @@ _As-of 2026-07-04._
 | Data is code | ✓ | The request, retry policy, and reply are data the runtime interprets; `:decode` as a Malli schema is the canonical data-driven form. |
 
 **Gaps:**
+
 1. P6 — the managed surface is deterministic; the underlying transport is not (inherent to HTTP). Stub-mode covers the test path.
 2. None blocking. The v1 contract (closed failure set, one uniform reply envelope, CORS heuristic emission, frame-aware reply dispatch, `:sensitive?` privacy) is settled in [§Resolved decisions](014-HTTPRequests.md#resolved-decisions). Streaming / pluggable backoff are post-v1 open questions.
 

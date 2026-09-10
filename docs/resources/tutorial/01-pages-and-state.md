@@ -205,6 +205,7 @@ Three things are worth pointing out, because each one trips people up the first 
 - **`@` reads the current value.** `@(subscribe [:articles/data])` gives you the value *right now*, and — this is the magic — it also signs the view up to re-render whenever that value changes. That's the entire data-binding story. No dependency arrays, no manual wiring, no "did I remember to subscribe?"
 
     > **Coming from React hooks?** `@(subscribe …)` does the job of `useSelector` plus a `useMemo` dependency array, except the dependency tracking is automatic. You never list what a view depends on; the act of *dereferencing the sub* is the subscription. Read a sub and you're subscribed to it; read a different one next render and the wiring re-wires itself. There's no stale-closure footgun and no exhaustive-deps lint rule, because there are no deps to get wrong in the first place.
+
 - **`article-page` already reads the route.** `:rf.route/params` is a subscription like any other — no special-case routing API, just a sub. It yields the current URL's captured params (here `{:slug "..."}`), and the page chains that straight into `:articles/by-slug`. The `if` handles a slug that matches the route pattern but names no actual article — that's a real URL someone can type, so it's a real branch your view owns.
 
 Two more hiccup details the listing above quietly leans on, since both bite newcomers:
