@@ -104,7 +104,7 @@
   table; `child-kind` classifies `react/isValidElement` as
   `:react-element` and `as-element` passes it through untouched). So
   [[overlay-tree]] takes an `:as-child` function — `identity` for a
-  hiccup caller, `reagent.core/as-element` for the boundary — and the
+  hiccup caller, `substrate/as-element` for the boundary — and the
   CLJS props map crosses to machines-viz BY IDENTITY, because
   `as-element` carries the hiccup vector itself rather than converting
   a props object. See [[overlay-tree]]."
@@ -433,7 +433,7 @@
                       the calling renderer. `identity` (the default)
                       leaves it as hiccup, which is what a Reagent
                       parent and the node-lane rows want;
-                      `reagent.core/as-element` answers a React element,
+                      `substrate/as-element` answers a React element,
                       which is what a Fresco body needs. The ns
                       docstring records why neither of the migration's
                       usual repairs — mount it as a head, or CALL it —

@@ -74,7 +74,7 @@
 
   ## Pure hiccup, and the ONE Reagent reference
 
-  The markup is still pure hiccup. `reagent.core/as-element` appears in
+  The markup is still pure hiccup. `substrate/as-element` appears in
   exactly one place — [[Panel]]'s `as-child` argument — and is the
   migration seam [[panel-tree]] documents, not a view-layer dependency."
   (:require [re-frame.core :as rf]
@@ -179,7 +179,7 @@
   says a React ELEMENT is a legal child anywhere, reached through an
   `as-child` seam. `identity` for a hiccup caller and the node lane,
   which leaves the browse list exactly the fn-headed vector it has
-  always been; `reagent.core/as-element` for the boundary, which answers
+  always been; `substrate/as-element` for the boundary, which answers
   a React element Fresco splices in as a child.
 
   THE SIMULATE-URL HEADER IS CALLED, NOT HEADED — it always was — and it
