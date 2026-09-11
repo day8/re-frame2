@@ -2318,7 +2318,7 @@
   `mount-resources!`.
 
   `panels.cljs` and `panel_enum.cljc` (whose `:event-spine` row names
-  `"shell/event-list"`) were both held by another worker when this
+  `shell/event-list` as a string) were both held by another worker when this
   slice was written, so that one line could not be changed and the
   migration would have shipped a BROKEN embed — silently, because
   `panels_mount_cljs_test` drives `render-panel!` through a render STUB
@@ -2686,9 +2686,9 @@
   [selected tab as-child]
   [:div {:data-testid (str "rf-xray-detail-panel-" (name selected))
          ;; rf2-plajx — L4 closes the tab/tabpanel loop. The L3
-         ;; tablist owns `role=\"tablist\"` + per-tab `role=\"tab\"` +
+         ;; tablist owns `role="tablist"` + per-tab `role="tab"` +
          ;; `aria-selected`; the panel completes the WAI-ARIA APG
-         ;; tabs pattern with `role=\"tabpanel\"` + `aria-labelledby`
+         ;; tabs pattern with `role="tabpanel"` + `aria-labelledby`
          ;; pointing at the active tab button (per `tab-button`
          ;; the id is `rf-xray-tab-button-<tab-id>`).
          :id              (str "rf-xray-tabpanel-" (name selected))
