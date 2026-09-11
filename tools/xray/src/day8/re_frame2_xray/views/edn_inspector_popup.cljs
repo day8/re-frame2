@@ -83,6 +83,7 @@
   popups within this surface use sequential z-indexes derived from
   the stack position, so the topmost popup wins click + focus."
   (:require [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack type-scale]]
@@ -376,6 +377,52 @@
                   :font-family sans-stack}}
    title])
 
+;; =========================================================================
+;; the embedded widget's head — ONE PER LANE (rf2-k97c.3)
+;; =========================================================================
+;;
+;; `popup-chrome` is shared by two lanes and the only thing that differs
+;; between them is the head it embeds the value under. `views.edn-inspector`
+;; already ships BOTH (the T4 dual-head facade): `edn-inspector` is the
+;; Reagent `reg-view` head and `edn-inspector-view` is the Fresco boundary,
+;; over one renderer.
+;;
+;; The choice is therefore a PARAMETER here rather than a branch: the head
+;; is passed in, exactly as the tree's `as-child` islands pass `identity`
+;; or `reagent.core/as-element` rather than reaching for a Fresco API. The
+;; default is the Reagent one, so every existing direct caller of
+;; `popup-chrome` — the node-lane rows and [[edn-inspector-popup]] — keeps
+;; the hiccup it already had, and only the boundary opts in.
+;;
+;; SCAFFOLDING WITH A DEFINED END: when [[edn-inspector-popup]] is itself a
+;; Fresco body (or goes), [[fresco-inspector]] becomes the only lane and
+;; this parameter goes with the default.
+
+(defn reagent-inspector
+  "The embedded widget as a REAGENT head — `[ei/edn-inspector value opts]`,
+  the shape this file emitted before rf2-k97c.3 and still the right one
+  under a Reagent parent. `mount-id` is unused: the Reagent head is a
+  form-2 component and mints its own per-mount identity."
+  [_mount-id value opts]
+  [ei/edn-inspector value opts])
+
+(defn fresco-inspector
+  "The embedded widget as a FRESCO BOUNDARY head —
+  `[ei/edn-inspector-view {:mount-id … :value … :opts …}]`.
+
+  `edn-inspector-view` REFUSES a missing or non-string `:mount-id`, and
+  deliberately: a React function component has no form-2 outer body to
+  allocate one in, so an id minted in its body would be fresh on every
+  render and the widget would lose its expansion state each pass. The
+  popup's own `mount-id` is exactly the stable name it asks for — it is a
+  UUID minted once per popup and it already keys this popup's entry in
+  app-db — so it is qualified with the surface's name and handed down."
+  [mount-id value opts]
+  [ei/edn-inspector-view
+   {:mount-id (str "rf-xray-edn-inspector-popup-" mount-id)
+    :value    value
+    :opts     opts}])
+
 (defn popup-chrome
   "Render a single popup's chrome — header + body + close button.
   Public so tests can drive the chrome without mounting the
@@ -387,8 +434,13 @@
                  `:panel-id` derived from `mount-id`.
   `positioning`— `:fixed` / `:absolute` (modal-positioning sub).
   `stack-pos`  — integer position in the stack; used for z-index
-                 layering."
-  [{:keys [mount-id value opts positioning stack-pos]}]
+                 layering.
+  `inspector`  — 3-arg fn `(fn [mount-id value opts] → hiccup)` emitting
+                 the embedded widget's head. Defaults to
+                 [[reagent-inspector]]; the Fresco boundary passes
+                 [[fresco-inspector]]. See the section comment above."
+  [{:keys [mount-id value opts positioning stack-pos inspector]
+    :or   {inspector reagent-inspector}}]
   (let [{:keys [title panel-id default-expanded-depth
                 max-inline-width max-depth on-close]
          :or   {title "Inspect"
@@ -449,12 +501,17 @@
        ;; edn-inspector mount on the page (the panel underneath
        ;; almost certainly already mounts the same value at the
        ;; same path).
-       [ei/edn-inspector value
-        {:panel-id (keyword "rf.xray.edn-inspector-popup"
-                            (str (name panel-id) "-" mount-id))
-         :default-expanded-depth default-expanded-depth
-         :max-inline-width       max-inline-width
-         :max-depth              max-depth}]])))
+       ;;
+       ;; rf2-k97c.3 — CALLED rather than headed, so the lane's head
+       ;; (Reagent `reg-view` or Fresco boundary) is the caller's to
+       ;; choose. The opts map below is unchanged and is what both
+       ;; lanes carry.
+       (inspector mount-id value
+                  {:panel-id (keyword "rf.xray.edn-inspector-popup"
+                                      (str (name panel-id) "-" mount-id))
+                   :default-expanded-depth default-expanded-depth
+                   :max-inline-width       max-inline-width
+                   :max-depth              max-depth})])))
 
 ;; =========================================================================
 ;; public component — `edn-inspector-popup`
@@ -506,14 +563,53 @@
 ;; stack view — renders every open popup over the active panel
 ;; =========================================================================
 
-(rf/reg-view edn-inspector-popup-stack
-  "Stack view that renders every open popup in z-index order. Mount
-  this once at the shell's overlay container (follow-on bead wires
-  it into `mount.cljs`); each entry's payload is the value + opts
-  the caller passed to `:open`.
+(defn popup-stack-tree
+  "The OPEN stack's markup, as a pure function of the values it is handed
+  — `:stack`, `:entries` and `:positioning`. The empty/non-empty gate is
+  the CALLER's, so this never answers nil.
 
-  Closed-state cost is one subscribe + a `when` — when the stack is
-  empty the body short-circuits to nil.
+  rf2-k97c.3 — split out of the view when the view became a Fresco
+  boundary, so the stack stays drivable from the node lane without a
+  React commit. A boundary's body may only run inside a React render
+  window (`rf.fresco/sub` REFUSES outside one, naming the query), so
+  calling the view var directly is no longer a way to get hiccup; this
+  is. It is PURE of its arguments — no read, no `subscribe-once`, no
+  fallback arity — which is precisely what the migration removes.
+
+  The embedded widget's head is [[fresco-inspector]] here rather than
+  `popup-chrome`'s Reagent default: this tree is what the boundary
+  renders, and a `reg-view` head grades `:invalid` down the same codec
+  arm a plain `defn` does."
+  [{:keys [stack entries positioning]}]
+  (into [:div {:data-testid "rf-xray-edn-inspector-popup-stack"
+               :data-rf-popup-count (count stack)}]
+        (map-indexed
+          (fn [idx mount-id]
+            (let [{:keys [value opts]} (get entries mount-id)]
+              ;; rf2-a38l — KEYED FRAGMENT rather than `with-meta` on
+              ;; the vector `popup-chrome` returns. Reagent reads that
+              ;; metadata; Fresco's codec takes a literal `:key` from
+              ;; an ATTRIBUTE MAP and reads Clojure metadata nowhere,
+              ;; so under a boundary every popup in the stack would
+              ;; lose its identity and React would reconcile them by
+              ;; position. The key does NOT go in the opts map — that
+              ;; is `popup-chrome`'s domain data, and `:key` is
+              ;; React's.
+              [:<> {:key mount-id}
+               (popup-chrome
+                 {:mount-id    mount-id
+                  :value       value
+                  :opts        opts
+                  :positioning positioning
+                  :stack-pos   idx
+                  :inspector   fresco-inspector})]))
+          stack)))
+
+(rf.fresco/defview edn-inspector-popup-stack-view
+  "Stack view that renders every open popup in z-index order — a FRESCO
+  BOUNDARY (rf2-k97c.3), not an `rf/reg-view`. Mounted once at the
+  shell's overlay container; each entry's payload is the value + opts
+  the caller passed to `:open`.
 
   This view is the entry point for **programmatic** opens — a
   context-menu handler dispatches
@@ -523,40 +619,90 @@
   **inline** opens (a panel that wants to control the popup
   imperatively from its own view tree).
 
-  `reg-view`-registered so its `subscribe` / `dispatch` calls resolve
-  against the frame it is mounted under. As a plain fn they would not
-  resolve at all: no `:contextType`, so the ambient read returns nil and
-  RAISES `:rf.error/no-frame-context` — there is no `:rf/default` floor
-  under EP-0002 (Spec 006 §Plain-fn footgun, which superseded the retired
-  `:rf.warning/plain-fn-under-non-default-frame-once`). The
-  view-id is auto-derived from the symbol per the canonical reg-view
-  convention; the surrounding shell mounts this stack under `:rf/xray`,
-  so all its `subscribe` calls resolve through the React-context tier
-  to the surrounding frame."
-  []
-  (let [stack   @(rf/subscribe [stack-slot])
-        entries @(rf/subscribe [entries-slot])
-        positioning @(rf/subscribe [:rf.xray/modal-positioning])]
+  ## WHY A BOUNDARY, AND WHAT ACTUALLY MOVED
+
+  The frame reasoning is UNCHANGED from the `reg-view` this replaced: a
+  boundary reads its frame from the same `re-frame.adapter.context` React
+  context that `rf/frame-provider` writes, so the reads still resolve
+  through the surrounding `:rf/xray` frame, and a plain `defn` here would
+  still raise `:rf.error/no-frame-context` (Spec 006 §Plain-fn footgun,
+  EP-0002 having removed the `:rf/default` floor). What changed is the
+  OBSERVER — the reads are `rf.fresco/sub`, recorded by Fresco's own
+  collector rather than by whichever reaction machinery the installed
+  adapter supplies, which is this epic's coupling (3).
+
+  ## CLOSED-STATE COST IS NOW WHAT IT ALWAYS CLAIMED TO BE
+
+  One subscription and a gate. The `reg-view` read all three slots
+  unconditionally and then gated, so its docstring's \"one subscribe + a
+  `when`\" was aspirational; `rf.fresco/sub` records its edge WHERE THE
+  READ HAPPENS, so moving the other two inside the `when` makes a closed
+  stack hold one edge instead of three. A branch not taken contributes
+  none — Fresco's documented behaviour (HD-002), not an accident.
+
+  PUBLIC, like `edn-inspector-view` and `resizable-table-view` beside it:
+  this is the head a Fresco parent writes, and the shell's root swap is
+  what will write it. [[edn-inspector-popup-stack]] in front of it is the
+  name the Reagent shell still mounts — see that bridge's docstring for
+  why the two names sit this way round here."
+  [_props]
+  (let [stack (rf.fresco/sub [stack-slot])]
     (when (seq stack)
-      (into [:div {:data-testid "rf-xray-edn-inspector-popup-stack"
-                   :data-rf-popup-count (count stack)}]
-            (map-indexed
-              (fn [idx mount-id]
-                (let [{:keys [value opts]} (get entries mount-id)]
-                  ;; rf2-a38l — KEYED FRAGMENT rather than `with-meta` on
-                  ;; the vector `popup-chrome` returns. Reagent reads that
-                  ;; metadata; Fresco's codec takes a literal `:key` from
-                  ;; an ATTRIBUTE MAP and reads Clojure metadata nowhere,
-                  ;; so under a boundary every popup in the stack would
-                  ;; lose its identity and React would reconcile them by
-                  ;; position. The key does NOT go in the opts map — that
-                  ;; is `popup-chrome`'s domain data, and `:key` is
-                  ;; React's.
-                  [:<> {:key mount-id}
-                   (popup-chrome
-                     {:mount-id    mount-id
-                      :value       value
-                      :opts        opts
-                      :positioning positioning
-                      :stack-pos   idx})]))
-              stack)))))
+      (popup-stack-tree
+        {:stack       stack
+         :entries     (rf.fresco/sub [entries-slot])
+         :positioning (rf.fresco/sub [:rf.xray/modal-positioning])}))))
+
+;; ---- the migration bridge (rf2-k97c.3) ----------------------------------
+;;
+;; Xray's shell is still a `reg-view` tree rendered by the installed
+;; adapter, and `shell.cljs` mounts `[edn-inspector-popup/edn-inspector-
+;; popup-stack]` as a hiccup head — which a React component is not.
+;;
+;; `rf.fresco/as-component` is Fresco's own outward door for exactly this:
+;; it answers a real React component for a boundary, which a React parent
+;; (Reagent here) mounts UNDER THE FRAME IT IS ALREADY IN, taking the
+;; frame from React context rather than from a second root. No second
+;; root, no adapter-kind branch, no props ABI. The crossing carries an
+;; EMPTY props map, which is the case `as-component`'s own note calls
+;; sound — the inspected VALUES never cross it; they are read inside the
+;; boundary and reach the widget as ordinary CLJS.
+;;
+;; NAMING: the mayor's 2026-09-10 ruling is that a boundary keeps the
+;; NATURAL name and the caller is handed a PUBLIC bridge (#9581). The
+;; constraint that forced #9578's opposite spelling applies HERE and is
+;; why the names sit this way round: `shell.cljs` mounts this var BY NAME
+;; and is fenced to the root-swap slice, so the public name has to go on
+;; the thing that head site already writes. `machine_after_rings.cljs`
+;; records the same fork from the other side.
+;;
+;; SCAFFOLDING WITH A DEFINED END. When the shell is itself a Fresco
+;; tree, `edn-inspector-popup-stack-view` takes this name directly, the
+;; `[:>]` goes, and both defs below are deleted.
+
+(def ^:private edn-inspector-popup-stack-component
+  "The React component [[edn-inspector-popup-stack-view]] presents as, for
+  a non-Fresco parent. Declared ONCE at top level, as
+  `rf.fresco/as-component`'s contract requires — deriving one per render
+  mints a fresh element type and would remount every open popup, taking
+  its expansion state with it."
+  (rf.fresco/as-component edn-inspector-popup-stack-view))
+
+(defn edn-inspector-popup-stack
+  "The popup stack's public callable — what `shell.cljs` mounts as a
+  hiccup head at the shell root.
+
+  Since rf2-k97c.3 it is the migration bridge rather than the view:
+  Reagent-shaped hiccup interoping to the React component
+  [[edn-inspector-popup-stack-view]] presents as. The enclosing
+  `rf/frame-provider` is what puts `:rf/xray` in React context for it.
+
+  The empty/non-empty gate is inside the boundary, so this is always
+  mounted and renders nothing while no popup is open — the same shape a
+  mounted `reg-view` returning nil had.
+
+  Callers wanting the MARKUP as data — the node-lane rows — build it from
+  [[popup-stack-tree]] with the slots' values instead; this returns an
+  interop vector, not a tree to walk."
+  []
+  [:> edn-inspector-popup-stack-component {}])

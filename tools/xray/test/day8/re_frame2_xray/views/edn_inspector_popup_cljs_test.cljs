@@ -522,12 +522,39 @@
 ;; =========================================================================
 ;; stack view — renders every open entry; closed-state short-circuits
 ;; =========================================================================
+;;
+;; rf2-k97c.3 — `edn-inspector-popup-stack` is now an
+;; `rf.fresco/as-component` bridge and answers an interop vector, not a
+;; tree to walk. The markup is `popup-stack-tree`, a pure fn of the values
+;; the boundary reads.
+;;
+;; The helper below reproduces the boundary's gate and reads EXACTLY —
+;; same gate, same order, same query vectors — so every row here asserts
+;; on the same hiccup it did before, and a boundary that stopped reading
+;; one of these slots would diverge from its own test helper rather than
+;; silently agreeing with it.
+;;
+;; It is deliberately the AMBIENT `rf/subscribe`, because these rows run
+;; in the node lane with no React commit at all. What the boundary's own
+;; read resolves to — the frame React context names, not the ambient one
+;; — is the browser lane's subject.
+
+(defn- popup-stack-tree
+  "What calling the stack view directly returned before the migration:
+  nil while the stack is empty, the container otherwise."
+  []
+  (let [stack @(rf/subscribe [edn-inspector-popup/stack-slot])]
+    (when (seq stack)
+      (edn-inspector-popup/popup-stack-tree
+        {:stack       stack
+         :entries     @(rf/subscribe [edn-inspector-popup/entries-slot])
+         :positioning @(rf/subscribe [:rf.xray/modal-positioning])}))))
 
 (deftest stack-view-renders-nothing-when-empty
   (edn-inspector-popup/install!)
   ;; Register the modal-positioning sub the stack view subscribes to.
   (rf/reg-sub :rf.xray/modal-positioning (fn [_ _] :fixed))
-  (is (nil? (edn-inspector-popup/edn-inspector-popup-stack))
+  (is (nil? (popup-stack-tree))
       "closed stack short-circuits to nil"))
 
 (deftest stack-view-renders-one-entry-per-open-popup
@@ -537,7 +564,7 @@
                      "m1" {:value 1 :opts {:title "A"}}])
   (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m2" {:value 2 :opts {:title "B"}}])
-  (let [tree (edn-inspector-popup/edn-inspector-popup-stack)]
+  (let [tree (popup-stack-tree)]
     (is (some? tree) "stack view renders when at least one popup is open")
     (is (some? (find-attr tree :data-testid
                           "rf-xray-edn-inspector-popup-stack"))
@@ -558,6 +585,6 @@
                      "m2" {:value 2 :opts {}}])
   (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                      "m3" {:value 3 :opts {}}])
-  (let [tree (edn-inspector-popup/edn-inspector-popup-stack)]
+  (let [tree (popup-stack-tree)]
     (is (= 3 (-> tree second :data-rf-popup-count))
         "popup-count attribute reflects stack depth")))
