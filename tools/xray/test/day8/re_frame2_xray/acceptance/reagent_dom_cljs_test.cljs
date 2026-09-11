@@ -25,6 +25,28 @@
   a reagent-slim arm is this file with one `:require` and one `:adapter`
   changed.
 
+  ## THAT DEFECT IS FIXED, AND THE PARAGRAPH ABOVE IS KEPT AS HISTORY
+
+  rf2-7ds8 repaired it (PR #9686): `day8.re-frame2-xray.substrate/as-element`
+  now reads the hiccup->React walk off the INSTALLED adapter rather than
+  naming stock Reagent's statically, so the crossing no longer loses the
+  frame under reagent-slim. rf2-k97c.3 then removed the two crossings this
+  file names outright, by making `frame-switcher/frame-switcher-view` and
+  `mode-pill/mode-pill` boundaries.
+
+  MEASURED 2026-09-12 rather than inferred, by running this file's own six
+  criteria with `re-frame.adapter.reagent-slim/adapter` substituted: all six
+  PASS. They pass at rf2-k97c.3's merge-base too, which is what attributes
+  the repair to rf2-7ds8 and not to the island deletion.
+
+  WHAT THAT MEASUREMENT DOES NOT COVER, so the next reader does not widen
+  it: it is [[mount-xray!]]'s path only — Xray's OWN React root, mounting
+  the Static surface. The PUBLIC `open!` path, the other half of the
+  original three-adapter finding, was NOT re-measured. So the reagent-slim
+  arm this docstring offers is now a ~10-line addition somebody should
+  take; it is deliberately not taken here, because the acceptance harness
+  is its own slice's.
+
   ## NODE LANE
 
   Every row short-circuits and reports the skip; see the UIx arm's

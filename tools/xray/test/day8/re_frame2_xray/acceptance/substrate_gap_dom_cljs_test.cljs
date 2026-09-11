@@ -54,6 +54,21 @@
   runs on Reagent rather than on the reagent-slim the brief named. Fixing
   it is a production change and slice D is test-only.
 
+  THAT SECOND GAP IS CLOSED. The paragraph above is kept as history.
+  rf2-7ds8 (PR #9686) made `substrate/as-element` read the walk off the
+  INSTALLED adapter instead of naming stock Reagent's statically, and
+  `static.shell-reagent-slim-crossing-dom-cljs-test` is its witness — an
+  error boundary above the crossing, which is the instrument this
+  paragraph correctly judged a naked mount could not supply. rf2-k97c.3
+  then deleted the two crossings it names, making
+  `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill`
+  boundaries.
+
+  MEASURED 2026-09-12: the six acceptance criteria run green with
+  reagent-slim installed. Xray's OWN React root only — the public `open!`
+  path was not re-measured, so `unsupported-substrate-diagnostic`'s claim
+  about that path is still unverified rather than known-good.
+
   ## FIXTURE
 
   No `:adapter` in the fixture: each row installs its own with `rf/init!`,
