@@ -85,7 +85,7 @@
   passing silently. A green node lane is therefore NOT evidence about this
   file; `npm run test:browser` is. The node lane cannot see a
   ResizeObserver at all."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as string]
             ["react-dom" :as react-dom]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -108,6 +108,9 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil
+     ;; `:async? true` because W2 is an `async` row, and `cljs.test` refuses
+     ;; a FUNCTION fixture in any namespace that carries one.
+     :async?        true
      :init-fn       (fn []
                       (xray-test-support/reset-all!)
                       ;; Fresco's collector tables are process-global
@@ -292,12 +295,12 @@
             and unmeasured, which a distinctness row alone cannot see."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
-      (let [_     (setup!)
-            left  (mount! {:instance-id "left"})
-            right (mount! {:instance-id "right"})
-            id-l  (first (mount-ids (:container left)))
-            id-r  (first (mount-ids (:container right)))]
-        (try
+      (async done
+        (setup!)
+        (let [left  (mount! {:instance-id "left"})
+              right (mount! {:instance-id "right"})
+              id-l  (first (mount-ids (:container left)))
+              id-r  (first (mount-ids (:container right)))]
           (is (some? id-l)
               "control: the left mount committed a widget, so the store keys
                below name something that really mounted")
@@ -324,26 +327,31 @@
           ;; ---- the width half ----------------------------------------
           ;; DRIVEN through the slot's own public event rather than read off
           ;; a real measurement, and that is a finding rather than a
-          ;; shortcut: in the headless browser the committed payload
-          ;; container measures `clientWidth` 0, so `measure-and-dispatch!`'s
-          ;; `(pos? w)` guard never fires and the slot stays EMPTY on a
-          ;; perfectly healthy mount (measured on the pre-fix run: `slot={}`
-          ;; for both mounts). A row asserting a measured width would
-          ;; therefore be red for a reason that is not this defect. The slot
-          ;; is public for exactly this — its docstring says tests may drive
-          ;; measurements deterministically — and `:rf.xray.edn-inspector/
-          ;; set-width` is the very event the observer dispatches, under the
-          ;; very id the widget composes. So what these rows exercise is the
-          ;; half the defect actually breaks: WHICH KEY `release-mount!`
-          ;; clears when a sibling detaches.
+          ;; shortcut. Two things were measured on the pre-fix runs. The
+          ;; synchronous measurement `container-ref-for` takes on ref-attach
+          ;; reads `clientWidth` 0 for the FIRST expanded row's payload
+          ;; container in this headless layout, so `measure-and-dispatch!`'s
+          ;; `(pos? w)` guard never fires for it and the slot can be EMPTY on
+          ;; a perfectly healthy mount (`slot={}`); and the ResizeObserver's
+          ;; own later callback DOES land a real width for other rows
+          ;; (`"rf-xray-trace-row-202" 1192`), asynchronously. So a row
+          ;; asserting a measured VALUE is red for a reason that is not this
+          ;; defect, and one asserting a specific value races a real
+          ;; measurement that may overwrite it. The slot is public for
+          ;; exactly this — its docstring says tests may drive measurements
+          ;; deterministically — and `:rf.xray.edn-inspector/set-width` is
+          ;; the very event the observer dispatches, under the very id the
+          ;; widget composes. These rows therefore assert on KEY PRESENCE,
+          ;; which is what the defect actually moves: WHICH KEY
+          ;; `release-mount!` clears when a sibling detaches.
           (rf/dispatch-sync [:rf.xray.edn-inspector/set-width id-l 640]
                             {:frame :rf/xray})
           (rf/dispatch-sync [:rf.xray.edn-inspector/set-width id-r 480]
                             {:frame :rf/xray})
-          (is (= 640 (get (widths) id-l))
+          (is (= 2 (count (select-keys (widths) [id-l id-r])))
               (str "two live mounts hold TWO width slots — under the shared "
-                   "identity the right mount's write lands on the left's key "
-                   "and overwrites it. slot=" (pr-str (widths))))
+                   "identity both writes land on ONE key. slot="
+                   (pr-str (widths))))
 
           (unmount! right)
 
@@ -355,13 +363,30 @@
               "and the mount STILL ON SCREEN is still observed — releasing
                the survivor's entry is what the shared key did, and it left a
                live node with no observer and no width updates")
-          (is (= 640 (get (widths) id-l))
-              (str "and the survivor's width is STILL in the frame's slot — "
-                   "`release-mount!` clears the width under the DETACHING "
-                   "mount's id, which under the shared identity is the "
-                   "survivor's own. slot=" (pr-str (widths))))
-          (finally
-            (unmount! left)))))))
+          ;; The store entry is dropped by a synchronous `swap!` but the width
+          ;; is cleared by a DISPATCH, which is queued — measured: the slot
+          ;; still read the pre-unmount value on the line straight after
+          ;; `flushSync(unmount)`. So poll for the clear to land, then read
+          ;; the survivor. Under the shared identity the two ids are one
+          ;; string, so the poll below succeeds on the SURVIVOR's own key
+          ;; being cleared, and the row after it is what reports that.
+          (-> (rf.test-support/poll-until
+                (fn [] (nil? (get (widths) id-r)))
+                {:label "release-mount! cleared the detaching mount's width"})
+              (.then
+                (fn [_]
+                  (is (some? (get (widths) id-l))
+                      (str "and the survivor's width is STILL in the frame's "
+                           "slot — `release-mount!` clears the width under the "
+                           "DETACHING mount's id, which under the shared "
+                           "identity is the survivor's own. slot="
+                           (pr-str (widths))))))
+              (.catch
+                (fn [e]
+                  (is false (str "the width clear never landed: "
+                                 (.-message e) " slot=" (pr-str (widths))))
+                  nil))
+              (.then (fn [_] (unmount! left) (done)))))))))
 
 ;; ===========================================================================
 ;; W3 — the LOGICAL identity must NOT move

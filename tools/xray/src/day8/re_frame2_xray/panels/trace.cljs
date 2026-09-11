@@ -394,18 +394,97 @@
 ;; measured-width slot. The row id is this panel's own per-record identity
 ;; (it is the trace event's `:id`, the same value `:panel-id` and `:site-id`
 ;; below already qualify with), so all three now derive from one source.
-;; The remaining case — TWO Trace panels in ONE frame — is rf2-5ykm's, and
-;; is not reachable from anything this file can name.
+;;
+;; rf2-pua3 — AND THE ROW ID IS NOT ENOUGH ONCE TWO TRACE PANELS SHARE ONE
+;; FRAME. The sentence that stood here assigned that case to rf2-5ykm; that
+;; bead is closed and covers Managed FX only, and the case is reachable from
+;; here the moment a caller mounts this panel twice. Two mounts of one
+;; focused epoch with matching rows expanded composed the SAME
+;; `rf-xray-trace-row-<id>`, so the second element installed no
+;; ResizeObserver at all and `release-mount!` tore the SHARED entry down —
+;; and cleared the SHARED width — when EITHER detached, leaving the survivor
+;; on screen unobserved and unmeasured. Measured on a real two-container
+;; commit before the repair, in
+;; `panels/trace_mount_instance_id_dom_cljs_test`.
+;;
+;; The caller names them, which is the ruling rf2-d2aj closed with and the
+;; shape `app-db-diff` and `managed-fx` already ship: an optional
+;; `:instance-id`, threaded from `mount-trace!` through the bridge and the
+;; boundary to [[payload-mount-id]] below.
+;;
+;; ONE QUALIFIER, AND IT MOVES THE `:mount-id` ALONE — which is a THIRD
+;; shape rather than a copy of either sibling. `managed-fx` needs one
+;; because `edn-widget/inspect-view` builds the `:mount-id` AND the
+;; `:panel-id` from one node-key and passes no `:site-id`; `app-db-diff`
+;; needs two because `value-body` composes its `:mount-id` and its
+;; `:site-id` separately. This panel passes a stable `:site-id` (rf2-pvsxs,
+;; just below), and the widget's `effective-id` is `(or site-id mount-id)` —
+;; so expansion and zoom are keyed `[panel-id site-id path]` and DO NOT READ
+;; THE MOUNT-ID AT ALL. The logical identity is therefore already separate
+;; from the physical one, and qualifying the mount-id moves exactly the two
+;; things that are per-live-mount — the store's lifecycle key `[frame-id
+;; mount-id]` and the measured-width slot, which is keyed by the bare
+;; `mount-id` — while leaving expansion, zoom, the row's own testids and the
+;; React keys byte-for-byte where they were. Two Trace panels of one epoch
+;; still open and close together ON PURPOSE; what they no longer share is a
+;; ResizeObserver and a width.
+
+(defn instance-token
+  "Normalise `trace/Panel`'s optional `:instance-id` prop to the string that
+  qualifies one mount's inspector `:mount-id`, or nil when the caller named
+  no instance — the single-mount default, which composes every id
+  byte-for-byte as it did before rf2-pua3.
+
+  A KEYWORD is accepted alongside a string, and its NAMESPACE is part of
+  the name: `:left/trace` tokenises to `left/trace`. `(subs (str id) 1)` is
+  what preserves it; `cljs.core/name` would drop it and restore the very
+  collision this removes, which is rf2-4bsq's landed repair one level up —
+  see [[Panel-bridge]], which tokenises BEFORE the Reagent crossing for
+  exactly that reason.
+
+  It is this panel's own normaliser rather than a call into a sibling's:
+  the panels are independent surfaces, they migrate on their own schedules,
+  and the refusal has to name the caller's OWN panel to be worth reading."
+  [instance-id]
+  (cond
+    (nil? instance-id)     nil
+    (keyword? instance-id) (subs (str instance-id) 1)
+    (string? instance-id)  (when (seq instance-id) instance-id)
+    :else
+    (throw (ex-info
+             (str "The Trace panel's :instance-id must be a non-blank string "
+                  "or a keyword naming ONE live mount of the panel; it was "
+                  (pr-str instance-id) ". It is composed into each expanded "
+                  "row's edn-inspector :mount-id, so it must be stable across "
+                  "that mount's renders — a value minted per render would lose "
+                  "the measured payload width on every pass. Omit it entirely "
+                  "when only one Trace panel is on screen in this frame.")
+             {:instance-id instance-id}))))
+
+(defn- payload-mount-id
+  "The expanded row payload inspector's `:mount-id` — the PHYSICAL identity,
+  one per live mount of one row.
+
+  `instance` is the already-tokenised per-mount name, or nil. nil composes
+  the string this panel has always composed; a name splices in after the
+  panel's own prefix and LEAVES THE ROW ID INTACT inside it, so the row
+  stays identifiable in a two-panel DOM."
+  [instance id]
+  (str "rf-xray-trace-row-" (when instance (str instance "/")) id))
 
 (defn- render-payload
   "Per-row payload renderer — the raw `:operation` · `:tags` · timing ·
   `:rf.trace/dispatch-id` trace-event EDN (spec/023 §3), rendered via
-  the first-class edn-inspector widget's FRESCO boundary."
-  [{:keys [id raw] :as _row}]
+  the first-class edn-inspector widget's FRESCO boundary.
+
+  `instance` (rf2-pua3) is the tokenised per-mount name, or nil. It
+  qualifies the `:mount-id` and NOTHING else below — see the comment above
+  for why the `:panel-id` and `:site-id` deliberately stay shared."
+  [instance {:keys [id raw] :as _row}]
   [:div {:data-testid (str "rf-xray-trace-row-" id "-payload")
          :style       payload-container-style}
    [ei/edn-inspector-view
-    {:mount-id (str "rf-xray-trace-row-" id)
+    {:mount-id (payload-mount-id instance id)
      :value    raw
      :opts     {:panel-id (keyword "rf.xray.trace" (str "row-" id))
                 ;; rf2-pvsxs — trace rows survive tab leave-and-return
@@ -712,11 +791,16 @@
   `:row-extras` slot — see ns docstring of `views.resizable-table`).
   Returns the per-path db-diff sub-list (rf2-b3zw2) when the row is a
   `:rf.event/db-changed` op AND/OR the raw-EDN payload (spec/023 §3)
-  when the row is expanded."
-  [{:keys [id operation db-diff] :as row} expanded?]
+  when the row is expanded.
+
+  `instance` (rf2-pua3) is the tokenised per-mount name, or nil, and is
+  passed STRAIGHT THROUGH to the payload. The db-diff sub-list does not
+  take it: `db-diff-rows` renders through `edn/inspect-inline`, which
+  mounts no inspector and holds no per-mount lifecycle."
+  [instance {:keys [id operation db-diff] :as row} expanded?]
   (let [diff?    (= operation :rf.event/db-changed)
         diff-h   (when diff? (db-diff-rows id db-diff))
-        payload  (when expanded? (render-payload row))]
+        payload  (when expanded? (render-payload instance row))]
     (cond
       (and diff-h payload) [:<> diff-h payload]
       diff-h               diff-h
@@ -748,8 +832,14 @@
   Identical props and identical rendering — both heads hand the same map
   to the widget's own `render-table` and differ only in how they resolve
   the column-widths read and the drag dispatcher. It needs no instance
-  key: its state is keyed by the `:table-id` this panel supplies."
-  [rows expanded-row-ids]
+  key: its state is keyed by the `:table-id` this panel supplies.
+
+  rf2-pua3 — `instance` is the tokenised per-mount name, or nil, and this
+  fn only FORWARDS it to `op-row-extras`. It is deliberately NOT composed
+  into `:table-id`: the ops table's column widths are the operator's
+  chosen column layout for this arc, which two panels of one epoch share on
+  purpose, exactly as they share their expansion state."
+  [instance rows expanded-row-ids]
   [rt/resizable-table-view
    ;; rf2-hxfy — the React key lives in this props map rather than as
    ;; `^{:key "rows"}` reader meta on the `(flat-row-list …)` call in
@@ -776,7 +866,7 @@
                                                 (:id row))))
     :row-cells       (fn [row _i] (op-row-cells row))
     :row-extras      (fn [row _i]
-                       (op-row-extras row
+                       (op-row-extras instance row
                                       (contains? (or expanded-row-ids #{})
                                                  (:id row))))}])
 
@@ -842,8 +932,15 @@
 
   `feed` is the whole `:rf.xray/trace-feed` map — only `:rows` and
   `:empty-kind` are rendered (the `:envelope` / `:bands` / `:outcome`
-  slots are retained for cross-panel consumers, per `install!` below)."
-  [{:keys [feed focus focused-event-bundle expanded-ids]}]
+  slots are retained for cross-panel consumers, per `install!` below).
+
+  `instance` (rf2-pua3) is OPTIONAL and is the ALREADY-TOKENISED per-mount
+  name — `Panel` below runs [[instance-token]] once and hands the result
+  here, so the node-lane rows that drive this fn directly pass the token
+  itself rather than a raw `:instance-id`. Omitted (the shape every
+  existing caller in this tree passes) every id below is byte-for-byte what
+  it was."
+  [{:keys [feed focus focused-event-bundle expanded-ids instance]}]
   (let [{:keys [rows empty-kind]} feed]
     [:section {:data-testid "rf-xray-trace"
                :style       panel-root-style}
@@ -893,7 +990,7 @@
          ;; rf2-hxfy — its `:key` rides the props map `flat-row-list`
          ;; builds (see there); reader meta on this CALL form would
          ;; attach to the list and never reach React.
-         (flat-row-list rows expanded-ids)])]]))
+         (flat-row-list instance rows expanded-ids)])]]))
 
 (rf.fresco/defview Panel
   "The Trace panel's root view — the focused epoch's whole trace as a
@@ -937,11 +1034,52 @@
   Fresco's plain-fn-in-head-position rule never meets one.
 
   The argument is the ordinary one-props-map vector every `defview` takes.
-  This panel reads nothing from props — neither the L4 registry nor the
-  `mount-trace!` facade passes any — so it is destructured away."
-  [_props]
+
+  ## `:instance-id` — OPTIONAL, and it names ONE LIVE MOUNT (rf2-pua3)
+
+  This panel reads no DATA from props: everything it renders comes from the
+  four subs below and from nothing else, and the L4 registry and the
+  standalone embed both mount it with no props at all. The one prop it
+  takes is an IDENTITY.
+
+  Each expanded row's payload inspector needs a `:mount-id` that is unique
+  per LIVE MOUNT, because that string is the widget's lifecycle key (with
+  the frame) and its measured-width slot key. The row id alone is unique
+  within one panel; two panels of one focused epoch in one frame it cannot
+  separate, and nothing inside the widget can — a Fresco boundary is a
+  React function component with no per-instance storage its body may use,
+  so there is no id for it to mint. Left unnamed the two share one store
+  entry, one ResizeObserver and one width slot, and detaching either
+  releases the survivor's.
+
+  So the distinction is the caller's to make, and this prop is how:
+
+      [Panel {:instance-id \"left\"}]
+      [Panel {:instance-id \"right\"}]
+
+  A non-blank string or a keyword — and a keyword's NAMESPACE is part of
+  the name, so `:left/trace` and `:right/trace` are two instances and not
+  one (rf2-4bsq). It must be STABLE across that instance's renders — it is
+  an identity, not a per-render nonce — and [[instance-token]] refuses,
+  loudly, the shapes that could not be. OMIT IT when only one Trace panel
+  renders in this frame, which is every call site in this tree today: the
+  ids are then byte-for-byte what they were.
+
+  IT QUALIFIES THE PHYSICAL IDENTITY ONLY. Expansion, zoom and the row's
+  own testids are keyed by the `:site-id` and the row id and are left
+  exactly where they were, so two Trace panels of one epoch still open and
+  close together. The comment above `render-payload` carries the mechanism.
+
+  BOTH DOORS INTO THIS BOUNDARY ANSWER THE SAME. Mounted from a Fresco body
+  the prop arrives as written; mounted through [[Panel-bridge]] from a
+  Reagent parent it arrives already tokenised, because `[:>]` would
+  otherwise convert a keyword with `cljs.core/name` and drop its namespace.
+  The token is idempotent on its own output, so one value composes one set
+  of ids whichever head mounted it."
+  [{:keys [instance-id]}]
   (panel-tree
-    {:feed  (rf.fresco/sub [:rf.xray/trace-feed])
+    {:instance (instance-token instance-id)
+     :feed  (rf.fresco/sub [:rf.xray/trace-feed])
      :focus (rf.fresco/sub [:rf.xray/focus])
      ;; rf2-wcfsy — focused-event-bundle is a layer-3 composite over
      ;; `:rf.xray/event-bundles` + `:rf.xray/focus`, NOT an inline scan in
@@ -991,9 +1129,42 @@
 
   PUBLIC, because this panel is in `panel_enum` with a `mount-trace!`
   facade and `panels/render-panel!` takes the view to mount as an
-  ARGUMENT — so the embedding contract needs a name it can pass."
-  []
-  [:> Panel-component {}])
+  ARGUMENT — so the embedding contract needs a name it can pass.
+
+  rf2-pua3 — the 1-arity is how a REAGENT parent names an instance when it
+  renders two of these under one `frame-provider`:
+
+      [Panel-bridge {:instance-id \"left\"}]
+
+  The 0-arity stays because that is how the shell mounts an L4 tab
+  (`[(:panel tab)]`) and how `render-panel!` mounts the standalone embed
+  (`[panel-view]`) — one panel per frame, no instance to name.
+
+  ## The prop is TOKENISED HERE, before the crossing (rf2-4bsq)
+
+  `[:>]` converts each prop VALUE before React sees it, and Reagent's
+  `convert-prop-value` converts a named value with `cljs.core/name` — which
+  DROPS THE NAMESPACE. Passed through raw, `:left/trace` and `:right/trace`
+  would both arrive at the boundary as `\"trace\"`, so two panels the caller
+  had deliberately named apart would compose the same
+  `rf-xray-trace-row-trace/101` — one lifecycle entry, one ResizeObserver,
+  one width slot, and detaching either releasing the other's. That is
+  precisely the collision rf2-pua3 repairs, restored by the crossing.
+
+  So the bridge runs [[instance-token]] — the SAME normaliser the boundary
+  uses — and a STRING crosses, which Reagent preserves intact. The
+  boundary's own call on the far side is then a no-op (the fn is idempotent
+  on its own output), and a refused shape throws naming the CALLER's value
+  rather than whatever the crossing had turned it into.
+
+  A blank string tokenises to nil and so mounts with no props, exactly as
+  naming no instance does."
+  ([] (Panel-bridge nil))
+  ([props]
+   [:> Panel-component
+    (if-let [instance-id (instance-token (:instance-id props))]
+      {:instance-id instance-id}
+      {})]))
 
 ;; ---- registration entry --------------------------------------------------
 
