@@ -15,10 +15,14 @@
        `[:rf.xray/machine-canvas :chart-collapsed-by-id machine-id]`.
        Persisted to localStorage so the operator's choice to hide the
        chart real-estate survives reloads.
-    2. **`Chart` hiccup adapter** — thin wrapper around
+    2. **The chart adapter** — a thin wrapper around
        `mv-chart/MachineChart` that wires the focused-event lens
        from-state / to-state highlights, the on-state-click
-       dispatch, and the after-rings overlay.
+       dispatch, and the after-rings overlay. rf2-k97c.3 split it into
+       one body, `chart-tree`, behind TWO heads: `Chart` for a Reagent
+       parent and `Chart-view` for a Fresco boundary. `chart-tree`'s
+       docstring carries why both are needed and what differs between
+       them; nothing else about this surface moved.
 
   ## What this no longer owns
 
@@ -55,8 +59,13 @@
   (:require [clojure.string :as str]
             [cljs.reader :as reader]
             [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.local-storage :as ls]
+            ;; rf2-k97c.3 — the `as-child` door [[Chart-view]] hands
+            ;; [[chart-tree]] for the machines-viz mount. See that fn's
+            ;; docstring for why the chart itself stays Reagent.
+            [day8.re-frame2-xray.substrate :as substrate]
             [day8.re-frame2-machines-viz.chart :as mv-chart]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
             ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — the canvas-side
@@ -213,19 +222,53 @@
       (rf/dispatch [:rf.xray.machine-canvas/hydrate-chart-collapsed by-id]
                    {:frame defaults/default-frame-id}))))
 
-;; ---- public Chart view --------------------------------------------------
+;; ---- the shared chart body ----------------------------------------------
 
-(rf/reg-view Chart
-  "Render the interactive MachineChart inside the Dynamic Machines
-  panel (or the Static Machines Topology body).
+(defn chart-tree
+  "The chart's whole markup, as a pure function of its props and the two
+  spellings that differ between the substrates. [[Chart]] and
+  [[Chart-view]] are both one call to this and nothing else, so the two
+  heads cannot drift apart on anything an operator sees (rf2-k97c.3).
 
-  rf2-m4xz1 — registered via `reg-view` (was a plain `defn`) so the
-  React-context frame tier carries the enclosing `:rf/xray` frame
-  through to xray-internal subscribes (e.g. the chart-collapsed slot).
-  As a plain fn the subscribe routed to `:rf/default` (the host app),
-  which is a real frame-leak — xray-internal slots must be read via
-  xray's own frame. Same surgery PR #2110 (rf2-uu3lp) applied to the
-  rest of xray chrome.
+  ## Why there are two heads rather than one
+
+  `Chart` answers hiccup, but that hiccup is NOT head-free: it mounts
+  `mv-chart/MachineChart`, a Reagent component, and the after-rings
+  overlay. So the standard HD-016 repair — inline it into the calling
+  boundary — cannot terminate here, and the door is Fresco's component
+  ABI: a React ELEMENT is a legal child anywhere.
+
+  `Chart` could not simply BECOME [[Chart-view]], because two of its four
+  consumers reach it from REAGENT: `static/machines/topology.cljs` and
+  `static/machines/sim.cljs` render inside the `as-child` island
+  `static/machines/definition_detail.cljs` hands down, and that island is
+  that slice's to retire. A Reagent parent's only inward door to a
+  boundary is `rf.fresco/as-component`, whose contract is explicit that
+  `[:>]` converts first, so \"names round-trip across the crossing and
+  values do not\" — and this props map is nothing BUT values a conversion
+  would destroy: a nested `:definition`, keyword ids, two edge-id SETS and
+  three callbacks. So the `reg-view` head survives for them, and the
+  boundary serves the consumer that is already a boundary.
+
+  That is `views/edn_widget.cljs`'s dual-head facade (`inspect` beside
+  `inspect-view`) applied to this widget: same value, same opts, same
+  renderer, only the head differs.
+
+  ## The two spellings
+
+  `as-child` wraps the machines-viz mount. `identity` leaves it the
+  Reagent head it has always been; `substrate/as-element` answers a React
+  element through the INSTALLED adapter's own walk. The chart itself stays
+  Reagent either way — xyflow is a React library reached through a Reagent
+  component, and making it substrate-neutral is machines-viz's concern,
+  not Xray's. So this is a REAL island with a defined end, and the end is
+  not in this tree.
+
+  `overlay` is the after-rings mount, which differs by HEAD rather than by
+  wrapping and so cannot ride `as-child`: the Reagent lane heads
+  `after-rings/AfterRingsOverlay-bridge`, the boundary heads the
+  `rf.fresco/defview` directly. It is used only when
+  `:show-after-rings?` is on, so a caller may build it unconditionally.
 
   Args (map):
 
@@ -330,7 +373,9 @@
            ;; `:theme` prop still wins. No toggle UI is built in.
            theme                   @default-chart-theme
            testid                  "rf-xray-machine-canvas-host"
-           inner-testid            "rf-mv-chart"}}]
+           inner-testid            "rf-mv-chart"}}
+   as-child
+   overlay]
   [:div
    {:data-testid testid
     :data-machine-id (str machine-id)
@@ -349,47 +394,96 @@
    [:div {:data-testid inner-testid
           :data-machine-id (str machine-id)
           :style {:width "100%" :height "100%"}}
-    [mv-chart/MachineChart
-     {:definition      definition
-      :machine-id      machine-id
-      :context-band    context-band
-      ;; rf2-3q4k5b (EP-0005) — declared-over-inferred provenance for the
-      ;; Context band badge. Forwarded so the Static topology path can mark a
-      ;; `[:schemas :data]`-declared shape AUTHORITATIVE (false → no inferred
-      ;; badge). Defaults true (rf2-5tz9p's inferred-by-default posture).
-      :context-band-inferred? context-band-inferred?
-      :from-highlight  from-highlight
-      :to-highlight    to-highlight
-      :current-state   current-state
-      :fired-edge-ids  fired-edge-ids
-      :guard-blocked-edge-ids guard-blocked-edge-ids
-      :sim?            sim?
-      :theme           theme
-      :on-state-click  on-state-click
-      :on-edge-click   on-edge-click
-      ;; rf2-6tw7t — fit-on-entry nonce. The host (Machine panel /
-      ;; Static topology) bumps this on panel-entry / tab-activation so
-      ;; the chart re-fits the topology even when the layout-key is
-      ;; unchanged (re-entering the same machine). Forwarded verbatim.
-      :fit-signal      fit-signal
-      :show-minimap?   false
-      :show-controls?  show-controls?
-      :show-background? true
-      :testid          "rf-mv-chart"}]]
-   (when show-after-rings?
-     ;; The overlay walks the chart's node DOM by data-testid to find
-     ;; bbox positions; no positioned-graph prop is needed
-     ;; post-migration (xyflow owns positions internally).
-     ;;
-     ;; rf2-k97c.3 — `AfterRingsOverlay` is now an `rf.fresco/defview`,
-     ;; i.e. a real React component, and `Chart` here is still a
-     ;; `reg-view`, i.e. a Reagent tree. `AfterRingsOverlay-bridge` is
-     ;; the one line between them (`rf.fresco/as-component`, crossing an
-     ;; empty props map — the overlay's opts were never read, which is
-     ;; why the old `nil` argument is no loss). Both the bridge and this
-     ;; call go at step 3, when `Chart` is itself a Fresco body and can
-     ;; mount the boundary directly.
-     [after-rings/AfterRingsOverlay-bridge])])
+    ;; rf2-k97c.3 — `as-child` is the island spelling. `identity` under
+    ;; [[Chart]] leaves this the Reagent head it has always been;
+    ;; `substrate/as-element` under [[Chart-view]] answers a React element,
+    ;; which Fresco's codec passes through as a legal child. The props map
+    ;; crosses BY IDENTITY either way, because the vector itself is what is
+    ;; handed to the walk — the very property `rf.fresco/as-component`
+    ;; cannot offer in the opposite direction.
+    (as-child
+      [mv-chart/MachineChart
+       {:definition      definition
+        :machine-id      machine-id
+        :context-band    context-band
+        ;; rf2-3q4k5b (EP-0005) — declared-over-inferred provenance for the
+        ;; Context band badge. Forwarded so the Static topology path can mark
+        ;; a `[:schemas :data]`-declared shape AUTHORITATIVE (false → no
+        ;; inferred badge). Defaults true (rf2-5tz9p's inferred-by-default
+        ;; posture).
+        :context-band-inferred? context-band-inferred?
+        :from-highlight  from-highlight
+        :to-highlight    to-highlight
+        :current-state   current-state
+        :fired-edge-ids  fired-edge-ids
+        :guard-blocked-edge-ids guard-blocked-edge-ids
+        :sim?            sim?
+        :theme           theme
+        :on-state-click  on-state-click
+        :on-edge-click   on-edge-click
+        ;; rf2-6tw7t — fit-on-entry nonce. The host (Machine panel /
+        ;; Static topology) bumps this on panel-entry / tab-activation so
+        ;; the chart re-fits the topology even when the layout-key is
+        ;; unchanged (re-entering the same machine). Forwarded verbatim.
+        :fit-signal      fit-signal
+        :show-minimap?   false
+        :show-controls?  show-controls?
+        :show-background? true
+        :testid          "rf-mv-chart"}])]
+   ;; The overlay walks the chart's node DOM by data-testid to find bbox
+   ;; positions; no positioned-graph prop is needed post-migration (xyflow
+   ;; owns positions internally).
+   ;;
+   ;; rf2-k97c.3 — the overlay is an `rf.fresco/defview`, so WHICH head
+   ;; mounts it is the caller's to decide and arrives as `overlay`: a
+   ;; Reagent tree cannot head a boundary and takes the `as-component`
+   ;; bridge, while [[Chart-view]] heads the boundary itself. Building the
+   ;; value is free, so callers build it unconditionally and this is the
+   ;; only place `:show-after-rings?` is read.
+   (when show-after-rings? overlay)])
+
+;; ---- the two public heads (rf2-k97c.3) ----------------------------------
+
+(rf/reg-view Chart
+  "Render the interactive MachineChart from a REAGENT tree — the Static
+  Machines Topology and Sim bodies, which render inside the `as-child`
+  island `static/machines/definition_detail.cljs` hands down.
+
+  One call to [[chart-tree]] and nothing else; that fn's docstring carries
+  the args, the two spellings, and why this head survives beside
+  [[Chart-view]] rather than being replaced by it.
+
+  rf2-m4xz1 — registered via `reg-view` (was a plain `defn`) so the
+  React-context frame tier carries the enclosing `:rf/xray` frame through
+  to xray-internal subscribes. That reasoning is HISTORICAL as of
+  rf2-k97c.3: this body performs no read at all, so nothing here depends
+  on the frame it renders under. What `reg-view` still buys is that a
+  Reagent parent can HEAD it, which a boundary cannot offer.
+
+  Returns hiccup."
+  [props]
+  (chart-tree props identity [after-rings/AfterRingsOverlay-bridge]))
+
+(rf.fresco/defview Chart-view
+  "[[Chart]], for a caller that is already a Fresco boundary — today
+  `panels/machine_inspector.cljs`'s ELEMENT 3, which headed the `reg-view`
+  through an `as-child` island until this landed.
+
+  Same value, same props, same renderer; the ONLY differences are the head
+  and the two spellings [[chart-tree]] takes — `substrate/as-element` for
+  the machines-viz mount, and the after-rings boundary headed directly
+  rather than through its `as-component` bridge.
+
+  NO `:mount-id`, and that is a property of this widget rather than an
+  omission: a boundary cannot mint its own per-mount identity, but this
+  body reads nothing and holds no per-instance state, so it has none to
+  key. Its one stateful descendant, the machines-viz chart, keeps its
+  identity from React's own reconciliation exactly as it did under
+  `reg-view`.
+
+  Takes the ordinary one-props-map argument every `defview` takes."
+  [props]
+  (chart-tree props substrate/as-element [after-rings/AfterRingsOverlay {}]))
 
 ;; ---- snapshot drill-in (rf2-lxvn6 · spec/021 §10 widget contract) -----
 ;;

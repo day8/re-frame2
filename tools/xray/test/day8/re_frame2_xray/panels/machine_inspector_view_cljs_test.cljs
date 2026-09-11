@@ -111,10 +111,13 @@
   `machine_inspector_fresco_boundary_dom_cljs_test`'s subject, read off a
   real React commit.
 
-  `identity` is the `as-child` spelling for a hiccup caller: the island
-  the boundary needs for the still-Reagent topology chart is a no-op
-  here, so the rows below walk the chart's own vector exactly as they did
-  before the migration. `r/as-element` is what the boundary passes.
+  THERE IS NO `as-child` ARGUMENT ANY MORE. `panel-tree` used to take the
+  island spelling and thread it to the topology chart; the chart is a
+  Fresco boundary head now (`machine-canvas/Chart-view`), so the parameter
+  went with the island. The rows below still walk the chart's own vector,
+  because a boundary head is ordinary hiccup data outside a render window
+  — which is exactly what made the argument droppable without a second
+  spelling for this lane.
 
   The reads are spelled `@(rf/subscribe …)` rather than `rf.fresco/sub`
   deliberately: outside a render window there is no collector edge to
@@ -126,7 +129,6 @@
     @(rf/subscribe [:rf.xray/machine-inspector-data])
     @(rf/subscribe [:rf.xray/machine-transitions-for-focused-event])
     (:cascade @(rf/subscribe [:rf.xray/machine-focused-epoch-cascade]))
-    identity
     @(rf/subscribe [:rf.xray/machine-tab-fit-signal])
     @(rf/subscribe [:rf.xray/target-frame])))
 

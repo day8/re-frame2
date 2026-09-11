@@ -19,18 +19,17 @@
                                     OWN sub-cache rather than off the DOM
     6 CLEAN TEARDOWN              — W3
 
-  W4 answers no epic criterion. It is the CONTROL under W1's island row: it
-  mounts the panel's own tree with the island child removed and shows the
-  island assertion failing while the wrapper assertions still pass.
+    5 NO APPLICATION VIEW TRACE   — W5, with the positive `reg-view` control
+                                    that makes the zero mean silence
 
-  Criteria 3 and 5 have no row here for the reasons the Epoch panel's sibling
-  suite sets out: criterion 5 is structural and identical for every boundary
-  in this migration, and `static/flows/panel_fresco_boundary_dom_cljs_test`
-  carries it with a positive `reg-view` control; criterion 3's affordances
-  here (Prev/Next, the chart's state-click) dispatch through a frame captured
-  at render time by `rf/current-frame-id`, which this migration did not touch.
+  W4 answers no epic criterion. It is the standing demonstration under W1's
+  chart row that the wrapper selector cannot witness the chart.
 
-  ## FIVE READS, AND THE ISLAND
+  Criterion 3 has no row here: its affordances (Prev/Next, the chart's
+  state-click) dispatch through a frame captured at render time by
+  `rf/current-frame-id`, which this migration did not touch.
+
+  ## FIVE READS, AND NO ISLAND
 
   The boundary reads `:rf.xray/machine-inspector-data`,
   `:rf.xray/machine-transitions-for-focused-event`,
@@ -39,21 +38,22 @@
   deep in the tree; rf2-k97c.3 hoisted them into the body so the helpers stay
   pure functions the node lane can drive. W1 and W3 assert on all five.
 
-  ONE ISLAND SURVIVES and W1 has a row for it. `machine-canvas/Chart` is
-  still an `rf/reg-view` — it has a second consumer on the Static surface, so
-  migrating it belongs to that slice — and a `reg-view` head grades
-  `:invalid` under Fresco's codec down the IDENTICAL arm a plain `defn` does.
-  The boundary therefore hands `r/as-element` down as the `as-child`
-  spelling. That is not a detail a node-lane row can witness: under
-  `identity` the island is a no-op and the tree looks the same either way.
-  Here, a missing or wrong island does not paint at all.
+  NO ISLAND SURVIVES IN THIS PANEL, and that is what changed at the commit
+  these rows were last revised for. ELEMENT 3 used to hand `r/as-element`
+  down as an `as-child` spelling, because `machine-canvas/Chart` is an
+  `rf/reg-view` and a `reg-view` head grades `:invalid` under Fresco's codec
+  down the IDENTICAL arm a plain `defn` does. `machine-canvas/Chart-view`
+  now ships that boundary beside the `reg-view` — both one call to the same
+  `machine-canvas/chart-tree` — so the panel heads it directly, the
+  parameter is gone from four signatures, and W5's zero becomes reachable
+  for the first time.
 
-  SELECT THE ISLAND BY A NODE THE ISLAND EMITS (rf2-q6n3). That is
-  `rf-xray-machine-canvas-host`, `Chart`'s own root. It is NOT
+  SELECT THE CHART BY A NODE THE CHART EMITS (rf2-q6n3). That is
+  `rf-xray-machine-canvas-host`, the chart's own root. It is NOT
   `rf-xray-machine-focused-event-chart`, which `machine_inspector` emits two
-  levels ABOVE its `as-child` call and which therefore survives the whole
-  Chart subtree being absent — W1 claimed the island on that marker until
-  rf2-q6n3, and W4 is the standing demonstration of why it could not.
+  levels ABOVE the mount and which therefore survives the whole chart
+  subtree being absent — W1 claimed the chart on that marker until rf2-q6n3,
+  and W4 is the standing demonstration of why it could not.
 
   ## The mount is the SHELL's mount, taken from the registry
 
@@ -94,14 +94,6 @@
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.machines]
             [re-frame.test-support :as rf.test-support]
-            ;; W4 only. `r/as-element` is the island spelling [[Panel]] hands
-            ;; down, and W4's control is that same call with the ONE argument
-            ;; swapped — so the test needs the production spelling verbatim.
-            [reagent.core :as r]
-            ;; W4 only, and it is the one place this file names a panel var
-            ;; rather than reaching through the registry: `panel-tree` IS the
-            ;; seam the island rides on, so the control has to call it.
-            [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
@@ -264,23 +256,26 @@
 
 (defn- chart-wrapper-node
   "The chart WRAPPER — a `:div` `machine_inspector` itself emits above the
-  island (`panels/machine_inspector.cljs`, ELEMENT 3). Its presence says the
-  focused-event section reached element 3 and took the has-definition arm,
-  and it says NOTHING WHATEVER about the island: `machine_inspector` emits
-  this node and a second styling wrapper BEFORE the `as-child` call, so it is
-  committed even when `as-child` answers nil and the entire Chart subtree is
-  absent. [[w4-the-island-selector-discriminates-and-the-wrapper-does-not]]
+  chart mount (`panels/machine_inspector.cljs`, ELEMENT 3). Its presence says
+  the focused-event section reached element 3 and took the has-definition
+  arm, and it says NOTHING WHATEVER about the chart: `machine_inspector`
+  emits this node and a second styling wrapper ABOVE the mount, so it is
+  committed even when the entire chart subtree is absent.
+  [[w4-the-chart-selector-discriminates-and-the-wrapper-does-not]]
   demonstrates exactly that, which is why this is not a claim about the
-  island and must never be written as one again (rf2-q6n3)."
+  chart and must never be written as one again (rf2-q6n3)."
   [container]
   (q container "[data-testid=\"rf-xray-machine-focused-event-chart\"]"))
 
 (defn- island-node
-  "The ISLAND — `machine-canvas/Chart`'s OWN root div. `Chart` emits
+  "THE CHART's OWN root div. `machine-canvas/chart-tree` emits
   `:data-testid` from its `testid` prop, whose `:or` default is this literal
-  (`panels/machine_canvas.cljs`), and `machine_inspector`'s `as-child` call
-  site passes no `:testid`, so this marker IS Chart's root here. Nothing but
-  `Chart` running can put this node in the DOM."
+  (`panels/machine_canvas.cljs`), and `machine_inspector`'s mount passes no
+  `:testid`, so this marker IS the chart's root here. Nothing but the chart
+  boundary running can put this node in the DOM.
+
+  The NAME is kept from when this really was an island, so the W-row
+  cross-references stay resolvable; rf2-k97c.3 made it a Fresco boundary."
   [container]
   (q container "[data-testid=\"rf-xray-machine-canvas-host\"]"))
 
@@ -334,31 +329,31 @@
                focused-event surface, so the body really ran through
                `panel-tree` rather than painting an empty shell")
 
-          ;; ---- the island, which only a real commit can witness -----------
+          ;; ---- the chart, which only a real commit can witness ------------
           ;;
-          ;; TWO ROWS, AND THE ORDER IS THE POINT (rf2-q6n3). Until this
-          ;; commit there was ONE row here, selecting the WRAPPER and
-          ;; claiming the island. `machine_inspector` emits that wrapper
-          ;; itself, two levels above its `as-child` call, so the row was
-          ;; true of a tree with no island in it at all — it restated what
-          ;; the `focused-section?` row above already establishes. The
-          ;; wrapper row is kept because it IS a real witness of its own
-          ;; claim; what changed is the sentence attached to it.
+          ;; TWO ROWS, AND THE ORDER IS THE POINT (rf2-q6n3). There was once
+          ;; ONE row here, selecting the WRAPPER and claiming the chart.
+          ;; `machine_inspector` emits that wrapper itself, two levels above
+          ;; the mount, so the row was true of a tree with no chart in it at
+          ;; all — it restated what the `focused-section?` row above already
+          ;; establishes. The wrapper row is kept because it IS a real
+          ;; witness of its own claim; what changed is the sentence attached
+          ;; to it.
           (is (some? (chart-wrapper-node container))
               "the focused-event section reached ELEMENT 3 and took the
                has-definition arm, so it emitted the chart WRAPPER. This is a
                claim about `machine_inspector`'s own markup and no more: the
-               wrapper sits above the `as-child` call and survives the island
-               being absent, which is W4's subject.")
+               wrapper sits above the mount and survives the chart being
+               absent, which is W4's subject.")
           (is (some? (island-node container))
-              "THE ISLAND MOUNTED — `machine-canvas/Chart`'s OWN root div,
-               below the migration seam. `Chart` is still an `rf/reg-view`,
-               which Fresco's codec grades `:invalid` in head position down
-               the identical arm a plain `defn` takes, so this node reaches
-               the DOM only because the boundary hands `r/as-element` down as
-               the `as-child` spelling and Reagent expanded the head. Under
-               the node lane's `identity` the island is a no-op and this
-               claim cannot be made at all.")
+              "THE CHART MOUNTED — `machine-canvas/Chart-view`'s OWN root
+               div. rf2-k97c.3 made that head an `rf.fresco/defview`, so this
+               node reaches the DOM because Fresco's codec graded the head a
+               BOUNDARY and rendered it — where until then it reached the DOM
+               only because the panel handed `r/as-element` down as an
+               `as-child` spelling and Reagent expanded a head the codec
+               refuses. The node lane cannot make this claim either way: out
+               of a render window the mount is hiccup data and nothing runs.")
 
           ;; ---- criterion 4: the reads are where the tree said they'd be ----
           (doseq [query-v boundary-reads]
@@ -504,80 +499,42 @@
             (.then (fn [_] (done))))))))
 
 ;; ===========================================================================
-;; W4 — the island selector discriminates, and the wrapper selector does not
+;; W4 — the island is GONE, and the wrapper selector still cannot witness it
 ;; ===========================================================================
 
-;; THE CONTROL IS `Panel`'s OWN BODY WITH ONE ARGUMENT SWAPPED.
+;; WHAT THIS ROW USED TO BE, AND WHY IT COULD NOT SURVIVE UNCHANGED.
 ;;
-;; `machine-inspector/panel-tree` takes the island spelling as a PARAMETER —
-;; `r/as-element` under the boundary, `identity` for the node lane — and
-;; threads it to exactly one call site, `focused-event-section`'s
-;; `(as-child [machine-canvas/Chart …])`. An island-less tree is therefore
-;; that same fn with `(constantly nil)` in that one argument: not a hand-built
-;; fixture resembling the panel, but the production tree builder emitting the
-;; production wrapper through the production seam. Both halves below come from
-;; the same fn over the same seeded state, so `as-child` is the ONLY variable
-;; between them.
+;; `panel-tree` used to take the island spelling as a PARAMETER and thread it
+;; to one call site, `focused-event-section`'s `(as-child [machine-canvas/
+;; Chart …])`. W4's control was that same fn with `(constantly nil)` in that
+;; one argument, which produced a tree with the wrapper and no island.
 ;;
-;; IT IS HOSTED IN A REAL BOUNDARY rather than in a bare Reagent tree, and
-;; that is load-bearing rather than ceremony: `panel-tree`'s ELEMENT 2 reaches
-;; the shared mini-pipeline, whose EDN-widget heads are Fresco boundaries.
-;; Reagent mints its own component for a fn head and CALLS it during Reagent's
-;; render, which is not a React function-component render, so the boundary's
-;; first hook throws, React swallows the render throw, and that subtree
-;; silently commits nothing. `machine_epochs_always_round_dom_cljs_test`
-;; records the same fact from the other side and hosts its subject this way.
+;; rf2-k97c.3 retired that seam: `machine-canvas/Chart-view` is a Fresco
+;; boundary — the same `machine-canvas/chart-tree` body the surviving
+;; `reg-view` renders — so the panel heads it directly and the parameter is
+;; gone from four signatures. There is no longer an argument that can remove
+;; the chart, which is the point of the change and not a loss of coverage.
 ;;
-;; The spelling arrives through an atom rather than through props because only
-;; an EMPTY props map survives the `[:>]` crossing intact.
+;; THE CLAIM rf2-q6n3 MADE IS UNCHANGED AND STILL WORTH PINNING, because it
+;; is a claim about the two SELECTORS rather than about the island: a row
+;; that selects `rf-xray-machine-focused-event-chart` reads GREEN over a tree
+;; with no chart in it at all, so W1's chart assertion has to select
+;; `rf-xray-machine-canvas-host`. Both halves below make that claim against
+;; the real committed DOM:
+;;
+;;   1. STRUCTURALLY — the wrapper is a strict ANCESTOR of the chart's own
+;;      root, emitted by `machine_inspector` two levels above the mount. So
+;;      its presence is implied by the chart's and never implies it.
+;;   2. OPERATIONALLY — with the chart's root removed from the committed DOM,
+;;      the wrapper query still answers while the chart query does not. That
+;;      is the rf2-q6n3 defect stated as a passing assertion.
 
-(defonce ^:private !island-spelling
-  (atom nil))
-
-(rf.fresco/defview IslandProbe
-  "[[Panel]]'s body — the same five queries through the same collector, the
-  same `panel-tree` call — with the island spelling read from
-  [[!island-spelling]] rather than hard-coded to `r/as-element`. Takes the
-  ordinary one-props-map argument every `defview` takes and reads nothing
-  from it."
-  [_props]
-  (machine-inspector/panel-tree
-    (rf.fresco/sub data-q)
-    (rf.fresco/sub records-q)
-    (:cascade (rf.fresco/sub cascade-q))
-    @!island-spelling
-    (rf.fresco/sub fit-q)
-    (rf.fresco/sub frame-q)))
-
-(def ^:private IslandProbe-component
-  "The React component [[IslandProbe]] presents as, for the Reagent root
-  below. Declared ONCE at top level, as `rf.fresco/as-component` requires."
-  (rf.fresco/as-component IslandProbe))
-
-(defn- mount-probe!
-  "Mount [[IslandProbe]] with `as-child` as its island spelling, inside the
-  `frame-provider` the real shell wraps every panel in. Committed
-  synchronously, as [[mount-panel!]] is and for the same reason."
-  [as-child]
-  (reset! !island-spelling as-child)
-  (let [container (.createElement js/document "div")
-        root      (rdc/create-root container)]
-    (.appendChild (.-body js/document) container)
-    (react-dom/flushSync
-      (fn []
-        (rdc/render root [rf/frame-provider {:frame :rf/xray}
-                          [:> IslandProbe-component {}]])))
-    {:container container :root root}))
-
-(deftest w4-the-island-selector-discriminates-and-the-wrapper-does-not
-  (testing "rf2-q6n3 — with the island child removed, the
-            `rf-xray-machine-focused-event-chart` wrapper is STILL COMMITTED
-            while the `rf-xray-machine-canvas-host` island is GONE. That
-            asymmetry is the whole row. It is what makes W1's island
-            assertion a claim about the island, and it is the standing
-            demonstration that the assertion W1 used to carry — which
-            selected the wrapper — could not have failed on an absent island
-            and therefore never made the claim its docstring stated."
+(deftest w4-the-chart-selector-discriminates-and-the-wrapper-does-not
+  (testing "rf2-q6n3 / rf2-k97c.3 — `rf-xray-machine-focused-event-chart` is
+            a strict ANCESTOR of `rf-xray-machine-canvas-host`, so a row
+            selecting the wrapper cannot fail on an absent chart. Asserted on
+            the panel's own committed DOM, and then demonstrated directly by
+            taking the chart's root away and re-querying."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
@@ -585,59 +542,125 @@
         (seed-machines!)
         (set-history! fixture-history)
         (focus-epoch! 1)
-        (let [!live (atom (mount-probe! r/as-element))
-              !dark (atom nil)
-              drop! (fn [a]
-                      (when-let [{:keys [root container]} @a]
-                        (reset! a nil)
-                        (teardown! root container)))]
+        (let [{:keys [container root]} (mount-panel! :rf/xray)]
           (-> (rf.test-support/poll-until
-                #(some? (island-node (:container @!live)))
-                {:label "the probe committed Chart's own canvas host"})
+                #(some? (island-node container))
+                {:label "the panel committed the chart's own canvas host"})
               (.then
                 (fn [_]
-                  ;; ---- the island is really there when it is there --------
-                  (is (= "rf-xray-machine-canvas-host"
-                         (some-> (island-node (:container @!live))
-                                 (.getAttribute "data-testid")))
-                      "NON-VACUITY: handed the production spelling
-                       `r/as-element`, the probe commits `machine-canvas/
-                       Chart`'s own root. So this harness CAN produce an
-                       island, and the absence asserted below is a real
-                       absence rather than a harness that never renders one.
-                       Compared against the marker written out in full, so a
-                       nil node cannot agree with a nil expectation.")
-                  (is (some? (chart-wrapper-node (:container @!live)))
-                      "and the wrapper is committed here too, exactly as in
-                       W1 — which is what makes the pair below a controlled
-                       comparison rather than two unrelated trees")
-                  (drop! !live)
-                  ;; ---- now take the island away, and only the island -----
-                  (reset! !dark (mount-probe! (constantly nil)))
-                  (settle)))
-              (.then
-                (fn [_]
-                  (let [container (:container @!dark)]
+                  (let [wrapper (chart-wrapper-node container)
+                        chart   (island-node container)]
+                    ;; ---- 1. the structural half ---------------------------
+                    (is (= "rf-xray-machine-canvas-host"
+                           (some-> chart (.getAttribute "data-testid")))
+                        "NON-VACUITY: the chart's own root really is committed
+                         here, compared against the marker written out in
+                         full so a nil node cannot agree with a nil
+                         expectation")
+                    (is (some? wrapper)
+                        "and so is the wrapper, which is what makes the
+                         comparison below a controlled one rather than two
+                         unrelated trees")
+                    (is (and (some? wrapper) (some? chart)
+                             (not (identical? wrapper chart))
+                             (.contains wrapper chart))
+                        "THE WRAPPER IS A STRICT ANCESTOR of the chart's root.
+                         `machine_inspector` emits it two levels ABOVE the
+                         chart mount, so its presence is implied by the
+                         chart's and never implies it — which is the whole of
+                         why W1's chart assertion must not select it.")
+                    ;; ---- 2. the operational half --------------------------
+                    (.remove chart)
                     (is (nil? (island-node container))
-                        "THE ISLAND IS GONE. `as-child` answered nil, so
-                         `machine-canvas/Chart` never ran and nothing in the
-                         committed DOM carries its root marker. Asserted
-                         after a full settling window, so the absence is a
-                         decision and not a race.")
+                        "with the chart's root taken out of the committed DOM,
+                         the chart selector answers nothing")
                     (is (some? (chart-wrapper-node container))
                         "AND THE WRAPPER IS STILL STANDING. This is the
-                         rf2-q6n3 defect stated as a passing assertion:
-                         `machine_inspector` emits
-                         `rf-xray-machine-focused-event-chart` two levels
-                         ABOVE its `as-child` call, so a row selecting that
-                         marker reads GREEN over a tree with no island in it
-                         at all. The island claim cannot be made with this
-                         node, and W1 no longer makes it."))))
+                         rf2-q6n3 defect stated as a passing assertion: a row
+                         selecting that marker reads GREEN over a tree with no
+                         chart in it at all. W1 no longer makes the claim with
+                         this node."))))
               (.catch (fn [e]
                         (is false (str "W4 never settled: " (.-message e)))
                         nil))
               (.then (fn [_]
-                       (drop! !live)
-                       (drop! !dark)
-                       (reset! !island-spelling nil)
+                       (teardown! root container)
                        (done)))))))))
+
+;; ===========================================================================
+;; W5 — the panel's render is not application view evidence (criterion 5)
+;; ===========================================================================
+
+(rf/reg-view ProbeRegView
+  "The POSITIVE CONTROL for W5, and nothing else. An ordinary `reg-view`
+  rendered by the installed adapter in the same root, in the same frame and
+  in the same commit shape as the panel — so the only variable between it
+  and the panel is which view layer authored the body."
+  []
+  [:div {:data-testid "rf-xray-probe-reg-view"}])
+
+(deftest w5-the-panels-render-emits-no-view-trace
+  (testing "rf2-k97c.3 — epic criterion 5, and THIS PANEL'S ZERO IS NEW AT
+            THIS COMMIT. `Panel` has been a boundary since the earlier slice,
+            but its focused-event subtree still bottomed out in
+            `machine-canvas/Chart`, an `rf/reg-view`, islanded behind
+            `as-child` — and a `reg-view` emits view trace wherever it
+            renders, so the panel's rendered subtree was NOT trace-silent.
+            `machine-canvas/Chart-view` is what makes it so.
+
+            THE SCOPE IS ASSERTED RATHER THAN ASSUMED: the row pins that the
+            focused-event section and the chart's own root are BOTH on screen
+            in the commit being measured, so the zero covers the whole chart
+            subtree and not a tree that happened not to render one."
+    (if-not (browser?)
+      (is true ":node — the :browser-test runner drives the real React mount")
+      (do
+        (setup!)
+        (seed-machines!)
+        (set-history! fixture-history)
+        (focus-epoch! 1)
+        (let [traces   (atom [])
+              view-op? #(and (keyword? (:operation %))
+                             (= "rf.view" (namespace (:operation %))))]
+          (rf/register-listener! :trace ::collect (fn [ev] (swap! traces conj ev)))
+          (try
+            ;; ---- the subject: the panel, chart and all ---------------------
+            (let [{:keys [container root]} (mount-panel! :rf/xray)
+                  subject-views (filterv view-op? @traces)]
+              (try
+                (is (focused-section? container)
+                    "precondition: the focused-event section really did render
+                     in this commit — an empty container would make the zero
+                     below vacuous")
+                (is (some? (island-node container))
+                    "SCOPE: and so did the CHART, whose root marker is on
+                     screen. This is the half that moved: before `Chart-view`
+                     this same assertion stood over a `reg-view` render, and
+                     the zero below could not have held beside it.")
+                (is (zero? (count subject-views))
+                    (str "the panel's whole rendered subtree, chart included, "
+                         "put NO :rf.view/* op in the trace stream. Ops seen: "
+                         (pr-str (mapv :operation subject-views))))
+                (finally (teardown! root container))))
+            ;; ---- the control: a reg-view, same root shape, same frame ------
+            (reset! traces [])
+            (let [container (.createElement js/document "div")
+                  root      (rdc/create-root container)]
+              (.appendChild (.-body js/document) container)
+              (try
+                (react-dom/flushSync
+                  (fn []
+                    (rdc/render root [rf/frame-provider {:frame :rf/xray}
+                                      [ProbeRegView]])))
+                (let [control-views (filterv view-op? @traces)]
+                  (is (some? (q container "[data-testid=\"rf-xray-probe-reg-view\"]"))
+                      "precondition: the control really did render")
+                  (is (pos? (count control-views))
+                      (str "CONTROL FIRES: an ordinary reg-view rendered the "
+                           "same way DOES emit a :rf.view/* op, so the "
+                           "subject's zero is a property of the boundary and "
+                           "not of a dead instrument. Ops seen: "
+                           (pr-str (mapv :operation control-views)))))
+                (finally (teardown! root container))))
+            (finally
+              (rf/unregister-listener! :trace ::collect))))))))
