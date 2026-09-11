@@ -615,6 +615,42 @@ jobs:
         continue-on-error: true
         run: python scripts/check_keyword_catalogue_drift.py --verbose
 
+      # SSR prop-drop roster drift (rf2-7ntc). `strip-prop?` in
+      # implementation/ssr/src/re_frame/ssr/html_helpers.cljc is the SINGLE
+      # realisation point for which props are dropped at SSR static-markup
+      # emission; two spec pages enumerate that roster in prose, and prose
+      # enumerations go stale SILENTLY — a short roster reads exactly like a
+      # complete one. Three of the four enumerating sites did go stale, one of
+      # them six days after being written, when a new class landed 400 lines
+      # above it in the same file (rf2-2fes, rf2-twyh). The gate derives the
+      # name sets from `strip-prop?`'s own `(contains? …)` arms — so a fifth
+      # class is graded on arrival rather than silently ignored — and requires
+      # every literal member to appear on spec/011-SSR.md and spec/Security.md.
+      # Measured: RED on BOTH pages at the pre-repair revision, GREEN on both
+      # today. Whole-file matching, deliberately (ruled 2026-09-11):
+      # contamination makes it UNDER-report and it can never cry wolf, where
+      # section scoping would add a heading-range parser — a second thing that
+      # can go stale — to a gate whose whole purpose is catching staleness. A
+      # green is therefore a FLOOR ("no literal name is wholly absent"), and it
+      # grades four of the six classes; the script's docstring says both in
+      # terms. Hosted in this always-on PR-spine python job for the same reason
+      # as its neighbours: the drift must block the merge regardless of which
+      # surface a PR touches — and it is spec/Security.md understating a
+      # security control that clears the bar an ordinary prose-drift gate would
+      # not. Self-test first (proves the check fires on the real stale shape,
+      # that the parse fails CLOSED on each way the roster can be lost, and
+      # that the documented floor is what it says), then the live scan. See
+      # scripts/check_ssr_prop_drop_roster_drift.py.
+      - name: Self-test the SSR prop-drop roster gate
+        id: check_ssr_prop_drop_roster_drift_selftest
+        continue-on-error: true
+        run: python scripts/check_ssr_prop_drop_roster_drift.py --self-test --verbose
+
+      - name: Verify SSR prop-drop roster vs Spec 011 + Security (rf2-7ntc)
+        id: check_ssr_prop_drop_roster_drift
+        continue-on-error: true
+        run: python scripts/check_ssr_prop_drop_roster_drift.py --verbose
+
       # Reproduce-command integrity guard (rf2-m6kdb). The final "Report every
       # failing invariant check" step below prints, per failing checker, a local
       # "reproduce with" command. The first cut reconstructed that command from
