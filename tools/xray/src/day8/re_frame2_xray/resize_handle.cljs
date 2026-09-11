@@ -110,8 +110,50 @@
   highlight — the always-visible 1px accent stripe + cursor change
   on hover (via inline `:cursor`) carry the affordance. While
   dragging the body's cursor is overridden to `col-resize`
-  globally so the user reads the operation as continuous."
+  globally so the user reads the operation as continuous.
+
+  ## Substrate (rf2-k97c.3) — TWO FRESCO BOUNDARIES, ONE BRIDGE
+
+  Both views are `rf.fresco/defview`s: real React function components
+  whose reads are `rf.fresco/sub`, recorded by Fresco's own collector
+  rather than by the installed adapter's observer. Each is split into a
+  PURE `*-tree` fn of its already-read values plus a frame-bound
+  dispatcher, and a thin boundary that does the reading — the shipped
+  `shell.cljs` shape. The trees are what the node lane drives, so a row
+  walks the shipped markup without needing a render window.
+
+  The two boundaries are mounted DIFFERENTLY, because their parents
+  differ and the taxonomy keys on the parent:
+
+  - [[seam-handle-view]] is headed DIRECTLY by `shell.cljs`'s
+    `dynamic-chrome`, which is itself a Fresco boundary. Until this
+    migration it was a `reagent.core/as-element` island whose recorded
+    retiring condition was that migrating only the seam \"would split
+    one small file across two substrates for no gain\". This bead
+    migrates the whole file, so the condition is met and the island is
+    retired.
+  - [[Handle]] is a BRIDGE, because `shell.cljs`'s `shell-view-tree` is
+    still a Reagent tree and stays so until the epic's coupling (1) is
+    severed. `rf.fresco/as-component` is Fresco's own outward door; the
+    component is declared once at top level, as its contract requires.
+    SCAFFOLDING WITH A DEFINED END — when `mount.cljs` owns a Fresco
+    root and `shell-view` becomes a boundary, it heads
+    [[handle-view]] directly and both defs go.
+
+  THE MODE GATE STAYS ON THE REAGENT SIDE OF THE CROSSING, and that is
+  load-bearing rather than stylistic: `as-component`'s contract is that
+  prop NAMES round-trip and prop VALUES do not, so the keyword
+  `:inline` would not survive the props ABI — it would arrive as a
+  string and `(= mode :inline)` would be false for ever, silently
+  rendering no handle at all. [[Handle]] therefore decides in CLJS and
+  passes no props; [[handle-view]] takes none.
+
+  The reads are deliberately left INSIDE their conditionals. A Fresco
+  body is dynamically composed — its branches and early returns are
+  free to follow the data it reads (HD-002) — so gating a `sub` costs
+  nothing and no conditional had to be surrendered to hoist it."
   (:require [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.theme.tokens :refer [with-alpha]]))
 
@@ -402,59 +444,144 @@
    :touch-action     "none"
    :user-select      "none"})
 
-(rf/reg-view Handle
-  "Render the resize handle when `mode` is `:inline` (the right-rail
-  default). Other modes render nil — `:popout` is a separate window
-  the user resizes via the OS, `:fullscreen` is full-viewport and
-  has no width to drag.
+(defn aria-max-panel-width-px
+  "The `aria-valuemax` the handle announces, in pixels.
+
+  rf2-vxpq1 — WAI-ARIA \"separator\" with `aria-valuenow` requires both
+  `aria-valuemin` AND `aria-valuemax`. The clamp ceiling is
+  viewport-fraction-based at write time (`config/max-panel-width-fraction`);
+  for the announced ARIA max we use a stable pixel approximation derived
+  from the window's inner width when available, falling back to a 2000px
+  assumed viewport (the same default the clamp uses when no viewport is
+  supplied). Computing once per render is fine — the value is read on
+  focus, not every paint.
+
+  Lives OUTSIDE [[handle-tree]] because it reads `js/window`, and the
+  tree is pure of its arguments so the node lane can drive it with a
+  literal."
+  []
+  (let [viewport-w (when (exists? js/window)
+                     (.-innerWidth js/window))]
+    (long (* (or viewport-w 2000)
+             config/max-panel-width-fraction))))
+
+(defn handle-tree
+  "The panel-width handle's node, as a PURE function of the live width,
+  the announced ARIA ceiling and a frame-bound dispatcher.
+
+  SPLIT OUT OF [[handle-view]] BY rf2-k97c.3, and pure of its arguments
+  by design: `test-helpers.dynamic-shell-tree` and the handle's own
+  suite drive THIS fn with values they take from the same subs, so a row
+  walks the shipped markup without a render window and without a
+  reading fallback arity — `rf.fresco/sub` is legal only inside a
+  boundary render, and a fallback arity that is dead in production
+  would be a reading path in a file this migration exists to empty.
+
+  `dispatch` is the frame-aware dispatcher [[handle-view]] takes from
+  `(:dispatch (rf/capture-frame))`. It is threaded rather than ambient
+  so the drag, the keyboard resize and the double-click reset all land
+  on the surrounding instance frame after render scope unwinds
+  (rf2-nesy9)."
+  [current-width aria-max dispatch]
+  [:div {:data-testid      "rf-xray-resize-handle"
+         :role             "separator"
+         :aria-orientation "vertical"
+         :aria-label       "Resize Xray panel"
+         :aria-valuemin    config/min-panel-width-px
+         :aria-valuemax    aria-max
+         :aria-valuenow    current-width
+         :title            (str "Drag to resize · double-click to reset · "
+                                "arrow keys for fine resize (Shift = coarse) · "
+                                "Home / End for ends · Enter to reset")
+         :tab-index        0
+         :on-pointer-down  (fn [^js e]
+                             (start-drag! e current-width dispatch))
+         :on-key-down      (fn [^js e]
+                             (when (handle-keydown! e current-width dispatch)
+                               (try (.preventDefault e)
+                                    (catch :default _ nil))))
+         :on-double-click  (fn [^js _e]
+                             (dispatch
+                               [:rf.xray/reset-panel-width]))
+         :style            (handle-style)}])
+
+(rf.fresco/defview handle-view
+  "The left-edge panel-width handle — a FRESCO BOUNDARY (rf2-k97c.3),
+  not an `rf/reg-view`. Reads the live panel width and hands its value,
+  the announced ARIA ceiling and a frame-bound dispatcher to
+  [[handle-tree]].
+
+  The READ is `rf.fresco/sub`, a plain call the shipped collector
+  records an edge for — no deref and no reaction owned by the installed
+  adapter. The FRAME it resolves against comes from React context,
+  which the enclosing `rf/frame-provider` in `shell.cljs` writes, so it
+  resolves the instance frame identically under today's
+  Reagent-rendered shell and under the Fresco root Xray will own.
+
+  The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
+  which replaces the `dispatch` name `reg-view` used to inject
+  lexically (`defview` binds no name inside the body, so the injected
+  name is simply unresolved: a loud compile error rather than a silent
+  frame leak).
 
   Per rf2-70u8q yields silently to consumer-asserted browser-native
   resize: if the layout host's computed style declares
   `resize: horizontal` (or `:both`), the consumer has chosen to wire
-  their own handle — render nil so the page does not carry two.
+  their own handle — render nil so the page does not carry two. The
+  probe stays INSIDE the boundary so it is re-evaluated on every
+  boundary render exactly as it was under `reg-view`, and the read
+  stays inside the same conditional: a Fresco body's branches are free
+  to follow its data (HD-002), so gating a `sub` costs nothing.
 
-  `reg-view`-wrapped per rf2-in6l2 so the inner subscribe routes
-  through React-context to `:rf/xray` (the shell wraps the whole
-  chrome in `frame-provider {:frame :rf/xray}`)."
+  TAKES NO PROPS, and that is deliberate — see the ns docstring: the
+  `:inline` MODE GATE lives in [[Handle]] on the Reagent side of the
+  crossing, because `as-component` round-trips prop names but not prop
+  VALUES and the keyword would arrive as a string."
+  [_props]
+  (when-not (host-asserts-own-handle?)
+    (handle-tree (rf.fresco/sub [:rf.xray/panel-width-px])
+                 (aria-max-panel-width-px)
+                 (:dispatch (rf/capture-frame)))))
+
+;; ---- the migration bridge (rf2-k97c.3) ----------------------------------
+
+(def ^:private handle-component
+  "The React component [[handle-view]] presents as, for a non-Fresco
+  parent. Declared once at top level beside the view, as
+  `rf.fresco/as-component`'s contract requires — deriving it per render
+  would mint a new component type every time and remount the handle on
+  each parent render."
+  (rf.fresco/as-component handle-view))
+
+(defn Handle
+  "The callable `shell.cljs`'s `shell-view-tree` mounts, and the name
+  that file has always headed.
+
+  `shell-view-tree` is still a Reagent tree — it stays one until the
+  epic's coupling (1) is severed and `mount.cljs` owns a Fresco root —
+  so a React component is not a legal hiccup head there. This is the
+  T5 bridge: [[handle-component]] is mounted through `[:>]`, and the
+  shell's enclosing `rf/frame-provider` is what puts the instance frame
+  in React context for it. No second root, no adapter-kind branch, no
+  props ABI.
+
+  THE MODE GATE IS HERE rather than in the boundary, and it has to be:
+  `mode` is a KEYWORD, `as-component`'s contract round-trips prop names
+  but not prop values, and `:inline` crossing as `\"inline\"` would make
+  `(= mode :inline)` false for ever — a handle that silently never
+  renders. Deciding in CLJS and passing no props removes the hazard
+  rather than working around it.
+
+  `:popout` is a separate window the user resizes via the OS and
+  `:fullscreen` is full-viewport with no width to drag, so both render
+  nil exactly as before.
+
+  SCAFFOLDING WITH A DEFINED END: when `shell-view` becomes a boundary
+  it heads [[handle-view]] directly and both this and
+  [[handle-component]] are deleted."
   [mode]
-  (when (and (= mode :inline)
-             (not (host-asserts-own-handle?)))
-    (let [current-width @(rf/subscribe [:rf.xray/panel-width-px])
-          ;; rf2-vxpq1 — WAI-ARIA "separator" with `aria-valuenow`
-          ;; requires both `aria-valuemin` AND `aria-valuemax`. The
-          ;; clamp ceiling is viewport-fraction-based at write time
-          ;; (config/max-panel-width-fraction); for the announced
-          ;; ARIA max we use a stable pixel approximation derived
-          ;; from the window's inner width when available, falling
-          ;; back to a 2000px assumed viewport (the same default the
-          ;; clamp uses when no viewport is supplied). Computing once
-          ;; per render is fine — the value is read on focus, not
-          ;; every paint.
-          viewport-w     (when (exists? js/window)
-                           (.-innerWidth js/window))
-          aria-max       (long (* (or viewport-w 2000)
-                                  config/max-panel-width-fraction))]
-      [:div {:data-testid      "rf-xray-resize-handle"
-             :role             "separator"
-             :aria-orientation "vertical"
-             :aria-label       "Resize Xray panel"
-             :aria-valuemin    config/min-panel-width-px
-             :aria-valuemax    aria-max
-             :aria-valuenow    current-width
-             :title            (str "Drag to resize · double-click to reset · "
-                                    "arrow keys for fine resize (Shift = coarse) · "
-                                    "Home / End for ends · Enter to reset")
-             :tab-index        0
-             :on-pointer-down  (fn [^js e]
-                                 (start-drag! e current-width dispatch))
-             :on-key-down      (fn [^js e]
-                                 (when (handle-keydown! e current-width dispatch)
-                                   (try (.preventDefault e)
-                                        (catch :default _ nil))))
-             :on-double-click  (fn [^js _e]
-                                 (dispatch
-                                   [:rf.xray/reset-panel-width]))
-             :style            (handle-style)}])))
+  (when (= mode :inline)
+    [:> handle-component {}]))
 
 ;; ==========================================================================
 ;; L2/L3 seam handle (rf2-t2dsh)
@@ -677,11 +804,63 @@
    ;; was extracted; the seam IS the boundary).
    :position        "relative"})
 
-(rf/reg-view SeamHandle
-  "Render the horizontal seam between the L2 event list and the L3 tab
-  bar as a draggable resize affordance (rf2-t2dsh). Always renders —
-  every mode that mounts the L2 list (Dynamic chrome only; Static mode
-  doesn't carry L2) renders the seam.
+(defn aria-max-events-list-height-px
+  "The `aria-valuemax` the seam announces, in pixels. Mirrors
+  [[aria-max-panel-width-px]] for the vertical axis — a stable pixel
+  approximation of the write-time clamp ceiling
+  (`config/max-events-list-height-fraction`), derived from the window's
+  inner height when available and falling back to a 1000px assumed
+  viewport.
+
+  Lives OUTSIDE [[seam-handle-tree]] because it reads `js/window`, and
+  the tree is pure of its arguments so the node lane can drive it with
+  a literal."
+  []
+  (let [viewport-h (when (exists? js/window)
+                     (.-innerHeight js/window))]
+    (long (* (or viewport-h 1000)
+             config/max-events-list-height-fraction))))
+
+(defn seam-handle-tree
+  "The L2/L3 seam node, as a PURE function of the live height, the
+  announced ARIA ceiling and a frame-bound dispatcher.
+
+  SPLIT OUT OF [[seam-handle-view]] BY rf2-k97c.3, and pure of its
+  arguments for the reason [[handle-tree]] is: it is what
+  `test-helpers.dynamic-shell-tree` composes into the node lane's
+  chrome, so a row walks the shipped seam markup rather than stopping
+  at a component head — and it needs neither a render window nor a
+  reading fallback arity to do it."
+  [current-height aria-max dispatch]
+  [:div {:data-testid      "rf-xray-event-list-seam"
+         :role             "separator"
+         :aria-orientation "horizontal"
+         :aria-label       "Resize events list"
+         :aria-valuemin    config/min-events-list-height-px
+         :aria-valuemax    aria-max
+         :aria-valuenow    current-height
+         :title            (str "Drag to resize events list · "
+                                "double-click to reset · "
+                                "arrow keys for fine resize (Shift = coarse) · "
+                                "Enter to reset")
+         :tab-index        0
+         :on-pointer-down  (fn [^js e]
+                             (start-seam-drag! e current-height dispatch))
+         :on-key-down      (fn [^js e]
+                             (when (handle-seam-keydown! e current-height dispatch)
+                               (try (.preventDefault e)
+                                    (catch :default _ nil))))
+         :on-double-click  (fn [^js _e]
+                             (dispatch
+                               [:rf.xray/reset-events-list-height]))
+         :style            (seam-handle-style)}])
+
+(rf.fresco/defview seam-handle-view
+  "The horizontal seam between the L2 event list and the L3 tab bar,
+  as a draggable resize affordance (rf2-t2dsh) — a FRESCO BOUNDARY
+  (rf2-k97c.3), not an `rf/reg-view`. Always renders: every mode that
+  mounts the L2 list (Dynamic chrome only; Static mode doesn't carry
+  L2) renders the seam.
 
   Per spec/007-UX-IA.md §Splitter affordance:
     - hover anywhere along the seam → `row-resize` cursor
@@ -691,33 +870,23 @@
       reset)
     - double-click resets to default
 
-  `reg-view`-wrapped per rf2-in6l2 so the inner subscribe routes
-  through React-context to `:rf/xray`."
-  []
-  (let [current-height @(rf/subscribe [:rf.xray/events-list-height-px])
-        viewport-h     (when (exists? js/window)
-                         (.-innerHeight js/window))
-        aria-max       (long (* (or viewport-h 1000)
-                                config/max-events-list-height-fraction))]
-    [:div {:data-testid      "rf-xray-event-list-seam"
-           :role             "separator"
-           :aria-orientation "horizontal"
-           :aria-label       "Resize events list"
-           :aria-valuemin    config/min-events-list-height-px
-           :aria-valuemax    aria-max
-           :aria-valuenow    current-height
-           :title            (str "Drag to resize events list · "
-                                  "double-click to reset · "
-                                  "arrow keys for fine resize (Shift = coarse) · "
-                                  "Enter to reset")
-           :tab-index        0
-           :on-pointer-down  (fn [^js e]
-                               (start-seam-drag! e current-height dispatch))
-           :on-key-down      (fn [^js e]
-                               (when (handle-seam-keydown! e current-height dispatch)
-                                 (try (.preventDefault e)
-                                      (catch :default _ nil))))
-           :on-double-click  (fn [^js _e]
-                               (dispatch
-                                 [:rf.xray/reset-events-list-height]))
-           :style            (seam-handle-style)}]))
+  HEADED DIRECTLY by `shell.cljs`'s `dynamic-chrome`, which is itself a
+  Fresco boundary. It was a `reagent.core/as-element` island until this
+  bead; the island's own recorded retiring condition was that migrating
+  only the seam \"would split one small file across two substrates for
+  no gain\", and this bead migrates the whole file — so the condition
+  is met, the crossing is gone and no bridge survives for it. Compare
+  [[Handle]], whose parent is still Reagent and which therefore keeps
+  one.
+
+  The read is `rf.fresco/sub` and the dispatcher is
+  `(:dispatch (rf/capture-frame))`, for the reasons [[handle-view]]'s
+  docstring gives.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. `dynamic-chrome` mounts it with none, so it is destructured
+  away."
+  [_props]
+  (seam-handle-tree (rf.fresco/sub [:rf.xray/events-list-height-px])
+                    (aria-max-events-list-height-px)
+                    (:dispatch (rf/capture-frame))))

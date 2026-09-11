@@ -2885,17 +2885,23 @@
   hiccup head for the five region boundaries under it, so this is where
   the composition has to live.
 
-  TWO REAGENT ISLANDS, both still `rf/reg-view`s, both reached through
+  ONE REAGENT ISLAND, still an `rf/reg-view`, reached through
   `reagent.core/as-element` (the node lane's door passes `identity`, so
-  each stays the fn-headed vector a hiccup walker expands):
+  it stays the fn-headed vector a hiccup walker expands):
 
     * [[event-list]] — held back by a SHIPPED EMBED in a file another
       worker was holding, not by anything about the view. Its own
       docstring carries the measurement and the four-line recipe.
-    * `resize-handle/SeamHandle`. `resize_handle.cljs` also owns
-      `Handle`, which [[shell-view]] still mounts from a Reagent tree,
-      so migrating only the seam would split one small file across two
-      substrates for no gain.
+
+  THE SEAM'S ISLAND IS RETIRED (rf2-k97c.3), and it was retired by the
+  condition it was annotated with. It read: `resize_handle.cljs` also
+  owns `Handle`, which [[shell-view]] still mounts from a Reagent tree,
+  so migrating only the seam would split one small file across two
+  substrates for no gain. That bead migrated the WHOLE file, so the
+  condition is discharged — `resize-handle/seam-handle-view` is an
+  ordinary BOUNDARY HEAD here and the `as-element` crossing is gone.
+  `Handle` keeps a bridge in its own file because [[shell-view]] is
+  still Reagent; the seam needs none, because this view is not.
 
   The argument is the ordinary one-props-map vector every `defview`
   takes. [[surface-composer]] mounts it with none, so it is destructured
@@ -2918,7 +2924,7 @@
   (dynamic-chrome-tree [ribbon {}]
                        [events-ribbon {}]
                        (r/as-element [event-list])
-                       (r/as-element [resize-handle/SeamHandle])
+                       [resize-handle/seam-handle-view {}]
                        [tab-bar {}]
                        [detail-panel {}]))
 
@@ -3036,10 +3042,20 @@
   the landmark role and every modal mount.
 
   EVERYTHING HERE IS STILL REAGENT and stays so until the epic's coupling
-  (1) is severed: `resize-handle/Handle` and the seven modals are
-  `rf/reg-view`s mounted from a `reg-view` tree, which is exactly what
-  they have always been. They are NOT islands — nothing above them is a
-  boundary."
+  (1) is severed: the seven modals are `rf/reg-view`s mounted from a
+  `reg-view` tree, which is exactly what they have always been. They are
+  NOT islands — nothing above them is a boundary.
+
+  `resize-handle/Handle` is the one name here that is no longer a
+  `reg-view`, and it changes nothing at this mount site (rf2-k97c.3).
+  Its file migrated, so `Handle` is now a plain fn answering `[:> …]`
+  over Fresco's `as-component` bridge — which this Reagent tree heads
+  exactly as it always headed the `reg-view`, and which takes the
+  instance frame from the `rf/frame-provider` below through React
+  context. The mode gate stayed on this side of that crossing because
+  `as-component` round-trips prop names but not prop VALUES, and `mode`
+  is a keyword; `Handle` still takes it positionally, so the call below
+  is untouched."
   [{:keys [mode modal-positioning lens-mode frame-id]} surface*]
    ;; rf2-uu3lp — the outer `<div>` IS the shell-view's root so the
    ;; source-coord walk has a DOM node to annotate (Spec 006
