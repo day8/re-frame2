@@ -254,11 +254,45 @@
 (defn- unmute-btn     [c id] (q c (testid-sel (str "rf-xray-mute-manager-unmute-" id))))
 
 (defn- element-children
-  "The element children of `node` as a vector. Used to prove the keyed
-  native fragment contributed no DOM node of its own."
+  "The element children of `node` as a vector, or `[]` when `node` is
+  absent. Used to prove the keyed native fragment contributed no DOM node
+  of its own.
+
+  NIL-TOLERANT ON PURPOSE — see [[click!]]."
   [node]
-  (let [kids (.-children node)]
-    (mapv #(.item kids %) (range (.-length kids)))))
+  (if (nil? node)
+    []
+    (let [kids (.-children node)]
+      (mapv #(.item kids %) (range (.-length kids))))))
+
+(defn- attr
+  "`node`'s `name` attribute, or nil when the node is absent.
+  Nil-tolerant on purpose — see [[click!]]."
+  [node name]
+  (some-> node (.getAttribute name)))
+
+(defn- click!
+  "Click `node`, or do nothing when it is absent, answering whether there
+  was anything to click.
+
+  EVERY DOM ACCESSOR IN THIS FILE IS NIL-TOLERANT, AND THAT IS A
+  REQUIREMENT RATHER THAN A COURTESY. These rows exist to redden when a
+  boundary stops painting, so the absent-node case is their EXPECTED
+  failure mode — and `shadow.test` runs the whole browser lane, and the
+  closing summary, inside ONE `cljs.test/run-block` with no try/catch. A
+  bare `(.click nil)` therefore does not fail this row: it throws
+  uncaught, aborts the run, and every namespace scheduled after this one
+  never executes, with no cljs.test summary at all (rf2-u0j8). Measured
+  exactly that way while sabotaging `RowContextMenuView` to build this
+  file — 25 namespaces announced, then nothing.
+
+  So a disabled boundary must make these rows FAIL, never CRASH. The
+  assertions below carry the diagnosis; the polls that follow a dead
+  click time out and report through their own `.catch`."
+  [node]
+  (when (some? node)
+    (.click node))
+  (some? node))
 
 (defn- muted-of
   "The frame's OWN `:muted-event-ids` app-db slot, read through the
@@ -325,7 +359,7 @@
                the boundary rendered the WHOLE `[:<>]` fragment rather
                than its first child")
           (is (= (str muted-id)
-                 (.getAttribute (menu-node container) "data-rf-xray-event-id"))
+                 (attr (menu-node container) "data-rf-xray-event-id"))
               (str "the committed menu carries the seeded event-id, so the
                     boundary's `rf.fresco/sub` resolved the open state
                     rather than painting a default shell. Expected "
@@ -344,7 +378,10 @@
                would put it there")
 
           ;; ---- the DISPATCH half, outside any render scope ---------------
-          (.click (menu-mute-btn container))
+          (is (click! (menu-mute-btn container))
+              "there was a Mute item to click at all — stated as its own
+               row so a boundary that painted nothing reports THAT rather
+               than a bare poll timeout")
           (-> (rf.test-support/poll-until
                 #(= #{muted-id} (muted-of instance-frame))
                 {:label "the Mute item's dispatch reached the mounted frame"})
@@ -456,7 +493,8 @@
                        commits nothing. A modal that repainted here would
                        make phase 3 pass for a reason that is not liveness")
                   ;; ---- phase 3: a real action on a real row -------------
-                  (.click (unmute-btn container muted-id))
+                  (is (click! (unmute-btn container muted-id))
+                      "there was a per-row Unmute button to click at all")
                   (rf.test-support/poll-until
                     #(nil? (row-node container muted-id))
                     {:label "the unmuted row left the live surface"})))
