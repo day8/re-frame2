@@ -4,10 +4,15 @@
   Covers:
 
   - `record` pure helper — prepend, dedup, cap.
-  - `load` / `save!` localStorage round-trip (degrades silently in
-    Node test runtimes where window.localStorage is absent — the JVM
-    fixture path is exercised by the CLJC `sources` tests).
-  - `sanitise` drops non-keyword entries from a malformed payload."
+  - `load` on an empty slot — the storage-free fallback.
+  - `sanitise` drops non-keyword entries from a malformed payload.
+
+  The `load` / `save!` localStorage ROUND-TRIP lives in the sibling
+  `day8.re-frame2-xray.palette.recents-dom-cljs-test` (rf2-6ppy). It
+  needs a real `window.localStorage`, which this lane does not have;
+  guarding it here on `(exists? js/window)` meant it ran in NO lane,
+  because `:browser-test` only loads namespaces ending
+  `-dom-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.palette.recents :as recents]))
 
@@ -41,28 +46,14 @@
   (is (= [:foo] (recents/record [:foo] nil))
       "nil command-id does not bump the list"))
 
-;; ---- save! / load round-trip --------------------------------------------
+;; ---- load without storage -----------------------------------------------
 ;;
-;; Node test runtimes don't simulate `window.localStorage` — the round-
-;; trip tests gate on `js/window` so they cover the browser path when
-;; the runtime provides it and silently skip otherwise. The pure
-;; `record` / `sanitise` tests above cover the algorithm regardless.
-
-(deftest save-load-round-trip
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (recents/save! [:foo :bar])
-    (is (= [:foo :bar] (recents/load))
-        "browser-backed round-trip preserves the recents vector
-         (most-recent-first, capped at max-recents)")))
+;; Node test runtimes don't provide `window.localStorage`, so only the
+;; storage-free fallback is assertable here. The round-trip that needs
+;; real storage is in `recents-dom-cljs-test`; it used to sit below,
+;; gated on `js/window`, where it executed in neither lane (rf2-6ppy).
 
 (deftest load-empty-slot-returns-empty-vector
   (recents/clear!)
   (is (= [] (recents/load))
       "empty / unreachable storage → empty vector (never nil)"))
-
-(deftest save-caps-at-max
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (recents/save! [:a :b :c :d :e])
-    (let [loaded (recents/load)]
-      (is (<= (count loaded) recents/max-recents)
-          "save! caps the persisted list at max-recents"))))
