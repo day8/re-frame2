@@ -156,7 +156,7 @@
     - Interceptors — lens"
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
-            [reagent.core :as r]
+            [day8.re-frame2-xray.substrate :as substrate]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.static.mode-pill :as mode-pill]
@@ -363,7 +363,7 @@
   The argument is the ordinary one-props-map vector every `defview`
   takes. [[surface]] mounts it with none, so it is destructured away."
   [_props]
-  (ribbon-tree (:dispatch (rf/capture-frame)) r/as-element))
+  (ribbon-tree (:dispatch (rf/capture-frame)) substrate/as-element))
 
 ;; ---- L3 tab bar (Static) ------------------------------------------------
 
@@ -564,7 +564,7 @@
                      default-tab)]
     (detail-panel-tree selected
                        (panel-registry/tab-by-id :static selected)
-                       r/as-element)))
+                       substrate/as-element)))
 
 ;; ---- Static surface ------------------------------------------------------
 

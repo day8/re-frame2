@@ -903,6 +903,12 @@
     :chained?    true
     :design-bead "rf2-wbnl"
     :description "Resolve the in-flight Reagent component (routed via current-adapter)."}
+   {:key         :adapter/as-element
+    :producer-ns '[re-frame.adapter.reagent
+                   re-frame.adapter.reagent-slim]
+    :chained?    true
+    :design-bead "rf2-7ds8"
+    :description "The INSTALLED ratom build's own hiccup → React element walk (routed via current-adapter). The exact twin of :adapter/current-component, published by the same two adapters and for the same reason. A caller that needs a React element for a hiccup island — a Fresco boundary handing a surviving reg-view island down as a child, which is what tools/xray does at nine sites — must obtain it from the renderer the runtime is actually using. Crossing with some OTHER ratom build's as-element does NOT fail loudly: React mounts the element and the :contextType the reg-view head carries is even honoured, so the frame VALUE reaches the class. What breaks is one level down — the foreign build renders the subtree with ITS in-flight-component binding set, while :adapter/current-component routes to the installed build and answers nil, so views/current-frame finds no component to read (.-context) off and returns nil. Every ambient subscribe/dispatch in that subtree then raises :rf.error/no-frame-context and React takes the subtree down: a blank surface, not a diagnostic. Measured under reagent-slim with Xray crossing via stock reagent.core/as-element (rf2-7ds8). NOT published by UIx / Fresco / plain-atom / test-react: hiccup is not those substrates' authoring shape, and there is no substrate-neutral element, so the hook is routed with no chain-bottom fallback and an absent answer is the honest one."}
    {:key         :adapter/ratom
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]

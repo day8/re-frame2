@@ -81,8 +81,8 @@
   the bodies are headed directly."
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
-            [reagent.core :as r]
             [day8.re-frame2-machines-viz.grammar :as grammar]
+            [day8.re-frame2-xray.substrate :as substrate]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.static.machines.cascade-dimmed
              :as cascade-dimmed]
@@ -406,7 +406,7 @@
   door, which answers the boundary's DECLARED frame inside a body and
   replaces the name `reg-view` used to inject lexically.
 
-  `r/as-element` is the `as-child` spelling for the two Reagent islands
+  `substrate/as-element` is the `as-child` spelling for the two Reagent islands
   — the ns docstring records why neither of the migration's usual
   repairs is available for them.
 
@@ -447,4 +447,4 @@
                        :last-trans  (rf.fresco/sub
                                       [:rf.xray.static.machines/sim-last-transition])})}
       (:dispatch (rf/capture-frame))
-      r/as-element)))
+      substrate/as-element)))
