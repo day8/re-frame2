@@ -3,20 +3,18 @@
 
   Covers:
 
-  - `seen?` / `mark-seen!` round-trip against localStorage (browser only).
-  - `reset-seen!` clears the flag.
+  - `seen?` degrades to false when localStorage is absent.
   - `help-content` renders as hiccup.
   - `open!` / `close!` toggle the local open atom.
 
-  The localStorage round-trip is browser-only — on node-test there's no
-  `js/window`, so we guard those assertions on the runtime detection."
+  The localStorage round-trip is NOT here. It used to be, guarded by a
+  `browser?` predicate — but this namespace ends `-cljs-test`, which
+  `:browser-test` never loads, and the node lane has no
+  `window.localStorage`, so those rows ran in neither lane. They now live
+  in `re-frame.story-help-dom-cljs-test`, which BOTH lanes load
+  (rf2-r51p)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.story.ui.help :as rf.story.ui.help]))
-
-;; ---- runtime detection ---------------------------------------------------
-
-(defn- browser? []
-  (and (exists? js/window) (.-localStorage js/window)))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -32,13 +30,13 @@
   (testing "seen? is false when localStorage has never been touched"
     (is (false? (rf.story.ui.help/seen?)))))
 
-(deftest mark-seen-persists
-  (testing "mark-seen! flips seen? to true (browser only)"
-    (when (browser?)
-      (rf.story.ui.help/mark-seen!)
-      (is (true? (rf.story.ui.help/seen?)))
-      (rf.story.ui.help/reset-seen!)
-      (is (false? (rf.story.ui.help/seen?))))))
+;; `mark-seen-persists` MOVED to `re-frame.story-help-dom-cljs-test`
+;; (rf2-r51p). It was guarded by `(when (browser?) ...)` here, and this
+;; namespace ends `-cljs-test`, so `:browser-test` never loaded it while
+;; `:node-test` — which has no `window.localStorage` — skipped the body:
+;; it executed in neither lane. `seen-defaults-to-false` above STAYS,
+;; because it asserts the no-storage degradation path and the node lane
+;; is exactly where that belongs.
 
 ;; ---- hiccup shape --------------------------------------------------------
 
@@ -55,6 +53,11 @@
     (rf.story.ui.help/open!)
     (is (true? @@#'rf.story.ui.help/open?))
     (rf.story.ui.help/close!)
-    (is (false? @@#'rf.story.ui.help/open?))
-    (when (browser?)
-      (is (true? (rf.story.ui.help/seen?))))))
+    (is (false? @@#'rf.story.ui.help/open?))))
+
+;; This row was SPLIT rather than moved (rf2-r51p). Its two `open?` ratom
+;; assertions above genuinely run on node; only a trailing
+;; `(when (browser?) (is (true? (seen?))))` was dead. Moving the row whole
+;; would have taken LIVE assertions off the node lane — this bug in
+;; reverse — so the persistence half now lives in
+;; `re-frame.story-help-dom-cljs-test` as `close!-marks-the-overlay-seen`.
