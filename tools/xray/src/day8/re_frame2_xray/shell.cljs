@@ -106,15 +106,41 @@
   own registrations under `:rf.xray/*` operate against `:rf/xray`'s
   db when called from inside the shell.
 
-  Per rf2-in6l2 every subscribing region of the shell is `reg-view`-
-  registered so its rendered React component carries `:contextType
-  frame-context` — the closest enclosing Provider's `:rf/xray`
-  flows through React-context and `(rf/subscribe …)` inside the body
-  resolves to the registered frame. With plain `defn`s the
-  React-context tier would be skipped (Spec 000 §Plain Reagent fns
-  do not pick up the surrounding frame) and subscribe would fall
-  through to `:rf/default` — silently routing every Xray panel
-  query into the host's app-db.
+  Per rf2-in6l2 every reading region of the shell carries the frame by
+  construction rather than by ambient lookup. That was originally
+  `reg-view` registration (`:contextType frame-context`, so the closest
+  enclosing Provider's `:rf/xray` flowed through React-context to a
+  `(rf/subscribe …)` in the body); with plain `defn`s the React-context
+  tier would be skipped (Spec 000 §Plain Reagent fns do not pick up the
+  surrounding frame) and subscribe would fall through to `:rf/default`,
+  silently routing every Xray panel query into the host's app-db.
+
+  ## rf2-k97c.3 — the Dynamic chrome is a FRESCO TREE
+
+  Seven regions are `rf.fresco/defview` BOUNDARIES now —
+  [[ribbon-theme-toggle]], [[ribbon]], [[events-ribbon]], [[tab-bar]],
+  [[detail-panel]], [[dynamic-chrome]] and [[surface-composer]].
+  [[event-list]] is the ONE exception and its docstring carries the
+  measured reason. A boundary declares its frame, so the guarantee
+  above is stronger rather than different: reads are `rf.fresco/sub`
+  (plain calls the shipped collector records an edge for) and writes go
+  through `(:dispatch (rf/capture-frame))`, core's own door, which
+  answers the boundary's DECLARED frame. An AMBIENT read or dispatch
+  inside a boundary body is a LOUD REFUSAL rather than a silent
+  fall-through to `:rf/default`, which is the whole point.
+
+  [[shell-view]] is STILL an `rf/reg-view`, deliberately: it is the
+  Reagent root `mount.cljs` renders through the installed adapter's
+  `:render`, and severing that is the parent epic's coupling (1) — a
+  later slice. It reaches the Fresco tree through ONE private
+  `as-component` bridge.
+
+  Each boundary's body is thin: it reads, and calls a pure `*-tree` fn
+  that owns the hiccup. That is `defview`'s own documented
+  extract-a-helper spelling, and it is what gives the node lane a door —
+  `test-helpers.dynamic-shell-tree` drives the same `*-tree` fns with
+  `rf/subscribe` in place of `rf.fresco/sub`, so a node-lane row walks
+  the shipped tree rather than a parallel fixture.
 
   ## Pure hiccup
 
@@ -123,7 +149,9 @@
   `mount.cljs`. No per-substrate switches in view code."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [re-frame.interop :as rf.interop]
+            [reagent.core :as r]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.filters :as filters]
@@ -469,7 +497,7 @@
   drives the lifecycle without a real DOM.
 
   `dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
-  the surrounding `reg-view` body — stashed in the drag-state so the
+  the surrounding boundary body — stashed in the drag-state so the
   document-level move handler (which fires after render unwinds) lands
   its width writes on the instance frame, not a `:rf/xray` literal.
   Defaults to `rf/dispatch` for the test-driven lifecycle."
@@ -547,7 +575,7 @@
   column floor. Returns true iff the keypress was handled.
 
   `dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
-  the surrounding `reg-view` body so the keyboard resize lands on the
+  the surrounding boundary body so the keyboard resize lands on the
   instance frame; defaults to `rf/dispatch` for the test lifecycle."
   ([^js e col-id current-width]
    (col-divider-handle-keydown! e col-id current-width rf/dispatch))
@@ -585,7 +613,7 @@
   layout stays consistent across surfaces.
 
   `:dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
-  the surrounding `reg-view` body (the L2 event-list views) — threaded
+  the surrounding boundary body (the L2 event-list views) — threaded
   through the drag / keyboard / double-click affordances so every
   width write lands on the instance frame, not a `:rf/xray` literal."
   [{:keys [col-id col-px row-height dispatch-fn]}]
@@ -877,7 +905,7 @@
   so the disabled glyph dimmed the wrong button.)
 
   `:dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
-  the `ribbon` `reg-view` body — the nav `on-click` handlers fire after
+  the [[ribbon]] boundary's body — the nav `on-click` handlers fire after
   render unwinds, so they dispatch through the captured closure to land
   on the surrounding instance frame, not a `:rf/xray` literal."
   [{:keys [at-head? at-tail? live? dispatch-fn]}]
@@ -950,7 +978,7 @@
   "Filter pills cluster per spec/018 §3 + §7 Ribbon pills. Thin
   delegate to `filters.pills/pills-view` — the proper pill UI lives in
   the filters ns, which also owns the edit popup mount. Mounted here
-  inside the ribbon's `reg-view` so subscribes still resolve through
+  inside the ribbon's boundary so reads still resolve through
   React context to `:rf/xray`.
 
   Per rf2-ak4ms the legacy `js/window.prompt` stub is gone — the add-
@@ -959,11 +987,15 @@
   event-row context (add).
 
   `dispatch-fn` (rf2-nesy9) is the frame-aware dispatcher captured by
-  the `events-ribbon` `reg-view` body so each pill's edit / remove
+  the [[events-ribbon]] boundary's body so each pill's edit / remove
   click lands on the surrounding instance frame, not a `{:frame
-  :rf/xray}` literal."
+  :rf/xray}` literal.
+
+  rf2-k97c.3 — `pills-view` is a plain fn answering hiccup, so it is
+  CALLED rather than headed: a plain function in head position is a loud
+  error under Fresco, and this delegate renders inside a boundary now."
   [dispatch-fn {:keys [filters]}]
-  [filter-pills/pills-view dispatch-fn {:filters filters}])
+  (filter-pills/pills-view dispatch-fn {:filters filters}))
 
 (defn- ribbon-redacted-indicator
   "REDACTED indicator (rf2-azls9) — preserved next to the mode pill for
@@ -988,7 +1020,42 @@
      [:span {:aria-hidden "true"} "● "]
      (str "REDACTED " redacted-count)]))
 
-(rf/reg-view ribbon-theme-toggle
+(defn theme-toggle-tree
+  "The theme toggle's whole hiccup, as a pure function of the frame-bound
+  `dispatch` and the resolved `:theme` setting.
+
+  SPLIT OUT OF [[ribbon-theme-toggle]] BY rf2-k97c.3, for the reason
+  every migrated view in this epic splits: a boundary's body may only run
+  inside a React render window, so `(ribbon-theme-toggle)` is no longer a
+  callable that answers hiccup. This is `defview`'s OWN documented
+  extract-a-helper spelling, not an invention."
+  [dispatch theme]
+  (let [dark? (= theme :dark)
+        next  (if dark? :light :dark)]
+    [:button {:data-testid "rf-xray-theme-toggle"
+              :title       (if dark? "Switch to light theme" "Switch to dark theme")
+              :aria-label  (if dark? "Switch to light theme" "Switch to dark theme")
+              ;; rf2-r0o63 / rf2-k97c.3 — dispatch through the frame-bound
+              ;; dispatcher the boundary captured, so the theme write lands
+              ;; on the surrounding instance frame, not a `:rf/xray`
+              ;; literal.
+              :on-click    #(dispatch [:rf.xray/settings-update :theme nil next])
+              :style       {:background      "transparent"
+                            :border          "none"
+                            :border-radius   "4px"
+                            :color           (:chrome-ribbon-text-muted tokens)
+                            :cursor          "pointer"
+                            :font-size       "14px"
+                            :line-height     "1"
+                            :display         "inline-flex"
+                            :align-items     "center"
+                            :justify-content "center"
+                            :width           "22px"
+                            :height          "22px"
+                            :padding         "0"}}
+     [:span {:aria-hidden "true"} (if dark? "☀" "☾")]]))
+
+(rf.fresco/defview ribbon-theme-toggle
   "rf2-xawwb — theme toggle (Figma-Make surface). A sun/moon icon-button
   on the chrome ribbon's right cluster that flips light ⇄ dark.
 
@@ -1009,47 +1076,37 @@
   go dark). Muted `chrome-ribbon-text-muted` ink to sit quietly beside
   the `⚙`/`✕` icons on the dark band.
 
-  ## rf2-uu3lp — `reg-view` so the subscribe routes to `:rf/xray`
+  ## rf2-k97c.3 — a FRESCO BOUNDARY, not an `rf/reg-view`
 
   The `:theme` setting lives in Xray's `:rf/xray` frame (the
   `:rf.xray/setting` sub + `:rf.xray/settings-update` event are
   registered against `:rf/xray` via `registry/register-xray-handlers!`).
   A plain `defn` rendered inside the shell's `:rf/xray` frame-provider
   would not pick up the surrounding frame (Spec 000 §Plain Reagent fns
-  / Spec 006 §Plain-fn-under-non-default-frame warning) — the subscribe
-  here would route to `:rf/default` and read the host app's app-db.
-  The dispatch ALREADY carries an explicit `{:frame :rf/xray}` arg, but
-  the subscribe was relying on React-context which the plain fn does
-  not consult. `reg-view`-registration makes the component
-  `:contextType frame-context`-aware so the subscribe resolves to
-  `:rf/xray` through the enclosing Provider — same shape as every other
-  Xray shell region (rf2-in6l2)."
-  []
-  (let [theme @(rf/subscribe [:rf.xray/setting :theme nil])
-        dark? (= theme :dark)
-        next  (if dark? :light :dark)]
-    [:button {:data-testid "rf-xray-theme-toggle"
-              :title       (if dark? "Switch to light theme" "Switch to dark theme")
-              :aria-label  (if dark? "Switch to light theme" "Switch to dark theme")
-              ;; rf2-r0o63 — dispatch through the reg-view-injected
-              ;; frame-aware dispatcher so the theme write lands on the
-              ;; surrounding instance frame (captured at render time),
-              ;; not a `:rf/xray` literal.
-              :on-click    #(dispatch [:rf.xray/settings-update :theme nil next])
-              :style       {:background      "transparent"
-                            :border          "none"
-                            :border-radius   "4px"
-                            :color           (:chrome-ribbon-text-muted tokens)
-                            :cursor          "pointer"
-                            :font-size       "14px"
-                            :line-height     "1"
-                            :display         "inline-flex"
-                            :align-items     "center"
-                            :justify-content "center"
-                            :width           "22px"
-                            :height          "22px"
-                            :padding         "0"}}
-     [:span {:aria-hidden "true"} (if dark? "☀" "☾")]]))
+  / Spec 006 §Plain-fn-under-non-default-frame warning) — the read here
+  would route to `:rf/default` and read the host app's app-db.
+
+  The READ is `rf.fresco/sub`, a plain call the shipped collector records
+  an edge for — no deref, no reaction owned by the installed adapter, and
+  a re-wire that NOTIFIES when the substrate disposes the underlying
+  derived value. That is the third of the epic's three couplings, and the
+  one a first-paint smoke test cannot see.
+
+  The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
+  which answers the boundary's DECLARED frame inside a body and replaces
+  the `dispatch` the `reg-view` body used to inject lexically.
+
+  It is its OWN boundary rather than folded into [[ribbon]] because the
+  two read different things at different rates: hoisting the `:theme`
+  read into the ribbon would repaint the whole L1 chrome — nav cluster,
+  frame picker and filter add-button included — on every theme flip.
+  Boundary count tracks reads.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. [[ribbon]] mounts it with none, so it is destructured away."
+  [_props]
+  (theme-toggle-tree (:dispatch (rf/capture-frame))
+                     (rf.fresco/sub [:rf.xray/setting :theme nil])))
 
 (defn- ribbon-right-icons
   "Right-icons cluster — `⛶` pop-out · `⚙` settings · `✕` close. Per
@@ -1082,7 +1139,7 @@
   lucide's `X`.
 
   `:dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
-  the `ribbon` `reg-view` body so the settings / close clicks land on
+  the [[ribbon]] boundary's body so the settings / close clicks land on
   the surrounding instance frame, not a `:rf/xray` literal."
   [{:keys [dispatch-fn]}]
   (let [icon-style {:background      "transparent"
@@ -1159,60 +1216,45 @@
      :at-tail? at-tail?
      :live?    live?}))
 
-(rf/reg-view ribbon
-  "L1 **chrome ribbon** (bar-1) — reconciled to the authoritative
-  reference chrome-ribbon (`tools/xray/design-reference/xray_devtools_
-  reference.cljs`, rf2-3f2di A4/A5). 34px tall (`:top-strip-height`).
+(defn ribbon-tree
+  "The L1 chrome ribbon's WHOLE hiccup, as a pure function of the
+  frame-bound `dispatch`, the six values [[ribbon]] reads, and the
+  `as-child` spelling for the ribbon's two REAGENT ISLANDS.
 
-    - **LEFT** — the `Events` label (the reference leads with it; the
-      `❖ Xray` wordmark was DROPPED per A4), the `[◀ ▶ ⏭]` blue-filled
-      nav cluster (A2), then the `+ filter` add-pill (A5). (rf2-pjjwh
-      retired the `focus` button + focus-chip with the focus feature.)
-      The chrome `+ filter` is mutually-exclusive with the events-ribbon
-      (rf2-8zd80): when ≥1 filter is committed the events-ribbon owns the
-      `[+]` add affordance and the chrome `+ filter` collapses to zero
-      width via the `.rf-xray-filters-collapse-h` horizontal-grid track
-      (250ms, same cadence + reduced-motion seam as the events-ribbon
-      vertical collapse).
-    - **RIGHT** — the Frame dropdown (`frame-switcher/frame-switcher-
-      view`) + the Dynamic/Static mode dropdown (`mode-pill/mode-pill`)
-      + the mute (🔇 N) / REDACTED (● N) silent-by-default indicators +
-      the `⚙` settings · `✕` close icon-buttons.
+  SPLIT OUT OF [[ribbon]] BY rf2-k97c.3, for the reason every migrated
+  view in this epic splits: a boundary's body may only run inside a React
+  render window, so `(ribbon nil)` is no longer a callable that answers
+  hiccup.
 
-  The committed filter pills (green/red) live on bar-2 (the events
-  ribbon, `events-ribbon`); only the add(+) sits up here, matching the
-  reference's chrome-ribbon (add) / events-ribbon (pills) split.
+  IT TAKES THE RAW READ VALUES, not derived ones — `nav-boundary-state`
+  and the `no-filters?` gate are computed HERE. That keeps the node lane's
+  door (`test-helpers.dynamic-shell-tree`) a reproduction of the READS
+  alone, with no second copy of the derivation to drift.
 
-  The 2-px left-edge accent stripe (rf2-o5f5f.1 mode-signal mechanism
-  #2 — the single GitHub-blue accent in both modes, rf2-ad7zx.13) stays
-  as the chrome-edge accent; the understated mode dropdown carries the
-  mode state via its active option + `data-active-mode`.
+  PURE HEADS: `ribbon-nav-cluster`, `ribbon-redacted-indicator`,
+  `ribbon-right-icons`, `filter-pills/chrome-add-filter-button` and
+  `spine-filters/ribbon-mute-indicator` are all plain fns answering
+  hiccup, so they are CALLED rather than headed — Fresco grades a plain
+  function in head position a loud error. [[ribbon-theme-toggle]] IS a
+  boundary, so it stays a head.
 
-  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
-  `:rf/xray`."
-  [_props]
-  (let [redacted-count @(rf/subscribe [:rf.xray/suppressed-sensitive-count])
-        ;; rf2-ikuwt — mute-count drives the chrome ribbon's silent-by-
-        ;; default indicator next to the REDACTED indicator. Reading the
-        ;; count sub (not the raw set) means the ribbon re-renders only
-        ;; when the count changes; the indicator's click opens the
-        ;; unmute manager.
-        muted-count    @(rf/subscribe [:rf.xray/muted-event-ids-count])
-        ;; rf2-3f2di A5 — the nav cluster moved UP to the chrome ribbon
-        ;; per the authority reference, so the chrome ribbon subscribes to
-        ;; the spine state the events ribbon used to own.
-        focus          @(rf/subscribe [:rf.xray/focus])
-        event-bundles       @(rf/subscribe [:rf.xray/filtered-event-bundles])
-        show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
-        ;; rf2-8zd80 — the chrome `+ filter` and the events-ribbon are
-        ;; mutually-exclusive add affordances. Hide the chrome button
-        ;; when ≥1 filter is committed (the events-ribbon's own `[+]`
-        ;; takes over). Open when zero filters, closed otherwise.
-        filters        @(rf/subscribe [:rf.xray/active-filters])
-        no-filters?    (zero? (+ (count (:in filters)) (count (:out filters))))
+  TWO REAGENT ISLANDS, both reached through `as-child` — `identity` for a
+  hiccup caller and the node lane, `reagent.core/as-element` for the
+  boundary:
+
+    * `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill`, both
+      still `rf/reg-view`s and both ALSO headed by the STATIC shell's
+      ribbon (`static/shell.cljs`), which islands them the same way.
+      Migrating them is a slice of its own that deletes FOUR islands at
+      once — two here and two there — rather than two now and two later."
+  [dispatch
+   {:keys [redacted-count muted-count focus event-bundles show-ungrouped? filters]}
+   as-child
+   theme-toggle*]
+  (let [no-filters? (zero? (+ (count (:in filters)) (count (:out filters))))
         {:keys [at-head? at-tail? live?]}
         (nav-boundary-state {:focus           focus
-                             :event-bundles        event-bundles
+                             :event-bundles   event-bundles
                              :show-ungrouped? show-ungrouped?})]
     [:div {:data-testid "rf-xray-ribbon"
            :style {:display          "flex"
@@ -1273,8 +1315,8 @@
       ;; rf2-3f2di A2/A5 — blue-filled nav cluster, promoted to bar-1.
       ;; rf2-r0o63 — thread the captured frame-aware dispatcher so the
       ;; nav on-clicks land on the surrounding instance frame.
-      [ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail? :live? live?
-                           :dispatch-fn dispatch}]
+      (ribbon-nav-cluster {:at-head? at-head? :at-tail? at-tail? :live? live?
+                           :dispatch-fn dispatch})
       ;; rf2-xawwb — `+ filter` text button (Figma-Make chrome-ribbon).
       ;; Replaces the prior `Filters:` label + plus-icon affordance with a
       ;; single outlined `+ filter` text button. Opens the same edit
@@ -1296,7 +1338,7 @@
              :class       "rf-xray-filters-collapse-h"
              :data-open   (if no-filters? "true" "false")
              :aria-hidden (if no-filters? "false" "true")}
-       [:div [filter-pills/chrome-add-filter-button dispatch]]]]
+       [:div (filter-pills/chrome-add-filter-button dispatch)]]]
      ;; RIGHT cluster — scope selectors (Frame + Dynamic/Static) then the
      ;; silent-by-default indicators + chrome actions. Per the authority
      ;; reference chrome-ribbon right side (rf2-3f2di A5).
@@ -1306,24 +1348,113 @@
       ;; frame` + `:rf.xray/available-frames` and writes via
       ;; `:rf.xray/select-frame`. The frame is a view SCOPE, not a
       ;; filter (rf2-4vp5j Workstream C).
-      [frame-switcher/frame-switcher-view]
+      ;; rf2-k97c.3 — REAGENT ISLAND. Still an `rf/reg-view`, which
+      ;; Fresco grades `:invalid` as a head down the same arm a plain
+      ;; `defn` does. See [[ribbon-tree]]'s docstring.
+      (as-child [frame-switcher/frame-switcher-view])
       ;; Dynamic/Static dropdown (rf2-4vp5j) — compact, understated; the
       ;; accent stripe carries the mode signal so the control stays
       ;; quiet. Always rendered (the `:rf.xray/static-mode?` feature
       ;; gate was removed per rf2-8l3uk).
-      [mode-pill/mode-pill]
+      ;; rf2-k97c.3 — the second REAGENT ISLAND.
+      (as-child [mode-pill/mode-pill])
       ;; rf2-ikuwt — mute indicator (🔇 N) renders inline next to the
       ;; REDACTED indicator. Both are silent-by-default surfaces that
       ;; only paint when their count is positive. Click → unmute
       ;; manager modal.
-      [spine-filters/ribbon-mute-indicator dispatch muted-count]
-      [ribbon-redacted-indicator redacted-count]
+      (spine-filters/ribbon-mute-indicator dispatch muted-count)
+      (ribbon-redacted-indicator redacted-count)
       ;; rf2-xawwb — theme toggle (sun/moon) sits before the settings/close
       ;; icons per the Figma-Make chrome-ribbon right cluster.
-      [ribbon-theme-toggle]
+      ;; rf2-k97c.3 — it is its OWN boundary, so it arrives here as an
+      ;; ALREADY-COMPOSED NODE rather than as a head this fn writes:
+      ;; [[ribbon]] passes `[ribbon-theme-toggle {}]` and the node lane
+      ;; passes the expanded `theme-toggle-tree`. Same shape as
+      ;; `static/shell.cljs`'s `surface-tree`, and for the same reason —
+      ;; a boundary head cannot be walked by a hiccup walker, because its
+      ;; body only runs inside a React render window.
+      theme-toggle*
       ;; rf2-r0o63 — thread the captured frame-aware dispatcher so the
       ;; settings / close icon clicks land on the instance frame.
-      [ribbon-right-icons {:dispatch-fn dispatch}]]]))
+      (ribbon-right-icons {:dispatch-fn dispatch})]]))
+
+(rf.fresco/defview ribbon
+  "L1 **chrome ribbon** (bar-1) — reconciled to the authoritative
+  reference chrome-ribbon (`tools/xray/design-reference/xray_devtools_
+  reference.cljs`, rf2-3f2di A4/A5). 34px tall (`:top-strip-height`).
+
+    - **LEFT** — the `Events` label (the reference leads with it; the
+      `❖ Xray` wordmark was DROPPED per A4), the `[◀ ▶ ⏭]` blue-filled
+      nav cluster (A2), then the `+ filter` add-pill (A5). (rf2-pjjwh
+      retired the `focus` button + focus-chip with the focus feature.)
+      The chrome `+ filter` is mutually-exclusive with the events-ribbon
+      (rf2-8zd80): when ≥1 filter is committed the events-ribbon owns the
+      `[+]` add affordance and the chrome `+ filter` collapses to zero
+      width via the `.rf-xray-filters-collapse-h` horizontal-grid track
+      (250ms, same cadence + reduced-motion seam as the events-ribbon
+      vertical collapse).
+    - **RIGHT** — the Frame dropdown (`frame-switcher/frame-switcher-
+      view`) + the Dynamic/Static mode dropdown (`mode-pill/mode-pill`)
+      + the mute (🔇 N) / REDACTED (● N) silent-by-default indicators +
+      the `⚙` settings · `✕` close icon-buttons.
+
+  The committed filter pills (green/red) live on bar-2 (the events
+  ribbon, `events-ribbon`); only the add(+) sits up here, matching the
+  reference's chrome-ribbon (add) / events-ribbon (pills) split.
+
+  The 2-px left-edge accent stripe (rf2-o5f5f.1 mode-signal mechanism
+  #2 — the single GitHub-blue accent in both modes, rf2-ad7zx.13) stays
+  as the chrome-edge accent; the understated mode dropdown carries the
+  mode state via its active option + `data-active-mode`.
+
+  ## rf2-k97c.3 — a FRESCO BOUNDARY, not an `rf/reg-view`
+
+  SIX READS, ONE BOUNDARY. They are read together and rendered together
+  — the nav cluster's boundary state alone needs three of them — so
+  splitting them would buy nothing and cost component types. Boundary
+  count tracks reads and head-position use, not file size.
+
+  The READS are `rf.fresco/sub`, plain calls the shipped collector
+  records an edge for — no deref, no reaction owned by the installed
+  adapter, and a re-wire that NOTIFIES when the substrate disposes the
+  underlying derived value. They keep the `reg-view` body's ORDER, which
+  is the order the node lane reproduces.
+
+  The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
+  which answers the boundary's DECLARED frame inside a body and replaces
+  the `dispatch` the `reg-view` body used to inject lexically.
+  `defview` binds NO name inside the body, so the bare `dispatch` this
+  body used to close over would be a LOUD compile error.
+
+  `r/as-element` is the `as-child` spelling for the two Reagent islands;
+  [[ribbon-tree]] records which they are and why.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. [[dynamic-chrome]] mounts it with none, so it is destructured
+  away."
+  [_props]
+  (ribbon-tree
+    (:dispatch (rf/capture-frame))
+    {:redacted-count  (rf.fresco/sub [:rf.xray/suppressed-sensitive-count])
+     ;; rf2-ikuwt — mute-count drives the chrome ribbon's silent-by-
+     ;; default indicator next to the REDACTED indicator. Reading the
+     ;; count sub (not the raw set) means the ribbon re-renders only
+     ;; when the count changes; the indicator's click opens the
+     ;; unmute manager.
+     :muted-count     (rf.fresco/sub [:rf.xray/muted-event-ids-count])
+     ;; rf2-3f2di A5 — the nav cluster moved UP to the chrome ribbon
+     ;; per the authority reference, so the chrome ribbon reads the
+     ;; spine state the events ribbon used to own.
+     :focus           (rf.fresco/sub [:rf.xray/focus])
+     :event-bundles   (rf.fresco/sub [:rf.xray/filtered-event-bundles])
+     :show-ungrouped? (rf.fresco/sub [:rf.xray/show-ungrouped?])
+     ;; rf2-8zd80 — the chrome `+ filter` and the events-ribbon are
+     ;; mutually-exclusive add affordances. Hide the chrome button
+     ;; when ≥1 filter is committed (the events-ribbon's own `[+]`
+     ;; takes over). Open when zero filters, closed otherwise.
+     :filters         (rf.fresco/sub [:rf.xray/active-filters])}
+    r/as-element
+    [ribbon-theme-toggle {}]))
 
 ;; ---- L2 event list -------------------------------------------------------
 
@@ -1574,7 +1705,7 @@
         body-click  (fn [_e]
                       ;; rf2-r0o63 — dispatch through the captured
                       ;; instance-frame dispatcher (threaded from the
-                      ;; `event-list` reg-view) so the focus-event
+                      ;; `event-list` boundary) so the focus-event
                       ;; write lands on this shell's frame.
                       (dispatch-fn [:rf.xray/focus-event id (:frame event-bundle)]))]
     ;; Density (rf2-htik0 Bug 2): height 22px + padding "1px 6px" tightens
@@ -1589,7 +1720,17 @@
     ;; context menu (Mute / Hide event-type) — the same affordance
     ;; right-click users get. The audit (2026-05-20) flagged this
     ;; surface as P1 because the menu's actions had no keyboard path.
-    [:li (cond-> {:data-testid (str "rf-xray-event-row-" (str id))
+    [:li (cond-> {;; rf2-k97c.3 — the React `:key` rides THIS row's own
+                  ;; attribute map. It used to ride the `:key` slot of the
+                  ;; opts map at `event-list`'s call site, which worked
+                  ;; while `event-row` was a hiccup HEAD (React reads the
+                  ;; head's props). `event-row` is now CALLED — Fresco
+                  ;; grades a plain fn in head position a loud error — so
+                  ;; the opts map is an ordinary argument React never
+                  ;; sees, and the seq element that needs the key is the
+                  ;; `<li>` this returns. Same expression, one level down.
+                  :key         (str id)
+                  :data-testid (str "rf-xray-event-row-" (str id))
                   ;; rf2-b8guz — machine-readable issue-row flag so the
                   ;; light-pink-wash contract is pinnable from a CLJS unit
                   ;; test (issue epoch → "true"; clean row → absent) without
@@ -1745,10 +1886,10 @@
      ;; `flex 1 1 auto` column — rf2-8i1tg3 inverted the drag delta in
      ;; `col-divider-on-move` so dragging this handle tracks the
      ;; pointer instead of receding from it.
-     [col-divider {:col-id    :source
+     (col-divider {:col-id    :source
                    :col-px    (:source col-widths)
                    :row-height "22px"
-                   :dispatch-fn dispatch-fn}]
+                   :dispatch-fn dispatch-fn})
      ;; rf2-ad7zx.12 + rf2-lnod7 — the `source` COLUMN (Figma EventList).
      ;; A user-resizable cell (rf2-6ni62) aligned under the header's
      ;; `source` label, carrying the dispatch-origin as a short text tag.
@@ -1770,19 +1911,19 @@
                      :font-size (:caption type-scale)}}
       (when source-tag source-tag)]
      ;; rf2-6ni62 — divider sits between `source` and `timestamp`.
-     [col-divider {:col-id    :timestamp
+     (col-divider {:col-id    :timestamp
                    :col-px    (:timestamp col-widths)
                    :row-height "22px"
-                   :dispatch-fn dispatch-fn}]
+                   :dispatch-fn dispatch-fn})
      ;; Timestamp column (rf2-3f2di A8) — absolute wall-clock
      ;; `HH:MM:SS.mmm`, right-aligned. The chip carries an absolute-time
      ;; `:title` tooltip as the power-user reveal.
      (relative-time-chip event-bundle now-ms (:timestamp col-widths))
      ;; rf2-6ni62 — divider sits between `timestamp` and `duration`.
-     [col-divider {:col-id    :duration
+     (col-divider {:col-id    :duration
                    :col-px    (:duration col-widths)
                    :row-height "22px"
-                   :dispatch-fn dispatch-fn}]
+                   :dispatch-fn dispatch-fn})
      ;; Duration cell (rf2-lnod7) — the trailing `duration` column,
      ;; restoring the Figma EventList's fourth column. Handler wall-time
      ;; (`1.2 ms`), right-aligned, flush against the row's trailing edge.
@@ -1834,44 +1975,20 @@
              :style {:font-weight 500 :color (:warning tokens) :white-space "nowrap"}}
       (str hidden " " (common/pluralize hidden "event") " filtered out")]]))
 
-(rf/reg-view events-ribbon
-  "L1.5 **events ribbon** (bar-2) — reconciled to the Figma-Make surface
-  (rf2-xawwb) + rf2-pjjwh. The second stratum below the chrome ribbon.
-  LEFT → RIGHT:
+(defn events-ribbon-tree
+  "The L1.5 events ribbon's WHOLE hiccup, as a pure function of the
+  frame-bound `dispatch` and the two values [[events-ribbon]] reads.
 
-    - the `↳ filters:` contextual label (corner-down-right glyph);
-    - the add-filter `+` ICON button
-      (`filter-pills/events-add-filter-button`) — opens the edit popup;
-    - the committed green-bordered IN pills + red-bordered OUT pills
-      (`filter-pills/pills-view`), each with a vertical divider before
-      its `✕`;
-    - pushed to the FAR RIGHT (via `margin-left: auto`): the `N events
-      filtered out` warning text (when N > 0, `:warning` colour).
+  SPLIT OUT OF [[events-ribbon]] BY rf2-k97c.3, for the reason every
+  migrated view in this epic splits: a boundary's body may only run
+  inside a React render window.
 
-  ## rf2-pjjwh — conditional + animated
-
-  The whole `filters:` ribbon is HIDDEN when there are zero filters and
-  appears only after the user creates the first filter via `[+ filter]`.
-  It animates OPEN when the first filter is added and animates CLOSED when
-  the last filter is removed. The collapse uses a CSS
-  `grid-template-rows: 0fr ⇄ 1fr` transition (the modern jank-free
-  height-collapse technique) keyed off the `data-open` attribute — see
-  `theme/global-styles/motion-css` for the rule. The outer collapse track
-  stays mounted so the transition can run in both directions; the inner
-  content is the actual bar-2 surface.
-
-  rf2-pjjwh also REMOVED the `Clear Filters` button from the trailing
-  edge — pills are removed individually via each pill's `✕` (the
-  `[+ filter]` add affordance lives up on the chrome ribbon).
-
-  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
-  `:rf/xray`. A distinct `bg-2` background + `border-subtle` hairline
-  separate it from the chrome ribbon's `bg-1` as a distinct layer."
-  []
-  (let [filters        @(rf/subscribe [:rf.xray/active-filters])
-        hidden-summary @(rf/subscribe [:rf.xray/hidden-by-filters])
-        filter-count   (+ (count (:in filters)) (count (:out filters)))
-        open?          (pos? filter-count)]
+  PURE HEADS: `filter-pills/events-add-filter-button`,
+  `ribbon-filter-pills` and `filters-hidden-message` all answer hiccup,
+  so all three are CALLED rather than headed."
+  [dispatch {:keys [filters hidden-summary]}]
+  (let [filter-count (+ (count (:in filters)) (count (:out filters)))
+        open?        (pos? filter-count)]
     ;; rf2-pjjwh — collapse track. Always mounted so the height/opacity
     ;; transition runs in BOTH directions (open when the first filter is
     ;; added, closed when the last is removed). `data-open` drives the
@@ -1909,9 +2026,9 @@
                       :white-space  "nowrap"}}
        [:span {:aria-hidden "true"} "↳"]
        "filters:"]
-      [filter-pills/events-add-filter-button dispatch]
+      (filter-pills/events-add-filter-button dispatch)
       ;; rf2-3f2di A6 — the committed green/red filter pills.
-      [ribbon-filter-pills dispatch {:filters filters}]
+      (ribbon-filter-pills dispatch {:filters filters})
       ;; rf2-xawwb — the `N events filtered out` warning is pushed to the
       ;; RIGHT end (Figma-Make surface). The `margin-left: auto` shoves it
       ;; to the trailing edge regardless of pill count. Renders only when
@@ -1921,6 +2038,56 @@
                :style {:display "flex" :align-items "center" :gap "12px"
                        :margin-left "auto"}}
          (filters-hidden-message hidden-summary)])]]))
+
+(rf.fresco/defview events-ribbon
+  "L1.5 **events ribbon** (bar-2) — reconciled to the Figma-Make surface
+  (rf2-xawwb) + rf2-pjjwh. The second stratum below the chrome ribbon.
+  LEFT → RIGHT:
+
+    - the `↳ filters:` contextual label (corner-down-right glyph);
+    - the add-filter `+` ICON button
+      (`filter-pills/events-add-filter-button`) — opens the edit popup;
+    - the committed green-bordered IN pills + red-bordered OUT pills
+      (`filter-pills/pills-view`), each with a vertical divider before
+      its `✕`;
+    - pushed to the FAR RIGHT (via `margin-left: auto`): the `N events
+      filtered out` warning text (when N > 0, `:warning` colour).
+
+  ## rf2-pjjwh — conditional + animated
+
+  The whole `filters:` ribbon is HIDDEN when there are zero filters and
+  appears only after the user creates the first filter via `[+ filter]`.
+  It animates OPEN when the first filter is added and animates CLOSED when
+  the last filter is removed. The collapse uses a CSS
+  `grid-template-rows: 0fr ⇄ 1fr` transition (the modern jank-free
+  height-collapse technique) keyed off the `data-open` attribute — see
+  `theme/global-styles/motion-css` for the rule. The outer collapse track
+  stays mounted so the transition can run in both directions; the inner
+  content is the actual bar-2 surface.
+
+  rf2-pjjwh also REMOVED the `Clear Filters` button from the trailing
+  edge — pills are removed individually via each pill's `✕` (the
+  `[+ filter]` add affordance lives up on the chrome ribbon).
+
+  ## rf2-k97c.3 — a FRESCO BOUNDARY, not an `rf/reg-view`
+
+  TWO READS, ONE BOUNDARY — the pill inventory and the hidden-count
+  summary are read together and rendered together. The READS are
+  `rf.fresco/sub`, plain calls the shipped collector records an edge for;
+  the DISPATCHER is `(:dispatch (rf/capture-frame))`, which replaces the
+  `dispatch` the `reg-view` body used to inject lexically.
+
+  A distinct `bg-2` background + `border-subtle` hairline separate it
+  from the chrome ribbon's `bg-1` as a distinct layer.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. [[dynamic-chrome]] mounts it with none, so it is destructured
+  away."
+  [_props]
+  (events-ribbon-tree
+    (:dispatch (rf/capture-frame))
+    {:filters        (rf.fresco/sub [:rf.xray/active-filters])
+     :hidden-summary (rf.fresco/sub [:rf.xray/hidden-by-filters])}))
 
 ;; rf2-ad7zx.12 + rf2-lnod7 + rf2-xawwb + rf2-pjjwh — the L2 list's
 ;; column-header row, reconciled to the Figma-Make EventList. The header
@@ -1945,7 +2112,7 @@
   arrow keys do a fine resize, double-click resets to default.
 
   rf2-r0o63 — `dispatch-fn` is the frame-aware dispatcher captured by
-  the `event-list` reg-view body, threaded to each divider so resize
+  the `event-list` boundary body, threaded to each divider so resize
   writes land on the instance frame."
   [col-widths dispatch-fn]
   (let [dispatch-fn (or dispatch-fn rf/dispatch)
@@ -1994,28 +2161,28 @@
                                  :text-align "left"})}
       "event id"]
      ;; rf2-6ni62 — divider between `event id` (flex) and `source`.
-     [col-divider {:col-id    :source
+     (col-divider {:col-id    :source
                    :col-px    (:source col-widths)
                    :row-height "100%"
-                   :dispatch-fn dispatch-fn}]
+                   :dispatch-fn dispatch-fn})
      [:span {:data-testid "rf-xray-event-list-col-source"
              :style (merge cell {:width (->px (:source col-widths))
                                  :flex-shrink 0})}
       "source"]
      ;; rf2-6ni62 — divider between `source` and `timestamp`.
-     [col-divider {:col-id    :timestamp
+     (col-divider {:col-id    :timestamp
                    :col-px    (:timestamp col-widths)
                    :row-height "100%"
-                   :dispatch-fn dispatch-fn}]
+                   :dispatch-fn dispatch-fn})
      [:span {:data-testid "rf-xray-event-list-col-timestamp"
              :style (merge cell {:flex-shrink 0 :text-align "right"
                                  :width (->px (:timestamp col-widths))})}
       "timestamp"]
      ;; rf2-6ni62 — divider between `timestamp` and `duration`.
-     [col-divider {:col-id    :duration
+     (col-divider {:col-id    :duration
                    :col-px    (:duration col-widths)
                    :row-height "100%"
-                   :dispatch-fn dispatch-fn}]
+                   :dispatch-fn dispatch-fn})
      ;; rf2-lnod7 — the fourth Figma column. Restored after the gap
      ;; audit (rf2-4297k) found the live header carried only three
      ;; columns and the duration was clipped off the right edge.
@@ -2024,94 +2191,32 @@
                                  :width (->px (:duration col-widths))})}
       "duration"]]))
 
-(rf/reg-view event-list
-  "L2 event list — per spec/018 §4 Event list. Single-line rows,
-  latest-on-bottom, ~8 visible at the tightened 22px row height
-  (rf2-htik0 Bug 2 — was 28px row × 224px container; Xray is
-  info-dense and the earlier rhythm wasted vertical canvas).
+(defn event-list-tree
+  "The L2 event list's WHOLE hiccup, as a pure function of the frame-bound
+  `dispatch` and the six values [[event-list]] reads.
 
-  Container default height: 8 rows × 22px + 7 × 2px gap + 8px outer
-  padding ≈ 200px. The live height reads from
-  `:rf.xray/events-list-height-px` (rf2-t2dsh) so the L2/L3 seam
-  handle's drag writes lift the list reactively. `min-height` drops
-  to `config/min-events-list-height-px` (48px == 2 rows + chrome) —
-  the same floor the seam-handle clamp enforces.
+  SPLIT OUT OF [[event-list]] BY rf2-k97c.3, for the reason every migrated
+  view in this epic splits: a boundary's body may only run inside a React
+  render window.
 
-  Per rf2-t2dsh the bottom-right browser-native `:resize \"vertical\"`
-  corner-grip was retired — the seam handle that sits on the L2/L3
-  boundary is the single resize affordance now, carrying persistence
-  + keyboard + reset that the corner-grip lacked.
+  PURE HEADS: `l2-column-header` and `event-row` both answer hiccup, so
+  both are CALLED rather than headed. `event-row`'s React key moved down
+  one level into the `<li>` it returns when that head became a call — see
+  its attribute map.
 
-  Per spec/018 §6 sub-graph + rf2-ak4ms: reads `:rf.xray/filtered-
-  event-bundles` (NOT raw `:rf.xray/event-bundles`) so the L1 ribbon's IN/OUT
-  pills drive the list at the data layer — virtualisation budgets
-  the post-filter row count, and the ribbon's `[◀ ▶ ⏭]` nav walks
-  the same filtered list (per spec/018 §6 'Atomicity contract').
-
-  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
-  `:rf/xray`.
-
-  Per rf2-639lc the list filters out `:ungrouped` event-bundles (those
-  with no `:event` vector — registry-time emits / frame lifecycle
-  outside a drain / REPL evals). Without the filter the L2 list
-  rendered a leading `<no event>` placeholder row that leaked the
-  projection's internal bucket into the user-facing event timeline.
-  Other panels (Performance, etc.) keep reading
-  `:rf.xray/event-bundles` directly so the bucket remains available where
-  it is meaningful.
-
-  Per rf2-ieg6d Bug 1 the focused row carries a `:ref` callback that
-  scrolls it into view when (a) focus has just moved to a new id AND
-  (b) the spine is in LIVE+head mode (i.e. the auto-tracking branch
-  from `spine/compose-focus`). RETRO clicks place the row where the
-  user clicked, so the scroll-into-view is suppressed there to avoid
-  stealing the cursor. Per rf2-ieg6d Bug 2 the container carries
-  Firefox's standardised `scrollbar-width`/`-color`; WebKit/Blink
-  rules ship via a one-shot `<style>` injection (see
-  `inject-scrollbar-style!`)."
-  []
-  ;; rf2-ieg6d Bug 2 — idempotent stylesheet injection. Lives in the
-  ;; reg-view body so it runs on first paint of the L2 list (which is
-  ;; mounted by the shell-view); defonce + DOM guards keep it a
-  ;; no-op everywhere it matters.
-  (inject-scrollbar-style!)
-  (let [;; rf2-6ni62 — subscribe ONCE per L2 paint; thread the resolved
-        ;; widths map through to the header + every row so the two
-        ;; surfaces never drift out of column alignment.
-        col-widths     @(rf/subscribe [:rf.xray/event-list-col-widths])
-        ;; rf2-t2dsh — list height is driven by the L2/L3 seam handle.
-        ;; The sub returns a clamped px value; default == 200 px.
-        list-height-px @(rf/subscribe [:rf.xray/events-list-height-px])
-        event-bundles       @(rf/subscribe [:rf.xray/filtered-event-bundles])
-        ;; rf2-4vp5j — the hidden-by-filters message moved UP to the
-        ;; events ribbon (`events-ribbon`); the L2 list no longer renders
-        ;; the banner itself. The events ribbon is the always-present
-        ;; second stratum so the count surfaces above the list rather
-        ;; than as an inline banner inside it.
-        focus          @(rf/subscribe [:rf.xray/focus])
-        ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-event-bundle
-        ;; bucket. Default OFF preserves silent-by-default; ON
-        ;; surfaces the bucket as a muted L2 row that focuses the
-        ;; bucket on click so downstream panels populate.
-        show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
-        ;; rf2-0s2at — one subscribe per render drives every chip's
-        ;; relative-time text. The sub returns the dispatched-time of
-        ;; the most recent event-bundle (the anchor flips on event arrival,
-        ;; not on a per-second tick). Falls back to `(rf.interop/now-ms)`
-        ;; when the buffer is empty / no event-bundle carries a stamp — at
-        ;; that point there are no rows to render against the anchor
-        ;; anyway, but the chip's render-time guard keeps the bucket
-        ;; computation defined.
-        now-ms         (or @(rf/subscribe [:rf.xray/relative-time-now-ms])
-                           (rf.interop/now-ms))
-        focused-id     (:dispatch-id focus)
+  THE VISIBILITY FILTER LIVES HERE, not in the boundary, so the node
+  lane's door reproduces the READS alone and there is no second copy of
+  the derivation to drift."
+  [dispatch {:keys [col-widths list-height-px event-bundles focus
+                    show-ungrouped? now-ms]}]
+  (let [focused-id    (:dispatch-id focus)
         ;; LIVE+head+not-paused = the auto-tracking branch from
         ;; spine/compose-focus. Only here do we want scroll-into-view
         ;; to fire on focus change; RETRO + paused-LIVE leave the
         ;; user's scroll position alone.
-        auto-track?    (and (= :live (:mode focus))
-                            (:head? focus)
-                            (not (:paused? focus)))
+        auto-track?   (and (= :live (:mode focus))
+                           (:head? focus)
+                           (not (:paused? focus)))
         event-bundles (filterv #(l2-event-bundle-visible? % show-ungrouped?) event-bundles)]
     [:div {:data-testid "rf-xray-event-list-wrap"
            :style {:display "flex" :flex-direction "column"}}
@@ -2151,31 +2256,146 @@
         ;; the header dividers + every row's out-of-render dispatches
         ;; (body-click focus, context menu, col resize) so they land on
         ;; the surrounding instance frame.
-        ;; rf2-a38l — these three sibling keys ride an ATTRIBUTE MAP, never
+        ;; rf2-a38l — these two sibling keys ride an ATTRIBUTE MAP, never
         ;; `^{:key …}` reader meta. Meta on a vector literal reaches React
         ;; under Reagent and reaches it NOWHERE under Fresco, whose codec
         ;; reads a literal `:key` from the attribute map and Clojure
-        ;; metadata not at all — so the meta spelling works today and would
-        ;; drop every key here, silently, the day this list renders under a
-        ;; boundary. `l2-column-header` takes both arguments positionally,
-        ;; so its key rides a KEYED FRAGMENT (the rf2-k97c.3 shape) rather
-        ;; than a props map that would shift them; `event-row` already
-        ;; takes one opts map, so its key rides that, which is where a
-        ;; boundary head reads `:key` from and where the body never sees it.
+        ;; metadata not at all. `l2-column-header` is a CALL now, so its
+        ;; key rides a KEYED FRAGMENT (the rf2-k97c.3 shape) — a fragment
+        ;; carries the key and adds no DOM node.
         (list
-         [:<> {:key "header"} [l2-column-header col-widths dispatch]]
+         [:<> {:key "header"} (l2-column-header col-widths dispatch)]
          (into [:ul {:key "rows"
                      :style {:list-style "none" :margin 0 :padding 0
                              :display "flex" :flex-direction "column"
                              :gap "2px"}}]
-              (for [event-bundle event-bundles]
-                [event-row {:key              (str (:dispatch-id event-bundle))
-                            :event-bundle     event-bundle
-                            :focused-id  focused-id
-                            :auto-track? auto-track?
-                            :now-ms      now-ms
-                            :col-widths  col-widths
-                            :dispatch-fn dispatch}]))))]]))
+               (for [event-bundle event-bundles]
+                 (event-row {:event-bundle event-bundle
+                             :focused-id   focused-id
+                             :auto-track?  auto-track?
+                             :now-ms       now-ms
+                             :col-widths   col-widths
+                             :dispatch-fn  dispatch})))))]]))
+
+(rf/reg-view event-list
+  "L2 event list — per spec/018 §4 Event list. Single-line rows,
+  latest-on-bottom, ~8 visible at the tightened 22px row height
+  (rf2-htik0 Bug 2 — was 28px row × 224px container; Xray is
+  info-dense and the earlier rhythm wasted vertical canvas).
+
+  Container default height: 8 rows × 22px + 7 × 2px gap + 8px outer
+  padding ≈ 200px. The live height reads from
+  `:rf.xray/events-list-height-px` (rf2-t2dsh) so the L2/L3 seam
+  handle's drag writes lift the list reactively. `min-height` drops
+  to `config/min-events-list-height-px` (48px == 2 rows + chrome) —
+  the same floor the seam-handle clamp enforces.
+
+  Per rf2-t2dsh the bottom-right browser-native `:resize \"vertical\"`
+  corner-grip was retired — the seam handle that sits on the L2/L3
+  boundary is the single resize affordance now, carrying persistence
+  + keyboard + reset that the corner-grip lacked.
+
+  Per spec/018 §6 sub-graph + rf2-ak4ms: reads `:rf.xray/filtered-
+  event-bundles` (NOT raw `:rf.xray/event-bundles`) so the L1 ribbon's IN/OUT
+  pills drive the list at the data layer — virtualisation budgets
+  the post-filter row count, and the ribbon's `[◀ ▶ ⏭]` nav walks
+  the same filtered list (per spec/018 §6 'Atomicity contract').
+
+  ## rf2-k97c.3 — THE ONE REGION THAT STAYED AN `rf/reg-view`, and why
+
+  The other five chrome regions are Fresco boundaries. This one is not,
+  and the reason is a CALLER rather than anything about the view:
+  `panels.cljs`'s `mount-event-spine!` — a SHIPPED public embed, the L2
+  spine Story mounts beside a focus-keyed panel (`tools/xray/spec/
+  008-Embedding-Contract.md` §Embeddable event spine) — passes this var
+  to `panels/render-panel!`, which builds `[rf/frame-provider … [view]]`
+  and hands it to the installed adapter's `:render`. `defview`'s own
+  contract is that a boundary is mounted as `[head props]` inside a
+  Fresco body or through `as-component` from OUTSIDE, never as a hiccup
+  render fn in a Reagent tree — which is exactly what `render-panel!`
+  builds. Migrating this view therefore needs a PUBLIC bridge here AND
+  a one-line change at that call site, the shape PR #9581 recorded for
+  `mount-resources!`.
+
+  `panels.cljs` and `panel_enum.cljc` (whose `:event-spine` row names
+  `"shell/event-list"`) were both held by another worker when this
+  slice was written, so that one line could not be changed and the
+  migration would have shipped a BROKEN embed — silently, because
+  `panels_mount_cljs_test` drives `render-panel!` through a render STUB
+  that captures the tree and never renders it.
+
+  EVERYTHING ELSE IS ALREADY IN PLACE. The body below is the thin
+  read-and-call shape every migrated view has, [[event-list-tree]] is
+  the pure fn, and the node lane's door already drives it. Making this a
+  boundary is: swap `rf/reg-view` for `rf.fresco/defview`, swap the six
+  `@(rf/subscribe …)` for `rf.fresco/sub`, add a public
+  `event-list-bridge`, and pass it at `panels.cljs`'s
+  `mount-event-spine!`.
+
+  [[dynamic-chrome]] therefore mounts it as a REAGENT ISLAND through
+  `as-child`, exactly as it does the L2/L3 seam handle.
+
+  Per rf2-639lc the list filters out `:ungrouped` event-bundles (those
+  with no `:event` vector — registry-time emits / frame lifecycle
+  outside a drain / REPL evals). Without the filter the L2 list
+  rendered a leading `<no event>` placeholder row that leaked the
+  projection's internal bucket into the user-facing event timeline.
+  Other panels (Performance, etc.) keep reading
+  `:rf.xray/event-bundles` directly so the bucket remains available where
+  it is meaningful.
+
+  Per rf2-ieg6d Bug 1 the focused row carries a `:ref` callback that
+  scrolls it into view when (a) focus has just moved to a new id AND
+  (b) the spine is in LIVE+head mode (i.e. the auto-tracking branch
+  from `spine/compose-focus`). RETRO clicks place the row where the
+  user clicked, so the scroll-into-view is suppressed there to avoid
+  stealing the cursor. Per rf2-ieg6d Bug 2 the container carries
+  Firefox's standardised `scrollbar-width`/`-color`; WebKit/Blink
+  rules ship via a one-shot `<style>` injection (see
+  `inject-scrollbar-style!`).
+
+  The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
+  documented for exactly this position (`re-frame.core/capture-frame`'s
+  own example is a `reg-view` body) — rather than the lexically injected
+  `dispatch`, so this body is the same shape as its five boundary
+  siblings and the swap above stays a one-line one."
+  []
+  ;; rf2-ieg6d Bug 2 — idempotent stylesheet injection. Lives in the
+  ;; view body so it runs on first paint of the L2 list (which is
+  ;; mounted by the shell-view); defonce + DOM guards keep it a
+  ;; no-op everywhere it matters.
+  (inject-scrollbar-style!)
+  (event-list-tree
+    (:dispatch (rf/capture-frame))
+    {;; rf2-6ni62 — read ONCE per L2 paint; thread the resolved
+     ;; widths map through to the header + every row so the two
+     ;; surfaces never drift out of column alignment.
+     :col-widths      @(rf/subscribe [:rf.xray/event-list-col-widths])
+     ;; rf2-t2dsh — list height is driven by the L2/L3 seam handle.
+     ;; The sub returns a clamped px value; default == 200 px.
+     :list-height-px  @(rf/subscribe [:rf.xray/events-list-height-px])
+     :event-bundles   @(rf/subscribe [:rf.xray/filtered-event-bundles])
+     ;; rf2-4vp5j — the hidden-by-filters message moved UP to the
+     ;; events ribbon (`events-ribbon`); the L2 list no longer renders
+     ;; the banner itself. The events ribbon is the always-present
+     ;; second stratum so the count surfaces above the list rather
+     ;; than as an inline banner inside it.
+     :focus           @(rf/subscribe [:rf.xray/focus])
+     ;; rf2-r9lyy — opt-in for the `:ungrouped` pseudo-event-bundle
+     ;; bucket. Default OFF preserves silent-by-default; ON
+     ;; surfaces the bucket as a muted L2 row that focuses the
+     ;; bucket on click so downstream panels populate.
+     :show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
+     ;; rf2-0s2at — one read per render drives every chip's
+     ;; relative-time text. The sub returns the dispatched-time of
+     ;; the most recent event-bundle (the anchor flips on event arrival,
+     ;; not on a per-second tick). Falls back to `(rf.interop/now-ms)`
+     ;; when the buffer is empty / no event-bundle carries a stamp — at
+     ;; that point there are no rows to render against the anchor
+     ;; anyway, but the chip's render-time guard keeps the bucket
+     ;; computation defined.
+     :now-ms          (or @(rf/subscribe [:rf.xray/relative-time-now-ms])
+                          (rf.interop/now-ms))}))
 
 ;; ---- L3 tab bar ----------------------------------------------------------
 
@@ -2215,7 +2435,7 @@
   `getByRole('tab')` lookups in host integration tests resolve here.
 
   `:dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
-  the `tab-bar` reg-view so the select-tab click lands on the instance
+  the [[tab-bar]] boundary so the select-tab click lands on the instance
   frame, not a `:rf/xray` literal."
   [{:keys [id label mnem active? dispatch-fn]}]
   (let [;; rf2-plajx — stable per-tab id so the controlled L4 panel's
@@ -2257,49 +2477,20 @@
                       :transition    "background-color 120ms ease-out, color 120ms ease-out"}}
      label]))
 
-(rf/reg-view tab-bar
-  "L3 tab bar — renders `panel-registry/tabs-for-mode :dynamic` in
-  `:order`, per spec/018 §5 (Routing promoted per rf2-nrbs9 — follows
-  the cohesive-sub-domain rule; the Issues tab was removed per
-  rf2-gbz39 — issues surface inline in the Epoch panel + the L2
-  event-row pink-wash + the ribbon).
+(defn tab-bar-tree
+  "The L3 tab bar's WHOLE chrome, as a pure function of the frame-bound
+  `dispatch` and the four values [[tab-bar]] reads.
 
-  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
-  `:rf/xray`.
+  SPLIT OUT OF [[tab-bar]] BY rf2-k97c.3, for the reason every migrated
+  view in this epic splits: a boundary's body may only run inside a React
+  render window.
 
-  Per rf2-lvf8t (rf2-q7who Thread B) the wrapping element is a
-  generic `<div>` carrying `role='tablist'` — the proper ARIA pattern
-  for a tab strip. The earlier `<nav>` was both semantically wrong
-  (tabs aren't site navigation) and a strict-mode hazard for host
-  apps that also expose a `<nav>` landmark: Playwright's
-  `getByRole('navigation')` lookup became ambiguous when Xray was
-  mounted alongside a host nav, every Story integration test using
-  the role failed (rf2-q7who Thread B — discovered via rf2-drprn).
-  Per-tab buttons carry `role='tab'` + `aria-selected` (see
-  `tab-button`). `data-testid='rf-xray-tab-bar'` is unchanged.
-
-  ## rf2-hga49 — `Reset` rewind button (far right)
-
-  The ribbon's far-right (after a `margin-left:auto` spacer) carries
-  the `Reset` button — the UI half of the inspect-vs-rewind principle.
-  It dispatches `:rf.xray/reset-to-epoch` with the OBSERVED frame
-  (`:rf.xray/observed-frame` — the frame-switcher selection, NOT
-  `:rf/xray`) and the currently-focused epoch-id
-  (`:rf.xray/focus-epoch-id`), rewinding that frame's live `app-db` to
-  the epoch's `:db-after`. No dialog, no confirmation. Disabled when
-  no epoch is focused. On the rare framework failure (epoch aged out /
-  restore-during-drain) the effect sets `:rf.xray/reset-flash` — a
-  brief inline message, never a modal, never a silent lie."
-  []
-  (let [selected     @(rf/subscribe [:rf.xray/selected-tab])
-        ;; rf2-hga49 — rewind target: the OBSERVED app frame + the
-        ;; focused epoch. `:subscribe` (the reg-view-injected handle)
-        ;; resolves both off `:rf/xray`'s own app-db where the spine
-        ;; lives, but the values it returns point at the OBSERVED frame.
-        observed     @(subscribe [:rf.xray/observed-frame])
-        focus-epoch  @(subscribe [:rf.xray/focus-epoch-id])
-        reset-flash  @(subscribe [:rf.xray/reset-flash])
-        can-reset?   (some? focus-epoch)]
+  PURE: `tab-button` is CALLED rather than headed, and answers keyword
+  hiccup. The tab INVENTORY still comes from `(dynamic-tabs)` — the
+  registry read this bar has always made, and process-global rather than
+  frame-scoped, so it is not one of the boundary's reads."
+  [dispatch {:keys [selected observed focus-epoch reset-flash]}]
+  (let [can-reset? (some? focus-epoch)]
     [:div {:data-testid "rf-xray-tab-bar"
            :role        "tablist"
            :aria-label  "Xray panel tabs"
@@ -2343,12 +2534,14 @@
      ;; Reagent honours and Fresco's codec reads nowhere. `tab-button`'s one
      ;; argument is the tab map itself, so the key does NOT go there: it is
      ;; registry-derived domain data the body destructures, and `:key` is
-     ;; React's. The fragment keeps the two apart.
+     ;; React's. The fragment keeps the two apart, and it survives
+     ;; `tab-button` becoming a CALL (rf2-k97c.3) — the key was never on
+     ;; the head.
      (for [{:keys [id] :as tab} (dynamic-tabs)]
        [:<> {:key id}
         ;; rf2-r0o63 — thread the captured frame-aware dispatcher so the
         ;; tab click's select-tab write lands on the instance frame.
-        [tab-button (assoc tab :active? (= id selected) :dispatch-fn dispatch)]])
+        (tab-button (assoc tab :active? (= id selected) :dispatch-fn dispatch))])
      ;; rf2-hga49 — `margin-left:auto` spacer pushes the Reset cluster to
      ;; the FAR RIGHT of the ribbon, past the tab buttons.
      [:span {:data-testid "rf-xray-tab-bar-spacer"
@@ -2398,6 +2591,62 @@
       "Reset"
       [:span {:aria-hidden "true"} "↺"]]]))
 
+(rf.fresco/defview tab-bar
+  "L3 tab bar — renders `panel-registry/tabs-for-mode :dynamic` in
+  `:order`, per spec/018 §5 (Routing promoted per rf2-nrbs9 — follows
+  the cohesive-sub-domain rule; the Issues tab was removed per
+  rf2-gbz39 — issues surface inline in the Epoch panel + the L2
+  event-row pink-wash + the ribbon).
+
+  ## rf2-k97c.3 — a FRESCO BOUNDARY, not an `rf/reg-view`
+
+  FOUR READS, ONE BOUNDARY — the selected tab plus the three slots the
+  Reset cluster needs. The READS are `rf.fresco/sub`, plain calls the
+  shipped collector records an edge for, and they keep the `reg-view`
+  body's ORDER, which is the order the node lane reproduces. The three
+  Reset reads replace the `reg-view`-injected `subscribe` the body used
+  to close over — `defview` binds no such name, so the bare spelling
+  would be a LOUD compile error.
+
+  Per rf2-lvf8t (rf2-q7who Thread B) the wrapping element is a
+  generic `<div>` carrying `role='tablist'` — the proper ARIA pattern
+  for a tab strip. The earlier `<nav>` was both semantically wrong
+  (tabs aren't site navigation) and a strict-mode hazard for host
+  apps that also expose a `<nav>` landmark: Playwright's
+  `getByRole('navigation')` lookup became ambiguous when Xray was
+  mounted alongside a host nav, every Story integration test using
+  the role failed (rf2-q7who Thread B — discovered via rf2-drprn).
+  Per-tab buttons carry `role='tab'` + `aria-selected` (see
+  `tab-button`). `data-testid='rf-xray-tab-bar'` is unchanged.
+
+  ## rf2-hga49 — `Reset` rewind button (far right)
+
+  The ribbon's far-right (after a `margin-left:auto` spacer) carries
+  the `Reset` button — the UI half of the inspect-vs-rewind principle.
+  It dispatches `:rf.xray/reset-to-epoch` with the OBSERVED frame
+  (`:rf.xray/observed-frame` — the frame-switcher selection, NOT
+  `:rf/xray`) and the currently-focused epoch-id
+  (`:rf.xray/focus-epoch-id`), rewinding that frame's live `app-db` to
+  the epoch's `:db-after`. No dialog, no confirmation. Disabled when
+  no epoch is focused. On the rare framework failure (epoch aged out /
+  restore-during-drain) the effect sets `:rf.xray/reset-flash` — a
+  brief inline message, never a modal, never a silent lie.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. [[dynamic-chrome]] mounts it with none, so it is destructured
+  away."
+  [_props]
+  (tab-bar-tree
+    (:dispatch (rf/capture-frame))
+    {:selected    (rf.fresco/sub [:rf.xray/selected-tab])
+     ;; rf2-hga49 — rewind target: the OBSERVED app frame + the
+     ;; focused epoch. These resolve off `:rf/xray`'s own app-db where
+     ;; the spine lives, but the values they return point at the
+     ;; OBSERVED frame.
+     :observed    (rf.fresco/sub [:rf.xray/observed-frame])
+     :focus-epoch (rf.fresco/sub [:rf.xray/focus-epoch-id])
+     :reset-flash (rf.fresco/sub [:rf.xray/reset-flash])}))
+
 ;; ---- L4 detail panel -----------------------------------------------------
 
 (defn- unknown-tab-stub
@@ -2408,7 +2657,89 @@
                  :font-family sans-stack}}
    "Unknown tab: " [:code (pr-str selected)]])
 
-(rf/reg-view detail-panel
+(defn detail-panel-tree
+  "The Dynamic L4 detail panel's WHOLE chrome, as a pure function of the
+  selected tab id, that tab's registry entry (or `nil`) and the
+  `as-child` spelling for the L4 REAGENT ISLAND.
+
+  SPLIT OUT OF [[detail-panel]] BY rf2-k97c.3, for the reason every
+  migrated view in this epic splits: a boundary's body may only run
+  inside a React render window.
+
+  THE MOUNT IS AN ISLAND, and for the Dynamic registry it stays one for
+  a while yet. `reg-l4-tab!`'s `:pre` requires `:panel` to be CALLABLE,
+  and the ten Dynamic entries are MIXED at this tip: five register an
+  `as-component` BRIDGE (a plain fn answering `[:> Component {}]`) while
+  `epoch-panel/Panel`, `trace/Panel`, `machine-inspector/Panel` and
+  `fresco/Panel` are still `rf/reg-view`s. Both grade `:invalid` as a
+  Fresco head, down the same arm. `as-child` is `identity` for a hiccup
+  caller and the node lane, which leaves `[(:panel tab)]` exactly the
+  vector it has always been, and `reagent.core/as-element` for the
+  boundary, which answers a React element — a legal child anywhere per
+  Fresco's component ABI.
+
+  MIGRATION SCAFFOLDING WITH A DEFINED END: when every Dynamic panel is
+  a boundary the registry takes them directly, the `[:>]` bridges go, and
+  this seam goes with them. That end is NOT reachable from this slice —
+  `panels/epoch/view.cljs` is held by another worker and three more
+  panels are unmigrated."
+  [selected tab as-child]
+  [:div {:data-testid (str "rf-xray-detail-panel-" (name selected))
+         ;; rf2-plajx — L4 closes the tab/tabpanel loop. The L3
+         ;; tablist owns `role=\"tablist\"` + per-tab `role=\"tab\"` +
+         ;; `aria-selected`; the panel completes the WAI-ARIA APG
+         ;; tabs pattern with `role=\"tabpanel\"` + `aria-labelledby`
+         ;; pointing at the active tab button (per `tab-button`
+         ;; the id is `rf-xray-tab-button-<tab-id>`).
+         :id              (str "rf-xray-tabpanel-" (name selected))
+         :role            "tabpanel"
+         :aria-labelledby (str "rf-xray-tab-button-" (name selected))
+         :style {:flex        "1 1 auto"
+                 :min-height  "0"
+                 :overflow    "auto"
+                 :background  (:bg-2 tokens)
+                 :color       (:text-primary tokens)}}
+   ;; rf2-5kfxe.3 — re-mount on selected-tab change so the fade-in
+   ;; keyframes auto-play.
+   ;;
+   ;; rf2-a38l — the remount key rides the ATTRIBUTE MAP below. It used
+   ;; to be `^{:key selected}` reader meta on that vector literal, which
+   ;; Reagent's `get-react-key` does read — but Fresco's codec takes a
+   ;; literal `:key` from the attribute map and reads Clojure metadata
+   ;; nowhere, so under a boundary the wrapper would keep ONE identity
+   ;; across every tab change and the fade would simply stop playing:
+   ;; no error, no warning, just an animation that never re-triggers.
+   ;; The attribute map is honoured by both substrates.
+   [:div {:key         selected
+          :data-testid (str "rf-xray-detail-panel-fade-"
+                            (name selected))
+          :style {:height     "100%"
+                  ;; Keyframes named in `global-styles/motion-css`.
+                  ;; Duration interpolated through the
+                  ;; `--rf-xray-motion-scale` seam (rf2-5kfxe.5)
+                  ;; via `theme.tokens/duration-css` so the
+                  ;; 180ms constant + the seam-var name both live
+                  ;; in tokens.cljc — one source of truth.
+                  ;; `forwards` pins the end state (opacity 1) so
+                  ;; the panel stays visible after the fade settles.
+                  :animation  (str "rf-xray-fade-in "
+                                   (duration-css (:fade-duration-ms motion))
+                                   " ease-out forwards")}}
+    ;; rf2-2moh1 — registry-driven panel mount. Each tab's per-panel
+    ;; `install!` declares `:panel <view-fn>` via
+    ;; `panel-registry/reg-l4-tab!`; the case-switch this replaced
+    ;; enumerated `{:event :app-db :views :trace :machines :routing}`
+    ;; — a literal that went stale on every tab added or retired.
+    ;; A lookup against `tab-by-id :dynamic` has no inventory to keep
+    ;; in step: EVERY registered tab's view fn lives colocated with
+    ;; the panel's own subs / events / fxs in `panels/<panel>.cljs`
+    ;; rather than the panel-cum-shell coupling the literal case-
+    ;; switch encoded.
+    (if tab
+      (as-child [(:panel tab)])
+      (unknown-tab-stub selected))]])
+
+(rf.fresco/defview detail-panel
   "L4 detail panel — mounts the active `:rf.xray/selected-tab`'s panel
   via the registry-driven `panel-registry/tab-by-id :dynamic` lookup
   (rf2-2moh1). Every registered Dynamic tab mounts a real panel — the
@@ -2417,10 +2748,20 @@
   (Option (c) — issues surface inline + event-row + ribbon).
   An unrecognised tab falls back to `unknown-tab-stub`.
 
-  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
-  `:rf/xray`. The wrapping `<div>` paints `bg-2` as a contrast
-  safety net (rf2-q8154 — defence-in-depth for panels that fail to
-  set their own background).
+  ## rf2-k97c.3 — a FRESCO BOUNDARY, not an `rf/reg-view`
+
+  ONE READ, ONE BOUNDARY. The READ is `rf.fresco/sub`. It is its OWN
+  boundary rather than folded into [[dynamic-chrome]] because the L4
+  mount is the most expensive subtree in the surface, and hoisting the
+  tab read above it would re-render the ribbon, the events ribbon, the
+  L2 list and the tab bar with it. Boundary count tracks reads.
+
+  `r/as-element` is the `as-child` spelling for the L4 island;
+  [[detail-panel-tree]] records why it is still an island.
+
+  The wrapping `<div>` paints `bg-2` as a contrast safety net
+  (rf2-q8154 — defence-in-depth for panels that fail to set their own
+  background).
 
   ## rf2-5kfxe.3 — 180ms cross-fade on tab switch
 
@@ -2436,64 +2777,17 @@
 
   The outer `<div>` keeps its `data-testid` stable across tab swaps so
   existing tests + `getByTestId` lookups still resolve — the cross-fade
-  wrapper is purely internal."
-  []
-  (let [selected (or @(rf/subscribe [:rf.xray/selected-tab])
+  wrapper is purely internal.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. [[dynamic-chrome]] mounts it with none, so it is destructured
+  away."
+  [_props]
+  (let [selected (or (rf.fresco/sub [:rf.xray/selected-tab])
                      default-tab)]
-    [:div {:data-testid (str "rf-xray-detail-panel-" (name selected))
-           ;; rf2-plajx — L4 closes the tab/tabpanel loop. The L3
-           ;; tablist owns `role="tablist"` + per-tab `role="tab"` +
-           ;; `aria-selected`; the panel completes the WAI-ARIA APG
-           ;; tabs pattern with `role="tabpanel"` + `aria-labelledby`
-           ;; pointing at the active tab button (per `tab-button`
-           ;; the id is `rf-xray-tab-button-<tab-id>`).
-           :id              (str "rf-xray-tabpanel-" (name selected))
-           :role            "tabpanel"
-           :aria-labelledby (str "rf-xray-tab-button-" (name selected))
-           :style {:flex        "1 1 auto"
-                   :min-height  "0"
-                   :overflow    "auto"
-                   :background  (:bg-2 tokens)
-                   :color       (:text-primary tokens)}}
-     ;; rf2-5kfxe.3 — re-mount on selected-tab change so the fade-in
-     ;; keyframes auto-play.
-     ;;
-     ;; rf2-a38l — the remount key rides the ATTRIBUTE MAP below. It used
-     ;; to be `^{:key selected}` reader meta on that vector literal, which
-     ;; Reagent's `get-react-key` does read — but Fresco's codec takes a
-     ;; literal `:key` from the attribute map and reads Clojure metadata
-     ;; nowhere, so under a boundary the wrapper would keep ONE identity
-     ;; across every tab change and the fade would simply stop playing:
-     ;; no error, no warning, just an animation that never re-triggers.
-     ;; The attribute map is honoured by both substrates.
-     [:div {:key         selected
-            :data-testid (str "rf-xray-detail-panel-fade-"
-                              (name selected))
-            :style {:height     "100%"
-                    ;; Keyframes named in `global-styles/motion-css`.
-                    ;; Duration interpolated through the
-                    ;; `--rf-xray-motion-scale` seam (rf2-5kfxe.5)
-                    ;; via `theme.tokens/duration-css` so the
-                    ;; 180ms constant + the seam-var name both live
-                    ;; in tokens.cljc — one source of truth.
-                    ;; `forwards` pins the end state (opacity 1) so
-                    ;; the panel stays visible after the fade settles.
-                    :animation  (str "rf-xray-fade-in "
-                                     (duration-css (:fade-duration-ms motion))
-                                     " ease-out forwards")}}
-      ;; rf2-2moh1 — registry-driven panel mount. Each tab's per-panel
-      ;; `install!` declares `:panel <view-fn>` via
-      ;; `panel-registry/reg-l4-tab!`; the case-switch this replaced
-      ;; enumerated `{:event :app-db :views :trace :machines :routing}`
-      ;; — a literal that went stale on every tab added or retired.
-      ;; A lookup against `tab-by-id :dynamic` has no inventory to keep
-      ;; in step: EVERY registered tab's view fn lives colocated with
-      ;; the panel's own subs / events / fxs in `panels/<panel>.cljs`
-      ;; rather than the panel-cum-shell coupling the literal case-
-      ;; switch encoded.
-      (if-let [tab (panel-registry/tab-by-id :dynamic selected)]
-        [(:panel tab)]
-        [unknown-tab-stub selected])]]))
+    (detail-panel-tree selected
+                       (panel-registry/tab-by-id :dynamic selected)
+                       r/as-element)))
 
 ;; ---- Dynamic / Static surface composer (rf2-o5f5f.1) --------------------
 ;;
@@ -2504,11 +2798,35 @@
 ;; `:rf.xray/static-mode?` feature gate was removed — Static mode
 ;; is unconditionally available.
 ;;
-;; The composer is `reg-view`-registered so the subscribe inside its
-;; body resolves through React-context to `:rf/xray` — same
-;; discipline as the rest of the shell.
+;; rf2-k97c.3 — the composer is a Fresco BOUNDARY now; its read is
+;; `rf.fresco/sub` and both arms are boundary heads.
 
-(rf/reg-view dynamic-chrome
+(defn dynamic-chrome-tree
+  "The Dynamic chrome's outer envelope, as a pure function of its five
+  already-composed layers plus the L2/L3 seam handle. Genuinely shared
+  between the two lanes rather than reproduced for them:
+  [[dynamic-chrome]] passes the five BOUNDARY-headed vectors and
+  `test-helpers.dynamic-shell-tree` passes the layers' already-expanded
+  plain hiccup, so a node-lane row that walks this envelope walks the
+  real thing.
+
+  SPLIT OUT OF [[dynamic-chrome]] BY rf2-k97c.3."
+  [ribbon* events-ribbon* event-list* seam-handle* tab-bar* detail-panel*]
+  [:div {:data-rf-xray-dynamic-chrome ""
+         :style {:display "contents"}}
+   ribbon*
+   events-ribbon*
+   event-list*
+   ;; rf2-t2dsh — L2/L3 seam handle. Click-and-drag anywhere along the
+   ;; horizontal seam between the event list and the tab bar resizes
+   ;; the events list. Replaces the previous browser-native
+   ;; `:resize "vertical"` corner-grip per spec/007-UX-IA.md
+   ;; §Splitter affordance.
+   seam-handle*
+   tab-bar*
+   detail-panel*])
+
+(rf.fresco/defview dynamic-chrome
   "The Dynamic chrome wrapped as a single component. Per rf2-3f2di the
   top splits into two strata reconciled to the authority reference — the
   **chrome ribbon** (`ribbon`, bar-1: `Events` label + blue-filled nav +
@@ -2522,8 +2840,28 @@
   the Static surface can swap in alongside it via the mode composer
   (rf2-o5f5f.1).
 
-  Per rf2-in6l2 `reg-view`-registered for parity with every other
-  shell region.
+  ## rf2-k97c.3 — a FRESCO BOUNDARY, not an `rf/reg-view`
+
+  IT READS NOTHING and is a boundary anyway, for the reason
+  `static/shell.cljs`'s `surface` is: a boundary is the only legal
+  hiccup head for the five region boundaries under it, so this is where
+  the composition has to live.
+
+  TWO REAGENT ISLANDS, both still `rf/reg-view`s, both reached through
+  `reagent.core/as-element` (the node lane's door passes `identity`, so
+  each stays the fn-headed vector a hiccup walker expands):
+
+    * [[event-list]] — held back by a SHIPPED EMBED in a file another
+      worker was holding, not by anything about the view. Its own
+      docstring carries the measurement and the four-line recipe.
+    * `resize-handle/SeamHandle`. `resize_handle.cljs` also owns
+      `Handle`, which [[shell-view]] still mounts from a Reagent tree,
+      so migrating only the seam would split one small file across two
+      substrates for no gain.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. [[surface-composer]] mounts it with none, so it is destructured
+  away.
 
   ## rf2-uu3lp — DOM-rooted via `display: contents`
 
@@ -2538,22 +2876,27 @@
   shell-view's column. The `data-rf-xray-dynamic-chrome` attr is a
   test-friendly handle if a future selector needs it; no production
   code reads it today."
-  []
-  [:div {:data-rf-xray-dynamic-chrome ""
-         :style {:display "contents"}}
-   [ribbon {}]
-   [events-ribbon]
-   [event-list]
-   ;; rf2-t2dsh — L2/L3 seam handle. Click-and-drag anywhere along the
-   ;; horizontal seam between the event list and the tab bar resizes
-   ;; the events list. Replaces the previous browser-native
-   ;; `:resize \"vertical\"` corner-grip per spec/007-UX-IA.md
-   ;; §Splitter affordance.
-   [resize-handle/SeamHandle]
-   [tab-bar]
-   [detail-panel]])
+  [_props]
+  (dynamic-chrome-tree [ribbon {}]
+                       [events-ribbon {}]
+                       (r/as-element [event-list])
+                       (r/as-element [resize-handle/SeamHandle])
+                       [tab-bar {}]
+                       [detail-panel {}]))
 
-(rf/reg-view surface-composer
+(defn surface-composer-tree
+  "The mode composer's envelope, as a pure function of the mode and its
+  two already-composed arms.
+
+  SPLIT OUT OF [[surface-composer]] BY rf2-k97c.3."
+  [mode static* dynamic*]
+  [:div {:data-rf-xray-surface-composer ""
+         :style {:display "contents"}}
+   (case mode
+     :static static*
+     dynamic*)])
+
+(rf.fresco/defview surface-composer
   "Mode-aware composer (rf2-o5f5f.1). Reads `:rf.xray/mode` and renders
   either the Dynamic 4-layer chrome OR the Static 3-layer surface.
 
@@ -2561,131 +2904,105 @@
   — Static mode is unconditionally available; the active mode drives
   the swap.
 
-  Per rf2-in6l2 `reg-view`-registered so the subscribe resolves to
-  `:rf/xray` via React-context.
-
   ## rf2-uu3lp — DOM-rooted via `display: contents`
 
   Returning the inner component head directly (`[dynamic-chrome]` /
-  `[static-shell/surface-bridge]`) would skip the source-coord DOM
+  `[static-shell/surface]`) would skip the source-coord DOM
   annotation (Spec 006 §Documented exemption: component head) and
   emit a one-shot warning. A `display: contents` wrapper lets
   `data-rf2-source-coord` land on a real DOM node while keeping the
   inner surface as the effective layout child of `shell-view`'s flex
   column.
 
-  ## rf2-k97c.3 — the Static arm is a Fresco boundary behind a bridge
+  ## rf2-k97c.3 — BOTH ARMS ARE NOW BOUNDARY HEADS, and the Static
+  bridge is GONE
 
-  `static-shell/surface` is now an `rf.fresco/defview`, so this
-  `reg-view` body mounts `static-shell/surface-bridge` — the
-  `as-component` crossing Fresco documents for exactly this direction.
-  The Static chrome therefore renders under THIS shell's enclosing
-  `rf/frame-provider`, taking `:rf/xray` from React context rather than
-  from a second root, and a hiccup walk of this composer now STOPS at
-  the bridge's `[:>]` interop head: what the composer owes is that the
-  Static arm mounts the bridge, and the Static surface's own first
-  paint is `static/shell_fresco_boundary_dom_cljs_test`'s subject."
+  This composer is itself a `rf.fresco/defview`, so
+  `static-shell/surface` is a legal hiccup head here and the
+  `as-component` bridge that #9644 shipped as SCAFFOLDING has been
+  deleted — its own comment named this as the condition
+  (\"when `shell.cljs` is itself a Fresco tree, `surface-composer` heads
+  `surface` directly, `[:>]` goes\"). One crossing remains for the whole
+  Dynamic tree and it now sits one level UP, at [[shell-view]], which is
+  still the Reagent root the installed adapter renders.
+
+  ONE READ, ONE BOUNDARY, and it is the right place for it: the mode
+  read swaps the entire surface, so nothing below needs to see it.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. [[surface-bridge]] mounts it with none, so it is destructured
+  away."
+  [_props]
+  (surface-composer-tree (rf.fresco/sub [:rf.xray/mode])
+                         [static-shell/surface {}]
+                         [dynamic-chrome {}]))
+
+;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;;
+;; Xray's mount path still paints through the INSTALLED ADAPTER's
+;; `:render` (`mount.cljs:396` and the pop-out at `:1688`), so
+;; [[shell-view]] is still an `rf/reg-view` — a Reagent tree — and a
+;; React component is not a legal hiccup head there. Severing that call
+;; is the epic's coupling (1) and is a LATER slice; this bridge is what
+;; keeps the tree green at every step in between.
+;;
+;; `rf.fresco/as-component` is Fresco's own outward door for exactly
+;; this: it answers a real React component for a boundary, which a React
+;; parent (Reagent, UIx or plain JavaScript) mounts UNDER THE FRAME IT IS
+;; ALREADY IN, taking the frame from React context rather than from a
+;; second root. So there is no second root here, no adapter-kind branch,
+;; and no props ABI.
+;;
+;; THE BRIDGE IS PRIVATE, and that is measured rather than defaulted:
+;; [[shell-view]] is the only caller and it lives in this namespace, so no
+;; name has to cross. `surface-composer` itself KEEPS THE NATURAL NAME —
+;; the #9581 spelling the mayor's RULING 1 fixed as the surviving one —
+;; and neither `spec/api-manifest.edn` nor its curated sidecar rows
+;; anything in this namespace, so no hot-zone file moves.
+;;
+;; THIS IS SCAFFOLDING WITH A DEFINED END. When `mount.cljs` owns a
+;; Fresco root, `shell-view` becomes a boundary too, it heads
+;; `surface-composer` directly, `[:>]` goes, and both defs below are
+;; deleted.
+
+(def ^:private surface-composer-component
+  "The React component [[surface-composer]] presents as, for a non-Fresco
+  parent. Declared once at top level beside the view, as
+  `rf.fresco/as-component`'s contract requires — deriving it per render
+  would mint a new component type every time and remount the whole
+  Dynamic surface on each parent render."
+  (rf.fresco/as-component surface-composer))
+
+(defn ^:private surface-bridge
+  "The callable [[shell-view]] mounts. Returns Reagent-shaped hiccup
+  interoping to the React component above; the shell's enclosing
+  `rf/frame-provider` is what puts the instance frame in React context
+  for it."
   []
-  (let [mode @(rf/subscribe [:rf.xray/mode])]
-    [:div {:data-rf-xray-surface-composer ""
-           :style {:display "contents"}}
-     (case mode
-       :static  [static-shell/surface-bridge]
-       [dynamic-chrome])]))
+  [:> surface-composer-component {}])
 
 ;; ---- shell view ----------------------------------------------------------
 
-(rf/reg-view shell-view
-  "The full Xray shell — wraps the 4-layer chrome in a frame-provider
-  so descendant `subscribe` / `dispatch` resolve to the isolated
-  frame. Default `:inline` mode renders in normal document flow inside
-  the app-provided right layout host. `:overlay` and `:popout` remain
-  available debug/manual modes.
+(defn shell-view-tree
+  "The shell's outer envelope — the root `<div>`, the
+  `rf/frame-provider`, the left-edge resize handle and the seven
+  shell-root modal / popover mounts — as a pure function of its resolved
+  opts, the live lens mode and its ONE already-composed surface node.
 
-  ## `:frame-id` opt (rf2-lnluk) — de-singletoned shell frame
+  SPLIT OUT OF [[shell-view]] BY rf2-k97c.3. Genuinely shared between the
+  two lanes rather than reproduced for them: [[shell-view]] passes
+  `[surface-bridge]` (the `as-component` crossing into the Fresco tree)
+  and `test-helpers.dynamic-shell-tree` passes the chrome's
+  already-expanded plain hiccup, so a node-lane row that walks this
+  envelope walks the shipped definitions of the testids, the flex column,
+  the landmark role and every modal mount.
 
-  The shell's app-db lives in a frame. The PRODUCTION singleton mounts
-  against `default-frame-id` (`:rf/xray`) — pass no `:frame-id` and the
-  production behaviour is unchanged. Testbeds that mount N shells
-  side-by-side (the panel-gallery `:variants-grid`, a Story workspace)
-  pass DISTINCT `:frame-id`s so each cell's state (focused epoch,
-  selected tab, theme) is fully isolated — driving one shell does not
-  move the others.
-
-  The frame-id flows two ways: it parameterizes the wrapping
-  `[frame-provider {:frame frame-id}]` (so every reg-view descendant
-  resolves to it through React-context), AND it backs the few
-  out-of-render subscribes/dispatches `shell-view` itself issues from
-  OUTSIDE its own provider (the modal-positioning + mode reads below).
-  Handlers register GLOBALLY once under `:rf.xray/*`; only the frame-id
-  for app-db isolation threads through (no per-instance registration).
-
-  Per rf2-in6l2 `reg-view`-registered for parity with every other
-  shell region. The shell-view itself sits OUTSIDE its own frame-
-  provider (it's the mount root) so React-context inside `shell-view`'s
-  body still resolves to the default — every subscribing child is its
-  own reg-view component so the surrounding Provider reaches them via
-  React context.
-
-  ## `:modal-positioning` opt (rf2-om6fa)
-
-  Default `:fixed` — modal backdrops use `position: fixed; inset: 0`
-  with max-int z-indexes so they cover the entire host viewport. The
-  right shape for production where the shell IS the global overlay.
-
-  Story testbeds that mount N shell cells side-by-side pass
-  `:modal-positioning :absolute` so each cell's modals stay confined
-  to the cell (backdrop becomes `position: absolute; inset: 0` with
-  a sane z-index of 100). The cell wrapper must establish a
-  positioning context (`position: relative`) for the absolute backdrop
-  to be contained — `:inline` mode already sets that on the shell's
-  outer `<div>`, so the contract is satisfied out of the box.
-
-  Note: with `:absolute` positioning the modals are visually contained
-  per-cell. Per rf2-lnluk the open-state flags (`:rf.xray/<modal>-
-  open?`) are now also per-instance — pass a distinct `:frame-id` per
-  cell and opening Settings in one cell opens Settings in that cell
-  only. (Cells that share a frame-id still share state — that's the
-  contract: one frame, one app-db.)"
-  [& [{:keys [mode modal-positioning frame-id]
-       :or   {mode :inline modal-positioning :fixed
-              frame-id default-frame-id}}]]
-  ;; rf2-5kfxe.1 — wire Inter + JetBrains Mono once on first paint of
-  ;; the shell. Idempotent (`defonce` + id-keyed DOM probe inside) so
-  ;; shadow-cljs `:after-load` and repeated mounts are no-ops. Future
-  ;; cluster commits extend this install with `@keyframes` + the
-  ;; reduced-motion seam so all global stylesheet writes converge on
-  ;; one entry point.
-  (global-styles/install!)
-  ;; Idempotent app-db write so every modal can read the positioning
-  ;; via the `:rf.xray/modal-positioning` sub. Guarded against
-  ;; re-dispatch by comparing the current slot to the prop — once the
-  ;; slot matches the prop, the `when` short-circuits and the render
-  ;; quiesces. `dispatch-sync` so the slot lands BEFORE the modal
-  ;; children mount and read the sub on this same render pass; without
-  ;; sync the first paint of a fresh shell would render every modal's
-  ;; backdrop at the default `:fixed` before the async router drains.
-  ;; Sub + dispatch route via the instance `frame-id` so the read/write
-  ;; lands on THIS shell's app-db (`shell-view` itself sits OUTSIDE the
-  ;; `frame-provider` in the tree below — the React-context tier
-  ;; doesn't reach this call site, hence the explicit frame arg). Per
-  ;; rf2-lnluk the explicit frame is the instance `frame-id`, not a
-  ;; `:rf/xray` literal — N shells stay isolated.
-  (let [current-positioning @(rf/subscribe [:rf.xray/modal-positioning] {:frame frame-id})]
-    (when (not= current-positioning modal-positioning)
-      (rf/dispatch-sync [:rf.xray/set-modal-positioning modal-positioning]
-                        {:frame frame-id})))
-  ;; rf2-ad7zx.13 / spec/022 — the lens mode (`:rf.xray/mode` =
-  ;; :dynamic | :static) drives the `mode-dynamic` / `mode-static`
-  ;; root class, which still gates functional behaviour (motion / pulse
-  ;; dampening in Static). Post rf2-ad7zx.13 the Figma export carries a
-  ;; SINGLE accent (GitHub blue) — the mode class no longer re-points
-  ;; `--rf-xray-accent`, so the chrome accent is the same blue in both
-  ;; modes. Subscribed via the explicit instance `frame-id` (same shape
-  ;; as the modal-positioning read above — `shell-view` sits outside
-  ;; its own frame-provider; rf2-lnluk threads the instance frame, not
-  ;; a `:rf/xray` literal).
-  (let [lens-mode @(rf/subscribe [:rf.xray/mode] {:frame frame-id})]
+  EVERYTHING HERE IS STILL REAGENT and stays so until the epic's coupling
+  (1) is severed: `resize-handle/Handle` and the seven modals are
+  `rf/reg-view`s mounted from a `reg-view` tree, which is exactly what
+  they have always been. They are NOT islands — nothing above them is a
+  boundary."
+  [{:keys [mode modal-positioning lens-mode frame-id]} surface*]
    ;; rf2-uu3lp — the outer `<div>` IS the shell-view's root so the
    ;; source-coord walk has a DOM node to annotate (Spec 006
    ;; §Source-coord annotation; would otherwise warn-once because the
@@ -2766,7 +3083,16 @@
     ;; chrome or the Static 3-layer surface. Per rf2-8l3uk the
     ;; `:rf.xray/static-mode?` feature gate was removed — Static
     ;; mode is unconditionally available.
-    [surface-composer]
+    ;;
+    ;; rf2-k97c.3 — `surface-composer` is a Fresco BOUNDARY now, so
+    ;; this Reagent tree mounts it through the private
+    ;; `as-component` bridge above. A hiccup walk of `shell-view`
+    ;; therefore STOPS at the bridge's `[:>]` interop head; what this
+    ;; view owes is that the surface mounts, and the chrome's own
+    ;; composition is `test-helpers.dynamic-shell-tree`'s subject in
+    ;; the node lane and `shell_fresco_boundary_dom_cljs_test`'s in
+    ;; the browser.
+    surface*
     ;; Command palette (rf2-wm7z4) — mounted at shell root so it
     ;; overlays the chrome. Modal short-circuits to nil when
     ;; `:rf.xray/palette-open?` is false; closed-state cost is one
@@ -2831,4 +3157,110 @@
     ;; one subscribe + a when-gate). Mount discipline matches the
     ;; other modal stacks: shell-root mount so the stack's subscribes
     ;; resolve through the shell's `:rf/xray` frame-provider.
-    [edn-inspector-popup/edn-inspector-popup-stack]]]))
+    [edn-inspector-popup/edn-inspector-popup-stack]]])
+
+(rf/reg-view shell-view
+  "The full Xray shell — wraps the 4-layer chrome in a frame-provider
+  so descendant `subscribe` / `dispatch` resolve to the isolated
+  frame. Default `:inline` mode renders in normal document flow inside
+  the app-provided right layout host. `:overlay` and `:popout` remain
+  available debug/manual modes.
+
+  ## `:frame-id` opt (rf2-lnluk) — de-singletoned shell frame
+
+  The shell's app-db lives in a frame. The PRODUCTION singleton mounts
+  against `default-frame-id` (`:rf/xray`) — pass no `:frame-id` and the
+  production behaviour is unchanged. Testbeds that mount N shells
+  side-by-side (the panel-gallery `:variants-grid`, a Story workspace)
+  pass DISTINCT `:frame-id`s so each cell's state (focused epoch,
+  selected tab, theme) is fully isolated — driving one shell does not
+  move the others.
+
+  The frame-id flows two ways: it parameterizes the wrapping
+  `[frame-provider {:frame frame-id}]` (so every reg-view descendant
+  resolves to it through React-context), AND it backs the few
+  out-of-render subscribes/dispatches `shell-view` itself issues from
+  OUTSIDE its own provider (the modal-positioning + mode reads below).
+  Handlers register GLOBALLY once under `:rf.xray/*`; only the frame-id
+  for app-db isolation threads through (no per-instance registration).
+
+  ## rf2-k97c.3 — this one stays an `rf/reg-view`, and deliberately
+
+  Everything under [[surface-composer]] is a Fresco boundary now, but
+  `shell-view` is the ROOT `mount.cljs` renders through the installed
+  adapter's `:render` (`mount.cljs:396`, and the pop-out at `:1688`).
+  Severing that call is the parent epic's coupling (1) and is a later
+  slice; until then the root must stay a Reagent tree, and it reaches
+  the Fresco tree through the one private `surface-bridge` above.
+
+  The shell-view itself sits OUTSIDE its own frame-provider (it's the
+  mount root) so React-context inside `shell-view`'s body still resolves
+  to the default — hence the two explicit `{:frame frame-id}` reads
+  below. Every reading child is its own component (a `reg-view` for the
+  modals, a boundary for the chrome) so the surrounding Provider reaches
+  them.
+
+  ## `:modal-positioning` opt (rf2-om6fa)
+
+  Default `:fixed` — modal backdrops use `position: fixed; inset: 0`
+  with max-int z-indexes so they cover the entire host viewport. The
+  right shape for production where the shell IS the global overlay.
+
+  Story testbeds that mount N shell cells side-by-side pass
+  `:modal-positioning :absolute` so each cell's modals stay confined
+  to the cell (backdrop becomes `position: absolute; inset: 0` with
+  a sane z-index of 100). The cell wrapper must establish a
+  positioning context (`position: relative`) for the absolute backdrop
+  to be contained — `:inline` mode already sets that on the shell's
+  outer `<div>`, so the contract is satisfied out of the box.
+
+  Note: with `:absolute` positioning the modals are visually contained
+  per-cell. Per rf2-lnluk the open-state flags (`:rf.xray/<modal>-
+  open?`) are now also per-instance — pass a distinct `:frame-id` per
+  cell and opening Settings in one cell opens Settings in that cell
+  only. (Cells that share a frame-id still share state — that's the
+  contract: one frame, one app-db.)"
+  [& [{:keys [mode modal-positioning frame-id]
+       :or   {mode :inline modal-positioning :fixed
+              frame-id default-frame-id}}]]
+  ;; rf2-5kfxe.1 — wire Inter + JetBrains Mono once on first paint of
+  ;; the shell. Idempotent (`defonce` + id-keyed DOM probe inside) so
+  ;; shadow-cljs `:after-load` and repeated mounts are no-ops. Future
+  ;; cluster commits extend this install with `@keyframes` + the
+  ;; reduced-motion seam so all global stylesheet writes converge on
+  ;; one entry point.
+  (global-styles/install!)
+  ;; Idempotent app-db write so every modal can read the positioning
+  ;; via the `:rf.xray/modal-positioning` sub. Guarded against
+  ;; re-dispatch by comparing the current slot to the prop — once the
+  ;; slot matches the prop, the `when` short-circuits and the render
+  ;; quiesces. `dispatch-sync` so the slot lands BEFORE the modal
+  ;; children mount and read the sub on this same render pass; without
+  ;; sync the first paint of a fresh shell would render every modal's
+  ;; backdrop at the default `:fixed` before the async router drains.
+  ;; Sub + dispatch route via the instance `frame-id` so the read/write
+  ;; lands on THIS shell's app-db (`shell-view` itself sits OUTSIDE the
+  ;; `frame-provider` in the tree below — the React-context tier
+  ;; doesn't reach this call site, hence the explicit frame arg). Per
+  ;; rf2-lnluk the explicit frame is the instance `frame-id`, not a
+  ;; `:rf/xray` literal — N shells stay isolated.
+  (let [current-positioning @(rf/subscribe [:rf.xray/modal-positioning] {:frame frame-id})]
+    (when (not= current-positioning modal-positioning)
+      (rf/dispatch-sync [:rf.xray/set-modal-positioning modal-positioning]
+                        {:frame frame-id})))
+  (shell-view-tree
+    {:mode              mode
+     :modal-positioning modal-positioning
+     :frame-id          frame-id
+     ;; rf2-ad7zx.13 / spec/022 — the lens mode (`:rf.xray/mode` =
+     ;; :dynamic | :static) drives the `mode-dynamic` / `mode-static`
+     ;; root class, which still gates functional behaviour (motion /
+     ;; pulse dampening in Static). Post rf2-ad7zx.13 the Figma export
+     ;; carries a SINGLE accent (GitHub blue) — the mode class no longer
+     ;; re-points `--rf-xray-accent`, so the chrome accent is the same
+     ;; blue in both modes. Subscribed via the explicit instance
+     ;; `frame-id` (same shape as the modal-positioning read above —
+     ;; `shell-view` sits outside its own frame-provider; rf2-lnluk
+     ;; threads the instance frame, not a `:rf/xray` literal).
+     :lens-mode         @(rf/subscribe [:rf.xray/mode] {:frame frame-id})}
+    [surface-bridge]))

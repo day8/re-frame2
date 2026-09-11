@@ -31,6 +31,8 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
+            [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
+             :as dynamic-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
@@ -113,7 +115,7 @@
             semantics."
     (setup!)
     (rf/with-frame :rf/xray
-      (let [tree    (shell/shell-view {:mode :inline})
+      (let [tree    (dynamic-shell-tree/shell-view-tree {:mode :inline})
             testids (all-testids tree)
             list-idx (.indexOf (clj->js testids) "rf-xray-event-list")
             seam-idx (.indexOf (clj->js testids) "rf-xray-event-list-seam")
@@ -133,7 +135,7 @@
             sole vertical-resize affordance."
     (setup!)
     (rf/with-frame :rf/xray
-      (let [tree  (shell/shell-view {:mode :inline})
+      (let [tree  (dynamic-shell-tree/shell-view-tree {:mode :inline})
             list  (rf.test-helpers/find-by-testid tree "rf-xray-event-list")
             style (:style (second list))]
         (is (some? list) "event-list container present")
@@ -380,7 +382,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-events-list-height-px 360]))
     (rf/with-frame :rf/xray
-      (let [tree  (shell/shell-view {:mode :inline})
+      (let [tree  (dynamic-shell-tree/shell-view-tree {:mode :inline})
             list  (rf.test-helpers/find-by-testid tree "rf-xray-event-list")
             style (:style (second list))]
         (is (= "360px" (:height style))

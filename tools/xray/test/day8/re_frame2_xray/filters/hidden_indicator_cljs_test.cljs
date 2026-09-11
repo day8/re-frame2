@@ -19,6 +19,8 @@
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
+             :as dynamic-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.spine-filters :as spine-filters]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -160,7 +162,7 @@
   (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:noise/tick]))
   (frame-dispatch [:rf.xray/add-filter :out {:pattern :noise/tick}])
   (rf/with-frame :rf/xray
-    (let [tree (shell/shell-view)
+    (let [tree (dynamic-shell-tree/shell-view-tree)
           indicator (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-indicator")
           count-node (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-count")]
       (is (some? indicator) "banner renders when rows are hidden")
@@ -185,7 +187,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:noise/tick]))
     (frame-dispatch [:rf.xray/add-filter :out {:pattern :noise/tick}])
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         ;; the committed OUT pill renders ONCE — in the left cluster.
         (is (= 1 (count-by-testid tree "rf-xray-filter-pill-out-0"))
             "the committed pill renders exactly once (left cluster)")
@@ -205,7 +207,7 @@
   (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:a]))
   (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:b]))
   (rf/with-frame :rf/xray
-    (let [tree (shell/shell-view)]
+    (let [tree (dynamic-shell-tree/shell-view-tree)]
       (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-indicator"))
           "no banner when filtered == raw"))))
 

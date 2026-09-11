@@ -50,6 +50,8 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
+            [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
+             :as dynamic-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.theme.tokens :refer [tokens layout]]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
@@ -132,7 +134,7 @@
             plus all four chrome layers per spec/018 §2"
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (some? (find-by-testid tree "rf-xray-shell"))
             "shell envelope present")
         (is (some? (find-by-testid tree "rf-xray-ribbon"))
@@ -156,11 +158,11 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-mode :dynamic])
-      (let [shell (find-by-testid (shell/shell-view) "rf-xray-shell")]
+      (let [shell (find-by-testid (dynamic-shell-tree/shell-view-tree) "rf-xray-shell")]
         (is (= "mode-dynamic" (:class (second shell)))
             "Dynamic mode → mode-dynamic root class"))
       (rf/dispatch-sync [:rf.xray/set-mode :static])
-      (let [shell (find-by-testid (shell/shell-view) "rf-xray-shell")]
+      (let [shell (find-by-testid (dynamic-shell-tree/shell-view-tree) "rf-xray-shell")]
         (is (= "mode-static" (:class (second shell)))
             "Static mode → mode-static root class")))))
 
@@ -169,7 +171,7 @@
             None of the historical sidebar-item testids may surface."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (empty? (find-all-by-testid-prefix tree "rf-xray-sidebar-item-"))
             "no legacy sidebar rows render")
         (is (nil? (find-by-testid tree "rf-xray-bottom-rail"))
@@ -204,30 +206,38 @@
             previously triggered it."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [shell-tree (shell/shell-view)]
+      (let [shell-tree (dynamic-shell-tree/shell-view-tree)]
         (is (vector? shell-tree) "shell-view returns a hiccup vector")
         (is (keyword? (first shell-tree))
             (str "shell-view root is a keyword DOM tag — was "
                  (pr-str (first shell-tree)))))
-      (let [composer-tree (shell/surface-composer)]
+      (let [composer-tree (dynamic-shell-tree/surface-composer-tree)]
         (is (vector? composer-tree) "surface-composer returns a hiccup vector")
         (is (keyword? (first composer-tree))
             (str "surface-composer root is a keyword DOM tag — was "
                  (pr-str (first composer-tree)))))
-      (let [chrome-tree (shell/dynamic-chrome)]
+      (let [chrome-tree (dynamic-shell-tree/dynamic-chrome-tree)]
         (is (vector? chrome-tree) "dynamic-chrome returns a hiccup vector")
         (is (keyword? (first chrome-tree))
             (str "dynamic-chrome root is a keyword DOM tag — was "
                  (pr-str (first chrome-tree))))))))
 
-(deftest ribbon-theme-toggle-is-reg-view-registered
+(deftest ribbon-theme-toggle-is-view-registered
   (testing "rf2-uu3lp — the theme toggle's `:theme` setting lives in
-            `:rf/xray`, so its subscribe + dispatch must route to that
-            frame. As a plain `defn` it was leaking subscribes into
-            `:rf/default`. `reg-view`-registration installs the
-            `:contextType frame-context` static so the surrounding
-            `:rf/xray` Provider reaches the component via React-context.
-            We assert the registration is present in the view registry."
+            `:rf/xray`, so its read + dispatch must route to that frame.
+            As a plain `defn` it was leaking subscribes into
+            `:rf/default`.
+
+            rf2-k97c.3 — it is an `rf.fresco/defview` now rather than an
+            `rf/reg-view`, which is a STRONGER guarantee of the same
+            thing: a boundary DECLARES its frame, so an ambient read
+            inside its body is a loud refusal rather than a silent
+            fall-through to `:rf/default`. The registry entry survives
+            the change and is what this row asserts — `defview` publishes
+            one under `(keyword \"<ns>\" \"<sym>\")`, the id `reg-view`
+            derives from its own symbol, so `(rf/view id)` answers a
+            boundary exactly as it answered the `reg-view`. The entry is
+            debug-gated, which the node lane satisfies."
     (xray-setup!)
     (is (some? (rf/view ::shell/ribbon-theme-toggle))
         "ribbon-theme-toggle is registered under its namespaced id")))
@@ -244,7 +254,7 @@
             shell tree."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (some? (find-by-testid tree "rf-xray-ribbon-nav"))
             "nav cluster present (now in the chrome ribbon, bar-1)")
         (is (or (find-by-testid tree "rf-xray-ribbon-frame")
@@ -266,7 +276,7 @@
             now backed by `:rf.xray/popout-shell` → `mount/popout!`."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree   (shell/shell-view)
+      (let [tree   (dynamic-shell-tree/shell-view-tree)
             icons  (find-by-testid tree "rf-xray-ribbon-icons")
             popout (find-by-testid tree "rf-xray-icon-popout")]
         (is (some? icons) "right-icons cluster still mounts")
@@ -290,7 +300,7 @@
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
-          (let [tree    (shell/shell-view)
+          (let [tree    (dynamic-shell-tree/shell-view-tree)
                 popout  (find-by-testid tree "rf-xray-icon-popout")
                 handler (:on-click (second popout))]
             (is (some? popout) "pop-out icon present in the chrome ribbon")
@@ -312,7 +322,7 @@
             retired the focus button + chip."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [ribbon (shell/ribbon nil)]
+      (let [ribbon (dynamic-shell-tree/ribbon-tree)]
         (is (some? (find-by-testid ribbon "rf-xray-ribbon-selectors"))
             "left cluster present")
         ;; A4 — the `Events` label leads the left cluster (the `❖ Xray`
@@ -349,7 +359,7 @@
             cluster."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [ribbon    (shell/ribbon nil)
+      (let [ribbon    (dynamic-shell-tree/ribbon-tree)
             selectors (find-by-testid ribbon "rf-xray-ribbon-selectors")
             label     (find-by-testid ribbon "rf-xray-ribbon-events-label")]
         (is (some? label) "the `Event History` label renders in the chrome ribbon")
@@ -370,7 +380,7 @@
             observed live 2026-05-24."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [ribbon (shell/ribbon nil)
+      (let [ribbon (dynamic-shell-tree/ribbon-tree)
             root   (find-by-testid ribbon "rf-xray-ribbon")
             style  (:style (second root))]
         (is (some? root))
@@ -390,7 +400,7 @@
             cluster overflow horizontally when necessary."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [ribbon    (shell/ribbon nil)
+      (let [ribbon    (dynamic-shell-tree/ribbon-tree)
             selectors (find-by-testid ribbon "rf-xray-ribbon-selectors")
             style     (:style (second selectors))]
         (is (some? selectors)
@@ -426,7 +436,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/add-filter :out {:pattern :noise/tick}]))
     (rf/with-frame :rf/xray
-      (let [tree   (shell/shell-view)
+      (let [tree   (dynamic-shell-tree/shell-view-tree)
             ribbon (find-by-testid tree "rf-xray-events-ribbon")]
         (is (some? ribbon) "events ribbon mounts as its own stratum")
         ;; A6 — the committed pills cluster lives here.
@@ -449,7 +459,7 @@
     (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
     (rf/with-frame :rf/xray
-      (let [tree     (shell/shell-view)
+      (let [tree     (dynamic-shell-tree/shell-view-tree)
             collapse (find-by-testid tree "rf-xray-events-ribbon-collapse")]
         (is (some? collapse) "the collapse track stays mounted (for the animation)")
         (is (= "false" (:data-open (second collapse)))
@@ -470,7 +480,7 @@
                                :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
     ;; before: closed
     (rf/with-frame :rf/xray
-      (is (= "false" (:data-open (second (find-by-testid (shell/shell-view)
+      (is (= "false" (:data-open (second (find-by-testid (dynamic-shell-tree/shell-view-tree)
                                                          "rf-xray-events-ribbon-collapse"))))
           "closed before any filter"))
     ;; add a filter
@@ -478,7 +488,7 @@
       (rf/dispatch-sync [:rf.xray/add-filter :in {:pattern :a}]))
     ;; after: open
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (= "true" (:data-open (second (find-by-testid tree "rf-xray-events-ribbon-collapse"))))
             "open after the first filter is added")
         (is (some? (find-by-testid tree "rf-xray-ribbon-filters"))
@@ -496,7 +506,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/add-filter :out {:pattern :noise/tick}]))
     (rf/with-frame :rf/xray
-      (let [tree     (shell/shell-view)
+      (let [tree     (dynamic-shell-tree/shell-view-tree)
             collapse (find-by-testid tree "rf-xray-events-ribbon-collapse")]
         (is (= "true" (:data-open (second collapse)))
             "the filters ribbon collapse track is OPEN when a filter is active")
@@ -521,7 +531,7 @@
     (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
     (rf/with-frame :rf/xray
-      (let [tree     (shell/shell-view)
+      (let [tree     (dynamic-shell-tree/shell-view-tree)
             collapse (find-by-testid tree "rf-xray-filter-add-collapse")
             button   (find-by-testid tree "rf-xray-filter-add")]
         (is (some? collapse) "the horizontal collapse track is mounted")
@@ -544,7 +554,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/add-filter :in {:pattern :a}]))
     (rf/with-frame :rf/xray
-      (let [tree         (shell/shell-view)
+      (let [tree         (dynamic-shell-tree/shell-view-tree)
             collapse     (find-by-testid tree "rf-xray-filter-add-collapse")
             events-coll  (find-by-testid tree "rf-xray-events-ribbon-collapse")
             events-add   (find-by-testid tree "rf-xray-filter-add-events")]
@@ -570,7 +580,7 @@
       (rf/dispatch-sync [:rf.xray/add-filter :in {:pattern :a}])
       (rf/dispatch-sync [:rf.xray/remove-filter :in 0]))
     (rf/with-frame :rf/xray
-      (let [tree        (shell/shell-view)
+      (let [tree        (dynamic-shell-tree/shell-view-tree)
             collapse    (find-by-testid tree "rf-xray-filter-add-collapse")
             events-coll (find-by-testid tree "rf-xray-events-ribbon-collapse")]
         (is (= "true" (:data-open (second collapse)))
@@ -588,7 +598,7 @@
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
-          (let [tree    (shell/shell-view)
+          (let [tree    (dynamic-shell-tree/shell-view-tree)
                 close   (find-by-testid tree "rf-xray-icon-close")
                 handler (:on-click (second close))]
             (is (some? close) "close icon present in the chrome ribbon")
@@ -605,7 +615,7 @@
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
-          (let [ribbon  (shell/ribbon nil)
+          (let [ribbon  (dynamic-shell-tree/ribbon-tree)
                 select  (find-by-testid ribbon "rf-xray-mode-pill")
                 on-chg  (:on-change (second select))]
             (is (some? on-chg) "mode dropdown carries an on-change handler")
@@ -639,7 +649,7 @@
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
-          (let [tree (shell/shell-view)
+          (let [tree (dynamic-shell-tree/shell-view-tree)
                 head (find-by-testid tree "rf-xray-nav-head")
                 handler (:on-click (second head))]
             (is (some? head) "fast-forward button present")
@@ -692,7 +702,7 @@
             / Frames / Fresco per EP-0014 / EP-0013 / rf2-hic-023."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree     (shell/shell-view)
+      (let [tree     (dynamic-shell-tree/shell-view-tree)
             tabs     (find-all-by-testid-prefix tree "rf-xray-tab-")
             ;; Every `rf-xray-tab-*` testid actually in the tree, as the
             ;; ids they encode. Derived from the RENDER, never from
@@ -742,7 +752,7 @@
             lookups when Xray was embedded in Story."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree   (shell/shell-view)
+      (let [tree   (dynamic-shell-tree/shell-view-tree)
             tab-bar (find-by-testid tree "rf-xray-tab-bar")
             head    (first tab-bar)
             attrs   (second tab-bar)]
@@ -756,7 +766,7 @@
       ;; Per-tab ARIA: role='tab' on every button, aria-selected matching
       ;; the active state. The active tab is the default :epoch
       ;; (post rf2-5gl5r — previously :event).
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (doseq [tab-id expected-tab-ids]
           (let [btn   (find-by-testid tree (str "rf-xray-tab-" (name tab-id)))
                 attrs (second btn)]
@@ -771,7 +781,7 @@
     ;; After switching tabs the aria-selected flips with the active tab.
     (select-tab! :machines)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (doseq [tab-id expected-tab-ids]
           (let [btn   (find-by-testid tree (str "rf-xray-tab-" (name tab-id)))
                 attrs (second btn)]
@@ -790,7 +800,7 @@
             a faint translucent-white fill + muted-white ink."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree            (shell/shell-view)
+      (let [tree            (dynamic-shell-tree/shell-view-tree)
             active-fill     (:chrome-ribbon-tab-active tokens)
             active-ink      (:chrome-ribbon-tab-active-text tokens)
             inactive-ink    (:chrome-ribbon-text-muted tokens)
@@ -832,7 +842,7 @@
     ;; selection (and the old tab reverts to the translucent fill).
     (select-tab! :machines)
     (rf/with-frame :rf/xray
-      (let [tree        (shell/shell-view)
+      (let [tree        (dynamic-shell-tree/shell-view-tree)
             active-fill (:chrome-ribbon-tab-active tokens)
             mach        (:style (second (find-by-testid tree "rf-xray-tab-machines")))
             epoch       (:style (second (find-by-testid tree "rf-xray-tab-epoch")))]
@@ -851,7 +861,7 @@
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
-          (let [tree (shell/shell-view)
+          (let [tree (dynamic-shell-tree/shell-view-tree)
                 tab  (find-by-testid tree "rf-xray-tab-trace")
                 handler (:on-click (second tab))]
             (is (some? tab))
@@ -866,13 +876,13 @@
     (xray-setup!)
     ;; default tab → :epoch (post rf2-5gl5r — supersedes :event)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (some? (find-by-testid tree "rf-xray-detail-panel-epoch"))
             "default detail panel is :epoch")))
     ;; flip to :app-db
     (select-tab! :app-db)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (some? (find-by-testid tree "rf-xray-detail-panel-app-db"))
             "detail panel rebinds to :app-db after select-tab")
         (is (nil? (find-by-testid tree "rf-xray-detail-panel-epoch"))
@@ -881,7 +891,7 @@
     ;; Option (c); flip to another real tab to pin the rebind)
     (select-tab! :machines)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (some? (find-by-testid tree "rf-xray-detail-panel-machines"))
             "detail panel rebinds to :machines")))))
 
@@ -892,7 +902,7 @@
             change, which auto-plays the keyframes."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree    (shell/shell-view)
+      (let [tree    (dynamic-shell-tree/shell-view-tree)
             wrapper (find-by-testid tree "rf-xray-detail-panel-fade-epoch")
             anim    (get-in wrapper [1 :style :animation])]
         (is (some? wrapper)
@@ -935,7 +945,7 @@
     (rf/with-frame :rf/xray
       (doseq [[tab-id expected-fn] expected-detail-fn]
         (select-tab! tab-id)
-        (let [rendered (#'shell/detail-panel)
+        (let [rendered (dynamic-shell-tree/detail-panel-tree)
               ;; outer = [:div {outer-style} fade-wrapper]
               ;; fade-wrapper = [:div {fade-style} [Panel-fn]]
               ;; rf2-5kfxe.3 — peel one extra level to reach the Panel.
@@ -980,7 +990,7 @@
   (testing "empty cascade list shows the spec/018 §4 empty-state hint"
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (some? (find-by-testid tree "rf-xray-event-list-empty"))
             "empty state hint renders when no cascades")))))
 
@@ -990,7 +1000,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:baz/qux]))
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
+      (let [tree (dynamic-shell-tree/shell-view-tree)
             rows (find-all-by-testid-prefix tree "rf-xray-event-row-")]
         (is (= 2 (count rows))
             "one row per cascade")))))
@@ -1005,7 +1015,7 @@
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
-      (let [tree   (shell/shell-view)
+      (let [tree   (dynamic-shell-tree/shell-view-tree)
             header (find-by-testid tree "rf-xray-event-list-header")]
         (is (some? header) "the column-header row renders when rows exist")
         (is (some? (find-by-testid tree "rf-xray-event-list-col-source"))
@@ -1046,7 +1056,7 @@
           (assoc :time 1000)
           (assoc-in [:tags :source] :after-timer)))
     (rf/with-frame :rf/xray
-      (let [tree        (shell/shell-view)
+      (let [tree        (dynamic-shell-tree/shell-view-tree)
             ;; header cells
             header      (find-by-testid tree "rf-xray-event-list-header")
             h-source    (find-by-testid tree "rf-xray-event-list-col-source")
@@ -1113,7 +1123,7 @@
             message with no column-header chrome above it."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (some? (find-by-testid tree "rf-xray-event-list-empty"))
             "empty state renders")
         (is (nil? (find-by-testid tree "rf-xray-event-list-header"))
@@ -1132,7 +1142,7 @@
       (assoc-in (dispatch-trace-ev 1 [:poll/tick])
                 [:tags :source] :after-timer))
     (rf/with-frame :rf/xray
-      (let [tree    (shell/shell-view)
+      (let [tree    (dynamic-shell-tree/shell-view-tree)
             tagged  (find-by-testid tree "rf-xray-row-origin-after-timer")]
         (is (some? tagged) "the :after-timer row carries a source tag")
         (is (re-find #"after-timer" (text-nodes tagged))
@@ -1148,7 +1158,7 @@
     ;; A plain (:user / untagged) cascade — source column reads `ui`.
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:foo/bar]))
     (rf/with-frame :rf/xray
-      (let [tree   (shell/shell-view)
+      (let [tree   (dynamic-shell-tree/shell-view-tree)
             ui-tag (find-by-testid tree "rf-xray-row-origin-ui")]
         (is (some? ui-tag)
             "the default ui-origin row carries a non-blank source tag")
@@ -1163,7 +1173,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:poll/tick]))
     (trace-collector/seed-trace-for-test! (run-end-trace-ev 1 1.234))
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
+      (let [tree (dynamic-shell-tree/shell-view-tree)
             cell (find-by-testid tree "rf-xray-row-duration")]
         (is (some? cell) "the row's duration cell renders")
         (is (re-find #"1\.2 ms" (text-nodes cell))
@@ -1180,7 +1190,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:poll/tick]))
     (trace-collector/seed-trace-for-test! (run-end-trace-ev 1 0.4))
     (rf/with-frame :rf/xray
-      (let [tree       (shell/shell-view)
+      (let [tree       (dynamic-shell-tree/shell-view-tree)
             h-duration (find-by-testid tree "rf-xray-event-list-col-duration")
             r-duration (find-by-testid tree "rf-xray-row-duration")]
         (is (some? h-duration) "header duration column renders")
@@ -1227,7 +1237,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:standard-epochs/throw-handler]))
     (trace-collector/seed-trace-for-test! (error-trace-ev 2))
     (rf/with-frame :rf/xray
-      (let [tree       (shell/shell-view)
+      (let [tree       (dynamic-shell-tree/shell-view-tree)
             clean-row  (find-by-testid tree "rf-xray-event-row-1")
             issue-row  (find-by-testid tree "rf-xray-event-row-2")]
         (is (some? clean-row) "the clean cascade's row renders")
@@ -1264,7 +1274,7 @@
                                :operation :sub/registered
                                :tags {:rf.sub/id :foo/bar}})
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
+      (let [tree (dynamic-shell-tree/shell-view-tree)
             rows (find-all-by-testid-prefix tree "rf-xray-event-row-")
             text (text-nodes tree)]
         (is (= 1 (count rows))
@@ -1282,7 +1292,7 @@
                                :operation :sub/registered
                                :tags {:rf.sub/id :foo/bar}})
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (some? (find-by-testid tree "rf-xray-event-list-empty"))
             "empty-state container present when only :ungrouped cascades exist")
         (is (empty? (find-all-by-testid-prefix tree "rf-xray-event-row-"))
@@ -1315,7 +1325,7 @@
                                  :operation :sub/registered
                                  :tags {:rf.sub/id :foo/bar}})
       (rf/with-frame :rf/xray
-        (let [tree (shell/shell-view)
+        (let [tree (dynamic-shell-tree/shell-view-tree)
               rows (find-all-by-testid-prefix tree "rf-xray-event-row-")
               ungrouped-row (find-by-testid tree "rf-xray-event-row-:ungrouped")]
           (is (= 2 (count rows))
@@ -1337,7 +1347,7 @@
                                :operation :sub/registered
                                :tags {:rf.sub/id :foo/bar}})
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
+      (let [tree (dynamic-shell-tree/shell-view-tree)
             rows (find-all-by-testid-prefix tree "rf-xray-event-row-")]
         (is (= 1 (count rows))
             "only the real event renders — :ungrouped is filtered out")
@@ -1360,7 +1370,7 @@
                                      ([ev]       (swap! dispatches conj ev) nil)
                                      ([ev _opts] (swap! dispatches conj ev) nil))]
           (rf/with-frame :rf/xray
-            (let [tree (shell/shell-view)
+            (let [tree (dynamic-shell-tree/shell-view-tree)
                   row  (find-by-testid tree "rf-xray-event-row-:ungrouped")
                   handler (:on-click (second row))]
               (is (some? row) ":ungrouped row is present")
@@ -1381,7 +1391,7 @@
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
-          (let [tree (shell/shell-view)
+          (let [tree (dynamic-shell-tree/shell-view-tree)
                 row  (find-by-testid tree "rf-xray-event-row-1")
                 handler (:on-click (second row))]
             (is (some? row) "row for cascade 1 is present")
@@ -1410,7 +1420,7 @@
             <style> injection (DOM-side, not assertable in node-test)."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree   (shell/shell-view)
+      (let [tree   (dynamic-shell-tree/shell-view-tree)
             list-el (find-by-testid tree "rf-xray-event-list")
             style  (:style (second list-el))]
         (is (some? list-el) "event-list container present")
@@ -1428,7 +1438,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
       (let [focus @(rf/subscribe [:rf.xray/focus])
-            tree  (shell/shell-view)
+            tree  (dynamic-shell-tree/shell-view-tree)
             row   (find-by-testid tree "rf-xray-event-row-1")]
         (is (= :live (:mode focus)) "spine starts in :live mode")
         (is (:head? focus) "focus is on head")
@@ -1448,7 +1458,7 @@
       (rf/dispatch-sync [:rf.xray/focus-event 1]))
     (rf/with-frame :rf/xray
       (let [focus @(rf/subscribe [:rf.xray/focus])
-            tree  (shell/shell-view)
+            tree  (dynamic-shell-tree/shell-view-tree)
             row   (find-by-testid tree "rf-xray-event-row-1")]
         (is (= :retro (:mode focus)) "spine is in :retro after focus-cascade")
         (is (some? row) "focused row renders")
@@ -1464,7 +1474,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:newer/event]))
     ;; Focus auto-snaps to head (id 2). Row 1 is the non-focused row.
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
+      (let [tree (dynamic-shell-tree/shell-view-tree)
             row1 (find-by-testid tree "rf-xray-event-row-1")
             row2 (find-by-testid tree "rf-xray-event-row-2")]
         (is (some? row1) "row 1 present")
@@ -1567,7 +1577,7 @@
             (rf2-x5tro) so fast-forward is a no-op too."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (nav-prev-disabled? tree) "◀ disabled when no events")
         (is (nav-next-disabled? tree) "▶ disabled when no events")
         (is (nav-head-disabled? tree)
@@ -1582,7 +1592,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:newer/event]))
     ;; Fresh focus auto-snaps to head (id 2) in :live mode. Sanity-check.
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
+      (let [tree (dynamic-shell-tree/shell-view-tree)
             focus @(rf/subscribe [:rf.xray/focus])]
         (is (= 2 (:dispatch-id focus)) "focus snapped to head (id 2)")
         (is (= :live (:mode focus)) "spine is :live tracking head")
@@ -1602,7 +1612,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-event 1]))
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (nav-prev-disabled? tree)
             "◀ DISABLED at tail — no older event to step back to")
         (is (not (nav-next-disabled? tree))
@@ -1618,7 +1628,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-event 2]))
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (not (nav-prev-disabled? tree))
             "◀ ENABLED — older event (1) reachable")
         (is (not (nav-next-disabled? tree))
@@ -1638,7 +1648,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/toggle-live-pause]))
     (rf/with-frame :rf/xray
-      (let [tree  (shell/shell-view)
+      (let [tree  (dynamic-shell-tree/shell-view-tree)
             focus @(rf/subscribe [:rf.xray/focus])]
         (is (= :live (:mode focus)) "mode is still :live (only paused)")
         (is (true? (:paused? focus)) "LIVE feed paused")
@@ -1657,7 +1667,7 @@
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
-      (let [tree   (shell/shell-view)
+      (let [tree   (dynamic-shell-tree/shell-view-tree)
             head   (find-by-testid tree "rf-xray-nav-head")
             style  (:style (second head))
             active (find-by-testid tree "rf-xray-ribbon-nav")]
@@ -1708,7 +1718,7 @@
                                :operation :sub/registered
                                :tags {:rf.sub/id :foo/bar}})
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (nav-prev-disabled? tree)
             "◀ DISABLED — focus is on the only real event; :ungrouped
              is not a step target")
@@ -1725,7 +1735,7 @@
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
+      (let [tree (dynamic-shell-tree/shell-view-tree)
             prev (find-by-testid tree "rf-xray-nav-prev")
             attrs (second prev)]
         (is (true? (:disabled attrs)) "native :disabled set")
@@ -1746,7 +1756,7 @@
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
-          (let [tree (shell/shell-view)
+          (let [tree (dynamic-shell-tree/shell-view-tree)
                 prev (find-by-testid tree "rf-xray-nav-prev")
                 handler (:on-click (second prev))]
             (is (nil? handler)
@@ -1793,7 +1803,7 @@
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
+      (let [tree (dynamic-shell-tree/shell-view-tree)
             row  (find-by-testid tree "rf-xray-event-row-1")
             style (:style (second row))]
         (is (some? row) "row renders")
@@ -1812,7 +1822,7 @@
             default 200px."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree  (shell/shell-view)
+      (let [tree  (dynamic-shell-tree/shell-view-tree)
             list  (find-by-testid tree "rf-xray-event-list")
             style (:style (second list))]
         (is (= "200px" (:height style))
@@ -1832,7 +1842,7 @@
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
     (rf/with-frame :rf/xray
-      (let [tree  (shell/shell-view)
+      (let [tree  (dynamic-shell-tree/shell-view-tree)
             row   (find-by-testid tree "rf-xray-event-row-1")
             props (second row)]
         (is (some? row) "row renders")
@@ -1863,7 +1873,7 @@
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
-          (let [tree    (shell/shell-view)
+          (let [tree    (dynamic-shell-tree/shell-view-tree)
                 row     (find-by-testid tree "rf-xray-event-row-1")
                 handler (:on-key-down (second row))
                 ;; Synthetic key event — preventDefault is a no-op stub
@@ -1892,7 +1902,7 @@
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
-          (let [tree    (shell/shell-view)
+          (let [tree    (dynamic-shell-tree/shell-view-tree)
                 row     (find-by-testid tree "rf-xray-event-row-1")
                 handler (:on-key-down (second row))
                 evt     #js {:key "F10"
@@ -1913,7 +1923,7 @@
     (trace-collector/seed-trace-for-test!
       (dispatch-trace-ev 1 [:cart/add-item {:item-id "apple" :qty 2}]))
     (rf/with-frame :rf/xray
-      (let [tree    (shell/shell-view)
+      (let [tree    (dynamic-shell-tree/shell-view-tree)
             row     (find-by-testid tree "rf-xray-event-row-1")
             id-node (find-by-testid tree "rf-xray-row-event-id")
             text    (text-nodes id-node)]
@@ -1951,7 +1961,7 @@
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:counter/inc]))
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (nil? (find-by-testid tree "rf-xray-row-event-vector"))
             "legacy event-vector slot is absent")
         (is (some? (find-by-testid tree "rf-xray-row-event-id"))
@@ -2029,7 +2039,7 @@
             no sensitive events have been suppressed"
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (nil? (find-by-testid tree "rf-xray-redacted-indicator"))
             "no REDACTED node in the tree when count is 0")))))
 
@@ -2039,7 +2049,7 @@
     (xray-setup!)
     (note-suppressed! :rf/default)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
+      (let [tree (dynamic-shell-tree/shell-view-tree)
             node (find-by-testid tree "rf-xray-redacted-indicator")]
         (is (some? node) "indicator renders when count > 0")
         (is (re-find #"REDACTED 1"
@@ -2052,7 +2062,7 @@
     (xray-setup!)
     (note-suppressed! :rf/default)
     (rf/with-frame :rf/xray
-      (let [tree  (shell/shell-view)
+      (let [tree  (dynamic-shell-tree/shell-view-tree)
             node  (find-by-testid tree "rf-xray-redacted-indicator")
             title (:title (second node))]
         (is (some? node))
@@ -2063,7 +2073,7 @@
     (note-suppressed! :rf/default)
     (note-suppressed! :rf/default)
     (rf/with-frame :rf/xray
-      (let [tree  (shell/shell-view)
+      (let [tree  (dynamic-shell-tree/shell-view-tree)
             node  (find-by-testid tree "rf-xray-redacted-indicator")
             title (:title (second node))]
         (is (re-find #"3 sensitive trace events " title)
@@ -2074,22 +2084,22 @@
             stays until the counter is reset"
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (is (nil? (find-by-testid (shell/shell-view)
+      (is (nil? (find-by-testid (dynamic-shell-tree/shell-view-tree)
                                 "rf-xray-redacted-indicator"))))
     (note-suppressed! :rf/default)
     (rf/with-frame :rf/xray
-      (let [n (find-by-testid (shell/shell-view)
+      (let [n (find-by-testid (dynamic-shell-tree/shell-view-tree)
                               "rf-xray-redacted-indicator")]
         (is (some? n) "indicator appears on first bump")
         (is (re-find #"REDACTED 1" (text-nodes n)))))
     (note-suppressed! :rf/default)
     (rf/with-frame :rf/xray
-      (let [n (find-by-testid (shell/shell-view)
+      (let [n (find-by-testid (dynamic-shell-tree/shell-view-tree)
                               "rf-xray-redacted-indicator")]
         (is (re-find #"REDACTED 2" (text-nodes n)))))
     (reset-suppressed!)
     (rf/with-frame :rf/xray
-      (is (nil? (find-by-testid (shell/shell-view)
+      (is (nil? (find-by-testid (dynamic-shell-tree/shell-view-tree)
                                 "rf-xray-redacted-indicator"))
           "indicator drops back off when the counter is reset"))))
 
@@ -2099,7 +2109,7 @@
     (xray-setup!)
     (dotimes [_ 250] (note-suppressed! :rf/default))
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
+      (let [tree (dynamic-shell-tree/shell-view-tree)
             node (find-by-testid tree "rf-xray-redacted-indicator")]
         (is (some? node))
         (is (re-find #"REDACTED 250" (text-nodes node))
@@ -2133,7 +2143,7 @@
       (assoc-in (dispatch-trace-ev 2 [:cart/add])
                 [:tags :frame] :app/admin))
     (rf/with-frame :rf/xray
-      (let [tree   (shell/shell-view)
+      (let [tree   (dynamic-shell-tree/shell-view-tree)
             picker (find-by-testid tree "rf-xray-ribbon-frame-picker")
             attrs  (when picker (second picker))]
         (is (some? picker) "picker renders as a <select> for multi-frame")
@@ -2171,7 +2181,7 @@
     (xray-setup!)
     (add-filter! :in {:pattern ":auth/*"})
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
+      (let [tree (dynamic-shell-tree/shell-view-tree)
             pill (find-by-testid tree "rf-xray-filter-pill-in-0")]
         (is (some? pill) "pill renders after add")
         (is (re-find #":auth/\*" (text-nodes pill))
@@ -2184,7 +2194,7 @@
     (add-filter! :out {:pattern ":anim-frame"})
     (remove-filter! :out 0)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
+      (let [tree (dynamic-shell-tree/shell-view-tree)
             pill0 (find-by-testid tree "rf-xray-filter-pill-out-0")]
         ;; after removing idx 0 the surviving pill becomes idx 0 and
         ;; carries the second pattern.
@@ -2217,7 +2227,7 @@
             fires because the sub already matches the default prop."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
+      (let [tree (dynamic-shell-tree/shell-view-tree)
             shell (find-by-testid tree "rf-xray-shell")]
         (is (some? shell))
         (is (= "fixed" (:data-rf-xray-modal-positioning (second shell)))
@@ -2233,7 +2243,7 @@
             root"
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree  (shell/shell-view {:modal-positioning :absolute})
+      (let [tree  (dynamic-shell-tree/shell-view-tree {:modal-positioning :absolute})
             shell (find-by-testid tree "rf-xray-shell")]
         (is (some? shell))
         (is (= "absolute" (:data-rf-xray-modal-positioning (second shell)))
@@ -2246,11 +2256,11 @@
             then render with :fixed (no opt) settles back to :fixed"
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (shell/shell-view {:modal-positioning :absolute}))
+      (dynamic-shell-tree/shell-view-tree {:modal-positioning :absolute}))
     (rf/with-frame :rf/xray
       (is (= :absolute @(rf/subscribe [:rf.xray/modal-positioning]))))
     (rf/with-frame :rf/xray
-      (shell/shell-view))
+      (dynamic-shell-tree/shell-view-tree))
     (rf/with-frame :rf/xray
       (is (= :fixed @(rf/subscribe [:rf.xray/modal-positioning]))
           "no-opt render re-defaults the slot to :fixed"))))
@@ -2379,7 +2389,7 @@
     (let [then-ms 1000000]
       (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 1 [:foo/bar] then-ms))
       (rf/with-frame :rf/xray
-        (let [tree   (shell/shell-view)
+        (let [tree   (dynamic-shell-tree/shell-view-tree)
               chip   (find-by-testid tree "rf-xray-row-time-chip")
               attrs  (second chip)
               label  (text-nodes chip)]
@@ -2414,7 +2424,7 @@
       ;; mirrors the old row's `:foo/bar` host event.
       (trace-collector/seed-trace-for-test! (dispatch-trace-ev-with-time 2 [:foo/baz] fresh-ms))
       (rf/with-frame :rf/xray
-        (let [tree     (shell/shell-view)
+        (let [tree     (dynamic-shell-tree/shell-view-tree)
               chips    (find-all-by-testid tree "rf-xray-row-time-chip")
               old-chip (first (filter #(= (str old-ms) (:data-then-ms (second %))) chips))
               fr-chip  (first (filter #(= (str fresh-ms) (:data-then-ms (second %))) chips))]
@@ -2434,7 +2444,7 @@
     ;; lack `:time`, so the chip MUST NOT render.
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
+      (let [tree (dynamic-shell-tree/shell-view-tree)
             chip (find-by-testid tree "rf-xray-row-time-chip")]
         (is (nil? chip)
             "chip is absent when the cascade has no dispatched :time")))))
@@ -2515,7 +2525,7 @@
             is reserved for active/selected affordances."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [ribbon (shell/ribbon nil)
+      (let [ribbon (dynamic-shell-tree/ribbon-tree)
             label  (find-by-testid ribbon "rf-xray-ribbon-events-label")
             style  (:style (second label))]
         (is (some? label) "the `Event History` label renders")
@@ -2532,7 +2542,7 @@
         "the :top-strip-height layout token is 34px (reference)")
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [ribbon (shell/ribbon nil)
+      (let [ribbon (dynamic-shell-tree/ribbon-tree)
             style  (:style (second ribbon))]
         (is (= "34px" (:height style))
             "the chrome ribbon paints the 34px height")))))
@@ -2543,7 +2553,7 @@
             no border box."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree     (shell/shell-view)
+      (let [tree     (dynamic-shell-tree/shell-view-tree)
             settings (find-by-testid tree "rf-xray-icon-settings")
             close    (find-by-testid tree "rf-xray-icon-close")]
         (doseq [[label btn] [["settings" settings] ["close" close]]]
@@ -2570,7 +2580,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-event 2]))
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (doseq [tid ["rf-xray-nav-prev" "rf-xray-nav-next" "rf-xray-nav-head"]]
           (let [btn   (find-by-testid tree tid)
                 style (:style (second btn))]
@@ -2592,7 +2602,7 @@
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)]
+      (let [tree (dynamic-shell-tree/shell-view-tree)]
         (is (nil? (find-by-testid tree "rf-xray-focus-button"))
             "no focus button (the focus feature was retired)")
         (is (nil? (find-by-testid tree "rf-xray-focus-chip"))
@@ -2605,7 +2615,7 @@
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
-      (let [tree       (shell/shell-view)
+      (let [tree       (dynamic-shell-tree/shell-view-tree)
             h-event-id (find-by-testid tree "rf-xray-event-list-col-event-id")
             r-event-id (find-by-testid tree "rf-xray-row-event-id")]
         (is (= "left" (:text-align (style-of h-event-id)))
@@ -2625,7 +2635,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-event 1]))
     (rf/with-frame :rf/xray
-      (let [tree  (shell/shell-view)
+      (let [tree  (dynamic-shell-tree/shell-view-tree)
             row   (find-by-testid tree "rf-xray-event-row-1")
             style (:style (second row))]
         (is (some? row) "the focused row renders")
@@ -2658,7 +2668,7 @@
             `selected` (was `for selected event`), keeping the ↳ glyph."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree  (shell/shell-view)
+      (let [tree  (dynamic-shell-tree/shell-view-tree)
             label (find-by-testid tree "rf-xray-tab-bar-context-label")
             txt   (text-nodes label)]
         (is (some? label) "the context label renders")
@@ -2673,7 +2683,7 @@
             affordance; nothing to rewind to until an event is selected)."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree  (shell/shell-view)
+      (let [tree  (dynamic-shell-tree/shell-view-tree)
             reset (find-by-testid tree "rf-xray-tab-bar-reset")
             attrs (second reset)]
         (is (some? reset) "the Reset button renders")
@@ -2710,7 +2720,7 @@
           (with-redefs [rf/dispatch-impl (fn
                                        ([ev]       (swap! dispatches conj ev) nil)
                                        ([ev _opts] (swap! dispatches conj ev) nil))]
-            (let [tree    (shell/shell-view)
+            (let [tree    (dynamic-shell-tree/shell-view-tree)
                   reset   (find-by-testid tree "rf-xray-tab-bar-reset")
                   handler (:on-click (second reset))]
               (is (false? (:disabled (second reset)))
@@ -2806,7 +2816,7 @@
       (rf/dispatch-sync [:rf.xray/reset-flash-failed]))
     (rf/with-frame :rf/xray
       (let [flash @(rf/subscribe [:rf.xray/reset-flash])
-            tree  (shell/shell-view)
+            tree  (dynamic-shell-tree/shell-view-tree)
             el    (find-by-testid tree "rf-xray-reset-flash")]
         (is (string? flash) "the flash message is set after a failure")
         (is (some? el) "the inline flash renders on the ribbon")
@@ -2816,7 +2826,7 @@
       (rf/dispatch-sync [:rf.xray/clear-reset-flash]))
     (rf/with-frame :rf/xray
       (let [flash @(rf/subscribe [:rf.xray/reset-flash])
-            tree  (shell/shell-view)
+            tree  (dynamic-shell-tree/shell-view-tree)
             el    (find-by-testid tree "rf-xray-reset-flash")]
         (is (nil? flash) "the flash clears")
         (is (nil? el) "the inline flash is removed from the ribbon")))))
@@ -2836,7 +2846,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-event 2 :rf/default]))
     (rf/with-frame :rf/xray
-      (let [tree      (shell/shell-view)
+      (let [tree      (dynamic-shell-tree/shell-view-tree)
             issue-row (find-by-testid tree "rf-xray-event-row-2")
             style     (style-of issue-row)
             caret     (find-by-testid issue-row "rf-xray-row-selection-caret")]
@@ -2864,7 +2874,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:newer/event]))
     ;; Focus auto-snaps to head (id 2); row 1 is unselected.
     (rf/with-frame :rf/xray
-      (let [tree   (shell/shell-view)
+      (let [tree   (dynamic-shell-tree/shell-view-tree)
             row1   (find-by-testid tree "rf-xray-event-row-1")
             caret1 (find-by-testid row1 "rf-xray-row-selection-caret")
             row2   (find-by-testid tree "rf-xray-event-row-2")

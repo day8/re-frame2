@@ -46,6 +46,8 @@
             [day8.re-frame2-xray.static.shell :as static-shell]
             [day8.re-frame2-xray.test-helpers.static-shell-tree
              :as static-shell-tree]
+            [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
+             :as dynamic-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
@@ -400,26 +402,28 @@
   (testing "with mode :static, the composer renders the Static surface
             (per rf2-8l3uk — Static mode is unconditionally available).
 
-            RE-AUTHORED ONE LEVEL UP BY rf2-k97c.3, the same repair the
-            mayor ruled correct for `static-machines-mounts-live-panel`.
-            `static-shell/surface` is now an `rf.fresco/defview` behind
-            an `as-component` bridge, so this hiccup walk reaches the
-            bridge's `[:>]` interop head and STOPS —
-            `rf-xray-static-surface` is committed by React, not present
-            in the tree. Asserting that testid here would from now on be
-            asserting the walker's reach rather than the mount, which is
-            the hollow-gate shape. What the COMPOSER owes is that the
-            Static arm mounts exactly `surface-bridge` and that no
-            Dynamic region mounts beside it; the Static surface's own
-            first paint is W1 in
-            `static/shell_fresco_boundary_dom_cljs_test`."
+            RE-AUTHORED TWICE BY rf2-k97c.3, and it is back where it
+            started. #9644 made `static-shell/surface` a `defview` behind
+            an `as-component` bridge, so the walk stopped at the
+            bridge's `[:>]` head and the row could only assert that the
+            Static arm mounted exactly `surface-bridge`. The Dynamic
+            composer is a BOUNDARY now, so it heads
+            `[static-shell/surface {}]` DIRECTLY and that bridge is
+            deleted — and the node lane's door
+            (`test-helpers.dynamic-shell-tree`) composes the Static arm
+            from `test-helpers.static-shell-tree`, which drives the
+            shell's own `*-tree` fns. So `rf-xray-static-surface` is
+            reachable again, and reaching it is not hollow: the testid,
+            the flex column and the `data-rf-xray-mode` attribute all
+            come from `static-shell/surface-tree`, the shipped
+            definition. The Static surface's own first PAINT is still
+            W1 in `static/shell_fresco_boundary_dom_cljs_test`."
     (xray-setup!)
     (frame-dispatch [:rf.xray/set-mode :static])
     (rf/with-frame :rf/xray
-      (let [tree (shell/surface-composer)]
-        (is (= [static-shell/surface-bridge] (last tree))
-            (str "the Static arm mounts exactly `surface-bridge`. "
-                 "Got: " (pr-str (last tree))))
+      (let [tree (dynamic-shell-tree/surface-composer-tree)]
+        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-surface"))
+            "the Static arm mounts the Static surface")
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon"))
             "Dynamic ribbon does NOT mount")
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-event-list"))
@@ -431,7 +435,7 @@
     (xray-setup!)
     (frame-dispatch [:rf.xray/set-mode :dynamic])
     (rf/with-frame :rf/xray
-      (let [tree (shell/surface-composer)]
+      (let [tree (dynamic-shell-tree/surface-composer-tree)]
         (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon"))
             "Dynamic ribbon mounts")
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-static-surface"))
@@ -443,7 +447,7 @@
             removed; Static mode is unconditionally available)"
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (shell/ribbon nil)]
+      (let [tree (dynamic-shell-tree/ribbon-tree)]
         (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-mode-pill"))
             "mode pill mounts in the Dynamic ribbon unconditionally")))))
 
@@ -466,7 +470,7 @@
     (xray-setup!)
     (frame-dispatch [:rf.xray/set-mode :dynamic])
     (rf/with-frame :rf/xray
-      (let [tree (shell/surface-composer)]
+      (let [tree (dynamic-shell-tree/surface-composer-tree)]
         (is (or (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-picker"))
                 (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame")))
             "L1 frame picker (or single-frame label) present in Dynamic")))))
