@@ -43,8 +43,10 @@
   Sister fix to rf2-smvvz (Settings popup) + rf2-w8lxg (Causality
   popover). Subscribes resolve through the React-context tier at
   render time; dispatches from `:on-click` / `:on-key-down` fire AFTER
-  React pops the context, so the dispatch would otherwise land on
-  `:rf/default` and the close handler would silently no-op. Carrying
+  React pops the context, so a bare dispatch would otherwise resolve no
+  frame at all and RAISE `:rf.error/no-frame-context` — there is no
+  `:rf/default` floor under EP-0002 — and the close handler would fail
+  rather than close. Carrying
   the `{:frame :rf/xray}` opt at call time pins the envelope to
   Xray's frame regardless of click-time React context."
   (:require [re-frame.core :as rf]
