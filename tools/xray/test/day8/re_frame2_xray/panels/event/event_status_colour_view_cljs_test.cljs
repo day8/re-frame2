@@ -55,15 +55,14 @@
     {:post-reset (fn [] (config/reset-suppressed-count!))}))
 
 ;; ---- hiccup walker ------------------------------------------------------
-;; Thin aliases over re-frame.test-helpers. The local
-;; `find-by-testid-prefix` returns the FIRST match (vs the framework's
-;; `find-by-testid-prefix` which returns a vector of matches); the
-;; thin wrapper here preserves the existing call-site contract.
+;; A thin alias over re-frame.test-helpers.
+;;
+;; rf2-fcy5 — the local first-match `find-by-testid-prefix` wrapper that
+;; used to sit here went with its last caller: the three Trace rows below
+;; are the only things that ever took a prefix, and they now scan through
+;; [[trace-status-bar]] for the reason given there.
 
 (def ^:private find-by-testid rf.test-helpers/find-by-testid)
-
-(defn- find-by-testid-prefix [tree prefix]
-  (first (rf.test-helpers/find-by-testid-prefix tree prefix)))
 
 ;; ---- the Trace panel's status bar --------------------------------------
 ;;
