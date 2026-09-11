@@ -66,7 +66,9 @@
   it passing with zero assertions, which reads on the console exactly
   like a row that ran. Nothing about the coverage moved: the browser
   lane evaluates the same body it always did. `node-targeted-cljs-stays-quiet`
-  is the one row that runs only OFF a DOM host, so it keeps `when-not`.
+  is the one row that runs only OFF a DOM host, so its guard and its
+  stated skip are the mirror image: the marker fires under
+  `:browser-test`, where the row's body does not run (rf2-f8yj).
 
   The JVM / SSR lane is listener-only by the same rule and needs no
   counterpart here: `#?(:clj …)` in `report-unowned-error!` is `nil`."
@@ -792,65 +794,67 @@
 ;; ===========================================================================
 
 (deftest node-targeted-cljs-stays-quiet
-  (when-not (browser?)
-    (register-refusal-handlers!)
-    (testing "same refusal, same empty registry, no DOM host: the fallback is
-              a browser-DEVELOPMENT diagnostic, not a generic CLJS print. A
-              Node lane's caller observes the dispatch directly and attaches
-              a listener in one line, exactly as the JVM lane does."
-      (let [{:keys [console report-error]}
-            (capture-console #(rf/dispatch-sync [:fu75.console/throws]))]
-        (is (empty? console)
-            (str "no console output off a DOM host; got " (pr-str console)))
-        (is (zero? report-error))))
-
-    (testing "and the record still reaches an attached listener — the
-              always-on axis is unchanged off-browser"
-      (let [seen (atom [])]
-        (rf.error-emit/register-error-listener! :fu75/owner
-                              (fn [record] (swap! seen conj record)))
-        (rf/dispatch-sync [:fu75.console/throws])
-        (is (= [:rf.error/handler-exception] (mapv :error @seen)))))
-
-    ;; rf2-vkn8: the same boundary for PR2's arms. The host rule is a property
-    ;; of the FALLBACK, not of a category, so a new producer must inherit it
-    ;; rather than acquire its own exemption — this is the half that would
-    ;; catch a second printer being added beside the seam.
-    (testing "the machine-data and malformed-schema rollbacks obey the same
-              host boundary: silent off a DOM host, and still delivered to an
-              attached listener"
-      (when (some? (rf.late-bind/get-fn :machines/validate-machine-data!))
-        (register-machine-rollback-app!)
-        (rf/dispatch-sync [vkn8-machine-id [:noop]] {:frame :fu75.machine/frame})
-        (rf.error-emit/clear-error-listeners!)
+  (if (browser?)
+    (is true "skipped: DOM host present (browser lane — see ns docstring)")
+    (do
+      (register-refusal-handlers!)
+      (testing "same refusal, same empty registry, no DOM host: the fallback is
+                a browser-DEVELOPMENT diagnostic, not a generic CLJS print. A
+                Node lane's caller observes the dispatch directly and attaches
+                a listener in one line, exactly as the JVM lane does."
         (let [{:keys [console report-error]}
-              (capture-console
-                #(rf/dispatch-sync [vkn8-machine-id [:break]]
-                                   {:frame :fu75.machine/frame}))]
+              (capture-console #(rf/dispatch-sync [:fu75.console/throws]))]
           (is (empty? console)
               (str "no console output off a DOM host; got " (pr-str console)))
-          (is (zero? report-error)))
-        (let [seen (atom [])]
-          (rf.error-emit/register-error-listener! :fu75/machine-owner
-                                 (fn [r] (swap! seen conj r)))
-          (rf/dispatch-sync [vkn8-machine-id [:break]] {:frame :fu75.machine/frame})
-          (is (= 1 (count (filter #(= :machine-data (:where %)) @seen)))
-              "the always-on axis is unchanged off-browser")
-          (rf.error-emit/unregister-error-listener! :fu75/machine-owner)))
+          (is (zero? report-error))))
 
-      (when (some? (rf.late-bind/get-fn :schemas/validate-app-schema!))
-        (register-malformed-rollback-app!)
-        (rf.error-emit/clear-error-listeners!)
-        (let [{:keys [console report-error]}
-              (capture-console
-                #(rf/dispatch-sync [:fu75.malformed/write]
-                                   {:frame :fu75.malformed/frame}))]
-          (is (empty? console)
-              (str "no console output off a DOM host; got " (pr-str console)))
-          (is (zero? report-error)))
+      (testing "and the record still reaches an attached listener — the
+                always-on axis is unchanged off-browser"
         (let [seen (atom [])]
-          (rf.error-emit/register-error-listener! :fu75/malformed-owner
-                                 (fn [r] (swap! seen conj r)))
-          (rf/dispatch-sync [:fu75.malformed/write] {:frame :fu75.malformed/frame})
-          (is (= 1 (count (filter #(= :rf.error/malformed-schema (:error %)) @seen))))
-          (rf.error-emit/unregister-error-listener! :fu75/malformed-owner))))))
+          (rf.error-emit/register-error-listener! :fu75/owner
+                                (fn [record] (swap! seen conj record)))
+          (rf/dispatch-sync [:fu75.console/throws])
+          (is (= [:rf.error/handler-exception] (mapv :error @seen)))))
+
+      ;; rf2-vkn8: the same boundary for PR2's arms. The host rule is a property
+      ;; of the FALLBACK, not of a category, so a new producer must inherit it
+      ;; rather than acquire its own exemption — this is the half that would
+      ;; catch a second printer being added beside the seam.
+      (testing "the machine-data and malformed-schema rollbacks obey the same
+                host boundary: silent off a DOM host, and still delivered to an
+                attached listener"
+        (when (some? (rf.late-bind/get-fn :machines/validate-machine-data!))
+          (register-machine-rollback-app!)
+          (rf/dispatch-sync [vkn8-machine-id [:noop]] {:frame :fu75.machine/frame})
+          (rf.error-emit/clear-error-listeners!)
+          (let [{:keys [console report-error]}
+                (capture-console
+                  #(rf/dispatch-sync [vkn8-machine-id [:break]]
+                                     {:frame :fu75.machine/frame}))]
+            (is (empty? console)
+                (str "no console output off a DOM host; got " (pr-str console)))
+            (is (zero? report-error)))
+          (let [seen (atom [])]
+            (rf.error-emit/register-error-listener! :fu75/machine-owner
+                                   (fn [r] (swap! seen conj r)))
+            (rf/dispatch-sync [vkn8-machine-id [:break]] {:frame :fu75.machine/frame})
+            (is (= 1 (count (filter #(= :machine-data (:where %)) @seen)))
+                "the always-on axis is unchanged off-browser")
+            (rf.error-emit/unregister-error-listener! :fu75/machine-owner)))
+
+        (when (some? (rf.late-bind/get-fn :schemas/validate-app-schema!))
+          (register-malformed-rollback-app!)
+          (rf.error-emit/clear-error-listeners!)
+          (let [{:keys [console report-error]}
+                (capture-console
+                  #(rf/dispatch-sync [:fu75.malformed/write]
+                                     {:frame :fu75.malformed/frame}))]
+            (is (empty? console)
+                (str "no console output off a DOM host; got " (pr-str console)))
+            (is (zero? report-error)))
+          (let [seen (atom [])]
+            (rf.error-emit/register-error-listener! :fu75/malformed-owner
+                                   (fn [r] (swap! seen conj r)))
+            (rf/dispatch-sync [:fu75.malformed/write] {:frame :fu75.malformed/frame})
+            (is (= 1 (count (filter #(= :rf.error/malformed-schema (:error %)) @seen))))
+            (rf.error-emit/unregister-error-listener! :fu75/malformed-owner)))))))
