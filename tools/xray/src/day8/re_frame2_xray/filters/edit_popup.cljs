@@ -46,8 +46,7 @@
   The view reads the trigger payload from `:rf.xray/edit-popup-pill`
   and the draft from `:rf.xray/edit-popup-draft` (a working copy the
   user mutates without affecting the live filter slot)."
-  (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
+  (:require [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale sans-stack mono-stack]]))
 
@@ -211,34 +210,45 @@
      (case mode :in "Show only matching events" :out "Hide matching events")]))
 
 (defn popup-view
-  "The popup body. Caller (`filters/Modal`) gates the mount on
-  `:rf.xray/edit-popup-open?`.
+  "The popup body, as a PURE function of `dispatch` and the values
+  `filters/ModalView` reads. The caller gates the mount on
+  `:rf.xray/edit-popup-open?` — this fn assumes it is open and always
+  renders.
 
-  `dispatch` is the frame-aware dispatcher injected by the
-  `filters/Modal` `reg-view` body — every deferred handler routes
+  `dispatch` is the frame-aware dispatcher the boundary captured with
+  `(:dispatch (rf/capture-frame))` — every deferred handler routes
   through it so the edit lands on the surrounding instance frame, not
-  a `{:frame :rf/xray}` literal.
+  a `{:frame :rf/xray}` literal. The node-lane doors pass `rf/dispatch`
+  under `rf/with-frame`.
 
-  ## rf2-k97c.3 — the three reads are STILL AMBIENT, deliberately
+  ## rf2-d9ln — THE THREE READS WERE AMBIENT, AND ARE NOW HOISTED
 
-  `filters/Modal` above is still an `rf/reg-view` mounted from
-  `shell-view`, which is itself still an `rf/reg-view` — a Reagent
-  tree — so the reads below are `@(rf/subscribe …)` resolving through
-  the React-context tier, exactly as they always have been. They do NOT
-  become `rf.fresco/sub`: that call is legal only inside a `defview`
-  body and would raise `:rf.error/fresco-sub-outside-render` here, and
-  it would also break the two suites that drive this fn directly
-  (`modals_aria_cljs_test`, `filters/edit_popup_cljs_test`).
+  They used to be `@(rf/subscribe …)` performed here, because
+  `filters/Modal` was an `rf/reg-view` in a Reagent tree. Since
+  `filters/ModalView` became a Fresco boundary they are read there,
+  through `rf.fresco/sub`, and handed down as `data`:
 
-  What DID change is the head shape: every plain-fn head inside this
-  subtree is now a call, so whichever way the later slice resolves
-  `filters/Modal` — migrated to a boundary, or islanded behind
-  `as-child` — this file needs no further repair."
-  [dispatch]
-  (let [trigger     @(rf/subscribe [:rf.xray/edit-popup-trigger])
-        draft       @(rf/subscribe [:rf.xray/edit-popup-draft])
-        positioning @(rf/subscribe [:rf.xray/modal-positioning])
-        mode        (or (:mode draft) :in)
+      {:trigger     — `:rf.xray/edit-popup-trigger` (what opened it)
+       :draft       — `:rf.xray/edit-popup-draft` (pattern + mode)
+       :positioning — `:rf.xray/modal-positioning` (fixed / absolute)}
+
+  THE HOIST IS NOT TASTE. `rf.fresco/sub` refuses outside a boundary
+  render (`:rf.error/fresco-sub-outside-render`), so a read-performing
+  helper becomes uncallable the moment its reads migrate — and this fn
+  has direct callers outside any React commit, in `modals_aria_cljs_test`
+  and `filters/edit_popup_cljs_test`. A pure fn needs neither a render
+  window nor `subscribe-once`, so hoisting keeps every lane open. Same
+  hoist, and the same reason, as `settings/view/popup-tree`.
+
+  The predecessor of this docstring predicted this file would need no
+  further repair whichever way the Modal resolved. That was wrong in one
+  respect — the reads had to move — and right in the one it was really
+  about: every plain-fn head inside this subtree is a CALL, so nothing
+  below here was an `:invalid` head when the boundary landed.
+
+  PURE: every helper it calls is a plain fn of its arguments."
+  [dispatch {:keys [trigger draft positioning]}]
+  (let [mode        (or (:mode draft) :in)
         editing?    (= :pill (:source trigger))
         title       (case (:source trigger)
                       :pill    "Edit filter"
@@ -284,10 +294,11 @@
        ;; rf2-k97c.3 — `mode-radio` is CALLED, not headed. It answers
        ;; hiccup, its subtree is head-free (`[:label …]` over
        ;; `[:input …]`), and it reads nothing, so the ruled HD-016
-       ;; repair is to inline it. It costs nothing today — `filters/
-       ;; Modal` above is still an `rf/reg-view`, where a plain-fn head
-       ;; is legal — and it is what lets that Modal become a boundary
-       ;; later without this file being re-opened. See [[popup-view]].
+       ;; repair is to inline it. That repair is what let `filters/
+       ;; ModalView` become a Fresco boundary (rf2-d9ln) without this
+       ;; subtree carrying an `:invalid` head: a plain-fn head is legal
+       ;; in a Reagent tree and an error in a Fresco one, and there is
+       ;; no longer one here to raise. See [[popup-view]].
        [:div {:style (radio-row-style)}
         (mode-radio dispatch {:mode :in :current-mode mode})
         (mode-radio dispatch {:mode :out :current-mode mode})]]
