@@ -1,6 +1,68 @@
 (ns day8.re-frame2-xray.panels.fresco-live-panel-dom-cljs-test
   "The Fresco tab is LIVE under real React — the running panel's own DOM
-  (rf2-r98a, merged-PR audit of #7881).
+  (rf2-r98a, merged-PR audit of #7881) — AND, since rf2-k97c.3, the
+  boundary witness for this panel's migration onto Fresco.
+
+  ## This file is the panel's `*_fresco_boundary_dom_cljs_test`
+
+  The five migrated siblings each ship one; this panel's sits here under
+  an older and better name, because it already mounted this panel into a
+  real `reagent.dom.client` root before the migration existed. Extending
+  it was cheaper and better than standing a near-duplicate fixture up
+  beside it, and it keeps ONE file answering \"what does this panel do
+  under a real React commit\".
+
+  The rows below the original one are written against
+  `module_view_fresco_boundary_dom_cljs_test`, which is the template the
+  remaining panels are migrated against. Four of the epic's six
+  behavioural criteria are answerable at a panel's own boundary, and a
+  FIFTH is answerable here and nowhere yet:
+
+    1 FIRST DISPLAY                 — W0 phase 1, and W1
+    2 UPDATES ON A REAL CHANGE      — W0 phase 3, with W0 phase 2's deaf
+                                      control
+    3 XRAY'S OWN INTERACTIONS       — W2. The template says in terms that
+                                      it has no row for criterion 3
+                                      because that panel dispatches
+                                      nothing, and that \"the panels that
+                                      DO carry interactions are migrated
+                                      after this one and bring their own
+                                      rows\". This is one of those panels:
+                                      the sub-strip is its only dispatch.
+    4 FRAME TARGETING               — W1, read off the frame's OWN
+                                      sub-cache rather than off the DOM
+    5 TOOL ACTIVITY NEVER
+      MASQUERADING AS APPLICATION
+      EVIDENCE                      — W3, in both directions. It matters
+                                      more here than anywhere: this panel
+                                      IS the Fresco census, so a boundary
+                                      of its own appearing in its own
+                                      roster would be the tool reporting
+                                      itself as the application.
+    6 CLEAN TEARDOWN                — W4
+
+  ## THE MOUNT IS THE SHELL'S MOUNT, TAKEN FROM THE REGISTRY
+
+  `shell/detail-panel` mounts the active tab as the hiccup head
+  `[(:panel tab)]` inside the shell's `[rf/frame-provider {:frame …}]`.
+  [[mount-panel!]] does exactly that, and reaches `:panel` THROUGH
+  `panel-registry/tab-by-id` rather than naming the var — so the bridge
+  the registry actually holds is the thing under test, and a bridge that
+  regressed to something the shell cannot mount reddens here rather than
+  in a browser.
+
+  ## `flush-render!` IS NOT THE INSTRUMENT ANY MORE, AND THAT IS THE ONE
+  ## THING A READER OF THE OLD FILE MUST NOT CARRY OVER
+
+  A Fresco boundary is NOT in Reagent's render queue, so the adapter's
+  `:flush-render!` — exactly the right instrument for the `reg-view`
+  panels beside this one, and what this file used before rf2-k97c.3 —
+  does not commit this panel's update. Used unchanged it reads a DOM
+  that has not moved, which presents as the panel being DEAD. Every row
+  below therefore drives the WORLD synchronously (a `flushSync` mount,
+  or a `dispatch-sync`) and POLLS the committed DOM afterwards; an
+  absence is asserted only after [[settle]], so it is a decision and not
+  a race.
 
   ## The claim this row exists to carry, and the one it replaces
 
@@ -14,13 +76,15 @@
   panel, and only the second was witnessed. The audit of #7881 named the
   gap; this row closes it.
 
-  Here `Panel` is mounted ONCE, into a real `reagent.dom.client` root,
+  Here the panel is mounted ONCE, into a real `reagent.dom.client` root,
   wrapped in `[rf/frame-provider {:frame :rf/xray}]` exactly as
   `shell/shell-view` wraps it in production. **Nothing in this file ever
-  calls `Panel` again.** Every later assertion reads
+  calls the panel again** — and since rf2-k97c.3 it could not: `Panel` is
+  an `rf.fresco/defview`, a React component whose body runs only inside a
+  render window. Every later assertion reads
   `container.querySelector…` — the DOM React committed on its own.
 
-  ## The three phases, and which one is the control
+  ## W0's three phases, and which one is the control
 
   1. **Mounted, empty.** The committed DOM carries
      `rf-xray-fresco-empty-mounted`, so the panel really did render its
@@ -28,12 +92,12 @@
   2. **A real boundary mounts, and the panel does NOT move.** This is the
      load-bearing control. Fresco's tables are process-global rather than
      part of Xray's app-db, so a mount invalidates nothing the panel's
-     reaction watches — a tab wired to no tick at all would sit on an
+     read watches — a tab wired to no tick at all would sit on an
      empty roster forever while the application it inspects mounts
-     boundaries. The render queue is DRAINED here (same
-     `:flush-render!` op as phase 3), so the staleness asserted is a
-     reaction that never invalidated and not a commit that never
-     happened.
+     boundaries. A full [[settle]] window is given here, the same one the
+     positive phase below is allowed to poll within, so the staleness
+     asserted is a read that never invalidated and not a commit that had
+     not happened yet.
   3. **One trace tick, and the roster arrives in the DOM.** The tick is
      the collector's own seam — `refresh-trace-rings!` dispatches
      `:rf.xray/sync-trace-buffer` on every coalesced drain (rf2-43koh) —
@@ -51,7 +115,8 @@
   it was in phase 1. React reconciled the live tree in place; the roster
   did not arrive because something remounted the panel from scratch, which
   is the one other way a fresh roster could reach the screen and is not
-  liveness.
+  liveness. W2 pins the same identity across a CLICK, where a remount is
+  the specific failure a bridge minting its component per render causes.
 
   ## Substrate
 
@@ -61,7 +126,7 @@
   `reagent.ratom/Reaction` (`impl/collector.cljs` §`wire-cell!`), while
   plain-atom's is not `IWatchable`.
 
-  `:ambient-frame nil` is load-bearing: the panel's `rf/subscribe` calls
+  `:ambient-frame nil` is load-bearing: the panel's `rf.fresco/sub` calls
   must resolve `:rf/xray` through the React-context tier the
   `frame-provider` establishes, the way the shipped shell resolves them.
   The fixture's default ambient `:rf/default` scope is still in effect
@@ -78,20 +143,34 @@
   new build id, no `:dev-http` port. The `:node-test` build's `cljs-test$`
   regex also matches the ns, so it loads under Node too, where the body
   short-circuits via `(browser?)`."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as string]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.frame :as rf.frame]
             [re-frame.test-support :as rf.test-support]
             [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
-            [day8.re-frame2-xray.panels.fresco :as fresco]
+            [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (def ^:private app-frame ::fresco-live-app)
+
+(def ^:private data-q
+  "The panel's evidence read. Named once because three rows key off it —
+  the sub-cache is keyed by the query vector itself
+  (`re-frame.subs/cache-key` is identity), so this value IS the cache key."
+  [:rf.xray.fresco/data])
+
+(def ^:private view-q
+  "The panel's OTHER read — the selected sub-view. Rostered beside
+  [[data-q]] because this panel takes TWO reads where the migrated
+  siblings take one, and a row asserting only the first would pass on a
+  boundary that had lost the second."
+  [:rf.xray.fresco/view])
 
 (rf/reg-sub :hlive/left (fn [db _] (:left db)))
 (rf/reg-event :hlive/seed (fn [_ [_ db]] {:db db}))
@@ -115,17 +194,23 @@
   (and (exists? js/document)
        (some? (.-createElement js/document))))
 
-(defn- flush-render!
-  "Run `thunk`, then SYNCHRONOUSLY commit whatever re-render it scheduled.
+(defn- settle
+  "A promise resolving once every render pipeline on the page has had a
+  real chance to commit — two animation frames and a macrotask.
 
-  The adapter's own `:flush-render!` contract slot (Spec 006), which is
-  what the Pair MCP drives a headless render with — not a test-only
-  mechanism. Reagent schedules a dependent component's re-render on a
-  `requestAnimationFrame` turn, so without this the committed DOM would
-  lag every phase below by a frame and the assertions would be about
-  timing rather than about liveness."
-  [thunk]
-  ((:flush-render! rf.adapter.reagent/adapter) thunk))
+  rf2-k97c.3 REPLACED the adapter's `:flush-render!` here. That slot
+  commits Reagent's own render queue, and a Fresco boundary is not in it,
+  so after the migration it returned a DOM that had not moved — which
+  would have been reported as the panel being dead. An absence asserted
+  immediately after an event is a race; an absence asserted after this is
+  a decision."
+  []
+  (js/Promise.
+    (fn [resolve]
+      (js/requestAnimationFrame
+        (fn [_]
+          (js/requestAnimationFrame
+            (fn [_] (js/setTimeout resolve 20))))))))
 
 (defn- setup! []
   (registry/register-xray-handlers!)
@@ -136,19 +221,48 @@
   nil)
 
 (defn- mount-panel!
-  "Mount the real `Panel` into a real React root, committed synchronously
-  (React 19's `root.render` is otherwise async). The `frame-provider` is
-  the shell's own wrapper — `shell/shell-view` renders every panel inside
-  `[rf/frame-provider {:frame :rf/xray}]`."
-  []
-  (let [container (.createElement js/document "div")
-        root      (rdc/create-root container)]
-    (.appendChild (.-body js/document) container)
-    (react-dom/flushSync
-      (fn []
-        (rdc/render root [rf/frame-provider {:frame :rf/xray}
-                          [fresco/Panel]])))
-    {:container container :root root}))
+  "Mount the Fresco tab the way `shell/detail-panel` mounts it: the
+  REGISTRY's `:panel` value as a hiccup head, inside a `frame-provider`
+  scoping `frame`. Committed synchronously — React 19's `root.render` is
+  otherwise async and phase 1 would assert against an empty container.
+
+  Reaching `:panel` through `panel-registry/tab-by-id` rather than naming
+  the var is deliberate: after rf2-k97c.3 the registry holds a BRIDGE
+  (`rf.fresco/as-component` behind a callable), and it is the bridge the
+  shell will actually mount that these rows are about. A bridge that
+  regressed to something the shell cannot mount reddens here."
+  ([] (mount-panel! :rf/xray))
+  ([frame]
+   (let [container (.createElement js/document "div")
+         root      (rdc/create-root container)
+         tab       (panel-registry/tab-by-id :dynamic :fresco)]
+     (.appendChild (.-body js/document) container)
+     (react-dom/flushSync
+       (fn []
+         (rdc/render root [rf/frame-provider {:frame frame}
+                           [(:panel tab)]])))
+     {:container container :root root :tab tab})))
+
+(defn- teardown!
+  "Unmount inside `flushSync` so React's cleanup effects — which is where
+  the collector releases a boundary's reads — have RUN by the time the
+  next line reads the sub-cache. A bare `.unmount` schedules them."
+  [root container]
+  (react-dom/flushSync (fn [] (.unmount root)))
+  (.remove container))
+
+(defn- cache-of
+  "The frame's live sub-cache map. Not `some->`-guarded: a nil here means
+  the frame is not live, which is a defect in the row's own setup and
+  should throw rather than read as an empty cache."
+  [frame-id]
+  @(:sub-cache (rf.frame/frame frame-id)))
+
+(defn- ref-count-of
+  "The sub-cache ref-count the frame holds for `query-v`, or 0 when the
+  entry is absent."
+  [frame-id query-v]
+  (or (:ref-count (get (cache-of frame-id) query-v)) 0))
 
 (defn- mount-boundary!
   "A real Fresco boundary, rendered and committed through the runtime's
@@ -182,22 +296,38 @@
   (vec (js/Array.from
          (.querySelectorAll container "li[data-testid^=\"rf-xray-fresco-boundary-\"]"))))
 
-(deftest the-mounted-panel-picks-up-a-new-boundary-on-the-trace-tick
+;; ===========================================================================
+;; W0 — the original row: the mounted panel is LIVE (criteria 1 and 2)
+;; ===========================================================================
+
+(deftest w0-the-mounted-panel-picks-up-a-new-boundary-on-the-trace-tick
   (testing "rf2-r98a — a REAL React root holding the Fresco tab re-renders
             itself on a `:rf.xray/trace-buffer` tick and commits the
-            populated roster to the DOM. Nothing here calls `Panel` a second
+            populated roster to the DOM. Nothing here calls the panel a second
             time; the roster arrives because the panel is live. Reddens if
-            `:rf.xray.fresco/data` stops composing off `:rf.xray/trace-buffer`."
+            `:rf.xray.fresco/data` stops composing off `:rf.xray/trace-buffer`.
+
+            rf2-k97c.3 kept every claim and changed the INSTRUMENT: the panel
+            is a Fresco boundary now, which is not in Reagent's render queue,
+            so `flush-render!` no longer commits its update and both phases
+            below poll instead."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
-      (let [_          (setup!)
-            {:keys [container root]} (mount-panel!)
-            release    (volatile! nil)]
-        (try
+      (async done
+        (setup!)
+        (let [{:keys [container root]} (mount-panel!)
+              release (volatile! nil)
+              roster? (fn [] (seq (boundary-rows container)))
+              finish  (fn []
+                        (when-some [r @release] (r))
+                        (teardown! root container)
+                        (done))]
           ;; ---- phase 1: mounted, and rendering its empty arm --------------
           (let [section (q container "[data-testid=\"rf-xray-fresco\"]")]
             (is (some? section)
-                "the Fresco Panel committed a real DOM root under React")
+                "the Fresco panel committed a real DOM root under React — a
+                 Fresco boundary mounted through Reagent's `:>` from the
+                 registry entry the shell holds")
             (is (some? (q container "[data-testid=\"rf-xray-fresco-empty-mounted\"]"))
                 "the live panel rendered the EMPTY mounted census — nothing is
                  mounted yet, so the roster this test drives in cannot already
@@ -206,41 +336,237 @@
                 "NON-VACUITY: no boundary row is in the DOM before one mounts")
 
             ;; ---- phase 2: a real boundary mounts, and the panel is deaf ---
-            ;; The render queue is drained here too, so what is asserted is a
-            ;; reaction that never invalidated — not a commit that never ran.
-            (flush-render! (fn [] (vreset! release (mount-boundary!))))
-            (is (some? (q container "[data-testid=\"rf-xray-fresco-empty-mounted\"]"))
-                "CONTROL: a real mount moves nothing the panel's reaction
-                 watches — Fresco's tables are process-global, not Xray
-                 app-db — so the committed DOM still shows the empty note.
-                 Without this the last phase would pass on a panel that had
-                 simply never rendered before the tick")
+            (vreset! release (mount-boundary!))
+            (-> (settle)
+                (.then
+                  (fn [_]
+                    (is (some? (q container "[data-testid=\"rf-xray-fresco-empty-mounted\"]"))
+                        "CONTROL: given a full settling window, a real mount
+                         still moves nothing the panel's read watches —
+                         Fresco's tables are process-global, not Xray app-db —
+                         so the committed DOM shows the empty note yet. Without
+                         this the next phase would pass on a panel that had
+                         simply never rendered before the tick")
 
-            ;; ---- phase 3: one tick, and the roster is on screen -----------
-            (flush-render! tick-trace!)
-            (let [rows (boundary-rows container)
-                  ;; `some->`, so an empty roster reds the row below as a
-                  ;; clean assertion failure rather than throwing on nil and
-                  ;; reporting the same defect twice — once as a failure and
-                  ;; once as an uncaught error.
-                  row-text (str (some-> (first rows) .-textContent))]
-              (is (= 1 (count rows))
-                  (str "the trace tick re-fired the live panel and ONE boundary "
-                       "row committed to the DOM — with no cache clear and no "
-                       "second call to Panel anywhere in this test. DOM: "
-                       (.-textContent container)))
-              (is (string/includes? row-text "[:hlive/left]")
-                  (str "and the row names the read the boundary really holds, so "
-                       "the assertion above cannot pass on a row projected from "
-                       "nothing. row text: " (pr-str row-text))))
-            (is (nil? (q container "[data-testid=\"rf-xray-fresco-empty-mounted\"]"))
-                "the empty note is gone from the DOM — the roster REPLACED it
-                 rather than rendering beside it")
-            (is (identical? section (q container "[data-testid=\"rf-xray-fresco\"]"))
-                "and it is the SAME <section> node — React reconciled the live
-                 tree in place, so the roster did not arrive by the panel being
-                 remounted from scratch, which would not be liveness"))
+                    ;; ---- phase 3: one tick, and the roster is on screen ----
+                    (tick-trace!)
+                    (rf.test-support/poll-until roster?
+                      {:label "the trace tick commits the roster"})))
+                (.then
+                  (fn [_]
+                    (let [rows (boundary-rows container)
+                          ;; `some->`, so an empty roster reds the row below as
+                          ;; a clean assertion failure rather than throwing on
+                          ;; nil and reporting one defect twice.
+                          row-text (str (some-> (first rows) .-textContent))]
+                      (is (= 1 (count rows))
+                          (str "the trace tick re-fired the live panel and ONE "
+                               "boundary row committed to the DOM — with no "
+                               "cache clear and no second call to the panel "
+                               "anywhere in this test.\n"
+                               "IT IS ALSO THE SELF-EXCLUSION WITNESS (epic "
+                               "criterion 5). The panel is ITSELF a Fresco "
+                               "boundary now, and Fresco's census walks the "
+                               "collector's process-global entry table with no "
+                               "frame filter — so a panel reporting its own "
+                               "two `:rf/xray` reads as application evidence "
+                               "reads TWO rows here, not one. DOM: "
+                               (.-textContent container)))
+                      (is (string/includes? row-text "[:hlive/left]")
+                          (str "and the row names the read the boundary really "
+                               "holds, so the assertion above cannot pass on a "
+                               "row projected from nothing. row text: "
+                               (pr-str row-text))))
+                    (is (nil? (q container "[data-testid=\"rf-xray-fresco-empty-mounted\"]"))
+                        "the empty note is gone from the DOM — the roster
+                         REPLACED it rather than rendering beside it")
+                    (is (identical? section (q container "[data-testid=\"rf-xray-fresco\"]"))
+                        "and it is the SAME <section> node — React reconciled
+                         the live tree in place, so the roster did not arrive by
+                         the panel being remounted from scratch, which would not
+                         be liveness")))
+                (.catch (fn [e]
+                          (is false (str "W0 poll timed out: " (.-message e)
+                                         " DOM: " (.-textContent container)))
+                          nil))
+                (.then (fn [_] (finish))))))))))
+
+;; ===========================================================================
+;; W1 — first display, and the reads land in the frame the tree named
+;; ===========================================================================
+
+(deftest w1-panel-paints-and-its-reads-land-in-the-named-frame
+  (testing "rf2-k97c.3 — the migrated Fresco tab commits real DOM through the
+            registry entry the shell mounts, and its two `rf.fresco/sub` reads
+            resolve against the frame the enclosing `frame-provider` named
+            rather than the ambient one. Epic criteria 1 and 4."
+    (if-not (browser?)
+      (is true ":node — the :browser-test runner drives the real React mount")
+      (let [_ (setup!)
+            ;; A live read in the OTHER frame, so the negative half below is
+            ;; measured with an instrument demonstrably able to see an entry
+            ;; in that frame's cache.
+            _probe (rf/subscribe [:hlive/left] {:frame app-frame})
+            {:keys [container root]} (mount-panel! :rf/xray)]
+        (try
+          (is (some? (q container "[data-testid=\"rf-xray-fresco\"]"))
+              "the panel committed a real DOM root under React")
+          (is (some? (q container "[data-testid=\"rf-xray-fresco-sub-strip\"]"))
+              "and the sub-strip rendered, so the body ran rather than
+               short-circuiting to nil")
+
+          ;; ---- criterion 4: the reads are where the tree said ------------
+          (is (pos? (ref-count-of :rf/xray data-q))
+              (str "the panel's evidence read holds a reference in :rf/xray's "
+                   "sub-cache — the frame the enclosing frame-provider named. "
+                   "Cache keys: " (pr-str (keys (cache-of :rf/xray)))))
+          (is (pos? (ref-count-of :rf/xray view-q))
+              "and so does its sub-view read — BOTH reads are targeted, not
+               just the one a single-read panel would have")
+          (is (zero? (ref-count-of app-frame data-q))
+              "and NOT in the application frame's — a foreign root that
+               inherited the ambient scope instead of reading React context
+               would put it here")
+          (is (pos? (ref-count-of app-frame [:hlive/left]))
+              "NON-VACUITY: the application frame's cache is readable by this
+               same instrument and does hold the probe's entry, so the zero
+               above is an absence and not a broken reader")
           (finally
-            (when-some [r @release] (r))
-            (try (.unmount root) (catch :default _ nil))
-            (.remove container)))))))
+            ;; Release the imperative probe explicitly: an imperative
+            ;; subscriber must not rely on a view's reaction lifecycle.
+            (rf/unsubscribe [:hlive/left] {:frame app-frame})
+            (teardown! root container)))))))
+
+;; ===========================================================================
+;; W2 — Xray's OWN interaction: the sub-strip click (criterion 3)
+;; ===========================================================================
+
+(deftest w2-the-sub-strip-click-switches-the-view-through-the-boundary
+  (testing "rf2-k97c.3 — clicking a sub-strip tab dispatches through the
+            FRAME THE BOUNDARY CARRIES and the panel commits the other view.
+            Epic criterion 3, which the migrated siblings have no row for:
+            `module_view_fresco_boundary_dom_cljs_test` says in terms that it
+            omits criterion 3 because that panel dispatches nothing, and that
+            the panels which DO carry interactions bring their own rows. This
+            is one of them — the sub-strip is this tab's only dispatch.
+
+            WHAT WOULD BREAK IT, precisely. `reg-view` LEXICALLY INJECTED a
+            frame-bound `dispatch`; a `defview` binds no name inside a body,
+            so the panel builds one from `rf/current-frame-id`. A bare global
+            `rf/dispatch` in its place fires after render unwinds, when the
+            ambient frame is gone, and lands on `:rf/default` — where
+            `:rf.xray.fresco/set-view` writes a `:fresco-view` nobody reads,
+            and the DOM below never changes."
+    (if-not (browser?)
+      (is true ":node — the :browser-test runner drives the real React mount")
+      (async done
+        (setup!)
+        (let [{:keys [container root]} (mount-panel!)
+              section  (q container "[data-testid=\"rf-xray-fresco\"]")
+              intents? (fn [] (q container "[data-testid=\"rf-xray-fresco-intents\"]"))
+              finish   (fn [] (teardown! root container) (done))]
+          (is (some? (q container "[data-testid=\"rf-xray-fresco-mounted\"]"))
+              "the panel opens on the Mounted view — the default
+               `normalise-sub-mode` answers for an unset slot")
+          (is (nil? (intents?))
+              "NON-VACUITY: the Intents view is NOT on screen before the click")
+          (let [btn (q container "[data-testid=\"rf-xray-fresco-sub-intents\"]")]
+            (is (some? btn)
+                "the Intents sub-tab button is in the committed DOM — a plain
+                 fn at an `:on-click` prop crosses Fresco's codec untouched, so
+                 the control itself survived the migration")
+            (.click btn)
+            (-> (rf.test-support/poll-until intents?
+                  {:label "the click committed the Intents view"})
+                (.then
+                  (fn [_]
+                    (is (some? (intents?))
+                        "the click switched the sub-view and the panel committed
+                         it — so the dispatch reached :rf/xray, the frame the
+                         boundary carries, and not :rf/default")
+                    (is (nil? (q container "[data-testid=\"rf-xray-fresco-mounted\"]"))
+                        "and the Mounted view is gone — the views REPLACED each
+                         other rather than both rendering")
+                    (is (identical? section (q container "[data-testid=\"rf-xray-fresco\"]"))
+                        "and the root <section> is the SAME node: React
+                         reconciled in place. A bridge minting its component
+                         type per render would remount the panel here instead,
+                         which is the specific failure `Panel-component` being
+                         a top-level def prevents")))
+                (.catch (fn [e]
+                          (is false (str "W2 poll timed out — the click did not "
+                                         "reach the panel's frame: "
+                                         (.-message e)))
+                          nil))
+                (.then (fn [_] (finish))))))))))
+
+;; ===========================================================================
+;; W3 — clean teardown: the reads are released, and reopening is not growth
+;; ===========================================================================
+
+(defn- released?
+  "Both of the panel's reads are fully released from `:rf/xray`'s cache."
+  []
+  (and (zero? (ref-count-of :rf/xray data-q))
+       (zero? (ref-count-of :rf/xray view-q))))
+
+(deftest w3-unmount-releases-the-reads-and-reopen-does-not-grow-them
+  (testing "rf2-k97c.3 — unmounting the panel releases BOTH subscription
+            references completely, and mounting it again returns to the SAME
+            counts rather than higher ones. Epic criterion 6, and the number
+            the spike caught the rejected design on: with a four-call interop
+            binding the `:rf/xray` ref-count climbed across renders and never
+            fell on unmount.
+
+            THE RELEASE IS ASYNCHRONOUS BY DESIGN, so this row polls rather
+            than reading once: `impl.collector`'s cell reapers give a cell
+            whose last reader unmounts one macrotask of grace, so that a keyed
+            reorder which unmounts and remounts within a turn reuses the
+            reaction instead of rebuilding it. A synchronous assertion would
+            report a LEAK against a collector behaving exactly as documented."
+    (if-not (browser?)
+      (is true ":node — the :browser-test runner drives the real React mount")
+      (async done
+        (setup!)
+        ;; Polled rather than asserted: a neighbouring row's teardown grace
+        ;; may still be in flight when this one begins.
+        (-> (rf.test-support/poll-until released?
+              {:label "no reference held before the first mount"})
+            (.then
+              (fn [_]
+                (let [{:keys [container root]} (mount-panel!)
+                      mounted-data (ref-count-of :rf/xray data-q)
+                      mounted-view (ref-count-of :rf/xray view-q)]
+                  (is (pos? mounted-data)
+                      "the mount took a reference for the evidence read —
+                       otherwise the release below is vacuous")
+                  (is (pos? mounted-view)
+                      "and one for the sub-view read")
+                  (teardown! root container)
+                  (-> (rf.test-support/poll-until released?
+                        {:label "the first unmount released both reads"})
+                      (.then
+                        (fn [_]
+                          (is (released?)
+                              (str "the unmount released BOTH completely, within "
+                                   "the collector's grace macrotask. Cache: "
+                                   (pr-str (keys (cache-of :rf/xray)))))
+                          (let [{c2 :container r2 :root} (mount-panel!)
+                                again-data (ref-count-of :rf/xray data-q)
+                                again-view (ref-count-of :rf/xray view-q)]
+                            (is (= [mounted-data mounted-view]
+                                   [again-data again-view])
+                                (str "reopening returns to the SAME reference "
+                                     "counts " (pr-str [mounted-data mounted-view])
+                                     " rather than accumulating — accumulation "
+                                     "across open/close cycles is the signature "
+                                     "of a release the substrate's own reaction "
+                                     "lifecycle cannot see. Got: "
+                                     (pr-str [again-data again-view])))
+                            (teardown! r2 c2)
+                            (rf.test-support/poll-until released?
+                              {:label "the second unmount released them too"}))))))))
+            (.then (fn [_] (is (released?)
+                               "and the second unmount releases them too")))
+            (.catch (fn [e] (is false (str "W3 poll timed out: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
