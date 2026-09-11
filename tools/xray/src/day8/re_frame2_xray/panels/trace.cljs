@@ -1027,10 +1027,12 @@
   IDENTICAL arm a plain `defn` does, so migrating the mount without
   migrating them would be the same HD-016 throw one level down — and with
   no error boundary above this render path it presents as a tab that never
-  appears rather than as an error. The three are the two
+  appears rather than as an error. The three WERE the two
   `rt/resizable-table` heads (`flat-row-list` and the ops header) and
   `ei/edn-inspector` in `render-payload`; each has a shipped Fresco
-  sibling and now uses it. Every OTHER helper in this file is CALLED, so
+  sibling and now heads it instead — `rt/resizable-table-view` and
+  `ei/edn-inspector-view` respectively, which is what the code reads
+  today. Every OTHER helper in this file is CALLED, so
   Fresco's plain-fn-in-head-position rule never meets one.
 
   The argument is the ordinary one-props-map vector every `defview` takes.

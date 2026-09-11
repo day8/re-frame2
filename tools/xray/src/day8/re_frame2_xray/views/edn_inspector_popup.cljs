@@ -11,10 +11,23 @@
 
   ## Public API
 
-      [edn-inspector-popup value]
-      [edn-inspector-popup value opts]
+  Opening a popup is PROGRAMMATIC — dispatch the open event with a
+  `mount-id` you mint, and the mounted stack view picks the entry up:
 
-  `opts` keys (all optional):
+      (rf/dispatch [:rf.xray.edn-inspector-popup/open mount-id
+                    {:value v :opts o}])
+
+  `shell.cljs` mounts [[edn-inspector-popup-stack]] once at the shell's
+  overlay container; [[edn-inspector-popup-stack-view]] is the Fresco
+  boundary behind it, and [[popup-stack-tree]] is that same markup as
+  pure data for the node lane. [[popup-chrome]] renders a SINGLE popup's
+  chrome and is public so tests can drive it without the stack.
+
+  rf2-bcub — an inline `[edn-inspector-popup value opts]` component used
+  to sit here too, a form-2 wrapper minting its own `mount-id`. It is
+  GONE: zero mounts tree-wide, and nothing but its own tests called it.
+
+  `opts` (the `:opts` half of the open payload; all keys optional):
 
   - `:title`             — header label. Defaults `\"Inspect\"`.
   - `:panel-id`          — passed straight through to the embedded
@@ -31,13 +44,11 @@
                            against the `:rf/xray` frame so the popup
                            closes itself via the registered handler.
 
-  Two-arg overload matches `[edn-inspector value opts]` (D2=a) so the
-  popup's call shape is the same as the widget it wraps.
+  ## Per-popup mount-id
 
-  ## Per-mount UUID
-
-  Each `[edn-inspector-popup …]` mount allocates a fresh UUID
-  `mount-id` on first render via the form-2 outer fn. The `mount-id`:
+  The `mount-id` is the CALLER's — minted when the open event is
+  dispatched, so a caller that wants to re-open a popup at a known id
+  can. Each one:
 
   - identifies this popup's entry in the open-popups stack slot at
     `:rf.xray.edn-inspector-popup/stack`, so multiple popups stack
@@ -307,17 +318,6 @@
    :border-radius    "3px"})
 
 ;; =========================================================================
-;; mount-id generator
-;; =========================================================================
-
-(defn- gen-mount-id
-  "Generate a stable per-mount UUID. Public so programmatic callers
-  (a context-menu handler that wants to open a popup at a known id)
-  can mint a matching id ahead of time."
-  []
-  (str (random-uuid)))
-
-;; =========================================================================
 ;; key handling
 ;; =========================================================================
 
@@ -391,12 +391,23 @@
 ;; is passed in, exactly as the tree's `as-child` islands pass `identity`
 ;; or `reagent.core/as-element` rather than reaching for a Fresco API. The
 ;; default is the Reagent one, so every existing direct caller of
-;; `popup-chrome` — the node-lane rows and [[edn-inspector-popup]] — keeps
-;; the hiccup it already had, and only the boundary opts in.
+;; `popup-chrome` — the node-lane rows — keeps the hiccup it already had,
+;; and only the boundary opts in.
 ;;
-;; SCAFFOLDING WITH A DEFINED END: when [[edn-inspector-popup]] is itself a
-;; Fresco body (or goes), [[fresco-inspector]] becomes the only lane and
-;; this parameter goes with the default.
+;; THIS WAS FILED AS SCAFFOLDING WITH A DEFINED END, AND THAT PREDICTION WAS
+;; WRONG — rf2-bcub MEASURED IT. The note here used to say that once
+;; `edn-inspector-popup` became a Fresco body "or goes", [[fresco-inspector]]
+;; would be the only lane and this parameter would go with its default.
+;; `edn-inspector-popup` HAS now gone (rf2-bcub: zero mounts tree-wide), and
+;; the parameter and its Reagent default STAY, because what depends on them
+;; is the NODE LANE rather than that var: ELEVEN `popup-chrome` tests call it
+;; without `:inspector` and so render through [[reagent-inspector]], and one
+;; walks the body asserting a THREE-element fn mount — which is
+;; `[ei/edn-inspector value opts]`, and which [[fresco-inspector]]'s
+;; two-element `[ei/edn-inspector-view {…}]` would fail. [[reagent-inspector]]
+;; is load-bearing once more in `edn_inspector_popup_wireup_cljs_test`, where
+;; its head grading `:invalid` is what keeps the boundary row beside it
+;; non-vacuous. Dropping either makes a live assertion UNWRITABLE, not idle.
 
 (defn reagent-inspector
   "The embedded widget as a REAGENT head — `[ei/edn-inspector value opts]`,
@@ -514,52 +525,6 @@
                    :max-depth              max-depth})])))
 
 ;; =========================================================================
-;; public component — `edn-inspector-popup`
-;; =========================================================================
-
-(defn edn-inspector-popup
-  "Floating popup overlay that wraps `[ei/edn-inspector value opts]`.
-  Form-2 Reagent component: the outer fn allocates a stable
-  `mount-id` (UUID) in closure; the inner fn reads the popup's
-  stack position from app-db (so multiple popups
-  layer in z-index order) and renders the chrome.
-
-  The popup is **Xray-internal** — the backdrop spans the Xray shell
-  only (or the Story cell when `:rf.xray/modal-positioning` resolves
-  to `:absolute`); it never anchors to the debugged application's DOM.
-
-  The auto-generated UUID on mount lives until unmount; two
-  side-by-side `[edn-inspector-popup …]` mounts get independent
-  expansion state.
-
-  Usage:
-
-      [edn-inspector-popup value]
-      [edn-inspector-popup value {:title \"Sub :app/cart\"
-                                 :panel-id :rf.xray.sub-detail
-                                 :default-expanded-depth 3}]
-
-  The popup self-registers in the stack slot on first render and
-  self-removes on unmount via the `:close` event in `on-close`. A
-  caller can pass an explicit `:on-close` to override the default
-  rf-dispatch (e.g. for a parent component that controls its own
-  open/closed flag)."
-  ([value] (edn-inspector-popup value nil))
-  ([_value _opts]
-   (let [mount-id (gen-mount-id)]
-     (fn [value opts]
-       (let [positioning @(rf/subscribe [:rf.xray/modal-positioning])
-             stack       @(rf/subscribe [stack-slot])
-             pos         (or (.indexOf (vec (or stack [])) mount-id)
-                             -1)]
-         (popup-chrome
-           {:mount-id     mount-id
-            :value        value
-            :opts         opts
-            :positioning  positioning
-            :stack-pos    (max 0 pos)}))))))
-
-;; =========================================================================
 ;; stack view — renders every open popup over the active panel
 ;; =========================================================================
 
@@ -614,10 +579,10 @@
   This view is the entry point for **programmatic** opens — a
   context-menu handler dispatches
   `[:rf.xray.edn-inspector-popup/open mount-id {:value v :opts o}]`
-  and this view picks the entry up and renders it. The plain
-  `[edn-inspector-popup v opts]` component is the entry point for
-  **inline** opens (a panel that wants to control the popup
-  imperatively from its own view tree).
+  and this view picks the entry up and renders it. Since rf2-bcub it is
+  the ONLY entry point: the plain `[edn-inspector-popup v opts]`
+  component that served **inline** opens (a panel controlling the popup
+  imperatively from its own view tree) had no mount anywhere and is gone.
 
   ## WHY A BOUNDARY, AND WHAT ACTUALLY MOVED
 

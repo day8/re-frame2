@@ -68,14 +68,8 @@
             [day8.re-frame2-xray.substrate :as substrate]
             [day8.re-frame2-machines-viz.chart :as mv-chart]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
-            ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — the canvas-side
-            ;; snapshot drill-in surface mounts the first-class
-            ;; edn-inspector widget directly. Per spec/021 §10 widget
-            ;; contract; every call site qualifies with a per-machine
-            ;; `:panel-id`.
-            [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.theme.tokens
-             :refer [tokens sans-stack mono-stack]]))
+             :refer [tokens]]))
 
 ;; ---- default chart theme (rf2-az6e2 follow-on) --------------------------
 ;;
@@ -485,82 +479,25 @@
   [props]
   (chart-tree props substrate/as-element [after-rings/AfterRingsOverlay {}]))
 
-;; ---- snapshot drill-in (rf2-lxvn6 · spec/021 §10 widget contract) -----
+;; ---- rf2-bcub — the canvas-side snapshot drill-in is REMOVED ------------
 ;;
-;; The canvas-side companion to `machine_inspector/snapshot-drill-in`.
-;; Mounts a single machine snapshot map (`{:state X :data Y}`) through
-;; the first-class edn-inspector widget. Callers that already have a
-;; snapshot in hand (e.g. the Chart's `:current-state` source: a
-;; topology fallback, a static-mode reader, a future hover/popup)
-;; embed this view to surface the full structure without re-implementing
-;; the widget contract. Per-machine `:panel-id` qualifier keeps two
-;; machines' expansion state independent.
-
-(defn- snapshot-panel-id
-  "Compose a per-machine `:panel-id` qualifier for a snapshot drill-in
-  mount. Returns a namespaced keyword shaped like
-  `:rf.xray.machine-snapshot/auth.login-current`. The phase suffix
-  (`:current`, `:before`, `:after`) scopes multiple sibling mounts on
-  the same machine so their expansion state doesn't bleed."
-  [machine-id phase]
-  (keyword "rf.xray.machine-snapshot"
-           (str (some-> machine-id str (subs 1) (str/replace "/" "."))
-                (when phase (str "-" (name phase))))))
-
-(defn SnapshotDrillIn
-  "Render `snapshot` (typically `{:state X :data Y}`) via the first-class
-  edn-inspector widget. Pure hiccup — no rf reads.
-
-  Args (map):
-
-    :machine-id  — keyword; identifies the per-machine expansion-state
-                   scope. Required for the `:panel-id` qualifier.
-    :snapshot    — the snapshot map. nil renders an empty-state chip
-                   so callers don't have to gate the mount themselves.
-    :phase       — keyword used as the panel-id phase suffix (defaults
-                   `:current`). Use `:before` / `:after` when rendering
-                   transition snapshots so the two sibling mounts don't
-                   share expansion state.
-    :testid      — wrapper testid override (default
-                   `'rf-xray-machine-canvas-snapshot-drill-in'`).
-
-  Returns hiccup."
-  [{:keys [machine-id snapshot phase testid]
-    :or   {phase  :current
-           testid "rf-xray-machine-canvas-snapshot-drill-in"}}]
-  [:div {:data-testid     testid
-         :data-machine-id (str machine-id)
-         :data-phase      (name phase)
-         :data-has-snapshot (str (some? snapshot))
-         :style {:padding "8px 12px"
-                 :background (:bg-1 tokens)
-                 :border (str "1px solid " (:border-subtle tokens))
-                 :border-radius "4px"}}
-   [:div {:style {:color (:text-tertiary tokens)
-                  :text-transform "uppercase"
-                  :font-size "10px"
-                  :letter-spacing "0.5px"
-                  :font-family sans-stack
-                  :margin-bottom "4px"}}
-    (str "Snapshot · " (name phase))]
-   (if (nil? snapshot)
-     [:div {:data-testid (str testid "-empty")
-            :style {:font-family mono-stack
-                    :font-size "11px"
-                    :font-style "italic"
-                    :color (:text-tertiary tokens)}}
-      "(no snapshot — machine uninitialised or trace pre-snapshot-tagging)"]
-     [ei/edn-inspector snapshot
-      {:panel-id (snapshot-panel-id machine-id phase)
-       ;; rf2-pvsxs — machine + phase are stable identifiers; the
-       ;; operator's drill-into-data choices survive a Machines tab
-       ;; leave-and-return round-trip.
-       :site-id  [:rf.xray.machines/snapshot machine-id phase]
-       :default-expanded-depth 2
-       ;; rf2-l4625 — machine snapshots routinely carry deeply-nested
-       ;; `:data` maps; the popup gives the operator a full-modal
-       ;; inspection surface.
-       :popup-affordance? true}])])
+;; `SnapshotDrillIn` and its private `snapshot-panel-id` are GONE, and with
+;; them the `views.edn-inspector` require this ns carried only for them.
+;;
+;; It was the "canvas-side companion to `machine_inspector/snapshot-drill-in`"
+;; — and that companion had already gone under rf2-g2axio, which cut the
+;; Machine tab back to EXACTLY Prev/Next + the shared cascade mini-pipeline +
+;; the chart. So the surface this one paired with no longer exists, and a
+;; tree-wide census found no caller of any kind outside its own test file:
+;; it is not in `Chart`'s subtree and no panel embedded it.
+;;
+;; NOTHING BECAME UNWRITABLE. Its one non-trivial helper was private with
+;; this var as its only door, but no test asserted that helper's output; and
+;; the `:popup-affordance?` contract its docstring cited (rf2-l4625) is
+;; pinned independently three times over — `trace.cljs`'s expanded-row mount
+;; asserts it through to the rendered `data-rf-popup-affordance` attribute,
+;; `edn_inspector_cljs_test` pins the widget behaviour itself, and
+;; `app_db_diff_state_cljs_test` pins the negative (omit) case.
 
 ;; ---- install ------------------------------------------------------------
 

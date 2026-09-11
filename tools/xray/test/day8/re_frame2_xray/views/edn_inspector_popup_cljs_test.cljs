@@ -14,10 +14,11 @@
   3. **Chrome rendering** — `popup-chrome` emits the canonical
      hiccup shape: backdrop / dialog / header (with close ✕) /
      body containing the wrapped edn-inspector widget.
-  4. **Per-mount isolation** — two popup mounts get distinct
-     UUIDs; the embedded widget's `:panel-id` is derived from the
-     popup's mount-id so two popups inspecting the same value
-     have independent expansion state.
+  4. **Per-mount isolation** — the embedded widget's `:panel-id` is
+     derived from the popup's mount-id, so two popups inspecting the
+     same value have independent expansion state. (The distinct-UUID
+     rows went with the inline `edn-inspector-popup` component under
+     rf2-bcub; a mount-id is the opening caller's to mint now.)
   5. **Close affordances** — Esc key handler dispatches
      `:close-top`; backdrop click + ✕ button both invoke
      `close-fn`; caller-supplied `:on-close` overrides the
@@ -430,33 +431,6 @@
              :stopPropagation (fn [])})
       (is (nil? @captured)
           "Enter does not dispatch any popup event"))))
-
-;; =========================================================================
-;; edn-inspector-popup (form-2 component) — per-mount UUID
-;; =========================================================================
-
-(deftest edn-inspector-popup-allocates-mount-id-per-mount
-  ;; Two outer calls to the form-2 component (each modelling a
-  ;; separate mount) should produce DISTINCT inner fns with distinct
-  ;; mount-ids in closure.
-  (let [outer-1 (edn-inspector-popup/edn-inspector-popup {:a 1})
-        outer-2 (edn-inspector-popup/edn-inspector-popup {:a 1})]
-    (is (fn? outer-1) "form-2 outer returns an inner fn")
-    (is (fn? outer-2))
-    ;; Distinct closures imply distinct mount-ids; we can't peek into
-    ;; the closure directly, but the closures themselves must not be
-    ;; identical (re-mounting must mint a fresh id).
-    (is (not= outer-1 outer-2)
-        "two outer calls produce distinct inner fns")))
-
-(deftest edn-inspector-popup-two-arity-overload
-  (testing "[edn-inspector-popup value opts] arity is accepted (D2=a
-            two-arg overload convention)"
-    (is (fn? (edn-inspector-popup/edn-inspector-popup {:a 1} {:title "Cart"})))))
-
-(deftest edn-inspector-popup-default-arity
-  (testing "[edn-inspector-popup value] single-arg arity works"
-    (is (fn? (edn-inspector-popup/edn-inspector-popup {:a 1})))))
 
 ;; =========================================================================
 ;; per-mount isolation — embedded widget panel-id is mount-scoped
