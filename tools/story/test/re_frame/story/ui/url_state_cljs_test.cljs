@@ -18,13 +18,66 @@
 
 ;; ---- fixtures ------------------------------------------------------------
 
-(defn- browser? []
-  (and (exists? js/window) (exists? js/URLSearchParams)))
-
 (defn reset-all! []
   (rf.story.ui.state/reset-shell-state!))
 
 (use-fixtures :each {:before reset-all!})
+
+;; ---- the window stub, and why it sits up here (rf2-r51p) ----------------
+;;
+;; This namespace ends `-cljs-test`, so `:node-test` selects it and
+;; `:browser-test` — whose `:ns-regexp` is `.*-dom-cljs-test$` — never
+;; loads it at all. A row here wrapped in `(when (browser?) ...)`
+;; therefore executed in NEITHER lane: node loaded it with the guard
+;; false, and no browser ever saw the file. That is the defect rf2-r51p
+;; exists to remove, and this file carried three such rows while being
+;; cited across that bead as the PRECEDENT for fixing them.
+;;
+;; The fix is the one this file already invented for the popstate suite
+;; below: the host touch in these rows is INCIDENTAL — they assert
+;; `push!`'s idempotence algebra and `parse-current-url-or-empty`'s
+;; blank-search branch, neither of which needs a real browser — so a
+;; stub host makes them run on node rather than nowhere. The helpers
+;; were defined beside the popstate tests; they are hoisted here because
+;; three separate suites now depend on them.
+;;
+;; `url-state/safe-window` is `(when (exists? js/window) js/window)`, so
+;; setting `globalThis.window` is all it takes to satisfy the whole
+;; module. The stub's `:search ""` is not incidental either — it IS the
+;; blank-search condition the rf2-fkmnh row below asserts against.
+
+(defn- install-window-stub!
+  "Install a minimal `window` on `js/globalThis` with a countable
+  event-listener registry and a location whose `search` is `search-str`
+  (default `\"\"`, the blank-search case). Returns the registry atom
+  `{event-type → [listener ...]}`."
+  ([] (install-window-stub! ""))
+  ([search-str]
+    (let [registry (atom {})
+          location #js {:pathname "/" :search search-str :hash ""}
+          window   #js {:location location
+                        :history  #js {:pushState    (fn [& _] nil)
+                                       :replaceState (fn [& _] nil)}
+                        :addEventListener
+                        (fn [type listener]
+                          (swap! registry update type (fnil conj []) listener))
+                        :removeEventListener
+                        (fn [type listener]
+                          (swap! registry update type
+                                 (fnil (fn [xs] (vec (remove #(= % listener) xs)))
+                                       [])))
+                        :dispatchEvent
+                        (fn [event]
+                          (doseq [l (get @registry (.-type event) [])]
+                            (l event)))}]
+      (set! (.-window js/globalThis) window)
+      registry)))
+
+(defn- uninstall-window-stub! []
+  (js-delete js/globalThis "window"))
+
+(defn- popstate-listener-count [registry]
+  (count (get @registry "popstate" [])))
 
 ;; ---- url-from-state composition -----------------------------------------
 
@@ -272,46 +325,76 @@
 
 ;; ---- pushState idempotence ----------------------------------------------
 ;;
-;; Under the node runner `js/window.history` is mocked by jsdom. The
-;; tests below capture pushState invocations via a wrapper atom so we
-;; can assert n calls without actually mutating the test runner's URL.
+;; THIS SECTION USED TO SAY "under the node runner `js/window.history` is
+;; mocked by jsdom". It is not, and never was: there is no jsdom, no
+;; happy-dom and no DOM shim in any dependency list here, so on node
+;; `js/window` is simply undefined. The two rows below were wrapped in
+;; `(when (browser?) ...)` — and because that `when` wrapped the `deftest`
+;; FORMS THEMSELVES rather than their bodies, the test vars were never
+;; even DEFINED under `:node-test`, while `:browser-test` never loads this
+;; `-cljs-test` namespace at all. They executed in neither lane (rf2-r51p).
+;;
+;; The property here is `push!`'s idempotence ALGEBRA — does it compare the
+;; candidate URL against the current location and decline when they match —
+;; which needs a `location` and a `history.pushState` to call, not a real
+;; browser. So the guard is gone and the rows run on node against
+;; `install-window-stub!`, the same stub the popstate suite below uses.
 
-(when (browser?)
-  (defn- with-history-spy
-    "Install a spy around `window.history.pushState`; returns the
-    captured-calls atom + a restore fn."
-    []
-    (let [captured (atom [])
-          orig     (.-pushState (.-history js/window))
-          spy      (fn [_state _title url]
-                     (swap! captured conj url))]
-      (set! (.-pushState (.-history js/window)) spy)
-      [captured (fn [] (set! (.-pushState (.-history js/window)) orig))]))
+(defn- with-history-spy
+  "Install a spy around `window.history.pushState`; returns the
+  captured-calls atom + a restore fn. Requires a window — real or the
+  stub installed by `install-window-stub!`."
+  []
+  (let [captured (atom [])
+        orig     (.-pushState (.-history js/window))
+        spy      (fn [_state _title url]
+                   (swap! captured conj url))]
+    (set! (.-pushState (.-history js/window)) spy)
+    [captured (fn [] (set! (.-pushState (.-history js/window)) orig))]))
 
-  (deftest push!-skips-when-url-matches-current-location
-    (testing "rf2-o4u18 — push! is idempotent: no-op when the URL matches
-              the current location (avoids gratuitous back-stack entries)"
+(defn- current-url-str []
+  (str (.-pathname (.-location js/window))
+       (.-search   (.-location js/window))
+       (.-hash     (.-location js/window))))
+
+(deftest push!-skips-when-url-matches-current-location
+  (testing "rf2-o4u18 — push! is idempotent: no-op when the URL matches
+            the current location (avoids gratuitous back-stack entries)"
+    (install-window-stub!)
+    (try
       (let [[captured restore] (with-history-spy)
-            ;; Use the actual current pathname so the diff says 'same'.
-            cur (str (.-pathname (.-location js/window))
-                     (.-search   (.-location js/window))
-                     (.-hash     (.-location js/window)))]
-        (rf.story.ui.url-state/push! cur)
+            cur                (current-url-str)]
         (try
+          ;; Control FIRST, so the zero below is evidence that `push!`
+          ;; DECLINED rather than evidence that nothing could have been
+          ;; captured either way. A bare `(= 0 (count @captured))` passes
+          ;; just as happily against an unwired spy or an absent window —
+          ;; which is precisely how this row read green while never
+          ;; running at all.
+          (rf.story.ui.url-state/push! (str cur "?control=1"))
+          (is (= 1 (count @captured))
+              "precondition: the spy captures a genuine differing push")
+          (reset! captured [])
+          (rf.story.ui.url-state/push! cur)
           (is (= 0 (count @captured))
               "no pushState calls when URL matches")
-          (finally (restore))))))
+          (finally (restore))))
+      (finally (uninstall-window-stub!)))))
 
-  (deftest push!-fires-when-url-differs
-    (testing "rf2-o4u18 — push! pushes a different URL"
+(deftest push!-fires-when-url-differs
+  (testing "rf2-o4u18 — push! pushes a different URL"
+    (install-window-stub!)
+    (try
       (let [[captured restore] (with-history-spy)]
-        (rf.story.ui.url-state/push! (str (.-pathname (.-location js/window))
-                       "?variant=foo%2Fbar"
-                       (.-hash (.-location js/window))))
+        (rf.story.ui.url-state/push!
+          (str (.-pathname (.-location js/window))
+               "?variant=foo%2Fbar"
+               (.-hash (.-location js/window))))
         (try
           (is (= 1 (count @captured)))
           (is (re-find #"variant=foo" (first @captured)))
-          (finally (restore)))))))
+          (finally (restore))))
+      (finally (uninstall-window-stub!)))))
 
 ;; ---- state-watcher install/teardown -------------------------------------
 ;;
@@ -350,46 +433,16 @@
 ;;
 ;; The node runner has no `window`, so the old test wrapped its whole body
 ;; in `(when (browser?) ...)` and executed ZERO assertions under
-;; `npm run test:cljs` — a vacuous pass. Here we install a minimal `window`
-;; stub on `js/globalThis` (the same pattern the routing suites use) whose
-;; add/removeEventListener maintain a countable per-type listener registry.
-;; That makes the "re-install replaces rather than stacks" invariant
-;; node-runnable AND gives it teeth: after a double-install exactly ONE
-;; popstate listener is registered and a single popstate event fires the
-;; handler exactly once. A stacking regression leaves 2 listeners and
-;; double-fires — so this fails under the default node gate rather than
+;; `npm run test:cljs` — a vacuous pass. The `install-window-stub!` helper
+;; at the top of this file (hoisted there under rf2-r51p, when two further
+;; suites came to need it) installs a minimal `window` on `js/globalThis`
+;; whose add/removeEventListener maintain a countable per-type listener
+;; registry. That makes the "re-install replaces rather than stacks"
+;; invariant node-runnable AND gives it teeth: after a double-install
+;; exactly ONE popstate listener is registered and a single popstate event
+;; fires the handler exactly once. A stacking regression leaves 2 listeners
+;; and double-fires — so this fails under the default node gate rather than
 ;; passing vacuously.
-
-(defn- install-window-stub!
-  "Install a minimal `window` on `js/globalThis` with a countable
-  event-listener registry and an empty-search location. Returns the
-  registry atom `{event-type → [listener ...]}`."
-  []
-  (let [registry (atom {})
-        location #js {:pathname "/" :search "" :hash ""}
-        window   #js {:location location
-                      :history  #js {:pushState    (fn [& _] nil)
-                                     :replaceState (fn [& _] nil)}
-                      :addEventListener
-                      (fn [type listener]
-                        (swap! registry update type (fnil conj []) listener))
-                      :removeEventListener
-                      (fn [type listener]
-                        (swap! registry update type
-                               (fnil (fn [xs] (vec (remove #(= % listener) xs)))
-                                     [])))
-                      :dispatchEvent
-                      (fn [event]
-                        (doseq [l (get @registry (.-type event) [])]
-                          (l event)))}]
-    (set! (.-window js/globalThis) window)
-    registry))
-
-(defn- uninstall-window-stub! []
-  (js-delete js/globalThis "window"))
-
-(defn- popstate-listener-count [registry]
-  (count (get @registry "popstate" [])))
 
 (deftest popstate-listener-reinstall-replaces-rather-than-stacks
   (testing "rf2-o4u18 / rf2-x76af2.21 — re-installing the popstate listener
@@ -446,16 +499,41 @@
   (testing "rf2-fkmnh — when the window is present but the search is empty
             `parse-current-url-or-empty` returns the all-nil parsed shape
             (not nil), so a no-query popstate drives the URL-owned slots to
-            their defaults instead of no-op'ing. (The harness URL has no
-            Story params, so this exercises the blank-search branch.)"
-    (when (browser?)
+            their defaults instead of no-op'ing.
+
+            Under rf2-r51p this row stopped being guarded by `(when
+            (browser?) ...)` — which held its whole body, so the deftest
+            existed on node carrying ZERO assertions while the browser
+            lane never loaded this namespace — and now runs against a
+            stub window whose `search` is literally blank, which IS the
+            condition under test."
+    (install-window-stub! "")
+    (try
       (let [parsed (rf.story.ui.url-state/parse-current-url-or-empty)]
         (is (map? parsed) "returns a parsed map, never nil, when window present")
         (is (nil? (:variant-id parsed)))
         (is (nil? (:active-modes parsed)))
         (is (nil? (:viewport parsed)))
         (is (nil? (:background parsed)))
-        (is (nil? (:tag-filter parsed)))))))
+        (is (nil? (:tag-filter parsed))))
+      (finally (uninstall-window-stub!)))))
+
+(deftest parse-current-url-or-empty-reads-a-populated-search
+  (testing "rf2-r51p — the discriminating contrast for the blank-search row
+            above. Every assertion there is a `nil?`, so all of them pass
+            against a `parse-current-url-or-empty` that ignored the URL
+            entirely and always answered the empty shape. This row proves
+            the function really does read `window.location.search`, so the
+            nils above are evidence about a BLANK search rather than about
+            a function that never looks."
+    (install-window-stub! "?variant=foo%2Fbar&viewport=tablet")
+    (try
+      (let [parsed (rf.story.ui.url-state/parse-current-url-or-empty)]
+        (is (map? parsed))
+        (is (= :foo/bar (:variant-id parsed))
+            "a populated search really is parsed (not the empty shape)")
+        (is (= :tablet (:viewport parsed))))
+      (finally (uninstall-window-stub!)))))
 
 (deftest popstate-to-empty-url-clears-prior-state-via-swap
   (testing "rf2-fkmnh — the back/forward-to-bare-URL scenario through the
