@@ -230,34 +230,47 @@
 ;; ===========================================================================
 
 (deftest each-record-owns-its-inspector-mount-ids
-  (testing "rf2-fcy5 — with REQUEST, RESPONSE and HANDLER open, the payload
-            bodies are in the committed tree, so the four `edn/inspect-view`
+  (testing "rf2-fcy5 — with the payload sections open, the `edn/inspect-view`
             heads really rendered rather than raising
-            `:rf.error/fresco-bad-head`. Their `:mount-id`s are derived from
-            `record-key`, so two records carrying the SAME fx-id still own
-            disjoint sets — the pre-rf2-fcy5 keys were composed from the
-            fx-id alone and the HANDLER key was a bare constant, so every
-            record in the list shared one."
+            `:rf.error/fresco-bad-head`, which is what a committed
+            `data-rf-mount-id` says. A seeded `:rf.fx/handled` carries a
+            request and an on-success handler but no response yet, so the
+            widgets that commit are REQUEST and HANDLER per record; the row
+            counts what is there rather than a fixed number.
+
+            Their `:mount-id`s are derived from `record-key`, so two records
+            carrying the SAME fx-id still own disjoint sets — the pre-rf2-fcy5
+            keys were composed from the fx-id alone and the HANDLER key was
+            the bare constant `\"managed-fx/handler\"`, so every record in
+            every list shared one."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_ (setup!)
             m (mount!)]
         (try
-          (let [ids   (mount-ids (:container m))
-                per-a (filterv #(string/includes? % "-1-") ids)
-                per-b (filterv #(string/includes? % "-2-") ids)]
-            ;; Control: widgets committed at all. An empty set would make
-            ;; every distinctness assertion below vacuously true.
+          ;; The expected groups are DERIVED from `record-key` rather than
+          ;; spelled out: that is the composer `edn-widget/inspect-view`'s
+          ;; node-key is built from, so this row states the claim in the
+          ;; renderer's own terms and cannot drift from the seeded trace ids.
+          (let [rec-keys (mapv h/record-key (records))
+                ids      (mount-ids (:container m))
+                groups   (mapv (fn [rk] (filterv #(string/includes? % rk) ids))
+                               rec-keys)]
+            ;; Controls, taken from the target: widgets committed at all, and
+            ;; the two records really do carry different keys. An empty set or
+            ;; two equal keys would make the disjointness below vacuous.
             (is (seq ids)
-                "control: at least one edn-inspector widget committed, so the
-                 inspector heads are boundaries the codec accepted")
+                (str "control: at least one edn-inspector widget committed, so "
+                     "the inspector heads are boundaries the codec accepted"))
+            (is (= 2 (count (distinct rec-keys)))
+                (str "control: the two records carry distinct record-keys — "
+                     (pr-str rec-keys)))
             (is (= (count ids) (count (distinct ids)))
                 (str "no two committed widgets share a mount-id — " (pr-str ids)))
-            ;; `record-key` is "<surface>-<origin-event-id>-<fx-id>", and the
-            ;; two fx events were seeded at trace ids 3 and 4, so each
-            ;; record's ids carry its own origin id and no other's.
-            (is (seq per-a) (str "the first record's widgets are present — " (pr-str ids)))
-            (is (seq per-b) (str "the second record's widgets are present — " (pr-str ids)))
-            (is (= (count ids) (+ (count per-a) (count per-b)))
-                "every committed widget belongs to exactly one record"))
+            (is (every? seq groups)
+                (str "each record owns at least one widget — keys "
+                     (pr-str rec-keys) " ids " (pr-str ids)))
+            (is (= (count ids) (reduce + (map count groups)))
+                (str "every committed widget belongs to exactly one record — "
+                     (pr-str ids))))
           (finally (unmount! m)))))))
