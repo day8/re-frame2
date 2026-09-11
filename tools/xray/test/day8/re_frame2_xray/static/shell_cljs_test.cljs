@@ -139,32 +139,17 @@
     (is (= :dynamic (static-persistence/<-raw (static-persistence/->raw :dynamic))))
     (is (= :static  (static-persistence/<-raw (static-persistence/->raw :static))))))
 
-(deftest persistence-load-default-empty-slot
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (static-persistence/clear!)
-    (testing "empty localStorage slot → :dynamic fallback"
-      (is (= :dynamic (static-persistence/load))))))
-
-(deftest persistence-save-and-load-round-trip
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (testing "save! + load round-trip"
-      (static-persistence/clear!)
-      (static-persistence/save! :static)
-      (is (= :static (static-persistence/load)))
-      (static-persistence/save! :dynamic)
-      (is (= :dynamic (static-persistence/load))))))
-
-(deftest persistence-fx-installed-by-set-mode
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (testing ":rf.xray/set-mode lands the value in localStorage via the fx"
-      (xray-setup!)
-      (static-persistence/clear!)
-      (frame-dispatch [:rf.xray/set-mode :static])
-      (is (= :static (static-persistence/load))
-          ":static was persisted")
-      (frame-dispatch [:rf.xray/toggle-mode])
-      (is (= :dynamic (static-persistence/load))
-          "toggle back to :dynamic was persisted"))))
+;; The three real-storage rows that lived here — `persistence-load-
+;; default-empty-slot`, `persistence-save-and-load-round-trip` and
+;; `persistence-fx-installed-by-set-mode` — moved to
+;; `day8.re-frame2-xray.static.shell-dom-cljs-test` under rf2-r51p.
+;; Each was wrapped in `(when (and (exists? js/window) (.-localStorage
+;; js/window)) ...)`, which is FALSE under `:node-test` (no jsdom in
+;; any dependency list), while `:browser-test`'s `.*-dom-cljs-test$`
+;; `:ns-regexp` never loaded this file at all — so they executed in
+;; NEITHER lane. Their new home ends `-dom-cljs-test`, which BOTH
+;; builds select, so the rows now run for real in the browser and stay
+;; inert on node behind `ls/available?`.
 
 ;; -------------------------------------------------------------------------
 ;; (3) Static surface — 3-layer chrome render

@@ -1,11 +1,24 @@
 (ns day8.re-frame2-xray.filters.persistence-cljs-test
-  "localStorage round-trip tests for the filter persistence layer
-  (rf2-ak4ms).
+  "Host-free tests for the filter persistence layer (rf2-ak4ms): the
+  `->edn` / `<-edn` algebra, the `configure!` plumbing and the
+  seed-fallback hydration paths.
 
-  These tests run in the node-runtime CLJS suite. localStorage exists
-  in `npm run test:cljs`'s shadow-cljs node-target via the
-  `dom-storage` polyfill the test-support harness installs; absence
-  is also exercised via the storage-available? guard."
+  THE REAL-STORAGE ROWS LIVE IN THE DOM SIBLING. `save!` / `load`
+  round-trips, per-instance storage-key isolation and the
+  write-through assertions moved to
+  `day8.re-frame2-xray.filters.persistence-dom-cljs-test` under
+  rf2-r51p, because only a namespace ending `-dom-cljs-test` is loaded
+  by the `:browser-test` build.
+
+  THIS DOCSTRING USED TO CLAIM localStorage EXISTED HERE, AND IT DID
+  NOT. The previous wording said localStorage exists under `npm run
+  test:cljs` \"via the `dom-storage` polyfill the test-support harness
+  installs\". No such polyfill is installed and no such package is
+  depended on — `implementation/package.json` lists no `dom-storage`,
+  no `jsdom` and no `happy-dom` in any dependency list. The rows those
+  words justified were guarded by `(and (exists? js/window)
+  (.-localStorage js/window))`, which is FALSE on node, so they
+  executed in neither lane until rf2-r51p moved them."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -40,9 +53,8 @@
   (rf/with-frame :rf/xray
     @(rf/subscribe q)))
 
-(defn- frame-dispatch [ev]
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync ev)))
+;; `frame-dispatch` went with the write-through rows to the dom sibling —
+;; every remaining test here reads, none dispatches.
 
 ;; -------------------------------------------------------------------------
 ;; (1) ->edn / <-edn round-trip
@@ -93,12 +105,18 @@
 ;; (2) save! / load round-trip (depends on localStorage being available)
 ;; -------------------------------------------------------------------------
 
-(deftest save-and-load-round-trip
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (let [filters {:in  [{:pattern :auth/*}]
-                   :out [{:pattern :mouse-move}]}]
-      (persistence/save! filters)
-      (is (= filters (persistence/load))))))
+;; The real-storage rows that lived here — `save-and-load-round-trip`,
+;; `custom-storage-key-isolates-per-instance`,
+;; `hydration-prefers-localstorage-over-seed`,
+;; `add-filter-persists-to-localstorage` and
+;; `remove-filter-persists-to-localstorage` — moved to
+;; `day8.re-frame2-xray.filters.persistence-dom-cljs-test` under
+;; rf2-r51p. Each was wrapped in `(when (and (exists? js/window)
+;; (.-localStorage js/window)) ...)`, which is FALSE under `:node-test`,
+;; while `:browser-test`'s `.*-dom-cljs-test$` `:ns-regexp` never loaded
+;; this file at all — so they executed in NEITHER lane. Their new home
+;; ends `-dom-cljs-test`, which BOTH builds select, so the rows now run
+;; for real in the browser and stay inert on node behind `ls/available?`.
 
 (deftest load-when-slot-is-empty-returns-defaults
   (persistence/clear!)
@@ -107,30 +125,6 @@
 ;; -------------------------------------------------------------------------
 ;; (3) Storage-key override via config (per-instance isolation)
 ;; -------------------------------------------------------------------------
-
-(deftest custom-storage-key-isolates-per-instance
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (testing "story testbeds set distinct keys so two Xray instances
-              do not stomp on each other's pill state"
-      ;; Instance A
-      (config/set-filters-storage-key! "story.testbed.a.filters")
-      (persistence/save! {:in [{:pattern :a}] :out []})
-      ;; Switch to instance B and confirm an empty load
-      (config/set-filters-storage-key! "story.testbed.b.filters")
-      (is (= {:in [] :out []} (persistence/load))
-          "instance B's slot starts empty even though A wrote")
-      (persistence/save! {:in [] :out [{:pattern :b}]})
-      ;; Switch back to A and confirm A's value is intact
-      (config/set-filters-storage-key! "story.testbed.a.filters")
-      (is (= {:in [{:pattern :a}] :out []}
-             (persistence/load))
-          "instance A's slot survived the B writes")
-      ;; Cleanup
-      (config/set-filters-storage-key! "story.testbed.a.filters")
-      (persistence/clear!)
-      (config/set-filters-storage-key! "story.testbed.b.filters")
-      (persistence/clear!)
-      (config/set-filters-storage-key! nil))))
 
 ;; -------------------------------------------------------------------------
 ;; (4) configure! plumbs :rf.xray/filters and :rf.xray/filters-storage-key
@@ -162,19 +156,6 @@
 ;; (5) Hydration on install — localStorage wins, seed fills the gap
 ;; -------------------------------------------------------------------------
 
-(deftest hydration-prefers-localstorage-over-seed
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (persistence/save! {:in  [{:pattern :persisted}]
-                        :out []})
-    (config/set-filter-seed! {:in [{:pattern :seed}] :out []})
-    ;; A fresh registry install rehydrates.
-    (registry/reset-for-test!)
-    (xray-setup!)
-    (is (= [{:pattern :persisted}]
-           (:in (frame-sub [:rf.xray/active-filters])))
-        "localStorage value wins")
-    (persistence/clear!)))
-
 (deftest hydration-falls-back-to-seed-when-localstorage-empty
   (persistence/clear!)
   (config/set-filter-seed! {:in  []
@@ -198,20 +179,3 @@
 ;; (6) add-filter / remove-filter persist (round-trip via the fx)
 ;; -------------------------------------------------------------------------
 
-(deftest add-filter-persists-to-localstorage
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/add-filter :in {:pattern :auth/*}])
-    (is (= {:in [{:pattern :auth/*}] :out []}
-           (persistence/load))
-        "add-filter writes through to localStorage")))
-
-(deftest remove-filter-persists-to-localstorage
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/add-filter :out {:pattern :a}])
-    (frame-dispatch [:rf.xray/add-filter :out {:pattern :b}])
-    (frame-dispatch [:rf.xray/remove-filter :out 0])
-    (is (= {:in [] :out [{:pattern :b}]}
-           (persistence/load))
-        "remove-filter writes through to localStorage")))
