@@ -524,9 +524,11 @@
   imperatively from its own view tree).
 
   `reg-view`-registered so its `subscribe` / `dispatch` calls resolve
-  against the frame it is mounted under rather than silently routing
-  to `:rf/default` (the class of bug
-  `:rf.warning/plain-fn-under-non-default-frame-once` catches). The
+  against the frame it is mounted under. As a plain fn they would not
+  resolve at all: no `:contextType`, so the ambient read returns nil and
+  RAISES `:rf.error/no-frame-context` — there is no `:rf/default` floor
+  under EP-0002 (Spec 006 §Plain-fn footgun, which superseded the retired
+  `:rf.warning/plain-fn-under-non-default-frame-once`). The
   view-id is auto-derived from the symbol per the canonical reg-view
   convention; the surrounding shell mounts this stack under `:rf/xray`,
   so all its `subscribe` calls resolve through the React-context tier

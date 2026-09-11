@@ -110,16 +110,20 @@ The facade's `reg-view` body is either:
 
   **Do not write `[views/subscriptions-panel]` here.** The vector
   form would mount the leaf as a separate plain Reagent fn component;
-  it would drop out of the surrounding frame and any `subscribe` /
-  `dispatch` inside the leaf would silently route to `:rf/default`
-  (Spec 000 §Plain Reagent fns / Spec 006 §706). The plain-call form
-  keeps the leaf body executing within the facade reg-view wrapper's
-  render — the wrapper IS the in-flight Reagent component, so
-  `current-frame-id` reads `:rf/xray` from React context and the leaf's
-  subs/dispatches see the Xray frame. (rf2-043uz pinned this — an
-  earlier slash-popover surface never opened because the input-row
-  leaf's input-text subscribe was routed to `:rf/default` while the
-  dispatch wrote to `:rf/xray`.)
+  it would drop out of the surrounding frame, and any ambient
+  `subscribe` / `dispatch` inside the leaf would then **raise**
+  `:rf.error/no-frame-context` (Spec 000 §Plain Reagent fns / Spec 006
+  §Plain-fn footgun). Under EP-0002 there is no `:rf/default` floor to
+  route to: the read resolves to nil and the operation fails fast. The
+  plain-call form keeps the leaf body executing within the facade
+  reg-view wrapper's render — the wrapper IS the in-flight Reagent
+  component, so `current-frame-id` reads `:rf/xray` from React context
+  and the leaf's subs/dispatches see the Xray frame. (rf2-043uz pinned
+  this — an earlier slash-popover surface never opened because the
+  input-row leaf's input-text subscribe went to `:rf/default` while the
+  dispatch wrote to `:rf/xray`. That was the pre-EP-0002 runtime, which
+  still had the silent floor; the same mistake today is the loud error
+  above, which is the improvement EP-0002 bought.)
 
   The same rule applies recursively to sibling leaves the view-leaf
   itself invokes (`chrome` / `feed` / `input` / `conversation` /

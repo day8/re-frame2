@@ -378,10 +378,13 @@
   [dispatch {:keys [id label mnem active?]}]
   ;; `dispatch` is the frame-bound dispatcher [[tab-bar]]'s boundary body
   ;; captures and threads in here. A plain fn invoked as a Reagent
-  ;; component would render in its OWN cycle, so `current-frame-id` would
-  ;; fall through to `:rf/default`; threading the captured `dispatch` is
-  ;; the reliable path, and under a Fresco boundary it is the only one —
-  ;; an AMBIENT dispatch inside a boundary body is a loud refusal.
+  ;; component would render in its OWN cycle with no `:contextType`, so
+  ;; `current-frame-id` would resolve nil and an ambient dispatch would
+  ;; RAISE `:rf.error/no-frame-context` — there is no `:rf/default` floor
+  ;; under EP-0002 (Spec 006 §Plain-fn footgun). Threading the captured
+  ;; `dispatch` is the reliable path, and under a Fresco boundary it is
+  ;; the only one — an AMBIENT dispatch inside a boundary body is a loud
+  ;; refusal too.
   ;;
   ;; rf2-k97c.3 (RULING 2) — the React `:key` rides in this button's own
   ;; ATTRIBUTE MAP. It used to be `^{:key id}` reader metadata on the

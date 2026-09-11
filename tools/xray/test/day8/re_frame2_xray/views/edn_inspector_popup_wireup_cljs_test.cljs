@@ -288,17 +288,18 @@
 ;; Before rf2-1yif8 `edn-inspector-popup-stack` was a plain Reagent `defn`.
 ;; Plain fns are substrate-level Reagent components: they do not carry the
 ;; `:rf/frame` React-context that `reg-view` automatically wires up, so the
-;; body's `rf/subscribe` calls fell through to `:rf/default` even when the
-;; component was mounted under a non-default frame (the shell mounts the
-;; stack under `:rf/xray`). The runtime fires
-;; `:rf.warning/plain-fn-under-non-default-frame-once` to catch exactly
-;; this class of bug.
+;; body's `rf/subscribe` calls could not see the frame the component was
+;; mounted under (the shell mounts the stack under `:rf/xray`). On the
+;; runtime of the day that meant a silent fall-through to `:rf/default`,
+;; flagged by `:rf.warning/plain-fn-under-non-default-frame-once`. BOTH
+;; HALVES OF THAT SENTENCE ARE HISTORY: EP-0002 removed the `:rf/default`
+;; floor and retired the warning, so the same plain `defn` today RAISES
+;; `:rf.error/no-frame-context` instead (Spec 006 §Plain-fn footgun).
 ;;
 ;; Post-fix the symbol is registered via `rf/reg-view`, so the auto-derived
 ;; id `:day8.re-frame2-xray.views.edn-inspector-popup/edn-inspector-popup-
 ;; stack` is resolvable through `(rf/view id)`, and subscribes inside the
-;; render body route through the surrounding `:rf/xray` frame instead of
-;; silently landing on `:rf/default`.
+;; render body resolve the surrounding `:rf/xray` frame from React context.
 
 (def ^:private popup-stack-view-id
   :day8.re-frame2-xray.views.edn-inspector-popup/edn-inspector-popup-stack)
@@ -307,9 +308,11 @@
   (testing "rf2-1yif8 — `edn-inspector-popup-stack` is `reg-view`-
             registered under its auto-derived ns/sym id, so the body's
             subscribes inherit the surrounding frame from React context
-            (the symptom under a plain `defn` was the
+            (the symptom under a plain `defn` was, on the runtime of the
+            day, the now-retired
             `:rf.warning/plain-fn-under-non-default-frame-once` warning
-            firing on every panel-gallery `:rf/xray` render)."
+            firing on every panel-gallery `:rf/xray` render; under
+            EP-0002 the same shape raises `:rf.error/no-frame-context`)."
     (setup-xray-frame!)
     (is (some? (rf/view popup-stack-view-id))
         "view is registered under the auto-derived ns/sym id")))
@@ -320,15 +323,17 @@
             We open a popup in `:rf/xray` and confirm the rendered chrome
             reflects `:rf/xray`'s stack; a popup written into
             `:rf/default` MUST NOT leak in.
-            Plain-fn regression would render `:rf/default`'s entry (or
-            nil when `:rf/xray`'s slot is empty) — that is exactly the
-            bug this test pins."
+            A plain-fn regression cannot read the surrounding frame at
+            all: under EP-0002 it raises `:rf.error/no-frame-context`
+            and this row's tree never renders — that is the bug this
+            test pins, and on the pre-EP-0002 runtime it presented as
+            `:rf/default`'s entry rendering instead."
     (setup-xray-frame!)
     ;; `:rf.xray/modal-positioning` is already registered by
     ;; `register-xray-handlers!` inside `setup-xray-frame!`.
     ;; Seed contradicting data in :rf/default + :rf/xray. If the
-    ;; subscribes silently route to :rf/default, the test would see
-    ;; the "default-only" mount-id; the correct routing sees "xray-only".
+    ;; subscribes read :rf/default, the test would see the
+    ;; "default-only" mount-id; the correct routing sees "xray-only".
     (rf/dispatch-sync
       [:rf.xray.edn-inspector-popup/open
        "default-only" {:value :default-payload :opts {}}])
