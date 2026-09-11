@@ -285,9 +285,15 @@
     named an instance — mounts
     `[panel-view]`, the element this fn has always built. A map mounts
     `[panel-view props]`. The caller decides, because only the caller
-    knows whether its panel's view takes props at all: `[trace/Panel
-    {…}]` is an arity error, not an ignored map, so this must NOT be
-    filled in from `opts` here on every panel's behalf.
+    knows whether its panel's view takes props at all — and what a stray
+    map COSTS depends on the shape behind the name. A zero-arity
+    `rf/reg-view` head takes an ARITY ERROR rather than an ignored map
+    (`segment-inspector/Popup` today); a Fresco boundary takes the single
+    props map every `defview` takes and destructures away what it does
+    not read (`trace/Panel` since rf2-fcy5 — this sentence used to cite
+    it as the arity-error example, and that stopped being true when the
+    Trace panel migrated). Either way this must NOT be filled in from
+    `opts` here on every panel's behalf.
 
   rf2-2n8q — the 4-arity is an ADDITION and the couplings `mount-resources!`
   reserves this fn for are untouched: the frame-provider wrap and the
