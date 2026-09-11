@@ -1301,6 +1301,18 @@
 
 (defn- meta-preserving-children [node]
   (cond
+    ;; rf2-k97c.3 — a FRESCO BOUNDARY head is a LEAF here. This walker
+    ;; invokes fn heads as it descends, and the shared mini-pipeline this
+    ;; panel renders now carries `[ei/edn-inspector-view …]`: calling a
+    ;; React function component outside any render raises on its first
+    ;; hook, which would take out the key answer below for an unrelated
+    ;; reason. `codec/boundary-head?` is the same one-own-property read
+    ;; (`frescoBoundary`) the codec itself uses to grade a head, so this
+    ;; needs no roster of widget names to keep in step.
+    (and (vector? node)
+         (rf.fresco.impl.codec/boundary-head? (first node)))
+    nil
+
     (and (vector? node) (fn? (first node)))
     [(apply (first node) (rest node))]
 
