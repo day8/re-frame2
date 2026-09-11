@@ -227,11 +227,25 @@
   render fn. Returns the adapter's unmount fn so the caller can
   tear the mount down without going through this ns again.
 
-  - `panel-view` — the panel's `reg-view`-registered Var (e.g.
-    `epoch-panel/Panel`). Wrapped in a Reagent component-vector so
-    React-context flows correctly per Spec 006 §706 (a plain `defn`
-    invoked as a fn-call would skip the React-context tier and the
-    panel's subscribes would route to `:rf/default`).
+  - `panel-view` — the view (or `*-bridge` callable) this panel is
+    mounted through, e.g. `epoch-panel/Panel-bridge`. Wrapped in a
+    component-VECTOR rather than CALLED, and the reason is specific to
+    this seam: THIS FN RUNS OUTSIDE ANY REACT RENDER, so calling
+    `panel-view` here would evaluate its body with no in-flight
+    component for the React-context tier to read. The ambient frame then
+    resolves to nil and a `subscribe` / `dispatch` RAISES
+    `:rf.error/no-frame-context`. There is no `:rf/default` fallback —
+    the runtime never synthesises one (Spec 006 §Plain-fn footgun;
+    `re-frame.views.provider/current-frame`).
+
+    THAT IS A FACT ABOUT THE MOUNT SEAM, NOT A GENERAL RULE ABOUT
+    CALLING VIEWS, and this docstring used to read as the general claim.
+    Inside an already-provided tree the direction REVERSES: the context
+    is read off whatever component is in flight, so a plain helper
+    CALLED from a `reg-view` / boundary body resolves through its
+    caller's `:contextType` and is fine, while the same helper in HEAD
+    position mints a `:contextType`-less component of its own and is
+    what raises. Here the problem is the absent render, not the call.
   - `mount-point` — a DOM element (or substrate-equivalent mount
     target).
   - `opts` — `{:frame <frame-id>}` minimum, defaulting to
