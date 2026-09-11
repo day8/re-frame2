@@ -141,12 +141,14 @@
   nil)
 
 (defn- mount!
-  "Mount `body` the way `shell.cljs:3100` mounts the palette — under the
-  outer `frame-provider` `mount.cljs` installs. That wrapper is the whole
-  point: a BARE mount raises `:rf.error/no-frame-context` for an entirely
-  different reason (`Modal` is itself a `reg-view`, and a `reg-view` at a
-  bare root has no context to read), which would be a false positive for
-  the fault under test.
+  "Mount `body` the way `shell.cljs` mounts the palette at the shell-view
+  root — under the outer `frame-provider` `mount.cljs` installs. That
+  wrapper is the whole point: a BARE mount fails for an entirely
+  different reason, which would be a false positive for the fault under
+  test. Under rf2-k97c.3 that different reason has simply changed hands
+  and stayed a refusal — `Modal` is the `as-component` bridge onto the
+  `ModalView` BOUNDARY now, and a boundary at a bare root resolves no
+  frame from React context either. The wrapper is what supplies one.
 
   Committed synchronously — React 19's `root.render` is otherwise async
   and the first assertion would read an empty container."

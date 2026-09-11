@@ -7,9 +7,24 @@
   - 16px type icon · label · right-aligned hint (epoch / coord / shortcut)
   - Arrows navigate · Enter invokes · Ctrl+Enter pops out
 
-  The component is a plain Reagent fn — the facade
-  `palette.cljs` wraps it in `reg-view` so its subscribes route to
-  the surrounding `:rf/xray` frame via React context.
+  ## rf2-k97c.3 — this namespace is PURE, and the reads live one level up
+
+  [[palette-view]] is a plain fn that takes its reads' VALUES and answers
+  hiccup. Nothing here subscribes. The facade `palette.cljs` owns the
+  `rf.fresco/defview` BOUNDARY — it reads the four palette keys through
+  `rf.fresco/sub` and calls [[palette-view]] with the values plus a
+  frame-bound dispatcher. That read-and-call split is `defview`'s own
+  documented extract-a-helper spelling and the shape every migrated Xray
+  view in this epic uses.
+
+  THE PURITY IS LOAD-BEARING, not incidental. `rf.fresco/sub` refuses
+  outside a boundary render, naming the query
+  (`:rf.error/fresco-sub-outside-render`), so a helper that read for
+  itself would be callable only inside a real React commit. Leaving this
+  fn pure keeps it callable from anywhere — which is what gives the node
+  lane a door onto the SHIPPED tree rather than a parallel fixture. That
+  door is `test-helpers.palette-tree`, which mirrors the boundary's reads
+  with `rf/subscribe` and drives this fn.
 
   ## Modal layer
 
@@ -49,15 +64,14 @@
 
   ## Why every deferred dispatch captures the surrounding frame
 
-  Subscribes resolve through the React-context tier at RENDER time —
-  React's `_currentValue` for the `frame-context` is set to the
-  instance frame while the body of the `frame-provider`'s children is
-  rendering, so `(rf/subscribe …)` from inside the palette picks up
-  the right frame with no explicit opt.
+  Reads resolve through the React-context tier at RENDER time — the
+  frame context's current value is the instance frame while the boundary
+  body runs, so the facade's `rf.fresco/sub` calls pick up the right
+  frame with no explicit opt.
 
   Dispatches from `:on-click` / `:on-change` / `:on-key-down` /
   `:on-mouse-enter` fire LATER — after render commits and React has
-  POPPED `_currentValue` back to the context's default, which is
+  POPPED that value back to the context's default, which is
   `re-frame.adapter.context/no-provider-sentinel` and NOT `:rf/default`.
   At click time BOTH tiers of the frame resolution chain come up empty —
   the dynamic var has unwound and the React-context tier reads the
@@ -68,14 +82,16 @@
   Enter, click on a row, ESC, backdrop click all refuse.
 
   So each deferred handler captures the SURROUNDING instance frame:
-  `palette.cljs`'s `Modal` `reg-view` body has a frame-aware `dispatch`
-  injected by the macro and threads it into `palette-view`, which fans
-  it out to every row + key handler. Each deferred handler calls that
+  `palette.cljs`'s `ModalView` boundary binds it through
+  `(:dispatch (rf/capture-frame))` — core's own door, which answers the
+  boundary's declared frame inside a body and replaces the `dispatch`
+  the `reg-view` era injected lexically (rf2-nesy9; `defview` binds no
+  name). It threads that dispatcher into [[palette-view]], which fans it
+  out to every row + key handler. Each deferred handler calls that
   captured `dispatch` (never the global `rf/dispatch`, never a
   `{:frame :rf/xray}` literal), so N isolated instances each route to
   their own frame."
-  (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.palette.sources :as sources]
+  (:require [day8.re-frame2-xray.palette.sources :as sources]
             [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack mono-stack type-scale]]))
@@ -223,10 +239,18 @@
   and this row both absent, with the refusal reaching a window `error`
   listener.
 
-  `palette-view` already binds `query` from the same subscription, so
-  passing it removes the duplicate read outright rather than donating it
-  upward into the enclosing boundary's window — strictly better than a
-  bare `(empty-row)` inline, which is the other spelling of the repair."
+  `palette-view` already binds `query`, so passing it removes the
+  duplicate read outright rather than donating it upward into the
+  enclosing boundary's window — strictly better than a bare
+  `(empty-row)` inline, which is the other spelling of the repair.
+
+  rf2-k97c.3 — THAT REPAIR IS WHY THIS HELPER NEEDED NOTHING FROM THE
+  FRESCO MIGRATION, and it is worth saying because a census taken before
+  #9657 still names this fn as the one ambient read among Xray's plain-
+  `defn` head targets. It reads nothing now. The migration's hoist landed
+  one level up instead, on `palette-view`'s three reads, which moved into
+  the `palette/ModalView` boundary; this fn was already in the shape that
+  hoist produces."
   [query]
   [:li {:data-testid "rf-xray-palette-empty"
         :style       (merge (row-style false)
@@ -285,13 +309,18 @@
 (defn- handle-input-keydown
   ;; EP-0002 — a deferred key handler fires at CLICK time,
   ;; after render has committed and the frame context has unwound, so it
-  ;; carries NO ambient frame stamp. It must therefore not `rf/subscribe`
-  ;; the cursor itself (that ambient read raises `:rf.error/no-frame-context`
-  ;; under no scope rather than falling through to a synthesised
-  ;; `:rf/default`). The `cursor` is read at RENDER time by `palette-view`
-  ;; (where the surrounding instance frame's React context is live) and
-  ;; threaded in alongside the frame-aware `dispatch`, mirroring how the
-  ;; dispatch itself is injected rather than resolved at click time.
+  ;; carries NO ambient frame stamp. It must therefore not read the
+  ;; cursor itself. Under rf2-k97c.3 that is doubly true and the refusal
+  ;; is a different one: `rf.fresco/sub` is legal ONLY inside a boundary
+  ;; render and raises `:rf.error/fresco-sub-outside-render` naming the
+  ;; query, where the `reg-view` era's ambient `rf/subscribe` raised
+  ;; `:rf.error/no-frame-context` instead. Both refuse; neither falls
+  ;; through to a synthesised `:rf/default`.
+  ;;
+  ;; The `cursor` is read at RENDER time by the `palette/ModalView`
+  ;; boundary (where the frame context is live), handed to `palette-view`
+  ;; and threaded in here alongside the frame-bound `dispatch` — the same
+  ;; treatment, for the same reason, as the dispatcher itself.
   [dispatch cursor ^js e results]
   (let [k         (.-key e)
         ctrl?     (or (.-ctrlKey e) (.-metaKey e))
@@ -319,18 +348,35 @@
 ;; ---- main view ---------------------------------------------------------
 
 (defn palette-view
-  "The hiccup for the open palette. Caller (`palette/Modal`) gates
-  the mount on `:rf.xray/palette-open?` — this fn assumes it's open
-  and always renders.
+  "The hiccup for the open palette, as a PURE function of its reads'
+  values. Caller (`palette/ModalView`) gates the mount on
+  `:rf.xray/palette-open?` — this fn assumes it's open and always
+  renders.
 
-  `dispatch` is the frame-aware dispatcher injected by the
-  `palette/Modal` `reg-view` body — threaded into every row + key
-  handler so deferred handlers land on the surrounding instance frame,
-  not a `{:frame :rf/xray}` literal."
-  [dispatch]
-  (let [query   (or @(rf/subscribe [:rf.xray/palette-query]) "")
-        results @(rf/subscribe [:rf.xray/palette-results])
-        cursor  @(rf/subscribe [:rf.xray/palette-cursor])]
+  ## The arguments are the boundary's reads (rf2-k97c.3)
+
+  `dispatch`   — the frame-bound dispatcher the boundary captured with
+                 `(:dispatch (rf/capture-frame))`, threaded into every
+                 row + key handler so deferred handlers land on the
+                 surrounding instance frame, not a `{:frame :rf/xray}`
+                 literal. See the ns docstring for why that matters.
+  `raw-query`  — `:rf.xray/palette-query`, passed through UNDEFAULTED.
+  `results`    — `:rf.xray/palette-results`.
+  `cursor`     — `:rf.xray/palette-cursor`.
+
+  THE `(or … \"\")` LIVES HERE RATHER THAN AT THE BOUNDARY, so the pure
+  fn defends itself for every caller — the boundary, the node lane's
+  `test-helpers.palette-tree` door, and any future one — instead of each
+  caller having to remember that an unset query reads nil and that a
+  `nil` `:value` turns the input into an uncontrolled component.
+
+  IT SUBSCRIBES TO NOTHING, AND THAT IS THE POINT. `rf.fresco/sub`
+  refuses outside a boundary render, so a reading helper would be
+  callable only inside a real React commit; taking values keeps this
+  callable from the node lane, which is what lets a node row walk the
+  SHIPPED tree."
+  [dispatch raw-query results cursor]
+  (let [query (or raw-query "")]
     ;; Shared backdrop + dialog scaffold. The palette keeps
     ;; its own `backdrop-style` / `dialog-style` and its `:auto-focus`
     ;; input owning Esc (handled in `handle-input-keydown`, exactly the
