@@ -51,8 +51,10 @@
       ns).
     - The L1 ribbon mute-count indicator + the unmute manager modal
       mount points live in `shell.cljs` so the chrome owns its
-      placement; this ns exposes the `Modal` `reg-view` for the
-      shell to mount alongside the other modals.
+      placement; this ns exposes `Modal` for the shell to mount
+      alongside the other modals. Since rf2-k97c.3 `Modal` and
+      `RowContextMenu` are migration BRIDGES onto Fresco boundaries
+      rather than `rf/reg-view`s — see their docstrings.
 
   ## Storage shape
 
@@ -67,6 +69,7 @@
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.local-storage :as ls]
             [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
@@ -257,82 +260,145 @@
       s
       (str (subs s 0 25) "…"))))
 
-(defn row-context-menu
-  "Hiccup for the row's right-click context menu. Pure rendering;
-  state lives in `:rf.xray/row-context-menu`. Rendered at the
+(defn row-context-menu-tree
+  "Hiccup for the row's right-click context menu, as a pure function of
+  the RESOLVED menu state and a frame-aware `dispatch`. Rendered at the
   shell-view root so the menu floats above the L2 list's
   overflow-hidden clipping.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
-  `RowContextMenu` `reg-view` body so the menu actions land on the
-  surrounding instance frame, not a `{:frame :rf/xray}` literal."
+  SPLIT OUT OF [[row-context-menu]] BY rf2-k97c.3, and the split is about
+  WHERE THE READ SITS rather than about inlining. [[RowContextMenuView]]
+  is a Fresco boundary, and `rf.fresco/sub` is legal only inside a
+  boundary render (`:rf.error/fresco-sub-outside-render`); an ambient
+  `rf/subscribe` is refused inside one
+  (`:rf.error/ambient-frame-refused`). So the read is HOISTED into each
+  lane's own entry point and the markup below reads nothing — which is
+  what keeps it drivable from the node lane without a React commit.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher its caller
+  captured, so the menu actions land on the surrounding instance frame,
+  not a `{:frame :rf/xray}` literal."
+  [dispatch menu]
+  (let [{:keys [event-id x y]} menu
+        close! (fn [] (dispatch [:rf.xray/close-row-context-menu]))]
+    [:<>
+     ;; Invisible backdrop catches outside-click → close. Sized to
+     ;; the full viewport with a z-index just below the menu so the
+     ;; menu sits on top.
+     [:div {:data-testid "rf-xray-row-context-menu-backdrop"
+            :on-click    (fn [^js e]
+                           (.stopPropagation e)
+                           (close!))
+            :on-context-menu (fn [^js e]
+                               (.preventDefault e)
+                               (close!))
+            :style       {:position "fixed"
+                          :top      0
+                          :left     0
+                          :right    0
+                          :bottom   0
+                          :z-index  2147483049
+                          :background "transparent"}}]
+     [:ul {:data-testid "rf-xray-row-context-menu"
+           :data-rf-xray-event-id (str event-id)
+           :on-click    (fn [^js e] (.stopPropagation e))
+           :on-key-down (fn [^js e]
+                          (when (= "Escape" (.-key e))
+                            (close!)))
+           :style (assoc (menu-style x y)
+                         :list-style "none"
+                         :margin 0)}
+      [:li {:style {:padding "4px 12px 6px"
+                    :color   (:text-tertiary tokens)
+                    :font-size (:caption type-scale)
+                    :border-bottom (str "1px solid " (:border-subtle tokens))
+                    :margin-bottom "4px"
+                    :font-family mono-stack
+                    :overflow "hidden"
+                    :text-overflow "ellipsis"
+                    :white-space "nowrap"}}
+       (str event-id)]
+      [:li
+       [:button {:data-testid "rf-xray-row-context-menu-mute"
+                 :on-click    (fn [_e]
+                                (dispatch [:rf.xray/mute-event-id event-id])
+                                (close!))
+                 :title       (str "Mute " event-id " — hide from spine; reversible")
+                 :style       (menu-item-style)}
+        (str "Mute " (truncate-id event-id))]]
+      [:li
+       [:button {:data-testid "rf-xray-row-context-menu-hide-event-type"
+                 :on-click    (fn [_e]
+                                (dispatch [:rf.xray/hide-event-type event-id])
+                                (close!))
+                 :title       "Open the OUT-filter popup pre-filled with this event-id"
+                 :style       (menu-item-style)}
+        "Always hide this event-type…"]]]]))
+
+(defn row-context-menu
+  "The menu's NODE-LANE DOOR — ambient read + [[row-context-menu-tree]].
+  Answers nil when no menu is open.
+
+  Signature unchanged by rf2-k97c.3 (`[dispatch]`), deliberately. This is
+  the arity a caller OUTSIDE a boundary render holds, and the reason it
+  survives the migration is that `rf.fresco/sub` would refuse there
+  (`:rf.error/fresco-sub-outside-render`) — so the Fresco lane's read
+  lives in [[RowContextMenuView]] and this one lives here, rather than
+  either lane donating its read to the other."
   [dispatch]
   (when-let [menu @(rf/subscribe [:rf.xray/row-context-menu])]
-    (let [{:keys [event-id x y]} menu
-          close! (fn [] (dispatch [:rf.xray/close-row-context-menu]))]
-      [:<>
-       ;; Invisible backdrop catches outside-click → close. Sized to
-       ;; the full viewport with a z-index just below the menu so the
-       ;; menu sits on top.
-       [:div {:data-testid "rf-xray-row-context-menu-backdrop"
-              :on-click    (fn [^js e]
-                             (.stopPropagation e)
-                             (close!))
-              :on-context-menu (fn [^js e]
-                                 (.preventDefault e)
-                                 (close!))
-              :style       {:position "fixed"
-                            :top      0
-                            :left     0
-                            :right    0
-                            :bottom   0
-                            :z-index  2147483049
-                            :background "transparent"}}]
-       [:ul {:data-testid "rf-xray-row-context-menu"
-             :data-rf-xray-event-id (str event-id)
-             :on-click    (fn [^js e] (.stopPropagation e))
-             :on-key-down (fn [^js e]
-                            (when (= "Escape" (.-key e))
-                              (close!)))
-             :style (assoc (menu-style x y)
-                           :list-style "none"
-                           :margin 0)}
-        [:li {:style {:padding "4px 12px 6px"
-                      :color   (:text-tertiary tokens)
-                      :font-size (:caption type-scale)
-                      :border-bottom (str "1px solid " (:border-subtle tokens))
-                      :margin-bottom "4px"
-                      :font-family mono-stack
-                      :overflow "hidden"
-                      :text-overflow "ellipsis"
-                      :white-space "nowrap"}}
-         (str event-id)]
-        [:li
-         [:button {:data-testid "rf-xray-row-context-menu-mute"
-                   :on-click    (fn [_e]
-                                  (dispatch [:rf.xray/mute-event-id event-id])
-                                  (close!))
-                   :title       (str "Mute " event-id " — hide from spine; reversible")
-                   :style       (menu-item-style)}
-          (str "Mute " (truncate-id event-id))]]
-        [:li
-         [:button {:data-testid "rf-xray-row-context-menu-hide-event-type"
-                   :on-click    (fn [_e]
-                                  (dispatch [:rf.xray/hide-event-type event-id])
-                                  (close!))
-                   :title       "Open the OUT-filter popup pre-filled with this event-id"
-                   :style       (menu-item-style)}
-          "Always hide this event-type…"]]]])))
+    (row-context-menu-tree dispatch menu)))
 
-(rf/reg-view RowContextMenu
-  "The row context menu — rendered at the shell-view root so the
-  popover floats above the L2 list's clipping. Per rf2-in6l2
-  `reg-view`-registered so subscribes resolve to `:rf/xray`.
+(rf.fresco/defview ^:private RowContextMenuView
+  "The row context menu — a FRESCO BOUNDARY (rf2-k97c.3), not an
+  `rf/reg-view`. Rendered at the shell-view root so the popover floats
+  above the L2 list's clipping.
 
-  rf2-nesy9 — threads the reg-view-injected frame-aware `dispatch` so
-  menu actions land on the surrounding instance frame."
+  CLOSED-STATE COST IS UNCHANGED — one subscription and a gate.
+  `rf.fresco/sub` records its edge where the read happens, so the
+  not-taken branch contributes no edge.
+
+  THE DISPATCH IS FRAME-CARRYING, captured here at render time
+  (rf2-nesy9). `rf/current-frame-id` answers the declared frame inside a
+  Fresco body — it neither reads nor dispatches, so the boundary's
+  refusal tier does not touch it — and an explicitly carried
+  `{:frame <id>}` still answers, because that tier deletes the ambient
+  FIND and not the CARRYING. This is what replaced `reg-view`'s
+  lexically injected bare `dispatch`, which a `defview` body does not
+  bind.
+
+  PRIVATE; [[RowContextMenu]] in front of it is the public name the
+  shell already mounts."
+  [_props]
+  (when-let [menu (rf.fresco/sub [:rf.xray/row-context-menu])]
+    (let [frame (rf/current-frame-id)]
+      (row-context-menu-tree (fn [ev] (rf/dispatch ev {:frame frame})) menu))))
+
+(def ^:private RowContextMenu-component
+  "The React component [[RowContextMenuView]] presents as, for a
+  non-Fresco parent. Declared once at top level beside the view, as
+  `rf.fresco/as-component`'s contract requires — deriving it per render
+  would mint a new component type every time and remount the menu."
+  (rf.fresco/as-component RowContextMenuView))
+
+(defn RowContextMenu
+  "The row context menu's public callable — what `shell.cljs` mounts as
+  a hiccup head at the shell-view root.
+
+  Since rf2-k97c.3 it is the MIGRATION BRIDGE rather than the view:
+  Reagent-shaped hiccup interoping to the React component
+  [[RowContextMenuView]] presents as. `shell-view` is still an
+  `rf/reg-view` tree, and the enclosing `rf/frame-provider` is what puts
+  the instance frame in React context for it. The open/closed gate is
+  inside the view, so this is always mounted and renders nothing while
+  the menu is closed — the same shape a mounted `reg-view` returning nil
+  had.
+
+  SCAFFOLDING WITH A DEFINED END: when the shell is itself a Fresco
+  tree, [[RowContextMenuView]] takes this name directly and the `[:>]`
+  and the two defs above it go."
   []
-  (row-context-menu dispatch))
+  [:> RowContextMenu-component {}])
 
 ;; ---- Modal --------------------------------------------------------------
 
@@ -448,8 +514,15 @@
         ;; which Reagent honours and Fresco's codec reads nowhere. Both
         ;; of `mute-row`'s arguments are positional, so there is no props
         ;; map to hold the key and inserting one would shift them.
+        ;;
+        ;; rf2-k97c.3 — `mute-row` is CALLED rather than headed: it is a
+        ;; plain fn answering hiccup, which Fresco grades a loud error in
+        ;; head position (HD-016 — a plain function call INLINES into the
+        ;; enclosing boundary). The fragment stays exactly as rf2-a38l
+        ;; left it; it carries the key without adding a DOM node, which
+        ;; keeps `mute-row` the presentational helper it is.
         (for [id (sort-by str muted-ids)]
-          [:<> {:key (str id)} [mute-row dispatch id]])))
+          [:<> {:key (str id)} (mute-row dispatch id)])))
 
 (defn- clear-all-button
   [dispatch]
@@ -467,56 +540,114 @@
                           :margin-left   "auto"}}
    "Unmute all"])
 
-(defn dialog
+(defn dialog-tree
   "The mute manager modal — backdrop + dialog scaffold (rf2-7oxvd)
-  around the manager body. Pure hiccup.
+  around the manager body — as a pure function of its RESOLVED reads and
+  a frame-aware `dispatch`. Returns the full
+  `[:div backdrop [:div dialog …]]` tree.
 
-  Returns the full `[:div backdrop [:div dialog …]]` tree (the
+  SPLIT OUT OF [[dialog]] BY rf2-k97c.3, for the same reason
+  [[row-context-menu-tree]] was: [[ModalView]] is a Fresco boundary, and
+  the two lanes cannot share one read. `rf.fresco/sub` is legal only
+  inside a boundary render (`:rf.error/fresco-sub-outside-render`) and an
+  ambient `rf/subscribe` is refused inside one
+  (`:rf.error/ambient-frame-refused`), so each lane hoists its own read
+  and this fn reads nothing at all.
+
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher its caller
+  captured — threaded to header / rows / clear-all so unmute actions land
+  on the surrounding instance frame, not a `{:frame :rf/xray}` literal."
+  [dispatch {:keys [muted positioning]}]
+  ;; rf2-7oxvd — shared backdrop + dialog scaffold. Keeps this modal's
+  ;; own `backdrop-style` / `dialog-style`, its `tab-index "-1"` dialog
+  ;; root (the empty-state body has no focusable child, so the trap
+  ;; pins focus on the root), and its dialog-level Esc handler.
+  ;; `modal-chrome` owns the positioning attribute, the click-outside
+  ;; dismiss, `a11y/dialog-attrs` + the `a11y/dialog-ref` focus trap.
+  ;; It is CALLED, never used as a hiccup head, so Fresco's "a plain fn
+  ;; in head position is a loud error" rule never meets it, and the
+  ;; `:ref` it installs crosses Fresco's codec untouched.
+  (modal-chrome/modal-chrome
+    {:positioning        positioning
+     :backdrop-style     (backdrop-style positioning)
+     :dialog-style       (dialog-style)
+     :on-dismiss         #(dispatch [:rf.xray/close-mute-manager])
+     :labelled-by        "rf-xray-mute-manager-title"
+     :backdrop-testid    "rf-xray-mute-manager-backdrop"
+     :dialog-testid      "rf-xray-mute-manager-dialog"
+     :dialog-tab-index   "-1"
+     :on-dialog-key-down (fn [^js e]
+                           (when (= "Escape" (.-key e))
+                             (dispatch [:rf.xray/close-mute-manager])))}
+   (header dispatch)
+   (if (empty? muted)
+     (empty-state)
+     [:<>
+      (list-section dispatch muted)
+      [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
+       (clear-all-button dispatch)]])))
+
+(defn dialog
+  "The modal's NODE-LANE DOOR — ambient reads + [[dialog-tree]]. Returns
+  the full `[:div backdrop [:div dialog …]]` tree; the
   `modals-aria-cljs-test` renders this fn directly and walks for the
-  dialog node). `spine-filters/Modal` gates on
-  `:rf.xray/mute-manager-open?` and calls this fn.
+  dialog node.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
-  `Modal` `reg-view` body — threaded to header / rows / clear-all so
-  unmute actions land on the surrounding instance frame, not a
-  `{:frame :rf/xray}` literal."
+  Signature unchanged by rf2-k97c.3 (`[dispatch]`), deliberately, and
+  that is load-bearing rather than incidental. This is the arity a caller
+  OUTSIDE a boundary render holds, and `rf.fresco/sub` would refuse there
+  (`:rf.error/fresco-sub-outside-render`) — so letting the reads donate
+  upward into [[ModalView]]'s window would have narrowed this fn to being
+  callable only inside a real React commit. The reads are HOISTED into
+  each lane's own entry point instead; see [[dialog-tree]].
+
+  Unlike [[ModalView]] this does NOT gate on
+  `:rf.xray/mute-manager-open?` — the open/closed gate is the caller's,
+  as it always was, so this never answers nil."
   [dispatch]
-  (let [muted       @(rf/subscribe [:rf.xray/muted-event-ids])
-        positioning @(rf/subscribe [:rf.xray/modal-positioning])]
-    ;; rf2-7oxvd — shared backdrop + dialog scaffold. Keeps this modal's
-    ;; own `backdrop-style` / `dialog-style`, its `tab-index "-1"` dialog
-    ;; root (the empty-state body has no focusable child, so the trap
-    ;; pins focus on the root), and its dialog-level Esc handler.
-    ;; `modal-chrome` owns the positioning attribute, the click-outside
-    ;; dismiss, `a11y/dialog-attrs` + the `a11y/dialog-ref` focus trap.
-    (modal-chrome/modal-chrome
-      {:positioning        positioning
-       :backdrop-style     (backdrop-style positioning)
-       :dialog-style       (dialog-style)
-       :on-dismiss         #(dispatch [:rf.xray/close-mute-manager])
-       :labelled-by        "rf-xray-mute-manager-title"
-       :backdrop-testid    "rf-xray-mute-manager-backdrop"
-       :dialog-testid      "rf-xray-mute-manager-dialog"
-       :dialog-tab-index   "-1"
-       :on-dialog-key-down (fn [^js e]
-                             (when (= "Escape" (.-key e))
-                               (dispatch [:rf.xray/close-mute-manager])))}
-     (header dispatch)
-     (if (empty? muted)
-       (empty-state)
-       [:<>
-        (list-section dispatch muted)
-        [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
-         (clear-all-button dispatch)]]))))
+  (dialog-tree dispatch
+               {:muted       @(rf/subscribe [:rf.xray/muted-event-ids])
+                :positioning @(rf/subscribe [:rf.xray/modal-positioning])}))
 
-(rf/reg-view Modal
-  "The mute manager modal. Renders only when
-  `:rf.xray/mute-manager-open?` is true; closed-state is one
-  subscribe + a `when`. Per rf2-in6l2 `reg-view`-registered so the
-  body's subscribes resolve through React-context to `:rf/xray`."
+(rf.fresco/defview ^:private ModalView
+  "The mute manager modal — a FRESCO BOUNDARY (rf2-k97c.3), not an
+  `rf/reg-view`. Renders only when `:rf.xray/mute-manager-open?` is true.
+
+  CLOSED-STATE COST IS UNCHANGED — one subscription and a gate. The other
+  two reads sit inside the `when`, and `rf.fresco/sub` records its edge
+  where the read happens, so a branch not taken contributes no edge. That
+  is Fresco's documented behaviour rather than an accident, and it is why
+  the short-circuit survived the migration intact.
+
+  THE DISPATCH IS FRAME-CARRYING, captured here at render time
+  (rf2-nesy9) — see [[RowContextMenuView]], which says the same thing at
+  more length.
+
+  PRIVATE; [[Modal]] in front of it is the public name the shell already
+  mounts."
+  [_props]
+  (when (rf.fresco/sub [:rf.xray/mute-manager-open?])
+    (let [frame (rf/current-frame-id)]
+      (dialog-tree (fn [ev] (rf/dispatch ev {:frame frame}))
+                   {:muted       (rf.fresco/sub [:rf.xray/muted-event-ids])
+                    :positioning (rf.fresco/sub [:rf.xray/modal-positioning])}))))
+
+(def ^:private Modal-component
+  "The React component [[ModalView]] presents as, for a non-Fresco
+  parent. Declared once at top level, for the same reason as
+  [[RowContextMenu-component]]."
+  (rf.fresco/as-component ModalView))
+
+(defn Modal
+  "The mute manager modal's public callable — what `shell.cljs` mounts as
+  a hiccup head at the shell-view root.
+
+  Since rf2-k97c.3 it is the MIGRATION BRIDGE rather than the view; see
+  [[RowContextMenu]], which says the same thing at more length. The
+  open/closed gate is inside [[ModalView]], so this is always mounted and
+  renders nothing while the manager is closed."
   []
-  (when @(rf/subscribe [:rf.xray/mute-manager-open?])
-    (dialog dispatch)))
+  [:> Modal-component {}])
 
 ;; ---- ribbon indicator (mounted from shell.cljs) -------------------------
 
@@ -528,8 +659,10 @@
   Mounted inline in the L1 ribbon next to the REDACTED indicator —
   surfaces the mute state without claiming a permanent ribbon slot.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
-  caller's `reg-view` body."
+  `dispatch` (rf2-nesy9) is the frame-aware dispatcher its caller
+  captured. CALLED rather than headed — it is a plain fn answering
+  hiccup, which Fresco grades a loud error in head position — and
+  `shell.cljs` has always called it."
   [dispatch muted-count]
   (when (pos? muted-count)
     [:button {:data-testid "rf-xray-ribbon-mute-indicator"
