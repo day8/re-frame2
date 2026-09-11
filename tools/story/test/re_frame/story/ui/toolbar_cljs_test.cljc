@@ -26,13 +26,10 @@
             #?@(:cljs [[re-frame.story.ui.cofx :as rf.story.ui.cofx]
                        [re-frame.story.ui.toolbar :as rf.story.ui.toolbar]])))
 
-#?(:cljs
-   (defn- browser?
-     "True when running in a context with a working `js/window.localStorage`.
-     Node-test (the shadow `:node-test` target) returns false; browser-
-     test returns true. Mirrors the gate in `story_help_cljs_test`."
-     []
-     (and (exists? js/window) (.-localStorage js/window))))
+;; The `browser?` predicate that stood here is gone with the rows it
+;; gated (rf2-r51p). It routed between a lane that could not run them and
+;; no other lane at all; the dom sibling now routes between two lanes
+;; that BOTH load the file, with a visible skip on the node side.
 
 ;; rf2-96y71s: the `:active-modes` URL contract lives in ONE place.
 ;; The pure `modes=` parser and the registrar-pruning helper are now
@@ -200,15 +197,12 @@
 ;;
 ;; The localStorage / `js/window` surfaces only exist under CLJS.
 
-#?(:cljs
-   (deftest cljs-storage-roundtrip
-     (testing "save-modes-to-storage! + load-modes-from-storage round-trip"
-       (when (browser?)
-         (rf.story.ui.toolbar/save-modes-to-storage! [:Mode.app/dark :Mode.app/light])
-         (is (= [:Mode.app/dark :Mode.app/light]
-                (rf.story.ui.toolbar/load-modes-from-storage)))
-         (rf.story.ui.toolbar/save-modes-to-storage! [])
-         (is (= [] (rf.story.ui.toolbar/load-modes-from-storage)))))))
+;; `cljs-storage-roundtrip` MOVED to
+;; `re-frame.story.ui.toolbar-storage-dom-cljs-test` under rf2-r51p, with
+;; the two hydrate rows below it. Each was guarded by
+;; `(when (browser?) ...)` here, and this namespace ends `-cljs-test`, so
+;; `:browser-test` never loaded them while `:node-test` — which has no
+;; `window.localStorage` — skipped every body: they ran in neither lane.
 
 #?(:cljs
    (deftest cljs-toggle-writes-shell-state
@@ -239,30 +233,16 @@
        (rf.story.ui.toolbar/toggle-mode! :Mode.app/x)
        (is (= [:Mode.app/x] (:active-modes (rf.story.ui.state/get-state))))
        (rf.story.ui.toolbar/reset-modes!)
-       (is (= [] (:active-modes (rf.story.ui.state/get-state))))
-       (when (browser?)
-         (is (= [] (rf.story.ui.toolbar/load-modes-from-storage)))))))
+       ;; The SHELL-STATE half of this claim runs here. The storage half
+       ;; was dead, so rf2-r51p SPLIT the row rather than moving it whole
+       ;; — moving it would have taken this live assertion off the node
+       ;; lane. See `reset-modes-persists-empty` in
+       ;; `re-frame.story.ui.toolbar-storage-dom-cljs-test`.
+       (is (= [] (:active-modes (rf.story.ui.state/get-state)))))))
 
-#?(:cljs
-   (deftest cljs-hydrate-from-storage-only-when-empty
-     (testing "hydrate skips when the slot is already populated"
-       (when (browser?)
-         (rf.story/reg-mode :Mode.app/x {:args {}})
-         (rf.story/reg-mode :Mode.app/y {:args {}})
-         (rf.story.ui.toolbar/save-modes-to-storage! [:Mode.app/x])
-         (rf.story.ui.state/swap-state! rf.story.ui.state/set-active-modes [:Mode.app/y])
-         (rf.story.ui.toolbar/hydrate-modes-from-storage!)
-         (is (= [:Mode.app/y] (:active-modes (rf.story.ui.state/get-state)))
-             "non-empty slot is preserved")))))
-
-#?(:cljs
-   (deftest cljs-hydrate-from-storage-prunes-stale
-     (testing "hydrate drops mode ids not in the registrar"
-       (when (browser?)
-         (rf.story/reg-mode :Mode.app/x {:args {}})
-         (rf.story.ui.toolbar/save-modes-to-storage! [:Mode.app/x :Mode.app/zzz])
-         (rf.story.ui.toolbar/hydrate-modes-from-storage!)
-         (is (= [:Mode.app/x] (:active-modes (rf.story.ui.state/get-state))))))))
+;; The two `hydrate-modes-from-storage!` rows (precedence and stale-id
+;; pruning) MOVED to `re-frame.story.ui.toolbar-storage-dom-cljs-test`
+;; alongside the round-trip above — same reason, same rf2-r51p.
 
 #?(:cljs
    (deftest cljs-toolbar-strip-renders-chip-per-mode

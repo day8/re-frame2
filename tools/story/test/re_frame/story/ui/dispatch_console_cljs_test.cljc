@@ -20,15 +20,12 @@
                        [re-frame.registrar :as rf.registrar]
                        [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]])))
 
-#?(:cljs
-   (defn- browser?
-     "True iff `js/window.localStorage` is available — mirrors the gate
-     in `story_help_cljs_test`. The node-runtime test target returns
-     false; browser-runner returns true. localStorage round-trip tests
-     skip silently when this is false."
-     []
-     (boolean
-       (and (exists? js/window) (.-localStorage js/window)))))
+;; The `browser?` predicate that stood here is gone with the rows it
+;; gated (rf2-r51p). "Skip silently when this is false" was the whole
+;; defect: nothing else ever ran them, so the silence was permanent
+;; rather than a routing decision. The dom sibling keeps an equivalent
+;; predicate, but there it routes between two lanes that BOTH load the
+;; file, and its false branch asserts a visible skip.
 
 ;; ---- fixtures (CLJS) -----------------------------------------------------
 
@@ -298,32 +295,13 @@
          (is (= "" (get-in @rf.story.ui.dispatch-console/input-state [vid :event-id-input])))
          (is (= "" (get-in @rf.story.ui.dispatch-console/input-state [vid :payload-input])))))))
 
-#?(:cljs
-   (deftest cljs-history-localstorage-roundtrip
-     (testing "save-history! → load-history! survives across reset"
-       (when (browser?)
-         (let [vid    :story.persist/v
-               entry  (rf.story.ui.dispatch-console/build-history-entry :counter/inc nil :dispatch
-                                              1700000000000)
-               one    [entry]]
-           (rf.story.ui.dispatch-console/save-history! vid one)
-           ;; Drop in-memory state to simulate a reload.
-           (reset! rf.story.ui.dispatch-console/history-state {})
-           (let [loaded (rf.story.ui.dispatch-console/load-history! vid)]
-             (is (= 1 (count loaded)))
-             (is (= :counter/inc (:event-id (first loaded))))))))))
-
-#?(:cljs
-   (deftest cljs-current-history-hydrates-once
-     (testing "current-history hydrates from localStorage on first access"
-       (when (browser?)
-         (let [vid   :story.hyd/v
-               entry (rf.story.ui.dispatch-console/build-history-entry :ev/x nil :dispatch 17)]
-           (rf.story.ui.dispatch-console/save-history! vid [entry])
-           (reset! rf.story.ui.dispatch-console/history-state {})
-           (let [h (rf.story.ui.dispatch-console/current-history vid)]
-             (is (= 1 (count h)))
-             (is (= :ev/x (:event-id (first h))))))))))
+;; The localStorage round-trip rows (`save-history!` → `load-history!`
+;; across a dropped ratom, and `current-history`'s first-access hydrate)
+;; MOVED to `re-frame.story.ui.dispatch-console-dom-cljs-test` under
+;; rf2-r51p. They were guarded by `(when (browser?) ...)` here, and this
+;; namespace ends `-cljs-test`, so `:browser-test` never loaded them while
+;; `:node-test` — which has no `window.localStorage` — skipped the body:
+;; they executed in neither lane.
 
 #?(:cljs
    (deftest cljs-clear-history-drops-storage
@@ -333,11 +311,13 @@
          (rf.story.ui.dispatch-console/append-history! vid entry)
          (is (= 1 (count (rf.story.ui.dispatch-console/current-history vid))))
          (rf.story.ui.dispatch-console/clear-history! vid)
-         (is (= 0 (count (rf.story.ui.dispatch-console/current-history vid))))
-         (when (browser?)
-           ;; Drop in-memory state and confirm storage was actually wiped.
-           (reset! rf.story.ui.dispatch-console/history-state {})
-           (is (= [] (rf.story.ui.dispatch-console/load-history! vid))))))))
+         ;; The RATOM half of this claim runs here. The storage half was
+         ;; dead (guarded, in a namespace the browser lane never loads),
+         ;; so rf2-r51p SPLIT the row rather than moving it whole — moving
+         ;; it would have taken the live assertions below off the node
+         ;; lane. See `clear-history-drops-storage` in
+         ;; `re-frame.story.ui.dispatch-console-dom-cljs-test`.
+         (is (= 0 (count (rf.story.ui.dispatch-console/current-history vid))))))))
 
 #?(:cljs
    (deftest cljs-dispatch-event-changes-app-db
