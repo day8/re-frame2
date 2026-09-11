@@ -1263,6 +1263,12 @@ run "keyword-catalogue drift self-test" "python scripts/check_keyword_catalogue_
 run "keyword-catalogue drift" "python scripts/check_keyword_catalogue_drift.py --verbose" \
   python "$spine_root/scripts/check_keyword_catalogue_drift.py" --verbose
 
+run "SSR prop-drop roster self-test" "python scripts/check_ssr_prop_drop_roster_drift.py --self-test --verbose" \
+  python "$spine_root/scripts/check_ssr_prop_drop_roster_drift.py" --self-test --verbose
+
+run "SSR prop-drop roster drift (rf2-7ntc)" "python scripts/check_ssr_prop_drop_roster_drift.py --verbose" \
+  python "$spine_root/scripts/check_ssr_prop_drop_roster_drift.py" --verbose
+
 run "CI reproduce-commands self-test" "python scripts/check_ci_reproduce_commands.py --self-test --verbose" \
   python "$spine_root/scripts/check_ci_reproduce_commands.py" --self-test --verbose
 
