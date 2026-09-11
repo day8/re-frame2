@@ -20,9 +20,11 @@
 
   ## What does NOT live here
 
-  - The ribbon pill cluster is in `filters/pills.cljs`; the shell's
-    `ribbon-filter-pills` reg-view in `shell.cljs` delegates to it
-    so the cluster carries the ribbon's frame-context.
+  - The ribbon pill cluster is in `filters/pills.cljs`; `shell.cljs`'s
+    `ribbon-filter-pills` delegates to it so the cluster carries the
+    ribbon's frame-context. Since rf2-k97c.3 that delegate is a plain
+    fn CALLED from the `events-ribbon` Fresco boundary, not a
+    `reg-view`.
   - Pattern matching is in `filters/matcher.cljc` (JVM-portable).
   - localStorage round-trip is in `filters/persistence.cljs`."
   (:require [re-frame.core :as rf]
@@ -63,7 +65,26 @@
 
   Threads the reg-view-injected frame-aware `dispatch`
   into `popup-view` so deferred `:on-*` handlers land on the
-  surrounding instance frame, not a `{:frame :rf/xray}` literal."
+  surrounding instance frame, not a `{:frame :rf/xray}` literal.
+
+  ## rf2-k97c.3 — STILL AN `rf/reg-view`, AND THAT IS THE DECISION
+
+  Not an oversight, and not a half-done migration. This is one of the
+  seven shell-root modals `shell-view` mounts, and `shell-view` is
+  still an `rf/reg-view` — a Reagent tree — because severing Xray's
+  paint from the installed adapter's `:render` is the parent epic's
+  coupling (1) and a LATER slice. A `defview` mints a React function
+  component, which is not a legal hiccup head in a Reagent tree, so
+  migrating this Modal today would mean either an `as-component` bridge
+  with nothing above it to justify one, or an edit to `shell.cljs` that
+  the four sibling chrome satellites would each need too.
+
+  The later slice owns the choice and has two live options on record —
+  migrate these modals, or island them behind `as-child`. Whichever it
+  picks, the subtree below here is already ready: `popup-view` is
+  CALLED rather than headed, and every plain-fn head inside it has been
+  inlined, so nothing under this Modal is a `:invalid` head waiting to
+  fire."
   []
   (when @(rf/subscribe [:rf.xray/edit-popup-open?])
     (edit-popup/popup-view dispatch)))
