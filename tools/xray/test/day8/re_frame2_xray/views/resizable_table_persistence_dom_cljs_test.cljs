@@ -124,8 +124,14 @@
       ;; and reading it back proves the storage is live, so the empty
       ;; read afterwards is evidence the TICK withheld the write rather
       ;; than evidence the host has no storage.
-      (rt/save! {:sentinel {:col 1}})
-      (is (= {:sentinel {:col 1}} (rt/load))
+      ;; The sentinel width must sit ABOVE the 24px floor. The first cut
+      ;; of this row used `{:col 1}` and the browser lane read back
+      ;; `{:col 24}` — the load path clamping a sub-floor width exactly
+      ;; as `resize-pair-tick-clamps-sub-floor-width` says it should.
+      ;; That was this test picking an illegal value, not the product
+      ;; misbehaving; the round-trip itself worked.
+      (rt/save! {:sentinel {:col 150}})
+      (is (= {:sentinel {:col 150}} (rt/load))
           "precondition: storage is live and round-trips")
       (rt/clear!)
       (xray-setup!)
