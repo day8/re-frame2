@@ -50,6 +50,7 @@
   the `{:frame :rf/xray}` opt at call time pins the envelope to
   Xray's frame regardless of click-time React context."
   (:require [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.panels.app-db-diff-format :as f]
             [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
@@ -210,17 +211,42 @@
       (f/format-edn (vec path))
       "(root)")]])
 
-(defn- popup-view
-  "Hiccup for the open popup. Caller (`Popup` reg-view) has gated on
-  `:rf.xray/segment-inspector-open?` already.
+(defn popup-tree
+  "The OPEN popup's markup, as a pure function of the values it is handed
+  — `:path`, `:value` and `:positioning`. The open/closed gate is the
+  CALLER's, so this never answers nil.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher injected by the
-  `Popup` reg-view body so close lands on the surrounding instance
-  frame, not a `{:frame :rf/xray}` literal."
-  [dispatch]
-  (let [path        @(rf/subscribe [:rf.xray/segment-inspector-path])
-        value       @(rf/subscribe [:rf.xray/segment-inspector-value])
-        positioning @(rf/subscribe [:rf.xray/modal-positioning])
+  rf2-k97c.3 — split out of the view when the view became a Fresco
+  boundary, so the dialog stays drivable from the node lane without a
+  React commit. A boundary's body may only run inside a React render
+  window (`rf.fresco/sub` REFUSES outside one, naming the query), so
+  calling [[Popup]] is no longer a way to get hiccup; this is. It is PURE
+  of its arguments — no read, no `subscribe-once`, no fallback arity.
+
+  THE DISPATCHES ARE FRAME-CARRYING, captured here at render time
+  (rf2-nesy9). `rf/current-frame-id` answers the declared frame inside a
+  Fresco body — it neither reads nor dispatches, so the boundary's
+  refusal tier does not touch it — and an explicitly carried
+  `{:frame <id>}` still answers, because that tier deletes the ambient
+  FIND and not the carrying. This is what replaced `reg-view`'s lexically
+  injected bare `dispatch`, which a `defview` body does not bind.
+
+  `:inspector` is the 2-arg `(fn [value node-key] → hiccup)` emitting the
+  value-rendering head, and it DEFAULTS to the production-correct
+  `edn/inspect-view`, so the boundary passes nothing and a caller who
+  forgets gets the right head. It is a parameter rather than a branch for
+  the reason the tree's `as-child` islands are: the spelling is the
+  caller's, not a Fresco API. Its one other caller is the node lane, which
+  substitutes the Reagent twin `edn/inspect` — the two heads share ONE
+  private renderer and differ only in how each resolves the expansion
+  slots and its per-mount identity, none of which a node-lane row asserts
+  on. That substitution is what lets those rows walk the widget at all:
+  a boundary may not be invoked as a hiccup render fn, so a walker that
+  expands function components raises inside it."
+  [{:keys [path value positioning inspector]
+    :or   {inspector edn/inspect-view}}]
+  (let [frame       (rf/current-frame-id)
+        dispatch    (fn [ev] (rf/dispatch ev {:frame frame}))
         on-keydown  (handle-keydown dispatch)]
     ;; rf2-7oxvd — shared backdrop + dialog scaffold. This popover keeps
     ;; its own `backdrop-style` / `dialog-style` (the dim/blur/size
@@ -260,53 +286,129 @@
       ;; expand-state from colliding with the App-db Diff panel's
       ;; renders of the same value. The path's pr-str is stable across
       ;; renders so toggle state survives shadow-cljs reloads.
+      ;; rf2-k97c.3 — `inspect-view` by default, not `inspect`. Same
+      ;; value, same opts, same renderer; the ONLY difference is the head,
+      ;; and that is the whole point here — `inspect` emits
+      ;; `[ei/edn-inspector …]`, a Reagent head, which grades `:invalid`
+      ;; inside a Fresco body down the identical codec arm a plain `defn`
+      ;; does. `node-key` does double duty as the boundary's required
+      ;; `:mount-id`, and the path's `pr-str` is stable across renders, so
+      ;; expansion state still survives a reload exactly as it did.
       [:div {:data-testid "rf-xray-segment-inspector-body"
              :style       (body-style)}
-       (edn/inspect (f/display-value value)
-                          (str "segment-inspector/" (pr-str (vec path))))])))
+       (inspector (f/display-value value)
+                  (str "segment-inspector/" (pr-str (vec path))))])))
 
-(rf/reg-view Popup
-  "The App-DB segment inspector popup. Renders only when
-  `:rf.xray/segment-inspector-open?` is true; closed-state is a
-  single subscribe + a `when` — cheap.
+(rf.fresco/defview PopupView
+  "The App-DB segment inspector popup — a FRESCO BOUNDARY (rf2-k97c.3),
+  not an `rf/reg-view`. Renders only when
+  `:rf.xray/segment-inspector-open?` is true; closed-state is a single
+  subscription and a `when` — cheap.
 
-  Per rf2-in6l2 `reg-view`-registered so the body's subscribes route
-  through the React-context tier to `:rf/xray`.
+  ## WHY A BOUNDARY, AND WHAT ACTUALLY MOVED
 
-  rf2-nesy9 — threads the reg-view-injected frame-aware `dispatch` into
-  `popup-view` so close lands on the surrounding instance frame."
+  The frame reasoning of rf2-in6l2 is UNCHANGED and still the reason this
+  is a component rather than a fn: a boundary reads its frame from the
+  same `re-frame.adapter.context` React context `reg-view` consulted, so
+  the reads still resolve through the surrounding `:rf/xray`. What changed
+  is the OBSERVER — the reads are `rf.fresco/sub`, recorded by Fresco's
+  own collector rather than by whichever reaction machinery the installed
+  adapter supplies, which is this epic's coupling (3).
+
+  ## CLOSED-STATE COST IS PRESERVED EXACTLY
+
+  One subscription and a gate, as before. The other three reads sit inside
+  the `when`, and `rf.fresco/sub` records its edge WHERE THE READ HAPPENS
+  (HD-002), so a branch not taken contributes no edge.
+
+  Two consequences of `defview`'s contract, both load-bearing here:
+
+    * It binds NO name inside the body, so `reg-view`'s lexically injected
+      bare `dispatch` is gone. [[popup-tree]] builds one from the carried
+      frame instead — same target, same behaviour (rf2-nesy9).
+    * It takes ONE props map, so the old 0-arg call shape is gone. The
+      node lane drives [[popup-tree]] directly now.
+
+  PUBLIC so the shell's root swap can head it directly. [[Popup]] in front
+  of it is the name the Reagent shell still mounts — see that bridge's
+  docstring for why the two names sit this way round here."
+  [_props]
+  (when (rf.fresco/sub [:rf.xray/segment-inspector-open?])
+    (popup-tree
+      {:path        (rf.fresco/sub [:rf.xray/segment-inspector-path])
+       :value       (rf.fresco/sub [:rf.xray/segment-inspector-value])
+       :positioning (rf.fresco/sub [:rf.xray/modal-positioning])})))
+
+;; ---- the migration bridges (rf2-k97c.3) ----------------------------------
+;;
+;; TWO callers mount this popup by name, and funnel-b's `Popup-bridge`
+;; (below) took `panels/mount-segment-inspector!` off that list. The one
+;; that remains is `shell.cljs`, which mounts `[app-db-segment-inspector/
+;; Popup]` as a hiccup head — and it is FENCED to the shell root-swap
+;; slice, so it cannot move in this step.
+;;
+;; THAT INVERTS THE NAMING, and it is worth saying plainly because the
+;; comment this replaces predicted the other spelling. The mayor's
+;; 2026-09-10 ruling is that a boundary keeps the NATURAL name and the
+;; caller is handed a public bridge (#9581) — and it names the one
+;; constraint that forces #9578's opposite spelling: a fenced `shell.cljs`
+;; mounting the var BY NAME. That constraint is live here, so [[Popup]]
+;; stays the public callable and the boundary above takes the `*View`
+;; suffix. `machine_after_rings.cljs` records the same fork from the other
+;; side, where the constraint did NOT apply. Nothing about funnel-b's
+;; reasoning was wrong; only its assumption that `shell.cljs` would be
+;; free to move in the same step.
+;;
+;; `rf.fresco/as-component` is Fresco's own outward door: it answers a real
+;; React component for a boundary, which a React parent (Reagent here)
+;; mounts UNDER THE FRAME IT IS ALREADY IN, taking the frame from React
+;; context rather than from a second root. The crossing carries an EMPTY
+;; props map, the case `as-component`'s own note calls sound — the
+;; inspected value never crosses it; it is read inside the boundary.
+;;
+;; SCAFFOLDING WITH A DEFINED END. When the shell is itself a Fresco tree,
+;; [[PopupView]] takes the name directly, the `[:>]` goes, and the
+;; component plus both bridges below are deleted.
+
+(def ^:private Popup-component
+  "The React component [[PopupView]] presents as, for a non-Fresco parent.
+  Declared ONCE at top level, as `rf.fresco/as-component`'s contract
+  requires — deriving one per render mints a fresh element type and would
+  remount the dialog on every pass, taking its focus trap with it."
+  (rf.fresco/as-component PopupView))
+
+(defn Popup
+  "The segment-inspector popup's public callable — what `shell.cljs`
+  mounts as a hiccup head at the shell root, and what [[Popup-bridge]]
+  aliases for `panels.cljs`.
+
+  Since rf2-k97c.3 it is the migration bridge rather than the view:
+  Reagent-shaped hiccup interoping to the React component [[PopupView]]
+  presents as. The enclosing `rf/frame-provider` is what puts `:rf/xray`
+  in React context for it.
+
+  The open/closed gate is inside [[PopupView]], so this is always mounted
+  and renders nothing while the inspector is closed — the same shape a
+  mounted `reg-view` returning nil had.
+
+  Callers wanting the MARKUP as data — the node-lane rows — build it from
+  [[popup-tree]] with the slots' values instead; this returns an interop
+  vector, not a tree to walk."
   []
-  (when @(rf/subscribe [:rf.xray/segment-inspector-open?])
-    (popup-view dispatch)))
+  [:> Popup-component {}])
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
-;;
-;; `panels/mount-segment-inspector!` mounts this popup BY NAME through
-;; `render-panel!`. Naming the bridge here NOW, while it is still a plain
-;; alias, is what lets this panel's migration happen entirely INSIDE THIS
-;; FILE: [[Popup]] becomes the `rf.fresco/defview` boundary and this def
-;; becomes the real `rf.fresco/as-component` bridge, with `panels.cljs`
-;; never touched again. It is the shape `resources/Panel-bridge` already
-;; ships and the one RULING 1 selected — boundary on the natural name, a
-;; public bridge passed by the caller.
-;;
-;; `shell.cljs` ALSO mounts `[app-db-segment-inspector/Popup]` as a hiccup
-;; head, so that second caller has to move in the same step the boundary
-;; lands; the bridge here removes `panels.cljs` from that list, not
-;; `shell.cljs`.
-;;
-;; TODAY IT IS A NO-OP. `rf/reg-view` expands to `(def Popup
-;; (re-frame.core/view :id))`, so [[Popup]] is a VALUE and this def binds
-;; the SAME OBJECT — nothing downstream can tell the two names apart, and
-;; `render-panel!` always builds the component VECTOR `[panel-view]`, so
-;; head position is the only position either name is used in.
 (def Popup-bridge
-  "The name `panels/mount-segment-inspector!` mounts this popup through —
-  a plain alias of [[Popup]] until this panel migrates to Fresco, when it
-  becomes the `as-component` bridge without the mount facade moving.
-  Scaffolding with a defined end: it is deleted with every other
-  `*-bridge` when the shell itself becomes a Fresco tree. See the comment
-  above."
+  "The name `panels/mount-segment-inspector!` mounts this popup through.
+
+  Still a plain alias of [[Popup]], and deliberately unchanged by the
+  Fresco migration: [[Popup]] is itself the `as-component` bridge now, so
+  this name needed no second bridge of its own and adding one would have
+  duplicated it. `render-panel!` always builds the component VECTOR
+  `[panel-view]`, so head position is the only position either name is
+  used in, and the two remain indistinguishable downstream.
+
+  Scaffolding with a defined end: deleted with every other `*-bridge`
+  when the shell itself becomes a Fresco tree. See the comment above."
   Popup)
 
 (defn install!

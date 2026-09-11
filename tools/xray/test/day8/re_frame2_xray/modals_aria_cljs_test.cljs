@@ -21,8 +21,9 @@
     1. Settings popup  (`settings/view/popup-view`)
     2. Mute manager    (`spine-filters/dialog-tree`)
     3. Filter edit-popup (`filters/edit-popup/popup-view`)
-    4. Cancellation-cascade popover — exercised via the Popover
-       reg-view's body (it renders a [:div {:role \"dialog\" ...}])
+    4. Cancellation-cascade popover — exercised via its `popover-tree`
+       (it renders a [:div {:role \"dialog\" ...}]); since rf2-k97c.3 the
+       view itself is a Fresco boundary, so the tree fn is the door
     5. App-DB segment-inspector popover — same shape as #4
 
   Tests render each view function directly (no shadow DOM, no Reagent
@@ -41,7 +42,8 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.view :as settings-view]
             [day8.re-frame2-xray.spine-filters :as spine-filters]
-            [day8.re-frame2-xray.test-support :as xray-test-support]))
+            [day8.re-frame2-xray.test-support :as xray-test-support]
+            [day8.re-frame2-xray.views.edn-widget :as edn]))
 
 (use-fixtures :each
   ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
@@ -181,16 +183,14 @@
 ;; (4) + (5) Popovers — cancellation-cascade + segment-inspector
 ;; -------------------------------------------------------------------------
 ;;
-;; These two use `reg-view` to gate on an `:open?` slot. The reg-view
-;; macro defs the symbol; invoking it directly under `with-frame`
-;; resolves subscribes against `:rf/xray` the same way the shell
-;; mount does.
-;;
-;; EXCEPT the cancellation-cascade popover, which since rf2-k97c.3 is a
-;; FRESCO BOUNDARY behind an `as-component` bridge: the var answers an
-;; interop vector, not a tree to walk. The helper below reproduces the
-;; boundary's own gate and reads exactly - same gate, same query vectors -
-;; so both rows below assert on the same hiccup they did before.
+;; BOTH of these gate on an `:open?` slot, and since rf2-k97c.3 BOTH are
+;; FRESCO BOUNDARIES behind an `as-component` bridge: the var answers an
+;; interop vector, not a tree to walk. (They used to be `reg-view`s, which
+;; could be invoked directly under `with-frame`; a boundary's body may
+;; only run inside a React render window.) The two helpers below reproduce
+;; each boundary's own gate and reads exactly - same gate, same order,
+;; same query vectors - so every row below asserts on the same hiccup it
+;; did before.
 
 (defn- cancellation-cascade-popover-tree
   "The cancellation-cascade popover's markup for the current state:
@@ -202,6 +202,28 @@
       {:cascade     @(rf/subscribe [:rf.xray/cancellation-cascade-for-focused-event])
        :positioning @(rf/subscribe [:rf.xray/modal-positioning])
        :expanded?   @(rf/subscribe [:rf.xray/cancellation-cascade-expanded?])})))
+
+(defn- segment-inspector-popup-tree
+  "The App-DB segment-inspector popup's markup for the current state:
+  nil while closed, the dialog otherwise. Mirrors
+  `app-db-segment-inspector/PopupView`'s gate and reads (rf2-k97c.3).
+
+  `:inspector` substitutes the REAGENT twin `edn/inspect` for the
+  boundary head production emits, because the shared assertion helpers
+  above find their nodes through `rf.test-helpers/find-by-testid`, which
+  EXPANDS function components — and a Fresco boundary raises when invoked
+  as a hiccup render fn. The substitution is sound for what the rows here
+  grade: both heads share one private renderer, and these rows assert on
+  the DIALOG's ARIA chrome, which sits above the widget and is untouched
+  by which head renders the value. Which head the panel emits is pinned
+  in `app-db-segment-inspector-cljs-test` off the unsubstituted tree."
+  []
+  (when @(rf/subscribe [:rf.xray/segment-inspector-open?])
+    (segment-inspector/popup-tree
+      {:path        @(rf/subscribe [:rf.xray/segment-inspector-path])
+       :value       @(rf/subscribe [:rf.xray/segment-inspector-value])
+       :positioning @(rf/subscribe [:rf.xray/modal-positioning])
+       :inspector   edn/inspect})))
 
 (deftest cancellation-cascade-popover-carries-dialog-contract
   (testing "rf2-7389r — the cancellation-cascade popover (audit
@@ -225,7 +247,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-segment-inspector []]))
-    (let [tree (rf/with-frame :rf/xray (segment-inspector/Popup))]
+    (let [tree (rf/with-frame :rf/xray (segment-inspector-popup-tree))]
       (is (some? tree) "Popup renders when open")
       (when tree
         (assert-dialog-contract!
@@ -286,7 +308,7 @@
   (xray-setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/open-segment-inspector []]))
-  (let [tree (rf/with-frame :rf/xray (segment-inspector/Popup))]
+  (let [tree (rf/with-frame :rf/xray (segment-inspector-popup-tree))]
     (is (some? tree) "Popup renders when open")
     (when tree
       (assert-dialog-focus-ref!
