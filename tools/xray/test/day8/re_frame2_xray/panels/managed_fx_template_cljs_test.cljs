@@ -217,16 +217,17 @@
 ;; assertion of ours, so the zero below is the renderer's answer and not
 ;; a claim about what we think the renderer would say.
 ;;
-;; WHY THIS IS NOT A FRESCO DOM ROW. A DOM row would mount the panel
-;; through the codec, which is not reachable for this file today: the
-;; value `inspect` returns is `[ei/edn-inspector …]`, a `reg-view` head,
-;; which the codec also refuses — `views/edn_inspector.cljs` says it
-;; outright, "Only `edn-inspector-view` is a head in a Fresco body" — and
-;; the panel's own mount, `panels/ManagedFxList`, is still a `reg-view`.
-;; So the repair removes ONE of two blocking classes; the other is the
-;; migration's, and the day it happens these four calls become
-;; `edn/inspect-view`. Asserting only what is actually true here is the
-;; point: a row claiming Fresco-readiness would be the hollow one.
+;; BOTH BLOCKING CLASSES ARE NOW CLEARED (rf2-fcy5). rf2-twil removed the
+;; first — `inspect` is CALLED, never headed. The second was the head inside
+;; the value it returns: `[ei/edn-inspector …]` is a `reg-view` head, which
+;; the codec refuses for the same reason it refuses a plain `defn` —
+;; `views/edn_inspector.cljs` says it outright, "Only `edn-inspector-view`
+;; is a head in a Fresco body". That one could not be repaired until the
+;; panel's own mount was a boundary, because a Fresco head in a Reagent
+;; position is the mirror failure; `panels/ManagedFxList` is an
+;; `rf.fresco/defview` now, so the four sites call `edn/inspect-view` and
+;; the tree this file folds is codec-clean all the way down. The
+;; every-section-open row below states that in the codec's own words.
 ;;
 ;; WHAT THIS ROW CANNOT DO, STATED PLAINLY BECAUSE THE FIRST DRAFT OF IT
 ;; LIED. It walks the DEFAULT tree, where three of the five sections are
@@ -397,11 +398,24 @@
   "Every node in a hiccup tree, payload values included. Walked structurally
   rather than through `rf.test-helpers/expand-tree`, which rebuilds nested
   vectors with `mapv` — that would substitute its own vectors for the ones
-  under test, and strips reader metadata besides."
+  under test, and strips reader metadata besides.
+
+  rf2-fcy5 — IT DESCENDS INTO MAP VALUES, and that is what keeps \"payload
+  values included\" true. A Reagent component took its value as a POSITIONAL
+  argument (`[ei/edn-inspector v opts]`), so a vectors-and-seqs walk reached
+  it; a Fresco boundary takes ONE PROPS MAP (`[ei/edn-inspector-view
+  {:value v …}]`), so the payload now sits behind a map key. Without this
+  arm the walk still returns the props map itself and simply never looks
+  inside it — an absence that reads exactly like a payload the panel failed
+  to render, which is the direction that matters here, since every caller
+  below asserts PRESENCE. `body-shown?` and `testids` are unaffected: they
+  are a different walker that reads the attribute map by position and never
+  descends into one."
   [node]
   (cond
     (vector? node) (cons node (mapcat tree-nodes node))
     (seq? node)    (cons node (mapcat tree-nodes node))
+    (map? node)    (cons node (mapcat tree-nodes (vals node)))
     :else          [node]))
 
 (defn- open-all
@@ -603,25 +617,90 @@
           "Fresco's own classifier grades the plain fn an invalid head")
       (is (< 30 (count heads))
           "the walker reached a populated tree, so a zero below means absence")
-      ;; `(empty? (filter fn? heads))` — the shape the DEFAULT-tree row above
-      ;; can use — would be WRONG here, and measuring it is how that was
-      ;; found: it reads three `cljs.core.MetaFn`s, which are the three
-      ;; `edn/inspect` returns now in the tree. `inspect` answers
-      ;; `[ei/edn-inspector …]`, a REG-VIEW head, and a reg-view head IS a fn
-      ;; value on CLJS — `build-frame-aware-view` returns `(with-meta (fn …)
-      ;; {:contextType …})`. That head is the CORRECT one while this panel
-      ;; mounts under `reg-view`; `head-kind` cannot separate the two, since
-      ;; Fresco's codec grades a reg-view head `:invalid` as well.
+      ;; rf2-fcy5 — THE DISCRIMINATOR IS THE CODEC, and it is the only
+      ;; instrument that survives BOTH sides of this migration.
       ;;
-      ;; The discriminator is the metadata: a registered frame-aware view
-      ;; head carries some, a bare `defn` carries none.
-      (let [fn-heads (filter fn? heads)]
-        (is (pos? (count fn-heads))
-            "the inspector heads are in the tree, so `every?` below is not vacuous")
+      ;; Neither of the two obvious shapes does. `(empty? (filter fn? heads))`
+      ;; — what the DEFAULT-tree row above can use, because the default tree
+      ;; carries no inspector at all — is wrong here in the permissive
+      ;; direction AND the strict one: a reg-view head IS a fn value on CLJS
+      ;; (`build-frame-aware-view` returns `(with-meta (fn …) {:contextType …})`,
+      ;; a `cljs.core.MetaFn`), and so is a Fresco boundary, by
+      ;; `codec/boundary-head?`'s own definition. And `(some? (meta head))` —
+      ;; what this row asserted while the heads were reg-views — reads NIL on
+      ;; the correct code now: a boundary is a plain React function component
+      ;; carrying a JS own-property and no Clojure metadata at all.
+      ;;
+      ;; `head-kind` answers both eras without a branch, because it is the
+      ;; renderer's own question: a plain `defn` and a reg-view head both grade
+      ;; `:invalid`, a boundary grades `:boundary`, a native tag `:tag`. A
+      ;; revert of any of the four call sites from `edn/inspect-view` to
+      ;; `edn/inspect` puts an `:invalid` head back in this tree and reds the
+      ;; row — which is the whole point, since that revert is silent under
+      ;; Reagent and unmounts the Xray root under Fresco.
+      (is (= :invalid (rf.fresco.impl.codec/head-kind
+                        (first (edn-widget/inspect {:probe 1} "probe"))))
+          "the Reagent head these sites used to carry grades :invalid")
+      (is (= :boundary (rf.fresco.impl.codec/head-kind
+                         (first (edn-widget/inspect-view {:probe 1} "probe"))))
+          "the Fresco head they carry now grades :boundary")
+      (let [kinds (frequencies (map rf.fresco.impl.codec/head-kind heads))]
+        (is (pos? (get kinds :boundary 0))
+            "the inspector heads are in the tree, so the absence below is not vacuous")
         (is (not-any? #(identical? edn-widget/inspect %) heads)
             "`edn/inspect` is a plain defn and is never itself a hiccup head")
-        (is (every? #(some? (meta %)) fn-heads)
-            "every fn in head position is a registered view head, not a plain fn")))))
+        (is (zero? (get kinds :invalid 0))
+            (str "every head in the rendered panel is one Fresco accepts — " kinds))))))
+
+;; ---- RULING 2: the app-db path rows key through the ATTRIBUTE MAP ---------
+;;
+;; rf2-fcy5 — `app-db-slice-section` wrote its per-path keys as `^{:key i}`
+;; reader META on the `[:li …]` vector. Reagent reads meta THEN props and so
+;; returned the same key either way, which is why that spelling survived this
+;; long; Fresco's codec reads a literal `:key` from a native tag's attrs and
+;; reads Clojure metadata NOWHERE, so on the migration every row in the list
+;; would have lost its key, with nothing on screen to say so.
+;;
+;; THE OBVIOUS INSTRUMENT IS HOLLOW HERE, which is the whole reason this row
+;; exists beside `records-list-keys-reach-react` rather than inside it. That
+;; row reads `(.-key (r/as-element node))` — exactly right for ITS defect
+;; (meta on a CALL form, dead on every substrate) and BLIND to this one,
+;; because Reagent reads meta AND props and answers the same key before and
+;; after. Measured under rf2-k97c.3 on `views/resizable_table.cljs`: on
+;; reverted source the Reagent assertion PASSED while the Fresco assertion on
+;; the very next line read `[nil nil nil]`. The door that can tell meta from
+;; attrs is the codec's own.
+
+(defn- emitted-key
+  "The React key the FRESCO codec commits for one hiccup node — the
+  hiccup→element door a boundary's children actually cross, rather than
+  whatever the authoring vector happens to be carrying."
+  [node]
+  (.-key (rf.fresco.impl.codec/as-element node)))
+
+(deftest app-db-path-rows-key-through-the-fresco-codec
+  (testing "rf2-fcy5 / RULING 2 — the one `^{:key …}` metadata site in this
+            file writes its key into the `[:li]` ATTRIBUTE MAP now, which is
+            the only spelling Fresco reads. Reverting it to reader meta makes
+            `:key` absent from the attrs and the codec's key nil, and both
+            halves below go red."
+    (let [r   (record {:surface :http :fx-id :rf.http/managed
+                       :status :ok :http-status 200
+                       :paths [[:users 42] [:users 43] [:session :token]]})
+          lis (->> (tree-nodes (template/record-panel r))
+                   (filter #(and (vector? %) (= :li (first %))))
+                   vec)]
+      ;; Control: the walker really reached the rows, so a nil key below is
+      ;; the codec's answer about a key rather than an empty selection.
+      (is (= 3 (count lis)) "one :li per touched path")
+      (let [ks (mapv emitted-key lis)]
+        (is (every? some? ks) "every path row reaches React with a key")
+        (is (= 3 (count (distinct ks))) "sibling keys are distinct"))
+      ;; And the contract surface stays observable in the hiccup itself.
+      (is (every? #(contains? (second %) :key) lis)
+          "the key rides the attribute map")
+      (is (every? #(nil? (meta %)) lis)
+          "no `^{:key …}` reader meta survives on these rows"))))
 
 (deftest user-facing-text-carries-no-internal-refs
   (let [recs [(record {:surface :http :fx-id :rf.http/managed

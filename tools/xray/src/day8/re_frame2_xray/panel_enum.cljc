@@ -58,9 +58,17 @@
     :mount  string  — the public `mount-<panel>!` fn name in
                       `day8.re-frame2-xray.panels` (the facade var the
                       guard reconciles).
-    :view   string  — the `reg-view` rendered by the mount fn, as a
+    :view   string  — the VIEW rendered by the mount fn, as a
                       `<ns-tail>/<View>` reference (documentation /
                       cross-check axis; not load-bearing for the guard).
+                      It names the view by its NATURAL name and says
+                      nothing about which substrate authored it: several
+                      entries here are `rf.fresco/defview` boundaries
+                      mounted through a `*-bridge`, and the bridge is
+                      deliberately NOT what this axis records — it is
+                      migration scaffolding with a defined end, while the
+                      natural name is the stable identity the spec tables
+                      and the api-manifest rows also carry.
     :tier   keyword — the 007-UX-IA §Mountable surface inventory tier:
                       :l3-tab        — Tier 1, an L3 detail-panel tab.
                       :overlay       — Tier 2, a modal-light popup.

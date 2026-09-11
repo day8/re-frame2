@@ -73,8 +73,9 @@
   "PROJECTION A — the live public `mount-<panel>!` vars of
   `day8.re-frame2-xray.panels`, captured at compile time. Filtered to
   the `mount-*!` shape (the ns has other publics — `render-panel!` is
-  private; `ManagedFxList` is a reg-view; the mount fns are the panel
-  facade)."
+  private; `ManagedFxList` is an `rf.fresco/defview` boundary since
+  rf2-fcy5, with `ManagedFxList-bridge` and `managed-fx-list-tree` beside
+  it; the mount fns are the panel facade)."
   (into #{}
         (comp (map first)
               (filter #(re-matches #"mount-[a-z][a-z0-9-]*!" %)))

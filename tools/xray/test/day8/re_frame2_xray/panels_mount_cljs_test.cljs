@@ -188,10 +188,14 @@
 ;; ---- inline content surface (managed-fx) -------------------------------
 
 (deftest mount-managed-fx-wraps-ManagedFxList
+  ;; rf2-fcy5 — the expected view is `ManagedFxList-bridge`, for the reason
+  ;; `mount-reactive-panel-…` records above: `ManagedFxList` is now a Fresco
+  ;; boundary and `render-panel!` builds a REAGENT tree. The shape this row
+  ;; pins — frame-provider :rf/xray wrapping the view — is unchanged.
   (let [[capture _ render-stub] (make-render-stub)]
     (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-managed-fx! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture) panels/ManagedFxList)))))
+      (is (frame-provider-wrap? (captured-tree capture) panels/ManagedFxList-bridge)))))
 
 ;; ---- full-shell mount --------------------------------------------------
 
