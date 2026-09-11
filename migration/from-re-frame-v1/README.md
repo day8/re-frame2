@@ -2018,7 +2018,7 @@ After (mechanical):
                     (rf/dispatch (conj (if ok? on-success on-failure) response)))}))))
 ```
 
-The simple ignore-`m` rewrite preserves v1 sync semantics — the handler runs and any dispatches it issues default to `:rf/default`. For multi-frame correctness in async callbacks, follow up with the frame-bound handle pattern:
+The simple ignore-`m` rewrite preserves v1 **sync** semantics — the handler runs, and dispatches it issues on the synchronous path resolve through whatever scope is in effect. It does **not** make the `:handler` callback above correct: that callback fires after the scope has unwound, so its bare `rf/dispatch` resolves no frame and raises `:rf.error/no-frame-context` (EP-0002 leaves no `:rf/default` floor to absorb it — the same loud failure the **Why** note above describes). Any async-dispatching fx therefore needs the frame-bound handle pattern:
 
 ```clojure
 (rf/reg-fx :http-xhrio
@@ -2030,7 +2030,7 @@ The simple ignore-`m` rewrite preserves v1 sync semantics — the handler runs a
                     (dispatch (conj (if ok? on-success on-failure) response)))}))))
 ```
 
-The handle-capture step is needed only for async-dispatching fx that target multi-frame use; sync-only handlers are correct after the mechanical `_`-prepend.
+The handle-capture step is needed for every async-dispatching fx, not only those targeting multi-frame use — a bare dispatch from the callback raises whatever the app's frame topology is; sync-only handlers are correct after the mechanical `_`-prepend.
 
 **What to look for.** Greps for `reg-fx` followed by a one-arg `fn` literal:
 

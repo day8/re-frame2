@@ -91,7 +91,7 @@ Compose `use-effect` with the standard outer/inner split: the outer `defui` read
 
 ### Cross-references
 
-- Views MUST NOT attach native DOM event listeners from render bodies, and MUST NOT own imperative library lifecycles directly — bare `addEventListener` in a render body leaks listeners and silently routes dispatches to `:rf/default`; library lifecycles belong in `use-effect`.
+- Views MUST NOT attach native DOM event listeners from render bodies, and MUST NOT own imperative library lifecycles directly — bare `addEventListener` in a render body leaks listeners, and the listener fires with no carried frame, so a bare `dispatch` in its callback raises `:rf.error/no-frame-context` (under EP-0002 there is no `:rf/default` to fall open to). Carry the frame with the `use-frame` hook at render time; library lifecycles belong in `use-effect`.
 - [Spec 002 §Dispatches issued from inside a handler body](../../../spec/002-Frames.md#dispatches-issued-from-inside-a-handler-body) — async callbacks escape the dynamic frame binding; call the `use-frame` hook at render-time (capture-frame in hook position) to carry the frame into the callback.
 - Outer/inner Pattern (Pattern-OuterInner) — the canonical home for wrapping stateful JS components (D3, Mapbox, animation libraries); the worked example above is one instance.
 - [UIx 2.x docs — `use-effect`](https://github.com/pitch-io/uix) — the underlying hook's signature, deps-vector semantics, and stale-closure considerations.

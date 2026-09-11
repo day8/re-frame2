@@ -38,7 +38,9 @@ The sub-view is panel-local app-db state (`:rf.xray.fresco/set-view` /
 id lands on a view that exists. The strip dispatches through a frame-bound
 `dispatch` threaded down from the `Panel` body: the click fires after render
 unwinds, when the ambient frame is gone, so a bare global `rf/dispatch` would
-leak to `:rf/default` and switch some other shell's sub-view (rf2-1w07r;
+resolve no frame and raise `:rf.error/no-frame-context` — EP-0002 leaves no
+`:rf/default` floor beneath the ambient read — and the sub-view would never
+switch at all (rf2-1w07r;
 `frame_singleton_guard_test` holds it, and the browser row below drives the
 click end to end). Under rf2-k97c.3's migration that dispatcher is built from
 `rf/current-frame-id` rather than injected by `reg-view`, which binds no name
