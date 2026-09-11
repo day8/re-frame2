@@ -166,10 +166,14 @@
 ;; ---- overlay / popup surfaces (3) --------------------------------------
 
 (deftest mount-segment-inspector-wraps-Popup-in-frame-provider
+  ;; rf2-k97c.3 — the expected head is `Popup-bridge`. It is still `=` to
+  ;; `Popup` (a `def` alias of the same value), so this row would pass
+  ;; either way; naming the bridge is what keeps the panel's migration from
+  ;; having to reopen this file.
   (let [[capture _ render-stub] (make-render-stub)]
     (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-segment-inspector! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture) segment-inspector/Popup)))))
+      (is (frame-provider-wrap? (captured-tree capture) segment-inspector/Popup-bridge)))))
 
 (deftest mount-cancellation-cascade-side-panel-wraps-SidePanel
   (let [[capture _ render-stub] (make-render-stub)]

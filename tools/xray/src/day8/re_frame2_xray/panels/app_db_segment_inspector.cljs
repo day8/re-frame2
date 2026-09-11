@@ -279,6 +279,36 @@
   (when @(rf/subscribe [:rf.xray/segment-inspector-open?])
     (popup-view dispatch)))
 
+;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;;
+;; `panels/mount-segment-inspector!` mounts this popup BY NAME through
+;; `render-panel!`. Naming the bridge here NOW, while it is still a plain
+;; alias, is what lets this panel's migration happen entirely INSIDE THIS
+;; FILE: [[Popup]] becomes the `rf.fresco/defview` boundary and this def
+;; becomes the real `rf.fresco/as-component` bridge, with `panels.cljs`
+;; never touched again. It is the shape `resources/Panel-bridge` already
+;; ships and the one RULING 1 selected — boundary on the natural name, a
+;; public bridge passed by the caller.
+;;
+;; `shell.cljs` ALSO mounts `[app-db-segment-inspector/Popup]` as a hiccup
+;; head, so that second caller has to move in the same step the boundary
+;; lands; the bridge here removes `panels.cljs` from that list, not
+;; `shell.cljs`.
+;;
+;; TODAY IT IS A NO-OP. `rf/reg-view` expands to `(def Popup
+;; (re-frame.core/view :id))`, so [[Popup]] is a VALUE and this def binds
+;; the SAME OBJECT — nothing downstream can tell the two names apart, and
+;; `render-panel!` always builds the component VECTOR `[panel-view]`, so
+;; head position is the only position either name is used in.
+(def Popup-bridge
+  "The name `panels/mount-segment-inspector!` mounts this popup through —
+  a plain alias of [[Popup]] until this panel migrates to Fresco, when it
+  becomes the `as-component` bridge without the mount facade moving.
+  Scaffolding with a defined end: it is deleted with every other
+  `*-bridge` when the shell itself becomes a Fresco tree. See the comment
+  above."
+  Popup)
+
 (defn install!
   "Idempotent install for the segment-inspector's Xray-side
   registrations. Returns nil per the facade convention."

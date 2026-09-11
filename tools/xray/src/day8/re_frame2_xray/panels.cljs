@@ -457,7 +457,10 @@
   contract is 'the host owns the container size' — spec/008 §Embed
   props inventory)."
   ([mount-point]      (mount-event-spine! mount-point nil))
-  ([mount-point opts] (render-panel! shell/event-list mount-point opts)))
+  ;; rf2-k97c.3 — `event-list-bridge`, not `event-list`. The bridge is the
+  ;; name this mount holds so the L2 spine's migration to a Fresco boundary
+  ;; happens entirely inside `shell.cljs`; see its comment there.
+  ([mount-point opts] (render-panel! shell/event-list-bridge mount-point opts)))
 
 ;; There is no dedicated Issues tab or aggregate panel. Issues surface
 ;; inline in the Epoch panel, via the L2 event-row pink-wash, and via
@@ -470,7 +473,10 @@
   `mount-point`. Self-gating — renders nil when no segment is open;
   short-circuits on `:rf.xray/segment-inspector-open?`."
   ([mount-point]      (mount-segment-inspector! mount-point nil))
-  ([mount-point opts] (render-panel! segment-inspector/Popup mount-point opts)))
+  ;; rf2-k97c.3 — `Popup-bridge`, not `Popup`, for the reason
+  ;; `mount-event-spine!` records above: the bridge is what frees this
+  ;; panel to migrate inside its own file.
+  ([mount-point opts] (render-panel! segment-inspector/Popup-bridge mount-point opts)))
 
 (defn mount-cancellation-cascade-side-panel!
   "Mount the cancellation-cascade side-panel in isolation at
