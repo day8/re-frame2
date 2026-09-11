@@ -547,7 +547,8 @@ that needs it, not in a central shim layer.
   [`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract for
   internal use (shell composition, tests, future tools); it carries
   `:frame` universally and `:instance-id` on `mount-app-db-diff!`
-  alone (rf2-2n8q), and is not a host-facing embed contract.
+  (rf2-2n8q) and `mount-managed-fx!` (rf2-5ykm) — the two panels whose
+  view accepts it — and is not a host-facing embed contract.
 - **No two-way binding.** Beyond the `configure!` slots and the
   one-way **focus command** (§Host-facing focus API — the host pushes
   a focus *intent*, not arbitrary state, and Xray owns what it means),

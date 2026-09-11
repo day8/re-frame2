@@ -12,9 +12,9 @@
   contract.** The mount fns are stable (the shell + tests depend on
   them; hosts MAY use them) but carry NO v1.0 host-facing-contract
   guarantee — the props vocabulary is two keys wide and one of them is
-  a single panel's: `:frame` (every mount fn, defaulting to `:rf/xray`)
-  and `:instance-id` (`mount-app-db-diff!` only — see §`:instance-id`
-  opt below). The v1.0 host-facing embed
+  only two panels': `:frame` (every mount fn, defaulting to `:rf/xray`)
+  and `:instance-id` (`mount-app-db-diff!` and `mount-managed-fx!` — see
+  §`:instance-id` opt below). The v1.0 host-facing embed
   contract is the **full-shell** embed per
   `tools/xray/spec/008-Embedding-Contract.md` §Full-shell embed
   contract. This matches the status stated in
@@ -143,7 +143,7 @@
   Xray's own UI state, while the panel-internal frame-selection sub
   (`:rf.xray/observed-frame`) drives the data axis.
 
-  ## `:instance-id` opt — `mount-app-db-diff!` ONLY (rf2-2n8q)
+  ## `:instance-id` opt — `mount-app-db-diff!` and `mount-managed-fx!`
 
   Two mounts under two DIFFERENT `:frame`s are already told apart:
   rf2-d2aj keys the edn-inspector's per-mount store by `[frame-id
@@ -156,15 +156,27 @@
       (mount-app-db-diff! left-el  {:instance-id \"left\"})
       (mount-app-db-diff! right-el {:instance-id \"right\"})
 
-  rf2-t3fz gave `app-db-diff/Panel` the prop; this opt is the door for
-  a caller that mounts rather than renders, which passes opts and never
-  props. Omit it and every id is byte-for-byte what it was.
+  rf2-t3fz gave `app-db-diff/Panel` the prop; this opt (rf2-2n8q) is the
+  door for a caller that mounts rather than renders, which passes opts and
+  never props. Omit it and every id is byte-for-byte what it was.
 
-  It is ONE panel's opt rather than the surface's, and deliberately so:
+  rf2-5ykm — `mount-managed-fx!` takes the SAME key for the same reason,
+  and it arrived as a REGRESSION rather than a gap: that panel's mount was
+  an `rf/reg-view` until rf2-fcy5, and the Reagent head minted a per-mount
+  identity the boundary cannot. Two managed-fx lists of one focused event
+  in one frame therefore shared one ResizeObserver and one width slot, and
+  detaching either released the survivor's — measured on a real
+  two-container commit in
+  `panels/managed_fx_mount_instance_id_dom_cljs_test`.
+
+  It is SOME panels' opt rather than the surface's, and deliberately so:
   it is only meaningful where a panel's view accepts it, and handing a
   props map to a panel whose view takes none is an arity error rather
   than an ignored key. `render-panel!`'s `props` argument is the seam —
-  see its docstring.
+  see its docstring. The two panels that take it each own their own
+  normaliser (`app-db-diff-state/instance-token`,
+  `managed-fx-template/instance-token`) so a refusal names the caller's
+  own panel.
 
   See `tools/xray/spec/007-UX-IA.md` §Mountable panel contract and
   `tools/xray/spec/008-Embedding-Contract.md` for the full
@@ -268,7 +280,9 @@
     provider at all — each one's docstring says its isolation comes
     from the ENCLOSING provider, which is this one.
   - `props` — OPTIONAL (rf2-2n8q), and it is the PANEL's props map, not
-    the mount opts. nil — every caller but `mount-app-db-diff!` — mounts
+    the mount opts. nil — every caller but `mount-app-db-diff!` and
+    `mount-managed-fx!` (rf2-5ykm), and those two only when the caller
+    named an instance — mounts
     `[panel-view]`, the element this fn has always built. A map mounts
     `[panel-view props]`. The caller decides, because only the caller
     knows whether its panel's view takes props at all: `[trace/Panel
@@ -503,9 +517,16 @@
   travels as an argument (the same shape `views/edn-inspector` uses for
   its own expansion slot).
 
+  `instance-id` (rf2-5ykm) is the optional per-mount name from
+  [[mount-managed-fx!]]'s opts, threaded down to the four inspector sites
+  so two lists in one frame compose disjoint widget identities. nil — the
+  3-arity, and every single-mount call site — composes what it always did.
+
   PURE: every helper it calls is a plain fn of its arguments."
-  [focused expanded dispatch]
-  (managed-fx/records-list dispatch expanded (:records focused)))
+  ([focused expanded dispatch]
+   (managed-fx-list-tree focused expanded dispatch nil))
+  ([focused expanded dispatch instance-id]
+   (managed-fx/records-list dispatch expanded instance-id (:records focused))))
 
 (rf.fresco/defview ManagedFxList
   "The managed-fx wire-boundary diff template's mountable wrapper — a
@@ -538,12 +559,40 @@
   surrounding instance frame rather than on a `{:frame :rf/xray}` literal.
 
   The argument is the ordinary one-props-map vector every `defview` takes.
-  This panel reads nothing from props — `mount-managed-fx!` passes none —
-  so it is destructured away."
-  [_props]
+
+  ## `:instance-id` — OPTIONAL, and it names ONE LIVE MOUNT (rf2-5ykm)
+
+  This panel reads no DATA from props: everything it renders comes from the
+  two subs below and from nothing else. The one prop it takes is an
+  IDENTITY, and it exists because rf2-fcy5 dropped one. Every node-key the
+  template composes names a logical SURFACE and is deliberately stable, so
+  two lists of the same focused event present the same ones; rf2-d2aj
+  qualified the edn-inspector's per-mount store by the FRAME, which
+  separates two mounts under two `frame-provider`s and cannot separate two
+  under one. Left unnamed the two share one store entry, one
+  ResizeObserver, one projection cache and one width slot, and detaching
+  either releases the survivor's.
+
+  So the distinction is the caller's to make, and this prop is how:
+
+      [ManagedFxList-bridge {:instance-id \"left\"}]
+      (mount-managed-fx! el {:instance-id \"right\"})
+
+  A non-blank string or a keyword, whose NAMESPACE is part of the name.
+  `managed-fx-template/instance-token` refuses, loudly, the shapes that
+  could not be stable across renders. OMIT IT when only one managed-fx
+  list renders in this frame, which is every call site in this tree today:
+  the ids are then byte-for-byte what they were.
+
+  BOTH DOORS ANSWER THE SAME. Mounted from a Fresco body the prop arrives
+  as written; mounted through [[ManagedFxList-bridge]] it arrives already
+  tokenised, because `[:>]` would otherwise convert a keyword with
+  `cljs.core/name` and drop its namespace — see that fn's own note."
+  [{:keys [instance-id]}]
   (managed-fx-list-tree (rf.fresco/sub [:rf.xray/managed-fx-for-focused-event])
                         (rf.fresco/sub [:rf.xray/managed-fx-expanded-sections])
-                        (:dispatch (rf/capture-frame))))
+                        (:dispatch (rf/capture-frame))
+                        instance-id))
 
 (def ^:private ManagedFxList-component
   "The React component `ManagedFxList` presents as, for a non-Fresco
@@ -567,21 +616,71 @@
 
   THIS IS SCAFFOLDING WITH A DEFINED END. When `render-panel!` itself
   builds a Fresco tree, it takes `ManagedFxList` directly, `[:>]` goes,
-  and both defs here are deleted with every other `*-bridge`."
-  []
-  [:> ManagedFxList-component {}])
+  and both defs here are deleted with every other `*-bridge`.
+
+  rf2-5ykm — the 1-arity is how a caller names one of two lists sharing a
+  frame; the 0-arity stays because that is what an unnamed standalone mount
+  takes (`[panel-view]`, one list per frame, no instance to name).
+
+  ## The prop is TOKENISED HERE, before the crossing
+
+  `[:>]` converts each prop VALUE before React sees it, and Reagent's
+  `convert-prop-value` converts a named value with `cljs.core/name` — which
+  DROPS THE NAMESPACE. Passed through raw, `:left/list` and `:right/list`
+  would both arrive at the boundary as `\"list\"`, restoring the very
+  collision this opt repairs. `app-db-diff/Panel-bridge` carries the full
+  account (rf2-4bsq); the remedy is the same one — run the panel's own
+  normaliser so a STRING crosses, which Reagent preserves intact, and a
+  refused shape throws naming the CALLER's value rather than whatever the
+  crossing had turned it into. The boundary's own call on the far side is
+  then a no-op, because the fn is idempotent on its own output.
+
+  A blank string tokenises to nil and so mounts with no props, exactly as
+  naming no instance does."
+  ([] (ManagedFxList-bridge nil))
+  ([props]
+   [:> ManagedFxList-component
+    (if-let [instance-id (managed-fx/instance-token (:instance-id props))]
+      {:instance-id instance-id}
+      {})]))
 
 (defn mount-managed-fx!
   "Mount the managed-fx wire-boundary diff list in isolation at
   `mount-point`. Renders one record-panel per managed-fx invocation
   inside the focused event-bundle's managed-fx records. Empty when the
-  focused event-bundle had no managed-fx records."
+  focused event-bundle had no managed-fx records.
+
+  `opts :instance-id` — OPTIONAL (rf2-5ykm). A non-blank string or a
+  keyword naming THIS mount, for the case where two standalone managed-fx
+  lists share one `:frame`. It qualifies every inspector node-key the
+  template composes, and that one string is BOTH the edn-inspector's
+  `:mount-id` and its `:panel-id`, so one qualifier separates the widget's
+  lifecycle key, its measured-width slot and its expansion/zoom identity
+  together. Left unnamed, two mounts in one frame share one store entry and
+  one ResizeObserver, the second is never observed at all, and detaching
+  either releases the survivor's state.
+
+  RECORD IDENTITY AND DISCLOSURE ARE DELIBERATELY UNQUALIFIED. The
+  disclosure slot is keyed by `record-key` in the frame's app-db, so two
+  lists of the same records open and close together — the same records, the
+  same sections, one operator decision.
+
+  OMIT IT when only one managed-fx list is on screen in this frame, which
+  is every call site in this tree today: the ids are then byte-for-byte
+  what they were. `managed-fx-template/instance-token` refuses, loudly, the
+  shapes that could not be stable across renders."
   ([mount-point]      (mount-managed-fx! mount-point nil))
   ;; rf2-fcy5 — `ManagedFxList-bridge`, not `ManagedFxList`, for the reason
   ;; `mount-resources!` records above: the view is now a Fresco boundary
   ;; and `render-panel!` builds a Reagent tree, which `defview`'s contract
   ;; forbids mounting a boundary into. `render-panel!` itself is untouched.
-  ([mount-point opts] (render-panel! ManagedFxList-bridge mount-point opts)))
+  ;; rf2-5ykm — and the props map is what carries `:instance-id` across that
+  ;; bridge; the bridge's 1-arity is the door, its 0-arity is what an
+  ;; unnamed mount still takes.
+  ([mount-point opts]
+   (render-panel! ManagedFxList-bridge mount-point opts
+                  (when-let [id (:instance-id opts)]
+                    {:instance-id id}))))
 
 ;; ---- full-shell mount ---------------------------------------------------
 

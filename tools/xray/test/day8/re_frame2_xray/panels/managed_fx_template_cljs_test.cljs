@@ -751,3 +751,159 @@
             label (str (:surface r) "/" (:status r))]
         (assert-no-internal-refs! (str "visible-text[" label "]") (visible-text panel))
         (assert-no-internal-refs! (str "tooltip-text[" label "]") (tooltip-text panel))))))
+
+;; ---- the per-mount qualifier (rf2-5ykm) ----------------------------------
+;;
+;; THIS IS THE NODE LANE'S HALF AND IT IS NOT THE WHOLE CLAIM. The rows
+;; below grade the template's PURE COMPOSITION — that a named mount qualifies
+;; both ids the widget keys on, that an unnamed one composes byte-for-byte
+;; what it always did, and what `instance-token` refuses. What they cannot
+;; see is the thing the defect actually broke: two REAL mounts sharing one
+;; memoised ref callback and one ResizeObserver, and the survivor being
+;; released when its sibling detached. That needs a real React commit and
+;; lives in `panels/managed_fx_mount_instance_id_dom_cljs_test`, under
+;; `npm run test:browser`.
+;;
+;; BOTH IDS COME FROM ONE STRING HERE. `edn-widget/inspect-view` builds the
+;; boundary's `:mount-id` as `"rf-xray-inspect-" + node-key` and its
+;; `:panel-id` as `:rf.xray.inspect/<node-key>`, and this panel passes no
+;; `:site-id` — so the widget's `effective-id` falls back to the mount-id
+;; and one qualifier separates lifecycle, width and expansion together.
+;; That is why there is one qualifier here where `app-db-diff` needs two.
+
+(defn- inspect-view-props
+  "Every `edn-inspector-view` props map in a hiccup tree, in document order.
+  Identified by the `:mount-id` key the boundary REQUIRES, so this finds the
+  widgets rather than a shape we assumed they had."
+  [node]
+  (->> (hiccup-vectors node)
+       (map second)
+       (filter #(and (map? %) (contains? % :mount-id)))))
+
+(defn- widget-mount-ids [node] (mapv :mount-id (inspect-view-props node)))
+(defn- widget-panel-ids [node] (mapv #(get-in % [:opts :panel-id]) (inspect-view-props node)))
+
+(deftest instance-token-normalises-and-refuses
+  (testing "rf2-5ykm — nil and blank name no instance; a keyword's NAMESPACE
+            is part of the name (the property Reagent's `[:>]` crossing would
+            otherwise drop); and the fn is idempotent, which is what lets the
+            bridge and the boundary both call it and compose one answer."
+    (is (nil? (template/instance-token nil)))
+    (is (nil? (template/instance-token "")))
+    (is (= "left" (template/instance-token "left")))
+    (is (= "left" (template/instance-token :left)))
+    (is (= "left/list" (template/instance-token :left/list))
+        "the namespace survives — `:left/list` and `:right/list` are two
+         instances, not one")
+    (is (= "left/list" (template/instance-token (template/instance-token :left/list)))
+        "idempotent: a non-blank string answers itself")
+    (doseq [bad [{:a 1} [:left] 42]]
+      (is (thrown? js/Error (template/instance-token bad))
+          (str "a shape that could not be stable across renders is refused: "
+               (pr-str bad))))))
+
+(deftest unnamed-record-panel-composes-the-ids-it-always-did
+  (testing "rf2-5ykm — the regression guard. Every single-mount call site in
+            this tree passes no instance, and those composed ids must not
+            move: they key the operator's expansion state and the measured
+            column width."
+    (let [tree (template/record-panel noop-dispatch (open-all disclosure-record)
+                                      disclosure-record)
+          rk   (h/record-key disclosure-record)]
+      ;; Control, taken from the target: the open tree really carries the
+      ;; widgets, so the equalities below are about content and not emptiness.
+      (is (= 3 (count (widget-mount-ids tree)))
+          (str "control: REQUEST, RESPONSE and HANDLER each emitted a widget — "
+               (pr-str (widget-mount-ids tree))))
+      (is (= [(str "rf-xray-inspect-managed-fx/" rk "/req")
+              (str "rf-xray-inspect-managed-fx/" rk "/res")
+              (str "rf-xray-inspect-managed-fx/" rk "/handler")]
+             (widget-mount-ids tree)))
+      (is (= [(keyword (str "rf.xray.inspect/managed-fx/" rk "/req"))
+              (keyword (str "rf.xray.inspect/managed-fx/" rk "/res"))
+              (keyword (str "rf.xray.inspect/managed-fx/" rk "/handler"))]
+             (widget-panel-ids tree))))))
+
+(deftest a-named-record-panel-qualifies-both-widget-ids
+  (testing "rf2-5ykm — naming the mount splices the instance in after the
+            panel's own prefix and before the record key, so the qualifier
+            names the MOUNT while `record-key` still names the record inside
+            it. Both ids move together because both are built from the one
+            node-key — qualifying only the lifecycle key would leave two
+            mounts sharing one expansion identity."
+    (let [expanded (open-all disclosure-record)
+          plain    (template/record-panel noop-dispatch expanded nil disclosure-record)
+          named    (template/record-panel noop-dispatch expanded "left" disclosure-record)
+          kw       (template/record-panel noop-dispatch expanded :left/list disclosure-record)]
+      (is (seq (widget-mount-ids plain))
+          "control: the unnamed tree carries widgets to compare against")
+      (is (= (mapv #(str "rf-xray-inspect-managed-fx/left/"
+                         (subs % (count "rf-xray-inspect-managed-fx/")))
+                   (widget-mount-ids plain))
+             (widget-mount-ids named))
+          (str "the named ids are the unnamed ids with the instance spliced "
+               "in: " (pr-str (widget-mount-ids named))))
+      (is (= (mapv #(keyword (str "rf.xray.inspect/managed-fx/left/"
+                                  (subs (str %)
+                                        (count ":rf.xray.inspect/managed-fx/"))))
+                   (widget-panel-ids plain))
+             (widget-panel-ids named))
+          (str "and so are the panel-ids, which key expansion and zoom: "
+               (pr-str (widget-panel-ids named))))
+      (is (empty? (filter (set (widget-mount-ids plain)) (widget-mount-ids named)))
+          "no id survives from the unnamed mount to the named one")
+      (is (every? #(str/starts-with? % "rf-xray-inspect-managed-fx/left/list/")
+                  (widget-mount-ids kw))
+          (str "a keyword instance keeps its namespace — "
+               (pr-str (widget-mount-ids kw))))
+      (is (= (widget-mount-ids named)
+             (widget-mount-ids (template/record-panel noop-dispatch expanded "left"
+                                                     disclosure-record)))
+          "stable across renders — an identity, not a per-render nonce"))))
+
+(deftest record-identity-and-disclosure-survive-the-qualifier
+  (testing "rf2-5ykm — the qualifier composes WITH `record-key`; it does not
+            replace it. The React key and the disclosure toggle are that
+            identity's two consumers and BOTH stay untouched, or naming a
+            mount would remount every row and orphan the operator's open
+            sections."
+    (let [recs    [(record {:surface :http :fx-id :rf.http/managed
+                            :status :ok :http-status 200})
+                   (record {:surface :flow :fx-id :rf.fx/reg-flow :status :ok})]
+          plain   (template/records-list noop-dispatch nil nil recs)
+          named   (template/records-list noop-dispatch nil "left" recs)
+          keys-of #(mapv react-key (record-panel-nodes %))]
+      (is (every? some? (keys-of plain))
+          "control: the unnamed list really carries React keys")
+      (is (= (keys-of plain) (keys-of named))
+          (str "the React keys are identical — " (pr-str (keys-of named))))
+      ;; The disclosure toggle carries `rec-key` in its dispatch payload and
+      ;; `body-shown?` reads the testid that payload is keyed to, so an
+      ;; override map built from `record-key` alone must still open a NAMED
+      ;; mount's sections.
+      (let [rec    (first recs)
+            opened (template/record-panel noop-dispatch (open-all rec) "left" rec)]
+        (is (body-shown? opened :request)
+            "a `record-key`-keyed override still opens a named mount's
+             REQUEST — disclosure is deliberately shared between two lists
+             of the same records")))))
+
+(deftest records-list-threads-the-instance-to-every-record
+  (testing "rf2-5ykm — the 4-arity reaches every record, not just the first."
+    (let [recs  [(record {:surface :http :fx-id :rf.http/managed
+                          :status :ok :http-status 200})
+                 (record {:surface :websocket :fx-id :rf.ws/connect :status :ok})]
+          named (template/records-list noop-dispatch
+                                       (into {} (mapcat open-all recs))
+                                       "right" recs)
+          ids   (widget-mount-ids named)]
+      (is (< 1 (count ids))
+          (str "control: more than one widget emitted — " (pr-str ids)))
+      (is (every? #(str/starts-with? % "rf-xray-inspect-managed-fx/right/") ids)
+          (str "every widget in the list carries the mount's name — "
+               (pr-str ids)))
+      (is (every? (fn [rec] (some #(str/includes? % (h/record-key rec)) ids))
+                  recs)
+          (str "and each record's own key is still inside them, so the "
+               "qualifier composed WITH `record-key` rather than replacing "
+               "it — " (pr-str ids))))))
