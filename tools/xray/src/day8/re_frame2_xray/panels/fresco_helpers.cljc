@@ -679,7 +679,7 @@
   [envelope k keep?]
   (if-not (supported? envelope)
     envelope
-    (update envelope k #(vec (filter keep? %)))))
+    (update envelope k #(filterv keep? %))))
 
 (defn without-own-frame
   "The four-envelope map with every row seated in Xray's OWN frame

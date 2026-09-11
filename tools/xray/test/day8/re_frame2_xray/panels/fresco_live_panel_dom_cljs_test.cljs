@@ -331,75 +331,77 @@
               finish  (fn []
                         (when-some [r @release] (r))
                         (teardown! root container)
-                        (done))]
+                        (done))
+              ;; Read BEFORE anything moves: phase 3 asserts this is
+              ;; still the very same DOM node.
+              section (q container "[data-testid=\"rf-xray-fresco\"]")]
           ;; ---- phase 1: mounted, and rendering its empty arm --------------
-          (let [section (q container "[data-testid=\"rf-xray-fresco\"]")]
-            (is (some? section)
-                "the Fresco panel committed a real DOM root under React — a
-                 Fresco boundary mounted through Reagent's `:>` from the
-                 registry entry the shell holds")
-            (is (some? (q container "[data-testid=\"rf-xray-fresco-empty-mounted\"]"))
-                "the live panel rendered the EMPTY mounted census — nothing is
-                 mounted yet, so the roster this test drives in cannot already
-                 be on screen")
-            (is (empty? (boundary-rows container))
-                "NON-VACUITY: no boundary row is in the DOM before one mounts")
+          (is (some? section)
+              "the Fresco panel committed a real DOM root under React — a
+               Fresco boundary mounted through Reagent's `:>` from the
+               registry entry the shell holds")
+          (is (some? (q container "[data-testid=\"rf-xray-fresco-empty-mounted\"]"))
+              "the live panel rendered the EMPTY mounted census — nothing is
+               mounted yet, so the roster this test drives in cannot already
+               be on screen")
+          (is (empty? (boundary-rows container))
+              "NON-VACUITY: no boundary row is in the DOM before one mounts")
 
-            ;; ---- phase 2: a real boundary mounts, and the panel is deaf ---
-            (vreset! release (mount-boundary!))
-            (-> (settle)
-                (.then
-                  (fn [_]
-                    (is (some? (q container "[data-testid=\"rf-xray-fresco-empty-mounted\"]"))
-                        "CONTROL: given a full settling window, a real mount
-                         still moves nothing the panel's read watches —
-                         Fresco's tables are process-global, not Xray app-db —
-                         so the committed DOM shows the empty note yet. Without
-                         this the next phase would pass on a panel that had
-                         simply never rendered before the tick")
+          ;; ---- phase 2: a real boundary mounts, and the panel is deaf ---
+          (vreset! release (mount-boundary!))
+          (-> (settle)
+              (.then
+                (fn [_]
+                  (is (some? (q container "[data-testid=\"rf-xray-fresco-empty-mounted\"]"))
+                      "CONTROL: given a full settling window, a real mount
+                       still moves nothing the panel's read watches —
+                       Fresco's tables are process-global, not Xray app-db —
+                       so the committed DOM shows the empty note yet. Without
+                       this the next phase would pass on a panel that had
+                       simply never rendered before the tick")
 
-                    ;; ---- phase 3: one tick, and the roster is on screen ----
-                    (tick-trace!)
-                    (rf.test-support/poll-until roster?
-                      {:label "the trace tick commits the roster"})))
-                (.then
-                  (fn [_]
-                    (let [rows (boundary-rows container)
-                          ;; `some->`, so an empty roster reds the row below as
-                          ;; a clean assertion failure rather than throwing on
-                          ;; nil and reporting one defect twice.
-                          row-text (str (some-> (first rows) .-textContent))]
-                      (is (= 1 (count rows))
-                          (str "the trace tick re-fired the live panel and ONE "
-                               "boundary row committed to the DOM — with no "
-                               "cache clear and no second call to the panel "
-                               "anywhere in this test.\n"
-                               "IT IS ALSO THE SELF-EXCLUSION WITNESS (epic "
-                               "criterion 5). The panel is ITSELF a Fresco "
-                               "boundary now, and Fresco's census walks the "
-                               "collector's process-global entry table with no "
-                               "frame filter — so a panel reporting its own "
-                               "two `:rf/xray` reads as application evidence "
-                               "reads TWO rows here, not one. DOM: "
-                               (.-textContent container)))
-                      (is (string/includes? row-text "[:hlive/left]")
-                          (str "and the row names the read the boundary really "
-                               "holds, so the assertion above cannot pass on a "
-                               "row projected from nothing. row text: "
-                               (pr-str row-text))))
-                    (is (nil? (q container "[data-testid=\"rf-xray-fresco-empty-mounted\"]"))
-                        "the empty note is gone from the DOM — the roster
-                         REPLACED it rather than rendering beside it")
-                    (is (identical? section (q container "[data-testid=\"rf-xray-fresco\"]"))
-                        "and it is the SAME <section> node — React reconciled
-                         the live tree in place, so the roster did not arrive by
-                         the panel being remounted from scratch, which would not
-                         be liveness")))
-                (.catch (fn [e]
-                          (is false (str "W0 poll timed out: " (.-message e)
-                                         " DOM: " (.-textContent container)))
-                          nil))
-                (.then (fn [_] (finish))))))))))
+                  ;; ---- phase 3: one tick, and the roster is on screen ----
+                  (tick-trace!)
+                  (rf.test-support/poll-until roster?
+                    {:label "the trace tick commits the roster"})))
+              (.then
+                (fn [_]
+                  (let [rows (boundary-rows container)
+                        ;; `some->`, so an empty roster reds the row below as
+                        ;; a clean assertion failure rather than throwing on
+                        ;; nil and reporting one defect twice.
+                        row-text (str (some-> (first rows) .-textContent))]
+                    (is (= 1 (count rows))
+                        (str "the trace tick re-fired the live panel and ONE "
+                             "boundary row committed to the DOM — with no "
+                             "cache clear and no second call to the panel "
+                             "anywhere in this test.\n"
+                             "IT IS ALSO THE SELF-EXCLUSION WITNESS (epic "
+                             "criterion 5). The panel is ITSELF a Fresco "
+                             "boundary now, and Fresco's census walks the "
+                             "collector's process-global entry table with no "
+                             "frame filter — so a panel reporting its own "
+                             "two `:rf/xray` reads as application evidence "
+                             "reads TWO rows here, not one. DOM: "
+                             (.-textContent container)))
+                    (is (string/includes? row-text "[:hlive/left]")
+                        (str "and the row names the read the boundary really "
+                             "holds, so the assertion above cannot pass on a "
+                             "row projected from nothing. row text: "
+                             (pr-str row-text))))
+                  (is (nil? (q container "[data-testid=\"rf-xray-fresco-empty-mounted\"]"))
+                      "the empty note is gone from the DOM — the roster
+                       REPLACED it rather than rendering beside it")
+                  (is (identical? section (q container "[data-testid=\"rf-xray-fresco\"]"))
+                      "and it is the SAME <section> node — React reconciled
+                       the live tree in place, so the roster did not arrive by
+                       the panel being remounted from scratch, which would not
+                       be liveness")))
+              (.catch (fn [e]
+                        (is false (str "W0 poll timed out: " (.-message e)
+                                       " DOM: " (.-textContent container)))
+                        nil))
+              (.then (fn [_] (finish)))))))))
 
 ;; ===========================================================================
 ;; W1 — first display, and the reads land in the frame the tree named
