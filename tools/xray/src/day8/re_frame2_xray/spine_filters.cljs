@@ -266,14 +266,17 @@
   shell-view root so the menu floats above the L2 list's
   overflow-hidden clipping.
 
-  SPLIT OUT OF [[row-context-menu]] BY rf2-k97c.3, and the split is about
-  WHERE THE READ SITS rather than about inlining. [[RowContextMenuView]]
-  is a Fresco boundary, and `rf.fresco/sub` is legal only inside a
-  boundary render (`:rf.error/fresco-sub-outside-render`); an ambient
-  `rf/subscribe` is refused inside one
-  (`:rf.error/ambient-frame-refused`). So the read is HOISTED into each
-  lane's own entry point and the markup below reads nothing — which is
-  what keeps it drivable from the node lane without a React commit.
+  THIS REPLACED THE READING `row-context-menu` AT rf2-k97c.3, and the
+  change is about WHERE THE READ SITS rather than about inlining.
+  [[RowContextMenuView]] is a Fresco boundary, and `rf.fresco/sub` is
+  legal only inside a boundary render
+  (`:rf.error/fresco-sub-outside-render`) while an ambient `rf/subscribe`
+  is refused inside one (`:rf.error/ambient-frame-refused`) — so one read
+  cannot serve both lanes. The read is HOISTED into the boundary and this
+  fn is PURE OF ITS ARGUMENTS, which is what keeps it drivable from the
+  node lane without a React commit. A node-lane caller reproduces the
+  boundary's gate and read on its own side rather than finding a reading
+  arity here.
 
   `dispatch` (rf2-nesy9) is the frame-aware dispatcher its caller
   captured, so the menu actions land on the surrounding instance frame,
@@ -334,20 +337,6 @@
                  :title       "Open the OUT-filter popup pre-filled with this event-id"
                  :style       (menu-item-style)}
         "Always hide this event-type…"]]]]))
-
-(defn row-context-menu
-  "The menu's NODE-LANE DOOR — ambient read + [[row-context-menu-tree]].
-  Answers nil when no menu is open.
-
-  Signature unchanged by rf2-k97c.3 (`[dispatch]`), deliberately. This is
-  the arity a caller OUTSIDE a boundary render holds, and the reason it
-  survives the migration is that `rf.fresco/sub` would refuse there
-  (`:rf.error/fresco-sub-outside-render`) — so the Fresco lane's read
-  lives in [[RowContextMenuView]] and this one lives here, rather than
-  either lane donating its read to the other."
-  [dispatch]
-  (when-let [menu @(rf/subscribe [:rf.xray/row-context-menu])]
-    (row-context-menu-tree dispatch menu)))
 
 (rf.fresco/defview ^:private RowContextMenuView
   "The row context menu — a FRESCO BOUNDARY (rf2-k97c.3), not an
@@ -546,13 +535,21 @@
   a frame-aware `dispatch`. Returns the full
   `[:div backdrop [:div dialog …]]` tree.
 
-  SPLIT OUT OF [[dialog]] BY rf2-k97c.3, for the same reason
-  [[row-context-menu-tree]] was: [[ModalView]] is a Fresco boundary, and
-  the two lanes cannot share one read. `rf.fresco/sub` is legal only
-  inside a boundary render (`:rf.error/fresco-sub-outside-render`) and an
-  ambient `rf/subscribe` is refused inside one
-  (`:rf.error/ambient-frame-refused`), so each lane hoists its own read
-  and this fn reads nothing at all.
+  THIS REPLACED THE READING `dialog` AT rf2-k97c.3, for the same reason
+  [[row-context-menu-tree]] replaced `row-context-menu`: [[ModalView]] is
+  a Fresco boundary, and the two lanes cannot share one read.
+  `rf.fresco/sub` is legal only inside a boundary render
+  (`:rf.error/fresco-sub-outside-render`) and an ambient `rf/subscribe`
+  is refused inside one (`:rf.error/ambient-frame-refused`), so the read
+  is hoisted into the boundary and this fn is PURE OF ITS ARGUMENTS and
+  reads nothing at all.
+
+  IT DOES NOT GATE on `:rf.xray/mute-manager-open?` — that gate is
+  [[ModalView]]'s, exactly as it was the caller's before rf2-k97c.3 — so
+  this always answers a tree. `modals-aria-cljs-test` drives it through a
+  file-local door of its own that reproduces the boundary's reads, the
+  same way that file already drives
+  `panels.cancellation-cascade/popover-tree`.
 
   `dispatch` (rf2-nesy9) is the frame-aware dispatcher its caller
   captured — threaded to header / rows / clear-all so unmute actions land
@@ -586,28 +583,6 @@
       (list-section dispatch muted)
       [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
        (clear-all-button dispatch)]])))
-
-(defn dialog
-  "The modal's NODE-LANE DOOR — ambient reads + [[dialog-tree]]. Returns
-  the full `[:div backdrop [:div dialog …]]` tree; the
-  `modals-aria-cljs-test` renders this fn directly and walks for the
-  dialog node.
-
-  Signature unchanged by rf2-k97c.3 (`[dispatch]`), deliberately, and
-  that is load-bearing rather than incidental. This is the arity a caller
-  OUTSIDE a boundary render holds, and `rf.fresco/sub` would refuse there
-  (`:rf.error/fresco-sub-outside-render`) — so letting the reads donate
-  upward into [[ModalView]]'s window would have narrowed this fn to being
-  callable only inside a real React commit. The reads are HOISTED into
-  each lane's own entry point instead; see [[dialog-tree]].
-
-  Unlike [[ModalView]] this does NOT gate on
-  `:rf.xray/mute-manager-open?` — the open/closed gate is the caller's,
-  as it always was, so this never answers nil."
-  [dispatch]
-  (dialog-tree dispatch
-               {:muted       @(rf/subscribe [:rf.xray/muted-event-ids])
-                :positioning @(rf/subscribe [:rf.xray/modal-positioning])}))
 
 (rf.fresco/defview ^:private ModalView
   "The mute manager modal — a FRESCO BOUNDARY (rf2-k97c.3), not an
