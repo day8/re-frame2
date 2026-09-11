@@ -441,15 +441,11 @@ delete), verify, remove, re-check, and **fail loudly if the signature moved**.
   holding a modified tracked file, a note or a draft; when that guard was written, four worktrees held
   uncommitted work a blanket force would have destroyed silently.
 - **A refusal has four modes and they are not interchangeable** — nine worktrees were once read as
-  locked, waited out for two days, and were all simply dirty.
-
-  | mode | meaning | remedy |
-  |---|---|---|
-  | Dirty | modified or untracked files | waiting never clears it |
-  | Held | the sweep stopped on something that is not build output | nothing was deleted |
-  | Locked | clean and intact, a live process holding a handle | genuinely transient; retry |
-  | Partial | a **husk** | the acknowledged-husk path only |
-
+  locked, waited out for two days, and were all simply dirty. **Dirty** is modified or untracked
+  files, and waiting never clears it. **Held** means the sweep stopped on something that is not
+  build output, and nothing was deleted. **Locked** is clean and intact with a live process holding
+  a handle — genuinely transient, so note it and retry. **Partial** is a *husk*, and only the
+  acknowledged-husk path touches it.
 - **A husk no longer appears in the listing, pruning has nothing to clear, and a status check inside it
   fails and prints nothing** — which is why a clean/dirty test reads it as clean. **Do not reach for a
   raw recursive delete**: a husk still holds every file the worktree had, links among them. **A partial
