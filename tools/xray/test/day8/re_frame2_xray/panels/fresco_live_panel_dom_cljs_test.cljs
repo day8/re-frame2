@@ -179,6 +179,16 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil
+     ;; `:async? true` because every row below W0 is an `async` one, and
+     ;; `cljs.test` refuses a FUNCTION fixture in any namespace carrying
+     ;; one — "Async tests require fixtures to be specified as maps.
+     ;; Testing aborted." ABORTED is the word that matters: it stops the
+     ;; whole page, so every namespace after this one never runs and the
+     ;; log still looks plausible. The flag is what makes
+     ;; `make-reset-runtime-fixture` hand back the `{:before :after}` map
+     ;; form. rf2-k97c.3 turned this file async; before it, the function
+     ;; form was correct here.
+     :async?        true
      :init-fn       (fn []
                       (xray-test-support/reset-all!)
                       ;; Fresco's tables are process-global `defonce`s that

@@ -617,6 +617,99 @@
   [m]
   (if (contains? sub-mode-ids m) m default-sub-mode))
 
+;; ---- Xray's own machinery is not application evidence --------------------
+;;
+;; rf2-k97c.3. Xray's panels are Fresco boundaries now, and Fresco's census
+;; walks the collector's process-global entry table with NO frame filter —
+;; so the Fresco tab, which is itself a boundary reading two `:rf/xray`
+;; subs, listed ITSELF among the inspected application's boundaries. It was
+;; measured: with one application boundary mounted, the Mounted view
+;; committed two rows, the second reading
+;; `day8.re-frame2-xray.panels.fresco/Panel · frame :rf/xray · 2 reads`.
+;; That is epic criterion 5 — tool activity must never masquerade as
+;; application evidence — and the migration is what made it reachable: a
+;; `reg-view` contributed nothing to Fresco's tables at all.
+;;
+;; THE RULE IS NOT NEW AND IS NOT BEING INVENTED HERE. `self-noise` already
+;; drops any trace event whose frame resolves to `:rf/xray`, for this exact
+;; reason and with the same posture it states in terms: the drop is
+;; unconditional, with no "show internals" toggle, because introspecting
+;; Xray's own machinery is a separate feature and not an opt-out on a
+;; user-facing feed. This applies that rule to the evidence rosters.
+;;
+;; IT LIVES HERE, ONE LAYER ABOVE THE SEAM, AND THAT PLACEMENT IS FORCED.
+;; `fresco-reads` passes the producer's envelope through VERBATIM — a
+;; byte-for-byte contract with the AI pair, pinned by a witness asserting
+;; the seam's answer is `identical?` to the door's — so a filter there
+;; would break a contract to fix a presentation defect. Row projection is
+;; where shaping belongs, and `fresco-reads`' own docstring says so.
+;;
+;; The four rosters are filtered TOGETHER, for the reason they are read in
+;; one turn: dropping a boundary from the census while leaving its edges in
+;; the attribution roster would show an edge whose boundary is not in the
+;; census, which is the inconsistency the one-turn read exists to prevent.
+
+(def ^:private xray-frame
+  "Xray's own frame. A row seated here is the tool, not the application."
+  :rf/xray)
+
+(defn- own-frame?
+  "True when `frame` IS Xray's own. Deliberately `=` against a resolved
+  frame id and nothing cleverer: [[unknown]] is not Xray's frame, and a
+  row whose frame the producer could not resolve must stay on screen
+  carrying its chip rather than be silently dropped as self-noise."
+  [frame]
+  (= xray-frame frame))
+
+(defn- own-intent?
+  "True when every frame an intent touched is Xray's own.
+
+  EVERY, not any: a dispatch that reached an application frame is the
+  user's, whatever else it also touched, and dropping it would hide real
+  evidence. An intent carrying no frames at all is kept for the same
+  reason — an empty set is an absence, not a claim about Xray."
+  [frames]
+  (and (seq frames) (every? own-frame? frames)))
+
+(defn- without
+  "`envelope` with `k`'s collection filtered by `keep?`. A non-envelope
+  (nil, or a schema this build cannot parse) passes through untouched —
+  degrading is [[presence]]'s job, and a filter must not be able to turn
+  a mismatch into an empty roster."
+  [envelope k keep?]
+  (if-not (supported? envelope)
+    envelope
+    (update envelope k #(vec (filter keep? %)))))
+
+(defn without-own-frame
+  "The four-envelope map with every row seated in Xray's OWN frame
+  removed. Pure; the caller hands it exactly what `fresco-reads/evidence`
+  answered.
+
+  APPLIED ONCE, HERE, AND NOT AT ROW PROJECTION — because the rows are
+  not the only consumer. `fresco-advisor/advise` and
+  `fresco-causal/slice` take the ENVELOPES, not the rows, so a filter
+  living in [[mounted-rows]] and its three siblings would leave the
+  Advisor ranking Xray's own panel and the Causal slice explaining it —
+  the slice is drawn for whichever boundary the advisor ranked FIRST,
+  so the tool would have narrated its own render as the application's.
+  One filter upstream of all six views cannot develop that gap.
+
+  It is also why the four are filtered TOGETHER rather than one at a
+  time: they are read in ONE turn precisely so a reader cannot see an
+  edge whose boundary is missing from the census, and a partial filter
+  would manufacture exactly that."
+  [envelopes]
+  (-> envelopes
+      (update :mounted-boundaries without :boundaries
+              (comp not own-frame? :frame))
+      (update :read-attribution   without :edges
+              (comp not own-frame? :frame-id))
+      (update :intents            without :intents
+              (comp not own-intent? :frames))
+      (update :explain-render     without :explanations
+              (comp not own-frame? :frame))))
+
 (defn mounted-rows
   "The Mounted view's rows: one per distinct edge set, carrying the
   instance count and the per-row absences already turned into chips.

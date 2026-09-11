@@ -770,7 +770,17 @@
   (rf/reg-sub :rf.xray.fresco/data
     {:inputs [[:rf.xray/trace-buffer]]}
     (fn [[_tick] _query]
-      (let [envelopes (reads/evidence)
+      ;; rf2-k97c.3 — `hh/without-own-frame` drops Xray's OWN boundaries
+      ;; before anything downstream sees them. Xray's panels are Fresco
+      ;; boundaries now and Fresco's census has no frame filter, so this
+      ;; tab listed ITSELF among the inspected application's boundaries
+      ;; until this landed. It sits HERE rather than inside `reads/`
+      ;; because that seam answers the producer's envelope VERBATIM — a
+      ;; byte-for-byte contract with the AI pair, pinned by a witness —
+      ;; and HERE rather than in the row projections because the advisor
+      ;; and the causal slice read the envelopes directly. See
+      ;; `fresco-helpers/without-own-frame`.
+      (let [envelopes (hh/without-own-frame (reads/evidence))
             ;; The window is taken in the SAME turn as the four envelopes,
             ;; for the reason the four are taken together: the advisor
             ;; joins the ring's recompute counts to the census's read
