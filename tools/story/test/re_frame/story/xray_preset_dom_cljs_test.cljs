@@ -47,6 +47,13 @@
   red. Dropping the guard on the way across is how a browser-only row
   ends up failing in node.
 
+  The guard is spelled `(if-not (browser?) (is true skip-msg) ...)`
+  rather than as a bare `(when (browser?) ...)` (rf2-b8zo): under
+  `:node-test` the marker assertion fires and the row reports a STATED
+  skip, where a bare `when` left it passing with zero assertions — on
+  the console indistinguishable from a row that ran. The browser lane
+  evaluates the same body it always did.
+
   These assertions had never executed anywhere. A failure here is first
   evidence about `keybinding/attach!` / `keybinding/detach!` and the
   bridge that drives them, not a regression introduced by the move."
@@ -63,6 +70,9 @@
   (and (exists? js/document)
        (some? (.-addEventListener js/document))))
 
+(def ^:private skip-msg
+  "skipped: no DOM (node lane — see ns docstring)")
+
 (deftest wire-cross-host-clears-attached-listener
   (testing "rf2-ycrt2 — simulate Xray's preload-time attach! under the
             default-true posture, then drive wire-cross-host!: the slot
@@ -70,28 +80,30 @@
             (runtime). rf2-q7who.1 declared the contract and did not
             close it — the slot flip alone never detaches a listener
             that attach! already installed."
-    (when (browser?)
-      ;; Normalise the sentinel before the precondition asserts on it.
-      ;; `attach!` is a `compare-and-set!` from false, so an already-
-      ;; attached listener would make it a silent no-op and the
-      ;; precondition would pass on somebody else's listener.
-      (xray-keybinding/detach!)
-      (xray-config/set-keybinding-enabled! true)
-      (try
-        (xray-keybinding/attach!)
-        (is (true? (xray-keybinding/attached?))
-            "precondition: preload-style attach! installed the listener")
-        ;; Drive the real bridge. No shims: `disable-keybinding!` and
-        ;; `detach-keybinding!` reach Xray's live config / keybinding
-        ;; namespaces through declared `:require`s (rf2-r8trk). No shell
-        ;; mounts — `wire-cross-host!` never calls `apply-open!`.
-        (rf.story.xray-preset/wire-cross-host!)
-        (is (false? (xray-config/keybinding-attach-enabled?))
-            "wire-cross-host! flipped the slot to false")
-        (is (false? (xray-keybinding/attached?))
-            "wire-cross-host! removed the listener (rf2-ycrt2 runtime gap closed)")
-        (finally
-          ;; Restore the baseline so neighbouring namespaces on this
-          ;; page see the default posture and no stray listener.
-          (xray-config/set-keybinding-enabled! true)
-          (xray-keybinding/detach!))))))
+    (if-not (browser?)
+      (is true skip-msg)
+      (do
+        ;; Normalise the sentinel before the precondition asserts on it.
+        ;; `attach!` is a `compare-and-set!` from false, so an already-
+        ;; attached listener would make it a silent no-op and the
+        ;; precondition would pass on somebody else's listener.
+        (xray-keybinding/detach!)
+        (xray-config/set-keybinding-enabled! true)
+        (try
+          (xray-keybinding/attach!)
+          (is (true? (xray-keybinding/attached?))
+              "precondition: preload-style attach! installed the listener")
+          ;; Drive the real bridge. No shims: `disable-keybinding!` and
+          ;; `detach-keybinding!` reach Xray's live config / keybinding
+          ;; namespaces through declared `:require`s (rf2-r8trk). No shell
+          ;; mounts — `wire-cross-host!` never calls `apply-open!`.
+          (rf.story.xray-preset/wire-cross-host!)
+          (is (false? (xray-config/keybinding-attach-enabled?))
+              "wire-cross-host! flipped the slot to false")
+          (is (false? (xray-keybinding/attached?))
+              "wire-cross-host! removed the listener (rf2-ycrt2 runtime gap closed)")
+          (finally
+            ;; Restore the baseline so neighbouring namespaces on this
+            ;; page see the default posture and no stray listener.
+            (xray-config/set-keybinding-enabled! true)
+            (xray-keybinding/detach!)))))))
