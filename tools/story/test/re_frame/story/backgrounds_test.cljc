@@ -1,9 +1,16 @@
 (ns re-frame.story.backgrounds-test
   "Tests for the backgrounds switcher's pure state model (rf2-zll4h).
 
-  Runs on both JVM and CLJS — the CLJS arm exercises the localStorage
-  round-trip; both arms exercise the preset table + resolve precedence
-  + wrap-style shape.
+  Runs on the JVM under `clojure -M:test`. This namespace ends `-test`
+  rather than `cljs-test`, so NO CLJS build selects it: `:node-test`'s
+  `:ns-regexp` is `cljs-test$` and `:browser-test`'s is
+  `.*-dom-cljs-test$`, and nothing else requires it.
+
+  This docstring used to say \"Runs on both JVM and CLJS — the CLJS arm
+  exercises the localStorage round-trip\". That was never true, and the
+  four `#?(:cljs ...)` rows it described were unreachable rather than
+  merely skipped. They now live in
+  `re-frame.story.backgrounds-storage-dom-cljs-test` (rf2-r51p).
 
   Coverage layers:
 
@@ -11,7 +18,7 @@
   - Custom hex-colour validation.
   - Selection precedence (story-override > toolbar selection > default).
   - `wrap-style` shape for flat colour + transparent / checkerboard.
-  - localStorage round-trip — CLJS-only."
+  - localStorage round-trip — moved out; see the dom sibling named above."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.backgrounds :as rf.story.backgrounds]))
 
@@ -132,51 +139,17 @@
   (testing "unknown colour shape → nil (caller falls back)"
     (is (nil? (rf.story.backgrounds/wrap-style {:color 42})))))
 
-;; ---- localStorage round-trip --------------------------------------------
-
-#?(:cljs
-   (defn- browser?
-     []
-     (and (exists? js/window) (.-localStorage js/window))))
-
-#?(:cljs
-   (defn- clear-storage!
-     []
-     (when (browser?)
-       (try (.removeItem (.-localStorage js/window) rf.story.backgrounds/ls-key)
-            (catch :default _ nil)))))
-
-#?(:cljs
-   (deftest storage-roundtrip-preset
-     (when (browser?)
-       (clear-storage!)
-       (rf.story.backgrounds/save-to-storage! :dark)
-       (is (= :dark (rf.story.backgrounds/load-from-storage)))
-       (clear-storage!))))
-
-#?(:cljs
-   (deftest storage-roundtrip-custom
-     (when (browser?)
-       (clear-storage!)
-       (rf.story.backgrounds/save-to-storage! "#abc123")
-       (is (= "#abc123" (rf.story.backgrounds/load-from-storage)))
-       (clear-storage!))))
-
-#?(:cljs
-   (deftest storage-save-nil-clears
-     (when (browser?)
-       (clear-storage!)
-       (rf.story.backgrounds/save-to-storage! :dark)
-       (is (some? (rf.story.backgrounds/load-from-storage)))
-       (rf.story.backgrounds/save-to-storage! nil)
-       (is (nil? (rf.story.backgrounds/load-from-storage)))
-       (clear-storage!))))
-
-#?(:cljs
-   (deftest storage-rejects-invalid-on-save
-     (when (browser?)
-       (clear-storage!)
-       (rf.story.backgrounds/save-to-storage! :neon)
-       (is (nil? (rf.story.backgrounds/load-from-storage)))
-       (rf.story.backgrounds/save-to-storage! "rgb(1,2,3)")
-       (is (nil? (rf.story.backgrounds/load-from-storage))))))
+;; ---- localStorage round-trip: see the dom sibling ----------------------
+;;
+;; rf2-r51p MOVED the four `storage-*` rows to
+;; `re-frame.story.backgrounds-storage-dom-cljs-test`. They were written as
+;; `#?(:cljs (deftest ...))` here, and THIS namespace ends `-test` rather
+;; than `cljs-test`, so `:node-test`'s `:ns-regexp` (`cljs-test$`) never
+;; selected it, `:browser-test`'s (`.*-dom-cljs-test$`) never matched it,
+;; and nothing else requires it. Those rows were therefore UNREACHABLE --
+;; not guarded-false, but never compiled by any CLJS build at all. The
+;; docstring above used to claim "the CLJS arm exercises the localStorage
+;; round-trip"; it never did.
+;;
+;; The JVM half of this file is unaffected: every row above is a bare
+;; unconditional `deftest` and this file carries no `#?(:clj ...)` form.

@@ -141,28 +141,12 @@
          (is (= "full" (:data-viewport (first attrs)))
              "default render reports :full")))))
 
-;; ---- localStorage hydration ---------------------------------------------
-
-#?(:cljs
-   (defn- browser? []
-     (and (exists? js/window) (.-localStorage js/window))))
-
-#?(:cljs
-   (deftest cljs-hydrate-from-storage-seeds-empty-slot
-     (testing "hydrate! seeds the shell slot from persisted localStorage"
-       (when (browser?)
-         (rf.story.viewport/save-to-storage! :tablet)
-         (rf.story.ui.state/reset-shell-state!)
-         (is (nil? (:viewport (rf.story.ui.state/get-state))))
-         (rf.story.ui.viewport-switcher/hydrate!)
-         (is (= :tablet (:viewport (rf.story.ui.state/get-state))))))))
-
-#?(:cljs
-   (deftest cljs-hydrate-skips-populated-slot
-     (testing "hydrate is idempotent — leaves an already-populated slot alone"
-       (when (browser?)
-         (rf.story.viewport/save-to-storage! :tablet)
-         (rf.story.ui.state/swap-state! assoc :viewport :mobile-portrait)
-         (rf.story.ui.viewport-switcher/hydrate!)
-         (is (= :mobile-portrait (:viewport (rf.story.ui.state/get-state)))
-             "populated slot was preserved")))))
+;; ---- localStorage hydration: see the dom sibling -----------------------
+;;
+;; rf2-r51p MOVED the two `hydrate!` rows to
+;; `re-frame.story.viewport-storage-dom-cljs-test`, where they sit beside
+;; the `save-to-storage!` / `load-from-storage` round-trip they depend on.
+;; They were guarded by `(when (browser?) ...)` here, and this namespace
+;; ends `-cljs-test`, so `:browser-test` never loaded it while
+;; `:node-test` -- which has no `window.localStorage` -- skipped the body:
+;; they executed in neither lane.

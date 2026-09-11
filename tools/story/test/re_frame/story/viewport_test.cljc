@@ -1,11 +1,18 @@
 (ns re-frame.story.viewport-test
   "Tests for the viewport switcher's pure state model (rf2-zll4h).
 
-  Runs on both the JVM (cognitect.test-runner under `clojure -M:test`)
-  and the CLJS node-test build (shadow's `:node-test` target — the
-  ns name doesn't end in `cljs-test` so the JVM gate is the primary
-  surface; CLJS coverage comes from the parallel
-  `viewport_switcher_cljs_test`).
+  Runs on the JVM (cognitect.test-runner under `clojure -M:test`) and
+  NOWHERE ELSE. This namespace ends `-test` rather than `cljs-test`, so
+  no CLJS build selects it: `:node-test`'s `:ns-regexp` is `cljs-test$`
+  and `:browser-test`'s is `.*-dom-cljs-test$`, and nothing else
+  requires it.
+
+  This docstring used to add \"and the CLJS node-test build\" and send a
+  reader to `viewport_switcher_cljs_test` for the CLJS coverage. Both
+  halves were wrong: the `#?(:cljs ...)` rows here were unreachable, and
+  that sibling's matching rows were themselves guarded into neither
+  lane. They are now together in
+  `re-frame.story.viewport-storage-dom-cljs-test` (rf2-r51p).
 
   Coverage layers:
 
@@ -13,7 +20,7 @@
   - Custom `{:width :height}` validation.
   - Selection precedence (story-override > toolbar selection > default).
   - `wrap-style` shape (nil for `:full`, populated for sized presets).
-  - localStorage round-trip — CLJS-only, gated by `browser?`."
+  - localStorage round-trip — moved out; see the dom sibling named above."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.viewport :as rf.story.viewport]))
 
@@ -137,57 +144,22 @@
       (is (= "0 auto" (:margin s))
           "centred horizontally"))))
 
-;; ---- localStorage round-trip --------------------------------------------
+;; ---- localStorage round-trip: see the dom sibling ----------------------
 ;;
-;; CLJS only — JVM `load-from-storage` always returns nil.
-
-#?(:cljs
-   (defn- browser?
-     []
-     (and (exists? js/window) (.-localStorage js/window))))
-
-#?(:cljs
-   (defn- clear-storage!
-     []
-     (when (browser?)
-       (try (.removeItem (.-localStorage js/window) rf.story.viewport/ls-key)
-            (catch :default _ nil)))))
-
-#?(:cljs
-   (deftest storage-roundtrip-preset
-     (testing "save → load returns the persisted preset id"
-       (when (browser?)
-         (clear-storage!)
-         (rf.story.viewport/save-to-storage! :tablet)
-         (is (= :tablet (rf.story.viewport/load-from-storage)))
-         (clear-storage!)))))
-
-#?(:cljs
-   (deftest storage-roundtrip-custom
-     (testing "save → load returns the persisted custom map"
-       (when (browser?)
-         (clear-storage!)
-         (rf.story.viewport/save-to-storage! {:width 800 :height 600})
-         (is (= {:width 800 :height 600} (rf.story.viewport/load-from-storage)))
-         (clear-storage!)))))
-
-#?(:cljs
-   (deftest storage-save-nil-clears
-     (testing "save-to-storage! nil clears the persisted slot"
-       (when (browser?)
-         (clear-storage!)
-         (rf.story.viewport/save-to-storage! :tablet)
-         (is (some? (rf.story.viewport/load-from-storage)))
-         (rf.story.viewport/save-to-storage! nil)
-         (is (nil? (rf.story.viewport/load-from-storage)))
-         (clear-storage!)))))
-
-#?(:cljs
-   (deftest storage-rejects-invalid-on-save
-     (testing "save-to-storage! drops invalid values to nil (no leak)"
-       (when (browser?)
-         (clear-storage!)
-         (rf.story.viewport/save-to-storage! :phablet)         ;; unknown preset
-         (is (nil? (rf.story.viewport/load-from-storage)))
-         (rf.story.viewport/save-to-storage! {:width "no"})    ;; bad shape
-         (is (nil? (rf.story.viewport/load-from-storage)))))))
+;; rf2-r51p MOVED the four `storage-*` rows to
+;; `re-frame.story.viewport-storage-dom-cljs-test`. They were written as
+;; `#?(:cljs (deftest ...))` here, and THIS namespace ends `-test` rather
+;; than `cljs-test`, so `:node-test`'s `:ns-regexp` (`cljs-test$`) never
+;; selected it, `:browser-test`'s (`.*-dom-cljs-test$`) never matched it,
+;; and nothing else requires it. Those rows were UNREACHABLE -- never
+;; compiled by any CLJS build at all.
+;;
+;; The docstring above used to send a reader to
+;; `viewport_switcher_cljs_test` for the CLJS coverage. That file's
+;; corresponding rows were themselves dead (guarded by `(when (browser?)
+;; ...)` in a namespace the browser lane never loads), so both layers of
+;; the intended coverage were inert and each pointed at the other. They
+;; are now together in the dom sibling named above.
+;;
+;; The JVM half of this file is unaffected: every row above is a bare
+;; unconditional `deftest` and this file carries no `#?(:clj ...)` form.

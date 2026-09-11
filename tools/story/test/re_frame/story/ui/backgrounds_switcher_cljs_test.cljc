@@ -130,26 +130,12 @@
          (is (= "light" (:data-background (first attrs)))
              "default render reports :light")))))
 
-;; ---- localStorage hydration ---------------------------------------------
-
-#?(:cljs
-   (defn- browser? []
-     (and (exists? js/window) (.-localStorage js/window))))
-
-#?(:cljs
-   (deftest cljs-hydrate-from-storage-seeds-empty-slot
-     (when (browser?)
-       (rf.story.backgrounds/save-to-storage! :dark)
-       (rf.story.ui.state/reset-shell-state!)
-       (is (nil? (:background (rf.story.ui.state/get-state))))
-       (rf.story.ui.backgrounds-switcher/hydrate!)
-       (is (= :dark (:background (rf.story.ui.state/get-state)))))))
-
-#?(:cljs
-   (deftest cljs-hydrate-skips-populated-slot
-     (when (browser?)
-       (rf.story.backgrounds/save-to-storage! :dark)
-       (rf.story.ui.state/swap-state! assoc :background :midnight)
-       (rf.story.ui.backgrounds-switcher/hydrate!)
-       (is (= :midnight (:background (rf.story.ui.state/get-state)))
-           "populated slot was preserved"))))
+;; ---- localStorage hydration: see the dom sibling -----------------------
+;;
+;; rf2-r51p MOVED the two `hydrate!` rows to
+;; `re-frame.story.backgrounds-storage-dom-cljs-test`, where they sit
+;; beside the `save-to-storage!` / `load-from-storage` round-trip they
+;; depend on. They were guarded by `(when (browser?) ...)` here, and this
+;; namespace ends `-cljs-test`, so `:browser-test` never loaded it while
+;; `:node-test` -- which has no `window.localStorage` -- skipped the body:
+;; they executed in neither lane.
