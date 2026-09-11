@@ -2323,20 +2323,25 @@
   a one-line change at that call site, the shape PR #9581 recorded for
   `mount-resources!`.
 
-  `panels.cljs` and `panel_enum.cljc` (whose `:event-spine` row names
-  `shell/event-list` as a string) were both held by another worker when this
-  slice was written, so that one line could not be changed and the
-  migration would have shipped a BROKEN embed — silently, because
-  `panels_mount_cljs_test` drives `render-panel!` through a render STUB
-  that captures the tree and never renders it.
+  `panels.cljs` was held by another worker when that slice was written, so
+  that one line could not be changed and the migration would have shipped a
+  BROKEN embed — silently, because `panels_mount_cljs_test` drives
+  `render-panel!` through a render STUB that captures the tree and never
+  renders it.
 
-  EVERYTHING ELSE IS ALREADY IN PLACE. The body below is the thin
-  read-and-call shape every migrated view has, [[event-list-tree]] is
-  the pure fn, and the node lane's door already drives it. Making this a
-  boundary is: swap `rf/reg-view` for `rf.fresco/defview`, swap the six
-  `@(rf/subscribe …)` for `rf.fresco/sub`, add a public
-  `event-list-bridge`, and pass it at `panels.cljs`'s
-  `mount-event-spine!`.
+  THE CALLER-SIDE HALF HAS SINCE LANDED (rf2-k97c.3, the second alias
+  funnel). [[event-list-bridge]] below is the public bridge name and
+  `mount-event-spine!` already passes it, so the migration no longer waits
+  on `panels.cljs` and no longer touches it. `panel_enum.cljc`'s
+  `:event-spine` row still names `shell/event-list` as a string and stays
+  right: that column records the VIEW, exactly as the already-bridged rows
+  `trace/Panel` and `resources/Panel` do.
+
+  WHAT REMAINS IS ENTIRELY IN THIS FILE, and it is the whole of it: swap
+  `rf/reg-view` for `rf.fresco/defview` and swap the six
+  `@(rf/subscribe …)` for `rf.fresco/sub`. The body below is already the
+  thin read-and-call shape every migrated view has, [[event-list-tree]] is
+  the pure fn, and the node lane's door already drives it.
 
   [[dynamic-chrome]] therefore mounts it as a REAGENT ISLAND through
   `as-child`, exactly as it does the L2/L3 seam handle.
@@ -2402,6 +2407,33 @@
      ;; computation defined.
      :now-ms          (or @(rf/subscribe [:rf.xray/relative-time-now-ms])
                           (rf.interop/now-ms))}))
+
+;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;;
+;; `panels/mount-event-spine!` mounts the L2 spine BY NAME through
+;; `render-panel!`, and that call site is the ONE line the docstring above
+;; records as blocking this view's migration. Naming the bridge here NOW,
+;; while it is still a plain alias, is what unblocks it: [[event-list]]
+;; becomes the `rf.fresco/defview` boundary and this def becomes the real
+;; `rf.fresco/as-component` bridge, with `panels.cljs` never touched again.
+;; It is the shape `resources/Panel-bridge` already ships and the one
+;; RULING 1 selected — boundary on the natural name, public bridge passed
+;; by the caller.
+;;
+;; TODAY IT IS A NO-OP. `rf/reg-view` expands to `(def event-list
+;; (re-frame.core/view :id))`, so [[event-list]] is a VALUE and this def
+;; binds the SAME OBJECT — nothing downstream can tell the two names apart,
+;; and `dynamic-chrome`'s Reagent-island mount is unaffected. `render-panel!`
+;; always builds the component VECTOR `[panel-view]`, so head position is
+;; the only position either name is used in.
+(def event-list-bridge
+  "The name `panels/mount-event-spine!` mounts the L2 spine through — a
+  plain alias of [[event-list]] until this view migrates to Fresco, when
+  it becomes the `as-component` bridge without the mount facade moving.
+  Scaffolding with a defined end: it is deleted with every other
+  `*-bridge` when the shell itself becomes a Fresco tree. See the comment
+  above."
+  event-list)
 
 ;; ---- L3 tab bar ----------------------------------------------------------
 
