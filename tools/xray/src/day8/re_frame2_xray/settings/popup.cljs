@@ -3,10 +3,11 @@
 
   Per `tools/xray/spec/018-Event-Spine.md` §9 Settings popup the
   modal is a transient overlay rather than a sidebar panel: open,
-  tweak, close. The same facade pattern as `palette.cljs` —
-  `reg-view`-wrapped `Modal` that short-circuits to nil when
-  `:rf.xray/settings-open?` is false; closed-state cost is one
-  subscribe + a `when`.
+  tweak, close. The same facade pattern as `palette.cljs` — a
+  short-circuit to nil when `:rf.xray/settings-open?` is false, with
+  a closed-state cost of one read + a `when`. Since rf2-k97c.3 that
+  gate lives in the [[Popup]] boundary rather than in the [[Modal]]
+  bridge, which is now unconditional; see the section below.
 
   ## Sections
 

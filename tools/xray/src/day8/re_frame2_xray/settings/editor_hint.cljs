@@ -134,10 +134,12 @@
 ;; ---- view ---------------------------------------------------------------
 
 (defn toast-view
-  "Hiccup for the open editor-hint toast. The caller (`Toast`) gates
-  the mount on `:rf.xray/editor-hint-open?`. `dispatch` is
-  the frame-aware dispatcher injected by the `reg-view` body so the
-  deferred `:on-click` handlers land on the surrounding instance frame."
+  "Hiccup for the open editor-hint toast. The caller that gates the
+  mount on `:rf.xray/editor-hint-open?` is [[Hint]] — since rf2-k97c.3
+  the gate lives in the boundary rather than in the [[Toast]] bridge.
+  `dispatch` is the frame-bound dispatcher [[Hint]] captured with
+  `(:dispatch (rf/capture-frame))`, so the deferred `:on-click`
+  handlers land on the surrounding instance frame."
   [dispatch]
   ;; The PRIMARY, reachable Esc-dismissal path is the
   ;; shell-level global keydown listener (`keybinding/handle-keydown`),
