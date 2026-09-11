@@ -2721,8 +2721,15 @@
   and the interceptor row conflated the two). `coord-link` drops cleanly
   to plain text + no glyph when the interceptor was registered via the
   `reg-interceptor*` fn, is a framework interceptor, or the bundle elided
-  the coord in production."
-  [idx {:keys [interceptor-id phase errors coord]}]
+  the coord in production.
+
+  `instance` (rf2-1ar7) is the mount qualifier, threaded down from
+  [[render-step]]'s `ctx` exactly as every other cascade-level value is. It
+  reaches the row's 'Exception Thrown' card, whose `ex-data` disclosure
+  mounts an `ei/edn-inspector-view` — which is why this chain needed the
+  parameter at all. See §per-mount inspector identity above
+  [[dispatch-body]]."
+  [idx {:keys [interceptor-id phase errors coord]} instance]
   (let [label (fmt/ns-keyword interceptor-id)]
     [:div {:key (str "interceptor-row-" idx)
            :data-testid (str "rf-xray-epoch-interceptor-row-" idx)
@@ -2745,7 +2752,7 @@
      ;; rf2-yz57h — the interceptor EXCEPTION attaches here as the shared
      ;; inline 'Exception Thrown' card (button-17 :before / button-18
      ;; :after), under the INTERCEPTOR step where it occurred.
-     (error-blocks (keyword (str "interceptor-row-" idx)) errors)]))
+     (error-blocks (keyword (str "interceptor-row-" idx)) errors instance)]))
 
 (defn render-interceptor-step
   "Render the INTERCEPTOR step (rf2-yz57h — present ONLY when a user
@@ -2754,8 +2761,26 @@
   <go-to-source glyph>` (rf2-rvxem) with the shared 'Exception Thrown'
   card attaching below it. The step's `:errors` slot (attached by
   `attach-exceptions`) is rendered per-row by matching the exception's
-  `:failing-id` to the row's `:interceptor-id`."
-  [{:keys [rows step-number errors]}]
+  `:failing-id` to the row's `:interceptor-id`.
+
+  ## `instance` — WHICH MOUNT OF THIS PANEL (rf2-1ar7)
+
+  rf2-3ymg threaded the mount qualifier to every step that mounts an
+  `ei/edn-inspector-view` and recorded this step as mounting none. That was
+  wrong in one direction that only shows up on a THROW: a row's exception
+  card discloses its `ex-data` through [[error-block-details]], which mounts
+  an inspector under `epoch/error-ex-data/<testid-base>`. Since the
+  testid-base is composed from the step-key and the row ordinal alone, two
+  named Epoch mounts showing the same interceptor exception composed ONE
+  mount-id — so the second installed no ResizeObserver, and detaching either
+  released the survivor's entry and its measured width.
+
+  The single-argument arity is the unnamed single-mount default and composes
+  ids byte-for-byte as before rf2-3ymg; it is what the renderer-shape rows in
+  `panels/epoch/view_cljs_test` call. A caller that HAS an instance in scope
+  passes it — the dispatcher [[render-step]] does."
+  ([step] (render-interceptor-step step nil))
+  ([{:keys [rows step-number errors]} instance]
   ;; The step-level `:errors` (from `attach-exceptions`) carry the exception
   ;; records; thread each onto its matching row by `:failing-id`.
   (let [rows* (mapv (fn [row]
@@ -2776,7 +2801,7 @@
     [:div {:data-testid "rf-xray-epoch-step-interceptor"
            :data-step-kw "interceptor"}
      (numbered-circle step-number :INTERCEPTOR)
-     (map-indexed (fn [i row] (interceptor-row-view i row)) rows*)]))
+     (map-indexed (fn [i row] (interceptor-row-view i row instance)) rows*)])))
 
 ;; ---- INTERCEPTORS step — the authored / resolved chain (rf2-se9a9t) ------
 
@@ -5060,12 +5085,18 @@
       ;; owning row (mirrors the FX step's `fx-row-with-violations`
       ;; shape). The step-level violations (non-row attributed) still
       ;; ride at the foot via the call-site below.
+      ;; rf2-1ar7 — `instance` reaches here too. The per-row explainer mounts
+      ;; an `ei/edn-inspector-view` for the humanized explain map, so two
+      ;; named mounts showing the same sub's violation composed one mount-id
+      ;; until this argument was passed. It was already in scope — the value
+      ;; cell above uses it — which is the whole of what was wrong here.
       :row-extras
       (fn [row _i]
         (when (seq (:violations row))
           (violation-blocks
             (keyword (str "sub-row-" (some-> row :sub-id name)))
-            (:violations row))))}]))
+            (:violations row)
+            instance)))}]))
 
 (defn- dispose-reason-label
   "Render a `:rf.sub/dispose` `:reason` keyword as a UI label
@@ -5219,7 +5250,11 @@
      ;; pooled at the foot of the step). Step-level violations
      ;; (indirect recomputes that don't surface a row) continue to
      ;; ride at the foot.
-     (violation-blocks :subscriptions violations)])))
+     ;; rf2-1ar7 — qualified by the mount, like the per-row explainers
+     ;; above and every other inspector-bearing site in this file. Two named
+     ;; mounts of one epoch both composed
+     ;; `epoch/violation-explain/:subscriptions/0` before this argument.
+     (violation-blocks :subscriptions violations (:instance ctx))])))
 
 ;; ---- VIEWS step ----------------------------------------------------------
 
@@ -5726,7 +5761,17 @@
 (defn violation-blocks
   "Render every violation in `violations` as a sub-block inside the
   current step's body. `step-key` is the owning step keyword (used
-  for stable test ids). nil-safe."
+  for stable test ids). nil-safe.
+
+  `instance` (rf2-3ymg) qualifies the explainer's inspector `:mount-id`.
+  THE TWO-ARGUMENT ARITY MEANS `UNNAMED SINGLE MOUNT` — it is not a
+  shorthand for `whatever the caller has`. It composes ids byte-for-byte as
+  they were before rf2-3ymg, which is right for a direct test call and wrong
+  for any renderer that has an instance in scope: two named mounts showing
+  the same violation then share one lifecycle entry, one ResizeObserver and
+  one width slot. rf2-1ar7 is the bead filed because two call sites in this
+  file took the short arity while holding the value — say `nil` deliberately
+  or pass what you have. Every call site in this file passes it."
   ([step-key violations] (violation-blocks step-key violations nil))
   ([step-key violations instance]
    (when (seq violations)
@@ -5911,7 +5956,15 @@
   "Render every exception in `errors` as an inline card inside the
   current step's body (rf2-ahhgn). `step-key` is the owning step keyword
   (stable test ids). nil-safe — a clean step passes nil/empty and renders
-  nothing."
+  nothing.
+
+  `instance` (rf2-3ymg) qualifies the `ex-data` disclosure's inspector
+  `:mount-id`. THE TWO-ARGUMENT ARITY MEANS `UNNAMED SINGLE MOUNT`, with the
+  same caveat [[violation-blocks]] carries: it is the pre-rf2-3ymg identity,
+  correct for a direct test call and wrong for a renderer holding an
+  instance. The INTERCEPTOR row took it while its whole chain lacked the
+  parameter, which is half of rf2-1ar7. Every call site in this file passes
+  it."
   ([step-key errors] (error-blocks step-key errors nil))
   ([step-key errors instance]
    (when (seq errors)
@@ -5956,16 +6009,25 @@
   [step ctx]
   ;; rf2-3ymg — `:instance` rides `ctx` like every other cascade-level
   ;; value, and reaches the steps that mount an `ei/edn-inspector-view`.
-  ;; The three that mount none (`:recordable-cofx`, `:interceptors`,
-  ;; `:interceptor`) are not passed it, which is the honest signal that
-  ;; they have no per-mount identity to qualify.
+  ;; The TWO that mount none (`:recordable-cofx`, `:interceptors`) are not
+  ;; passed it, which is the honest signal that they have no per-mount
+  ;; identity to qualify.
+  ;;
+  ;; rf2-1ar7 — that list read THREE and named `:interceptor` among them.
+  ;; It mounts none on a CLEAN cascade, which is every cascade in which the
+  ;; step is absent altogether (it is conditional on a throw). When it IS
+  ;; present it mounts one per throwing row carrying `ex-data`, through
+  ;; `interceptor-row-view` → [[error-blocks]] → [[error-block-details]].
+  ;; The reachability question is "does any path from here reach an
+  ;; inspector", not "does this renderer name one", and the two remaining
+  ;; names were re-checked against that question rather than inherited.
   (let [instance (:instance ctx)]
     (case (:step step)
       :dispatch          (render-dispatch-step step (:dispatch-id->epoch-id ctx) instance)
       :recordable-cofx   (render-recordable-cofx-step step)
       :coeffect          (render-coeffect-step step instance)
       :interceptors      (render-interceptors-step step)
-      :interceptor       (render-interceptor-step step)
+      :interceptor       (render-interceptor-step step instance)
       :handler           (render-handler-step step ctx)
       :flow              (render-flow-step step instance)
       :side-effects      (render-side-effects-step step instance)
