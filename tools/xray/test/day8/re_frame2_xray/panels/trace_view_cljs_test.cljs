@@ -1180,7 +1180,9 @@
         ;; Non-vacuity first: an empty `rows` would make every assertion
         ;; below trivially true.
         (is (= 3 (count rows)) "three changed paths render three diff rows")
-        (is (= [":counter" ":flag" ":stale"] (sort ks))
+        ;; `(pr-str path)` of the whole path VECTOR — the expression the
+        ;; `with-meta` wrapper carried, unchanged.
+        (is (= ["[:counter]" "[:flag]" "[:stale]"] (sort ks))
             "each diff row carries the unchanged `(pr-str path)` key in attrs")
         (is (= 3 (count (distinct ks))) "sibling keys are distinct")
         ;; THE GATE. `subvec` for the same reason the sibling panels take it:
@@ -1245,7 +1247,12 @@
       ;; The panel's own body: the two table heads, unexpanded and unlowered.
       (let [heads (map first (filter vector? (hiccup-seq (panel-tree))))
             kinds (frequencies (map rf.fresco.impl.codec/head-kind heads))]
-        (is (< 5 (count heads))
+        ;; The panel's own body is SHALLOW — `:section`, the scroll `:div`,
+        ;; the feed `:div` and the two table heads is all of it, because
+        ;; every other helper is CALLED and the depth lives inside the
+        ;; widget. So the non-vacuity floor is 5, measured rather than
+        ;; guessed at.
+        (is (<= 5 (count heads))
             "the walk reached a populated tree, so the zero below is absence")
         (is (= 2 (get kinds :boundary 0))
             "both `resizable-table` sites are boundary heads")
