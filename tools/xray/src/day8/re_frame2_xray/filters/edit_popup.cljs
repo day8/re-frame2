@@ -217,7 +217,23 @@
   `dispatch` is the frame-aware dispatcher injected by the
   `filters/Modal` `reg-view` body — every deferred handler routes
   through it so the edit lands on the surrounding instance frame, not
-  a `{:frame :rf/xray}` literal."
+  a `{:frame :rf/xray}` literal.
+
+  ## rf2-k97c.3 — the three reads are STILL AMBIENT, deliberately
+
+  `filters/Modal` above is still an `rf/reg-view` mounted from
+  `shell-view`, which is itself still an `rf/reg-view` — a Reagent
+  tree — so the reads below are `@(rf/subscribe …)` resolving through
+  the React-context tier, exactly as they always have been. They do NOT
+  become `rf.fresco/sub`: that call is legal only inside a `defview`
+  body and would raise `:rf.error/fresco-sub-outside-render` here, and
+  it would also break the two suites that drive this fn directly
+  (`modals_aria_cljs_test`, `filters/edit_popup_cljs_test`).
+
+  What DID change is the head shape: every plain-fn head inside this
+  subtree is now a call, so whichever way the later slice resolves
+  `filters/Modal` — migrated to a boundary, or islanded behind
+  `as-child` — this file needs no further repair."
   [dispatch]
   (let [trigger     @(rf/subscribe [:rf.xray/edit-popup-trigger])
         draft       @(rf/subscribe [:rf.xray/edit-popup-draft])
@@ -265,9 +281,16 @@
 
       [:div {:style (section-style)}
        [:label {:style (label-style)} "Action"]
+       ;; rf2-k97c.3 — `mode-radio` is CALLED, not headed. It answers
+       ;; hiccup, its subtree is head-free (`[:label …]` over
+       ;; `[:input …]`), and it reads nothing, so the ruled HD-016
+       ;; repair is to inline it. It costs nothing today — `filters/
+       ;; Modal` above is still an `rf/reg-view`, where a plain-fn head
+       ;; is legal — and it is what lets that Modal become a boundary
+       ;; later without this file being re-opened. See [[popup-view]].
        [:div {:style (radio-row-style)}
-        [mode-radio dispatch {:mode :in :current-mode mode}]
-        [mode-radio dispatch {:mode :out :current-mode mode}]]]
+        (mode-radio dispatch {:mode :in :current-mode mode})
+        (mode-radio dispatch {:mode :out :current-mode mode})]]
 
       [:div {:style (section-style)}
        [:label {:style (label-style) :for "rf-xray-edit-popup-pattern"}

@@ -34,8 +34,11 @@
   ## Pure hiccup
 
   Same posture as the rest of Xray's view code: pure
-  hiccup, no per-substrate switches. Mount is via `reg-view` from the
-  caller (`shell.cljs`'s `ribbon-filter-pills`)."
+  hiccup, no per-substrate switches. Every fn here is CALLED by its
+  caller rather than headed — `shell.cljs`'s `ribbon-filter-pills`,
+  `ribbon` and `events-ribbon` reach them that way — and since
+  rf2-k97c.3 those callers are `rf.fresco/defview` BOUNDARIES, where a
+  plain function in head position is a loud `:invalid` refusal."
   (:require [day8.re-frame2-xray.filters.typed-predicates :as typed]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale sans-stack mono-stack]]))
@@ -102,7 +105,7 @@
                remove-filter event payload)
 
   `dispatch` is the frame-aware dispatcher captured by the
-  caller's `reg-view` body so the edit / remove clicks land on the
+  caller's Fresco boundary body so the edit / remove clicks land on the
   surrounding instance frame, not a `{:frame :rf/xray}` literal."
   [dispatch {:keys [mode pill idx]}]
   (let [tone        (pill-tone mode)
@@ -196,7 +199,7 @@
   chrome ribbon's left cluster.
 
   `dispatch` is the frame-aware dispatcher captured by the
-  caller's `reg-view` body."
+  caller's Fresco boundary body."
   [dispatch]
   [:button {:data-testid "rf-xray-filter-add"
             :on-click    #(dispatch
@@ -233,7 +236,7 @@
   near-black ribbon.
 
   `dispatch` is the frame-aware dispatcher captured by the
-  caller's `reg-view` body."
+  caller's Fresco boundary body."
   [dispatch]
   [:button {:data-testid "rf-xray-filter-add"
             :on-click    #(dispatch
@@ -262,7 +265,7 @@
   band).
 
   `dispatch` is the frame-aware dispatcher captured by the
-  caller's `reg-view` body."
+  caller's Fresco boundary body."
   [dispatch]
   [:button {:data-testid "rf-xray-filter-add-events"
             :on-click    #(dispatch
@@ -303,8 +306,9 @@
 (defn pills-view
   "The committed filter pills cluster — green-bordered IN pills, then
   red-bordered OUT pills. Reads `:rf.xray/active-filters`
-  via the caller; the caller is expected to be inside a `reg-view` so
-  subscribes resolve to `:rf/xray`.
+  via the caller; this fn itself reads NOTHING, which is what lets
+  `filters/pills_cljs_test` drive it straight from the node lane with
+  no render window around it.
 
   The add(+) affordance is not part of this
   cluster: per the authoritative reference the committed pills live on
@@ -314,7 +318,7 @@
   events ribbon.
 
   `dispatch` is the frame-aware dispatcher captured by the
-  caller's `reg-view` body, threaded to each `pill`."
+  caller's Fresco boundary body, threaded to each `pill`."
   [dispatch {:keys [filters]}]
   [:div {:data-testid "rf-xray-ribbon-filters"
          :title (counts-tooltip filters)
@@ -330,9 +334,25 @@
    ;; would shift its arguments — `[:<> {:key …} …]` carries the key on a
    ;; head BOTH substrates honour and leaves the call untouched (the same
    ;; shape `views/edn_inspector` uses under rf2-k97c.3).
+   ;;
+   ;; rf2-k97c.3 — `pill` is CALLED, not headed. This cluster renders
+   ;; inside the `shell/events-ribbon` Fresco BOUNDARY (reached through
+   ;; `shell/ribbon-filter-pills`, which calls [[pills-view]]), and there
+   ;; a plain function in head position grades `:invalid` — a loud
+   ;; refusal, never a silent embedding. `pill` answers hiccup and its
+   ;; subtree is head-free all the way down (`pill-tone` / `pill-kind` /
+   ;; `pill-display` all return values, not hiccup), so the ruled HD-016
+   ;; repair applies: inline it. No boundary of its own, and no read to
+   ;; donate upward — `pill` touches the substrate nowhere, which is also
+   ;; what keeps it callable from OUTSIDE a render window, as
+   ;; `filters/pills_cljs_test` does directly.
+   ;;
+   ;; The keyed fragment is what makes that inline free of structural
+   ;; cost: it still carries the list key without adding a DOM node, so
+   ;; `pill` stays the presentational helper it has always been.
    (for [[idx p] (map-indexed vector (:in filters))]
      [:<> {:key (str "in-" idx)}
-      [pill dispatch {:mode :in :pill p :idx idx}]])
+      (pill dispatch {:mode :in :pill p :idx idx})])
    (for [[idx p] (map-indexed vector (:out filters))]
      [:<> {:key (str "out-" idx)}
-      [pill dispatch {:mode :out :pill p :idx idx}]])])
+      (pill dispatch {:mode :out :pill p :idx idx})])])
