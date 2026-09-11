@@ -112,8 +112,11 @@
   enclosing Provider's `:rf/xray` flowed through React-context to a
   `(rf/subscribe …)` in the body); with plain `defn`s the React-context
   tier would be skipped (Spec 000 §Plain Reagent fns do not pick up the
-  surrounding frame) and subscribe would fall through to `:rf/default`,
-  silently routing every Xray panel query into the host's app-db.
+  surrounding frame) and the ambient subscribe would RAISE
+  `:rf.error/no-frame-context` — under EP-0002 there is no `:rf/default`
+  floor for it to fall through to, so an unregistered reading region is
+  a loud refusal rather than a silent query into the host's app-db
+  (Spec 006 §Plain-fn footgun).
 
   ## rf2-k97c.3 — the Dynamic chrome is a FRESCO TREE
 
@@ -1083,8 +1086,11 @@
   registered against `:rf/xray` via `registry/register-xray-handlers!`).
   A plain `defn` rendered inside the shell's `:rf/xray` frame-provider
   would not pick up the surrounding frame (Spec 000 §Plain Reagent fns
-  / Spec 006 §Plain-fn-under-non-default-frame warning) — the read here
-  would route to `:rf/default` and read the host app's app-db.
+  / Spec 006 §Plain-fn footgun) — so the read here would RAISE
+  `:rf.error/no-frame-context` rather than route anywhere. The
+  `:rf.warning/plain-fn-under-non-default-frame-once` this line once
+  cited is retired: EP-0002 removed the `:rf/default` floor the warning
+  existed to flag, and the loud error superseded it.
 
   The READ is `rf.fresco/sub`, a plain call the shipped collector records
   an edge for — no deref, no reaction owned by the installed adapter, and

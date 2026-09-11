@@ -456,7 +456,7 @@
 
 ;; ---- Scenario 4: cross-frame subscribe resolution -------------------------
 ;;
-;; Per Spec 006 §706 / rf2-d4sf: `(rf/subscribe ...)` inside a wrapped
+;; Per Spec 006 §Plain-fn footgun / rf2-d4sf: `(rf/subscribe ...)` inside a wrapped
 ;; view consults the React-context tier and resolves the query against
 ;; the wrapped frame's app-db. This is also covered by
 ;; cross_spec_cljs_test/subscribe-routes-via-react-context-under-non-
