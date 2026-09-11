@@ -2,10 +2,13 @@
   "CLJS tests for the Xray shell's horizontal resize handle (rf2-x8h9y).
 
   Asserts:
-    1. `Handle` mounts on `:inline` mode and short-circuits to nil on
-       `:popout` / `:fullscreen`.
-    2. The shell-view tree carries the handle when in default
-       `:inline` mode.
+    1. `Handle` — the `as-component` bridge since rf2-k97c.3 — mounts on
+       `:inline` mode and short-circuits to nil on `:popout` /
+       `:fullscreen`, and `handle-tree` carries the documented markup.
+    2. The shell-view tree MOUNTS the handle when in default `:inline`
+       mode. A hiccup walk stops at the bridge's `[:>]` interop head, so
+       this is a mount assertion rather than a markup one; the markup is
+       (1)'s subject and the mounted boundary is the browser lane's.
     3. Drag lifecycle — `start-drag!` flips `dragging?` to true,
        `simulate-up!` flips it back. `simulate-move!` dispatches the
        set-panel-width-px event with the start + delta.
@@ -53,40 +56,100 @@
 ;; semantically identical to `re-frame.test-helpers`; tests call
 ;; `rf.test-helpers/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
 
-;; ---- mount on :inline / short-circuit on others ------------------------
+;; ---- the handle's own markup (rf2-k97c.3) -------------------------------
+;;
+;; `handle-tree` is the boundary's PURE inner fn — of the live width, the
+;; announced ARIA ceiling and a dispatcher. Driving it directly is what
+;; the node lane can assert without a React render window: `handle-view`
+;; is a Fresco boundary and its `rf.fresco/sub` is legal only inside one,
+;; so calling the BOUNDARY here would raise
+;; `:rf.error/fresco-sub-outside-render` rather than answer hiccup.
 
-(deftest handle-renders-on-inline-mode
+(defn- handle-markup
+  "The handle's node as `handle-view` composes it.
+
+  The DISPATCHER is `(:dispatch (rf/capture-frame))`, the same door the
+  boundary uses — not `rf/dispatch`. That is what routes through
+  `rf/dispatch-impl`, so the `with-redefs` rows below see the events;
+  passing `rf/dispatch` instead makes them silently observe nothing."
+  []
+  (resize-handle/handle-tree
+    @(rf/subscribe [:rf.xray/panel-width-px])
+    (resize-handle/aria-max-panel-width-px)
+    (:dispatch (rf/capture-frame))))
+
+(deftest handle-tree-carries-the-documented-testid
   (setup!)
   (rf/with-frame :rf/xray
-    (let [tree (resize-handle/Handle :inline)]
+    (let [tree (handle-markup)]
       (is (some? tree)
-          "Handle returns a hiccup tree when mode is :inline")
+          "handle-tree returns a hiccup tree")
       (is (= "rf-xray-resize-handle" (:data-testid (second tree)))
           "the testid is the documented contract"))))
 
+;; ---- mount on :inline / short-circuit on others ------------------------
+;;
+;; The MODE GATE is [[resize-handle/Handle]]'s whole remaining job since
+;; rf2-k97c.3: it is the `as-component` bridge `shell-view-tree` heads,
+;; and it decides in CLJS — before the props crossing — because
+;; `as-component` round-trips prop names but not prop VALUES, so a
+;; keyword `mode` would not survive it. Non-`:inline` still answers nil;
+;; `:inline` answers the bridge's `[:>]` vector rather than markup.
+
+(deftest handle-mounts-the-bridge-on-inline-mode
+  (setup!)
+  (let [tree (resize-handle/Handle :inline)]
+    (is (some? tree)
+        "Handle mounts on :inline")
+    (is (= :> (first tree))
+        "it mounts through the as-component bridge's interop head")))
+
 (deftest handle-short-circuits-on-popout
   (setup!)
-  (rf/with-frame :rf/xray
-    (is (nil? (resize-handle/Handle :popout))
-        "popout mode has no handle — the OS-window's chrome handles resize")))
+  (is (nil? (resize-handle/Handle :popout))
+      "popout mode has no handle — the OS-window's chrome handles resize"))
 
 (deftest handle-short-circuits-on-fullscreen
   (setup!)
-  (rf/with-frame :rf/xray
-    (is (nil? (resize-handle/Handle :fullscreen))
-        "fullscreen mode has no resize — the panel fills the viewport")))
+  (is (nil? (resize-handle/Handle :fullscreen))
+      "fullscreen mode has no resize — the panel fills the viewport"))
 
 ;; ---- shell mounts the handle in :inline mode ---------------------------
+;;
+;; rf2-k97c.3 — a hiccup walk of the shell STOPS at the bridge's `[:>]`
+;; interop head, exactly as `shell.cljs` already records for its own
+;; `surface-bridge`. So what these two rows owe is that the shell MOUNTS
+;; the handle in `:inline` and does not in `:popout`; the markup behind
+;; the bridge is `handle-tree`'s subject above, and the mounted
+;; boundary's is the browser lane's.
+
+(defn- interop-heads
+  "Every `[:> component …]` node in the expanded tree, in pre-order.
+  The shell carries one for the Fresco surface and, in `:inline` only,
+  one for the resize handle."
+  [tree]
+  (->> (rf.test-helpers/expand-tree tree)
+       ;; `sequential?` as the branch test walks hiccup vectors and the
+       ;; lazy child seqs `for` produces, and deliberately does NOT
+       ;; descend attribute maps — nothing mounts from one.
+       (tree-seq sequential? seq)
+       (filter #(and (vector? %) (= :> (first %))))))
 
 (deftest shell-mounts-resize-handle
-  (testing "the resize handle is present in the shell tree when mode
+  (testing "the resize handle is mounted in the shell tree when mode
             is :inline (the default for the production right-rail
             mount)"
     (setup!)
     (rf/with-frame :rf/xray
-      (let [tree (dynamic-shell-tree/shell-view-tree {:mode :inline})]
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-resize-handle"))
-            "resize handle present in :inline mode")))))
+      (let [inline (count (interop-heads
+                            (dynamic-shell-tree/shell-view-tree {:mode :inline})))
+            popout (count (interop-heads
+                            (dynamic-shell-tree/shell-view-tree {:mode :popout})))]
+        (is (pos? inline)
+            "the :inline shell carries interop heads")
+        (is (= (inc popout) inline)
+            "the :inline shell carries exactly ONE bridge more than
+             :popout — the resize handle's")))))
 
 (deftest shell-omits-resize-handle-in-popout
   (testing "popout mode hides the handle — separate OS window owns resize"
@@ -94,7 +157,11 @@
     (rf/with-frame :rf/xray
       (let [tree (dynamic-shell-tree/shell-view-tree {:mode :popout})]
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-resize-handle"))
-            "resize handle absent in :popout mode")))))
+            "no handle markup in :popout mode")
+        (is (nil? (resize-handle/Handle :popout))
+            "and the mount site itself answers nil, which is what puts
+             it there — the row above cannot distinguish an absent
+             handle from one hidden behind a bridge")))))
 
 ;; ---- drag lifecycle ----------------------------------------------------
 
@@ -195,7 +262,7 @@
                                       ([ev]       (swap! dispatches conj ev) nil)
                                       ([ev _opts] (swap! dispatches conj ev) nil))]
       (rf/with-frame :rf/xray
-        (let [tree    (resize-handle/Handle :inline)
+        (let [tree    (handle-markup)
               handler (:on-double-click (second tree))]
           (is (fn? handler)
               "the handle node carries on-double-click")
@@ -304,7 +371,7 @@
 (deftest handle-renders-tabindex-and-aria-valuenow
   (setup!)
   (rf/with-frame :rf/xray
-    (let [tree (resize-handle/Handle :inline)
+    (let [tree (handle-markup)
           props (second tree)]
       (is (= 0 (:tab-index props))
           "handle is keyboard-reachable via tab")
@@ -368,30 +435,43 @@
         (finally
           (remove-stub-host! host))))))
 
-(deftest handle-renders-nil-when-host-yields
-  ;; The end-to-end yield: Handle short-circuits to nil when the host
-  ;; carries `resize: horizontal` in its computed style.
+;; rf2-k97c.3 — THE YIELD GATE LIVES IN `handle-view`, THE BOUNDARY, and
+;; deliberately not in the `Handle` bridge beside the mode gate. The
+;; bridge is scaffolding with a defined end: when `shell-view` becomes a
+;; boundary, `Handle` is DELETED. A spec'd product behaviour (rf2-70u8q)
+;; parked there would be deleted with it, silently. The mode gate is in
+;; the bridge only because a keyword cannot cross the props ABI, and it
+;; moves INTO the boundary as a prop when the bridge goes.
+;;
+;; The node lane cannot call a boundary — `rf.fresco/sub` is legal only
+;; inside a render — so these two rows assert the PREDICATE the boundary
+;; gates on, plus the markup it gates. The composition of the two is the
+;; browser lane's subject.
+
+(deftest handle-yields-when-host-asserts-own-handle
   (when (exists? js/document)
     (let [host (ensure-stub-host! "horizontal")]
       (try
         (setup!)
-        (rf/with-frame :rf/xray
-          (is (nil? (resize-handle/Handle :inline))
-              "yield path: Handle returns nil when consumer asserts own resize"))
+        (is (true? (resize-handle/host-asserts-own-handle?))
+            "yield path: the gate `handle-view` short-circuits on is true,
+             so the boundary renders nil and the page carries one handle")
         (finally
           (remove-stub-host! host))))))
 
 (deftest handle-renders-when-host-does-not-yield
-  ;; The end-to-end no-yield: Handle renders when host has no
-  ;; explicit resize declaration (the zero-config consumer path).
+  ;; The no-yield path: the zero-config consumer, who declares no
+  ;; `resize` at all and gets Xray's handle.
   (when (exists? js/document)
     (let [host (ensure-stub-host! nil)]
       (try
         (setup!)
         (rf/with-frame :rf/xray
-          (let [tree (resize-handle/Handle :inline)]
+          (is (false? (resize-handle/host-asserts-own-handle?))
+              "no-yield path: the boundary's gate is false, so it renders")
+          (let [tree (handle-markup)]
             (is (some? tree)
-                "no-yield path: Handle renders when consumer has no own resize")
+                "and the markup it then composes is present")
             (is (= "rf-xray-resize-handle" (:data-testid (second tree)))
                 "the rendered tree is the documented handle node")))
         (finally

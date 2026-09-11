@@ -115,6 +115,31 @@
       :now-ms          (or @(rf/subscribe [:rf.xray/relative-time-now-ms])
                            (rf.interop/now-ms))})))
 
+(defn seam-handle-tree
+  "The L2/L3 seam's hiccup, read the way
+  `resize-handle/seam-handle-view` reads it.
+
+  Added by rf2-k97c.3, when the seam stopped being a
+  `reagent.core/as-element` island and became an ordinary Fresco
+  boundary headed by `shell/dynamic-chrome`. Before that this position
+  was the plain `[resize-handle/SeamHandle]` vector `expand-tree`
+  walked; now the seam is a boundary, so a vector headed by it would
+  stop the walk at a component head and a row would assert nothing
+  about the seam's markup. Driving the shipped `*-tree` fn is what
+  keeps that row evidence about the shipped seam.
+
+  `aria-max-events-list-height-px` is the boundary's own helper rather
+  than a literal, for the reason this ns reproduces reads rather than
+  fixing them: it reads `js/window`, which is absent under node, and
+  the helper's documented 1000px fallback is then exactly what the
+  boundary would announce."
+  ([] (seam-handle-tree (:dispatch (rf/capture-frame))))
+  ([dispatch]
+   (resize-handle/seam-handle-tree
+     @(rf/subscribe [:rf.xray/events-list-height-px])
+     (resize-handle/aria-max-events-list-height-px)
+     dispatch)))
+
 (defn tab-bar-tree
   "The L3 tab bar's hiccup, read the way `shell/tab-bar` reads it — the
   raw `:rf.xray/selected-tab` value, with no `default-tab` fallback,
@@ -156,19 +181,22 @@
   its `data-rf-xray-dynamic-chrome` handle are the shipped definitions
   rather than a copy of them.
 
-  The chrome's TWO ISLANDS — `shell/event-list` (still an `rf/reg-view`;
-  its own docstring says why) and `resize-handle/SeamHandle` — are what
-  the boundary crosses with `reagent.core/as-element`. Here the seam
-  handle is the plain `[resize-handle/SeamHandle]` vector `expand-tree`
-  walks, and the L2 list is driven through `shell/event-list-tree` the
-  same way every other region is, so a row still walks the shipped L2
-  chrome rather than stopping at a component head."
+  The chrome's ONE REMAINING ISLAND is `shell/event-list` (still an
+  `rf/reg-view`; its own docstring says why), which the boundary crosses
+  with `reagent.core/as-element`. Here the L2 list is driven through
+  `shell/event-list-tree` the same way every other region is, so a row
+  still walks the shipped L2 chrome rather than stopping at a component
+  head.
+
+  THE SEAM WAS THE SECOND ISLAND AND IS NO LONGER ONE (rf2-k97c.3): it
+  is an ordinary Fresco boundary now, so it is driven through
+  [[seam-handle-tree]] exactly as every other region is."
   ([] (dynamic-chrome-tree (:dispatch (rf/capture-frame))))
   ([dispatch]
    (shell/dynamic-chrome-tree (ribbon-tree dispatch)
                               (events-ribbon-tree dispatch)
                               (event-list-tree dispatch)
-                              [resize-handle/SeamHandle]
+                              (seam-handle-tree dispatch)
                               (tab-bar-tree dispatch)
                               (detail-panel-tree))))
 

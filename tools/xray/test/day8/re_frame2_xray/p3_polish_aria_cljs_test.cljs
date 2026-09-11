@@ -287,7 +287,15 @@
             aria-valuemax alongside aria-valuemin and aria-valuenow."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree   (resize-handle/Handle :inline)
+      ;; rf2-k97c.3 — `handle-view` is a Fresco boundary now and its
+      ;; `rf.fresco/sub` is legal only inside a render, so the node lane
+      ;; drives the boundary's PURE inner fn. The announced ceiling comes
+      ;; from the shipped helper rather than a literal, because the
+      ;; ceiling's derivation is what rf2-vxpq1 is about.
+      (let [tree   (resize-handle/handle-tree
+                     480
+                     (resize-handle/aria-max-panel-width-px)
+                     rf/dispatch)
             attrs  (second tree)]
         (is (some? (:aria-valuemax attrs))
             "aria-valuemax is set")
