@@ -344,7 +344,33 @@
   Renders the numbered event-bundle — the focused epoch's complete
   computational timeline (DISPATCH → COEFFECTS → HANDLER → FLOW →
   FX → SUBSCRIPTIONS → VIEWS) with conditional rendering per the
-  trace stream."
+  trace stream.
+
+  `opts :instance-id` — OPTIONAL (rf2-3ymg). A non-blank string or a
+  keyword naming THIS mount, for the case where two standalone mounts
+  share one `:frame`. It qualifies the `:mount-id` of all THIRTEEN of this
+  panel's `edn-inspector` heads — the widget's lifecycle key is
+  `[frame-id mount-id]` and its measured-width slot is keyed by the bare
+  `mount-id`, so one qualifier moves both. Left unnamed, two Epoch panels
+  showing one focused epoch compose identical ids site for site
+  (the DISPATCH step's is a CONSTANT), share one store entry, one
+  ResizeObserver and one width slot per site, and detaching either
+  releases the survivor's.
+
+  It qualifies NOTHING ELSE, and that is deliberate: every one of the
+  thirteen sites passes a stable `:site-id`, so expansion and zoom are
+  keyed by that rather than by the mount-id and two panels of one epoch
+  still open and close together.
+
+  IT IS NOT WHAT SEPARATES THIS PANEL FROM A MACHINE INSPECTOR. The two
+  share one cascade renderer, and that collision is repaired statically
+  inside `machine-inspector/instance-token` rather than by asking a
+  caller to name mounts of two DIFFERENT panels apart — see there.
+
+  OMIT IT when only one Epoch panel is on screen in this frame, which is
+  every call site in this tree today: the ids are then byte-for-byte what
+  they were. `epoch-view/instance-token` refuses, loudly, the shapes that
+  could not be stable across renders."
   ([mount-point]      (mount-epoch-panel! mount-point nil))
   ;; rf2-k97c.3 — `Panel-bridge`, the name RULING 1's spelling has the
   ;; CALLER pass. Today it is a plain alias of the `reg-view` (the same
@@ -353,7 +379,13 @@
   ;; `panels/epoch/view.cljs` and THIS FILE IS NOT TOUCHED AGAIN. Moving
   ;; every remaining mount to its bridge name in one pass is what lets the
   ;; panel migrations run in parallel instead of queueing on this file.
-  ([mount-point opts] (render-panel! epoch-panel/Panel-bridge mount-point opts)))
+  ;; rf2-3ymg — and the props map is what carries `:instance-id` across that
+  ;; bridge; `Panel-bridge`'s 1-arity is the door, its 0-arity is what an
+  ;; unnamed mount still takes.
+  ([mount-point opts]
+   (render-panel! epoch-panel/Panel-bridge mount-point opts
+                  (when-let [id (:instance-id opts)]
+                    {:instance-id id}))))
 
 (defn mount-app-db-diff!
   "Mount Xray's App-DB tab in isolation at `mount-point`. Renders the
@@ -441,11 +473,35 @@
   The auxiliary inspectors (AfterRingsOverlay, ArcOverlay,
   ClusterView, ScrubberStrip, SimSideRail) render under this Panel
   — they are not independently mountable (see ns docstring §Internal
-  sub-components)."
+  sub-components).
+
+  `opts :instance-id` — OPTIONAL (rf2-3ymg), and this panel is the one
+  whose UNNAMED behaviour also changed. Element 2 renders through
+  `epoch-view/machine-cascade-mini-pipeline`, the SHARED renderer the
+  Epoch panel's HANDLER step uses (rf2-g2axio), so this panel composes
+  inspector `:mount-id`s in the EPOCH panel's id namespace. Mounted beside
+  an Epoch panel over one cascade, both emitted
+  `epoch/machine-cascade-transition-delta/<step>` for the same transition
+  and shared one lifecycle entry, one ResizeObserver and one width slot
+  across two DIFFERENT panels. `machine-inspector/instance-token` now
+  answers this panel's own name for an unnamed mount rather than nil, so
+  that pair is separate with NO caller action — which is right, because
+  which panel is rendering is statically known and an embedder mounting
+  one of each cannot see the collision to work around it.
+
+  Pass `:instance-id` for the case a caller CAN see: two standalone
+  MACHINE INSPECTORS sharing one `:frame`. The caller's token rides below
+  this panel's own (`machine-inspector/left`)."
   ([mount-point]      (mount-machine-inspector! mount-point nil))
   ;; rf2-k97c.3 — `Panel-bridge`; see `mount-epoch-panel!` above for why
   ;; the mount moves to the bridge name BEFORE the panel migrates.
-  ([mount-point opts] (render-panel! machine-inspector/Panel-bridge mount-point opts)))
+  ;; rf2-3ymg — the props map carries `:instance-id` across the bridge. The
+  ;; 0-arity door stays the unnamed one; `instance-token` is what makes
+  ;; that case non-nil here, NOT this line.
+  ([mount-point opts]
+   (render-panel! machine-inspector/Panel-bridge mount-point opts
+                  (when-let [id (:instance-id opts)]
+                    {:instance-id id}))))
 
 (defn mount-routing!
   "Mount Xray's Routing tab in isolation at `mount-point`. Renders
