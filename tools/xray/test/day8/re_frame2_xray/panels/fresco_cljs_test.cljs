@@ -161,13 +161,30 @@
   []
   (rf/clear-sub-cache! :rf/xray))
 
+(defn- panel!
+  "The panel's tree, as the boundary builds it.
+
+  rf2-k97c.3 — `Panel` is an `rf.fresco/defview` now, so it is a React
+  component and `(fresco/Panel)` is no longer a callable that answers
+  hiccup. `fresco/panel-tree` is the projection the boundary calls, and
+  these rows drive it with the values taken from the two subs the
+  boundary reads — the same two queries, resolved through `:rf/xray` by
+  the surrounding `with-frame`. What is NOT witnessed here is the seam
+  itself: the mount, the commit and the release are
+  `fresco_live_panel_dom_cljs_test`'s subject, under a real React root."
+  []
+  (fresco/panel-tree
+    {:selected @(rf/subscribe [:rf.xray.fresco/view])
+     :data     @(rf/subscribe [:rf.xray.fresco/data])
+     :frame    (rf/current-frame-id)}))
+
 (defn- show!
   "Select `view`, refresh, and render the panel."
   [view]
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray.fresco/set-view view])
     (refresh!)
-    (fresco/Panel)))
+    (panel!)))
 
 (defn- render-now
   "Render the panel the way the RUNNING shell renders it — no `refresh!`.
@@ -178,7 +195,7 @@
   reaction currently answers, which is the only way to ask whether the tab
   is a live projection or a screenshot of one."
   []
-  (rf/with-frame :rf/xray (fresco/Panel)))
+  (rf/with-frame :rf/xray (panel!)))
 
 (defn- tick-trace!
   "One trace-buffer tick, delivered the way the collector delivers it.

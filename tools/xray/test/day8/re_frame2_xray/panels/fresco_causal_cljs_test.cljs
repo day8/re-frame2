@@ -137,11 +137,18 @@
   (first (filter #(= id (:id %)) (:links s))))
 
 (defn- show!
+  "rf2-k97c.3 — `Panel` is an `rf.fresco/defview` now, so it is a React
+  component rather than a callable answering hiccup. `panel-tree` is the
+  projection the boundary calls; these rows drive it with the values
+  taken from the two subs the boundary reads."
   [view]
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray.fresco/set-view view])
     (rf/clear-sub-cache! :rf/xray)
-    (fresco/Panel)))
+    (fresco/panel-tree
+      {:selected @(rf/subscribe [:rf.xray.fresco/view])
+       :data     @(rf/subscribe [:rf.xray.fresco/data])
+       :frame    (rf/current-frame-id)})))
 
 ;; ---------------------------------------------------------------------------
 ;; The positive control — the whole chain, on a real interaction
