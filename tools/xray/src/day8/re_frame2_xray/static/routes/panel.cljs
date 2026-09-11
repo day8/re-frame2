@@ -125,16 +125,28 @@
   be cited):
 
       panel.cljs        [browse-list/render …]        ×2   (this file)
-      browse_list.cljs  [route-row …]                      (:200)
-      browse_list.cljs  [row-expand/render …]              (:164)
-      simulate_url.cljs [candidate-row …]                  (:164)
-      row_expand.cljs   [sim-nav-toggle …]                 (:192)
-      row_expand.cljs   [jump-button …]                    (:193)
-      row_expand.cljs   [sim-nav/preview …]                (:237)
+      browse_list.cljs  [search-box/search-box …]
+      browse_list.cljs  [route-row …]
+      browse_list.cljs  [row-expand/render …]
+      simulate_url.cljs [candidate-row …]
+      row_expand.cljs   [sim-nav-toggle …]
+      row_expand.cljs   [jump-button …]
+      row_expand.cljs   [sim-nav/preview …]
       simulate_nav.cljs none
 
-  AND A NINTH THAT NO SYNTACTIC CENSUS OF THOSE FILES CAN SEE, because a
-  CALL into a fifth file RETURNS it: `row_expand.cljs:66` calls
+  NINE IN-FILE SITES, AND THE `search-box/search-box` ROW IS THE ONE
+  THE FIRST PASS OF THIS CENSUS MISSED (rf2-k97c.3, routes-witness
+  slice). Its head sits at END OF LINE — the opening bracket, the
+  symbol, then the line break, with the props map on the next line —
+  and a head pattern anchored on a following SPACE cannot see that.
+  Re-run the census with the end-of-line case included, or the count
+  comes back one short in the reassuring direction. LINE NUMBERS ARE
+  DELIBERATELY GONE from the rows above for the same reason the
+  original note gave for printing them: they drift, they were already
+  drifting, and a stale number invites citation.
+
+  AND A TENTH THAT NO SYNTACTIC CENSUS OF THOSE FILES CAN SEE, because a
+  CALL into a fifth file RETURNS it: `row_expand.cljs` calls
   `edn/inspect`, and `views/edn_widget.cljs`'s `inspect` answers
   `[ei/edn-inspector …]` — a REAGENT component, hence a plain fn head.
   That widget namespace already anticipates the migration with a second

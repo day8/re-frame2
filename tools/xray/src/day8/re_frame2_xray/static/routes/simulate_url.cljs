@@ -84,7 +84,7 @@
   value; `sim-result` is the projection from
   `routing-helpers/simulate-url` (nil when input is blank)."
   [dispatch sim-url sim-result]
-  ;; `dispatch` threaded from the routes `Panel` reg-view.
+  ;; `dispatch` threaded from the routes `Panel` boundary.
   [:div {:data-testid "rf-xray-static-routes-sim"
          :style       {:padding       "10px 16px"
                        :border-top    (str "1px solid " (:border-subtle tokens))

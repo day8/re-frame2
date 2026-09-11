@@ -421,7 +421,8 @@ event spine — flat catalogues of registered machines / routes /
 schemas / flows / interceptors (per Lock #15 — two-verbs-two-homes —
 browse-all lives in Static). Each Static sub-tab is its own namespace
 under `day8.re-frame2-xray.static.*` and exports a single public panel
-reg-view:
+view — since rf2-k97c.3 an `rf.fresco/defview` **boundary** (a real
+React function component) rather than an `rf/reg-view`:
 
 ```clojure
 day8.re-frame2-xray.static.machines.panel/panel        ; symbol is lowercase `panel`
@@ -440,9 +441,23 @@ their weight). The Dynamic panel-registry (per
 Static panel-registry are disjoint dispatch tables keyed by L3 tab
 id; the surface composer renders one or the other under the mode
 flag (`:rf.xray/mode` — `:dynamic` / `:static`). Naming convention
-is the same as Dynamic (bare `Panel` per `rf2-qiek0`); reg-view
-registration uses `rf/reg-view` per `rf2-in6l2` so subscribes
-resolve to `:rf/xray`.
+is the same as Dynamic (bare `Panel` per `rf2-qiek0`).
+
+Registration WAS `rf/reg-view` per `rf2-in6l2`. Since rf2-k97c.3 all
+five are `rf.fresco/defview` boundaries reading through Fresco's
+shipped collector, and the frame arrives from **React context** —
+written by the Static shell's enclosing `rf/frame-provider` — rather
+than from `reg-view`'s render capture, so subscribes still resolve to
+`:rf/xray`. The L4 tab registry's `reg-l4-tab!` requires `:panel` to be
+CALLABLE and `static/shell.cljs` mounts it as the Reagent hiccup head
+`[(:panel tab)]`, neither of which a React component is, so each of the
+five registers a small **private** bridge
+(`[:> (rf.fresco/as-component Panel) {}]`) instead of the boundary
+itself. That bridge is scaffolding with a defined end: when the Static
+shell is itself a Fresco tree, `reg-l4-tab!` takes the boundary
+directly and every bridge is deleted. The section heading above keeps
+its historical name so the `§Panel reg-views` citations elsewhere in
+`tools/xray/spec/` still land.
 
 The Static-mode Routes sub-tab is the **browse-all + Simulate-URL**
 verb (the flat catalogue + hermetic Simulate-navigation preview);

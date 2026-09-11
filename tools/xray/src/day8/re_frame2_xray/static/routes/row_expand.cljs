@@ -101,8 +101,8 @@
   §4.4 — fires the cross-link event the registry installs so the
   user lands on the Dynamic Routing lens scoped to this route.
 
-  `dispatch` is threaded from the routes `Panel` reg-view
-  (this button is invoked as a Reagent component and cannot recover the
+  `dispatch` is threaded from the routes `Panel` boundary
+  (this button renders inside the Reagent island and cannot recover the
   frame itself)."
   [dispatch route-id]
    [:button {:data-testid (str "rf-xray-static-routes-jump-runtime-"

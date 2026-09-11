@@ -125,15 +125,15 @@ The remaining three are **L4-only registry tabs** — registered for the tab str
 
 Focusability and mountability are separate axes: every one of the ten is in `valid-focus-panels`, and only the first seven have a mount facade. See [11. The Fresco tab](../11-fresco-tab.md) for what the Fresco panel shows.
 
-Five parallel Static-mode panels browse the registrar rather than the event spine:
+Five parallel Static-mode panels browse the registrar rather than the event spine. All five are now **Fresco boundaries** — `rf.fresco/defview` React function components reading through re-frame.fresco's collector, not `rf/reg-view`s. They are shell-internal either way: the tab registry stores a small private bridge, so the symbol named below is the boundary itself rather than the callable the shell mounts.
 
 | Panel | Namespace | Surface |
 |---|---|---|
-| Static Machines | `day8.re-frame2-xray.static.machines.panel` | `Panel` reg-view |
-| Static Flows | `day8.re-frame2-xray.static.flows.panel` | `Panel` reg-view |
-| Static Interceptors | `day8.re-frame2-xray.static.interceptors.panel` | `Panel` reg-view |
-| Static Routes | `day8.re-frame2-xray.static.routes.panel` | `Panel` reg-view |
-| Static Schemas | `day8.re-frame2-xray.static.schemas.panel` | `Panel` reg-view |
+| Static Machines | `day8.re-frame2-xray.static.machines.panel` | `panel` Fresco boundary (symbol is lowercase) |
+| Static Flows | `day8.re-frame2-xray.static.flows.panel` | `Panel` Fresco boundary |
+| Static Interceptors | `day8.re-frame2-xray.static.interceptors.panel` | `Panel` Fresco boundary |
+| Static Routes | `day8.re-frame2-xray.static.routes.panel` | `Panel` Fresco boundary |
+| Static Schemas | `day8.re-frame2-xray.static.schemas.panel` | `Panel` Fresco boundary |
 
 ## What this reference deliberately omits
 
