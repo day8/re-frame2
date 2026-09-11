@@ -97,7 +97,7 @@
 
 (deftest mount-epoch-panel-wraps-in-frame-provider-and-delegates-to-adapter
   (testing "rf2-crhr8 + rf2-5gl5r — mount-epoch-panel! installs
-            handlers, wraps epoch-panel/Panel in `[rf/frame-provider
+            handlers, wraps epoch-panel/Panel-bridge in `[rf/frame-provider
             {:frame :rf/xray} [Panel]]`, delegates to substrate-
             adapter/render, and returns the adapter's unmount fn.
             (Replaces the prior mount-event-detail! coverage; the
@@ -108,7 +108,7 @@
         (let [unmount (panels/mount-epoch-panel! mount-point)]
           (is (= 1 (count @capture))
               "rf.substrate.adapter/render invoked exactly once")
-          (is (frame-provider-wrap? (captured-tree capture) epoch-panel/Panel)
+          (is (frame-provider-wrap? (captured-tree capture) epoch-panel/Panel-bridge)
               "tree is wrapped in rf/frame-provider :rf/xray around Panel")
           (is (= mount-point (-> @capture first :mount-point))
               "mount-point passed through unchanged")
@@ -143,13 +143,13 @@
   (let [[capture _ render-stub] (make-render-stub)]
     (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-trace! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture) trace/Panel)))))
+      (is (frame-provider-wrap? (captured-tree capture) trace/Panel-bridge)))))
 
 (deftest mount-machine-inspector-wraps-in-frame-provider
   (let [[capture _ render-stub] (make-render-stub)]
     (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-machine-inspector! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture) machine-inspector/Panel)))))
+      (is (frame-provider-wrap? (captured-tree capture) machine-inspector/Panel-bridge)))))
 
 (deftest mount-routing-wraps-in-frame-provider
   (let [[capture _ render-stub] (make-render-stub)]
@@ -498,9 +498,9 @@
       (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-trace! :mount-point {:instance-id "left"})
         (panels/mount-epoch-panel! :mount-point {:instance-id "left"})
-        (is (= [trace/Panel] (delivered-element capture))
+        (is (= [trace/Panel-bridge] (delivered-element capture))
             "the trace mount delivers its view with no props")
-        (is (= [epoch-panel/Panel] (nth (:tree (second @capture)) 2))
+        (is (= [epoch-panel/Panel-bridge] (nth (:tree (second @capture)) 2))
             "and so does the epoch mount")))))
 
 ;; ---- contract — idempotency under repeat mount ------------------------
