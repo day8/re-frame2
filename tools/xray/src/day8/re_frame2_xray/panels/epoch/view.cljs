@@ -4024,15 +4024,20 @@
   Suppressed for machine handlers — per design §Section 3 §DB DIFF
   the snapshot IS the db change (at `[:rf.runtime/machines :snapshots <id>]` in runtime-db) so the
   slot folds into SNAPSHOT DIFF rather than carrying a redundant
-  standalone slot."
-  [db-post-handler db-write?]
-  ;; rf2-k97c.3 — `rf.fresco/sub`, a plain call the collector records an
-  ;; edge for, DONATED UPWARD into `Panel`'s window (this helper is called,
-  ;; never headed, so it has no boundary of its own). HD-016: a
-  ;; helper-donated read is settled rather than contingent. The frame comes
-  ;; from React context, so the read needs no `{:frame …}` option.
-  (let [record    (rf.fresco/sub [:rf.xray/selected-epoch-record])
-        db-before (:db-before record)
+  standalone slot.
+
+  rf2-k97c.3 — `record` ARRIVES AS AN ARGUMENT; it used to be read here
+  with `@(rf/subscribe [:rf.xray/selected-epoch-record])`. [[Panel]] is
+  now a Fresco boundary and reads it there, threading it down the `ctx`
+  map. HD-016 would have allowed the read to stay and DONATE upward into
+  the boundary's window, and that would have been correct in production —
+  but it would make this helper callable only inside a React render
+  window, and its diff algebra is ordinary data → data that the fast node
+  lane is the right place to test. Every migrated panel in this tree made
+  the same call. `nil` renders as `db-before` absent, which is what a
+  direct caller passing no `ctx` means."
+  [db-post-handler db-write? record]
+  (let [db-before (:db-before record)
         ;; rf2-4wywy — t1 (post-handler, pre-flow) is the authoritative
         ;; HANDLER `:db`; fall back to the record's post-flow `:db-after`
         ;; only when the runtime stamped no t1 — but ONLY when the handler
@@ -4103,9 +4108,17 @@
 
   Either, both, or neither may render — sections are
   `seq`-conditioned. The `:db` part stays in its own dedicated
-  block (the [diff][full][full+diff] toggle) above."
-  [{:keys [flavour event-id db-post-handler db-write? fx-vec other-effects
-           machine errors] :as _row}]
+  block (the [diff][full][full+diff] toggle) above.
+
+  rf2-k97c.3 — the optional `ctx` is the cascade-level map [[Panel]]
+  threads down; the only key read here is `:selected-epoch-record`, which
+  [[handler-db-diff-block]] needs for `:db-before`. The 1-arity keeps
+  every direct caller that has no cascade context working: no record
+  means no `:db-before`, which renders as an absent pre-image."
+  ([row] (handler-body row {}))
+  ([{:keys [flavour event-id db-post-handler db-write? fx-vec other-effects
+            machine errors] :as _row}
+    ctx]
   (let [machine? (= :reg-machine flavour)
         ;; rf2-wnvid — the handler threw iff a `:rf.error/handler-exception`
         ;; attached to this step (`:errors`). Tunes the no-`:db` placeholder
@@ -4127,7 +4140,8 @@
      ;; inline 'Exception Thrown' card below is the signal). The slot
      ;; stays present for a clean handler that simply returned no `:db`.
      (when (and (not machine?) (not threw?))
-       (handler-db-diff-block db-post-handler db-write?))
+       (handler-db-diff-block db-post-handler db-write?
+                              (:selected-epoch-record ctx)))
      ;; :fx — the canonical vector-of-vectors, FULL via edn-inspector.
      ;; rf2-5t8y8 — sub-header carries a trailing entry-count chip ("N
      ;; entr{y,ies}") that the edn-inspector vector-header chrome alone
@@ -4155,7 +4169,7 @@
             :opts     {:site-id                [:rf.xray.epoch/handler-other event-id]
                        :card?                  false
                        :zoomable?              true
-                       :default-expanded-depth 16}}]]))]))
+                       :default-expanded-depth 16}}]]))])))
 
 (defn render-handler-step
   "Render the HANDLER step (always present). Per Mike pair-debug
@@ -4170,9 +4184,15 @@
   FX step's :db row (the implicit commit fx). HANDLER step's
   `:violations` slot still renders generically — currently empty
   for HANDLER in practice — but the call site stays in case future
-  violation kinds attach here."
-  [{:keys [flavour event-id duration-ms step-number violations errors]
-    :as step}]
+  violation kinds attach here.
+
+  rf2-k97c.3 — the optional `ctx` is threaded straight to
+  [[handler-body]], which uses its `:selected-epoch-record` for the `:db`
+  diff's pre-image. The 1-arity keeps every direct caller working."
+  ([step] (render-handler-step step {}))
+  ([{:keys [flavour event-id duration-ms step-number violations errors]
+     :as step}
+    ctx]
   (let [status   (proj/step-status step)
         skipped? (= :skipped status)]
     [:div {:data-testid "rf-xray-epoch-step-handler"
@@ -4196,7 +4216,7 @@
        ;; "— no :db (handler returned no :db)" which was WRONG: the handler
        ;; body returns a :db (via `bump`), it just never executed.
        (skipped-body "rf-xray-epoch-handler" "The handler")
-       (handler-body step))
+       (handler-body step ctx))
      ;; rf2-ahhgn — a handler EXCEPTION attaches here as an inline error
      ;; card (button-16). Rendered BELOW the handler body so the operator
      ;; reads what the handler tried to do, then the failure that aborted
@@ -4204,7 +4224,7 @@
      ;; steps per rf2-yz57h, so this slot carries only genuine handler
      ;; throws.)
      (error-blocks :handler errors)
-     (violation-blocks :handler violations)]))
+     (violation-blocks :handler violations)])))
 
 ;; ---- FLOW step -----------------------------------------------------------
 
@@ -4971,16 +4991,21 @@
   writes + reads hit THIS instance's Xray app-db (N isolated shells
   stay independent), not the `:rf/xray` singleton.
 
-  rf2-k97c.3 — the read is now `rf.fresco/sub`, donated upward into
-  `Panel`'s collector window. The anchor is UNCHANGED in effect and
-  simpler in spelling: `rf.fresco/sub` takes no frame option because it
-  resolves the frame off the same React context `rf/current-frame-id`
-  reads, so the read and the click still name ONE frame. `frame` stays
-  bound for the CLICK, which fires after the render extent has unwound
-  and so must have captured it during render."
-  [{:keys [rows disposed-rows step-number violations]}]
+  rf2-k97c.3 — THE MODE ARRIVES IN `ctx`; it used to be read here with
+  `@(rf/subscribe [:rf.xray.epoch/subs-filter-mode] {:frame frame})`.
+  [[Panel]] is now a Fresco boundary and reads it there, so this fn is a
+  pure function of its arguments and stays drivable from the fast node
+  lane. The ANCHOR is unchanged in effect: the boundary resolves the read
+  against the same React-context frame `rf/current-frame-id` answers
+  here, so the read and the click still name ONE frame — and `frame`
+  stays bound for the CLICK, which fires after the render extent has
+  unwound and so must have captured it during render. The 1-arity means
+  no mode, which the `case` below already treats as the `:changed`
+  default."
+  ([step] (render-subscriptions-step step {}))
+  ([{:keys [rows disposed-rows step-number violations]} ctx]
   (let [frame         (rf/current-frame-id)
-        mode          (rf.fresco/sub [:rf.xray.epoch/subs-filter-mode])
+        mode          (:subs-filter-mode ctx)
         visible-rows  (case mode
                         :all       rows
                         :unchanged (filterv (complement :changed?) rows)
@@ -5025,7 +5050,7 @@
      ;; pooled at the foot of the step). Step-level violations
      ;; (indirect recomputes that don't surface a row) continue to
      ;; ride at the foot.
-     (violation-blocks :subscriptions violations)]))
+     (violation-blocks :subscriptions violations)])))
 
 ;; ---- VIEWS step ----------------------------------------------------------
 
@@ -5741,8 +5766,11 @@
   APP-DB-DIFF steps were retired by rf2-zkiu5).
 
   `ctx` carries the cascade-level pieces a row may need (the rf2-5qp4g
-  DISPATCH `:fx-dispatch` parent-epoch link resolution index). Most
-  steps ignore it."
+  DISPATCH `:fx-dispatch` parent-epoch link resolution index, and since
+  rf2-k97c.3 the two VALUES the HANDLER and SUBSCRIPTIONS rows used to
+  read from the substrate themselves — `:selected-epoch-record` and
+  `:subs-filter-mode`, both now read once in [[Panel]]'s boundary body).
+  Most steps ignore it."
   [step ctx]
   (case (:step step)
     :dispatch          (render-dispatch-step step (:dispatch-id->epoch-id ctx))
@@ -5750,10 +5778,10 @@
     :coeffect          (render-coeffect-step step)
     :interceptors      (render-interceptors-step step)
     :interceptor       (render-interceptor-step step)
-    :handler           (render-handler-step step)
+    :handler           (render-handler-step step ctx)
     :flow              (render-flow-step step)
     :side-effects      (render-side-effects-step step)
-    :subscriptions     (render-subscriptions-step step)
+    :subscriptions     (render-subscriptions-step step ctx)
     :views             (render-views-step step)
     nil))
 
@@ -5793,24 +5821,31 @@
             :aria-hidden true
             :style pipeline-rail-style}]
      ;; Steps — `doall` forces the lazy `for` to realise INSIDE the
-     ;; render pass (rf2-atqkg), and rf2-k97c.3 did NOT retire the
-     ;; reason: it re-founded it on the collector. `render-step`
-     ;; returns hiccup whose descendants (`handler-db-diff-block`,
-     ;; `render-subscriptions-step`) read the substrate themselves.
+     ;; render pass (rf2-atqkg). READ THE REASON AS HISTORY NOW, not as a
+     ;; live hazard, and keep the `doall` anyway.
      ;;
-     ;; Pre-migration those were `@(rf/subscribe …)` and the tracker was
-     ;; Reagent's reactive context: derefs firing after the render pass
-     ;; landed outside it, so a sub-value change triggered no re-render
-     ;; (symptom: the operator clicks `[diff][all]`, the sub flips in
-     ;; app-db, the cascade reads the new value, and the panel hiccup
-     ;; stays stale). They are now `rf.fresco/sub` and the tracker is
-     ;; Fresco's collector, which records an edge WHERE THE READ HAPPENS
-     ;; — so a read that happens after this body has returned is recorded
-     ;; into no window at all and the same staleness returns by the same
-     ;; route. The `doall` is what keeps every donated read inside
-     ;; `Panel`'s window; it is load-bearing under BOTH observers, which
-     ;; is why it survives the migration unchanged. See spec/006
-     ;; §Lazy-seq deref tracking.
+     ;; The original reason: `render-step`'s descendants
+     ;; (`handler-db-diff-block`, `render-subscriptions-step`) read the
+     ;; substrate THEMSELVES via `@(rf/subscribe …)`, and Reagent tracks
+     ;; only derefs that fire while the parent reg-view's reactive scope
+     ;; is live. A lazy seq realised after the render pass left those
+     ;; derefs outside it, so a sub-value change triggered no re-render —
+     ;; the operator clicked `[diff][all]`, the sub flipped in app-db, and
+     ;; the panel hiccup stayed stale.
+     ;;
+     ;; rf2-k97c.3 REMOVED THE HAZARD AT ITS SOURCE: those two reads were
+     ;; hoisted into `Panel`'s boundary body and now arrive as VALUES in
+     ;; `ctx`, so nothing below this line reads the substrate at all and
+     ;; there is no read left to strand. Had they instead been left to
+     ;; donate upward, the hazard would have survived the migration
+     ;; unchanged — Fresco's collector records an edge WHERE THE READ
+     ;; HAPPENS, so a read fired after this body returns is recorded into
+     ;; no window at all, which is the same staleness by the same route.
+     ;;
+     ;; The `doall` stays because it is free, because the shape it
+     ;; protects is one edit away from returning, and because
+     ;; `pipeline-view-realises-step-seq-rf2-atqkg-test` pins it. See
+     ;; spec/006 §Lazy-seq deref tracking.
      (doall
        (for [[i step] (map-indexed vector steps)]
          [:div {:key (str "step-" (:step step) "-" i)
@@ -5873,11 +5908,31 @@
   The READS are `rf.fresco/sub` — plain calls the shipped collector
   records an edge for, with no deref and no reaction owned by the
   INSTALLED adapter. That is coupling (3), and it is the one a
-  first-paint smoke test cannot see. Three sites read, not one: this
-  body's pipeline read, plus `db-diff-slot`'s selected-epoch record and
-  `step-subscriptions`' filter mode, both of which donate their read
-  upward into this boundary's collector window from an inlined helper
-  (HD-016 — helper-donated reads are settled rather than contingent).
+  first-paint smoke test cannot see.
+
+  ALL THREE OF THE PANEL'S READS ARE IN THIS BODY, and that is a choice
+  worth naming because HD-016 permits the other one. Before rf2-k97c.3
+  two of them lived in helpers deep in the cascade —
+  `handler-db-diff-block`'s selected-epoch record and
+  `render-subscriptions-step`'s filter mode. Inlining those helpers would
+  have let their reads DONATE upward into this window, which HD-016 calls
+  settled rather than contingent and which would have been correct in
+  production. They were hoisted anyway, for a reason that is about
+  TESTING rather than about correctness: a `rf.fresco/sub` raises
+  `:rf.error/fresco-sub-outside-render` when it runs outside a collector
+  window, so a helper that performs one is callable only inside a real
+  React commit — and the cascade's step-rendering algebra is ordinary
+  data → data with 2,600 lines of fast node-lane coverage over it. The
+  two values now ride the `ctx` map [[pipeline-view]] already threaded,
+  and the helpers kept a 1-arity so a direct caller needs no cascade
+  context. Every migrated panel in this tree made the same call.
+
+  The cost is one lost conditional: both slots are now read on every
+  panel render rather than only when their step happens to be present.
+  Neither widens invalidation in practice — the selected-epoch record
+  moves with the same focus the pipeline read already depends on, and the
+  filter mode can only change from a control that renders inside the
+  SUBSCRIPTIONS step itself.
 
   The FRAME each read resolves against comes from React context, which
   the enclosing frame boundary writes: `rf/frame-provider` and
@@ -5917,7 +5972,16 @@
            ;; epoch-history scan per render).
            (pipeline-view steps
                           {:dispatch-id->epoch-id (proj/dispatch-id->epoch-id-index
-                                                    epoch-history)})]
+                                                    epoch-history)
+                           ;; rf2-k97c.3 — the two reads the HANDLER and
+                           ;; SUBSCRIPTIONS rows used to perform
+                           ;; THEMSELVES, hoisted here and threaded down
+                           ;; as values. See this view's docstring for
+                           ;; why they are not left to donate upward.
+                           :selected-epoch-record
+                           (rf.fresco/sub [:rf.xray/selected-epoch-record])
+                           :subs-filter-mode
+                           (rf.fresco/sub [:rf.xray.epoch/subs-filter-mode])})]
           (empty-state-view :no-events))
 
         :else

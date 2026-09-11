@@ -73,6 +73,25 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
+;; ---- hiccup walker (rf2-k97c.3) -----------------------------------------
+;;
+;; PLAIN DESCENT — nothing is CALLED. This row used the walker in
+;; `re-frame.test-helpers`, which EXPANDS function components as it walks. The Epoch view's EDN-widget heads are now `[ei/edn-inspector-view …]`
+;; — Fresco boundaries whose bodies may only run inside a React render window
+;; — so applying one runs `rf.fresco/sub` outside the collector and raises.
+
+(defn- hiccup-nodes [tree]
+  (tree-seq (some-fn vector? seq?) seq tree))
+
+(defn- find-by-testid [tree testid]
+  (some (fn [node]
+          (when (and (vector? node)
+                     (map? (second node))
+                     (= testid (:data-testid (second node))))
+            node))
+        (hiccup-nodes tree)))
+
+
 ;; ============================================================================
 ;; The hard machine — a self-contained copy of the testbed's :hvac/controller.
 ;; ============================================================================
@@ -352,20 +371,20 @@
                         :fx [] :machine {:cascade rows
                                          :transition nil :guards []
                                          :lifecycle [] :timers []}}))]
-        (is (nil? (rf.test-helpers/find-by-testid tree sp))
+        (is (nil? (find-by-testid tree sp))
             "rf2-akvfe — the up/down structured-cascade block no longer renders")
         ;; rf2-2hj0h item 2 — the akvfe nested-pipeline RAIL is REMOVED; the
         ;; rows render as a flat numbered stack (the ordinal chips carry the
         ;; pipeline reading). The rows host + the orientation line remain.
-        (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rail"))
+        (is (nil? (find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rail"))
             "the nested-pipeline rail is removed (rf2-2hj0h)")
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rows"))
+        (is (some? (find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rows"))
             "the flat rows host still renders")
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-epoch-event-handler-orientation"))
+        (is (some? (find-by-testid tree "rf-xray-epoch-event-handler-orientation"))
             "the EVENT HANDLER orientation line renders")
         ;; No-info-loss: the per-EMIT exit/entry action rows survive and carry
         ;; their action verbs (the cascade the removed block restated).
-        (is (some? (rf.test-helpers/find-by-testid tree (str "rf-xray-epoch-machine-cascade-row-"
+        (is (some? (find-by-testid tree (str "rf-xray-epoch-machine-cascade-row-"
                                                  (:step tx-row))))
             "the transition row survives in the pipeline")))))
 

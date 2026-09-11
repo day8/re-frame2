@@ -929,7 +929,7 @@
   per rf2-nrbs9 — promoted from 'lives in App-db + Trace'. The
   `:epoch` tab supersedes the retired `:event` tab post rf2-5gl5r
   (Epoch panel is the canonical 'what happened in this epoch' surface)."
-  {:epoch           epoch-panel/Panel
+  {:epoch           epoch-panel/Panel-bridge
    ;; rf2-k97c.3 — the app-db and Views panels' roots are now Fresco
    ;; boundaries (React function components); `reg-l4-tab!` stores the
    ;; `as-component` BRIDGE, which is what `detail-panel` mounts as a
@@ -941,7 +941,9 @@
    ;; rf2-fcy5 slice 3 — the Trace panel's root is a Fresco boundary now
    ;; too, so `reg-l4-tab!` stores its `as-component` bridge.
    :trace           trace/Panel-bridge
-   :machines        machine-inspector/Panel
+   ;; rf2-k97c.3 — the Epoch and Machine-inspector roots are boundaries
+   ;; now too, so `:epoch` above and `:machines` below store their bridges.
+   :machines        machine-inspector/Panel-bridge
    :routing         routing/Panel})
 
 (deftest detail-panel-routes-each-tab-to-its-view-fn
