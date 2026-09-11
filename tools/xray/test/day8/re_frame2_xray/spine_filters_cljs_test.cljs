@@ -262,13 +262,32 @@
 ;; event rows, the L1 ribbon indicator) still walk the shell tree — the
 ;; ribbon indicator is a plain fn the ribbon CALLS, so it never left.
 
+;; THE DISPATCH THE DOORS PASS IS A WRAPPING FN, NOT THE BARE `rf/dispatch`,
+;; and that is load-bearing for `end-to-end-mute-from-context-menu`.
+;; `rf/dispatch` is a MACRO (core.cljc), so it expands to the `^:no-doc`
+;; `rf/dispatch-impl` seam AT ITS CALL SITE. Handing the bare symbol to a
+;; helper passes something that never expands, so the `with-redefs` on
+;; `dispatch-impl` below cannot see the handler's dispatches and the
+;; capture atom stays empty. Calling it inside a fn puts the expansion
+;; where the boundary puts it — `RowContextMenuView` and `ModalView` both
+;; build `(fn [ev] (rf/dispatch ev {:frame frame}))` — so these doors
+;; reproduce the dispatch path as well as the reads.
+
+(defn- door-dispatch
+  "The frame-aware dispatcher the boundaries capture at render time,
+  reproduced for the node lane. The ambient frame stands in for the
+  boundary's `rf/current-frame-id`, which is why every door call below
+  sits inside `(rf/with-frame :rf/xray …)`."
+  [ev]
+  (rf/dispatch ev))
+
 (defn- row-context-menu-tree
   "The row context menu's markup for the current state: nil while
   closed, the menu otherwise. Mirrors
   `spine-filters/RowContextMenuView`'s gate and read."
   []
   (when-let [menu @(rf/subscribe [:rf.xray/row-context-menu])]
-    (spine-filters/row-context-menu-tree rf/dispatch menu)))
+    (spine-filters/row-context-menu-tree door-dispatch menu)))
 
 (defn- mute-manager-tree
   "The mute manager's markup for the current state: nil while closed,
@@ -277,7 +296,7 @@
   []
   (when @(rf/subscribe [:rf.xray/mute-manager-open?])
     (spine-filters/dialog-tree
-      rf/dispatch
+      door-dispatch
       {:muted       @(rf/subscribe [:rf.xray/muted-event-ids])
        :positioning @(rf/subscribe [:rf.xray/modal-positioning])})))
 
