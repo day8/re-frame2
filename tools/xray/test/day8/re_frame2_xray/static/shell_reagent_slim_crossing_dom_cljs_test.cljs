@@ -93,30 +93,54 @@
 
 (deftest w1-as-element-door-is-the-installed-builds-walk
   (testing "rf2-7ds8 — with reagent-slim installed, `:adapter/as-element`
-            resolves to reagent2's hiccup walk and NOT to stock
-            Reagent's.
+            walks hiccup the way reagent2 does and NOT the way stock
+            Reagent does.
 
-            BOTH HALVES ARE COMPARED TO LITERALS, and that is the whole
-            point of the row's shape. A door checked against a value
-            derived from the same lookup agrees with itself when the
-            subject is broken — both sides go nil, they match, and the
-            row goes green ON the defect. `reagent2.core/as-element` and
-            `reagent.core/as-element` are two distinct vars named
-            independently of anything this row reads, so the positive and
-            the negative cannot degrade together."
-    (let [door (rf.late-bind/get-fn-cached :adapter/as-element)]
+            IT IS MEASURED BY EFFECT RATHER THAN BY IDENTITY, and that is
+            a finding rather than a convenience: `route-hook!` wraps the
+            published fn so the chain can pick the INSTALLED adapter at
+            call time, so the door is a `routed-hook` object and an
+            `identical?` row against the raw var fails on a perfectly
+            healthy wiring. What the crossing needs is not that var but
+            its BEHAVIOUR, so that is what is read.
+
+            THE DISCRIMINATOR IS THE COMPONENT TYPE REACT RECEIVES for a
+            fn head, and all three readings go through the SAME `probe`
+            fn ON PURPOSE. Each build caches the class it mints on the fn
+            object under its own property — stock on `.-cljsReactClass`,
+            reagent2 on `.-cljsReagentClass-fn` — so one fn can carry
+            both and the two answers stay independent. Using a fresh fn
+            per build instead would make the negative trivially true (two
+            fns always mint two classes) and it would prove nothing.
+
+            BOTH HALVES COMPARE TO LITERALS. `reagent2.core/as-element`
+            and `reagent.core/as-element` are two distinct vars named
+            independently of anything the door resolves, so the positive
+            and the negative cannot degrade together — a door checked
+            only against a value derived from the same lookup agrees with
+            itself when the subject is broken and goes green ON the
+            defect."
+    (let [door  (rf.late-bind/get-fn-cached :adapter/as-element)
+          probe (fn probe-view [] [:div {:data-testid "rf-slim-crossing-probe"}])]
       (is (some? door)
           "reagent-slim publishes :adapter/as-element (a nil door would make
            both comparisons below vacuous, so this is asserted first)")
-      (is (identical? door slim/as-element)
-          "the door IS reagent2's walk — the build whose in-flight component
-           :adapter/current-component routes to, which is what lets
-           views/current-frame read a frame off it")
-      (is (not (identical? door stock/as-element))
-          "the door is NOT stock Reagent's walk. This is the defect itself:
-           stock's walk renders the island under a build the installed
-           adapter cannot see into, so the frame resolves nil and the
-           subtree raises :rf.error/no-frame-context"))))
+      (when (some? door)
+        ;; Stock runs FIRST and on this same fn, so if the two builds ever
+        ;; collided on one cache property the negative below would catch it
+        ;; rather than read a reassuring pass.
+        (let [via-stock (stock/as-element [probe])
+              via-door  (door [probe])
+              via-slim  (slim/as-element [probe])]
+          (is (identical? (.-type via-door) (.-type via-slim))
+              "the door mints the component type REAGENT2 mints — the build
+               whose in-flight component :adapter/current-component routes
+               to, which is what lets views/current-frame read a frame off it")
+          (is (not (identical? (.-type via-door) (.-type via-stock)))
+              "the door does NOT mint stock Reagent's type. That is the defect
+               itself: stock's walk renders the island under a build the
+               installed adapter cannot see into, so the frame resolves nil
+               and the subtree raises :rf.error/no-frame-context"))))))
 
 ;; ===========================================================================
 ;; W2 — the Static ribbon's Reagent island actually PAINTS under slim
