@@ -119,7 +119,25 @@
         (registry/register-xray-handlers!)
         (with-layout-host
           (fn [host]
-            (let [ret (xray-mount/open!)]
+            ;; `open!` is expected to REFUSE, which means RETURNING a
+            ;; diagnostic. When the denylist goes it will instead try to
+            ;; paint, and handing a hiccup shell to an element-shaped
+            ;; `:render` THROWS — measured, `:rf.error/hiccup-on-element-
+            ;; render-slot`. Caught here so that day's red is one named
+            ;; failure telling the reader what changed, rather than an
+            ;; uncaught error that also swallows every assertion below it.
+            (let [ret (try (xray-mount/open!)
+                           (catch :default e
+                             (is false
+                                 (str "`open!` THREW rather than refusing: "
+                                      (pr-str (:rf.error/id (ex-data e)
+                                                            (ex-message e)))
+                                      ". If the denylist has just been deleted "
+                                      "this row has done its job — delete it, "
+                                      "and the element-shaped arm's six "
+                                      "criteria now speak for the shipped "
+                                      "mount path."))
+                             ::threw))]
               (is (= false (:ok? ret))
                   (str "`open!` reports failure rather than a mount. Got: "
                        (pr-str ret)))
