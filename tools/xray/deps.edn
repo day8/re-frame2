@@ -79,16 +79,26 @@
          ;; installed by the host still governs the runtime path.
          day8/reagent-slim {:local/root "../../implementation/adapters/reagent-slim"}
 
-         ;; Xray's own views require stock Reagent directly — e.g.
-         ;; `day8.re-frame2-xray.views.resizable-table` requires
-         ;; `reagent.core` for its component-local Ratom state — so Xray
-         ;; declares the stock `reagent/reagent` dep itself. It previously
-         ;; inherited Reagent transitively from core, but core is now
-         ;; Reagent-free (re-frame.views late-binds via the
-         ;; `:adapter/current-component` hook), so every artefact that
-         ;; requires reagent.* must declare it. This is dev-only (Xray is a
-         ;; devtools panel excluded from production bundles) and independent
-         ;; of the reagent-slim adapter above, which carries no stock Reagent.
+         ;; Xray declares stock Reagent itself; core is Reagent-free
+         ;; (re-frame.views late-binds via `:adapter/current-component`), so
+         ;; every artefact that requires reagent.* must declare it.
+         ;;
+         ;; SINCE rf2-7ds8 THERE IS EXACTLY ONE PRODUCTION REQUIRE, in
+         ;; `day8.re-frame2-xray.substrate`, and it is the FALLBACK arm of
+         ;; the hiccup->React-element crossing — taken only when no
+         ;; ratom-family adapter is installed to answer
+         ;; `:adapter/as-element` (Xray owning its own root under an
+         ;; element-shaped adapter). Before that bead, six view sources
+         ;; named `reagent.core/as-element` directly, which is why Xray
+         ;; under the reagent-slim adapter shipped BOTH ratom runtimes and
+         ;; rendered nothing.
+         ;;
+         ;; This is dev-only (Xray is a devtools panel excluded from
+         ;; production bundles) and independent of the reagent-slim adapter
+         ;; above, which carries no stock Reagent. Retiring the last require
+         ;; needs a non-Reagent answer for that fallback; it is a bundle
+         ;; concern now, not a correctness one.
+         ;; Test code still requires reagent.* freely.
          reagent/reagent {:mvn/version "2.0.1"}
 
          ;; Editscript is the shared pure-data diff representation for
