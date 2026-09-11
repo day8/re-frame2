@@ -346,45 +346,80 @@
                        (done)))))))))
 
 ;; ===========================================================================
-;; W3 — teardown releases what the mount acquired
+;; W3 — teardown releases what the mount acquired, and a reopen does not grow it
 ;; ===========================================================================
 
-(deftest w3-unmount-releases-the-boundarys-reads
-  (testing "rf2-fcy5 — unmounting the panel releases every reference its
-            boundary took in the frame's sub-cache. Epic criterion 6, and the
-            number the spike measured the REJECTED design against: there the
-            ref-count climbed across renders and never fell on unmount
-            (22 → 25 → 32)."
+(defn- released? [] (zero? (ref-count-of :rf/xray feed-q)))
+
+(deftest w3-unmount-releases-the-read-and-reopen-does-not-grow-it
+  (testing "rf2-fcy5 — unmounting the panel releases its subscription
+            reference completely, and mounting it again returns to the SAME
+            count rather than a higher one. Epic criterion 6, and the number
+            the spike caught the rejected design on: with a four-call interop
+            binding the `:rf/xray` ref-count climbed 22 → 25 → 32 across
+            renders and never fell on unmount.
+
+            THE RELEASE IS ASYNCHRONOUS BY DESIGN, and this row polls rather
+            than reading once. `impl.collector`'s `cell-reapers` gives a cell
+            whose last reader unmounts ONE MACROTASK OF GRACE, so that a keyed
+            reorder which unmounts and remounts a row within a single turn
+            reuses the reaction instead of rebuilding it. A synchronous read
+            straight after `flushSync(root.unmount)` returns 1 and the same
+            read one macrotask later returns 0 — measured here on the first
+            draft of this row, which duly reported a LEAK against a collector
+            behaving exactly as documented."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
         (setup!)
         (seed! one-row-epoch)
-        (let [{:keys [container root]} (mount-panel! :rf/xray)
-              mounted (ref-count-of :rf/xray feed-q)]
-          (is (pos? mounted)
-              "NON-VACUITY: the mount took a reference, so the zero below is
-               a release and not an entry that was never there")
-          ;; A second value change, so the release is measured after the
-          ;; boundary has re-wired its read at least once rather than only
-          ;; on its first pass.
-          (rf/dispatch-sync [:rf.xray/sync-epoch-history [two-row-epoch]]
-                            {:frame :rf/xray})
-          (-> (rf.test-support/poll-until
-                (fn [] (some? (q container (testid-sel "rf-xray-trace-row-202"))))
-                {:label "the panel committed the second op's row"})
-              (.then
-                (fn [_]
-                  (is (>= mounted (ref-count-of :rf/xray feed-q))
-                      "the re-render did not ACCUMULATE references — the
-                       count is no higher than it was on first paint")
-                  (teardown! root container)
-                  (is (zero? (ref-count-of :rf/xray feed-q))
-                      (str "unmount released the boundary's read. Cache keys "
-                           "after teardown: "
-                           (pr-str (keys (cache-of :rf/xray)))))))
-              (.catch (fn [e]
-                        (is false (str "W3 never settled: " (.-message e)))
-                        (teardown! root container)
-                        nil))
-              (.then (fn [_] (done)))))))))
+        ;; The starting point is polled, not asserted: a neighbouring row's
+        ;; teardown grace may still be in flight when this one begins.
+        (-> (rf.test-support/poll-until released?
+              {:label "no reference held before the first mount"})
+            (.then
+              (fn [_]
+                (let [{:keys [container root]} (mount-panel! :rf/xray)
+                      mounted (ref-count-of :rf/xray feed-q)]
+                  (is (pos? mounted)
+                      "the mount took a reference — otherwise the release
+                       below is vacuous")
+                  ;; A real value change first, so the release is measured
+                  ;; after the boundary has re-wired its read at least once
+                  ;; rather than only on its first pass.
+                  (rf/dispatch-sync [:rf.xray/sync-epoch-history [two-row-epoch]]
+                                    {:frame :rf/xray})
+                  (-> (rf.test-support/poll-until
+                        (fn [] (some? (q container
+                                         (testid-sel "rf-xray-trace-row-202"))))
+                        {:label "the panel committed the second op's row"})
+                      (.then
+                        (fn [_]
+                          (is (= mounted (ref-count-of :rf/xray feed-q))
+                              "the re-render did not ACCUMULATE references")
+                          (teardown! root container)
+                          (rf.test-support/poll-until released?
+                            {:label "the first unmount released the read"})))
+                      (.then
+                        (fn [_]
+                          (is (released?)
+                              (str "the unmount released it COMPLETELY, within "
+                                   "the collector's grace macrotask. Cache: "
+                                   (pr-str (keys (cache-of :rf/xray)))))
+                          ;; ---- reopen: the same count, not a higher one ----
+                          (let [{c2 :container r2 :root} (mount-panel! :rf/xray)
+                                remounted (ref-count-of :rf/xray feed-q)]
+                            (is (= mounted remounted)
+                                (str "reopening returns to the SAME reference "
+                                     "count (" mounted ") rather than "
+                                     "accumulating — accumulation across "
+                                     "open/close cycles is the signature of a "
+                                     "release the substrate's own reaction "
+                                     "lifecycle cannot see. Got: " remounted))
+                            (teardown! r2 c2)
+                            (rf.test-support/poll-until released?
+                              {:label "the second unmount released it too"}))))))))
+            (.then (fn [_] (is (released?)
+                               "and the second unmount releases it too")))
+            (.catch (fn [e] (is false (str "poll timed out: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
