@@ -397,8 +397,9 @@
   the render-time `(rf/current-frame-id)` capture the `reg-view` body did:
   same guarantee, one call, and it is the spelling every migrated panel
   now uses. The search box's keystroke dispatch therefore still lands on
-  THIS Xray instance's frame after render scope unwinds rather than
-  leaking to `:rf/default`.
+  THIS Xray instance's frame after render scope unwinds; a bare global
+  `rf/dispatch` would there resolve no frame and raise
+  `:rf.error/no-frame-context`, EP-0002 leaving no `:rf/default` floor.
 
   ONE read and ONE boundary. Boundary count tracks reads and
   head-position use, not file size: `catalogue-panel`, `catalogue-row`,

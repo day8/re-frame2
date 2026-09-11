@@ -72,8 +72,10 @@
   which answers the boundary's declared frame inside a body. It replaces
   the `reg-view`-injected bare `dispatch` (rf2-16y3x), which `defview`
   binds no name for; the disclosure toggle's deferred `:on-click` still
-  lands on THIS Xray instance's frame after render scope unwinds rather
-  than leaking to `:rf/default`.
+  lands on THIS Xray instance's frame after render scope unwinds. A bare
+  global `rf/dispatch` in its place would resolve no frame once that
+  scope is gone and RAISE `:rf.error/no-frame-context` — there is no
+  `:rf/default` floor under EP-0002 to absorb it.
 
   The argument is the ordinary one-props-map vector every `defview`
   takes. This panel reads nothing from props — the L4 registry and the

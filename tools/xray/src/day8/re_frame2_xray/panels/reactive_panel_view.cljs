@@ -630,8 +630,9 @@
   `dispatch` (rf2-16y3x) is the facade-injected frame-aware dispatcher: the
   toggle's deferred `:on-click` calls IT, not a bare global `rf/dispatch`,
   so the flip lands on the surrounding Xray instance's frame after render
-  scope unwinds (a bare dispatch would leak to `:rf/default` / emit
-  `:rf.error/no-frame-context` and leave the disclosure state untouched)."
+  scope unwinds (a bare dispatch would resolve no frame and raise
+  `:rf.error/no-frame-context` — EP-0002 leaves no `:rf/default` floor —
+  leaving the disclosure state untouched)."
   [dispatch data]
   (let [rows  (:subs-skipped data)
         n     (count rows)
@@ -742,8 +743,9 @@
   (rf/capture-frame))` inside the boundary — threaded down so the
   panel-local unchanged-subs disclosure toggle's deferred `:on-click`
   lands on the surrounding instance frame after render scope unwinds,
-  never on a bare global `rf/dispatch` that would leak to `:rf/default`.
-  nil is legal for a mount that never clicks the toggle."
+  never on a bare global `rf/dispatch`, which would resolve no frame at
+  all and raise `:rf.error/no-frame-context` (EP-0002 — no `:rf/default`
+  floor). nil is legal for a mount that never clicks the toggle."
   [dispatch data]
   [:section {:data-testid "rf-xray-reactive"
              :style {:height "100%"

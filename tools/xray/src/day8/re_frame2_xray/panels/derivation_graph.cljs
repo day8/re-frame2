@@ -190,8 +190,9 @@
 
 ;; `dispatch` (rf2-1w07r) is the frame-bound dispatcher threaded down from
 ;; the `Panel` body, so the deferred `:on-click` lands on the surrounding
-;; `:rf/xray` instance frame (not a bare global `rf/dispatch` that leaks to
-;; `:rf/default` once render unwinds and the ambient frame is gone).
+;; `:rf/xray` instance frame (a bare global `rf/dispatch` would instead
+;; raise `:rf.error/no-frame-context` once render unwinds and the ambient
+;; frame is gone — EP-0002 leaves no `:rf/default` floor beneath it).
 ;; Read-only panel: the only dispatch is the maintainer's mode toggle.
 ;; rf2-k97c.3 — since `Panel` became a Fresco boundary this is
 ;; `(:dispatch (rf/capture-frame))` rather than a `reg-view`-injected name;
@@ -433,8 +434,10 @@
   which answers this boundary's declared frame inside a body. It replaces
   the `reg-view`-injected bare `dispatch` (rf2-1w07r) that `defview` binds
   no name for, and it keeps the mode toggle's deferred `:on-click` landing
-  on the surrounding `:rf/xray` instance frame rather than leaking to
-  `:rf/default` once render scope has unwound.
+  on the surrounding `:rf/xray` instance frame once render scope has
+  unwound — where a bare global `rf/dispatch` would raise
+  `:rf.error/no-frame-context`, EP-0002 having removed the `:rf/default`
+  floor that would once have absorbed it.
 
   The argument is the ordinary one-props-map vector every `defview` takes.
   This panel reads nothing from props — it is an L4-registry surface with

@@ -17,13 +17,13 @@
 
   Dispatches from `:on-click` / `:on-change` / `:on-key-down` fire
   LATER — after render commits and React has POPPED `_currentValue`
-  back to the context's default (`:rf/default`). At click time the
-  3-tier frame resolution chain (dynamic var → React-context tier →
-  `:rf/default`) falls all the way through, the dispatch lands on
-  `:rf/default`'s router, and the `:rf.xray/settings-*` handler
-  reduces `:rf/default`'s db — leaving Xray's `:settings-open?` flag
-  untouched. Symptom: X button does nothing, tabs do not switch, Esc
-  does not close — the modal is stuck.
+  back to the context's no-provider sentinel. At click time the frame
+  resolution chain (dynamic var → React-context tier) bottoms out at
+  NIL: there is no `:rf/default` floor under EP-0002, so a bare
+  `rf/dispatch` RAISES `:rf.error/no-frame-context` and nothing lands
+  anywhere — Xray's `:settings-open?` flag is left untouched. Symptom:
+  X button does nothing, tabs do not switch, Esc does not close — the
+  modal is stuck.
 
   An EARLIER fix pinned every deferred handler to a `{:frame :rf/xray}`
   literal — correct for the singleton shell, but it entrenched the

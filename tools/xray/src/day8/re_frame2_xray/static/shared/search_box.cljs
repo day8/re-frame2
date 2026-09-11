@@ -28,11 +28,15 @@
 
   The input's keystroke dispatch is an OUT-OF-RENDER affordance: it
   fires after render unwinds, when the ambient frame is gone, so a bare
-  global `rf/dispatch` would leak to `:rf/default` and two Xray shells
-  on one page would collide. This component therefore takes a
-  caller-supplied frame-aware `:dispatch` fn and NEVER reaches a bare
-  `{:frame :rf/xray}` literal or a global `rf/dispatch`. Each call-site
-  supplies the dispatcher its own way:
+  global `rf/dispatch` would resolve no frame and RAISE
+  `:rf.error/no-frame-context` — EP-0002 leaves no `:rf/default` floor
+  to absorb it — and every keystroke would die there. A hard-coded
+  `{:frame :rf/xray}` literal fails the other way: it resolves, but
+  pins the shell to one frame, so two Xray shells on one page collide.
+  This component therefore takes a caller-supplied frame-aware
+  `:dispatch` fn and NEVER reaches a bare `{:frame :rf/xray}` literal
+  or a global `rf/dispatch`. Each call-site supplies the dispatcher its
+  own way:
 
     - Flows / Interceptors / Schemas — these `search-box` call-sites
       render INSIDE a `reg-view` body, so they render-capture
