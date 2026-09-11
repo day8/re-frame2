@@ -9,6 +9,7 @@
             [clojure.string :as string]
             [reagent.core :as r]
             [re-frame.core :as rf]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
@@ -1451,6 +1452,172 @@
       (is (= ["cascade-row-1" "cascade-row-2" "cascade-row-3"] ks)
           "the key React receives is the one `cascade-row-view` stamps into
            its own attribute map, off the projection's 1..N `:step`"))))
+
+;; ---- rf2-h100 — the moved keys reach React on BOTH substrates -----------
+;;
+;; SIX `for` / `map-indexed` loops in this panel wrote their React key as
+;; `^{:key …}` reader metadata on a hiccup vector LITERAL. Reagent honours
+;; that spelling (`reagent.impl.template` reads meta first, the props map
+;; second), so those keys worked and moving them into the attribute map is a
+;; NO-OP on today's substrate. They stop working, silently, the moment this
+;; panel renders under a Fresco boundary: `re-frame.fresco.impl.codec` takes a
+;; literal `:key` from the ATTRIBUTE MAP for every head kind it accepts and
+;; reads Clojure metadata nowhere, so every row would lose its key with no
+;; error and no warning and React would reconcile by position.
+;;
+;; That is the OTHER half of the family from `machine-cascade-rows-…` above:
+;; there the meta rode a CALL form and reached React on no substrate; here it
+;; rode a vector literal and reached React on exactly one.
+;;
+;; Graded through BOTH doors, because only one of them can see the defect:
+;;
+;;   - `react-key` (above) — today's substrate. Reagent reads meta AND props,
+;;     so it returns the same key either way. It is the half that pins the
+;;     carrier move as a no-op.
+;;   - `fresco-key` — the codec's own hiccup→element door. It is the half
+;;     that goes RED on a revert to `^{:key …}`.
+;;
+;; Rows are taken from the RAW tree for the reason `raw-children` states: a
+;; rebuilt vector has its reader metadata stripped, so a reverted site would
+;; read nil at BOTH doors and this gate would go red for the wrong reason
+;; instead of showing the Reagent/Fresco SPLIT that names the actual fault.
+;;
+;; Same shape as `views/resizable-table-key-cljs-test`, this tree's pattern
+;; for the question.
+
+;; The Fresco door is asked about the node with its CHILDREN DROPPED
+;; (`subvec … 0 2` — head plus attribute map), the same idiom as
+;; `machine-inspector-view-cljs-test`. It does not weaken the question:
+;; `:key` is read off the node's OWN attribute map, so dropping the
+;; subtree changes nothing about the answer. It is necessary because the
+;; codec lowers children EAGERLY and these subtrees still contain plain
+;; functions in head position, which it refuses outright as HD-016
+;; `:rf.error/fresco-bad-head`. That refusal is the Fresco MIGRATION's
+;; business — those heads become views when the panel crosses — and
+;; letting it throw here would hide the key answer behind it.
+;;
+;; `react-key` is deliberately NOT subvec'd: Reagent lowers children
+;; lazily, so the whole node is safe there, and reading it whole is what
+;; keeps the DIAGNOSTIC SPLIT. On a revert to `^{:key …}` Reagent still
+;; reports the key (it honours meta on a vector literal) while Fresco
+;; reports nil, and that disagreement names the fault exactly. Subvec'ing
+;; both doors would drop the metadata before Reagent saw it, leaving two
+;; nils — still red, but red without saying why.
+
+(defn- fresco-key
+  "The key a Fresco boundary would commit, read off the node's own
+  attribute map. nil for a meta-only key, which is the whole point."
+  [node]
+  (.-key (rf.fresco.impl.codec/as-element (subvec node 0 2))))
+
+(defn- raw-nodes-where-testid
+  "Every node under `tree` whose `:data-testid` satisfies `pred`, walked
+  WITHOUT rebuilding so a re-introduced reader key stays visible."
+  [tree pred]
+  (vec (filter (fn [node]
+                 (and (vector? node)
+                      (map? (second node))
+                      (let [testid (:data-testid (second node))]
+                        (and (string? testid) (pred testid)))))
+               (tree-seq (some-fn vector? seq?) raw-children tree))))
+
+(defn- expect-keys-on-both-substrates
+  "Assert that every sibling in `rows` hands React the same non-nil key at
+  both doors, and that the siblings differ from one another."
+  [rows expected what]
+  ;; Precondition — a vacuous pass is the failure mode here, so the row count
+  ;; is asserted before the keys are.
+  (is (= expected (count rows))
+      (str what ": the fixture's " expected " keyed siblings render"))
+  (let [fresco  (mapv fresco-key rows)
+        reagent (mapv react-key rows)]
+    (is (every? some? fresco)
+        (str what ": every key reaches a FRESCO boundary — a meta-spelled key "
+             "reads nil here. Got " (pr-str fresco)))
+    (is (= reagent fresco)
+        (str what ": both substrates receive the SAME key — only the carrier "
+             "moved. Reagent " (pr-str reagent) " vs Fresco " (pr-str fresco)))
+    (is (= (count rows) (count (distinct fresco)))
+        (str what ": sibling keys are distinct. Got " (pr-str fresco)))))
+
+(deftest moved-keys-reach-react-on-both-substrates-test
+  (testing "rf2-h100 — RECORDABLE COEFFECTS leaf rows"
+    (let [tree (view/render-recordable-cofx-step
+                 {:step :recordable-cofx :badge :RECORDABLE-COFX :step-number 2
+                  :inputs [{:key :counter/delta :value (rh/summarize 1)}
+                           {:key :prefs/theme   :value (rh/summarize 2)}
+                           {:key :todo/filter   :value (rh/summarize 3)}]})]
+      (expect-keys-on-both-substrates
+        (raw-nodes-where-testid
+          tree #(string/starts-with? % "rf-xray-epoch-recordable-cofx-row-"))
+        3 "recordable-cofx leaf rows")))
+
+  (testing "rf2-h100 — per-action FX attribution chips"
+    (let [tree (view/machine-cascade-mini-pipeline
+                 [{:kind :action :step 2 :action-id :open-socket :phase :entry
+                   :fx [[:http/get {:url "/u"}] [:db/write {}] [:log/info {}]]}]
+                 :ws/start)]
+      (expect-keys-on-both-substrates
+        (raw-nodes-where-testid
+          tree #(string/starts-with? % "rf-xray-epoch-machine-cascade-fx-2-"))
+        3 "cascade fx chips")))
+
+  (testing "rf2-h100 — machine-cascade HISTORY restore/record lines"
+    (let [tree (view/machine-cascade-mini-pipeline
+                 [{:kind :transition :step 2 :machine-id :ws/conn
+                   :from-state [:idle] :to-state [:connected] :microsteps 1
+                   :history-restored
+                   [{:compound-path [:player] :kind :deep :source :recorded
+                     :restored-config [:player :paused]
+                     :resolved-leaf   [:player :paused]}
+                    {:compound-path [:media] :kind :shallow :source :default
+                     :fallback :default-target
+                     :resolved-leaf [:media :idle]}]
+                   :history-recorded
+                   [{:compound-path [:player] :recorded-config [:player :paused]}
+                    {:compound-path [:media]  :recorded-config [:media :idle]
+                     :prev-config [:media :playing]}]}]
+                 :ws/start)]
+      ;; restored and recorded lines are siblings under ONE banner div, so
+      ;; all four are graded together — their keys must not collide.
+      (expect-keys-on-both-substrates
+        (raw-nodes-where-testid
+          tree #(string/starts-with? % "rf-xray-epoch-machine-cascade-history-2-"))
+        4 "cascade history lines")))
+
+  (testing "rf2-h100 — pipeline step bodies"
+    (let [tree (view/pipeline-view
+                 [{:step :dispatch :badge :DISPATCH :step-number 1
+                   :event [:counter/inc] :source :ui :coord nil}
+                  {:step :handler :badge :HANDLER :step-number 2
+                   :flavour :db-only :event-id :counter/inc
+                   :fx [] :machine nil}
+                  {:step :recordable-cofx :badge :RECORDABLE-COFX :step-number 3
+                   :time-ms 1781078400123}])]
+      (expect-keys-on-both-substrates
+        (raw-nodes-where-testid
+          tree #(re-matches #"rf-xray-epoch-pipeline-step-\d+" %))
+        3 "pipeline step bodies"))))
+
+(deftest subscriptions-filter-buttons-reach-react-on-both-substrates-test
+  (testing "rf2-h100 — the SUBSCRIPTIONS `[all][changed][unchanged]` bar.
+            Its own frame setup, so it is its own row rather than a
+            fifth `testing` block above."
+    (epoch-orchestrator/install!)
+    (rf/make-frame {:id :rf/xray})
+    (rf/with-frame :rf/xray
+      (let [tree (view/render-subscriptions-step
+                   {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                    :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}
+                           {:sub-id :b :sub-vec [:b] :changed? false}
+                           {:sub-id :c :sub-vec [:c] :changed? false}]
+                    :changed 1 :unchanged 2})]
+        (expect-keys-on-both-substrates
+          (raw-nodes-where-testid
+            tree #(re-matches
+                    #"rf-xray-epoch-subscriptions-filter-(all|changed|unchanged)" %))
+          3 "subscriptions filter buttons")))))
+
 
 (deftest machine-handler-renders-cascade-view-test
   (testing "rf2-u69j7 — machine handler renders the time-ordered
