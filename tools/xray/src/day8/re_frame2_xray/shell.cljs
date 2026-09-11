@@ -154,7 +154,7 @@
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
             [re-frame.interop :as rf.interop]
-            [reagent.core :as r]
+            [day8.re-frame2-xray.substrate :as substrate]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.filters :as filters]
@@ -1432,7 +1432,7 @@
   `defview` binds NO name inside the body, so the bare `dispatch` this
   body used to close over would be a LOUD compile error.
 
-  `r/as-element` is the `as-child` spelling for the two Reagent islands;
+  `substrate/as-element` is the `as-child` spelling for the two Reagent islands;
   [[ribbon-tree]] records which they are and why.
 
   The argument is the ordinary one-props-map vector every `defview`
@@ -1459,7 +1459,7 @@
      ;; when ≥1 filter is committed (the events-ribbon's own `[+]`
      ;; takes over). Open when zero filters, closed otherwise.
      :filters         (rf.fresco/sub [:rf.xray/active-filters])}
-    r/as-element
+    substrate/as-element
     [ribbon-theme-toggle {}]))
 
 ;; ---- L2 event list -------------------------------------------------------
@@ -2794,7 +2794,7 @@
   tab read above it would re-render the ribbon, the events ribbon, the
   L2 list and the tab bar with it. Boundary count tracks reads.
 
-  `r/as-element` is the `as-child` spelling for the L4 island;
+  `substrate/as-element` is the `as-child` spelling for the L4 island;
   [[detail-panel-tree]] records why it is still an island.
 
   The wrapping `<div>` paints `bg-2` as a contrast safety net
@@ -2825,7 +2825,7 @@
                      default-tab)]
     (detail-panel-tree selected
                        (panel-registry/tab-by-id :dynamic selected)
-                       r/as-element)))
+                       substrate/as-element)))
 
 ;; ---- Dynamic / Static surface composer (rf2-o5f5f.1) --------------------
 ;;
@@ -2923,7 +2923,7 @@
   [_props]
   (dynamic-chrome-tree [ribbon {}]
                        [events-ribbon {}]
-                       (r/as-element [event-list])
+                       (substrate/as-element [event-list])
                        [resize-handle/seam-handle-view {}]
                        [tab-bar {}]
                        [detail-panel {}]))

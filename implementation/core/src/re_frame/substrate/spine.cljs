@@ -4252,6 +4252,15 @@
       :current-frame      — (fn []) → React-context-tier current frame
                             (`views/current-frame`)
       :current-component  — (fn []) → the in-flight component
+      :as-element         — (fn [hiccup]) → this substrate's own
+                            hiccup → React element walk. The TWIN of
+                            `:current-component` and published for the
+                            same reason: a subtree crossed into React by
+                            some OTHER ratom build renders under that
+                            build's renderer, so `:current-component`
+                            (which routes to the INSTALLED one) answers
+                            nil inside it and `views/current-frame`
+                            resolves no frame. rf2-7ds8.
       :atom               — (fn [v]) → reactive atom
       :ratom?             — (fn [x]) → boolean (IReactiveAtom check)
       :make-reaction      — (fn [thunk]) → reaction
@@ -4283,7 +4292,7 @@
   with the same shape — only their injected bare hook fns and `:kind`
   differ. The former hand-copied route-hook block now lives once."
   [spine-fns {:keys [kind register-context-provider
-                     current-frame current-component atom ratom? make-reaction
+                     current-frame current-component as-element atom ratom? make-reaction
                      activate-reaction!
                      disposable? add-on-dispose! dispose! reactive? after-render]}]
   (let [dispose-dispatch (make-ratom-dispose-dispatch disposable? dispose!)
@@ -4338,6 +4347,12 @@
       #(rf.frame/current-frame))
     (rf.substrate.adapter/route-hook! adapter :adapter/current-component
       current-component)
+    ;;   :adapter/as-element — rf2-7ds8. The hiccup → React element walk
+    ;;     belonging to the INSTALLED ratom build. Routed, not chained to a
+    ;;     substrate-neutral bottom, because there is no neutral answer: an
+    ;;     element is only correct for the renderer that made it.
+    (rf.substrate.adapter/route-hook! adapter :adapter/as-element
+      as-element)
     (rf.substrate.adapter/route-hook! adapter :adapter/ratom
       atom)
     (rf.substrate.adapter/route-hook! adapter :adapter/ratom?

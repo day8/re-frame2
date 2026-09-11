@@ -200,6 +200,10 @@
      ;; The spine handles re-frame-owned disposal before these substrate ops.
      :current-frame     rf.views/current-frame
      :current-component r/current-component
+     ;; rf2-7ds8 — stock Reagent's own hiccup walk. Twin of the slim
+     ;; adapter's entry; see `:adapter/as-element` in the late-bind
+     ;; directory for why the crossing must come from the installed build.
+     :as-element        r/as-element
      :atom              r/atom
      :ratom?            (fn [x] (satisfies? ratom/IReactiveAtom x))
      ;; Guarded ctor/disposer pair (rf2-rzeko): the routed

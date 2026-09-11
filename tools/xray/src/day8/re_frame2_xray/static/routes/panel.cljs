@@ -79,7 +79,7 @@
   migration seam [[panel-tree]] documents, not a view-layer dependency."
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
-            [reagent.core :as r]
+            [day8.re-frame2-xray.substrate :as substrate]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.routing-helpers :as h]
             [day8.re-frame2-xray.static.routes.browse-list :as browse-list]
@@ -238,7 +238,7 @@
   inside your body, so the bare `dispatch` this body used to close over
   would be a LOUD compile error, which is the good failure.
 
-  `r/as-element` is the `as-child` spelling for the browse-list island —
+  `substrate/as-element` is the `as-child` spelling for the browse-list island —
   [[panel-tree]] records the census that makes it necessary.
 
   The argument is the ordinary one-props-map vector every `defview`
@@ -254,7 +254,7 @@
                  :sim-open   sim-open
                  :routes-map routes-map}
                 (:dispatch (rf/capture-frame))
-                r/as-element)))
+                substrate/as-element)))
 
 ;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
 ;;

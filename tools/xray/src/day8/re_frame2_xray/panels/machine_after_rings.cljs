@@ -111,7 +111,7 @@
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
             [re-frame.interop :as rf.interop]
-            [reagent.core :as r]
+            [day8.re-frame2-xray.substrate :as substrate]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings
@@ -577,10 +577,10 @@
      :frame          (rf/current-frame-id)
      ;; The machines-viz overlay is a Reagent class, so it reaches React
      ;; as a finished React ELEMENT — a legal child anywhere per Fresco's
-     ;; component ABI — rather than as a hiccup head. `r/as-element`
+     ;; component ABI — rather than as a hiccup head. `substrate/as-element`
      ;; carries the hiccup vector itself, so the CLJS props map crosses
      ;; BY IDENTITY; see the ns docstring.
-     :as-child       r/as-element}))
+     :as-child       substrate/as-element}))
 
 ;; ---- the migration bridge (rf2-k97c.3) ----------------------------------
 ;;

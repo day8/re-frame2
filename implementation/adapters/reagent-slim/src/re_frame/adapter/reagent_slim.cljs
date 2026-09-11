@@ -128,6 +128,10 @@
      ;; spine handles re-frame-owned disposal before these substrate ops.
      :current-frame     rf.views/current-frame
      :current-component r/current-component
+     ;; rf2-7ds8 — reagent2's own hiccup walk, so a caller crossing a
+     ;; hiccup island into React under this adapter gets a subtree THIS
+     ;; build renders, and `:current-component` above can see it.
+     :as-element        r/as-element
      :atom              r/atom
      :ratom?            (fn [x] (satisfies? ratom/IReactiveAtom x))
      :make-reaction     ratom/make-reaction
