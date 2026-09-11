@@ -144,10 +144,15 @@
   nil)
 
 (defn- mount!
-  "A real boundary, rendered and committed. Answers React's cleanup."
-  [body-fn]
-  (rf.fresco.impl.collector/render-body app-frame body-fn {})
-  (rf.fresco.impl.collector/commit-boundary! (rf.fresco.impl.collector/last-reads) (fn [])))
+  "A real boundary, rendered and committed. Answers React's cleanup.
+
+  The frame arity exists for the self-exclusion rows: a boundary seated in
+  `:rf/xray` is what Xray's OWN panels are, and it is the thing the tab
+  must not report as application evidence."
+  ([body-fn] (mount! app-frame body-fn))
+  ([frame body-fn]
+   (rf.fresco.impl.collector/render-body frame body-fn {})
+   (rf.fresco.impl.collector/commit-boundary! (rf.fresco.impl.collector/last-reads) (fn []))))
 
 (defn- refresh!
   "Drop Xray's sub cache so `:rf.xray.fresco/data` recomputes against the
@@ -591,7 +596,8 @@
                            [rf.fresco.tool/explain-render          reads/explain-render]]]
         (is (= (pr-str (door)) (pr-str (seam)))
             "a seam that reshaped could not be byte-identical to its door")))
-    (testing "and so does the subscription the VIEW derefs — the whole chain"
+    (testing "and so does the subscription the VIEW derefs, for every
+              boundary the APPLICATION owns"
       (refresh!)
       (let [held (rf/with-frame :rf/xray
                    (:envelopes @(rf/subscribe [:rf.xray.fresco/data])))]
@@ -600,6 +606,44 @@
         (is (= (pr-str (rf.fresco.tool/read-read-attribution))
                (pr-str (:read-attribution held))))))
     (release)))
+
+(deftest the-subscription-drops-XRAYs-own-boundaries-and-the-DOOR-does-not
+  (testing "rf2-k97c.3 — the byte-for-byte claim above is about the DOOR and
+            the SEAM, and it is unchanged. The SUBSCRIPTION additionally
+            applies the self-exclusion, and this row is the one that tells the
+            two apart.
+
+            IT ALSO KEEPS THE ROW ABOVE HONEST. Once Xray's own panels became
+            Fresco boundaries, `the-seam-reshapes-nothing`'s second half holds
+            only while no `:rf/xray` boundary is mounted — which is true of
+            that fixture and false of a running Xray. Without this row its
+            pass would be a property of the harness rather than of the chain."
+    (setup!)
+    (let [app-side  (mount! (fn [_] (rf.fresco/sub [:htab/left]) nil))
+          xray-side (mount! :rf/xray (fn [_] (rf.fresco/sub [:htab/right]) nil))
+          door      (rf.fresco.tool/read-mounted-boundaries)
+          held      (rf/with-frame :rf/xray
+                      (refresh!)
+                      (:envelopes @(rf/subscribe [:rf.xray.fresco/data])))
+          frames-of #(mapv :frame (:boundaries %))]
+      (is (some #{:rf/xray} (frames-of door))
+          (str "THE DOOR STILL CARRIES IT — the producer's own answer is "
+               "untouched, so the AI pair reading the same four functions "
+               "sees every boundary including Xray's. Door frames: "
+               (pr-str (frames-of door))))
+      (is (some #{app-frame} (frames-of door))
+          "NON-VACUITY: and the application's boundary is in the door's
+           answer too, so the assertion below is a filter and not an
+           empty roster")
+      (is (not (some #{:rf/xray} (frames-of (:mounted-boundaries held))))
+          (str "THE SUBSCRIPTION DROPS IT — what the six views see carries no "
+               "row seated in Xray's own frame. Held frames: "
+               (pr-str (frames-of (:mounted-boundaries held)))))
+      (is (some #{app-frame} (frames-of (:mounted-boundaries held)))
+          "and the application's boundary SURVIVES, so the drop is
+           Xray-specific rather than a roster that emptied")
+      (app-side)
+      (xray-side))))
 
 (deftest the-consumer-pin-tracks-the-producer-today-and-detects-a-bump
   (testing "the pin is a LITERAL, not the producer's var — but today they agree"
