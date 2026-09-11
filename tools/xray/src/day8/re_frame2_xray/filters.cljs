@@ -2,17 +2,19 @@
   "Facade for Xray's IN/OUT auto-filter subsystem.
 
   Per the canonical Xray panel-facade pattern (mirrored from
-  `palette.cljs`): the facade owns the `reg-view` Modal wrapper for
-  the edit popup + an `install!` fn that wires every filter-side
-  registration through the Xray registry.
+  `palette.cljs`): the facade owns the Modal wrapper for the edit
+  popup + an `install!` fn that wires every filter-side registration
+  through the Xray registry.
 
   ## What lives here
 
-  - `Modal` — `reg-view` mounting the edit popup. Mounted at the
+  - `ModalView` — the `rf.fresco/defview` BOUNDARY for the edit popup.
+    Short-circuits to nil when `:rf.xray/edit-popup-open?` is false.
+  - `Modal` — the public callable the shell mounts as a hiccup head,
+    an `as-component` bridge over [[ModalView]]. Mounted at the
     shell-view root so the popup overlays the chrome and panels;
-    short-circuits to nil when `:rf.xray/edit-popup-open?` is false.
-    Mounting at the shell root also keeps the popup's subscribes
-    inside the `:rf/xray` frame-provider's React context.
+    mounting there also keeps the popup's reads inside the `:rf/xray`
+    frame-provider's React context.
   - `install!` — orchestrator that installs the subs / events / fxs
     + the persistence fx. It does NOT hydrate on load: the transient
     pills reset every load and the host seed lands via `mount.cljs`'s
@@ -29,6 +31,7 @@
   - localStorage round-trip is in `filters/persistence.cljs`."
   (:require [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.filters.edit-popup :as edit-popup]
             [day8.re-frame2-xray.filters.error-override :as error-override]
@@ -57,37 +60,101 @@
 
 ;; ---- Modal --------------------------------------------------------------
 
-(rf/reg-view Modal
-  "The edit popup. Renders only when `:rf.xray/edit-popup-open?` is
-  true; closed-state is a single subscribe + a `when`.
-  `reg-view`-registered so the body's subscribes route through the
-  React-context tier to `:rf/xray`.
+(rf.fresco/defview ^:private ModalView
+  "The filter edit popup's root — a FRESCO BOUNDARY (rf2-d9ln), not an
+  `rf/reg-view`. Renders only when `:rf.xray/edit-popup-open?` is true;
+  closed-state is one read plus a `when`.
 
-  Threads the reg-view-injected frame-aware `dispatch`
-  into `popup-view` so deferred `:on-*` handlers land on the
-  surrounding instance frame, not a `{:frame :rf/xray}` literal.
+  The READS are `rf.fresco/sub`, plain calls the shipped collector
+  records an edge for — no deref and no reaction owned by the installed
+  adapter. The FRAME they resolve against comes from React context,
+  which the enclosing frame boundary writes; `rf/frame-provider` and
+  `rf.fresco/frame-provider` write the SAME context, so this resolves
+  `:rf/xray` identically under today's Reagent-rendered shell and under
+  the Fresco root Xray will own.
 
-  ## rf2-k97c.3 — STILL AN `rf/reg-view`, AND THAT IS THE DECISION
+  THE THREE INNER READS SIT INSIDE THE OPEN-GATE `when` DELIBERATELY.
+  `rf.fresco/sub` is legal anywhere in a body and records its edge where
+  the read happens (HD-002), so a CLOSED popup holds ONE subscription,
+  not four — the same short-circuit the `reg-view` era got by not
+  calling `popup-view` at all, expressed in the collector's own terms.
 
-  Not an oversight, and not a half-done migration. This is one of the
-  seven shell-root modals `shell-view` mounts, and `shell-view` is
-  still an `rf/reg-view` — a Reagent tree — because severing Xray's
-  paint from the installed adapter's `:render` is the parent epic's
-  coupling (1) and a LATER slice. A `defview` mints a React function
-  component, which is not a legal hiccup head in a Reagent tree, so
-  migrating this Modal today would mean either an `as-component` bridge
-  with nothing above it to justify one, or an edit to `shell.cljs` that
-  the four sibling chrome satellites would each need too.
+  THEY ARE READ HERE RATHER THAN IN `popup-view`, AND THAT HOIST IS
+  LOAD-BEARING. `rf.fresco/sub` refuses outside a boundary render
+  (`:rf.error/fresco-sub-outside-render`), so a read-performing helper
+  becomes uncallable from every non-render lane the moment its reads
+  migrate — and `popup-view` has direct callers in two node-lane
+  suites. Taking values instead keeps it callable from anywhere, which
+  is what gives the node lane a door onto the SHIPPED tree. Same hoist,
+  and the same reason, as `settings/view/popup-tree`.
 
-  The later slice owns the choice and has two live options on record —
-  migrate these modals, or island them behind `as-child`. Whichever it
-  picks, the subtree below here is already ready: `popup-view` is
-  CALLED rather than headed, and every plain-fn head inside it has been
-  inlined, so nothing under this Modal is a `:invalid` head waiting to
-  fire."
+  The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
+  which answers the boundary's declared frame inside a body and replaces
+  the `dispatch` the `reg-view` body injected lexically (rf2-nesy9;
+  `defview` binds no name). Every deferred `:on-*` handler in the tree
+  below closes over it, so an edit landing after render scope has
+  unwound still reaches the surrounding instance frame rather than a
+  `{:frame :rf/xray}` literal.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. The shell mounts this with none, so it is destructured away."
+  [_props]
+  (when (rf.fresco/sub [:rf.xray/edit-popup-open?])
+    (edit-popup/popup-view
+      (:dispatch (rf/capture-frame))
+      {:trigger     (rf.fresco/sub [:rf.xray/edit-popup-trigger])
+       :draft       (rf.fresco/sub [:rf.xray/edit-popup-draft])
+       :positioning (rf.fresco/sub [:rf.xray/modal-positioning])})))
+
+;; ---- the migration bridge (rf2-d9ln) ------------------------------------
+;;
+;; Xray's shell is still a `reg-view` tree rendered by the installed
+;; adapter, and `shell.cljs` mounts this popup as a hiccup head —
+;; `[filters/Modal]` at the shell-view root. `defview`'s contract is that
+;; a boundary is mounted as `[head props]` inside a Fresco body or
+;; through `as-component` from OUTSIDE, never as a hiccup render fn in a
+;; Reagent tree.
+;;
+;; `rf.fresco/as-component` is Fresco's own outward door for exactly
+;; this: it answers a real React component for a boundary, which a React
+;; parent mounts UNDER THE FRAME IT IS ALREADY IN, taking the frame from
+;; React context rather than from a second root. So there is no second
+;; root here, no adapter-kind branch, and no props ABI — and, the point
+;; of rf2-d9ln, NO `shell.cljs` EDIT. The docstring this replaced said
+;; migrating would need one; `cancellation-cascade/Popover`,
+;; `spine-filters/Modal`, `palette/Modal` and `settings-popup/Modal` had
+;; already shipped through this same bridge without touching it.
+;;
+;; THIS IS SCAFFOLDING WITH A DEFINED END. When `mount.cljs` owns a
+;; Fresco root and `shell-view` is itself a boundary, it heads
+;; [[ModalView]] directly, `[:>]` goes, and both defs below are deleted.
+
+(def ^:private Modal-component
+  "The React component [[ModalView]] presents as, for a non-Fresco
+  parent. Declared once at top level beside the view, as
+  `rf.fresco/as-component`'s contract requires — deriving it per render
+  would mint a new component type every time and remount the popup on
+  each shell render, losing the pattern input's focus and caret with it."
+  (rf.fresco/as-component ModalView))
+
+(defn Modal
+  "The edit popup's public callable — what `shell.cljs` mounts as a
+  hiccup head at the shell-view root.
+
+  Since rf2-d9ln it is the migration bridge rather than the view:
+  Reagent-shaped hiccup interoping to the React component [[ModalView]]
+  presents as. The shell's enclosing `rf/frame-provider` is what puts
+  the instance frame in React context for it.
+
+  The open/closed gate is inside [[ModalView]], so this is always
+  mounted and renders nothing while the popup is closed — the same
+  shape a mounted `reg-view` returning nil had.
+
+  Callers wanting the MARKUP as data — the node-lane rows — build it
+  from `edit-popup/popup-view` with the reads' values instead; this
+  returns an interop vector, not a tree to walk."
   []
-  (when @(rf/subscribe [:rf.xray/edit-popup-open?])
-    (edit-popup/popup-view dispatch)))
+  [:> Modal-component {}])
 
 ;; ---- hydration ---------------------------------------------------------
 
