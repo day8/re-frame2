@@ -169,14 +169,24 @@
   two-container commit in
   `panels/managed_fx_mount_instance_id_dom_cljs_test`.
 
+  rf2-pua3 — `mount-trace!` takes the SAME key, arrived at the same way:
+  rf2-fcy5 migrated that panel's mount to a boundary and gave each expanded
+  row's payload inspector a per-ROW `:mount-id`, which separates rows
+  within one panel and cannot separate two panels. It needs only ONE
+  qualifier, and for a different reason than managed-fx's one — that panel
+  passes a stable `:site-id`, so the logical expansion/zoom identity is
+  already keyed apart from the physical mount identity and only the latter
+  moves. Measured on a real two-container commit in
+  `panels/trace_mount_instance_id_dom_cljs_test`.
+
   It is SOME panels' opt rather than the surface's, and deliberately so:
   it is only meaningful where a panel's view accepts it, and handing a
   props map to a panel whose view takes none is an arity error rather
   than an ignored key. `render-panel!`'s `props` argument is the seam —
-  see its docstring. The two panels that take it each own their own
+  see its docstring. The three panels that take it each own their own
   normaliser (`app-db-diff-state/instance-token`,
-  `managed-fx-template/instance-token`) so a refusal names the caller's
-  own panel.
+  `managed-fx-template/instance-token`, `trace/instance-token`) so a
+  refusal names the caller's own panel.
 
   See `tools/xray/spec/007-UX-IA.md` §Mountable panel contract and
   `tools/xray/spec/008-Embedding-Contract.md` for the full
@@ -280,9 +290,9 @@
     provider at all — each one's docstring says its isolation comes
     from the ENCLOSING provider, which is this one.
   - `props` — OPTIONAL (rf2-2n8q), and it is the PANEL's props map, not
-    the mount opts. nil — every caller but `mount-app-db-diff!` and
-    `mount-managed-fx!` (rf2-5ykm), and those two only when the caller
-    named an instance — mounts
+    the mount opts. nil — every caller but `mount-app-db-diff!`,
+    `mount-managed-fx!` (rf2-5ykm) and `mount-trace!` (rf2-pua3), and
+    those three only when the caller named an instance — mounts
     `[panel-view]`, the element this fn has always built. A map mounts
     `[panel-view props]`. The caller decides, because only the caller
     knows whether its panel's view takes props at all — and what a stray
@@ -290,10 +300,11 @@
     `rf/reg-view` head takes an ARITY ERROR rather than an ignored map
     (`segment-inspector/Popup` today); a Fresco boundary takes the single
     props map every `defview` takes and destructures away what it does
-    not read (`trace/Panel` since rf2-fcy5 — this sentence used to cite
-    it as the arity-error example, and that stopped being true when the
-    Trace panel migrated). Either way this must NOT be filled in from
-    `opts` here on every panel's behalf.
+    not read (`epoch-panel/Panel` today — this sentence cited
+    `trace/Panel` as the arity-error example until rf2-fcy5 migrated it,
+    then as the ignored-map example until rf2-pua3 gave it a prop it
+    reads). Either way this must NOT be filled in from `opts` here on
+    every panel's behalf.
 
   rf2-2n8q — the 4-arity is an ADDITION and the couplings `mount-resources!`
   reserves this fn for are untouched: the frame-provider wrap and the
@@ -391,11 +402,38 @@
 
 (defn mount-trace!
   "Mount Xray's Trace tab in isolation at `mount-point`. Renders the
-  trace-buffer feed for the focused event-bundle."
+  trace-buffer feed for the focused event-bundle.
+
+  `opts :instance-id` — OPTIONAL (rf2-pua3). A non-blank string or a
+  keyword naming THIS mount, for the case where two standalone mounts
+  share one `:frame`. It qualifies the `:mount-id` of each EXPANDED ROW's
+  payload inspector — the widget's lifecycle key is `[frame-id mount-id]`
+  and its measured-width slot is keyed by the bare `mount-id`, so one
+  qualifier moves both. Left unnamed, two Trace panels showing one focused
+  epoch with matching rows expanded share one store entry, one
+  ResizeObserver and one width slot, and detaching either releases the
+  survivor's.
+
+  It qualifies NOTHING ELSE, and that is deliberate: this panel passes a
+  stable `:site-id`, so expansion and zoom are keyed by that rather than by
+  the mount-id and two panels of one epoch still open and close together.
+  ONE qualifier here where `mount-app-db-diff!` needs two — see
+  `trace/Panel`'s own `:instance-id` note for why the three panels differ.
+
+  OMIT IT when only one Trace panel is on screen in this frame, which is
+  every call site in this tree today: the ids are then byte-for-byte what
+  they were. `trace/instance-token` refuses, loudly, the shapes that could
+  not be stable across renders."
   ([mount-point]      (mount-trace! mount-point nil))
   ;; rf2-k97c.3 — `Panel-bridge`; see `mount-epoch-panel!` above for why
   ;; the mount moves to the bridge name BEFORE the panel migrates.
-  ([mount-point opts] (render-panel! trace/Panel-bridge mount-point opts)))
+  ;; rf2-pua3 — and the props map is what carries `:instance-id` across that
+  ;; bridge; `Panel-bridge`'s 1-arity is the door, its 0-arity is what an
+  ;; unnamed mount still takes.
+  ([mount-point opts]
+   (render-panel! trace/Panel-bridge mount-point opts
+                  (when-let [id (:instance-id opts)]
+                    {:instance-id id}))))
 
 (defn mount-machine-inspector!
   "Mount Xray's Machines tab in isolation at `mount-point`. Renders
