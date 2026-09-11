@@ -3209,8 +3209,10 @@
       handler routes to the handler's own frame (not `:rf/default`).
       Without this binding, the handler body would see the same
       `*current-frame*` value the original dispatcher saw — typically
-      `nil` for app-level dispatches — and child dispatches would
-      slide to `:rf/default`, silently breaking multi-frame isolation.
+      `nil` for app-level dispatches — and every child dispatch would
+      raise `:rf.error/no-frame-context`: EP-0002 leaves no
+      `:rf/default` floor for them to slide onto, so the cascade fails
+      loudly instead of silently breaking multi-frame isolation.
 
       The binding does NOT survive async escapes (setTimeout,
       Promise.then, requestAnimationFrame): the JS callback fires on
