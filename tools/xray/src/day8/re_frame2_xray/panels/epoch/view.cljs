@@ -2486,8 +2486,8 @@
    ;; (redact-by-default). The leaf id rides verbatim (owner-qualified
    ;; vocabulary, not PII); only the VALUE is summarized.
    (for [[idx {:keys [key value generated?]}] (map-indexed vector inputs)]
-     ^{:key (str "recordable-cofx-" idx)}
-     [:div {:data-testid (str "rf-xray-epoch-recordable-cofx-row-" (name key))
+     [:div {:key (str "recordable-cofx-" idx)
+            :data-testid (str "rf-xray-epoch-recordable-cofx-row-" (name key))
             :data-recordable-cofx-key (name key)
             :data-recordable-cofx-generated (str (boolean generated?))
             :style recordable-cofx-row-style}
@@ -3234,16 +3234,16 @@
            :style structured-cascade-history-banner-style}
      (map-indexed
        (fn [i rec]
-         ^{:key (str "restored-" i)}
-         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-history-" step "-restored-" i)
+         [:div {:key (str "restored-" i)
+                :data-testid (str "rf-xray-epoch-machine-cascade-history-" step "-restored-" i)
                 :style structured-cascade-history-line-style}
           [:span {:aria-hidden true :style structured-cascade-history-glyph-style} "⟲"]
           [:span (fmt/history-restored-headline rec)]])
        history-restored)
      (map-indexed
        (fn [i rec]
-         ^{:key (str "recorded-" i)}
-         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-history-" step "-recorded-" i)
+         [:div {:key (str "recorded-" i)
+                :data-testid (str "rf-xray-epoch-machine-cascade-history-" step "-recorded-" i)
                 :style structured-cascade-history-line-style}
           [:span {:aria-hidden true :style structured-cascade-history-glyph-style} "✎"]
           [:span (fmt/history-recorded-headline rec)]])
@@ -3430,8 +3430,8 @@
           [:span {:style cascade-detail-label-style} "fx"]
           (for [[j entry] (map-indexed vector fx)
                 :let [[fx-id _args] (if (vector? entry) entry [entry nil])]]
-            ^{:key (str "cascade-fx-" (:step row) "-" j)}
-            [:span {:data-testid (str "rf-xray-epoch-machine-cascade-fx-"
+            [:span {:key (str "cascade-fx-" (:step row) "-" j)
+                    :data-testid (str "rf-xray-epoch-machine-cascade-fx-"
                                       (:step row) "-" j)
                     :style cascade-detail-fx-chip-style}
              (fmt/ns-keyword fx-id)])])])))
@@ -4514,8 +4514,8 @@
           :style subs-filter-bar-style}
    (for [m [:all :changed :unchanged]
          :let [active? (= mode m)]]
-     ^{:key (name m)}
-     [:button {:data-testid (str "rf-xray-epoch-subscriptions-filter-" (name m))
+     [:button {:key (name m)
+               :data-testid (str "rf-xray-epoch-subscriptions-filter-" (name m))
                :aria-pressed (str active?)
                :on-click (fn [e]
                            (.stopPropagation e)
@@ -5750,8 +5750,8 @@
      ;; §Lazy-seq deref tracking.
      (doall
        (for [[i step] (map-indexed vector steps)]
-         ^{:key (str "step-" (:step step) "-" i)}
-         [:div {:data-testid (str "rf-xray-epoch-pipeline-step-" (:step-number step))
+         [:div {:key (str "step-" (:step step) "-" i)
+                :data-testid (str "rf-xray-epoch-pipeline-step-" (:step-number step))
                 :data-step (when (:step step) (name (:step step)))
                 :data-rolled-back (str (boolean (:rolled-back? step)))
                 ;; rf2-xgeag — when an `:app-db` violation rolled back
