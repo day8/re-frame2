@@ -18,7 +18,9 @@
 
   ## Surfaces under test
 
-    1. Settings popup  (`settings/view/popup-view`)
+    1. Settings popup  (`settings/view/popup-tree`, driven through
+       `test-helpers.modal-trees/settings-popup-tree` since rf2-k97c.3 —
+       the popup's root is a Fresco boundary and no longer a callable)
     2. Mute manager    (`spine-filters/dialog-tree`)
     3. Filter edit-popup (`filters/edit-popup/popup-view`)
     4. Cancellation-cascade popover — exercised via its `popover-tree`
@@ -40,7 +42,7 @@
             [day8.re-frame2-xray.panels.cancellation-cascade
              :as cancellation-cascade]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.settings.view :as settings-view]
+            [day8.re-frame2-xray.test-helpers.modal-trees :as modal-trees]
             [day8.re-frame2-xray.spine-filters :as spine-filters]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.views.edn-widget :as edn]))
@@ -119,7 +121,7 @@
   (xray-setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open]))
-  (let [tree (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))]
+  (let [tree (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))]
     (assert-dialog-contract! tree "rf-xray-settings-dialog"
                              "Settings popup")))
 
@@ -128,7 +130,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
-    (let [tree  (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))
+    (let [tree  (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))
           close (rf.test-helpers/find-by-testid tree "rf-xray-settings-close")]
       (is (string? (:aria-label (rf.test-helpers/attrs close)))
           "Settings close ✕ carries an aria-label"))))
@@ -273,7 +275,7 @@
   (xray-setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open]))
-  (let [tree (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))]
+  (let [tree (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))]
     (assert-dialog-focus-ref! tree "rf-xray-settings-dialog"
                               "Settings popup")))
 

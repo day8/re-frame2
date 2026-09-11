@@ -22,7 +22,7 @@
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.settings.popup :as popup]
+            [day8.re-frame2-xray.test-helpers.modal-trees :as modal-trees]
             [day8.re-frame2-xray.settings.view :as view]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
@@ -49,7 +49,7 @@
 (deftest modal-renders-nil-when-closed
   (setup!)
   (rf/with-frame :rf/xray
-    (let [rendered (popup/Modal)]
+    (let [rendered (modal-trees/settings-popup-tree)]
       (is (nil? rendered)
           "Modal renders nil when settings-open? is false"))))
 
@@ -58,7 +58,7 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open]))
   (rf/with-frame :rf/xray
-    (let [rendered (popup/Modal)]
+    (let [rendered (modal-trees/settings-popup-tree)]
       (is (some? rendered)
           "Modal renders hiccup when settings-open? is true")
       (is (find-by-testid rendered "rf-xray-settings-backdrop")
@@ -95,7 +95,7 @@
     (rf/dispatch-sync [:rf.xray/settings-open])
     (rf/dispatch-sync [:rf.xray/settings-select-tab :general]))
   (rf/with-frame :rf/xray
-    (let [rendered (popup/Modal)]
+    (let [rendered (modal-trees/settings-popup-tree)]
       (is (find-by-testid rendered "rf-xray-settings-section-general"))
       (is (find-by-testid rendered "rf-xray-settings-panel-position-right-rail"))
       (is (find-by-testid rendered "rf-xray-settings-auto-open-on-error"))
@@ -127,7 +127,7 @@
       (rf/dispatch-sync [:rf.xray/settings-open])
       (rf/dispatch-sync [:rf.xray/settings-select-tab :general]))
     (rf/with-frame :rf/xray
-      (let [rendered (popup/Modal)
+      (let [rendered (modal-trees/settings-popup-tree)
             box      (find-by-testid rendered "rf-xray-settings-show-unchanged-subs")]
         (is (some? box) "the restored show-unchanged-subs checkbox renders")
         (is (= false (:checked (second box)))
@@ -138,7 +138,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-update :general :show-unchanged-subs? true]))
     (rf/with-frame :rf/xray
-      (let [rendered (popup/Modal)
+      (let [rendered (modal-trees/settings-popup-tree)
             box      (find-by-testid rendered "rf-xray-settings-show-unchanged-subs")]
         (is (= true (:checked (second box)))
             "the checkbox reflects the flipped-on pin")))))
@@ -157,7 +157,7 @@
       (rf/dispatch-sync [:rf.xray/settings-open])
       (rf/dispatch-sync [:rf.xray/settings-select-tab :buffer]))
     (rf/with-frame :rf/xray
-      (let [rendered (popup/Modal)]
+      (let [rendered (modal-trees/settings-popup-tree)]
         (is (find-by-testid rendered "rf-xray-settings-section-buffer"))
         (is (nil? (find-by-testid rendered "rf-xray-settings-epoch-history-input"))
             "Epoch history slider is no longer in Buffer (relocated back to General)")
@@ -192,7 +192,7 @@
       (rf/dispatch-sync [:rf.xray/settings-open])
       (rf/dispatch-sync [:rf.xray/settings-select-tab :filters]))
     (rf/with-frame :rf/xray
-      (let [rendered (popup/Modal)]
+      (let [rendered (modal-trees/settings-popup-tree)]
         (is (nil? (find-by-testid rendered "rf-xray-settings-section-filters"))
             "Filters section is gone")
         (is (nil? (find-by-testid rendered "rf-xray-settings-tab-filters"))
@@ -218,7 +218,7 @@
       (rf/dispatch-sync [:rf.xray/settings-open])
       (rf/dispatch-sync [:rf.xray/settings-select-tab :general]))
     (rf/with-frame :rf/xray
-      (let [rendered (popup/Modal)]
+      (let [rendered (modal-trees/settings-popup-tree)]
         ;; Picker container.
         (is (find-by-testid rendered "rf-xray-settings-editor-override")
             "editor-override field group renders")
@@ -249,7 +249,7 @@
       (rf/dispatch-sync [:rf.xray/settings-update
                          :general :editor-override {:custom ""}]))
     (rf/with-frame :rf/xray
-      (let [rendered (popup/Modal)]
+      (let [rendered (modal-trees/settings-popup-tree)]
         (is (find-by-testid rendered "rf-xray-settings-editor-override-custom-input")
             "custom template input renders once the override is the
              :custom shape")))))
@@ -282,7 +282,7 @@
       (rf/dispatch-sync [:rf.xray/settings-open])
       (rf/dispatch-sync [:rf.xray/settings-select-tab :general]))
     (rf/with-frame :rf/xray
-      (let [rendered (popup/Modal)
+      (let [rendered (modal-trees/settings-popup-tree)
             default-radio (find-by-testid rendered "rf-xray-settings-editor-override-default")
             vscode-radio  (find-by-testid rendered "rf-xray-settings-editor-override-vscode")]
         (is (true? (:checked (second default-radio)))
@@ -300,7 +300,7 @@
       (rf/dispatch-sync [:rf.xray/settings-update
                          :general :editor-override :idea]))
     (rf/with-frame :rf/xray
-      (let [rendered (popup/Modal)
+      (let [rendered (modal-trees/settings-popup-tree)
             default-radio (find-by-testid rendered "rf-xray-settings-editor-override-default")
             idea-radio    (find-by-testid rendered "rf-xray-settings-editor-override-idea")]
         (is (false? (:checked (second default-radio))))
@@ -327,7 +327,7 @@
       (rf/dispatch-sync [:rf.xray/settings-open])
       (rf/dispatch-sync [:rf.xray/settings-select-tab :general]))
     (rf/with-frame :rf/xray
-      (let [rendered (popup/Modal)]
+      (let [rendered (modal-trees/settings-popup-tree)]
         (is (nil? (find-by-testid rendered "rf-xray-settings-use-system-colors"))
             "Use system colors toggle no longer renders")
         (is (nil? (find-by-testid rendered "rf-xray-settings-section-theme"))
@@ -346,7 +346,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-select-tab tab-id]))
     (rf/with-frame :rf/xray
-      (let [rendered (popup/Modal)]
+      (let [rendered (modal-trees/settings-popup-tree)]
         (is (find-by-testid rendered section-testid)
             (str "tab " tab-id " renders its section"))))))
 
@@ -381,7 +381,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
     (rf/with-frame :rf/xray
-      (let [rendered (popup/Modal)
+      (let [rendered (modal-trees/settings-popup-tree)
             backdrop (find-by-testid rendered "rf-xray-settings-backdrop")
             style    (:style (second backdrop))]
         (is (some? backdrop))
@@ -402,7 +402,7 @@
       (rf/dispatch-sync [:rf.xray/settings-open])
       (rf/dispatch-sync [:rf.xray/set-modal-positioning :absolute]))
     (rf/with-frame :rf/xray
-      (let [rendered (popup/Modal)
+      (let [rendered (modal-trees/settings-popup-tree)
             backdrop (find-by-testid rendered "rf-xray-settings-backdrop")
             style    (:style (second backdrop))]
         (is (some? backdrop))

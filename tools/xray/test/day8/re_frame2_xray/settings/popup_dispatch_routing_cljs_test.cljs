@@ -44,7 +44,7 @@
             [re-frame.test-helpers :as rf.test-helpers]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.settings.popup :as popup]
+            [day8.re-frame2-xray.test-helpers.modal-trees :as modal-trees]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; `make-xray-runtime-fixture` (rf2-vj80u8) composes core
@@ -95,7 +95,7 @@
 (defn- render-open-modal []
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open]))
-  (rf/with-frame :rf/xray (popup/Modal)))
+  (rf/with-frame :rf/xray (modal-trees/settings-popup-tree)))
 
 ;; ---- tests --------------------------------------------------------------
 
