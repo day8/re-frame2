@@ -34,6 +34,12 @@
   | 5 | Xray's activity never masquerading as application evidence | [[c5-no-masquerading-as-application-evidence!]] |
   | 6 | clean teardown and reopen without disturbing the host      | [[c6-clean-teardown-and-reopen!]] |
 
+  CRITERION 4 IS PARTIAL AGAINST THE STAGED SUBJECT and says so in its
+  own docstring — it covers `tool state stays out of the application` but
+  NOT `a tool command reaches the application frame it was aimed at`,
+  because the Static surface issues no app-directed command to test with.
+  Read that note before citing criterion 4 as met (rf2-t2ke).
+
   ## THE SUBJECT: Xray's Static chrome, and why that one
 
   [[mount-xray!]] mounts `static.shell/surface` — Xray's Static ribbon, tab
@@ -94,6 +100,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
+            [re-frame.trace :as rf.trace]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.static.shell :as static-shell]
@@ -116,6 +123,28 @@
   evidence, so this frame is an instrument in both rows rather than
   scenery."
   ::app)
+
+(def second-app-frame
+  "A SECOND INSPECTED APPLICATION, held at a value [[app-frame]] never
+  takes.
+
+  Criterion 4 is a claim about two applications, not one: a tool whose
+  writes went EVERYWHERE and a tool whose writes went NOWHERE are
+  indistinguishable while only one application is on the bench. Two
+  applications seeded to different values tell them apart, and make
+  `unchanged` name a specific number rather than the value every frame
+  happens to answer with anyway.
+
+  DISTINCT FROM [[other-frame]], which is a TOOL lever parked on a Static
+  tab. This one is an application: nothing in Xray's chrome names it, and
+  nothing in Xray's chrome may write to it."
+  ::second-app)
+
+(def second-app-seed
+  "What [[second-app-frame]] is seeded with. NOT [[app-frame]]'s `0`,
+  deliberately — a write that reached the wrong application shows up as a
+  value rather than hiding inside a default the two frames share."
+  7)
 
 (def other-frame
   "A SECOND live frame, the DEAF LEVER for criterion 4's routing half. A
@@ -260,14 +289,20 @@
   make the three frames, seeding the application with a known `:count`.
 
   The application frame is made BEFORE anything mounts, so criterion 5's
-  ring assertions are about a frame that was recording all along."
+  ring assertions are about a frame that was recording all along.
+
+  BOTH applications are seeded, to DIFFERENT values — see
+  [[second-app-frame]] for why one application cannot carry criterion 4's
+  claim on its own."
   []
   (reset! !last-uncaught nil)
   (registry/register-xray-handlers!)
   (rf/make-frame {:id xray-frame})
   (rf/make-frame {:id app-frame})
+  (rf/make-frame {:id second-app-frame})
   (rf/make-frame {:id other-frame})
   (rf/dispatch-sync [::app-seed 0] {:frame app-frame})
+  (rf/dispatch-sync [::app-seed second-app-seed] {:frame second-app-frame})
   nil)
 
 (defn mount-xray!
@@ -359,6 +394,90 @@
   (->> (rf/trace-buffer app-frame {:flat true})
        (keep #(first (get-in % [:tags :rf.event/v])))
        (vec)))
+
+(defn- app-render-records
+  "Every `:rf.view/rendered` record the APPLICATION's own trace ring
+  holds, RAW.
+
+  THE CHANNEL [[app-trace-event-ids]] CANNOT SEE, AND THE REASON THIS
+  EXISTS (rf2-kay8). That projection keeps only records carrying
+  `[:tags :rf.event/v]`. A render record carries `:rf.view/render-key`
+  and `:frame` and NO event vector at all, so it is discarded before any
+  event-id assertion can reach it — and a leaked render contaminates the
+  application's evidence while every one of those assertions stays green.
+  The row below proves that in so many words.
+
+  `:operation` is `trace-buffer`'s OWN flat-stream filter (Spec 009
+  §Filter vocabulary), so this is a bounded read through the shipped
+  reader rather than a second filter framework.
+
+  RAW RECORDS RATHER THAN THE EPOCH `:renders` PROJECTION, DELIBERATELY,
+  for two reasons. The projection is sourced FROM these emits — the epoch
+  artefact back-fills a post-settle render into the causing epoch record
+  — so the raw ring is strictly UPSTREAM: contamination cannot reach
+  `:renders` without appearing here first. And this arm cannot go
+  VACUOUSLY green, where an epoch arm could: `rf/epoch-history` answers
+  `[]` when the epoch artefact is merely absent from the build, which is
+  the very shape a clean epoch answers with, and this harness loads
+  Xray's `registry` rather than the `install` / `preload` namespaces that
+  pull `re-frame.epoch` in. The node-lane guard in `mount_cljs_test.cljs`
+  (rf2-k97c.5 / rf2-tqlmq) reads `:renders` and is the right instrument
+  there, because that suite does load it."
+  []
+  (rf/trace-buffer app-frame {:flat true :operation :rf.view/rendered}))
+
+(defn- app-render-view-ids
+  "The view ids in [[app-render-records]].
+
+  Reads `:rf.view/id`, falling back to the head of
+  `:rf.view/render-key`: production stamps both, while the minimal
+  post-settle emit the `:renders` projection sources carries only the
+  render-key. Taking either means a contaminating record cannot slip past
+  by carrying the spelling this reader did not think of."
+  []
+  (->> (app-render-records)
+       (map (fn [ev]
+              (let [tags (:tags ev)]
+                (or (:rf.view/id tags)
+                    (first (:rf.view/render-key tags))))))
+       (vec)))
+
+(defn- emit-render-as!
+  "Emit ONE `:rf.view/rendered` through the REAL trace emitter, tagged
+  with `frame-id` and `view-id`, in the post-settle React-commit shape —
+  render-key and frame, and NO `:rf.event/v`.
+
+  The same emit `mount_cljs_test.cljs`'s `ei-emit-render!` makes for the
+  node-lane guard on this channel. Criterion 5 uses it for its two
+  CONTROLS ONLY: nothing under test is routed through it, and both calls
+  happen after every assertion about the untouched world has been made.
+
+  ## WHY THE `:rf.trace/dispatch-id` TAG IS HERE, AND WHY IT IS NOT NOISE
+
+  DELETE IT AND BOTH CONTROLS SILENTLY MEASURE NOTHING. `push-to-ring!`
+  retains an event only `(when (and dispatch-id frame-id))` — a frameless
+  or uncorrelated emit streams to listeners and is NEVER retained (the
+  Spec 009 §B3 ruling). These calls are made from a test body rather than
+  from inside a running handler, so no `*handler-scope*` supplies one and
+  the record would never reach the ring at all. `stamp-dispatch-id`'s own
+  contract is that a `caller-supplied :rf.trace/dispatch-id wins`, so
+  stamping it here is the sanctioned way to say `this render belongs to a
+  run`, which is what production's handler scope says for it.
+
+  The `:frame` tag is authoritative for the same documented reason:
+  `stamp-frame` only ever SUPPLIES the routing tag and never overrides
+  one the emit site set — which is what lets the second control attribute
+  an Xray-named render to the APPLICATION's frame on purpose.
+
+  Note what is NOT smuggled in: no `:rf.event/v`. The dispatch-id is a
+  correlation tag, not an event vector, so [[app-trace-event-ids]] still
+  cannot see these records — which is the very thing the last assertion
+  of criterion 5 demonstrates."
+  [frame-id view-id]
+  (rf.trace/emit! :rf.view :rf.view/rendered
+                  {:rf.view/render-key      [view-id 0]
+                   :frame                   frame-id
+                   :rf.trace/dispatch-id    (str "acceptance-c5-" (name view-id))}))
 
 (defn- xray-namespaced?
   "Is `k` a keyword in the `rf.xray` namespace or any `rf.xray.*`
@@ -595,11 +714,15 @@
 (defn c4-tool-local-state-and-frame-targeting!
   "Xray's own state lands in Xray's frame and NOWHERE ELSE.
 
-  Three instruments, answering three different things:
+  Four instruments, answering four different things:
 
   - the TOOL's frame moved to [[clicked-tab]] — the command arrived;
   - the APPLICATION's `app-db` is IDENTICAL to what it was — the tool
     wrote nothing into the thing it is inspecting;
+  - a SECOND INSPECTED APPLICATION, [[second-app-frame]], is still at its
+    own distinct seed — so `the tool wrote into no application` is a
+    claim about applications in the plural, which is what stops one
+    untouched frame reading as a general result;
   - a SECOND live frame, held at [[deaf-frame-tab]] before the mount, is
     still there — the command routed where it was told rather than
     everywhere, or somewhere else.
@@ -614,7 +737,41 @@
   PROCESS-GLOBAL atom rather than any frame's `app-db`, so it passes under
   a deliberately wrong frame and witnesses nothing about targeting. The
   Static tab selection is an ordinary `app-db` read, which is why it is the
-  lever here."
+  lever here.
+
+  ## WHAT THIS ROW DOES *NOT* COVER — READ THIS BEFORE CITING IT (rf2-t2ke)
+
+  Criterion 4 has TWO halves: Xray's own state stays out of the
+  application, and a tool-issued command reaches the application frame it
+  was AIMED at. **THIS ROW COVERS THE FIRST HALF ONLY.**
+
+  Every command it issues is an Xray command landing in an Xray frame.
+  No tool-issued command targets an inspected application — because the
+  staged subject has none to issue. Measured over
+  `tools/xray/src/day8/re_frame2_xray/static/**`: the only `{:frame …}`
+  DISPATCH option anywhere in the Static tree is
+  `defaults/default-frame-id`, which IS the Xray frame. (The `{:frame …}`
+  options in `static/schemas/panel.cljs` are cross-frame READS, not
+  commands.)
+
+  THAT IS DELIBERATE, NOT AN OMISSION, which is why the answer is a
+  documented gap rather than a new product command.
+  `static/routes/simulate_nav.cljs` states the posture in terms — *Xray
+  is a lens, not a remote control* — and the machine simulator clones the
+  definition into Xray's OWN `app-db` precisely so the host frame is
+  never touched. The app-directed affordances, the `(fn [ev] (rf/dispatch
+  ev {:frame frame}))` closures that re-issue an event into the inspected
+  application, all live on the DYNAMIC side, whose shell is still an
+  `rf/reg-view` painted through the installed adapter and is a later
+  slice.
+
+  SO: A REGRESSION ROUTING EVERY APP-DIRECTED XRAY COMMAND TO THE WRONG
+  APPLICATION FRAME WOULD LEAVE THIS ROW GREEN. That is a known and
+  recorded gap, not a hidden one. Wire the missing half when this harness
+  moves to the shipped shell — the row it needs is one app-directed
+  operation through its real UI path, asserting the SELECTED application
+  moved and the other did not — and until then do not cite this row as
+  full criterion-4 coverage."
   [{:keys [label]} done]
   (if-not (browser?)
     (do (skip! 4) (done))
@@ -647,6 +804,13 @@
                          "holds " (pr-str deaf-frame-tab) ", so `unchanged` "
                          "below is a claim about a real value. Got: "
                          (pr-str (selected-tab-in other-frame))))
+                (is (= {:count second-app-seed}
+                       (app-db-of second-app-frame))
+                    (str "[" label "] PRECONDITION: and the SECOND inspected "
+                         "application holds its own distinct seed {:count "
+                         second-app-seed "}, so the two applications are told "
+                         "apart by value and not merely by name. Got: "
+                         (pr-str (app-db-of second-app-frame))))
                 (if (click! (tab-node container clicked-tab)
                             (str "the Static " (name clicked-tab) " tab"))
                   (poll-until #(= clicked-tab (selected-tab-in xray-frame)))
@@ -670,11 +834,48 @@
                          "its capture and fallen back to the ambient one would "
                          "write here, or nowhere. Got: "
                          (pr-str (selected-tab-in other-frame))))
+                (is (= {:count second-app-seed}
+                       (app-db-of second-app-frame))
+                    (str "[" label "] criterion 4 — and the SECOND inspected "
+                         "application is untouched too, at its own distinct "
+                         "{:count " second-app-seed "}. One untouched "
+                         "application is compatible with a tool that writes to "
+                         "exactly one wrong place; two are not. Got: "
+                         (pr-str (app-db-of second-app-frame))))
                 (is (zero? (ref-count-of app-frame selected-tab-q))
                     (str "[" label "] criterion 4 — and the tool took no "
                          "subscription reference in the application's frame for "
                          "its own read. Application cache keys: "
-                         (pr-str (keys (cache-of app-frame)))))))
+                         (pr-str (keys (cache-of app-frame)))))
+                ;; ---- INSTRUMENT CONTROL, and it is NOT coverage ----------
+                ;; Both applications reading `unchanged` is equally true of
+                ;; two frames nothing could ever write to, and those two
+                ;; readings are indistinguishable from here. This dispatch
+                ;; is the HARNESS's own, NOT Xray's: it shows a
+                ;; frame-targeted write landing in ONE application and not
+                ;; the other, so the assertions above are known to be
+                ;; standing over live, separable frames.
+                ;;
+                ;; IT IS NOT THE MISSING HALF OF THE CRITERION, and must not
+                ;; be read as it — the commander here is the test, where the
+                ;; criterion wants XRAY. See the COVERAGE note in this fn's
+                ;; docstring (rf2-t2ke).
+                (rf/dispatch-sync [::app-bump] {:frame second-app-frame})
+                (is (= {:count (inc second-app-seed)}
+                       (app-db-of second-app-frame))
+                    (str "[" label "] INSTRUMENT CONTROL: a frame-targeted "
+                         "write DOES land in the application it names — the "
+                         "second application moved to {:count "
+                         (inc second-app-seed) "}. Without this, `both "
+                         "applications unchanged` above could be a statement "
+                         "about two dead frames. Got: "
+                         (pr-str (app-db-of second-app-frame))))
+                (is (= {:count 0} (app-db-of app-frame))
+                    (str "[" label "] INSTRUMENT CONTROL: and it landed in that "
+                         "application ONLY — the first is still {:count 0}. So "
+                         "the instrument can tell the two apart, and "
+                         "`untouched` above means untouched rather than "
+                         "unreadable. Got: " (pr-str (app-db-of app-frame))))))
             (.catch (fail-and-finish (str "[" label "] criterion 4")))
             (.then (fn [_] (unmount-xray! handle) (done))))))))
 
@@ -702,7 +903,37 @@
 
   `xray-namespaced?` is written out in this namespace rather than taken
   from `self-noise`: a filter cannot be both the subject and the
-  instrument."
+  instrument.
+
+  ## TWO CHANNELS, BECAUSE EVENT IDS ARE NOT THE WHOLE EVIDENCE (rf2-kay8)
+
+  `evidence` is not `events`. The row reads the application's ring along
+  BOTH of the axes Xray can contaminate:
+
+  - EVENT IDS, via [[app-trace-event-ids]] — the original arm, kept
+    intact;
+  - RENDER RECORDS, via [[app-render-view-ids]] — records carrying
+    `:rf.view/render-key` and `:frame` and NO `:rf.event/v`.
+
+  THE SECOND ARM EXISTS BECAUSE THE FIRST CANNOT SEE IT AT ALL.
+  [[app-trace-event-ids]] keeps only records that carry an event vector,
+  so a leaked `:rf.view/rendered` is discarded before any assertion
+  reaches it — it can contaminate the application's evidence, and the
+  epoch `:renders` projection sourced from it, while every event-id
+  assertion stays green. That is not hypothetical: it is the shape of
+  rf2-tqlmq, the already-realised defect the node-lane guard in
+  `mount_cljs_test.cljs` (rf2-k97c.5) pins for the shell's own render.
+  This row is the real-browser, two-substrate counterpart.
+
+  THE LAST FOUR ASSERTIONS ARE CONTROLS, and they run in this order for a
+  reason. Every assertion about the untouched world is made FIRST; only
+  then does the row emit, through the real emitter, a genuine
+  application-attributed render (proving the reader is live and the
+  channel is not merely empty) and then a deliberately misattributed
+  Xray one (proving the detector bites). The closing assertion re-reads
+  the EVENT-ID arm over that now-contaminated ring and shows it still
+  reporting clean — rf2-kay8's finding, kept as a live assertion rather
+  than as a comment somebody can delete without noticing."
   [{:keys [label]} done]
   (if-not (browser?)
     (do (skip! 5) (done))
@@ -762,7 +993,77 @@
                            "application's ring are the two the application "
                            "itself dispatched. Expected "
                            (pr-str #{::app-seed ::app-bump}) ", got "
-                           (pr-str (set ids)))))))
+                           (pr-str (set ids)))))
+                ;; ---- THE RENDER CHANNEL (rf2-kay8) ----------------------
+                ;; Every assertion above reads EVENT IDS. A leaked render
+                ;; record carries no `:rf.event/v` at all, so not one of
+                ;; them can see one — including the exact-set assertion,
+                ;; which is `stronger` only along the axis it shares. The
+                ;; controls at the bottom of this row prove that in so many
+                ;; words rather than asserting it.
+                (let [render-ids (app-render-view-ids)
+                      xray-r     (filterv xray-namespaced? render-ids)]
+                  (is (= [] xray-r)
+                      (str "[" label "] criterion 5 — the application's trace "
+                           "ring carries NO `rf.xray`-namespaced RENDER after "
+                           "a real Xray mount, render and interaction. "
+                           "Expected [], got " (pr-str xray-r)
+                           " — whole render channel: " (pr-str render-ids)))
+                  ;; STRONGER, and for the same reason the exact-set
+                  ;; assertion above is: the application mounts no views in
+                  ;; this harness, so its render evidence is empty on a
+                  ;; correctly scoped tool WHATEVER a contaminating record
+                  ;; happens to be called.
+                  (is (= [] render-ids)
+                      (str "[" label "] and the application's render evidence "
+                           "is EMPTY — it mounts no views here, so ANY render "
+                           "record in its ring came from somewhere else, under "
+                           "any spelling. Expected [], got "
+                           (pr-str render-ids))))
+                ;; ---- POSITIVE CONTROL: the channel is not merely empty ---
+                ;; An empty render channel satisfies every assertion above
+                ;; for free, and an empty channel is NOT isolation — it is
+                ;; also exactly what a dead reader looks like. A genuine
+                ;; APPLICATION-attributed render, through the same real
+                ;; emitter, must be visible.
+                (emit-render-as! app-frame ::app-view)
+                (is (= [::app-view] (app-render-view-ids))
+                    (str "[" label "] POSITIVE CONTROL: a genuine APPLICATION "
+                         "render IS visible in the application's own ring, so "
+                         "the emptiness above is a property of Xray rather "
+                         "than of a reader that can see nothing. Expected "
+                         (pr-str [::app-view]) ", got "
+                         (pr-str (app-render-view-ids))))
+                ;; ---- DETECTOR CONTROL: the check BITES ------------------
+                ;; A misattributed Xray render — `rf.xray`-namespaced, tagged
+                ;; with the APPLICATION's frame, carrying render-key and
+                ;; frame and NO `:rf.event/v`. This is the shape of the
+                ;; already-realised defect rf2-tqlmq. The detector must find
+                ;; it; if it ever cannot, the assertions above have gone
+                ;; blind and this row says so on the spot.
+                (emit-render-as! app-frame :rf.xray.static/tab-bar)
+                (is (= [:rf.xray.static/tab-bar]
+                       (filterv xray-namespaced? (app-render-view-ids)))
+                    (str "[" label "] DETECTOR CONTROL: a deliberately "
+                         "misattributed Xray render IS detected, so the "
+                         "empty result above is a clean ring and not a check "
+                         "that cannot fail. Expected "
+                         (pr-str [:rf.xray.static/tab-bar]) ", got "
+                         (pr-str (filterv xray-namespaced?
+                                          (app-render-view-ids)))))
+                ;; ---- AND WHY THE EVENT-ID ARM IS NOT ENOUGH -------------
+                ;; The ring now DEMONSTRABLY carries a foreign Xray record.
+                ;; The event-id projection still reports it clean, because a
+                ;; render record has no `:rf.event/v` for it to keep. That
+                ;; is rf2-kay8 stated as a passing assertion: delete the
+                ;; render arm above and this is the coverage that remains.
+                (is (= #{::app-seed ::app-bump} (set (app-trace-event-ids)))
+                    (str "[" label "] and the EVENT-ID reader is BLIND to all "
+                         "of it — with two foreign render records now in the "
+                         "ring it still reports exactly the application's own "
+                         "two event ids. This is why criterion 5 reads the "
+                         "render channel directly (rf2-kay8). Got: "
+                         (pr-str (set (app-trace-event-ids)))))))
             (.catch (fail-and-finish (str "[" label "] criterion 5")))
             (.then (fn [_] (unmount-xray! handle) (done))))))))
 
