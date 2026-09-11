@@ -139,16 +139,24 @@
 ;; ---- public Panel surface ------------------------------------------------
 
 ;; Re-export the view-side `Panel` so the spine + panel-registry
-;; resolve a single name. `mount-fns` (panels.cljs) reach through this
-;; ns when added to the per-panel mount inventory.
+;; resolve a single name.
+;;
+;; rf2-k97c.3 — `Panel` is now a FRESCO BOUNDARY (a React function
+;; component), not an `rf/reg-view`, so this name is no longer callable
+;; and no longer what anything MOUNTS. It is kept because it is still the
+;; canonical name for the panel's root view, which prose and the shell's
+;; routing table refer to; everything that mounts goes through
+;; `Panel-bridge` below.
 (def Panel view/Panel)
 
 ;; rf2-k97c.3 — the same re-export for the migration bridge name, which is
-;; what `panels/mount-epoch-panel!` now mounts through. A `def` of whatever
-;; `view/Panel-bridge` is, so this line is correct both while the bridge is
-;; a plain alias of the `reg-view` and after the panel migrates and it
-;; becomes a real `as-component` bridge — the migration stays inside
-;; `panels/epoch/view.cljs`, which is the whole point of the bridge name.
+;; what `panels/mount-epoch-panel!` AND the L4 tab registration below both
+;; mount through. This line predates the migration and needed no change
+;; when it landed: it is a `def` of whatever `view/Panel-bridge` is, which
+;; was a plain alias of the `reg-view` and is now the real
+;; `rf.fresco/as-component` bridge. That is the whole point of the bridge
+;; name — the migration stayed inside `panels/epoch/view.cljs` and this
+;; file's one registration line, and `panels.cljs` was never touched.
 (def Panel-bridge view/Panel-bridge)
 
 ;; ---- registration --------------------------------------------------------
@@ -315,4 +323,10 @@
      ;; pair-debug call 2026-05-26: the event-bundle pipeline view is the
      ;; primary "what just happened" surface; it belongs first.
      :order -1
-     :panel Panel}))
+     ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
+     ;; component (a Fresco boundary); `reg-l4-tab!`'s `:pre` requires
+     ;; `:panel` to be CALLABLE and `shell/detail-panel` mounts it as a
+     ;; Reagent hiccup head `[(:panel tab)]`, neither of which a React
+     ;; component satisfies. The bridge is the one line between them and
+     ;; goes when the shell itself is a Fresco tree.
+     :panel Panel-bridge}))
