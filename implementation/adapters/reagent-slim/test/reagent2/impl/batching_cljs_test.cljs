@@ -67,6 +67,23 @@
     ;; Per IMPL-SPEC §4.5: the scheduler does NOT flatten cascades
     ;; into the current drain. A component that re-queues during its
     ;; own forceUpdate gets a fresh microtask turn.
+    ;;
+    ;; THE FINAL COUNT ALONE CANNOT WITNESS THAT (rf2-e6up). A drain that
+    ;; flattened the cascade — looping over the re-queues inside its FIRST
+    ;; turn — also arrives at 3, so `(= 3 @calls)` taken after the dust
+    ;; settles passes either way, and waiting more turns before counting
+    ;; does not help. What separates them is WHEN each call lands, so the
+    ;; count is observed at every turn BOUNDARY: 1, then 2, then 3. Under a
+    ;; flattening drain the first observation reads 3 and this test is red.
+    ;;
+    ;; Each hop below is exactly ONE microtask tick: `.then` on an
+    ;; already-resolved promise enqueues a single job, and the scheduler's
+    ;; own queueMicrotask callback shares that FIFO queue, so hop N observes
+    ;; the state turn N left behind. `next-microtask` is deliberately NOT
+    ;; used here — its handler RETURNS a promise, and the thenable adoption
+    ;; costs enough extra ticks that all three turns fit inside one hop,
+    ;; which is precisely how a final count came to stand in for a turn
+    ;; count in the first place.
     (async done
       (let [calls (atom 0)
             c     #js {}]
@@ -78,13 +95,16 @@
                 (when (< @calls 3)
                   (batching/queue-render! c))))
         (batching/queue-render! c)
-        (-> (next-microtask)
-            (.then (fn [_] (next-microtask)))
-            (.then (fn [_] (next-microtask)))
+        (-> (js/Promise.resolve)
             (.then (fn [_]
-                     ;; 3 distinct microtask turns means exactly 3 calls.
+                     (is (= 1 @calls)
+                         "turn 1 ran the initial enqueue only — the re-queue was held over")))
+            (.then (fn [_]
+                     (is (= 2 @calls)
+                         "turn 2 ran the first re-queue only — still one call per turn")))
+            (.then (fn [_]
                      (is (= 3 @calls)
-                         "re-queue during drain triggered 3 separate turns")
+                         "turn 3 ran the second re-queue — 3 calls across 3 separate turns")
                      (done))))))))
 
 ;; ---------------------------------------------------------------------------
