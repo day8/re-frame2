@@ -35,17 +35,34 @@
   island is rendered by the same build whose in-flight component the frame
   resolver consults, whichever ratom-family adapter the host installed.
 
-  ## Why it fails loud rather than returning nil
+  ## The fallback, and why it is NOT dead code
 
-  There is no substrate-neutral React element — an element is only correct
-  for the renderer that made it — so `:adapter/as-element` is published by
-  the ratom family ALONE and is deliberately routed with no chain-bottom
-  fallback. A nil-returning door would hand React a nil child, paint
-  nothing, and look exactly like the defect this namespace exists to
-  remove. `mount.cljs` already refuses the element-shaped substrates
-  before any of this runs, so reaching here with no walk published is a
-  wiring fault and is reported as one."
-  (:require [re-frame.error     :as rf.error]
+  `:adapter/as-element` is published by the ratom family ALONE — there is
+  no substrate-neutral React element, an element being correct only for
+  the renderer that made it — and it is ROUTED, so it answers only while
+  its own adapter is the installed one and returns nil otherwise.
+
+  That nil is reachable, and the reachable case is a REAL one rather than
+  a defensive flourish: Xray can own its own React root, and the
+  acceptance harness mounts the Static surface through Fresco's root with
+  **UIx** installed as the application adapter. The installed adapter is
+  then not ratom-family, no walk answers, and the island still has to
+  reach React — Fresco's codec passes an already-built React element
+  through untouched, which is what made this work before rf2-7ds8 named
+  the walk statically.
+
+  So the door PREFERS the installed ratom walk and falls back to stock
+  Reagent's, which is byte-for-byte the behaviour every one of these
+  crossings had before. The fallback cannot mask the defect it was
+  written for: under reagent-slim the routed hook answers, so the
+  fallback is never reached, and `w1-as-element-door-is-the-installed-
+  builds-walk` pins that it is reagent2's walk that answers rather than
+  this one.
+
+  `mount.cljs` independently refuses the element-shaped substrates for
+  the public `open!`, so a production Xray only ever mounts on a
+  ratom-family adapter and only ever takes the first arm."
+  (:require [reagent.core       :as stock]
             [re-frame.late-bind :as rf.late-bind]))
 
 (defn as-element
@@ -56,18 +73,12 @@
   its surviving Reagent islands. Pass `identity` instead from a plain
   hiccup caller or the node lane, where the island stays a vector.
 
-  Raises `:rf.error/no-substrate-as-element` when the installed adapter
-  publishes no walk — see the namespace docstring for why that is not a
-  nil return."
+  Falls back to stock Reagent's walk when no ratom-family adapter is
+  installed to answer — see the namespace docstring for why that case is
+  real and why the fallback cannot mask the defect."
   [hiccup]
-  (if-let [walk (rf.late-bind/get-fn-cached :adapter/as-element)]
-    (walk hiccup)
-    (rf.error/throw-error!
-      :rf.error/no-substrate-as-element
-      'day8.re-frame2-xray.substrate/as-element
-      (str "The installed substrate adapter publishes no hiccup → React "
-           "element walk (:adapter/as-element), so Xray cannot cross a "
-           "Reagent island into a Fresco boundary. The ratom-family "
-           "adapters (Reagent / reagent-slim) publish one; install one of "
-           "those via (rf/init! ...) before opening Xray.")
-      {:recovery :install-ratom-adapter})))
+  (let [walk     (rf.late-bind/get-fn-cached :adapter/as-element)
+        installed (when walk (walk hiccup))]
+    (if (some? installed)
+      installed
+      (stock/as-element hiccup))))
