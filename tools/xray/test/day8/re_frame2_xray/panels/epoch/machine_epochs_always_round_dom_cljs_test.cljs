@@ -54,7 +54,9 @@
             [clojure.string :as string]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
+            [reagent.core :as r]
             [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.registry :as registry]
@@ -124,9 +126,54 @@
     (react-dom/flushSync (fn [] (rdc/render root component)))
     {:container container :root root}))
 
+;; ---- rendering the subject the way PRODUCTION renders it (rf2-k97c.3) ----
+;;
+;; Both rows below used to mount their subject straight into a REAGENT tree.
+;; That stopped being representative when the Epoch panel migrated: the shared
+;; mini-pipeline's EDN-widget heads are `[ei/edn-inspector-view …]` now, and a
+;; FRESCO BOUNDARY IS NOT A REAGENT RENDER FN. Reagent sees a fn in head
+;; position, mints its own component for it and CALLS it during Reagent's
+;; render — which is not a React function-component render, so the boundary's
+;; first hook throws `Invalid hook call`, React swallows the render throw, and
+;; the whole cascade subtree silently commits nothing. The rows then read 0
+;; rows and blame the projection. (`machine_after_rings` records the same fact
+;; from the other side: crossing INTO React from Reagent needs
+;; `rf.fresco/as-component`.)
+;;
+;; So the subject is hosted in a real boundary, which is where it renders in
+;; production — under `epoch/view`'s `Panel` or `machine-inspector`'s. It is
+;; handed over through an atom rather than through props deliberately: the
+;; crossing below is `[:>]` from a Reagent parent, and only an EMPTY props map
+;; survives that intact (the after-rings bridge measured a payload does not).
+
+(defonce ^:private !subject
+  (atom nil))
+
+(rf.fresco/defview SubjectHost
+  "Renders whatever [[mount-in-boundary!]] parked in `!subject`, inside a
+  Fresco boundary. Takes the ordinary one-props-map argument every `defview`
+  takes and reads nothing from it."
+  [_props]
+  (when-let [render @!subject]
+    (render)))
+
+(def ^:private SubjectHost-component
+  "The React component [[SubjectHost]] presents as, for the Reagent root
+  below. Declared ONCE at top level as `rf.fresco/as-component` requires."
+  (rf.fresco/as-component SubjectHost))
+
+(defn- mount-in-boundary!
+  "Mount `render` (a 0-arg fn answering hiccup) inside a Fresco boundary, in
+  turn inside the `frame-provider` the real shell wraps every panel in."
+  [render]
+  (reset! !subject render)
+  (mount! [rf/frame-provider {:frame :rf/default}
+           [:> SubjectHost-component {}]]))
+
 (defn- cleanup! [{:keys [container root]}]
   (try (.unmount root) (catch :default _ nil))
-  (.remove container))
+  (.remove container)
+  (reset! !subject nil))
 
 (defn- q-all [container sel] (vec (js/Array.from (.querySelectorAll container sel))))
 
@@ -155,7 +202,13 @@
       (is true ":node — the :browser-test runner drives the real DOM mount")
       (let [trace-events (drive-real-round!)
             cascade      (proj/machine-cascade-rows trace-events)
-            mounted      (mount! [epoch-view/machine-cascade-mini-pipeline cascade machine-id])
+            ;; rf2-k97c.3 — hosted in a real Fresco boundary; see
+            ;; [[mount-in-boundary!]] for why a Reagent mount stopped being
+            ;; representative and what it silently reads instead.
+            mounted      (mount-in-boundary!
+                           (fn []
+                             (epoch-view/machine-cascade-mini-pipeline
+                               cascade machine-id)))
             container    (:container mounted)]
         (try
           (let [micro-rows    (q-all container
@@ -206,9 +259,15 @@
                           :definition     parallel-round-machine
                           :fired-edge-ids fired
                           :no-op?         false}
-            mounted      (mount! [rf/frame-provider {:frame :rf/default}
-                                  [(fn [] (#'machine-inspector/focused-event-section
-                                            cascade record))]])
+            ;; rf2-k97c.3 — hosted in a real Fresco boundary, which is what
+            ;; the Machine tab is now, so `r/as-element` is the `as-child`
+            ;; spelling: `machine-canvas/Chart` is still an `rf/reg-view` and
+            ;; the island is what gets it onto the page under a boundary. The
+            ;; fit-signal nonce is nil because nothing here asserts on it.
+            mounted      (mount-in-boundary!
+                           (fn []
+                             (#'machine-inspector/focused-event-section
+                               cascade record r/as-element nil)))
             container    (:container mounted)]
         (try
           (is (every? string? [a-go b-go a-always b-always])

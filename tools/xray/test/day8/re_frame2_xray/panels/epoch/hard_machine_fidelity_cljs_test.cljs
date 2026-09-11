@@ -61,7 +61,6 @@
             [re-frame.frame :as rf.frame]
             [re-frame.machines :as rf.machines]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-xray.diff.engine :as diff]
             [day8.re-frame2-xray.panels.epoch.format :as fmt]

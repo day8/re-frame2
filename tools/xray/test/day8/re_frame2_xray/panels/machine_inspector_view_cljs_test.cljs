@@ -37,7 +37,6 @@
             [re-frame.schemas]
             [re-frame.schemas.malli]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]))

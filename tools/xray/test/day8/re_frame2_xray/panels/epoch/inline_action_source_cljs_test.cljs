@@ -34,7 +34,6 @@
             [re-frame.frame :as rf.frame]
             [re-frame.machines]  ;; loaded for its late-bind hooks (`rf/reg-machine`)
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.epoch.view :as view]
             [day8.re-frame2-xray.preload :as preload]

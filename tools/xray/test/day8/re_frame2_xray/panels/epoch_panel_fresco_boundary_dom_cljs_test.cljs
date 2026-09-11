@@ -296,15 +296,18 @@
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
         (setup!)
-        ;; Mount with the history loaded but NO focus, so the panel starts on
-        ;; its empty state and the cascade's ARRIVAL is the signal.
-        (set-history! fixture-history)
+        ;; Mount with an EMPTY spine, so the panel starts on its empty state
+        ;; and the cascade's ARRIVAL is the signal. The history is the lever
+        ;; rather than the focus, and that is measured rather than chosen:
+        ;; the focus-resolver HEAD-TRACKS, so loading history with no explicit
+        ;; focus already paints the cascade and a focus-as-lever row would
+        ;; fail its own precondition.
         (let [{:keys [container root]} (mount-panel! :rf/xray)
               section (panel-node container)]
           (is (some? section)
               "PRECONDITION: the panel is on screen at all")
           (is (not (cascade? container))
-              "NON-VACUITY: with no focused epoch the cascade is NOT on screen
+              "NON-VACUITY: with an empty spine the cascade is NOT on screen
                before this row moves the world")
 
           ;; ---- phase 2: the world moves, and the panel is deaf ------------
@@ -318,7 +321,7 @@
                        commits nothing. A panel that repainted here would make
                        phase 3 pass for a reason that is not liveness")
                   ;; ---- phase 3: the read's real input moves --------------
-                  (focus-epoch! 1)
+                  (set-history! fixture-history)
                   (rf.test-support/poll-until #(cascade? container)
                     {:label "the panel committed the focused epoch's cascade"})))
               (.then
