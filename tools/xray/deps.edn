@@ -83,21 +83,33 @@
          ;; (re-frame.views late-binds via `:adapter/current-component`), so
          ;; every artefact that requires reagent.* must declare it.
          ;;
-         ;; SINCE rf2-7ds8 THERE IS EXACTLY ONE PRODUCTION REQUIRE, in
+         ;; SINCE rf2-7ds8 `src` HAS EXACTLY ONE PRODUCTION REQUIRE, in
          ;; `day8.re-frame2-xray.substrate`, and it is the FALLBACK arm of
          ;; the hiccup->React-element crossing — taken only when no
-         ;; ratom-family adapter is installed to answer
-         ;; `:adapter/as-element` (Xray owning its own root under an
-         ;; element-shaped adapter). Before that bead, six view sources
-         ;; named `reagent.core/as-element` directly, which is why Xray
-         ;; under the reagent-slim adapter shipped BOTH ratom runtimes and
-         ;; rendered nothing.
+         ;; ratom-family adapter answers `:adapter/as-element`, which is a
+         ;; REAL case rather than a defensive flourish: Xray can own its own
+         ;; React root, and the acceptance harness mounts the Static surface
+         ;; through Fresco's root with UIx installed. Before that bead, nine
+         ;; sites across six view sources named `reagent.core/as-element`
+         ;; statically, so under the reagent-slim adapter the islands were
+         ;; rendered by the wrong ratom build and Xray came up BLANK.
+         ;;
+         ;; RETIRING THAT ONE REQUIRE WOULD BUY NO BUNDLE BYTES — measured
+         ;; under rf2-99qn, and said here because the previous wording
+         ;; invited exactly that wasted errand. `day8/re-frame2-machines-viz`
+         ;; above requires `reagent.core` in its chart tree and calls
+         ;; `reagent.core/as-element` at ten sites of its own, and the edge
+         ;; `preload -> registry -> panels.machine-inspector ->
+         ;; panels.machine-canvas -> machines-viz.chart` is live, so stock
+         ;; Reagent lands in every Xray-carrying build whether this door
+         ;; requires it or not. THAT — not the nine retired crossings — is
+         ;; why a reagent-slim page carrying Xray ships both ratom runtimes,
+         ;; and the work to change it is in the machines-viz chart tree, not
+         ;; here.
          ;;
          ;; This is dev-only (Xray is a devtools panel excluded from
          ;; production bundles) and independent of the reagent-slim adapter
-         ;; above, which carries no stock Reagent. Retiring the last require
-         ;; needs a non-Reagent answer for that fallback; it is a bundle
-         ;; concern now, not a correctness one.
+         ;; above, which carries no stock Reagent.
          ;; Test code still requires reagent.* freely.
          reagent/reagent {:mvn/version "2.0.1"}
 
