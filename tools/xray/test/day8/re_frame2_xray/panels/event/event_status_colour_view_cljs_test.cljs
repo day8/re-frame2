@@ -65,6 +65,43 @@
 (defn- find-by-testid-prefix [tree prefix]
   (first (rf.test-helpers/find-by-testid-prefix tree prefix)))
 
+;; ---- the Trace panel's status bar --------------------------------------
+;;
+;; rf2-fcy5 — the three Trace rows below used to call `trace/Panel` and hand
+;; the result to the walkers above. Neither half works now.
+;;
+;; `trace/Panel` is an `rf.fresco/defview`: a real React function component
+;; whose body reads through Fresco's collector, which refuses a read outside
+;; a render extent by name (`:rf.error/fresco-sub-outside-render`).
+;; `trace/panel-tree` is the same body as a pure fn of the four values the
+;; boundary reads, so the reads move here.
+;;
+;; And the scan has to be NON-EXPANDING. The panel's body carries two
+;; `rt/resizable-table-view` heads — boundaries too — which
+;; `rf.test-helpers/expand-tree` would invoke and which would refuse for the
+;; same reason. The status bar is a CALLED helper returning a native div and
+;; sits above the table, so a plain depth-first scan reaches it. The Trace
+;; panel's own suite (`panels/trace_view_cljs_test`) owns the walking of the
+;; table's interior; these rows only need the bar.
+
+(defn- trace-status-bar
+  "The Trace panel's event-bundle status-bar node whose `:data-testid`
+  satisfies `match?`, or nil."
+  [match?]
+  (let [tree (trace/panel-tree
+               {:feed                 @(rf/subscribe [:rf.xray/trace-feed])
+                :focus                @(rf/subscribe [:rf.xray/focus])
+                :focused-event-bundle @(rf/subscribe [:rf.xray.trace/focused-event-bundle])
+                :expanded-ids         @(rf/subscribe [:rf.xray/trace-expanded-row-ids])})]
+    (some (fn [node]
+            (when (and (vector? node)
+                       (map? (second node))
+                       (some-> (:data-testid (second node)) match?))
+              node))
+          (tree-seq (some-fn vector? seq?) seq tree))))
+
+(def ^:private status-bar-prefix "rf-xray-trace-event-bundle-status-bar-")
+
 ;; ---- fixture builders --------------------------------------------------
 
 (defn- xray-setup! []
@@ -141,9 +178,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
-      (let [tree (trace/Panel)
-            bar  (find-by-testid-prefix tree
-                                        "rf-xray-trace-event-bundle-status-bar-")]
+      (let [bar (trace-status-bar #(.startsWith ^String % status-bar-prefix))]
         (is (some? bar)
             "event-bundle-status bar renders when a cascade is in focus")
         (let [attrs (second bar)
@@ -162,9 +197,7 @@
     (trace-collector/seed-trace-for-test! (handler-exception-ev 99 1))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
-      (let [tree (trace/Panel)
-            bar  (find-by-testid tree
-                                 "rf-xray-trace-event-bundle-status-bar-settled-error")]
+      (let [bar (trace-status-bar #(= % (str status-bar-prefix "settled-error")))]
         (is (some? bar))
         (is (= (:red tokens/tokens)
                (get-in (second bar) [:style :background])))))))
@@ -181,10 +214,8 @@
     (trace-collector/seed-trace-for-test! (handler-exception-ev 99 1))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
-      (let [trace-tree   (trace/Panel)
-            trace-bar    (find-by-testid-prefix
-                           trace-tree
-                           "rf-xray-trace-event-bundle-status-bar-")
+      (let [trace-bar    (trace-status-bar
+                           #(.startsWith ^String % status-bar-prefix))
             trace-status (:data-rf-xray-status (second trace-bar))]
         (is (= "settled-error" trace-status)
             (str "the trace bar rides the canonical vocabulary — "

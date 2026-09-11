@@ -48,6 +48,9 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
+            [day8.re-frame2-xray.views.edn-inspector :as ei]
+            [day8.re-frame2-xray.views.resizable-table :as rt]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [reagent.core :as r]
             [day8.re-frame2-xray.panels.trace :as trace]))
 
@@ -77,15 +80,120 @@
   ;; stays required for the `seed-trace-for-test!` seeding below.)
   (xray-test-support/make-xray-runtime-fixture))
 
-;; ---- hiccup walkers ----------------------------------------------------
+;; ---- the panel's body, and the two walkers over it ----------------------
+;;
+;; rf2-fcy5 (slice 3) — `trace/Panel` IS A FRESCO BOUNDARY NOW, so the rows
+;; below no longer call it. A boundary is a real React function component:
+;; its body reads through Fresco's collector, which refuses a read outside a
+;; render extent by name (`:rf.error/fresco-sub-outside-render`). The panel's
+;; body was split out as `trace/panel-tree`, a pure fn of the four values the
+;; boundary reads, and [[panel-tree]] below supplies them.
 
+(defn- panel-tree
+  "The Trace panel's body, driven from the ambient frame's own subs.
+
+  THIS USED TO BE A DIRECT CALL TO `trace/Panel`. Everything downstream of
+  it is unchanged — same markup, same testids — so the rows below read
+  exactly what they read before the migration."
+  []
+  (trace/panel-tree
+    {:feed                 @(rf/subscribe [:rf.xray/trace-feed])
+     :focus                @(rf/subscribe [:rf.xray/focus])
+     :focused-event-bundle @(rf/subscribe [:rf.xray.trace/focused-event-bundle])
+     :expanded-ids         @(rf/subscribe [:rf.xray/trace-expanded-row-ids])}))
+
+(defn- lower-head
+  "One hiccup node with a FRESCO BOUNDARY head swapped for the Reagent
+  `reg-view` sibling of the SAME widget, or `node` unchanged. `lower`
+  selects which of the two widgets to lower — `:table`, `:inspector`.
+
+  Both widgets ship both heads on purpose, and both hand the same values
+  to ONE renderer — `views/resizable_table.cljs`'s `render-table` and
+  `views/edn_inspector.cljs`'s `render-inspector` — differing only in HOW
+  each resolves the two things the renderer cannot resolve for itself (the
+  read and the dispatcher). So the swap changes the resolution route and
+  not the rendering, which is what makes it honest for the structural
+  assertions in this file.
+
+  It is a LOWERING and never a claim about which head the panel ships:
+  [[panel-heads-are-the-ones-the-codec-accepts]] grades that with the
+  codec's own classifier over the UNLOWERED tree, so a revert of any of
+  the three heads reds that row whatever this walker does."
+  [lower node]
+  (let [head (first node)]
+    (cond
+      (and (lower :table) (identical? head rt/resizable-table-view))
+      (assoc node 0 rt/resizable-table)
+
+      (and (lower :inspector) (identical? head ei/edn-inspector-view))
+      (let [{:keys [value opts]} (second node)]
+        [ei/edn-inspector value opts])
+
+      :else node)))
+
+(defn- expand-tree*
+  "`rf.test-helpers/expand-tree`, with [[lower-head]] applied ON THE WAY
+  DOWN.
+
+  A pre-pass will not do, and that is the whole reason this exists rather
+  than a `postwalk` over the finished tree: the panel's boundary heads are
+  not all present at the start. Expanding the table invokes the
+  `:row-extras` callback, and an expanded row's payload is a FRESH
+  `[ei/edn-inspector-view …]` node minted during that expansion — which
+  the framework walker would reach, call, and throw on.
+
+  A BOUNDARY HEAD IS NEVER INVOKED, lowered or not — that is what makes
+  [[inspector-heads-tree]] possible and what stops a boundary this walker
+  does not know about from throwing `:rf.error/fresco-sub-outside-render`
+  half way down someone else's row. An un-lowered boundary node is left
+  standing, which the head-grading row reads and the structural rows do
+  not reach past.
+
+  Mirrors the framework walker's two component shapes (plain fn, and the
+  Form-2 fn-returning-a-fn `edn-inspector` uses). It does NOT mirror the
+  Form-3 reagent-class arm: this panel's tree contains no class
+  components, and a class head here would fall through to the `mapv` and
+  be left un-expanded rather than silently mis-rendered."
+  [lower node]
+  (cond
+    (vector? node)
+    (let [n    (lower-head lower node)
+          head (first n)]
+      (if (and (fn? head) (not (rf.fresco.impl.codec/boundary-head? head)))
+        (let [out (apply head (rest n))]
+          (expand-tree* lower (if (fn? out) (apply out (rest n)) out)))
+        ;; METADATA IS CARRIED ACROSS THE REBUILD, which the framework
+        ;; walker does not do. Without this the key rows below could not
+        ;; tell a repaired `:key`-in-attrs from a reverted `with-meta`:
+        ;; `mapv` would have stripped the metadata before the assertion
+        ;; read it, and the metadata negative would pass vacuously.
+        (with-meta (mapv #(expand-tree* lower %) n) (meta n))))
+
+    (seq? node) (map #(expand-tree* lower %) node)
+    :else       node))
+
+(defn- rendered-tree
+  "The panel's tree, fully expanded — what the rows below walk."
+  []
+  (expand-tree* #{:table :inspector} (panel-tree)))
+
+(defn- inspector-heads-tree
+  "The panel's tree with the TABLE lowered and expanded but the payload
+  inspector left as the boundary head the panel wrote — so the head
+  grading row below can read a head that only exists once the table's
+  `:row-extras` callback has run."
+  []
+  (expand-tree* #{:table} (panel-tree)))
+
+;; The framework finder is unchanged and is applied to an ALREADY-EXPANDED
+;; tree: its own `expand-tree` pass is then a no-op rebuild, because
+;; `expand-tree*` left no fn in head position for it to invoke.
 (def ^:private find-by-testid rf.test-helpers/find-by-testid)
 
 (defn- hiccup-seq
-  "Expands fn components via the framework walker, then yields
-  depth-first nodes."
+  "Depth-first nodes of an already-expanded tree."
   [tree]
-  (tree-seq (some-fn vector? seq?) seq (rf.test-helpers/expand-tree tree)))
+  (tree-seq (some-fn vector? seq?) seq tree))
 
 (defn- node-attrs
   "The attribute map of the rendered node with the given data-testid."
@@ -222,7 +330,7 @@
   (testing "the panel renders its root container regardless of focus state"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      (let [tree (trace/Panel)]
+      (let [tree (rendered-tree)]
         (is (some? (find-by-testid tree "rf-xray-trace"))
             "panel container present")))))
 
@@ -235,7 +343,7 @@
                    [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :dispatch-id 42 :source :ui})])])
       (focus! 42)
-      (let [tree (trace/Panel)]
+      (let [tree (rendered-tree)]
         (is (nil? (find-by-testid tree "rf-xray-trace-counts")))
         (is (nil? (find-by-testid tree "rf-xray-trace-epoch-indicator")))
         (is (nil? (find-by-testid tree "rf-xray-trace-film-strip")))
@@ -260,7 +368,7 @@
                     (mk-trace {:id 8 :op-type :rf.epoch :operation :rf.epoch/outcome
                                :time 121 :tags {:rf.epoch/outcome :ok}})])])
       (focus! 1)
-      (let [tree (trace/Panel)]
+      (let [tree (rendered-tree)]
         (is (some? (find-by-testid tree "rf-xray-trace-feed")) "feed container present")
         (is (some? (find-by-testid tree "rf-xray-trace-rows"))
             "the flat row list container renders")
@@ -295,7 +403,7 @@
                                    :time 1002})
                         (assoc-in [:tags :elapsed-ms] 0.4))])])
       (focus! 1)
-      (let [tree (trace/Panel)]
+      (let [tree (rendered-tree)]
         (is (= "+0.0" (last (find-by-testid tree "rf-xray-trace-row-1-time")))
             "Δt column reads +0.0 relative to the epoch origin")
         (is (= "DISPATCH" (last (find-by-testid tree "rf-xray-trace-row-1-stage")))
@@ -328,7 +436,7 @@
                                :dispatch-id 1})
                     (mk-trace {:id 4 :op-type :rf.sub :operation :rf.sub/run})])])
       (focus! 1)
-      (let [tree (trace/Panel)]
+      (let [tree (rendered-tree)]
         (is (= "event" (:data-rf-xray-area (node-attrs tree "rf-xray-trace-row-1"))))
         (is (= "db" (:data-rf-xray-area (node-attrs tree "rf-xray-trace-row-2"))))
         (is (= "fx" (:data-rf-xray-area (node-attrs tree "rf-xray-trace-row-3"))))
@@ -360,7 +468,7 @@
                     (mk-trace {:id 2 :op-type :error :operation :rf.error/fx-handler-exception
                                :time 105 :reason "boom"})])])
       (focus! 1)
-      (let [tree (trace/Panel)]
+      (let [tree (rendered-tree)]
         (is (some? (find-by-testid tree "rf-xray-trace-row-2"))
             "the error row renders inline (not hidden)")
         (is (= "error" (:data-rf-xray-severity (node-attrs tree "rf-xray-trace-row-2")))
@@ -409,7 +517,7 @@
              (mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
                         :time 102 :dispatch-id 1})])])
       (focus! 1)
-      (let [tree (trace/Panel)]
+      (let [tree (rendered-tree)]
         (is (some? (find-by-testid tree "rf-xray-trace-row-2-db-diff"))
             "the db-diff section renders beneath the db-changed row")
         (let [row (db-diff-row-by-suffix tree 2 ":counter")]
@@ -430,7 +538,7 @@
             [(mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
                         :time 102 :dispatch-id 1})])])
       (focus! 1)
-      (let [tree    (trace/Panel)
+      (let [tree    (rendered-tree)
             added   (db-diff-row-by-suffix tree 2 ":flag")
             removed (db-diff-row-by-suffix tree 2 ":stale")]
         (is (some? added) "the [:flag] added row renders")
@@ -453,7 +561,7 @@
             [(mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
                         :time 102 :dispatch-id 1})])])
       (focus! 1)
-      (let [tree (trace/Panel)]
+      (let [tree (rendered-tree)]
         (is (some? (db-diff-row-by-suffix tree 2 ":counter"))
             "top-level [:counter] row renders")
         (is (some? (db-diff-row-by-suffix tree 2 ":user_:age"))
@@ -472,7 +580,7 @@
             [(mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
                         :time 102 :dispatch-id 1})])])
       (focus! 1)
-      (let [tree (trace/Panel)]
+      (let [tree (rendered-tree)]
         (is (some? (find-by-testid tree "rf-xray-trace-row-2"))
             "the db-changed row itself still renders")
         (is (nil? (find-by-testid tree "rf-xray-trace-row-2-db-diff"))
@@ -492,7 +600,7 @@
              (mk-trace {:id 3 :op-type :rf.fx :operation :rf.fx/handled
                         :time 105 :dispatch-id 1})])])
       (focus! 1)
-      (let [tree (trace/Panel)]
+      (let [tree (rendered-tree)]
         (is (nil? (find-by-testid tree "rf-xray-trace-row-1-db-diff"))
             "the dispatch row carries no diff section")
         (is (nil? (find-by-testid tree "rf-xray-trace-row-3-db-diff"))
@@ -508,7 +616,7 @@
     (rf/with-frame :rf/xray
       (seed-history! [(mk-epoch 1 11 [])])
       (focus! 11)
-      (let [tree (trace/Panel)]
+      (let [tree (rendered-tree)]
         (is (some? (find-by-testid tree "rf-xray-trace-empty-no-events")))
         (is (nil? (find-by-testid tree "rf-xray-trace-feed"))
             "no arc when focused epoch carries no events")))))
@@ -517,7 +625,7 @@
   (testing "with no focus + no history → :no-focus empty-state"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      (let [tree (trace/Panel)]
+      (let [tree (rendered-tree)]
         (is (some? (find-by-testid tree "rf-xray-trace-empty-no-focus")))
         (is (nil? (find-by-testid tree "rf-xray-trace-feed")))))))
 
@@ -530,7 +638,7 @@
       (rf/dispatch-sync
         [:day8.re-frame2-xray.panels.trace-view-cljs-test/seed-evicted-focus])
       (let [feed @(rf/subscribe [:rf.xray/trace-feed])
-            tree (trace/Panel)]
+            tree (rendered-tree)]
         (is (= :epoch-evicted (:empty-kind feed)))
         (is (some? (find-by-testid tree "rf-xray-trace-empty-epoch-evicted")))
         (is (nil? (find-by-testid tree "rf-xray-trace-feed")))))))
@@ -658,7 +766,7 @@
         (with-redefs [rf/dispatch-impl (fn
                                      ([ev]      (swap! dispatches conj ev) nil)
                                      ([ev _o]   (swap! dispatches conj ev) nil))]
-          (let [tree    (trace/Panel)
+          (let [tree    (rendered-tree)
                 row     (find-by-testid tree "rf-xray-trace-row-7")
                 handler (:on-click (second row))]
             (is (some? row) "row node present")
@@ -696,11 +804,11 @@
                    [(mk-trace {:id 13 :op-type :rf.event :operation :rf.event/dispatched
                                :dispatch-id 1 :source :ui :origin :app})])])
       (focus! 1)
-      (let [tree (trace/Panel)]
+      (let [tree (rendered-tree)]
         (is (nil? (find-by-testid tree "rf-xray-trace-row-13-payload"))
             "payload absent when row not expanded"))
       (rf/dispatch-sync [:rf.xray/toggle-trace-row-expand 13])
-      (let [tree (trace/Panel)]
+      (let [tree (rendered-tree)]
         (is (some? (find-by-testid tree "rf-xray-trace-row-13-payload"))
             "payload renders when row expanded")
         ;; rf2-hhtbl phase 2 — the per-row payload renders the widget
@@ -737,7 +845,7 @@
       ;; Expand both rows at once.
       (rf/dispatch-sync [:rf.xray/toggle-trace-row-expand 41])
       (rf/dispatch-sync [:rf.xray/toggle-trace-row-expand 42])
-      (let [tree         (trace/Panel)
+      (let [tree         (rendered-tree)
             dd-testids   (->> (hiccup-seq tree)
                               (keep (fn [n]
                                       (when (and (vector? n) (map? (second n)))
@@ -773,7 +881,7 @@
                                :dispatch-id 1 :source :ui :origin :app})])])
       (focus! 1)
       (rf/dispatch-sync [:rf.xray/toggle-trace-row-expand 51])
-      (let [tree     (trace/Panel)
+      (let [tree     (rendered-tree)
             payload  (find-by-testid tree "rf-xray-trace-row-51-payload")
             ;; Walk the payload subtree (which is itself the result of
             ;; `expand-tree`-ing) and find the edn-inspector widget's
@@ -806,7 +914,7 @@
         (with-redefs [rf/dispatch-impl (fn
                                      ([ev]      (swap! dispatches conj ev) nil)
                                      ([ev _o]   (swap! dispatches conj ev) nil))]
-          (let [tree    (trace/Panel)
+          (let [tree    (rendered-tree)
                 node    (find-by-testid tree "rf-xray-trace-row-9-source-coord")
                 handler (:on-click (second node))]
             (is (some? node) "source-coord ↗ rendered")
@@ -836,7 +944,7 @@
                     (mk-trace {:id 3 :op-type :rf.fx :operation :rf.fx/handled
                                :time 120 :dispatch-id 1})])])
       (focus! 1)
-      (let [tree (trace/Panel)]
+      (let [tree (rendered-tree)]
         ;; no band chrome at all (rf2-aqusw)
         (is (nil? (find-by-testid tree "rf-xray-trace-band-effects")))
         (is (nil? (find-by-testid tree "rf-xray-trace-band-count-effects")))
@@ -902,7 +1010,7 @@
                     (mk-trace {:id 33 :op-type :rf.event :operation :rf.event/db-changed
                                :time 300 :dispatch-id 1})])])
       (focus! 1)
-      (let [tree (trace/Panel)
+      (let [tree (rendered-tree)
             k11  (:key (second (row-node-by-id tree 11)))
             k22  (:key (second (row-node-by-id tree 22)))
             k33  (:key (second (row-node-by-id tree 33)))]
@@ -945,7 +1053,7 @@
                    [(mk-trace {:id 11 :op-type :rf.event :operation :rf.event/dispatched
                                :time 100 :dispatch-id 1})])])
       (focus! 1)
-      (let [kids (feed-children (trace/Panel))
+      (let [kids (feed-children (panel-tree))
             ks   (mapv #(.-key (r/as-element %)) kids)]
         (is (= 2 (count kids)))
         (is (= ["ops-header" "rows"] ks))
@@ -972,9 +1080,14 @@
             it reads nil at a repaired site precisely because the key is in
             props — so metadata appears here only as the negative below.
 
-            Not a Fresco DOM row: `rt/resizable-table` is a `reg-view`, a
-            head Fresco's codec refuses, so neither child can be handed to
-            `codec/as-element` until that widget grows a boundary."
+            rf2-fcy5 — THE CODEC DOOR IS OPEN NOW and is asserted below.
+            This row used to close with \"not a Fresco DOM row:
+            `rt/resizable-table` is a `reg-view`, a head Fresco's codec
+            refuses, so neither child can be handed to `codec/as-element`
+            until that widget grows a boundary.\" Slice 1b grew it and this
+            slice adopted it, so both children are boundary-headed and the
+            codec answers about them directly — which is the only door that
+            can tell an attrs key from a metadata one."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -982,7 +1095,7 @@
                    [(mk-trace {:id 11 :op-type :rf.event :operation :rf.event/dispatched
                                :time 100 :dispatch-id 1})])])
       (focus! 1)
-      (let [kids  (feed-children (trace/Panel))
+      (let [kids  (feed-children (panel-tree))
             props (mapv second kids)]
         (is (= 2 (count kids)))
         ;; The Fresco-side read. RED before the repair: `[nil "rows"]`.
@@ -995,5 +1108,158 @@
         ;; Guard the guard: neither key is also in metadata, so the
         ;; assertion above cannot be passing on a shape Fresco can't see.
         (is (every? nil? (mapv #(:key (meta %)) kids))
-            "no feed child depends on reader metadata")))))
+            "no feed child depends on reader metadata")
+        ;; rf2-fcy5 — and now the CODEC's own answer, which is the door the
+        ;; children actually cross once this panel is a boundary. The
+        ;; props-map assertion above is the authoring shape; this is the
+        ;; renderer's reading of it.
+        (is (= ["ops-header" "rows"]
+               (mapv #(.-key (rf.fresco.impl.codec/as-element %)) kids))
+            "Fresco's codec commits both feed keys")))))
+
+;; ---- RULING 2: the db-diff rows key through the ATTRIBUTE MAP ------------
+;;
+;; rf2-bqzk — `db-diff-rows` used to wrap each row in
+;; `(with-meta (db-diff-row …) {:key (pr-str path)})`. That is NOT the dead
+;; metadata-on-a-call-form shape rf2-hxfy repaired one file over: `with-meta`
+;; applied to the RETURN VALUE genuinely attaches, and the key genuinely
+;; reached React under Reagent. Which is exactly why it is dangerous —
+;; Fresco's codec reads a literal `:key` off a native tag's attrs and reads
+;; Clojure metadata NOWHERE, so a faithful migration of that spelling would
+;; have preserved a NO-OP and every diff row in every changed-path list would
+;; have lost its identity with nothing on screen to say so. The key
+;; expression `(pr-str path)` is unchanged; only its carrier moved.
+;;
+;; THE OBVIOUS INSTRUMENT IS HOLLOW HERE. `(.-key (r/as-element node))` is
+;; exactly right for the call-form defect and BLIND to this one, because
+;; Reagent reads meta AND props and answers the same key either way. Under a
+;; revert the Reagent assertion below PASSES and the Fresco one fails; both
+;; are kept, and which is the gate is said out loud.
+
+(defn- node-by-testid
+  "The first node in an ALREADY-EXPANDED tree carrying `testid`, found
+  without a rebuild. Deliberately NOT `rf.test-helpers/find-by-testid`,
+  which runs its own `expand-tree` pass and rebuilds nested vectors with
+  `mapv` — that would substitute its own vectors for the ones under test
+  and strip the very metadata the negative below asserts is absent."
+  [tree testid]
+  (some (fn [node]
+          (when (and (vector? node)
+                     (map? (second node))
+                     (= testid (:data-testid (second node))))
+            node))
+        (hiccup-seq tree)))
+
+(defn- db-diff-row-nodes
+  "The per-path diff rows under the db-changed row with id `parent-row-id`.
+  `db-diff-rows` is CALLED by `op-row-extras`, so the rows exist as soon as
+  the table has been expanded and need no inspector lowering."
+  [tree parent-row-id]
+  (vec (drop 2 (node-by-testid tree (str "rf-xray-trace-row-" parent-row-id
+                                         "-db-diff")))))
+
+(def ^:private diff-seed
+  "Three changed paths in one db-changed row — modified, added, removed —
+  so the sibling-distinctness assertion has something to say."
+  {:before {:counter 1 :stale :x}
+   :after  {:counter 2 :flag true}})
+
+(deftest db-diff-row-keys-reach-the-renderer-through-attrs
+  (testing "rf2-bqzk — the trace half of the metadata-key sweep. The key
+            rides `db-diff-row`'s own `:div` attrs map now, which is the one
+            place BOTH substrates read."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-history!
+        [(mk-epoch-with-db 1 1 (:before diff-seed) (:after diff-seed)
+            [(mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
+                        :time 102 :dispatch-id 1})])])
+      (focus! 1)
+      (let [rows (db-diff-row-nodes (rendered-tree) 2)
+            ks   (mapv #(:key (second %)) rows)]
+        ;; Non-vacuity first: an empty `rows` would make every assertion
+        ;; below trivially true.
+        (is (= 3 (count rows)) "three changed paths render three diff rows")
+        (is (= [":counter" ":flag" ":stale"] (sort ks))
+            "each diff row carries the unchanged `(pr-str path)` key in attrs")
+        (is (= 3 (count (distinct ks))) "sibling keys are distinct")
+        ;; THE GATE. `subvec` for the same reason the sibling panels take it:
+        ;; the codec lowers children eagerly, so a whole-node call would raise
+        ;; HD-016 the moment anything below a diff row stopped being native,
+        ;; and that exception would hide the key answer behind it. Dropping
+        ;; the subtree cannot change the answer — the key is read off the
+        ;; attribute map. RED under a revert to `with-meta`: `[nil nil nil]`.
+        (is (= (sort ks)
+               (sort (mapv #(.-key (rf.fresco.impl.codec/as-element
+                                     (subvec % 0 2)))
+                           rows)))
+            "Fresco's codec commits the same key for every diff row")
+        ;; The Reagent door, kept beside it and labelled: it is HOLLOW for
+        ;; this sub-case and passes under the revert. It is here to show that
+        ;; ONE attribute satisfies both substrates rather than trading one
+        ;; for the other.
+        (is (= (sort ks)
+               (sort (mapv #(.-key (r/as-element (subvec % 0 2))) rows)))
+            "and Reagent commits it too")
+        ;; Guard the guard: no row depends on reader metadata any more.
+        (is (every? nil? (mapv #(:key (meta %)) rows))
+            "no diff row depends on vector metadata")))))
+
+;; ---- the three heads are the ones Fresco accepts (rf2-fcy5) --------------
+
+(deftest panel-heads-are-the-ones-the-codec-accepts
+  (testing "rf2-fcy5 slice 3 — `Panel` is an `rf.fresco/defview`, so every
+            hiccup head inside its body has to be one the codec accepts. A
+            `reg-view` head grades `:invalid` down the IDENTICAL arm a plain
+            `defn` does, and with no error boundary above this render path
+            an HD-016 throw presents as a tab that never appears rather than
+            as an error. The three heads are the two `rt/resizable-table`
+            sites and `ei/edn-inspector` in `render-payload`.
+
+            THE INSTRUMENT IS THE CODEC'S OWN CLASSIFIER, and neither
+            obvious shape works: a boundary IS a fn, so an `fn?` filter is
+            wrong permissively; a boundary carries no Clojure metadata, so a
+            `(some? (meta head))` discriminator is wrong strictly.
+
+            Read over the UNLOWERED tree, so `lower-head` cannot launder a
+            revert into a pass."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-history!
+        [(mk-epoch-with-db 1 1 (:before diff-seed) (:after diff-seed)
+            [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                        :time 100 :dispatch-id 1})
+             (mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
+                        :time 102 :dispatch-id 1})])])
+      (focus! 1)
+      (rf/dispatch-sync [:rf.xray/toggle-trace-row-expand 1])
+      ;; Controls, in both directions, so `:invalid` below is an answer
+      ;; rather than a default.
+      (is (= :tag (rf.fresco.impl.codec/head-kind :div)))
+      (is (= :invalid (rf.fresco.impl.codec/head-kind rt/resizable-table))
+          "the Reagent `reg-view` head these sites used to carry is :invalid")
+      (is (= :invalid (rf.fresco.impl.codec/head-kind ei/edn-inspector))
+          "…and so is the inspector's")
+      (is (= :boundary (rf.fresco.impl.codec/head-kind rt/resizable-table-view)))
+      (is (= :boundary (rf.fresco.impl.codec/head-kind ei/edn-inspector-view)))
+      ;; The panel's own body: the two table heads, unexpanded and unlowered.
+      (let [heads (map first (filter vector? (hiccup-seq (panel-tree))))
+            kinds (frequencies (map rf.fresco.impl.codec/head-kind heads))]
+        (is (< 5 (count heads))
+            "the walk reached a populated tree, so the zero below is absence")
+        (is (= 2 (get kinds :boundary 0))
+            "both `resizable-table` sites are boundary heads")
+        (is (zero? (get kinds :invalid 0))
+            (str "every head the panel body writes is one Fresco accepts — "
+                 kinds)))
+      ;; And the payload inspector, which only exists once the table's
+      ;; `:row-extras` callback has run.
+      (let [heads (map first (filter vector? (hiccup-seq (inspector-heads-tree))))
+            kinds (frequencies (map rf.fresco.impl.codec/head-kind heads))]
+        (is (pos? (get kinds :boundary 0))
+            "the expanded row's inspector head is in the tree")
+        (is (some #(identical? ei/edn-inspector-view %) heads)
+            "…and it is `edn-inspector-view`, the boundary, not `edn-inspector`")
+        (is (zero? (get kinds :invalid 0))
+            (str "no invalid head anywhere below the table — " kinds))))))
 
