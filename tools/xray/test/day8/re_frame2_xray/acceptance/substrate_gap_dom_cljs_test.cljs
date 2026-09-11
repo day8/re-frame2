@@ -170,9 +170,16 @@
               (is (= true (xray-mount/mounted?))
                   (str "`open!` mounted on a ratom-family substrate. Returned: "
                        (pr-str (dissoc ret :node :unmount))))
-              (is (nil? (:diagnostic (xray-mount/status)))
-                  (str "with no diagnostic standing. Got: "
+              ;; `clear-diagnostic!` leaves an `{:ok? true}` marker rather
+              ;; than nil, so the literal to compare against is the FLAG,
+              ;; not the slot's emptiness.
+              (is (= true (:ok? (:diagnostic (xray-mount/status))))
+                  (str "with the diagnostic slot reporting health rather than a "
+                       "refusal. Got: "
                        (pr-str (:diagnostic (xray-mount/status)))))
+              (is (nil? (:reason (:diagnostic (xray-mount/status))))
+                  (str "and naming no refusal reason. Got: "
+                       (pr-str (:reason (:diagnostic (xray-mount/status))))))
               (is (some? (.getElementById js/document "rf-xray-root"))
                   "and a real mount root is in the document")
               (is (= 1 (.-childElementCount host))
