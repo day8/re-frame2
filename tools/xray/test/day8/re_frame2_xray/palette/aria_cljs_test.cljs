@@ -19,13 +19,29 @@
 
   Hiccup traversal mirrors `spine-filters-cljs-test`'s pattern —
   expand-tree walks function-in-head-position nodes, then a depth-first
-  search by data-testid / role / attribute resolves each assertion."
+  search by data-testid / role / attribute resolves each assertion.
+
+  ## Where the tree comes from (rf2-k97c.3)
+
+  `palette/ModalView` is an `rf.fresco/defview` BOUNDARY now, so it is
+  not callable outside a React render window, and `view/palette-view` is
+  a PURE fn of its reads' values rather than a fn that reads for itself.
+  These rows therefore build the hiccup through
+  `test-helpers.palette-tree`, which mirrors the boundary's four reads in
+  the same order behind the same open-gate and drives the shipped
+  `palette-view` — so what is asserted below is still the SHIPPED tree
+  and not a parallel fixture.
+
+  `rf/dispatch` is passed explicitly, as it always was: these rows only
+  read attributes and never fire a handler, so the frame-bound door the
+  boundary captures is not what they are about. `palette.dispatch-
+  routing-cljs-test` owns that, and takes the helper's default instead."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
-            [day8.re-frame2-xray.palette.view :as view]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.test-helpers.palette-tree :as palette-tree]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (use-fixtures :each
@@ -56,7 +72,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
-    (let [tree   (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
+    (let [tree   (rf/with-frame :rf/xray (palette-tree/palette-tree rf/dispatch))
           dialog (rf.test-helpers/find-by-testid tree "rf-xray-palette-dialog")]
       (is (some? dialog) "the dialog wrapper renders")
       (is (= "dialog" (:role (props dialog))))
@@ -74,7 +90,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
-    (let [tree  (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
+    (let [tree  (rf/with-frame :rf/xray (palette-tree/palette-tree rf/dispatch))
           input (rf.test-helpers/find-by-testid tree "rf-xray-palette-input")
           attrs (props input)]
       (is (some? input))
@@ -92,7 +108,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
-    (let [tree    (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
+    (let [tree    (rf/with-frame :rf/xray (palette-tree/palette-tree rf/dispatch))
           input   (rf.test-helpers/find-by-testid tree "rf-xray-palette-input")
           listbox (rf.test-helpers/find-by-testid tree "rf-xray-palette-list")]
       (is (= (:aria-controls (props input))
@@ -108,7 +124,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
-    (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
+    (let [tree (rf/with-frame :rf/xray (palette-tree/palette-tree rf/dispatch))
           ul   (rf.test-helpers/find-by-testid tree "rf-xray-palette-list")]
       (is (some? ul) "the list wrapper renders")
       ;; Default palette open populates results (>0 commands registered)
@@ -124,7 +140,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
-    (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
+    (let [tree (rf/with-frame :rf/xray (palette-tree/palette-tree rf/dispatch))
           rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-palette-row-")]
       (is (seq rows) "the palette renders at least one row")
       (doseq [row rows]
@@ -143,7 +159,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
-    (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
+    (let [tree (rf/with-frame :rf/xray (palette-tree/palette-tree rf/dispatch))
           rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-palette-row-")
           ids  (mapv (comp :id props) rows)]
       (is (= (count ids) (count (set ids)))
@@ -156,7 +172,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open])
       (rf/dispatch-sync [:rf.xray/palette-cursor-set 0]))
-    (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
+    (let [tree (rf/with-frame :rf/xray (palette-tree/palette-tree rf/dispatch))
           rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-palette-row-")
           selected (filter #(= "true" (:aria-selected (props %))) rows)]
       (is (= 1 (count selected))
@@ -170,7 +186,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open])
       (rf/dispatch-sync [:rf.xray/palette-cursor-set 0]))
-    (let [tree     (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
+    (let [tree     (rf/with-frame :rf/xray (palette-tree/palette-tree rf/dispatch))
           input    (rf.test-helpers/find-by-testid tree "rf-xray-palette-input")
           rows     (rf.test-helpers/find-by-testid-prefix tree "rf-xray-palette-row-")
           active   (some (fn [row]

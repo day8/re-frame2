@@ -22,10 +22,15 @@
   close, arrow keys do not move the cursor, Esc does not close, input
   text does not update the query — the palette appears frozen.
 
-  The fix in `palette/view.cljs` is mechanical: every `rf/dispatch`
-  from a deferred handler carries `{:frame :rf/xray}` so the
-  envelope's `:frame` is set at call time and never depends on the
-  click-time React-context read.
+  The fix is mechanical and has had two spellings. Originally every
+  `rf/dispatch` from a deferred handler carried a `{:frame :rf/xray}`
+  literal. Since rf2-nesy9 the palette threads a FRAME-BOUND DISPATCHER
+  captured at render time instead, so N isolated Xray instances each
+  route to their own frame rather than all to the singleton; under
+  rf2-k97c.3 the `palette/ModalView` boundary captures it with
+  `(:dispatch (rf/capture-frame))`. Either way the envelope's `:frame`
+  is set at call time and never depends on the click-time context read,
+  which is the property these rows defend.
 
   ## How these tests reproduce the click-time path
 
@@ -34,14 +39,25 @@
   click-fires-after-render reality. Click handlers use queued
   `rf/dispatch` (not `dispatch-sync`); the router drain is async via
   `goog.async.nextTick`. Tests use `rf.test-support/poll-until` to await
-  the drain before asserting."
+  the drain before asserting.
+
+  ## Where the tree comes from (rf2-k97c.3)
+
+  `palette/Modal` is the `as-component` migration BRIDGE now — it
+  answers a `[:>]` interop vector, not a tree to walk — so these rows
+  build the hiccup through `test-helpers.palette-tree`, which mirrors
+  the `palette/ModalView` boundary's four reads in the same order behind
+  the same open-gate, and defaults `dispatch` to the boundary's own
+  `(:dispatch (rf/capture-frame))` door. That default is load-bearing
+  HERE specifically: it is the captured dispatcher whose click-time
+  routing is the whole subject of this ns."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [re-frame.test-support :as rf.test-support]
-            [day8.re-frame2-xray.palette :as palette]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.test-helpers.palette-tree :as palette-tree]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; `make-xray-runtime-fixture` (rf2-vj80u8) composes core
@@ -73,6 +89,14 @@
   ;; rather than falling through to a synthesised `:rf/default`. (The
   ;; click-time HANDLER is still invoked OUTSIDE any scope — that is the
   ;; real click-fires-after-render path under test.)
+  ;;
+  ;; rf2-k97c.3 — the scope is BELT-AND-BRACES now rather than
+  ;; load-bearing, and is kept deliberately. `view/palette-view` is pure
+  ;; and every helper below it is CALLED rather than headed, so the tree
+  ;; `palette-tree` answers is keyword-headed all the way down and the
+  ;; walk has no fn head left to re-invoke. Keeping the scope costs
+  ;; nothing and means a future helper that is headed again cannot turn
+  ;; this walk red for the wrong reason.
   (rf/with-frame :rf/xray
     (rf.test-helpers/find-by-testid tree testid)))
 
@@ -108,7 +132,7 @@
 (defn- render-open-palette []
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/palette-open]))
-  (rf/with-frame :rf/xray (palette/Modal)))
+  (rf/with-frame :rf/xray (palette-tree/palette-tree)))
 
 ;; ---- tests --------------------------------------------------------------
 
@@ -187,7 +211,7 @@
     (let [_ (rf/with-frame :rf/xray
               (rf/dispatch-sync [:rf.xray/palette-open])
               (rf/dispatch-sync [:rf.xray/palette-cursor-set 2]))
-          rendered (rf/with-frame :rf/xray (palette/Modal))
+          rendered (rf/with-frame :rf/xray (palette-tree/palette-tree))
           input    (find-by-testid rendered "rf-xray-palette-input")
           handler  (on-key-down input)]
       (is (= 2 (:palette-cursor (rf/app-db-value :rf/xray))))
