@@ -88,11 +88,24 @@
 
 ;; ---- (2) save! / load round-trip (depends on localStorage) --------------
 
-(deftest save-and-load-round-trip
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (let [widths {:rf.xray.epoch/subscriptions {:sub 300 :inputs 150 :value 200}}]
-      (rt/save! widths)
-      (is (= widths (rt/load))))))
+;; The real-storage rows that lived here — `save-and-load-round-trip`,
+;; `custom-storage-key-isolates-per-instance`,
+;; `resize-pair-tick-writes-slot-without-persisting`,
+;; `resize-pair-commit-persists-current-slot`,
+;; `reset-clears-table-and-persists` and `hydrate-lifts-persisted-widths`
+;; — moved to
+;; `day8.re-frame2-xray.views.resizable-table-persistence-dom-cljs-test`
+;; under rf2-r51p. Each was wrapped in `(when (and (exists? js/window)
+;; (.-localStorage js/window)) ...)`, which is FALSE under `:node-test`,
+;; while `:browser-test`'s `.*-dom-cljs-test$` `:ns-regexp` never loaded
+;; this file at all — so they executed in NEITHER lane. Their new home
+;; ends `-dom-cljs-test`, which BOTH builds select, so the rows now run
+;; for real in the browser and stay inert on node behind `ls/available?`.
+;;
+;; `resize-pair-tick-clamps-sub-floor-width` stayed BELOW rather than
+;; moving, because the choice is per PROPERTY and not per file: it
+;; asserts only over app-db and never reads storage, so its guard was
+;; incidental. The guard came off instead, which makes it run on node.
 
 (deftest load-when-slot-is-empty-returns-empty-map
   (rt/clear!)
@@ -100,106 +113,26 @@
 
 ;; ---- (3) Storage-key override (per-instance isolation) ------------------
 
-(deftest custom-storage-key-isolates-per-instance
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (testing "story testbeds set distinct keys so two Xray instances
-              do not stomp on each other's column-widths state"
-      (rt/set-storage-key! "story.testbed.a.column-widths")
-      (rt/save! {:t1 {:a 100}})
-      (rt/set-storage-key! "story.testbed.b.column-widths")
-      (is (= {} (rt/load))
-          "instance B's slot is independent of instance A")
-      (rt/save! {:t2 {:b 200}})
-      (rt/set-storage-key! "story.testbed.a.column-widths")
-      (is (= {:t1 {:a 100}} (rt/load))
-          "instance A's slot survived instance B's write"))))
-
 ;; ---- (4) resize-pair tick + commit (rf2-xm1jy split) --------------------
 
-(deftest resize-pair-tick-writes-slot-without-persisting
-  (testing "rf2-xm1jy — the pointermove-cadence event writes the slot
-            in app-db but does NOT touch localStorage (per-pixel
-            persistence flooded the main thread on lower-end devices)."
-    (when (and (exists? js/window) (.-localStorage js/window))
-      (xray-setup!)
-      (rt/clear!)
-      (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
-                       :rf.xray.epoch/subscriptions
-                       :sub 250 :inputs 170])
-      (is (= {:sub 250 :inputs 170}
-             (frame-sub [:rf.xray.column-widths/for-table
-                         :rf.xray.epoch/subscriptions]))
-          "app-db slot reflects the tick")
-      (is (= {} (rt/load))
-          "localStorage is NOT written by the tick event"))))
-
-(deftest resize-pair-commit-persists-current-slot
-  (testing "rf2-xm1jy — pointerup dispatches the commit, which writes
-            whatever the app-db slot currently holds to localStorage
-            exactly once. Round-trip: N ticks then one commit ==
-            steady-state widths in localStorage."
-    (when (and (exists? js/window) (.-localStorage js/window))
-      (xray-setup!)
-      (rt/clear!)
-      (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
-                       :rf.xray.epoch/subscriptions
-                       :sub 100 :inputs 100])
-      (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
-                       :rf.xray.epoch/subscriptions
-                       :sub 200 :inputs 200])
-      (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
-                       :rf.xray.epoch/subscriptions
-                       :sub 250 :inputs 170])
-      (is (= {} (rt/load))
-          "ticks accumulate in app-db only; localStorage untouched")
-      (frame-dispatch [:rf.xray.column-widths/resize-pair-commit])
-      (is (= {:rf.xray.epoch/subscriptions {:sub 250 :inputs 170}}
-             (rt/load))
-          "commit writes the final settled widths to localStorage
-           exactly once"))))
-
 (deftest resize-pair-tick-clamps-sub-floor-width
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (xray-setup!)
-    (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
-                     :rf.xray.epoch/subscriptions
-                     :sub 5 :inputs 300])
-    (is (= {:sub 24 :inputs 300}
-           (frame-sub [:rf.xray.column-widths/for-table
-                       :rf.xray.epoch/subscriptions]))
-        "sub clamped to the 24px floor; inputs verbatim")))
+  ;; rf2-r51p — the `(when (and (exists? js/window) (.-localStorage
+  ;; js/window)) ...)` guard that used to wrap this body was INCIDENTAL:
+  ;; the assertion reads app-db through the `for-table` sub and never
+  ;; touches storage, so the guard bought nothing and cost the row both
+  ;; lanes. Unguarded, it runs on node — for the first time.
+  (xray-setup!)
+  (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
+                   :rf.xray.epoch/subscriptions
+                   :sub 5 :inputs 300])
+  (is (= {:sub 24 :inputs 300}
+         (frame-sub [:rf.xray.column-widths/for-table
+                     :rf.xray.epoch/subscriptions]))
+      "sub clamped to the 24px floor; inputs verbatim"))
 
 ;; ---- (5) reset clears one table AND persists ----------------------------
 
-(deftest reset-clears-table-and-persists
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (xray-setup!)
-    (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
-                     :t1 :a 100 :b 200])
-    (frame-dispatch [:rf.xray.column-widths/resize-pair-commit])
-    (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
-                     :t2 :a 50 :b 70])
-    (frame-dispatch [:rf.xray.column-widths/resize-pair-commit])
-    (frame-dispatch [:rf.xray.column-widths/reset :t1])
-    (is (nil? (frame-sub [:rf.xray.column-widths/for-table :t1]))
-        "t1's overrides cleared")
-    (is (= {:a 50 :b 70}
-           (frame-sub [:rf.xray.column-widths/for-table :t2]))
-        "t2's overrides untouched")
-    (is (= {:t2 {:a 50 :b 70}} (rt/load))
-        "localStorage reflects the reset")))
-
 ;; ---- (6) hydrate! lifts persisted slot into app-db ----------------------
-
-(deftest hydrate-lifts-persisted-widths
-  (when (and (exists? js/window) (.-localStorage js/window))
-    ;; Seed localStorage BEFORE setup so hydrate sees it.
-    (rt/save! {:rf.xray.epoch/views {:view 180 :subs 220}})
-    (xray-setup!)
-    (is (= {:view 180 :subs 220}
-           (frame-sub [:rf.xray.column-widths/for-table
-                       :rf.xray.epoch/views]))
-        "hydrate! ran in xray-setup! and lifted the slot into app-db")))
 
 (deftest hydrate-is-no-op-when-storage-empty
   (rt/clear!)

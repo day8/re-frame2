@@ -136,11 +136,18 @@
 ;; (3) save! / load round-trip
 ;; -------------------------------------------------------------------------
 
-(deftest save-and-load-round-trip
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (let [muted #{:auth/login :user/mouse-move}]
-      (spine-filters/save! muted)
-      (is (= muted (spine-filters/load))))))
+;; The real-storage rows that lived here — `save-and-load-round-trip`,
+;; `mute-event-id-event-writes-slot-and-persists`,
+;; `unmute-event-id-event-clears-slot`,
+;; `clear-muted-event-ids-drops-every-entry` and
+;; `hydrate-lifts-localstorage-into-slot` — moved to
+;; `day8.re-frame2-xray.spine-filters-dom-cljs-test` under rf2-r51p.
+;; Each was wrapped in `(when (and (exists? js/window) (.-localStorage
+;; js/window)) ...)`, which is FALSE under `:node-test`, while
+;; `:browser-test`'s `.*-dom-cljs-test$` `:ns-regexp` never loaded this
+;; file at all — so they executed in NEITHER lane. Their new home ends
+;; `-dom-cljs-test`, which BOTH builds select, so the rows now run for
+;; real in the browser and stay inert on node behind `ls/available?`.
 
 (deftest load-when-slot-empty-returns-empty-set
   (spine-filters/clear-raw!)
@@ -150,51 +157,9 @@
 ;; (4) Event handler wiring + persist fx
 ;; -------------------------------------------------------------------------
 
-(deftest mute-event-id-event-writes-slot-and-persists
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/mute-event-id :user/mouse-move])
-    (is (= #{:user/mouse-move}
-           (frame-sub [:rf.xray/muted-event-ids])))
-    (is (= 1 (frame-sub [:rf.xray/muted-event-ids-count])))
-    (is (= #{:user/mouse-move}
-           (spine-filters/load))
-        "mute round-trips to localStorage")))
-
-(deftest unmute-event-id-event-clears-slot
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/mute-event-id :user/mouse-move])
-    (frame-dispatch [:rf.xray/mute-event-id :user/scroll])
-    (frame-dispatch [:rf.xray/unmute-event-id :user/scroll])
-    (is (= #{:user/mouse-move}
-           (frame-sub [:rf.xray/muted-event-ids])))
-    (is (= #{:user/mouse-move} (spine-filters/load))
-        "unmute persists the new set")))
-
-(deftest clear-muted-event-ids-drops-every-entry
-  (when (and (exists? js/window) (.-localStorage js/window))
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/mute-event-id :a])
-    (frame-dispatch [:rf.xray/mute-event-id :b])
-    (frame-dispatch [:rf.xray/clear-muted-event-ids])
-    (is (= #{} (frame-sub [:rf.xray/muted-event-ids])))
-    (is (= #{} (spine-filters/load)))))
-
 ;; -------------------------------------------------------------------------
 ;; (5) Hydration
 ;; -------------------------------------------------------------------------
-
-(deftest hydrate-lifts-localstorage-into-slot
-  (when (and (exists? js/window) (.-localStorage js/window))
-    ;; Pre-seed localStorage BEFORE registry install so hydrate-on-mount
-    ;; lifts the value.
-    (spine-filters/save! #{:auth/login :user/mouse-move})
-    (registry/reset-for-test!)
-    (xray-setup!)
-    (is (= #{:auth/login :user/mouse-move}
-           (frame-sub [:rf.xray/muted-event-ids])))
-    (spine-filters/clear-raw!)))
 
 (deftest hydrate-empty-localstorage-leaves-slot-empty
   (spine-filters/clear-raw!)
