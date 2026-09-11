@@ -19,7 +19,7 @@
   ## Surfaces under test
 
     1. Settings popup  (`settings/view/popup-view`)
-    2. Mute manager    (`spine-filters/dialog`)
+    2. Mute manager    (`spine-filters/dialog-tree`)
     3. Filter edit-popup (`filters/edit-popup/popup-view`)
     4. Cancellation-cascade popover — exercised via the Popover
        reg-view's body (it renders a [:div {:role \"dialog\" ...}])
@@ -134,10 +134,33 @@
 ;; -------------------------------------------------------------------------
 ;; (2) Mute manager
 ;; -------------------------------------------------------------------------
+;;
+;; Since rf2-k97c.3 the mute manager is a FRESCO BOUNDARY behind an
+;; `as-component` bridge: `spine-filters/Modal` answers an interop vector,
+;; not a tree to walk, and the boundary's body may only run inside a React
+;; render window. The shipped markup is `spine-filters/dialog-tree`, which
+;; is PURE OF ITS ARGUMENTS; the door below reproduces `ModalView`'s reads
+;; exactly — same query vectors, same order — so both rows below assert on
+;; the same hiccup they did before. Same shape as
+;; `cancellation-cascade-popover-tree` further down this file.
+
+(defn- mute-manager-dialog-tree
+  "The mute manager's dialog markup for the current state. Mirrors
+  `spine-filters/ModalView`'s reads.
+
+  It does NOT mirror the boundary's `:rf.xray/mute-manager-open?` gate,
+  deliberately: these two rows are about the dialog's ARIA markup, and
+  the `spine-filters/dialog` they used to call did not gate either. So
+  this always answers a tree, exactly as that call did."
+  []
+  (spine-filters/dialog-tree
+    rf/dispatch
+    {:muted       @(rf/subscribe [:rf.xray/muted-event-ids])
+     :positioning @(rf/subscribe [:rf.xray/modal-positioning])}))
 
 (deftest mute-manager-carries-dialog-contract
   (xray-setup!)
-  (let [tree (rf/with-frame :rf/xray (spine-filters/dialog rf/dispatch))]
+  (let [tree (rf/with-frame :rf/xray (mute-manager-dialog-tree))]
     (assert-dialog-contract! tree "rf-xray-mute-manager-dialog"
                              "Mute manager")))
 
@@ -234,7 +257,7 @@
 
 (deftest mute-manager-attaches-focus-ref
   (xray-setup!)
-  (let [tree (rf/with-frame :rf/xray (spine-filters/dialog rf/dispatch))]
+  (let [tree (rf/with-frame :rf/xray (mute-manager-dialog-tree))]
     (assert-dialog-focus-ref! tree "rf-xray-mute-manager-dialog"
                               "Mute manager")))
 

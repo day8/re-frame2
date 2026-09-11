@@ -245,6 +245,41 @@
 ;; -------------------------------------------------------------------------
 ;; (7) Row context menu open / close state
 ;; -------------------------------------------------------------------------
+;;
+;; THE TWO NODE-LANE DOORS (rf2-k97c.3). Since the migration the row
+;; context menu and the mute manager are FRESCO BOUNDARIES behind
+;; `as-component` bridges, so `spine-filters/RowContextMenu` and
+;; `/Modal` answer interop vectors rather than trees to walk, and
+;; `dynamic-shell-tree/shell-view-tree` — which composes the shell's
+;; hiccup — necessarily stops at them. The shipped markup is the pair of
+;; PURE `*-tree` fns; each door below reproduces its boundary's gate and
+;; reads exactly, same query vectors in the same order, so every row
+;; asserts on the hiccup the boundary itself would build.
+;;
+;; This is the same substitution `modals-aria-cljs-test` already makes
+;; for `panels.cancellation-cascade/popover-tree`, which crossed to a
+;; boundary earlier in this bead. Rows that assert on the SHELL (the L2
+;; event rows, the L1 ribbon indicator) still walk the shell tree — the
+;; ribbon indicator is a plain fn the ribbon CALLS, so it never left.
+
+(defn- row-context-menu-tree
+  "The row context menu's markup for the current state: nil while
+  closed, the menu otherwise. Mirrors
+  `spine-filters/RowContextMenuView`'s gate and read."
+  []
+  (when-let [menu @(rf/subscribe [:rf.xray/row-context-menu])]
+    (spine-filters/row-context-menu-tree rf/dispatch menu)))
+
+(defn- mute-manager-tree
+  "The mute manager's markup for the current state: nil while closed,
+  the dialog otherwise. Mirrors `spine-filters/ModalView`'s gate and
+  reads."
+  []
+  (when @(rf/subscribe [:rf.xray/mute-manager-open?])
+    (spine-filters/dialog-tree
+      rf/dispatch
+      {:muted       @(rf/subscribe [:rf.xray/muted-event-ids])
+       :positioning @(rf/subscribe [:rf.xray/modal-positioning])})))
 
 (deftest open-row-context-menu-event-writes-slot
   (xray-setup!)
@@ -273,7 +308,7 @@
   (frame-dispatch [:rf.xray/open-row-context-menu
                    {:event-id :user/mouse-move :x 100 :y 200}])
   (rf/with-frame :rf/xray
-    (let [tree (dynamic-shell-tree/shell-view-tree)
+    (let [tree (row-context-menu-tree)
           menu (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu")
           mute (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu-mute")
           hide (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu-hide-event-type")]
@@ -302,7 +337,7 @@
   (frame-dispatch [:rf.xray/mute-event-id :b/y])
   (frame-dispatch [:rf.xray/open-mute-manager])
   (rf/with-frame :rf/xray
-    (let [tree (dynamic-shell-tree/shell-view-tree)
+    (let [tree (mute-manager-tree)
           dialog (rf.test-helpers/find-by-testid tree "rf-xray-mute-manager-dialog")
           list   (rf.test-helpers/find-by-testid tree "rf-xray-mute-manager-list")
           row-a  (rf.test-helpers/find-by-testid tree "rf-xray-mute-manager-row-:a/x")
@@ -316,7 +351,7 @@
   (xray-setup!)
   (frame-dispatch [:rf.xray/open-mute-manager])
   (rf/with-frame :rf/xray
-    (let [tree  (dynamic-shell-tree/shell-view-tree)
+    (let [tree  (mute-manager-tree)
           empty (rf.test-helpers/find-by-testid tree "rf-xray-mute-manager-empty")
           list  (rf.test-helpers/find-by-testid tree "rf-xray-mute-manager-list")]
       (is (some? empty) "empty-state copy mounts when no ids muted")
@@ -370,7 +405,7 @@
         (with-redefs [rf/dispatch-impl (fn
                                      ([ev]      (swap! dispatches conj ev) nil)
                                      ([ev _o]   (swap! dispatches conj ev) nil))]
-          (let [tree     (dynamic-shell-tree/shell-view-tree)
+          (let [tree     (row-context-menu-tree)
                 mute-btn (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu-mute")
                 handler  (:on-click (second mute-btn))]
             (is (fn? handler) "'Mute' button has on-click handler")
@@ -393,9 +428,13 @@
         (let [tree (dynamic-shell-tree/shell-view-tree)]
           (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-1")))
           (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-2"))
-              "muted row dropped from L2")
-          (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-row-context-menu"))
-              "menu closed after click"))
+              "muted row dropped from L2"))
+        ;; rf2-k97c.3 — asserted through the door rather than the shell
+        ;; tree. The boundary's own gate is what answers nil here, so this
+        ;; row grades the close; looked for in the shell tree it would be
+        ;; absent whatever the slot held, and pass vacuously.
+        (is (nil? (row-context-menu-tree))
+            "menu closed after click")
         (let [tree (dynamic-shell-tree/shell-view-tree)
               ind  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-mute-indicator")]
           (is (some? ind) "ribbon mute indicator visible"))))))
