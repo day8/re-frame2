@@ -33,11 +33,30 @@
       boundary does, and looks the entry up through
       `panel-registry/tab-by-id`, so what a row walks is what the shell
       actually mounts;
-    * both pass `identity` as `as-child`, so the ribbon's two Reagent
-      islands and the L4 `[(:panel tab)]` mount stay fn-headed hiccup
-      vectors that `rf.test-helpers/expand-tree` walks precisely as it
-      always has. The boundaries pass `reagent.core/as-element` there;
-      that crossing's evidence is the browser lane's, not this one's.
+    * [[detail-panel-tree]] passes `identity` as `as-child`, so the L4
+      `[(:panel tab)]` mount stays the fn-headed hiccup vector that
+      `rf.test-helpers/expand-tree` walks precisely as it always has.
+      The boundary passes `substrate/as-element` there; that crossing's
+      evidence is the browser lane's, not this one's.
+
+  ## THE RIBBON'S TWO SELECTORS ARE PASSED ALREADY EXPANDED
+
+  [[ribbon-tree]]'s frame switcher and mode pill are BOUNDARIES as of
+  rf2-k97c.3 — they were the ribbon's two Reagent islands until that
+  slice deleted four of them at once, these two and the same two in the
+  Dynamic ribbon. `expand-tree` INVOKES any fn-headed vector it meets,
+  and a boundary head is a real React function component, so invoking
+  one outside a render window is exactly what `rf.fresco/sub` refuses.
+  This lane therefore hands `static-shell/ribbon-tree` each selector's
+  already-expanded plain hiccup, and the ribbon has no `as-child` seam
+  left to pass `identity` through.
+
+  [[frame-switcher-tree]] and [[mode-pill-tree]] are the doors onto
+  those two, and they live HERE — rather than in the Dynamic sibling —
+  because BOTH ribbons mount BOTH widgets, and
+  `test-helpers.dynamic-shell-tree` already requires this ns. One
+  reproduction of each read, reachable from both lanes; the reverse
+  dependency would be a cycle.
 
   SINGLE-SOURCED ON PURPOSE. Five suites need this composition
   (`static/shell_cljs_test`, `p3_polish_aria_cljs_test`,
@@ -53,18 +72,41 @@
   `(rf/with-frame :rf/xray …)` — the same requirement the `reg-view`
   bodies had, and the same one every existing caller already satisfies."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            [day8.re-frame2-xray.static.mode-pill :as mode-pill]
             [day8.re-frame2-xray.static.shell :as static-shell]))
+
+(defn frame-switcher-tree
+  "The L1 frame switcher's hiccup, read the way
+  `frame-switcher/frame-switcher-view` reads it — the same two subs in
+  the same order. Shared by BOTH ribbons; see the ns docstring."
+  ([] (frame-switcher-tree (:dispatch (rf/capture-frame))))
+  ([dispatch]
+   (frame-switcher/frame-switcher-tree
+     dispatch
+     @(rf/subscribe [:rf.xray/current-frame])
+     @(rf/subscribe [:rf.xray/available-frames]))))
+
+(defn mode-pill-tree
+  "The L1 mode pill's hiccup, read the way `mode-pill/mode-pill` reads
+  it. Shared by BOTH ribbons; see the ns docstring."
+  ([] (mode-pill-tree (:dispatch (rf/capture-frame))))
+  ([dispatch]
+   (mode-pill/mode-pill-tree dispatch @(rf/subscribe [:rf.xray/mode]))))
 
 (defn ribbon-tree
   "The L1 ribbon's hiccup, composed the way `static-shell/ribbon`
   composes it. `dispatch` defaults to `(:dispatch (rf/capture-frame))`
   — the SAME door the boundary uses, so a handler this lane pulls off
   the tree and fires later carries the frame exactly as the shipped one
-  does. The ribbon reads nothing."
+  does. The ribbon itself reads nothing; its two selectors do, and
+  arrive already expanded."
   ([] (ribbon-tree (:dispatch (rf/capture-frame))))
   ([dispatch]
-   (static-shell/ribbon-tree dispatch identity)))
+   (static-shell/ribbon-tree dispatch
+                             (frame-switcher-tree dispatch)
+                             (mode-pill-tree dispatch))))
 
 (defn tab-bar-tree
   "The L3 tab bar's hiccup, read the way `static-shell/tab-bar` reads

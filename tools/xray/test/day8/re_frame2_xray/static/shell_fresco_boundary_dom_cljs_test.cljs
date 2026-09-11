@@ -40,19 +40,19 @@
   ## W3'S ZERO IS SCOPED, AND THE SCOPE IS THE POINT
 
   A Fresco boundary emits no `:rf.view/*` op — that is the structural
-  claim, and W3 makes it. But the Static shell's rendered SUB-TREE is
-  not trace-silent, and cannot be in this increment: the L1 ribbon
-  reaches `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill`
-  through an `as-child` REAGENT ISLAND, and both are still `rf/reg-view`s
-  that emit view trace wherever they render.
+  claim, and W3 makes it. The Static shell's rendered SUB-TREE is silent
+  too as of rf2-k97c.3: the L1 ribbon's
+  `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill` were
+  `rf/reg-view`s reached through an `as-child` REAGENT ISLAND, and that
+  slice made both of them boundaries, which deleted the seam. This is
+  the commit the paragraph here used to promise.
 
   So W3 asserts on the view-op ids rather than on a bare count: NO op
-  names a view in `day8.re-frame2-xray.static.shell`, and the ids that
-  DO fire are exactly the two documented islands. That second half is
-  what stops the row degrading into \"some ops fired, fine\" — a future
-  change that islands a third widget reddens here and has to say so.
-  The remaining emissions go when those two widgets are boundaries, in
-  the same commit that deletes the ribbon's `as-child` seam.
+  names a view in `day8.re-frame2-xray.static.shell`, AND the id set is
+  EMPTY outright. That second half is what stops the row degrading into
+  \"some ops fired, fine\" — a future change that islands a widget
+  reddens here and has to say so. It stays a SET rather than a
+  `(zero? (count …))` so the failure message names whatever came back.
 
   ## The mount is the SHELL'S mount
 
@@ -128,14 +128,16 @@
   "day8.re-frame2-xray.static.shell")
 
 (def ^:private expected-island-views
-  "The view-ids W3 EXPECTS to fire, and the whole of them: the L1
-  ribbon's two `as-child` Reagent islands. Stated positively so that
-  islanding a third widget cannot slip past a row that only counted
-  zeros in one direction.
+  "The view-ids W3 EXPECTS to fire, and the whole of them: NONE. The L1
+  ribbon's `frame-switcher/frame-switcher-view` and
+  `mode-pill/mode-pill` were the only two, and rf2-k97c.3 made both of
+  them boundaries. Stated as a SET rather than as a count so that
+  islanding a widget cannot slip past a row that only counted zeros in
+  one direction, and so the failure message names whatever did fire.
 
   W3 PINS THE L4 SLOT TO :flows FOR THIS SET TO BE WELL-DEFINED, and
   the reason is measured rather than tidy. Written against the DEFAULT
-  :machines tab the row failed with a third id,
+  :machines tab the row failed with an extra id,
   `panels.machine-canvas/Chart` — the Static Machines panel's own
   Topology island, which `definition-detail` reaches through its
   `as-child` seam once a machine is selected. Whether one IS selected
@@ -144,9 +146,13 @@
   namespace in one page, and a neighbouring suite's `rf/reg-machine`
   is enough. So :machines would make this set depend on load order in
   BOTH directions. The Flows tab is fully migrated with no island at
-  all, which makes the set a statement about THIS shell."
-  #{:day8.re-frame2-xray.frame-switcher/frame-switcher-view
-    :day8.re-frame2-xray.static.mode-pill/mode-pill})
+  all, which makes the set a statement about THIS shell.
+
+  THE L4 `[(:panel tab)]` ISLAND SURVIVES and does not contribute an
+  id: every Static panel registers a plain-fn BRIDGE, which is not a
+  substrate view render and emits nothing. The pin is about the
+  Machines tab's Chart, not about it."
+  #{})
 
 (def ^:private island-free-tab
   "The Static tab W3 mounts. See [[expected-island-views]]."
@@ -351,9 +357,9 @@
           ;; something React drops would leave the chrome above intact and
           ;; only these missing, which is why they are asserted separately.
           (is (some? (testid container "rf-xray-mode-pill"))
-              "the mode-pill ISLAND crossed the `as-child` seam and
-               committed — a `reg-view` reached through
-               `reagent.core/as-element` from inside a Fresco body")
+              "the mode-pill committed — a Fresco BOUNDARY the ribbon
+               heads directly since rf2-k97c.3, where it used to be a
+               `reg-view` reached across an `as-child` seam")
           (is (some? (testid container "rf-xray-static-ribbon-icons"))
               "and the right-icons cluster, which is CALLED rather than
                headed, painted beside it")
@@ -490,12 +496,12 @@
             not a substrate view render, so there is no event to gate.
 
             THE ZERO IS SCOPED, AND THE SCOPE IS ASSERTED. The rendered
-            sub-tree is not silent — the ribbon's two `as-child` Reagent
-            islands are still `reg-view`s and emit wherever they render —
-            so this row states BOTH halves: no id names the shell's own
-            namespace, and the ids that fire are exactly those two
-            islands. A future change that islands a third widget reddens
-            here rather than sliding under a bare count.
+            sub-tree is silent too as of rf2-k97c.3, which made the
+            ribbon's two `as-child` Reagent islands boundaries — so this
+            row states BOTH halves: no id names the shell's own
+            namespace, and NO id fires at all. A future change that
+            islands a widget reddens here rather than sliding under a
+            bare count.
 
             The control is an ordinary `reg-view` in the same root, the
             same frame and the same commit shape."
@@ -529,9 +535,11 @@
                        " — the four chrome regions are boundaries, not "
                        "substrate view renders. Ids seen: " (pr-str ids)))
               (is (= expected-island-views ids)
-                  (str "and the ids that DO fire are exactly the two "
-                       "documented Reagent islands, so the scope of the zero "
-                       "above is pinned rather than assumed. Expected: "
+                  (str "and NO view id fires at all, so the scope of the zero "
+                       "above is pinned rather than assumed. The ribbon's two "
+                       "Reagent islands became boundaries in rf2-k97c.3, so a "
+                       "non-empty set here is a widget that has been islanded "
+                       "again. Expected: "
                        (pr-str expected-island-views)
                        " Got: " (pr-str ids)))
               (finally (teardown! root container))))

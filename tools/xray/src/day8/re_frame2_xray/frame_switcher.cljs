@@ -82,6 +82,7 @@
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.local-storage :as ls]
@@ -295,8 +296,10 @@
 
 ;; ---- view ----------------------------------------------------------------
 
-(rf/reg-view frame-switcher-view
-  "L1 chrome-ribbon frame-switcher — the `Frame ▾` dropdown BUTTON per
+(defn frame-switcher-tree
+  "The frame-switcher's WHOLE hiccup, as a pure function of the
+  frame-bound `dispatch` and the two values [[frame-switcher-view]]
+  reads — the `Frame ▾` dropdown BUTTON per
   the Figma design-reference (the `chrome-ribbon` component in
   `design-reference/xray_devtools_reference.cljs`) + spec/018 §3 Frame dropdown. STRICTLY single-select (spec/018
   §1 Non-goals + Round-3 rf2-i74n7): no 'All frames (merged)' option, no
@@ -332,14 +335,18 @@
   documented at ns-top. Other frame-aware features (Cmd-K palette, future
   panels) reach through the same surface.
 
-  `reg-view`-registered (rf2-in6l2) so its rendered React component
-  carries `:contextType frame-context` and the closest enclosing
-  `[rf/frame-provider {:frame :rf/xray}]` flows through React-context
-  — subscribes resolve to `:rf/xray`."
-  [_props]
-  (let [selected-frame  @(rf/subscribe [:rf.xray/current-frame])
-        frames          @(rf/subscribe [:rf.xray/available-frames])
-        active          (or selected-frame (first frames))
+  SPLIT OUT OF [[frame-switcher-view]] BY rf2-k97c.3, for the reason
+  every migrated view in this epic splits: a boundary's body may only run
+  inside a React render window, so `(frame-switcher-view {})` is no
+  longer a callable that answers hiccup. This is `defview`'s OWN
+  documented extract-a-helper spelling, not an invention.
+
+  IT TAKES THE RAW READ VALUES in the order the boundary reads them, so
+  the node lane's door is a reproduction of the READS alone with no
+  second copy of the `(or selected-frame (first frames))` derivation to
+  drift."
+  [dispatch selected-frame frames]
+  (let [active          (or selected-frame (first frames))
         ;; rf2-v8bule — the controlled `<select>`'s value is `(str active)`,
         ;; so it MUST have a matching `<option>` or React warns "value not
         ;; in options" and renders blank. `active` can be a frame that is
@@ -404,10 +411,11 @@
                                     kw  (when (and v (.startsWith v ":"))
                                           (keyword (subs v 1)))]
                                 (when kw
-                                  ;; rf2-nesy9 — dispatch through the
-                                  ;; reg-view-injected frame-aware
-                                  ;; `dispatch` so the frame select lands
-                                  ;; on the surrounding instance frame.
+                                  ;; rf2-nesy9 / rf2-k97c.3 — dispatch
+                                  ;; through the frame-bound dispatcher
+                                  ;; the boundary captured, so the frame
+                                  ;; select lands on the surrounding
+                                  ;; instance frame.
                                   (dispatch [:rf.xray/select-frame kw]))))
                :style       {:position   "absolute"
                              :top        0
@@ -429,6 +437,44 @@
         [:option {:key   (str f)
                   :value (str f)}
          (str (if (= f active) "✓ " "  ") f)])]]))
+
+(rf.fresco/defview frame-switcher-view
+  "L1 chrome-ribbon frame-switcher, and a FRESCO BOUNDARY (rf2-k97c.3)
+  rather than an `rf/reg-view`. [[frame-switcher-tree]] carries the
+  shape, the contract and the design reasoning; this is the read set and
+  the dispatcher, and nothing else.
+
+  ## rf2-k97c.3 — the boundary that deleted TWO ISLANDS
+
+  Both shells' L1 ribbons — Dynamic `shell.cljs` and `static/shell.cljs`
+  — are Fresco boundaries, and while this was an `rf/reg-view` each of
+  them had to reach it across an `as-child` REAGENT ISLAND, because a
+  `reg-view` grades `:invalid` as a Fresco head down the same arm a plain
+  `defn` does. Migrating it deletes both of those seams: each ribbon now
+  heads `[frame-switcher-view {}]` directly, the way it heads any other
+  boundary.
+
+  The READS are `rf.fresco/sub`, plain calls the shipped collector
+  records an edge for — no deref, no reaction owned by the installed
+  adapter, and a re-wire that NOTIFIES when the substrate disposes the
+  underlying derived value. They keep the `reg-view` body's ORDER, which
+  is the order the node lane reproduces.
+
+  The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
+  which answers the boundary's DECLARED frame inside a body and replaces
+  the `dispatch` the `reg-view` body used to inject lexically. It
+  supersedes the `:contextType frame-context` route rf2-in6l2 relied on:
+  a boundary resolves its frame from the same REACT CONTEXT
+  `rf/frame-provider` and `rf.fresco/frame-provider` both write, so the
+  enclosing `[rf/frame-provider {:frame :rf/xray}]` still decides where
+  these reads and writes land.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. Both ribbons mount it with none, so it is destructured away."
+  [_props]
+  (frame-switcher-tree (:dispatch (rf/capture-frame))
+                       (rf.fresco/sub [:rf.xray/current-frame])
+                       (rf.fresco/sub [:rf.xray/available-frames])))
 
 ;; ---- install -------------------------------------------------------------
 

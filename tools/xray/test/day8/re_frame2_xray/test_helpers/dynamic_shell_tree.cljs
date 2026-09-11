@@ -35,14 +35,31 @@
 
   ## `as-child` is `identity` here
 
-  The boundaries pass `reagent.core/as-element` for their islands — the
-  L1 ribbon's `frame-switcher-view` and `mode-pill`, the L2/L3 seam
-  handle, and the L4 `[(:panel tab)]` mount. This lane passes `identity`,
-  so each island stays the fn-headed hiccup vector that
-  `rf.test-helpers/expand-tree` walks precisely as it always has. That
-  crossing's evidence is the browser lane's, not this one's — the node
-  lane's `as-child` is `identity` BY CONSTRUCTION, so wrapping and not
-  wrapping are the same value here.
+  The boundaries pass `substrate/as-element` for their surviving islands
+  — the L2/L3 seam handle and the L4 `[(:panel tab)]` mount. This lane
+  passes `identity`, so each island stays the fn-headed hiccup vector
+  that `rf.test-helpers/expand-tree` walks precisely as it always has.
+  That crossing's evidence is the browser lane's, not this one's — the
+  node lane's `as-child` is `identity` BY CONSTRUCTION, so wrapping and
+  not wrapping are the same value here.
+
+  ## A BOUNDARY CHILD IS PASSED ALREADY EXPANDED, never as a head
+
+  [[ribbon-tree]]'s three component children — the frame switcher, the
+  mode pill and the theme toggle — are boundaries, and `expand-tree`
+  INVOKES any fn-headed vector it meets. A boundary head is a real React
+  function component, so invoking one outside a render window is exactly
+  what `rf.fresco/sub` refuses. This lane therefore hands `shell/
+  ribbon-tree` each child's already-expanded plain hiccup, the same way
+  [[shell-view-tree]] hands it the chrome's — which is also why the L1
+  ribbon has no `as-child` seam left to pass `identity` through.
+
+  `frame-switcher-view` and `mode-pill` were the ribbon's two REAGENT
+  ISLANDS until rf2-k97c.3 deleted four of them at once — these two here
+  and the same two in the Static ribbon. Their doors are
+  `test-helpers.static-shell-tree`'s `frame-switcher-tree` and
+  `mode-pill-tree`: both ribbons mount both widgets, so the read
+  reproduction is single-sourced in the ns this one already requires.
 
   ## Call these INSIDE a frame scope
 
@@ -81,7 +98,8 @@
       :event-bundles   @(rf/subscribe [:rf.xray/filtered-event-bundles])
       :show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
       :filters         @(rf/subscribe [:rf.xray/active-filters])}
-     identity
+     (static-shell-tree/frame-switcher-tree dispatch)
+     (static-shell-tree/mode-pill-tree dispatch)
      (theme-toggle-tree dispatch))))
 
 (defn events-ribbon-tree

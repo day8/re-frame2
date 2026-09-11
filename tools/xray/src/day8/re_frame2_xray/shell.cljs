@@ -1224,8 +1224,8 @@
 
 (defn ribbon-tree
   "The L1 chrome ribbon's WHOLE hiccup, as a pure function of the
-  frame-bound `dispatch`, the six values [[ribbon]] reads, and the
-  `as-child` spelling for the ribbon's two REAGENT ISLANDS.
+  frame-bound `dispatch`, the six values [[ribbon]] reads, and its
+  three already-composed boundary children.
 
   SPLIT OUT OF [[ribbon]] BY rf2-k97c.3, for the reason every migrated
   view in this epic splits: a boundary's body may only run inside a React
@@ -1241,21 +1241,31 @@
   `ribbon-right-icons`, `filter-pills/chrome-add-filter-button` and
   `spine-filters/ribbon-mute-indicator` are all plain fns answering
   hiccup, so they are CALLED rather than headed — Fresco grades a plain
-  function in head position a loud error. [[ribbon-theme-toggle]] IS a
-  boundary, so it stays a head.
+  function in head position a loud error.
 
-  TWO REAGENT ISLANDS, both reached through `as-child` — `identity` for a
-  hiccup caller and the node lane, `substrate/as-element` for the
-  boundary:
+  THREE BOUNDARY CHILDREN — `frame-switcher*`, `mode-pill*` and
+  `theme-toggle*` — ARRIVE ALREADY COMPOSED rather than as heads this fn
+  writes, because a boundary head cannot be walked by a hiccup walker:
+  its body only runs inside a React render window. [[ribbon]] passes the
+  three BOUNDARY-headed vectors and `test-helpers.dynamic-shell-tree`
+  passes each one's already-expanded plain hiccup, so a node-lane row
+  that walks this ribbon walks the real thing. Same shape as
+  [[dynamic-chrome-tree]]'s six layers, and for the same reason.
 
-    * `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill`, both
-      still `rf/reg-view`s and both ALSO headed by the STATIC shell's
-      ribbon (`static/shell.cljs`), which islands them the same way.
-      Migrating them is a slice of its own that deletes FOUR islands at
-      once — two here and two there — rather than two now and two later."
+  THE `as-child` PARAMETER IS GONE, and its deletion is the deliverable
+  rather than a tidy-up. `frame-switcher/frame-switcher-view` and
+  `mode-pill/mode-pill` were this ribbon's two REAGENT ISLANDS —
+  `rf/reg-view`s a boundary could only reach across an `as-child` seam —
+  and they are boundaries as of rf2-k97c.3, so the seam has nothing left
+  to carry. The STATIC shell's ribbon (`static/shell.cljs`) islanded the
+  same two widgets the same way, so the one slice deleted FOUR islands —
+  two here and two there — which is why they were deferred rather than
+  migrated piecemeal. [[event-list-tree]]'s L4 seam is untouched and
+  stands for its own recorded reason."
   [dispatch
    {:keys [redacted-count muted-count focus event-bundles show-ungrouped? filters]}
-   as-child
+   frame-switcher*
+   mode-pill*
    theme-toggle*]
   (let [no-filters? (zero? (+ (count (:in filters)) (count (:out filters))))
         {:keys [at-head? at-tail? live?]}
@@ -1354,16 +1364,17 @@
       ;; frame` + `:rf.xray/available-frames` and writes via
       ;; `:rf.xray/select-frame`. The frame is a view SCOPE, not a
       ;; filter (rf2-4vp5j Workstream C).
-      ;; rf2-k97c.3 — REAGENT ISLAND. Still an `rf/reg-view`, which
-      ;; Fresco grades `:invalid` as a head down the same arm a plain
-      ;; `defn` does. See [[ribbon-tree]]'s docstring.
-      (as-child [frame-switcher/frame-switcher-view])
+      ;; rf2-k97c.3 — a FRESCO BOUNDARY now, so it arrives here ALREADY
+      ;; COMPOSED rather than as a head this fn writes. It was this
+      ;; ribbon's first Reagent island until that slice. See
+      ;; [[ribbon-tree]]'s docstring.
+      frame-switcher*
       ;; Dynamic/Static dropdown (rf2-4vp5j) — compact, understated; the
       ;; accent stripe carries the mode signal so the control stays
       ;; quiet. Always rendered (the `:rf.xray/static-mode?` feature
       ;; gate was removed per rf2-8l3uk).
-      ;; rf2-k97c.3 — the second REAGENT ISLAND.
-      (as-child [mode-pill/mode-pill])
+      ;; rf2-k97c.3 — the second boundary, and the second island deleted.
+      mode-pill*
       ;; rf2-ikuwt — mute indicator (🔇 N) renders inline next to the
       ;; REDACTED indicator. Both are silent-by-default surfaces that
       ;; only paint when their count is positive. Click → unmute
@@ -1432,8 +1443,10 @@
   `defview` binds NO name inside the body, so the bare `dispatch` this
   body used to close over would be a LOUD compile error.
 
-  `substrate/as-element` is the `as-child` spelling for the two Reagent islands;
-  [[ribbon-tree]] records which they are and why.
+  ITS THREE COMPONENT CHILDREN ARE BOUNDARY HEADS, not islands
+  (rf2-k97c.3). The frame switcher and the mode pill were `rf/reg-view`s
+  reached across an `as-child` seam until that slice; heading them
+  directly is what deleted it, and [[ribbon-tree]] records why.
 
   The argument is the ordinary one-props-map vector every `defview`
   takes. [[dynamic-chrome]] mounts it with none, so it is destructured
@@ -1459,7 +1472,8 @@
      ;; when ≥1 filter is committed (the events-ribbon's own `[+]`
      ;; takes over). Open when zero filters, closed otherwise.
      :filters         (rf.fresco/sub [:rf.xray/active-filters])}
-    substrate/as-element
+    [frame-switcher/frame-switcher-view {}]
+    [mode-pill/mode-pill {}]
     [ribbon-theme-toggle {}]))
 
 ;; ---- L2 event list -------------------------------------------------------
