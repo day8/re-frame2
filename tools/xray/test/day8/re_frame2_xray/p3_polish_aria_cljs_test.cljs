@@ -38,7 +38,6 @@
             [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
              :as dynamic-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
-            [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.test-helpers.static-shell-tree
              :as static-shell-tree]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -270,7 +269,7 @@
     (seed-trace! 2 :app/main)
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree   (frame-switcher/frame-switcher-view nil)
+      (let [tree   (static-shell-tree/frame-switcher-tree rf/dispatch)
             picker (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-picker")]
         (is (some? picker)
             "the <select> picker renders when ≥2 frames are present")

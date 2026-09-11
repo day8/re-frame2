@@ -99,32 +99,30 @@
   [[surface]] because it is what the Dynamic composer mounts (so it is
   where the crossing sits — one bridge for the whole surface) and
   because a boundary is the only legal hiccup head for the three
-  regions under it; [[ribbon]] because it carries a dispatcher and
-  hosts the two Reagent islands below.
+  regions under it; [[ribbon]] because it carries a dispatcher.
 
-  TWO REAGENT ISLANDS REMAIN, both reached through an `as-child`
-  seam — `identity` for a hiccup caller and the node lane,
-  `substrate/as-element` for a boundary:
+  ONE REAGENT ISLAND REMAINS, reached through an `as-child` seam —
+  `identity` for a hiccup caller and the node lane,
+  `substrate/as-element` for a boundary: [[detail-panel]]'s
+  `[(:panel tab)]`, because `panel-registry/reg-l4-tab!`'s `:pre`
+  requires `:panel` to be CALLABLE. All five Static panels are
+  boundaries as of PR #9648, so every one of them registers an
+  `as-component` BRIDGE — a plain fn answering `[:> Component {}]` —
+  rather than the view itself. A bridge is a plain fn, which Fresco
+  grades `:invalid` as a head down the same arm a `reg-view` goes, so
+  the island stands until the registry can take a boundary directly.
 
-    * the L1 ribbon's `frame-switcher/frame-switcher-view` and
-      `mode-pill/mode-pill`, both still `rf/reg-view`s. The Dynamic
-      `shell.cljs` ribbon is a BOUNDARY as of rf2-k97c.3 and islands
-      the same two widgets the same way, so migrating them now deletes
-      FOUR islands in one slice — two here and two there — rather than
-      two now and two later.
-    * [[detail-panel]]'s `[(:panel tab)]`, because
-      `panel-registry/reg-l4-tab!`'s `:pre` requires `:panel` to be
-      CALLABLE. All five Static panels are boundaries as of PR #9648,
-      so every one of them registers an `as-component` BRIDGE — a plain
-      fn answering `[:> Component {}]` — rather than the view itself.
-      A bridge is a plain fn, which Fresco grades `:invalid` as a head
-      down the same arm a `reg-view` goes, so the island stands until
-      the registry can take a boundary directly.
+  It is MIGRATION SCAFFOLDING WITH A DEFINED END: the L4 seam goes when
+  `reg-l4-tab!` stores boundaries directly — the deletion each panel's
+  own bridge comment already promises.
 
-  Both are MIGRATION SCAFFOLDING WITH A DEFINED END: the ribbon seam
-  goes when those two widgets are boundaries, and the L4 seam goes
-  when `reg-l4-tab!` stores boundaries directly — the deletion each
-  panel's own bridge comment already promises.
+  THE L1 RIBBON'S TWO ISLANDS ARE GONE (rf2-k97c.3). The ribbon reached
+  `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill` across
+  an `as-child` seam while both were `rf/reg-view`s; both are Fresco
+  boundaries now and [[ribbon]] heads them directly. The Dynamic
+  `shell.cljs` ribbon islanded the same two widgets the same way, so
+  that one slice deleted FOUR islands — two here and two there — which
+  is exactly why they were deferred rather than migrated piecemeal.
 
   ## Mode-signal mechanism (4 stacked signals)
 
@@ -284,8 +282,7 @@
 
 (defn ribbon-tree
   "The Static L1 ribbon's WHOLE chrome, as a pure function of the
-  frame-bound `dispatch` and the `as-child` spelling for the two
-  REAGENT ISLANDS (see the ns docstring).
+  frame-bound `dispatch` and its two already-composed selector nodes.
 
   SPLIT OUT OF [[ribbon]] BY rf2-k97c.3, and the split is `defview`'s
   own documented extract-a-helper spelling rather than an invention: a
@@ -294,15 +291,25 @@
   chrome itself is ordinary data → data and is worth walking in the fast
   node lane.
 
-  `as-child` is `identity` for a hiccup caller (the node lane, and any
-  Reagent caller), which leaves each island a fn-headed hiccup vector
-  exactly as it has always been; the boundary passes
-  `substrate/as-element`, which answers a React element — a legal
-  child anywhere per Fresco's component ABI.
+  `frame-switcher*` and `mode-pill*` ARRIVE ALREADY COMPOSED rather than
+  as heads this fn writes, for the same reason [[surface-tree]]'s three
+  layers do: both are Fresco BOUNDARIES as of rf2-k97c.3, and a boundary
+  head cannot be walked by a hiccup walker because its body only runs
+  inside a React render window. [[ribbon]] passes
+  `[frame-switcher/frame-switcher-view {}]` and `[mode-pill/mode-pill
+  {}]`; `test-helpers.static-shell-tree` passes each one's
+  already-expanded plain hiccup.
+
+  THE `as-child` PARAMETER IS GONE, and its deletion is the deliverable
+  rather than a tidy-up. Those two widgets were the ribbon's two REAGENT
+  ISLANDS — `rf/reg-view`s a boundary could only reach across an
+  `as-child` seam — and they are boundaries now, so the seam has nothing
+  left to carry. The L4 seam in [[detail-panel-tree]] is untouched and
+  stands for its own recorded reason.
 
   PURE: `ribbon-right-icons` is CALLED rather than headed, and answers
   keyword hiccup all the way down."
-  [dispatch as-child]
+  [dispatch frame-switcher* mode-pill*]
   [:div {:data-testid "rf-xray-static-ribbon"
          :style {:display          "flex"
                  :align-items      "center"
@@ -325,12 +332,13 @@
    ;; (Dynamic) and event-independent (Static) lenses.
    [:div {:data-testid "rf-xray-static-ribbon-selectors"
           :style {:display "flex" :align-items "center" :gap "8px"}}
-    ;; rf2-k97c.3 — the two REAGENT ISLANDS. Both are still
-    ;; `rf/reg-view`s, which grade `:invalid` as a Fresco head down the
-    ;; same arm a plain `defn` does, and both are ALSO headed by the
-    ;; Dynamic `shell.cljs` ribbon. See the ns docstring.
-    (as-child [frame-switcher/frame-switcher-view])
-    (as-child [mode-pill/mode-pill])]
+    ;; rf2-k97c.3 — both are FRESCO BOUNDARIES now, so they arrive here
+    ;; ALREADY COMPOSED rather than as heads this fn writes. They were
+    ;; the ribbon's two Reagent islands until this slice; the Dynamic
+    ;; `shell.cljs` ribbon islanded the same two the same way and lost
+    ;; its seam in the same commit. See [[ribbon-tree]]'s docstring.
+    frame-switcher*
+    mode-pill*]
    [:div {:style {:display "flex" :align-items "center" :gap "8px"}}
     (ribbon-right-icons dispatch)]])
 
@@ -360,10 +368,16 @@
   lexically. Same guarantee, one call, and it is the spelling every
   migrated view now uses.
 
+  ITS TWO SELECTORS ARE BOUNDARY HEADS, not islands (rf2-k97c.3). Both
+  were `rf/reg-view`s reached across an `as-child` seam until this
+  slice; heading them directly is what deleted it.
+
   The argument is the ordinary one-props-map vector every `defview`
   takes. [[surface]] mounts it with none, so it is destructured away."
   [_props]
-  (ribbon-tree (:dispatch (rf/capture-frame)) substrate/as-element))
+  (ribbon-tree (:dispatch (rf/capture-frame))
+               [frame-switcher/frame-switcher-view {}]
+               [mode-pill/mode-pill {}]))
 
 ;; ---- L3 tab bar (Static) ------------------------------------------------
 

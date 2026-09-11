@@ -15,6 +15,17 @@
       head carries IS honoured — `reagent2.impl.component` reads
       `(:contextType (meta f))` exactly as stock's `fn-to-class` does —
       so the frame keyword genuinely reaches the mounted class.
+
+  rf2-k97c.3 LATER RETIRED THE L1 RIBBON'S OWN TWO ISLANDS —
+  `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill` are
+  Fresco boundaries now and the ribbon heads them directly. W2 below is
+  written against what the ribbon renders rather than against the
+  crossing spelling, so it still stands over the same DOM; what it can
+  no longer claim is that the node it finds arrived through an
+  `as-child` seam. The door itself is unchanged and W1 is untouched —
+  the L2/L3 seam handle and the L4 `[(:panel tab)]` mount still cross
+  through it, which is why this suite is still the one that measures
+  it.
     * But the foreign build renders the subtree with ITS
       in-flight-component slot bound, while `:adapter/current-component`
       routes to the INSTALLED build and answers nil inside it.
@@ -207,16 +218,20 @@
   (some-> container (.querySelector (str "[data-testid=\"" id "\"]"))))
 
 (deftest w2-ribbon-reagent-island-paints-under-reagent-slim
-  (testing "rf2-7ds8 — under reagent-slim the Static L1 ribbon's Reagent
-            island commits to the DOM, which it can only do if the
-            boundary crossed it through the installed build AND the frame
-            resolved beneath it.
+  (testing "rf2-7ds8 — under reagent-slim the Static L1 ribbon commits
+            its frame switcher to the DOM, which it can only do if the
+            frame resolved beneath the ribbon boundary.
 
-            `frame-switcher-view` is a `reg-view` whose body makes an
-            ambient read. Its node therefore exists ONLY when
-            views/current-frame found a component to read a frame off —
-            so the node's presence is the frame-context claim, not merely
-            a paint claim."
+            `frame-switcher-view` READS, so its node exists ONLY when the
+            frame resolver found a frame to read against — the node's
+            presence is the frame-context claim, not merely a paint
+            claim. rf2-k97c.3 made it a BOUNDARY (it was a `reg-view`
+            island crossed through `as-child` when this row was written),
+            so what the row now witnesses is the boundary's own context
+            resolution rather than the crossing's. That is a weaker
+            statement about the DOOR and an equally strong one about the
+            FRAME, which is what the row is for; W1 is the door's
+            durable pin and is untouched."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
@@ -237,11 +252,11 @@
           (is (nil? (testid container "rf-slim-crossing-fallback"))
               "the error boundary did NOT swap in its fallback")
           (is (some? (testid container "rf-xray-ribbon-frame"))
-              (str "frame-switcher-view — a reg-view island the ribbon "
-                   "crosses through its as-child seam — is committed under "
+              (str "frame-switcher-view — the ribbon's frame switcher, a "
+                   "boundary since rf2-k97c.3 — is committed under "
                    "reagent-slim. This is the node the defect removed"))
           (is (some? (testid container "rf-xray-ribbon-frame-picker"))
-              "the island rendered its frame picker, so its ambient read ran
-               rather than raising")
+              "it rendered its frame picker, so its read ran rather than
+               raising")
           (teardown! root container)
           (done))))))

@@ -23,6 +23,8 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.test-helpers.static-shell-tree
+             :as static-shell-tree]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
@@ -285,7 +287,7 @@
     (dispatch-trace 1 :app/main)
     (setup!)
     (rf/with-frame :rf/xray
-      (let [tree    (frame-switcher/frame-switcher-view {})
+      (let [tree    (static-shell-tree/frame-switcher-tree rf/dispatch)
             button  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame")
             label   (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-label")
             picker  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-picker")
@@ -319,7 +321,7 @@
     (dispatch-trace 2 :app/admin)
     (setup!)
     (rf/with-frame :rf/xray
-      (let [tree   (frame-switcher/frame-switcher-view {})
+      (let [tree   (static-shell-tree/frame-switcher-tree rf/dispatch)
             picker (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-picker")
             label  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-label")]
         (is (some? picker) "dropdown renders for multi-frame")
@@ -397,7 +399,7 @@
   input invariant)."
   []
   (rf/with-frame :rf/xray
-    (let [tree    (frame-switcher/frame-switcher-view {})
+    (let [tree    (static-shell-tree/frame-switcher-tree rf/dispatch)
           picker  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-picker")
           options (filter (fn [n] (and (vector? n) (= :option (first n))))
                           (hiccup-seq tree))]

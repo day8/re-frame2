@@ -348,7 +348,7 @@
             Static options"
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (mode-pill/mode-pill)]
+      (let [tree (static-shell-tree/mode-pill-tree rf/dispatch)]
         (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-mode-pill"))
             "the select control is present")
         (is (= :select (first tree)) "the control is a native <select>")
@@ -361,13 +361,13 @@
   (testing "the dropdown's :value + data-active-mode track the live mode"
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [attrs (second (mode-pill/mode-pill))]
+      (let [attrs (second (static-shell-tree/mode-pill-tree rf/dispatch))]
         (is (= "dynamic" (:value attrs)))
         (is (= "dynamic" (:data-active-mode attrs)))))
     ;; flip to Static and re-render
     (frame-dispatch [:rf.xray/set-mode :static])
     (rf/with-frame :rf/xray
-      (let [attrs (second (mode-pill/mode-pill))]
+      (let [attrs (second (static-shell-tree/mode-pill-tree rf/dispatch))]
         (is (= "static" (:value attrs)))
         (is (= "static" (:data-active-mode attrs)))))))
 
