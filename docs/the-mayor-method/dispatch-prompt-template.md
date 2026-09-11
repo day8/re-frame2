@@ -732,6 +732,14 @@ snapshot per revision. THAT SNAPSHOT USUALLY NESTS THE ITEM'S FIELDS UNDER A SUB
 the top level carrying only revision metadata, so a walk keyed at the top level matches
 nothing in every snapshot and reports "no change" without erroring.
 
+AND AN EMPTY OR NULL HISTORY IS A STATEMENT ABOUT THE ID, NOT ABOUT THE ITEM. The
+structured form answers null for an id that does not exist, which is indistinguishable
+from "this item has no history" unless you check — and the commonest cause is an id
+that picked up a trailing carriage return on its way through a pipeline. A worker that
+reads null as "the tool does not work here" abandons the newest-first walk and reads
+the fields directly, which is the one thing this whole passage exists to prevent.
+Re-check the id against a known-good one before concluding anything about the tool.
+
 WALK ADJACENT PAIRS NEWEST-FIRST UNTIL THE FIRST CHANGE TO A TEXT-BEARING FIELD
 (description, notes, acceptance criteria, design — and note that a field's UPDATE FLAG
 is often spelled differently from the field itself). Histories hold duplicate checkpoint
