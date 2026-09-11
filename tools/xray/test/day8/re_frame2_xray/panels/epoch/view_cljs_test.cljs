@@ -58,14 +58,18 @@
 ;; `panels/app_db_diff_cljs_test` and `static/flows/panel_cljs_test` already
 ;; settled for the same reason.
 ;;
-;; The rows that USED to assert on markup inside the EDN widget now assert on
-;; the boundary vector the panel emits — see `inspector-view-forms`.
+;; THE TWO WIDGET BOUNDARIES ARE EXPANDED THROUGH THEIR REAGENT SIBLINGS
+;; instead, by `expand-widgets` below, and that is a considered choice rather
+;; than a shortcut. The panel hands each widget the content it asserts on —
+;; the table's columns, row-attrs and CELLS; the inspector's value and opts —
+;; and some forty rows here are about EPOCH's contribution, not the widget's.
+;; Each widget ships BOTH heads over one private renderer, so expanding the
+;; Reagent one reaches the same markup without entering a boundary body.
 ;;
-;; THE TABLE IS THE OTHER WAY ROUND, and `expand-widgets` below says why. Its
-;; interior is not the widget's private business the way the inspector's is:
-;; the panel hands `resizable-table-view` the columns, the row-attrs and the
-;; CELLS, and roughly thirty rows here assert on that content. Those rows are
-;; about EPOCH's contribution, not the widget's, so they keep their spelling.
+;; The cost is that the expanded tree cannot say WHICH head the panel emits,
+;; so `panel-emits-the-fresco-widget-heads-test` pins that separately, off the
+;; unexpanded tree. That claim is the HD-016 repair itself and is the one
+;; thing the old spelling could not state.
 
 (defn- expand-widgets
   "Expand `[rt/resizable-table-view props]` into the grid the widget renders,
@@ -79,15 +83,25 @@
   The Reagent head resolves them the way this suite always drove it, with a
   documented nil-safe path for a test that registered no handlers.
 
-  `[ei/edn-inspector-view …]` is deliberately left a LEAF. Applying it would
-  run `rf.fresco/sub` outside the collector and raise
-  `:rf.error/fresco-sub-outside-render`; its interior belongs to the widget's
-  own suite and to the DOM lane. It falls out of the plain `vector?` branch
-  below — its fn head is not the table's, so nothing invokes it."
+  `[ei/edn-inspector-view {:mount-id … :value v :opts o}]` is expanded the
+  same way and for the same reason, through `[ei/edn-inspector v o]`. Its two
+  heads also share one private `render-inspector`, and differ only in how
+  each resolves the expansion / zoom / width slots and its per-mount
+  identity — none of which any row here asserts on. The props RESHAPE is the
+  whole of the difference at the call site: the Reagent head takes the value
+  and opts positionally, the boundary takes one map.
+
+  WHAT THIS DELIBERATELY DOES NOT GRADE is which head the panel emits, since
+  it erases exactly that. `panel-emits-the-fresco-widget-heads-test` pins it
+  directly instead, off `inspector-view-forms` and the unexpanded tree."
   [tree]
   (cond
     (and (vector? tree) (= rt/resizable-table-view (first tree)))
     (expand-widgets (apply rt/resizable-table (rest tree)))
+
+    (and (vector? tree) (= ei/edn-inspector-view (first tree)))
+    (let [{:keys [value opts]} (second tree)]
+      (expand-widgets (rf.test-helpers/expand-tree [ei/edn-inspector value opts])))
 
     (vector? tree) (mapv expand-widgets tree)
     (seq? tree)    (map expand-widgets tree)
@@ -119,27 +133,90 @@
                      (.startsWith prefix)))
            (hiccup-nodes tree)))
 
-(defn- inspector-view-forms
-  "Every `[ei/edn-inspector-view {…}]` form in the tree — the EDN widget's
-  FRESCO head, and one of the only two fn-headed vectors this panel still
-  emits.
+(defn- text-content
+  "String leaves under `node`, joined. Shadows the one in
+  `re-frame.test-helpers` for the same reason the finders above shadow
+  theirs: that one collects its leaves off `hiccup-seq`, which
+  EXPANDS function components, so calling it on any node carrying an
+  `[ei/edn-inspector-view …]` descendant raises inside the boundary."
+  [node]
+  (->> (hiccup-nodes node)
+       (filter (some-fn string? number?))
+       (map str)
+       (string/join)))
 
-  No expansion of any kind, and the leaf must STAY a leaf: applying a
-  boundary here would run `rf.fresco/sub` outside the collector."
+(defn- raw-nodes
+  "Every node in the tree AS THE PANEL EMITS IT — no expansion of any kind,
+  so a widget head is whatever the panel actually wrote there. The
+  boundary-head rows below need this rather than `hiccup-nodes`, which
+  substitutes the Reagent siblings and so erases the very thing they grade."
   [tree]
-  (filterv #(and (vector? %) (= ei/edn-inspector-view (first %)))
-           (hiccup-nodes tree)))
+  (tree-seq (some-fn vector? seq?) seq tree))
+
+(defn- head-counts
+  "How many times each of the four widget heads appears in the UNEXPANDED
+  tree, as `{:inspector-fresco n :inspector-reagent n :table-fresco n
+  :table-reagent n}`."
+  [tree]
+  (let [heads (keep #(when (and (vector? %) (seq %)) (first %)) (raw-nodes tree))
+        n     (fn [h] (count (filter #(= h %) heads)))]
+    {:inspector-fresco  (n ei/edn-inspector-view)
+     :inspector-reagent (n ei/edn-inspector)
+     :table-fresco      (n rt/resizable-table-view)
+     :table-reagent     (n rt/resizable-table)}))
 
 ;; ---- helpers -----------------------------------------------------------
 
 (defn- text-of
   [tree testid]
-  (some-> tree (find-by-testid testid) rf.test-helpers/text-content))
+  (some-> tree (find-by-testid testid) text-content))
 
 (defn- style-of
   "The inline `:style` map of the node carrying `testid` under `tree`."
   [tree testid]
   (some-> tree (find-by-testid testid) rf.test-helpers/attrs :style))
+
+;; ---- rf2-k97c.3 — the panel emits the FRESCO widget heads ---------------
+
+(deftest panel-emits-the-fresco-widget-heads-test
+  (testing "rf2-k97c.3 — every widget this panel heads with is a FRESCO
+            BOUNDARY, never the widget's Reagent head.
+
+            This is the HD-016 repair itself, and it is the one claim the
+            pre-migration spelling could not make. `Panel` is an
+            `rf.fresco/defview` now, and Fresco's codec grades a head by
+            ONE own property, `frescoBoundary`, which only
+            `rf.fresco/defview` sets — so an `rf/reg-view` head grades
+            `:invalid` down the IDENTICAL arm a plain `defn` does. Leaving
+            either Reagent head in place would break the panel at runtime
+            while every other row in this file stayed green, because
+            `expand-widgets` substitutes those very heads to reach the
+            markup. So this row reads the UNEXPANDED tree.
+
+            The Reagent heads must read ZERO, and a zero is only evidence
+            when the instrument bites — so the Fresco counts are asserted
+            POSITIVE on the same tree, which is the control."
+    (epoch-orchestrator/install!)
+    (rf/make-frame {:id :rf/xray})
+    (rf/with-frame :rf/xray
+      (let [steps [{:step :dispatch :badge :DISPATCH :step-number 1
+                    :event [:counter/inc 7] :source :ui :coord nil}
+                   {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                    :rows [{:sub-id :a :sub-vec [:a] :changed? true
+                            :before 1 :after 2}]
+                    :changed 1 :unchanged 0}]
+            counts (head-counts (view/pipeline-view steps))]
+        (is (pos? (:inspector-fresco counts))
+            "the DISPATCH step heads the EDN widget's Fresco boundary
+             (control: a zero here would mean the probe found no widget
+             at all, not that the migration held)")
+        (is (pos? (:table-fresco counts))
+            "the SUBSCRIPTIONS step heads the table widget's Fresco
+             boundary (control, as above)")
+        (is (zero? (:inspector-reagent counts))
+            "no `ei/edn-inspector` Reagent head survives")
+        (is (zero? (:table-reagent counts))
+            "no `rt/resizable-table` Reagent head survives")))))
 
 ;; ---- rf2-9jvx1 — text-duplication audit --------------------------------
 
@@ -200,9 +277,9 @@
                   :event [:counter/inc 7] :source :ui :coord nil})
           body (find-by-testid tree "rf-xray-epoch-dispatch-event")]
       (is (some? body) "the body's event-vector slot is present")
-      (is (string/includes? (rf.test-helpers/text-content body) ":counter/inc")
+      (is (string/includes? (text-content body) ":counter/inc")
           "event-id is visible in the body")
-      (is (string/includes? (rf.test-helpers/text-content body) "7")
+      (is (string/includes? (text-content body) "7")
           "the event args are visible too"))))
 
 (deftest dispatch-body-omits-event-when-absent-test
@@ -599,6 +676,23 @@
   [tree prefix]
   (count (find-by-testid-prefix tree prefix)))
 
+(defn- subscriptions-step
+  "`render-subscriptions-step` with the cascade context `Panel` supplies.
+
+  rf2-k97c.3 — the filter mode used to be read INSIDE the step renderer.
+  `Panel` is a Fresco boundary now and reads it there, threading the VALUE
+  down the `ctx` map, so the renderer is a pure fn of its arguments and
+  stays drivable here. This helper reads the slot exactly as the boundary
+  does; the rows that exercise mode-switching keep grading the read and
+  the dispatch against ONE frame, which is what they were always about.
+
+  Rows that only want the DEFAULT mode go on calling the 1-arity
+  directly — no mode is the `:changed` default the `case` already has."
+  [step]
+  (view/render-subscriptions-step
+    step
+    {:subs-filter-mode @(rf/subscribe [:rf.xray.epoch/subs-filter-mode])}))
+
 (deftest sub-row-renders-sub-id-test
   (testing "rf2-kfh1v — SUBSCRIPTIONS row leads with the sub-id /
             sub-vec (operator can tell WHICH sub recomputed)"
@@ -612,7 +706,7 @@
             tree (view/render-subscriptions-step step)
             row  (find-by-testid tree "rf-xray-epoch-sub-row-0")]
         (is (some? row) "the sub row renders")
-        (let [txt (rf.test-helpers/text-content row)]
+        (let [txt (text-content row)]
           (is (string/includes? txt ":counter/total")
               "sub-id is visible as the leading element"))))))
 
@@ -684,12 +778,12 @@
               "default mode `:changed` renders only the changed row"))
         ;; switch to `:all`
         (rf/dispatch-sync [:rf.xray.epoch/set-subs-filter-mode :all])
-        (let [tree (view/render-subscriptions-step step)]
+        (let [tree (subscriptions-step step)]
           (is (= 3 (count-prefix tree "rf-xray-epoch-sub-row-"))
               "`:all` mode renders every row"))
         ;; switch to `:unchanged`
         (rf/dispatch-sync [:rf.xray.epoch/set-subs-filter-mode :unchanged])
-        (let [tree (view/render-subscriptions-step step)]
+        (let [tree (subscriptions-step step)]
           (is (= 2 (count-prefix tree "rf-xray-epoch-sub-row-"))
               "`:unchanged` mode renders only the unchanged rows"))))))
 
@@ -718,7 +812,7 @@
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray.epoch/set-subs-filter-mode :all]))
       (rf/with-frame :rf/xray
-        (let [tree (view/render-subscriptions-step step)]
+        (let [tree (subscriptions-step step)]
           (is (= 2 (count-prefix tree "rf-xray-epoch-sub-row-"))
               "frame-anchored dispatch flips the :rf/xray slot the 2-arity sub reads"))))))
 
@@ -1365,7 +1459,7 @@
             marker (find-by-testid tree "rf-xray-epoch-fx-row-db-destination-0")]
         (is (some? marker) "the :db row carries the destination marker")
         (is (= :button (first marker)) "marker is a clickable <button>")
-        (is (string/includes? (rf.test-helpers/text-content marker) "→ app-db"))
+        (is (string/includes? (text-content marker) "→ app-db"))
         (is (fn? (:on-click (second marker)))
             "marker carries an on-click that jumps to the App-db panel")))))
 
@@ -1378,9 +1472,9 @@
                    [{:fx-id :clipboard/write :status :skipped}]))
           row  (find-by-testid tree "rf-xray-epoch-fx-row-0")]
       (is (some? row))
-      (is (string/includes? (rf.test-helpers/text-content row) badge/skipped-glyph)
+      (is (string/includes? (text-content row) badge/skipped-glyph)
           "the skipped row leads with the en-dash glyph")
-      (is (not (string/includes? (rf.test-helpers/text-content row) "·"))
+      (is (not (string/includes? (text-content row) "·"))
           "NOT the :cancelled middle-dot"))))
 
 (deftest side-effects-fx-row-shows-attribution-chip-test
@@ -1393,7 +1487,7 @@
           tree (view/render-side-effects-step step)
           chip (find-by-testid tree "rf-xray-epoch-fx-row-attribution-0")]
       (is (some? chip) "the attribution chip is present")
-      (is (string/includes? (rf.test-helpers/text-content chip) ":open-socket")
+      (is (string/includes? (text-content chip) ":open-socket")
           "the action-id rides the chip"))))
 
 (deftest side-effects-fx-row-omits-attribution-chip-when-none-test
@@ -1491,6 +1585,25 @@
 ;; because its key lives in props. Hence the raw walk below and `r/as-element`,
 ;; which grades what the RENDERER receives rather than how it is spelled.
 
+(defn- call-widget-head
+  "Invoke a hiccup vector's fn head, substituting each widget's REAGENT
+  sibling for its Fresco boundary.
+
+  rf2-k97c.3 — the same swap `expand-widgets` makes and for the same reason,
+  written separately because this walker must not rebuild (see
+  [[raw-children]]). Applying a boundary here calls a React function
+  component outside any render, which raises on the first hook."
+  [node]
+  (cond
+    (= rt/resizable-table-view (first node))
+    (apply rt/resizable-table (rest node))
+
+    (= ei/edn-inspector-view (first node))
+    (let [{:keys [value opts]} (second node)]
+      (ei/edn-inspector value opts))
+
+    :else (apply (first node) (rest node))))
+
 (defn- raw-children
   "Children of a hiccup node WITHOUT rebuilding it. `expand-tree` would
   `mapv` fresh vectors and strip reader metadata, so this gate could not see
@@ -1498,7 +1611,7 @@
   nil and fail for the wrong reason."
   [node]
   (cond
-    (and (vector? node) (fn? (first node))) [(apply (first node) (rest node))]
+    (and (vector? node) (fn? (first node))) [(call-widget-head node)]
     (vector? node)                          (if (map? (second node)) (drop 2 node) (rest node))
     (seq? node)                             node
     :else                                   nil))
@@ -1858,10 +1971,10 @@
         (is (some #(and (vector? %) (= "↳" (last %)))
                   (tree-seq vector? seq data-write-node))
             "rf2-32kyr — the `↳` arrow is KEPT")
-        (is (not (string/includes? (or (rf.test-helpers/text-content data-write-node) "") "data Δ"))
+        (is (not (string/includes? (or (text-content data-write-node) "") "data Δ"))
             "rf2-32kyr — the redundant `data Δ` caption text is REMOVED")
         ;; The edn-inspector value still renders (the written `:opened-count`).
-        (is (string/includes? (or (rf.test-helpers/text-content data-write-node) "") "opened-count")
+        (is (string/includes? (or (text-content data-write-node) "") "opened-count")
             "rf2-32kyr — the edn-inspector value is KEPT (arrow → value, no caption)")))
     ;; A no-op exit action whose :data is unchanged still surfaces the
     ;; slot (the inspector renders the value with no delta).
@@ -2457,9 +2570,9 @@
       ;; rf2-5t8y8 — sub-header carries an at-a-glance entry-count chip
       ;; on both `:fx` and `other` (was lost during the rf2-p2zy0
       ;; edn-inspector migration).
-      (is (string/includes? (rf.test-helpers/text-content fx-sec) "2 entries")
+      (is (string/includes? (text-content fx-sec) "2 entries")
           "the :fx sub-header carries the entry-count chip")
-      (is (string/includes? (rf.test-helpers/text-content oth-sec) "1 entry")
+      (is (string/includes? (text-content oth-sec) "1 entry")
           "the other sub-header carries the singular entry chip"))))
 
 (deftest side-effects-fx-args-route-through-edn-inspector-test
@@ -2673,7 +2786,7 @@
             (is (string/includes? (str (:border-left style))
                                   (:diff-modified-stripe tokens/tokens))
                 "changed leaf stripe reads through the diff-modified-stripe token"))
-          (let [txt (rf.test-helpers/text-content leaf)]
+          (let [txt (text-content leaf)]
             (is (string/includes? txt "~")
                 "leading `~` glyph paints (parity with the inspector's
                  R1 `:modified` leaf shape)")
@@ -2692,7 +2805,7 @@
               tree (view/render-subscriptions-step step)
               leaf (find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0")]
           (is (some? leaf))
-          (let [txt (rf.test-helpers/text-content leaf)]
+          (let [txt (text-content leaf)]
             (is (string/includes? txt "← was"))
             (is (string/includes? txt "odd"))
             (is (string/includes? txt "even")))))
@@ -2709,7 +2822,7 @@
               "nil-prev leaf still mounts the leaf-changed wrapper (the
                `:first-run? false` discriminator is the gate, NOT
                `(some? before)`)")
-          (let [txt (rf.test-helpers/text-content leaf)]
+          (let [txt (text-content leaf)]
             (is (string/includes? txt "← was"))
             (is (string/includes? txt "1779972561856"))
             (is (string/includes? txt "nil")
@@ -2734,7 +2847,7 @@
                           :inputs nil :changed? false :first-run? false
                           :before 7 :after 7}]
                   :changed 0 :unchanged 1}
-            tree (view/render-subscriptions-step step)
+            tree (subscriptions-step step)
             leaf (find-by-testid tree "rf-xray-epoch-subs-leaf-unchanged-0")]
         (is (some? leaf)
             "unchanged leaf mounts the leaf-unchanged wrapper")
@@ -2749,7 +2862,7 @@
               "unchanged leaf paints no wash (no diff chrome)")
           (is (nil? (:border-left style))
               "unchanged leaf paints no stripe (no diff chrome)"))
-        (let [txt (rf.test-helpers/text-content leaf)]
+        (let [txt (text-content leaf)]
           (is (string/includes? txt "7")
               "the current value renders")
           (is (not (string/includes? txt "~"))
@@ -2783,7 +2896,7 @@
         (is (nil? (find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0"))
             "the changed-wrapper is NOT mounted (mutually exclusive
              with leaf-added)")
-        (let [txt (rf.test-helpers/text-content added)]
+        (let [txt (text-content added)]
           (is (string/includes? txt "+")
               "leading `+` glyph paints (parity with the inspector's
                R1 `:added` shape)")
@@ -2865,7 +2978,7 @@
             chrome (find-by-testid tree "rf-xray-epoch-sub-row-cause-event-id-0")]
         (is (some? chrome)
             "the cause-event-id chrome mounts when the row carries it")
-        (let [txt (rf.test-helpers/text-content chrome)]
+        (let [txt (text-content chrome)]
           (is (string/includes? txt "caused by")
               "chrome carries the `caused by` prose label")
           (is (string/includes? txt ":counter/inc")
@@ -2914,7 +3027,7 @@
           "the view-id span renders")
       (is (pos? (count (mini-mounts id-cell)))
           "the view-id cell mounts at least one ei/mini widget (no longer plain text)")
-      (is (string/includes? (rf.test-helpers/text-content id-cell) ":app.counter/Counter")
+      (is (string/includes? (text-content id-cell) ":app.counter/Counter")
           "the keyword text is still present (mini renders the colon + ns + name)"))))
 
 (deftest unmounted-views-row-view-id-routes-through-mini-test
@@ -3082,10 +3195,10 @@
             l1-row       (find-by-testid tree "rf-xray-epoch-sub-row-1")
             param-inputs (some-> (find-by-attr
                                    param-row :data-rf-xray-resizable-col "inputs")
-                                 rf.test-helpers/text-content)
+                                 text-content)
             l1-inputs    (some-> (find-by-attr
                                    l1-row :data-rf-xray-resizable-col "inputs")
-                                 rf.test-helpers/text-content)]
+                                 text-content)]
         (is (some? param-row) "the parameterized sub row renders")
         (is (some? l1-row) "the L1 root row renders")
         (is (string/includes? param-inputs "chain-root")
@@ -3146,7 +3259,7 @@
              was iterated element-wise into TWO mini tokens")
         (is (contains? titles "[:article/by-id :a1]")
             "the single input is the WHOLE query-vector `[:article/by-id :a1]`")
-        (is (not (string/includes? (rf.test-helpers/text-content cell) "app-db"))
+        (is (not (string/includes? (text-content cell) "app-db"))
             "not the Level-1 `app-db` fallback — a cascade-attributed input"))))
   (testing "rf2-nlraqq — a multi-edge `:rf.sub/inputs` set (NOT cause-sub;
             already a vector OF query-vectors) still renders one mini per

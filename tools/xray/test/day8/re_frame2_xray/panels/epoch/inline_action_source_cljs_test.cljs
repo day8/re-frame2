@@ -52,6 +52,17 @@
 (defn- hiccup-nodes [tree]
   (tree-seq (some-fn vector? seq?) seq tree))
 
+(defn- text-content
+  "String leaves under `node`, joined. Shadows the one in
+  `re-frame.test-helpers`, which collects its leaves off a walk that
+  EXPANDS function components — unsafe now the Epoch view emits
+  `[ei/edn-inspector-view …]` Fresco boundaries."
+  [node]
+  (->> (hiccup-nodes node)
+       (filter (some-fn string? number?))
+       (map str)
+       (string/join)))
+
 (defn- find-by-testid [tree testid]
   (some (fn [node]
           (when (and (vector? node)
@@ -123,7 +134,7 @@
                                              (find-by-testid
                                                (str "rf-xray-epoch-machine-cascade-source-body-"
                                                     (:step r)))
-                                             rf.test-helpers/text-content)))
+                                             text-content)))
                              (string/join "\n"))]
       (is (seq action-rows)
           "the macrostep produced at least one :action cascade row")
