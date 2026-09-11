@@ -57,13 +57,15 @@
 
   Dispatches from `:on-click` / `:on-change` / `:on-key-down` /
   `:on-mouse-enter` fire LATER — after render commits and React has
-  POPPED `_currentValue` back to the context's default (`:rf/default`).
-  At click time the 3-tier frame resolution chain (dynamic var →
-  React-context tier → `:rf/default`) falls all the way through, the
-  dispatch lands on `:rf/default`'s router, and the `:rf.xray/palette-*`
-  handler reduces `:rf/default`'s db — leaving Xray's `:palette-*`
-  slots untouched. Symptom: palette appears frozen — arrow keys,
-  Enter, click on a row, ESC, backdrop click all no-op.
+  POPPED `_currentValue` back to the context's default, which is
+  `re-frame.adapter.context/no-provider-sentinel` and NOT `:rf/default`.
+  At click time BOTH tiers of the frame resolution chain come up empty —
+  the dynamic var has unwound and the React-context tier reads the
+  sentinel, which the resolver maps to nil — and under EP-0002 there is
+  no third tier to land on: an ambient `rf/dispatch` RAISES
+  `:rf.error/no-frame-context` rather than routing to a synthesised
+  `:rf/default`. Symptom: the palette appears frozen — arrow keys,
+  Enter, click on a row, ESC, backdrop click all refuse.
 
   So each deferred handler captures the SURROUNDING instance frame:
   `palette.cljs`'s `Modal` `reg-view` body has a frame-aware `dispatch`
@@ -204,14 +206,35 @@
     (str "No matches for " (pr-str query) ".")
     "Type to search. ↑↓ navigate · Enter invokes · Ctrl+Enter pops out · ESC closes."))
 
-(defn- empty-row []
+(defn- empty-row
+  "The empty-results `<li>`, as a pure function of the `query` its
+  message quotes.
+
+  TAKES `query` RATHER THAN READING IT, AND IS CALLED RATHER THAN HEADED
+  (rf2-ap5w). It used to do neither: `palette-view` HEADED it, and it
+  re-read `:rf.xray/palette-query` ambiently. A head makes Reagent mint a
+  component for this plain `defn`, a plain `defn` carries no
+  `:contextType`, so `(.-context cmp)` is React's empty default,
+  `current-frame` coerces that to nil and the ambient read RAISES
+  `:rf.error/no-frame-context` — Spec 006 §Plain-fn footgun, and the
+  mechanism [[handle-input-keydown]] records below for the deferred-
+  handler seam. React discards the whole subtree, so the palette painted
+  NOTHING: `empty_row_frame_context_dom_cljs_test` measured the dialog
+  and this row both absent, with the refusal reaching a window `error`
+  listener.
+
+  `palette-view` already binds `query` from the same subscription, so
+  passing it removes the duplicate read outright rather than donating it
+  upward into the enclosing boundary's window — strictly better than a
+  bare `(empty-row)` inline, which is the other spelling of the repair."
+  [query]
   [:li {:data-testid "rf-xray-palette-empty"
         :style       (merge (row-style false)
                             {:cursor "default"
                              :color  (:text-tertiary tokens)})}
    [:span {:style (icon-style :handler)} "·"]
    [:span {:style {:flex 1}}
-    (empty-message @(rf/subscribe [:rf.xray/palette-query]))]])
+    (empty-message query)]])
 
 ;; ---- row ----------------------------------------------------------------
 
@@ -376,7 +399,10 @@
               ;; avoids a "listbox, 0 items" announcement.
               :id          listbox-id
               :style       (list-style)}
-         [empty-row]]
+         ;; CALLED, not headed, and handed the `query` this body already
+         ;; bound — see [[empty-row]] for why a head here refuses
+         ;; (rf2-ap5w).
+         (empty-row query)]
         (into [:ul {:data-testid "rf-xray-palette-list"
                     :id          listbox-id
                     :role        "listbox"
