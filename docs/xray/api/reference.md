@@ -107,21 +107,21 @@ Seven of the ten carry a standalone `mount-<panel>!` facade:
 
 | Panel | Namespace | Surface |
 |---|---|---|
-| Epoch | `day8.re-frame2-xray.panels.epoch-panel` | `Panel` reg-view |
-| App-DB Diff | `day8.re-frame2-xray.panels.app-db-diff` | `Panel` reg-view |
-| Reactive (Views) | `day8.re-frame2-xray.panels.reactive-panel` | `Panel` reg-view |
-| Trace | `day8.re-frame2-xray.panels.trace` | `Panel` reg-view |
-| Machine Inspector | `day8.re-frame2-xray.panels.machine-inspector` | `Panel` reg-view |
+| Epoch | `day8.re-frame2-xray.panels.epoch-panel` | `Panel` Fresco boundary |
+| App-DB Diff | `day8.re-frame2-xray.panels.app-db-diff` | `Panel` Fresco boundary |
+| Reactive (Views) | `day8.re-frame2-xray.panels.reactive-panel` | `Panel` Fresco boundary |
+| Trace | `day8.re-frame2-xray.panels.trace` | `Panel` Fresco boundary |
+| Machine Inspector | `day8.re-frame2-xray.panels.machine-inspector` | `Panel` Fresco boundary |
 | Routing | `day8.re-frame2-xray.panels.routing` | `Panel` reg-view |
-| Resources | `day8.re-frame2-xray.panels.resources` | `Panel` reg-view |
+| Resources | `day8.re-frame2-xray.panels.resources` | `Panel` Fresco boundary |
 
 The remaining three are **L4-only registry tabs** — registered for the tab strip and focusable through `focus!`, but shell-internal and not independently mountable into a host's own layout:
 
 | Panel | Namespace | Surface |
 |---|---|---|
-| Graph (derivation graph) | `day8.re-frame2-xray.panels.derivation-graph` | `Panel` reg-view, registry only |
-| Frames (module view) | `day8.re-frame2-xray.panels.module-view` | `Panel` reg-view, registry only |
-| Fresco | `day8.re-frame2-xray.panels.fresco` | `Panel` reg-view, registry only |
+| Graph (derivation graph) | `day8.re-frame2-xray.panels.derivation-graph` | `Panel` Fresco boundary, registry only |
+| Frames (module view) | `day8.re-frame2-xray.panels.module-view` | `Panel` Fresco boundary, registry only |
+| Fresco | `day8.re-frame2-xray.panels.fresco` | `Panel` Fresco boundary, registry only |
 
 Focusability and mountability are separate axes: every one of the ten is in `valid-focus-panels`, and only the first seven have a mount facade. See [11. The Fresco tab](../11-fresco-tab.md) for what the Fresco panel shows.
 
