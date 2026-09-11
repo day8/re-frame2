@@ -4362,22 +4362,28 @@ Locked decisions:
   `:rf.xray/modal-positioning` resolves to `:absolute`). The popup
   never anchors to the debugged application's DOM — the right-click
   surface lives over Xray-internal edn-inspector nodes only.
-- **D8=a — auto-generated UUID per popup mount.** Each
-  `[edn-inspector-popup value opts]` mount allocates a fresh
-  `mount-id` (UUID, captured in form-2 closure) on first render.
-  Two side-by-side mounts get independent expansion state — the
-  popup's `:panel-id` is namespaced by `mount-id`, so the embedded
-  widget's per-path expansion entries cannot collide with sibling
-  popups or with the panel underneath.
+- **D8=a — a UUID `mount-id` per popup.** Two side-by-side popups get
+  independent expansion state: the popup's `:panel-id` is namespaced by
+  its `mount-id`, so the embedded widget's per-path expansion entries
+  cannot collide with sibling popups or with the panel underneath.
+
+  **rf2-bcub amended WHO MINTS THE ID, and only that.** This read
+  "auto-generated UUID per popup mount — each `[edn-inspector-popup value
+  opts]` mount allocates a fresh `mount-id` (UUID, captured in form-2
+  closure) on first render". That inline component had ZERO mounts
+  anywhere in the tree and has been removed, so the form-2 closure it
+  named no longer exists. The id is now the OPENING CALLER's, minted and
+  passed with the `:open` dispatch below. The isolation property above is
+  unchanged — it was only ever a consequence of namespacing `:panel-id`
+  by `mount-id`, which still happens.
 
 Public API at
 `tools/xray/src/day8/re_frame2_xray/views/edn_inspector_popup.cljs`:
 
 ```clj
-[edn-inspector-popup value]
-[edn-inspector-popup value opts]
-
-;; programmatic — opens via the stack slot:
+;; programmatic — opens via the stack slot. Since rf2-bcub this is the
+;; ONLY door; the inline `[edn-inspector-popup value opts]` component
+;; that sat beside it had no mount anywhere and is gone.
 (rf/dispatch [:rf.xray.edn-inspector-popup/open
               mount-id {:value v :opts opts}]
              {:frame :rf/xray})
@@ -4424,11 +4430,12 @@ topmost popup wins click + focus.
 
 The `edn-inspector-popup-stack` view is the entry point for
 programmatic opens (a context-menu handler dispatches `:open`
-and the stack view picks the entry up); the
-`[edn-inspector-popup value opts]` component is the entry point
-for inline opens (a panel that wants to control the popup
-imperatively from its own view tree). Both compose through
-`popup-chrome` so the chrome shape is identical.
+and the stack view picks the entry up), and since rf2-bcub it is
+the only one: an `[edn-inspector-popup value opts]` component
+served inline opens (a panel controlling the popup imperatively
+from its own view tree), but nothing in the tree ever mounted it
+and it has been removed. `popup-chrome` remains the shared
+chrome, so a future inline door would compose the same shape.
 
 ##### §10.0.7.1 Shell mount (rf2-l4625)
 
