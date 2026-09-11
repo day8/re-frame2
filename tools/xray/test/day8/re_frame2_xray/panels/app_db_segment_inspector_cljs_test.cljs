@@ -23,11 +23,13 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.panels.app-db-segment-inspector
              :as segment-inspector]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.test-support :as xray-test-support]))
+            [day8.re-frame2-xray.test-support :as xray-test-support]
+            [day8.re-frame2-xray.views.edn-widget :as edn]))
 
 (use-fixtures :each
   ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
@@ -118,6 +120,64 @@
             "reopened value sub did not slice to the new prefix")))))
 
 ;; ---- popup-view: header + body content ---------------------------------
+;;
+;; rf2-k97c.3 — `Popup` is now an `rf.fresco/as-component` bridge and
+;; answers an interop vector, not a tree to walk. The markup is
+;; `popup-tree`, a pure fn of the values the boundary reads.
+;;
+;; The helper below reproduces `PopupView`'s gate and reads EXACTLY —
+;; same gate, same order, same query vectors — so every row here asserts
+;; on the same hiccup it did before, and a boundary that stopped reading
+;; one of these slots would diverge from its own test helper rather than
+;; silently agreeing with it.
+;;
+;; Ambient `rf/subscribe` deliberately: these rows run under
+;; `rf/with-frame :rf/xray` in the node lane with no React commit at all.
+;; What the boundary's own read resolves to — the frame React context
+;; names, not the ambient one — is the browser lane's subject.
+
+(defn- popup-tree
+  "What calling `Popup` directly returned before the migration: nil while
+  closed, the dialog otherwise.
+
+  `:inspector` substitutes the REAGENT twin `edn/inspect` for the
+  boundary head production emits. That substitution is not cosmetic and
+  it is what lets the rows below read the rendered value at all:
+  `rf.test-helpers/find-by-testid` and `text-content` collect their nodes
+  off `expand-tree`, which INVOKES function components, and a Fresco
+  boundary may not be invoked as a hiccup render fn — it raises inside
+  the body. The two heads share ONE private renderer and differ only in
+  how each resolves the expansion slots and its per-mount identity,
+  neither of which any row here asserts on, so the markup these rows walk
+  is the markup production renders. WHICH HEAD THE PANEL ACTUALLY EMITS
+  is deliberately not graded here — it is erased by this substitution —
+  and `popup-body-embeds-a-legal-head-when-open` pins it directly off the
+  UNSUBSTITUTED tree instead."
+  []
+  (when @(rf/subscribe [:rf.xray/segment-inspector-open?])
+    (segment-inspector/popup-tree
+      {:path        @(rf/subscribe [:rf.xray/segment-inspector-path])
+       :value       @(rf/subscribe [:rf.xray/segment-inspector-value])
+       :positioning @(rf/subscribe [:rf.xray/modal-positioning])
+       :inspector   edn/inspect})))
+
+(defn- popup-tree-as-emitted
+  "The popup's markup with the head production actually emits — no
+  substitution. Walk it RAW; expanding it raises inside the boundary,
+  which is the property `popup-body-embeds-a-legal-head-when-open`
+  exists to assert rather than to trip over."
+  []
+  (when @(rf/subscribe [:rf.xray/segment-inspector-open?])
+    (segment-inspector/popup-tree
+      {:path        @(rf/subscribe [:rf.xray/segment-inspector-path])
+       :value       @(rf/subscribe [:rf.xray/segment-inspector-value])
+       :positioning @(rf/subscribe [:rf.xray/modal-positioning])})))
+
+(defn- raw-nodes
+  "Every node in the tree AS THE PANEL EMITS IT — no expansion of any
+  kind, so a widget head is whatever the panel actually wrote there."
+  [tree]
+  (tree-seq (some-fn vector? seq?) seq tree))
 
 (deftest popup-renders-value-and-path-in-body-and-header
   (testing "rf2-e9tb0 — the open popup renders the inspected path in
@@ -127,7 +187,7 @@
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-segment-inspector [:user]]))
-    (let [tree   (rf/with-frame :rf/xray (segment-inspector/Popup))
+    (let [tree   (rf/with-frame :rf/xray (popup-tree))
           title  (rf.test-helpers/find-by-testid tree "rf-xray-segment-inspector-title")
           body   (rf.test-helpers/find-by-testid tree "rf-xray-segment-inspector-body")]
       (is (some? tree) "Popup renders when open")
@@ -151,7 +211,7 @@
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-segment-inspector []]))
-    (let [tree  (rf/with-frame :rf/xray (segment-inspector/Popup))
+    (let [tree  (rf/with-frame :rf/xray (popup-tree))
           title (rf.test-helpers/find-by-testid tree "rf-xray-segment-inspector-title")]
       (is (re-find #"root" (rf.test-helpers/text-content title))
           "root-path header title did not read '(root)'"))))
@@ -160,8 +220,66 @@
   (testing "rf2-e9tb0 — the closed-state body short-circuits to nil
             (the single-subscribe + `when` cheapness contract)"
     (setup!)
-    (is (nil? (rf/with-frame :rf/xray (segment-inspector/Popup)))
+    (is (nil? (rf/with-frame :rf/xray (popup-tree)))
         "closed segment inspector did not render nil")))
+
+;; ---- rf2-k97c.3: head legality, asserted DIRECTLY -----------------------
+;;
+;; The node lane structurally CANNOT prove this. `expand-tree` invokes a
+;; fn head, so `[popup …]` and `(popup …)` expand identically — a green
+;; row above says the markup is right, and says nothing whatever about
+;; whether a head inside it is legal under a Fresco boundary. And this is
+;; a MODAL: it renders nothing unless the open state is seeded, so its
+;; heads are invisible to any row that does not open it first.
+;;
+;; So the heads are interrogated directly rather than walked, and the
+;; interrogation is controlled in BOTH directions so a positive cannot be
+;; vacuous. `head-kind` is the codec's own dispatch — the same function
+;; `vec->element` uses to decide what to build — so this is the property
+;; the shell's root swap actually depends on.
+
+(deftest popup-view-is-a-fresco-boundary
+  (testing "rf2-k97c.3 — `PopupView` is an `rf.fresco/defview` boundary,
+            so the shell root becoming a Fresco tree mounts it rather
+            than refusing it. A revert to `rf/reg-view` (or to a plain
+            `defn`) grades `:invalid` down the same codec arm and reds
+            this row — which is the point, since that revert is silent
+            under Reagent."
+    (setup!)
+    (is (= :boundary (rf.fresco.impl.codec/head-kind
+                       segment-inspector/PopupView))
+        "PopupView is a Fresco boundary")))
+
+(deftest popup-body-embeds-a-legal-head-when-open
+  (testing "rf2-k97c.3 — the value-rendering head INSIDE the open dialog
+            is a boundary too, so the subtree is legal all the way down.
+            The dialog is opened first: a modal renders nothing while
+            closed, so a row that did not seed the open state would assert
+            on an empty tree and pass vacuously."
+    (setup!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/open-segment-inspector [:user]]))
+    (let [tree  (rf/with-frame :rf/xray (popup-tree-as-emitted))
+          heads (->> (raw-nodes tree)
+                     (filter vector?)
+                     (map first)
+                     (filter fn?))]
+      (is (some? tree) "the dialog is open, so there is a tree to grade")
+      (is (seq heads)
+          "there is a fn head in the emitted tree — otherwise the check
+           below is an absence reported by a dead instrument")
+      (is (every? #(= :boundary (rf.fresco.impl.codec/head-kind %)) heads)
+          "every fn head in the open dialog grades :boundary")
+      ;; Both directions: the Reagent head this replaced grades :invalid,
+      ;; so `:boundary` above is a real discrimination and not something
+      ;; `head-kind` says about everything.
+      (is (= :invalid (rf.fresco.impl.codec/head-kind
+                        (first (edn/inspect {:probe 1} "probe"))))
+          "`edn/inspect`, the Reagent head this file used to call, grades
+           :invalid")
+      (is (= :boundary (rf.fresco.impl.codec/head-kind
+                         (first (edn/inspect-view {:probe 1} "probe"))))
+          "`edn/inspect-view`, the head it calls now, grades :boundary"))))
 
 ;; ---- rf2-jmucu: off-head popup==panel-body consistency ------------------
 ;;
