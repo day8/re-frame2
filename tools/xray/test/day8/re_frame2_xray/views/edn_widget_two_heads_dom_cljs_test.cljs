@@ -33,22 +33,59 @@
 
     W1  the REAGENT head paints in a Reagent position — `row_expand`'s
         shape, committed and read back off the DOM
-    W2  the FRESCO head does NOT paint in that same Reagent position, so
-        \"must keep the Reagent head\" is measured rather than inferred
+    W2  the FRESCO head THROWS in that same Reagent position, so \"must
+        keep the Reagent head\" is measured rather than inferred
     W3  the FRESCO head DOES paint inside a real Fresco boundary — the
         positive control without which W2 reads as \"`inspect-view` is
         broken\" rather than as \"the head is wrong for this position\"
 
   W2 and W3 are a pair. Neither is evidence on its own.
 
+  ## WHAT W2 ACTUALLY MEASURED, AND WHY IT IS NOT A RE-FRAME REFUSAL
+
+  The failure is one level below re-frame. Reagent renders a fn in head
+  position as a CLASS component, so `edn-inspector-view` — a minted Fresco
+  boundary, i.e. a React FUNCTION component — runs inside
+  `reagent.impl.component/do-render` under React's `updateClassComponent`.
+  The first thing `collector/shell` does is `useContext`, and a hook called
+  from a class render is refused by React itself:
+
+      Invalid hook call. Hooks can only be called inside of the body of a
+      function component.
+        at exports.useContext … re_frame.fresco.impl.collector/shell
+        at … edn-inspector-view … [as reagentRender]
+        at reagent.impl.component/do-render … updateClassComponent
+
+  So the crossing is illegal at the REACT tier, before any Fresco or
+  re-frame check can speak — which is stronger than the
+  `:rf.error/fresco-sub-outside-render` refusal one might expect, and is
+  why the row asserts \"an error was raised\" rather than matching a
+  refusal id.
+
+  ## W2 MUST CONTAIN ITS OWN THROW, AND THAT IS THE RUNNER'S RULE
+
+  `scripts/run-browser-tests.cjs` treats ANY Chromium `pageerror` as fatal
+  BY DESIGN (rf2-wf5al / rf2-mwx08) — console noise stays diagnostic, an
+  uncaught error does not. Measured: with W2's mount left bare, this file's
+  three rows all passed, the summary read `0 failures, 0 errors`, and the
+  runner still exited 1 on the single `pageerror` in the whole lane, which
+  was W2's. A row that deliberately throws therefore has to CATCH, or it
+  reddens every other suite on the page.
+
+  So W2 mounts inside a minimal React class error boundary — error
+  boundaries must be class components — modelled on the one
+  `re_frame/frame_provider_context_dom_cljs_test.cljs` uses for the same
+  purpose. `getDerivedStateFromError` both contains the throw and hands the
+  row the error to assert on, which is better evidence than the window
+  listener would have been.
+
   ## TWO INSTRUMENT FACTS INHERITED FROM THE EARLIER SLICES
 
-  A re-frame or Fresco refusal raised inside a React render does NOT reach
-  a `try/catch` around `flushSync`: React catches it, reports it to the
-  console and re-raises it as an UNCAUGHT WINDOW ERROR. W2 therefore
-  asserts on the committed DOM and carries the captured error only as a
-  DIAGNOSTIC SUFFIX — a row that caught nothing and saw nothing would
-  otherwise be indistinguishable from one that never mounted.
+  A refusal raised inside a React render does NOT reach a `try/catch`
+  around `flushSync`. W1 and W3 therefore assert on the committed DOM and
+  carry any captured window error only as a DIAGNOSTIC SUFFIX — a row that
+  caught nothing and saw nothing would otherwise be indistinguishable from
+  one that never mounted.
 
   And every DOM accessor here is `some->`-guarded. `shadow.test` runs the
   whole browser lane inside one `cljs.test/run-block` with no try/catch,
@@ -68,7 +105,9 @@
   by construction."
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
+            [reagent.core :as r]
             [reagent.dom.client :as rdc]
+            ["react" :as React]
             ["react-dom" :as react-dom]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
@@ -114,6 +153,11 @@
 
 (defonce ^:private !last-uncaught (atom nil))
 
+;; What W2's error boundary caught, if anything. An atom rather than boundary
+;; state because the assertion is made after the commit, from outside React.
+;; (`defonce` takes no docstring, which is why this one is a comment.)
+(defonce ^:private !caught (atom nil))
+
 (defonce ^:private error-capture-armed?
   (when (exists? js/window)
     (.addEventListener js/window "error"
@@ -138,7 +182,45 @@
                       ;; several suites on this page throw DELIBERATELY —
                       ;; a diagnostic naming the wrong file is worse than
                       ;; none.
-                      (reset! !last-uncaught nil))}))
+                      (reset! !last-uncaught nil)
+                      (reset! !caught nil))}))
+
+;; ---- W2's containment ----------------------------------------------------
+
+(def ^:private error-boundary-class
+  "A minimal React class-component error boundary. Error boundaries MUST be
+  class components, so this is hand-rolled rather than reached for from
+  Reagent — the same shape, and for the same reason, as the one
+  `implementation/adapters/reagent/test/re_frame/frame_provider_context_dom_cljs_test.cljs`
+  stands up.
+
+  `getDerivedStateFromError` does double duty: it CONTAINS the throw, so
+  React reports it to the console instead of re-raising it as the
+  `pageerror` the runner treats as fatal, and it records the error for the
+  row to assert on."
+  (let [ctor (fn XrayTwoHeadsErrorBoundary [props]
+               (this-as this
+                 (.call (.-Component React) this props)
+                 (set! (.-state this) #js {:caught false})
+                 this))]
+    (set! (.-prototype ctor) (js/Object.create (.-prototype (.-Component React))))
+    (set! (.. ctor -prototype -constructor) ctor)
+    (set! (.-getDerivedStateFromError ctor)
+          (fn [err] (reset! !caught err) #js {:caught true}))
+    (set! (.. ctor -prototype -render)
+          (fn []
+            (this-as this
+              (if (.-caught (.-state ^js this))
+                (React/createElement "div"
+                                     #js {"data-testid" "rf-xray-two-heads-caught"}
+                                     "caught")
+                (.-children (.-props ^js this))))))
+    ctor))
+
+(defn- contained
+  "`hiccup` as a React element, wrapped in [[error-boundary-class]]."
+  [hiccup]
+  (React/createElement error-boundary-class nil (r/as-element hiccup)))
 
 (defn- browser?
   "True only under the real-DOM `:browser-test` build. The `:node-test`
@@ -298,30 +380,34 @@
 ;; W2 — the FRESCO head does not paint in that same Reagent position
 ;; ===========================================================================
 
-(deftest w2-fresco-head-does-not-paint-under-a-reagent-parent
+(deftest w2-fresco-head-throws-under-a-reagent-parent
   (testing "rf2-k97c.3 — the SAME Reagent host, handed `inspect-view`
-            instead of `inspect`, commits its own markup and NO widget. So
-            `row_expand`'s caller cannot be moved onto the Fresco side
-            while it renders inside `static/routes/panel.cljs`'s `as-child`
-            Reagent island — measured, not inferred.
+            instead of `inspect`, RAISES during render and commits no
+            widget. So `row_expand`'s caller cannot be moved onto the
+            Fresco side while it renders inside `static/routes/panel.cljs`'s
+            `as-child` Reagent island — measured, not inferred.
 
-            The assertion is on the committed DOM rather than on a caught
-            exception: React does not let a render throw reach a
-            `try/catch` around `flushSync`. Whatever WAS thrown rides along
-            as a diagnostic so a silent nothing and a loud refusal are
-            distinguishable in the failure text."
+            The error is contained by a class error boundary, which is
+            mandatory rather than tidy: the browser runner treats an
+            uncaught `pageerror` as fatal by design, so a bare mount here
+            would redden every other suite on the page. See the ns
+            docstring for the measurement and for what React refuses."
     (if-not (browser?)
       (is true "skipped: no DOM (node lane)")
       (async done
         (setup!)
-        (let [{:keys [container root]} (mount! [ReagentHost edn/inspect-view])]
+        (let [{:keys [container root]}
+              (mount! (contained [ReagentHost edn/inspect-view]))]
           (-> (settle)
               (.then
                 (fn [_]
+                  (is (some? @!caught)
+                      "the Fresco head RAISED in a Reagent position — the
+                       crossing is refused rather than merely empty")
                   (is (nil? (widget-el container))
-                      (str "the Fresco head committed no widget in a Reagent
-                            position, which is why the facade keeps two heads"
-                           (uncaught-note)))
+                      (str "and no widget committed, which is why the facade
+                            keeps two heads — caught: "
+                           (some-> @!caught (ex-message))))
                   (is (not (some-> (widget-text container) (str/includes? sentinel)))
                       "and the renderer did not run")
                   (teardown! root container)
