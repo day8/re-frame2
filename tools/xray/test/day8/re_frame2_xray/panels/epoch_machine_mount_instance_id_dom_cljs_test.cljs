@@ -173,6 +173,132 @@
              :event      [:auth/submit]
              :rf.trace/dispatch-id "d-1"}}]}])
 
+;; ---- the seeded DIAGNOSTICS epoch (rf2-1ar7) ------------------------------
+;;
+;; A SECOND fixture rather than seeds bolted onto `fixture-history`, and that
+;; is deliberate. W1-W5 grade the ORDINARY payload mounts, and three of them
+;; count ids or compare whole id sets; folding diagnostics into their epoch
+;; would move those counts for reasons that have nothing to do with what they
+;; assert. The rows below seed their own epoch and leave the five above
+;; reading exactly what they read before.
+;;
+;; rf2-3ymg threaded the qualifier to every step that mounts an inspector and
+;; recorded `:interceptor` as a step that mounts none. It mounts none on a
+;; CLEAN cascade — the step is conditional on a throw — and one per throwing
+;; row carrying `ex-data`. The three sites this epoch reaches are the three
+;; that still dropped the argument at the merge commit of #9680:
+;;
+;;   * the INTERCEPTOR row's exception card, whose `ex-data` disclosure mounts
+;;     under `epoch/error-ex-data/<testid-base>`. Its whole chain
+;;     (`render-interceptor-step` → `interceptor-row-view` → `error-blocks`)
+;;     had no instance parameter at all.
+;;   * the PER-ROW subscription violation explainer, reached through
+;;     `subscriptions-table`'s `:row-extras` — which held the instance and
+;;     used it one line above, in the value cell.
+;;   * the STEP-LEVEL subscription violation explainer at the foot of
+;;     `render-subscriptions-step`.
+
+(def ^:private throwing-interceptor-id :audit/log)
+(def ^:private violating-sub-id :cart/preview)
+
+(def ^:private diagnostics-history
+  "ONE epoch that RENDERS all three diagnostics, so two mounts of it compose
+  three qualified ids each.
+
+  Three shape requirements, each measured rather than assumed:
+
+    * the interceptor exception must carry a real `ex-info`. `error-block-
+      details` mounts the inspector only `(when (seq ex-data*))`, so a bare
+      message throws the card without the mount this row is about.
+    * the subscription row must carry `:rf.sub/value-changed? true`. The
+      SUBSCRIPTIONS step's filter mode defaults to `:changed`, so an
+      unchanged row is filtered out of `visible-rows` BEFORE
+      `subscriptions-table` sees it and its inline violation never renders.
+    * the two violations split per-row vs step-level ON `:failing-id` alone.
+      `attach-to-sub-row` attaches to the row whose `:sub-id` matches, and
+      falls back to the step-level bucket when none does — so the second
+      violation names a sub that recomputed nowhere in this cascade, which
+      is the real shape it models (an indirect recompute outside the
+      cascade's surfaced rows).
+
+  The throw is `:after` rather than `:before`: a `:before` throw aborts the
+  chain, and `mark-skipped-handler` then stamps the HANDLER and SIDE EFFECTS
+  steps `:skipped`. Nothing here grades those, but an `:after` throw is the
+  cascade in which the subscriptions actually ran, which is the one that
+  carries all three diagnostics at once."
+  [{:epoch-id      1
+    :dispatch-id   "d-1"
+    :event         [:cart/set "bad"]
+    :trigger-event [:cart/set "bad"]
+    :trace-events
+    [{:id 1 :time 10 :operation :rf.event/dispatch
+      :tags {:event [:cart/set "bad"] :rf.trace/dispatch-id "d-1"}}
+     ;; INTERCEPTOR step — one throwing row, carrying ex-data so the
+     ;; disclosure mounts an inspector.
+     {:id 2 :time 20 :operation :rf.error/interceptor-exception
+      :tags {:failing-id        throwing-interceptor-id
+             :phase             :after
+             :exception-message "audit interceptor threw"
+             :exception         (ex-info "audit interceptor threw"
+                                         {:rf.xray.test/interceptor
+                                          throwing-interceptor-id})}}
+     ;; SUBSCRIPTIONS step — one CHANGED row, so it survives the default
+     ;; `:changed` filter and the table renders its `:row-extras`.
+     {:id 3 :time 30 :operation :rf.sub/run
+      :tags {:rf.sub/id             violating-sub-id
+             :rf.sub/query-v        [violating-sub-id]
+             :rf.sub/value-changed? true
+             :rf.sub/prev-value     1
+             :rf.sub/value          "bad"}}
+     ;; PER-ROW violation — `:failing-id` MATCHES the row's `:sub-id`.
+     {:id 4 :time 40 :operation :rf.error/schema-validation-failure
+      :tags {:where             :sub-return
+             :failing-id        violating-sub-id
+             :path              [:cart :preview]
+             :value             "bad"
+             :explain-humanized {:preview ["should be an int"]}}}
+     ;; STEP-LEVEL violation — `:failing-id` matches NO row, so
+     ;; `attach-to-sub-row` falls back to the step-level bucket.
+     {:id 5 :time 50 :operation :rf.error/schema-validation-failure
+      :tags {:where             :sub-return
+             :failing-id        :cart/indirect
+             :path              [:cart :indirect]
+             :value             "bad"
+             :explain-humanized {:indirect ["should be an int"]}}}]}])
+
+;; ---- the ids those three diagnostics compose, WRITTEN OUT -----------------
+;;
+;; LITERALS, not values re-derived from the same render the rows read. A door
+;; that compares what it read against something composed the same way agrees
+;; with itself under the revert — both sides go unqualified together, the
+;; comparison still holds, and the row passes ON the defect. These strings
+;; are what the panel must produce, stated independently of it.
+;;
+;; Each tail is composed by the source as `(str "epoch/violation-explain/"
+;; step-key "/" idx)` — `step-key` is a KEYWORD and `str` keeps its leading
+;; colon, which is why `:subscriptions` appears here with one. The
+;; step-level id below is verbatim the one rf2-1ar7 names as its worked
+;; example of the collision.
+
+(def ^:private interceptor-ex-data-site
+  "epoch/error-ex-data/rf-xray-epoch-error-interceptor-row-0-0")
+
+(def ^:private sub-row-violation-site
+  "epoch/violation-explain/:sub-row-preview/0")
+
+(def ^:private sub-step-violation-site
+  "epoch/violation-explain/:subscriptions/0")
+
+(def ^:private diagnostic-sites
+  [interceptor-ex-data-site sub-row-violation-site sub-step-violation-site])
+
+(defn- qualified
+  "The id a mount named `instance` composes for `site` — `inspector-mount-id`
+  puts the instance OUTERMOST. Spelled out here rather than called out of the
+  source: this is the test's own statement of the contract."
+  [instance site]
+  (str instance "/" site))
+
 (defn- setup!
   "Register Xray's handlers plus the test-override seam the fixtures write
   through, then seed the machine registry, the epoch ring and the focus.
@@ -194,22 +320,31 @@
   rather than the claims. `ensure-xray-frame!` is idempotent, so running it
   here leaves the facade's own call a no-op and the seed is what the panels
   read. The sibling suites do not meet this because they mount the registry
-  head under a `frame-provider` directly and never reach the facade."
-  []
-  (registry/register-xray-handlers!)
-  (xray-test-support/install-test-overrides!)
-  (mount/ensure-xray-frame! :rf/xray)
-  (rf/dispatch-sync [:rf.xray/set-registered-machines-override-for-test
-                     [machine-id]]
-                    {:frame :rf/xray})
-  (rf/dispatch-sync [:rf.xray/set-machine-definitions-override-for-test
-                     {machine-id fixture-definition}]
-                    {:frame :rf/xray})
-  (rf/dispatch-sync [:rf.xray/set-epoch-history-for-test fixture-history]
-                    {:frame :rf/xray})
-  (rf/dispatch-sync [:rf.xray/set-focus-epoch-id-for-test 1]
-                    {:frame :rf/xray})
-  nil)
+  head under a `frame-provider` directly and never reach the facade.
+
+  rf2-1ar7 — the one-argument arity takes the history to seed, so the
+  diagnostics rows below run the SAME facade path W1-W5 do rather than a
+  second one of their own. The focus is taken FROM that history rather than
+  written as a constant beside it: a fixture whose `:epoch-id` drifted from a
+  hard-coded focus paints an empty panel, and an empty panel reads as
+  disjoint ids rather than as a broken seed."
+  ([] (setup! fixture-history))
+  ([history]
+   (registry/register-xray-handlers!)
+   (xray-test-support/install-test-overrides!)
+   (mount/ensure-xray-frame! :rf/xray)
+   (rf/dispatch-sync [:rf.xray/set-registered-machines-override-for-test
+                      [machine-id]]
+                     {:frame :rf/xray})
+   (rf/dispatch-sync [:rf.xray/set-machine-definitions-override-for-test
+                      {machine-id fixture-definition}]
+                     {:frame :rf/xray})
+   (rf/dispatch-sync [:rf.xray/set-epoch-history-for-test history]
+                     {:frame :rf/xray})
+   (rf/dispatch-sync [:rf.xray/set-focus-epoch-id-for-test
+                      (:epoch-id (first history))]
+                     {:frame :rf/xray})
+   nil))
 
 ;; ---- mounting, and reading the DOM back ----------------------------------
 
@@ -558,5 +693,254 @@
                  identities, not per-render nonces"))
           (finally
             (unmount! named)
+            (unmount! b)
+            (unmount! a)))))))
+
+;; ===========================================================================
+;; W6 — the INTERCEPTOR row's ex-data disclosure (rf2-1ar7)
+;; ===========================================================================
+
+(deftest two-named-epoch-mounts-qualify-the-interceptor-ex-data-mount
+  (testing "rf2-1ar7 — two named Epoch mounts showing the SAME interceptor
+            exception compose two disjoint `epoch/error-ex-data/…` mount-ids.
+
+            This is the path rf2-3ymg missed entirely rather than passed
+            wrongly: `render-interceptor-step` → `interceptor-row-view` →
+            `error-blocks` carried NO instance parameter, so there was
+            nothing for the dispatcher to hand down. The card's `ex-data`
+            disclosure mounts an `ei/edn-inspector-view` whose `:mount-id` is
+            composed from the step-key and the row ordinal ALONE — both of
+            which are identical across two mounts of one epoch."
+    (if-not (browser?)
+      (is true ":node — the :browser-test runner drives the real React mount")
+      (let [_     (setup! diagnostics-history)
+            left  (mount-epoch! {:instance-id "left"})
+            right (mount-epoch! {:instance-id "right"})]
+        (try
+          (let [ids-l (mount-ids (:container left))
+                ids-r (mount-ids (:container right))]
+            ;; ---- controls, taken from the target ------------------------
+            (is (some? (some-> (:container left)
+                               (.querySelector
+                                 "[data-testid=\"rf-xray-epoch-step-interceptor\"]")))
+                "control: the INTERCEPTOR step rendered at all. It is
+                 CONDITIONAL on a throw, so a fixture that failed to project
+                 one would leave the assertions below comparing two empty
+                 sets and passing")
+            (is (some? (some-> (:container left)
+                               (.querySelector
+                                 "[data-testid=\"rf-xray-epoch-error-interceptor-row-0-0-ex-data\"]")))
+                "control: and the row's ex-data disclosure is present — the
+                 inspector mounts only `(when (seq ex-data*))`, so a throw
+                 carrying no ex-data would render the card and no mount")
+
+            ;; ---- the claim, against LITERALS ----------------------------
+            (is (some #(= (qualified "left" interceptor-ex-data-site) %) ids-l)
+                (str "the left mount composed the id written out in this "
+                     "file, not merely something different from the right's. "
+                     "expected=" (qualified "left" interceptor-ex-data-site)
+                     " left=" (pr-str ids-l)))
+            (is (some #(= (qualified "right" interceptor-ex-data-site) %) ids-r)
+                (str "and the right mount composed its own. expected="
+                     (qualified "right" interceptor-ex-data-site)
+                     " right=" (pr-str ids-r)))
+            (is (nil? (some #(= interceptor-ex-data-site %)
+                            (concat ids-l ids-r)))
+                (str "and NEITHER still presents the unqualified id — an "
+                     "EQUALITY test, because the qualified ids contain the "
+                     "unqualified one as a substring. unqualified="
+                     interceptor-ex-data-site " left=" (pr-str ids-l)
+                     " right=" (pr-str ids-r))))
+          (finally
+            (unmount! right)
+            (unmount! left)))))))
+
+;; ===========================================================================
+;; W7 — both SUBSCRIPTION violation explainers, per-row and step-level
+;; ===========================================================================
+
+(deftest two-named-epoch-mounts-qualify-both-subscription-violation-mounts
+  (testing "rf2-1ar7 — two named Epoch mounts rendering the SAME subscription
+            schema violations compose disjoint explainer mount-ids, on BOTH
+            the per-row and the step-level path.
+
+            The two failed differently and are therefore both rows here.
+            `subscriptions-table` HELD the instance — the value cell one line
+            above uses it — and its `:row-extras` callback took
+            `violation-blocks`' two-argument arity anyway. The step-level call
+            at the foot of `render-subscriptions-step` had `(:instance ctx)`
+            available and omitted it. That second one is the bead's own worked
+            example: both named panels produced
+            `epoch/violation-explain/:subscriptions/0`."
+    (if-not (browser?)
+      (is true ":node — the :browser-test runner drives the real React mount")
+      (let [_     (setup! diagnostics-history)
+            left  (mount-epoch! {:instance-id "left"})
+            right (mount-epoch! {:instance-id "right"})]
+        (try
+          (let [ids-l (mount-ids (:container left))
+                ids-r (mount-ids (:container right))]
+            ;; ---- controls, taken from the target ------------------------
+            (is (some? (some-> (:container left)
+                               (.querySelector
+                                 "[data-testid=\"rf-xray-epoch-violations-sub-row-preview\"]")))
+                "control: the PER-ROW violation block rendered. It rides the
+                 table's `:row-extras`, which only runs for a VISIBLE row —
+                 the default `:changed` filter drops an unchanged one before
+                 the table sees it")
+            (is (some? (some-> (:container left)
+                               (.querySelector
+                                 "[data-testid=\"rf-xray-epoch-violations-subscriptions\"]")))
+                "control: and the STEP-LEVEL block rendered — its violation
+                 names a sub that recomputed nowhere in this cascade, which
+                 is what makes `attach-to-sub-row` fall back to the
+                 step-level bucket rather than attaching to a row")
+
+            ;; ---- the claim, against LITERALS ----------------------------
+            (doseq [[who ids] [["left" ids-l] ["right" ids-r]]]
+              (is (some #(= (qualified who sub-row-violation-site) %) ids)
+                  (str "the " who " mount qualified the PER-ROW explainer. "
+                       "expected=" (qualified who sub-row-violation-site)
+                       " ids=" (pr-str ids)))
+              (is (some #(= (qualified who sub-step-violation-site) %) ids)
+                  (str "the " who " mount qualified the STEP-LEVEL explainer. "
+                       "expected=" (qualified who sub-step-violation-site)
+                       " ids=" (pr-str ids))))
+
+            (is (nil? (some #{sub-row-violation-site sub-step-violation-site}
+                            (concat ids-l ids-r)))
+                (str "and neither mount still presents either unqualified "
+                     "explainer id — the step-level one is verbatim what "
+                     "rf2-1ar7 reported both named panels producing. left="
+                     (pr-str ids-l) " right=" (pr-str ids-r)))
+            (is (nil? (some (set ids-l) ids-r))
+                (str "taken whole, the two mounts share no id at all. left="
+                     (pr-str ids-l) " right=" (pr-str ids-r))))
+          (finally
+            (unmount! right)
+            (unmount! left)))))))
+
+;; ===========================================================================
+;; W8 — the lifecycle half for a DIAGNOSTIC mount: the survivor keeps both
+;; ===========================================================================
+
+(deftest diagnostic-mounts-each-keep-their-own-observer-and-width
+  (testing "rf2-1ar7 — the half a distinctness row passes over, asserted on a
+            DIAGNOSTIC mount rather than an ordinary payload one.
+
+            Distinctness alone is satisfied by any two different strings. What
+            the shared id actually costs is physical: the second mount's ref
+            callback finds an observer already on the entry and installs
+            NONE, and `release-mount!` then tears the shared entry down — and
+            clears the shared width — when EITHER holder detaches, leaving the
+            panel still on screen unobserved and unmeasured. W2 pins this for
+            the dispatch-event mount; this row pins it for the step-level
+            violation explainer, which is the mount rf2-1ar7 is about."
+    (if-not (browser?)
+      (is true ":node — the :browser-test runner drives the real React mount")
+      (async done
+        (setup! diagnostics-history)
+        (let [left  (mount-epoch! {:instance-id "left"})
+              right (mount-epoch! {:instance-id "right"})
+              id-l  (qualified "left" sub-step-violation-site)
+              id-r  (qualified "right" sub-step-violation-site)]
+          ;; Controls: the two ids are LITERALS, so a fixture that stopped
+          ;; rendering the step-level explainer would leave every assertion
+          ;; below reading an absent key — which is why presence is asserted
+          ;; before anything is concluded from it.
+          (is (some #(= id-l %) (mount-ids (:container left)))
+              (str "control: the left mount really committed the step-level "
+                   "explainer under the id this row keys on. expected=" id-l
+                   " ids=" (pr-str (mount-ids (:container left)))))
+          (is (some #(= id-r %) (mount-ids (:container right)))
+              (str "control: and so did the right. expected=" id-r))
+
+          ;; ---- the observer half -------------------------------------
+          ;; Liveness rather than discrimination, exactly as in W2: under the
+          ;; shared identity both lookups resolve to the SAME entry and both
+          ;; pass with the defect fully present. The survivor row below is
+          ;; what bites.
+          (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
+                         :observer)
+              "the left mount's explainer installed its own ResizeObserver")
+          (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-r))
+                         :observer)
+              "and so did the right's — two live mounts, two observers")
+
+          ;; ---- the width half ----------------------------------------
+          ;; Driven through the slot's own public event, for the reason W2
+          ;; records: the headless container measures `clientWidth` 0, so the
+          ;; real measurement path need never fire and a row asserting a
+          ;; measured VALUE would be red for a reason that is not this defect.
+          (rf/dispatch-sync [:rf.xray.edn-inspector/set-width id-l 640]
+                            {:frame :rf/xray})
+          (rf/dispatch-sync [:rf.xray.edn-inspector/set-width id-r 480]
+                            {:frame :rf/xray})
+          (is (= 2 (count (select-keys (widths) [id-l id-r])))
+              (str "two live explainer mounts hold TWO width slots — under "
+                   "the shared identity both writes land on one key. slot="
+                   (pr-str (widths))))
+
+          (unmount! right)
+
+          ;; ---- the survivor keeps both -------------------------------
+          (is (nil? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-r)))
+              "the detached mount's entry is gone")
+          (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
+                         :observer)
+              "and the mount STILL ON SCREEN is still observed — releasing the
+               survivor's entry is exactly what the shared key did")
+          (-> (rf.test-support/poll-until
+                (fn [] (nil? (get (widths) id-r)))
+                {:label "release-mount! cleared the detaching explainer's width"})
+              (.then
+                (fn [_]
+                  (is (some? (get (widths) id-l))
+                      (str "and the survivor's width is STILL in the frame's "
+                           "slot — `release-mount!` clears under the DETACHING "
+                           "mount's id, which under the shared identity is the "
+                           "survivor's own. slot=" (pr-str (widths))))))
+              (.catch
+                (fn [e]
+                  (is false (str "the width clear never landed: "
+                                 (.-message e) " slot=" (pr-str (widths))))
+                  nil))
+              (.then (fn [_] (unmount! left) (done)))))))))
+
+;; ===========================================================================
+;; W9 — the negative control: unnamed diagnostic mounts collide, unchanged
+;; ===========================================================================
+
+(deftest two-unnamed-epoch-mounts-still-collide-on-the-diagnostic-ids
+  (testing "rf2-1ar7 — the defect verbatim, kept as a row, and the thing that
+            makes W6-W8 measurements rather than silence.
+
+            Two UNNAMED Epoch mounts rendering the same three diagnostics
+            present the SAME ids, and those ids are byte-for-byte the
+            unqualified sites this file writes out — so the instrument can see
+            a collision, and the single-mount default that every call site in
+            this tree uses composes exactly what it always did. W5 states both
+            halves for the ordinary payload mounts; this is the diagnostics'."
+    (if-not (browser?)
+      (is true ":node — the :browser-test runner drives the real React mount")
+      (let [_ (setup! diagnostics-history)
+            a (mount-epoch! nil)
+            b (mount-epoch! {})]
+        (try
+          (let [ids-a (mount-ids (:container a))
+                ids-b (mount-ids (:container b))]
+            (is (seq ids-a)
+                "control: both unnamed mounts committed widgets")
+            (is (= ids-a ids-b)
+                (str "two unnamed mounts present the SAME ids — so the "
+                     "instrument W6 and W7 use CAN see a collision. a="
+                     (pr-str ids-a)))
+            (doseq [site diagnostic-sites]
+              (is (some #(= site %) ids-a)
+                  (str "the unnamed mount composes the unqualified " site
+                       " — this is the collision rf2-1ar7 reported, and it is "
+                       "also the identity that must not move for a single "
+                       "mount. a=" (pr-str ids-a)))))
+          (finally
             (unmount! b)
             (unmount! a)))))))
