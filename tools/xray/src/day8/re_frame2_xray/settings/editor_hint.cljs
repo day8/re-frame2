@@ -44,8 +44,17 @@
       :rf.xray/editor-hint-open?         — sub: drives the toast mount
 
   Mounted at the shell-view root (sibling to the other modals) so its
-  subscribe resolves through the shell's `:rf/xray` frame-provider."
+  read resolves through the shell's `:rf/xray` frame-provider.
+
+  ## rf2-k97c.3 — the toast is a FRESCO BOUNDARY
+
+  [[Hint]] is an `rf.fresco/defview`, not an `rf/reg-view`. [[toast-view]]
+  needed no change at all: it already performed ZERO reads and was
+  already a pure fn of `dispatch`, so the migration is confined to the
+  boundary and the one-line bridge [[Toast]] the Dynamic shell still
+  mounts by name."
   (:require [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack mono-stack type-scale]]))
 
@@ -178,15 +187,65 @@
              :style       (open-settings-button-style)}
     "Open Settings"]])
 
-(rf/reg-view Toast
-  "The open-in-editor editor-hint toast. Renders only when
-  `:rf.xray/editor-hint-open?` is true; closed-state is a single
-  subscribe + a `when` — cheap.
+(rf.fresco/defview Hint
+  "The open-in-editor editor-hint toast — a FRESCO BOUNDARY
+  (rf2-k97c.3), a real React function component rather than an
+  `rf/reg-view`.
 
-  `reg-view`-registered so the body's subscribes route through the
-  React-context tier to `:rf/xray`. The reg-view-injected `dispatch`
-  is threaded into `toast-view` so the deferred `:on-click` handlers
-  land on the surrounding instance frame."
+  Renders only when `:rf.xray/editor-hint-open?` is true, and the
+  closed-state cost is unchanged at ONE read and a `when`:
+  `rf.fresco/sub` is legal inside a `when` and records its edge where
+  the read happens (HD-002), so a branch not taken contributes no edge.
+
+  ONE READ, ONE BOUNDARY. The read is `rf.fresco/sub` — a plain call the
+  shipped collector records an edge for, rather than a deref of a
+  reaction the installed adapter owns. It is also a GOOD frame witness,
+  unlike most of the settings reads next door: `:rf.xray/editor-hint-open?`
+  is `(get db :editor-hint-open? false)` (registered in [[install!]]
+  above), a plain app-db read with a literal fallback, so it cannot be
+  satisfied by a process-global atom under a wrong frame.
+
+  The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
+  which answers the boundary's DECLARED frame inside a body. It replaces
+  the name `reg-view` used to inject lexically: `defview` binds NO name
+  inside your body, so the bare `dispatch` the old body closed over
+  would be a LOUD compile error.
+
+  [[toast-view]] is unchanged — it reads nothing and always was a pure
+  fn of `dispatch`, so it needed no hoist and stays callable from the
+  node lane exactly as before.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. [[Toast]] mounts it with none, so it is destructured away."
+  [_props]
+  (when (rf.fresco/sub [:rf.xray/editor-hint-open?])
+    (toast-view (:dispatch (rf/capture-frame)))))
+
+;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;;
+;; Same shape, and the same defined end, as `settings/popup.cljs`'s bridge —
+;; its comment carries the full reasoning and is not repeated here.
+;; `shell.cljs`'s `shell-view` is still an `rf/reg-view` and mounts this
+;; toast as the Reagent hiccup head `[editor-hint/Toast]`, which a React
+;; component cannot be; `rf.fresco/as-component` is the outward door, and
+;; the frame comes from the enclosing `rf/frame-provider` through React
+;; context. When `shell-view` becomes a boundary it heads `Hint` directly
+;; and both defs below are deleted.
+
+(def ^:private Hint-component
+  "The React component [[Hint]] presents as, for a non-Fresco parent.
+  Declared once at top level beside the view, as `rf.fresco/as-component`'s
+  contract requires — deriving it per render would mint a new component
+  type every time and remount the toast on each parent render."
+  (rf.fresco/as-component Hint))
+
+(defn Toast
+  "The callable `shell.cljs` mounts, as `[editor-hint/Toast]`. Returns
+  Reagent-shaped hiccup interoping to the React component above.
+
+  It KEEPS THE NAME because the mount site is in a file this slice does
+  not own. The gate moved INTO [[Hint]], so this bridge is unconditional
+  and the `nil`-when-closed answer now comes from the boundary rather
+  than from here — the committed DOM is identical either way."
   []
-  (when @(rf/subscribe [:rf.xray/editor-hint-open?])
-    (toast-view dispatch)))
+  [:> Hint-component {}])

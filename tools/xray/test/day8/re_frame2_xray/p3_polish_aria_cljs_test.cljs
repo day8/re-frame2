@@ -34,7 +34,7 @@
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
-            [day8.re-frame2-xray.settings.view :as settings-view]
+            [day8.re-frame2-xray.test-helpers.modal-trees :as modal-trees]
             [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
              :as dynamic-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
@@ -155,7 +155,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
-    (let [tree   (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))
+    (let [tree   (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))
           strip  (rf.test-helpers/find-by-testid tree "rf-xray-settings-tab-strip")
           attrs  (props strip)]
       (is (= "tablist" (:role attrs))
@@ -170,7 +170,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
-    (let [tree     (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))
+    (let [tree     (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))
           ;; Theme tab removed rf2-ou3pn; Filters tab removed
           ;; rf2-wknb3. The four remaining tabs each carry the full
           ;; WAI-ARIA tab contract.
@@ -205,7 +205,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
-    (let [tree  (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))
+    (let [tree  (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))
           body  (rf.test-helpers/find-by-testid tree "rf-xray-settings-body")
           attrs (props body)]
       (is (= "tabpanel" (:role attrs))
@@ -227,7 +227,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
-    (let [tree  (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))
+    (let [tree  (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))
           input (rf.test-helpers/find-by-testid tree "rf-xray-settings-epoch-history-input")
           ;; The label sits in the same <div> field; find by html-for.
           label (some (fn [node]

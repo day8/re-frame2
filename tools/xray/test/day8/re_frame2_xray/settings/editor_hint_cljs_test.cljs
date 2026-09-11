@@ -20,7 +20,7 @@
             [re-frame.test-helpers :as rf.test-helpers]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.settings.editor-hint :as editor-hint]
+            [day8.re-frame2-xray.test-helpers.modal-trees :as modal-trees]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; `make-xray-runtime-fixture` (rf2-vj80u8) composes core
@@ -60,14 +60,14 @@
 
 (deftest toast-renders-nil-when-closed
   (rf/with-frame :rf/xray
-    (is (nil? (editor-hint/Toast))
+    (is (nil? (modal-trees/editor-hint-toast-tree))
         "Toast renders nil when editor-hint-open? is false")))
 
 (deftest toast-renders-when-open
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/editor-hint-show]))
   (rf/with-frame :rf/xray
-    (let [rendered (editor-hint/Toast)]
+    (let [rendered (modal-trees/editor-hint-toast-tree)]
       (is (some? rendered)
           "Toast renders hiccup when editor-hint-open? is true")
       (is (rf.test-helpers/find-by-testid rendered "rf-xray-editor-hint-toast")

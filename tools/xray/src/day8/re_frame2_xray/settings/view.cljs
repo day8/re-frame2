@@ -1,43 +1,57 @@
 (ns day8.re-frame2-xray.settings.view
   "Pure-hiccup view for the Xray Settings popup modal (rf2-9poxq).
 
-  The view body is a plain Reagent fn; `settings/popup.cljs` wraps
-  it in `reg-view` so subscribes route to `:rf/xray`. Visual style
-  mirrors the palette modal (dim backdrop, centred dialog,
-  `tokens/bg-1` body) so the user gets a consistent affordance
-  class for transient overlays.
+  ## rf2-k97c.3 — THIS NAMESPACE READS NOTHING
+
+  Every fn here is now a PURE function of its arguments. The thirteen
+  ambient `@(rf/subscribe …)` reads this file used to perform are
+  hoisted into `settings/popup.cljs`'s Fresco boundary, which is why
+  `re-frame.core` is no longer required at all — the one measurement
+  that says the hoist is complete rather than mostly done.
+
+  The reason is mechanical, not stylistic. `rf.fresco/sub` refuses
+  outside a boundary render — `impl.collector/read-key!` raises
+  `:rf.error/fresco-sub-outside-render`, and its own message names the
+  remedy — so migrating a read INSIDE a helper narrows that helper to
+  being callable only within a React commit. [[popup-tree]] had seven
+  callers outside any render, all of them node-lane rows. Hoisting keeps
+  them working: a pure fn needs neither a render window nor
+  `subscribe-once`.
+
+  The node lane's door is in the TEST tree
+  (`test-helpers/settings-modal-tree`), mirroring
+  `test-helpers/dynamic_shell_tree` — deliberately NOT a reading arity
+  kept here, which would be a read path in the one file this migration
+  exists to empty.
+
+  Visual style mirrors the palette modal (dim backdrop, centred dialog,
+  `tokens/bg-1` body) so the user gets a consistent affordance class for
+  transient overlays.
 
   ## Why every deferred dispatch captures the surrounding frame (rf2-smvvz / rf2-r0o63 / rf2-nesy9)
 
-  Subscribes resolve through the React-context tier at RENDER time —
-  React's `_currentValue` for the `frame-context` is set to the
-  instance frame while the body of the `frame-provider`'s children is
-  rendering, so `(rf/subscribe …)` from inside the popup picks up the
-  right frame with no explicit opt.
-
-  Dispatches from `:on-click` / `:on-change` / `:on-key-down` fire
-  LATER — after render commits and React has POPPED `_currentValue`
-  back to the context's no-provider sentinel. At click time the frame
-  resolution chain (dynamic var → React-context tier) bottoms out at
-  NIL: there is no `:rf/default` floor under EP-0002, so a bare
-  `rf/dispatch` RAISES `:rf.error/no-frame-context` and nothing lands
-  anywhere — Xray's `:settings-open?` flag is left untouched. Symptom:
-  X button does nothing, tabs do not switch, Esc does not close — the
-  modal is stuck.
+  Reads resolve at RENDER time, inside the boundary. Dispatches from
+  `:on-click` / `:on-change` / `:on-key-down` fire LATER — after render
+  commits and React has POPPED the frame context's `_currentValue` back
+  to its no-provider sentinel. At click time the frame resolution chain
+  (dynamic var → React-context tier) bottoms out at NIL: there is no
+  `:rf/default` floor under EP-0002, so a bare `rf/dispatch` RAISES
+  `:rf.error/no-frame-context` and nothing lands anywhere — Xray's
+  `:settings-open?` flag is left untouched. Symptom: X button does
+  nothing, tabs do not switch, Esc does not close — the modal is stuck.
 
   An EARLIER fix pinned every deferred handler to a `{:frame :rf/xray}`
   literal — correct for the singleton shell, but it entrenched the
   one-frame lock (rf2-1w07r): two shells on a page collided on the one
   global app-db. The current contract (rf2-r0o63 / rf2-nesy9) captures
-  the SURROUNDING instance frame instead: `settings/popup.cljs`'s
-  `Modal` `reg-view` body has a frame-aware `dispatch` injected by the
-  macro (closing over the render-time frame), and threads it into
-  `popup-view`, which fans it out to every section helper. Each
-  deferred handler calls that captured `dispatch` (never the global
-  `rf/dispatch`, never a literal), so N isolated instances each route
-  to their own frame."
-  (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
+  the SURROUNDING instance frame instead, and the migration preserves it
+  exactly: the boundary takes its dispatcher from
+  `(:dispatch (rf/capture-frame))` — core's own door, which answers the
+  boundary's DECLARED frame — and threads it into [[popup-tree]], which
+  fans it out to every section helper. Each deferred handler calls that
+  captured `dispatch` (never the global `rf/dispatch`, never a literal),
+  so N isolated instances each route to their own frame."
+  (:require [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack mono-stack type-scale]]))
 
@@ -245,7 +259,23 @@
   [id]
   (str "rf-xray-settings-tabpanel-" (name id)))
 
-(defn- tab-button [dispatch {:keys [id label]} active?]
+(defn- tab-button
+  "One tab in the strip, as hiccup. CALLED rather than headed
+  (rf2-k97c.3) — the standard HD-016 repair, since every vector this
+  answers is keyword-headed all the way down.
+
+  It carries its OWN `:key`, which is the T2 cost of that inlining paid
+  in the cheapest available place. [[popup-tree]] builds the strip with
+  a `for`, so React needs a key per child; before the inlining the key
+  would have sat on the `[tab-button …]` vector, and a keyed fragment
+  around the call is the general remedy. Neither is needed here because
+  this helper already owns an attrs map and already knows `id` — so the
+  key goes in the attrs map, which is this file's standing convention
+  (`editor-override-section`, the panel-position radios and the
+  keybindings table all key that way, per rf2-a38l) and adds no DOM
+  node. A keyword `:key` is a plain key to Fresco's codec, the same as
+  to Reagent."
+  [dispatch {:keys [id label]} active?]
   ;; rf2-h4mnh — Settings popup inner tabs now carry the full WAI-
   ;; ARIA tab role: `role="tab"` + `aria-selected` per state +
   ;; stable `id` (so the body's `aria-labelledby` resolves) +
@@ -253,7 +283,8 @@
   ;; pattern Xray already ships on the L3 Dynamic + Static tab
   ;; strips (shell.cljs/tab-button). Keeps `:data-active` for
   ;; styling-key parity with existing CSS selectors / tests.
-  [:button {:data-testid    (str "rf-xray-settings-tab-" (name id))
+  [:button {:key            id
+            :data-testid    (str "rf-xray-settings-tab-" (name id))
             :id             (settings-tab-button-id id)
             :role           "tab"
             :aria-selected  (if active? "true" "false")
@@ -450,14 +481,19 @@
        ":rf.xray/editor"]
       " default doesn't match your installed editor."]]))
 
-(defn- general-section [dispatch]
-  (let [panel-position  @(rf/subscribe [:rf.xray/setting :general :panel-position])
-        auto-open?      @(rf/subscribe [:rf.xray/setting :general :auto-open-on-error?])
-        epoch-history   @(rf/subscribe [:rf.xray/setting :general :epoch-history])
-        show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
-        show-unchanged-subs? @(rf/subscribe [:rf.xray/setting :general :show-unchanged-subs?])
-        editor-override @(rf/subscribe [:rf.xray/setting :general :editor-override])
-        host-editor     @(rf/subscribe [:rf.xray/editor-host-default])]
+(defn- general-section
+  "The General tab's body, as a PURE function of `dispatch` and the seven
+  values it used to read for itself (rf2-k97c.3).
+
+  The seven names below are the seven the `let` bound before the
+  migration, in the same order, so the only thing that changed is WHERE
+  they come from: [[popup-tree]]'s caller reads them and hands them
+  down. They are destructured in a `let` rather than in the parameter
+  vector for the same reason — it keeps the body's shape identical and
+  the diff honest."
+  [dispatch general]
+  (let [{:keys [panel-position auto-open? epoch-history show-ungrouped?
+                show-unchanged-subs? editor-override host-editor]} general]
     [:div {:data-testid "rf-xray-settings-section-general"}
      [:h2 {:style (section-heading-style)} "General"]
 
@@ -726,39 +762,41 @@
 
 ;; ---- section: Diff (rf2-i39w2 Phase 3) ----------------------------------
 
-(defn- diff-section [dispatch]
-  (let [highlight? @(rf/subscribe [:rf.xray/setting :diff :highlight-fn-ref-changes?])]
-    [:div {:data-testid "rf-xray-settings-section-diff"}
-     [:h2 {:style (section-heading-style)} "Diff"]
-     [:p {:style {:color (:text-secondary tokens)
-                  :line-height 1.5
-                  :margin "0 0 16px 0"}}
-      "Controls for the structural-diff engine that powers App-DB Diff, "
-      "Sub-output diff, and the View-hiccup diff drilldown in the Views "
-      "panel."]
+(defn- diff-section
+  "The Diff tab's body, as a PURE function of `dispatch` and the one
+  value it used to read for itself (rf2-k97c.3)."
+  [dispatch highlight?]
+  [:div {:data-testid "rf-xray-settings-section-diff"}
+   [:h2 {:style (section-heading-style)} "Diff"]
+   [:p {:style {:color (:text-secondary tokens)
+                :line-height 1.5
+                :margin "0 0 16px 0"}}
+    "Controls for the structural-diff engine that powers App-DB Diff, "
+    "Sub-output diff, and the View-hiccup diff drilldown in the Views "
+    "panel."]
 
-     ;; ── Highlight fn-ref changes ────────────────────────────────
-     [:div {:style (field-style)}
-      [:label {:style {:display "flex" :align-items "center" :gap "8px"
-                       :cursor "pointer"
-                       :font-size (:body type-scale)
-                       :color (:text-primary tokens)}}
-       [:input {:data-testid "rf-xray-settings-diff-highlight-fn-ref"
-                :type        "checkbox"
-                :checked     (boolean highlight?)
-                :on-change   #(dispatch
-                                [:rf.xray/settings-update
-                                 :diff :highlight-fn-ref-changes?
-                                 (boolean (.. % -target -checked))])}]
-       "Highlight function-ref changes in view hiccup"]
-      [:p {:style (hint-style)}
-       "Off by default. The hiccup-diff engine treats function-valued "
-       "props (`:on-click`, `:on-change`, `:ref`, …) as opaque — "
-       "anonymous fns created fresh per render do NOT surface as a "
-       "diff. Flip this on when diagnosing memoization issues (a "
-       "child re-renders because the parent passes a new fn every "
-       "time); identity-different fns will surface as a distinct "
-       "accent-coloured `(fn ref changed)` chip."]]]))
+   ;; ── Highlight fn-ref changes ────────────────────────────────
+   [:div {:style (field-style)}
+    [:label {:style {:display "flex" :align-items "center" :gap "8px"
+                     :cursor "pointer"
+                     :font-size (:body type-scale)
+                     :color (:text-primary tokens)}}
+     [:input {:data-testid "rf-xray-settings-diff-highlight-fn-ref"
+              :type        "checkbox"
+              :checked     (boolean highlight?)
+              :on-change   #(dispatch
+                              [:rf.xray/settings-update
+                               :diff :highlight-fn-ref-changes?
+                               (boolean (.. % -target -checked))])}]
+     "Highlight function-ref changes in view hiccup"]
+    [:p {:style (hint-style)}
+     "Off by default. The hiccup-diff engine treats function-valued "
+     "props (`:on-click`, `:on-change`, `:ref`, …) as opaque — "
+     "anonymous fns created fresh per render do NOT surface as a "
+     "diff. Flip this on when diagnosing memoization issues (a "
+     "child re-renders because the parent passes a new fn every "
+     "time); identity-different fns will surface as a distinct "
+     "accent-coloured `(fn ref changed)` chip."]]])
 
 ;; ---- section: Keybindings (rf2-ttnst) -----------------------------------
 ;;
@@ -818,7 +856,10 @@
    :font-size        (:body type-scale)
    :align-items      "center"})
 
-(defn- keybindings-section [dispatch]
+(defn- keybindings-section
+  "The Keybindings tab's body, as a PURE function of `dispatch` and the
+  one value it used to read for itself (rf2-k97c.3)."
+  [dispatch keys-on?]
   ;; The Handle-keys? master toggle is process global, not under
   ;; `:settings` — `config/keybinding-enabled?` is a bare `configure!`
   ;; slot, not a persisted settings key (see config.cljc §*keybinding-
@@ -830,67 +871,66 @@
   ;; setter only suppresses ATTACH; a host that pre-attached the
   ;; listener needs to also call `keybinding/detach!` for the change
   ;; to land immediately.
-  (let [keys-on? @(rf/subscribe [:rf.xray/keybinding-enabled?])]
-    [:div {:data-testid "rf-xray-settings-section-keybindings"}
-     [:h2 {:style (section-heading-style)} "Keybindings"]
+  [:div {:data-testid "rf-xray-settings-section-keybindings"}
+   [:h2 {:style (section-heading-style)} "Keybindings"]
 
-     ;; Master 'Handle keys?' toggle.
-     [:div {:style (field-style)}
-      [:label {:style {:display "flex" :align-items "center" :gap "8px"
-                       :cursor "pointer"
-                       :font-size (:body type-scale)
-                       :color (:text-primary tokens)}}
-       [:input {:data-testid "rf-xray-settings-keys-master-toggle"
-                :type        "checkbox"
-                :checked     (boolean keys-on?)
-                :on-change   (fn [^js e]
-                               (let [on? (boolean (.. e -target -checked))]
-                                 (dispatch [:rf.xray/keybinding-enabled-update on?])))}]
-       "Handle keys?"]
-      [:p {:style (hint-style)}
-       "Master switch for Xray's global keydown listener. Off → "
-       "Xray swallows no keystrokes; the host app's bindings fire "
-       "unimpeded. May require a page reload to fully detach. "
-       "(Setting: " [:code {:style {:font-family mono-stack
-                                    :color (:text-tertiary tokens)}}
-                     ":rf.xray/keybinding-enabled?"] ")"]]
+   ;; Master 'Handle keys?' toggle.
+   [:div {:style (field-style)}
+    [:label {:style {:display "flex" :align-items "center" :gap "8px"
+                     :cursor "pointer"
+                     :font-size (:body type-scale)
+                     :color (:text-primary tokens)}}
+     [:input {:data-testid "rf-xray-settings-keys-master-toggle"
+              :type        "checkbox"
+              :checked     (boolean keys-on?)
+              :on-change   (fn [^js e]
+                             (let [on? (boolean (.. e -target -checked))]
+                               (dispatch [:rf.xray/keybinding-enabled-update on?])))}]
+     "Handle keys?"]
+    [:p {:style (hint-style)}
+     "Master switch for Xray's global keydown listener. Off → "
+     "Xray swallows no keystrokes; the host app's bindings fire "
+     "unimpeded. May require a page reload to fully detach. "
+     "(Setting: " [:code {:style {:font-family mono-stack
+                                  :color (:text-tertiary tokens)}}
+                   ":rf.xray/keybinding-enabled?"] ")"]]
 
-     ;; Read-only chord table. v1.1 will add rebind UI; for now
-     ;; the catalogue is enough to discover the bindings.
-     [:p {:style (hint-style)}
-      "Read-only in v1 — rebind UI lands in v1.1. The catalogue "
-      "mirrors spec/007-UX-IA.md §Keyboard."]
+   ;; Read-only chord table. v1.1 will add rebind UI; for now
+   ;; the catalogue is enough to discover the bindings.
+   [:p {:style (hint-style)}
+    "Read-only in v1 — rebind UI lands in v1.1. The catalogue "
+    "mirrors spec/007-UX-IA.md §Keyboard."]
 
-     (into [:div {:data-testid "rf-xray-settings-keybindings-table"
-                  :style {:border        (str "1px solid " (:border-subtle tokens))
-                          :border-radius "4px"
-                          :overflow      "hidden"
-                          :margin-top    "8px"}}]
-           (apply concat
-                  (for [{:keys [group rows]} keybinding-rows]
-                    (concat
-                      [[:div {:key   (str "g-" group)
-                              :style {:padding     "8px 10px"
-                                      :background  (:bg-1 tokens)
-                                      :color       (:text-tertiary tokens)
-                                      :font-size   (:caption type-scale)
-                                      :font-family sans-stack
-                                      :font-weight 600
-                                      :text-transform "uppercase"
-                                      :letter-spacing "0.05em"
-                                      :border-bottom (str "1px solid " (:border-subtle tokens))}}
-                        group]]
-                      (map-indexed
-                        (fn [idx [chord action]]
-                          [:div {:key   (str group "-" idx)
-                                 :style (keybinding-table-row-style (odd? idx))}
-                           [:span {:style {:font-family mono-stack
-                                           :color       (:text-primary tokens)
-                                           :font-size   (:body type-scale)}}
-                            chord]
-                           [:span {:style {:color (:text-secondary tokens)}}
-                            action]])
-                        rows)))))]))
+   (into [:div {:data-testid "rf-xray-settings-keybindings-table"
+                :style {:border        (str "1px solid " (:border-subtle tokens))
+                        :border-radius "4px"
+                        :overflow      "hidden"
+                        :margin-top    "8px"}}]
+         (apply concat
+                (for [{:keys [group rows]} keybinding-rows]
+                  (concat
+                    [[:div {:key   (str "g-" group)
+                            :style {:padding     "8px 10px"
+                                    :background  (:bg-1 tokens)
+                                    :color       (:text-tertiary tokens)
+                                    :font-size   (:caption type-scale)
+                                    :font-family sans-stack
+                                    :font-weight 600
+                                    :text-transform "uppercase"
+                                    :letter-spacing "0.05em"
+                                    :border-bottom (str "1px solid " (:border-subtle tokens))}}
+                      group]]
+                    (map-indexed
+                      (fn [idx [chord action]]
+                        [:div {:key   (str group "-" idx)
+                               :style (keybinding-table-row-style (odd? idx))}
+                         [:span {:style {:font-family mono-stack
+                                         :color       (:text-primary tokens)
+                                         :font-size   (:body type-scale)}}
+                          chord]
+                         [:span {:style {:color (:text-secondary tokens)}}
+                          action]])
+                      rows)))))])
 
 ;; ---- section: Buffer (rf2-ttnst; rf2-pu9sb epoch-history consolidation) -
 ;;
@@ -1029,49 +1069,50 @@
                :style       (danger-button-style)}
       "Clear"]]]])
 
-(defn- buffer-section [dispatch]
-  (let [events-retained @(rf/subscribe [:rf.xray/setting :buffer :events-retained])
-        confirm-open?   @(rf/subscribe [:rf.xray/settings-clear-confirm-open?])]
-    [:div {:data-testid "rf-xray-settings-section-buffer"
-           :style {:position "relative"}}
-     [:h2 {:style (section-heading-style)} "Buffer"]
-     [:p {:style {:color (:text-secondary tokens)
-                  :line-height 1.5
-                  :margin "0 0 16px 0"}}
-      "Tune how much history Xray retains for inspection. Lower "
-      "numbers keep memory smaller; higher numbers let you scroll "
-      "further back through past epochs."]
+(defn- buffer-section
+  "The Buffer tab's body, as a PURE function of `dispatch` and the two
+  values it used to read for itself (rf2-k97c.3)."
+  [dispatch events-retained confirm-open?]
+  [:div {:data-testid "rf-xray-settings-section-buffer"
+         :style {:position "relative"}}
+   [:h2 {:style (section-heading-style)} "Buffer"]
+   [:p {:style {:color (:text-secondary tokens)
+                :line-height 1.5
+                :margin "0 0 16px 0"}}
+    "Tune how much history Xray retains for inspection. Lower "
+    "numbers keep memory smaller; higher numbers let you scroll "
+    "further back through past epochs."]
 
-     ;; Epoch history slider was here; moved to General 2026-05-27
-     ;; per Mike. The slot stays `:general :epoch-history`; only
-     ;; the visual home changed.
+   ;; Epoch history slider was here; moved to General 2026-05-27
+   ;; per Mike. The slot stays `:general :epoch-history`; only
+   ;; the visual home changed.
 
-     (numeric-field
-       {:testid    "rf-xray-settings-buffer-events-retained"
-        :label     "Events retained (:buffer/events-retained)"
-        :value     events-retained
-        :default   50
-        :min       1
-        :on-commit #(dispatch
-                      [:rf.xray/settings-update
-                       :buffer :events-retained %])
-        :hint      "Number of events retained in each frame's trace ring."})
+   (numeric-field
+     {:testid    "rf-xray-settings-buffer-events-retained"
+      :label     "Events retained (:buffer/events-retained)"
+      :value     events-retained
+      :default   50
+      :min       1
+      :on-commit #(dispatch
+                    [:rf.xray/settings-update
+                     :buffer :events-retained %])
+      :hint      "Number of events retained in each frame's trace ring."})
 
-     ;; Destructive action — opens confirm modal.
-     [:div {:style {:margin-top "20px"}}
-      [:button {:data-testid "rf-xray-settings-clear-buffer-now"
-                :on-click    (fn [^js e]
-                               (.stopPropagation e)
-                               (dispatch
-                                 [:rf.xray/settings-confirm-clear-buffer]))
-                :style       (danger-button-style)}
-       "Clear buffer now"]
-      [:p {:style (hint-style)}
-       "Drops every retained epoch and the redaction counter. "
-       "This cannot be undone."]]
+   ;; Destructive action — opens confirm modal.
+   [:div {:style {:margin-top "20px"}}
+    [:button {:data-testid "rf-xray-settings-clear-buffer-now"
+              :on-click    (fn [^js e]
+                             (.stopPropagation e)
+                             (dispatch
+                               [:rf.xray/settings-confirm-clear-buffer]))
+              :style       (danger-button-style)}
+     "Clear buffer now"]
+    [:p {:style (hint-style)}
+     "Drops every retained epoch and the redaction counter. "
+     "This cannot be undone."]]
 
-     (when confirm-open?
-       [clear-buffer-confirm-modal dispatch])]))
+   (when confirm-open?
+     (clear-buffer-confirm-modal dispatch))])
 
 ;; ---- key handling -------------------------------------------------------
 
@@ -1140,20 +1181,55 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(defn popup-view
-  "Hiccup for the open settings popup. Caller (`popup/Modal`) gates
-  the mount on `:rf.xray/settings-open?` — this fn assumes it's open
-  and always renders. ESC closes; click outside the dialog closes;
-  the ✕ button in the header closes.
+(defn popup-tree
+  "The open settings popup's WHOLE body, as a PURE function of
+  `dispatch` and the values [[day8.re-frame2-xray.settings.popup/Popup]]
+  reads. The caller gates the mount on `:rf.xray/settings-open?` — this
+  fn assumes it is open and always renders. ESC closes; click outside
+  the dialog closes; the ✕ button in the header closes.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher injected by the
-  `Modal` `reg-view` body — threaded down to every section helper so
-  deferred handlers land on the surrounding instance frame, not a
-  `{:frame :rf/xray}` literal."
-  [dispatch]
-  (let [active-tab  @(rf/subscribe [:rf.xray/settings-active-tab])
-        positioning @(rf/subscribe [:rf.xray/modal-positioning])
-        on-keydown  (handle-keydown dispatch)]
+  ## rf2-k97c.3 — WAS `popup-view`, AND IT READ FOR ITSELF
+
+  Before the migration this fn and its four section helpers performed
+  THIRTEEN ambient `@(rf/subscribe …)` reads between them. They are now
+  hoisted into the boundary, and the reason is not taste: `rf.fresco/sub`
+  refuses outside a boundary render (`:rf.error/fresco-sub-outside-render`,
+  `impl.collector/read-key!`), so a read-performing helper that anything
+  calls from OUTSIDE a React commit — a handler, a utility path, a
+  node-lane test — becomes uncallable the moment its read is migrated.
+  Seven such callers existed. A pure fn needs neither a render window nor
+  `subscribe-once`, so hoisting keeps every lane open.
+
+  `data` is that hoisted read-set, keyed by the tab that consumes it:
+
+      {:active-tab       — which inner tab is showing
+       :positioning      — `:rf.xray/modal-positioning` (fixed / absolute)
+       :general          — the seven General-tab values, as a map
+       :highlight?       — Diff tab
+       :keys-on?         — Keybindings tab
+       :events-retained  — Buffer tab
+       :confirm-open?}   — Buffer tab's nested confirm modal
+
+  WHAT THE HOIST COSTS, stated because it is a real behaviour change:
+  the four tabs' slots are now read whenever the popup is OPEN, where
+  before only the ACTIVE tab's were. That is the one lost conditional.
+  It is bounded — the gate is still conditional, so a CLOSED popup holds
+  ONE subscription, not fourteen, because `rf.fresco/sub` is legal inside
+  a `when` and records its edge where the read happens (HD-002). Four
+  extra `get-in`-shaped reads on an open modal is not a cost worth a
+  second boundary per tab, and a per-tab boundary would put a Fresco head
+  in this tree that the node lane could not walk.
+
+  `dispatch` (rf2-nesy9) is the frame-bound dispatcher — threaded down to
+  every section helper so deferred handlers land on the surrounding
+  instance frame, not a `{:frame :rf/xray}` literal. The boundary takes
+  it from `(:dispatch (rf/capture-frame))`; the node-lane door passes
+  `rf/dispatch` under `rf/with-frame`.
+
+  PURE: every helper it calls is a plain fn of its arguments."
+  [dispatch {:keys [active-tab positioning general highlight? keys-on?
+                    events-retained confirm-open?]}]
+  (let [on-keydown (handle-keydown dispatch)]
     ;; rf2-7oxvd — shared backdrop + dialog scaffold. Keeps this modal's
     ;; own `backdrop-style` / `dialog-style`, its `tab-index "-1"` dialog
     ;; root, and its `handle-keydown` (Esc-closes + bare-letter tab
@@ -1200,8 +1276,13 @@
                    :role        "tablist"
                    :aria-label  "Settings sections"
                    :style       (tab-strip-style)}]
+            ;; rf2-k97c.3 — `tab-button` is CALLED, not headed. The
+            ;; standard HD-016 repair: a plain fn in head position is
+            ;; `:invalid` to Fresco's codec, and everything this one
+            ;; answers is keyword-headed, so the call terminates. Its
+            ;; `:key` moved into its own attrs map with it.
             (for [tab tabs]
-              [tab-button dispatch tab (= (:id tab) active-tab)]))
+              (tab-button dispatch tab (= (:id tab) active-tab))))
       ;; Body — rf2-h4mnh: closes the tabs/tabpanel loop. The body
       ;; carries `role="tabpanel"` + an `id` matching the active
       ;; tab button's `aria-controls`, and `aria-labelledby`
@@ -1213,8 +1294,8 @@
              :aria-labelledby (settings-tab-button-id active-tab)
              :style           (body-style)}
        (case active-tab
-         :general     (general-section dispatch)
-         :diff        (diff-section dispatch)
-         :keybindings (keybindings-section dispatch)
-         :buffer      (buffer-section dispatch)
-         (general-section dispatch))])))
+         :general     (general-section dispatch general)
+         :diff        (diff-section dispatch highlight?)
+         :keybindings (keybindings-section dispatch keys-on?)
+         :buffer      (buffer-section dispatch events-retained confirm-open?)
+         (general-section dispatch general))])))
