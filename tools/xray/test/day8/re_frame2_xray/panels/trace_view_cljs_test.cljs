@@ -1175,14 +1175,21 @@
             [(mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
                         :time 102 :dispatch-id 1})])])
       (focus! 1)
-      (let [rows (db-diff-row-nodes (rendered-tree) 2)
-            ks   (mapv #(:key (second %)) rows)]
+      (let [rows     (db-diff-row-nodes (rendered-tree) 2)
+            ;; The LITERAL every door below is compared against. Comparing
+            ;; the two renderers to the attrs map instead would be hollow in
+            ;; the one direction that matters: under a revert to `with-meta`
+            ;; the attrs read and the codec read are BOTH nil, so they agree
+            ;; and the row goes green on a defect. Measured — the first draft
+            ;; did exactly that.
+            expected ["[:counter]" "[:flag]" "[:stale]"]
+            ks       (mapv #(:key (second %)) rows)]
         ;; Non-vacuity first: an empty `rows` would make every assertion
         ;; below trivially true.
         (is (= 3 (count rows)) "three changed paths render three diff rows")
         ;; `(pr-str path)` of the whole path VECTOR — the expression the
         ;; `with-meta` wrapper carried, unchanged.
-        (is (= ["[:counter]" "[:flag]" "[:stale]"] (sort ks))
+        (is (= expected (sort ks))
             "each diff row carries the unchanged `(pr-str path)` key in attrs")
         (is (= 3 (count (distinct ks))) "sibling keys are distinct")
         ;; THE GATE. `subvec` for the same reason the sibling panels take it:
@@ -1190,17 +1197,21 @@
         ;; HD-016 the moment anything below a diff row stopped being native,
         ;; and that exception would hide the key answer behind it. Dropping
         ;; the subtree cannot change the answer — the key is read off the
-        ;; attribute map. RED under a revert to `with-meta`: `[nil nil nil]`.
-        (is (= (sort ks)
+        ;; attribute map. RED under a revert to `with-meta`: `[nil nil nil]`,
+        ;; measured.
+        (is (= expected
                (sort (mapv #(.-key (rf.fresco.impl.codec/as-element
                                      (subvec % 0 2)))
                            rows)))
             "Fresco's codec commits the same key for every diff row")
-        ;; The Reagent door, kept beside it and labelled: it is HOLLOW for
-        ;; this sub-case and passes under the revert. It is here to show that
-        ;; ONE attribute satisfies both substrates rather than trading one
-        ;; for the other.
-        (is (= (sort ks)
+        ;; The Reagent door, kept beside it and labelled: `r/as-element` on
+        ;; the WHOLE node is HOLLOW for this sub-case, because Reagent reads
+        ;; meta AND props and answers the same key either way. It is
+        ;; `subvec`'d here too, which drops the metadata before Reagent sees
+        ;; it — so this row reads the ATTRIBUTE and is a compatibility check
+        ;; rather than a second gate: it shows ONE attribute satisfies both
+        ;; substrates rather than trading one for the other.
+        (is (= expected
                (sort (mapv #(.-key (r/as-element (subvec % 0 2))) rows)))
             "and Reagent commits it too")
         ;; Guard the guard: no row depends on reader metadata any more.
