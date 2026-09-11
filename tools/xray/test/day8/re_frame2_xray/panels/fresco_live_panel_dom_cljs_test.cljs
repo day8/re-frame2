@@ -501,9 +501,11 @@
             frame-bound `dispatch`; a `defview` binds no name inside a body,
             so the panel builds one from `rf/current-frame-id`. A bare global
             `rf/dispatch` in its place fires after render unwinds, when the
-            ambient frame is gone, and lands on `:rf/default` — where
-            `:rf.xray.fresco/set-view` writes a `:fresco-view` nobody reads,
-            and the DOM below never changes."
+            ambient frame is gone, and RAISES `:rf.error/no-frame-context` —
+            there is no `:rf/default` floor beneath the two resolution tiers
+            (EP-0002), and this ns's `:ambient-frame nil` leaves no ambient
+            scope to catch it either. `:rf.xray.fresco/set-view` never runs
+            at all, and the DOM below never changes."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done

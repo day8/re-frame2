@@ -79,7 +79,16 @@
       (with-new-frame [f :right]
         (is (= :right f))
         (is (= :right (rf/current-frame-id))))))
-  (testing "outside any binding the dynamic var falls back to :rf/default"
+  ;; NOT a resolver fallback. `current-frame-id` has no `:rf/default`
+  ;; floor — read with no scope in effect at all it RAISES
+  ;; `:rf.error/no-frame-context` (EP-0002). It reads `:rf/default` here
+  ;; because this ns's `make-reset-runtime-fixture` (above) installs an
+  ;; adapter and does NOT pass `:ambient-frame`, so the fixture binds its
+  ;; default ambient scope — `:rf/default` — around every test body. What
+  ;; this row pins is that the two `with-frame` scopes above UNWIND back
+  ;; to that ambient scope, not that absence resolves to anything.
+  (testing "after the with-frame scopes unwind, the dynamic var is back to
+            the fixture's ambient scope (:rf/default)"
     (is (= :rf/default (rf/current-frame-id)))))
 
 ;; ---- capture-frame — the ONE public HOLD primitive --------------------------
@@ -93,8 +102,10 @@
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/dispatch-sync [:seed 99] {:frame :side})
     (let [handle (with-frame :side (rf/capture-frame))]
-      ;; Outside the with-frame, dynamic var has reverted; the captured
-      ;; handle still targets :side.
+      ;; Outside the with-frame, the dynamic var has reverted to the
+      ;; fixture's ambient scope (`:rf/default`) — not to a resolver
+      ;; fallback, of which there is none. The captured handle still
+      ;; targets :side.
       (is (= :rf/default (rf/current-frame-id)))
       (is (= :side (:frame handle)))
       (is (= 99 (:n (rf/app-db-value (:frame handle))))))))
