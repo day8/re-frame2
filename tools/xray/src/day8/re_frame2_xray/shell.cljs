@@ -1245,7 +1245,7 @@
   boundary, so it stays a head.
 
   TWO REAGENT ISLANDS, both reached through `as-child` — `identity` for a
-  hiccup caller and the node lane, `reagent.core/as-element` for the
+  hiccup caller and the node lane, `substrate/as-element` for the
   boundary:
 
     * `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill`, both
@@ -2712,7 +2712,7 @@
   `fresco/Panel` are still `rf/reg-view`s. Both grade `:invalid` as a
   Fresco head, down the same arm. `as-child` is `identity` for a hiccup
   caller and the node lane, which leaves `[(:panel tab)]` exactly the
-  vector it has always been, and `reagent.core/as-element` for the
+  vector it has always been, and `substrate/as-element` for the
   boundary, which answers a React element — a legal child anywhere per
   Fresco's component ABI.
 
@@ -2886,7 +2886,7 @@
   the composition has to live.
 
   ONE REAGENT ISLAND, still an `rf/reg-view`, reached through
-  `reagent.core/as-element` (the node lane's door passes `identity`, so
+  `substrate/as-element` (the node lane's door passes `identity`, so
   it stays the fn-headed vector a hiccup walker expands):
 
     * [[event-list]] — held back by a SHIPPED EMBED in a file another

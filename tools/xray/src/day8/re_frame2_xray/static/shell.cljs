@@ -104,7 +104,7 @@
 
   TWO REAGENT ISLANDS REMAIN, both reached through an `as-child`
   seam — `identity` for a hiccup caller and the node lane,
-  `reagent.core/as-element` for a boundary:
+  `substrate/as-element` for a boundary:
 
     * the L1 ribbon's `frame-switcher/frame-switcher-view` and
       `mode-pill/mode-pill`, both still `rf/reg-view`s. The Dynamic
@@ -297,7 +297,7 @@
   `as-child` is `identity` for a hiccup caller (the node lane, and any
   Reagent caller), which leaves each island a fn-headed hiccup vector
   exactly as it has always been; the boundary passes
-  `reagent.core/as-element`, which answers a React element — a legal
+  `substrate/as-element`, which answers a React element — a legal
   child anywhere per Fresco's component ABI.
 
   PURE: `ribbon-right-icons` is CALLED rather than headed, and answers
@@ -507,7 +507,7 @@
   PR #9648). A plain fn grades `:invalid` as a Fresco head, so the
   island stands. `as-child` is `identity` for a hiccup caller and the
   node lane, which leaves `[(:panel tab)]` exactly the vector it has
-  always been, and `reagent.core/as-element` for the boundary, which
+  always been, and `substrate/as-element` for the boundary, which
   answers a React element — a legal child anywhere per Fresco's
   component ABI, and the crossing every Static panel's own bridge
   comment already describes.

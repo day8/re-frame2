@@ -73,7 +73,7 @@
   React ELEMENT is a legal child anywhere (`codec`'s `child-kind`
   classifies `react/isValidElement` as `:react-element`). So
   [[detail-tree]] takes an `:as-child` function — `identity` for a
-  hiccup caller and for the node lane, `reagent.core/as-element` for the
+  hiccup caller and for the node lane, `substrate/as-element` for the
   boundary — and the whole Reagent subtree crosses as one finished
   element, rendered by Reagent's own machinery under the SAME React
   context the frame-provider wrote. MIGRATION SCAFFOLDING WITH A DEFINED
@@ -273,7 +273,7 @@
   `as-child` is how the two REAGENT ISLANDS are spelled for the calling
   renderer — see the ns docstring. `identity` (the node lane, and any
   Reagent caller) leaves each body as a fn-headed hiccup vector, which
-  is exactly what it has always been; `reagent.core/as-element` (the
+  is exactly what it has always been; `substrate/as-element` (the
   boundary) answers a React element, a legal child anywhere per Fresco's
   component ABI. The Instances and Cascade arms are pure keyword hiccup
   and cross unchanged either way."
