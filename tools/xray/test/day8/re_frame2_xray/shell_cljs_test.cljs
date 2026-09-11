@@ -44,8 +44,13 @@
   hiccup tree by `data-testid` rather than mounting to a DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
+            [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            ;; rf2-k97c.3 — the codec's own hiccup->element door, so the
+            ;; L2 row key is graded by the SHIPPED renderer rather than by
+            ;; reading the attribute map back.
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
@@ -1004,6 +1009,76 @@
             rows (find-all-by-testid-prefix tree "rf-xray-event-row-")]
         (is (= 2 (count rows))
             "one row per cascade")))))
+
+;; ---- the L2 row key, graded at the renderer (rf2-k97c.3) -----------------
+;;
+;; `event-row` used to be a hiccup HEAD, so the React key rode the `:key`
+;; slot of the opts map at `event-list`'s call site and React read it off
+;; the head's props. Fresco grades a plain fn in head position a loud
+;; error, so `event-list-tree` CALLS it — the opts map is now an ordinary
+;; argument React never sees, and the key moved one level down into the
+;; `<li>` the fn returns.
+;;
+;; A LOST KEY DOES NOT FAIL, IT DEGRADES into index-based reconciliation,
+;; which paints identically and corrupts row identity only once the list
+;; changes shape. No existing row can see that, which is why this pair is
+;; graded at the RENDERERS rather than by reading the map.
+;;
+;; BOTH DOORS TAKE HEAD + ATTRS ONLY (`subvec node 0 2`). The key is read
+;; off the attribute map by both renderers, so dropping the subtree
+;; changes nothing about the answer — and it is NECESSARY, because the
+;; codec lowers children eagerly and an `<li>`'s subtree reaches
+;; `col-divider` / `relative-time-chip` / `duration-cell`, plain fns that
+;; are CALLED here but whose refusal would otherwise hide the key answer
+;; behind an HD-016 throw. There is no metadata in play at either site, so
+;; subvec'ing both sides costs nothing (the asymmetric form — whole node
+;; for Reagent — is only needed when grading metadata against attrs).
+
+(defn- reagent-row-key
+  "The key Reagent hands React. It reads metadata AND props, so it cannot
+  see the defect alone; it pins the move as a no-op under the substrate
+  Xray ships on today."
+  [node]
+  (.-key (r/as-element (subvec node 0 2))))
+
+(defn- fresco-row-key
+  "The key the shipped Fresco codec commits, read off the node's own
+  attribute map — the ONE spelling that reaches React under a boundary."
+  [node]
+  (.-key (rf.fresco.impl.codec/as-element (subvec node 0 2))))
+
+(deftest l2-rows-reach-react-with-a-key-on-both-renderers
+  (testing "rf2-k97c.3 — every L2 row's React key survives `event-row`
+            becoming a CALL. Graded at both renderers: Reagent's answer
+            pins today's behaviour, and the codec's is the one that can
+            see the key go missing, because it reads the attribute map
+            and Clojure metadata nowhere.
+
+            The keys must also be DISTINCT and derived from the
+            dispatch-id — a constant key is as wrong as no key, and
+            neither shows up in a paint."
+    (xray-setup!)
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
+    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:baz/qux]))
+    (rf/with-frame :rf/xray
+      (let [tree (dynamic-shell-tree/shell-view-tree)
+            rows (find-all-by-testid-prefix tree "rf-xray-event-row-")]
+        ;; The control: a zero here would make every assertion below
+        ;; vacuous, and a broken seed reads exactly like a passing sweep.
+        (is (= 2 (count rows))
+            "CONTROL — two seeded cascades produce two rows to grade")
+        (doseq [row rows]
+          (is (some? (fresco-row-key row))
+              (str "the codec reads a key off this row's attribute map. "
+                   "Got: " (pr-str (:key (second row)))))
+          (is (some? (reagent-row-key row))
+              "Reagent reads a key off this row too"))
+        (is (= (mapv fresco-row-key rows) (mapv reagent-row-key rows))
+            "both renderers answer the SAME key — the attribute-map
+             spelling is the one both honour")
+        (is (= #{"1" "2"} (set (map fresco-row-key rows)))
+            (str "each row is keyed by its own dispatch-id. Got: "
+                 (pr-str (mapv fresco-row-key rows))))))))
 
 (deftest event-list-renders-figma-column-header
   (testing "rf2-ad7zx.12 + rf2-lnod7 — the L2 list carries the Figma
