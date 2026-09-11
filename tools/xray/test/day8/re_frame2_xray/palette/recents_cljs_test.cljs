@@ -13,7 +13,7 @@
   guarding it here on `(exists? js/window)` meant it ran in NO lane,
   because `:browser-test` only loads namespaces ending
   `-dom-cljs-test`."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [day8.re-frame2-xray.palette.recents :as recents]))
 
 (use-fixtures :each
