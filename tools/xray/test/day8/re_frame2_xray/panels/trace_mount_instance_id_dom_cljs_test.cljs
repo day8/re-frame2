@@ -305,6 +305,13 @@
               "the two mounts composed two mount-ids")
 
           ;; ---- the observer half -------------------------------------
+          ;; These two are LIVENESS controls rather than the discriminating
+          ;; rows, and saying so matters: under the shared identity both
+          ;; lookups resolve to the SAME entry, so both pass while the defect
+          ;; is fully present (measured — they were the two rows in this
+          ;; deftest that stayed green on the unrepaired tree). What bites
+          ;; before the unmount is `not=` above; what bites after it is the
+          ;; survivor row below.
           (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
                          :observer)
               "the left mount installed its own ResizeObserver")
@@ -315,18 +322,28 @@
                observer already on the entry and installs none")
 
           ;; ---- the width half ----------------------------------------
-          ;; Measured for real: `container-ref-for`'s mount arm calls
-          ;; `measure-and-dispatch!` synchronously on ref attach, before it
-          ;; installs the observer, so a committed container with layout has
-          ;; already written its width by the time this line runs.
-          (is (some? (get (widths) id-l))
-              (str "control: the left mount MEASURED and wrote its width — "
-                   "without this the survivor's width below cannot be "
-                   "'kept' by anything. slot=" (pr-str (widths))))
-          (is (some? (get (widths) id-r))
-              (str "and so did the right, under its own key. Under the shared "
-                   "identity there is one key here, not two. slot="
-                   (pr-str (widths))))
+          ;; DRIVEN through the slot's own public event rather than read off
+          ;; a real measurement, and that is a finding rather than a
+          ;; shortcut: in the headless browser the committed payload
+          ;; container measures `clientWidth` 0, so `measure-and-dispatch!`'s
+          ;; `(pos? w)` guard never fires and the slot stays EMPTY on a
+          ;; perfectly healthy mount (measured on the pre-fix run: `slot={}`
+          ;; for both mounts). A row asserting a measured width would
+          ;; therefore be red for a reason that is not this defect. The slot
+          ;; is public for exactly this — its docstring says tests may drive
+          ;; measurements deterministically — and `:rf.xray.edn-inspector/
+          ;; set-width` is the very event the observer dispatches, under the
+          ;; very id the widget composes. So what these rows exercise is the
+          ;; half the defect actually breaks: WHICH KEY `release-mount!`
+          ;; clears when a sibling detaches.
+          (rf/dispatch-sync [:rf.xray.edn-inspector/set-width id-l 640]
+                            {:frame :rf/xray})
+          (rf/dispatch-sync [:rf.xray.edn-inspector/set-width id-r 480]
+                            {:frame :rf/xray})
+          (is (= 640 (get (widths) id-l))
+              (str "two live mounts hold TWO width slots — under the shared "
+                   "identity the right mount's write lands on the left's key "
+                   "and overwrites it. slot=" (pr-str (widths))))
 
           (unmount! right)
 
@@ -338,11 +355,11 @@
               "and the mount STILL ON SCREEN is still observed — releasing
                the survivor's entry is what the shared key did, and it left a
                live node with no observer and no width updates")
-          (is (some? (get (widths) id-l))
-              (str "and the survivor's measured width is STILL in the frame's "
-                   "slot — `release-mount!` clears the width under the "
-                   "detaching mount's id, which under the shared identity is "
-                   "the survivor's own. slot=" (pr-str (widths))))
+          (is (= 640 (get (widths) id-l))
+              (str "and the survivor's width is STILL in the frame's slot — "
+                   "`release-mount!` clears the width under the DETACHING "
+                   "mount's id, which under the shared identity is the "
+                   "survivor's own. slot=" (pr-str (widths))))
           (finally
             (unmount! left)))))))
 
