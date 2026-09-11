@@ -112,7 +112,7 @@ Seven of the ten carry a standalone `mount-<panel>!` facade:
 | Reactive (Views) | `day8.re-frame2-xray.panels.reactive-panel` | `Panel` Fresco boundary |
 | Trace | `day8.re-frame2-xray.panels.trace` | `Panel` Fresco boundary |
 | Machine Inspector | `day8.re-frame2-xray.panels.machine-inspector` | `Panel` Fresco boundary |
-| Routing | `day8.re-frame2-xray.panels.routing` | `Panel` reg-view |
+| Routing | `day8.re-frame2-xray.panels.routing` | `Panel`, not an `rf/reg-view` |
 | Resources | `day8.re-frame2-xray.panels.resources` | `Panel` Fresco boundary |
 
 The remaining three are **L4-only registry tabs** — registered for the tab strip and focusable through `focus!`, but shell-internal and not independently mountable into a host's own layout:
