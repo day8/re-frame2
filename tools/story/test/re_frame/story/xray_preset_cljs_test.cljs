@@ -12,6 +12,18 @@
   file. The `.cljc` sibling stays the home for the deep-merge / resolve
   pure-data tests that round-trip through both JVM and CLJS.
 
+  ## Why there is ALSO a `_dom_cljs_test.cljs` sibling (rf2-r51p)
+
+  `re-frame.story.xray-preset-dom-cljs-test` owns the one contract this
+  lane cannot state: that `wire-cross-host!` REMOVES the keydown
+  listener. `keybinding/attach!` and `keybinding/detach!` both open with
+  `(exists? js/document)`, and this runtime has no document, so nothing
+  can attach here and an `attached?` assertion would pass without
+  meaning anything — which is exactly what it did until rf2-r51p (see
+  the note above `wire-cross-host-flips-the-keybinding-slot` below).
+  Only a namespace ending `-dom-cljs-test` is loaded by `:browser-test`,
+  which is the sole lane with a real document.
+
   ## Coverage
 
   - `disable-keybinding!` (rf2-q7who.1): writes
@@ -214,29 +226,48 @@
             "slot flip (intent) lands before detach! (runtime removal)
              which lands before the composed apply-open!")))))
 
-;; ---- runtime integration: slot + detach! together (rf2-ycrt2) ------------
+;; ---- runtime integration: the slot half (rf2-ycrt2) ----------------------
+;;
+;; rf2-r51p SPLIT THIS ROW, AND THE HALF THAT LEFT WAS A FALSE GREEN.
+;;
+;; What stood here drove `wire-cross-host!` for real and then asserted
+;; BOTH halves of the contract — the slot flip and the listener removal.
+;; Only the `attach!` PRECONDITION was guarded:
+;;
+;;     (when (exists? js/document)
+;;       (xray-keybinding/attach!)
+;;       (is (true? (xray-keybinding/attached?)) "precondition: ..."))
+;;     ...
+;;     (is (false? (xray-keybinding/attached?))
+;;         "wire-cross-host! removed the listener")
+;;
+;; This lane has no document (no jsdom or happy-dom in any dependency
+;; list), so the precondition never ran, `attach!` — which opens with
+;; `(exists? js/document)` — never installed anything, and the UNGUARDED
+;; assertion below it then read `(false? false)` and PASSED. It had been
+;; reporting a removed listener to CI on every PR without one ever being
+;; installed. The guarded row was dead; the live row it hollowed out was
+;; worse, because a dead row merely fails to cover — a hollow one claims
+;; to.
+;;
+;; The listener half now lives in `re-frame.story.xray-preset-dom-cljs-test`,
+;; where a real document makes `attach!` and `detach!` reach their bodies.
+;; What stays here is the half this lane can actually prove: the slot flip
+;; is plain atom arithmetic and needs no host.
 
-(deftest wire-cross-host-clears-attached-listener
-  (testing "rf2-ycrt2 — simulate Xray's preload-time attach! under the
-            default-true posture, then drive wire-cross-host!; after the
-            bridge the keybinding sentinel must be false (the listener
-            was removed). This is the runtime contract rf2-q7who.1
-            declared but did not close — the slot flip alone wouldn't
-            detach the listener; rf2-ycrt2 closes the gap via
-            detach-keybinding!."
-    ;; Restore baseline so attach! sees the default-true slot. Then
-    ;; simulate the preload: attach!. Without rf2-ycrt2 the listener
-    ;; would survive past wire-cross-host!; with the fix the sentinel
-    ;; flips back to false.
+(deftest wire-cross-host-flips-the-keybinding-slot
+  (testing "rf2-ycrt2 — wire-cross-host! drives the REAL (unshimmed)
+            disable-keybinding!, so Xray's :rf.xray/keybinding-enabled?
+            slot reads false afterwards. That is the INTENT declaration.
+            The RUNTIME half — that the keydown listener attach!
+            installed is actually removed — cannot be asserted on this
+            lane and lives in the -dom-cljs-test sibling (rf2-r51p)."
+    ;; Restore baseline so the flip is a real transition rather than a
+    ;; read of a slot that was already false.
     (xray-config/set-keybinding-enabled! true)
+    (is (true? (xray-config/keybinding-attach-enabled?))
+        "precondition: the slot starts at the default-true posture")
     (try
-      ;; Skip the inner attach when js/document is unstubbable (real
-      ;; browser-test) — the contract still proves on node-test where
-      ;; the keybinding suite's stub gates idempotency.
-      (when (exists? js/document)
-        (xray-keybinding/attach!)
-        (is (true? (xray-keybinding/attached?))
-            "precondition: preload-style attach! installed the listener"))
       ;; Drive the cross-host bridge for real — `disable-keybinding!`
       ;; and `detach-keybinding!` reference Xray's live config /
       ;; keybinding namespaces through declared `:require`s
@@ -245,13 +276,9 @@
       (rf.story.xray-preset/wire-cross-host!)
       (is (false? (xray-config/keybinding-attach-enabled?))
           "wire-cross-host! flipped the slot to false")
-      (is (false? (xray-keybinding/attached?))
-          "wire-cross-host! removed the listener (rf2-ycrt2 runtime gap closed)")
       (finally
         ;; Restore defaults so neighbouring tests see the baseline.
-        (xray-config/set-keybinding-enabled! true)
-        (when (exists? js/document)
-          (xray-keybinding/detach!))))))
+        (xray-config/set-keybinding-enabled! true)))))
 
 ;; ---- apply-preset! -------------------------------------------------------
 ;;
