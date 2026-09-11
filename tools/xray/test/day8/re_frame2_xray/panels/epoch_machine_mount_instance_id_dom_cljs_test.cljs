@@ -104,6 +104,7 @@
             [re-frame.core :as rf]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.test-support :as rf.test-support]
+            [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.panels :as panels]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -179,10 +180,25 @@
   The Machine Inspector needs the registered-machines / definitions
   overrides to paint its focused-event section at all; the Epoch panel needs
   neither and reads the same history and focus. Both panels default to the
-  `:rf/xray` frame, which is what makes the collision reachable."
+  `:rf/xray` frame, which is what makes the collision reachable.
+
+  `ensure-xray-frame!` RUNS FIRST, BEFORE the seeding, and that ordering is
+  a measured requirement rather than tidiness. These rows mount through the
+  PUBLIC facades, and `panels/render-panel!` routes every mount through
+  `ensure-xray-handlers-installed!` → `mount/ensure-xray-frame!`, whose
+  FIRST-MOUNT HOOK TABLE (`::seed-trace-and-target-frame`,
+  `::reset-transient-filters`, `::hydrate-static-mode`, …) writes the very
+  slots seeded here. Seeded first and mounted second, those hooks land ON
+  TOP and both panels paint an empty state — measured: every `mount-ids`
+  read came back `[]` with the panel roots committed, so the controls fired
+  rather than the claims. `ensure-xray-frame!` is idempotent, so running it
+  here leaves the facade's own call a no-op and the seed is what the panels
+  read. The sibling suites do not meet this because they mount the registry
+  head under a `frame-provider` directly and never reach the facade."
   []
   (registry/register-xray-handlers!)
   (xray-test-support/install-test-overrides!)
+  (mount/ensure-xray-frame! :rf/xray)
   (rf/dispatch-sync [:rf.xray/set-registered-machines-override-for-test
                      [machine-id]]
                     {:frame :rf/xray})
