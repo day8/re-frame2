@@ -866,10 +866,12 @@
 ;; (re-frame.core/view :id))`, so `Panel` is a VALUE and this def binds the
 ;; SAME OBJECT — nothing downstream can tell the two names apart. And
 ;; `render-panel!` always builds the component VECTOR `[panel-view]`, so
-;; head position is the only position either name is used in: the fn-call
-;; hazard `render-panel!`'s docstring warns about (a plain `defn` INVOKED,
-;; skipping the React-context tier so subscribes route to `:rf/default`) is
-;; about call-versus-head position and is not reached here.
+;; head position is the only position either name is used in, and the hazard
+;; `render-panel!`'s docstring warns about is not reached: what is unsafe
+;; there is CALLING the view, because that fn runs outside any React render
+;; and an ambient subscribe with no in-flight component resolves to nil and
+;; RAISES `:rf.error/no-frame-context` (there is no `:rf/default` fallback —
+;; Spec 006 §Plain-fn footgun).
 (def Panel-bridge
   "The name `panels/mount-trace!` mounts this panel through — a plain
   alias of `Panel` until this panel migrates to Fresco, when it becomes
