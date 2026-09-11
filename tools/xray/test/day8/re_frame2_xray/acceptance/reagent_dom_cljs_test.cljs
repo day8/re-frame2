@@ -33,7 +33,7 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.test-support :as rf.test-support]
-            [day8.re-frame2-xray.acceptance.criteria :as criteria]
+            [day8.re-frame2-xray.acceptance.test-helpers.criteria :as criteria]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (def ^:private substrate

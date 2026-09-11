@@ -1,14 +1,27 @@
-(ns day8.re-frame2-xray.acceptance.criteria
+(ns day8.re-frame2-xray.acceptance.test-helpers.criteria
   "THE ACCEPTANCE HARNESS for the rf2-k97c epic's SIX BEHAVIOURAL CRITERIA,
   written against TODAY'S Xray so the root-swap PR inherits it rather than
   writing one under its own time pressure (rf2-k97c.3, slice D).
 
   This namespace holds the six criterion BODIES. It registers no `deftest`
   of its own and its name carries no `-cljs-test` suffix, so neither lane
-  discovers it; the per-substrate test namespaces beside it each wrap these
-  six in `deftest` under their own adapter. One body, N substrates — which
-  is the whole point, because the claim the swap makes is a claim about
+  discovers it; the per-substrate test namespaces one directory up each wrap
+  these six in `deftest` under their own adapter. One body, N substrates —
+  which is the whole point, because the claim the swap makes is a claim about
   INDIFFERENCE to the installed adapter.
+
+  ## WHY IT SITS UNDER `test_helpers/` — DO NOT MOVE IT BACK
+
+  `test_helpers/` is the established home for support shared by DOM suites,
+  and the surface classifier arms the browser lane on that DIRECTORY:
+  `is_story_xray_dom_test_path` in `.github/scripts/report-changed-surfaces.sh`
+  matches `tools/{story,xray}/test/*/test_helpers/*.{cljs,cljc}`. A shared
+  body file outside it classifies `cljs_browser=false`, so a PR editing only
+  this file would run the Node lane — where the DOM suites requiring it find
+  no `document` and self-skip — and skip the one lane that mounts them. The
+  mirror suite `implementation/scripts/_changed-surfaces.test.cjs` walks the
+  require closure of every `*_dom_cljs_test` namespace and refuses exactly
+  that, so a move out of here reds `npm run test:scripts` on arrival.
 
   ## The six, and which fn answers each
 
