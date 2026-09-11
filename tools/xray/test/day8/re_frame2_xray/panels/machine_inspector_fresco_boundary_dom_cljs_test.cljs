@@ -200,12 +200,14 @@
                     {:frame :rf/xray}))
 
 (defn- seed-machines!
-  "The registered machines + definitions every row needs on screen, without
-  any focused epoch. The FOCUS is W2's lever and is applied separately."
+  "The registered machines + definitions every row needs, with an EMPTY
+  spine. The HISTORY is W2's lever and is applied separately — and it is the
+  lever rather than the focus because the focus-resolver HEAD-TRACKS, so
+  loading history with no explicit focus already paints the focused-event
+  surface and a focus-as-lever row would fail its own precondition."
   []
   (override-machines!    [:auth/login])
-  (override-definitions! {:auth/login fixture-definition})
-  (set-history!          fixture-history))
+  (override-definitions! {:auth/login fixture-definition}))
 
 (defn- mount-panel!
   "Mount the Machine tab the way `shell.cljs`'s `detail-panel` mounts it: the
@@ -281,6 +283,7 @@
             ;; demonstrably able to see an entry in that frame's cache.
             _probe (rf/subscribe [:rf.xray/trace-buffer] {:frame app-frame})
             _ (seed-machines!)
+            _ (set-history! fixture-history)
             _ (focus-epoch! 1)
             {:keys [container root]} (mount-panel! :rf/xray)]
         (try
@@ -335,7 +338,7 @@
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
         (setup!)
-        ;; Mount with the machines seeded but NO focused epoch, so the panel
+        ;; Mount with the machines seeded but an EMPTY spine, so the panel
         ;; starts blank and the focused-event surface's ARRIVAL is the signal.
         (seed-machines!)
         (let [{:keys [container root]} (mount-panel! :rf/xray)
@@ -343,7 +346,7 @@
           (is (some? section)
               "PRECONDITION: the panel is on screen at all")
           (is (not (focused-section? container))
-              "NON-VACUITY: with no focused epoch the focused-event surface is
+              "NON-VACUITY: with an empty spine the focused-event surface is
                NOT on screen before this row moves the world")
 
           ;; ---- phase 2: the world moves, and the panel is deaf ------------
@@ -357,7 +360,7 @@
                        commits nothing. A panel that repainted here would make
                        phase 3 pass for a reason that is not liveness")
                   ;; ---- phase 3: the reads' real input moves --------------
-                  (focus-epoch! 1)
+                  (set-history! fixture-history)
                   (rf.test-support/poll-until #(focused-section? container)
                     {:label "the panel committed the focused-event surface"})))
               (.then
@@ -401,6 +404,7 @@
       (async done
         (setup!)
         (seed-machines!)
+        (set-history! fixture-history)
         (focus-epoch! 1)
         ;; The starting point is polled, not asserted: a neighbouring row's
         ;; teardown grace may still be in flight when this one begins.
