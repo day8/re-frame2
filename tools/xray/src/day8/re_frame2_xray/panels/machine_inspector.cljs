@@ -68,12 +68,6 @@
             ;; marker before any panel surface reads it — never raw.
             [re-frame.classification :as rf.classification]
             [re-frame.fresco :as rf.fresco]
-            ;; rf2-k97c.3 — `substrate/as-element` is the `as-child`
-            ;; spelling [[Panel]] hands down for the ONE island this panel
-            ;; still needs (the topology chart; see [[panel-tree]]). The
-            ;; markup stays pure hiccup — Reagent appears here as a
-            ;; migration seam, not as an authoring dependency.
-            [day8.re-frame2-xray.substrate :as substrate]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             ;; rf2-g2axio — the SHARED EVENT HANDLER machine-cascade
@@ -362,17 +356,27 @@
   mini-pipeline above the chart, or relocated to the chart's own
   toolbar.
 
-  rf2-k97c.3 — `as-child` is the island spelling [[panel-tree]] threads
-  down: `identity` for a hiccup caller (the node lane), and
-  `substrate/as-element` under the boundary. It wraps ELEMENT 3 only.
-  `machine-canvas/Chart` is still an `rf/reg-view`, and a `reg-view` head
-  grades `:invalid` under Fresco's codec down the IDENTICAL arm a plain
-  `defn` does — the codec reads one own property, `frescoBoundary`, which
-  only `rf.fresco/defview` sets. Islanding rather than migrating `Chart`
-  is a SCHEDULING call and a deliberate one: `Chart` has a second consumer
-  outside this panel (`panels/machines/topology_view.cljs`, on the Static
-  surface), so migrating it is that slice's to make, not this one's.
-  ELEMENT 2 needs no island — every head reachable through
+  rf2-k97c.3 — THE ISLAND IS GONE FROM THIS PANEL. ELEMENT 3 used to wrap
+  its chart mount in an `as-child` crossing, because `machine-canvas/Chart`
+  is an `rf/reg-view` and a `reg-view` head grades `:invalid` under
+  Fresco's codec down the IDENTICAL arm a plain `defn` does — the codec
+  reads one own property, `frescoBoundary`, which only `rf.fresco/defview`
+  sets. `machine-canvas/Chart-view` now ships that boundary beside the
+  `reg-view`, both one call to the same `machine-canvas/chart-tree`, so
+  this panel heads it directly and the `as-child` parameter is gone from
+  this fn and from the three above it.
+
+  The `reg-view` survives for the two Static consumers, which reach the
+  chart from inside `static/machines/definition_detail.cljs`'s own island
+  and whose only inward door would convert the props map's values. That is
+  their slice's to retire; nothing about it reaches this panel any more.
+
+  The ISLAND HAS NOT VANISHED, it has MOVED DOWN one level, out of this
+  panel and into `machine-canvas/chart-tree`, which crosses the
+  machines-viz chart itself. Its end condition is machines-viz shipping a
+  substrate-neutral head, which is not this tree's to schedule.
+
+  ELEMENT 2 needs no island either — every head reachable through
   `epoch-view/machine-cascade-mini-pipeline` was repaired in the same
   commit, so that whole subtree is head-free.
 
@@ -386,7 +390,6 @@
    {:keys [machine-id from-state to-state definition fired-edge-ids
            guard-blocked-edge-ids start? no-op?]
     :as _record}
-   as-child
    fit-signal
    instance]
   ;; rf2-gpzb4 (2026-05-21 xyflow migration) — the host-side ELK
@@ -498,55 +501,62 @@
          ;; rf2-y3l8z — the chart wraps an interactive viewport adapter
          ;; (zoom/pan/fit + controls toolbar) and owns the after-rings
          ;; overlay so they stay co-located with the canvas.
-         (as-child
-           [machine-canvas/Chart
-            {:definition         definition
-             :machine-id         machine-id
-             ;; rf2-kq8nac (EP-0005) — surface the AUTHORITATIVE declared
-             ;; Context shape (keys + type captions) in the focused-event
-             ;; chart's root Context band, with the declared-vs-inferred
-             ;; indicator. When the machine declares a `[:schemas :data]` schema the
-             ;; shape is read off the schema and `:context-band-inferred?`
-             ;; is FALSE (the chart drops the `inferred from :data` badge and
-             ;; shows `declared` — consistent with the Static Topology view
-             ;; from rf2-3q4k5b); absent a schema it falls back to the
-             ;; one-sample inference (rf2-5tz9p's badge stays). This is the
-             ;; SHAPE, not live `:data` VALUES — the live runtime `:data`
-             ;; surfaces (egress-redacted) through the SHARED mini-pipeline's
-             ;; cascade rows above, never raw here.
-             :context-band       (topology-view/static-context-shape definition)
-             :context-band-inferred? (topology-view/static-context-inferred? definition)
-             ;; rf2-skmc7 — a NO-OP has no from→to edge; suppress the
-             ;; from/to highlight grammar and surface the CURRENT state via
-             ;; `:current-state` instead.
-             :from-highlight     (when-not no-op? from-state)
-             :to-highlight       (when-not no-op? to-state)
-             ;; rf2-eldze / rf2-skmc7 — a BIRTH's initial state and a
-             ;; NO-OP's unchanged current state both ride `:current-state`
-             ;; so the chart highlights the one resting node.
-             :current-state      (cond
-                                   start? to-state
-                                   no-op? to-state
-                                   :else  nil)
-             ;; rf2-qeemm (G3) — the traversed edges paint the FIRED
-             ;; treatment on the live chart.
-             :fired-edge-ids     fired-edge-ids
-             ;; rf2-fzrzlw — the attempted-and-rejected edges (guard-blocked
-             ;; no-op, e.g. door :door/close blocked by :may-close?) paint
-             ;; the PINK guard-blocked treatment on the live chart so the
-             ;; operator sees which edge the event hit + that a guard
-             ;; rejected it (no transition fired, so the fired set is empty).
-             :guard-blocked-edge-ids guard-blocked-edge-ids
-             ;; rf2-6tw7t — fit-on-entry nonce so re-entering the Machine
-             ;; tab re-frames the topology.
-             :fit-signal         fit-signal
-             :on-state-click     (fn [path]
-                                   (rf/dispatch
-                                     [:rf.xray/machine-state-clicked
-                                      {:machine-id machine-id
-                                       :path       path}]
-                                     {:frame frame}))
-             :show-after-rings?  true}])]])]))
+         ;;
+         ;; rf2-k97c.3 — `Chart-view` is the FRESCO head of the same
+         ;; `machine-canvas/chart-tree` the `reg-view` `Chart` renders, so
+         ;; this mount is an ordinary boundary head and no longer crosses an
+         ;; `as-child` island. The props map reaches it BY IDENTITY, which
+         ;; is why the two-heads-one-body shape was needed rather than an
+         ;; `as-component` bridge: a Reagent parent's `[:>]` converts first
+         ;; and this map is nothing but values a conversion would destroy.
+         [machine-canvas/Chart-view
+          {:definition         definition
+           :machine-id         machine-id
+           ;; rf2-kq8nac (EP-0005) — surface the AUTHORITATIVE declared
+           ;; Context shape (keys + type captions) in the focused-event
+           ;; chart's root Context band, with the declared-vs-inferred
+           ;; indicator. When the machine declares a `[:schemas :data]` schema the
+           ;; shape is read off the schema and `:context-band-inferred?`
+           ;; is FALSE (the chart drops the `inferred from :data` badge and
+           ;; shows `declared` — consistent with the Static Topology view
+           ;; from rf2-3q4k5b); absent a schema it falls back to the
+           ;; one-sample inference (rf2-5tz9p's badge stays). This is the
+           ;; SHAPE, not live `:data` VALUES — the live runtime `:data`
+           ;; surfaces (egress-redacted) through the SHARED mini-pipeline's
+           ;; cascade rows above, never raw here.
+           :context-band       (topology-view/static-context-shape definition)
+           :context-band-inferred? (topology-view/static-context-inferred? definition)
+           ;; rf2-skmc7 — a NO-OP has no from→to edge; suppress the
+           ;; from/to highlight grammar and surface the CURRENT state via
+           ;; `:current-state` instead.
+           :from-highlight     (when-not no-op? from-state)
+           :to-highlight       (when-not no-op? to-state)
+           ;; rf2-eldze / rf2-skmc7 — a BIRTH's initial state and a
+           ;; NO-OP's unchanged current state both ride `:current-state`
+           ;; so the chart highlights the one resting node.
+           :current-state      (cond
+                                 start? to-state
+                                 no-op? to-state
+                                 :else  nil)
+           ;; rf2-qeemm (G3) — the traversed edges paint the FIRED
+           ;; treatment on the live chart.
+           :fired-edge-ids     fired-edge-ids
+           ;; rf2-fzrzlw — the attempted-and-rejected edges (guard-blocked
+           ;; no-op, e.g. door :door/close blocked by :may-close?) paint
+           ;; the PINK guard-blocked treatment on the live chart so the
+           ;; operator sees which edge the event hit + that a guard
+           ;; rejected it (no transition fired, so the fired set is empty).
+           :guard-blocked-edge-ids guard-blocked-edge-ids
+           ;; rf2-6tw7t — fit-on-entry nonce so re-entering the Machine
+           ;; tab re-frames the topology.
+           :fit-signal         fit-signal
+           :on-state-click     (fn [path]
+                                 (rf/dispatch
+                                   [:rf.xray/machine-state-clicked
+                                    {:machine-id machine-id
+                                     :path       path}]
+                                   {:frame frame}))
+           :show-after-rings?  true}]]])]))
 
 ;; ---- prev/next nav (per-machine epoch walking) -------------------------
 
@@ -614,13 +624,14 @@
   rf2-alsnz — `records` flows in as an arg so the panel reads the
   composite once per render instead of twice.
 
-  rf2-k97c.3 — `as-child` and `fit-signal` are threaded straight through
-  to [[focused-event-section]], the only place either is used; see that
-  fn's docstring for what the island covers and why the nonce is an
-  argument now. `target-frame` likewise ARRIVES AS AN ARGUMENT rather
-  than being read here, for the same reason: a `rf.fresco/sub` raises
-  outside a collector window, and this fn is node-lane-driven."
-  [records cascade as-child fit-signal target-frame instance]
+  rf2-k97c.3 — `fit-signal` is threaded straight through to
+  [[focused-event-section]], the only place it is used; see that fn's
+  docstring for why the nonce is an argument now. `target-frame` likewise
+  ARRIVES AS AN ARGUMENT rather than being read here, for the same reason:
+  a `rf.fresco/sub` raises outside a collector window, and this fn is
+  node-lane-driven. The `as-child` argument that sat between them is gone
+  with the island it spelled."
+  [records cascade fit-signal target-frame instance]
   (let [;; Dynamic-mode single-instance rule (spec/003 §Dynamic mode —
         ;; single-instance, event-driven, rf2-8og3k): pick the first
         ;; transition by trace order. The upstream projection already
@@ -661,7 +672,7 @@
        ;; `focused-event-section` answers hiccup whose own attribute map
        ;; is not ours to write into, so the key rides the fragment.
        [:<> {:key (h/focused-event-section-key target-frame record)}
-        (focused-event-section cascade record as-child fit-signal instance)]])))
+        (focused-event-section cascade record fit-signal instance)]])))
 
 (defn- blank-state
   "Rendered when the focused event has no machine activity in its
@@ -741,10 +752,6 @@
   paint, liveness, frame targeting and teardown — is
   `machine_inspector_fresco_boundary_dom_cljs_test`'s subject.
 
-  `as-child` is the island spelling, threaded down to
-  [[focused-event-section]] and used nowhere else: `identity` for a
-  hiccup caller, `substrate/as-element` under the boundary.
-
   PURE: every helper it calls is a plain fn of its arguments. Two values
   that used to be read deep in the tree — [[focused-event-view]]'s
   target-frame and [[focused-event-section]]'s fit-signal — are arguments
@@ -757,10 +764,10 @@
   ;; to name working, and answers this panel's OWN token for them rather
   ;; than nil: the cascade ids below are composed in the Epoch panel's id
   ;; namespace, so `no instance` still has to say which panel is rendering.
-  ([data records cascade as-child fit-signal target-frame]
-   (panel-tree data records cascade as-child fit-signal target-frame
+  ([data records cascade fit-signal target-frame]
+   (panel-tree data records cascade fit-signal target-frame
                (instance-token nil)))
-  ([{:keys [empty-kind]} records cascade as-child fit-signal target-frame
+  ([{:keys [empty-kind]} records cascade fit-signal target-frame
     instance]
   (let [;; The first record's machine-id drives the prev/next nav (a
         ;; cascade may touch multiple machines; the nav's "this machine"
@@ -794,7 +801,7 @@
        ;; does not duplicate-subscribe the same composite handle.
        [:div {:data-testid "rf-xray-machine-inspector-focused-event-host"
               :style focused-event-host-style}
-        (focused-event-view records cascade as-child fit-signal target-frame
+        (focused-event-view records cascade fit-signal target-frame
                             instance)]
 
        :else
@@ -829,11 +836,12 @@
   resolves `:rf/xray` identically under today's Reagent-rendered shell
   and under the Fresco root Xray will own.
 
-  ONE ISLAND SURVIVES, and it is scheduling rather than residue:
-  `substrate/as-element` is handed down for the topology chart, because
-  `machine-canvas/Chart` is still an `rf/reg-view` and has a second
-  consumer on the Static surface. [[focused-event-section]] records the
-  condition that retires it.
+  NO ISLAND SURVIVES IN THIS PANEL. The topology chart was the last one,
+  and `machine-canvas/Chart-view` — the Fresco head of the same body the
+  `reg-view` `Chart` renders — retired it; [[focused-event-section]]
+  records what moved and what is left. The island the chart still needs
+  for the machines-viz component now lives inside `machine-canvas`, one
+  level below anything this panel hands down.
 
   The argument is the ordinary one-props-map vector every `defview` takes.
 
@@ -874,7 +882,6 @@
               ;; same focused epoch Prev/Next drives, so the mini-pipeline
               ;; and the chart move together.
               (:cascade (rf.fresco/sub [:rf.xray/machine-focused-epoch-cascade]))
-              substrate/as-element
               (rf.fresco/sub [:rf.xray/machine-tab-fit-signal])
               (rf.fresco/sub [:rf.xray/target-frame])
               ;; rf2-3ymg — this mount's qualifier for the SHARED
@@ -910,9 +917,12 @@
 ;; The Tier 4 sub-components (after-rings overlay, arc/cluster overlays,
 ;; scrubber strip, sim side-rail) render UNDER `Panel` and are not
 ;; independently mountable, so they need no bridge of their own. The
-;; after-rings overlay is the ONE exception and already carries its own
-;; (`machine_after_rings/AfterRingsOverlay-bridge`), because it is mounted
-;; from `machine-canvas/Chart`, which is still Reagent.
+;; after-rings overlay carries its own
+;; (`machine_after_rings/AfterRingsOverlay-bridge`), but NOT for this
+;; panel's sake any more: rf2-k97c.3 made `machine-canvas/Chart-view` a
+;; boundary, and it heads the overlay directly. The bridge survives for the
+;; `reg-view` `machine-canvas/Chart`, which the two Static Reagent-island
+;; consumers still head.
 ;;
 ;; STILL SCAFFOLDING WITH A DEFINED END: when the shell is itself a Fresco
 ;; tree, `reg-l4-tab!` takes `Panel` directly, `[:>]` goes, and both defs
