@@ -18,7 +18,7 @@
 
   ## Consumer API
 
-      [resizable-table
+      [resizable-table-view
        {:table-id   :rf.xray.epoch/subscriptions  ;; unique kw
         :columns    [{:id :sub    :label \"sub\"     :default-flex \"1fr\"}
                      {:id :inputs :label \"inputs\"  :default-flex \"1fr\"}
@@ -44,8 +44,15 @@
   read and the frame-bound dispatcher. **Mount the one your parent is**: a
   Fresco boundary in a Reagent head position fails as loudly as the
   reverse, so a panel adopts `resizable-table-view` when its own mount
-  becomes a boundary and not before. Every call site in the tree is still
-  on `resizable-table`.
+  becomes a boundary and not before.
+
+  THAT MIGRATION IS DONE, AND `resizable-table-view` IS NOW THE ONLY MOUNT
+  SPELLING IN THE TREE (rf2-k97c.3). Both consumer panels became Fresco
+  boundaries — Trace in `04350d02e5`, Epoch in `5c6b56f7ab` — so all five
+  production call sites head the boundary: `panels/epoch/view.cljs` ×3 and
+  `panels/trace.cljs` ×2. **A new consumer mounts `resizable-table-view`.**
+  The Reagent head keeps NO production call site and survives for the
+  reasons its own docstring gives; do not mount it.
 
   ## localStorage persistence (rf2-xzg1y)
 
@@ -758,12 +765,26 @@
 ;;
 ;; BOTH SHIP, and that is the sequencing rather than an indecision
 ;; (rf2-fcy5). A Fresco boundary in a Reagent head position fails exactly
-;; as loudly as the reverse, so the boundary cannot be ADOPTED until each
-;; consumer's own mount is one: `panels/trace.cljs` and
-;; `panels/epoch/view.cljs` migrate on their own beads, and until they do
-;; every call site keeps mounting `resizable-table`. Same pair, same
-;; reason, as `views/edn_inspector.cljs`'s `edn-inspector` /
-;; `edn-inspector-view`.
+;; as loudly as the reverse, so the boundary could not be ADOPTED until
+;; each consumer's own mount was one. Same pair, same reason, as
+;; `views/edn_inspector.cljs`'s `edn-inspector` / `edn-inspector-view`.
+;;
+;; THAT CONDITION IS NOW MET AND THE SEQUENCING IS SPENT (rf2-k97c.3).
+;; `panels/trace.cljs` became a boundary in `04350d02e5` and
+;; `panels/epoch/view.cljs` in `5c6b56f7ab`, and both adopted
+;; `resizable-table-view` in the same commit. Censused at the tip that
+;; carries this comment: ZERO code references to the Reagent head remain
+;; under `tools/xray/src` — head-position, alias-qualified or by-name via
+;; `(rf/view …)` — against a control of 5 live `resizable-table-view`
+;; mounts on the same instrument.
+;;
+;; THE REAGENT HEAD IS NOT RETIRED, AND THAT IS A DECISION RATHER THAN AN
+;; OVERSIGHT. `render-table` is `defn-`, so the Reagent head is the ONLY
+;; public pure-render door into it, and four test namespaces depend on
+;; that door — see its docstring for the inventory. Retiring it would
+;; delete real coverage to remove a var that costs a bundle-isolated dev
+;; tool almost nothing. Nothing here blocks a later retirement; it would
+;; just have to re-point those namespaces first.
 ;;
 ;; Neither head has any state to hold, so neither needs an instance key:
 ;; the widget's one piece of component-local state was the gutter's hover
@@ -772,6 +793,37 @@
 (rf/reg-view resizable-table
   "THE REAGENT HEAD. See the ns docstring for the consumer API and
   `render-table` for the option inventory.
+
+  ## NO PRODUCTION CONSUMER — do not mount this (rf2-k97c.3)
+
+  Every production call site heads `resizable-table-view` since Trace and
+  Epoch became Fresco boundaries; a censused ZERO code references survive
+  under `tools/xray/src`. Mounting this head inside either panel now
+  raises `:rf.error/fresco-bad-head`, which is the refusal
+  `reagent-head-is-invalid-to-the-codec` pins.
+
+  ## WHY IT STILL SHIPS — it is the tree's only pure-render door
+
+  `render-table` is `defn-`. This head is the one PUBLIC way to drive it
+  and get hiccup back without entering a React render window, and nine
+  live call sites across four test namespaces depend on exactly that:
+
+    - `views/resizable_table_key_cljs_test`     renders through it to
+      grade React keys at both substrate doors.
+    - `views/resizable_table_fresco_head_cljs_test`  grades it `:invalid`
+      to the codec, and drives it for `both-heads-resolve-the-same-widths`.
+    - `panels/epoch/view_cljs_test`             substitutes it for the
+      boundary in `expand-widgets` / `call-widget-head`, which is what
+      lets ~40 rows assert on the markup EPOCH supplies; and counts it as
+      the negative control in `panel-emits-the-fresco-widget-heads-test`.
+    - `panels/trace_view_cljs_test`             the same substitution in
+      `lower-head`, plus the `:invalid` control in
+      `panel-heads-are-the-ones-the-codec-accepts`.
+
+  The last two roles are the ones a reader is most likely to mistake for
+  dead weight: those suites assert this head does NOT appear in a panel
+  tree, so the var is the REFERENT that makes a revert detectable. Delete
+  it and those rows cannot be written, let alone go red.
 
   ## Frame-aware via `reg-view` (rf2-r0o63)
 

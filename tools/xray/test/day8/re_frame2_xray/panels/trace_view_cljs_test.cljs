@@ -992,13 +992,15 @@
           (hiccup-seq tree))))
 
 (deftest trace-row-react-keys-are-stable-trace-ids
-  (testing "rf2-jnxfj — rows now ride `rt/resizable-table` so the row
+  (testing "rf2-jnxfj — rows ride the shared resizable-table widget
+            (`rt/resizable-table-view` since rf2-k97c.3) so the row
             container is a `:div` (formerly `:li`). `op-row-attrs`
             stamps the `(h/row-key row)` value into the attrs map's
             `:key` slot so the contract surface stays observable in
-            the rendered hiccup; resizable-table also threads the
-            same value via the meta-key it emits for React's
-            reconciler."
+            the rendered hiccup; the widget threads the same value
+            into the attrs map of every node it weaves — the ATTRS
+            map and not vector metadata, which rf2-fcy5 slice 1
+            retired and `resizable_table_key_cljs_test` gates."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -1226,8 +1228,11 @@
             `reg-view` head grades `:invalid` down the IDENTICAL arm a plain
             `defn` does, and with no error boundary above this render path
             an HD-016 throw presents as a tab that never appears rather than
-            as an error. The three heads are the two `rt/resizable-table`
-            sites and `ei/edn-inspector` in `render-payload`.
+            as an error. The three heads are the two
+            `rt/resizable-table-view` sites and `ei/edn-inspector-view` in
+            `render-payload` — the boundaries this panel adopted; the
+            `:invalid` rows below name their Reagent siblings as the
+            controls that prove the classifier discriminates.
 
             THE INSTRUMENT IS THE CODEC'S OWN CLASSIFIER, and neither
             obvious shape works: a boundary IS a fn, so an `fn?` filter is
