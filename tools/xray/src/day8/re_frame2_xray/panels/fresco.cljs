@@ -574,9 +574,12 @@
 ;; `dispatch` (rf2-1w07r) is a frame-bound dispatcher threaded down from
 ;; [[panel-tree]], so the deferred `:on-click` lands on the surrounding Xray
 ;; instance's frame. A bare global `rf/dispatch` would fire after render
-;; unwinds, when the ambient frame is gone, and leak to `:rf/default` — the
-;; click would silently switch some other shell's sub-view, or none. This is
-;; the tab's only dispatch: the six views read.
+;; unwinds, when the ambient frame is gone, and RAISE
+;; `:rf.error/no-frame-context` (EP-0002) — the click would do nothing at
+;; all rather than switch the wrong shell's sub-view. There is no
+;; `:rf/default` floor to leak to: the resolver bottoms out at nil, and
+;; React's no-provider context default is a SENTINEL, not `:rf/default`.
+;; This is the tab's only dispatch: the six views read.
 ;;
 ;; rf2-k97c.3 — it USED to be `reg-view`'s lexically injected `dispatch`.
 ;; `defview` binds no name inside a body, so [[Panel]] now builds the same

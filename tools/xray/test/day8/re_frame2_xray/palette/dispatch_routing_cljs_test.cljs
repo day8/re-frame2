@@ -13,12 +13,15 @@
 
   Dispatches from `:on-click` / `:on-change` / `:on-key-down` /
   `:on-mouse-enter` fire LATER — after render commits and React has
-  POPPED `_currentValue` back to the context's default
-  (`:rf/default`). At click time the 3-tier frame resolution chain
-  (dynamic var → React-context tier → `:rf/default`) falls all the
-  way through, the dispatch lands on `:rf/default`'s router, and the
-  `:rf.xray/palette-*` handler reduces `:rf/default`'s db — leaving
-  Xray's palette slots untouched. Symptom: backdrop click does not
+  POPPED `_currentValue` back to the context's default, which is the
+  NO-PROVIDER SENTINEL, not `:rf/default`. At click time the frame
+  resolution chain has TWO tiers (dynamic var → React-context tier)
+  and nothing beneath them: the sentinel coerces to nil, so a bare
+  unscoped dispatch RAISES `:rf.error/no-frame-context` (EP-0002)
+  rather than routing anywhere. Either way the `:rf.xray/palette-*`
+  handler never reduces `:rf/xray`'s db — before EP-0002 it silently
+  reduced `:rf/default`'s db instead, which is how this defect
+  originally presented. Symptom: backdrop click does not
   close, arrow keys do not move the cursor, Esc does not close, input
   text does not update the query — the palette appears frozen.
 
@@ -40,6 +43,18 @@
   `rf/dispatch` (not `dispatch-sync`); the router drain is async via
   `goog.async.nextTick`. Tests use `rf.test-support/poll-until` to await
   the drain before asserting.
+
+  ONE WAY THE HARNESS DIFFERS FROM THE BROWSER, and the counterfactual
+  clauses below are worded for it. `make-xray-runtime-fixture` does not
+  opt out of `:ambient-frame`, so the fixture binds `:rf/default` as an
+  AMBIENT SCOPE around every body here. A handler invoked \"outside any
+  `with-frame`\" therefore still has that scope in effect: under this
+  harness an unscoped dispatch reduces `:rf/default`'s db — which is
+  precisely what the `:rf/default`-is-NOT-polluted rows pin — where the
+  browser, having no ambient scope at all, raises
+  `:rf.error/no-frame-context`. The property under test is the same
+  either way: the envelope's `:frame` is set at call time and never
+  depends on the click-time context read.
 
   ## Where the tree comes from (rf2-k97c.3)
 
@@ -140,8 +155,9 @@
   (testing "rf2-w8lxg — clicking the backdrop from OUTSIDE the
             :rf/xray frame-provider's render context still closes the
             palette. Without the explicit `{:frame :rf/xray}` opt the
-            click would land on :rf/default and the palette would stay
-            open."
+            click would reduce the fixture's ambient :rf/default db
+            instead (and raise in the browser, which has no ambient
+            scope), and the palette would stay open."
     (let [rendered (render-open-palette)
           backdrop (find-by-testid rendered "rf-xray-palette-backdrop")
           handler  (on-click backdrop)]
@@ -184,7 +200,8 @@
   (testing "rf2-w8lxg — ArrowDown keydown on the palette input from
             OUTSIDE the :rf/xray frame-provider's render context still
             updates :rf/xray's :palette-cursor. Without the explicit
-            frame opt the dispatch would land on :rf/default and the
+            frame opt the dispatch would reduce the fixture's ambient
+            :rf/default db instead (and raise in the browser), so the
             cursor would never move."
     (let [rendered (render-open-palette)
           input    (find-by-testid rendered "rf-xray-palette-input")
@@ -231,7 +248,8 @@
   (testing "rf2-w8lxg — typing into the palette input from OUTSIDE the
             :rf/xray frame-provider's render context still updates
             :rf/xray's :palette-query. Without the explicit frame opt
-            every keystroke would land on :rf/default and the
+            every keystroke would reduce the fixture's ambient
+            :rf/default db instead (and raise in the browser), so the
             displayed query would freeze."
     (let [rendered (render-open-palette)
           input    (find-by-testid rendered "rf-xray-palette-input")

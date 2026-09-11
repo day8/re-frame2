@@ -21,10 +21,13 @@
        `{:frame :rf/xray}` map literal), so it never trips this guard.
 
     B. a global `rf/dispatch` / `rf/dispatch-sync` wired directly to an
-       `:on-*` handler — the bare global dispatch that leaks to
-       `:rf/default` after render unwinds. The fix is to dispatch
-       through a captured frame-aware dispatcher (the reg-view-injected
-       `dispatch`, a threaded `dispatch-fn`, or `(:dispatch (rf/capture-frame))`).
+       `:on-*` handler — the bare global dispatch that raises
+       `:rf.error/no-frame-context` after render unwinds (EP-0002:
+       there is no `:rf/default` floor, and React's no-provider context
+       default is a sentinel rather than a frame id). The fix is to
+       dispatch through a captured frame-aware dispatcher (the
+       reg-view-injected `dispatch`, a threaded `dispatch-fn`, or
+       `(:dispatch (rf/capture-frame))`).
 
   ## Migration state — COMPLETE (rf2-1w07r EPIC closed via rf2-nesy9)
 
@@ -83,8 +86,8 @@
 
   This is exactly the reactive-panel unchanged-subs toggle bug: after
   render scope unwinds the ambient frame is gone, so the bare dispatch
-  leaks to `:rf/default` / emits `:rf.error/no-frame-context`, leaving
-  the instance's state untouched. `\\s` spans newlines (Java regex), so
+  raises `:rf.error/no-frame-context`, leaving the instance's state
+  untouched. `\\s` spans newlines (Java regex), so
   the callback body need not be single-line. NARROW by design: it does
   NOT trip a dispatch carrying an explicit `{:frame frame}` opt (the
   `\\]\\s*\\)` tail requires the event vector to close the dispatch call)
@@ -244,7 +247,8 @@
         (str "rf2-1w07r — a global `rf/dispatch` / `rf/dispatch-sync` is "
              "wired directly to an `:on-*` handler in a de-singletoned "
              "(or new) file. After render unwinds the ambient frame is "
-             "gone, so a bare global dispatch leaks to `:rf/default`. "
+             "gone, so a bare global dispatch raises "
+             "`:rf.error/no-frame-context`. "
              "Dispatch through a captured frame-aware dispatcher (the "
              "reg-view-injected `dispatch`, a threaded `dispatch-fn`, or "
              "`(:dispatch (rf/capture-frame))`). Offenders:\n  "
@@ -253,8 +257,8 @@
 (deftest no-deferred-fn-bare-dispatch-in-migrated-files
   ;; rf2-16y3x — the reactive-panel unchanged-subs toggle installed a
   ;; DEFERRED `(fn [_e] (rf/dispatch [ev]))` on-click. The bare dispatch
-  ;; fired after render scope unwound (ambient frame gone) → leaked to
-  ;; `:rf/default` / `:rf.error/no-frame-context`, leaving Xray state
+  ;; fired after render scope unwound (ambient frame gone) → raises
+  ;; `:rf.error/no-frame-context`, leaving Xray state
   ;; untouched. The adjacency-only guard above missed the multiline
   ;; callback; this whole-file scan catches it so it cannot regress.
   (let [offs (multiline-offenders deferred-fn-bare-dispatch-pattern
@@ -264,8 +268,8 @@
              "[ev]))` (no `{:frame …}` opt, dispatch as the callback's first "
              "form) is wired to an `:on-*` handler in a de-singletoned (or "
              "new) file. After render unwinds the ambient frame is gone, so "
-             "the bare dispatch leaks to `:rf/default` and the instance's "
-             "state never changes. Call a captured frame-aware dispatcher "
+             "the bare dispatch raises `:rf.error/no-frame-context` and the "
+             "instance's state never changes. Call a captured frame-aware dispatcher "
              "(the reg-view-injected `dispatch` threaded down, a "
              "`dispatch-fn`, or `(:dispatch (rf/capture-frame))`). "
              "Offenders:\n  "

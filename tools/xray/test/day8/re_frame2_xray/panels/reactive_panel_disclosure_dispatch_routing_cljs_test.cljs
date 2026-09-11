@@ -22,12 +22,16 @@
 
   ## The two bugs these mounted tests defend against
 
-  1. **Panel-local toggle leaked to `:rf/default`.** The unchanged-subs
+  1. **Panel-local toggle never reached `:rf/xray`.** The unchanged-subs
      footer button installed a deferred `(fn [_e] (rf/dispatch …))` —
-     a BARE global dispatch. After render scope unwinds the 3-tier frame
-     resolution falls through to `:rf/default` (or emits
-     `:rf.error/no-frame-context`), so the click never flipped Xray's
-     `:reactive/show-unchanged?` and the disclosure stayed collapsed.
+     a BARE global dispatch. After render scope unwinds the two-tier
+     frame resolution (dynamic var → React-context tier) has nothing
+     beneath it — React's no-provider default is a SENTINEL, not
+     `:rf/default` — so the dispatch raises `:rf.error/no-frame-context`
+     (EP-0002; before EP-0002 it silently reduced `:rf/default`'s db,
+     which is how the bug originally presented). Either way the click
+     never flipped Xray's `:reactive/show-unchanged?` and the
+     disclosure stayed collapsed.
      The fix threads a frame-aware `dispatch` down through
      `reactive-panel` → `unchanged-subs-section`, so the deferred click
      lands on the surrounding instance frame. Since rf2-k97c.3 that

@@ -4,8 +4,11 @@
 
   Discovered during rf2-yf97 (websocket example): a handler scoped to
   frame :A doing `(js/setTimeout #(rf/dispatch [:foo]) 0)` produced a
-  dispatch that landed on :rf/default, not :A. The workaround the
-  example adopted was `:fx [[:dispatch ...]]` — the :dispatch fx in
+  dispatch that landed on :rf/default, not :A. That destination is
+  PRE-EP-0002 HISTORY — it is how the defect presented when it was
+  found, and there is no `:rf/default` floor any more; the same escape
+  now raises `:rf.error/no-frame-context` (see §2 below). The workaround
+  the example adopted was `:fx [[:dispatch ...]]` — the :dispatch fx in
   re-frame.fx explicitly threads `{:frame frame-id}` so it survives
   any async tier.
 
@@ -104,8 +107,11 @@
 ;; This is the rf2-yf97 scenario. A handler defers a dispatch via
 ;; setTimeout. The setTimeout callback runs on a fresh JS stack — the
 ;; dynamic binding established by `process-event!` has long since
-;; been popped. Without an explicit capture the dispatch falls
-;; through to `:rf/default`.
+;; been popped. Under EP-0002 there is no `:rf/default` floor beneath
+;; that dead binding, and this suite opts out of the fixture's ambient
+;; scope (`:ambient-frame nil`, above), so without an explicit capture
+;; the dispatch RAISES `:rf.error/no-frame-context` — which is exactly
+;; what the deftest immediately below is named for and asserts.
 ;;
 ;; This test documents the inherent dynamic-scope limit and points
 ;; users at the three explicit-capture affordances (`:fx [[:dispatch
