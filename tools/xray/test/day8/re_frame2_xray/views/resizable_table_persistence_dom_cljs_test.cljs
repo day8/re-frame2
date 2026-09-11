@@ -89,26 +89,66 @@
 
 ;; ---- Storage-key override (per-instance isolation) ----------------------
 
+;; THIS ROW OWNS BOTH TEST KEYS, BECAUSE THE FIXTURE CANNOT (rf2-nnh0).
+;; `rt/clear!` removes exactly ONE slot — the one `rt/get-storage-key`
+;; currently names — so the fixture's `(rt/clear!) (rt/set-storage-key!
+;; nil)` pair can only ever reach whichever key the previous row left
+;; selected. This row ends on A, so B's write survived it, and the
+;; fixture runs as INITIALISATION (`:post-reset` fires before the body,
+;; never after), so nothing clears B at all. A repeat against the same
+;; localStorage origin then reaches the `(= {} (rt/load))` assertion
+;; below holding the PRIOR run's `{:t2 {:b 200}}` and reds on an
+;; isolation property that production honours perfectly.
+;;
+;; MEASURED, not traced: with one Playwright context and two loads of
+;; `out/browser-test` (the canonical runner calls `browser.newContext()`
+;; per invocation, so its origin is ephemeral and CI never sees this),
+;; load 1 was green here and load 2 failed at the `(= {} (rt/load))`
+;; assertion, one extra failure and no other difference. `browser-watch`
+;; and any repeated hand-run against a persistent profile are the live
+;; exposure.
+;;
+;; So: establish the empty initial state for BOTH keys, and clear BOTH
+;; in a `finally` that also restores the default key — guaranteed even
+;; if the setup or the body throws. The sibling
+;; `filters.persistence-dom-cljs-test/custom-storage-key-isolates-per-instance`
+;; clears both keys the same way; the `finally` is what makes it hold
+;; when a row above the cleanup throws.
 (deftest custom-storage-key-isolates-per-instance
   (if-not (ls/available?)
     (is true "skipped: no localStorage (node lane — see ns docstring)")
     (testing "story testbeds set distinct keys so two Xray instances
               do not stomp on each other's column-widths state"
-      (rt/set-storage-key! "story.testbed.a.column-widths")
-      (rt/save! {:t1 {:a 100}})
-      ;; Precondition, not decoration: the `(= {} (load))` below passes
-      ;; on a silently no-op storage, where nothing was ever written and
-      ;; every slot reads empty. Proving A's write landed is what makes
-      ;; B's empty read discriminating.
-      (is (= {:t1 {:a 100}} (rt/load))
-          "precondition: instance A's write really did persist")
-      (rt/set-storage-key! "story.testbed.b.column-widths")
-      (is (= {} (rt/load))
-          "instance B's slot is independent of instance A")
-      (rt/save! {:t2 {:b 200}})
-      (rt/set-storage-key! "story.testbed.a.column-widths")
-      (is (= {:t1 {:a 100}} (rt/load))
-          "instance A's slot survived instance B's write"))))
+      (let [key-a "story.testbed.a.column-widths"
+            key-b "story.testbed.b.column-widths"
+            clear-both! (fn []
+                          (rt/set-storage-key! key-a)
+                          (rt/clear!)
+                          (rt/set-storage-key! key-b)
+                          (rt/clear!)
+                          (rt/set-storage-key! nil))]
+        (try
+          ;; Own the initial state rather than assuming it. Without this
+          ;; the `(= {} (rt/load))` below is an assertion about whatever
+          ;; a previous run happened to leave behind.
+          (clear-both!)
+          (rt/set-storage-key! key-a)
+          (rt/save! {:t1 {:a 100}})
+          ;; Precondition, not decoration: the `(= {} (load))` below passes
+          ;; on a silently no-op storage, where nothing was ever written and
+          ;; every slot reads empty. Proving A's write landed is what makes
+          ;; B's empty read discriminating.
+          (is (= {:t1 {:a 100}} (rt/load))
+              "precondition: instance A's write really did persist")
+          (rt/set-storage-key! key-b)
+          (is (= {} (rt/load))
+              "instance B's slot is independent of instance A")
+          (rt/save! {:t2 {:b 200}})
+          (rt/set-storage-key! key-a)
+          (is (= {:t1 {:a 100}} (rt/load))
+              "instance A's slot survived instance B's write")
+          (finally
+            (clear-both!)))))))
 
 ;; ---- resize-pair tick + commit (rf2-xm1jy split) ------------------------
 
