@@ -30,6 +30,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
@@ -225,10 +226,34 @@
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray}))
 
+;; rf2-k97c.3 — `edn-inspector-popup-stack` is now an
+;; `rf.fresco/as-component` bridge and answers an interop vector, not a
+;; tree to walk. `popup-stack-tree` below reproduces the boundary's gate
+;; and reads EXACTLY — same gate, same order, same query vectors — so the
+;; rows in this section assert on the hiccup they always did, and a
+;; boundary that stopped reading one of these slots would diverge from
+;; this helper rather than silently agreeing with it.
+;;
+;; Ambient `rf/subscribe` deliberately: these rows run under
+;; `rf/with-frame :rf/xray` in the node lane with no React commit. What
+;; the boundary's own read resolves to — the frame React context names —
+;; is the browser lane's subject.
+
+(defn- popup-stack-tree
+  "What calling the stack view directly returned before the migration:
+  nil while the stack is empty, the container otherwise."
+  []
+  (let [stack @(rf/subscribe [edn-inspector-popup/stack-slot])]
+    (when (seq stack)
+      (edn-inspector-popup/popup-stack-tree
+        {:stack       stack
+         :entries     @(rf/subscribe [edn-inspector-popup/entries-slot])
+         :positioning @(rf/subscribe [:rf.xray/modal-positioning])}))))
+
 (deftest popup-stack-view-empty-when-stack-empty
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
-    (let [tree (edn-inspector-popup/edn-inspector-popup-stack)]
+    (let [tree (popup-stack-tree)]
       (is (nil? tree)
           "stack view returns nil when no popups are open (closed-state
            cost is one subscribe + a when-gate)"))))
@@ -242,7 +267,7 @@
         [:rf.xray.edn-inspector-popup/open
          "m1" {:value {:foo :bar}
                :opts  {:title "Inspect cart"}}])
-      (let [tree (edn-inspector-popup/edn-inspector-popup-stack)]
+      (let [tree (popup-stack-tree)]
         (is (some? tree) "stack view returns hiccup when stack non-empty")
         (is (some? (find-by-testid tree "rf-xray-edn-inspector-popup-stack"))
             "outer stack container present")
@@ -258,7 +283,7 @@
                          "m1" {:value 1 :opts {}}])
       (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
                          "m2" {:value 2 :opts {}}])
-      (let [tree (edn-inspector-popup/edn-inspector-popup-stack)]
+      (let [tree (popup-stack-tree)]
         (is (some? (find-by-testid tree
                                    "rf-xray-edn-inspector-popup-backdrop-m1")))
         (is (some? (find-by-testid tree
@@ -296,26 +321,44 @@
 ;; floor and retired the warning, so the same plain `defn` today RAISES
 ;; `:rf.error/no-frame-context` instead (Spec 006 §Plain-fn footgun).
 ;;
-;; Post-fix the symbol is registered via `rf/reg-view`, so the auto-derived
-;; id `:day8.re-frame2-xray.views.edn-inspector-popup/edn-inspector-popup-
-;; stack` is resolvable through `(rf/view id)`, and subscribes inside the
-;; render body resolve the surrounding `:rf/xray` frame from React context.
+;; rf2-1yif8's fix registered the symbol via `rf/reg-view`. rf2-k97c.3
+;; replaced that with an `rf.fresco/defview` BOUNDARY, and the frame
+;; reasoning is unchanged: a boundary reads its frame from the same
+;; `re-frame.adapter.context` React context `reg-view` consulted, so the
+;; reads still resolve through the surrounding `:rf/xray`. What moved is
+;; the observer — Fresco's collector rather than the installed adapter's.
+;;
+;; So the row below pins the same property one layer down, and pins it
+;; where it now bites: a `reg-view` head and a plain `defn` head grade
+;; `:invalid` down the IDENTICAL codec arm, so once the shell root is a
+;; boundary either one is a hard failure rather than a degradation. The
+;; assertion is that the stack view, and the head it embeds the value
+;; under, both grade `:boundary`.
 
-(def ^:private popup-stack-view-id
-  :day8.re-frame2-xray.views.edn-inspector-popup/edn-inspector-popup-stack)
-
-(deftest popup-stack-view-is-reg-view-registered
-  (testing "rf2-1yif8 — `edn-inspector-popup-stack` is `reg-view`-
-            registered under its auto-derived ns/sym id, so the body's
-            subscribes inherit the surrounding frame from React context
-            (the symptom under a plain `defn` was, on the runtime of the
-            day, the now-retired
-            `:rf.warning/plain-fn-under-non-default-frame-once` warning
-            firing on every panel-gallery `:rf/xray` render; under
-            EP-0002 the same shape raises `:rf.error/no-frame-context`)."
+(deftest popup-stack-view-is-a-fresco-boundary
+  (testing "rf2-k97c.3 — `edn-inspector-popup-stack-view` is an
+            `rf.fresco/defview` boundary, so the shell root becoming a
+            Fresco tree mounts it rather than refusing it. A revert to
+            `rf/reg-view` (or to a plain `defn`) grades `:invalid` down
+            the same codec arm and reds this row — which is the point,
+            since that revert is silent under Reagent."
     (setup-xray-frame!)
-    (is (some? (rf/view popup-stack-view-id))
-        "view is registered under the auto-derived ns/sym id")))
+    (is (= :boundary
+           (rf.fresco.impl.codec/head-kind
+             edn-inspector-popup/edn-inspector-popup-stack-view))
+        "the stack view is a Fresco boundary")
+    (is (= :boundary
+           (rf.fresco.impl.codec/head-kind
+             (first (edn-inspector-popup/fresco-inspector
+                      "m1" {:a 1} {}))))
+        "the head the boundary embeds the inspected value under is a
+         boundary too — a head-free subtree all the way down")
+    (is (= :invalid
+           (rf.fresco.impl.codec/head-kind
+             (first (edn-inspector-popup/reagent-inspector
+                      "m1" {:a 1} {}))))
+        "and the Reagent head it replaced grades :invalid, so the row
+         above is not vacuous")))
 
 (deftest popup-stack-view-subscribes-route-to-surrounding-frame
   (testing "rf2-1yif8 — when the stack view is rendered under `:rf/xray`,
@@ -341,15 +384,18 @@
       (rf/dispatch-sync
         [:rf.xray.edn-inspector-popup/open
          "xray-only" {:value :xray-payload :opts {}}]))
-    ;; Render the stack view under :rf/xray. After rf2-1yif8 this is a
-    ;; reg-view, so calling it under `with-frame :rf/xray` resolves
-    ;; subscribes through the dynamic-var tier (headless mode — no React
-    ;; context here, but the registered wrapper still routes through the
-    ;; surrounding frame). The pre-fix plain-fn would have ignored the
-    ;; `with-frame` binding entirely because the body's `rf/subscribe`
-    ;; calls would have fallen all the way through to `:rf/default`.
+    ;; Drive the stack under :rf/xray. Since rf2-k97c.3 the view is a
+    ;; Fresco boundary, whose body may only run inside a React render
+    ;; window, so the node lane reads the slots itself and hands them to
+    ;; the pure `popup-stack-tree` — the same slots in the same order the
+    ;; boundary reads. Under `with-frame :rf/xray` those ambient reads
+    ;; resolve through the dynamic-var tier; what the BOUNDARY's own read
+    ;; resolves to is the React-context tier and the browser lane's
+    ;; subject. Either way the property pinned here is the same one: the
+    ;; stack rendered under :rf/xray shows :rf/xray's entries and not
+    ;; :rf/default's.
     (rf/with-frame :rf/xray
-      (let [tree (edn-inspector-popup/edn-inspector-popup-stack)]
+      (let [tree (popup-stack-tree)]
         (is (some? tree)
             "stack view rendered some chrome under :rf/xray (proves :rf/xray's
              stack slot is non-empty from the view's perspective)")
@@ -365,7 +411,7 @@
              frames"))
       ;; And the stack's count attribute reflects :rf/xray's stack
       ;; depth exclusively (one entry), not the combined two.
-      (let [tree (edn-inspector-popup/edn-inspector-popup-stack)]
+      (let [tree (popup-stack-tree)]
         (is (= 1 (-> tree second :data-rf-popup-count))
             "popup-count reflects :rf/xray's stack only (one entry), not
              the two-entry total across frames")))))
