@@ -15,6 +15,8 @@
             [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
+             :as dynamic-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -70,7 +72,7 @@
                                         ([ev]       (swap! dispatches conj ev) nil)
                                         ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
-          (let [tree (shell/shell-view)
+          (let [tree (dynamic-shell-tree/shell-view-tree)
                 row  (rf.test-helpers/find-by-testid tree "rf-xray-event-row-7")
                 h    (:on-context-menu (second row))]
             (is (some? row) "row mounted")
@@ -127,14 +129,14 @@
   (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:order/submit]))
   (rf/with-frame :rf/xray
     ;; Sanity — all three rows present pre-filter.
-    (let [tree (shell/shell-view)]
+    (let [tree (dynamic-shell-tree/shell-view-tree)]
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-1")))
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-2")))
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-3"))))
     ;; Install the OUT pill via the canonical add-filter event.
     (rf/dispatch-sync [:rf.xray/add-filter :out {:pattern :mouse-move}])
     ;; Re-render and assert :mouse-move dropped.
-    (let [tree (shell/shell-view)]
+    (let [tree (dynamic-shell-tree/shell-view-tree)]
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-1")))
       (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-2"))
           "row 2 (:mouse-move) filtered out")

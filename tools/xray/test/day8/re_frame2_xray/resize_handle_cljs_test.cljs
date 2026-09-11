@@ -28,6 +28,8 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
             [day8.re-frame2-xray.settings.effects :as settings-effects]
+            [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
+             :as dynamic-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
@@ -82,7 +84,7 @@
             mount)"
     (setup!)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view {:mode :inline})]
+      (let [tree (dynamic-shell-tree/shell-view-tree {:mode :inline})]
         (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-resize-handle"))
             "resize handle present in :inline mode")))))
 
@@ -90,7 +92,7 @@
   (testing "popout mode hides the handle — separate OS window owns resize"
     (setup!)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view {:mode :popout})]
+      (let [tree (dynamic-shell-tree/shell-view-tree {:mode :popout})]
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-resize-handle"))
             "resize handle absent in :popout mode")))))
 

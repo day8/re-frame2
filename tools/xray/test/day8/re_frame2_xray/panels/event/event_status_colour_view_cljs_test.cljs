@@ -37,6 +37,8 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.panels.trace :as trace]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
+             :as dynamic-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.theme.tokens :as tokens]
@@ -107,7 +109,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (trace-collector/seed-trace-for-test! (handler-exception-ev 99 1))
     (rf/with-frame :rf/xray
-      (let [tree  (shell/shell-view)
+      (let [tree  (dynamic-shell-tree/shell-view-tree)
             row   (find-by-testid tree "rf-xray-event-row-1")
             attrs (second row)]
         (is (some? row) "L2 row renders for the cascade")

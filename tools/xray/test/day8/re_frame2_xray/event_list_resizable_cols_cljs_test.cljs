@@ -22,6 +22,8 @@
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
+             :as dynamic-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -72,7 +74,7 @@
     (setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
-      (let [tree     (shell/shell-view)
+      (let [tree     (dynamic-shell-tree/shell-view-tree)
             dividers (rf.test-helpers/find-by-testid-prefix
                        tree "rf-xray-event-list-col-divider-")]
         (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-list-col-divider-source"))
@@ -111,7 +113,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-event-list-col-width :timestamp 120]))
     (rf/with-frame :rf/xray
-      (let [tree        (shell/shell-view)
+      (let [tree        (dynamic-shell-tree/shell-view-tree)
             h-timestamp (rf.test-helpers/find-by-testid tree "rf-xray-event-list-col-timestamp")
             r-time      (rf.test-helpers/find-by-testid tree "rf-xray-row-time-chip")]
         (is (some? h-timestamp) "header timestamp cell renders")
@@ -129,7 +131,7 @@
     (setup!)
     (trace-collector/seed-trace-for-test! (timer-cascade-trace-ev 1 [:poll/tick]))
     (rf/with-frame :rf/xray
-      (let [tree     (shell/shell-view)
+      (let [tree     (dynamic-shell-tree/shell-view-tree)
             h-source (rf.test-helpers/find-by-testid tree "rf-xray-event-list-col-source")
             r-source (rf.test-helpers/find-by-testid tree "rf-xray-row-origin-after-timer")
             h-time   (rf.test-helpers/find-by-testid tree "rf-xray-event-list-col-timestamp")
@@ -336,7 +338,7 @@
                                       ([ev]       (swap! dispatches conj ev) nil)
                                       ([ev _opts] (swap! dispatches conj ev) nil))]
       (rf/with-frame :rf/xray
-        (let [tree    (shell/shell-view)
+        (let [tree    (dynamic-shell-tree/shell-view-tree)
               divider (rf.test-helpers/find-by-testid
                         tree "rf-xray-event-list-col-divider-source")
               handler (:on-double-click (second divider))]
@@ -356,7 +358,7 @@
     (setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
-      (let [tree    (shell/shell-view)
+      (let [tree    (dynamic-shell-tree/shell-view-tree)
             divider (rf.test-helpers/find-by-testid
                       tree "rf-xray-event-list-col-divider-source")
             props   (second divider)]

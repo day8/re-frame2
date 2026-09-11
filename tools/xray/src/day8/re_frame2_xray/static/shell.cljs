@@ -107,20 +107,24 @@
   `reagent.core/as-element` for a boundary:
 
     * the L1 ribbon's `frame-switcher/frame-switcher-view` and
-      `mode-pill/mode-pill`, both still `rf/reg-view`s and both ALSO
-      headed by the Dynamic `shell.cljs` ribbon, which is still a
-      `reg-view` tree. Migrating them would move a fenced Dynamic
-      head; islanding them does not.
+      `mode-pill/mode-pill`, both still `rf/reg-view`s. The Dynamic
+      `shell.cljs` ribbon is a BOUNDARY as of rf2-k97c.3 and islands
+      the same two widgets the same way, so migrating them now deletes
+      FOUR islands in one slice — two here and two there — rather than
+      two now and two later.
     * [[detail-panel]]'s `[(:panel tab)]`, because
-      `panel-registry/reg-l4-tab!` stores a CALLABLE and four of the
-      five Static panels register an `as-component` bridge while
-      `static.routes.panel/Panel` is still an `rf/reg-view`.
+      `panel-registry/reg-l4-tab!`'s `:pre` requires `:panel` to be
+      CALLABLE. All five Static panels are boundaries as of PR #9648,
+      so every one of them registers an `as-component` BRIDGE — a plain
+      fn answering `[:> Component {}]` — rather than the view itself.
+      A bridge is a plain fn, which Fresco grades `:invalid` as a head
+      down the same arm a `reg-view` goes, so the island stands until
+      the registry can take a boundary directly.
 
   Both are MIGRATION SCAFFOLDING WITH A DEFINED END: the ribbon seam
   goes when those two widgets are boundaries, and the L4 seam goes
-  when all five Static panels are boundaries and the registry stores
-  them directly — the deletion each panel's own bridge comment
-  already promises.
+  when `reg-l4-tab!` stores boundaries directly — the deletion each
+  panel's own bridge comment already promises.
 
   ## Mode-signal mechanism (4 stacked signals)
 
@@ -493,19 +497,22 @@
   render window.
 
   THE MOUNT IS AN ISLAND, and deliberately. `reg-l4-tab!`'s `:pre`
-  requires `:panel` to be CALLABLE, so four of the five Static panels
-  register an `as-component` BRIDGE — a plain fn answering
-  `[:> Component {}]` — while `static.routes.panel/Panel` is still an
-  `rf/reg-view`. Both grade `:invalid` as a Fresco head, down the same
-  arm. `as-child` is `identity` for a hiccup caller and the node lane,
-  which leaves `[(:panel tab)]` exactly the vector it has always been,
-  and `reagent.core/as-element` for the boundary, which answers a React
-  element — a legal child anywhere per Fresco's component ABI, and the
-  crossing every Static panel's own bridge comment already describes.
+  requires `:panel` to be CALLABLE, so ALL FIVE Static panels register
+  an `as-component` BRIDGE — a plain fn answering `[:> Component {}]` —
+  rather than the boundary itself (`static.routes.panel/Panel`, the last
+  `rf/reg-view` of the five, became a boundary behind its own bridge in
+  PR #9648). A plain fn grades `:invalid` as a Fresco head, so the
+  island stands. `as-child` is `identity` for a hiccup caller and the
+  node lane, which leaves `[(:panel tab)]` exactly the vector it has
+  always been, and `reagent.core/as-element` for the boundary, which
+  answers a React element — a legal child anywhere per Fresco's
+  component ABI, and the crossing every Static panel's own bridge
+  comment already describes.
 
-  MIGRATION SCAFFOLDING WITH A DEFINED END: when all five Static panels
-  are boundaries the registry takes them directly, the `[:>]` bridges
-  go, and this seam goes with them."
+  MIGRATION SCAFFOLDING WITH A DEFINED END: when `reg-l4-tab!` stores
+  boundaries directly the `[:>]` bridges go, and this seam goes with
+  them. Widening that `:pre` is a registry change with both shells'
+  panels behind it, so it is not this slice's."
   [selected tab as-child]
   [:div {:data-testid (str "rf-xray-static-detail-panel-" (name selected))
            ;; Static L4 closes the tab/tabpanel loop.
@@ -597,49 +604,24 @@
   region boundaries below it.
 
   The argument is the ordinary one-props-map vector every `defview`
-  takes. [[surface-bridge]] mounts it with none, so it is destructured
-  away."
+  takes. `shell.cljs`'s `surface-composer` mounts it with none, so it is
+  destructured away."
   [_props]
   (surface-tree [ribbon {}] [tab-bar] [detail-panel]))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- THE MIGRATION BRIDGE IS GONE (rf2-k97c.3) ---------------------------
 ;;
-;; Xray's DYNAMIC shell is still a `reg-view` tree rendered by the
-;; installed adapter, and `shell.cljs`'s `surface-composer` mounts this
-;; surface as the hiccup head `[static-shell/surface]` — which a React
-;; component is not.
-;;
-;; `rf.fresco/as-component` is Fresco's own outward door for exactly
-;; this: it answers a real React component for a boundary, which a React
-;; parent (Reagent, UIx or plain JavaScript) mounts UNDER THE FRAME IT IS
-;; ALREADY IN, taking the frame from React context rather than from a
-;; second root. So there is no second root here, no adapter-kind branch,
-;; and no props ABI.
-;;
-;; THE BRIDGE IS PUBLIC, unlike the Static panels' private ones, and
-;; that is measured rather than defaulted: `surface-composer` mounts it
-;; BY NAME from another namespace, so a name has to cross. `surface`
-;; itself keeps the natural name — the #9581 spelling the mayor's
-;; RULING 1 fixed as the surviving one — and neither
-;; `spec/api-manifest.edn` nor its curated sidecar rows anything in this
-;; namespace, so no hot-zone file moves.
-;;
-;; THIS IS SCAFFOLDING WITH A DEFINED END. When `shell.cljs` is itself a
+;; #9644 shipped `surface-component` + a PUBLIC `surface-bridge` here,
+;; because `shell.cljs`'s `surface-composer` was an `rf/reg-view` and a
+;; React component is not a legal hiccup head in a Reagent tree. That
+;; comment named its own end condition: "when `shell.cljs` is itself a
 ;; Fresco tree, `surface-composer` heads `surface` directly, `[:>]` goes,
-;; and both defs below are deleted.
-
-(def ^:private surface-component
-  "The React component [[surface]] presents as, for a non-Fresco parent.
-  Declared once at top level beside the view, as
-  `rf.fresco/as-component`'s contract requires — deriving it per render
-  would mint a new component type every time and remount the whole
-  Static surface on each parent render."
-  (rf.fresco/as-component surface))
-
-(defn surface-bridge
-  "The callable `shell.cljs`'s `surface-composer` mounts for Static
-  mode. Returns Reagent-shaped hiccup interoping to the React component
-  above; the shell's enclosing `rf/frame-provider` is what puts
-  `:rf/xray` in React context for it."
-  []
-  [:> surface-component {}])
+;; and both defs below are deleted."
+;;
+;; `surface-composer` IS a `rf.fresco/defview` now, so it heads
+;; `[static-shell/surface {}]` directly and both defs are deleted. The
+;; ONE crossing into this tree moved up a level to `shell.cljs`'s own
+;; private `surface-bridge`, which is what `shell-view` — still the
+;; Reagent root the installed adapter renders — mounts. When the epic's
+;; coupling (1) is severed and `mount.cljs` owns a Fresco root, that last
+;; bridge goes too.

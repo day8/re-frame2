@@ -57,8 +57,19 @@
   ## The mount is the SHELL'S mount
 
   `shell.cljs`'s `surface-composer` mounts the Static arm as the hiccup
-  head `[static-shell/surface-bridge]` inside `shell-view`'s
-  `[rf/frame-provider {:frame …}]`. [[mount-shell!]] does exactly that.
+  head `[static-shell/surface {}]` inside `shell-view`'s
+  `[rf/frame-provider {:frame …}]`. [[mount-shell!]] does the same
+  crossing from a Reagent root.
+
+  rf2-k97c.3 — it used to mount `[static-shell/surface-bridge]`, the
+  PUBLIC `as-component` bridge #9644 shipped for a `reg-view`
+  `surface-composer`. The composer is a Fresco BOUNDARY now, so it heads
+  `surface` directly and that bridge is deleted. This suite still mounts
+  from a REAGENT root — deliberately, see §Substrate — so the crossing
+  has to happen somewhere, and it now happens HERE, in
+  [[surface-component]] / [[mount-shell!]] below. Same door
+  (`rf.fresco/as-component`), same guarantee: a React parent mounts the
+  result under the frame it is already in.
 
   Nothing below ever calls a view a second time. Every assertion after
   the mount reads `container.querySelector…` — the DOM React committed
@@ -87,6 +98,7 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
@@ -211,12 +223,20 @@
   (rf/make-frame {:id app-frame})
   nil)
 
+(def ^:private surface-component
+  "The React component `static-shell/surface` presents as, for the
+  Reagent root [[mount-shell!]] builds. Declared once at top level, as
+  `rf.fresco/as-component`'s contract requires — deriving it per render
+  would mint a new component type every time and remount the whole
+  Static surface."
+  (rf.fresco/as-component static-shell/surface))
+
 (defn- mount-shell!
   "Mount the Static shell the way `shell.cljs`'s `surface-composer`
-  mounts it: `static-shell/surface-bridge` as a hiccup head, inside a
-  `frame-provider` scoping `frame`. Committed synchronously — React 19's
-  `root.render` is otherwise async and phase 1 would assert against an
-  empty container."
+  mounts it — the boundary under a `frame-provider` scoping `frame`,
+  crossed into this suite's Reagent root through [[surface-component]].
+  Committed synchronously — React 19's `root.render` is otherwise async
+  and phase 1 would assert against an empty container."
   [frame]
   (let [container (.createElement js/document "div")
         root      (rdc/create-root container)]
@@ -224,7 +244,7 @@
     (react-dom/flushSync
       (fn []
         (rdc/render root [rf/frame-provider {:frame frame}
-                          [static-shell/surface-bridge]])))
+                          [:> surface-component {}]])))
     {:container container :root root}))
 
 (defn- teardown!

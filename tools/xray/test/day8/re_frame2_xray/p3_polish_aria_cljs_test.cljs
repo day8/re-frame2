@@ -35,6 +35,8 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
             [day8.re-frame2-xray.settings.view :as settings-view]
+            [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
+             :as dynamic-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.test-helpers.static-shell-tree
@@ -80,7 +82,7 @@
             cycle. The overlay was previously a bare <div>."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree  (shell/shell-view)
+      (let [tree  (dynamic-shell-tree/shell-view-tree)
             shell (rf.test-helpers/find-by-testid tree "rf-xray-shell")
             attrs (props shell)]
         (is (some? shell) "shell root mounts")
@@ -103,7 +105,7 @@
             back to the active tab's id."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree         (shell/shell-view)
+      (let [tree         (dynamic-shell-tree/shell-view-tree)
             active-tab   :epoch ;; default (post rf2-5gl5r — supersedes :event)
             tab-button   (rf.test-helpers/find-by-testid tree (str "rf-xray-tab-" (name active-tab)))
             tab-attrs    (props tab-button)
@@ -309,7 +311,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/note-sensitive-suppressed :rf/default]))
     (rf/with-frame :rf/xray
-      (let [tree      (shell/shell-view)
+      (let [tree      (dynamic-shell-tree/shell-view-tree)
             indicator (rf.test-helpers/find-by-testid tree "rf-xray-redacted-indicator")
             ;; the glyph is the first <span> child carrying aria-hidden
             glyph     (some (fn [node]
@@ -334,7 +336,7 @@
             the visible label by construction."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree      (shell/shell-view)
+      (let [tree      (dynamic-shell-tree/shell-view-tree)
             event-tab (rf.test-helpers/find-by-testid tree "rf-xray-tab-event")
             glyph     (some (fn [node]
                               (when (and (vector? node)
