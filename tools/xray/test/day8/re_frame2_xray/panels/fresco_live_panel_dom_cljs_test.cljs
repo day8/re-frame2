@@ -654,55 +654,72 @@
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
         (setup!)
-        (let [release   (mount-boundary!)
-              {:keys [container root]} (mount-panel! custom-shell-frame)
-              finish    (fn []
-                          (release)
-                          (teardown! root container)
-                          (done))
-              roster?   (fn [] (seq (boundary-rows container)))
-              door      (fn [] (mapv :frame
-                                     (:boundaries
-                                       (rf.fresco.tool/read-mounted-boundaries))))]
-          ;; The tick is what invalidates the panel's read; without it the
-          ;; roster never arrives and every assertion below would be about
-          ;; an empty page. W0 is what proves the tick is the mechanism.
-          (tick-trace! custom-shell-frame)
-          (-> (rf.test-support/poll-until roster?
-                {:label "the roster reached the DOM under the custom shell"})
+        (let [{:keys [container root]} (mount-panel! custom-shell-frame)
+              release (volatile! nil)
+              finish  (fn []
+                        (when-some [r @release] (r))
+                        (teardown! root container)
+                        (done))
+              roster? (fn [] (seq (boundary-rows container)))
+              door    (fn [] (mapv :frame
+                                   (:boundaries
+                                     (rf.fresco.tool/read-mounted-boundaries))))
+              seated? (fn [] (some #{custom-shell-frame} (door)))]
+          ;; THE PANEL'S OWN BOUNDARY REACHES THE CENSUS ASYNCHRONOUSLY, AND
+          ;; WAITING FOR IT IS WHAT MAKES THIS ROW BITE. Measured: with the
+          ;; app boundary mounted first and the tick fired in the same turn as
+          ;; the panel's mount, the page committed ONE row under a
+          ;; DELIBERATELY SABOTAGED filter — not because the drop worked, but
+          ;; because the panel's own boundary was not yet in the collector's
+          ;; entry table when the sub recomputed, and nothing invalidates the
+          ;; read a second time. A green sabotage run, from a race rather than
+          ;; from the behaviour. So the census is polled for the panel's own
+          ;; boundary FIRST, and only then does the application's boundary
+          ;; mount and the tick fire.
+          (-> (rf.test-support/poll-until seated?
+                {:label "the panel's own boundary reached the census"})
               (.then
                 (fn [_]
-                  (let [frames (door)
+                  (vreset! release (mount-boundary!))
+                  (tick-trace! custom-shell-frame)
+                  (rf.test-support/poll-until roster?
+                    {:label "the roster reached the DOM under the custom shell"})))
+              (.then
+                (fn [_]
+                  (let [rows   (boundary-rows container)
+                        frames (door)
                         text   (.-textContent container)]
                     (is (some #{custom-shell-frame} frames)
-                        (str "NON-VACUITY, AND THE DOOR HALF: the runtime "
-                             "really did seat this panel's own boundary in "
-                             "the custom shell frame, and the producer's own "
-                             "answer still carries it — so the absence below "
-                             "is a filter and not a runtime that never "
-                             "recorded the row. Door frames: " (pr-str frames)))
+                        (str "THE DOOR HALF: the producer's own answer still "
+                             "carries the panel's own boundary, seated in the "
+                             "custom shell frame — so the absences below are a "
+                             "filter and not a runtime that never recorded the "
+                             "row. Door frames: " (pr-str frames)))
                     (is (some #{app-frame} frames)
                         "NON-VACUITY: and the application's boundary is in the
                          door's answer too")
 
+                    (is (= 1 (count rows))
+                        (str "ONE row committed. Under the literal-only filter "
+                             "this reads TWO: the census carries the panel's "
+                             "own boundary (asserted above) and a filter that "
+                             "knows only `:rf/xray` cannot see a shell mounted "
+                             "under any other id. DOM: " text))
                     (is (not (string/includes? text (str custom-shell-frame)))
-                        (str "THE COMMITTED PAGE DOES NOT NAME THE SHELL'S OWN "
-                             "FRAME. This is the assertion that reddens "
-                             "against the literal-only filter — under it the "
-                             "Mounted view committed a second row reading "
-                             "`…panels.fresco/Panel · frame "
-                             (str custom-shell-frame) " · 2 reads`. DOM: "
-                             text))
+                        (str "and the committed page does not NAME the shell's "
+                             "own frame — `…panels.fresco/Panel · frame "
+                             custom-shell-frame " · 2 reads` is the row "
+                             "that appeared before rf2-bgol. DOM: " text))
                     (is (not (string/includes? text "panels.fresco/Panel"))
-                        (str "and it does not name the panel's own VIEW "
-                             "either — the row is gone rather than merely "
-                             "printing a different frame. DOM: " text))
+                        (str "nor its own VIEW — the row is gone rather than "
+                             "merely printing a different frame. DOM: " text))
                     (is (string/includes? text (str "frame " app-frame))
-                        (str "and the APPLICATION's boundary is on the page, "
-                             "so the drop is the tool's own frame and not a "
-                             "roster that emptied. DOM: " text)))))
+                        (str "and the APPLICATION's boundary IS on the page, so "
+                             "the drop is the tool's own frame and not a roster "
+                             "that emptied. DOM: " text)))))
               (.catch (fn [e]
                         (is false (str "W4 poll timed out: " (.-message e)
-                                       " DOM: " (.-textContent container)))
+                                       " DOM: " (.-textContent container)
+                                       " door: " (pr-str (door))))
                         nil))
               (.then (fn [_] (finish)))))))))
