@@ -380,177 +380,31 @@
       (is (= config/min-panel-width-px (:aria-valuemin props))
           "handle exposes minimum width to assistive tech"))))
 
-;; ---- yield-to-consumer (rf2-70u8q) -------------------------------------
-
-(defn- ensure-stub-host! [resize-value]
-  (when (and (exists? js/document) (.-createElement js/document))
-    ;; Remove any prior host so the test is hermetic.
-    (when-let [old (.querySelector js/document "[data-rf-xray-host]")]
-      (when (.-parentNode old)
-        (.removeChild (.-parentNode old) old)))
-    (let [host (.createElement js/document "aside")]
-      (.setAttribute host "data-rf-xray-host" "")
-      ;; Set resize via inline style — getComputedStyle resolves it.
-      (when resize-value
-        (set! (-> host .-style .-resize) resize-value))
-      (when (.-body js/document)
-        (.appendChild (.-body js/document) host))
-      host)))
-
-(defn- remove-stub-host! [host]
-  (when (and host (.-parentNode host))
-    (.removeChild (.-parentNode host) host)))
-
-(deftest host-without-resize-does-not-yield
-  ;; Default: consumer drops `<aside data-rf-xray-host></aside>` with
-  ;; no explicit `resize:` declaration. Xray should render its own
-  ;; handle (the auto-inject zero-config path).
-  (when (exists? js/document)
-    (let [host (ensure-stub-host! nil)]
-      (try
-        (is (false? (resize-handle/host-asserts-own-handle?))
-            "no explicit resize → no yield → Xray handle renders")
-        (finally
-          (remove-stub-host! host))))))
-
-(deftest host-with-resize-horizontal-yields
-  ;; Consumer asserts their own browser-native handle by setting
-  ;; `resize: horizontal`. Xray MUST yield to avoid a double-handle.
-  (when (exists? js/document)
-    (let [host (ensure-stub-host! "horizontal")]
-      (try
-        (is (true? (resize-handle/host-asserts-own-handle?))
-            "explicit resize:horizontal → yield → Xray renders nil")
-        (finally
-          (remove-stub-host! host))))))
-
-(deftest host-with-resize-both-yields
-  ;; `resize: both` also gives the consumer a browser-native handle
-  ;; (covers a future vertical-resize use case too). Yield.
-  (when (exists? js/document)
-    (let [host (ensure-stub-host! "both")]
-      (try
-        (is (true? (resize-handle/host-asserts-own-handle?))
-            "explicit resize:both → yield → Xray renders nil")
-        (finally
-          (remove-stub-host! host))))))
-
-;; rf2-k97c.3 — THE YIELD GATE LIVES IN `handle-view`, THE BOUNDARY, and
-;; deliberately not in the `Handle` bridge beside the mode gate. The
-;; bridge is scaffolding with a defined end: when `shell-view` becomes a
-;; boundary, `Handle` is DELETED. A spec'd product behaviour (rf2-70u8q)
-;; parked there would be deleted with it, silently. The mode gate is in
-;; the bridge only because a keyword cannot cross the props ABI, and it
-;; moves INTO the boundary as a prop when the bridge goes.
+;; ---- yield-to-consumer + the real-DOM writes: see the dom sibling -------
 ;;
-;; The node lane cannot call a boundary — `rf.fresco/sub` is legal only
-;; inside a render — so these two rows assert the PREDICATE the boundary
-;; gates on, plus the markup it gates. The composition of the two is the
-;; browser lane's subject.
-
-(deftest handle-yields-when-host-asserts-own-handle
-  (when (exists? js/document)
-    (let [host (ensure-stub-host! "horizontal")]
-      (try
-        (setup!)
-        (is (true? (resize-handle/host-asserts-own-handle?))
-            "yield path: the gate `handle-view` short-circuits on is true,
-             so the boundary renders nil and the page carries one handle")
-        (finally
-          (remove-stub-host! host))))))
-
-(deftest handle-renders-when-host-does-not-yield
-  ;; The no-yield path: the zero-config consumer, who declares no
-  ;; `resize` at all and gets Xray's handle.
-  (when (exists? js/document)
-    (let [host (ensure-stub-host! nil)]
-      (try
-        (setup!)
-        (rf/with-frame :rf/xray
-          (is (false? (resize-handle/host-asserts-own-handle?))
-              "no-yield path: the boundary's gate is false, so it renders")
-          (let [tree (handle-markup)]
-            (is (some? tree)
-                "and the markup it then composes is present")
-            (is (= "rf-xray-resize-handle" (:data-testid (second tree)))
-                "the rendered tree is the documented handle node")))
-        (finally
-          (remove-stub-host! host))))))
+;; rf2-r51p MOVED the yield-predicate rows and `apply-panel-width!`'s
+;; `<html>` writes out to `day8.re-frame2-xray.resize-handle-dom-cljs-test`.
+;; They were guarded by `(when (exists? js/document) ...)` in THIS file,
+;; whose name does not end `-dom-cljs-test`, so `:browser-test` never loaded
+;; them while `:node-test` -- which ships no jsdom -- skipped every one:
+;; ELEVEN assertions executing in neither lane. `getComputedStyle` resolving
+;; an inline `resize:` declaration is the behaviour under test and cannot be
+;; stubbed, so the repair was the file LOCATION rather than the guard. The
+;; dom sibling loads on BOTH lanes (`:node-test`'s `cljs-test$` is a bare
+;; suffix match) and answers node with a stated skip per row.
+;;
+;; What stays here is everything that needs no host: the pure `handle-tree`
+;; markup, the drag lifecycle, write-time clamping, the keyboard rows and the
+;; subscription -- plus `apply-panel-width-handles-missing-root` below, which
+;; asserts the NO-host path and so belongs on the node lane precisely because
+;; there is no host here.
 
 ;; ---- apply-panel-width! (CSS var write) --------------------------------
-
-(defn- ensure-stub-shell-root! []
-  (when (and (exists? js/document) (.-createElement js/document))
-    (when-not (.getElementById js/document "rf-xray-root")
-      (let [el (.createElement js/document "div")]
-        (set! (.-id el) "rf-xray-root")
-        (when (.-body js/document)
-          (.appendChild (.-body js/document) el))))))
-
-(deftest apply-panel-width-writes-css-var-on-html
-  (ensure-stub-shell-root!)
-  (settings-effects/apply-panel-width! 700)
-  (when-let [html (and (exists? js/document)
-                       (.-documentElement js/document))]
-    (is (= "700px"
-           (.getPropertyValue (.-style html) "--rf-xray-inline-width"))
-        "<html> CSS var carries the value so the cascade resolves")))
 
 (deftest apply-panel-width-handles-missing-root
   ;; Even without a layout host present, the call should not throw.
   (is (nil? (settings-effects/apply-panel-width! 480))
       "no-op safe pre-mount"))
-
-(deftest apply-panel-width-does-not-pin-host-inline-style
-  ;; Regression for rf2-6fqr5: an earlier draft wrote the CSS custom
-  ;; property as an INLINE style on the layout host as well as on
-  ;; `<html>`. Inline declarations beat any selector-based rule in
-  ;; the cascade, so a consumer's `:root { --rf-xray-inline-width:
-  ;; 720px; }` was silently shadowed by Xray's host write. The
-  ;; documented inline-host contract (spec/011-Launch-Modes.md
-  ;; §Resizing the inline host) requires that an override anywhere
-  ;; up the cascade takes effect — which means Xray MUST NOT write
-  ;; the property to the host element itself; the host inherits the
-  ;; value from `<html>` via the `var(...)` lookup on the next paint.
-  (when (and (exists? js/document) (.-createElement js/document))
-    (let [host (.createElement js/document "aside")]
-      (.setAttribute host "data-rf-xray-host" "")
-      (when (.-body js/document)
-        (.appendChild (.-body js/document) host))
-      (try
-        (settings-effects/apply-panel-width! 480)
-        (is (= "" (.getPropertyValue (.-style host)
-                                     "--rf-xray-inline-width"))
-            "host element MUST NOT carry the CSS var as an inline style")
-        (finally
-          (when (.-parentNode host)
-            (.removeChild (.-parentNode host) host)))))))
-
-(deftest apply-panel-width-clears-html-inline-when-default
-  ;; Regression for rf2-6fqr5: an earlier draft asserted the default
-  ;; value as an inline style on `<html>` at boot. Inline `<html>`
-  ;; declarations beat author-normal `:root { ... }` rules (the cascade
-  ;; treats inline as the highest origin), so a consumer's documented
-  ;; `:root { --rf-xray-inline-width: 720px; }` was silently shadowed
-  ;; by Xray's default-assertion. When the user has NOT explicitly
-  ;; resized — i.e. the value still equals `default-panel-width-px` —
-  ;; `apply-panel-width!` MUST clear any prior inline declaration so
-  ;; the consumer's `:root` override (or the host CSS's `var(...)`
-  ;; fallback) wins.
-  (when-let [html (and (exists? js/document)
-                       (.-documentElement js/document))]
-    ;; Prime an inline declaration first to prove the clear path runs.
-    (.setProperty (.-style html) "--rf-xray-inline-width" "999px")
-    (settings-effects/apply-panel-width! config/default-panel-width-px)
-    (is (= "" (.getPropertyValue (.-style html)
-                                 "--rf-xray-inline-width"))
-        "default value MUST clear the inline `<html>` declaration")
-    ;; nil arg also routes to the default and must clear.
-    (.setProperty (.-style html) "--rf-xray-inline-width" "888px")
-    (settings-effects/apply-panel-width! nil)
-    (is (= "" (.getPropertyValue (.-style html)
-                                 "--rf-xray-inline-width"))
-        "nil arg defaults to the published width and clears the inline")))
 
 ;; ---- panel-width-px sub --------------------------------------------------
 
