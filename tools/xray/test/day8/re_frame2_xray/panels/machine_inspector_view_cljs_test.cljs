@@ -39,6 +39,10 @@
             [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
+            ;; rf2-k97c.3 — the chart-head row below needs BOTH of this
+            ;; ns's public heads: the Fresco boundary ELEMENT 3 mounts, and
+            ;; the surviving `reg-view` that is its two-directions control.
+            [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -767,6 +771,65 @@
     (vector? hiccup) (some find-machine-chart-props hiccup)
     (seq? hiccup)    (some find-machine-chart-props hiccup)
     :else            nil))
+
+(defn- find-chart-mount
+  "The whole `[<head> {props}]` vector ELEMENT 3 emits for the topology
+  chart, HEAD INCLUDED — where [[find-machine-chart-props]] answers only the
+  props map. Same props-shape match, because the head is exactly what this
+  is trying to learn and so cannot be part of the selector."
+  [hiccup]
+  (cond
+    (and (vector? hiccup) (machine-chart-props? (second hiccup)))
+    hiccup
+
+    (vector? hiccup) (some find-chart-mount hiccup)
+    (seq? hiccup)    (some find-chart-mount hiccup)
+    :else            nil))
+
+(deftest element-3-heads-a-fresco-boundary-rf2-k97c-3
+  (testing "rf2-k97c.3 — ELEMENT 3 mounts `machine-canvas/Chart-view`, a
+            Fresco BOUNDARY, and no longer islands `machine-canvas/Chart`
+            behind an `as-child` crossing.
+
+            The head is graded by `codec/boundary-head?` — the production
+            predicate, reading the one own property (`frescoBoundary`) that
+            only `rf.fresco/defview` sets — rather than by identity against a
+            var, so the row states the PROPERTY the codec will act on rather
+            than a name that could be satisfied by the wrong kind of thing.
+
+            CONTROLLED BOTH WAYS on this same tree. `machine-canvas/Chart`,
+            the surviving `reg-view` the two Static Reagent-island callers
+            still head, must grade FALSE: without that half a predicate that
+            answered true for everything would satisfy the claim above. The
+            two heads share one body (`machine-canvas/chart-tree`), so they
+            differ in exactly the property being read."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [mount (find-chart-mount (panel-tree))
+            head  (first mount)]
+        (is (some? mount)
+            "precondition: ELEMENT 3 emitted a chart mount at all — an
+             absent mount would make the head assertion vacuous")
+        (is (rf.fresco.impl.codec/boundary-head? head)
+            (str "the chart head is a Fresco boundary, so the panel's own "
+                 "boundary mounts it directly instead of crossing an "
+                 "`as-child` island into Reagent. Head was "
+                 (pr-str head)))
+        (is (not (rf.fresco.impl.codec/boundary-head? machine-canvas/Chart))
+            "CONTROL: the surviving `reg-view` head grades FALSE under the
+             same predicate, so the assertion above discriminates rather
+             than reading true for any fn it is handed")))))
 
 (def ^:private schema-fixture-definition
   "A machine carrying a `[:schemas :data]` schema so the declared Context shape
