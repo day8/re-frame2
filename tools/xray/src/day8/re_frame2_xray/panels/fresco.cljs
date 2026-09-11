@@ -509,8 +509,7 @@
                ;; the reason for it. The hazard rf2-a38l fixed is unchanged
                ;; — Fresco's codec reads `(:key props)` and never vector
                ;; metadata.
-               (concat (for [row shown]
-                         (advice-row row))
+               (concat (map advice-row shown)
                        [(overflow/overflow-row {:panel-id     (str panel-id "-advisor")
                                                 :over-cap?    over?
                                                 :hidden-count hidden})])))
@@ -568,8 +567,7 @@
      (into [:ol {:style {:list-style "none" :margin 0 :padding 0}}]
            ;; Keys live in each link's own `:li` props — see [[advice-row]]
            ;; for why rf2-a38l's wrapping fragment went with the head.
-           (for [link (:links slice)]
-             (causal-link link))))])
+           (map causal-link (:links slice))))])
 
 ;; ---- the sub-strip and the panel -----------------------------------------
 
