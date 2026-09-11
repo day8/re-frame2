@@ -250,8 +250,24 @@ for _stream in (sys.stdout, sys.stderr):
 
 SKILL_DIR = REPO_ROOT / "skills" / "re-frame-migration"
 MIGRATION_MD = REPO_ROOT / "migration" / "from-re-frame-v1" / "README.md"
+# The READMEs of the adapters that SHIP — the three rostered under
+# `implementation/adapters/README.md` §"Adapters that ship today", in that
+# table's order. Each carries the same lifecycle-frame contract the migration
+# corpus does, so each is a stale-claim scan surface. uix was added under
+# rf2-poxh: it had been off this roster while shipping, and the gap was found
+# by measurement rather than audit — the stale `:rf/default` claim rf2-mhpo
+# repaired (PR #9659) outlived its already-corrected siblings' copies
+# precisely because no rule here ever read the uix file.
+#
+# This is a ROSTER and deliberately not a glob over
+# `implementation/adapters/*/README.md`: `adapters/test-react/` is
+# local-test-only, has no Maven coordinate and is deliberately unsmoked (see
+# `implementation/adapters/README.md` §"Local-test-only adapter"), so a glob
+# would scan it today and would silently acquire any future local-test-only
+# adapter tomorrow. A new SHIPPING adapter is added here by hand.
 ADAPTER_READMES = (
     REPO_ROOT / "implementation" / "adapters" / "reagent" / "README.md",
+    REPO_ROOT / "implementation" / "adapters" / "uix" / "README.md",
     REPO_ROOT / "implementation" / "adapters" / "reagent-slim" / "README.md",
 )
 # The reagent-slim Form-3 adopter owner (rf2-aalo4n). FORM-3.md is the
@@ -266,7 +282,7 @@ FORM3_MD = REPO_ROOT / "implementation" / "adapters" / "reagent-slim" / "FORM-3.
 def _scanned_files() -> list[Path]:
     """User-facing migration-skill leaves (SKILL.md + references/*.md), globbed so
     a new reference leaf is covered automatically, plus the migration corpus the
-    skill treats as source of truth, the two Reagent adapter READMEs, and the
+    skill treats as source of truth, the shipped adapter READMEs, and the
     reagent-slim Form-3 adopter owner (FORM-3.md — rf2-aalo4n). The skill's spec/
     meta-docs are excluded (re-authoring material, not loaded during normal
     operation)."""
