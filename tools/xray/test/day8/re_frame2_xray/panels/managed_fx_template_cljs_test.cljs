@@ -674,9 +674,34 @@
 (defn- emitted-key
   "The React key the FRESCO codec commits for one hiccup node — the
   hiccup→element door a boundary's children actually cross, rather than
-  whatever the authoring vector happens to be carrying."
+  whatever the authoring vector happens to be carrying.
+
+  HEAD + ATTRS ONLY, which is this tree's idiom for the Fresco door (see
+  `panels/machine_inspector_view_cljs_test`'s `fresco-key`). The key is
+  read off the attribute map by both renderers, so dropping the subtree
+  cannot change the answer; what it buys is that the codec lowers children
+  EAGERLY, so a whole-node call raises HD-016
+  `:rf.error/fresco-bad-head` the moment anything below the node is still
+  a plain fn in head position. That is unmigrated tree rather than a key
+  defect, and letting it throw here would hide the key answer behind it.
+
+  MEASURED on this file rather than assumed, because it is file-dependent:
+  at the time of writing the whole-node form ANSWERS on these rows — the
+  `[:li]` subtree is one `[:span]` — and reads `[nil nil nil]` under a
+  revert to `^{:key …}` rather than raising. The subvec is taken anyway,
+  so a future child with a fn head cannot turn this row's answer into an
+  exception about something else.
+
+  `subvec` DROPS VECTOR METADATA, which would matter if the metadata-vs-attrs
+  discrimination lived in a Reagent/Fresco PAIR — subvec both doors and the
+  meta is gone before Reagent sees it, so both read nil and the pair stops
+  saying which fault it is. It does not matter here: `r/as-element` is
+  HOLLOW for this sub-case (Reagent reads meta AND props and answers the
+  same key either way), so this row carries no Reagent door at all and the
+  discrimination is carried by the two structural assertions below — the
+  key is IN the attrs map, and NO reader meta survives on the row."
   [node]
-  (.-key (rf.fresco.impl.codec/as-element node)))
+  (.-key (rf.fresco.impl.codec/as-element (subvec node 0 2))))
 
 (deftest app-db-path-rows-key-through-the-fresco-codec
   (testing "rf2-fcy5 / RULING 2 — the one `^{:key …}` metadata site in this
