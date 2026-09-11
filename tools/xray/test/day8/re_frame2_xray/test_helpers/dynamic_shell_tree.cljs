@@ -131,10 +131,17 @@
 (defn detail-panel-tree
   "The L4 detail panel's hiccup, read the way `shell/detail-panel` reads
   it — the same `(or … default-tab)` fallback and the same
-  `panel-registry/tab-by-id :dynamic` lookup."
+  `panel-registry/tab-by-id :dynamic` lookup.
+
+  `default-tab` is reached THROUGH ITS VAR because it is `^:private` in
+  `shell.cljs`, and deliberately: it is the Dynamic shell's own landing
+  constant (spec/018 §5 is normative on it) with no caller outside that
+  namespace, so reproducing the boundary's fallback here is not a reason
+  to widen a production surface. `static-shell/default-tab` is public
+  only because the Static tab-id family is read from `registry.cljs`."
   []
   (let [selected (or @(rf/subscribe [:rf.xray/selected-tab])
-                     shell/default-tab)]
+                     @#'shell/default-tab)]
     (shell/detail-panel-tree
       selected
       (panel-registry/tab-by-id :dynamic selected)

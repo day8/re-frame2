@@ -48,7 +48,6 @@
              :as static-shell-tree]
             [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
              :as dynamic-shell-tree]
-            [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; ---- fixture ------------------------------------------------------------
