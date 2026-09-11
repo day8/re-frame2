@@ -11,9 +11,12 @@
             [clojure.string :as string]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            ;; rf2-90kv — the reg-view that composes the sub with the renderer
-            ;; is itself the defect surface, so it is the instrument.
-            [day8.re-frame2-xray.panels]
+            ;; rf2-90kv — the mount that composes the sub with the renderer
+            ;; is itself the defect surface, so it is the instrument. rf2-fcy5
+            ;; moved that composition into `panels/managed-fx-list-tree`, which
+            ;; the row below calls by name, so the alias is now load-bearing at
+            ;; runtime rather than only forcing the ns to load.
+            [day8.re-frame2-xray.panels :as panels]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -146,11 +149,22 @@
   "Every node in a hiccup tree, payload values included. Walked structurally
   rather than through `rf.test-helpers/expand-tree`, which rebuilds nested
   vectors with `mapv` and would substitute its own vectors for the ones under
-  test (it strips reader metadata besides)."
+  test (it strips reader metadata besides).
+
+  rf2-fcy5 — IT DESCENDS INTO MAP VALUES, and that is what keeps \"payload
+  values included\" true. A Reagent component took its value as a POSITIONAL
+  argument (`[ei/edn-inspector v opts]`), so a vectors-and-seqs walk reached
+  it; a Fresco boundary takes ONE PROPS MAP (`[ei/edn-inspector-view
+  {:value v …}]`), so the payload now sits behind a map key. Without this
+  arm the walk still returns the props map itself and simply never looks
+  inside it — an absence that reads exactly like a payload the panel failed
+  to render, which is the direction that matters here, since every caller
+  below asserts PRESENCE."
   [node]
   (cond
     (vector? node) (cons node (mapcat tree-nodes node))
     (seq? node)    (cons node (mapcat tree-nodes node))
+    (map? node)    (cons node (mapcat tree-nodes (vals node)))
     :else          [node]))
 
 (deftest expanded-sections-slot-starts-empty
@@ -226,7 +240,7 @@
         (is (true? (shown?))
             "one toggle later the request payload is in the rendered tree")))))
 
-;; ---- the reg-view's own composition (rf2-90kv) ----------------------------
+;; ---- the mount's own composition (rf2-90kv) -------------------------------
 ;;
 ;; `panels/ManagedFxList` is the ONLY caller of `records-list`, and it is where
 ;; the composite sub's value meets the renderer. Nothing graded that seam:
@@ -236,6 +250,17 @@
 ;; already in hand. Both tiers were blind to the one line that composes them,
 ;; which is how the panel came to throw before painting without a red row
 ;; anywhere.
+;;
+;; rf2-fcy5 — THE INSTRUMENT MOVED, AND THE SEAM DID NOT. `ManagedFxList` is
+;; now an `rf.fresco/defview` boundary, a real React function component whose
+;; body may only run inside a React render window, so `((rf/view id))` — what
+;; this row used to drive — has no analogue. The composition it graded was
+;; therefore EXTRACTED rather than duplicated here: `panels/managed-fx-list-tree`
+;; is `defview`'s own documented extract-a-helper split, holding the
+;; `(:records focused)` line and nothing else, and the boundary is a
+;; three-argument pass-through into it. Reproducing the reads in this file
+;; instead would have made the row assert against its OWN copy of the
+;; composition, which is precisely the blindness rf2-90kv was filed about.
 
 (defn- cascade-evs-two-managed-fx
   "One cascade carrying TWO managed-fx invocations.
@@ -295,9 +320,13 @@
             is red either way and is why the count assertion is stated over a
             tree that has to have been built at all.
 
-            The view's body is invoked headlessly through `((rf/view id))`,
-            which runs the real reg-view render path under the plain-atom
-            substrate the Xray suite installs."
+            rf2-fcy5 — the body is now driven through
+            `panels/managed-fx-list-tree`, which IS the composition: the
+            boundary reads the two slots and passes them straight in, so
+            this row still grades the one line that meets the renderer.
+            The WHOLE composite map is handed over, exactly as the
+            boundary hands it, so the `(:records …)` extraction is inside
+            the thing under test rather than performed by the test."
     (seed-buffer! (cascade-evs-two-managed-fx 600 0))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-event 600 :rf/default])
@@ -308,7 +337,10 @@
       (is (= 2 (count (:records @(rf/subscribe
                                    [:rf.xray/managed-fx-for-focused-event]))))
           "control: the composite really answers two records")
-      (let [tree    ((rf/view :day8.re-frame2-xray.panels/ManagedFxList))
+      (let [tree    (panels/managed-fx-list-tree
+                      @(rf/subscribe [:rf.xray/managed-fx-for-focused-event])
+                      @(rf/subscribe [:rf.xray/managed-fx-expanded-sections])
+                      (:dispatch (rf/capture-frame)))
             testids (record-panel-testids tree)]
         (is (= 2 (count testids))
             "one record panel per RECORD, not one per entry of the composite map")

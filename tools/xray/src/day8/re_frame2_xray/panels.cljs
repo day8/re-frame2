@@ -170,6 +170,7 @@
   `tools/xray/spec/008-Embedding-Contract.md` for the full
   embedding contract."
   (:require [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
@@ -447,39 +448,103 @@
   ([mount-point]      (mount-cancellation-cascade-popover! mount-point nil))
   ([mount-point opts] (render-panel! cancellation-cascade/Popover mount-point opts)))
 
-(rf/reg-view ManagedFxList
-  "The managed-fx wire-boundary diff template's mountable wrapper —
-  reads `:rf.xray/managed-fx-for-focused-event` and renders the
-  records list. `managed-fx-template/records-list` is a pure fn over
-  a records vector; this reg-view ties it to the focused event-bundle's
-  managed-fx sub so consumers get the per-event-bundle managed-fx content
-  inline.
+(defn managed-fx-list-tree
+  "The managed-fx list's WHOLE body, as a pure function of the two values
+  [[ManagedFxList]] reads and the frame-bound dispatcher it captures.
 
-  Exposing this as a reg-view (rather than a plain fn) follows the
-  Conventions.md panel-facade contract — every mount target
-  is a `reg-view` so the React-context tier resolves to the wrapping
-  frame-provider per Spec 006 §706."
+  SPLIT OUT OF [[ManagedFxList]] BY rf2-fcy5, and the split is `defview`'s
+  own documented extract-a-helper spelling rather than an invention: a
+  boundary's body may only run inside a React render window, so
+  `(ManagedFxList)` is no longer a callable that answers hiccup, while
+  this fn is ordinary values → hiccup and stays worth driving from the
+  fast node lane.
+
+  It is also where the ONE composition this panel performs lives, and
+  keeping it in ONE place is the point. `:rf.xray/managed-fx-for-focused-event`
+  answers `{:dispatch-id … :frame … :records […]}` while
+  `managed-fx-template/records-list` takes the RECORDS VECTOR. Handing it
+  the whole map made `(for [rec records] …)` walk MAP ENTRIES, so
+  `(name (:status rec))` got nil and threw before the panel could paint
+  (rf2-90kv) — the rf2-qhoj \"panel that never appears\" shape, since no
+  error boundary sits above this render path. `managed_fx_subs_cljs_test`
+  grades exactly this fn against a seeded two-record cascade; before the
+  migration it drove the `reg-view` body through `((rf/view id))`, which a
+  boundary has no analogue for.
+
+  `expanded` is the per-section disclosure override map, threaded down as
+  plain data: `records-list` / `record-panel` are plain fns, and per Spec
+  006 §Plain-fn footgun an ambient `subscribe` inside one cannot resolve
+  the surrounding frame, so the read belongs at the boundary and the value
+  travels as an argument (the same shape `views/edn-inspector` uses for
+  its own expansion slot).
+
+  PURE: every helper it calls is a plain fn of its arguments."
+  [focused expanded dispatch]
+  (managed-fx/records-list dispatch expanded (:records focused)))
+
+(rf.fresco/defview ManagedFxList
+  "The managed-fx wire-boundary diff template's mountable wrapper — a
+  FRESCO BOUNDARY (rf2-fcy5), not an `rf/reg-view`. Reads the focused
+  event-bundle's managed-fx composite plus the per-section disclosure
+  slot and hands their values, with a frame-bound dispatcher, to
+  [[managed-fx-list-tree]].
+
+  WHY IT MOVED. `managed_fx_template` is a pure hiccup folder whose only
+  non-native heads are the vectors `edn-widget/inspect` returns —
+  `[ei/edn-inspector …]`, a `reg-view` head, which Fresco's codec grades
+  `:invalid` exactly as it grades a plain `defn`. The replacement head
+  `edn/inspect-view` emits the `edn-inspector-view` boundary instead, and
+  it could not be adopted while this mount was a `reg-view`, because a
+  Fresco boundary in a Reagent head position is the mirror failure. So the
+  order was forced and is the whole content of this change: migrate the
+  mount, then adopt the head.
+
+  The READS are `rf.fresco/sub`, plain calls the shipped collector records
+  an edge for — no deref, no reaction owned by the installed adapter, and
+  a re-wire that NOTIFIES when the substrate disposes the underlying
+  derived value.
+
+  The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
+  which answers the boundary's DECLARED frame inside a body. It replaces
+  the name `reg-view` used to inject lexically: `defview` binds NO name
+  inside your body, so the bare `dispatch` this body used to close over
+  would be a LOUD compile error, which is the good failure. It still lands
+  the panel's context-menu / focus / disclosure affordances on the
+  surrounding instance frame rather than on a `{:frame :rf/xray}` literal.
+
+  The argument is the ordinary one-props-map vector every `defview` takes.
+  This panel reads nothing from props — `mount-managed-fx!` passes none —
+  so it is destructured away."
+  [_props]
+  (managed-fx-list-tree (rf.fresco/sub [:rf.xray/managed-fx-for-focused-event])
+                        (rf.fresco/sub [:rf.xray/managed-fx-expanded-sections])
+                        (:dispatch (rf/capture-frame))))
+
+(def ^:private ManagedFxList-component
+  "The React component `ManagedFxList` presents as, for a non-Fresco
+  parent. Declared once at top level beside the view, as
+  `rf.fresco/as-component`'s contract requires — deriving it per render
+  would mint a new component type every time and remount the panel on each
+  parent render."
+  (rf.fresco/as-component ManagedFxList))
+
+(defn ManagedFxList-bridge
+  "The callable a Reagent parent mounts this panel through. Returns
+  Reagent-shaped hiccup interoping to the React component above; the
+  enclosing `rf/frame-provider` [[render-panel!]] writes is what puts the
+  frame in React context for it.
+
+  PUBLIC, unlike `static.routes.panel`'s equivalent, and the difference is
+  a real one rather than a slip: this panel carries a standalone
+  `mount-managed-fx!` facade, and [[render-panel!]] takes the view to
+  mount as an ARGUMENT, so the embedding contract needs a name it can
+  pass. `panels/resources`'s bridge is public for the same reason.
+
+  THIS IS SCAFFOLDING WITH A DEFINED END. When `render-panel!` itself
+  builds a Fresco tree, it takes `ManagedFxList` directly, `[:>]` goes,
+  and both defs here are deleted with every other `*-bridge`."
   []
-  (let [focused  @(rf/subscribe [:rf.xray/managed-fx-for-focused-event])
-        ;; The panel's per-section disclosure state. Read HERE because
-        ;; `records-list` / `record-panel` are plain fns, and per Spec 006
-        ;; §Plain-fn footgun an ambient `subscribe` inside one raises
-        ;; `:rf.error/no-frame-context` — it carries no `:contextType`
-        ;; wiring and so cannot resolve the surrounding frame. A `reg-view`
-        ;; can, so the read happens at this boundary and the map is threaded
-        ;; down as plain data (the same shape `views/edn-inspector` uses for
-        ;; its own expansion slot).
-        expanded @(rf/subscribe [:rf.xray/managed-fx-expanded-sections])]
-    ;; Thread the reg-view-injected frame-aware dispatch so the panel's
-    ;; context-menu / focus / disclosure affordances land on the surrounding
-    ;; instance frame, not a `{:frame :rf/xray}` literal.
-    ;;
-    ;; `:records` — the composite sub answers
-    ;; `{:dispatch-id … :frame … :records […]}`, and `records-list` takes the
-    ;; RECORDS VECTOR. Handing it the whole map made `(for [rec records] …)`
-    ;; walk map entries, so `(name (:status rec))` got nil and threw before
-    ;; the panel could paint (rf2-90kv).
-    (managed-fx/records-list dispatch expanded (:records focused))))
+  [:> ManagedFxList-component {}])
 
 (defn mount-managed-fx!
   "Mount the managed-fx wire-boundary diff list in isolation at
@@ -487,7 +552,11 @@
   inside the focused event-bundle's managed-fx records. Empty when the
   focused event-bundle had no managed-fx records."
   ([mount-point]      (mount-managed-fx! mount-point nil))
-  ([mount-point opts] (render-panel! ManagedFxList mount-point opts)))
+  ;; rf2-fcy5 — `ManagedFxList-bridge`, not `ManagedFxList`, for the reason
+  ;; `mount-resources!` records above: the view is now a Fresco boundary
+  ;; and `render-panel!` builds a Reagent tree, which `defview`'s contract
+  ;; forbids mounting a boundary into. `render-panel!` itself is untouched.
+  ([mount-point opts] (render-panel! ManagedFxList-bridge mount-point opts)))
 
 ;; ---- full-shell mount ---------------------------------------------------
 

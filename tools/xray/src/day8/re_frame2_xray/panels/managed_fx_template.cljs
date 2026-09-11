@@ -32,12 +32,16 @@
   in the helpers ns (`panels/managed_fx_helpers`); this ns is purely a
   hiccup folder over the record shape.
 
-  ## Pure hiccup (rf2-tijr)
+  ## Pure hiccup (rf2-tijr), rendered inside a Fresco boundary (rf2-fcy5)
 
   Same contract as every other Xray panel — pure hiccup, no Reagent /
-  UIx references. Frame isolation is provided by the enclosing
-  `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`. Every
-  `subscribe` / `dispatch` here resolves to the `:rf/xray` frame.
+  UIx references. Nothing here reads or dispatches ambiently: the reads
+  happen at the mount, `panels/ManagedFxList`, which since rf2-fcy5 is an
+  `rf.fresco/defview` BOUNDARY, and the frame-aware `dispatch` it captures
+  is threaded down as an ordinary argument. That is what makes this ns
+  substrate-neutral — every head in the tree it folds is either a native
+  tag or the `edn-inspector-view` boundary, both of which Fresco's codec
+  accepts and Reagent renders unchanged.
 
   ## Cross-link
 
@@ -225,21 +229,39 @@
 ;;
 ;; The four sites below were this tree's ONLY head-position users of
 ;; `inspect`; the other six caller files already call it. Calling it is
-;; correct on BOTH substrates — the value rendered is the vector `inspect`
-;; RETURNS — so this is the shape that survives the migration, and the
-;; facade keeps its one-renderer-many-call-sites property because
-;; `inspect`'s own shape is untouched.
+;; correct on BOTH substrates — the value rendered is the vector the facade
+;; RETURNS — so the call shape survived the migration, and the facade keeps
+;; its one-renderer-many-call-sites property because the facade's own shape
+;; is untouched.
 ;;
-;; NOT THE SAME THING AS BEING FRESCO-READY. `inspect` returns
-;; `[ei/edn-inspector …]`, a `reg-view` head, which Fresco's codec also
-;; refuses — `views/edn_inspector.cljs`'s own ns docstring puts it plainly:
-;; "Only `edn-inspector-view` is a head in a Fresco body." The day
-;; `panels/ManagedFxList` becomes a boundary, these four calls become
-;; `edn/inspect-view`, which exists for precisely that and takes the same
-;; `node-key`. Until then the Reagent head is the correct one.
+;; rf2-fcy5 — AND THE HEAD INSIDE THAT RETURNED VECTOR HAS NOW MOVED TOO,
+;; which is the second of the two blocking classes rf2-twil could only name.
+;; `inspect` returns `[ei/edn-inspector …]`, a `reg-view` head, which
+;; Fresco's codec refuses for the same reason it refuses a plain `defn` —
+;; `views/edn_inspector.cljs`'s own ns docstring puts it plainly: "Only
+;; `edn-inspector-view` is a head in a Fresco body." Now that
+;; `panels/ManagedFxList` IS a boundary, the four calls below are
+;; `edn/inspect-view`, the facade's Fresco head: same value, same opts,
+;; same renderer, differing only in that it emits `[ei/edn-inspector-view
+;; …]`. The order was forced — adopting it before the mount migrated would
+;; have put a Fresco boundary in a Reagent head position, the mirror
+;; failure.
+;;
+;; THE NODE-KEY IS NOW PER-RECORD, and that is load-bearing rather than
+;; cosmetic. `inspect-view` hands the node-key straight to the boundary as
+;; its `:mount-id`, and `edn-inspector/container-ref-for` MEMOISES the ref
+;; callback on it, so two mounts sharing a node-key share one
+;; ResizeObserver entry and one measured-width slot — detaching either
+;; releases the survivor's (the defect `static/flows/panel.cljs` records
+;; against its own rows). The old keys were built from the fx-id alone,
+;; and an event-bundle routinely carries several invocations of the SAME
+;; fx-id; the HANDLER key was the bare constant `"managed-fx/handler"`, so
+;; every record in every list shared one. `record-key` is this file's own
+;; per-record identity — already the React `:key` and the expansion key —
+;; so deriving all three from it is what stops them drifting apart.
 
 (defn- request-section
-  [{:keys [req surface fx-id]}]
+  [{:keys [req surface] :as record}]
   (cond
     (and (nil? req) (= surface :flow))
     [:span {:style {:color (:text-tertiary tokens)}} "(flow input — see registration)"]
@@ -248,7 +270,7 @@
     [:span {:style {:color (:text-tertiary tokens)}} "(no request payload)"]
 
     :else
-    (edn/inspect req (str "managed-fx/" (h/format-fx-id fx-id) "/req"))))
+    (edn/inspect-view req (str "managed-fx/" (h/record-key record) "/req"))))
 
 (defn- wire-section
   "Wire timing section. When the surface emits per-phase wire data we
@@ -266,7 +288,7 @@
      "n/a — this surface does not emit per-phase wire timing today."]))
 
 (defn- response-section
-  [{:keys [res surface fx-id failure]}]
+  [{:keys [res surface failure] :as record}]
   (cond
     failure
     [:div
@@ -274,8 +296,8 @@
                     :font-weight 600
                     :margin-bottom "4px"}}
       (str "✗ " (or (some-> failure :kind name) "FAILURE"))]
-     (edn/inspect (or (:tags failure) failure)
-                  (str "managed-fx/" (h/format-fx-id fx-id) "/failure"))]
+     (edn/inspect-view (or (:tags failure) failure)
+                       (str "managed-fx/" (h/record-key record) "/failure"))]
 
     (and (nil? res) (= surface :flow))
     [:span {:style {:color (:text-tertiary tokens)}}
@@ -286,20 +308,20 @@
      "(no response payload yet)"]
 
     :else
-    (edn/inspect res (str "managed-fx/" (h/format-fx-id fx-id) "/res"))))
+    (edn/inspect-view res (str "managed-fx/" (h/record-key record) "/res"))))
 
 (defn- handler-section
   "Renders the dispatched handler event vector + a click-to-focus
   affordance that pivots the spine to that child event-bundle. Anchors the
   F.3 'failed response handler' diagnostic."
-  [dispatch {:keys [handler frame dispatch-id]}]
+  [dispatch {:keys [handler frame dispatch-id] :as record}]
   (if (and (vector? handler) (seq handler))
     [:div {:style {:display "flex"
                    :align-items "center"
                    :gap "12px"
                    :flex-wrap "wrap"}}
      [:div {:style {:flex 1 :min-width 0}}
-      (edn/inspect handler "managed-fx/handler")]
+      (edn/inspect-view handler (str "managed-fx/" (h/record-key record) "/handler"))]
      [:button {:data-testid "rf-xray-managed-fx-focus-handler"
                :on-click    #(dispatch [:rf.xray/focus-event dispatch-id frame])
                :style       {:background  "transparent"
@@ -342,9 +364,17 @@
     [:ul {:style {:list-style "none"
                   :margin     0
                   :padding    0}}
+     ;; rf2-fcy5 (rf2-k97c.3 RULING 2) — the key rides the ATTRIBUTE MAP,
+     ;; not `^{:key …}` reader meta. Reagent reads meta THEN props, so both
+     ;; spellings worked while this panel mounted under `reg-view`; Fresco's
+     ;; codec reads a literal `:key` from a native tag's attrs and reads
+     ;; Clojure metadata NOWHERE, so on the migration the meta form becomes
+     ;; a silent nil — every row in the list loses its key with nothing on
+     ;; screen to say so. The attribute map satisfies both substrates and
+     ;; the key EXPRESSION is unchanged.
      (for [[i path] (map-indexed vector paths-touched)]
-       ^{:key i}
-       [:li {:style {:padding "2px 0"
+       [:li {:key   i
+             :style {:padding "2px 0"
                      :font-family mono-stack
                      :font-size "12px"
                      :color (:text-primary tokens)}}
