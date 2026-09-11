@@ -178,10 +178,14 @@
   itself: the mount, the commit and the release are
   `fresco_live_panel_dom_cljs_test`'s subject, under a real React root."
   []
-  (fresco/panel-tree
-    {:selected @(rf/subscribe [:rf.xray.fresco/view])
-     :data     @(rf/subscribe [:rf.xray.fresco/data])
-     :frame    (rf/current-frame-id)}))
+  (let [frame (rf/current-frame-id)]
+    (fresco/panel-tree
+      {:selected @(rf/subscribe [:rf.xray.fresco/view])
+       ;; The FRAME is the query's argument since rf2-bgol, exactly as
+       ;; `Panel` passes it — a harness that dropped it would drive the
+       ;; filter's nil default and never the shipped path.
+       :data     @(rf/subscribe [:rf.xray.fresco/data frame])
+       :frame    frame})))
 
 (defn- show!
   "Select `view`, refresh, and render the panel."
@@ -624,7 +628,7 @@
           door      (rf.fresco.tool/read-mounted-boundaries)
           held      (rf/with-frame :rf/xray
                       (refresh!)
-                      (:envelopes @(rf/subscribe [:rf.xray.fresco/data])))
+                      (:envelopes @(rf/subscribe [:rf.xray.fresco/data :rf/xray])))
           frames-of #(mapv :frame (:boundaries %))]
       (is (some #{:rf/xray} (frames-of door))
           (str "THE DOOR STILL CARRIES IT — the producer's own answer is "
@@ -644,6 +648,59 @@
            Xray-specific rather than a roster that emptied")
       (app-side)
       (xray-side))))
+
+(def ^:private custom-shell-frame
+  "A NON-DEFAULT Xray shell frame — 008 §Parameterized shell frame-id, the
+  `:frame-id` a testbed mounting N shells side by side passes."
+  ::fresco-tab-custom-shell)
+
+(deftest the-subscription-drops-a-NON-DEFAULT-shells-own-boundaries-too
+  (testing "rf2-bgol — the row above pins the PRODUCTION SINGLETON, and the
+            first cut of this filter asked `(= :rf/xray frame)`, so the
+            singleton was the only shell it could see. Xray's shell frame is
+            parameterized (008 §Parameterized shell frame-id): a testbed
+            mounting N shells side by side gives each a distinct `:frame-id`,
+            `mount/ensure-xray-frame!` takes one, and under such a shell the
+            tab's own boundary, reads and explanations were seated in a frame
+            the filter did not know and rode into all four rosters.
+
+            The subscription now takes the shell's id from the panel's own
+            render, so this row drives the query the way `Panel` does."
+    (setup!)
+    (rf/make-frame {:id custom-shell-frame})
+    (let [app-side  (mount! (fn [_] (rf.fresco/sub [:htab/left]) nil))
+          xray-side (mount! custom-shell-frame
+                            (fn [_] (rf.fresco/sub [:htab/right]) nil))
+          door      (rf.fresco.tool/read-mounted-boundaries)
+          held      (rf/with-frame custom-shell-frame
+                      (rf/clear-sub-cache! custom-shell-frame)
+                      (:envelopes @(rf/subscribe [:rf.xray.fresco/data
+                                                  custom-shell-frame])))
+          frames-of #(mapv :frame (:boundaries %))]
+      (is (some #{custom-shell-frame} (frames-of door))
+          (str "NON-VACUITY: the producer really did seat a boundary in the "
+               "custom shell frame, so the drop below is a filter rather "
+               "than a roster that was always empty. Door frames: "
+               (pr-str (frames-of door))))
+      (is (some #{app-frame} (frames-of door))
+          "NON-VACUITY: and the application's boundary is in the door too")
+      (is (not (some #{custom-shell-frame}
+                     (frames-of (:mounted-boundaries held))))
+          (str "THE SHELL'S OWN FRAME IS DROPPED. This is the assertion that "
+               "reddens against the literal-only filter. Held frames: "
+               (pr-str (frames-of (:mounted-boundaries held)))))
+      (is (some #{app-frame} (frames-of (:mounted-boundaries held)))
+          "and the application's boundary SURVIVES — the drop is the tool's
+           own frame and not a roster that emptied")
+      (testing "the singleton stays in the set whichever shell is looking"
+        (is (= #{:rf/xray custom-shell-frame}
+               (hh/own-frames custom-shell-frame))
+            ":rf/xray is RESERVED — a row seated there is the tool whichever
+             shell is doing the looking, so it is never dropped from the set
+             just because this panel is somewhere else"))
+      (app-side)
+      (xray-side)
+      (rf/destroy-frame! custom-shell-frame))))
 
 (deftest the-consumer-pin-tracks-the-producer-today-and-detects-a-bump
   (testing "the pin is a LITERAL, not the producer's var — but today they agree"

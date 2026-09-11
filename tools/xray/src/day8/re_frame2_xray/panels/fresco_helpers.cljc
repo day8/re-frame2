@@ -648,18 +648,73 @@
 ;; one turn: dropping a boundary from the census while leaving its edges in
 ;; the attribution roster would show an edge whose boundary is not in the
 ;; census, which is the inconsistency the one-turn read exists to prevent.
+;;
+;; WHICH FRAMES ARE XRAY'S IS A RUNTIME FACT, NOT A LITERAL (rf2-bgol). The
+;; first cut of this filter asked `(= :rf/xray frame)`, which is right for
+;; the production singleton and wrong for every other supported shell: 008
+;; §Parameterized shell frame-id permits N shells side by side, each with a
+;; distinct `:frame-id`, and under one of those the tab was once again
+;; listing itself. [[own-frames]] is the set, and the panel supplies the
+;; instance it is rendering in — see that fn for why it cannot be read
+;; inside the subscription instead.
 
-(def ^:private xray-frame
-  "Xray's own frame. A row seated here is the tool, not the application."
+(def default-xray-frame
+  "Xray's PRODUCTION SINGLETON shell frame — the value
+  `defaults/default-frame-id` carries, spelled here as a literal because
+  this namespace is `.cljc` and that one is not.
+
+  It is in [[own-frames]] UNCONDITIONALLY, and that is not the defect
+  rf2-bgol fixed. `:rf/xray` is RESERVED — Conventions' `:rf/*` single
+  root belongs to the framework, and Xray's L1 frame picker already
+  refuses it as a frame a user may inspect — so a row seated here is the
+  tool whichever shell is doing the looking. The defect was that it was
+  the filter's ONLY member."
   :rf/xray)
 
+(defn own-frames
+  "The set of frames a Fresco panel rendering inside `instance-frame` must
+  read as the TOOL's own: [[default-xray-frame]], plus the shell the panel
+  is actually in.
+
+  THE SECOND MEMBER IS THE WHOLE OF rf2-bgol. Xray's shell frame is
+  PARAMETERIZED, not a hard singleton — `spec/008-Embedding-Contract.md`
+  §Parameterized shell frame-id permits N shells side by side, each
+  passing a distinct `:frame-id`, and `mount/ensure-xray-frame!` takes
+  one. The filter was `(= :rf/xray frame)` and nothing else, so the
+  moment such a shell mounted this panel its boundary, its reads and its
+  explanations were seated in a frame the filter did not know, survived
+  all four rosters, and the tool presented itself as application evidence
+  in Mounted, Reads, Why, Advisor and Causal — the very defect the
+  singleton case had just been closed against.
+
+  IT IS TAKEN FROM THE PANEL, NOT GUESSED. The `:rf.xray.fresco/data`
+  query carries the id `rf/current-frame-id` answered in the boundary's
+  own render, which is the one place the frame is established and
+  therefore the only place it can be read honestly — a sub computation is
+  not run under a frame scope, and a filter that tried to read one there
+  would be right on the first build and wrong on every recompute.
+
+  AND IT IS NOT INFERRED FROM TRACING BEING OFF. `image-reads/seat-xray-
+  frame!` does set `:rf.trace/frame-no-emit?` on every shell frame, which
+  makes a tempting proxy and is the wrong one: an APPLICATION frame may
+  disable trace emission for its own reasons, and reading that as
+  Xray-ownership would silently swallow the user's evidence — far worse
+  than the defect being repaired here.
+
+  `nil` `instance-frame` — a caller with no frame to offer — yields the
+  singleton alone, which is exactly the pre-rf2-bgol behaviour."
+  [instance-frame]
+  (cond-> #{default-xray-frame}
+    (some? instance-frame) (conj instance-frame)))
+
 (defn- own-frame?
-  "True when `frame` IS Xray's own. Deliberately `=` against a resolved
-  frame id and nothing cleverer: [[unknown]] is not Xray's frame, and a
-  row whose frame the producer could not resolve must stay on screen
-  carrying its chip rather than be silently dropped as self-noise."
-  [frame]
-  (= xray-frame frame))
+  "True when `frame` is one of `owned` (see [[own-frames]]). Deliberately
+  a set membership over resolved frame ids and nothing cleverer:
+  [[unknown]] is not Xray's frame, and a row whose frame the producer
+  could not resolve must stay on screen carrying its chip rather than be
+  silently dropped as self-noise."
+  [owned frame]
+  (contains? owned frame))
 
 (defn- own-intent?
   "True when every frame an intent touched is Xray's own.
@@ -668,8 +723,8 @@
   user's, whatever else it also touched, and dropping it would hide real
   evidence. An intent carrying no frames at all is kept for the same
   reason — an empty set is an absence, not a claim about Xray."
-  [frames]
-  (and (seq frames) (every? own-frame? frames)))
+  [owned frames]
+  (and (seq frames) (every? #(own-frame? owned %) frames)))
 
 (defn- without
   "`envelope` with `k`'s collection filtered by `keep?`. A non-envelope
@@ -682,9 +737,19 @@
     (update envelope k #(filterv keep? %))))
 
 (defn without-own-frame
-  "The four-envelope map with every row seated in Xray's OWN frame
-  removed. Pure; the caller hands it exactly what `fresco-reads/evidence`
-  answered.
+  "The four-envelope map with every row seated in one of `owned` — the
+  set [[own-frames]] answers for the shell this panel is inside —
+  removed. Pure; the caller hands it exactly what
+  `fresco-reads/evidence` answered.
+
+  `owned` IS A PARAMETER RATHER THAN A LITERAL, and that is rf2-bgol:
+  Xray's shell frame is parameterized (008 §Parameterized shell
+  frame-id), so the set is a runtime fact about which shells are on the
+  page and cannot be written down here. Passing it as data is the shape
+  the tree already uses for exactly this — `palette/sources` takes
+  `frame-switcher/internal-frames` the same way, for the same reason:
+  the pure layer stays pure and the `.cljs` seam that can see the
+  frames supplies them.
 
   APPLIED ONCE, HERE, AND NOT AT ROW PROJECTION — because the rows are
   not the only consumer. `fresco-advisor/advise` and
@@ -699,16 +764,16 @@
   time: they are read in ONE turn precisely so a reader cannot see an
   edge whose boundary is missing from the census, and a partial filter
   would manufacture exactly that."
-  [envelopes]
+  [envelopes owned]
   (-> envelopes
       (update :mounted-boundaries without :boundaries
-              (comp not own-frame? :frame))
+              #(not (own-frame? owned (:frame %))))
       (update :read-attribution   without :edges
-              (comp not own-frame? :frame-id))
+              #(not (own-frame? owned (:frame-id %))))
       (update :intents            without :intents
-              (comp not own-intent? :frames))
+              #(not (own-intent? owned (:frames %))))
       (update :explain-render     without :explanations
-              (comp not own-frame? :frame))))
+              #(not (own-frame? owned (:frame %))))))
 
 (defn mounted-rows
   "The Mounted view's rows: one per distinct edge set, carrying the

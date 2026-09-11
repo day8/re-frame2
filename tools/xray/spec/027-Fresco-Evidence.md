@@ -104,7 +104,9 @@ self-exclusion below: it drops Xray's OWN boundaries, and only from the six
 views. `the-subscription-drops-XRAYs-own-boundaries-and-the-DOOR-does-not`
 pins both halves at once — the door still carries the `:rf/xray` row and what
 the views see does not — which is also what keeps the byte claim above from
-holding merely because a fixture happens to mount no Xray boundary.
+holding merely because a fixture happens to mount no Xray boundary. Its
+sibling `the-subscription-drops-a-NON-DEFAULT-shells-own-boundaries-too`
+pins the same two halves for a shell mounted under a custom `:frame-id`.
 
 The producer's rosters are sorted through one total order, so two calls over
 one runtime state print identically; that determinism is the precondition the
@@ -118,13 +120,43 @@ The census walks the collector's process-global entry table with no frame
 filter, so the tab listed ITSELF: with one application boundary mounted, the
 Mounted view committed two rows, the second naming `…panels.fresco/Panel` in
 frame `:rf/xray`. Tool activity must never present as application evidence,
-so `fresco-helpers/without-own-frame` drops every row seated in `:rf/xray`
-before any view sees it.
+so `fresco-helpers/without-own-frame` drops every row seated in a frame the
+tool owns before any view sees it.
 
 This is the rule `self-noise` already applies to the trace surface, and it
 keeps that namespace's posture: the drop is unconditional, with no "show
 internals" toggle — introspecting Xray's own machinery is a separate feature,
 not an opt-out on a user-facing feed.
+
+**WHICH FRAMES THE TOOL OWNS IS A RUNTIME FACT, NOT A LITERAL (rf2-bgol).**
+The first cut asked `(= :rf/xray frame)`. That is right for the production
+singleton and blind to every other shell
+[`008-Embedding-Contract.md`](008-Embedding-Contract.md) §Parameterized shell
+frame-id permits: the shell frame is a `:frame-id` opt, `ensure-xray-frame!`
+takes one, and a testbed mounting N shells side by side gives each cell a
+distinct id. Under such a shell the tab's own boundary, its two reads and its
+explanation were seated in a frame the filter did not know and rode into all
+four rosters.
+
+`fresco-helpers/own-frames` is the set instead: `:rf/xray` — kept
+unconditionally, because the `:rf/*` single root is RESERVED and Xray's L1
+picker already refuses it as an inspectable frame, so a row seated there is
+the tool whichever shell is doing the looking — **plus the shell this panel
+is actually inside**. That id is the `:rf.xray.fresco/data` query's argument,
+read by `Panel` with `rf/current-frame-id` in its own render. The render is
+the only honest place to read it: a subscription COMPUTATION runs under no
+frame scope at all (`subs/memo` wraps the body in a trace handler-scope and
+nothing else), so a filter reading the frame inside the sub would be right on
+the first build and wrong on every recompute.
+
+**Two things it deliberately is not.** It is not inferred from
+`:rf.trace/frame-no-emit?` — `image-reads/seat-xray-frame!` does set that on
+every shell frame, but an application frame may disable trace emission for
+its own reasons, and reading that as Xray-ownership would silently swallow
+the user's evidence, which is worse than the defect being repaired. And it is
+not a new configuration surface: the set is derived, and the pure helper takes
+it as DATA, which is the shape `palette/sources` already uses for
+`frame-switcher/internal-frames` and for the same reason.
 
 **It is a PANEL filter, not a door filter, and the distinction is the whole
 of the byte claim above.** `fresco-reads` still passes the producer's
@@ -134,7 +166,7 @@ receives every boundary including Xray's. Only the six views are filtered.
 Three things it does not do. `:unknown` is not Xray's frame, so a row whose
 frame the producer could not resolve stays on screen with its chip — silently
 dropping a stated absence is the failure this tab exists to prevent. An
-intent is dropped only when EVERY frame it touched is `:rf/xray`, so a
+intent is dropped only when EVERY frame it touched is one of the tool's, so a
 dispatch that reached an application frame survives whatever else it also
 touched. And an absent or schema-mismatched envelope passes through whole, so
 a mismatch still renders as a mismatch rather than as a clean empty roster.
@@ -594,9 +626,9 @@ Adding it moved six governance pins, each of which fails the build on drift:
 | `re-frame.fresco.evidence-schema-cljs-test` | node | the envelope door stamps a coherent read and refuses a foreign read, a foreign or unsized loss and a loss beside a completeness claim, each refusal asserting the problem it named, with a positive control |
 | `re-frame.fresco.tool-reads-cljs-test` | node (reactive substrate) | the four reads over real committed boundaries; a declared view is named on the mounted row, the attribution reader and the explanation with the coordinate `defview` captured, two declared views over one edge set are one row naming both, an unnamed body states `:unknown`, and a name minted outside the macro carries no source; the seeded-value privacy witness for a return value AND for a query argument; two frames sharing a sub id with asymmetric windows; the dispatch-ordered, fragment-merged intent stream; determinism; the production-nil arm |
 | `re-frame.fresco.erasure-sentinels-cljs-test` | node | the live half of the erasure proof — a dev render mints the `frescoViews` slot the release scan requires absent, and only the commit names a view in it |
-| `…panels.fresco-helpers-cljs-test` | node + JVM | the five absences and the empties are pairwise distinct — including the per-view empties, counted against the LIVE `sub-modes` list (six today) rather than a literal, so a seventh view cannot be added carrying a sixth view's sentence; labels and testids are built from the projected key; a named row leads with its view and an unnamed one carries the `unknown` chip; a row key carries the WHOLE projected identity, so two frames' boundaries over one query do not collide; two query variants do not collapse; the key is INJECTIVE as a property over a generated space of 9261 identities, 10162 boundary keys and 441 intent rows, with a non-vacuity control that the space still defeats a lossy slug; the superseded v2 stamp is refused rather than mis-parsed; the schema pin; row projections; and the self-exclusion drop over all four rosters at once — the application row survives and Xray's own does not, an intent is dropped only when EVERY frame it touched is `:rf/xray`, and neither an `:unknown` frame nor an unparseable envelope is eaten by it |
+| `…panels.fresco-helpers-cljs-test` | node + JVM | the five absences and the empties are pairwise distinct — including the per-view empties, counted against the LIVE `sub-modes` list (six today) rather than a literal, so a seventh view cannot be added carrying a sixth view's sentence; labels and testids are built from the projected key; a named row leads with its view and an unnamed one carries the `unknown` chip; a row key carries the WHOLE projected identity, so two frames' boundaries over one query do not collide; two query variants do not collapse; the key is INJECTIVE as a property over a generated space of 9261 identities, 10162 boundary keys and 441 intent rows, with a non-vacuity control that the space still defeats a lossy slug; the superseded v2 stamp is refused rather than mis-parsed; the schema pin; row projections; and the self-exclusion drop over all four rosters at once — the application row survives and Xray's own does not, an intent is dropped only when EVERY frame it touched is one of the tool's, and neither an `:unknown` frame nor an unparseable envelope is eaten by it; every one of those rows runs TWICE, once for the production singleton `:rf/xray` and once for a NON-DEFAULT shell frame (rf2-bgol), with `own-frames` itself pinned as the singleton PLUS the shell being looked from |
 | `…panels.fresco-cljs-test` | node (reactive substrate) | the four EVIDENCE views answer on a running app (Advisor and Causal are the derived pair, and have their own suites per [`028-Fresco-Advisor.md`](028-Fresco-Advisor.md)); a declared view is named on the Mounted, Reads and Why pages with a `…-views` testid, and a harness body renders the `unknown` chip instead; `:rf.xray.fresco/data` INVALIDATES and RECOMPUTES on a real `:rf.xray/trace-buffer` tick with no cache clear, against a held reaction proved stale first — the SUBSCRIPTION's half of liveness, the panel's half being the browser row below; the loss states render under distinct testids, driven between two real window states; a sensitive query argument reaches neither the page nor a testid; the Reads and Why rows carry the frame on the page and in the testid; each view renders its own empty; both the superseded and an unknown stamp render the mismatch; the seam reshapes nothing |
-| `…panels.fresco-live-panel-dom-cljs-test` | browser (real React DOM) | THIS PANEL'S BOUNDARY WITNESS (rf2-k97c.3), under its older name. The panel is mounted once through the L4 registry's own `:panel` value — the bridge the shell mounts — inside `[frame-provider {:frame :rf/xray}]`, and nothing calls it again. W0: it picks up a newly-mounted boundary on a trace tick and commits the row, against a settled deaf control proving the panel stale across the mount first, and the `<section>` afterwards is the node it started with, so the roster arrived by reconciliation and not a remount. It is ALSO the self-exclusion witness — exactly ONE row, so the panel's own `:rf/xray` boundary is absent from its own census. W1: first paint, and BOTH reads hold references in `:rf/xray`'s sub-cache and none in the application frame's, against a live probe in that frame. W2: the sub-strip CLICK switches the view through the boundary's own frame, with the `<section>` identity held across it. W3: unmount releases both reads within the collector's grace macrotask, and reopening returns to the same counts rather than higher ones |
+| `…panels.fresco-live-panel-dom-cljs-test` | browser (real React DOM) | THIS PANEL'S BOUNDARY WITNESS (rf2-k97c.3), under its older name. The panel is mounted once through the L4 registry's own `:panel` value — the bridge the shell mounts — inside `[frame-provider {:frame :rf/xray}]`, and nothing calls it again. W0: it picks up a newly-mounted boundary on a trace tick and commits the row, against a settled deaf control proving the panel stale across the mount first, and the `<section>` afterwards is the node it started with, so the roster arrived by reconciliation and not a remount. It is ALSO the self-exclusion witness — exactly ONE row, so the panel's own `:rf/xray` boundary is absent from its own census. W1: first paint, and BOTH reads hold references in `:rf/xray`'s sub-cache and none in the application frame's, against a live probe in that frame. W2: the sub-strip CLICK switches the view through the boundary's own frame, with the `<section>` identity held across it. W3: unmount releases both reads within the collector's grace macrotask, and reopening returns to the same counts rather than higher ones. W4 (rf2-bgol): the same panel mounted through the same registry entry under a NON-DEFAULT shell `:frame-id` omits its OWN boundary from the committed page while the producer's door still carries it, and the application's boundary is on the page in both — the half W0 cannot see, because W0 mounts the tool under `:rf/xray` |
 | `frame_singleton_guard_test` | JVM (source text) | the sub-strip dispatches through a captured frame-bound `dispatch`, never a bare global one |
 | `feature_matrix/scenarios.cjs` | browser | the tab reaches a real panel root in the shell sweep |
 

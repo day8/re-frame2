@@ -33,13 +33,24 @@
                                       sub-cache rather than off the DOM
     5 TOOL ACTIVITY NEVER
       MASQUERADING AS APPLICATION
-      EVIDENCE                      — W3, in both directions. It matters
-                                      more here than anywhere: this panel
-                                      IS the Fresco census, so a boundary
-                                      of its own appearing in its own
-                                      roster would be the tool reporting
-                                      itself as the application.
-    6 CLEAN TEARDOWN                — W4
+      EVIDENCE                      — W0 phase 3 for the PRODUCTION
+                                      SINGLETON (the row count is the
+                                      assertion), and W4 for a
+                                      NON-DEFAULT shell frame, in both
+                                      directions. It matters more here
+                                      than anywhere: this panel IS the
+                                      Fresco census, so a boundary of its
+                                      own appearing in its own roster
+                                      would be the tool reporting itself
+                                      as the application.
+    6 CLEAN TEARDOWN                — W3
+
+  THE W-NUMBERS ARE ROW ORDER, NOT CRITERION ORDER. This list read
+  `5 → W3, 6 → W4` before rf2-bgol and was wrong in both halves: W3 is the
+  teardown row and there was no W4 at all, criterion 5 living inside W0's
+  third phase. W4 exists now and carries the half W0 cannot — W0 mounts the
+  tool under `:rf/xray`, which is exactly what the defect rf2-bgol fixed
+  was blind to.
 
   ## THE MOUNT IS THE SHELL'S MOUNT, TAKEN FROM THE REGISTRY
 
@@ -153,17 +164,33 @@
             [re-frame.test-support :as rf.test-support]
             [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.tool :as rf.fresco.tool]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (def ^:private app-frame ::fresco-live-app)
 
-(def ^:private data-q
-  "The panel's evidence read. Named once because three rows key off it —
-  the sub-cache is keyed by the query vector itself
-  (`re-frame.subs/cache-key` is identity), so this value IS the cache key."
-  [:rf.xray.fresco/data])
+(def ^:private custom-shell-frame
+  "A NON-DEFAULT Xray shell frame. 008 §Parameterized shell frame-id: the
+  shell frame is a `:frame-id` opt, not a hard singleton, and a testbed
+  mounting N shells side by side gives each cell a distinct one. W4 is
+  the row that mounts this panel under such a frame."
+  ::fresco-live-custom-shell)
+
+(defn- data-q
+  "The panel's evidence read, as the panel issues it inside `frame`.
+
+  The FRAME IS THE QUERY'S ARGUMENT since rf2-bgol — `Panel` reads
+  `rf/current-frame-id` in its render and passes it, because the
+  self-exclusion filter has to know which frames are the tool's and a sub
+  computation runs under no frame scope to read one from. The sub-cache
+  is keyed by the query vector itself (`re-frame.subs/cache-key` is
+  identity), so this value IS the cache key, and a row keying off the
+  bare vector would read a ref-count of 0 against a perfectly healthy
+  mount."
+  [frame]
+  [:rf.xray.fresco/data frame])
 
 (def ^:private view-q
   "The panel's OTHER read — the selected sub-view. Rostered beside
@@ -225,6 +252,10 @@
 (defn- setup! []
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray})
+  ;; The non-default shell W4 mounts under. Seated for every row so the
+  ;; fixture has ONE shape — an unused frame costs a record and nothing
+  ;; else, and every other row still names `:rf/xray` explicitly.
+  (rf/make-frame {:id custom-shell-frame})
   (rf/make-frame {:id app-frame})
   (rf/with-frame app-frame
     (rf/dispatch-sync [:hlive/seed {:left 1}]))
@@ -287,12 +318,16 @@
   `trace-collector/refresh-trace-rings!` dispatches
   `:rf.xray/sync-trace-buffer` with its snapshot on every coalesced task
   drain, and `:rf.xray/trace-buffer` reads the slot that dispatch writes
-  (rf2-43koh)."
-  []
-  (rf/dispatch-sync [:rf.xray/sync-trace-buffer
-                     [{:id 1 :op-type :rf.event
-                       :operation :rf.event/dispatched :tags {}}]]
-                    {:frame :rf/xray}))
+  (rf2-43koh).
+
+  The frame arity is W4's: the tick has to land in the app-db the shell
+  under test is reading, and that shell is not `:rf/xray`."
+  ([] (tick-trace! :rf/xray))
+  ([frame]
+   (rf/dispatch-sync [:rf.xray/sync-trace-buffer
+                      [{:id 1 :op-type :rf.event
+                        :operation :rf.event/dispatched :tags {}}]]
+                     {:frame frame})))
 
 (defn- q [container sel] (.querySelector container sel))
 
@@ -428,14 +463,14 @@
                short-circuiting to nil")
 
           ;; ---- criterion 4: the reads are where the tree said ------------
-          (is (pos? (ref-count-of :rf/xray data-q))
+          (is (pos? (ref-count-of :rf/xray (data-q :rf/xray)))
               (str "the panel's evidence read holds a reference in :rf/xray's "
                    "sub-cache — the frame the enclosing frame-provider named. "
                    "Cache keys: " (pr-str (keys (cache-of :rf/xray)))))
           (is (pos? (ref-count-of :rf/xray view-q))
               "and so does its sub-view read — BOTH reads are targeted, not
                just the one a single-read panel would have")
-          (is (zero? (ref-count-of app-frame data-q))
+          (is (zero? (ref-count-of app-frame (data-q :rf/xray)))
               "and NOT in the application frame's — a foreign root that
                inherited the ambient scope instead of reading React context
                would put it here")
@@ -519,7 +554,7 @@
 (defn- released?
   "Both of the panel's reads are fully released from `:rf/xray`'s cache."
   []
-  (and (zero? (ref-count-of :rf/xray data-q))
+  (and (zero? (ref-count-of :rf/xray (data-q :rf/xray)))
        (zero? (ref-count-of :rf/xray view-q))))
 
 (deftest w3-unmount-releases-the-reads-and-reopen-does-not-grow-them
@@ -547,7 +582,7 @@
             (.then
               (fn [_]
                 (let [{:keys [container root]} (mount-panel!)
-                      mounted-data (ref-count-of :rf/xray data-q)
+                      mounted-data (ref-count-of :rf/xray (data-q :rf/xray))
                       mounted-view (ref-count-of :rf/xray view-q)]
                   (is (pos? mounted-data)
                       "the mount took a reference for the evidence read —
@@ -564,7 +599,7 @@
                                    "the collector's grace macrotask. Cache: "
                                    (pr-str (keys (cache-of :rf/xray)))))
                           (let [{c2 :container r2 :root} (mount-panel!)
-                                again-data (ref-count-of :rf/xray data-q)
+                                again-data (ref-count-of :rf/xray (data-q :rf/xray))
                                 again-view (ref-count-of :rf/xray view-q)]
                             (is (= [mounted-data mounted-view]
                                    [again-data again-view])
@@ -582,3 +617,92 @@
                                "and the second unmount releases them too")))
             (.catch (fn [e] (is false (str "W3 poll timed out: " (.-message e))) nil))
             (.then (fn [_] (done))))))))
+
+;; ===========================================================================
+;; W4 — a NON-DEFAULT shell does not report ITSELF (criterion 5)
+;; ===========================================================================
+;;
+;; rf2-bgol. The self-exclusion filter landed asking `(= :rf/xray frame)`,
+;; which is right for the production singleton and blind to every other
+;; shell the embedding contract permits: 008 §Parameterized shell frame-id
+;; makes the shell frame a `:frame-id` OPT, `mount/ensure-xray-frame!` takes
+;; one, and a testbed mounting N shells side by side gives each cell a
+;; distinct id. Under such a shell this tab's own boundary, its two reads
+;; and its explanation were seated in a frame the filter did not know, rode
+;; through all four rosters, and the tool was presented as application
+;; evidence in Mounted, Reads, Why, Advisor and Causal.
+;;
+;; THE WITNESSES THAT EXISTED COULD NOT SEE IT, and that is the whole reason
+;; this row exists rather than an assertion added to one of them: every one
+;; of them mounts the tool under `:rf/xray`, so every one passes against the
+;; literal-only filter.
+;;
+;; IT IS A REAL REGISTERED PANEL UNDER A REAL REACT ROOT, not `panel-tree`
+;; driven with hand-made values — the `:panel` the L4 registry holds,
+;; mounted inside a `frame-provider` naming the custom shell, exactly as
+;; `shell/detail-panel` mounts it. That is what makes the frame reach the
+;; subscription the way production reaches it: `Panel` reads
+;; `rf/current-frame-id` in its own render and passes it as the query's
+;; argument.
+
+(deftest w4-a-non-default-shell-omits-its-OWN-evidence-and-keeps-the-apps
+  (testing "rf2-bgol — epic criterion 5 under a shell frame that is not
+            `:rf/xray`. Both directions: the producer's door still carries
+            the shell's own boundary, and what the panel COMMITTED does not,
+            while the application's boundary is on the page in both."
+    (if-not (browser?)
+      (is true ":node — the :browser-test runner drives the real React mount")
+      (async done
+        (setup!)
+        (let [release   (mount-boundary!)
+              {:keys [container root]} (mount-panel! custom-shell-frame)
+              finish    (fn []
+                          (release)
+                          (teardown! root container)
+                          (done))
+              roster?   (fn [] (seq (boundary-rows container)))
+              door      (fn [] (mapv :frame
+                                     (:boundaries
+                                       (rf.fresco.tool/read-mounted-boundaries))))]
+          ;; The tick is what invalidates the panel's read; without it the
+          ;; roster never arrives and every assertion below would be about
+          ;; an empty page. W0 is what proves the tick is the mechanism.
+          (tick-trace! custom-shell-frame)
+          (-> (rf.test-support/poll-until roster?
+                {:label "the roster reached the DOM under the custom shell"})
+              (.then
+                (fn [_]
+                  (let [frames (door)
+                        text   (.-textContent container)]
+                    (is (some #{custom-shell-frame} frames)
+                        (str "NON-VACUITY, AND THE DOOR HALF: the runtime "
+                             "really did seat this panel's own boundary in "
+                             "the custom shell frame, and the producer's own "
+                             "answer still carries it — so the absence below "
+                             "is a filter and not a runtime that never "
+                             "recorded the row. Door frames: " (pr-str frames)))
+                    (is (some #{app-frame} frames)
+                        "NON-VACUITY: and the application's boundary is in the
+                         door's answer too")
+
+                    (is (not (string/includes? text (str custom-shell-frame)))
+                        (str "THE COMMITTED PAGE DOES NOT NAME THE SHELL'S OWN "
+                             "FRAME. This is the assertion that reddens "
+                             "against the literal-only filter — under it the "
+                             "Mounted view committed a second row reading "
+                             "`…panels.fresco/Panel · frame "
+                             (str custom-shell-frame) " · 2 reads`. DOM: "
+                             text))
+                    (is (not (string/includes? text "panels.fresco/Panel"))
+                        (str "and it does not name the panel's own VIEW "
+                             "either — the row is gone rather than merely "
+                             "printing a different frame. DOM: " text))
+                    (is (string/includes? text (str "frame " app-frame))
+                        (str "and the APPLICATION's boundary is on the page, "
+                             "so the drop is the tool's own frame and not a "
+                             "roster that emptied. DOM: " text)))))
+              (.catch (fn [e]
+                        (is false (str "W4 poll timed out: " (.-message e)
+                                       " DOM: " (.-textContent container)))
+                        nil))
+              (.then (fn [_] (finish)))))))))
