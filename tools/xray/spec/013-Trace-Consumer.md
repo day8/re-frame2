@@ -92,10 +92,15 @@ Two pure-data predicates in
 [`self_noise.cljc`](../src/day8/re_frame2_xray/self_noise.cljc)
 cover residual classes the frame gate misses:
 
-1. **`xray-internal-event?`** — any trace event whose `:frame`
-   (top-level or `:tags :frame`) resolves to `:rf/xray`. Belt-and-
-   braces against reactive sub-read / view-render emits that slipped
-   past the frame gate.
+1. **`xray-internal-event?`** — any trace event whose `[:tags :frame]`
+   resolves to `:rf/xray`, read through the contract-owned canonical
+   reader `re-frame.trace/trace-event-frame`. A raw trace event carries
+   frame identity ONLY under `[:tags :frame]`; the prior divergent
+   top-level `:frame` fallback was removed under rf2-7737vq, so a stray
+   top-level `:frame` is ignored (pinned by
+   `xray-internal-event?-ignores-stray-top-level-frame` in
+   `self_noise_cljs_test.cljc`). Belt-and-braces against reactive
+   sub-read / view-render emits that slipped past the frame gate.
 2. **`xray-internal-event-bundle?` / `xray-internal-event-id?`** —
    cascades whose `:event` vector's head is a keyword in the
    `rf.xray` namespace (`:rf.xray/focus-event`,
