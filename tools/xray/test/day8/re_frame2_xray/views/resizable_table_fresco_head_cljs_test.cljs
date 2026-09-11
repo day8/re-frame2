@@ -58,14 +58,25 @@
   scopes the SAME frame the boundary renders under, which is a match
   rather than a conflict.
 
-  ## What is deliberately NOT here
+  ## WHO ADOPTS `resizable-table-view` (rf2-k97c.3)
 
-  Nothing adopts `resizable-table-view`. The two consumer panels
-  (`panels/trace.cljs`, `panels/epoch/view.cljs`) migrate on their own
-  beads, and until their own mounts are boundaries they must keep
-  mounting the Reagent head — a Fresco boundary in a Reagent head
-  position is the mirror of the failure `reagent-head-is-invalid-to-the-
-  codec` pins below."
+  This section used to read \"Nothing adopts `resizable-table-view`\" —
+  the two consumer panels migrated on their own beads, and until their
+  own mounts were boundaries they had to keep mounting the Reagent head.
+  BOTH HAVE SINCE MIGRATED, so all five production call sites now head
+  the boundary: `panels/epoch/view.cljs` ×3 and `panels/trace.cljs` ×2.
+  The Reagent head has no production call site left.
+
+  That does NOT make the rows below vestigial, and they are the reason
+  this namespace is still the right home for them. A Fresco boundary in
+  a Reagent head position is the mirror of the failure
+  `reagent-head-is-invalid-to-the-codec` pins, and that refusal is what
+  makes a revert of either panel LOUD rather than silent — so the row
+  grades a live contract, not a historical one. `both-heads-resolve-the-
+  same-widths` likewise still has two heads to compare: the Reagent one
+  survives as the tree's only public pure-render door into the private
+  `render-table` (see its own docstring for the four namespaces that
+  depend on it)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
