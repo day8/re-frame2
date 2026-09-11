@@ -46,6 +46,10 @@
   #{:reagent/set-hiccup-emitter!
     :adapter/current-frame
     :adapter/current-component
+    ;; rf2-7ds8 — stock Reagent's own hiccup → React element walk. Twin of
+    ;; `:adapter/current-component` above and published by the ratom family
+    ;; alone; see the reagent-slim pin for the mechanism it protects.
+    :adapter/as-element
     :adapter/ratom
     :adapter/ratom?
     :adapter/make-reaction

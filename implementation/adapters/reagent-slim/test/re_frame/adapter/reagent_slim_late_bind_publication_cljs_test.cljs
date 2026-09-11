@@ -37,6 +37,13 @@
   "Every late-bind hook the Reagent Slim adapter publishes at ns-load."
   #{:adapter/current-frame
     :adapter/current-component
+    ;; rf2-7ds8 — reagent2's own hiccup → React element walk, published by
+    ;; the ratom family alone. The twin of `:adapter/current-component`
+    ;; directly above it: a caller that crosses a hiccup island into React
+    ;; with some OTHER ratom build's walk gets a subtree rendered by that
+    ;; build, which the hook above cannot see into, so the frame resolves
+    ;; nil and the island raises `:rf.error/no-frame-context`.
+    :adapter/as-element
     :adapter/ratom
     :adapter/ratom?
     :adapter/make-reaction
