@@ -55,13 +55,77 @@
 ;; Thin aliases over re-frame.test-helpers so the local call sites read
 ;; identically to before.
 
-(def ^:private find-by-testid           rf.test-helpers/find-by-testid)
-(def ^:private find-all-by-testid-prefix rf.test-helpers/find-by-testid-prefix)
+;; rf2-k97c.3 — PLAIN DESCENT; nothing is CALLED. These were aliases of
+;; `rf.test-helpers/find-by-testid` / `…-prefix`, which EXPAND function
+;; components as they walk. That is now unsafe: the SHARED mini-pipeline this
+;; panel renders comes from `panels/epoch/view`, whose EDN-widget heads are
+;; `[ei/edn-inspector-view …]` — Fresco boundaries whose bodies may only run
+;; inside a React render window. Applying one runs `rf.fresco/sub` outside the
+;; collector and raises, and because the expanding walker applies EVERY fn head
+;; it meets, that raise took out rows asserting on nodes nowhere near a widget.
+;;
+;; The topology chart stays a leaf for the same reason it always could: the
+;; rows that care about it read its PROPS (`find-machine-chart-props` below),
+;; never its interior.
+
+(defn- hiccup-nodes [tree]
+  (tree-seq (some-fn vector? seq?) seq tree))
+
+(defn- node-attrs [node]
+  (when (and (vector? node) (map? (second node)))
+    (second node)))
+
+(defn- find-by-testid [tree testid]
+  (some (fn [node]
+          (when (= testid (:data-testid (node-attrs node))) node))
+        (hiccup-nodes tree)))
+
+(defn- find-all-by-testid-prefix [tree prefix]
+  (filterv (fn [node]
+             (some-> (:data-testid (node-attrs node)) (.startsWith prefix)))
+           (hiccup-nodes tree)))
 
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
   (xray-test-support/install-test-overrides!)
   (rf/make-frame {:id :rf/xray}))
+
+(defn- panel-tree
+  "The panel's hiccup tree, for every row below.
+
+  THIS USED TO BE A DIRECT CALL TO THE PANEL VAR. rf2-k97c.3 made `Panel`
+  an `rf.fresco/defview` — a real React function component whose body may
+  only run inside a React render window — so it is no longer a callable
+  that answers hiccup, and every row here walks hiccup.
+
+  The panel's markup was split out as `machine-inspector/panel-tree`, a
+  pure fn of the three values the boundary reads. That is
+  `re-frame.fresco/defview`'s own documented extract-a-helper spelling,
+  and it keeps the division of labour honest: the section-rendering
+  algebra is data → data and belongs in this fast node-lane suite, while
+  the boundary's OWN behaviour — first paint, liveness on a real
+  invalidation, frame targeting and teardown — is
+  `machine_inspector_fresco_boundary_dom_cljs_test`'s subject, read off a
+  real React commit.
+
+  `identity` is the `as-child` spelling for a hiccup caller: the island
+  the boundary needs for the still-Reagent topology chart is a no-op
+  here, so the rows below walk the chart's own vector exactly as they did
+  before the migration. `r/as-element` is what the boundary passes.
+
+  The reads are spelled `@(rf/subscribe …)` rather than `rf.fresco/sub`
+  deliberately: outside a render window there is no collector edge to
+  record, and what these rows want is each sub's VALUE. That the boundary
+  reads the same three queries through the collector is the DOM suite's
+  subject, not this one's."
+  []
+  (machine-inspector/panel-tree
+    @(rf/subscribe [:rf.xray/machine-inspector-data])
+    @(rf/subscribe [:rf.xray/machine-transitions-for-focused-event])
+    (:cascade @(rf/subscribe [:rf.xray/machine-focused-epoch-cascade]))
+    identity
+    @(rf/subscribe [:rf.xray/machine-tab-fit-signal])
+    @(rf/subscribe [:rf.xray/target-frame])))
 
 (defn- override-machines! [machines]
   (rf/dispatch-sync
@@ -149,7 +213,7 @@
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines! [])
-      (let [tree (machine-inspector/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-machine-inspector")))
         (is (some? (find-by-testid tree "rf-xray-machine-inspector-empty"))
             "empty-state container present")
@@ -180,7 +244,7 @@
       (override-machines!    [:auth/login :checkout/flow])
       (override-definitions! {:auth/login    fixture-definition
                               :checkout/flow fixture-definition})
-      (let [tree (machine-inspector/Panel)
+      (let [tree (panel-tree)
             root (find-by-testid tree "rf-xray-machine-inspector")]
         (is (= "focused-event" (:data-view-mode (second root))))
         (is (= "false" (:data-has-records (second root))))
@@ -224,7 +288,7 @@
                    :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}
          {:epoch-id 2 :trace-events []}])
       (focus-epoch! 2)
-      (let [tree (machine-inspector/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-machine-inspector-blank"))
             "blank-state container present on the event-less focused epoch")
         (is (nil? (find-by-testid tree "rf-xray-machine-focused-event"))
@@ -253,7 +317,7 @@
                    :event      [:auth/submit]
                    :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 2)
-      (let [tree (machine-inspector/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-machine-focused-event"))
             "the focused-event surface mounts when the cascade has a transition")
         (is (some? (find-by-testid
@@ -289,7 +353,7 @@
                    :cause      :explicit
                    :rf.trace/dispatch-id "s-1"}}]}])
       (focus-epoch! 1)
-      (let [tree    (machine-inspector/Panel)
+      (let [tree    (panel-tree)
             section (find-by-testid
                       tree "rf-xray-machine-focused-event-section-door/main")
             chart   (find-by-testid
@@ -345,7 +409,7 @@
                    :event      [:door/close]
                    :rf.trace/dispatch-id "n-1"}}]}])
       (focus-epoch! 1)
-      (let [tree    (machine-inspector/Panel)
+      (let [tree    (panel-tree)
             section (find-by-testid
                       tree "rf-xray-machine-focused-event-section-door/main")
             chart   (find-by-testid
@@ -412,7 +476,7 @@
                    :after  {:state :authing :data {}}
                    :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [tree (machine-inspector/Panel)]
+      (let [tree (panel-tree)]
         (is (nil? (find-by-testid tree "rf-xray-machine-focused-event"))
             "legacy `:machine/transition` op does NOT show the focused-
              event surface")
@@ -428,7 +492,7 @@
                    :after  {:state :authing :data {}}
                    :event [:auth/submit] :rf.trace/dispatch-id "d-2"}}]}])
       (focus-epoch! 2)
-      (let [tree (machine-inspector/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-machine-focused-event"))
             "migrated `:rf.machine/transition` op shows the focused-event
              surface")
@@ -452,7 +516,7 @@
                    :after      {:state :authing :data {}}
                    :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [tree   (machine-inspector/Panel)
+      (let [tree   (panel-tree)
             chart  (find-by-testid
                      tree "rf-xray-machine-focused-event-chart")]
         (is (some? chart))
@@ -493,7 +557,7 @@
                    :after      {:state :authing :data {}}
                    :event      [:tick] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 7)
-      (let [tree     (machine-inspector/Panel)
+      (let [tree     (panel-tree)
             host     (find-by-testid tree "rf-xray-machine-focused-event")
             sections (find-all-by-testid-prefix
                        tree "rf-xray-machine-focused-event-section-")]
@@ -541,7 +605,7 @@
                    :after      {:state :authing :data {}}
                    :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [tree (machine-inspector/Panel)]
+      (let [tree (panel-tree)]
         ;; ELEMENT 1 — Prev/Next nav (in the header).
         (is (some? (find-by-testid tree "rf-xray-machine-inspector-prev"))
             "element 1: Prev nav")
@@ -594,7 +658,7 @@
                    :after      {:state :authing :data {}}
                    :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [tree (machine-inspector/Panel)]
+      (let [tree (panel-tree)]
         ;; The SHARED cascade host the Epoch panel renders.
         (is (some? (find-by-testid
                      tree "rf-xray-epoch-handler-machine"))
@@ -641,7 +705,7 @@
                    :event      [:auth/ok] :rf.trace/dispatch-id "d-2"}}]}])
       ;; Focus the LATER epoch (authing → done).
       (focus-epoch! 2)
-      (let [tree  (machine-inspector/Panel)
+      (let [tree  (panel-tree)
             chart (find-by-testid tree "rf-xray-machine-focused-event-chart")]
         (is (= "authing" (:data-from-highlight-id (second chart)))
             "chart highlights the focused (later) epoch's from-state")
@@ -652,7 +716,7 @@
             "the mini-pipeline renders for the focused epoch"))
       ;; Prev → the earlier epoch (idle → authing). Both re-read the focus.
       (rf/dispatch-sync [:rf.xray/machine-focus-prev])
-      (let [tree  (machine-inspector/Panel)
+      (let [tree  (panel-tree)
             chart (find-by-testid tree "rf-xray-machine-focused-event-chart")]
         (is (= "idle" (:data-from-highlight-id (second chart)))
             "after Prev, the chart re-paints to the earlier epoch's from-state")
@@ -737,7 +801,7 @@
                    :after      {:state :authing :data {:retries 1}}
                    :event      [:start] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [tree  (machine-inspector/Panel)
+      (let [tree  (panel-tree)
             props (find-machine-chart-props tree)]
         (is (some? props) "the focused-event chart mounts MachineChart")
         (is (= {:retries "number" :token "string?"}
@@ -770,7 +834,7 @@
                    :after      {:state :busy :data {:hits 1 :trail []}}
                    :event      [:add] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [tree  (machine-inspector/Panel)
+      (let [tree  (panel-tree)
             props (find-machine-chart-props tree)]
         (is (some? props))
         (is (= {:hits "number" :trail "vector"} (:context-band props))
@@ -874,7 +938,7 @@
             "egress redacts the sensitive token (after)")
         (override-epoch-history! [{:epoch-id 1 :trace-events [egressed*]}])
         (focus-epoch! 1)
-        (let [tree     (machine-inspector/Panel)
+        (let [tree     (panel-tree)
               rendered (pr-str tree)]
           (is (some? (find-by-testid tree "rf-xray-machine-focused-event"))
               "the focused-event surface mounts for the redacted transition")
@@ -929,7 +993,7 @@
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
       (override-definitions! {:auth/login fixture-definition})
-      (let [tree    (machine-inspector/Panel)
+      (let [tree    (panel-tree)
             blank   (find-by-testid tree "rf-xray-machine-inspector-blank")
             message (find-by-testid tree "rf-xray-machine-inspector-blank-message")]
         (is (some? blank)  "blank-state container present")
@@ -963,7 +1027,7 @@
                    :after      {:state :authing :data {}}
                    :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [tree (machine-inspector/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid
                      tree "rf-xray-machine-inspector-prev-next-nav"))
             "prev/next nav is visible when a machine is in scope")
@@ -976,7 +1040,7 @@
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines! [:auth/login])
-      (let [tree (machine-inspector/Panel)]
+      (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-machine-inspector-blank")))
         (is (nil? (find-by-testid
                     tree "rf-xray-machine-inspector-prev-next-nav"))
@@ -1149,7 +1213,7 @@
                    :after  {:state :authing :data {}}
                    :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [tree (machine-inspector/Panel)]
+      (let [tree (panel-tree)]
         ;; The header still mounts (prev/next nav is in scope).
         (is (some? (find-by-testid tree "rf-xray-machine-inspector-header"))
             "panel header still mounts")
@@ -1311,7 +1375,7 @@
                    :after  {:state :done :data {}}
                    :event [:cart/sync] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [tree     (machine-inspector/Panel)
+      (let [tree     (panel-tree)
             sections (raw-find-all-by-testid-prefix
                        tree "rf-xray-machine-focused-event-section-")
             ;; The keyed sibling is the fragment the host <div> holds,
@@ -1362,7 +1426,7 @@
                    :after  {:state :authing :data {}}
                    :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [tree    (machine-inspector/Panel)
+      (let [tree    (panel-tree)
             section (find-by-testid
                       tree "rf-xray-machine-focused-event-section-auth/login")
             style   (style-of section)]
@@ -1390,7 +1454,7 @@
                    :after  {:state :authing :data {}}
                    :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
       (focus-epoch! 1)
-      (let [tree    (machine-inspector/Panel)
+      (let [tree    (panel-tree)
             section (find-by-testid
                       tree "rf-xray-machine-focused-event-section-auth/login")
             margin  (-> section style-of :margin)]

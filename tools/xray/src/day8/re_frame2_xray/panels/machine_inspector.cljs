@@ -314,12 +314,20 @@
   surface), so migrating it is that slice's to make, not this one's.
   ELEMENT 2 needs no island — every head reachable through
   `epoch-view/machine-cascade-mini-pipeline` was repaired in the same
-  commit, so that whole subtree is head-free."
+  commit, so that whole subtree is head-free.
+
+  `fit-signal` ARRIVES AS AN ARGUMENT; it used to be read here with
+  `@(rf/subscribe [:rf.xray/machine-tab-fit-signal])`. [[Panel]] reads it
+  now. HD-016 would have allowed the read to stay and donate upward, but
+  a `rf.fresco/sub` raises outside a collector window, which would make
+  this fn callable only inside a real React commit — and its markup is
+  ordinary data → data that the node lane drives."
   [cascade
    {:keys [machine-id from-state to-state definition fired-edge-ids
            guard-blocked-edge-ids start? no-op?]
     :as _record}
-   as-child]
+   as-child
+   fit-signal]
   ;; rf2-gpzb4 (2026-05-21 xyflow migration) — the host-side ELK
   ;; layout dance is GONE; xyflow + elkjs own positioning end-to-end
   ;; inside `MachineChart`. The panel only computes the from/to node-ids
@@ -335,16 +343,13 @@
                      (chart-layout/highlight-id from-state))
         to-id      (when (and to-state (not no-op?))
                      (chart-layout/highlight-id to-state))
-        engine     "xyflow+elkjs"
-        ;; rf2-6tw7t — fit-on-entry nonce. Bumped by `:rf.xray/select-tab
-        ;; :machines`; forwarded to the chart's `:fit-signal` so the
-        ;; topology re-frames whenever the operator (re-)enters the
-        ;; Machine tab, even when the focused machine (hence the chart's
-        ;; layout-key) is unchanged.
-        ;; rf2-k97c.3 — `rf.fresco/sub`, donated upward into [[Panel]]'s
-        ;; collector window: this helper is CALLED, never headed, so it has
-        ;; no boundary of its own and the read belongs to the panel's.
-        fit-signal (rf.fresco/sub [:rf.xray/machine-tab-fit-signal])]
+        ;; rf2-6tw7t — fit-on-entry nonce (arrives as an argument since
+        ;; rf2-k97c.3). Bumped by `:rf.xray/select-tab :machines`;
+        ;; forwarded to the chart's `:fit-signal` so the topology
+        ;; re-frames whenever the operator (re-)enters the Machine tab,
+        ;; even when the focused machine (hence the chart's layout-key)
+        ;; is unchanged.
+        engine     "xyflow+elkjs"]
     [:section
      {:data-testid (str "rf-xray-machine-focused-event-section-"
                         (when machine-id
@@ -548,23 +553,23 @@
   rf2-alsnz — `records` flows in as an arg so the panel reads the
   composite once per render instead of twice.
 
-  rf2-k97c.3 — `as-child` is threaded straight through to
-  [[focused-event-section]], which is the only place it is used; see that
-  fn's docstring for what it islands and why."
-  [records cascade as-child]
+  rf2-k97c.3 — `as-child` and `fit-signal` are threaded straight through
+  to [[focused-event-section]], the only place either is used; see that
+  fn's docstring for what the island covers and why the nonce is an
+  argument now. `target-frame` likewise ARRIVES AS AN ARGUMENT rather
+  than being read here, for the same reason: a `rf.fresco/sub` raises
+  outside a collector window, and this fn is node-lane-driven."
+  [records cascade as-child fit-signal target-frame]
   (let [;; Dynamic-mode single-instance rule (spec/003 §Dynamic mode —
         ;; single-instance, event-driven, rf2-8og3k): pick the first
         ;; transition by trace order. The upstream projection already
         ;; sorts cascade-document-order, so `first` is the tiebreaker.
-        record (h/pick-focused-transition records)
-        ;; rf2-un3gfo — the inspected frame id. Part of the STRUCTURAL
-        ;; section key below so the L1 frame picker (which re-seeds the
-        ;; panel against a different runtime) gets a clean section
-        ;; instance, while ordinary Prev/Next within one frame+machine
-        ;; preserves it.
-        ;; rf2-k97c.3 — `rf.fresco/sub`, donated upward into [[Panel]]'s
-        ;; collector window (this helper is called, never headed).
-        target-frame (rf.fresco/sub [:rf.xray/target-frame])]
+        ;; rf2-un3gfo — `target-frame` (an argument since rf2-k97c.3) is
+        ;; the inspected frame id. Part of the STRUCTURAL section key
+        ;; below so the L1 frame picker (which re-seeds the panel against
+        ;; a different runtime) gets a clean section instance, while
+        ;; ordinary Prev/Next within one frame+machine preserves it.
+        record (h/pick-focused-transition records)]
     (when record
       [:div {:data-testid "rf-xray-machine-focused-event"
              ;; The host carries the count of records the cascade
@@ -595,7 +600,7 @@
        ;; `focused-event-section` answers hiccup whose own attribute map
        ;; is not ours to write into, so the key rides the fragment.
        [:<> {:key (h/focused-event-section-key target-frame record)}
-        (focused-event-section cascade record as-child)]])))
+        (focused-event-section cascade record as-child fit-signal)]])))
 
 (defn- blank-state
   "Rendered when the focused event has no machine activity in its
@@ -679,12 +684,15 @@
   [[focused-event-section]] and used nowhere else: `identity` for a
   hiccup caller, `reagent.core/as-element` under the boundary.
 
-  NOT PURE in one respect worth naming: the two helpers it calls —
-  [[focused-event-view]] and [[focused-event-section]] — each perform one
-  `rf.fresco/sub`, which DONATES upward into the calling boundary's
-  collector window (HD-016). Under the node lane they are ordinary reads
-  against whatever frame the test binds."
-  [{:keys [empty-kind]} records cascade as-child]
+  PURE: every helper it calls is a plain fn of its arguments. Two values
+  that used to be read deep in the tree — [[focused-event-view]]'s
+  target-frame and [[focused-event-section]]'s fit-signal — are arguments
+  now and read once in [[Panel]]. HD-016 would have let them donate
+  upward instead, and that would have been correct in production; they
+  were hoisted because a `rf.fresco/sub` raises outside a collector
+  window, which would have made this whole tree callable only inside a
+  real React commit."
+  [{:keys [empty-kind]} records cascade as-child fit-signal target-frame]
   (let [;; The first record's machine-id drives the prev/next nav (a
         ;; cascade may touch multiple machines; the nav's "this machine"
         ;; is the head section's machine).
@@ -717,7 +725,7 @@
        ;; does not duplicate-subscribe the same composite handle.
        [:div {:data-testid "rf-xray-machine-inspector-focused-event-host"
               :style focused-event-host-style}
-        (focused-event-view records cascade as-child)]
+        (focused-event-view records cascade as-child fit-signal target-frame)]
 
        :else
        (blank-state))]))
@@ -730,10 +738,20 @@
   The READS are `rf.fresco/sub` — plain calls the shipped collector
   records an edge for, with no deref and no reaction owned by the
   INSTALLED adapter. That is the third of the epic's three couplings and
-  the one a first-paint smoke test cannot see. Two more reads donate
-  upward into this boundary's window from inlined helpers
-  ([[focused-event-view]]'s target-frame and [[focused-event-section]]'s
-  fit-signal), which HD-016 makes settled rather than contingent.
+  the one a first-paint smoke test cannot see.
+
+  ALL FIVE OF THE PANEL'S READS ARE IN THIS BODY. Two of them used to sit
+  deep in the tree ([[focused-event-view]]'s target-frame and
+  [[focused-event-section]]'s fit-signal) and HD-016 would have let them
+  DONATE upward into this window, which is settled rather than contingent
+  and would have been correct. They were hoisted for a reason about
+  TESTING rather than correctness: a `rf.fresco/sub` raises
+  `:rf.error/fresco-sub-outside-render` outside a collector window, so a
+  helper performing one is callable only inside a real React commit — and
+  this panel's markup is ordinary data → data with a large fast node-lane
+  suite over it. The cost is that both are now read on every panel render
+  rather than only when a focused-event section happens to render; neither
+  widens invalidation in practice.
 
   The FRAME they resolve against comes from React context, which the
   enclosing frame boundary writes — `rf/frame-provider` and
@@ -758,7 +776,9 @@
               ;; same focused epoch Prev/Next drives, so the mini-pipeline
               ;; and the chart move together.
               (:cascade (rf.fresco/sub [:rf.xray/machine-focused-epoch-cascade]))
-              r/as-element))
+              r/as-element
+              (rf.fresco/sub [:rf.xray/machine-tab-fit-signal])
+              (rf.fresco/sub [:rf.xray/target-frame])))
 
 ;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
 ;;

@@ -42,6 +42,25 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
+;; ---- hiccup walker (rf2-k97c.3) -----------------------------------------
+;;
+;; PLAIN DESCENT — nothing is CALLED. This row used the walker in
+;; `re-frame.test-helpers`, which EXPANDS function components as it walks. The Epoch view's EDN-widget heads are now `[ei/edn-inspector-view …]`
+;; — Fresco boundaries whose bodies may only run inside a React render window
+;; — so applying one runs `rf.fresco/sub` outside the collector and raises.
+
+(defn- hiccup-nodes [tree]
+  (tree-seq (some-fn vector? seq?) seq tree))
+
+(defn- find-by-testid [tree testid]
+  (some (fn [node]
+          (when (and (vector? node)
+                     (map? (second node))
+                     (= testid (:data-testid (second node))))
+            node))
+        (hiccup-nodes tree)))
+
+
 (use-fixtures :each
   ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
   ;; `xray-init!` (preload/registry/trace three-liner): the `:all` reset
@@ -101,7 +120,7 @@
           source-bodies (->> action-rows
                              (keep (fn [r]
                                      (some-> tree
-                                             (rf.test-helpers/find-by-testid
+                                             (find-by-testid
                                                (str "rf-xray-epoch-machine-cascade-source-body-"
                                                     (:step r)))
                                              rf.test-helpers/text-content)))
