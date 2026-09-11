@@ -44,7 +44,8 @@
   substrate adapter installed via `rf/init!`. [[panel-tree]] holds the
   markup as a pure fn so the node lane can still drive it.
 
-  `reagent.core` IS referenced now, and only as a migration seam: one
+  The installed adapter's hiccup walk IS referenced now, and only as a
+  migration seam: one
   `as-element` island for the topology chart, which is still an
   `rf/reg-view` and shared with the Static surface. Every other helper in
   this file answers hiccup and is CALLED, never used as a hiccup head —
@@ -67,12 +68,12 @@
             ;; marker before any panel surface reads it — never raw.
             [re-frame.classification :as rf.classification]
             [re-frame.fresco :as rf.fresco]
-            ;; rf2-k97c.3 — `reagent.core/as-element` is the `as-child`
+            ;; rf2-k97c.3 — `substrate/as-element` is the `as-child`
             ;; spelling [[Panel]] hands down for the ONE island this panel
             ;; still needs (the topology chart; see [[panel-tree]]). The
             ;; markup stays pure hiccup — Reagent appears here as a
             ;; migration seam, not as an authoring dependency.
-            [reagent.core :as r]
+            [day8.re-frame2-xray.substrate :as substrate]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             ;; rf2-g2axio — the SHARED EVENT HANDLER machine-cascade
@@ -363,7 +364,7 @@
 
   rf2-k97c.3 — `as-child` is the island spelling [[panel-tree]] threads
   down: `identity` for a hiccup caller (the node lane), and
-  `reagent.core/as-element` under the boundary. It wraps ELEMENT 3 only.
+  `substrate/as-element` under the boundary. It wraps ELEMENT 3 only.
   `machine-canvas/Chart` is still an `rf/reg-view`, and a `reg-view` head
   grades `:invalid` under Fresco's codec down the IDENTICAL arm a plain
   `defn` does — the codec reads one own property, `frescoBoundary`, which
@@ -742,7 +743,7 @@
 
   `as-child` is the island spelling, threaded down to
   [[focused-event-section]] and used nowhere else: `identity` for a
-  hiccup caller, `reagent.core/as-element` under the boundary.
+  hiccup caller, `substrate/as-element` under the boundary.
 
   PURE: every helper it calls is a plain fn of its arguments. Two values
   that used to be read deep in the tree — [[focused-event-view]]'s
@@ -829,7 +830,7 @@
   and under the Fresco root Xray will own.
 
   ONE ISLAND SURVIVES, and it is scheduling rather than residue:
-  `r/as-element` is handed down for the topology chart, because
+  `substrate/as-element` is handed down for the topology chart, because
   `machine-canvas/Chart` is still an `rf/reg-view` and has a second
   consumer on the Static surface. [[focused-event-section]] records the
   condition that retires it.
@@ -873,7 +874,7 @@
               ;; same focused epoch Prev/Next drives, so the mini-pipeline
               ;; and the chart move together.
               (:cascade (rf.fresco/sub [:rf.xray/machine-focused-epoch-cascade]))
-              r/as-element
+              substrate/as-element
               (rf.fresco/sub [:rf.xray/machine-tab-fit-signal])
               (rf.fresco/sub [:rf.xray/target-frame])
               ;; rf2-3ymg — this mount's qualifier for the SHARED
