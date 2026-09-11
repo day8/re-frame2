@@ -2003,6 +2003,115 @@
       [:span {:style sub-header-trailing-style}
        trailing])]))
 
+;; ---- per-mount inspector identity (rf2-3ymg) -----------------------------
+;;
+;; THE THIRTEEN `ei/edn-inspector-view` HEADS BELOW EACH COMPOSE A
+;; `:mount-id` FROM A LOGICAL SITE, AND A LOGICAL SITE CANNOT NAME A LIVE
+;; MOUNT. `"epoch/dispatch-event"` is a CONSTANT; the machine cascade's
+;; three are a role plus a step ordinal. Those separate the roles WITHIN one
+;; panel, which is the question rf2-k97c.3 was answering, and they are
+;; silent on a different one: which of two panels on screen is this?
+;;
+;; It matters because that string is physical. The widget keys its per-mount
+;; store by `[frame-id mount-id]` (`ei/lifecycle-key`), `container-ref-for`
+;; MEMOISES the ref callback on that key and installs a ResizeObserver only
+;; when the entry has none, and `release-mount!` disconnects the entry and
+;; clears the measured-width slot — keyed by the BARE mount-id — when EITHER
+;; holder detaches. So two mounts sharing one id do not merely look alike:
+;; the second installs no observer at all, and the first one to go takes the
+;; survivor's observer and width with it, leaving a live panel on screen
+;; unobserved and unmeasured. Measured on real two-container commits before
+;; the repair, in `panels/epoch_machine_mount_instance_id_dom_cljs_test`.
+;;
+;; TWO COLLISIONS, AND THEY ARE FIXED BY DIFFERENT MEANS — which is the
+;; shape finding here rather than a copy of the Trace landing's.
+;;
+;;   * TWO EPOCH PANELS in one frame. Nothing inside the panel can tell two
+;;     mounts of ITSELF apart — a Fresco boundary is a React function
+;;     component with no per-instance storage its body may use, so there is
+;;     no id for it to mint. The CALLER names them, through the optional
+;;     `:instance-id` that `app-db-diff`, `managed-fx` and `trace` already
+;;     take. Unnamed — every call site in this tree today — every id is
+;;     byte-for-byte what it was.
+;;
+;;   * AN EPOCH PANEL AND A MACHINE INSPECTOR. This one is sharper and it is
+;;     NOT the caller's to fix. The two panels render one cascade through
+;;     ONE [[machine-cascade-mini-pipeline]], off one
+;;     `projection/machine-cascade-rows` — which is rf2-g2axio's whole point,
+;;     and is why both emitted `epoch/machine-cascade-transition-delta/1` for
+;;     the same transition. WHICH PANEL IS RENDERING IS STATICALLY KNOWN, so
+;;     requiring a caller to work around it would be asking them to repair a
+;;     shared helper's id namespace by hand — and a caller embedding one of
+;;     each cannot see the collision to work around it. The Machine
+;;     Inspector is the GUEST in this file's id namespace, so ITS normaliser
+;;     (`machine-inspector/instance-token`) never answers nil: it names
+;;     itself, and a caller's `:instance-id` qualifies further on top.
+;;
+;; ONE QUALIFIER EITHER WAY, AND IT MOVES THE `:mount-id` ALONE. All
+;; thirteen sites pass a stable `:site-id` beside it, and the widget's
+;; `effective-id` is `(or site-id mount-id)` — so expansion and zoom are
+;; keyed `[panel-id site-id path]` and DO NOT READ THE MOUNT-ID AT ALL. The
+;; logical disclosure identity is therefore already separate from the
+;; physical one: qualifying the mount-id moves exactly the lifecycle key and
+;; the width slot, and leaves expansion, zoom, every step's own testids and
+;; the React keys byte-for-byte. Two Epoch panels of one epoch still open
+;; and close together ON PURPOSE, and so do an Epoch panel and a Machine
+;; Inspector over the cascade they share; what they no longer share is a
+;; ResizeObserver and a width. A row pins that bound, so a repair that
+;; qualified the `:site-id` too goes red rather than passing.
+;;
+;; The value is threaded as an ordinary argument — through `ctx` where the
+;; panel already has one, and as a trailing parameter on the helpers below
+;; it. NOT a dynamic var: `machine-cascade-view` and the violation / error
+;; blocks build their children inside `for` and `map-indexed`, whose lazy
+;; seqs are realised by the renderer AFTER the boundary body has returned
+;; and any `binding` has popped, so an ambient value would read nil for
+;; exactly the rows that carry the most inspectors.
+
+(defn instance-token
+  "Normalise [[Panel]]'s optional `:instance-id` prop to the string that
+  qualifies one mount's inspector `:mount-id`s, or nil when the caller named
+  no instance — the single-mount default, which composes every id
+  byte-for-byte as it did before rf2-3ymg.
+
+  A KEYWORD is accepted alongside a string, and its NAMESPACE is part of the
+  name: `:left/epoch` tokenises to `left/epoch`. `(subs (str id) 1)` is what
+  preserves it; `cljs.core/name` would drop it and restore the very
+  collision this removes, which is rf2-4bsq's landed repair one level up —
+  see [[Panel-bridge]], which tokenises BEFORE the Reagent crossing for
+  exactly that reason.
+
+  It is this panel's own normaliser rather than a call into a sibling's: the
+  panels are independent surfaces, they migrate on their own schedules, and
+  the refusal has to name the caller's OWN panel to be worth reading."
+  [instance-id]
+  (cond
+    (nil? instance-id)     nil
+    (keyword? instance-id) (subs (str instance-id) 1)
+    (string? instance-id)  (when (seq instance-id) instance-id)
+    :else
+    (throw (ex-info
+             (str "The Epoch panel's :instance-id must be a non-blank string "
+                  "or a keyword naming this mount, or omitted. Got: "
+                  (pr-str instance-id))
+             {:rf.xray/instance-id instance-id}))))
+
+(defn- inspector-mount-id
+  "Compose one `ei/edn-inspector-view` `:mount-id` — the panel's own logical
+  `site` id, qualified by `instance` when this mount was named.
+
+  The instance is the OUTERMOST segment (`left/epoch/dispatch-event`) rather
+  than a suffix, because it answers a different question from everything to
+  its right: the tail says WHICH SITE, the head says WHICH MOUNT OF THE
+  PANEL. `machine-inspector/epoch/machine-cascade-transition-delta/1` then
+  reads as exactly what it is — the Machine Inspector's copy of a row the
+  Epoch panel's cascade renderer composed.
+
+  Unnamed, this is `identity` on the site id, which is what keeps every
+  existing single-mount call site byte-for-byte."
+  [instance site]
+  (if instance (str instance "/" site) site))
+
 ;; ---- DISPATCH step -------------------------------------------------------
 
 ;; rf2-akvfe — `machine-dispatch?` + `machine-event-gloss-line` RETIRED with
@@ -2028,12 +2137,12 @@
   fix the body was plain text — the operator saw the dispatch event
   styled DIFFERENTLY in the Event panel (inspector-styled) vs the
   Epoch panel (plain) for the same value."
-  [{:keys [event]}]
+  [{:keys [event]} instance]
   (when (vector? event)
     [:div {:data-testid "rf-xray-epoch-dispatch-event"}
      [:div {:style dispatch-body-style}
       [ei/edn-inspector-view
-       {:mount-id "epoch/dispatch-event"
+       {:mount-id (inspector-mount-id instance "epoch/dispatch-event")
         :value    event
         :opts     {:site-id "epoch-dispatch-event"
                    :card?   false
@@ -2329,10 +2438,18 @@
   click-to-navigate `:rf.xray/focus-epoch` button). When omitted
   (direct test calls of the renderer) the parent-epoch chip falls
   back to the unresolved variant. The index is built once per panel
-  render in `Panel` and threaded down via `ctx`."
-  ([step] (render-dispatch-step step nil))
+  render in `Panel` and threaded down via `ctx`.
+
+  `instance` (rf2-3ymg) is the mount qualifier [[Panel]] tokenised out of
+  its `:instance-id` prop, or nil for the single-mount default. It reaches
+  the DISPATCH step's own inspector, whose `:mount-id` is otherwise the
+  CONSTANT `\"epoch/dispatch-event\"` — the sharpest of the thirteen, since
+  two mounts of this panel collide on it even with no data in common. See
+  the §per-mount inspector identity commentary above [[dispatch-body]]."
+  ([step] (render-dispatch-step step nil nil))
+  ([step dispatch-id->epoch-id] (render-dispatch-step step dispatch-id->epoch-id nil))
   ([{:keys [source coord duration-ms step-number violations] :as step}
-    dispatch-id->epoch-id]
+    dispatch-id->epoch-id instance]
    [:div {:data-testid "rf-xray-epoch-step-dispatch"
           :data-step-kw "dispatch"
           :data-source (when source (name source))}
@@ -2356,9 +2473,9 @@
        :testid "rf-xray-epoch-dispatch"
        :duration-ms duration-ms}
       nil)
-    (dispatch-body step)
+    (dispatch-body step instance)
     ;; rf2-xgeag — `:event` boundary violations attach to DISPATCH.
-    (violation-blocks :dispatch violations)]))
+    (violation-blocks :dispatch violations instance)]))
 
 ;; ---- COEFFECT step -------------------------------------------------------
 
@@ -2373,7 +2490,8 @@
   injecting N user-defined cofx; system-injected cofx (e.g.
   framework-auto `:db`, `:event`) are filtered at projection time
   (rf2-cq0ch + the `system-cofx-ids` set)."
-  [{:keys [id value input no-value? step-number violations errors]}]
+  ([step] (render-coeffect-step step nil))
+  ([{:keys [id value input no-value? step-number violations errors]} instance]
   (let [cofx-meta  (when (keyword? id)
                      (try (rf/handler-meta {:source :store :kind :cofx :id id})
                           (catch :default _ nil)))
@@ -2436,10 +2554,10 @@
      ;; rf2-yz57h — a coeffect-injection EXCEPTION attaches here as the
      ;; shared inline 'Exception Thrown' card (button-19), under the
      ;; COEFFECT step where it occurred (no longer collapsed onto HANDLER).
-     (error-blocks :coeffect errors)
+     (error-blocks :coeffect errors instance)
      ;; rf2-xgeag — `:cofx` boundary violations attach to the matching
      ;; COEFFECT step by cofx-id.
-     (violation-blocks :coeffect violations)]))
+     (violation-blocks :coeffect violations instance)])))
 
 ;; ---- RECORDABLE COEFFECTS step (rf2-9fyn40 · EP-0010 · EP-0017 §9) -------
 
@@ -3208,7 +3326,7 @@
   `:state` nor `:tags` changed (`machine-logical-state-changed?`) — the
   box would otherwise show a no-op diff. Returns nil in that case so the
   caller renders no source slot at all for the row."
-  [{:keys [step before after] :as _row}]
+  [{:keys [step before after] :as _row} instance]
   (when (proj/machine-logical-state-changed? before after)
     (let [before-ls (proj/machine-logical-state before)
           after-ls  (proj/machine-logical-state after)]
@@ -3216,7 +3334,9 @@
              :style cascade-row-source-style}
        [:div {:data-testid (str "rf-xray-epoch-machine-cascade-transition-delta-" step)}
         [ei/edn-inspector-view
-         {:mount-id (str "epoch/machine-cascade-transition-delta/" step)
+         {:mount-id (inspector-mount-id
+                      instance
+                      (str "epoch/machine-cascade-transition-delta/" step))
           :value    after-ls
           :opts     (cond-> {:site-id                [:rf.xray.epoch/machine-cascade-transition-delta step]
                              :card?                  false
@@ -3290,13 +3410,15 @@
   Returns nil when the machine carries no `:data` (a data-less machine) so
   the caller renders no body slot — the `[START]` pill + `started in {state}`
   verb already tell the birth story."
-  [{:keys [step data]}]
+  [{:keys [step data]} instance]
   (when (some? data)
     [:div {:data-testid (str "rf-xray-epoch-machine-cascade-source-" step)
            :style cascade-row-source-style}
      [:div {:data-testid (str "rf-xray-epoch-machine-cascade-start-data-" step)}
       [ei/edn-inspector-view
-       {:mount-id (str "epoch/machine-cascade-start-data/" step)
+       {:mount-id (inspector-mount-id
+                    instance
+                    (str "epoch/machine-cascade-start-data/" step))
         :value    data
         :opts     {:site-id                [:rf.xray.epoch/machine-cascade-start-data step]
                    :card?                  false
@@ -3330,12 +3452,12 @@
   tokens with the same per-token palette as the Figma authority's
   `.syntax-*` classes, so the cascade code body matches the HANDLER
   step's source body."
-  [machine-meta row source-form]
+  [machine-meta row source-form instance]
   (cond
     ;; rf2-it4vt — the `[START]` row's body is the machine's INITIAL :data
     ;; (the initial logical :state rides the header verb).
     (= :start (:kind row))
-    (cascade-row-start-body row)
+    (cascade-row-start-body row instance)
 
     ;; rf2-iwy0c part A — transition rows show the logical-state delta,
     ;; NOT the transition map literal. Self/internal transitions (no
@@ -3356,7 +3478,7 @@
     ;; banner stay — neither was part of the removed block (the banner is the
     ;; restore/record headline; the delta box is the {:state :tags} summary).
     (= :transition (:kind row))
-    (let [delta   (cascade-row-transition-delta row)
+    (let [delta   (cascade-row-transition-delta row instance)
           history (structured-cascade-history-banner row)]
       (when (or delta history)
         [:div {:data-testid (str "rf-xray-epoch-machine-cascade-transition-body-"
@@ -3395,7 +3517,7 @@
   captured (`:data-before` absent — e.g. a fixture trace) the inspector
   mounts in browse mode (no `:before`), still surfacing the written
   value."
-  [{:keys [data-write data-before step] :as _row}]
+  [{:keys [data-write data-before step] :as _row} instance]
   ;; rf2-32kyr — the redundant "data Δ" CAPTION text is dropped; the row reads
   ;; `<arrow> <edn-inspector value>` (just the light-grey arrow into the delta
   ;; value, no label). The arrow + the inspector value are otherwise unchanged.
@@ -3404,7 +3526,9 @@
    [:span {:style cascade-detail-data-arrow-style} "↳"]
    [:span {:style cascade-detail-value-style}
     [ei/edn-inspector-view
-     {:mount-id (str "epoch/machine-cascade-data/" step)
+     {:mount-id (inspector-mount-id
+                   instance
+                   (str "epoch/machine-cascade-data/" step))
       :value    data-write
       :opts     (cond-> {:site-id                [:rf.xray.epoch/machine-cascade-data step]
                          :card?                  false
@@ -3432,7 +3556,7 @@
 
   Each slot elides cleanly when the underlying data is absent so the
   row stays minimal for actions that ran without side-effects."
-  [row]
+  [row instance]
   (let [{:keys [data-write fx]} row]
     (when (or (some? data-write) (seq fx))
       [:div {:data-testid (str "rf-xray-epoch-machine-cascade-outcome-"
@@ -3443,7 +3567,7 @@
        ;; the cascade row tells the operator 'this action changed X
        ;; from A to B' inline (rf2-5hjb5).
        (when (some? data-write)
-         (cascade-row-action-data-diff row))
+         (cascade-row-action-data-diff row instance))
        ;; Per-action FX attribution — each fx-id the action emitted
        ;; in its outcome's `:fx` slot. The view layer already
        ;; surfaces these via the FX step's `:attributed-to` chip;
@@ -3504,7 +3628,7 @@
   guard/action's `file:line`), so the box itself does not re-render a coord
   line — matching the outer card, which dropped its redundant jump-to-source
   link in rf2-wnvid for the same reason."
-  [{:keys [kind threw? outcome exception step] :as row}]
+  [{:keys [kind threw? outcome exception step] :as row} instance]
   (let [threw? (or (true? threw?)
                    (= :threw outcome)
                    (= :rf.error/action-threw outcome))]
@@ -3527,7 +3651,7 @@
          ;; Collapsible stack + ex-data — the SAME disclosure the outer card
          ;; uses (`error-block-details`), so the `ex-data` / source depth
          ;; reads one click away exactly as on a handler throw.
-         (error-block-details testid-base {:exception exception})]))))
+         (error-block-details testid-base {:exception exception} instance)]))))
 
 ;; rf2-ge6uj ISSUE 3 — the transition zone is collapsed to ONE prominent
 ;; row. The TRANSITION row's header carries `[#step] [TRANSITION badge]
@@ -3566,7 +3690,7 @@
   `[START]` pill + `started in {state}` verb + a CAUSE tag chip
   (`explicit` / `lazy` / `spawned`) + the initial-`:data` body box, with
   NO source-link (a birth has no spec call-site) and NO outcome chip."
-  [machine-meta row]
+  [machine-meta row instance]
   (let [{:keys [kind step phase duration-ms outcome threw? cause]} row
         coord       (cascade-row-coord machine-meta row)
         source-form (cascade-row-source-form machine-meta row)
@@ -3675,20 +3799,20 @@
      ;; render their source (or the rf2-iwy0c machine-def link when none
      ;; was captured); the `:transition` row renders the rf2-iwy0c
      ;; logical-state DELTA box (`{:state :tags}` before → after).
-     (cascade-row-source-body machine-meta row source-form)
+     (cascade-row-source-body machine-meta row source-form instance)
      ;; rf2-2hj0h item 8 — when a GUARD or ACTION THREW, render the EXCEPTION
      ;; BOX directly below the step's code, modeled on the OUTER pipeline's
      ;; inline exception card (`error-block`): ✗ 'Exception Thrown' title +
      ;; verbatim message + collapsible stack / ex-data. This is the row's
      ;; failure outcome display (paired with item 7: success = clean, no
      ;; tick; failure = exception box). A clean row renders nothing here.
-     (cascade-row-exception-box row)
+     (cascade-row-exception-box row instance)
      ;; Per-row outcome details — kind-specific. rf2-ge6uj ISSUE 3 — the
      ;; `:transition` row carries NO extra detail body: the prominent
      ;; header verb (`<before> → <after>`) is the focal point and the
      ;; prior repetitive `state … / event …` lines are gone.
      (case kind
-       :action     (cascade-row-action-outcome-details row)
+       :action     (cascade-row-action-outcome-details row instance)
        nil)]))
 
 (defn- machine-cascade-view
@@ -3715,7 +3839,7 @@
   numbered ordinal chips alone carry the pipeline reading. The per-row
   `position: relative` rail-anchor wrapper is gone with the rail, so each
   row renders directly (no wrapper div)."
-  [machine-meta cascade-rows]
+  [machine-meta cascade-rows instance]
   (let [n (count cascade-rows)]
     [:div {:data-testid "rf-xray-epoch-handler-machine-cascade"
            :data-cascade-row-count (str n)
@@ -3740,7 +3864,7 @@
              ;; Clojure metadata nowhere). `machine-cascade-rows-reach-react-
              ;; with-distinct-keys` in the view test grades it at the renderer.
              (for [row cascade-rows]
-               (cascade-row-view machine-meta row))))]))
+               (cascade-row-view machine-meta row instance))))]))
 
 (defn- event-handler-orientation-line
   "Render the EVENT HANDLER orientation line (rf2-akvfe) — ONE structured
@@ -3811,8 +3935,38 @@
   `rf-xray-epoch-handler-machine` host the Epoch panel always rendered,
   so every cascade-row testid (`rf-xray-epoch-machine-cascade-row-N`,
   `-ordinal-N`, `-kind-*`, `-phase-*`, `-verb-link-N`, `-source-body-N`,
-  `-outcome-N`, `-data-write-N`, …) is identical on both surfaces."
-  [cascade event-id]
+  `-outcome-N`, `-data-write-N`, …) is identical on both surfaces.
+
+  ## `instance` — WHO IS RENDERING THIS CASCADE (rf2-3ymg)
+
+  Being consumed by two panels is what made this fn's inspector mount-ids
+  collide ACROSS them: both surfaces composed
+  `epoch/machine-cascade-transition-delta/<step>` for the same transition,
+  so they shared one lifecycle entry, one ResizeObserver and one
+  measured-width slot, and detaching either released the other's. Measured
+  on a real Epoch-plus-Machine-Inspector commit, with NEITHER caller
+  naming anything, in
+  `panels/epoch_machine_mount_instance_id_dom_cljs_test`.
+
+  The shared testids above are NOT affected and must not be: they are the
+  cascade ROW's identity, the thing the extraction promised would stay
+  identical on both surfaces. What `instance` qualifies is the inspector's
+  PHYSICAL identity — the `:mount-id` alone, which the widget keys its
+  per-mount store and its width slot by, and which its `effective-id`
+  ignores in favour of the `:site-id` each site also passes. So expansion
+  and zoom still track together across the two panels, deliberately.
+
+  Each CALLER supplies its own, and they answer differently because the
+  question differs. The Epoch panel passes [[instance-token]]'s value —
+  nil unless the embedder named that mount, which keeps every id
+  byte-for-byte. The Machine Inspector passes
+  `machine-inspector/instance-token`'s, which NEVER answers nil: it is a
+  guest in this file's id namespace, which panel is rendering is
+  statically known, and a caller embedding one of each cannot see the
+  collision to work around it. See §per-mount inspector identity above
+  [[dispatch-body]]."
+  ([cascade event-id] (machine-cascade-mini-pipeline cascade event-id nil))
+  ([cascade event-id instance]
   ;; rf2-ge6uj ISSUE 2 — read the registration meta under the `:event`
   ;; kind, NOT a (non-existent) `:machine` kind. A machine is registered
   ;; as an `:event` handler carrying `:rf/machine? true` + the stamped spec
@@ -3830,7 +3984,7 @@
      ;; section (what trigger, which machine, what starting state), then the
      ;; numbered cascade pipeline below.
      (event-handler-orientation-line cascade event-id)
-     (machine-cascade-view machine-meta cascade)]))
+     (machine-cascade-view machine-meta cascade instance)])))
 
 (defn- machine-block
   "Render the machine-handler section as a SINGLE TIME-ORDERED CASCADE
@@ -3845,8 +3999,8 @@
   category-grouped sub-sections (TRANSITION / GUARDS / LIFECYCLE /
   AFTER-TIMERS / DATA REDUCTION / SNAPSHOT DIFF / FX) are REPLACED, not
   augmented (per Mike: 'pre-alpha; no back-compat shim')."
-  [{:keys [cascade] :as _machine-row} event-id]
-  (machine-cascade-mini-pipeline (or cascade []) event-id))
+  [{:keys [cascade] :as _machine-row} event-id instance]
+  (machine-cascade-mini-pipeline (or cascade []) event-id instance))
 
 ;; ---- handler source --------------------------------------------------
 ;;
@@ -4036,7 +4190,7 @@
   lane is the right place to test. Every migrated panel in this tree made
   the same call. `nil` renders as `db-before` absent, which is what a
   direct caller passing no `ctx` means."
-  [db-post-handler db-write? record]
+  [db-post-handler db-write? record instance]
   (let [db-before (:db-before record)
         ;; rf2-4wywy — t1 (post-handler, pre-flow) is the authoritative
         ;; HANDLER `:db`; fall back to the record's post-flow `:db-after`
@@ -4067,7 +4221,9 @@
        [:div {:data-testid "rf-xray-epoch-handler-db-full-with-diff"
               :style handler-db-all-style}
         [ei/edn-inspector-view
-         {:mount-id (str "epoch/handler-db-full-with-diff/" (:epoch-id record))
+         {:mount-id (inspector-mount-id
+                      instance
+                      (str "epoch/handler-db-full-with-diff/" (:epoch-id record)))
           :value    db-after
           :opts     {:site-id [:rf.xray.epoch/handler-db-full-with-diff (:epoch-id record)]
                      :before db-before
@@ -4130,7 +4286,7 @@
      ;; Machine cascade BEFORE db diff (the cascade IS the story for
      ;; machines — rf2-u69j7 redesign).
      (when machine
-       (machine-block machine event-id))
+       (machine-block machine event-id (:instance ctx)))
      ;; :db diff — always present for non-machine handlers (rf2-93436);
      ;; folded into SNAPSHOT DIFF for machines. rf2-4wywy — the
      ;; post-handler (t1) db is threaded so the diff shows ONLY the
@@ -4141,7 +4297,8 @@
      ;; stays present for a clean handler that simply returned no `:db`.
      (when (and (not machine?) (not threw?))
        (handler-db-diff-block db-post-handler db-write?
-                              (:selected-epoch-record ctx)))
+                              (:selected-epoch-record ctx)
+                              (:instance ctx)))
      ;; :fx — the canonical vector-of-vectors, FULL via edn-inspector.
      ;; rf2-5t8y8 — sub-header carries a trailing entry-count chip ("N
      ;; entr{y,ies}") that the edn-inspector vector-header chrome alone
@@ -4151,7 +4308,9 @@
          [:div {:data-testid "rf-xray-epoch-handler-fx"}
           (sub-header ":fx" (str n " entr" (if (= 1 n) "y" "ies")))
           [ei/edn-inspector-view
-           {:mount-id (str "epoch/handler-fx/" event-id)
+           {:mount-id (inspector-mount-id
+                        (:instance ctx)
+                        (str "epoch/handler-fx/" event-id))
             :value    fx-vec
             :opts     {:site-id                [:rf.xray.epoch/handler-fx event-id]
                        :card?                  false
@@ -4164,7 +4323,9 @@
          [:div {:data-testid "rf-xray-epoch-handler-other"}
           (sub-header "other" (str n " entr" (if (= 1 n) "y" "ies")))
           [ei/edn-inspector-view
-           {:mount-id (str "epoch/handler-other/" event-id)
+           {:mount-id (inspector-mount-id
+                        (:instance ctx)
+                        (str "epoch/handler-other/" event-id))
             :value    other-effects
             :opts     {:site-id                [:rf.xray.epoch/handler-other event-id]
                        :card?                  false
@@ -4223,8 +4384,8 @@
      ;; it. (Coeffect / interceptor exceptions now land under their OWN
      ;; steps per rf2-yz57h, so this slot carries only genuine handler
      ;; throws.)
-     (error-blocks :handler errors)
-     (violation-blocks :handler violations)])))
+     (error-blocks :handler errors (:instance ctx))
+     (violation-blocks :handler violations (:instance ctx))])))
 
 ;; ---- FLOW step -----------------------------------------------------------
 
@@ -4262,8 +4423,9 @@
   Graceful fallback: when the projection carried no pre/post snapshots
   (a pre-rf2-ta0y7 runtime, or neither t1 nor t2 on the stream) the
   body falls back to the per-path `[path] before → after` scalar line."
-  [{:keys [flow-id frame path before after duration-ms step-number
-           db-pre-flow db-post-flow errors]}]
+  ([step] (render-flow-step step nil))
+  ([{:keys [flow-id frame path before after duration-ms step-number
+            db-pre-flow db-post-flow errors]} instance]
   (let [;; rf2-20359j — flows are FRAME-DIVERGENT-per-id (Spec 013), so the
         ;; source-coord lookup reads the per-frame `rf.flows/flow-meta`
         ;; (the `(handler-meta :flow id)` replacement after rf2-en00bk
@@ -4318,7 +4480,9 @@
               :style handler-db-all-style}
         (sub-header ":db" (fmt/path-display path))
         [ei/edn-inspector-view
-         {:mount-id (str "epoch/flow-db-diff/" flow-id)
+         {:mount-id (inspector-mount-id
+                      instance
+                      (str "epoch/flow-db-diff/" flow-id))
           :value    diff-after
           :opts     {:site-id [:rf.xray.epoch/flow-db-diff flow-id]
                      :before  diff-before
@@ -4341,7 +4505,7 @@
             [:span {:style coeffect-body-value-style} (ei/mini after 30)])]))
      ;; rf2-ahhgn — a flow-eval exception (the flow's compute fn threw,
      ;; aborting the cascade pre-commit) attaches here as an inline card.
-     (error-blocks :flow errors)]))
+     (error-blocks :flow errors instance)])))
 
 ;; ---- SIDE EFFECTS step (rf2-kt6js — the pre-rf2-kt6js FX step) ----------
 
@@ -4415,7 +4579,7 @@
   cleanly when no coord was captured (framework-shipped fx with no
   user source, production builds without coords; the synthesised `:db`
   row has no reg-site)."
-  [idx {:keys [fx-id status args value duration-ms attributed-to]}]
+  [idx {:keys [fx-id status args value duration-ms attributed-to]} instance]
   (let [db-row?  (= :db fx-id)
         skipped? (= :skipped status)
         noop?    (= :noop status)
@@ -4455,7 +4619,9 @@
        db-row?         (db-destination-marker idx)
        (some? payload) [:span {:style fx-row-args-style}
                         [ei/edn-inspector-view
-                         {:mount-id (str "epoch/fx-row-args/" fx-id "/" idx)
+                         {:mount-id (inspector-mount-id
+                                        instance
+                                        (str "epoch/fx-row-args/" fx-id "/" idx))
                           :value    payload
                           :opts     {:site-id [:rf.xray.epoch/fx-row-args fx-id idx]
                                      :card? false
@@ -4483,12 +4649,12 @@
   (exception) resolved the `:failing-id` against an `fx-id` in the FX
   step's `:rows`. A throwing fx (button-18) surfaces its message + coord
   inline on its own row."
-  [idx row]
+  [idx row instance]
   [:div {:key (str "fx-row-" idx)
          :data-testid (str "rf-xray-epoch-fx-row-wrapper-" idx)}
-   (fx-row-view idx row)
-   (error-blocks (keyword (str "fx-row-" idx)) (:errors row))
-   (violation-blocks (keyword (str "fx-row-" idx)) (:violations row))])
+   (fx-row-view idx row instance)
+   (error-blocks (keyword (str "fx-row-" idx)) (:errors row) instance)
+   (violation-blocks (keyword (str "fx-row-" idx)) (:violations row) instance)])
 
 ;; ---- SIDE EFFECTS flat ledger (rf2-j630b — supersedes kt6js 3-tier) -----
 
@@ -4526,7 +4692,8 @@
   that didn't match a row attach to the step level (rf2-xgeag /
   rf2-ahhgn) and render at the foot. `:db` schema-fail (pre-commit) →
   just the `:db` CROSS row, no fx rows (atomicity)."
-  [{:keys [rows step-number threw violations errors] :as step}]
+  ([step] (render-side-effects-step step nil))
+  ([{:keys [rows step-number threw violations errors] :as step} instance]
   (let [skipped? (= :skipped (proj/step-status step))]
     [:div {:data-testid "rf-xray-epoch-step-side-effects"
            :data-step-kw "side-effects"
@@ -4542,11 +4709,11 @@
        ;; rf2-yz57h — side effects never ran (upstream `:before`-chain throw).
        (skipped-body "rf-xray-epoch-side-effects" "Side effects")
        [:div {:style margin-top-5-style}
-        (map-indexed (fn [i row] (fx-row-with-violations i row)) rows)])
+        (map-indexed (fn [i row] (fx-row-with-violations i row instance)) rows)])
      ;; rf2-ahhgn — fx exceptions that didn't match a row (no-such-fx,
      ;; or an fx-id absent from `:rows`) attach to the step level.
-     (error-blocks :side-effects errors)
-     (violation-blocks :side-effects violations)]))
+     (error-blocks :side-effects errors instance)
+     (violation-blocks :side-effects violations instance)])))
 
 ;; ---- SUBSCRIPTIONS step --------------------------------------------------
 
@@ -4651,7 +4818,7 @@
   the value on unchanged rows is fine. Leaf-scalar → `ei/mini`;
   container → a plain `ei/edn-inspector` mount (no `:before`, no
   `:added?` — no diff signal)."
-  [{:keys [sub-id changed? first-run? before after]} idx]
+  [{:keys [sub-id changed? first-run? before after]} idx instance]
   ;; rf2-fyd8u — leaf-scalar branch: paint the change signal at this
   ;; row level (the inspector has no leaf-scalar annotation surface).
   ;; Containers fall through to the inspector mount. Testid naming
@@ -4703,7 +4870,9 @@
     ;; diff opts (rf2-o77z4).
     [:div {:style subs-value-cell-fill-style}
      [ei/edn-inspector-view
-      {:mount-id (str "epoch/subs-value/" sub-id "/" idx)
+      {:mount-id (inspector-mount-id
+                                      instance
+                                      (str "epoch/subs-value/" sub-id "/" idx))
        :value    after
        :opts     (cond-> {:panel-id :rf.xray.epoch/subs-value
                           :site-id  [:rf.xray.epoch/subs-value sub-id idx :full+diff]
@@ -4789,7 +4958,7 @@
   per-row violation sub-block renders INLINE via the resizable-table's
   `:row-extras` slot — directly below the row, before the next row
   begins. Parity with the sibling FX step's `fx-row-with-violations`."
-  [rows]
+  [rows instance]
   (let [columns [{:id :sub    :label "sub"    :default-flex "1fr"}
                  {:id :inputs :label "inputs" :default-flex "1fr"}
                  {:id :value  :label "value"  :default-flex "1fr"}]]
@@ -4885,7 +5054,7 @@
          ;; value cell
          [:div {:data-rf-xray-resizable-col "value"
                 :style subs-cell-changed-style}
-          (subs-value-cell row i)]])
+          (subs-value-cell row i instance)]])
       ;; rf2-zuh3p — per-row violations attach inline as `:row-extras`
       ;; so the schema-violation sub-block renders directly below its
       ;; owning row (mirrors the FX step's `fx-row-with-violations`
@@ -5041,7 +5210,7 @@
         :testid "rf-xray-epoch-subscriptions"}
        nil)
      (when (pos? n)
-       (subscriptions-table visible-rows))
+       (subscriptions-table visible-rows (:instance ctx)))
      (when (pos? l)
        (disposed-subs-table disposed-rows))
      ;; rf2-xgeag · rf2-zuh3p — `:sub-return` boundary violations.
@@ -5135,7 +5304,7 @@
   A no-arg render (`render-args` absent) reads `(no args)` — italic
   muted, parity with the col-3 `(none)` subs placeholder. Unmounted
   rows carry no `:render-args` so they read `(no args)` too."
-  [{:keys [view-id render-args prev-render-args]} idx]
+  [{:keys [view-id render-args prev-render-args]} idx instance]
   ;; rf2-yi0nr — size-guard the args (and the prev-args the diff annotates
   ;; against) so a fat prop collapses to the shared `:rf.size/large-elided`
   ;; chip rather than dumping the whole value inline.
@@ -5147,7 +5316,9 @@
       [:div {:style                  views-render-args-fill-style
              :data-rf-render-args-diff (if (some? prev-render-args) "diff" "plain")}
        [ei/edn-inspector-view
-        {:mount-id (str "epoch/view-render-args/" view-id "/" idx)
+        {:mount-id (inspector-mount-id
+                                        instance
+                                        (str "epoch/view-render-args/" view-id "/" idx))
          :value    render-args
          :opts     (cond-> {:panel-id :rf.xray.epoch/view-render-args
                             :site-id  [:rf.xray.epoch/view-render-args view-id idx]
@@ -5223,7 +5394,7 @@
   rf2-jnxfj — mounts through the shared `rt/resizable-table` so
   column widths are user-draggable + persist across reloads via
   the `:rf.xray.epoch/views` table-id slot."
-  [rows]
+  [rows instance]
   (let [columns [{:id :view :label "view" :default-flex "1fr"}
                  ;; rf2-u3lii — col-2 render-args DIFF, between view + subs.
                  {:id :render-args :label "render-args" :default-flex "1fr"}
@@ -5274,7 +5445,7 @@
                                   (str "rf-xray-epoch-view-row-coord-" i))]]
          ;; col-2 render-args DIFF (rf2-u3lii) — this render's args vs
          ;; the SAME instance's previous render (edn-inspector :before).
-         (views-render-args-cell row i)
+         (views-render-args-cell row i instance)
          ;; subs cell — colour-coded per-sub (green/orange/grey).
          (views-subs-cell subs-read sub-status i)])}]))
 
@@ -5289,7 +5460,8 @@
   when both halves are non-empty; collapses to one half when the other
   is absent. `:unmounted-count` (projection) carries M; N is the
   rendered remainder."
-  [{:keys [rows unmounted-count step-number]}]
+  ([step] (render-views-step step nil))
+  ([{:keys [rows unmounted-count step-number]} instance]
   (let [total (count rows)
         m     (or unmounted-count 0)
         n     (- total m)
@@ -5311,7 +5483,7 @@
         :testid "rf-xray-epoch-views"}
        nil)
      (when (pos? total)
-       (views-table rows))]))
+       (views-table rows instance))])))
 
 ;; ---- SCHEMA VIOLATION sub-block (rf2-xgeag) -----------------------------
 ;;
@@ -5442,9 +5614,11 @@
   Previously-discrete fields (headline `where · failing-id`, path,
   value, separate handler + schema 'open' buttons) all retired —
   subsumed by the prose + humanized explain."
-  [step-key idx {:keys [where failing-id path rollback? recovery frame
-                        explain explain-humanized kind sensitive? decoded]
-                 :as   _row}]
+  ([step-key idx row] (violation-block step-key idx row nil))
+  ([step-key idx {:keys [where failing-id path rollback? recovery frame
+                         explain explain-humanized kind sensitive? decoded]
+                  :as   _row}
+    instance]
   (let [recovery-label  (violation-recovery-label where rollback? recovery)
         ;; The schema source-coord resolution varies by :where. For
         ;; `:app-db`, the schema is registered at a PATH (not
@@ -5536,7 +5710,9 @@
        [:div {:data-testid (str testid-base "-explain")
               :style schema-violation-explain-body-style}
         [ei/edn-inspector-view
-         {:mount-id (str "epoch/violation-explain/" step-key "/" idx)
+         {:mount-id (inspector-mount-id
+                      instance
+                      (str "epoch/violation-explain/" step-key "/" idx))
           :value    humanized-shown
           :opts     {:site-id [:rf.xray.epoch/violation-explain step-key idx]
                      :default-expanded-depth 16}}]])
@@ -5545,17 +5721,18 @@
      ;; redacted at the substrate emit site (not a humanizer artifact).
      (when sensitive?
        [:div {:style schema-violation-sensitive-style}
-        "(value redacted — slot declared :sensitive?)"])]))
+        "(value redacted — slot declared :sensitive?)"])])))
 
 (defn violation-blocks
   "Render every violation in `violations` as a sub-block inside the
   current step's body. `step-key` is the owning step keyword (used
   for stable test ids). nil-safe."
-  [step-key violations]
-  (when (seq violations)
-    [:div {:data-testid (str "rf-xray-epoch-violations-" (name step-key))}
-     (map-indexed (fn [i v] (violation-block step-key i v))
-                  violations)]))
+  ([step-key violations] (violation-blocks step-key violations nil))
+  ([step-key violations instance]
+   (when (seq violations)
+     [:div {:data-testid (str "rf-xray-epoch-violations-" (name step-key))}
+      (map-indexed (fn [i v] (violation-block step-key i v instance))
+                   violations)])))
 
 ;; ---- inline EXCEPTION card (rf2-ahhgn) ----------------------------------
 
@@ -5617,7 +5794,7 @@
   link). The depth lives behind one click; the common read is the
   headline + message above. Returns nil when neither a stack nor
   ex-data is available (nothing to disclose)."
-  [testid-base {:keys [exception]}]
+  [testid-base {:keys [exception]} instance]
   (let [stack   (exception-stack exception)
         ex-data* (exception-ex-data exception)]
     (when (or stack (seq ex-data*))
@@ -5630,7 +5807,9 @@
          [:div {:data-testid (str testid-base "-ex-data")}
           [:div {:style error-block-data-label-style} "ex-data"]
           [ei/edn-inspector-view
-           {:mount-id (str "epoch/error-ex-data/" testid-base)
+           {:mount-id (inspector-mount-id
+                        instance
+                        (str "epoch/error-ex-data/" testid-base))
             :value    ex-data*
             :opts     {:site-id [:rf.xray.epoch/error-ex-data testid-base]
                        :card?   false
@@ -5664,8 +5843,10 @@
   `step-key` + `idx` give stable test ids. The card paints the failing
   step's blast radius right where the work happened — the inline half of
   rf2-ahhgn, polished by rf2-wnvid for ALL exception kinds."
-  [step-key idx {:keys [message recovery db-rolled-back? operation
-                        action-id via-wildcard?] :as row}]
+  ([step-key idx row] (error-block step-key idx row nil))
+  ([step-key idx {:keys [message recovery db-rolled-back? operation
+                         action-id via-wildcard?] :as row}
+    instance]
   (let [recovery-label (error-recovery-label recovery db-rolled-back?)
         testid-base    (str "rf-xray-epoch-error-"
                             (name (or step-key :unknown)) "-" idx)
@@ -5724,18 +5905,19 @@
               :style error-block-message-style}
         machine-attr])
      ;; 3. Collapsible details — stack + ex-data behind a disclosure
-     (error-block-details testid-base row)]))
+     (error-block-details testid-base row instance)])))
 
 (defn error-blocks
   "Render every exception in `errors` as an inline card inside the
   current step's body (rf2-ahhgn). `step-key` is the owning step keyword
   (stable test ids). nil-safe — a clean step passes nil/empty and renders
   nothing."
-  [step-key errors]
-  (when (seq errors)
-    [:div {:data-testid (str "rf-xray-epoch-errors-" (name step-key))}
-     (map-indexed (fn [i e] (error-block step-key i e))
-                  errors)]))
+  ([step-key errors] (error-blocks step-key errors nil))
+  ([step-key errors instance]
+   (when (seq errors)
+     [:div {:data-testid (str "rf-xray-epoch-errors-" (name step-key))}
+      (map-indexed (fn [i e] (error-block step-key i e instance))
+                   errors)])))
 
 ;; `rolled-back-banner` retired per rf2-w8evg — the rf2-8resu
 ;; redesign moved the `:where :app-db` violation from HANDLER to the
@@ -5772,18 +5954,24 @@
   `:subs-filter-mode`, both now read once in [[Panel]]'s boundary body).
   Most steps ignore it."
   [step ctx]
-  (case (:step step)
-    :dispatch          (render-dispatch-step step (:dispatch-id->epoch-id ctx))
-    :recordable-cofx   (render-recordable-cofx-step step)
-    :coeffect          (render-coeffect-step step)
-    :interceptors      (render-interceptors-step step)
-    :interceptor       (render-interceptor-step step)
-    :handler           (render-handler-step step ctx)
-    :flow              (render-flow-step step)
-    :side-effects      (render-side-effects-step step)
-    :subscriptions     (render-subscriptions-step step ctx)
-    :views             (render-views-step step)
-    nil))
+  ;; rf2-3ymg — `:instance` rides `ctx` like every other cascade-level
+  ;; value, and reaches the steps that mount an `ei/edn-inspector-view`.
+  ;; The three that mount none (`:recordable-cofx`, `:interceptors`,
+  ;; `:interceptor`) are not passed it, which is the honest signal that
+  ;; they have no per-mount identity to qualify.
+  (let [instance (:instance ctx)]
+    (case (:step step)
+      :dispatch          (render-dispatch-step step (:dispatch-id->epoch-id ctx) instance)
+      :recordable-cofx   (render-recordable-cofx-step step)
+      :coeffect          (render-coeffect-step step instance)
+      :interceptors      (render-interceptors-step step)
+      :interceptor       (render-interceptor-step step)
+      :handler           (render-handler-step step ctx)
+      :flow              (render-flow-step step instance)
+      :side-effects      (render-side-effects-step step instance)
+      :subscriptions     (render-subscriptions-step step ctx)
+      :views             (render-views-step step instance)
+      nil)))
 
 ;; ---- pipeline view -------------------------------------------------------
 
@@ -5951,10 +6139,53 @@
   boundary in its own right. So nothing in the interior wants a
   component of its own.
 
-  The argument is the ordinary one-props-map vector every `defview`
-  takes. This panel reads nothing from props — neither the L4 registry
-  nor the standalone embed passes any — so it is destructured away."
-  [_props]
+  The argument is the ordinary one-props-map vector every `defview` takes.
+
+  ## `:instance-id` — OPTIONAL, and it names ONE LIVE MOUNT (rf2-3ymg)
+
+  This panel reads no DATA from props: everything it renders comes from the
+  three subs below and from nothing else, and the L4 registry and the
+  standalone embed both mount it with no props at all. The one prop it takes
+  is an IDENTITY.
+
+  Each of the thirteen `ei/edn-inspector-view` heads below needs a
+  `:mount-id` that is unique per LIVE MOUNT, because that string is the
+  widget's lifecycle key (with the frame) and its measured-width slot key.
+  The logical site is unique within one panel; two mounts of THIS panel in
+  one frame it cannot separate, and nothing inside can — a Fresco boundary
+  is a React function component with no per-instance storage its body may
+  use, so there is no id for it to mint. Left unnamed the two share one
+  store entry, one ResizeObserver and one width slot per site, and
+  detaching either releases the survivor's.
+
+  So the distinction is the caller's to make, and this prop is how:
+
+      [Panel {:instance-id \"left\"}]
+      [Panel {:instance-id \"right\"}]
+
+  A non-blank string or a keyword — and a keyword's NAMESPACE is part of
+  the name, so `:left/epoch` and `:right/epoch` are two instances and not
+  one (rf2-4bsq). It must be STABLE across that instance's renders — it is
+  an identity, not a per-render nonce — and [[instance-token]] refuses,
+  loudly, the shapes that could not be. OMIT IT when only one Epoch panel
+  renders in this frame, which is every call site in this tree today: the
+  ids are then byte-for-byte what they were.
+
+  IT QUALIFIES THE PHYSICAL IDENTITY ONLY. Expansion, zoom and every step's
+  own testids are keyed by the `:site-id` and the step's own ids, and are
+  left exactly where they were, so two Epoch panels of one epoch still open
+  and close together. The §per-mount inspector identity commentary above
+  [[dispatch-body]] carries the mechanism — and the SECOND collision it
+  names, the one with the Machine Inspector over the cascade they share,
+  which this prop is deliberately NOT the fix for.
+
+  BOTH DOORS INTO THIS BOUNDARY ANSWER THE SAME. Mounted from a Fresco body
+  the prop arrives as written; mounted through [[Panel-bridge]] from a
+  Reagent parent it arrives already tokenised, because `[:>]` would
+  otherwise convert a keyword with `cljs.core/name` and drop its namespace.
+  The token is idempotent on its own output, so one value composes one set
+  of ids whichever head mounted it."
+  [{:keys [instance-id]}]
   (let [{:keys [status steps epoch-history outcome]}
         (rf.fresco/sub [:rf.xray/epoch-pipeline])]
     [:section {:data-testid "rf-xray-epoch-panel"
@@ -5973,6 +6204,10 @@
            (pipeline-view steps
                           {:dispatch-id->epoch-id (proj/dispatch-id->epoch-id-index
                                                     epoch-history)
+                           ;; rf2-3ymg — this mount's qualifier, tokenised
+                           ;; ONCE here and threaded down `ctx` with the
+                           ;; rest. Nil unless the caller named the mount.
+                           :instance (instance-token instance-id)
                            ;; rf2-k97c.3 — the two reads the HANDLER and
                            ;; SUBSCRIPTIONS rows used to perform
                            ;; THEMSELVES, hoisted here and threaded down
@@ -6032,6 +6267,39 @@
   PUBLIC, because this panel carries a `mount-epoch-panel!` facade and
   `panels/render-panel!` takes the view to mount as an ARGUMENT — so the
   embedding contract needs a name it can pass. Deleted with the component
-  above when the shell itself becomes a Fresco tree."
-  []
-  [:> Panel-component {}])
+  above when the shell itself becomes a Fresco tree.
+
+  rf2-3ymg — the 1-arity is how a REAGENT parent names an instance when it
+  renders two of these under one `frame-provider`:
+
+      [Panel-bridge {:instance-id \"left\"}]
+
+  The 0-arity stays because that is how the shell mounts an L4 tab
+  (`[(:panel tab)]`) and how `render-panel!` mounts the standalone embed
+  (`[panel-view]`) — one panel per frame, no instance to name.
+
+  ## The prop is TOKENISED HERE, before the crossing (rf2-4bsq)
+
+  `[:>]` converts each prop VALUE before React sees it, and Reagent's
+  `convert-prop-value` converts a named value with `cljs.core/name` — which
+  DROPS THE NAMESPACE. Passed through raw, `:left/epoch` and `:right/epoch`
+  would both arrive at the boundary as `\"epoch\"`, so two panels the caller
+  had deliberately named apart would compose the same
+  `epoch/epoch/dispatch-event` — one lifecycle entry, one ResizeObserver,
+  one width slot, and detaching either releasing the other's. That is
+  precisely the collision rf2-3ymg repairs, restored by the crossing.
+
+  So the bridge runs [[instance-token]] — the SAME normaliser the boundary
+  uses — and a STRING crosses, which Reagent preserves intact. The
+  boundary's own call on the far side is then a no-op (the fn is idempotent
+  on its own output), and a refused shape throws naming the CALLER's value
+  rather than whatever the crossing had turned it into.
+
+  A blank string tokenises to nil and so mounts with no props, exactly as
+  naming no instance does."
+  ([] (Panel-bridge nil))
+  ([props]
+   [:> Panel-component
+    (if-let [instance-id (instance-token (:instance-id props))]
+      {:instance-id instance-id}
+      {})]))

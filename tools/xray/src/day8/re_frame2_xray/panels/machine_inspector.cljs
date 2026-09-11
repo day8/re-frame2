@@ -274,6 +274,65 @@
 
 ;; ---- per-machine focused-event section ---------------------------------
 
+;; ---- per-mount inspector identity (rf2-3ymg) -----------------------------
+
+(def ^:private owner-token
+  "What this panel calls itself inside the SHARED cascade renderer's id
+  namespace. See [[instance-token]] for why it is unconditional."
+  "machine-inspector")
+
+(defn instance-token
+  "Normalise [[Panel]]'s optional `:instance-id` prop to the string that
+  qualifies this mount's inspector `:mount-id`s inside the shared
+  `epoch-view/machine-cascade-mini-pipeline`.
+
+  ## IT NEVER ANSWERS NIL, AND THAT IS THE DIFFERENCE FROM EVERY SIBLING
+
+  `app-db-diff`, `managed-fx`, `trace` and the Epoch panel all answer nil
+  for an unnamed mount, so their ids stay byte-for-byte what they were.
+  Those panels each own the id namespace they compose into. THIS ONE DOES
+  NOT: element 2 renders through the Epoch panel's cascade renderer
+  (rf2-g2axio, deliberately — so the two surfaces cannot diverge), and that
+  renderer composes `epoch/machine-cascade-*` ids. An Epoch panel and a
+  Machine Inspector over one cascade therefore collided on the widget's
+  lifecycle key and its width slot with NEITHER caller having done anything
+  unusual, and neither could see it to work around it.
+
+  Which panel is rendering is STATICALLY KNOWN, so it is answered
+  statically: unnamed, this is [[owner-token]]; named, the caller's token
+  rides BELOW it (`machine-inspector/left`) so two Machine Inspectors are
+  also distinct, and so a Machine Inspector named `left` cannot collide
+  with an Epoch panel named `left` either.
+
+  A KEYWORD is accepted alongside a string, and its NAMESPACE is part of
+  the name: `:left/machines` tokenises to `left/machines`. `(subs (str id)
+  1)` is what preserves it; `cljs.core/name` would drop it and restore the
+  very collision this removes (rf2-4bsq) — see [[Panel-bridge]], which
+  tokenises BEFORE the Reagent crossing for exactly that reason. The fn is
+  IDEMPOTENT on its own output, so the boundary's second call after the
+  crossing is a no-op.
+
+  It is this panel's own normaliser rather than a call into a sibling's:
+  the panels are independent surfaces, they migrate on their own
+  schedules, and the refusal has to name the caller's OWN panel to be
+  worth reading."
+  [instance-id]
+  (let [named (cond
+                (nil? instance-id)     nil
+                (keyword? instance-id) (subs (str instance-id) 1)
+                (string? instance-id)  (when (seq instance-id) instance-id)
+                :else
+                (throw (ex-info
+                         (str "The Machine Inspector's :instance-id must be a "
+                              "non-blank string or a keyword naming this "
+                              "mount, or omitted. Got: " (pr-str instance-id))
+                         {:rf.xray/instance-id instance-id})))]
+    (cond
+      (nil? named)                     owner-token
+      (= named owner-token)            owner-token
+      (str/starts-with? named (str owner-token "/")) named
+      :else                            (str owner-token "/" named))))
+
 (defn- focused-event-section
   "Render the focused machine's section (rf2-g2axio redesign). The
   Machine tab now shows EXACTLY THREE elements: the Prev/Next nav (in
@@ -327,7 +386,8 @@
            guard-blocked-edge-ids start? no-op?]
     :as _record}
    as-child
-   fit-signal]
+   fit-signal
+   instance]
   ;; rf2-gpzb4 (2026-05-21 xyflow migration) — the host-side ELK
   ;; layout dance is GONE; xyflow + elkjs own positioning end-to-end
   ;; inside `MachineChart`. The panel only computes the from/to node-ids
@@ -384,7 +444,7 @@
       ;; (a machine is registered as an `:event` handler carrying its spec
       ;; under `:rf/machine`), so the cascade rows' guard / action
       ;; source-coords resolve identically to the Epoch panel.
-      (epoch-view/machine-cascade-mini-pipeline cascade machine-id)]
+      (epoch-view/machine-cascade-mini-pipeline cascade machine-id instance)]
      ;; ── ELEMENT 3 — the topology chart ─────────────────────────────
      ;; The chart carries its OWN toolbar (zoom / pan / fit controls —
      ;; `machine-canvas/Chart`), so the bespoke list/canvas wrapper +
@@ -559,7 +619,7 @@
   argument now. `target-frame` likewise ARRIVES AS AN ARGUMENT rather
   than being read here, for the same reason: a `rf.fresco/sub` raises
   outside a collector window, and this fn is node-lane-driven."
-  [records cascade as-child fit-signal target-frame]
+  [records cascade as-child fit-signal target-frame instance]
   (let [;; Dynamic-mode single-instance rule (spec/003 §Dynamic mode —
         ;; single-instance, event-driven, rf2-8og3k): pick the first
         ;; transition by trace order. The upstream projection already
@@ -600,7 +660,7 @@
        ;; `focused-event-section` answers hiccup whose own attribute map
        ;; is not ours to write into, so the key rides the fragment.
        [:<> {:key (h/focused-event-section-key target-frame record)}
-        (focused-event-section cascade record as-child fit-signal)]])))
+        (focused-event-section cascade record as-child fit-signal instance)]])))
 
 (defn- blank-state
   "Rendered when the focused event has no machine activity in its
@@ -692,7 +752,15 @@
   were hoisted because a `rf.fresco/sub` raises outside a collector
   window, which would have made this whole tree callable only inside a
   real React commit."
-  [{:keys [empty-kind]} records cascade as-child fit-signal target-frame]
+  ;; rf2-3ymg — the 6-arity keeps every direct caller that has no instance
+  ;; to name working, and answers this panel's OWN token for them rather
+  ;; than nil: the cascade ids below are composed in the Epoch panel's id
+  ;; namespace, so `no instance` still has to say which panel is rendering.
+  ([data records cascade as-child fit-signal target-frame]
+   (panel-tree data records cascade as-child fit-signal target-frame
+               (instance-token nil)))
+  ([{:keys [empty-kind]} records cascade as-child fit-signal target-frame
+    instance]
   (let [;; The first record's machine-id drives the prev/next nav (a
         ;; cascade may touch multiple machines; the nav's "this machine"
         ;; is the head section's machine).
@@ -725,10 +793,11 @@
        ;; does not duplicate-subscribe the same composite handle.
        [:div {:data-testid "rf-xray-machine-inspector-focused-event-host"
               :style focused-event-host-style}
-        (focused-event-view records cascade as-child fit-signal target-frame)]
+        (focused-event-view records cascade as-child fit-signal target-frame
+                            instance)]
 
        :else
-       (blank-state))]))
+       (blank-state))])))
 
 (rf.fresco/defview Panel
   "The Machine Inspector (Machine tab) root — a FRESCO BOUNDARY
@@ -765,10 +834,38 @@
   consumer on the Static surface. [[focused-event-section]] records the
   condition that retires it.
 
-  The argument is the ordinary one-props-map vector every `defview`
-  takes. This panel reads nothing from props — neither the L4 registry
-  nor the standalone embed passes any — so it is destructured away."
-  [_props]
+  The argument is the ordinary one-props-map vector every `defview` takes.
+
+  ## `:instance-id` — OPTIONAL, and this panel's default is NOT nil
+  ## (rf2-3ymg)
+
+  This panel reads no DATA from props: everything it renders comes from the
+  five subs below. The one prop it takes is an IDENTITY, and it is passed
+  to [[instance-token]] — whose contract differs from every sibling's in
+  one deliberate way, for a reason that is about this panel's position
+  rather than about taste.
+
+  Element 2 is the SHARED mini-pipeline, `epoch-view/machine-cascade-mini-
+  pipeline`, the very renderer the Epoch panel's EVENT HANDLER step uses
+  (rf2-g2axio). Its inspector `:mount-id`s are composed in that file's id
+  namespace — `epoch/machine-cascade-transition-delta/<step>` and its
+  siblings — so an Epoch panel and a Machine Inspector displaying one
+  cascade composed IDENTICAL ids, shared one lifecycle entry, one
+  ResizeObserver and one measured-width slot ACROSS TWO DIFFERENT PANELS,
+  and detaching either released the other's.
+
+  That is not a collision a caller should have to name its way out of:
+  which panel is rendering is statically known, and an embedder mounting
+  one of each cannot see the collision to work around it. So this panel's
+  token never answers nil — it names ITSELF, and a caller's `:instance-id`
+  qualifies further on top, for the separate case of two MACHINE
+  INSPECTORS in one frame.
+
+  Accepted shapes and the Reagent-crossing rule are the siblings' — a
+  non-blank string or a keyword whose NAMESPACE is part of the name
+  (rf2-4bsq), stable across that instance's renders, tokenised by
+  [[Panel-bridge]] BEFORE the crossing."
+  [{:keys [instance-id]}]
   (panel-tree (rf.fresco/sub [:rf.xray/machine-inspector-data])
               (rf.fresco/sub [:rf.xray/machine-transitions-for-focused-event])
               ;; rf2-g2axio — the focused epoch's projected machine-cascade
@@ -778,7 +875,11 @@
               (:cascade (rf.fresco/sub [:rf.xray/machine-focused-epoch-cascade]))
               r/as-element
               (rf.fresco/sub [:rf.xray/machine-tab-fit-signal])
-              (rf.fresco/sub [:rf.xray/target-frame])))
+              (rf.fresco/sub [:rf.xray/target-frame])
+              ;; rf2-3ymg — this mount's qualifier for the SHARED
+              ;; mini-pipeline's inspector ids. Never nil; see the
+              ;; docstring above and [[instance-token]].
+              (instance-token instance-id)))
 
 ;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
 ;;
@@ -831,9 +932,34 @@
 
   PUBLIC, because this panel carries a `mount-machine-inspector!` facade
   and `panels/render-panel!` takes the view to mount as an ARGUMENT, so
-  the embedding contract needs a name it can pass."
-  []
-  [:> Panel-component {}])
+  the embedding contract needs a name it can pass.
+
+  rf2-3ymg — the 1-arity is how a REAGENT parent names an instance when it
+  renders two of these under one `frame-provider`:
+
+      [Panel-bridge {:instance-id \"left\"}]
+
+  The 0-arity stays because that is how the shell mounts an L4 tab
+  (`[(:panel tab)]`) and how `render-panel!` mounts the standalone embed
+  (`[panel-view]`) — one panel per frame, no instance to name. Note that
+  the 0-arity is NOT the same as `no qualifier` here: [[instance-token]]
+  answers this panel's own name for it, because the cascade ids it
+  composes into belong to the Epoch panel.
+
+  ## The prop is TOKENISED HERE, before the crossing (rf2-4bsq)
+
+  `[:>]` converts each prop VALUE before React sees it, and Reagent's
+  `convert-prop-value` converts a named value with `cljs.core/name` —
+  which DROPS THE NAMESPACE. Passed through raw, `:left/machines` and
+  `:right/machines` would both arrive as `\"machines\"`, so two panels the
+  caller had deliberately named apart would compose the same ids again.
+  So the bridge runs [[instance-token]] — the SAME normaliser the boundary
+  uses, idempotent on its own output — and a STRING crosses, which Reagent
+  preserves intact; a refused shape throws naming the CALLER's value
+  rather than whatever the crossing had turned it into."
+  ([] (Panel-bridge nil))
+  ([props]
+   [:> Panel-component {:instance-id (instance-token (:instance-id props))}]))
 
 ;; ---- production value sources --------------------------------------------
 ;;
