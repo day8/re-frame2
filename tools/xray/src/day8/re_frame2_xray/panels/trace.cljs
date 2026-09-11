@@ -850,6 +850,34 @@
          ;; attach to the list and never reach React.
          (flat-row-list rows expanded-ids)])]]))
 
+;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;;
+;; `panels/mount-trace!` mounts this panel BY NAME, and RULING 1's
+;; surviving spelling puts the Fresco boundary on the natural name with a
+;; PUBLIC bridge passed by the caller — the shape `resources/Panel-bridge`
+;; already ships. Pointing the mount facade at the bridge name NOW, while
+;; it is still a plain alias, is what lets this panel's migration happen
+;; entirely INSIDE THIS FILE: `Panel` becomes the `defview` boundary and
+;; this def becomes the real `rf.fresco/as-component` bridge, with
+;; `panels.cljs` never touched again. It adopts RULING 1 early rather than
+;; bending it.
+;;
+;; TODAY IT IS A NO-OP. `rf/reg-view` expands to `(def Panel
+;; (re-frame.core/view :id))`, so `Panel` is a VALUE and this def binds the
+;; SAME OBJECT — nothing downstream can tell the two names apart. And
+;; `render-panel!` always builds the component VECTOR `[panel-view]`, so
+;; head position is the only position either name is used in: the fn-call
+;; hazard `render-panel!`'s docstring warns about (a plain `defn` INVOKED,
+;; skipping the React-context tier so subscribes route to `:rf/default`) is
+;; about call-versus-head position and is not reached here.
+(def Panel-bridge
+  "The name `panels/mount-trace!` mounts this panel through — a plain
+  alias of `Panel` until this panel migrates to Fresco, when it becomes
+  the `as-component` bridge without the mount facade moving. Scaffolding
+  with a defined end: it is deleted with every other `*-bridge` when the
+  shell itself becomes a Fresco tree. See the comment above."
+  Panel)
+
 ;; ---- registration entry --------------------------------------------------
 
 (defn install!
