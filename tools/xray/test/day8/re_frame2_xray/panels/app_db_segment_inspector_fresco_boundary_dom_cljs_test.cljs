@@ -132,6 +132,31 @@
   taken contributes no edge."
   [path-q value-q positioning-q])
 
+;; ---- this file's own registrations ----------------------------------------
+;;
+;; THESE MUST SIT ABOVE `use-fixtures`, AND THE ORDER IS LOAD-BEARING RATHER
+;; THAN STYLISTIC. `make-reset-runtime-fixture` captures the registrar
+;; baseline ONCE, when the `use-fixtures` form is EVALUATED — i.e. at this
+;; namespace's load — and folds that baseline back before each test. A
+;; `reg-event` written BELOW that form is registered after the snapshot was
+;; taken and is therefore stranded by the first reset.
+;;
+;; It fails quietly and at a distance. Measured on the first run of this file,
+;; with all three of these below the fixture: the host seed dispatched into an
+;; empty registrar, so the observed frame's db stayed empty, the value sub
+;; resolved through `app-db-current+diff` to nil, and the DOM row reported
+;; `Body text: "nil"` — which reads exactly like a boundary that had stopped
+;; reading its value. The probe subscription went the same way and its
+;; NON-VACUITY guard reported a ref-count of 0. One cause, two rows, and both
+;; of them pointing at the production code rather than at the fixture.
+
+(rf/reg-event ::seed-host-db (fn [_ [_ db]] {:db db}))
+
+(rf/reg-event ::bump
+  (fn [{:keys [db]} [_ n]] {:db (assoc db ::n n)}))
+
+(rf/reg-sub ::n (fn [db _] (::n db)))
+
 ;; ---- fixture --------------------------------------------------------------
 
 (use-fixtures :each
@@ -156,13 +181,6 @@
        (some? (.-createElement js/document))))
 
 ;; ---- setup ----------------------------------------------------------------
-
-(rf/reg-event ::seed-host-db (fn [_ [_ db]] {:db db}))
-
-(rf/reg-event ::bump
-  (fn [{:keys [db]} [_ n]] {:db (assoc db ::n n)}))
-
-(rf/reg-sub ::n (fn [db _] (::n db)))
 
 (defn- point-at-host!
   "Make `frame` a tool frame observing [[app-frame]].
