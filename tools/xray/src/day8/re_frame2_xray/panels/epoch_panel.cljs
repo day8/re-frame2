@@ -143,6 +143,14 @@
 ;; ns when added to the per-panel mount inventory.
 (def Panel view/Panel)
 
+;; rf2-k97c.3 — the same re-export for the migration bridge name, which is
+;; what `panels/mount-epoch-panel!` now mounts through. A `def` of whatever
+;; `view/Panel-bridge` is, so this line is correct both while the bridge is
+;; a plain alias of the `reg-view` and after the panel migrates and it
+;; becomes a real `as-component` bridge — the migration stays inside
+;; `panels/epoch/view.cljs`, which is the whole point of the bridge name.
+(def Panel-bridge view/Panel-bridge)
+
 ;; ---- registration --------------------------------------------------------
 
 (defn install!
