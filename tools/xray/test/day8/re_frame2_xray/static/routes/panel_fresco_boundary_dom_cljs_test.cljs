@@ -13,7 +13,8 @@
 
     1 FIRST DISPLAY               — W1
     2 UPDATES ON A REAL CHANGE    — W2 (with the deaf control that makes
-                                    the update mean liveness)
+                                    the update mean liveness), over BOTH
+                                    route state and simulation state
     3 XRAY'S OWN INTERACTIONS     — W5
     4 FRAME TARGETING             — W1's second half, read off the frame's
                                     OWN sub-cache rather than off the DOM
@@ -26,6 +27,23 @@
   — the row toggle, the Simulate-navigation toggle and the jump chip —
   and they are reached through the Reagent island below, which is why
   W5 is worth more here than a click row was on a pure-browse tab.
+
+  ## THE FOUR-POINT STANDARD (rf2-0lcg)
+
+  The merged-PR audit of #9648 states the bar for this witness as four
+  points rather than one, and they map onto the rows above: render under
+  an EXPLICIT FRAME (W1), change real route / simulation state and see
+  the mounted output UPDATE (W2), an interaction DISPATCH reaching that
+  frame (W5), and UNMOUNT with boundary subscriptions returning to
+  BASELINE (W4). The last is the bead's own acceptance clause — `the
+  teardown check (no retained watches or listeners after unmount)
+  actually measured rather than assumed` — and W4 reads it off the
+  collector's own tables through the Fresco test kit's runtime door
+  rather than inferring it from a ref-count alone.
+
+  IT IS A VERIFICATION GAP BEING CLOSED, NOT AN ALLEGATION OF A LEAK.
+  The numbers come back at baseline; saying so with the measurement is
+  the deliverable.
 
   ## THE ISLAND IS THE WHOLE POINT, AND THE NODE LANE CANNOT SEE IT
 
@@ -105,6 +123,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
+            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.registry :as registry]
@@ -128,6 +147,17 @@
   "The per-row expand set. W5's lever, and the read that makes the click
   round-trip observable in the committed DOM."
   [:rf.xray.static.routes/expanded])
+
+(def ^:private panel-reads
+  "EVERY query the boundary reads, in the order `Panel`'s body reads
+  them. W4's teardown claim is over ALL FOUR rather than over the
+  headline one: a release that freed three cells and retained the fourth
+  would answer clean to a single-query probe, which is exactly the shape
+  of leak the acceptance criterion is about."
+  [[:rf.xray.static.routes/tab-data]
+   [:rf.xray.static.routes/expanded]
+   [:rf.xray.static.routes/sim-nav-open]
+   [:rf.xray/registered-routes]])
 
 (def ^:private base-routes
   "The route table the panel opens on. Two routes so the catalogue is
@@ -438,7 +468,34 @@
                       "and it is the SAME <section> node: React reconciled the
                        live tree in place, so the row did not arrive by the
                        panel being remounted from scratch, which would not be
-                       liveness")))
+                       liveness")
+                  ;; ---- phase 4: SIMULATION state, the panel's other input --
+                  ;; Route state and simulation state are two different reads
+                  ;; reaching two different islands, and only the first has
+                  ;; moved so far. `sim-url` feeds the composite the boundary
+                  ;; reads, and its output paints in the Simulate-URL header
+                  ;; island rather than in the browse list.
+                  (is (nil? (testid container "rf-xray-static-routes-sim-result"))
+                      "NON-VACUITY: no Simulate-URL result is on screen while
+                       the input is blank")
+                  (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url "/cart"]
+                                    {:frame :rf/xray})
+                  (rf.test-support/poll-until
+                    #(some? (testid container "rf-xray-static-routes-sim-result"))
+                    {:label "the panel committed the Simulate-URL result"})))
+              (.then
+                (fn [_]
+                  (is (some? (testid container "rf-xray-static-routes-sim-result"))
+                      "simulation state moved and the mounted output followed —
+                       the OTHER island repainted, so liveness is not a property
+                       of the browse list alone")
+                  (is (some? (testid container
+                                     (str "rf-xray-static-routes-sim-candidate-"
+                                          (route-suffix :route/cart))))
+                      "and `[candidate-row …]`, a plain fn in hiccup head
+                       position inside the Simulate-URL island, rendered the
+                       matching candidate — the seam crossed on a repaint and
+                       not only at first mount")))
               (.catch (fn [e]
                         (is false (str "W2 never settled: " (.-message e)
                                        " — DOM: " (.-textContent container)))
@@ -516,67 +573,158 @@
 ;; W4 — clean teardown: the read is released, and reopening is not growth
 ;; ===========================================================================
 
-(defn- released?
-  "The panel's headline read is fully released from `:rf/xray`'s
-  sub-cache."
+(defn- sub-key
+  "The collector's own key for one of this panel's reads, under the frame
+  the tree names. `[frame-kw query-v]` — finer than the frame's sub-cache
+  key, and the address `!cells` is keyed by."
+  [query-v]
+  [:rf/xray query-v])
+
+(defn- ref-counts
+  "The frame's sub-cache ref-count for each of the four reads."
   []
-  (zero? (ref-count-of :rf/xray tab-data-q)))
+  (mapv #(ref-count-of :rf/xray %) panel-reads))
 
-(deftest w4-unmount-releases-the-read-and-reopen-does-not-grow-it
-  (testing "rf2-k97c.3 — unmounting the panel releases its subscription
-            reference completely, and mounting it again returns to the SAME
-            count rather than a higher one. Epic criterion 6, and the number
-            the spike caught the rejected design on: with a four-call interop
-            binding the `:rf/xray` ref-count climbed across renders and never
-            fell on unmount.
+(defn- live-reactions
+  "The reads whose collector CELL still holds a live reaction. A cell
+  holds an `add-watch` on that reaction for as long as it lives, so this
+  is the `no retained watches` half of the acceptance criterion read
+  directly off the runtime rather than inferred from a ref-count."
+  []
+  (filterv #(some? (rf.fresco.test.runtime/cell-reaction (sub-key %))) panel-reads))
 
-            THE RELEASE IS ASYNCHRONOUS BY DESIGN, and this row polls rather
-            than reading once: the collector gives a cell whose last reader
-            unmounts one macrotask of grace, so that a keyed reorder which
-            unmounts and remounts a row within a single turn reuses the
-            reaction instead of rebuilding it. A synchronous assertion would
-            report a LEAK against a collector behaving exactly as documented."
+(defn- reader-edges
+  "Total reader slots the four cells hold. One slot per boundary
+  registration reading that cell — the fused reference AND dependency
+  edge — so this is the `no retained listeners` half."
+  []
+  (reduce + 0 (map #(count (rf.fresco.test.runtime/cell-readers (sub-key %)))
+                   panel-reads)))
+
+(defn- residue
+  "Everything that must be zero once the panel is gone, as one map, so a
+  failure message names WHICH of the three instruments still sees
+  something."
+  []
+  {:ref-counts   (ref-counts)
+   :live-cells   (live-reactions)
+   :reader-edges (reader-edges)})
+
+(defn- released? []
+  (and (every? zero? (ref-counts))
+       (empty? (live-reactions))
+       (zero? (reader-edges))))
+
+(deftest w4-unmount-returns-every-boundary-subscription-to-baseline
+  (testing "rf2-k97c.3 — unmounting the panel releases ALL FOUR of its
+            subscriptions completely — no sub-cache reference, no live
+            reaction, no reader edge — and mounting it again returns to the
+            SAME numbers rather than higher ones. Epic criterion 6 and the
+            bead's own acceptance clause, `no retained watches or listeners
+            after unmount`, measured rather than assumed.
+
+            THREE INSTRUMENTS, NOT ONE, and they answer different questions.
+            The frame's sub-cache ref-count is the number the spike caught
+            the rejected design on: with a four-call interop binding the
+            `:rf/xray` count climbed across renders and never fell on
+            unmount. `cell-reaction` is the WATCH — a live collector cell
+            holds `add-watch` on its reaction for as long as it exists — and
+            `cell-readers` is the LISTENER edge, one slot per boundary
+            reading that cell. A release that dropped the reference and left
+            the cell wired answers clean to the first and dirty to the other
+            two, which is why all three are read.
+
+            AND ALL FOUR READS, NOT THE HEADLINE ONE. A teardown that freed
+            three cells and retained the fourth is exactly the leak this
+            clause is about, and a single-query probe cannot see it.
+
+            THE RELEASE IS ASYNCHRONOUS BY DESIGN, so the settling point is
+            the kit's own `quiesced!` rather than a bare macrotask: the
+            collector gives a cell whose last reader unmounts one macrotask
+            of grace (so a keyed reorder that unmounts and remounts within a
+            turn reuses the reaction), and the entry reaper's horizon sits
+            deliberately outside a `setTimeout 0`. A residue read before
+            that point reports a LEAK against a runtime behaving exactly as
+            documented.
+
+            THIS IS A VERIFICATION GAP BEING CLOSED, NOT AN ALLEGATION. If
+            the numbers come back at baseline — and they do — that IS the
+            deliverable."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
         (setup!)
         (set-routes! base-routes)
-        ;; The starting point is polled, not asserted: a neighbouring row's
-        ;; teardown grace may still be in flight when this one begins.
-        (-> (rf.test-support/poll-until released?
-              {:label "no reference held before the first mount"})
+        ;; The BASELINE is taken after the runtime settles, not at the top of
+        ;; the row: a neighbouring suite's teardown grace may still be in
+        ;; flight when this one begins, and a baseline read early is a
+        ;; baseline that is not zero for reasons that are not this panel's.
+        (-> (rf.fresco.test.runtime/quiesced!)
             (.then
               (fn [_]
+                (is (released?)
+                    (str "BASELINE: nothing retained for this panel's reads "
+                         "before the first mount. " (pr-str (residue))))
                 (let [{:keys [container root]} (mount-panel! :rf/xray)
-                      mounted (ref-count-of :rf/xray tab-data-q)]
-                  (is (pos? mounted)
-                      "the mount took a reference — otherwise the release
-                       below is vacuous")
+                      mounted-refs  (ref-counts)
+                      mounted-cells (live-reactions)
+                      mounted-edges (reader-edges)]
+                  (is (every? pos? mounted-refs)
+                      (str "NON-VACUITY: the mount took a reference for EVERY "
+                           "one of the four reads — otherwise the release "
+                           "below is a claim about nothing. Got: "
+                           (pr-str mounted-refs)))
+                  (is (= (count panel-reads) (count mounted-cells))
+                      (str "NON-VACUITY: and every read has a live collector "
+                           "cell, so there are four watches to lose. Got: "
+                           (pr-str mounted-cells)))
+                  (is (pos? mounted-edges)
+                      (str "NON-VACUITY: and the cells carry reader edges, so "
+                           "there are listeners to lose. Got: " mounted-edges))
                   (teardown! root container)
-                  (-> (rf.test-support/poll-until released?
-                        {:label "the first unmount released the read"})
+                  (-> (rf.fresco.test.runtime/quiesced!)
                       (.then
                         (fn [_]
-                          (is (released?)
-                              (str "the unmount released it COMPLETELY, within "
-                                   "the collector's grace macrotask. Cache: "
+                          (is (every? zero? (ref-counts))
+                              (str "the unmount released every sub-cache "
+                                   "reference COMPLETELY. Residue: "
+                                   (pr-str (residue))
+                                   " — :rf/xray cache keys: "
                                    (pr-str (keys (cache-of :rf/xray)))))
-                          ;; ---- reopen: the same count, not a higher one ----
+                          (is (empty? (live-reactions))
+                              (str "NO RETAINED WATCHES: every collector cell "
+                                   "for this panel's reads is gone, so no "
+                                   "`add-watch` on a derived reaction survives "
+                                   "the unmount. Residue: " (pr-str (residue))))
+                          (is (zero? (reader-edges))
+                              (str "NO RETAINED LISTENERS: and no reader edge "
+                                   "survives either. Residue: "
+                                   (pr-str (residue))))
+                          ;; ---- reopen: the same numbers, not higher ---------
                           (let [{c2 :container r2 :root} (mount-panel! :rf/xray)
-                                remounted (ref-count-of :rf/xray tab-data-q)]
-                            (is (= mounted remounted)
+                                remounted-refs  (ref-counts)
+                                remounted-edges (reader-edges)]
+                            (is (= mounted-refs remounted-refs)
                                 (str "reopening returns to the SAME reference "
-                                     "count (" mounted ") rather than "
-                                     "accumulating — accumulation across "
+                                     "counts (" (pr-str mounted-refs) ") rather "
+                                     "than accumulating — accumulation across "
                                      "open/close cycles is the signature of a "
                                      "release the substrate's own reaction "
-                                     "lifecycle cannot see. Got: " remounted))
+                                     "lifecycle cannot see. Got: "
+                                     (pr-str remounted-refs)))
+                            (is (= mounted-edges remounted-edges)
+                                (str "and the same reader-edge count ("
+                                     mounted-edges ") — an edge left behind by "
+                                     "the first teardown would show here as "
+                                     "growth. Got: " remounted-edges))
                             (teardown! r2 c2)
-                            (rf.test-support/poll-until released?
-                              {:label "the second unmount released it too"}))))))))
-            (.then (fn [_] (is (released?)
-                               "and the second unmount releases it too")))
-            (.catch (fn [e] (is false (str "poll timed out: " (.-message e))) nil))
+                            (rf.fresco.test.runtime/quiesced!))))))))
+            (.then (fn [_]
+                     (is (released?)
+                         (str "and the second unmount returns to baseline too. "
+                              (pr-str (residue))))))
+            (.catch (fn [e] (is false (str "W4 never settled: " (.-message e)))
+                      nil))
             (.then (fn [_] (done))))))))
 
 ;; ===========================================================================
