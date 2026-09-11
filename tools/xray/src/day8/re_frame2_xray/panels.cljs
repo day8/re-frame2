@@ -301,7 +301,14 @@
   FX → SUBSCRIPTIONS → VIEWS) with conditional rendering per the
   trace stream."
   ([mount-point]      (mount-epoch-panel! mount-point nil))
-  ([mount-point opts] (render-panel! epoch-panel/Panel mount-point opts)))
+  ;; rf2-k97c.3 — `Panel-bridge`, the name RULING 1's spelling has the
+  ;; CALLER pass. Today it is a plain alias of the `reg-view` (the same
+  ;; object, so this line delivers byte-for-byte the element it always
+  ;; did); when this panel migrates it becomes the real bridge inside
+  ;; `panels/epoch/view.cljs` and THIS FILE IS NOT TOUCHED AGAIN. Moving
+  ;; every remaining mount to its bridge name in one pass is what lets the
+  ;; panel migrations run in parallel instead of queueing on this file.
+  ([mount-point opts] (render-panel! epoch-panel/Panel-bridge mount-point opts)))
 
 (defn mount-app-db-diff!
   "Mount Xray's App-DB tab in isolation at `mount-point`. Renders the
@@ -352,7 +359,9 @@
   "Mount Xray's Trace tab in isolation at `mount-point`. Renders the
   trace-buffer feed for the focused event-bundle."
   ([mount-point]      (mount-trace! mount-point nil))
-  ([mount-point opts] (render-panel! trace/Panel mount-point opts)))
+  ;; rf2-k97c.3 — `Panel-bridge`; see `mount-epoch-panel!` above for why
+  ;; the mount moves to the bridge name BEFORE the panel migrates.
+  ([mount-point opts] (render-panel! trace/Panel-bridge mount-point opts)))
 
 (defn mount-machine-inspector!
   "Mount Xray's Machines tab in isolation at `mount-point`. Renders
@@ -362,7 +371,9 @@
   — they are not independently mountable (see ns docstring §Internal
   sub-components)."
   ([mount-point]      (mount-machine-inspector! mount-point nil))
-  ([mount-point opts] (render-panel! machine-inspector/Panel mount-point opts)))
+  ;; rf2-k97c.3 — `Panel-bridge`; see `mount-epoch-panel!` above for why
+  ;; the mount moves to the bridge name BEFORE the panel migrates.
+  ([mount-point opts] (render-panel! machine-inspector/Panel-bridge mount-point opts)))
 
 (defn mount-routing!
   "Mount Xray's Routing tab in isolation at `mount-point`. Renders
