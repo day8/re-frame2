@@ -100,6 +100,25 @@
   here must move nothing in the stack above."
   ::other)
 
+;; ---- the diagnostic ------------------------------------------------------
+;;
+;; A re-frame refusal raised inside a React render does NOT reach a
+;; `try/catch` around `flushSync`: React 19 catches it, reports "an error
+;; occurred in <…>" to the console, and re-raises it as an UNCAUGHT window
+;; error. Its `ex-message` and `ex-data` — the whole of what re-frame refuses
+;; WITH — then appear nowhere a row can read, and every assertion below
+;; reddens on a nil testid saying only that the popup is absent.
+;;
+;; Declared ABOVE the fixture because the fixture resets the atom.
+
+(defonce ^:private !last-uncaught (atom nil))
+
+(defonce ^:private error-capture-armed?
+  (when (exists? js/window)
+    (.addEventListener js/window "error"
+                       (fn [^js e] (reset! !last-uncaught (.-error e))))
+    true))
+
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.reagent/adapter
@@ -111,7 +130,15 @@
                       ;; `defonce`s the core fixture knows nothing about; a
                       ;; neighbour's boundary left in the cell table would
                       ;; make W4 count a residue that is not this stack's.
-                      (rf.fresco.impl.collector/reset-runtime!))}))
+                      (rf.fresco.impl.collector/reset-runtime!)
+                      ;; The window error listener below is process-global
+                      ;; too, and several suites on this page throw
+                      ;; DELIBERATELY. Measured: without this reset,
+                      ;; [[uncaught-note]] attributed a neighbouring
+                      ;; suite's planted `::planted` error to a failure of
+                      ;; this one — a diagnostic that names the wrong file
+                      ;; is worse than none.
+                      (reset! !last-uncaught nil))}))
 
 (defn- browser?
   "True only under the real-DOM `:browser-test` build. The `:node-test`
@@ -215,23 +242,6 @@
                      {:value value :opts {:title title}}]
                     {:frame frame})
   nil)
-
-;; ---- the diagnostic ------------------------------------------------------
-;;
-;; A re-frame refusal raised inside a React render does NOT reach a
-;; `try/catch` around `flushSync`: React 19 catches it, reports "an error
-;; occurred in <…>" to the console, and re-raises it as an UNCAUGHT window
-;; error. Its `ex-message` and `ex-data` — the whole of what re-frame refuses
-;; WITH — then appear nowhere a row can read, and every assertion below
-;; reddens on a nil testid saying only that the popup is absent.
-
-(defonce ^:private !last-uncaught (atom nil))
-
-(defonce ^:private error-capture-armed?
-  (when (exists? js/window)
-    (.addEventListener js/window "error"
-                       (fn [^js e] (reset! !last-uncaught (.-error e))))
-    true))
 
 (defn- uncaught-note
   "A suffix naming the last uncaught error, for a row whose subject is
@@ -545,8 +555,18 @@
                            "live frame moved nothing here. got="
                            (pr-str (positioning-attr container b))))
                   ;; ---- a REAL click on the top popup's close --------
-                  (.click (testid container
-                                  (str "rf-xray-edn-inspector-popup-close-" b)))
+                  ;; `some->`, and the guard is load-bearing rather than
+                  ;; defensive habit: on a tree where the boundary does not
+                  ;; paint, this button is nil, and a bare `.click` raises an
+                  ;; uncaught TypeError that the browser runner treats as a
+                  ;; PAGEERROR — which aborts the whole run at this line, so
+                  ;; every later row in the build never runs and W4 reports
+                  ;; nothing at all. Measured on this file's own sabotage run.
+                  ;; Guarded, the click simply does not happen and the poll
+                  ;; below reddens honestly.
+                  (some-> (testid container
+                                  (str "rf-xray-edn-inspector-popup-close-" b))
+                          (.click))
                   (poll-until #(= "1" (popup-count container)))))
               (.then
                 (fn [back-to-one?]
