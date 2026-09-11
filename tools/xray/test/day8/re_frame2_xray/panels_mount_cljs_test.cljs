@@ -499,17 +499,27 @@
             ignored key, so every other mount fn must keep delivering a bare
             element even when its caller sets the opt.
 
-            rf2-pua3 moved `mount-trace!` from the second group to the first —
-            `trace/Panel` now reads `:instance-id` — so the row that used to
-            name it here names `mount-epoch-panel!` instead, and the trace
-            half is asserted in [[mount-trace-instance-id-reaches-the-boundary]]
-            below. A panel is picked here for being a CURRENT member of the
-            no-prop group, not for being a permanent one."
+            A panel is picked here for being a CURRENT member of the no-prop
+            group, not for being a permanent one, so the pick MOVES as panels
+            migrate. It has moved twice:
+
+              - rf2-pua3 moved `mount-trace!` to the first group, and the
+                trace half is asserted in
+                [[mount-trace-instance-id-reaches-the-boundary]] below;
+              - rf2-3ymg then moved `mount-epoch-panel!` AND
+                `mount-machine-inspector!`, whose halves are asserted in
+                [[mount-epoch-panel-instance-id-reaches-the-boundary]] and
+                [[mount-machine-inspector-instance-id-reaches-the-boundary]].
+
+            So the pick is now `mount-reactive-panel!`, and it is a sharper
+            witness than either predecessor: `reactive-panel/Panel-bridge` is
+            declared 0-arity ONLY, so a props map here is the arity error this
+            row names rather than a silently ignored key."
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub]
-        (panels/mount-epoch-panel! :mount-point {:instance-id "left"})
-        (is (= [epoch-panel/Panel-bridge] (delivered-element capture))
-            "the epoch mount delivers its view with no props")))))
+        (panels/mount-reactive-panel! :mount-point {:instance-id "left"})
+        (is (= [reactive-panel/Panel-bridge] (delivered-element capture))
+            "the reactive mount delivers its view with no props")))))
 
 (defn- trace-delivered-by
   "Mount the Trace panel through the public facade with `opts`; return the
@@ -556,6 +566,114 @@
         "opts carrying no instance name deliver it too")
     (is (= {} (crossed (trace-delivered-by nil)))
         "and the bridge's 0-arity mounts the boundary with no props")))
+
+(defn- epoch-delivered-by
+  "Mount the Epoch panel through the public facade with `opts`; return the
+  element it delivered to the substrate."
+  [opts]
+  (let [[capture _ render-stub] (make-render-stub)]
+    (with-redefs [rf.substrate.adapter/render render-stub]
+      (panels/mount-epoch-panel! :mount-point opts))
+    (delivered-element capture)))
+
+(deftest mount-epoch-panel-instance-id-reaches-the-boundary
+  (testing "rf2-3ymg — `mount-epoch-panel!`'s `:instance-id` opt reaches the
+            Fresco boundary's props, across the real `Panel-bridge`. This is
+            the mount door onto the prop the panel now reads: a caller that
+            MOUNTS passes opts and never props, so before this the standalone
+            embed could not name an instance at all.
+
+            The DOM-level claim — that naming two mounts actually separates
+            their inspector lifecycle and width — is
+            `panels/epoch_machine_mount_instance_id_dom_cljs_test`'s. This row
+            is only that the opt survives the facade and the crossing, which
+            is the half a DOM row cannot localise when it fails."
+    (is (= {:instance-id "left"}
+           (crossed (epoch-delivered-by {:instance-id "left"})))
+        "the opt crosses the bridge and arrives as a prop")
+    (is (= {:instance-id "left/epoch"}
+           (crossed (epoch-delivered-by {:instance-id :left/epoch})))
+        "and a KEYWORD keeps its namespace — rf2-4bsq: `[:>]` would convert it
+         with `cljs.core/name` and drop the namespace, so `:left/epoch` and
+         `:right/epoch` would both arrive as \"epoch\" and compose one
+         `epoch/epoch/dispatch-event`, restoring the very collision this
+         removes. The bridge tokenises BEFORE the crossing for that reason")
+    (let [[capture _ render-stub] (make-render-stub)]
+      (with-redefs [rf.substrate.adapter/render render-stub]
+        (panels/mount-epoch-panel! :mount-point
+                                   {:frame :my-app/cart :instance-id "right"})
+        (is (= {:frame :my-app/cart} (second (captured-tree capture)))
+            "and it composes with `:frame` rather than replacing it — the
+             frame-provider still wraps the frame the host named")))
+    (is (= [epoch-panel/Panel-bridge] (epoch-delivered-by nil))
+        "an UNNAMED epoch mount delivers the bare `[Panel-bridge]` element it
+         always delivered, not `[Panel-bridge {}]` — the shape the shell's
+         `[(:panel tab)]` and every standalone call site in this tree take
+         today, and what keeps their composed ids byte-for-byte unchanged")
+    (is (= [epoch-panel/Panel-bridge] (epoch-delivered-by {:frame :my-app/cart}))
+        "opts carrying no instance name deliver it too")
+    (is (= {} (crossed (epoch-delivered-by nil)))
+        "and the bridge's 0-arity mounts the boundary with no props")
+    (is (= {} (crossed (epoch-delivered-by {:instance-id ""})))
+        "a BLANK string tokenises to nil and mounts with no props, exactly as
+         naming no instance does — the facade passes it through (the empty
+         string is truthy), so it is the tokeniser that has to refuse it")))
+
+(defn- machine-inspector-delivered-by
+  "Mount the Machine Inspector through the public facade with `opts`; return
+  the element it delivered to the substrate."
+  [opts]
+  (let [[capture _ render-stub] (make-render-stub)]
+    (with-redefs [rf.substrate.adapter/render render-stub]
+      (panels/mount-machine-inspector! :mount-point opts))
+    (delivered-element capture)))
+
+(deftest mount-machine-inspector-instance-id-reaches-the-boundary
+  (testing "rf2-3ymg — `mount-machine-inspector!`'s `:instance-id` opt reaches
+            the Fresco boundary's props, across the real `Panel-bridge`.
+
+            THIS PANEL'S CONTRACT DIFFERS FROM EVERY SIBLING'S, which is why
+            it gets its own row rather than riding on the epoch one above.
+            Element 2 renders through `epoch-view/machine-cascade-mini-
+            pipeline`, the SHARED renderer the Epoch panel's handler step uses
+            (rf2-g2axio), so this panel composes ids in the EPOCH panel's id
+            namespace. `machine-inspector/instance-token` therefore NEVER
+            answers nil: it names the panel itself, and a caller's token rides
+            BELOW that. The rows below pin both halves of that."
+    (is (= {:instance-id "machine-inspector"}
+           (crossed (machine-inspector-delivered-by nil)))
+        "AN UNNAMED MOUNT IS THE INTERESTING ONE — it crosses carrying this
+         panel's OWN name, not `{}`. That is the cross-panel half of rf2-3ymg
+         fixed with no caller action, because which panel is rendering is
+         statically known and an embedder mounting one Epoch panel and one
+         Machine Inspector over the same cascade cannot see the collision to
+         work around it. Every sibling panel answers nil here")
+    (is (= [machine-inspector/Panel-bridge] (machine-inspector-delivered-by nil))
+        "the DELIVERED element is still the bare `[Panel-bridge]` it always
+         was, though — what changed is what the bridge mounts the boundary
+         with, not what the facade hands the substrate")
+    (is (= {:instance-id "machine-inspector/left"}
+           (crossed (machine-inspector-delivered-by {:instance-id "left"})))
+        "a caller's name rides BELOW the panel's own, so two standalone
+         Machine Inspectors are distinct AND one named `left` cannot collide
+         with an Epoch panel named `left` either")
+    (is (= {:instance-id "machine-inspector/left/machines"}
+           (crossed (machine-inspector-delivered-by {:instance-id :left/machines})))
+        "and a KEYWORD keeps its namespace — rf2-4bsq, as for every other
+         bridge that tokenises before the crossing")
+    (is (= {:instance-id "machine-inspector/left"}
+           (crossed (machine-inspector-delivered-by
+                      {:instance-id "machine-inspector/left"})))
+        "the tokeniser is IDEMPOTENT on its own output, which is what makes
+         the boundary's second call after the crossing a no-op rather than a
+         `machine-inspector/machine-inspector/left`")
+    (let [[capture _ render-stub] (make-render-stub)]
+      (with-redefs [rf.substrate.adapter/render render-stub]
+        (panels/mount-machine-inspector!
+          :mount-point {:frame :my-app/cart :instance-id "right"})
+        (is (= {:frame :my-app/cart} (second (captured-tree capture)))
+            "and it composes with `:frame` rather than replacing it — the
+             frame-provider still wraps the frame the host named")))))
 
 ;; ---- contract — idempotency under repeat mount ------------------------
 
