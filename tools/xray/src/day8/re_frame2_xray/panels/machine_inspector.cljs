@@ -37,11 +37,22 @@
     - `:after` countdown rings overlay (when armed timers exist).
     - prev/next nav (per-machine epoch walking).
 
-  ## Pure hiccup
+  ## Hiccup, and who renders it (rf2-k97c.3)
 
-  Same contract as every other Xray panel — the view is pure hiccup,
-  no Reagent / UIx references. Frame isolation comes from the
-  enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`."
+  The markup is still pure hiccup, but [[Panel]] is a `rf.fresco/defview`
+  boundary rather than an `rf/reg-view`, so FRESCO renders it — not the
+  substrate adapter installed via `rf/init!`. [[panel-tree]] holds the
+  markup as a pure fn so the node lane can still drive it.
+
+  `reagent.core` IS referenced now, and only as a migration seam: one
+  `as-element` island for the topology chart, which is still an
+  `rf/reg-view` and shared with the Static surface. Every other helper in
+  this file answers hiccup and is CALLED, never used as a hiccup head —
+  the standard HD-016 repair, and what keeps this file to one boundary.
+
+  Frame isolation is unchanged and comes from the same place: the
+  enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`,
+  which writes the React context a boundary reads its frame from."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             ;; rf2-kq8nac (EP-0005) — the snapshot-egress chokepoint. The
@@ -55,6 +66,13 @@
             ;; `[:schemas :data]` slot lands as `:rf/redacted` / the size
             ;; marker before any panel surface reads it — never raw.
             [re-frame.classification :as rf.classification]
+            [re-frame.fresco :as rf.fresco]
+            ;; rf2-k97c.3 — `reagent.core/as-element` is the `as-child`
+            ;; spelling [[Panel]] hands down for the ONE island this panel
+            ;; still needs (the topology chart; see [[panel-tree]]). The
+            ;; markup stays pure hiccup — Reagent appears here as a
+            ;; migration seam, not as an authoring dependency.
+            [reagent.core :as r]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             ;; rf2-g2axio — the SHARED EVENT HANDLER machine-cascade
@@ -282,11 +300,26 @@
   chart-collapse toggle + summary, the snapshot drill-in, and the
   inline cancellation-cascade block — all subsumed by the shared
   mini-pipeline above the chart, or relocated to the chart's own
-  toolbar."
+  toolbar.
+
+  rf2-k97c.3 — `as-child` is the island spelling [[panel-tree]] threads
+  down: `identity` for a hiccup caller (the node lane), and
+  `reagent.core/as-element` under the boundary. It wraps ELEMENT 3 only.
+  `machine-canvas/Chart` is still an `rf/reg-view`, and a `reg-view` head
+  grades `:invalid` under Fresco's codec down the IDENTICAL arm a plain
+  `defn` does — the codec reads one own property, `frescoBoundary`, which
+  only `rf.fresco/defview` sets. Islanding rather than migrating `Chart`
+  is a SCHEDULING call and a deliberate one: `Chart` has a second consumer
+  outside this panel (`panels/machines/topology_view.cljs`, on the Static
+  surface), so migrating it is that slice's to make, not this one's.
+  ELEMENT 2 needs no island — every head reachable through
+  `epoch-view/machine-cascade-mini-pipeline` was repaired in the same
+  commit, so that whole subtree is head-free."
   [cascade
    {:keys [machine-id from-state to-state definition fired-edge-ids
            guard-blocked-edge-ids start? no-op?]
-    :as _record}]
+    :as _record}
+   as-child]
   ;; rf2-gpzb4 (2026-05-21 xyflow migration) — the host-side ELK
   ;; layout dance is GONE; xyflow + elkjs own positioning end-to-end
   ;; inside `MachineChart`. The panel only computes the from/to node-ids
@@ -308,7 +341,10 @@
         ;; topology re-frames whenever the operator (re-)enters the
         ;; Machine tab, even when the focused machine (hence the chart's
         ;; layout-key) is unchanged.
-        fit-signal @(rf/subscribe [:rf.xray/machine-tab-fit-signal])]
+        ;; rf2-k97c.3 — `rf.fresco/sub`, donated upward into [[Panel]]'s
+        ;; collector window: this helper is CALLED, never headed, so it has
+        ;; no boundary of its own and the read belongs to the panel's.
+        fit-signal (rf.fresco/sub [:rf.xray/machine-tab-fit-signal])]
     [:section
      {:data-testid (str "rf-xray-machine-focused-event-section-"
                         (when machine-id
@@ -396,54 +432,55 @@
          ;; rf2-y3l8z — the chart wraps an interactive viewport adapter
          ;; (zoom/pan/fit + controls toolbar) and owns the after-rings
          ;; overlay so they stay co-located with the canvas.
-         [machine-canvas/Chart
-          {:definition         definition
-           :machine-id         machine-id
-           ;; rf2-kq8nac (EP-0005) — surface the AUTHORITATIVE declared
-           ;; Context shape (keys + type captions) in the focused-event
-           ;; chart's root Context band, with the declared-vs-inferred
-           ;; indicator. When the machine declares a `[:schemas :data]` schema the
-           ;; shape is read off the schema and `:context-band-inferred?`
-           ;; is FALSE (the chart drops the `inferred from :data` badge and
-           ;; shows `declared` — consistent with the Static Topology view
-           ;; from rf2-3q4k5b); absent a schema it falls back to the
-           ;; one-sample inference (rf2-5tz9p's badge stays). This is the
-           ;; SHAPE, not live `:data` VALUES — the live runtime `:data`
-           ;; surfaces (egress-redacted) through the SHARED mini-pipeline's
-           ;; cascade rows above, never raw here.
-           :context-band       (topology-view/static-context-shape definition)
-           :context-band-inferred? (topology-view/static-context-inferred? definition)
-           ;; rf2-skmc7 — a NO-OP has no from→to edge; suppress the
-           ;; from/to highlight grammar and surface the CURRENT state via
-           ;; `:current-state` instead.
-           :from-highlight     (when-not no-op? from-state)
-           :to-highlight       (when-not no-op? to-state)
-           ;; rf2-eldze / rf2-skmc7 — a BIRTH's initial state and a
-           ;; NO-OP's unchanged current state both ride `:current-state`
-           ;; so the chart highlights the one resting node.
-           :current-state      (cond
-                                 start? to-state
-                                 no-op? to-state
-                                 :else  nil)
-           ;; rf2-qeemm (G3) — the traversed edges paint the FIRED
-           ;; treatment on the live chart.
-           :fired-edge-ids     fired-edge-ids
-           ;; rf2-fzrzlw — the attempted-and-rejected edges (guard-blocked
-           ;; no-op, e.g. door :door/close blocked by :may-close?) paint
-           ;; the PINK guard-blocked treatment on the live chart so the
-           ;; operator sees which edge the event hit + that a guard
-           ;; rejected it (no transition fired, so the fired set is empty).
-           :guard-blocked-edge-ids guard-blocked-edge-ids
-           ;; rf2-6tw7t — fit-on-entry nonce so re-entering the Machine
-           ;; tab re-frames the topology.
-           :fit-signal         fit-signal
-           :on-state-click     (fn [path]
-                                 (rf/dispatch
-                                   [:rf.xray/machine-state-clicked
-                                    {:machine-id machine-id
-                                     :path       path}]
-                                   {:frame frame}))
-           :show-after-rings?  true}]]])]))
+         (as-child
+           [machine-canvas/Chart
+            {:definition         definition
+             :machine-id         machine-id
+             ;; rf2-kq8nac (EP-0005) — surface the AUTHORITATIVE declared
+             ;; Context shape (keys + type captions) in the focused-event
+             ;; chart's root Context band, with the declared-vs-inferred
+             ;; indicator. When the machine declares a `[:schemas :data]` schema the
+             ;; shape is read off the schema and `:context-band-inferred?`
+             ;; is FALSE (the chart drops the `inferred from :data` badge and
+             ;; shows `declared` — consistent with the Static Topology view
+             ;; from rf2-3q4k5b); absent a schema it falls back to the
+             ;; one-sample inference (rf2-5tz9p's badge stays). This is the
+             ;; SHAPE, not live `:data` VALUES — the live runtime `:data`
+             ;; surfaces (egress-redacted) through the SHARED mini-pipeline's
+             ;; cascade rows above, never raw here.
+             :context-band       (topology-view/static-context-shape definition)
+             :context-band-inferred? (topology-view/static-context-inferred? definition)
+             ;; rf2-skmc7 — a NO-OP has no from→to edge; suppress the
+             ;; from/to highlight grammar and surface the CURRENT state via
+             ;; `:current-state` instead.
+             :from-highlight     (when-not no-op? from-state)
+             :to-highlight       (when-not no-op? to-state)
+             ;; rf2-eldze / rf2-skmc7 — a BIRTH's initial state and a
+             ;; NO-OP's unchanged current state both ride `:current-state`
+             ;; so the chart highlights the one resting node.
+             :current-state      (cond
+                                   start? to-state
+                                   no-op? to-state
+                                   :else  nil)
+             ;; rf2-qeemm (G3) — the traversed edges paint the FIRED
+             ;; treatment on the live chart.
+             :fired-edge-ids     fired-edge-ids
+             ;; rf2-fzrzlw — the attempted-and-rejected edges (guard-blocked
+             ;; no-op, e.g. door :door/close blocked by :may-close?) paint
+             ;; the PINK guard-blocked treatment on the live chart so the
+             ;; operator sees which edge the event hit + that a guard
+             ;; rejected it (no transition fired, so the fired set is empty).
+             :guard-blocked-edge-ids guard-blocked-edge-ids
+             ;; rf2-6tw7t — fit-on-entry nonce so re-entering the Machine
+             ;; tab re-frames the topology.
+             :fit-signal         fit-signal
+             :on-state-click     (fn [path]
+                                   (rf/dispatch
+                                     [:rf.xray/machine-state-clicked
+                                      {:machine-id machine-id
+                                       :path       path}]
+                                     {:frame frame}))
+             :show-after-rings?  true}])]])]))
 
 ;; ---- prev/next nav (per-machine epoch walking) -------------------------
 
@@ -508,9 +545,13 @@
   no machine transitioned in the focused event's cascade — the panel
   renders the empty-state placeholder in that case (see `blank-state`).
 
-  rf2-alsnz — `records` flows in as an arg so the panel makes one
-  Reaction handle per render instead of two."
-  [records cascade]
+  rf2-alsnz — `records` flows in as an arg so the panel reads the
+  composite once per render instead of twice.
+
+  rf2-k97c.3 — `as-child` is threaded straight through to
+  [[focused-event-section]], which is the only place it is used; see that
+  fn's docstring for what it islands and why."
+  [records cascade as-child]
   (let [;; Dynamic-mode single-instance rule (spec/003 §Dynamic mode —
         ;; single-instance, event-driven, rf2-8og3k): pick the first
         ;; transition by trace order. The upstream projection already
@@ -521,7 +562,9 @@
         ;; panel against a different runtime) gets a clean section
         ;; instance, while ordinary Prev/Next within one frame+machine
         ;; preserves it.
-        target-frame @(rf/subscribe [:rf.xray/target-frame])]
+        ;; rf2-k97c.3 — `rf.fresco/sub`, donated upward into [[Panel]]'s
+        ;; collector window (this helper is called, never headed).
+        target-frame (rf.fresco/sub [:rf.xray/target-frame])]
     (when record
       [:div {:data-testid "rf-xray-machine-focused-event"
              ;; The host carries the count of records the cascade
@@ -552,7 +595,7 @@
        ;; `focused-event-section` answers hiccup whose own attribute map
        ;; is not ours to write into, so the key rides the fragment.
        [:<> {:key (h/focused-event-section-key target-frame record)}
-        (focused-event-section cascade record)]])))
+        (focused-event-section cascade record as-child)]])))
 
 (defn- blank-state
   "Rendered when the focused event has no machine activity in its
@@ -606,9 +649,10 @@
 
 ;; ---- public view --------------------------------------------------------
 
-(rf/reg-view Panel
-  "The Machine Inspector (Machine tab) root view (rf2-g2axio). Shows
-  EXACTLY THREE elements when the focused event targets a machine:
+(defn panel-tree
+  "The Machine Inspector's markup, as a pure fn of the three values
+  [[Panel]] reads plus the island spelling. Shows EXACTLY THREE elements
+  when the focused event targets a machine:
 
     1. the Prev/Next epoch nav (header — per-machine epoch walker),
     2. the SHARED EVENT HANDLER mini-pipeline (the SAME numbered
@@ -618,16 +662,30 @@
 
   Event-driven: BLANK when the focused event has no machine activity.
   Prev/Next moves the spine focus, which re-feeds the mini-pipeline AND
-  the chart highlights together (both read the focused epoch)."
-  []
-  (let [{:keys [empty-kind]} @(rf/subscribe [:rf.xray/machine-inspector-data])
-        records @(rf/subscribe [:rf.xray/machine-transitions-for-focused-event])
-        ;; rf2-g2axio — the focused epoch's projected machine-cascade rows
-        ;; for the SHARED mini-pipeline (element 2). Reads the same focused
-        ;; epoch Prev/Next drives, so the mini-pipeline + chart move
-        ;; together.
-        {:keys [cascade]} @(rf/subscribe [:rf.xray/machine-focused-epoch-cascade])
-        ;; The first record's machine-id drives the prev/next nav (a
+  the chart highlights together (both read the focused epoch).
+
+  SPLIT OUT OF [[Panel]] BY rf2-k97c.3, and the split is `defview`'s own
+  documented extract-a-helper spelling rather than an invention. A
+  boundary's body may only run inside a React render window, so `(Panel)`
+  is no longer a callable that answers hiccup — while this panel's
+  section algebra is ordinary data → data and is worth testing in the
+  fast node lane rather than behind a real React commit.
+  `machine_inspector_view_cljs_test` drives THIS fn with the values it
+  takes from the subs directly; the boundary's own behaviour — first
+  paint, liveness, frame targeting and teardown — is
+  `machine_inspector_fresco_boundary_dom_cljs_test`'s subject.
+
+  `as-child` is the island spelling, threaded down to
+  [[focused-event-section]] and used nowhere else: `identity` for a
+  hiccup caller, `reagent.core/as-element` under the boundary.
+
+  NOT PURE in one respect worth naming: the two helpers it calls —
+  [[focused-event-view]] and [[focused-event-section]] — each perform one
+  `rf.fresco/sub`, which DONATES upward into the calling boundary's
+  collector window (HD-016). Under the node lane they are ordinary reads
+  against whatever frame the test binds."
+  [{:keys [empty-kind]} records cascade as-child]
+  (let [;; The first record's machine-id drives the prev/next nav (a
         ;; cascade may touch multiple machines; the nav's "this machine"
         ;; is the head section's machine).
         scope-machine-id (some-> records first :machine-id)]
@@ -659,45 +717,103 @@
        ;; does not duplicate-subscribe the same composite handle.
        [:div {:data-testid "rf-xray-machine-inspector-focused-event-host"
               :style focused-event-host-style}
-        (focused-event-view records cascade)]
+        (focused-event-view records cascade as-child)]
 
        :else
        (blank-state))]))
+
+(rf.fresco/defview Panel
+  "The Machine Inspector (Machine tab) root — a FRESCO BOUNDARY
+  (rf2-k97c.3), not an `rf/reg-view`. The THREE READS, and
+  [[panel-tree]] for everything below them.
+
+  The READS are `rf.fresco/sub` — plain calls the shipped collector
+  records an edge for, with no deref and no reaction owned by the
+  INSTALLED adapter. That is the third of the epic's three couplings and
+  the one a first-paint smoke test cannot see. Two more reads donate
+  upward into this boundary's window from inlined helpers
+  ([[focused-event-view]]'s target-frame and [[focused-event-section]]'s
+  fit-signal), which HD-016 makes settled rather than contingent.
+
+  The FRAME they resolve against comes from React context, which the
+  enclosing frame boundary writes — `rf/frame-provider` and
+  `rf.fresco/frame-provider` write the SAME context — so this boundary
+  resolves `:rf/xray` identically under today's Reagent-rendered shell
+  and under the Fresco root Xray will own.
+
+  ONE ISLAND SURVIVES, and it is scheduling rather than residue:
+  `r/as-element` is handed down for the topology chart, because
+  `machine-canvas/Chart` is still an `rf/reg-view` and has a second
+  consumer on the Static surface. [[focused-event-section]] records the
+  condition that retires it.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. This panel reads nothing from props — neither the L4 registry
+  nor the standalone embed passes any — so it is destructured away."
+  [_props]
+  (panel-tree (rf.fresco/sub [:rf.xray/machine-inspector-data])
+              (rf.fresco/sub [:rf.xray/machine-transitions-for-focused-event])
+              ;; rf2-g2axio — the focused epoch's projected machine-cascade
+              ;; rows for the SHARED mini-pipeline (element 2). Reads the
+              ;; same focused epoch Prev/Next drives, so the mini-pipeline
+              ;; and the chart move together.
+              (:cascade (rf.fresco/sub [:rf.xray/machine-focused-epoch-cascade]))
+              r/as-element))
 
 ;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
 ;;
 ;; `panels/mount-machine-inspector!` mounts this panel BY NAME, and
 ;; RULING 1's surviving spelling puts the Fresco boundary on the natural
 ;; name with a PUBLIC bridge passed by the caller — the shape
-;; `resources/Panel-bridge` already ships. Pointing the mount facade at the
-;; bridge name NOW, while it is still a plain alias, is what lets this
-;; panel's migration happen entirely INSIDE THIS FILE: `Panel` becomes the
-;; `defview` boundary and this def becomes the real
-;; `rf.fresco/as-component` bridge, with `panels.cljs` never touched again.
-;; It adopts RULING 1 early rather than bending it.
+;; `resources/Panel-bridge` already ships, and the funnel that pointed the
+;; mount facade here (PR #9654) is what let this panel's migration happen
+;; ENTIRELY INSIDE THIS FILE: `panels.cljs` was never touched.
 ;;
-;; TODAY IT IS A NO-OP. `rf/reg-view` expands to `(def Panel
-;; (re-frame.core/view :id))`, so `Panel` is a VALUE and this def binds the
-;; SAME OBJECT — nothing downstream can tell the two names apart. And
-;; `render-panel!` always builds the component VECTOR `[panel-view]`, so
-;; head position is the only position either name is used in, and the hazard
-;; `render-panel!`'s docstring warns about is not reached: what is unsafe
-;; there is CALLING the view, because that fn runs outside any React render
-;; and an ambient subscribe with no in-flight component resolves to nil and
-;; RAISES `:rf.error/no-frame-context` (there is no `:rf/default` fallback —
-;; Spec 006 §Plain-fn footgun).
+;; IT IS NO LONGER A NO-OP. Until this commit `Panel-bridge` was a `def`
+;; aliasing the `reg-view` value, and nothing downstream could tell the two
+;; names apart. `Panel` is now a Fresco boundary — a React function
+;; component — and Xray's shell is still a `reg-view` tree rendered by the
+;; installed adapter, which mounts the active tab as the hiccup head
+;; `[(:panel tab)]` with `panel-registry/reg-l4-tab!`'s `:pre` requiring
+;; `:panel` to be CALLABLE. A React component is neither.
+;;
+;; `rf.fresco/as-component` is Fresco's own outward door for exactly this:
+;; it answers a real React component for a boundary, which a React parent
+;; (Reagent, UIx or plain JavaScript) mounts UNDER THE FRAME IT IS ALREADY
+;; IN, taking the frame from React context rather than from a second root.
+;; So there is no second root here, no adapter-kind branch, and no props
+;; ABI — and the `[rf/frame-provider {:frame :rf/xray}]` the shell already
+;; wraps the panel in is what puts `:rf/xray` in that context.
 ;;
 ;; The Tier 4 sub-components (after-rings overlay, arc/cluster overlays,
 ;; scrubber strip, sim side-rail) render UNDER `Panel` and are not
-;; independently mountable, so they need no bridge of their own.
-(def Panel-bridge
-  "The name `panels/mount-machine-inspector!` mounts this panel through —
-  a plain alias of `Panel` until this panel migrates to Fresco, when it
-  becomes the `as-component` bridge without the mount facade moving.
-  Scaffolding with a defined end: it is deleted with every other
-  `*-bridge` when the shell itself becomes a Fresco tree. See the comment
-  above."
-  Panel)
+;; independently mountable, so they need no bridge of their own. The
+;; after-rings overlay is the ONE exception and already carries its own
+;; (`machine_after_rings/AfterRingsOverlay-bridge`), because it is mounted
+;; from `machine-canvas/Chart`, which is still Reagent.
+;;
+;; STILL SCAFFOLDING WITH A DEFINED END: when the shell is itself a Fresco
+;; tree, `reg-l4-tab!` takes `Panel` directly, `[:>]` goes, and both defs
+;; below are deleted with every other `*-bridge`.
+(def ^:private Panel-component
+  "The React component [[Panel]] presents as, for a non-Fresco parent.
+  Declared ONCE at top level beside the view, as `rf.fresco/as-component`'s
+  own contract requires — deriving it per render would mint a fresh
+  component type every pass and remount the panel, taking the xyflow
+  chart's measured layout with it."
+  (rf.fresco/as-component Panel))
+
+(defn Panel-bridge
+  "The callable `panels/mount-machine-inspector!` and the L4 tab
+  registration both mount this panel through. Returns Reagent-shaped
+  hiccup interoping to the React component above; the enclosing
+  `rf/frame-provider` is what puts the frame in React context for it.
+
+  PUBLIC, because this panel carries a `mount-machine-inspector!` facade
+  and `panels/render-panel!` takes the view to mount as an ARGUMENT, so
+  the embedding contract needs a name it can pass."
+  []
+  [:> Panel-component {}])
 
 ;; ---- production value sources --------------------------------------------
 ;;
@@ -1096,7 +1212,13 @@
      :mnem  "m"
      :modes #{:dynamic}
      :order 4
-     :panel Panel}))
+     ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
+     ;; component (a Fresco boundary); `reg-l4-tab!`'s `:pre` requires
+     ;; `:panel` to be CALLABLE and `shell/detail-panel` mounts it as a
+     ;; Reagent hiccup head `[(:panel tab)]`, neither of which a React
+     ;; component satisfies. The bridge is the one line between them and
+     ;; goes when the shell itself is a Fresco tree.
+     :panel Panel-bridge}))
 
 ;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
 

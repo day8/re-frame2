@@ -60,14 +60,33 @@
   for the follow-on rich-expansion pass (see the §expansion state
   helpers comment below); until then it is registered-but-unused.
 
-  ## Pure hiccup
+  ## Hiccup, and who renders it (rf2-k97c.3)
 
-  The panel emits hiccup; the substrate adapter installed via
-  `rf/init!` handles rendering. Each step body is a body-returning
-  helper composed into the numbered cascade by `pipeline-view`."
+  The panel still emits hiccup, but [[Panel]] is a `rf.fresco/defview`
+  boundary rather than an `rf/reg-view`, so FRESCO renders it — not the
+  substrate adapter installed via `rf/init!`. Each step body is still a
+  body-returning helper composed into the numbered cascade by
+  `pipeline-view`, and every one of them is CALLED rather than used as a
+  hiccup head, which is what keeps this whole file under one boundary.
+
+  Two consequences worth knowing before editing a helper here:
+
+    * A PLAIN FN IN HEAD POSITION IS A LOUD ERROR under a boundary —
+      Fresco's codec grades it `:invalid` — and it is the wrong shape
+      anyway: a plain fn carries no `:contextType`, so an ambient read
+      inside one resolves its frame to nil and raises
+      `:rf.error/no-frame-context` (Spec 006 §Plain-fn footgun; there is
+      no `:rf/default` fallback). CALL the helper. Only a `defview` — the
+      widget siblings `ei/edn-inspector-view` and `rt/resizable-table-view`
+      — belongs in head position.
+    * `^{:key …}` METADATA REACHES REACT NOWHERE under Fresco: the codec
+      takes a literal `:key` from an ATTRIBUTE MAP and reads Clojure
+      metadata not at all. Every sibling key in this file rides the
+      attribute map; keep it that way."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.flows :as rf.flows]
+            [re-frame.fresco :as rf.fresco]
             [re-frame.schemas :as rf.schemas]
             [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
@@ -2013,9 +2032,12 @@
   (when (vector? event)
     [:div {:data-testid "rf-xray-epoch-dispatch-event"}
      [:div {:style dispatch-body-style}
-      [ei/edn-inspector event {:site-id "epoch-dispatch-event"
-                               :card?   false
-                               :zoomable? true}]]]))
+      [ei/edn-inspector-view
+       {:mount-id "epoch/dispatch-event"
+        :value    event
+        :opts     {:site-id "epoch-dispatch-event"
+                   :card?   false
+                   :zoomable? true}}]]]))
 
 (defn- dispatch-source-label
   "Render the dispatch source label — `<source>` text. When the
@@ -2398,7 +2420,7 @@
         [:span {:style coeffect-body-arrow-style} "→"]
         [:span {:style coeffect-body-path-style} "arg"]
         [:span {:style coeffect-body-value-style}
-         [ei/mini input 80]]])
+         (ei/mini input 80)]])
      (if no-value?
        [:div {:data-testid (str "rf-xray-epoch-coeffect-failed-" (name id))
               :style coeffect-body-style}
@@ -2410,7 +2432,7 @@
         [:span {:style coeffect-body-path-style}
          (str "[" (fmt/ns-keyword id) "]")]
         [:span {:style coeffect-body-value-style}
-         [ei/mini value 80]]])
+         (ei/mini value 80)]])
      ;; rf2-yz57h — a coeffect-injection EXCEPTION attaches here as the
      ;; shared inline 'Exception Thrown' card (button-19), under the
      ;; COEFFECT step where it occurred (no longer collapsed onto HANDLER).
@@ -3193,11 +3215,13 @@
       [:div {:data-testid (str "rf-xray-epoch-machine-cascade-source-" step)
              :style cascade-row-source-style}
        [:div {:data-testid (str "rf-xray-epoch-machine-cascade-transition-delta-" step)}
-        [ei/edn-inspector after-ls
-         (cond-> {:site-id                [:rf.xray.epoch/machine-cascade-transition-delta step]
-                  :card?                  false
-                  :default-expanded-depth 3}
-           (some? before-ls) (assoc :before before-ls))]]])))
+        [ei/edn-inspector-view
+         {:mount-id (str "epoch/machine-cascade-transition-delta/" step)
+          :value    after-ls
+          :opts     (cond-> {:site-id                [:rf.xray.epoch/machine-cascade-transition-delta step]
+                             :card?                  false
+                             :default-expanded-depth 3}
+                      (some? before-ls) (assoc :before before-ls))}]]])))
 
 ;; ---- structured transition cascade render (rf2-52u5n) -------------------
 ;;
@@ -3271,10 +3295,12 @@
     [:div {:data-testid (str "rf-xray-epoch-machine-cascade-source-" step)
            :style cascade-row-source-style}
      [:div {:data-testid (str "rf-xray-epoch-machine-cascade-start-data-" step)}
-      [ei/edn-inspector data
-       {:site-id                [:rf.xray.epoch/machine-cascade-start-data step]
-        :card?                  false
-        :default-expanded-depth 3}]]]))
+      [ei/edn-inspector-view
+       {:mount-id (str "epoch/machine-cascade-start-data/" step)
+        :value    data
+        :opts     {:site-id                [:rf.xray.epoch/machine-cascade-start-data step]
+                   :card?                  false
+                   :default-expanded-depth 3}}]]]))
 
 (defn- cascade-row-source-body
   "Render the source code body for a cascade row (rf2-u69j7 baseline +
@@ -3377,11 +3403,13 @@
          :style cascade-detail-row-style}
    [:span {:style cascade-detail-data-arrow-style} "↳"]
    [:span {:style cascade-detail-value-style}
-    [ei/edn-inspector data-write
-     (cond-> {:site-id                [:rf.xray.epoch/machine-cascade-data step]
-              :card?                  false
-              :default-expanded-depth 3}
-       (some? data-before) (assoc :before data-before))]]])
+    [ei/edn-inspector-view
+     {:mount-id (str "epoch/machine-cascade-data/" step)
+      :value    data-write
+      :opts     (cond-> {:site-id                [:rf.xray.epoch/machine-cascade-data step]
+                         :card?                  false
+                         :default-expanded-depth 3}
+                  (some? data-before) (assoc :before data-before))}]]])
 
 (defn- cascade-row-action-outcome-details
   "Render the per-action outcome details for an `:action` cascade row
@@ -3998,7 +4026,12 @@
   slot folds into SNAPSHOT DIFF rather than carrying a redundant
   standalone slot."
   [db-post-handler db-write?]
-  (let [record    @(rf/subscribe [:rf.xray/selected-epoch-record])
+  ;; rf2-k97c.3 — `rf.fresco/sub`, a plain call the collector records an
+  ;; edge for, DONATED UPWARD into `Panel`'s window (this helper is called,
+  ;; never headed, so it has no boundary of its own). HD-016: a
+  ;; helper-donated read is settled rather than contingent. The frame comes
+  ;; from React context, so the read needs no `{:frame …}` option.
+  (let [record    (rf.fresco/sub [:rf.xray/selected-epoch-record])
         db-before (:db-before record)
         ;; rf2-4wywy — t1 (post-handler, pre-flow) is the authoritative
         ;; HANDLER `:db`; fall back to the record's post-flow `:db-after`
@@ -4028,10 +4061,12 @@
        (some? db-after)
        [:div {:data-testid "rf-xray-epoch-handler-db-full-with-diff"
               :style handler-db-all-style}
-        [ei/edn-inspector db-after
-         {:site-id [:rf.xray.epoch/handler-db-full-with-diff (:epoch-id record)]
-          :before db-before
-          :default-expanded-depth 3}]]
+        [ei/edn-inspector-view
+         {:mount-id (str "epoch/handler-db-full-with-diff/" (:epoch-id record))
+          :value    db-after
+          :opts     {:site-id [:rf.xray.epoch/handler-db-full-with-diff (:epoch-id record)]
+                     :before db-before
+                     :default-expanded-depth 3}}]]
 
        :else
        [:span {:data-testid "rf-xray-epoch-handler-db-full-with-diff-missing"
@@ -4101,22 +4136,26 @@
        (let [n (count fx-vec)]
          [:div {:data-testid "rf-xray-epoch-handler-fx"}
           (sub-header ":fx" (str n " entr" (if (= 1 n) "y" "ies")))
-          [ei/edn-inspector fx-vec
-           {:site-id                [:rf.xray.epoch/handler-fx event-id]
-            :card?                  false
-            :zoomable?              true
-            :default-expanded-depth 16}]]))
+          [ei/edn-inspector-view
+           {:mount-id (str "epoch/handler-fx/" event-id)
+            :value    fx-vec
+            :opts     {:site-id                [:rf.xray.epoch/handler-fx event-id]
+                       :card?                  false
+                       :zoomable?              true
+                       :default-expanded-depth 16}}]]))
      ;; other — return map minus :db and :fx, FULL via edn-inspector.
      ;; rf2-5t8y8 — entry-count chip on the sub-header (parallel to :fx).
      (when (seq other-effects)
        (let [n (count other-effects)]
          [:div {:data-testid "rf-xray-epoch-handler-other"}
           (sub-header "other" (str n " entr" (if (= 1 n) "y" "ies")))
-          [ei/edn-inspector other-effects
-           {:site-id                [:rf.xray.epoch/handler-other event-id]
-            :card?                  false
-            :zoomable?              true
-            :default-expanded-depth 16}]]))]))
+          [ei/edn-inspector-view
+           {:mount-id (str "epoch/handler-other/" event-id)
+            :value    other-effects
+            :opts     {:site-id                [:rf.xray.epoch/handler-other event-id]
+                       :card?                  false
+                       :zoomable?              true
+                       :default-expanded-depth 16}}]]))]))
 
 (defn render-handler-step
   "Render the HANDLER step (always present). Per Mike pair-debug
@@ -4258,10 +4297,12 @@
        [:div {:data-testid (str "rf-xray-epoch-flow-db-diff-" (name flow-id))
               :style handler-db-all-style}
         (sub-header ":db" (fmt/path-display path))
-        [ei/edn-inspector diff-after
-         {:site-id [:rf.xray.epoch/flow-db-diff flow-id]
-          :before  diff-before
-          :default-expanded-depth 3}]]
+        [ei/edn-inspector-view
+         {:mount-id (str "epoch/flow-db-diff/" flow-id)
+          :value    diff-after
+          :opts     {:site-id [:rf.xray.epoch/flow-db-diff flow-id]
+                     :before  diff-before
+                     :default-expanded-depth 3}}]]
        ;; Fallback — `[path] before → after` scalar line, left-aligned
        ;; with the badge (no extra indent). Mirrors the COEFFECT step's
        ;; body layout (pair-debug 2026-05-26).
@@ -4273,11 +4314,11 @@
           [:span {:style coeffect-body-path-style}
            (fmt/path-display path)]
           (when (some? before)
-            [:span {:style diff-before-style} [ei/mini before 30]])
+            [:span {:style diff-before-style} (ei/mini before 30)])
           (when (and (some? before) (some? after))
             [:span {:style coeffect-body-path-style} "→"])
           (when (some? after)
-            [:span {:style coeffect-body-value-style} [ei/mini after 30]])]))
+            [:span {:style coeffect-body-value-style} (ei/mini after 30)])]))
      ;; rf2-ahhgn — a flow-eval exception (the flow's compute fn threw,
      ;; aborting the cascade pre-commit) attaches here as an inline card.
      (error-blocks :flow errors)]))
@@ -4393,11 +4434,13 @@
      (cond
        db-row?         (db-destination-marker idx)
        (some? payload) [:span {:style fx-row-args-style}
-                        [ei/edn-inspector payload
-                         {:site-id [:rf.xray.epoch/fx-row-args fx-id idx]
-                          :card? false
-                          :zoomable? true
-                          :default-expanded-depth 1}]])
+                        [ei/edn-inspector-view
+                         {:mount-id (str "epoch/fx-row-args/" fx-id "/" idx)
+                          :value    payload
+                          :opts     {:site-id [:rf.xray.epoch/fx-row-args fx-id idx]
+                                     :card? false
+                                     :zoomable? true
+                                     :default-expanded-depth 1}}]])
      (when (number? duration-ms)
        [:span {:style fx-row-duration-style}
         (fmt/format-duration-ms duration-ms)])
@@ -4603,7 +4646,7 @@
       [:div {:data-rf-xray-subs-leaf "unchanged"
              :data-testid            (str "rf-xray-epoch-subs-leaf-unchanged-" idx)
              :style                  subs-leaf-row-style}
-       [:span [ei/mini after 40]]]
+       [:span (ei/mini after 40)]]
       ;; first-cache-entry → :added chrome, no "was" annotation.
       first-run?
       [:div {:data-rf-xray-subs-leaf  "added"
@@ -4611,7 +4654,7 @@
              :data-testid             (str "rf-xray-epoch-subs-leaf-added-" idx)
              :style                   subs-leaf-added-row-style}
        [:span {:style subs-leaf-added-glyph-style} "+"]
-       [:span [ei/mini after 40]]]
+       [:span (ei/mini after 40)]]
       ;; value change → :modified chrome + value + inline ← was <prev>.
       :else
       [:div {:data-rf-xray-subs-leaf  "changed"
@@ -4619,12 +4662,12 @@
              :data-testid             (str "rf-xray-epoch-subs-leaf-changed-" idx)
              :style                   subs-leaf-modified-row-style}
        [:span {:style subs-leaf-modified-glyph-style} "~"]
-       [:span [ei/mini after 40]]
+       [:span (ei/mini after 40)]
        [:span {:data-rf-diff-annotation "subs-was"
                :style                   subs-leaf-was-style}
         "← was "
         [:span {:data-rf-xray-subs-leaf-was "1"}
-         [ei/mini before 40]]]])
+         (ei/mini before 40)]]])
     ;; rf2-kp7bw — a CONTAINER-valued sub return. On a first run
     ;; (`first-run?`, no prior cache entry) the inspector renders the
     ;; whole subtree as `:added` via the `:added?` opt (edn-inspector
@@ -4639,12 +4682,14 @@
     ;; container (`changed? false`) mounts plain — current value, no
     ;; diff opts (rf2-o77z4).
     [:div {:style subs-value-cell-fill-style}
-     [ei/edn-inspector after
-      (cond-> {:panel-id :rf.xray.epoch/subs-value
-               :site-id  [:rf.xray.epoch/subs-value sub-id idx :full+diff]
-               :default-expanded-depth 3}
-        (and changed? (some? before))           (assoc :before before)
-        (and changed? first-run? (nil? before)) (assoc :added? true))]]))
+     [ei/edn-inspector-view
+      {:mount-id (str "epoch/subs-value/" sub-id "/" idx)
+       :value    after
+       :opts     (cond-> {:panel-id :rf.xray.epoch/subs-value
+                          :site-id  [:rf.xray.epoch/subs-value sub-id idx :full+diff]
+                          :default-expanded-depth 3}
+                   (and changed? (some? before))           (assoc :before before)
+                   (and changed? first-run? (nil? before)) (assoc :added? true))}]]))
 
 (defn- sub-coord
   "Pull the registered sub's source coord off
@@ -4728,7 +4773,7 @@
   (let [columns [{:id :sub    :label "sub"    :default-flex "1fr"}
                  {:id :inputs :label "inputs" :default-flex "1fr"}
                  {:id :value  :label "value"  :default-flex "1fr"}]]
-    [rt/resizable-table
+    [rt/resizable-table-view
      {:table-id        :rf.xray.epoch/subscriptions
       :container-attrs {:data-testid              "rf-xray-epoch-subscriptions-table"
                         :data-rf-xray-diff-mode   "full+diff"
@@ -4752,8 +4797,8 @@
           ;; fallback keeps the keyword-token chrome via `mini` too.
           [:span {:style subs-cell-id-span-style}
            (if (vector? sub-vec)
-             [ei/mini sub-vec 40]
-             [ei/mini sub-id 40])
+             (ei/mini sub-vec 40)
+             (ei/mini sub-id 40))
            ;; rf2-aesni — functional click-to-source via the shared
            ;; `coord-chip`, exact parity with the disposed-subs (~3167)
            ;; + views (~3311 / ~3380) rows. Pre-fix this was a bare
@@ -4779,7 +4824,7 @@
                    :data-testid (str "rf-xray-epoch-sub-row-cause-event-id-" i)
                    :style subs-cell-cause-event-style}
              [:span "caused by"]
-             [ei/mini cause-event-id 40]])]
+             (ei/mini cause-event-id 40)])]
          ;; inputs cell
          [:div {:data-rf-xray-resizable-col "inputs"
                 :style subs-cell-inputs-style}
@@ -4799,7 +4844,7 @@
             (cond
               (seq input-ids)
               (into [:div {:style subs-inputs-list-style}]
-                    (map (fn [i] [:div [ei/mini i 40]]) input-ids))
+                    (map (fn [i] [:div (ei/mini i 40)]) input-ids))
               ;; rf2-87c8a fallback: a runtime with no captured meta but
               ;; a cascade-attributed `:inputs` slot still paints that
               ;; upstream sub (preserves the pre-fix shape for traces
@@ -4814,8 +4859,8 @@
               ;; and :a1 into two.
               (vector? inputs)
               (into [:div {:style subs-inputs-list-style}]
-                    (map (fn [i] [:div [ei/mini i 40]]) inputs))
-              (some? inputs) [ei/mini inputs 40]
+                    (map (fn [i] [:div (ei/mini i 40)]) inputs))
+              (some? inputs) (ei/mini inputs 40)
               :else          "app-db"))]
          ;; value cell
          [:div {:data-rf-xray-resizable-col "value"
@@ -4858,7 +4903,7 @@
   (let [columns [{:id :glyph    :label ""             :default-flex "24px"}
                  {:id :disposed :label "disposed sub" :default-flex "1.5fr"}
                  {:id :reason   :label "reason"       :default-flex "1fr"}]]
-    [rt/resizable-table
+    [rt/resizable-table-view
      {:table-id        :rf.xray.epoch/subscriptions-disposed
       :container-attrs {:data-testid "rf-xray-epoch-subscriptions-disposed-table"
                         :style       disposed-subs-table-style}
@@ -4886,8 +4931,8 @@
           [:span {:data-testid (str "rf-xray-epoch-sub-disposed-row-id-" i)
                   :style disposed-id-span-style}
            (cond
-             (vector? query) [ei/mini query 40]
-             (some? sub-id)  [ei/mini sub-id 40]
+             (vector? query) (ei/mini query 40)
+             (some? sub-id)  (ei/mini sub-id 40)
              :else           [:span {:style disposed-anonymous-style}
                               "<anonymous sub>"])
            ;; rf2-d2akf — click-to-source affordance for the reg-sub,
@@ -4924,11 +4969,18 @@
   SURROUNDING instance frame captured at render time, and the button-
   bar's click dispatches into that same captured frame — so toggle
   writes + reads hit THIS instance's Xray app-db (N isolated shells
-  stay independent), not the `:rf/xray` singleton."
+  stay independent), not the `:rf/xray` singleton.
+
+  rf2-k97c.3 — the read is now `rf.fresco/sub`, donated upward into
+  `Panel`'s collector window. The anchor is UNCHANGED in effect and
+  simpler in spelling: `rf.fresco/sub` takes no frame option because it
+  resolves the frame off the same React context `rf/current-frame-id`
+  reads, so the read and the click still name ONE frame. `frame` stays
+  bound for the CLICK, which fires after the render extent has unwound
+  and so must have captured it during render."
   [{:keys [rows disposed-rows step-number violations]}]
   (let [frame         (rf/current-frame-id)
-        mode          @(rf/subscribe [:rf.xray.epoch/subs-filter-mode]
-                                     {:frame frame})
+        mode          (rf.fresco/sub [:rf.xray.epoch/subs-filter-mode])
         visible-rows  (case mode
                         :all       rows
                         :unchanged (filterv (complement :changed?) rows)
@@ -5069,17 +5121,19 @@
     (if (some? render-args)
       [:div {:style                  views-render-args-fill-style
              :data-rf-render-args-diff (if (some? prev-render-args) "diff" "plain")}
-       [ei/edn-inspector render-args
-        (cond-> {:panel-id :rf.xray.epoch/view-render-args
-                 :site-id  [:rf.xray.epoch/view-render-args view-id idx]
-                 :default-expanded-depth 2}
-          ;; same `:before` diff-mode the App-db / subs value cells use —
-          ;; reused, not reinvented (rf2-u3lii). Threaded ONLY when the
-          ;; instance had a previous render this cascade; first render =>
-          ;; plain mount (no `:before`), args shown without a delta. The
-          ;; prev value is size-guarded too (rf2-yi0nr).
-          (some? prev-render-args)
-          (assoc :before (fmt/elide-large-render-args prev-render-args)))]]
+       [ei/edn-inspector-view
+        {:mount-id (str "epoch/view-render-args/" view-id "/" idx)
+         :value    render-args
+         :opts     (cond-> {:panel-id :rf.xray.epoch/view-render-args
+                            :site-id  [:rf.xray.epoch/view-render-args view-id idx]
+                            :default-expanded-depth 2}
+                     ;; same `:before` diff-mode the App-db / subs value cells use —
+                     ;; reused, not reinvented (rf2-u3lii). Threaded ONLY when the
+                     ;; instance had a previous render this cascade; first render =>
+                     ;; plain mount (no `:before`), args shown without a delta. The
+                     ;; prev value is size-guarded too (rf2-yi0nr).
+                     (some? prev-render-args)
+                     (assoc :before (fmt/elide-large-render-args prev-render-args)))}]]
       [:span {:data-rf-render-args-diff "none"
               :style views-render-args-none-style}
        "(no args)"])]))
@@ -5108,11 +5162,11 @@
                  :let [status (get sub-status s)]]
              [:div {:data-rf-sub-status (name (or status :unchanged))
                     :style (views-sub-status-style status)}
-              [ei/mini s 60]]))
+              (ei/mini s 60)]))
      (some? subs-read)
      [:span {:data-rf-sub-status (name (or (get sub-status subs-read) :unchanged))
              :style (views-sub-status-style (get sub-status subs-read))}
-      [ei/mini subs-read 60]]
+      (ei/mini subs-read 60)]
      :else
      [:span {:style italic-style} "(none)"])])
 
@@ -5149,7 +5203,7 @@
                  ;; rf2-u3lii — col-2 render-args DIFF, between view + subs.
                  {:id :render-args :label "render-args" :default-flex "1fr"}
                  {:id :subs :label "subs" :default-flex "1fr"}]]
-    [rt/resizable-table
+    [rt/resizable-table-view
      {:table-id        :rf.xray.epoch/views
       :container-attrs {:data-testid "rf-xray-epoch-views-table"
                         :style       views-table-style}
@@ -5184,7 +5238,7 @@
            ;; `ei/mini` so the row reads as an inspectable data entity,
            ;; same syntax-token chrome the App-db / subs value cells use.
            (if (some? view-id)
-             [ei/mini view-id 60]
+             (ei/mini view-id 60)
              [:span {:style views-anonymous-style}
               "<anonymous view>"])
            ;; rf2-3b9w4 — go-to-source coord-chip stays on EVERY row,
@@ -5433,13 +5487,13 @@
           "expected:"]
          [:span {:data-testid (str testid-base "-expected")
                  :style schema-violation-line-value-style}
-          [ei/mini (:expected decoded) 80]]]
+          (ei/mini (:expected decoded) 80)]]
         [:div {:style schema-violation-line-style}
          [:span {:style schema-violation-line-label-style}
           "got:"]
          [:span {:data-testid (str testid-base "-got")
                  :style schema-violation-line-value-style}
-          [ei/mini (:got decoded) 80]]]
+          (ei/mini (:got decoded) 80)]]
         (when (pos? (:more-errors decoded))
           [:div {:data-testid (str testid-base "-more-errors")
                  :style schema-violation-sensitive-style}
@@ -5456,9 +5510,11 @@
      (when (some? humanized-shown)
        [:div {:data-testid (str testid-base "-explain")
               :style schema-violation-explain-body-style}
-        [ei/edn-inspector humanized-shown
-         {:site-id [:rf.xray.epoch/violation-explain step-key idx]
-          :default-expanded-depth 16}]])
+        [ei/edn-inspector-view
+         {:mount-id (str "epoch/violation-explain/" step-key "/" idx)
+          :value    humanized-shown
+          :opts     {:site-id [:rf.xray.epoch/violation-explain step-key idx]
+                     :default-expanded-depth 16}}]])
      ;; Sensitive marker — keep as compact tail when applicable so
      ;; operators reading the humanized output know the value was
      ;; redacted at the substrate emit site (not a humanizer artifact).
@@ -5548,10 +5604,12 @@
        (when (seq ex-data*)
          [:div {:data-testid (str testid-base "-ex-data")}
           [:div {:style error-block-data-label-style} "ex-data"]
-          [ei/edn-inspector ex-data*
-           {:site-id [:rf.xray.epoch/error-ex-data testid-base]
-            :card?   false
-            :default-expanded-depth 1}]])
+          [ei/edn-inspector-view
+           {:mount-id (str "epoch/error-ex-data/" testid-base)
+            :value    ex-data*
+            :opts     {:site-id [:rf.xray.epoch/error-ex-data testid-base]
+                       :card?   false
+                       :default-expanded-depth 1}}]])
        (when stack
          [:div {:data-testid (str testid-base "-stack")}
           [:div {:style error-block-data-label-style} "stack"]
@@ -5735,18 +5793,23 @@
             :aria-hidden true
             :style pipeline-rail-style}]
      ;; Steps — `doall` forces the lazy `for` to realise INSIDE the
-     ;; reg-view's render scope (rf2-atqkg). `render-step` returns
-     ;; hiccup whose descendants (e.g. `handler-db-diff-block`,
-     ;; `render-subscriptions-step`) deref subs directly via
-     ;; `@(rf/subscribe …)`. Reagent only tracks derefs that fire
-     ;; while the parent reg-view's reactive context is live; a
-     ;; lazy seq realised AFTER the render pass leaves those derefs
-     ;; outside the scope, so sub-value changes don't trigger a
-     ;; re-render (symptom: the operator clicks `[diff][all]`, the
-     ;; sub flips in app-db, the cascade reads the new value, but
-     ;; the panel hiccup stays stale). `doall` plus the `(for …)`
-     ;; preserves the original code shape; the realised seq lets
-     ;; Reagent see every nested deref at render time. See spec/006
+     ;; render pass (rf2-atqkg), and rf2-k97c.3 did NOT retire the
+     ;; reason: it re-founded it on the collector. `render-step`
+     ;; returns hiccup whose descendants (`handler-db-diff-block`,
+     ;; `render-subscriptions-step`) read the substrate themselves.
+     ;;
+     ;; Pre-migration those were `@(rf/subscribe …)` and the tracker was
+     ;; Reagent's reactive context: derefs firing after the render pass
+     ;; landed outside it, so a sub-value change triggered no re-render
+     ;; (symptom: the operator clicks `[diff][all]`, the sub flips in
+     ;; app-db, the cascade reads the new value, and the panel hiccup
+     ;; stays stale). They are now `rf.fresco/sub` and the tracker is
+     ;; Fresco's collector, which records an edge WHERE THE READ HAPPENS
+     ;; — so a read that happens after this body has returned is recorded
+     ;; into no window at all and the same staleness returns by the same
+     ;; route. The `doall` is what keeps every donated read inside
+     ;; `Panel`'s window; it is load-bearing under BOTH observers, which
+     ;; is why it survives the migration unchanged. See spec/006
      ;; §Lazy-seq deref tracking.
      (doall
        (for [[i step] (map-indexed vector steps)]
@@ -5790,22 +5853,55 @@
 
 ;; ---- public Panel --------------------------------------------------------
 
-(rf/reg-view Panel
-  "Epoch panel root view. Subscribes to `:rf.xray/epoch-pipeline` —
-  a composite that resolves the focused epoch off the spine and
-  projects its `:trace-events` into the pipeline-step rows. Renders
-  the numbered cascade when steps are present; an empty-state when
-  the focus carries no record or the record carries no trace events.
+(rf.fresco/defview Panel
+  "Epoch panel root view. Reads `:rf.xray/epoch-pipeline` — a composite
+  that resolves the focused epoch off the spine and projects its
+  `:trace-events` into the pipeline-step rows. Renders the numbered
+  cascade when steps are present; an empty-state when the focus carries
+  no record or the record carries no trace events.
 
   rf2-ahhgn / rf2-wnvid / rf2-9wq0v — when the cascade failed
   (`:outcome :error`) the failure surfaces INLINE: the failing step's
   'Exception Thrown' card sits under it (the per-stage ✗ glyph retired
   in rf2-9wq0v). The panel root stamps `data-rf-xray-outcome` for tools /
   e2e; the pre-rf2-wnvid top banner is retired (it merely restated the
-  inline signal)."
-  []
+  inline signal).
+
+  A FRESCO BOUNDARY (rf2-k97c.3), not an `rf/reg-view`, and the two
+  differences that matter are the epic's couplings rather than spelling.
+
+  The READS are `rf.fresco/sub` — plain calls the shipped collector
+  records an edge for, with no deref and no reaction owned by the
+  INSTALLED adapter. That is coupling (3), and it is the one a
+  first-paint smoke test cannot see. Three sites read, not one: this
+  body's pipeline read, plus `db-diff-slot`'s selected-epoch record and
+  `step-subscriptions`' filter mode, both of which donate their read
+  upward into this boundary's collector window from an inlined helper
+  (HD-016 — helper-donated reads are settled rather than contingent).
+
+  The FRAME each read resolves against comes from React context, which
+  the enclosing frame boundary writes: `rf/frame-provider` and
+  `rf.fresco/frame-provider` write the SAME context, so this boundary
+  resolves `:rf/xray` identically under today's Reagent-rendered shell
+  and under the Fresco root Xray will own. It never consults
+  `:adapter/current-component`, the hook a foreign root cannot answer.
+
+  ## Why there is no second boundary below this one
+
+  Boundary count tracks reads and head-position use, not file size. At
+  5.9k lines this panel has exactly the three reads above and — since
+  rf2-k97c.3 — no plain-fn head at all: `ei/mini`'s 21 head uses are now
+  CALLS, and the widget heads are the shipped Fresco siblings
+  (`ei/edn-inspector-view` ×13, `rt/resizable-table-view` ×3), each a
+  boundary in its own right. So nothing in the interior wants a
+  component of its own.
+
+  The argument is the ordinary one-props-map vector every `defview`
+  takes. This panel reads nothing from props — neither the L4 registry
+  nor the standalone embed passes any — so it is destructured away."
+  [_props]
   (let [{:keys [status steps epoch-history outcome]}
-        @(rf/subscribe [:rf.xray/epoch-pipeline])]
+        (rf.fresco/sub [:rf.xray/epoch-pipeline])]
     [:section {:data-testid "rf-xray-epoch-panel"
                :data-rf-xray-outcome (when outcome (name outcome))
                :style panel-root-style}
@@ -5833,31 +5929,45 @@
 ;; through `panels.epoch-panel`'s re-export), and RULING 1's surviving
 ;; spelling puts the Fresco boundary on the natural name with a PUBLIC
 ;; bridge passed by the caller — the shape `resources/Panel-bridge` already
-;; ships. Pointing the mount facade at the bridge name NOW, while it is
-;; still a plain alias, is what lets this panel's migration happen entirely
-;; INSIDE THIS FILE: `Panel` becomes the `defview` boundary and this def
-;; becomes the real `rf.fresco/as-component` bridge, with `panels.cljs`
-;; never touched again (`epoch-panel`'s re-export is a `def` of whatever
-;; this is, so it is correct in both eras). It adopts RULING 1 early rather
-;; than bending it.
+;; ships, and the funnel that pointed the mount facade here (PR #9654)
+;; is what let this panel's migration happen ENTIRELY INSIDE THIS FILE and
+;; `epoch_panel.cljs`'s one re-export line: `panels.cljs` was never touched.
 ;;
-;; TODAY IT IS A NO-OP. `rf/reg-view` expands to `(def Panel
-;; (re-frame.core/view :id))`, so `Panel` is a VALUE and this def binds the
-;; SAME OBJECT — nothing downstream can tell the two names apart, which is
-;; exactly what `epoch-panel`'s existing `(def Panel view/Panel)` has been
-;; demonstrating in production. And `render-panel!` always builds the
-;; component VECTOR `[panel-view]`, so head position is the only position
-;; either name is used in, and the hazard `render-panel!`'s docstring warns
-;; about is not reached: what is unsafe there is CALLING the view, because
-;; that fn runs outside any React render and an ambient subscribe with no
-;; in-flight component resolves to nil and RAISES
-;; `:rf.error/no-frame-context` (there is no `:rf/default` fallback — Spec
-;; 006 §Plain-fn footgun).
-(def Panel-bridge
-  "The name `panels/mount-epoch-panel!` mounts this panel through, via
-  `panels.epoch-panel`'s re-export — a plain alias of `Panel` until this
-  panel migrates to Fresco, when it becomes the `as-component` bridge
-  without the mount facade moving. Scaffolding with a defined end: it is
-  deleted with every other `*-bridge` when the shell itself becomes a
-  Fresco tree. See the comment above."
-  Panel)
+;; IT IS NO LONGER A NO-OP. Until this commit `Panel-bridge` was a `def`
+;; aliasing the `reg-view` value, and nothing downstream could tell the two
+;; names apart. `Panel` is now a Fresco boundary — a React function
+;; component — and Xray's shell is still a `reg-view` tree rendered by the
+;; installed adapter, which mounts the active tab as the hiccup head
+;; `[(:panel tab)]` with `panel-registry/reg-l4-tab!`'s `:pre` requiring
+;; `:panel` to be CALLABLE. A React component is neither.
+;;
+;; `rf.fresco/as-component` is Fresco's own outward door for exactly this:
+;; it answers a real React component for a boundary, which a React parent
+;; (Reagent, UIx or plain JavaScript) mounts UNDER THE FRAME IT IS ALREADY
+;; IN, taking the frame from React context rather than from a second root.
+;; So there is no second root here, no adapter-kind branch, and no props
+;; ABI — and the `[rf/frame-provider {:frame :rf/xray}]` the shell already
+;; wraps the panel in is what puts `:rf/xray` in that context.
+;;
+;; STILL SCAFFOLDING WITH A DEFINED END: when the shell is itself a Fresco
+;; tree, `reg-l4-tab!` takes `Panel` directly, `[:>]` goes, and both defs
+;; below are deleted with every other `*-bridge`.
+(def ^:private Panel-component
+  "The React component [[Panel]] presents as, for a non-Fresco parent.
+  Declared ONCE at top level beside the view, as `rf.fresco/as-component`'s
+  own contract requires — deriving it per render would mint a fresh
+  component type every pass and remount the whole panel, taking every
+  `edn-inspector-view` expansion and every table width with it."
+  (rf.fresco/as-component Panel))
+
+(defn Panel-bridge
+  "The callable `panels/mount-epoch-panel!` mounts this panel through, via
+  `panels.epoch-panel`'s re-export. Returns Reagent-shaped hiccup
+  interoping to the React component above.
+
+  PUBLIC, because this panel carries a `mount-epoch-panel!` facade and
+  `panels/render-panel!` takes the view to mount as an ARGUMENT — so the
+  embedding contract needs a name it can pass. Deleted with the component
+  above when the shell itself becomes a Fresco tree."
+  []
+  [:> Panel-component {}])
