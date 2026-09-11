@@ -1,5 +1,5 @@
-(ns re-frame.story.ui.toolbar-persistence-cljs-test
-  "CLJS-side regression net for toolbar mode persistence across reload
+(ns re-frame.story.ui.toolbar-persistence-dom-cljs-test
+  "Browser-lane regression net for toolbar mode persistence across reload
   (rf2-jpi7n).
 
   Pairs with `re-frame.story.ui.toolbar-cljs-test` (storage round-trip,
@@ -33,8 +33,39 @@
 
   Per spec/010 the persistence key is chrome-wide
   `re-frame.story/active-modes` (one slot per shell instance, not per
-  variant). The CLJS tests gate on a working `js/window.localStorage`
-  via the same `browser?` predicate the sibling toolbar test uses."
+  variant).
+
+  ## Why this namespace ends `-dom-cljs-test` (rf2-r51p)
+
+  Every row here is a localStorage round-trip: write through
+  `toggle-mode!` / `save-modes-to-storage!`, drop the in-memory shell
+  state, then `hydrate-modes-from-storage!` and assert what came back.
+  That is real host-storage semantics — survives-reload and hydrate —
+  so it needs a real `window.localStorage`, which the `:node-test`
+  runtime does not have (no jsdom, no happy-dom in any dependency
+  list).
+
+  Until rf2-r51p this file was named `toolbar_persistence_cljs_test`
+  and every row sat inside `(when (browser?) ...)`. It therefore
+  executed in NEITHER lane: skipped under `:node-test` for want of
+  storage, and never loaded by `:browser-test`, whose `:ns-regexp` is
+  `.*-dom-cljs-test$`. A namespace must end `-dom-cljs-test` to reach
+  the browser build at all. The whole namespace — billed as the
+  reload-persistence regression net — was running zero assertions
+  anywhere.
+
+  The `(when (browser?) ...)` guards STAY, and are not vestigial:
+  `:node-test`'s `cljs-test$` regexp matches the `-dom-cljs-test`
+  suffix too, so this namespace is loaded on BOTH targets. Under node
+  the guards short-circuit and the rows report a skip; under
+  `:browser-test` they are true and the assertions run for real. That
+  is the same shape every other `*_dom_cljs_test.cljs` in this tree
+  uses.
+
+  These assertions had never executed before this rename. A failure
+  here is evidence about `hydrate-modes-from-storage!` /
+  `save-modes-to-storage!` arriving for the first time, not a
+  regression introduced by the move."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.story             :as rf.story]
             [re-frame.story.registrar   :as rf.story.registrar]
@@ -47,8 +78,12 @@
 
 (defn- browser?
   "True when running in a context with a working `js/window.localStorage`.
-  Node-test (the shadow `:node-test` target) returns false; browser-
-  test returns true. Mirrors the gate in `toolbar_cljs_test.cljc`."
+
+  Answers FALSE under the shadow `:node-test` target and TRUE under
+  `:browser-test`. Both targets load this namespace (rf2-r51p — see the
+  ns docstring), so this predicate is what routes each row to the lane
+  that can actually run it, rather than — as it did before the rename —
+  suppressing it in the only lane that ever looked."
   []
   (and (exists? js/window) (.-localStorage js/window)))
 
@@ -67,7 +102,12 @@
   (clear-storage!)
   (rf.story/install-canonical-vocabulary!))
 
-(use-fixtures :each {:before reset-all!})
+;; `:after` matters now that these rows reach a REAL `localStorage`
+;; (rf2-r51p). The slot is chrome-wide, so the browser lane runs every
+;; namespace on ONE page and a `Mode.persist.*` id left behind here
+;; would still be in storage when the next namespace hydrates. `:before`
+;; alone only kept THIS suite's rows honest.
+(use-fixtures :each {:before reset-all! :after clear-storage!})
 
 ;; ---- helpers -------------------------------------------------------------
 
