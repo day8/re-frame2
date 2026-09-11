@@ -40,8 +40,13 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
+            ;; rf2-k97c.3 / rf2-a38l — the codec's own hiccup→element door,
+            ;; so a key is graded at the renderer that actually ships it
+            ;; rather than at the hiccup a reader hopes it means.
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
-            [re-frame.trace.tooling :as rf.trace.tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [reagent.core :as r]))
 
 (def ^:private app-frame ::causal-app)
 
@@ -454,3 +459,62 @@
     (is (= (:key (:boundary top)) (get-in data [:slice :scope :boundary]))
         "the slice is about the boundary the advisor ranked first")
     (release)))
+
+;; ---------------------------------------------------------------------------
+;; THE KEYS REACH REACT (rf2-k97c.3 RULING 2, regraded at the renderer)
+;; ---------------------------------------------------------------------------
+;;
+;; The key sweep found ZERO `^{:key …}` / `with-meta` sites in this panel —
+;; rf2-a38l had already converted both to KEYED FRAGMENTS, and rf2-k97c.3
+;; moved them one step further: the two row fns are CALLS now, not hiccup
+;; heads (a plain fn in head position is HD-016 `:rf.error/fresco-bad-head`),
+;; so each returned `:li` has its own props map and carries its own key.
+;;
+;; That move is exactly the kind a hiccup-level assertion cannot grade, so
+;; these rows read the key off a real ELEMENT from BOTH doors.
+;;
+;; HEAD + ATTRS, NOT THE WHOLE NODE. The codec lowers children EAGERLY, so
+;; calling it on a whole `:li` walks a subtree this file has no business
+;; grading. `(subvec node 0 2)` is the tree's existing idiom for this
+;; (`machine_inspector_view_cljs_test`), and both doors read a key from
+;; exactly the same place — the attribute map at index 1 — so dropping the
+;; children changes nothing about the answer. Both sides are subvec'd here
+;; because there is no metadata in play: with a meta-vs-attrs key the
+;; Reagent door would have to see the WHOLE node, since `subvec` drops
+;; vector metadata and both sides would read nil for different reasons.
+
+(defn- reagent-key [node] (.-key (r/as-element (subvec node 0 2))))
+(defn- fresco-key  [node] (.-key (rf.fresco.impl.codec/as-element (subvec node 0 2))))
+
+(defn- li-nodes
+  "Every `:li` in the rendered tree, in order."
+  [tree]
+  (into [] (filter #(and (vector? %) (= :li (first %)))) (hiccup-seq tree)))
+
+(deftest advisor-and-causal-rows-reach-react-with-a-key-on-both-doors
+  (testing "rf2-k97c.3 — every ranked-boundary row and every causal link
+            commits a non-nil React key through FRESCO's codec as well as
+            through Reagent. Fresco's codec reads `(:key props)` and vector
+            metadata NOWHERE, so a key that regressed to reader meta would
+            read nil on the Fresco door here while Reagent — which honours
+            both — went on answering, which is precisely why the pair is
+            graded rather than one side."
+    (setup!)
+    (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
+          _       (interact!)]
+      (doseq [[view label] [[:advisor "advisor"] [:causal "causal"]]]
+        (testing label
+          (let [rows (li-nodes (show! view))]
+            (is (seq rows)
+                (str "NON-VACUITY: the " label " view rendered at least one "
+                     "<li>, so the key assertions below are about real rows "
+                     "rather than an empty roster"))
+            (doseq [node rows]
+              (is (some? (fresco-key node))
+                  (str label " row reached React with a key through FRESCO's "
+                       "codec. node head+attrs: " (pr-str (subvec node 0 2))))
+              (is (= (reagent-key node) (fresco-key node))
+                  (str "and BOTH doors agree on it — an attrs-map key is read "
+                       "identically by each, which a metadata key is not. node "
+                       "head+attrs: " (pr-str (subvec node 0 2))))))))
+      (release))))

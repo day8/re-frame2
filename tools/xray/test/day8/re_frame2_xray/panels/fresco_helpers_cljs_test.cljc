@@ -616,3 +616,130 @@
   (testing "and no two views share a mnemonic"
     (let [mnems (map :mnem hh/sub-modes)]
       (is (= (count mnems) (count (set mnems)))))))
+
+;; ---------------------------------------------------------------------------
+;; XRAY'S OWN MACHINERY IS NOT APPLICATION EVIDENCE (rf2-k97c.3)
+;; ---------------------------------------------------------------------------
+;;
+;; Xray's panels became Fresco boundaries, and Fresco's census walks the
+;; collector's process-global entry table with no frame filter — so the
+;; Fresco tab listed ITSELF. Measured in the browser before the fix: with
+;; one application boundary mounted, the Mounted view committed two rows,
+;; the second `…panels.fresco/Panel · frame :rf/xray · 2 reads`.
+;;
+;; EVERY ROW BELOW CARRIES BOTH DIRECTIONS IN ONE ASSERTION — the count
+;; that survives AND the identity of the survivor. A count alone would
+;; pass just as well on a filter that dropped the wrong row, and these
+;; fixtures are two rows deep precisely so that mistake is reachable.
+
+(def ^:private mixed-evidence
+  "One turn's four envelopes, each carrying an application row AND an
+  Xray-owned one. Two rows deep in every roster on purpose: a filter that
+  dropped the WRONG row would satisfy a count and fail the identity
+  assertions below."
+  {:mounted-boundaries
+   (envelope :mounted-boundaries
+             {:boundaries [{:boundary boundary-a :views todo-row-views
+                            :instances 1 :read-orders 1 :frame :app/main
+                            :reads []}
+                           {:boundary boundary-b :views :unknown
+                            :instances 1 :read-orders 1 :frame :rf/xray
+                            :reads []}]})
+   :read-attribution
+   (envelope :read-attribution
+             {:edges [{:sub-id :todo :query [:todo 7] :frame-id :app/main
+                       :epoch 4 :fan-out 1 :readers []}
+                      {:sub-id :rf.xray.fresco/data :query [:rf.xray.fresco/data]
+                       :frame-id :rf/xray :epoch 4 :fan-out 1 :readers []}]})
+   :intents
+   (envelope :intents
+             {:frames [:app/main :rf/xray]
+              :intents [{:frames [:app/main] :dispatch-id 1
+                         :event-id :todo/toggle :arg-count 0 :sub-ids []}
+                        {:frames [:rf/xray] :dispatch-id 2
+                         :event-id :rf.xray.fresco/set-view
+                         :arg-count 1 :sub-ids []}
+                        {:frames [:app/main :rf/xray] :dispatch-id 3
+                         :event-id :todo/spans :arg-count 0 :sub-ids []}
+                        {:frames [] :dispatch-id 4
+                         :event-id :todo/frameless :arg-count 0 :sub-ids []}]})
+   :explain-render
+   (envelope :explain-render
+             {:explanations [{:boundary boundary-a :views todo-row-views
+                              :frame :app/main :instances 1
+                              :snapshot 1 :peak-epoch 4
+                              :latest-reads [] :candidates [] :loss nil}
+                             {:boundary boundary-b :views :unknown
+                              :frame :rf/xray :instances 1
+                              :snapshot 1 :peak-epoch 4
+                              :latest-reads [] :candidates [] :loss nil}]})})
+
+(deftest xray-own-frame-rows-are-dropped-from-every-roster
+  (testing "epic criterion 5 — a boundary seated in :rf/xray is the tool,
+            not the application, and none of the four rosters may carry it.
+            Same rule and same unconditional posture as `self-noise`'s
+            trace-event drop, applied to the evidence surface."
+    (let [e (hh/without-own-frame mixed-evidence)]
+      (testing "NON-VACUITY: the unfiltered input really does carry both"
+        (is (= [:app/main :rf/xray]
+               (mapv :frame (get-in mixed-evidence [:mounted-boundaries :boundaries])))))
+
+      (is (= [:app/main]
+             (mapv :frame (hh/mounted-rows (:mounted-boundaries e))))
+          "the application's boundary survives the census and Xray's own
+           does not")
+      (is (= [:app/main]
+             (mapv :frame-id (hh/attribution-rows (:read-attribution e))))
+          "an edge Xray's own boundary holds is not an application read")
+      (is (= [:app/main]
+             (mapv :frame (hh/explain-rows (:explain-render e))))
+          "and the Why view drops it too — the four are filtered TOGETHER,
+           so a boundary absent from the census cannot still appear in a
+           view derived from the same one-turn read")
+
+      (testing "intents drop on EVERY frame, not ANY"
+        (is (= [:todo/toggle :todo/spans :todo/frameless]
+               (mapv :event-id (hh/intent-rows (:intents e))))
+            "the Xray-only dispatch goes; the MIXED one stays, because a
+             dispatch that reached an application frame is the user's
+             whatever else it also touched; and the frameless one stays,
+             because an empty frame set is an absence and not a claim
+             about Xray"))
+
+      (testing "the stamp is untouched — this filters ROWS, not the claim"
+        (is (true? (:complete? (:mounted-boundaries e))))
+        (is (= hh/consumed-evidence-schema (:schema (:mounted-boundaries e))))
+        (is (hh/supported? (:mounted-boundaries e))
+            "a filtered envelope is still a parseable one, so `presence`
+             still answers `:live`/`:idle` rather than `:mismatch`")))))
+
+(deftest the-own-frame-drop-does-not-eat-an-unresolved-or-unparseable-envelope
+  (testing "rf2-k97c.3 — two things the filter must NOT do, both of which
+            would turn a STATED absence into a silent one, which is the
+            failure this whole tab is built against."
+    (testing "`unknown` is not Xray's frame"
+      ;; The shared `mounted` fixture is the control: its second row is
+      ;; `:frame :unknown`, and every other row in this file reading it
+      ;; expects TWO rows back.
+      (let [rows (hh/mounted-rows
+                   (:mounted-boundaries
+                     (hh/without-own-frame {:mounted-boundaries mounted})))]
+        (is (= [:app/main :unknown] (mapv :frame rows))
+            "both survive — the filter is `= :rf/xray` and nothing cleverer")
+        (is (some? (:frame-chip (second rows)))
+            "and the unresolved row still carries its chip")))
+
+    (testing "an absent or mismatched envelope passes through untouched"
+      (let [e (hh/without-own-frame
+                {:mounted-boundaries nil
+                 :read-attribution   {:schema :re-frame.fresco.evidence/v2
+                                      :producer :re-frame/fresco
+                                      :edges [{:frame-id :rf/xray}]}
+                 :intents            nil
+                 :explain-render     nil})]
+        (is (nil? (:mounted-boundaries e))
+            "nil stays nil — a missing door is not an empty roster")
+        (is (= :re-frame.fresco.evidence/v2 (:schema (:read-attribution e)))
+            "and a schema this build cannot parse is handed on whole, so
+             `presence` still reports `:mismatch`. Filtering it would have
+             emptied the roster and reported a mismatch as clean")))))
