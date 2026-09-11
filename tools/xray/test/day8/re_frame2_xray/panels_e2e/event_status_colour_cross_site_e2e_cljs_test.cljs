@@ -82,13 +82,32 @@
   "Render the L4 Trace panel under `:rf/xray` and return the cascade-
   status bar's `:data-rf-xray-status` (or nil when absent). Post rf2-pjjwh
   the Trace bar is the single status-colour render site (the L2 row stripe
-  was retired). Reads only — no state mutation."
+  was retired). Reads only — no state mutation.
+
+  rf2-fcy5 — `trace/Panel` is an `rf.fresco/defview` now, a real React
+  function component whose body refuses a read outside a render extent
+  (`:rf.error/fresco-sub-outside-render`); `trace/panel-tree` is the same
+  body as a pure fn of the four values the boundary reads. And the scan is
+  non-expanding for the matching reason: the body carries two
+  `rt/resizable-table-view` boundary heads that an expanding walker would
+  invoke. The status bar is a CALLED helper returning a native div above
+  the table, so a plain depth-first scan reaches it."
   [_dispatch-id]
   (rf/with-frame :rf/xray
-    (let [trace-tree (trace/Panel)
-          trace-bar  (first (rf.test-helpers/find-by-attr-prefix
-                              trace-tree :data-testid
-                              "rf-xray-trace-event-bundle-status-bar-"))]
+    (let [trace-tree (trace/panel-tree
+                       {:feed  @(rf/subscribe [:rf.xray/trace-feed])
+                        :focus @(rf/subscribe [:rf.xray/focus])
+                        :focused-event-bundle
+                        @(rf/subscribe [:rf.xray.trace/focused-event-bundle])
+                        :expanded-ids
+                        @(rf/subscribe [:rf.xray/trace-expanded-row-ids])})
+          trace-bar  (some (fn [node]
+                             (when (and (vector? node)
+                                        (map? (second node))
+                                        (some-> ^String (:data-testid (second node))
+                                                (.startsWith "rf-xray-trace-event-bundle-status-bar-")))
+                               node))
+                           (tree-seq (some-fn vector? seq?) seq trace-tree))]
       (get (rf.test-helpers/attrs trace-bar) :data-rf-xray-status))))
 
 ;; ---- tests --------------------------------------------------------------

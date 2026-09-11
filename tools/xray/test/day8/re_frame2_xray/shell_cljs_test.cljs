@@ -938,7 +938,9 @@
    ;; ruled on 2026-09-10; step 3 converges both onto this spelling).
    :app-db          app-db-diff/Panel-bridge
    :views           reactive-panel/Panel-bridge
-   :trace           trace/Panel
+   ;; rf2-fcy5 slice 3 — the Trace panel's root is a Fresco boundary now
+   ;; too, so `reg-l4-tab!` stores its `as-component` bridge.
+   :trace           trace/Panel-bridge
    :machines        machine-inspector/Panel
    :routing         routing/Panel})
 

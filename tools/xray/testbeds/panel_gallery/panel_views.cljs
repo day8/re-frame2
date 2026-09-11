@@ -142,7 +142,13 @@
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-trace-card"}
-   [trace/Panel]])
+   ;; rf2-fcy5 — `Panel-bridge`, for the reason spelled out on the
+   ;; Reactive card above: this gallery cell is a Reagent tree and
+   ;; `trace/Panel` is now a Fresco boundary, which may not be mounted as
+   ;; a Reagent hiccup head. The bridge is Fresco's `as-component` door and
+   ;; takes the frame from React context, which the variant
+   ;; `frame-provider` above already wrote.
+   [trace/Panel-bridge]])
 
 (defn- machines-tab-panel
   "Embedded mount of the Machines tab body — the machine-inspector
