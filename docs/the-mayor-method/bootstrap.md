@@ -75,7 +75,7 @@ and paste that block verbatim into every dispatch preamble. Skip the interview i
 the operator's opening message already names the stance; restate it as a one-line
 confirmation instead.
 
-SET UP THE LOOPS. The five loops are in `loops.md`. If you codify each as a command
+SET UP THE LOOPS. The loops are in `loops.md`. If you codify each as a command
 file so it is one invocation, keep that file a THIN pointer into `loops.md` — a command
 file is re-injected into your context on every tick, so one that absorbs the method
 costs you that much context per tick AND becomes a second copy of every rule it
