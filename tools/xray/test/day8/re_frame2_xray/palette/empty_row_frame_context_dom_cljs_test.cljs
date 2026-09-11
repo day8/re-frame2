@@ -40,9 +40,26 @@
   REACT SWALLOWS THE RENDER THROW. A `try/catch` around `flushSync` never
   fires; React 19 reports the failure and re-raises it as an UNCAUGHT
   window error, so only a window `error` listener can name the refusal.
-  [[w0-the-listener-bites]] exercises that listener against a PLANTED
-  throw, so a silent run in [[w1-empty-row-commits-under-a-provider]]
-  means \"did not raise\" rather than \"was not watching\".
+  [[w0-the-listener-bites]] exercises that listener, so a silent run in
+  [[w1-empty-row-commits-under-a-provider]] means \"did not raise\"
+  rather than \"was not watching\".
+
+  THE CONTROL DISPATCHES AN `ErrorEvent` RATHER THAN PLANTING A REAL
+  THROW, and that is the lane's rule rather than a softening. The browser
+  runner fails any run in which the page emitted an uncaught error at all
+  — a dedicated `pageerror` array, deliberately independent of the
+  `cljs.test` summary (rf2-mwx08 / rf2-wf5al) — so a suite that plants
+  one reddens the whole lane with a green summary beside it. Measured:
+  with a planted throw here the run read `0 failures, 0 errors` and
+  still exited 1, naming `1 uncaught pageerror(s)`.
+
+  What the synthetic event leaves unproven — that React really does
+  re-raise a render refusal onto `window` — was measured directly rather
+  than assumed. Before the repair, W1 caught
+  `:rf.error/no-frame-context` through this very listener, with neither
+  the dialog nor the empty row committed. That run is the end-to-end
+  evidence for the channel; W0 is the standing check that the listener
+  is still armed and still reads the payload off the event.
 
   ## Node-lane behaviour
 
@@ -154,33 +171,35 @@
 ;; ===========================================================================
 
 (deftest w0-the-listener-bites
-  (testing "rf2-ap5w — a refusal raised inside a React render reaches
-            this suite's window `error` listener and arrives with its
-            `ex-data` intact. Without this row a silent W1 could mean
-            either 'nothing raised' or 'nobody was watching', and those
-            are opposite findings."
+  (testing "rf2-ap5w — the window `error` listener this suite reads W1's
+            verdict through is armed, and extracts the `ex-data` off the
+            event rather than merely noting that something happened.
+            Without this row a silent W1 could mean either 'nothing
+            raised' or 'nobody was watching', and those are opposite
+            findings.
+
+            Synthetic rather than planted: see the ns docstring — the
+            runner fails a run on any uncaught page error, so a real
+            throw here would redden the lane with a green summary."
     (if-not (browser?)
       (is true "skipped: no DOM (node lane)")
       (async done
-        (setup!)
         (reset! !last-uncaught nil)
-        (let [{:keys [container root]}
-              (try
-                (mount! palette-frame
-                        [(fn [] (throw (ex-info "planted"
-                                                {:rf.error/id ::planted})))])
-                (catch :default _ {:container nil :root nil}))]
-          (-> (settle)
-              (.then
-                (fn [_]
-                  (is (true? error-capture-armed?)
-                      "the window `error` listener is armed")
-                  (is (= ::planted (uncaught-id))
-                      (str "the planted throw reached the listener with its "
-                           "payload; got " (pr-str (uncaught-id))))
-                  (when (and root container) (teardown! root container))
-                  (reset! !last-uncaught nil)
-                  (done)))))))))
+        (.dispatchEvent js/window
+                        (js/ErrorEvent.
+                          "error"
+                          #js {:error (ex-info "planted"
+                                               {:rf.error/id ::planted})}))
+        (-> (settle)
+            (.then
+              (fn [_]
+                (is (true? error-capture-armed?)
+                    "the window `error` listener is armed")
+                (is (= ::planted (uncaught-id))
+                    (str "the listener read the payload off the event; got "
+                         (pr-str (uncaught-id))))
+                (reset! !last-uncaught nil)
+                (done))))))))
 
 ;; ===========================================================================
 ;; W1 — the witness
