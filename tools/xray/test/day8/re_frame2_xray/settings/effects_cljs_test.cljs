@@ -29,16 +29,14 @@
 
 ;; ---- fixture -----------------------------------------------------------
 
-(defn- ensure-stub-shell-root! []
-  ;; Some node test runtimes provide js/document; create the
-  ;; `#rf-xray-root` element so the apply-text-size! / apply-theme!
-  ;; calls have a target. Idempotent — second-call no-ops.
-  (when (and (exists? js/document) (.-createElement js/document))
-    (when-not (.getElementById js/document "rf-xray-root")
-      (let [el (.createElement js/document "div")]
-        (set! (.-id el) "rf-xray-root")
-        (when (.-body js/document)
-          (.appendChild (.-body js/document) el))))))
+;; `ensure-stub-shell-root!` went to the dom sibling with the rows that
+;; needed it (rf2-r51p). Its comment here used to read "Some node test
+;; runtimes provide js/document" — this one does not, and the helper
+;; opened with `(exists? js/document)` itself, so on node it created
+;; nothing and every row that depended on it asserted inside a nil
+;; binding. `remove-stub-shell-root!` stays: the fixture and the three
+;; missing-root tests below still call it, and it is a no-op on node by
+;; design rather than by accident.
 
 (defn- remove-stub-shell-root! []
   (when (exists? js/document)
@@ -62,26 +60,44 @@
   (rf/make-frame {:id :rf/xray}))
 
 ;; ---- DOM helpers --------------------------------------------------------
-
-(defn- shell-root []
-  (when (exists? js/document)
-    (.getElementById js/document "rf-xray-root")))
-
-(defn- html-root []
-  (when (exists? js/document)
-    (.-documentElement js/document)))
+;;
+;; `shell-root` and `html-root` went to the dom sibling with every row
+;; that read them (rf2-r51p). Both returned nil on node — each opened
+;; with `(exists? js/document)` — so every `(when-let [el (shell-root)]
+;; (is ...))` here asserted nothing. Nothing in this namespace reads the
+;; DOM any more.
 
 ;; ---- text-size ----------------------------------------------------------
 
-(deftest apply-text-size-writes-css-var
-  (ensure-stub-shell-root!)
-  (effects/apply-text-size! 17)
-  (when-let [el (shell-root)]
-    (is (= "17px" (.getPropertyValue (.-style el) "--rf-xray-text-size"))
-        "shell root CSS var carries the value"))
-  (when-let [html (html-root)]
-    (is (= "17px" (.getPropertyValue (.-style html) "--rf-xray-text-size"))
-        "<html> CSS var also carries the value")))
+;; THE REAL-DOM ROWS MOVED TO THE DOM SIBLING (rf2-r51p).
+;;
+;; `apply-text-size-writes-css-var`, `apply-theme-toggles-class`,
+;; `update-event-applies-text-size-effect`,
+;; `update-event-applies-theme-effect`,
+;; `apply-all-restores-text-size-and-theme`,
+;; `apply-all-restores-panel-width`,
+;; `apply-use-system-colors-stamps-and-clears-attribute`,
+;; `apply-all-restores-use-system-colors`,
+;; `apply-density-font-size-writes-css-var` and
+;; `apply-all-restores-density-font-size` now live in
+;; `day8.re-frame2-xray.settings.effects-dom-cljs-test`.
+;;
+;; Each asserted inside `(when-let [el (shell-root)] ...)`, and
+;; `shell-root` / `html-root` are themselves `(when (exists? js/document)
+;; ...)`. `ensure-stub-shell-root!` looks like it supplies the host but
+;; opens with the same `(exists? js/document)` test, so on node it
+;; creates nothing and every `when-let` binds nil. `:browser-test`'s
+;; `.*-dom-cljs-test$` `:ns-regexp` never matched this file's name, so
+;; those rows executed in NEITHER lane. Their new home ends
+;; `-dom-cljs-test`, which BOTH builds select.
+;;
+;; THREE TESTS WERE SPLIT RATHER THAN MOVED, because they mixed dead DOM
+;; claims with assertions that really do run here:
+;; `apply-use-system-colors-handles-missing-shell-root`,
+;; `update-event-applies-use-system-colors-effect` and
+;; `update-event-applies-density-font-size-effect` keep their host-free
+;; halves below; only their DOM halves crossed over. Moving them whole
+;; would have taken live assertions OFF the node lane.
 
 (deftest apply-text-size-handles-missing-shell-root
   (remove-stub-shell-root!)
@@ -90,38 +106,7 @@
 
 ;; ---- theme --------------------------------------------------------------
 
-(deftest apply-theme-toggles-class
-  (ensure-stub-shell-root!)
-  (effects/apply-theme! :light)
-  (when-let [el (shell-root)]
-    (is (true? (.contains (.-classList el) "rf-xray-theme-light"))
-        "light class applied")
-    (is (false? (.contains (.-classList el) "rf-xray-theme-dark"))
-        "dark class removed"))
-  ;; Switch to dark
-  (effects/apply-theme! :dark)
-  (when-let [el (shell-root)]
-    (is (true? (.contains (.-classList el) "rf-xray-theme-dark")))
-    (is (false? (.contains (.-classList el) "rf-xray-theme-light")))))
-
 ;; ---- update-setting! drives the side effect ----------------------------
-
-(deftest update-event-applies-text-size-effect
-  (setup!)
-  (ensure-stub-shell-root!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/settings-update :general :text-size 15]))
-  (when-let [el (shell-root)]
-    (is (= "15px" (.getPropertyValue (.-style el) "--rf-xray-text-size"))
-        "dispatching update writes the CSS var")))
-
-(deftest update-event-applies-theme-effect
-  (setup!)
-  (ensure-stub-shell-root!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/settings-update :theme nil :light]))
-  (when-let [el (shell-root)]
-    (is (true? (.contains (.-classList el) "rf-xray-theme-light")))))
 
 ;; ---- filters feature detect (removed rf2-wknb3) ------------------------
 ;;
@@ -265,16 +250,6 @@
 
 ;; ---- apply-all! ---------------------------------------------------------
 
-(deftest apply-all-restores-text-size-and-theme
-  (ensure-stub-shell-root!)
-  (config/update-setting! :general :text-size 12)
-  (config/update-setting! :theme nil :light)
-  ;; Re-apply via the boot path.
-  (effects/apply-all!)
-  (when-let [el (shell-root)]
-    (is (= "12px" (.getPropertyValue (.-style el) "--rf-xray-text-size")))
-    (is (true? (.contains (.-classList el) "rf-xray-theme-light")))))
-
 ;; ---- epoch-history (rf2-3zyyx) -----------------------------------------
 
 (deftest apply-epoch-history-writes-substrate-depth
@@ -386,18 +361,6 @@
 
 ;; ---- panel width (rf2-x8h9y) -------------------------------------------
 
-(deftest apply-all-restores-panel-width
-  (testing "rf2-x8h9y — boot path restores the persisted panel width
-            so the user's saved drag survives reload BEFORE first
-            paint. The CSS var lands on `<html>` (the cascade reaches
-            the layout host's flex-basis even pre-mount)."
-    (config/update-setting! :general :panel-width-px 700)
-    (effects/apply-all!)
-    (when-let [html (html-root)]
-      (is (= "700px"
-             (.getPropertyValue (.-style html) "--rf-xray-inline-width"))
-          "<html> --rf-xray-inline-width carries the persisted value"))))
-
 ;; ---- density → font-size knob (rf2-i40us) ------------------------------
 
 (deftest density->font-size-px-mapping
@@ -426,35 +389,16 @@
 
 ;; ---- use-system-colors? (rf2-846h2) ------------------------------------
 
-(deftest apply-use-system-colors-stamps-and-clears-attribute
-  (testing "rf2-846h2 — apply-use-system-colors! stamps
-            `data-rf-force-colors=\"active\"` on the shell root +
-            `<html>` when truthy, removes it when falsey."
-    (ensure-stub-shell-root!)
-    (effects/apply-use-system-colors! true)
-    (when-let [el (shell-root)]
-      (is (= "active" (.getAttribute el effects/force-colors-attribute))
-          "shell root carries the active attribute when toggle on"))
-    (when-let [html (html-root)]
-      (is (= "active" (.getAttribute html effects/force-colors-attribute))
-          "<html> carries the active attribute when toggle on"))
-    (effects/apply-use-system-colors! false)
-    (when-let [el (shell-root)]
-      (is (nil? (.getAttribute el effects/force-colors-attribute))
-          "shell root attribute cleared when toggle off"))
-    (when-let [html (html-root)]
-      (is (nil? (.getAttribute html effects/force-colors-attribute))
-          "<html> attribute cleared when toggle off"))))
-
 (deftest apply-use-system-colors-handles-missing-shell-root
-  (testing "rf2-846h2 — no-op when shell root absent; <html> still gets
-            the attribute write so the cascade reaches descendants
-            before the shell mounts."
+  (testing "rf2-846h2 — no-op when shell root absent; no throw."
+    ;; rf2-r51p — the `<html>`-still-written half of this test asserted
+    ;; inside `(when-let [html (html-root)] ...)`, which binds nil on
+    ;; node, so it executed in neither lane. It moved to
+    ;; `settings.effects-dom-cljs-test/apply-use-system-colors-stamps-
+    ;; html-without-a-shell-root`. The no-op return claim below is
+    ;; host-free and genuinely runs here, so it stayed.
     (remove-stub-shell-root!)
     (is (nil? (effects/apply-use-system-colors! true)))
-    (when-let [html (html-root)]
-      (is (= "active" (.getAttribute html effects/force-colors-attribute))
-          "<html> attribute still landed even without the shell root"))
     ;; Clean up so unrelated tests don't see the stamped <html>.
     (effects/apply-use-system-colors! false)))
 
@@ -462,58 +406,24 @@
   (testing "rf2-846h2 — dispatching `:rf.xray/settings-update :general
             :use-system-colors? true` stamps the chrome attribute via
             the matching effect."
+    ;; rf2-r51p — the two attribute claims asserted inside `(when-let
+    ;; [el (shell-root)] ...)`, which binds nil on node, so they
+    ;; executed in neither lane. They moved to
+    ;; `settings.effects-dom-cljs-test`. The settings-slot claim below
+    ;; is host-free and genuinely runs here, so it stayed.
     (setup!)
-    (ensure-stub-shell-root!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-update
                          :general :use-system-colors? true]))
-    (when-let [el (shell-root)]
-      (is (= "active" (.getAttribute el effects/force-colors-attribute))
-          "dispatching update stamps the attribute"))
     (is (true? (config/get-setting :general :use-system-colors?))
         "config slot carries the new value")
-    ;; Flip off and verify clear.
+    ;; Flip off, and assert the slot follows — the DOM half of this
+    ;; flip is the dom sibling's.
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-update
                          :general :use-system-colors? false]))
-    (when-let [el (shell-root)]
-      (is (nil? (.getAttribute el effects/force-colors-attribute))
-          "dispatching update with false clears the attribute"))))
-
-(deftest apply-all-restores-use-system-colors
-  (testing "rf2-846h2 — the boot path re-applies the persisted toggle
-            so the user's saved opt-in survives reload BEFORE first
-            paint."
-    (ensure-stub-shell-root!)
-    (config/update-setting! :general :use-system-colors? true)
-    (effects/apply-all!)
-    (when-let [el (shell-root)]
-      (is (= "active" (.getAttribute el effects/force-colors-attribute))
-          "shell root attribute restored from persistence"))
-    (when-let [html (html-root)]
-      (is (= "active" (.getAttribute html effects/force-colors-attribute))
-          "<html> attribute restored from persistence"))
-    ;; Clean up.
-    (config/update-setting! :general :use-system-colors? false)
-    (effects/apply-all!)))
-
-(deftest apply-density-font-size-writes-css-var
-  (ensure-stub-shell-root!)
-  (effects/apply-density-font-size! :compact)
-  (when-let [el (shell-root)]
-    (is (= "12px" (.getPropertyValue (.-style el) "--rf-xray-font-size"))
-        "shell root --rf-xray-font-size carries the compact value"))
-  (when-let [html (html-root)]
-    (is (= "12px" (.getPropertyValue (.-style html) "--rf-xray-font-size"))
-        "<html> --rf-xray-font-size carries the compact value"))
-  (effects/apply-density-font-size! :cosy)
-  (when-let [el (shell-root)]
-    (is (= "13px" (.getPropertyValue (.-style el) "--rf-xray-font-size"))
-        "shell root rewrites to 13px on cosy flip"))
-  (effects/apply-density-font-size! :comfy)
-  (when-let [el (shell-root)]
-    (is (= "14px" (.getPropertyValue (.-style el) "--rf-xray-font-size"))
-        "shell root rewrites to 14px on comfy")))
+    (is (false? (config/get-setting :general :use-system-colors?))
+        "config slot follows the flip back off")))
 
 (deftest apply-density-font-size-handles-missing-shell-root
   (remove-stub-shell-root!)
@@ -524,39 +434,25 @@
   (testing "Dispatching `[:rf.xray/settings-update :general :density
             :compact]` flips `--rf-xray-font-size` to 12px so the
             whole `type-scale` rescales on the next paint."
+    ;; rf2-r51p — the two CSS-var claims asserted inside `(when-let [el
+    ;; (shell-root)] ...)`, which binds nil on node, so they executed in
+    ;; neither lane. They moved to `settings.effects-dom-cljs-test`. The
+    ;; settings-atom claims below are host-free and genuinely run here.
     (setup!)
-    (ensure-stub-shell-root!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-update
                          :general :density :compact]))
-    (when-let [el (shell-root)]
-      (is (= "12px" (.getPropertyValue (.-style el) "--rf-xray-font-size"))
-          "dispatch writes 12px on compact"))
     ;; Persistence — the dual-write goes to the in-memory atom +
     ;; localStorage shim via `config/update-setting!`.
     (is (= :compact (config/get-setting :general :density))
         "settings atom carries the new density")
-    ;; Flip to cosy — verify the inline write rewrites (not just adds).
+    ;; Flip to cosy — the atom must follow; the inline-write half of
+    ;; this flip is the dom sibling's.
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-update
                          :general :density :cosy]))
-    (when-let [el (shell-root)]
-      (is (= "13px" (.getPropertyValue (.-style el) "--rf-xray-font-size"))
-          "dispatch writes 13px on cosy"))))
-
-(deftest apply-all-restores-density-font-size
-  (testing "rf2-i40us — boot path restores the persisted density so
-            the user's saved knob rescales the type scale BEFORE first
-            paint. The CSS var lands on the shell root + `<html>`."
-    (ensure-stub-shell-root!)
-    (config/update-setting! :general :density :compact)
-    (effects/apply-all!)
-    (when-let [el (shell-root)]
-      (is (= "12px" (.getPropertyValue (.-style el) "--rf-xray-font-size"))
-          "shell root --rf-xray-font-size carries the persisted compact value"))
-    (when-let [html (html-root)]
-      (is (= "12px" (.getPropertyValue (.-style html) "--rf-xray-font-size"))
-          "<html> --rf-xray-font-size carries the persisted compact value"))))
+    (is (= :cosy (config/get-setting :general :density))
+        "settings atom follows the flip to cosy")))
 
 ;; ---- Keybindings tab "Handle keys?" reactive dual-write (rf2-8i1tg3) ----
 ;;
