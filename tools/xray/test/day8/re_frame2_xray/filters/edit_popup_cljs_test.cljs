@@ -7,15 +7,23 @@
    - save-edit-popup mutates :active-filters and closes the popup
    - delete-edit-popup drops the pill and closes
    - close-edit-popup discards the draft
-   - hide-event-type (right-click row path) pre-populates OUT mode"
+   - hide-event-type (right-click row path) pre-populates OUT mode
+
+  ## Where the rendered tree comes from (rf2-d9ln)
+
+  `filters/Modal` is a Fresco boundary behind an `as-component` bridge,
+  so calling it answers the `[:>]` interop head rather than a tree to
+  walk. The rows below drive `test-helpers.modal-trees/edit-popup-tree`,
+  which reproduces `filters/ModalView`'s gate and its three reads in the
+  same order — so what they assert on is still the SHIPPED hiccup."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
-            [day8.re-frame2-xray.filters :as filters]
             [day8.re-frame2-xray.filters.edit-popup :as edit-popup]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.test-helpers.modal-trees :as modal-trees]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (use-fixtures :each
@@ -276,7 +284,7 @@
     (xray-setup!)
     (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
     (rf/with-frame :rf/xray
-      (let [rendered (filters/Modal)
+      (let [rendered (modal-trees/edit-popup-tree rf/dispatch)
             backdrop (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-backdrop")
             style    (:style (second backdrop))]
         (is (some? backdrop))
@@ -293,7 +301,7 @@
     (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
     (frame-dispatch [:rf.xray/set-modal-positioning :absolute])
     (rf/with-frame :rf/xray
-      (let [rendered (filters/Modal)
+      (let [rendered (modal-trees/edit-popup-tree rf/dispatch)
             backdrop (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-backdrop")
             style    (:style (second backdrop))]
         (is (some? backdrop))
@@ -320,7 +328,7 @@
     (xray-setup!)
     (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
     (rf/with-frame :rf/xray
-      (let [rendered (filters/Modal)]
+      (let [rendered (modal-trees/edit-popup-tree rf/dispatch)]
         ;; Kept surfaces.
         (is (some? (rf.test-helpers/find-by-testid rendered "rf-xray-edit-popup-mode-in"))
             "Mode IN radio present")
@@ -366,7 +374,7 @@
     (xray-setup!)
     (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
     (rf/with-frame :rf/xray
-      (let [rendered     (filters/Modal)
+      (let [rendered     (modal-trees/edit-popup-tree rf/dispatch)
             strings      (all-strings rendered)
             placeholders (placeholder-values rendered)]
         (is (contains? strings "Filter events")
@@ -397,7 +405,7 @@
                      {:source :pill :mode :in :idx 0
                       :pill {:pattern :auth/*}}])
     (rf/with-frame :rf/xray
-      (let [strings (all-strings (filters/Modal))]
+      (let [strings (all-strings (modal-trees/edit-popup-tree rf/dispatch))]
         (is (contains? strings "Edit filter")
             "title is 'Edit filter' on the :pill source")
         (is (contains? strings "Apply")
@@ -411,7 +419,7 @@
     (xray-setup!)
     (frame-dispatch [:rf.xray/hide-event-type :user/mouse-move])
     (rf/with-frame :rf/xray
-      (let [strings (all-strings (filters/Modal))]
+      (let [strings (all-strings (modal-trees/edit-popup-tree rf/dispatch))]
         (is (contains? strings "Add filter for this event")
             "title is 'Add filter for this event' on the :context source")
         (is (contains? strings "Add filter")

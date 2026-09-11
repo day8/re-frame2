@@ -54,6 +54,7 @@
   `(rf/with-frame :rf/xray …)` — the same requirement the `reg-view`
   bodies had, and the same one every existing caller already satisfies."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.filters.edit-popup :as edit-popup]
             [day8.re-frame2-xray.settings.editor-hint :as editor-hint]
             [day8.re-frame2-xray.settings.view :as settings-view]))
 
@@ -110,3 +111,33 @@
   ([dispatch]
    (when @(rf/subscribe [:rf.xray/editor-hint-open?])
      (editor-hint/toast-view dispatch))))
+
+;; ---- Filter edit popup (rf2-d9ln) ----------------------------------------
+
+(defn edit-popup-tree
+  "The filter edit-popup's hiccup, read the way `filters/ModalView` reads
+  it — the gate first, then the same three subs in the same order.
+
+  Answers `nil` when `:rf.xray/edit-popup-open?` is false, which is the
+  boundary's own short-circuit reproduced rather than approximated.
+
+  `dispatch` defaults to `(:dispatch (rf/capture-frame))`, the SAME door
+  the boundary uses, so a handler a row pulls off the tree and fires
+  later carries the frame the shipped one does. The explicit arity is for
+  rows that want to pass a recording double.
+
+  THE THREE NON-GATE READS ARE HOISTED, which is why this door exists —
+  `filters/edit-popup/popup-view` performed them itself until rf2-d9ln.
+  It could not keep doing so: an ambient `@(rf/subscribe …)` is REFUSED
+  inside a boundary render (`:rf.error/ambient-frame-refused`, and the
+  refusing extent reaches a parens-called helper), while `rf.fresco/sub`
+  refuses OUTSIDE one. One read cannot serve both lanes, so the boundary
+  reads and `popup-view` is pure of its arguments."
+  ([] (edit-popup-tree (:dispatch (rf/capture-frame))))
+  ([dispatch]
+   (when @(rf/subscribe [:rf.xray/edit-popup-open?])
+     (edit-popup/popup-view
+       dispatch
+       {:trigger     @(rf/subscribe [:rf.xray/edit-popup-trigger])
+        :draft       @(rf/subscribe [:rf.xray/edit-popup-draft])
+        :positioning @(rf/subscribe [:rf.xray/modal-positioning])}))))

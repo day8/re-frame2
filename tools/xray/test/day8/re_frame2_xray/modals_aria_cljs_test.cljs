@@ -22,7 +22,9 @@
        `test-helpers.modal-trees/settings-popup-tree` since rf2-k97c.3 —
        the popup's root is a Fresco boundary and no longer a callable)
     2. Mute manager    (`spine-filters/dialog-tree`)
-    3. Filter edit-popup (`filters/edit-popup/popup-view`)
+    3. Filter edit-popup (`filters/edit-popup/popup-view`, driven
+       through `test-helpers.modal-trees/edit-popup-tree` since rf2-d9ln —
+       the popup's root is a Fresco boundary and no longer a callable)
     4. Cancellation-cascade popover — exercised via its `popover-tree`
        (it renders a [:div {:role \"dialog\" ...}]); since rf2-k97c.3 the
        view itself is a Fresco boundary, so the tree fn is the door
@@ -36,7 +38,6 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
-            [day8.re-frame2-xray.filters.edit-popup :as edit-popup]
             [day8.re-frame2-xray.panels.app-db-segment-inspector
              :as segment-inspector]
             [day8.re-frame2-xray.panels.cancellation-cascade
@@ -177,7 +178,7 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/open-edit-popup
                        {:source :add :mode :in :pill {}}]))
-  (let [tree (rf/with-frame :rf/xray (edit-popup/popup-view rf/dispatch))]
+  (let [tree (rf/with-frame :rf/xray (modal-trees/edit-popup-tree rf/dispatch))]
     (assert-dialog-contract! tree "rf-xray-edit-popup-dialog"
                              "Filter edit-popup")))
 
@@ -290,7 +291,7 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/open-edit-popup
                        {:source :add :mode :in :pill {}}]))
-  (let [tree (rf/with-frame :rf/xray (edit-popup/popup-view rf/dispatch))]
+  (let [tree (rf/with-frame :rf/xray (modal-trees/edit-popup-tree rf/dispatch))]
     (assert-dialog-focus-ref! tree "rf-xray-edit-popup-dialog"
                               "Filter edit-popup")))
 
