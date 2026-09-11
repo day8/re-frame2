@@ -631,35 +631,49 @@
 ;; that survives AND the identity of the survivor. A count alone would
 ;; pass just as well on a filter that dropped the wrong row, and these
 ;; fixtures are two rows deep precisely so that mistake is reachable.
+;;
+;; AND EVERY ROW RUNS TWICE (rf2-bgol), once for the production singleton
+;; `:rf/xray` and once for a NON-DEFAULT shell frame. The first cut of this
+;; filter asked `(= :rf/xray frame)`, which is right for the singleton and
+;; blind to every other shell 008 §Parameterized shell frame-id permits —
+;; and a suite that only ever fed it `:rf/xray` could not tell the two
+;; apart. The custom arm is the one that reddens against the old filter.
 
-(def ^:private mixed-evidence
-  "One turn's four envelopes, each carrying an application row AND an
-  Xray-owned one. Two rows deep in every roster on purpose: a filter that
-  dropped the WRONG row would satisfy a count and fail the identity
-  assertions below."
+(def ^:private custom-shell-frame
+  "A NON-DEFAULT Xray shell frame — the `:frame-id` a testbed mounting N
+  shells side by side passes to `shell-view` / `ensure-xray-frame!`."
+  ::custom-shell)
+
+(defn- mixed-evidence
+  "One turn's four envelopes, each carrying an application row AND one
+  owned by the Xray shell seated in `tool-frame`. Two rows deep in every
+  roster on purpose: a filter that dropped the WRONG row would satisfy a
+  count and fail the identity assertions below."
+  [tool-frame]
   {:mounted-boundaries
    (envelope :mounted-boundaries
              {:boundaries [{:boundary boundary-a :views todo-row-views
                             :instances 1 :read-orders 1 :frame :app/main
                             :reads []}
                            {:boundary boundary-b :views :unknown
-                            :instances 1 :read-orders 1 :frame :rf/xray
+                            :instances 1 :read-orders 1 :frame tool-frame
                             :reads []}]})
    :read-attribution
    (envelope :read-attribution
              {:edges [{:sub-id :todo :query [:todo 7] :frame-id :app/main
                        :epoch 4 :fan-out 1 :readers []}
-                      {:sub-id :rf.xray.fresco/data :query [:rf.xray.fresco/data]
-                       :frame-id :rf/xray :epoch 4 :fan-out 1 :readers []}]})
+                      {:sub-id :rf.xray.fresco/data
+                       :query [:rf.xray.fresco/data tool-frame]
+                       :frame-id tool-frame :epoch 4 :fan-out 1 :readers []}]})
    :intents
    (envelope :intents
-             {:frames [:app/main :rf/xray]
+             {:frames [:app/main tool-frame]
               :intents [{:frames [:app/main] :dispatch-id 1
                          :event-id :todo/toggle :arg-count 0 :sub-ids []}
-                        {:frames [:rf/xray] :dispatch-id 2
+                        {:frames [tool-frame] :dispatch-id 2
                          :event-id :rf.xray.fresco/set-view
                          :arg-count 1 :sub-ids []}
-                        {:frames [:app/main :rf/xray] :dispatch-id 3
+                        {:frames [:app/main tool-frame] :dispatch-id 3
                          :event-id :todo/spans :arg-count 0 :sub-ids []}
                         {:frames [] :dispatch-id 4
                          :event-id :todo/frameless :arg-count 0 :sub-ids []}]})
@@ -670,48 +684,82 @@
                               :snapshot 1 :peak-epoch 4
                               :latest-reads [] :candidates [] :loss nil}
                              {:boundary boundary-b :views :unknown
-                              :frame :rf/xray :instances 1
+                              :frame tool-frame :instances 1
                               :snapshot 1 :peak-epoch 4
                               :latest-reads [] :candidates [] :loss nil}]})})
 
+(deftest the-own-frame-set-is-the-singleton-PLUS-the-shell-being-looked-from
+  (testing "rf2-bgol — `:rf/xray` is RESERVED (Conventions' `:rf/*` single
+            root is the framework's, and the L1 picker already refuses it as
+            an inspectable frame), so it stays in the set whichever shell is
+            doing the looking. What was missing was the second member."
+    (is (= #{:rf/xray} (hh/own-frames nil))
+        "no shell to name — the pre-rf2-bgol behaviour exactly, so a caller
+         with no frame context loses nothing it had")
+    (is (= #{:rf/xray} (hh/own-frames :rf/xray))
+        "the production singleton names itself and the set does not grow")
+    (is (= #{:rf/xray custom-shell-frame} (hh/own-frames custom-shell-frame))
+        "a non-default shell adds ITSELF — this is the member the literal
+         `(= :rf/xray frame)` filter could never have")
+    (is (not (contains? (hh/own-frames custom-shell-frame) :app/main))
+        "and nothing else joins it: an application frame is never owned")))
+
 (deftest xray-own-frame-rows-are-dropped-from-every-roster
-  (testing "epic criterion 5 — a boundary seated in :rf/xray is the tool,
-            not the application, and none of the four rosters may carry it.
-            Same rule and same unconditional posture as `self-noise`'s
-            trace-event drop, applied to the evidence surface."
-    (let [e (hh/without-own-frame mixed-evidence)]
-      (testing "NON-VACUITY: the unfiltered input really does carry both"
-        (is (= [:app/main :rf/xray]
-               (mapv :frame (get-in mixed-evidence [:mounted-boundaries :boundaries])))))
+  (testing "epic criterion 5 — a boundary seated in an Xray shell's frame is
+            the tool, not the application, and none of the four rosters may
+            carry it. Same rule and same unconditional posture as
+            `self-noise`'s trace-event drop, applied to the evidence surface."
+    (doseq [tool-frame [:rf/xray custom-shell-frame]]
+      (testing (str "shell frame " tool-frame)
+        (let [input (mixed-evidence tool-frame)
+              e     (hh/without-own-frame input (hh/own-frames tool-frame))]
+          (testing "NON-VACUITY: the unfiltered input really does carry both"
+            (is (= [:app/main tool-frame]
+                   (mapv :frame (get-in input [:mounted-boundaries :boundaries])))))
 
-      (is (= [:app/main]
+          (is (= [:app/main]
+                 (mapv :frame (hh/mounted-rows (:mounted-boundaries e))))
+              "the application's boundary survives the census and the shell's
+               own does not")
+          (is (= [:app/main]
+                 (mapv :frame-id (hh/attribution-rows (:read-attribution e))))
+              "an edge the shell's own boundary holds is not an application read")
+          (is (= [:app/main]
+                 (mapv :frame (hh/explain-rows (:explain-render e))))
+              "and the Why view drops it too — the four are filtered TOGETHER,
+               so a boundary absent from the census cannot still appear in a
+               view derived from the same one-turn read")
+
+          (testing "intents drop on EVERY frame, not ANY"
+            (is (= [:todo/toggle :todo/spans :todo/frameless]
+                   (mapv :event-id (hh/intent-rows (:intents e))))
+                "the tool-only dispatch goes; the MIXED one stays, because a
+                 dispatch that reached an application frame is the user's
+                 whatever else it also touched; and the frameless one stays,
+                 because an empty frame set is an absence and not a claim
+                 about Xray"))
+
+          (testing "the stamp is untouched — this filters ROWS, not the claim"
+            (is (true? (:complete? (:mounted-boundaries e))))
+            (is (= hh/consumed-evidence-schema (:schema (:mounted-boundaries e))))
+            (is (hh/supported? (:mounted-boundaries e))
+                "a filtered envelope is still a parseable one, so `presence`
+                 still answers `:live`/`:idle` rather than `:mismatch`")))))))
+
+(deftest a-shell-does-not-drop-ANOTHER-application-frames-rows
+  (testing "rf2-bgol — the set grew, and the thing to prove about a set that
+            grew is that it did not grow onto the application. Here the
+            second row is seated in an ORDINARY application frame while the
+            filter is armed for the custom shell, so nothing in the roster is
+            the tool's and nothing may be dropped."
+    (let [e (hh/without-own-frame (mixed-evidence :app/other)
+                                  (hh/own-frames custom-shell-frame))]
+      (is (= [:app/main :app/other]
              (mapv :frame (hh/mounted-rows (:mounted-boundaries e))))
-          "the application's boundary survives the census and Xray's own
-           does not")
-      (is (= [:app/main]
-             (mapv :frame-id (hh/attribution-rows (:read-attribution e))))
-          "an edge Xray's own boundary holds is not an application read")
-      (is (= [:app/main]
-             (mapv :frame (hh/explain-rows (:explain-render e))))
-          "and the Why view drops it too — the four are filtered TOGETHER,
-           so a boundary absent from the census cannot still appear in a
-           view derived from the same one-turn read")
-
-      (testing "intents drop on EVERY frame, not ANY"
-        (is (= [:todo/toggle :todo/spans :todo/frameless]
-               (mapv :event-id (hh/intent-rows (:intents e))))
-            "the Xray-only dispatch goes; the MIXED one stays, because a
-             dispatch that reached an application frame is the user's
-             whatever else it also touched; and the frameless one stays,
-             because an empty frame set is an absence and not a claim
-             about Xray"))
-
-      (testing "the stamp is untouched — this filters ROWS, not the claim"
-        (is (true? (:complete? (:mounted-boundaries e))))
-        (is (= hh/consumed-evidence-schema (:schema (:mounted-boundaries e))))
-        (is (hh/supported? (:mounted-boundaries e))
-            "a filtered envelope is still a parseable one, so `presence`
-             still answers `:live`/`:idle` rather than `:mismatch`")))))
+          "BOTH application rows survive — a filter that keyed on anything
+           softer than the shell's own id (tracing being off, say) would
+           have eaten the second one, which is far worse than the defect
+           this change repairs"))))
 
 (deftest the-own-frame-drop-does-not-eat-an-unresolved-or-unparseable-envelope
   (testing "rf2-k97c.3 — two things the filter must NOT do, both of which
@@ -721,13 +769,16 @@
       ;; The shared `mounted` fixture is the control: its second row is
       ;; `:frame :unknown`, and every other row in this file reading it
       ;; expects TWO rows back.
-      (let [rows (hh/mounted-rows
-                   (:mounted-boundaries
-                     (hh/without-own-frame {:mounted-boundaries mounted})))]
-        (is (= [:app/main :unknown] (mapv :frame rows))
-            "both survive — the filter is `= :rf/xray` and nothing cleverer")
-        (is (some? (:frame-chip (second rows)))
-            "and the unresolved row still carries its chip")))
+      (doseq [tool-frame [:rf/xray custom-shell-frame]]
+        (let [rows (hh/mounted-rows
+                     (:mounted-boundaries
+                       (hh/without-own-frame {:mounted-boundaries mounted}
+                                             (hh/own-frames tool-frame))))]
+          (is (= [:app/main :unknown] (mapv :frame rows))
+              "both survive — the filter is set membership over resolved
+               frame ids and nothing cleverer")
+          (is (some? (:frame-chip (second rows)))
+              "and the unresolved row still carries its chip"))))
 
     (testing "an absent or mismatched envelope passes through untouched"
       (let [e (hh/without-own-frame
@@ -736,7 +787,8 @@
                                       :producer :re-frame/fresco
                                       :edges [{:frame-id :rf/xray}]}
                  :intents            nil
-                 :explain-render     nil})]
+                 :explain-render     nil}
+                (hh/own-frames custom-shell-frame))]
         (is (nil? (:mounted-boundaries e))
             "nil stays nil — a missing door is not an empty roster")
         (is (= :re-frame.fresco.evidence/v2 (:schema (:read-attribution e)))

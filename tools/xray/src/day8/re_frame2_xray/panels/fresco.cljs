@@ -692,14 +692,25 @@
   click still lands on the surrounding instance frame (rf2-nesy9) and is
   still not a `:rf/xray` literal.
 
+  THAT ID IS ALSO THE EVIDENCE READ'S ARGUMENT NOW (rf2-bgol), and the
+  render is the only place it can be taken from. The self-exclusion
+  filter has to know which frames are the TOOL's, Xray's shell frame is
+  parameterized (008 §Parameterized shell frame-id), and a subscription
+  COMPUTATION runs under no frame scope at all — `subs/memo` wraps the
+  body in a trace handler-scope and nothing else, so `current-frame-id`
+  inside the sub would answer whatever unrelated scope happened to be on
+  the stack, which is the render's frame on the first build and nothing
+  on every recompute. Here it is established.
+
   The argument is the ordinary one-props-map vector every `defview`
   takes. This panel reads nothing from props — the L4 registry mounts it
   with none — so it is destructured away."
   [_props]
-  (panel-tree
-    {:selected (rf.fresco/sub [:rf.xray.fresco/view])
-     :data     (rf.fresco/sub [:rf.xray.fresco/data])
-     :frame    (rf/current-frame-id)}))
+  (let [frame (rf/current-frame-id)]
+    (panel-tree
+      {:selected (rf.fresco/sub [:rf.xray.fresco/view])
+       :data     (rf.fresco/sub [:rf.xray.fresco/data frame])
+       :frame    frame})))
 
 ;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
 ;;
@@ -765,9 +776,17 @@
     (fn [db _query]
       (hh/normalise-sub-mode (:fresco-view db))))
 
+  ;; THE QUERY TAKES THE PANEL'S OWN FRAME (rf2-bgol). `instance-frame` is
+  ;; the id `Panel` read with `rf/current-frame-id` in its render — the
+  ;; shell this tab is actually inside, which 008 §Parameterized shell
+  ;; frame-id lets be any id rather than `:rf/xray` alone. It is an
+  ;; ARGUMENT because a sub computation has no frame scope to read one
+  ;; from; see `Panel`'s docstring. A caller that passes none (the
+  ;; byte-claim rows, which are about the door rather than about a shell)
+  ;; gets the singleton alone, which is what this filter did before.
   (rf/reg-sub :rf.xray.fresco/data
     {:inputs [[:rf.xray/trace-buffer]]}
-    (fn [[_tick] _query]
+    (fn [[_tick] [_ instance-frame]]
       ;; rf2-k97c.3 — `hh/without-own-frame` drops Xray's OWN boundaries
       ;; before anything downstream sees them. Xray's panels are Fresco
       ;; boundaries now and Fresco's census has no frame filter, so this
@@ -778,7 +797,8 @@
       ;; and HERE rather than in the row projections because the advisor
       ;; and the causal slice read the envelopes directly. See
       ;; `fresco-helpers/without-own-frame`.
-      (let [envelopes (hh/without-own-frame (reads/evidence))
+      (let [envelopes (hh/without-own-frame (reads/evidence)
+                                            (hh/own-frames instance-frame))
             ;; The window is taken in the SAME turn as the four envelopes,
             ;; for the reason the four are taken together: the advisor
             ;; joins the ring's recompute counts to the census's read
