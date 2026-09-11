@@ -2,7 +2,7 @@
   "CLJS tests for the L2/L3 events-list seam resize handle (rf2-t2dsh).
 
   Asserts:
-    1. `SeamHandle` mounts with the documented testid, role, and ARIA
+    1. The seam's markup carries the documented testid, role, and ARIA
        slots (`separator`, horizontal orientation, live `aria-valuenow`).
     2. The shell tree carries the seam BETWEEN the event-list and the
        tab-bar (DOM-order contract — the seam IS the boundary).
@@ -67,15 +67,39 @@
   [tree]
   (map (comp :data-testid rf.test-helpers/attrs) (rf.test-helpers/find-by-testid-prefix tree "")))
 
-;; ---- SeamHandle component shape ----------------------------------------
+;; ---- the seam's markup (rf2-k97c.3) ------------------------------------
+;;
+;; The seam is `resize-handle/seam-handle-view`, a Fresco BOUNDARY, since
+;; rf2-k97c.3 — it stopped being a `reagent.core/as-element` island when
+;; the whole of `resize_handle.cljs` migrated. Its `rf.fresco/sub` is
+;; legal only inside a boundary render, so calling the boundary from the
+;; node lane would raise `:rf.error/fresco-sub-outside-render` rather
+;; than answer hiccup. These rows drive the boundary's PURE inner fn
+;; instead, reading the same sub the boundary reads so `aria-valuenow`
+;; is still the LIVE height rather than a fixture constant.
+
+(defn- seam-markup
+  "The seam's node as `seam-handle-view` composes it.
+
+  The DISPATCHER is `(:dispatch (rf/capture-frame))`, the same door the
+  boundary uses — not `rf/dispatch`. That is what routes through
+  `rf/dispatch-impl`, so the `with-redefs` row below sees the event;
+  passing `rf/dispatch` instead makes it silently observe nothing."
+  []
+  (resize-handle/seam-handle-tree
+    @(rf/subscribe [:rf.xray/events-list-height-px])
+    (resize-handle/aria-max-events-list-height-px)
+    (:dispatch (rf/capture-frame))))
+
+;; ---- seam markup shape -------------------------------------------------
 
 (deftest seam-handle-renders-with-aria-shape
   (setup!)
   (rf/with-frame :rf/xray
-    (let [tree (resize-handle/SeamHandle)
+    (let [tree (seam-markup)
           props (second tree)]
       (is (some? tree)
-          "SeamHandle returns a hiccup tree")
+          "the seam composes a hiccup tree")
       (is (= "rf-xray-event-list-seam" (:data-testid props))
           "testid is the documented contract")
       (is (= "separator" (:role props))
@@ -94,7 +118,7 @@
 (deftest seam-handle-style-uses-row-resize-cursor
   (setup!)
   (rf/with-frame :rf/xray
-    (let [tree (resize-handle/SeamHandle)
+    (let [tree (seam-markup)
           style (:style (second tree))]
       (is (= "row-resize" (:cursor style))
           "seam hover cursor signals vertical-axis resize")
@@ -265,7 +289,7 @@
                                       ([ev]       (swap! dispatches conj ev) nil)
                                       ([ev _opts] (swap! dispatches conj ev) nil))]
       (rf/with-frame :rf/xray
-        (let [tree    (resize-handle/SeamHandle)
+        (let [tree    (seam-markup)
               handler (:on-double-click (second tree))]
           (is (fn? handler)
               "the seam node carries on-double-click")

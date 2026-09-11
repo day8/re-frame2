@@ -1,7 +1,7 @@
 (ns day8.re-frame2-xray.resize-handle
   "Resize affordances for the Xray shell: the LEFT-edge panel-width
   `Handle` (rf2-x8h9y + rf2-70u8q auto-inject contract) and the
-  L2/L3 seam `SeamHandle` (rf2-t2dsh) that drives the event-list
+  L2/L3 seam handle (rf2-t2dsh) that drives the event-list
   height.
 
   ## Two handles, one mental model
@@ -26,7 +26,7 @@
   `config/default-panel-width-px` (560px). Keyboard-navigable via
   arrow keys (8px step; 32px with Shift) and Home / End (clamp ends).
 
-  ## What `SeamHandle` is
+  ## What the seam handle is
 
   A full-width 8px-tall horizontal strip mounted between the L2 event
   list and the L3 tab bar in `dynamic-chrome`. Drag DOWN grows the
@@ -53,9 +53,11 @@
 
   If the layout host carries an explicit `resize: horizontal` (or
   `:both`) in its *computed* style, Xray interprets that as the
-  consumer asserting their own handle and renders nil from `Handle`
+  consumer asserting their own handle, and [[handle-view]] renders nil
   — no double-handle, the consumer wins. Detection happens at render
-  time via `getComputedStyle` on the host element.
+  time via `getComputedStyle` on the host element. The gate sits in the
+  BOUNDARY rather than in the [[Handle]] bridge on purpose: the bridge
+  is scaffolding that gets deleted, and this is shipped behaviour.
 
   ## Drag mechanics (global pointer capture)
 
@@ -148,10 +150,11 @@
   rendering no handle at all. [[Handle]] therefore decides in CLJS and
   passes no props; [[handle-view]] takes none.
 
-  The reads are deliberately left INSIDE their conditionals. A Fresco
-  body is dynamically composed — its branches and early returns are
-  free to follow the data it reads (HD-002) — so gating a `sub` costs
-  nothing and no conditional had to be surrendered to hoist it."
+  The panel handle's read is deliberately left INSIDE its yield
+  conditional. A Fresco body is dynamically composed — its branches and
+  early returns are free to follow the data it reads (HD-002) — so
+  gating a `sub` costs nothing, and no conditional had to be
+  surrendered in order to hoist a read out of one."
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.config :as config]
@@ -244,7 +247,7 @@
   works without branching.
 
   `dispatch-fn` (rf2-nesy9) is the frame-aware dispatcher captured by
-  the `Handle` `reg-view` body; it is stashed in the drag-state so the
+  the [[handle-view]] boundary body; it is stashed in the drag-state so the
   document-level pointer-move listener (which fires after render
   unwinds) dispatches on the surrounding instance frame. Defaults to
   `rf/dispatch` for the test seam, which drives the lifecycle without a
@@ -345,7 +348,7 @@
   false and bubble normally.
 
   `dispatch-fn` (rf2-nesy9) is the frame-aware dispatcher captured by
-  the `Handle` `reg-view` body so the keyboard resize lands on the
+  the [[handle-view]] boundary body so the keyboard resize lands on the
   surrounding instance frame, not a `{:frame :rf/xray}` literal.
   Defaults to `rf/dispatch` for the test seam."
   ([^js e current-width] (handle-keydown! e current-width rf/dispatch))
@@ -659,7 +662,7 @@
   for the vertical axis.
 
   `dispatch-fn` (rf2-nesy9) is the frame-aware dispatcher captured by
-  the `SeamHandle` `reg-view` body; stashed in the seam-drag-state so
+  the [[seam-handle-view]] boundary body; stashed in the seam-drag-state so
   the document-level pointer-move listener dispatches on the
   surrounding instance frame. Defaults to `rf/dispatch` for the test
   seam.
@@ -742,7 +745,7 @@
   false and bubble normally.
 
   `dispatch-fn` (rf2-nesy9) is the frame-aware dispatcher captured by
-  the `SeamHandle` `reg-view` body. Defaults to `rf/dispatch` for the
+  the [[seam-handle-view]] boundary body. Defaults to `rf/dispatch` for the
   test seam."
   ([^js e current-height] (handle-seam-keydown! e current-height rf/dispatch))
   ([^js e current-height dispatch-fn]
