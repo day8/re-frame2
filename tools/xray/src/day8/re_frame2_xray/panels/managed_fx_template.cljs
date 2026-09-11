@@ -259,9 +259,97 @@
 ;; every record in every list shared one. `record-key` is this file's own
 ;; per-record identity — already the React `:key` and the expansion key —
 ;; so deriving all three from it is what stops them drifting apart.
+;;
+;; rf2-5ykm — AND `record-key` SEPARATES RECORDS WITHIN ONE LIST, NEVER TWO
+;; LISTS. That is the half the migration dropped: the Reagent head this
+;; panel used to be minted a per-mount identity, and a Fresco boundary
+;; cannot — it is a React function component with no per-instance storage
+;; its body may use. So two `mount-managed-fx!` mounts of the SAME focused
+;; event under ONE frame composed identical node-keys, and the paragraph
+;; above then describes them exactly: one memoised ref between them, the
+;; second element never observed, and `release-mount!` tearing the shared
+;; entry down when EITHER detached. Measured on a real two-container commit
+;; before the repair — `panels/managed_fx_mount_instance_id_dom_cljs_test`.
+;;
+;; The caller names them, which is the ruling rf2-d2aj closed with and the
+;; shape `app-db-diff` already ships: an optional `:instance-id`, threaded
+;; from `mount-managed-fx!` through the bridge and the boundary to
+;; [[node-key]] below. ONE qualifier does both halves here where app-db
+;; needs two, because `edn-widget/inspect-view` builds the `:mount-id` AND
+;; the `:panel-id` from this one string and passes no `:site-id` (so the
+;; widget's `effective-id` falls back to the mount-id).
+;;
+;; WHAT IT DELIBERATELY DOES NOT TOUCH is record identity and disclosure.
+;; `record-key` stays the React `:key` and stays the expansion key, which
+;; lives in the frame's app-db and is therefore shared by two lists of the
+;; same records ON PURPOSE — they open and close together, and what they
+;; no longer share is a ResizeObserver.
+
+(defn instance-token
+  "Normalise `panels/ManagedFxList`'s optional `:instance-id` prop to the
+  string that qualifies one mount's inspector ids, or nil when the caller
+  named no instance — the single-mount default, which composes every id
+  byte-for-byte as it did before rf2-5ykm.
+
+  A KEYWORD is accepted alongside a string, and its NAMESPACE is part of
+  the name: `:left/list` tokenises to `left/list`. `(subs (str id) 1)` is
+  the whole of it — the keyword minus its leading colon.
+
+  IDEMPOTENT, because it is called TWICE on the way in and must compose one
+  answer for one value. [[panels/ManagedFxList-bridge]] calls it BEFORE
+  handing the prop across `[:>]`, and that is a repair rather than tidiness
+  (rf2-4bsq, met first on `app-db-diff`): Reagent's `convert-prop-value`
+  converts a named value with `cljs.core/name`, which DROPS the namespace,
+  so `:left/list` and `:right/list` would both arrive as `\"list\"` and the
+  two mounts a caller had deliberately named apart would collide again.
+  Normalising first means a STRING crosses, which Reagent preserves.
+
+  Anything else is REFUSED rather than `str`-ed, and that is the point of
+  the fn. The token has to be stable across the mount's renders; a value
+  whose printed form is minted per render — a map, a JS object — would
+  compose a fresh `:mount-id` and `:panel-id` every pass and silently throw
+  away expansion, zoom and the measured column width each time. That is the
+  same failure `edn-inspector-view`'s own `:mount-id` refusal exists to
+  prevent, one level up.
+
+  It is this panel's own normaliser rather than a call into
+  `app-db-diff-state`'s: the two panels are independent surfaces, they
+  migrate on their own schedules, and the refusal has to name the caller's
+  OWN panel to be worth reading."
+  [instance-id]
+  (cond
+    (nil? instance-id)     nil
+    (keyword? instance-id) (subs (str instance-id) 1)
+    (string? instance-id)  (when (seq instance-id) instance-id)
+    :else
+    (throw (ex-info
+             (str "The managed-fx list's :instance-id must be a non-blank "
+                  "string or a keyword naming ONE live mount of the panel; "
+                  "it was " (pr-str instance-id) ". It is composed into the "
+                  "edn-inspector's :mount-id and :panel-id, so it must be "
+                  "stable across that mount's renders — a value minted per "
+                  "render would lose expansion, zoom and the measured column "
+                  "width on every pass. Omit it entirely when only one "
+                  "managed-fx list is on screen in this frame.")
+             {:instance-id instance-id}))))
+
+(defn- node-key
+  "The inspector node-key for one record's `role` section — the string
+  `edn-widget/inspect-view` turns into BOTH the boundary's `:mount-id` and
+  its `:panel-id`.
+
+  `instance` is the already-tokenised per-mount name, or nil. It is spliced
+  in AFTER the panel's own prefix and BEFORE the record key, mirroring
+  `app-db-diff-state`'s `app-db-state/<instance>/<render-id>`: the
+  qualifier names the mount, the record key still names the record inside
+  it, and an unnamed mount composes exactly the string it always did."
+  [instance record role]
+  (if instance
+    (str "managed-fx/" instance "/" (h/record-key record) "/" role)
+    (str "managed-fx/" (h/record-key record) "/" role)))
 
 (defn- request-section
-  [{:keys [req surface] :as record}]
+  [instance {:keys [req surface] :as record}]
   (cond
     (and (nil? req) (= surface :flow))
     [:span {:style {:color (:text-tertiary tokens)}} "(flow input — see registration)"]
@@ -270,7 +358,7 @@
     [:span {:style {:color (:text-tertiary tokens)}} "(no request payload)"]
 
     :else
-    (edn/inspect-view req (str "managed-fx/" (h/record-key record) "/req"))))
+    (edn/inspect-view req (node-key instance record "req"))))
 
 (defn- wire-section
   "Wire timing section. When the surface emits per-phase wire data we
@@ -288,7 +376,7 @@
      "n/a — this surface does not emit per-phase wire timing today."]))
 
 (defn- response-section
-  [{:keys [res surface failure] :as record}]
+  [instance {:keys [res surface failure] :as record}]
   (cond
     failure
     [:div
@@ -297,7 +385,7 @@
                     :margin-bottom "4px"}}
       (str "✗ " (or (some-> failure :kind name) "FAILURE"))]
      (edn/inspect-view (or (:tags failure) failure)
-                       (str "managed-fx/" (h/record-key record) "/failure"))]
+                       (node-key instance record "failure"))]
 
     (and (nil? res) (= surface :flow))
     [:span {:style {:color (:text-tertiary tokens)}}
@@ -308,20 +396,20 @@
      "(no response payload yet)"]
 
     :else
-    (edn/inspect-view res (str "managed-fx/" (h/record-key record) "/res"))))
+    (edn/inspect-view res (node-key instance record "res"))))
 
 (defn- handler-section
   "Renders the dispatched handler event vector + a click-to-focus
   affordance that pivots the spine to that child event-bundle. Anchors the
   F.3 'failed response handler' diagnostic."
-  [dispatch {:keys [handler frame dispatch-id] :as record}]
+  [dispatch instance {:keys [handler frame dispatch-id] :as record}]
   (if (and (vector? handler) (seq handler))
     [:div {:style {:display "flex"
                    :align-items "center"
                    :gap "12px"
                    :flex-wrap "wrap"}}
      [:div {:style {:flex 1 :min-width 0}}
-      (edn/inspect-view handler (str "managed-fx/" (h/record-key record) "/handler"))]
+      (edn/inspect-view handler (node-key instance record "handler"))]
      [:button {:data-testid "rf-xray-managed-fx-focus-handler"
                :on-click    #(dispatch [:rf.xray/focus-event dispatch-id frame])
                :style       {:background  "transparent"
@@ -460,10 +548,19 @@
   `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
   `panels/ManagedFxList` `reg-view` body, threaded to the header /
   handler / disclosure affordances. Defaults to `rf/dispatch` so the test
-  seam (and any pre-sweep caller) renders without a captured dispatcher."
-  ([record] (record-panel rf/dispatch nil record))
-  ([dispatch record] (record-panel dispatch nil record))
-  ([dispatch expanded record]
+  seam (and any pre-sweep caller) renders without a captured dispatcher.
+
+  `instance-id` (rf2-5ykm) is the optional per-mount name the caller gave
+  `mount-managed-fx!`, normalised ONCE here by [[instance-token]] so the
+  four inspector sites can never disagree about it. nil — every arity below
+  the 4-arity, and every single-mount call site in this tree — composes the
+  node-keys byte-for-byte as it did before. It qualifies the INSPECTOR ids
+  only: `rec-key` below is untouched, so the React `:key` and the
+  disclosure state stay exactly where they were."
+  ([record] (record-panel rf/dispatch nil nil record))
+  ([dispatch record] (record-panel dispatch nil nil record))
+  ([dispatch expanded record] (record-panel dispatch expanded nil record))
+  ([dispatch expanded instance-id record]
   ;; rf2-hxfy — the React key lives in this ATTRIBUTE MAP rather than as
   ;; `^{:key …}` reader meta on the `(record-panel …)` call in
   ;; `records-list` below. Reader meta on a CALL form attaches to the
@@ -475,7 +572,10 @@
   ;; Reagent reads meta THEN props — so one attribute satisfies both
   ;; substrates. The composed value is unchanged from the call site's:
   ;; the same three record fields, same order, same separator.
-  (let [rec-key (h/record-key record)
+  (let [rec-key  (h/record-key record)
+        ;; rf2-5ykm — tokenised (and type-refused) ONCE, so the four
+        ;; inspector sites below compose one answer for one value.
+        instance (instance-token instance-id)
         ;; One `section` per row: resolve this record's stored state for
         ;; the section (falling back to its default) and hand the whole
         ;; lot to the disclosure wrapper.
@@ -501,13 +601,13 @@
    (panel-header dispatch record)
    [:div {:style {:padding "8px 12px"}}
     (section :request  "REQUEST"
-             "rf-xray-managed-fx-section-request"  (request-section record))
+             "rf-xray-managed-fx-section-request"  (request-section instance record))
     (section :wire     "WIRE TIMING"
              "rf-xray-managed-fx-section-wire"     (wire-section record))
     (section :response "RESPONSE"
-             "rf-xray-managed-fx-section-response" (response-section record))
+             "rf-xray-managed-fx-section-response" (response-section instance record))
     (section :handler  "HANDLER DISPATCHED"
-             "rf-xray-managed-fx-section-handler"  (handler-section dispatch record))
+             "rf-xray-managed-fx-section-handler"  (handler-section dispatch instance record))
     (section :app-db   "APP-DB SLICE TOUCHED"
              "rf-xray-managed-fx-section-app-db"   (app-db-slice-section record))]])))
 
@@ -524,10 +624,16 @@
 
   `expanded` is the per-section override map threaded to each
   `record-panel`; `nil` renders every section at its default. Keyed per
-  record, so opening one panel's REQUEST leaves its siblings shut."
-  ([records] (records-list rf/dispatch nil records))
-  ([dispatch records] (records-list dispatch nil records))
-  ([dispatch expanded records]
+  record, so opening one panel's REQUEST leaves its siblings shut.
+
+  `instance-id` (rf2-5ykm) is the optional per-mount name, threaded to each
+  `record-panel` and normalised there. nil — the shape every arity below
+  the 4-arity passes — composes the inspector node-keys exactly as they
+  were."
+  ([records] (records-list rf/dispatch nil nil records))
+  ([dispatch records] (records-list dispatch nil nil records))
+  ([dispatch expanded records] (records-list dispatch expanded nil records))
+  ([dispatch expanded instance-id records]
   (when (seq records)
     [:div {:data-testid "rf-xray-managed-fx-list"
            :style {:padding "8px 0"
@@ -543,4 +649,4 @@
      ;; attribute map `record-panel` returns (see the comment there).
      ;; Reader meta here would attach to the CALL form and be lost.
      (for [rec records]
-       (record-panel dispatch expanded rec))])))
+       (record-panel dispatch expanded instance-id rec))])))

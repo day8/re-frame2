@@ -407,8 +407,9 @@ embed contract. The `mount-<panel>!` aggregator surface enumerated in
 [`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract is
 internal-but-stable (used by shell composition and tests); it accepts
 `:frame` — defaulting to `:rf/xray` — on every mount fn, plus
-`:instance-id` on `mount-app-db-diff!` alone (rf2-2n8q), which names
-one of two standalone app-db mounts sharing a frame.
+`:instance-id` on `mount-app-db-diff!` (rf2-2n8q) and
+`mount-managed-fx!` (rf2-5ykm), which names one of two standalone
+mounts of that panel sharing a frame.
 
 ### Static-mode Panel reg-views
 
