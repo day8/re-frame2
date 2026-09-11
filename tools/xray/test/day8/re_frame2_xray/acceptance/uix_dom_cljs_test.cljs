@@ -1,8 +1,8 @@
 (ns day8.re-frame2-xray.acceptance.uix-dom-cljs-test
   "THE ELEMENT-SHAPED ARM of the epic's acceptance harness (rf2-k97c.3,
   slice D). The six criterion bodies live in
-  `day8.re-frame2-xray.acceptance.criteria`; this namespace supplies ONE
-  thing — the installed adapter — and wraps them in `deftest`.
+  `day8.re-frame2-xray.acceptance.test-helpers.criteria`; this namespace
+  supplies ONE thing — the installed adapter — and wraps them in `deftest`.
 
   ## WHY UIx, AND NOT `test-react`
 
@@ -53,7 +53,7 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.test-support :as rf.test-support]
-            [day8.re-frame2-xray.acceptance.criteria :as criteria]
+            [day8.re-frame2-xray.acceptance.test-helpers.criteria :as criteria]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (def ^:private substrate
