@@ -1,4 +1,4 @@
-(ns re-frame.story.stepper-start-test
+(ns re-frame.story.stepper-start-cljs-test
   "Regression net for the step-debugger's START ordering (rf2-k6y2).
 
   The `:test` pane's step-debugger promises that cursor 0 IS the pre-play
@@ -26,7 +26,12 @@
 
   Runs on BOTH runtimes: phases 0-2 are synchronous and the script steps
   are pure `:dispatch-sync`, so the frame's app-db and the external-effect
-  counter are settled the instant each call returns — no awaiting needed."
+  counter are settled the instant each call returns — no awaiting needed.
+  The preparation-failure rows further down read `begin!`'s resolve/reject
+  branch by blocking on the promise, so those are JVM-gated.
+
+  Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
+  selects it; under its old `-test` name it ran on the JVM only (rf2-exlh)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]

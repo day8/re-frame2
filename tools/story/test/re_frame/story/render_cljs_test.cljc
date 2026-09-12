@@ -1,4 +1,4 @@
-(ns re-frame.story.render-test
+(ns re-frame.story.render-cljs-test
   "Tests for `render-variant` + the workshop-superset plan slots
   (rf2-5x1wt.24).
 
@@ -10,7 +10,10 @@
   + view metadata are supplied through explicit `:lookup` / `:view-lookup`
   maps. The host-render path (`render-variant` proper) is exercised by
   installing a fake `:render-host` hook so the `:rendered` shape + the
-  no-host `:cannot-run` refusal are both pinned."
+  no-host `:cannot-run` refusal are both pinned.
+
+  Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
+  selects it; under its old `-test` name it ran on the JVM only (rf2-exlh)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.story.fingerprint :as rf.story.fingerprint]

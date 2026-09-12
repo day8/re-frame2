@@ -1,4 +1,4 @@
-(ns re-frame.story.run-owner-cljc-test
+(ns re-frame.story.run-owner-cljs-test
   "Regression net for Story's ONE run owner (rf2-j538f7.34).
 
   A focused shell selection used to have THREE execution owners — the
@@ -14,7 +14,11 @@
   `rf.story.async/promise` executes synchronously, so the frame's app-db and the
   external-effect counter are settled the instant `resume-run!` returns — no
   awaiting needed. The one supersession test that needs an async barrier is
-  JVM-gated (it blocks a thread)."
+  JVM-gated (it blocks a thread).
+
+  Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
+  selects it. Under its old `-cljc-test` name no CLJS build selected it, so
+  the `:cljs` branches below never compiled (rf2-exlh)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]

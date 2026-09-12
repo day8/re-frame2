@@ -1,11 +1,14 @@
-(ns re-frame.story.tags-test
+(ns re-frame.story.tags-cljs-test
   "Tests for the shared effective-tag resolver (rf2-n0vmq2).
 
   `re-frame.story.tags` is pure data → data, so every test runs on both the
   JVM and CLJS without a host: inheritance layers are supplied through
   explicit `{id → body}` lookup maps. The plan regressions drive the real
   compiler (`re-frame.story.plan`) with an explicit `:lookup`; the filter
-  regression proves the snapshot projection feeds the sidebar filter."
+  regression proves the snapshot projection feeds the sidebar filter.
+
+  Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
+  selects it; under its old `-test` name it ran on the JVM only (rf2-exlh)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.tags :as rf.story.tags]
             [re-frame.story.plan :as rf.story.plan]
