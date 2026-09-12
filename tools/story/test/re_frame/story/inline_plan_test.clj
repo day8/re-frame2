@@ -190,8 +190,10 @@
   (testing "an inline plan composing a registered check resolves the check id
             into the plan + groups its records under the check id, exactly the
             way a registered variant does (§B6 — registered check). The check's
-            atom is ALSO an in-script checkpoint so it actually records, proving
-            the registered check resolved and ran."
+            atom appears NOWHERE else in the plan, so the one record it groups
+            can only come from the check's own atoms being dispatched after the
+            script (rf2-b2mt — this test used to duplicate the atom as an
+            in-script checkpoint to make it record at all)."
     (rf.story/reg-check :check.inline/status-loaded
       {:assertions [[:rf.assert/path-equals [:status] :loaded]]})
     ;; The compiled plan carries the composed check id under [:expect :checks].
@@ -200,13 +202,14 @@
       (is (= [:check.inline/status-loaded] (get-in plan [:expect :checks]))
           "the registered check id resolves into the inline plan's :expect"))
     (let [result (run-target {:compose [:check.inline/status-loaded]
-                              :script  [[:dispatch [:inline/set-status :loaded]]
-                                        [:assert [:rf.assert/path-equals [:status] :loaded]]]})]
+                              :script  [[:dispatch [:inline/set-status :loaded]]]})]
       (is (= :pass (:status result)))
       (let [check (first (filter #(= :check.inline/status-loaded (:check %))
                                  (:checks result)))]
         (is (some? check) "the run-result groups records under the check id")
         (is (= :pass (:status check)) "the composed check aggregates :pass")
+        (is (= 1 (count (:assertions check)))
+            "the check's atom was dispatched — not a :pass over an empty group")
         (is (every? :passed? (:assertions check))
             "the registered check's assertion ran + passed")))))
 
@@ -219,6 +222,107 @@
                               :script  [[:assert [:rf.assert/path-equals [:status] :seeded]]]})]
       (is (= :pass (:status result)) "the fragment setup seeded the app-db")
       (is (= :seeded (:status (:app-db result)))))))
+
+;; ===========================================================================
+;; A check's assertions EXECUTE, so a check can FAIL (rf2-b2mt)
+;;
+;; The terminal dispatcher used to run `[:expect :assertions]` only, so a
+;; check's atoms never reached a handler: every check grouped an empty record
+;; set, and `aggregate-status` over `[]` is `:pass`. The failing check below
+;; read `:pass` with ZERO records while its terminal-`:assertions` twin read
+;; `:fail`. A passing check is pinned WITH its record count, so a real pass
+;; stays distinguishable from a vacuous one.
+;; ===========================================================================
+
+(def ^:private never-true [:rf.assert/path-equals [:nope] :never-true])
+(def ^:private loaded?    [:rf.assert/path-equals [:status] :loaded])
+
+(defn- check-rec [result check-id]
+  (first (filter #(= check-id (:check %)) (:checks result))))
+
+(deftest a-failing-check-fails-the-run
+  (rf.story/reg-check :check.probe/must-fail {:assertions [never-true]})
+  (testing "inline plan: a check whose atom is false FAILS the check and the
+            run, over the one record it grouped (was :pass over zero)"
+    (let [result (run-target {:setup  [[:dispatch [:inline/set-status :loaded]]]
+                              :checks [:check.probe/must-fail]})
+          check  (check-rec result :check.probe/must-fail)]
+      (is (= :fail (:status result)))
+      (is (= :fail (:status check)))
+      (is (= [false] (mapv :passed? (:assertions check))))))
+  (testing "registered variant: the same check named in :checks fails too"
+    (rf.story/reg-variant :story.probe/must-fail
+      {:setup  [[:dispatch [:inline/set-status :loaded]]]
+       :checks [:check.probe/must-fail]})
+    (let [result (run-target :story.probe/must-fail)]
+      (is (= :fail (:status result)))
+      (is (= :fail (:status (check-rec result :check.probe/must-fail))))))
+  (testing "CONTROL: the same atom as a terminal :assertions entry fails"
+    (let [result (run-target {:setup      [[:dispatch [:inline/set-status :loaded]]]
+                              :assertions [never-true]})]
+      (is (= :fail (:status result)))
+      (is (= 1 (count (:assertions result)))))))
+
+(deftest a-passing-check-passes-over-a-real-record
+  (rf.story/reg-check :check.probe/must-pass {:assertions [loaded?]})
+  (testing "a check whose atom holds passes WITH the record it grouped"
+    (let [result (run-target {:setup  [[:dispatch [:inline/set-status :loaded]]]
+                              :checks [:check.probe/must-pass]})
+          check  (check-rec result :check.probe/must-pass)]
+      (is (= :pass (:status result)))
+      (is (= :pass (:status check)))
+      (is (= [true] (mapv :passed? (:assertions check))))))
+  (testing "an atom a check shares with :assertions dispatches ONCE, and the
+            one record serves both the run and the check"
+    (let [result (run-target {:setup      [[:dispatch [:inline/set-status :loaded]]]
+                              :checks     [:check.probe/must-pass]
+                              :assertions [loaded?]})]
+      (is (= :pass (:status result)))
+      (is (= 1 (count (:assertions result))))
+      (is (= 1 (count (:assertions (check-rec result :check.probe/must-pass))))))))
+
+;; ===========================================================================
+;; Compile-time guards cover EVERY check id, check body and named play (rf2-jjhy)
+;; ===========================================================================
+
+(deftest unknown-check-id-fails-plan-construction
+  (testing "a :checks id naming no registered check FAILS plan construction
+            (the :checks twin of :compose's story-compose-unknown) — it used to
+            compile and pass forever over an empty group"
+    (let [result (run-target {:setup  [[:dispatch [:inline/set-status :loaded]]]
+                              :checks [:check/no-runtime-erors]})]
+      (is (= :error (:status result)))
+      (is (= :rf.error/story-check-unknown
+             (:assertion (first (:assertions result)))))
+      (is (empty? (rf.story/variant-frames)) "no frame lingers")))
+  (testing "an INHERITED unknown check id fails the child's plan, naming the id"
+    (rf.story/reg-variant :story.probe/parent {:checks [:check/never-registered]})
+    (rf.story/reg-variant :story.probe/child  {:extends :story.probe/parent})
+    (let [ex (try (rf.story/variant-plan :story.probe/child) nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :rf.error/story-check-unknown (:rf.error/id (ex-data ex))))
+      (is (= :check/never-registered (:check/id (ex-data ex)))))))
+
+(deftest assertion-guards-cover-every-play-and-check-body
+  (testing "a typo'd assertion id in a SECOND named play fails (the guard used
+            to read the primary play only)"
+    (let [result (run-target {:plays [{:name "first"  :script [[:dispatch [:inline/set-status :loaded]]]}
+                                      {:name "second" :script [[:assert [:rf.assert/typo]]]}]})]
+      (is (= :error (:status result)))
+      (is (= :rf.error/story-unknown-assertion
+             (:assertion (first (:assertions result)))))))
+  (testing "a typo'd assertion id inside a registered check body fails"
+    (rf.story/reg-check :check.probe/typo {:assertions [[:rf.assert/typo]]})
+    (let [result (run-target {:checks [:check.probe/typo]})]
+      (is (= :error (:status result)))
+      (is (= :rf.error/story-unknown-assertion
+             (:assertion (first (:assertions result)))))))
+  (testing "a malformed causal opt in a SECOND named play fails too"
+    (let [result (run-target {:plays [{:name "first"  :script [[:dispatch [:inline/set-status :loaded]]]}
+                                      {:name "second" :script [[:assert [:rf.assert/caused {:event :e :require-cause? false}]]]}]})]
+      (is (= :error (:status result)))
+      (is (= :rf.error/story-bad-assertion-opt
+             (:assertion (first (:assertions result))))))))
 
 ;; ===========================================================================
 ;; Inline plan CANNOT reference a missing fragment — fails cleanly
