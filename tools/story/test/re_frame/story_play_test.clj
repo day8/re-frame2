@@ -4,7 +4,6 @@
 
   Covers:
 
-  - execute-play! returns a promise of the assertions vector.
   - Play events dispatch in declared order.
   - Mixed real-dispatches + :rf.assert/* events compose.
   - Trace-bus accumulators (dispatched? / effect-emitted /
@@ -48,18 +47,10 @@
 (use-fixtures :each reset-all)
 
 ;; ===========================================================================
-;; execute-play! basic
+;; Play-script execution through run-variant
 ;; ===========================================================================
 
-(deftest execute-play-empty
-  (testing "execute-play! against an empty :script resolves to []"
-    (rf.story/reg-variant :story.play/empty {:setup []})
-    (rf.story.async/deref-blocking (rf.story/run-variant :story.play/empty) 5000)
-    (let [p (rf.story.play/execute-play! :story.play/empty [])]
-      (is (= [] (rf.story.async/deref-blocking p 5000))))
-    (rf.story/destroy-variant! :story.play/empty)))
-
-(deftest execute-play-dispatches-in-order
+(deftest play-script-dispatches-in-order
   (testing "play events dispatch in declared order"
     (let [order (atom [])]
       (rf/reg-event :step/a (fn [{:keys [db]} _] (swap! order conj :a) {:db db}))
@@ -74,7 +65,7 @@
       (is (= [:a :b :c] @order)))
     (rf.story/destroy-variant! :story.order/v)))
 
-(deftest execute-play-mixes-dispatches-and-assertions
+(deftest play-script-mixes-dispatches-and-assertions
   (testing "mixed sequence of regular events + :rf.assert/* events"
     (rf/reg-event :counter/inc
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
@@ -92,7 +83,7 @@
       (is (= 3 (-> r :app-db :n))))
     (rf.story/destroy-variant! :story.mix/v)))
 
-(deftest execute-play-exception-records-phase-4
+(deftest play-script-exception-records-phase-4
   (testing "an exception in a play event is captured + the script keeps walking"
     (rf/reg-event :boom/now
       (fn [_ _] (throw (ex-info "boom" {:cause :test}))))

@@ -274,22 +274,10 @@
 ;; chain catches handler exceptions internally and emits
 ;; `:rf.error/handler-exception` trace events rather than re-throwing (per
 ;; `runtime/capture-phase-errors`), so the exception-projection path for
-;; setup and teardown phases has to read them off the trace stream.
-
-(defonce ^:private setup-capture-counter (atom 0))
-
-(defn- with-setup-trace-listener
-  "Register `listener` against a fresh capture id, run `body-fn` (a
-  0-arg thunk), then remove the listener in a `finally`. Returns
-  `body-fn`'s return value. Mirrors `with-teardown-trace-listener`;
-  used to bracket the `:frame-setup` `:init` dispatch walk so a
-  setup-phase pipeline exception is captured."
-  [listener body-fn]
-  (let [cb-id (keyword "re-frame.story.frames"
-                       (str "setup-capture-" (swap! setup-capture-counter inc)))]
-    (rf/register-listener! :trace cb-id listener)
-    (try (body-fn)
-      (finally (rf/unregister-listener! :trace cb-id)))))
+;; setup and teardown phases has to read them off the trace stream. Each
+;; walk runs inside `rf.story.error/with-trace-listener` — the one bracket
+;; this ns shares with runtime's phase capture, kept in that leaf so the
+;; `runtime → frames` require arrow stays one-way.
 
 (defn- apply-frame-setup!
   "Walk the resolved `:frame-setup` decorators and execute their
@@ -313,7 +301,7 @@
   [frame-id frame-setup-decorators]
   (when (seq frame-setup-decorators)
     (let [{:keys [listener drain!]} (exception-collector frame-id :phase-0-setup)]
-      (with-setup-trace-listener
+      (rf.story.error/with-trace-listener ::setup-capture
         listener
         (fn []
           (doseq [r frame-setup-decorators]
@@ -347,24 +335,6 @@
 
 ;; ---- :frame-setup decorator teardown -------------------------------------
 
-(defonce ^:private teardown-capture-counter (atom 0))
-
-(defn- with-teardown-trace-listener
-  "Register `listener` against a fresh capture id, run `body-fn` (a
-  0-arg thunk), then remove the listener in a `finally`. Returns
-  `body-fn`'s return value.
-
-  Mirrors `re-frame.story.runtime/with-trace-listener` — that helper is
-  private to runtime.cljc; replicating it here keeps the
-  `frames → runtime` arrow unidirectional (frames is leaf-level)."
-  [listener body-fn]
-  (let [cb-id (keyword "re-frame.story.frames"
-                       (str "teardown-capture-"
-                            (swap! teardown-capture-counter inc)))]
-    (rf/register-listener! :trace cb-id listener)
-    (try (body-fn)
-      (finally (rf/unregister-listener! :trace cb-id)))))
-
 (defn- apply-frame-teardown!
   "Walk the resolved `:frame-setup` decorators IN REVERSE-DECLARATION
   ORDER and dispatch-sync each decorator's `:teardown` events against
@@ -394,7 +364,7 @@
   the wrapping `try/catch`."
   [variant-id frame-setup-decorators]
   (let [{:keys [listener drain!]} (exception-collector variant-id :phase-teardown)]
-    (with-teardown-trace-listener
+    (rf.story.error/with-trace-listener ::teardown-capture
       listener
       (fn []
         (doseq [r (reverse frame-setup-decorators)]
@@ -456,7 +426,7 @@
   directly. The walk never aborts `destroy-frame!`."
   [variant-id loaders-teardown-events]
   (let [{:keys [listener drain!]} (exception-collector variant-id :phase-loaders-teardown)]
-    (with-teardown-trace-listener
+    (rf.story.error/with-trace-listener ::teardown-capture
       listener
       (fn []
         (doseq [ev loaders-teardown-events]

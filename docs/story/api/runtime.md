@@ -79,14 +79,6 @@ All under `re-frame.story`. Reach for these from a custom shell, a test fixture,
   ```
 - **Description**: Tear down the variant's frame. Any spawned state-machines receive their `:rf.machine/destroy` event. Idempotent.
 
-### `execute-play!`
-
-- **Signature**:
-  ```clojure
-  (execute-play! variant-id) → assertions-vec
-  ```
-- **Description**: Re-run only phase 4 (the `:script`) against the variant's current `app-db`. Use for the step-debugger UI's "re-run from here" affordance.
-
 ### `lifecycle-state`
 
 - **Signature**:

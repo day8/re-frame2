@@ -65,7 +65,6 @@ The canonical facade. Every user-callable surface lives here.
 | `watch-variant` | `(watch-variant variant-id)` / `(watch-variant variant-id callback)` | Live-updating result map. |
 | `unwatch-variant` | `(unwatch-variant variant-id)` | Stop the live update channel. Idempotent. |
 | `destroy-variant!` | `(destroy-variant! variant-id)` | Tear down the variant's frame. Symmetric with allocation. |
-| `execute-play!` | `(execute-play! variant-id)` → vec | Re-run only phase 4 against current `app-db`. |
 | `lifecycle-state` | `(lifecycle-state variant-id)` → keyword | Current lifecycle-machine state. |
 | `variant-frames` | `(variant-frames)` → set | Set of variant-ids currently allocated as frames. |
 | `variant-frame?` | `(variant-frame? variant-id)` → bool | Predicate. |

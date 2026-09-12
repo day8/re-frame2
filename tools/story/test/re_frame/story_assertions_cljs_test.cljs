@@ -123,7 +123,6 @@
     (is (fn? rf.story/assertions-passing?))
     (is (fn? rf.story/read-assertions))
     (is (fn? rf.story/canonical-assertion-ids))
-    (is (fn? rf.story/execute-play!))
     (is (= :rf.story/force-fx-stub rf.story/force-fx-stub-id))))
 
 ;; ===========================================================================
