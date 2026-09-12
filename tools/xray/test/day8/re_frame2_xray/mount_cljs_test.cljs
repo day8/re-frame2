@@ -233,7 +233,15 @@
 
   The signature is `render!`'s: `[handle tree mount-point]`, answering
   nil. `:opts` is recorded as nil because `mount.cljs` passes no root
-  options at all — the rows that assert it keep meaning what they meant."
+  options at all — the rows that assert it keep meaning what they meant.
+
+  `:handle` IS RECORDED TOO (rf2-k97c.6), because WHICH handle a paint went
+  through is a contract rather than an implementation detail once there are
+  two of them. `render!` binds a handle to its mount-point on the first call
+  and updates that same React root on every later one, so the pop-out's root
+  — living in another document — must have its own; sharing `xray-root`
+  would silently re-render the INLINE shell when the pop-out opened, with no
+  error anywhere. Nothing but handle identity can see that."
   []
   (let [calls         (atom [])
         unmount-calls (atom 0)
@@ -241,7 +249,8 @@
                         (swap! unmount-calls inc)
                         nil)]
     {:render-fn     (fn render-stub [handle tree node]
-                      (swap! calls conj {:tree tree :node node :opts nil})
+                      (swap! calls conj {:handle handle :tree tree
+                                         :node node :opts nil})
                       (reset! handle {:live?    (fn [] true)
                                       :update!  (fn [_tree] nil)
                                       :unmount! unmount-fn})
@@ -2989,3 +2998,457 @@
                   "control: a genuine APPLICATION event DOES move the same
                    ring — so the equality above is Xray being absent, not
                    the instrument being deaf"))))))))
+
+;; =========================================================================
+;; THE POP-OUT, DRIVEN THROUGH `popout!` ITSELF (rf2-k97c.6)
+;; =========================================================================
+;;
+;; ## WHY THIS SECTION EXISTS
+;;
+;; Every pop-out row above starts from `seed-popout-state!` — a hand-built
+;; state map standing in for the one `popout!` would have produced — or
+;; reaches a private fn directly with stubs it assembled itself. That is the
+;; right shape for the teardown and overlay contracts those rows pin, and it
+;; is why they came through rf2-k97c.3's root swap untouched. It is also why
+;; NOTHING has ever executed `popout!`'s own body: not the window it opens,
+;; not the document it paints into, not WHICH React root it paints through,
+;; and not the frame it wraps the shell in.
+;; `popout!-no-longer-refuses-an-element-shaped-substrate` gets one step
+;; further and stops, deliberately, at `:popup-blocked` — node-test has no
+;; `js/window` to open a second one with, and that row's literal IS the
+;; absence of a window.
+;;
+;; rf2-k97c.3 moved this path onto Xray's own root. rf2-k97c.6 owns what
+;; that leaves, and these rows are that list:
+;;
+;;   * a separate WINDOW and a separate DOM ROOT, as distinct from the
+;;     render call that moved in the swap;
+;;   * the opener-reload watchdog still working;
+;;   * the frame-provider wrap `popout!` carries its OWN COPY of. The wrap
+;;     is pinned at the MOUNT site by
+;;     `xray-shell-render-never-lands-in-inspected-app-epoch`, whose author
+;;     stated it covers the inline / overlay path only. This is its pop-out
+;;     sibling, and it is a sibling rather than a parameter because the two
+;;     paths reach `render-shell!` through different code with different
+;;     arguments — one shared row would pass on either one alone.
+;;
+;; A separately booted JS runtime with a transport is the THIRD thing in the
+;; bead's three-way distinction and is explicitly out of scope; nothing here
+;; asserts anything about it, and the pop-out deliberately still shares the
+;; opener's realm (`tools/xray/spec/011-Launch-Modes.md` §Pop-out).
+;;
+;; ## HOW THESE ROWS DRIVE THE REAL THING
+;;
+;; `js/window` is stubbed with the same `set!` the settings-bridge row above
+;; uses, its `open` answering the pop-out stub these tests already build;
+;; `setInterval` / `clearInterval` are stubbed the way the watchdog rows do
+;; it, so the watchdog is CAPTURED and drivable rather than left ticking
+;; against the wall clock. Everything between is shipping code: `popout!`
+;; opens the window, styles the document, creates the node, paints through
+;; `render-shell!`, installs the overlay, starts the watchdog, registers the
+;; announcer and seats the singleton.
+
+(defn- with-driven-popout
+  "Run `f` in a host where the REAL `popout!` executes to completion.
+
+  Answers a map of the stubs `f` needs to make claims about what `popout!`
+  did: `:opener` (the stubbed `js/window`, which is also the opener the
+  announcer registers on), `:popout` (the window its `open` returns),
+  `:opener-doc` (the stubbed `js/document`, so a row can assert the pop-out
+  painted somewhere ELSE), `:opener-listeners`, `:opener-closed?`, `:opens`
+  (one entry per `window.open`), `:intervals` (id → tick fn) and `:cleared`.
+
+  Gated on `can-stub-js-document?` for the rf2-higwg reason every other
+  stub-driven row here is: in `:browser-test` the real `window.document` is
+  non-configurable and `set!` silently no-ops. This namespace ends
+  `-cljs-test`, so it is selected by the `:node-test` build's `cljs-test$`
+  regexp and not by `:browser-test`'s `-dom-cljs-test$`; the gate is
+  belt-and-braces against that changing.
+
+  Tears the pop-out down through the SHIPPED `teardown-popout-state!` on the
+  way out — the same disposal path an external close takes — so no stub
+  window, listener or interval outlives the row that made it."
+  [f]
+  (when (can-stub-js-document?)
+    (let [{opener :window opener-listeners :listeners opener-closed? :closed?}
+          (mk-stub-opener-window-with-listeners)
+          {popout :window} (mk-stub-popout-window-with-opener opener)
+          opener-doc  (mk-stub-document)
+          opens       (atom [])
+          intervals   (atom {})
+          next-id     (atom 0)
+          cleared     (atom #{})
+          prior-set   (.-setInterval js/globalThis)
+          prior-clear (.-clearInterval js/globalThis)
+          had-win?    (exists? js/window)
+          prior-win   (when had-win? js/window)
+          had-doc?    (exists? js/document)
+          prior-doc   (when had-doc? js/document)]
+      (set! (.-open opener)
+            (fn stub-window-open [url target features]
+              (swap! opens conj {:url url :target target :features features})
+              popout))
+      (set! (.-setInterval js/globalThis)
+            (fn [tick _ms]
+              (let [id (swap! next-id inc)]
+                (swap! intervals assoc id tick)
+                id)))
+      (set! (.-clearInterval js/globalThis)
+            (fn [id]
+              (swap! cleared conj id)
+              (swap! intervals dissoc id)
+              nil))
+      (set! js/document opener-doc)
+      (set! js/window opener)
+      (try
+        (f {:opener           opener
+            :popout           popout
+            :opener-doc       opener-doc
+            :opener-listeners opener-listeners
+            :opener-closed?   opener-closed?
+            :opens            opens
+            :intervals        intervals
+            :cleared          cleared})
+        (finally
+          ((deref #'mount/teardown-popout-state!))
+          (set! (.-setInterval js/globalThis) prior-set)
+          (set! (.-clearInterval js/globalThis) prior-clear)
+          (if had-win?
+            (set! js/window prior-win)
+            (js-delete js/goog.global "window"))
+          (if had-doc?
+            (set! js/document prior-doc)
+            (js-delete js/goog.global "document")))))))
+
+;; Every row below redefs the same two seams: the Fresco root door
+;; (`rf.fresco/render!`, so the hiccup is captured rather than committed —
+;; node-test has no React DOM), and `current-adapter`, named as an
+;; ELEMENT-SHAPED host on purpose. `popout!`'s indifference to the installed
+;; adapter is what rf2-k97c.4 bought and rf2-k97c.3 made possible; a row that
+;; ran only on the fixture's ratom-family plain-atom adapter would never
+;; exercise the shape the pop-out used to refuse outright.
+;;
+;; They are wrapped in a thunk-taking helper rather than repeated as a
+;; `with-redefs` binding vector at each row, so the pair is written once.
+;; A helper and not a `with-redefs-fn` map: `with-redefs-fn` is Clojure-only
+;; — `cljs.core` has the macro and not the fn, and reaching for it here cost
+;; a compile (`Use of undeclared Var … /with-redefs-fn`, five warnings, which
+;; the node-test lane grades as a regression rather than a backlog).
+
+(defn- with-popout-seams
+  "Run `thunk` with the Fresco root door and the host adapter redefined."
+  [render-fn thunk]
+  (with-redefs [rf.fresco/render!                    render-fn
+                rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/fresco})]
+    (thunk)))
+
+;; ---- (a) a separate WINDOW -----------------------------------------------
+
+(deftest popout!-paints-into-the-second-window-not-the-opener
+  (testing "rf2-k97c.6 — the SEPARATE WINDOW half. `popout!` opens one
+            same-origin named window, titles it, creates its mount node in
+            THAT window's document and appends it there. The opener's own
+            body receives nothing, which is the claim that separates a
+            second window from a second panel."
+    (with-driven-popout
+      (fn [{:keys [popout opener-doc opens]}]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-popout-seams render-fn
+            (fn []
+              (let [state (mount/popout!)]
+                ;; NEVER `pr-str` the whole state map here. From this row on
+                ;; it carries live DOM handles — `:window`, `:node`,
+                ;; `:overlay-node` — and CLJS prints a plain JS object as
+                ;; `#js {…}` by RECURSING into its values, so the
+                ;; `node.parentNode` ↔ `body.children` cycle in the stubs
+                ;; overflows the stack. It happens while building an `is`
+                ;; MESSAGE, which is evaluated eagerly whether or not the
+                ;; assertion passes, so a green row reports as an uncaught
+                ;; RangeError. Print scalars.
+                (is (true? (:ok? state))
+                    (str "popout! ran to completion. Got: "
+                         (pr-str (select-keys state [:ok? :reason :mode]))))
+                (is (= 1 (count @opens))
+                    (str "exactly one window.open. Got: " (count @opens)))
+                (let [{:keys [target features]} (first @opens)]
+                  (is (= "rf-xray-popout" target)
+                      (str "opened under the stable window name, so a repeat
+                            reuses the same OS window. Got: " (pr-str target)))
+                  (is (nil? (re-find #"noopener|noreferrer" features))
+                      (str "and WITHOUT noopener/noreferrer — 011 §Pop-out
+                            §Constraints makes the whole posture depend on a
+                            live `window.opener`. Got: " (pr-str features))))
+                (is (identical? popout (:window state))
+                    "the state names the window that was opened")
+                (is (= "Xray" (.-title (.-document popout)))
+                    "and popout! titled the second document")
+                (is (= 1 (count @calls))
+                    (str "painted exactly once. Got: " (count @calls)))
+                (let [node (:node (first @calls))]
+                  (is (identical? node (:node state))
+                      "the painted node is the one the state carries")
+                  (is (= "rf-xray-popout-root" (.-id node))
+                      (str "under the pop-out's own root id. Got: "
+                           (pr-str (.-id node))))
+                  (is (= "popout" (.getAttribute node "data-rf-xray-mode"))
+                      "and stamped with the pop-out surface")
+                  (is (identical? (.-body (.-document popout))
+                                  (.-parentNode node))
+                      "the node is a child of the POP-OUT document's body")
+                  (is (zero? (.-length (.-children (.-body opener-doc))))
+                      "and the OPENER's body received nothing at all"))))))))))
+
+;; ---- (b) a separate DOM ROOT ---------------------------------------------
+
+(deftest popout!-paints-through-its-own-root-handle-leaving-the-inline-shell-alone
+  (testing "rf2-k97c.6 — the SEPARATE DOM ROOT half, and the one no other
+            instrument can see. `render!` binds a handle to its mount-point
+            on the FIRST call through it and updates that same React root on
+            every later one, so a pop-out sharing `xray-root` would re-render
+            the INLINE shell into the inline node instead of painting the
+            second window. Nothing throws, nothing warns, the pop-out window
+            is simply blank — so handle identity is the only witness."
+    (with-driven-popout
+      (fn [_ctx]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-popout-seams render-fn
+            (fn []
+              (mount/open!)
+              (is (= 1 (count @calls))
+                  "precondition: the inline shell painted once")
+              (let [inline-call (first @calls)
+                    inline-node (:node @@#'mount/mount-state)]
+                (is (true? (:ok? (mount/popout!))) "the pop-out opened")
+                (is (= 2 (count @calls))
+                    (str "opening the pop-out painted exactly ONCE more — it
+                          did not re-render the inline shell. Got: "
+                         (count @calls)))
+                (let [popout-call (second @calls)]
+                  (is (identical? @#'mount/xray-root (:handle inline-call))
+                      "the inline shell painted through `xray-root`")
+                  (is (identical? @#'mount/xray-popout-root
+                                  (:handle popout-call))
+                      "and the pop-out through `xray-popout-root`")
+                  (is (not (identical? (:handle inline-call)
+                                       (:handle popout-call)))
+                      "TWO HANDLES, not one — the whole point of the second
+                       defonce, and the assertion that goes red if a later
+                       refactor collapses them")
+                  (is (not (identical? (:node inline-call)
+                                       (:node popout-call)))
+                      "painting into two different nodes, in two documents")
+                  (is (identical? inline-node (:node @@#'mount/mount-state))
+                      "and the inline mount-state still names the node it
+                       always did — the pop-out did not adopt it")
+                  (is (true? (mount/visible?))
+                      "the inline shell is still mounted and visible"))))))))))
+
+;; ---- (c) evidence integrity on the pop-out path (the routed debt) --------
+
+(deftest popout-shell-render-never-lands-in-inspected-app-epoch
+  (testing "rf2-k97c.6 — the pop-out sibling of rf2-k97c.5's mount-site pin.
+            `popout!` carries its OWN copy of the frame-provider wrap and
+            nothing asserted it. Same two halves as the mount-site row: the
+            structural claim that the tree `popout!` hands `render!` is
+            ROOTED at the shell's own frame-provider, and the event-axis
+            claim that a real Xray interaction leaves the inspected
+            application's epoch ring untouched."
+    (with-driven-popout
+      (fn [_ctx]
+        (let [app :test/inspected-app-popout
+              {:keys [render-fn calls]} (mk-render-stub)]
+          ;; The frame-no-emit set is process-sticky (it tracks frame
+          ;; registrations, which the runtime reset does not unwind).
+          (rf.trace/clear-frame-no-emit!)
+          (rf/make-frame {:id app})
+          (rf/reg-event :app/inc (fn [{:keys [db]} _]
+                                   {:db (update db :n (fnil inc 0))}))
+
+          (with-popout-seams render-fn
+            (fn [] (mount/popout!)))
+
+          (is (= 1 (count @calls))
+              (str "precondition: the pop-out painted exactly once. Got: "
+                   (count @calls)))
+          (is (true? (rf.trace/frame-trace-disabled? shell/default-frame-id))
+              "precondition: ensure-xray-frame! registered the shell frame
+               trace-disabled")
+          (is (false? (boolean (rf.trace/frame-trace-disabled? app)))
+              "precondition: the INSPECTED app frame is NOT trace-disabled —
+               its own renders are still recorded")
+
+          ;; ---- HALF ONE: the structural claim, on the POP-OUT tree ----
+          (let [tree (:tree (first @calls))
+                {:keys [found? scope]} (ei-shell-scope tree)]
+            (is (true? found?)
+                "instrument control: the walker LOCATED the ShellView
+                 boundary in the POP-OUT's tree — the assertion below means
+                 a real scope, not a walker that matched nothing")
+            (is (= shell/default-frame-id scope)
+                "the pop-out site wraps the shell boundary in the shell's own
+                 frame-provider, so its ambient reads resolve to the Xray
+                 frame and not by fall-through to the inspected app
+                 (rf2-tqlmq)")
+            (is (identical? rf.fresco/frame-provider (first tree))
+                "the tree handed to `render!` is ROOTED at
+                 `rf.fresco/frame-provider` — one level too deep would leave
+                 the boundary itself outside its own scope")
+            (is (= {:frame shell/default-frame-id} (second tree))
+                (str "and that provider NAMES `shell/default-frame-id`, by
+                      its Var and not by a `:rf/xray` literal. Got: "
+                     (pr-str (second tree))))
+            (is (identical? shell/ShellView (first (nth tree 2)))
+                "with the boundary directly inside it")
+            (is (= :popout (shell-view-mode-of (first @calls)))
+                "and the boundary carries {:mode :popout} — this IS the
+                 pop-out's tree and not the inline one recorded twice")
+
+            ;; THE OTHER DIRECTION. rf2-k97c.5's instruction was that a test
+            ;; which cannot fail is not a pin, so the walker is run once
+            ;; against the tree the regression would produce: the same
+            ;; boundary with `popout!`'s own copy of the wrap stripped off.
+            ;; It must find the boundary and report NO scope — which is what
+            ;; makes the `= shell/default-frame-id` above a claim rather than
+            ;; a restatement of whatever the walker happened to return.
+            (let [unwrapped (nth tree 2)
+                  {found-unwrapped? :found? unwrapped-scope :scope}
+                  (ei-shell-scope unwrapped)]
+              (is (true? found-unwrapped?)
+                  "control: the walker still finds the boundary with the wrap
+                   removed — so the nil below is an absent SCOPE, not an
+                   absent boundary")
+              (is (nil? unwrapped-scope)
+                  "and reports no scope for it. Drop `popout!`'s copy of the
+                   provider and this row goes red rather than quietly
+                   re-opening rf2-tqlmq on the second window")))
+
+          ;; ---- HALF TWO: the EVENT axis, by real interaction ----------
+          ;; One application event first, so the ring under inspection is a
+          ;; real one with a record in it rather than an empty ring in which
+          ;; `unchanged` would be vacuous.
+          (rf/dispatch-sync [:app/inc] {:frame app})
+
+          (let [before (vec (rf/epoch-history app))]
+            (is (seq before)
+                "instrument control: the app frame recorded an epoch for its
+                 own event — `unchanged` below is a claim about a NON-EMPTY
+                 ring")
+            (is (= :app/inc (:event-id (last before)))
+                "and the record under inspection is the application's own
+                 event")
+
+            ;; THE ACT: a real Xray chrome interaction, through the shipped
+            ;; handler, into the shell's own frame — the same door a tab
+            ;; click in the POP-OUT window takes, since both windows
+            ;; dispatch against the opener's runtime.
+            (rf/dispatch-sync [:rf.xray/select-tab :trace]
+                              {:frame shell/default-frame-id})
+
+            (let [after (vec (rf/epoch-history app))]
+              (is (= (count before) (count after))
+                  (str "an Xray chrome interaction driven while the pop-out "
+                       "is open adds NO epoch record to the inspected app's "
+                       "ring. Was " (count before) ", now " (count after)))
+              (is (= before after)
+                  "and leaves every existing record byte-identical — the
+                   observer does not appear on the observed tape, in count
+                   OR in contents"))
+
+            ;; POSITIVE CONTROL — the ring is LIVE. Without this, `unchanged`
+            ;; above would also be satisfied by a ring that had stopped
+            ;; recording anything at all.
+            (rf/dispatch-sync [:app/inc] {:frame app})
+            (is (not= before (vec (rf/epoch-history app)))
+                "control: a genuine APPLICATION event DOES move the same ring
+                 — so the equality above is Xray being absent, not the
+                 instrument being deaf")))))))
+
+;; ---- (d) the opener-gone watchdog, as `popout!` wires it -----------------
+;;
+;; Section (11) above pins what the watchdog and the announcer DO once handed
+;; their arguments, from hand-built stubs. These two rows pin the edge those
+;; cannot reach: that `popout!` still HANDS them those arguments after the
+;; root swap, and that both reach the overlay node `popout!` itself created.
+;; Each is driven to its EFFECT — a wiring row that stopped at "a listener is
+;; registered" would stay green against an overlay nothing can reveal.
+
+(deftest popout!-wires-the-opener-gone-watchdog-to-its-own-overlay
+  (testing "rf2-k97c.6 — `popout!` creates the opener-gone overlay in the
+            pop-out's document and starts the watchdog against the window it
+            opened. Both directions: a tick with a live opener reveals
+            nothing, a tick with a closed one reveals the overlay."
+    (with-driven-popout
+      (fn [{:keys [popout opener-closed? intervals cleared]}]
+        (let [{:keys [render-fn]} (mk-render-stub)]
+          (with-popout-seams render-fn
+            (fn []
+              (let [state   (mount/popout!)
+                    overlay (:overlay-node state)
+                    wid     (:watchdog-id state)]
+                (is (some? overlay) "popout! created an overlay node")
+                (is (= "rf-xray-popout-opener-gone-overlay" (.-id overlay))
+                    (str "the spec'd overlay (011 §Pop-out §Constraints). "
+                         "Got: " (pr-str (.-id overlay))))
+                (is (identical? (.-body (.-document popout))
+                                (.-parentNode overlay))
+                    "sitting in the POP-OUT's document beside the shell root,
+                     not in the opener's")
+                (is (= "none" (.-display (.-style overlay)))
+                    "hidden while the opener is live")
+                (is (some? wid) "popout! started the watchdog")
+                (let [tick (get @intervals wid)]
+                  (is (some? tick)
+                      "and it is THIS pop-out's interval — the id the state
+                       carries is the one the timer was registered under")
+                  (tick)
+                  (is (= "none" (.-display (.-style overlay)))
+                      "direction one: a tick with a LIVE opener reveals
+                       nothing")
+                  (reset! opener-closed? true)
+                  (tick)
+                  (is (= "flex" (.-display (.-style overlay)))
+                      "direction two: a tick with a CLOSED opener reveals the
+                       overlay popout! created — the wiring reaches the node,
+                       not merely a node")
+                  (is (contains? @cleared wid)
+                      "and the watchdog self-cleared after firing"))))))))))
+
+(deftest popout!-wires-the-opener-reload-announcer-to-its-own-overlay
+  (testing "rf2-k97c.6 — the reload edge the watchdog structurally cannot
+            observe (rf2-uong), asserted through `popout!` rather than
+            through a hand-assembled announcer: the opener-side `pagehide`
+            listener must still be registered by `popout!`, and must still
+            reach the overlay `popout!` created."
+    (with-driven-popout
+      (fn [{:keys [opener opener-listeners]}]
+        (let [{:keys [render-fn]} (mk-render-stub)]
+          (with-popout-seams render-fn
+            (fn []
+              (let [state   (mount/popout!)
+                    overlay (:overlay-node state)
+                    handler (:opener-pagehide-handler state)]
+                (is (some? handler)
+                    "popout! registered the announcer and kept its handler
+                     for teardown")
+                (is (identical? opener (:opener-window state))
+                    "against the OPENER window, which the state names so
+                     teardown can detach from the same object")
+                (is (= [handler] (get @opener-listeners "pagehide"))
+                    "on the opener's pagehide")
+                (is (nil? (get @opener-listeners "unload"))
+                    "NEVER unload — that would make the developer's own
+                     application window ineligible for the back/forward
+                     cache")
+                (is (nil? (get @opener-listeners "beforeunload"))
+                    "NEVER beforeunload — same bfcache penalty")
+                (is (= "none" (.-display (.-style overlay)))
+                    "overlay hidden while the opener is alive")
+                (handler (js-obj "persisted" true))
+                (is (= "none" (.-display (.-style overlay)))
+                    "direction one: a PERSISTED pagehide is a bfcache freeze
+                     a back-navigation can resume — it must reveal nothing")
+                (handler (js-obj "persisted" false))
+                (is (= "flex" (.-display (.-style overlay)))
+                    "direction two: a real opener unload reveals the overlay
+                     popout! created, so a reloaded host stops presenting
+                     stale panels as live data")))))))))
