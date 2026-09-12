@@ -233,7 +233,8 @@
 
 (def ^:private context-keys
   "World/context keys inherited through `:extends` (deep-merge for maps,
-  child-wins for scalars; see `merge-context`).
+  except the per-entry `per-entry-context-keys`; child-wins for scalars;
+  see `merge-context`).
 
   `:args` / `:argtypes` are deliberately ABSENT: they are resolved by the
   dedicated `merge-key` deep-merge over the inherited → composed → child
@@ -272,12 +273,26 @@
   [body]
   (:setup body))
 
+(def ^:private per-entry-context-keys
+  "The `context-keys` whose map ENTRIES are atomic. A `:network` route's
+  value is one reply and a `:sub-overrides` query's value is one pinned
+  value, so through `:extends` the child wins per route / per query key —
+  the same per-entry `merge` `:compose` applies to both slots (rf2-pwwu).
+  Deep-merging them fused a parent's `{:reply {:ok …}}` with a child's
+  `{:reply {:failure …}}` into a reply the schema rejects and the stub
+  answers with `:ok`."
+  #{:network :sub-overrides})
+
 (defn- merge-context
-  "Deep-merge one context value root→child. Maps recurse (per
-  `rf.story.args/deep-merge`); everything else is child-wins replacement."
-  [parent child]
+  "Merge context key `k`'s value root→child. A `per-entry-context-keys` map
+  merges per top-level entry (child wins the entry); any other map recurses
+  (per `rf.story.args/deep-merge`); everything else is child-wins
+  replacement."
+  [k parent child]
   (if (and (map? parent) (map? child))
-    (rf.story.args/deep-merge parent child)
+    (if (contains? per-entry-context-keys k)
+      (merge parent child)
+      (rf.story.args/deep-merge parent child))
     (if (some? child) child parent)))
 
 ;; Tags are additive through `:extends` (§Merge rules — append/union), then
@@ -1297,7 +1312,7 @@
                        (fn [acc layer]
                          (reduce (fn [m k]
                                    (if (contains? layer k)
-                                     (update m k merge-context (get layer k))
+                                     (update m k #(merge-context k % (get layer k)))
                                      m))
                                  acc context-keys))
                        {}

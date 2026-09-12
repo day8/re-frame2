@@ -1370,9 +1370,8 @@ Execution order is:
 3. Run setup.
 4. Render if the chosen runner requires rendering.
 5. Run script.
-6. Run checks.
-7. Run terminal assertions.
-8. Build run result.
+6. Run checks and terminal assertions — one terminal pass (§Checks).
+7. Build run result.
 
 ### Merge rules
 
@@ -1460,6 +1459,11 @@ resolves each id against the fragment registry first, then the check
 registry; an id matching neither FAILS plan construction with
 `:rf.error/story-compose-unknown`.
 
+Every id in `:checks` — the variant's own, or one inherited through
+`:extends` — MUST likewise resolve to a registered check, or plan
+construction FAILS with `:rf.error/story-check-unknown`. An unresolved
+check id would otherwise expand to no atoms and pass vacuously.
+
 `:compose` is a **child-only directive** — like `:extends`, it is not
 itself inherited down an `:extends` chain. It is applied at step 3 of the
 total resolution order, between the parent-chain merge (step 2) and the
@@ -1486,7 +1490,8 @@ list of fragments `F1 … Fn`:
 | `:args` / `:argtypes` | DEEP-MERGE root → fragments → child (last wins). |
 | `:checks` | inherited+own (root→child) ++ composed check-ids. |
 | `:assertions` | child-only (own terminal judgement). |
-| `:network` | per-route merge: composed fragments under the variant chain. |
+| `:network` | per-route merge: composed fragments under the variant chain. The `:extends` chain merges per route too — a child's route replaces the parent's reply. |
+| `:sub-overrides` | per-query-key merge: composed fragments under the variant chain. The `:extends` chain merges per query key too — a child's value replaces the parent's. |
 | `:fx-overrides` / `:interceptor-overrides` | strict-conflict, per-key (below). |
 | `:loaders` / `:loaders-teardown` | APPEND: composed fragments (declared order) ++ the variant chain's own (`:extends`-merged, child-wins). |
 | `:decorators` | APPEND: globals → story → composed fragments (declared order) → the variant chain's own. |
@@ -1608,6 +1613,13 @@ Checks are named assertion packs. Checks preserve identity in results,
 and they **inherit and compose** (the inheritable form, distinct from
 own-only assertions). A failed check result MUST show both the check id
 and the underlying assertion records.
+
+A check's assertion atoms run as **terminal expectations**: after the
+script settles, the runner dispatches them in one pass with the variant's
+terminal `:assertions`, against the final state. The pass is deduplicated,
+so an atom a check shares with `:assertions` (or with another check)
+dispatches and records once, and every check naming it groups that one
+record.
 
 ### Canonical P1 assertions
 
@@ -2738,10 +2750,12 @@ per-route reply data may carry `[:arg key]` placeholders, substituted on
 the same pass as setup / script / sub-overrides; an undeclared arg FAILS
 plan construction with `:rf.error/story-missing-arg`.
 
-Because `:network` is world context, it **inherits through `:extends`**
-(deep-merged root → child): a child variant's routes merge over the
-parent's, and the single managed-stub override covers the inherited and
-own routes alike.
+Because `:network` is world context, it **inherits through `:extends`**,
+merged **per route** root → child: a child's route replaces the parent's
+reply for that same route wholesale (so a child can flip a route from `:ok`
+to `:failure`), routes only the parent names are inherited, and the single
+managed-stub override covers the inherited and own routes alike. A route's
+reply is never deep-merged — it carries exactly one of `:ok` / `:failure`.
 
 ### Conflict with generic `:fx-overrides`
 
