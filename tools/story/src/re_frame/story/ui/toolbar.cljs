@@ -339,11 +339,9 @@
         modes    (rf.story.registrar/registrations :mode)
         variant  (:selected-variant shell)
         {:keys [axes unaxed]} (rf.story.ui.state/group-modes-by-axis modes)
-        vis-flag (get-in shell [:panel-visibility :dispatch-console])
-        dc-effective? (cond
-                        (true?  vis-flag) true
-                        (false? vis-flag) false
-                        :else             false)]
+        ;; rf2-qpvk: the SAME predicate the RHS panel reads, so a story's
+        ;; `:dispatch-console? true` opt-in renders the chip pressed.
+        dc-effective? (rf.story.ui.state/dispatch-console-visible? shell variant)]
     [:header
      {:style      (:strip styles)
       :role       "toolbar"
@@ -375,11 +373,12 @@
                    [chip mid (get modes mid) (contains? active mid)])]]])))])
      [:span {:style (:spacer styles)}]
      ;; ── DATA cluster (variant-scoped affordances) ─────────────────
-     ;; rf2-q9kv5 — Dispatch console toolbar toggle. The chip flips the
-     ;; chrome-level visibility override; the right-panel resolves
-     ;; story-flag + chrome-toggle together. Shown only when a variant
-     ;; is focused (the panel is per-variant — no variant, nothing to
-     ;; dispatch into).
+     ;; rf2-q9kv5 — Dispatch console toolbar toggle. The chip writes the
+     ;; chrome-level visibility override as the negation of the EFFECTIVE
+     ;; visibility, which it and the right panel both read through
+     ;; `rf.story.ui.state/dispatch-console-visible?` (rf2-qpvk). Shown
+     ;; only when a variant is focused (the panel is per-variant — no
+     ;; variant, nothing to dispatch into).
      ;; rf2-8i2a9 — Play-script status chip. Visible only when a variant
      ;; is focused AND the variant carries a `:script` body.
      (when variant

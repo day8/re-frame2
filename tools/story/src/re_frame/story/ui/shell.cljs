@@ -55,7 +55,6 @@
             [re-frame.story.config :as rf.story.config]
             [re-frame.story.decorators :as rf.story.decorators]
             [re-frame.story.frames :as rf.story.frames]
-            [re-frame.story.predicates :as rf.story.predicates]
             [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.runtime :as rf.story.runtime]
             [re-frame.trace :as rf.trace]
@@ -225,6 +224,26 @@
          :recovery  :next-tick-retry})
       nil)))
 
+(defn- hot-reload-tick!
+  "One pass of the hot-reload fingerprint detector. Wraps
+  `detect-and-tick!` in the same try / `emit-error!` shape as
+  `watch-mode-tick!` (rf2-k8mz). `resolution-fingerprints` can throw on
+  this very poll (`:rf.error/story-missing-arg`, rf2-eyrpr — see
+  `compute-fingerprint-snapshot`), and a bare throw here used to abort
+  `poll-tick!` before `watch-mode-tick!` ran: one bad frame silently
+  stopped watch mode while its eye icon still read 'watching'. The next
+  tick retries."
+  []
+  (try
+    (detect-and-tick!)
+    (catch :default e
+      (rf.trace/emit-error!
+        :rf.story.shell/hot-reload-tick-failed
+        {:exception e
+         :where     :rf.story.shell/detect-and-tick!
+         :recovery  :next-tick-retry})
+      nil)))
+
 (defonce ^:private hot-reload-poll-handle (atom nil))
 
 (defn- poll-tick!
@@ -232,9 +251,10 @@
   detector (decorator drift → bump `:hot-reload-tick`) followed by the
   watch-mode detector (per-testable-variant snapshot-identity drift →
   dispatch `rf.story.ui.sidebar/watch-rerun!` when watch mode is on). Two
-  detectors, one cadence."
+  detectors, one cadence — each guarded on its own, so a throw in one
+  never starves the other (rf2-k8mz)."
   []
-  (detect-and-tick!)
+  (hot-reload-tick!)
   (watch-mode-tick!))
 
 (defn- start-hot-reload-poll!
@@ -689,19 +709,11 @@
      ;; reset assertion (`count === 0`); a default-on dispatch-console
      ;; chip would break that gate. Toolbar real-estate is precious too —
      ;; opt-in is the more polite default.
-     (when (and variant-id
-                (let [vis-flag (:dispatch-console vis)
-                      var-body (rf.story.registrar/handler-meta :variant variant-id)
-                      story-id (rf.story.predicates/parent-story-id variant-id)
-                      sty-body (when story-id
-                                 (rf.story.registrar/handler-meta :story story-id))
-                      ;; Story slot default; variant overrides; user toggle wins.
-                      story-default (get sty-body  :dispatch-console? false)
-                      var-default   (get var-body  :dispatch-console? story-default)]
-                  (cond
-                    (true?  vis-flag) true
-                    (false? vis-flag) false
-                    :else             var-default)))
+     ;;
+     ;; rf2-qpvk: resolved by `rf.story.ui.state/dispatch-console-visible?` —
+     ;; the one rule the toolbar chip's pressed state reads too, so a
+     ;; story-body opt-in never shows this panel beside an un-pressed chip.
+     (when (rf.story.ui.state/dispatch-console-visible? shell variant-id)
        [:section {:style (:rhs-section styles)
                   :data-rf-rhs-section "dispatch"}
         [:div {:style (:rhs-section-h styles)}

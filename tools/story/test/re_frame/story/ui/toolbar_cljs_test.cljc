@@ -193,6 +193,61 @@
     (is (= [] (rf.story.share/prune-unregistered-modes
                 [:Mode.app/gone :Mode.app/also-gone] #{})))))
 
+;; ---- pure: dispatch-console visibility (rf2-qpvk) ------------------------
+
+(deftest dispatch-console-visible-resolution
+  (testing "rf2-qpvk: ONE rule for the toolbar chip and the RHS panel —
+            the user toggle wins, then the variant body, then the story
+            body, then false"
+    (rf.story/reg-story :story.dc-opt-in {:doc "probe" :dispatch-console? true})
+    (rf.story/reg-variant :story.dc-opt-in/inherits {:doc "probe"})
+    (rf.story/reg-variant :story.dc-opt-in/opts-out {:doc "probe" :dispatch-console? false})
+    (rf.story/reg-story :story.dc-default {:doc "probe"})
+    (rf.story/reg-variant :story.dc-default/plain {:doc "probe"})
+    (let [visible? rf.story.ui.state/dispatch-console-visible?
+          s        rf.story.ui.state/default-shell-state
+          on       (assoc-in s [:panel-visibility :dispatch-console] true)
+          off      (assoc-in s [:panel-visibility :dispatch-console] false)]
+      (is (true?  (visible? s :story.dc-opt-in/inherits))
+          "a story-body opt-in with no user toggle is visible")
+      (is (false? (visible? s :story.dc-opt-in/opts-out))
+          "a variant-body false overrides the story's opt-in")
+      (is (false? (visible? s :story.dc-default/plain))
+          "nothing declared is hidden (the opt-in default)")
+      (is (false? (visible? off :story.dc-opt-in/inherits))
+          "the user toggle OFF beats the story opt-in")
+      (is (true?  (visible? on :story.dc-default/plain))
+          "the user toggle ON beats the default")
+      (is (false? (visible? on nil))
+          "no focused variant is never visible"))))
+
+#?(:cljs
+   (deftest cljs-dispatch-chip-reads-effective-visibility
+     (testing "rf2-qpvk: under a story-body `:dispatch-console? true` opt-in
+               the chip renders PRESSED — agreeing with the panel that is
+               showing — and its first click hides the panel instead of
+               writing true to a panel already open"
+       (rf.story/reg-story :story.dc-chip {:doc "probe" :dispatch-console? true})
+       (rf.story/reg-variant :story.dc-chip/v {:doc "probe"})
+       (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.dc-chip/v)
+       (let [chip-attrs (fn []
+                          (->> (tree-seq coll? seq (rf.story.ui.toolbar/toolbar-strip))
+                               (filter map?)
+                               (filter #(= "story-toolbar-dispatch-console" (:data-test %)))
+                               first))
+             attrs      (chip-attrs)]
+         (is (= "true" (:aria-pressed attrs))
+             "the chip reads pressed under the story opt-in")
+         (is (true? (rf.story.ui.state/dispatch-console-visible?
+                      (rf.story.ui.state/get-state) :story.dc-chip/v))
+             "and the panel's rule agrees")
+         ((:on-click attrs) nil)
+         (is (false? (get-in (rf.story.ui.state/get-state)
+                             [:panel-visibility :dispatch-console]))
+             "the first click writes the negation of the EFFECTIVE state")
+         (is (= "false" (:aria-pressed (chip-attrs)))
+             "after which the chip reads un-pressed")))))
+
 ;; ---- CLJS-only: live toolbar surfaces ----------------------------------
 ;;
 ;; The localStorage / `js/window` surfaces only exist under CLJS.

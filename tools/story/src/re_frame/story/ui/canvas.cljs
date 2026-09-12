@@ -391,6 +391,18 @@
    :cell-overrides   (get-in shell [:cell-overrides variant-id])
    :substrate        (:substrate shell)})
 
+(defn- selected-run-key
+  "The focused variant's `run-key`, or nil when nothing is selected. The
+  canvas derefs this through `r/track` (rf2-ohc5): the track re-derives it
+  on every shell write, but the canvas re-renders only when the key itself
+  changes — so a rail drag, a panel toggle, a tag filter or a test-run
+  record no longer re-renders the canvas, re-hashes its snapshot identity or
+  recompiles the variant plan."
+  []
+  (let [shell @rf.story.ui.state/shell-state-atom]
+    (when-let [variant-id (:selected-variant shell)]
+      (run-key shell variant-id))))
+
 (defonce ^:private canvas-last-run-key
   (atom nil))
 
@@ -416,22 +428,23 @@
   ([] (reset! first-rendered? #{}) nil)
   ([variant-id] (swap! first-rendered? disj variant-id) nil))
 
-(defn- prepare-with-shell-opts!
-  "PREPARE the variant's one run owner (rf2-j538f7.34) with the shell's
-  current modes / cell overrides / substrate: allocate + reset the frame and
-  run loaders + setup, WITHOUT executing the play script. Idempotent per
-  `:run-key`, so this canvas prepare and the shell's selection-edge prepare
-  for the same logical run collapse to ONE frame reset + ONE generation. The
-  single resume owner runs the script exactly once. Returns nothing — the
-  canvas reads the variant's app-db-value reactively after each run."
-  [variant-id]
-  (let [shell @rf.story.ui.state/shell-state-atom
-        opts  {:active-modes   (:active-modes shell)
-               :cell-overrides (get-in shell [:cell-overrides variant-id])
-               :substrate      (:substrate shell)
-               :run-key        (run-key shell variant-id)}]
-    (rf.story.runtime/prepare-run! variant-id opts)
-    nil))
+(defn- prepare-for-run-key!
+  "PREPARE the variant's one run owner (rf2-j538f7.34) for the run named by
+  `key` — a `run-key` map, whose `:active-modes` / `:cell-overrides` /
+  `:substrate` are exactly the shell slots the run reads: allocate + reset
+  the frame and run loaders + setup, WITHOUT executing the play script.
+  Idempotent per `:run-key`, so this canvas prepare and the shell's
+  selection-edge prepare for the same logical run collapse to ONE frame
+  reset + ONE generation. The single resume owner runs the script exactly
+  once. Returns nothing — the canvas reads the variant's app-db-value
+  reactively after each run."
+  [variant-id key]
+  (rf.story.runtime/prepare-run! variant-id
+                                 {:active-modes   (:active-modes key)
+                                  :cell-overrides (:cell-overrides key)
+                                  :substrate      (:substrate key)
+                                  :run-key        key})
+  nil)
 
 (defn- run-if-needed!
   "The canvas's single-owner lifecycle hook (rf2-j538f7.34). Runs only when
@@ -444,20 +457,27 @@
   Called from `component-did-mount` / `component-did-update`, both POST-commit,
   so the resumed script's DOM steps see the mounted view. `resume-run!` is
   idempotent per generation, so the shell selection-watcher / mount-time block
-  calling it too for the same generation collapses to one execution."
-  []
-  (when rf.story.config/enabled?
-    (let [shell      @rf.story.ui.state/shell-state-atom
-          variant-id (:selected-variant shell)]
-      (if-not variant-id
-        (reset! canvas-last-run-key nil)
-        (let [key (run-key shell variant-id)]
-          (when (not= key @canvas-last-run-key)
-            (reset! canvas-last-run-key key)
-            (prepare-with-shell-opts! variant-id)
-            ;; RESUME the one run owner post-commit. The generation guard makes
-            ;; this exactly-once even though the shell also schedules a resume.
-            (rf.story.runtime/resume-run! variant-id)))))))
+  calling it too for the same generation collapses to one execution.
+
+  The 0-arity reads the shell, for the lifecycle hooks (which run outside
+  render). The 2-arity takes a `run-key` the caller already holds, so
+  `canvas-inner`'s render-phase call never derefs the shell atom — a deref
+  there would subscribe that render to every shell write (rf2-ohc5)."
+  ([]
+   (when rf.story.config/enabled?
+     (let [shell      @rf.story.ui.state/shell-state-atom
+           variant-id (:selected-variant shell)]
+       (run-if-needed! variant-id (when variant-id (run-key shell variant-id))))))
+  ([variant-id key]
+   (when rf.story.config/enabled?
+     (if-not variant-id
+       (reset! canvas-last-run-key nil)
+       (when (not= key @canvas-last-run-key)
+         (reset! canvas-last-run-key key)
+         (prepare-for-run-key! variant-id key)
+         ;; RESUME the one run owner post-commit. The generation guard makes
+         ;; this exactly-once even though the shell also schedules a resume.
+         (rf.story.runtime/resume-run! variant-id))))))
 
 (defn variant-substrate-set
   "Resolve the variant's effective substrate set. Per `001-Authoring.md` §Registration macros
@@ -470,13 +490,20 @@
   renders a variant too, and must resolve its substrate by the SAME policy
   rather than a second copy of it (rf2-r4coe). The resolution order is
   itself the answer to \"declared set or host substrate?\" — it is both,
-  in that precedence, with the shell's substrate as the fallback."
-  [variant-id]
-  (let [vb (rf.story.registrar/handler-meta :variant variant-id)
-        sid (rf.story.args/parent-story-id variant-id)
-        sb (when sid (rf.story.registrar/handler-meta :story sid))]
-    (rf.story.ui.multi-substrate/resolve-substrate-set
-      vb sb (or (:substrate @rf.story.ui.state/shell-state-atom) :reagent))))
+  in that precedence, with the shell's substrate as the fallback.
+
+  The 2-arity takes that host substrate from the caller rather than
+  dereffing the shell atom — the canvas passes the one its `run-key`
+  already carries, so its render does not subscribe to every shell write
+  (rf2-ohc5)."
+  ([variant-id]
+   (variant-substrate-set variant-id (:substrate @rf.story.ui.state/shell-state-atom)))
+  ([variant-id host-substrate]
+   (let [vb (rf.story.registrar/handler-meta :variant variant-id)
+         sid (rf.story.args/parent-story-id variant-id)
+         sb (when sid (rf.story.registrar/handler-meta :story sid))]
+     (rf.story.ui.multi-substrate/resolve-substrate-set
+       vb sb (or host-substrate :reagent)))))
 
 (defn- canvas-inner
   "The inner render fn — reads the variant's app-db-value reactively. Split
@@ -486,9 +513,17 @@
   The inner render branches on
   `(count (variant-substrate-set variant-id))`:
   - 1 substrate → single-pane render
-  - >1 substrate → multi-substrate side-by-side grid (`002-Runtime.md` §Substrate hooks)."
-  [variant-id]
-  (let [view-id        (variant-component variant-id)
+  - >1 substrate → multi-substrate side-by-side grid (`002-Runtime.md` §Substrate hooks).
+
+  `rk` is the outer `canvas`'s `run-key` (rf2-ohc5). Every shell input this
+  render needs is read off it, never off the shell atom, so an unrelated
+  shell write (a rail drag, a panel toggle, a test-run record) cannot reach
+  this render, and Reagent skips it whenever the outer passes an equal key.
+  When omitted it is read from the shell (a caller rendering this pane on
+  its own)."
+  [variant-id & [rk]]
+  (let [rk             (or rk (run-key @rf.story.ui.state/shell-state-atom variant-id))
+        view-id        (variant-component variant-id)
         variant-body   (rf.story.registrar/handler-meta :variant variant-id)
         ;; The SAME per-run opts the `eff-args` resolve below
         ;; uses, threaded into `resolve-decorators` so the plan it
@@ -498,18 +533,15 @@
         ;; (never the variant chain) throws `:rf.error/story-missing-arg`
         ;; here even though the runtime's plan compile handles it — the
         ;; canvas decorator recompile needs the same opts.
-        run-opts       {:active-modes
-                        (:active-modes @rf.story.ui.state/shell-state-atom)
-                        :cell-overrides
-                        (get-in @rf.story.ui.state/shell-state-atom
-                                [:cell-overrides variant-id])}
+        run-opts       {:active-modes   (:active-modes rk)
+                        :cell-overrides (:cell-overrides rk)}
         decorator-pack (rf.story.decorators/resolve-decorators variant-id run-opts)
         eff-args       (rf.story.args/resolve-args variant-id run-opts)
         assertions     (rf.story.runtime/read-assertions variant-id)
         ;; Resolve the variant's view-state subscription
         ;; overrides (arg-substituted) for the render-path binding below.
         sub-ovr        (resolve-sub-overrides variant-id eff-args)
-        substrates     (variant-substrate-set variant-id)
+        substrates     (variant-substrate-set variant-id (:substrate rk))
         multi?         (and variant-id (> (count substrates) 1))
         ;; Events-only variants take the lifecycle fast-
         ;; path (`mount-ready!` jumps :pre-mount → :ready directly) so
@@ -548,7 +580,7 @@
         ;; reaching `frame-provider` before allocation. Runs BEFORE
         ;; `lifecycle-phase` / `first?` below so those reads see the
         ;; POST-allocation state (the fast-path `:ready`) on this same pass.
-        _              (when events-only? (run-if-needed!))
+        _              (when events-only? (run-if-needed! variant-id rk))
         ;; Skeleton gating. The lifecycle machine reports
         ;; :pre-mount / :mounting / :loading while the four-phase
         ;; loader cascade runs; once :ready / :error lands, the
@@ -751,14 +783,15 @@
             (reset-first-rendered!))))
      :reagent-render
      (fn []
-       (let [shell      @rf.story.ui.state/shell-state-atom
-             variant-id (:selected-variant shell)
-             opts       {:active-modes   (:active-modes shell)
-                         :cell-overrides (get-in shell [:cell-overrides variant-id])
-                         :substrate      (:substrate shell)}
+       (let [;; rf2-ohc5: the run inputs only, through `r/track` — see
+             ;; `selected-run-key`. `:hot-reload-tick` is one of them, so a
+             ;; tick still re-renders (and, post-commit, re-runs) the canvas.
+             rk         @(r/track selected-run-key)
+             variant-id (:variant-id rk)
              snapshot   (when variant-id
-                          (rf.story.runtime/snapshot-identity variant-id opts))
-             _tick      (:hot-reload-tick shell)]   ;; deref to subscribe
+                          (rf.story.runtime/snapshot-identity
+                            variant-id
+                            (select-keys rk [:active-modes :cell-overrides :substrate])))]
          ;; The canvas wrap is the scrollable container
          ;; for variant content; `tab-index "0"` makes it keyboard-
          ;; focusable so axe-core's `scrollable-region-focusable` rule
@@ -779,6 +812,6 @@
                      (:content-hash snapshot) (assoc :data-snapshot-hash
                                                      (:content-hash snapshot)))
           (if variant-id
-            [canvas-inner variant-id]
+            [canvas-inner variant-id rk]
             [:div {:style (:empty styles)}
              "select a variant from the sidebar"])]))}))
