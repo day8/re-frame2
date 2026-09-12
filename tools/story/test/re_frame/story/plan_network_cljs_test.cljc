@@ -1,4 +1,4 @@
-(ns re-frame.story.plan-network-test
+(ns re-frame.story.plan-network-cljs-test
   "Tests for the first-class `:network` world slot (rf2-5x1wt.14).
 
   Per `tools/story/spec/017-Testing-Story.md` §Network world +
@@ -15,7 +15,10 @@
   id. These tests pin: mixed success/failure per route, the fail-closed
   posture for unmatched routes (documented; enforced by the helper at run
   time), the predictable `:network` vs explicit `:fx-overrides` conflict,
-  explain visibility, plan-hash sensitivity, and the schema acceptance."
+  explain visibility, plan-hash sensitivity, and the schema acceptance.
+
+  Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
+  selects it; under its old `-test` name it ran on the JVM only (rf2-exlh)."
   (:require [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
             [re-frame.story.plan        :as rf.story.plan]
