@@ -609,7 +609,8 @@ host installed MUST NOT affect the mount** — the shell paints through
 Xray's own React root, so an element-shaped substrate (UIx / Fresco)
 mounts exactly as a ratom-family one does, per
 [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Adapter
-resolution.
+resolution in the mount verbs. What an adapter MUST supply for Xray to
+work at all is that page's §The minimum host contract.
 
 **This paragraph specified the opposite until rf2-k97c.4.** A React-element
 substrate — a host whose `:render` could not take the hiccup shell — MUST
@@ -654,12 +655,26 @@ user presses `Ctrl+Shift+C` mid-load, the handlers required by the
 shell render are already in the registry when the mount fires.
 
 Within the mount phase the order MUST be **find-layout-host →
-create-mount-node-in-host → substrate-render → mark-visible**. The
-substrate adapter's `:render` slot is the canonical mount path
-(per [`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md)
-§Render contract) — Xray MUST NOT bypass the adapter and call
-React directly. The render call returns an unmount fn which the
-mount machinery MUST retain for `teardown!`.
+create-mount-node-in-host → render-through-Xray's-own-root →
+mark-visible**. The mount MUST paint through the `re-frame.fresco`
+client root Xray owns, per
+[`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §The owned
+root, and MUST NOT go through the host adapter's `:render` slot. The
+mount machinery MUST retain an unmount thunk for `teardown!`; Fresco's
+door is a `render!` / `unmount!` pair on a handle rather than the
+adapter contract's render-answers-an-unmount-fn, so exactly one call
+site closes over the handle and synthesises that thunk.
+
+**This paragraph specified the opposite until rf2-k97c.3.** It read *"The
+substrate adapter's `:render` slot is the canonical mount path — Xray MUST
+NOT bypass the adapter and call React directly"*, and the render call's
+own return value was the unmount fn. That was the epic's coupling (1): it
+is what made Xray's mountability depend on the host's render shape, and
+retiring it is what lets an element-shaped host (UIx, Fresco) run Xray at
+all. The adapter's `:render` remains the canonical mount path for
+APPLICATION code — spec/006 §Render contract is unchanged — and for Xray's
+internal-but-stable per-panel mount surface, which still delegates to it
+(008 §The minimum host contract records that exception).
 
 **Subsequent toggles.** Once mounted, the shell's container stays
 in the DOM for the rest of the page's lifetime. Close MUST be a
@@ -707,9 +722,11 @@ Xray is closed or absent.
 **Unmount semantics.** Production sessions never tear the shell
 down — the shell lives for the page's lifetime once mounted, and
 `Ctrl+Shift+C` close is a CSS hide, not an unmount. The
-`teardown!` operation is **test-only**: it MUST invoke the
-substrate adapter's unmount fn (returned by `:render` at mount
-time), MUST remove the mount-node from its layout host, and MUST
+`teardown!` operation is **test-only**: it MUST invoke the retained
+unmount thunk (the one `render-shell!` closes over Xray's own root
+handle to produce — it was the substrate adapter's unmount fn,
+returned by `:render`, until rf2-k97c.3), MUST remove the mount-node
+from its layout host, and MUST
 reset the mount-state singleton to `nil` so the next test starts
 from a clean slate. The unmount fn MUST be invoked inside a
 swallow-errors guard — substrate adapters MAY throw on a
@@ -721,7 +738,9 @@ singletons, not just the in-app shell:
 
 - `mount-state` — the in-app shell (above).
 - `popout-state` — the optional second-window shell. `teardown!`
-  MUST invoke the popout's substrate unmount, attempt to close the
+  MUST invoke the pop-out's own unmount thunk — the pop-out holds a
+  SECOND root handle, because its root lives in another document and
+  one handle cannot serve two roots — attempt to close the
   popout window (silently tolerating "already closed"), and reset
   the singleton to `nil`. A leaked `popout-state` would short-
   circuit the next `popout!` and return a stale state map whose
