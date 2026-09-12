@@ -11,22 +11,27 @@
   - All state is `defonce`-guarded so shadow-cljs `:after-load` does
     not re-attach listeners or re-mount the shell.
 
-  ## Why we use the substrate adapter's render fn
+  ## Why Xray paints through its OWN React root
 
-  The substrate adapter's `:render` slot is the canonical mount path
-  (`rf/render render-tree mount-point opts`); every adapter's impl
-  produces an unmount fn on first call. Xray calls that path so the
-  shell mounts via the adapter the host installed via `(rf/init! ...)`.
+  Xray does not call the installed adapter's `:render` at all. Every
+  mount verb paints through a `re-frame.fresco` client root Xray owns
+  (see the `xray-root` section below), so what the host installed stops
+  being Xray's business — the mount verbs read `current-adapter` only to
+  learn whether a host has booted yet, and never branch on its `:kind`.
 
-  That only works on hosts whose `:render` accepts HICCUP render-trees
-  — the ratom family (stock Reagent / reagent-slim). Every substrate
-  built on the React-hook spine shares an ELEMENT-shaped `render`
-  (`re-frame.substrate.spine/make-react-adapter`) that hands the tree
-  to React untouched, so Xray's hiccup shell cannot mount there; the
-  mount verbs refuse with the `:unsupported-substrate` diagnostic
-  instead of letting raw CLJS data reach React children (rf2-qgfo4 —
-  fn-as-child console.error + uncaught MapEntry pageerror on every UIx
-  template boot). See the substrate gate section below.
+  That was not always so. Until rf2-k97c.3 the shell mounted through the
+  host adapter's `:render`, which only works on hosts whose `:render`
+  accepts HICCUP render-trees — the ratom family (stock Reagent /
+  reagent-slim). Every substrate built on the React-hook spine shares an
+  ELEMENT-shaped `render` (`re-frame.substrate.spine/make-react-adapter`)
+  that hands the tree to React untouched, so the hiccup shell reached
+  React as raw CLJS data there (rf2-qgfo4 — fn-as-child console.error +
+  uncaught MapEntry pageerror on every UIx template boot). A denylist of
+  those kinds refused the mount rather than let that happen. The root
+  swap severed the coupling the denylist guarded, so rf2-k97c.4 retired
+  it: the mount verbs now mount on ANY installed adapter. The
+  `:unsupported-substrate` reason stays reserved in `status`'s
+  vocabulary — see `status` — and simply never fires.
 
   ## Production posture
 
@@ -145,7 +150,29 @@
 
 (defn status
   "Return inspectable Xray mount/API status. Diagnostics are non-
-  blocking; missing host failures land here and in `console.error`."
+  blocking; missing host failures land here and in `console.error`.
+
+  ## The `:diagnostic` `:reason` vocabulary — a PUBLIC read surface
+
+  This is the surface a host inspects instead of catching a return
+  value, so the vocabulary is a contract and members are retired by
+  reservation rather than by deletion. Live members:
+
+  - `:missing-layout-host` — no element matched the configured
+    `[data-rf-xray-host]` selector; nothing mounted (`console.error`).
+  - `:auto-open-disabled` — the preload found auto-open switched off.
+    Health, not failure: `:ok?` stays true.
+  - `:unsupported-substrate` — **RESERVED, NEVER PRODUCED** (rf2-k97c.4).
+    It fired while Xray painted through the installed adapter's
+    `:render` and a denylist refused the element-shaped kinds. The root
+    swap (rf2-k97c.3) gave Xray its own React root, so the host's render
+    shape no longer decides whether Xray can paint and the condition the
+    reason named cannot arise. The ID is kept because this is a public
+    read surface a consumer may key on; it is not recycled for any other
+    meaning.
+
+  `popout!` additionally answers `:no-substrate-adapter` and
+  `:popup-blocked` in its own RETURN value; neither is published here."
   []
   {:mounted?      (mounted?)
    :visible?      (visible?)
@@ -215,89 +242,29 @@
   (reset! diagnostic-state {:ok? true :reason :auto-open-disabled})
   nil)
 
-;; ---- substrate render-shape gate (rf2-qgfo4) ------------------------------
+;; ---- substrate render-shape gate — RETIRED (rf2-qgfo4 → rf2-k97c.4) ------
 ;;
-;; Xray's shell is authored in hiccup (reg-view'd Reagent components), so it
-;; can only mount through a `:render` slot that accepts hiccup render-trees —
-;; the ratom family (stock Reagent / reagent-slim). Every substrate built on
-;; the React-hook spine shares its ELEMENT-shaped `render`
-;; (`re-frame.substrate.spine/make-render`): it hands the tree to React
-;; untouched, so the hiccup vector reaches React as an iterable of raw
-;; CLJS values — the component fn becomes a Fragment child ("Functions are
-;; not valid as a React child … frame_provider") and the props map's
-;; MapEntries throw UNCAUGHT ("Objects are not valid as a React child
-;; (found: object with keys {key, val, …})") on every boot. The host app is
-;; unaffected (separate React root) but the boot is noisy and the shell never
-;; renders. Until Xray carries a hiccup-capable mount for those hosts, the
-;; mount verbs refuse loudly-but-cleanly there: one `console.warn` plus the
-;; inspectable status diagnostic — no mount, no uncaught error. DENYLIST
-;; shape on purpose: unknown / `:custom` / test adapters keep today's
-;; permissive behaviour (the mount tests ride `plain-atom` with a stubbed
-;; render), and only the kinds KNOWN to take React elements refuse.
-
-(def ^:private react-element-render-kinds
-  "Adapter `:kind`s whose `:render` slot takes substrate-native React
-  ELEMENTS (the shared React-hook spine), not hiccup — Xray's hiccup shell
-  cannot mount through them (rf2-qgfo4). `:rf.adapter/helix` stays in the
-  refusal set defensively even though the Helix adapter itself was removed
-  at S7/W13 (rf2-d6epb): a stale co-loaded build could still present the
-  kind, and refusing costs nothing.
-
-  `:rf.adapter/freehand` is here for the SAME structural reason `:rf.adapter/
-  uix` is, not by analogy: `re-frame.freehand.substrate` builds its adapter
-  from `re-frame.substrate.spine/make-react-adapter`, so its `:render` is the
-  spine's element-shaped one. It now stays on the DEFENSIVE footing
-  `:rf.adapter/helix` is on: the Freehand substrate is being removed
-  (rf2-0yp7w) and Xray no longer reads a Freehand host at all (rf2-l86mm),
-  but a stale co-loaded build could still present the kind, and refusing it
-  costs nothing. The refusal is what makes the difference a diagnostic
-  instead of an uncaught React child error.
-
-  `:rf.adapter/fresco` IS HERE ON THE SAME STRUCTURAL GROUND, and unlike
-  the two above it names a kind the runtime ACTUALLY PRODUCES today. This
-  paragraph used to argue the opposite — that Fresco minted no kind, rode
-  the `:rf.adapter/uix` entry, and that the absence of a fresco member was
-  load-bearing (rf2-wtznc). rf2-hvr5h retired that premise: it shipped
-  `re-frame.fresco.substrate`, whose adapter is built from
-  `re-frame.substrate.spine/make-react-adapter` and therefore carries the
-  spine's element-shaped `:render`, and `docs/core/fresco/00-installation.md`
-  now teaches `(rf/init! substrate/adapter)` as the DEFAULT install. A page
-  following that chapter reports `:rf.adapter/fresco`, which this set did
-  not hold, so the mount verbs took the permissive path and handed the
-  hiccup shell to an element-shaped `:render` — an uncaught React child
-  error exactly where the clean diagnostic belongs (rf2-zkjd5).
-
-  A Fresco page that installs UIx or Reagent instead is unaffected: the
-  install is explicit and Fresco ships no default-adapter registry, so such
-  a host still reports that adapter's kind and refuses (or mounts) on its
-  entry rather than this one."
-  #{:rf.adapter/ui :rf.adapter/uix :rf.adapter/helix :rf.adapter/freehand
-    :rf.adapter/fresco})
-
-(defn- unsupported-substrate-diagnostic [kind]
-  {:ok?     false
-   :reason  :unsupported-substrate
-   :adapter kind
-   :message (str "Xray cannot mount on the installed substrate adapter ("
-                 kind "): its :render slot takes substrate-native React "
-                 "elements, and Xray's shell is hiccup rendered through the "
-                 "ratom-family adapters (Reagent / reagent-slim). Skipping "
-                 "the Xray mount — the host app is unaffected (rf2-qgfo4).")})
-
-(defn- refuse-unsupported-substrate!
-  "When the installed adapter's `:render` is element-shaped (a React-hook
-  substrate — see `react-element-render-kinds`), publish the
-  `:unsupported-substrate` diagnostic (status API + one `console.warn`; the
-  host app is healthy, so this is not an error) and return it. Returns nil
-  when the installed substrate can host the hiccup shell."
-  []
-  (let [kind (:kind (rf.substrate.adapter/current-adapter))]
-    (when (contains? react-element-render-kinds kind)
-      (let [diagnostic (unsupported-substrate-diagnostic kind)]
-        (reset! diagnostic-state diagnostic)
-        (when (and (exists? js/console) (.-warn js/console))
-          (.warn js/console (:message diagnostic)))
-        diagnostic))))
+;; A `react-element-render-kinds` denylist and a `refuse-unsupported-
+;; substrate!` guard stood here. They existed because Xray painted through
+;; the INSTALLED adapter's `:render`, and a React-hook substrate's `:render`
+;; is ELEMENT-shaped: it hands the tree to React untouched, so the hiccup
+;; shell reached React as raw CLJS values — the component fn became a
+;; Fragment child ("Functions are not valid as a React child …
+;; frame_provider") and the props map's MapEntries threw UNCAUGHT on every
+;; boot. Refusing those kinds turned that into a clean diagnostic.
+;;
+;; rf2-k97c.3 severed the coupling: Xray owns a Fresco client root and paints
+;; through it (see `xray-root` below), so the host's render shape no longer
+;; decides whether Xray can paint and the guard's PRECONDITION CAN NO LONGER
+;; ARISE. The mount verbs therefore mount on any installed adapter, and read
+;; `current-adapter` only as a PRESENCE check — the map, never `:kind`, which
+;; is the read shape 006 §Adapter introspection prescribes anyway.
+;;
+;; `:unsupported-substrate` survives as a RESERVED, never-produced member of
+;; `status`'s public `:reason` vocabulary; `status`'s docstring is its home.
+;; The application-facing `:rf.error/hiccup-on-element-render-slot` in the
+;; core is a DIFFERENT guard, aimed at app authors handing hiccup to an
+;; element-shaped render slot, and is untouched by this retirement.
 
 ;; ---- layout-host display snapshot ---------------------------------------
 ;;
@@ -1058,11 +1025,10 @@
   for the rationale.
 
   If the substrate adapter is absent, returns nil so preload retry can
-  wait. If the installed adapter is a React-element substrate (a kind in
-  `react-element-render-kinds`, whose `:render` cannot take the hiccup
-  shell, rf2-qgfo4), returns the `:unsupported-substrate` diagnostic and
-  logs one `console.warn` without mounting. If the layout host is
-  missing, returns an inspectable diagnostic map and logs
+  wait. WHICH adapter is installed no longer matters (rf2-k97c.4): the
+  shell paints through Xray's own React root, so an element-shaped host
+  (UIx / Fresco) mounts exactly as a ratom-family one does. If the layout
+  host is missing, returns an inspectable diagnostic map and logs
   `console.error` without blocking startup."
   []
   (if-let [state @mount-state]
@@ -1072,10 +1038,9 @@
           @mount-state)
       (switch-surface! :inline))
     (when (rf.substrate.adapter/current-adapter)
-      (or (refuse-unsupported-substrate!)
-          (if-let [node (create-inline-mount-node!)]
-            (mount-shell-into! node :inline)
-            @diagnostic-state)))))
+      (if-let [node (create-inline-mount-node!)]
+        (mount-shell-into! node :inline)
+        @diagnostic-state))))
 
 (defn open-overlay!
   "Debug/fallback launch path: mount Xray as the fixed overlay under
@@ -1089,8 +1054,8 @@
   (rf2-j538f7.23) so the public `open-overlay!` verb honours its
   distinct-surface contract instead of only flipping attributes.
 
-  Refuses with the `:unsupported-substrate` diagnostic on a
-  React-element substrate host (rf2-qgfo4), same as `open!`."
+  Indifferent to the installed adapter's render shape, same as `open!`
+  (rf2-k97c.4)."
   []
   (if-let [state @mount-state]
     (if (= :overlay (:mode state))
@@ -1099,8 +1064,7 @@
           @mount-state)
       (switch-surface! :overlay))
     (when (rf.substrate.adapter/current-adapter)
-      (or (refuse-unsupported-substrate!)
-          (mount-shell-into! (create-overlay-mount-node!) :overlay)))))
+      (mount-shell-into! (create-overlay-mount-node!) :overlay))))
 
 (defn close!
   "Hide the shell — make the container display:none. The DOM tree and
@@ -1562,8 +1526,8 @@
 ;; would be asked to detect.
 ;;
 ;; Everything Xray runs for the popout lives in the OPENER's JS realm:
-;; `popout!` is called from the opener, `rf.substrate.adapter/render` paints
-;; the popout's DOM from there, `popout-state` is an opener-realm atom, and
+;; `popout!` is called from the opener, `render-shell!` paints the popout's
+;; DOM from there, `popout-state` is an opener-realm atom, and
 ;; `start-opener-gone-watchdog!`'s `js/setInterval` registers its timer on
 ;; the OPENER's window. A hard reload of the opener discards that realm and
 ;; every timer, closure and atom it owned. So after the reload there is no
@@ -1679,8 +1643,10 @@
   The pop-out shares the opener runtime and Xray frame; no
   serialisation layer is introduced. Returns a state map, or
   `{:ok? false :reason :popup-blocked}` when `window.open` fails, or
-  the `:unsupported-substrate` diagnostic on a React-element substrate
-  host (rf2-qgfo4).
+  `{:ok? false :reason :no-substrate-adapter}` when no host has booted
+  yet. WHICH adapter that host installed is not consulted (rf2-k97c.4):
+  the pop-out paints through `xray-popout-root`, Xray's own React root
+  in the pop-out's document.
 
   Per rf2-yudol the popout window registers a `pagehide`/`unload`
   listener that clears `popout-state` when the user closes the
@@ -1708,81 +1674,80 @@
     state
     (if-not (rf.substrate.adapter/current-adapter)
       {:ok? false :reason :no-substrate-adapter}
-      (or (refuse-unsupported-substrate!)
-          (let [win (when (exists? js/window)
-                      (.open js/window "" "rf-xray-popout"
-                             "popup,width=960,height=720"))]
-            (if-not win
-              {:ok? false :reason :popup-blocked}
-              (do
-                (ensure-xray-frame!)
-                (let [doc  (.-document win)
-                      body (.-body doc)
-                      node (.createElement doc "div")]
-                  (set! (.-title doc) "Xray")
-                  ;; rf2-czcg5 — inject Xray's stylesheet set + the `:root`
-                  ;; `--rf-xray-*` custom properties into the pop-out's own
-                  ;; document and mirror the persisted theme, so the shell
-                  ;; renders fully styled (visually identical to the inline
-                  ;; panel) rather than unstyled against the bare window.
-                  (style-popout-document! doc)
-                  (set! (.-id node) "rf-xray-popout-root")
-                  (.setAttribute node "data-rf-xray-mode" "popout")
-                  (.appendChild body node)
-                  (let [unmount      (render-shell!
-                                       ;; rf2-k97c.3 — the pop-out moves onto
-                                       ;; the owned root in the SAME commit as
-                                       ;; the inline shell. Two lines, in a file
-                                       ;; the swap opens anyway, and leaving it
-                                       ;; behind would have left one surface
-                                       ;; painting through the installed
-                                       ;; adapter's `:render` — i.e. coupling (1)
-                                       ;; only half severed, with the pop-out
-                                       ;; still refusing every element-shaped
-                                       ;; host.
-                                       ;;
-                                       ;; ITS OWN HANDLE. `render!` binds a
-                                       ;; handle to its mount-point on the first
-                                       ;; call, and this node lives in the
-                                       ;; pop-out's document; sharing
-                                       ;; `xray-root` would re-render the INLINE
-                                       ;; shell here instead.
-                                       ;;
-                                       ;; Same provider, same reason as
-                                       ;; `mount-shell-into!`: it is what gives
-                                       ;; `ShellView`'s ambient reads their
-                                       ;; frame.
-                                       xray-popout-root
-                                       [rf.fresco/frame-provider {:frame shell/default-frame-id}
-                                        [shell/ShellView {:mode :popout}]]
-                                       node)
-                        overlay-node (install-opener-gone-overlay! doc)
-                        watchdog-id  (start-opener-gone-watchdog! win overlay-node)
-                        ;; rf2-uong — the reload case the watchdog cannot
-                        ;; see, because the reload destroys the watchdog.
-                        announcer    (register-opener-reload-announcer!
-                                       js/window win overlay-node)
-                        ;; rf2-61i5 — the pop-out's OWN keydown listener.
-                        ;; Key events do not cross realms, so without this
-                        ;; the documented keyboard workflow (Cmd/Ctrl+K,
-                        ;; Cmd/Ctrl+Shift+M, Space / L / j / k / G, `,`/s)
-                        ;; is inert whenever focus is in this window.
-                        ;; `keydown-dispose` is nil when keybinding is not
-                        ;; loaded or the host disabled it.
-                        keydown-dispose (when-let [install @popout-keydown-installer]
-                                          (try (install doc)
-                                               (catch :default _ nil)))
-                        state        {:ok?          true
-                                      :window       win
-                                      :node         node
-                                      :unmount      unmount
-                                      :mode         :popout
-                                      :overlay-node overlay-node
-                                      :watchdog-id  watchdog-id
-                                      :keydown-dispose         keydown-dispose
-                                      :opener-window           js/window
-                                      :opener-pagehide-handler announcer}]
-                    (reset! popout-state state)
-                    (register-popout-unload-cleanup! win)
-                    state)))))))))
+      (let [win (when (exists? js/window)
+                  (.open js/window "" "rf-xray-popout"
+                         "popup,width=960,height=720"))]
+        (if-not win
+          {:ok? false :reason :popup-blocked}
+          (do
+            (ensure-xray-frame!)
+            (let [doc  (.-document win)
+                  body (.-body doc)
+                  node (.createElement doc "div")]
+              (set! (.-title doc) "Xray")
+              ;; rf2-czcg5 — inject Xray's stylesheet set + the `:root`
+              ;; `--rf-xray-*` custom properties into the pop-out's own
+              ;; document and mirror the persisted theme, so the shell
+              ;; renders fully styled (visually identical to the inline
+              ;; panel) rather than unstyled against the bare window.
+              (style-popout-document! doc)
+              (set! (.-id node) "rf-xray-popout-root")
+              (.setAttribute node "data-rf-xray-mode" "popout")
+              (.appendChild body node)
+              (let [unmount      (render-shell!
+                                   ;; rf2-k97c.3 — the pop-out moves onto
+                                   ;; the owned root in the SAME commit as
+                                   ;; the inline shell. Two lines, in a file
+                                   ;; the swap opens anyway, and leaving it
+                                   ;; behind would have left one surface
+                                   ;; painting through the installed
+                                   ;; adapter's `:render` — i.e. coupling (1)
+                                   ;; only half severed, with the pop-out
+                                   ;; still refusing every element-shaped
+                                   ;; host.
+                                   ;;
+                                   ;; ITS OWN HANDLE. `render!` binds a
+                                   ;; handle to its mount-point on the first
+                                   ;; call, and this node lives in the
+                                   ;; pop-out's document; sharing
+                                   ;; `xray-root` would re-render the INLINE
+                                   ;; shell here instead.
+                                   ;;
+                                   ;; Same provider, same reason as
+                                   ;; `mount-shell-into!`: it is what gives
+                                   ;; `ShellView`'s ambient reads their
+                                   ;; frame.
+                                   xray-popout-root
+                                   [rf.fresco/frame-provider {:frame shell/default-frame-id}
+                                    [shell/ShellView {:mode :popout}]]
+                                   node)
+                    overlay-node (install-opener-gone-overlay! doc)
+                    watchdog-id  (start-opener-gone-watchdog! win overlay-node)
+                    ;; rf2-uong — the reload case the watchdog cannot
+                    ;; see, because the reload destroys the watchdog.
+                    announcer    (register-opener-reload-announcer!
+                                   js/window win overlay-node)
+                    ;; rf2-61i5 — the pop-out's OWN keydown listener.
+                    ;; Key events do not cross realms, so without this
+                    ;; the documented keyboard workflow (Cmd/Ctrl+K,
+                    ;; Cmd/Ctrl+Shift+M, Space / L / j / k / G, `,`/s)
+                    ;; is inert whenever focus is in this window.
+                    ;; `keydown-dispose` is nil when keybinding is not
+                    ;; loaded or the host disabled it.
+                    keydown-dispose (when-let [install @popout-keydown-installer]
+                                      (try (install doc)
+                                           (catch :default _ nil)))
+                    state        {:ok?          true
+                                  :window       win
+                                  :node         node
+                                  :unmount      unmount
+                                  :mode         :popout
+                                  :overlay-node overlay-node
+                                  :watchdog-id  watchdog-id
+                                  :keydown-dispose         keydown-dispose
+                                  :opener-window           js/window
+                                  :opener-pagehide-handler announcer}]
+                (reset! popout-state state)
+                (register-popout-unload-cleanup! win)
+                state))))))))
 

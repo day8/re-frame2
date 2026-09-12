@@ -11,9 +11,9 @@
   §'Adapters that ship today' rosters three — Reagent, UIx, reagent-slim —
   and of those UIx is the element-shaped one: its `:render` comes from
   `re-frame.substrate.spine/make-react-adapter` and takes substrate-native
-  React ELEMENTS rather than hiccup, which is exactly the property
-  `mount.cljs`'s `react-element-render-kinds` names when it refuses to
-  paint on one.
+  React ELEMENTS rather than hiccup — the property that made Xray
+  unmountable on such a host until it owned its own root, and the reason
+  this is the adapter worth running the six criteria under.
 
   `adapters/test-react/` was considered and REJECTED, on its own docstring
   rather than on its shipping status. It 'simulates the React class-3
@@ -37,12 +37,20 @@
 
   ## WHAT IT IS NOT EVIDENCE FOR
 
-  Today's `mount.cljs` still REFUSES this adapter outright — `open!`
-  returns the `:unsupported-substrate` diagnostic and mounts nothing,
-  because the Dynamic shell is still an `rf/reg-view` painted through the
-  installed adapter's `:render`. That refusal is measured and pinned in
-  `substrate_gap_dom_cljs_test`, which is the companion to this file and
-  says plainly which part of the swap is still to come.
+  The PUBLIC `open!` verb, which this file never calls: the six criteria
+  run through Fresco's root directly
+  (`test-helpers.criteria/mount-xray!`). That is deliberate — one body, N
+  substrates — and it leaves the shipped door to its companion,
+  `substrate_gap_dom_cljs_test`, which drives `open!` itself on this same
+  adapter.
+
+  This paragraph used to record the opposite conclusion, and the change is
+  worth naming: `mount.cljs` REFUSED this adapter outright, `open!`
+  returning the `:unsupported-substrate` diagnostic and mounting nothing,
+  because the shell was painted through the installed adapter's `:render`.
+  rf2-k97c.3 moved the shell onto Xray's own root and rf2-k97c.4 retired
+  the refusal, so the six rows below are now evidence about a host Xray
+  actually serves rather than about a root in isolation.
 
   ## NODE LANE
 

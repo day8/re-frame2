@@ -501,36 +501,38 @@ namespace docstring (see `tools/xray/src/day8/re_frame2_xray/registry.cljs`).
 Since rf2-k97c.3 Xray does **not** mount through the host adapter's
 `:render` at all — its shell is a `re-frame.fresco` boundary painted
 through Xray's **own** React root, so the host's render shape no longer
-decides whether Xray can paint, and the refusal set out below is a
-denylist that has outlived its cause rather than a statement about what
-Xray can render (retiring it is rf2-k97c.4; until that lands the mount
-verbs still refuse on those hosts exactly as described here). The
-React-hook substrates (UIx, Fresco)
-share an **element-shaped** `render` that hands the tree to React
-untouched; a hiccup shell mounted there
-reaches React children as raw CLJS data (fn-as-child console.error
-plus an uncaught MapEntry pageerror — rf2-qgfo4). On those hosts the
-mount verbs (`open!`, `open-overlay!`, `popout!`, and therefore the
-preload auto-open) MUST refuse cleanly: publish the
-`:unsupported-substrate` diagnostic through the status API, emit one
-`console.warn` (not an error — the host app is healthy), and mount
-nothing. Rendering Xray on the React-element substrates is future
-work (tracked from rf2-qgfo4); until then the supported render hosts
-are the ratom family.
+decides whether Xray can paint. **The mount verbs (`open!`,
+`open-overlay!`, `popout!`, and therefore the preload auto-open) are
+INDIFFERENT to the installed adapter's render shape**: they read
+`current-adapter` to learn whether a host has booted at all, never branch
+on its `:kind`, and mount on the React-hook substrates (UIx, Fresco)
+exactly as on the ratom family.
 
-**Fresco mints its own kind and is refused on its own entry (rf2-zkjd5).**
-This section previously recorded the opposite — that Fresco shipped no
-adapter, that `:rf.adapter/fresco` did not exist, and that a Fresco page
-therefore answered `:rf.adapter/uix` (rf2-wtznc). rf2-hvr5h retired that
-premise. `re-frame.fresco.substrate` ships `:kind :rf.adapter/fresco`,
-built from `re-frame.substrate.spine/make-react-adapter` and so carrying
-the spine's element-shaped `:render`, and the Fresco install chapter
-teaches `(rf/init! substrate/adapter)` as the default. A Fresco page MUST
-therefore be refused on `:rf.adapter/fresco` itself; a roster of the
-refused kinds that omits it lets the hiccup shell reach React as raw CLJS
-data. A Fresco application that installs UIx or Reagent instead —
-installation is explicit, and there is no default-adapter registry —
-reports that adapter's kind and resolves on its entry, unchanged.
+**This section previously specified a refusal, and rf2-k97c.4 retired
+it.** While Xray painted through the host's `:render`, an element-shaped
+`render` — which hands the tree to React untouched — took the hiccup
+shell as raw CLJS data (fn-as-child console.error plus an uncaught
+MapEntry pageerror, rf2-qgfo4). A `react-element-render-kinds` denylist
+in `mount.cljs` therefore made the mount verbs refuse those hosts
+cleanly: publish an `:unsupported-substrate` diagnostic through the
+status API, emit one `console.warn` (not an error — the host app was
+healthy), and mount nothing. Two further rulings sat on top of it, and
+both are now history rather than requirement: that a Fresco page be
+refused on `:rf.adapter/fresco` itself rather than riding the
+`:rf.adapter/uix` entry (rf2-zkjd5, superseding rf2-wtznc's premise that
+Fresco minted no kind), and that the supported render hosts were the
+ratom family until Xray carried a hiccup-capable mount for the rest. The
+root swap severed the coupling all of that guarded, so the guard's
+precondition can no longer arise.
+
+**`:unsupported-substrate` remains a RESERVED member of the `status`
+diagnostic vocabulary and is never produced.** That surface is a public
+read a host may key on, so the id is retired by reservation rather than
+by deletion, and is not recycled for any other meaning. The
+application-facing `:rf.error/hiccup-on-element-render-slot` raised by
+the core's `make-render` is a DIFFERENT guard — aimed at application
+authors handing hiccup to an element-shaped render slot — and is
+unaffected.
 
 Where Xray needs an
 imperative escape hatch (canvas refs, mount-lifecycle hooks for large

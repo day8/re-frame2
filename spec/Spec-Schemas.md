@@ -1293,14 +1293,18 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; WHY THE RESERVED-KIND PRECEDENT DOES NOT APPLY, since it is the obvious
   ;; counter-argument and the answer is POLARITY. Retired donor values ARE kept
   ;; deliberately elsewhere: `:rf.adapter/ui` / `:rf.adapter/freehand` stay
-  ;; rostered (006 §Adapter introspection) because Xray's
-  ;; `react-element-render-kinds` (`tools/xray/src/day8/re_frame2_xray/
-  ;; mount.cljs`) is a REFUSAL set — membership makes
-  ;; `refuse-unsupported-substrate!` publish a clean `:unsupported-substrate`
-  ;; diagnostic, and a kind ABSENT from it takes the permissive path into an
-  ;; uncaught React child error (rf2-zkjd5 measured exactly that when
-  ;; `:rf.adapter/fresco` was missing). A Malli `[:enum …]` inverts that
-  ;; polarity: membership ACCEPTS. Retaining `:capture` would make nothing
+  ;; rostered (006 §Adapter introspection) under the tombstone rule — reserved,
+  ;; never recycled. The sharpest form of that precedent was a REFUSAL set:
+  ;; Xray's `react-element-render-kinds` published a clean
+  ;; `:unsupported-substrate` diagnostic for a member kind, and a kind ABSENT
+  ;; from it took the permissive path into an uncaught React child error
+  ;; (rf2-zkjd5 measured exactly that when `:rf.adapter/fresco` was missing),
+  ;; so listing a dead kind bought a real guard. That set is GONE — rf2-k97c.4
+  ;; retired it once Xray owned its own React root and the condition it
+  ;; guarded could no longer arise — which weakens the precedent without
+  ;; touching the argument, because the argument was never about how strong
+  ;; the precedent is. A Malli `[:enum …]` inverts its POLARITY: membership
+  ;; ACCEPTS. Retaining `:capture` would make nothing
   ;; refuse it — it would widen what this schema admits on behalf of no
   ;; producer. Nor is there a defensive consumer to name: nothing in
   ;; `implementation/` validates against `FrameDestroyedTags`, whose only

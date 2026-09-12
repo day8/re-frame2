@@ -1,37 +1,53 @@
 (ns day8.re-frame2-xray.acceptance.substrate-gap-dom-cljs-test
-  "THE GAP THE ROOT SWAP CLOSES, pinned at the exact seam it changes
-  (rf2-k97c.3, slice D).
+  "THE GAP THE ROOT SWAP CLOSED — now pinned CLOSED, at the same seam
+  (rf2-k97c.3 slice D, discharged by rf2-k97c.4).
 
   The two arms beside this file — `acceptance.uix-dom-cljs-test` and
   `acceptance.reagent-dom-cljs-test` — witness all six behavioural criteria
-  through Xray's own React root, and they are green on a ratom-family
-  adapter and on an element-shaped one alike. This file says what is still
-  NOT true, so the pair is not read as 'the epic is done'.
+  through Xray's own React root, on a ratom-family adapter and on an
+  element-shaped one alike. This file covers the one thing they do not:
+  the PUBLIC `open!` verb, the door a host app actually uses.
 
-  ## THE CLAIM
+  ## THE FILE KEEPS ITS NAME ON PURPOSE
 
-  `mount.cljs`'s PUBLIC `open!` — the door a host app actually uses —
-  still paints through the INSTALLED adapter's `:render`, so it refuses an
-  element-shaped substrate outright rather than mounting. That is the
-  epic's coupling (1), still unsevered, and `react-element-render-kinds`
-  is the denylist child .4 deletes once the swap is proven.
+  There is no gap left to name, and the name is kept anyway: this file IS
+  the record of the gap closing, and its two rows are the before and after
+  of the same assertion at the same seam. Renaming it would leave the
+  closure legible only in version history.
 
-  [[the-public-mount-refuses-an-element-shaped-substrate]] asserts that
-  refusal against literals — `false`, `:unsupported-substrate`,
-  `:rf.adapter/uix` — and then measures that the HOST is undisturbed by it,
-  which is the half of criterion 6 a refusal still has to satisfy.
-  [[the-public-mount-succeeds-on-a-ratom-family-substrate]] is the control
-  that makes the first row a claim about the SUBSTRATE rather than about
-  this file's setup: same verb, same host element, same code path, and it
-  mounts.
+  ## WHAT WAS HERE, AND WHY IT WENT
 
-  ## THIS ROW IS MEANT TO GO RED
+  `the-public-mount-refuses-an-element-shaped-substrate` asserted, against
+  the literals `false`, `:unsupported-substrate` and `:rf.adapter/uix`,
+  that `open!` REFUSED an element-shaped host — because `mount.cljs`
+  painted through the INSTALLED adapter's `:render` and a
+  `react-element-render-kinds` denylist refused the kinds whose `:render`
+  could not take the hiccup shell. Its own docstring promised the ending:
+  *'THIS ROW IS MEANT TO GO RED. When the swap lands and the denylist goes,
+  `open!` stops refusing and the first row reddens. That red is the signal,
+  not a regression ... Delete this row then, and say in the PR that you
+  did.'* rf2-k97c.3 (PR #9708) landed the root swap; rf2-k97c.4 retired the
+  denylist and deleted that row, and its PR said so.
 
-  When the swap lands and the denylist goes, `open!` stops refusing and the
-  first row reddens. That red is the signal, not a regression: it means the
-  element-shaped arm's six criteria are now evidence about the SHIPPED
-  mount path rather than about Xray's root in isolation. Delete this row
-  then, and say in the PR that you did.
+  ## WHAT REPLACED IT
+
+  [[the-public-mount-succeeds-on-an-element-shaped-substrate]] is the same
+  seam, same verb, same host element, same adapter — asserting the
+  OPPOSITE outcome. A retirement that deleted the row and stopped there
+  would have left the new truth unpinned, which is the shape in which a
+  deliberate behaviour change becomes an accidental one later.
+
+  [[the-public-mount-succeeds-on-a-ratom-family-substrate]] STAYS, and its
+  job has changed. It was the control that made the refusal a claim about
+  the SUBSTRATE rather than about this file's setup; with no refusal left
+  there is nothing for it to discriminate, so that job is discharged. What
+  it is now is the second FAMILY: the two rows together say the public
+  `open!` mounts on a ratom-family host and on an element-shaped one, with
+  the installed adapter the only difference between them, which is
+  'indifferent to the installed adapter' stated where a host app can see
+  it. Nothing else in the suite covers the public verb — the six-criteria
+  arms mount Fresco's root directly (`test-helpers.criteria/mount-xray!`),
+  never `open!` — so it is coverage rather than ceremony.
 
   ## A SECOND GAP, MEASURED AND DELIBERATELY NOT PINNED HERE
 
@@ -66,14 +82,17 @@
 
   MEASURED 2026-09-12: the six acceptance criteria run green with
   reagent-slim installed. Xray's OWN React root only — the public `open!`
-  path was not re-measured, so `unsupported-substrate-diagnostic`'s claim
-  about that path is still unverified rather than known-good.
+  path was not re-measured there. The paragraph above cited
+  `mount.cljs`'s `unsupported-substrate-diagnostic` for a claim about which
+  adapters can host the shell; rf2-k97c.4 deleted that diagnostic's
+  producer along with the denylist, so the claim has no author any more and
+  the question it left open is not reopened by this file.
 
   ## FIXTURE
 
   No `:adapter` in the fixture: each row installs its own with `rf/init!`,
-  so both arms sit in ONE namespace and the control is a control rather
-  than a second file that might differ in some other way."
+  so both rows sit in ONE namespace and the pair differs in the installed
+  adapter and in nothing else — which is the entire content of the claim."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -112,21 +131,25 @@
         (.remove host)))))
 
 ;; ===========================================================================
-;; The gap — the public mount still cannot paint on an element-shaped adapter
+;; The gap, CLOSED — the public mount paints on an element-shaped adapter
 ;; ===========================================================================
 
-(deftest the-public-mount-refuses-an-element-shaped-substrate
-  (testing "rf2-k97c.3 — with an element-shaped adapter installed, Xray's
-            PUBLIC `open!` refuses rather than mounting, names the adapter
-            kind it refused, and leaves the host's own element exactly as it
-            found it.
+(deftest the-public-mount-succeeds-on-an-element-shaped-substrate
+  (testing "rf2-k97c.4 — with an element-shaped adapter installed, Xray's
+            PUBLIC `open!` MOUNTS: a real root in the document, a node in
+            the host's own slot, and a `status` reporting health rather
+            than a refusal.
 
-            This is the epic's coupling (1) still unsevered: `open!` paints
-            through the installed adapter's `:render`, and an element-shaped
-            `:render` takes substrate-native React elements rather than the
-            hiccup shell. The refusal is the DESIGNED behaviour — a clean
-            diagnostic instead of an uncaught React child error — so the row
-            asserts it is clean, not merely that it happened."
+            This row stands where
+            `the-public-mount-refuses-an-element-shaped-substrate` stood,
+            asserting the opposite outcome at the same seam. That row was
+            written to go red here and was deleted rather than repaired.
+            What changed under it: rf2-k97c.3 stopped `open!` painting
+            through the INSTALLED adapter's `:render` — the shell is a
+            `re-frame.fresco` boundary on a root Xray owns — so an
+            element-shaped `:render` is never handed hiccup and the
+            `react-element-render-kinds` denylist rf2-k97c.4 deleted had
+            no precondition left to guard."
     (if-not (browser?)
       (is true "skipped: the :browser-test runner drives the real mount")
       (do
@@ -134,64 +157,62 @@
         (registry/register-xray-handlers!)
         (with-layout-host
           (fn [host]
-            ;; `open!` is expected to REFUSE, which means RETURNING a
-            ;; diagnostic. When the denylist goes it will instead try to
-            ;; paint, and handing a hiccup shell to an element-shaped
-            ;; `:render` THROWS — measured, `:rf.error/hiccup-on-element-
-            ;; render-slot`. Caught here so that day's red is one named
-            ;; failure telling the reader what changed, rather than an
-            ;; uncaught error that also swallows every assertion below it.
+            ;; Caught for the same reason the deleted row caught: an
+            ;; element-shaped host is exactly where a regression in the
+            ;; owned-root path surfaces as a render-phase THROW rather
+            ;; than as a false return, and an uncaught one would swallow
+            ;; every assertion below it.
             (let [ret (try (xray-mount/open!)
                            (catch :default e
                              (is false
-                                 (str "`open!` THREW rather than refusing: "
+                                 (str "`open!` THREW on an element-shaped "
+                                      "substrate: "
                                       (pr-str (:rf.error/id (ex-data e)
                                                             (ex-message e)))
-                                      ". If the denylist has just been deleted "
-                                      "this row has done its job — delete it, "
-                                      "and the element-shaped arm's six "
-                                      "criteria now speak for the shipped "
-                                      "mount path."))
+                                      ". Xray is meant to own its own root "
+                                      "here and never touch the host's "
+                                      ":render — see rf2-k97c.3."))
                              ::threw))]
-              (is (= false (:ok? ret))
-                  (str "`open!` reports failure rather than a mount. Got: "
-                       (pr-str ret)))
-              (is (= :unsupported-substrate (:reason ret))
-                  (str "and names the reason. Got: " (pr-str (:reason ret))))
-              (is (= :rf.adapter/uix (:adapter ret))
-                  (str "and names the adapter kind it refused, so the message "
-                       "tells the developer which install did it. Got: "
-                       (pr-str (:adapter ret))))
-              (is (= false (xray-mount/mounted?))
-                  "and nothing was mounted")
-              (is (= ret (:diagnostic (xray-mount/status)))
-                  (str "and the same diagnostic is readable through the public "
-                       "`status` surface, so a host can inspect it rather than "
-                       "having to catch a return value. Got: "
+              (is (= true (xray-mount/mounted?))
+                  (str "`open!` mounted on an element-shaped substrate. "
+                       "Returned: " (pr-str (if (map? ret)
+                                              (dissoc ret :node :unmount)
+                                              ret))))
+              (is (= :inline (:mode ret))
+                  (str "on the inline surface. Got: " (pr-str (:mode ret))))
+              ;; ---- and the refusal is gone, read through the PUBLIC
+              ;; ---- surface a host would inspect -------------------------
+              (is (= true (:ok? (:diagnostic (xray-mount/status))))
+                  (str "the status diagnostic reports health. Got: "
                        (pr-str (:diagnostic (xray-mount/status)))))
-              ;; ---- the host is undisturbed by the refusal -----------------
-              (is (nil? (.getElementById js/document "rf-xray-root"))
-                  "no Xray mount root was created in the document")
-              (is (= 0 (.-childElementCount host))
-                  (str "the host's own slot is still empty — Xray put nothing "
-                       "in it. Got: " (.-childElementCount host)))
-              (is (= "" (.-display (.-style host)))
-                  (str "and its inline `display` is untouched, so a refused "
-                       "open leaves no layout residue behind. Got: "
-                       (pr-str (.-display (.-style host))))))))))))
+              (is (nil? (:reason (:diagnostic (xray-mount/status))))
+                  (str "naming no refusal reason — `:unsupported-substrate` "
+                       "stays a reserved id in that vocabulary and no longer "
+                       "fires. Got: "
+                       (pr-str (:reason (:diagnostic (xray-mount/status))))))
+              ;; ---- and it really painted --------------------------------
+              (is (some? (.getElementById js/document "rf-xray-root"))
+                  "a real mount root is in the document")
+              (is (= 1 (.-childElementCount host))
+                  (str "inside the host's own slot, which now holds exactly "
+                       "the one node Xray put there. Got: "
+                       (.-childElementCount host))))))))))
 
 ;; ===========================================================================
-;; The control — the same verb, on a substrate Xray can paint through
+;; The second family — the same verb, on a ratom-family substrate
 ;; ===========================================================================
 
 (deftest the-public-mount-succeeds-on-a-ratom-family-substrate
-  (testing "rf2-k97c.3 — CONTROL for the row above. Same `open!`, same host
-            element, same registrations: on a ratom-family adapter it
-            MOUNTS. Without this, the refusal above is satisfied by any
-            setup defect that stops Xray mounting for some other reason —
-            a missing host, an unregistered handler, a frame that was never
-            made — and the row would pass while measuring nothing about
-            substrates at all."
+  (testing "rf2-k97c.4 — the OTHER adapter family through the same public
+            verb, same host element, same registrations. Until the denylist
+            went this was the CONTROL that made the refusal above a claim
+            about the SUBSTRATE rather than about this file's setup; with
+            no refusal left, that job is discharged. What it does now is
+            pair with the row above to say the public `open!` mounts on
+            both families with the installed adapter the only difference
+            between the two — and it remains the only place the ratom-family
+            host is driven through the public verb at all, the six-criteria
+            arms mounting Fresco's root directly instead."
     (if-not (browser?)
       (is true "skipped: the :browser-test runner drives the real mount")
       (do
