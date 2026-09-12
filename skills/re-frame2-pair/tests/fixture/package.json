@@ -3,11 +3,11 @@
  "version": "0.0.0-SNAPSHOT",
  "private": true,
  "description": "Minimal re-frame2 fixture app for re-frame2-pair validation tests.",
- "//": "React pin, recorded so version sweeps stop re-deriving it (rf2-2z4c): test:pure is a :node-test build and never loads react, but the app build does, and tools/mcp-conformance's hermetic live suite renders this fixture in headless Chromium -- per PR via the mcp_live surface, and again nightly. The pin is therefore exercised, and moving it changes what that lane covers rather than being a free version sweep.",
+ "//": "React pin, ruled 2026-09-13 (rf2-ajnk): this fixture TRACKS the project's React. react and react-dom must equal implementation/package.json's and move with it; the pair-fixture-react-lockstep row in tools/template/test/day8/re_frame2_template/version_lockstep_test.clj enforces that, and runs whenever implementation/package.json changes. The live lane -- tools/mcp-conformance's hermetic live suite, which renders this fixture in headless Chromium per PR via the mcp_live surface and again nightly -- is NOT React-18 coverage: the earlier 18.3.1 was never chosen, only left behind when implementation moved to 19 (rf2-2z4c recorded it, rf2-ajnk ruled it). test:pure is a :node-test build and never loads react.",
  "devDependencies": {
  "shadow-cljs": "3.4.10",
- "react": "18.3.1",
- "react-dom": "18.3.1"
+ "react": "19.3.0",
+ "react-dom": "19.3.0"
  },
  "scripts": {
  "watch": "shadow-cljs watch app",
