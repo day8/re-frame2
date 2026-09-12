@@ -32,11 +32,18 @@
 
   ## Form-B `:variants` desugaring
 
-  `expand-reg-story` checks for a literal `:variants` map in the body
-  and, if present, emits N independent `reg-variant*` calls as siblings
-  of the parent `reg-story*` call. Per `001-Authoring.md` §Registration macros this preserves
+  `expand-reg-story` checks for a literal `:variants` map in a literal
+  body and, if present, emits N independent `reg-variant*` calls as
+  siblings of the parent `reg-story*` call. Per `001-Authoring.md` §Registration macros this preserves
   hot-reload-by-variant: each variant is a separate top-level form so
-  save-and-reload only invalidates the changed slot."
+  save-and-reload only invalidates the changed slot.
+
+  A `:variants` the macro cannot walk — a symbol, a `let` local, a
+  `merge` or any other expression, or a body computed as a whole — is
+  forwarded unchanged to `reg-story*`, which evaluates it and registers
+  each entry through the same `reg-variant*` rail, under the same
+  `<story-id>/<variant-name>` ids and the same bound source coords. That
+  path is one registration form, so it reloads as a whole."
   (:require [re-frame.source-coords :as rf.source-coords]))
 
 ;; ---- source-coord helper -------------------------------------------------
@@ -155,30 +162,23 @@
 
 (defn expand-reg-story
   "Macro-side expansion for `reg-story`. Handles the Form-B `:variants`
-  sugar: if `metadata` is a literal map with `:variants`, emit a `do`
-  block with the parent registration plus N independent `reg-variant*`
-  calls. Otherwise emit a single registration call.
+  sugar: when `metadata` is a literal map whose `:variants` is itself a
+  literal map, emit a `do` block with the parent registration (minus
+  `:variants`) plus N independent `reg-variant*` calls. Otherwise emit
+  ONE `reg-story*` call carrying `metadata` exactly as written — a
+  `:variants` that needs runtime evaluation is desugared by `reg-story*`
+  itself. Every registration sits under `emit-reg`'s elision gate, so a
+  disabled build neither registers nor evaluates a forwarded `:variants`.
 
   Returns the syntax-quoted expansion."
   [form-meta file ns-sym id metadata]
-  (let [coords      (coords-form form-meta file ns-sym)
-        literal-map (when (map? metadata) metadata)
-        variants    (when literal-map (:variants literal-map))
-        ;; The runtime helper expects the parent slice (no :variants);
-        ;; for literal maps strip it at expansion time, for non-literal
-        ;; metadata punt to runtime (helper drops :variants).
-        body-form   (if variants
-                      (dissoc literal-map :variants)
-                      metadata)
-        story-call  (emit-reg coords
-                              're-frame.story.registrar/reg-story*
-                              id body-form)]
-    (if variants
+  (let [coords   (coords-form form-meta file ns-sym)
+        variants (when (map? metadata) (:variants metadata))]
+    (if (map? variants)
       `(do
-         ~story-call
+         ~(emit-reg coords 're-frame.story.registrar/reg-story*
+                    id (dissoc metadata :variants))
          ~@(for [[v-name v-body] variants]
-             (let [v-id (variant-id-for id v-name)]
-               (emit-reg coords
-                         're-frame.story.registrar/reg-variant*
-                         v-id v-body))))
-      story-call)))
+             (emit-reg coords 're-frame.story.registrar/reg-variant*
+                       (variant-id-for id v-name) v-body)))
+      (emit-reg coords 're-frame.story.registrar/reg-story* id metadata))))
