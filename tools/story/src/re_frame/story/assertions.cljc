@@ -123,15 +123,61 @@
 ;; them without a payload-leak risk.
 ;; ---------------------------------------------------------------------------
 
+;; ---------------------------------------------------------------------------
+;; Run scope — the epoch baseline (rf2-3okc)
+;;
+;; The epoch ring is FRAME-owned and survives the runtime's in-place
+;; fresh-run reset (`re-frame.story.runtime/ensure-fresh-frame!` resets
+;; app-db / runtime-db, not the ring), so an unscoped read answers for EVERY
+;; run the frame has hosted: a same-id re-run whose script had stopped
+;; dispatching an event still passed `:rf.assert/dispatched?` on the previous
+;; run's epoch. Phase 0 therefore records the last committed `:epoch-id` as
+;; the frame's run baseline — the SAME `:epoch-baseline` the run-result tape
+;; is scoped by — and `frame-tape` keeps only newer records, through the one
+;; `run-slice` rule both readers share.
+;;
+;; `:epoch-id` is globally monotonic and never reset, so a baseline left
+;; behind by a destroyed frame sits BELOW every epoch a later incarnation
+;; commits: a stale entry is inert, never a hidden epoch.
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private run-epoch-baselines (atom {}))
+
+(defn run-slice
+  "The records of epoch `ring` committed AFTER `epoch-baseline` — one run's
+  slice of a frame-owned ring. The ONE scoping rule shared by the
+  tape-projected assertions (`frame-tape`) and the run-result tape
+  (`re-frame.story.runtime/record-result-map`). A nil baseline keeps the
+  whole ring (`0` is never a real `:epoch-id`). Pure data → data."
+  [epoch-baseline ring]
+  (filterv #(> (or (:epoch-id %) 0) (or epoch-baseline 0)) ring))
+
+(defn set-run-epoch-baseline!
+  "Scope `frame-id`'s tape-projected assertions to the epochs committed
+  after `epoch-id` — the run's `:epoch-baseline`, recorded by the runtime's
+  phase 0. Returns nil."
+  [frame-id epoch-id]
+  (swap! run-epoch-baselines assoc frame-id epoch-id)
+  nil)
+
+(defn clear-run-epoch-baseline!
+  "Drop `frame-id`'s run baseline (an inline frame's teardown — its minted
+  id is never reused). Returns nil."
+  [frame-id]
+  (swap! run-epoch-baselines dissoc frame-id)
+  nil)
+
 (defn- frame-tape
-  "The retained epoch tape for `frame-id` via the late-bound
-  `re-frame.core/epoch-history` facade (the SSOT the run-result evidence
-  slots read). Degrades to `[]` on a host without the epoch artefact
+  "The CURRENT RUN's slice of the retained epoch tape for `frame-id`, via
+  the late-bound `re-frame.core/epoch-history` facade (the SSOT the
+  run-result evidence slots read) scoped by the frame's run baseline
+  (`run-slice`). A frame no run has prepared carries no baseline and reads
+  its whole ring. Degrades to `[]` on a host without the epoch artefact
   (production Story jars) — exactly what the run-result projection sees.
   Tolerant: any read error returns `[]`."
   [frame-id]
   (try
-    (vec (rf/epoch-history frame-id))
+    (run-slice (get @run-epoch-baselines frame-id) (rf/epoch-history frame-id))
     (catch #?(:clj Throwable :cljs :default) _ [])))
 
 (defn dispatched-events

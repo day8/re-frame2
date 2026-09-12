@@ -36,7 +36,8 @@
             [re-frame.story.assertions :as rf.story.assertions]
             [re-frame.story.async      :as rf.story.async]
             [re-frame.story.config     :as rf.story.config]
-            [re-frame.story.loaders    :as rf.story.loaders]))
+            [re-frame.story.loaders    :as rf.story.loaders]
+            [re-frame.trace            :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
@@ -776,3 +777,71 @@
       (is (false? (get by-need :ssot.fx/never))
           "an fx never emitted (stubbed or otherwise) → fail"))
     (rf.story/destroy-variant! :story.ssot/stubbed)))
+
+;; ===========================================================================
+;; rf2-3okc — the tape-projected assertions read ONLY the current run
+;;
+;; A same-id re-run resets the frame IN PLACE (`ensure-fresh-frame!`), so the
+;; frame-owned epoch ring still carries the previous run's epochs. The three
+;; tape-projected handlers used to read ALL of it, so a script that had stopped
+;; dispatching an event kept passing `dispatched?` on the previous run's
+;; evidence. Each shape below is one run that establishes a fact, then the SAME
+;; id re-registered without it: the second record must read only its own run.
+;; ===========================================================================
+
+(defn- okc-run-verdict
+  "Run `variant-id`; return `[status passed?]` for its last `assertion-id` record."
+  [variant-id assertion-id]
+  (let [r (rf.story.async/deref-blocking (rf.story/run-variant variant-id) 5000)]
+    [(:status r)
+     (:passed? (last (filter #(= assertion-id (:assertion %)) (:assertions r))))]))
+
+(deftest dispatched-assertion-reads-only-the-current-run
+  (testing "rf2-3okc C1/C2/C3 — a same-id re-run does not inherit the previous run's dispatch"
+    (rf/reg-event :okc/ok (fn [{:keys [db]} _] {:db (assoc db :ok true)}))
+    (rf.story/reg-variant :story.okc/dispatched
+      {:script [[:dispatch [:okc/ok]] [:assert [:rf.assert/dispatched? [:okc/ok]]]]})
+    (is (= [:pass true] (okc-run-verdict :story.okc/dispatched :rf.assert/dispatched?))
+        "C1 — the first run dispatches, and dispatched? passes on real evidence")
+    (rf.story/reg-variant :story.okc/dispatched
+      {:script [[:assert [:rf.assert/dispatched? [:okc/ok]]]]})
+    (is (= [:fail false] (okc-run-verdict :story.okc/dispatched :rf.assert/dispatched?))
+        "C2 — the SAME id re-run WITHOUT the dispatch fails: the previous run's
+         epoch is not this run's evidence")
+    (rf.story/reg-variant :story.okc/dispatched-fresh
+      {:script [[:assert [:rf.assert/dispatched? [:okc/ok]]]]})
+    (is (= [:fail false] (okc-run-verdict :story.okc/dispatched-fresh :rf.assert/dispatched?))
+        "C3 control — a fresh id with the same assert-only script fails, and C2 agrees with it")
+    (rf.story/destroy-variant! :story.okc/dispatched)
+    (rf.story/destroy-variant! :story.okc/dispatched-fresh)))
+
+(deftest effect-emitted-and-no-warnings-read-only-the-current-run
+  (testing "rf2-3okc — effect-emitted and no-warnings are run-scoped too, in both directions"
+    (rf/reg-fx :okc/fx {:platforms #{:client :server}} (fn [_ _] nil))
+    (rf/reg-event :okc/emit (fn [_ _] {:fx [[:okc/fx 1]]}))
+    (rf/reg-event :okc/ok (fn [{:keys [db]} _] {:db (assoc db :ok true)}))
+    (rf/reg-event :okc/warn (fn [{:keys [db]} _]
+                              (rf.trace/emit! :warning :okc/warned {})
+                              {:db db}))
+    (rf.story/reg-variant :story.okc/fx
+      {:script [[:dispatch-sync [:okc/emit]] [:assert [:rf.assert/effect-emitted :okc/fx]]]})
+    (is (= [:pass true] (okc-run-verdict :story.okc/fx :rf.assert/effect-emitted))
+        "the first run emits, and effect-emitted passes")
+    (rf.story/reg-variant :story.okc/fx
+      {:script [[:assert [:rf.assert/effect-emitted :okc/fx]]]})
+    (let [[status passed?] (okc-run-verdict :story.okc/fx :rf.assert/effect-emitted)]
+      (is (false? passed?)
+          "a same-id re-run that emits nothing records effect-emitted FALSE — the
+           record no longer inherits the previous run's fx")
+      (is (not= :pass status)))
+    (rf.story/reg-variant :story.okc/warn
+      {:script [[:dispatch-sync [:okc/warn]] [:assert [:rf.assert/no-warnings]]]})
+    (is (= [:fail false] (okc-run-verdict :story.okc/warn :rf.assert/no-warnings))
+        "control — a run that warns fails no-warnings, so the warning reaches the tape")
+    (rf.story/reg-variant :story.okc/warn
+      {:script [[:dispatch-sync [:okc/ok]] [:assert [:rf.assert/no-warnings]]]})
+    (is (= [:pass true] (okc-run-verdict :story.okc/warn :rf.assert/no-warnings))
+        "a clean same-id re-run PASSES no-warnings — the previous run's warning
+         no longer fails it")
+    (rf.story/destroy-variant! :story.okc/fx)
+    (rf.story/destroy-variant! :story.okc/warn)))

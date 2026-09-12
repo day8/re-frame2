@@ -28,6 +28,7 @@
             [re-frame.late-bind       :as rf.late-bind]
             [re-frame.machines        :as rf.machines]
             [re-frame.registrar       :as rf.registrar]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story           :as rf.story]
             [re-frame.story.args      :as rf.story.args]
@@ -1679,8 +1680,82 @@
       ;; terminal state per `002-Runtime.md` §Error projection — we record and continue.
       (is (some #(= :rf.error/exception (:assertion %)) (:assertions r))
           "an exception assertion was recorded")
-      (is (some #(= :phase-2-events (:phase %)) (:assertions r))))
+      (is (some #(= :phase-2-events (:phase %)) (:assertions r)))
+      ;; rf2-izz5 — ONE record per failure. Phases 1-2 used to record it
+      ;; through two live paths (the per-phase capture AND the drain).
+      (is (= 1 (count (filter #(= :rf.error/exception (:assertion %)) (:assertions r))))
+          "the setup failure is recorded exactly once"))
     (rf.story/destroy-variant! :story.err/v)))
+
+(deftest phase-1-and-2-exceptions-record-once
+  (testing "rf2-izz5 — a loader failure records once, and a setup failure never
+            resurfaces as a phase-4 record at the script's first drain"
+    (rf/reg-event :test/boom-once (fn [_ _] (throw (ex-info "bang" {:why :test}))))
+    (rf/reg-event :test/fine-once (fn [{:keys [db]} _] {:db db}))
+    (rf.story/reg-variant :story.err-once/loader {:loaders [[:test/boom-once]]})
+    (rf.story/reg-variant :story.err-once/setup-then-script
+      {:setup [[:test/boom-once]] :script [[:dispatch-sync [:test/fine-once]]]})
+    (let [exception-phases (fn [id]
+                             (->> (rf.story.async/deref-blocking (rf.story/run-variant id) 5000)
+                                  :assertions
+                                  (filter #(= :rf.error/exception (:assertion %)))
+                                  (mapv :phase)))]
+      (is (= [:phase-1-loaders] (exception-phases :story.err-once/loader)))
+      (is (= [:phase-2-events] (exception-phases :story.err-once/setup-then-script))))
+    (rf.story/destroy-variant! :story.err-once/loader)
+    (rf.story/destroy-variant! :story.err-once/setup-then-script)))
+
+;; ---- rf2-poty — a throw BEFORE the frame exists is :error, never :pass ----
+
+(deftest no-adapter-installed-run-is-an-error-not-a-pass
+  (testing "with no adapter installed, run-variant and an inline run resolve
+            :status :error carrying the exception — not a vacuous :pass with
+            zero assertions over a frame that was never created"
+    (rf.story/reg-variant :story.no-adapter/v {:setup []})
+    (with-redefs [rf.substrate.adapter/adapter-lifecycle-state
+                  (atom {:installed nil :disposed? false})]
+      (doseq [[label p] [["run-variant" (rf.story/run-variant :story.no-adapter/v)]
+                         ["inline run"  (rf.story/run {:setup []})]]]
+        (let [r   (rf.story.async/deref-blocking p 5000)
+              rec (first (:assertions r))]
+          (is (= :error (:status r)) label)
+          (is (= :error (:lifecycle r)) label)
+          (is (= 1 (count (:assertions r))) label)
+          (is (= :rf.error/exception (:assertion rec)) label)
+          (is (= :rf.error/no-adapter-installed (get-in rec [:error :data :rf.error/id]))
+              (str label " — the record names the missing adapter")))))
+    (testing "control — the same variant WITH the adapter still runs green"
+      (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.no-adapter/v) 5000)]
+        (is (= :pass (:status r)))
+        (is (= :ready (:lifecycle r)))))
+    (rf.story/destroy-variant! :story.no-adapter/v)))
+
+;; ---- rf2-9ppq — every run chain has a rejection path ----------------------
+
+(deftest run-chains-settle-when-result-assembly-throws
+  (testing "a throw inside record-result-map settles every run chain :error
+            inside the deref timeout — it used to leave the promise pending for
+            ever (a JVM TimeoutException)"
+    (rf/reg-event :test/fine-9ppq (fn [{:keys [db]} _] {:db db}))
+    (rf.story/reg-variant :story.chain-9ppq/v {:script [[:dispatch-sync [:test/fine-9ppq]]]})
+    (with-redefs [rf.story.runtime/record-result-map
+                  (fn [& _] (throw (ex-info "record-result-map threw" {})))]
+      (is (= :error (:status (rf.story.async/deref-blocking
+                               (rf.story/run-variant :story.chain-9ppq/v) 3000)))
+          "run-variant (finalise-run!)")
+      (rf.story.runtime/prepare-run! :story.chain-9ppq/v {:run-key :chain-9ppq})
+      (is (= :error (:status (rf.story.async/deref-blocking
+                               (rf.story.runtime/resume-run! :story.chain-9ppq/v) 3000)))
+          "resume-run!")
+      (is (= :error (:status (rf.story.async/deref-blocking
+                               (rf.story/run {:script [[:dispatch-sync [:test/fine-9ppq]]]})
+                               3000)))
+          "an inline run"))
+    (testing "control — without the throw the same variant settles :pass"
+      (is (= :pass (:status (rf.story.async/deref-blocking
+                              (rf.story/run-variant :story.chain-9ppq/v) 3000)))))
+    (rf.story.runtime/reset-run-owner! :story.chain-9ppq/v)
+    (rf.story/destroy-variant! :story.chain-9ppq/v)))
 
 ;; ---- rf2-294yq5.5 — exception ex-data wire-elision -----------------------
 

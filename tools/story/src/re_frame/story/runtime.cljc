@@ -85,10 +85,13 @@
 ;; throwing. Story's phase runners convert those trace events
 ;; into assertion records (per `002-Runtime.md` §Error projection).
 ;;
-;; The capture pattern: register a trace listener around each phase
-;; that collects matching errors into an atom. After the phase, walk
-;; the atom and record each into the variant frame's `:rf.story/
-;; assertions` accumulator.
+;; The capture pattern: the play-runner's per-frame trace listener
+;; (installed at phase 0) collects matching errors into its
+;; `pending-exceptions` slot, and each phase driver drains that slot onto
+;; the variant frame's `:rf.story/assertions` accumulator after every
+;; dispatch — ONE recording path for phases 1, 2 and 4 (rf2-izz5).
+;; `capture-phase-errors` brackets phases 1-2 only to keep the
+;; privacy-suppressed failures' framework fact (rf2-k6y2).
 
 (defonce ^:private capture-counter (atom 0))
 
@@ -106,70 +109,50 @@
 
 (defn- capture-phase-errors
   "Run `body-fn` (a 0-arg thunk) with a registered trace listener that
-  collects PIPELINE-EXCEPTION events targeting `variant-id`'s frame.
-  After the body returns, walks the captured errors and records each as
-  a phase-tagged assertion via `record-error!`. Returns `body-fn`'s
-  return value.
+  captures the PRIVACY-SUPPRESSED half of a loader / setup phase's failure
+  picture. Returns `body-fn`'s return value.
 
-  The capture set is every operation in
-  `rf.story.error/pipeline-exception-operations` (handler-exception,
-  coeffect-exception, interceptor-exception), not just
-  `:rf.error/handler-exception`. A loader/event phase whose cofx
-  injector or user interceptor throws is caught by the shared
-  `pipeline-exception-event?` predicate, and the originating
-  `:operation` / `:failing-id` are preserved onto the record so a cofx
-  failure is distinguishable from a handler failure.
+  RECORDING a phase's pipeline exceptions is not this listener's job. The
+  play-runner's per-frame listener (`rf.story.play/install-trace-listener!`,
+  installed by phase 0 before any loader fires) captures every pipeline
+  exception — handler, coeffect and interceptor alike, through the shared
+  `pipeline-exception-event?` predicate, with the originating `:operation`
+  / `:failing-id` preserved — into `pending-exceptions`, and the phase
+  driver drains that slot after each dispatch. That is the ONE recording
+  path, for phases 1, 2 and 4 alike. This listener used to record the same
+  events a second time, so every loader / setup failure appeared twice in
+  the result and doubled `:failures` (rf2-izz5).
 
-  Per Spec 009 §Privacy + EP-0015: pipeline-exception trace
-  events whose `:sensitive?` flag is true are dropped from the capture
-  set when Story's local-render egress profile redacts
-  (`:rf.egress/local-redacted` — the default). A counter bump is recorded
-  so the UI's redaction hint can surface 'N sensitive events suppressed'.
-
-  The suppress branch ALSO records the dropped event's framework
-  `:operation` via `note-redacted-failure!` when the event is a pipeline
-  exception for THIS variant. That is not a second capture path and it
-  reveals nothing further: the assertion records stay exactly as redacted
-  as before, and what is kept is one member of the closed
-  `pipeline-exception-operations` enum — no message, no `ex-data`, no
-  failing event. It exists because the assertion accumulator is the
-  DISPLAY path, so a caller that must answer 'did phases 0-2 succeed?'
-  cannot read it: under the default profile a sensitive `:setup` failure
-  left the accumulator empty, and `prepare-variant` published a
-  step-debugger over a frame whose `:setup` never ran (rf2-k6y2,
-  post-merge audit of PR #9252). Readiness therefore rests on a fact the
-  egress filter cannot erase, rather than on redaction being weakened."
-  [variant-id phase body-fn]
-  (let [collected (atom [])
-        listener  (fn [ev]
-                    (cond
-                      ;; Resolve the suppress decision against the event's
-                      ;; own frame (per-(tool,frame) visibility).
-                      (rf.story.config/suppress-sensitive? ev)
-                      (do
-                        (rf.story.config/note-suppressed!
-                          (rf.trace/trace-event-frame ev))
-                        ;; `pipeline-exception-event?` also checks the event
-                        ;; targets THIS variant's frame, so a sibling
-                        ;; frame's suppressed failure never marks this
-                        ;; preparation unready.
-                        (when (rf.story.error/pipeline-exception-event? variant-id ev)
-                          (rf.story.config/note-redacted-failure!
-                            variant-id (:operation ev))))
-
-                      (rf.story.error/pipeline-exception-event? variant-id ev)
-                      (swap! collected conj ev)))]
-    (with-trace-listener
-      listener
-      (fn []
-        (let [result (body-fn)]
-          (doseq [ev @collected]
-            (record-error! variant-id phase
-                           (get-in ev [:tags :event])
-                           (get-in ev [:tags :exception])
-                           {:operation  (:operation ev)
-                            :failing-id (get-in ev [:tags :failing-id])}))
-          result)))))
+  What it owns is the fact the egress filter would otherwise erase. Per
+  Spec 009 §Privacy + EP-0015 a trace event whose `:sensitive?` flag is
+  true is dropped while Story's local-render egress profile redacts
+  (`:rf.egress/local-redacted` — the default), so it leaves no assertion.
+  A counter bump is recorded so the UI's redaction hint can surface 'N
+  sensitive events suppressed', and — when the dropped event is a pipeline
+  exception for THIS variant — its framework `:operation` via
+  `note-redacted-failure!`. That reveals nothing further: what is kept is
+  one member of the closed `pipeline-exception-operations` enum — no
+  message, no `ex-data`, no failing event. It exists because the assertion
+  accumulator is the DISPLAY path, so a caller that must answer 'did phases
+  0-2 succeed?' cannot read it: under the default profile a sensitive
+  `:setup` failure left the accumulator empty, and `prepare-variant`
+  published a step-debugger over a frame whose `:setup` never ran
+  (rf2-k6y2, post-merge audit of PR #9252). Readiness therefore rests on a
+  fact the egress filter cannot erase, rather than on redaction being
+  weakened."
+  [variant-id body-fn]
+  (with-trace-listener
+    (fn [ev]
+      ;; Resolve the suppress decision against the event's own frame
+      ;; (per-(tool,frame) visibility).
+      (when (rf.story.config/suppress-sensitive? ev)
+        (rf.story.config/note-suppressed! (rf.trace/trace-event-frame ev))
+        ;; `pipeline-exception-event?` also checks the event targets THIS
+        ;; variant's frame, so a sibling frame's suppressed failure never
+        ;; marks this preparation unready.
+        (when (rf.story.error/pipeline-exception-event? variant-id ev)
+          (rf.story.config/note-redacted-failure! variant-id (:operation ev)))))
+    body-fn))
 
 ;; ---- phase-2 events execution --------------------------------------------
 
@@ -263,7 +246,7 @@
   [variant-id plan]
   (let [all-events (plan-setup-events variant-id plan)]
     (capture-phase-errors
-      variant-id :phase-2-events
+      variant-id
       (fn []
         (doseq [ev all-events]
           (try
@@ -316,7 +299,7 @@
           loader-events (or (:loaders variant-body) [])]
       (rf.story.loaders/start-loaders! variant-id)
       (capture-phase-errors
-        variant-id :phase-1-loaders
+        variant-id
         (fn []
           (doseq [ev loader-events]
             (try
@@ -622,8 +605,9 @@
         ;; causal `:pass` against a finite upper bound resolves `:cannot-run`
         ;; rather than a truncation false-green.
         truncated? (rf.story.play.evidence/run-tape-truncated? full-ring epoch-baseline)
-        tape     (vec (filter #(> (or (:epoch-id %) 0) (or epoch-baseline 0))
-                              full-ring))
+        ;; The SAME `run-slice` rule the tape-projected assertions scope by
+        ;; (rf2-3okc), so a verdict and the evidence slots read one run.
+        tape     (rf.story.assertions/run-slice epoch-baseline full-ring)
         ;; The runner-recorded per-dispatch-step settle boundaries light
         ;; up the EXACT narrative attribution
         ;; (`rf.story.play.evidence/spans-from-stamps`). The
@@ -830,6 +814,17 @@
   (when (contains? (set (rf/frame-ids)) variant-id)
     (rf.story.frames/reset-state! variant-id)))
 
+(defn- stamp-epoch-baseline!
+  "Record the run's `:epoch-baseline` — the last committed `:epoch-id` at
+  the fresh-run boundary — on `ctx` AND as the frame's assertion scope, so
+  the run-result tape (`record-result-map`) and the tape-projected
+  assertions (`dispatched?` / `effect-emitted` / `no-warnings`) read the
+  same run (rf2-3okc). Returns the ctx."
+  [{:keys [variant-id] :as ctx}]
+  (let [baseline (rf.story.play.runner-events/last-epoch-id variant-id)]
+    (rf.story.assertions/set-run-epoch-baseline! variant-id baseline)
+    (assoc ctx :epoch-baseline baseline)))
+
 (defn- run-phase-0!
   "Phase 0: enforce a fresh-run boundary, allocate the variant frame
   with its decorator stack, then install the play-runner's privacy
@@ -860,9 +855,10 @@
   accumulator, so there is no accumulator to seed here.
 
   Because an in-place reset preserves the frame-owned epoch ring, phase 0
-  records the current last-committed `:epoch-id` as `:epoch-baseline`.
-  `record-result-map` uses that identity to project evidence from this run
-  only.
+  records the current last-committed `:epoch-id` as `:epoch-baseline`
+  (`stamp-epoch-baseline!`). `record-result-map` uses that identity to
+  project evidence from this run only, and so do the tape-projected
+  assertions (rf2-3okc).
 
   Classification comes from the already-compiled plan's
   `[:world :sensitive]` / `[:world :large]` slots, after `:extends`
@@ -886,7 +882,7 @@
   (swap! rf.story.play/pending-exceptions assoc variant-id [])
   (rf.story.config/reset-redacted-failures! variant-id)
   (rf.story.play/install-trace-listener! variant-id)
-  (assoc ctx :epoch-baseline (rf.story.play.runner-events/last-epoch-id variant-id)))
+  (stamp-epoch-baseline! ctx))
 
 (defn- db-seed-violations
   "Validate the seeded `db` against the frame's REGISTERED app-db schemas
@@ -1134,16 +1130,29 @@
                                                {:clear-boundaries? false}))))]
                (step! auto-plays))))]))))
 
+(declare handle-run-error!)
+
 (defn- finalise-run!
   "Build and deliver the result map once phase 4's promise settles.
   This chain is load-bearing: `execute-play!` resolves the promise to the
   assertions vector, and we want the result map to read the post-play
-  app-db."
+  app-db.
+
+  The `catch*` is the chain's rejection path (rf2-9ppq). Without it a
+  throw while assembling the result — or a rejected play promise — left
+  `resolve` uncalled: `then` derives a NEW promise and never settles the
+  outer one, so `run-variant`'s promise stayed pending for ever (a JVM
+  deref timed out, a CLJS await never resolved) with no error recorded
+  anywhere. `handle-run-error!` never throws, so the run always settles."
   [resolve play-promise ctx start-ms]
   (-> play-promise
       (rf.story.async/then
         (fn [_]
           (resolve (record-result-map ctx start-ms))
+          nil))
+      (rf.story.async/catch*
+        (fn [e]
+          (handle-run-error! resolve (:variant-id ctx) e start-ms)
           nil))))
 
 (defn- plan-construction-error?
@@ -1161,11 +1170,13 @@
 
   Matching on `:where` (not on any `:rf.error/id`) is load-bearing:
   framework runtime errors thrown LATER in the phase chain also carry an
-  `:rf.error/id` — e.g. `:rf.error/no-adapter-installed` from
-  `make-frame` → `make-state-container` when the host installed no
-  adapter (the JVM-standalone story-mcp server). Those land after the
-  frame exists at `:pre-mount`, so they must take the frame-bound
-  record/transition branch, NOT `plan-error-result`."
+  `:rf.error/id`, and they must NOT take `plan-error-result`, which would
+  stamp that raw id as a plan failure. One of them —
+  `:rf.error/no-adapter-installed` from `make-frame` →
+  `make-state-container` when the host installed no adapter — throws
+  BEFORE the frame is registered, so it has no frame to record onto
+  either; `run-error-result`'s no-live-frame branch answers it
+  (rf2-poty)."
   [e]
   (= 'rf.story/variant-plan (:where (ex-data e))))
 
@@ -1173,25 +1184,38 @@
   #?(:clj  (.getMessage ^Throwable e)
      :cljs (str e)))
 
-(defn- plan-error-result
-  "The error result returned when `re-frame.story.plan/variant-plan`
-  FAILS to compile the variant (§B8). The frame is not
-  allocated when plan construction throws, so the result is built
-  directly from the exception — mirroring `unknown-variant-result`'s
-  frame-free shape. The `:rf.error/story-*` id rides the assertion record
-  so tools surface the plan failure the same way a registration failure
-  surfaces."
-  [variant-id e]
+(defn- frame-free-error-result
+  "An `:error` run result built from the exception `e` alone, reading no
+  frame — mirroring `unknown-variant-result`'s frame-free shape. Its ONE
+  assertion record carries `assertion-id` (merged with `extras`) plus the
+  exception's `:reason` / `:error`, so a tool surfaces the failure the same
+  way it surfaces a registration failure. The `:error` map is projected
+  frameless: its `ex-data` is framework metadata (`:rf.error/id`,
+  `:where`), not app-db-sourced (`rf.story.error/throwable->error-map`)."
+  [variant-id assertion-id extras e]
   (assoc (empty-result variant-id)
          :status     :error
          :lifecycle  :error
-         :assertions [{:assertion  (or (:rf.error/id (ex-data e))
-                                       :rf.error/story-plan-invalid)
-                       :variant-id variant-id
-                       :status     :error
-                       :passed?    false
-                       :reason     (exception-message e)
-                       :error      (rf.story.error/throwable->error-map e)}]))
+         :assertions [(merge {:assertion  assertion-id
+                              :variant-id variant-id
+                              :status     :error
+                              :passed?    false
+                              :reason     (exception-message e)
+                              :error      (rf.story.error/throwable->error-map e)}
+                             extras)]))
+
+(defn- plan-error-result
+  "The error result returned when `re-frame.story.plan/variant-plan`
+  FAILS to compile the variant (§B8). The frame is not allocated when
+  plan construction throws, so the result is built directly from the
+  exception (`frame-free-error-result`). The `:rf.error/story-*` id rides
+  the assertion record so tools surface the plan failure the same way a
+  registration failure surfaces."
+  [variant-id e]
+  (frame-free-error-result variant-id
+                           (or (:rf.error/id (ex-data e)) :rf.error/story-plan-invalid)
+                           nil
+                           e))
 
 (defn- db-seed-error?
   "True iff `e` is the structured `:db-seed` schema-validation failure
@@ -1225,26 +1249,38 @@
       (catch #?(:clj Throwable :cljs :default) _ nil))
     record))
 
-(defn- handle-run-error!
-  "Catch-branch for the orchestrator: record the exception as a
-  phase-0-setup assertion (covers any sync throw from the phase chain),
-  transition the lifecycle machine to `:error`, then resolve with the
-  best result map we can build from whatever the run accumulated. The
-  recorded `:rf.error/exception` assertion (`:passed? false`) flows into
-  the unified result's `:assertions`, so the aggregation reports `:fail`
-  (the error record is a failed expectation) even when the tape is sparse.
+(defn- run-error-result
+  "The run result for a throw `e` anywhere in the run chain — the
+  orchestrator's catch-branch, the play chain's rejection path and the
+  inline run's failure path all come here. NEVER throws: every caller
+  hands the answer straight to the run's `resolve`, and a throw here would
+  leave the run's promise pending for ever (rf2-9ppq).
 
-  §B8 — a plan-construction failure (thrown in
-  `prepare-context`, before frame allocation) cannot be recorded onto a
-  frame, so it is projected directly via `plan-error-result`. Every other
-  throw lands after the frame exists and routes through the frame-bound
-  record/transition path.
+  §B8 — a plan-construction failure (thrown in `prepare-context`, before
+  frame allocation) is projected directly via `plan-error-result`.
 
-  A `:db-seed` schema-validation failure (`run-db-seed!`)
-  throws AFTER the frame is allocated, so it takes the frame-bound branch,
-  but is recorded as its own structured `:rf.error/story-db-seed-invalid`
-  assertion (carrying the path/value/explain violations) rather than the
-  opaque `:rf.error/exception` shape.
+  NO LIVE FRAME (rf2-poty). A throw that lands before the frame exists —
+  `:rf.error/no-adapter-installed` from `make-frame` is the common one, a
+  JVM or REPL host that never ran `rf/init!` — has nowhere to record.
+  `record-error!` swallows its dispatch into the missing frame, and
+  `record-result-map` reads a nil app-db and aggregates zero records to
+  `:pass`, so the frame-bound path answered a run that never ran with a
+  success. It resolves a frame-free `:error` result carrying the exception
+  instead. A variant that genuinely RAN with no assertions is still
+  vacuously green; this is the state where nothing ran at all.
+
+  Every other throw lands after the frame exists and takes the frame-bound
+  path: record the exception (a `:db-seed` schema failure from
+  `run-db-seed!` as its own structured `:rf.error/story-db-seed-invalid`
+  assertion carrying the path/value/explain violations; anything else as
+  the opaque `:rf.error/exception` shape at `:phase-0-setup`, which covers
+  any sync throw from the phase chain), transition the lifecycle machine
+  to `:error`, then assemble the best result `ctx` allows from whatever
+  the run accumulated. The record (`:passed? false`) flows into the
+  unified result's `:assertions`, so the aggregation reports a failure
+  even when the tape is sparse. If that assembly itself throws (a frame
+  torn down mid-run, a malformed plan slot), the frame-free result is the
+  answer.
 
   The plan-construction branch is gated SOLELY on
   `plan-construction-error?` (the `:where 'rf.story/variant-plan` marker
@@ -1254,22 +1290,29 @@
   lifecycle state is not needed to route correctly — gating on lifecycle
   state would be stale-frame-sensitive (a PRIOR `:ready` run on the same
   id leaves `rf.story.loaders/current-state` at `:ready`, not `:pre-mount`)."
+  [{:keys [variant-id] :as ctx} e start-ms]
+  (let [frame-free #(frame-free-error-result variant-id :rf.error/exception
+                                             {:phase :phase-0-setup} e)]
+    (try
+      (cond
+        (plan-construction-error? e)        (plan-error-result variant-id e)
+        (nil? (rf/app-db-value variant-id)) (frame-free)
+        :else
+        (do
+          (if (db-seed-error? e)
+            (record-seed-error! variant-id e)
+            (record-error! variant-id :phase-0-setup nil e))
+          (rf.story.loaders/error! variant-id (ex-data e))
+          (record-result-map ctx start-ms)))
+      (catch #?(:clj Throwable :cljs :default) _
+        (frame-free)))))
+
+(defn- handle-run-error!
+  "Catch-branch for the orchestrator and for the play chain's rejection
+  path: resolve `resolve` with `run-error-result` for `e`. Never throws,
+  so the run's promise always settles."
   [resolve variant-id e start-ms]
-  (cond
-    (plan-construction-error? e)
-    (resolve (plan-error-result variant-id e))
-
-    (db-seed-error? e)
-    (do
-      (record-seed-error! variant-id e)
-      (rf.story.loaders/error! variant-id (ex-data e))
-      (resolve (record-result-map {:variant-id variant-id} start-ms)))
-
-    :else
-    (do
-      (record-error! variant-id :phase-0-setup nil e)
-      (rf.story.loaders/error! variant-id (ex-data e))
-      (resolve (record-result-map {:variant-id variant-id} start-ms)))))
+  (resolve (run-error-result {:variant-id variant-id} e start-ms)))
 
 (defn- unknown-variant-result
   "The error result returned when `rf.story.frames/variant-body` finds no
@@ -1525,14 +1568,26 @@
                  ;; flag, so its loader-incomplete contract (play skipped,
                  ;; lifecycle parks at :loading) is unchanged.
                  :else
-                 (let [[ctx' play-promise] (run-phase-4! (assoc (:ctx attempt) :force-play? true))]
+                 (let [[ctx' play-promise] (run-phase-4! (assoc (:ctx attempt) :force-play? true))
+                       ;; Publish via `publish!` unless superseded, then fire
+                       ;; `done-cb` — once, on whichever path settles.
+                       settle! (fn [publish!]
+                                 (if (= my-gen (current-generation variant-id))
+                                   (publish!)
+                                   (resolve (superseded-result variant-id my-gen)))
+                                 (when done-cb (try (done-cb) (catch #?(:clj Throwable :cljs :default) _ nil))))]
                    (-> play-promise
                        (rf.story.async/then
                          (fn [_]
-                           (if (= my-gen (current-generation variant-id))
-                             (resolve (record-result-map ctx' start-ms))
-                             (resolve (superseded-result variant-id my-gen)))
-                           (when done-cb (try (done-cb) (catch #?(:clj Throwable :cljs :default) _ nil)))
+                           (settle! #(resolve (record-result-map ctx' start-ms)))
+                           nil))
+                       ;; rf2-9ppq — the rejection path `finalise-run!` has: a
+                       ;; throw assembling the result (or a rejected play
+                       ;; promise) settles the run with an error instead of
+                       ;; leaving it pending for ever.
+                       (rf.story.async/catch*
+                         (fn [e]
+                           (settle! #(handle-run-error! resolve variant-id e start-ms))
                            nil)))))
                (catch #?(:clj Throwable :cljs :default) e
                  (handle-run-error! resolve variant-id e start-ms))))))))))
@@ -1660,7 +1715,7 @@
                            (select-keys (:world plan) [:sensitive :large]))
   (swap! rf.story.play/pending-exceptions assoc variant-id [])
   (rf.story.play/install-trace-listener! variant-id)
-  (assoc ctx :epoch-baseline (rf.story.play.runner-events/last-epoch-id variant-id)))
+  (stamp-epoch-baseline! ctx))
 
 (defn run-inline-plan
   "Execute an inline plan MAP (spec/017 §Inline plan) and
@@ -1722,6 +1777,10 @@
                (let [ctx*       (volatile! nil)
                      allocated? (volatile! false)
                      teardown!  (fn []
+                                  ;; An inline frame's id is minted once and
+                                  ;; never reused, so its run baseline goes
+                                  ;; with it (rf2-3okc).
+                                  (rf.story.assertions/clear-run-epoch-baseline! frame-id)
                                   (when @allocated?
                                     (try
                                       (rf.story.frames/destroy-inline!
@@ -1729,16 +1788,17 @@
                                         (get-in plan [:world :loaders-teardown]))
                                       (catch #?(:clj Throwable :cljs :default) _ nil))))
                      fail!      (fn [e]
-                                  ;; A `:db-seed` schema-validation
-                                  ;; failure records as its own structured
-                                  ;; assertion; every other throw stays the
-                                  ;; opaque `:rf.error/exception` shape.
-                                  (if (db-seed-error? e)
-                                    (record-seed-error! frame-id e)
-                                    (record-error! frame-id :phase-0-setup nil e))
-                                  (rf.story.loaders/error! frame-id (ex-data e))
-                                  (let [result (record-result-map
-                                                 {:variant-id frame-id :plan plan} start-ms)]
+                                  ;; The SAME error assembly the registered
+                                  ;; path uses (`run-error-result`): a
+                                  ;; `:db-seed` failure records as its own
+                                  ;; structured assertion, a throw before the
+                                  ;; frame exists (no adapter installed)
+                                  ;; resolves `:error` rather than a vacuous
+                                  ;; `:pass` (rf2-poty), and the assembly
+                                  ;; never throws, so this catch path always
+                                  ;; settles (rf2-9ppq).
+                                  (let [result (run-error-result
+                                                 {:variant-id frame-id :plan plan} e start-ms)]
                                     (teardown!)
                                     (resolve result)))]
                  (try
@@ -1790,9 +1850,10 @@
   as a (possibly empty) vector of the `:rf.error/exception` records.
 
   `run-loaders!` / `run-events!` deliberately do not rethrow a failing
-  `:loaders` / `:setup` handler: `capture-phase-errors` collects the
-  pipeline-exception trace events and `record-error!` projects each onto
-  `[:rf.story/assertions]`, then the phase RETURNS. That is
+  `:loaders` / `:setup` handler: the play-runner's per-frame listener
+  captures the pipeline-exception trace events and the phase driver drains
+  each onto `[:rf.story/assertions]` (once — rf2-izz5), then the phase
+  RETURNS. That is
   `run-variant`'s gather-the-full-picture contract, and it stays — a run
   result is meant to report every failure it saw, not abort at the first.
   The consequence is that `prepare-ctx!` can complete WITHOUT THROWING over
@@ -1824,9 +1885,9 @@
   empty) set.
 
   `captured-prepare-failures` above reads `[:rf.story/assertions]`, and
-  those records are produced AFTER the egress gate. `capture-phase-errors`'
-  first `cond` branch drops a `:sensitive?` trace event before
-  `record-error!` ever runs, so under the default
+  those records are produced AFTER the egress gate. The per-frame
+  listener's gate drops a `:sensitive?` trace event before it is ever
+  captured, so under the default
   `:rf.egress/local-redacted` profile a `:setup` / `:loaders` handler whose
   failure is classified sensitive leaves NO assertion — and the predicate
   above then has nothing to refuse on. That is the shape rf2-k6y2's
@@ -1893,7 +1954,7 @@
     and return normally (`run-variant`'s gather-the-full-picture contract),
     so `prepare-ctx!` completes over a frame whose `:setup` never ran.
   - REDACTED — the same captured failure, but CLASSIFIED SENSITIVE. The
-    privacy egress gate drops the trace event before `record-error!`, so
+    privacy egress gate drops the trace event before it is recorded, so
     it leaves no assertion either: the frame looks not merely healthy but
     UNEVENTFUL.
 
