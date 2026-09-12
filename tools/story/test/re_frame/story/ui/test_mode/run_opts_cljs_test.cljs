@@ -12,7 +12,8 @@
   - the scrubber's events never matched the run's epoch tape, so
     `epoch-id-slice` returned [] and the scrubber showed no epochs;
   - the step-debugger stepped the static value — a different program from
-    the one Re-run and the canvas execute.
+    the one Re-run and the canvas execute — or, for an arg only a mode
+    supplies, could not compile the plan and refused to start.
 
   Each witness compares against what `run-variant-pane!` actually DID (the
   run result's app-db and epoch tape), never against a re-derivation of the
@@ -75,9 +76,9 @@
 ;; ---- helpers -------------------------------------------------------------
 
 (defn- reg-arg-variant!
-  "A variant whose one script step dispatches the `:value` arg, statically
-  \"static\". Whatever mode or override the run applies is visible in the
-  dispatched event, so a reader compiled against other args disagrees."
+  "A variant whose one script step dispatches its `:value` arg, statically
+  \"static\". A cell override sits ABOVE the variant layer, so it shows in
+  the dispatched event and a reader compiled without it disagrees."
   [vid]
   (rf.story/reg-variant vid
     {:args   {:value "static"}
@@ -125,7 +126,7 @@
   (testing "a controls-panel override feeding a script `[:arg]`: the
             scrubber's events are compiled against the args Re-run used, so
             every tick resolves to the epoch the run committed"
-    (let [vid :story.run-opts/override]
+    (let [vid :story.run-opts/scrubbed]
       (reg-arg-variant! vid)
       (rf.story.ui.state/swap-state! assoc-in [:cell-overrides vid] {:value "override"})
       (async done
@@ -144,14 +145,12 @@
             (rf.story.async/catch* (fail-on-reject vid done)))))))
 
 (deftest stepper-steps-the-program-re-run-executed
-  (testing "an active mode feeding a script `[:arg]`: Start prepares and
-            lists the program compiled against the same modes Re-run used,
-            so stepping it to the end reaches the app-db Re-run reached"
-    (let [vid  :story.run-opts/moded
-          mode :Mode.run-opts/moded]
-      (rf.story/reg-mode mode {:args {:value "moded"}})
+  (testing "a controls-panel override feeding a script `[:arg]`: Start
+            prepares and lists the program compiled against the args Re-run
+            used, so stepping it to the end reaches the app-db Re-run reached"
+    (let [vid :story.run-opts/stepped]
       (reg-arg-variant! vid)
-      (rf.story.ui.state/swap-state! rf.story.ui.state/set-active-modes [mode])
+      (rf.story.ui.state/swap-state! assoc-in [:cell-overrides vid] {:value "override"})
       (async done
         (-> (re-run! vid)
             (rf.story.async/then
@@ -159,13 +158,44 @@
                 (rf.story.async/then
                   (start-and-step! vid)
                   (fn [{:keys [slot app-db]}]
-                    (is (= "moded" (get-in ran [:result :app-db :value]))
-                        "PRECONDITION — Re-run ran with the active mode")
-                    (is (= [[:dispatch-sync [:tmo/set-value "moded"]]] (:play-steps slot))
+                    (is (= "override" (get-in ran [:result :app-db :value]))
+                        "PRECONDITION — Re-run ran with the controls-panel override")
+                    (is (= [[:dispatch-sync [:tmo/set-value "override"]]] (:play-steps slot))
                         "the step list is the program Re-run executed, not the
                          static-args one")
-                    (is (= "moded" (:value app-db))
+                    (is (= "override" (:value app-db))
                         "stepping to the end reaches the app-db Re-run reached")
+                    (finish! vid done)))))
+            (rf.story.async/catch* (fail-on-reject vid done)))))))
+
+(deftest mode-only-arg-reaches-the-scrubber-and-the-stepper
+  (testing "an `[:arg]` only an active mode supplies. Modes sit BELOW the
+            variant's own `:args` (`rf.story.args/run-arg-layers` `:pre`), so
+            this variant declares no `:value` of its own. Compiled without the
+            run's opts the plan cannot resolve the arg at all: the scrubber
+            degraded to no events and Start refused to start. With them both
+            read the program Re-run executed"
+    (let [vid  :story.run-opts/moded
+          mode :Mode.run-opts/moded]
+      (rf.story/reg-mode mode {:args {:value "moded"}})
+      (rf.story/reg-variant vid
+        {:script [[:dispatch-sync [:tmo/set-value [:arg :value]]]]})
+      (rf.story.ui.state/swap-state! rf.story.ui.state/set-active-modes [mode])
+      (async done
+        (-> (re-run! vid)
+            (rf.story.async/then
+              (fn [ran]
+                (is (= "moded" (get-in ran [:result :app-db :value]))
+                    "PRECONDITION — Re-run ran with the active mode")
+                (is (= [[:tmo/set-value "moded"]] (scrubbed-events ran))
+                    "the scrubber offers the epoch the moded event committed")
+                (rf.story.async/then
+                  (start-and-step! vid)
+                  (fn [{:keys [slot]}]
+                    (is (:active? slot)
+                        "Start prepared the frame and published a stepper")
+                    (is (= [[:dispatch-sync [:tmo/set-value "moded"]]] (:play-steps slot))
+                        "the step list is the moded program Re-run executed")
                     (finish! vid done)))))
             (rf.story.async/catch* (fail-on-reject vid done)))))))
 
