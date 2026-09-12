@@ -74,11 +74,23 @@
       (rf.story.ui.state/swap-state! assoc :rail-widths widths)))
   nil)
 
-(defn set-width! [side width]
+(defn- apply-width!
+  "Write a clamped `width` for `side` into shell state WITHOUT persisting,
+  returning the new widths. A splitter drag calls this per mousemove and
+  persists once, on release (rf2-ohc5): a localStorage write per mouse
+  event was synchronous main-thread work for a value read only at the
+  next page load."
+  [side width]
   (let [widths (normalise-widths
                  (assoc (current-widths) side width))]
     (rf.story.ui.state/swap-state! assoc :rail-widths widths)
-    (persist! widths)))
+    widths))
+
+(defn set-width!
+  "Set and persist `side`'s rail width — the discrete path (keyboard
+  steps, Home / End)."
+  [side width]
+  (persist! (apply-width! side width)))
 
 (defn- adjust-width! [side delta]
   (set-width! side (+ (get (current-widths) side) delta)))
@@ -105,7 +117,10 @@
          (when-let [{:keys [move up]} @drag-handlers]
            (reset! drag-handlers nil)
            (.removeEventListener js/document "mousemove" move)
-           (.removeEventListener js/document "mouseup" up)))
+           (.removeEventListener js/document "mouseup" up)
+           ;; A drag cut short by unmount never reaches `up-fn`; persist
+           ;; the widths it reached here instead (rf2-ohc5).
+           (persist! (current-widths))))
        :reagent-render
        (fn [side]
          (let [widths  (current-widths)
@@ -147,14 +162,16 @@
                                         (reset! dragging? true)
                                         (letfn [(move-fn [move-e]
                                                   (let [dx (- (.-clientX move-e) start-x)]
-                                                    (set-width!
+                                                    ;; rf2-ohc5: state only — persisted on release.
+                                                    (apply-width!
                                                       side
                                                       (+ start-w (if left? dx (- dx))))))
                                                 (up-fn [_]
                                                   (reset! dragging? false)
                                                   (reset! drag-handlers nil)
                                                   (.removeEventListener js/document "mousemove" move-fn)
-                                                  (.removeEventListener js/document "mouseup" up-fn))]
+                                                  (.removeEventListener js/document "mouseup" up-fn)
+                                                  (persist! (current-widths)))]
                                           (reset! drag-handlers {:move move-fn :up up-fn})
                                           (.addEventListener js/document "mousemove" move-fn)
                                           (.addEventListener js/document "mouseup" up-fn))))}

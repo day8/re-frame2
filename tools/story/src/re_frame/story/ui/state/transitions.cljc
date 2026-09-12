@@ -11,7 +11,8 @@
 
   The parent ns `re-frame.story.ui.state` re-exports every Var here,
   so consumer requires keep working unchanged."
-  (:require [re-frame.story.registrar :as rf.story.registrar]))
+  (:require [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.registrar :as rf.story.registrar]))
 
 ;; ---- selection / filters -------------------------------------------------
 
@@ -389,6 +390,28 @@
   "Flip a panel's visibility."
   [state panel-id]
   (update-in state [:panel-visibility panel-id] not))
+
+(defn dispatch-console-visible?
+  "Effective visibility of the Dispatch Console panel for `variant-id` — the
+  ONE rule both the RHS panel and the toolbar chip's pressed state read
+  (rf2-qpvk). An explicit user toggle (`[:panel-visibility
+  :dispatch-console]` true / false) wins; otherwise the variant body's
+  `:dispatch-console?`, else its parent story's, else false (opt-in
+  default). A nil `variant-id` is never visible."
+  [state variant-id]
+  (let [vis-flag (get-in state [:panel-visibility :dispatch-console])]
+    (cond
+      (nil? variant-id) false
+      (true? vis-flag)  true
+      (false? vis-flag) false
+      :else
+      (let [var-body (rf.story.registrar/handler-meta :variant variant-id)
+            story-id (rf.story.predicates/parent-story-id variant-id)
+            sty-body (when story-id
+                       (rf.story.registrar/handler-meta :story story-id))]
+        ;; Story slot default; variant overrides.
+        (boolean (get var-body :dispatch-console?
+                      (get sty-body :dispatch-console? false)))))))
 
 ;; ---- Xray-embed collapse -------------------------------------------------
 ;;

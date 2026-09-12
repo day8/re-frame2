@@ -187,6 +187,7 @@
 (def record-fingerprints       rf.story.ui.state.transitions/record-fingerprints)
 (def pin-snapshot              rf.story.ui.state.transitions/pin-snapshot)
 (def toggle-panel              rf.story.ui.state.transitions/toggle-panel)
+(def dispatch-console-visible? rf.story.ui.state.transitions/dispatch-console-visible?)
 
 ;; ---- Xray-embed collapse re-exports -------------------------------------
 
