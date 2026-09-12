@@ -395,6 +395,17 @@ scaffold wired for Xray promised a panel that could never open. The
 `:uix` variant shipped no Xray pieces at all and its README noted the
 devtools story honestly.
 
+> **The PREMISE of that amendment expired on 2026-09-12 (rf2-k97c).** Xray
+> now paints through a React root it owns rather than through the host
+> adapter's `:render`, and the refusal path was retired with the coupling it
+> guarded — so "the mount verbs refuse cleanly on the element-shaped React
+> substrates" is no longer true of any adapter. The paragraph above is kept
+> as the reasoning the 2026-07-22 ruling was actually made on; it is not a
+> statement about the tree today. Whether the `:uix` scaffold should now ship
+> Xray pieces is a separate product question, unasked and unruled — see the
+> revisit condition under §10's "The acknowledged loss, and the revisit
+> condition" below, whose substrate clause this discharges.
+
 **Alternatives considered (at the time).**
 
 | Option | What it is | Outcome |
@@ -483,9 +494,14 @@ it is recorded rather than hidden behind the word "minimal". Default-on
 Xray is reconsidered only on first-run evidence that auto-opening the
 panel materially improves onboarding, only once Xray has a stable
 published coordinate (`xray-v*`), and only if it can mount on every
-default substrate — today it cannot mount on UIx (rf2-p6f6u), and its
-Reagent-only preload is exactly the asymmetry that would force the
-manifest contract into exception clauses.
+default substrate. **That last clause is DISCHARGED as of 2026-09-12
+(rf2-k97c): Xray mounts on UIx.** It reads *"today it cannot mount on
+UIx (rf2-p6f6u), and its Reagent-only preload is exactly the asymmetry
+that would force the manifest contract into exception clauses"* until
+then; the root swap removed the asymmetry, so a revisit no longer has
+to argue past it. The other two conditions — onboarding evidence, a
+published coordinate — are untouched and still unmet, so the decision
+stands.
 
 ## Retired — clj-new-over-deps-new
 

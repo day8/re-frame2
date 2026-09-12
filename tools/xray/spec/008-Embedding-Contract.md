@@ -322,14 +322,51 @@ just dispatched" follows the same post-settle-listener shape.
 
 ## State isolation (Option-C frame-provider)
 
-Xray's shell mounts **inside the host's React tree** so embedding is
-zero-config — drop a `mount-shell!` call into Story / your own layout
-and it renders. But Xray's *state* must never bleed into the host's
-app-db, its subs, or its dispatch queue. That isolation is achieved
-by an internal frame-provider wrapper; see
+Embedding is zero-config — drop a `mount-shell!` call into Story / your
+own layout and it renders. Xray's *state* must never bleed into the
+host's app-db, its subs, or its dispatch queue, and that isolation is
+achieved by an internal frame-provider wrapper; see
 [`011-Launch-Modes.md`](./011-Launch-Modes.md) for the in-app overlay
 context and [`007-UX-IA.md`](./007-UX-IA.md) for shell layout. The
 mechanism, locked under rf2-tijr (2026-05-12):
+
+### Three separate things, and reading them as one is the trap (rf2-5rf5)
+
+**This section opened with "Xray's shell mounts inside the host's React
+tree" and built the isolation story on it. That premise was false, and it
+was false BEFORE the root swap** — `render-panel!`'s `adapter/render` made
+its own React root as far back as rf2-tijr. The root swap did not falsify
+the sentence; it made an already-misleading sentence conspicuous. Read the
+correction as a correction of the embedding contract, not as behaviour
+rf2-k97c.3 introduced.
+
+Three things a reader is apt to collapse into one:
+
+| | What it means | Who decides |
+|---|---|---|
+| **DOM placement** | Where the shell's node sits in the host's document — inside the host's layout host, or in a second window. | The host, via the mount-point / layout host. |
+| **React-root ownership** | Which React root renders the shell's tree. **Never the host's.** `open!` / `open-overlay!` / `popout!` paint through a `re-frame.fresco` client root Xray owns; `panels/mount-shell!` and the per-panel `mount-<panel>!` facades call `rf.substrate.adapter/render`, which creates its OWN root at the supplied mount-point. | Xray, always. |
+| **Frame selection** | Which frame descendant reads and dispatches resolve to. | Xray, explicitly — see §Own frame vs target frame. |
+
+**DOM containment is not React containment.** React context does not cross
+a root boundary, so a host's `[rf/frame-provider …]` is NOT in scope inside
+the embed however deeply its node is nested — and there is no host frame for
+the shell to fall through to. That is a property of React rather than of
+Xray, which is why reading the mount code alone never settles it. It is
+measured, not argued: `shell_fresco_boundary_dom_cljs_test`'s row
+`w5-the-embed-door-mounts-and-never-touches-the-host-frames-ring` mounts the
+embed at a node inside a host Reagent root that is itself under
+`[rf/frame-provider {:frame app}]`, drives a real click on the embedded L3
+tab bar, and asserts the host frame's epoch history is unchanged in COUNT and
+in CONTENTS — beside a control showing the same ring does move for a genuine
+application event.
+
+So isolation does not rest on the frame-provider wrapper alone. The wrapper
+is what makes the shell's reads and dispatches land in a NAMED frame; the
+root boundary is what makes the host's frame unreachable in the first place.
+Both hold independently, and the corollary is the rule in
+§A tool-owned root must establish frame context deliberately: a root that
+inherits nothing must SAY what frame it is in.
 
 ### Frame-provider wraps the shell
 
@@ -496,7 +533,12 @@ contract.
 The convention is enforced by code review and by the registry
 namespace docstring (see `tools/xray/src/day8/re_frame2_xray/registry.cljs`).
 
-### Adapter resolution
+### Adapter resolution in the mount verbs
+
+**Scoped to the mount verbs, and the heading says so deliberately.** It read
+plain "Adapter resolution" until rf2-k97c.7, which invited it as a statement
+about adapter resolution in Xray generally — it is not. What an adapter must
+supply for Xray to work at all is §The minimum host contract below.
 
 Since rf2-k97c.3 Xray does **not** mount through the host adapter's
 `:render` at all — its shell is a `re-frame.fresco` boundary painted
@@ -545,6 +587,169 @@ spelling — the keyword was literally the `:kind` of that same map).
 These escape-hatch sites are bounded — roughly five
 of them across the codebase — and each lives next to the component
 that needs it, not in a central shim layer.
+
+## The owned root
+
+Xray owns the React root its shell paints into. That is the architecture,
+not an implementation detail of one mount verb, and it is what the rest of
+this section is about.
+
+`mount.cljs` holds two `re-frame.fresco` client-root handles as
+`defonce`s — one for the inline / overlay shell, one for the pop-out. Two
+and not one because `render!` binds its mount-point on the FIRST call
+through a handle and updates that same React root on every later one, so a
+single handle cannot serve two roots, and the pop-out's root lives in a
+different DOCUMENT. `render-shell!` is the one call site that knows Fresco's
+door is a `render!` / `unmount!` PAIR on a handle rather than the adapter
+contract's render-answers-an-unmount-fn; it closes over the handle and
+answers the unmount thunk, so `switch-surface!`, `close!` and `teardown!`
+keep the shape they have always had.
+
+What the ownership buys, in one sentence each:
+
+- **The host's render shape stops being Xray's business.** The mount verbs
+  read `current-adapter` to learn whether a host has booted at all and never
+  branch on its `:kind` — see §Adapter resolution in the mount verbs.
+- **Xray's own painting cannot be mistaken for the application's.** A
+  Fresco boundary emits no view-render trace, so the leak rf2-tqlmq fixed
+  (Xray's shell-render resolving to `:rf/default` and landing in the
+  inspected frame's epoch `:renders`) is now structurally absent rather than
+  guarded against.
+- **Isolation no longer rests on one wrapper.** Per §Three separate things,
+  the root boundary makes the host's frame unreachable and the frame-provider
+  names the frame the shell uses; neither substitutes for the other.
+
+### A tool-owned root must establish frame context deliberately
+
+**This is the rule most likely to be missed, because missing it does not show
+up in a first-paint smoke test.** A root that renders nothing of the host's
+inherits none of the host's React context — which is exactly the isolation
+above, read from the other side. So the tool must SAY what frame it is in.
+Nothing ambient will supply one, and nothing will notice that nothing did.
+
+Concretely: `mount.cljs` renders
+`[rf.fresco/frame-provider {:frame shell/default-frame-id} [ShellView …]]`
+and passes no `:frame-id`, so `ShellView`'s default IS that frame; the
+public `shell-view` callable wraps the same head in a provider naming the
+very `:frame-id` it forwards. Both doors honour the rule by construction and
+neither may drop it.
+
+Three traps sit around it, and each is recorded because the obvious
+alternative is worse:
+
+- **`frame-provider`, never `frame-root`.** `frame-root` is an idempotent
+  ENSURE that would REPLACE the frame, silently discarding the seating
+  `ensure-xray-frame!` has just done. Scope, not creation — the frame is
+  ensured above the provider.
+- **An explicitly-framed `rf/subscribe` is not an alternative, and it fails
+  SILENTLY.** `(rf/subscribe q {:frame frame-id})` is admitted inside a
+  boundary body and answers the right value, but contributes zero collector
+  edges — so the shell paints correctly on first render and then never
+  re-renders when its slot moves. Nothing errors. Dropping the provider
+  instead is LOUD (`:rf.error/no-frame-context`), which is why the provider
+  is the contract and the ambient read is the mechanism.
+- **Out-of-render dispatches capture the frame; they never name it.** Click
+  handlers, raw window listeners and async continuations resolve through a
+  captured frame-bound op (`rf/capture-frame`, or a render-time
+  `rf/current-frame-id` capture threaded as a `{:frame frame}` opt) — never a
+  `:rf/xray` literal and never a bare global `rf/dispatch`. See
+  §Parameterized shell frame-id; a guard rejects regressions and its
+  `pending-migration` allowlist is empty.
+
+`shell-view-mode-of` is an EXAMPLE OF THIS SHAPE rather than an outstanding
+debt: the root swap re-derived its positional `[2 1]` index into a walk for
+the `shell/ShellView` head, and the only surviving `[2 1]` under `tools/xray`
+is inside the docstring explaining what it used to be.
+
+## The minimum host contract
+
+**What a host adapter must supply for Xray to work on it.** Stated as a
+contract rather than as an extension framework: a future browser adapter
+that supplies the surface below should get Xray with no Xray-side work, and
+Xray commits to asking for nothing more.
+
+Xray asks for the **reactive-container half** of the
+[`spec/006-ReactiveSubstrate.md`](../../../spec/006-ReactiveSubstrate.md)
+§The adapter API contract — and nothing from the render-side half:
+
+| Required of the adapter | Why Xray needs it |
+|---|---|
+| `make-state-container` | Xray's shell frame holds its chrome state in one. |
+| `read-container` | Every read of the shell frame and of the inspected frame. |
+| `replace-container!` | Every `:rf.xray/*` write. |
+| `make-derived-value` | The projections every subscription is layered over. |
+| `dispose-adapter!` | Teardown, so `teardown!` leaves nothing stranded. |
+| A listener surface — `subscribe-container`, or the inline-invalidation fallback spec/006 defines for an adapter that omits it | Xray is a LIVE instrument: it must learn that the inspected frame moved. This is the half of the contract that cannot be faked by polling. |
+
+Plus the two public activation ops in `re-frame.interop`, which Xray reaches
+through the shipped Fresco collector rather than open-coding:
+`activate-derived-value!` and `add-on-dispose!`. **A watch alone is not
+enough on the ratom family** — a `Reaction` captures its sources only through
+deref-capture, so a plain deref taken outside a render leaves it watchable,
+watched, and notifying nobody. On the React-hook spine `activate-derived-value!`
+no-ops, those derived values being push from construction. One code path
+therefore serves both families, which is the whole reason the contract can be
+stated once.
+
+**What Xray does NOT require, and will not start requiring:**
+
+- **`:render`.** The mount verbs own their root. This is the coupling that
+  made Xray refuse element-shaped adapters, and it is severed.
+- **`:make-reaction`.** A ratom-family late-bind hook. Xray observes through
+  the two activation ops above, which are defined on both families.
+- **`:adapter/as-element`.** PREFERRED where it answers — `substrate.cljs`
+  reads the installed build's hiccup→element walk so a surviving `reg-view`
+  island is rendered by the same build whose in-flight component the frame
+  resolver consults — but it is published by the ratom family alone and is
+  ROUTED, so it answers `nil` under any other adapter. Fresco's codec passes
+  an already-built React element through untouched, which is the documented
+  fallback and a REAL path rather than a defensive flourish.
+- **Any view-side hook.** Nothing about how the host binds views to state
+  reaches Xray.
+
+**The evidence, and its bound.** `acceptance/uix_dom_cljs_test` runs the
+epic's six behavioural criteria with the **UIx** adapter installed as the
+inspected application's substrate — an element-shaped `:render` Xray cannot
+use, never called to paint anything — and
+`acceptance/substrate_gap_dom_cljs_test` drives the public `open!` verb on
+that same adapter. Six green rows on a host whose render shape is unusable is
+what "indifferent to the installed adapter" means in a form a row can witness.
+
+**ONE HONEST EXCEPTION, and it is a door rather than the contract.** The
+internal-but-stable per-panel surface — `panels/mount-shell!` and the
+`mount-<panel>!` facades enumerated in
+[`007-UX-IA.md`](./007-UX-IA.md) §Mountable panel contract — still delegates
+to `rf.substrate.adapter/render` with a HICCUP tree, so a host reaching for
+*that* door needs a `:render` that accepts hiccup, i.e. the ratom family.
+The mount verbs (`open!`, `open-overlay!`, `popout!`, and the preload
+auto-open) do not, and they are the host-facing contract. A host on an
+element-shaped adapter uses the mount verbs.
+
+## Rejected substrate options (recorded so they are not re-proposed)
+
+The epic rf2-k97c weighed three alternatives to the owned root and did not
+take any of them. They are recorded here with their reasons because each is a
+natural thing to propose again.
+
+**(a) Make the spine's `:render` accept hiccup.** REJECTED — wrong layer. It
+solves a TOOL's problem inside the CORE, adds a hiccup converter to every
+application's dependency graph whether or not that application ever loads a
+tool, and weakens a deliberate app-author error: the core's `make-render`
+raises `:rf.error/hiccup-on-element-render-slot` precisely so an application
+author who hands hiccup to an element-shaped render slot is told so.
+
+**(b) Relax spec/006's single-adapter ruling** so Xray could install a second
+adapter for itself. REJECTED — unnecessary for either candidate design, and
+the cost is badly shaped: it would make container, subscription and disposal
+ownership a FRAMEWORK-WIDE problem in order to avoid a TOOL-LOCAL change.
+Multiple React roots in one page are ordinary and require no second adapter
+installation, which is what the owned root demonstrates.
+
+**(c) A separately booted debugger realm** — an iframe or second window plus a
+transport. NOT REJECTED, and the distinction matters: it is a real design with
+genuinely stronger isolation than this problem needs. It is kept as FUTURE
+WORK rather than refused, and the pop-out's own document is the nearest thing
+in the tree today.
 
 ## What this doesn't do
 
