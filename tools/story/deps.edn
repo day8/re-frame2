@@ -86,11 +86,23 @@
          ;; THE STATED REPLACEMENT (this is a re-point, not a silent drop):
          ;; Story supplies the substrate adapter for its embedded Xray
          ;; itself, through the `day8/re-frame2-reagent` coordinate on line
-         ;; 16. Xray renders through `re-frame.substrate.adapter` and the
-         ;; adapter the HOST installs governs the runtime path, so Xray is
-         ;; fully served by Story's stock-Reagent adapter; Xray's src
-         ;; requires neither `reagent2.*` nor the adapter ns. Xray's own
-         ;; deps.edn is deliberately UNTOUCHED, so a standalone
+         ;; 16. Xray's rendering is SPLIT today, so the claim is scoped to
+         ;; the half that runs on the host's adapter:
+         ;;   • THE EMBEDDED PANEL DOOR — `panels/render-panel!` and
+         ;;     `panels/mount-shell!`, the chokepoint behind every
+         ;;     `mount-<panel>!` facade the RHS inspector reaches — still
+         ;;     delegates to `rf.substrate.adapter/render` with a hiccup
+         ;;     tree, so the adapter the HOST installs does govern that
+         ;;     path and Story's stock-Reagent adapter does serve it.
+         ;;   • XRAY'S OWN MOUNT VERBS — `mount/open!`,
+         ;;     `mount/open-overlay!` and `mount/popout!`, the last being
+         ;;     Story's popout escape hatch — paint through
+         ;;     `re-frame.fresco` client roots Xray owns and do not consult
+         ;;     the host adapter at all (rf2-k97c.3 severed that coupling).
+         ;; Neither half disturbs the ground this exclusion stands on,
+         ;; which is PUBLICATION and classpath rather than render path:
+         ;; Xray's src requires neither `reagent2.*` nor the adapter ns.
+         ;; Xray's own deps.edn is deliberately UNTOUCHED, so a standalone
          ;; `day8/re-frame2-xray` consumer still gets reagent-slim by
          ;; default — this narrows Story's edge only.
          day8/re-frame2-xray     {:local/root "../xray"
