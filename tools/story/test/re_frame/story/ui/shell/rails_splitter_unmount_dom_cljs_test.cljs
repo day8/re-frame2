@@ -101,6 +101,53 @@
           (finally
             (try (.unmount root) (catch :default _ nil))))))))
 
+(def ^:private rail-storage-key "re-frame.story/rail-widths")
+
+(defn- stored-widths []
+  (some-> (.getItem js/localStorage rail-storage-key) js/JSON.parse (js->clj :keywordize-keys true)))
+
+(deftest splitter-drag-persists-once-on-release
+  (testing "rf2-ohc5: a drag writes rail widths to shell state per mousemove
+            but persists them to localStorage ONCE — on mouseup, or when a
+            mid-drag unmount cuts the drag short — not per mouse event"
+    (if-not (browser?)
+      (is true ":node-test — no DOM; :browser-test runs the real assertion")
+      (doseq [ending [:mouseup :unmount]]
+        (.removeItem js/localStorage rail-storage-key)
+        (rf.story.ui.state/reset-shell-state!)
+        (let [mount-node (make-mount-node!)
+              root       (rdc/create-root mount-node)]
+          (try
+            (react-dom/flushSync
+              (fn [] (rdc/render root [rf.story.ui.shell.rails/splitter :left])))
+            (let [splitter-el (.querySelector mount-node "[data-test=\"story-left-rail-splitter\"]")
+                  move!       (fn [x]
+                                (react-dom/flushSync
+                                  (fn []
+                                    (.dispatchEvent js/document
+                                      (js/MouseEvent. "mousemove" #js {:bubbles true :clientX x})))))]
+              (react-dom/flushSync
+                (fn []
+                  (.dispatchEvent splitter-el
+                    (js/MouseEvent. "mousedown" #js {:bubbles true :clientX 100}))))
+              (move! 130)
+              (move! 160)
+              (is (not= (:left rf.story.ui.shell.rails/default-widths)
+                        (:left (rf.story.ui.shell.rails/current-widths)))
+                  (str ending ": the drag moved the rail in shell state"))
+              (is (nil? (stored-widths))
+                  (str ending ": nothing persisted while the drag is live"))
+              (if (= ending :mouseup)
+                (react-dom/flushSync
+                  (fn []
+                    (.dispatchEvent js/document
+                      (js/MouseEvent. "mouseup" #js {:bubbles true}))))
+                (react-dom/flushSync (fn [] (.unmount root))))
+              (is (= (rf.story.ui.shell.rails/current-widths) (stored-widths))
+                  (str ending ": the widths the drag reached are persisted on release")))
+            (finally
+              (try (.unmount root) (catch :default _ nil)))))))))
+
 (deftest splitter-normal-mouseup-still-tears-down-listeners
   (testing "rf2-cmjly3 finding 6 — no regression: the ORIGINAL teardown
             path (mouseup firing while the component is still mounted)
