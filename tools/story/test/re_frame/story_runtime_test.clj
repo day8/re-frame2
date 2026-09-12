@@ -24,6 +24,14 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core            :as rf]
             [re-frame.elision         :as rf.elision]
+            ;; `run-variant-twice-epoch-tape-does-not-bleed` reads a live
+            ;; `:epoch-tape`. Requiring the epoch artefact installs its
+            ;; late-bind hooks so `rf/epoch-history` records a live tape
+            ;; under `clojure -M:test` (the dep rides the shared `:test`
+            ;; alias). Without it the facade degrades to `[]` and that
+            ;; test's sanity check fails whenever this namespace runs alone;
+            ;; the full lane passed only because a sibling loaded it first.
+            [re-frame.epoch]
             [re-frame.frame           :as rf.frame]
             [re-frame.late-bind       :as rf.late-bind]
             [re-frame.machines        :as rf.machines]

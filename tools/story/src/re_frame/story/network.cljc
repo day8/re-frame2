@@ -83,8 +83,8 @@
   the one `re-frame.http.test-support/install-managed-request-stubs!`
   registers. Named here so `fixture-image` can read the installed handler back
   out of the source store; the id itself is unchanged (the recorded
-  `:fx-decisions` redirect, `spec/017` and `plan_network_test` all still pin
-  it)."
+  `:fx-decisions` redirect, `spec/017` and `plan_network_cljs_test` all
+  still pin it)."
   :rf.http/managed-test-stub)
 
 (def fixture-image-id

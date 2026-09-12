@@ -27,7 +27,7 @@
   resolves synchronously, and the canned reply is dispatched inside the
   fx walk, so the whole request→reply round trip settles before `.get`
   returns. The compile-time half (that `lower-network` emits the override
-  map at all) is `re-frame.story.plan-network-test`; this suite is about
+  map at all) is `re-frame.story.plan-network-cljs-test`; this suite is about
   the run path that consumes it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core      :as rf]
