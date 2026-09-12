@@ -64,11 +64,13 @@
             ;; The canonical RAW trace-event frame reader
             ;; (`re-frame.trace/frame-of`) reads the frame off a trace event.
             [re-frame.trace            :as rf.trace]
+            [re-frame.story.args       :as rf.story.args]
             [re-frame.story.assertions :as rf.story.assertions]
             [re-frame.story.async      :as rf.story.async]
             [re-frame.story.config     :as rf.story.config]
             [re-frame.story.error      :as rf.story.error]
             [re-frame.story.late-bind  :as rf.story.late-bind]
+            [re-frame.story.plan       :as rf.story.plan]
             [re-frame.story.play.runner :as rf.story.play.runner]
             [re-frame.story.registrar  :as rf.story.registrar]))
 
@@ -240,29 +242,72 @@
   [frame-id]
   (rf.story.assertions/read-assertions frame-id))
 
+;; ---------------------------------------------------------------------------
+;; The stepped program — read from the COMPILED plan (rf2-499z)
+;;
+;; The step-debugger (`variant-play-steps`) and the scrubber
+;; (`variant-play-events`) both show the program the auto-run path
+;; EXECUTED, so they read it where the runtime reads it: the compiled
+;; plan's `[:world :scripts]`, never the raw `:script` slot. The compiler
+;; is what substitutes `[:arg key]` placeholders, prepends `:compose`d
+;; fragments' scripts and lowers `:plays` into named scripts. A raw read
+;; saw none of that: an `[:arg]` script stepped its placeholder verbatim,
+;; a composed variant stepped without its fragments, and a `:plays`
+;; variant stepped nothing at all.
+;; ---------------------------------------------------------------------------
+
+(defn- stepped-program
+  "The folded, arg-substituted step vector for `variant-id`: the scripts of
+  the compiled plan's AUTO-RUNNABLE plays, concatenated in order — the
+  exact program `runtime/run-phase-4!` executes
+  (`rf.story.play.runner/auto-runnable-plays` over `[:world :scripts]`).
+  A variant that auto-runs nothing yields its PRIMARY compiled play
+  instead, so a script the author opted out of auto-running can still be
+  stepped by hand.
+
+  `opts` is the `run-variant` opts map (`:active-modes` /
+  `:cell-overrides`), folded into the compile through
+  `rf.story.args/run-arg-layers` exactly as `runtime/prepare-context`
+  folds it — pass the SAME opts the run or the preparation received. An
+  unregistered variant yields `[]`; a plan-construction failure throws,
+  as the runtime would for the same variant."
+  [variant-id opts]
+  (if-not (rf.story.registrar/handler-meta :variant variant-id)
+    []
+    (let [plan  (rf.story.plan/variant-plan
+                  variant-id
+                  {:run-args (rf.story.args/run-arg-layers variant-id opts)})
+          plays (get-in plan [:world :scripts] [])
+          auto  (rf.story.play.runner/auto-runnable-plays plays)]
+      (vec (if (seq auto)
+             (mapcat :script auto)
+             (:script (first plays)))))))
+
 (defn variant-play-events
-  "Resolve a flat event-vector list for `variant-id`'s phase-4 play.
+  "The flat event-vector list of `variant-id`'s stepped program (see
+  `stepped-program`): one per `:dispatch` / `:dispatch-sync` step. Other
+  step types have no event-vector representation and are skipped. The
+  scrubber matches these against the run's `:epoch-tape`, so `opts`
+  should be the opts that run received.
 
-  Derives a flat event-vector list from the variant's `:script`
-  body by extracting events from the `:dispatch` / `:dispatch-sync`
-  steps. Other step types (`:wait`,
-  `:click`, `:type`, `:assert-db`, `:assert-dom`) have no event-vector
-  representation and are skipped here — the rich-DSL runner
-  (`re-frame.story.play.runner-events`) is the canonical executor.
-
-  This shape stays around for the play-stepper UI which advances ONE
-  event at a time."
-  [variant-id]
-  (let [body   (rf.story.registrar/handler-meta :variant variant-id)
-        spec   (rf.story.play.runner/parse-spec (:script body))
-        script (:script spec)]
-    (->> (or script [])
-         (keep (fn [step]
-                 (when (and (vector? step)
-                            (#{:dispatch :dispatch-sync} (first step))
-                            (vector? (second step)))
-                   (second step))))
-         vec)))
+  A plan-construction failure yields `[]` rather than throwing. An
+  `[:arg]` that only an active mode or cell override supplies cannot
+  compile without those opts, and the scrubber's contract is to degrade to
+  'no epoch buffer', never to lose the run result it is attached to."
+  ([variant-id] (variant-play-events variant-id nil))
+  ([variant-id opts]
+   (let [steps (try (stepped-program variant-id opts)
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                      (if (= 'rf.story/variant-plan (:where (ex-data e)))
+                        []
+                        (throw e))))]
+     (into []
+           (keep (fn [step]
+                   (when (and (vector? step)
+                              (#{:dispatch :dispatch-sync} (first step))
+                              (vector? (second step)))
+                     (second step))))
+           steps))))
 
 (defn execute-play!
   "Run the play sequence against `variant-id`'s frame. Drives the
@@ -316,9 +361,9 @@
 ;; ---------------------------------------------------------------------------
 ;; UI play-stepper hook
 ;;
-;; The stepper walks the FULL coerced `:script` (every step type —
-;; `:dispatch` / `:dispatch-sync` / `:wait` / `:click` / `:type` /
-;; `:assert-db` / `:assert-dom`), driving each step through the SAME
+;; The stepper walks the FULL compiled program (`stepped-program`, every
+;; step type — `:dispatch` / `:dispatch-sync` / `:wait` / `:click` /
+;; `:type` / `:assert-db` / `:assert-dom`), driving each step through the SAME
 ;; rich-DSL executor the canvas auto-run path uses
 ;; (`runner-events/run-step!`, fetched via the `:run-play-step` late-bind
 ;; hook to avoid the play ↔ runner-events cycle). The slot holds STEPS,
@@ -338,22 +383,19 @@
   (atom {}))
 
 (defn variant-play-steps
-  "Resolve the FULL coerced `:script` step vector for `variant-id`'s
-  default play. Unlike `variant-play-events` (which drops every
-  non-dispatch step) this returns EVERY step the rich-DSL runner
-  recognises, in order, so the step-debugger walks the same sequence the
-  auto-run path executes.
+  "The FULL step vector the step-debugger walks for `variant-id`. Unlike
+  `variant-play-events` (which drops every non-dispatch step) this returns
+  EVERY step the rich-DSL runner recognises, in order.
 
-  Pure data → data; works on JVM + CLJS.
+  Read from the COMPILED plan (`stepped-program`), so it is the program
+  the auto-run path executes: folded (a shipping `:assert-db` /
+  `:assert-dom` step is already the canonical `[:assert …]` checkpoint),
+  `[:arg]`-substituted, `:compose`d fragments prepended, `:plays` lowered.
+  `opts` is the `run-variant` opts map the frame was prepared with.
 
-  The script is FOLDED (`rf.story.assertions/fold-script`) so the
-  stepper walks the SAME canonical `[:assert …]` checkpoints the auto-run
-  path drives: a shipping `:assert-db` / `:assert-dom` step is rewritten to
-  the one assertion atom before the stepper executes it."
-  [variant-id]
-  (let [body (rf.story.registrar/handler-meta :variant variant-id)
-        spec (rf.story.play.runner/parse-spec (:script body))]
-    (rf.story.assertions/fold-script (vec (:script spec)))))
+  Pure aside from the registrar reads; works on JVM + CLJS."
+  ([variant-id] (variant-play-steps variant-id nil))
+  ([variant-id opts] (stepped-program variant-id opts)))
 
 (defn play-stepper-active?
   [frame-id]
@@ -363,23 +405,26 @@
   "Initialise a step-by-step play run for `frame-id`. The UI's
   play-stepper widget calls `step-once!` to advance one step.
 
-  Seeds the FULL coerced script (every step type)."
-  [frame-id]
-  (when rf.story.config/enabled?
-    (swap! pending-exceptions assoc frame-id [])
-    (install-trace-listener! frame-id)
-    ;; Reset the per-dispatch-step settle boundaries at the START
-    ;; of a fresh stepping session (the stepper analogue of `run!`'s reset),
-    ;; so `step-once!`'s per-step appends window onto THIS session's epoch tape
-    ;; rather than accumulating onto a previous run's boundaries. Fetched via
-    ;; the late-bind seam because `play` cannot `:require` `runner-events`.
-    (when-let [clear! (rf.story.late-bind/get-fn :clear-step-boundaries)]
-      (clear! frame-id))
-    (swap! stepper-state assoc frame-id
-           {:remaining (variant-play-steps frame-id)
-            :ran       []
-            :results   []})
-    nil))
+  Seeds the FULL compiled program (every step type, `variant-play-steps`).
+  `opts` is the `run-variant` opts map the frame was PREPARED with, so the
+  seeded steps substitute the same args the prepared frame saw."
+  ([frame-id] (begin-stepper! frame-id nil))
+  ([frame-id opts]
+   (when rf.story.config/enabled?
+     (swap! pending-exceptions assoc frame-id [])
+     (install-trace-listener! frame-id)
+     ;; Reset the per-dispatch-step settle boundaries at the START
+     ;; of a fresh stepping session (the stepper analogue of `run!`'s reset),
+     ;; so `step-once!`'s per-step appends window onto THIS session's epoch tape
+     ;; rather than accumulating onto a previous run's boundaries. Fetched via
+     ;; the late-bind seam because `play` cannot `:require` `runner-events`.
+     (when-let [clear! (rf.story.late-bind/get-fn :clear-step-boundaries)]
+       (clear! frame-id))
+     (swap! stepper-state assoc frame-id
+            {:remaining (variant-play-steps frame-id opts)
+             :ran       []
+             :results   []})
+     nil)))
 
 (defn step-once!
   "Advance the play stepper for `frame-id` by one step. Executes the
