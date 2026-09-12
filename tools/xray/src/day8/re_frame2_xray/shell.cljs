@@ -150,9 +150,11 @@
 
   ## Pure hiccup
 
-  Per rf2-tijr the view code is pure hiccup. The substrate adapter's
-  render fn (`rf/render`) handles the substrate-specific mount in
-  `mount.cljs`. No per-substrate switches in view code."
+  Per rf2-tijr the view code is pure hiccup. What RENDERS that hiccup
+  changed at the root swap: `mount.cljs` paints it through the
+  `re-frame.fresco` client root Xray owns (`rf.fresco/render!`), not
+  through the installed substrate adapter's `:render` — see the
+  rf2-k97c.3 section above. No per-substrate switches in view code."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
