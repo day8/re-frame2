@@ -28,7 +28,7 @@
 ;;
 ;; Reset the Story side-table around each test so the `promote!` /
 ;; substrate register assertions start from a clean registrar. Mirrors the
-;; substrate `promotion_test` fixture shape — a one-arg fn that runs on both
+;; substrate `promotion_cljs_test` fixture shape — a one-arg fn that runs on both
 ;; targets.
 
 (defn reset-state! [t]

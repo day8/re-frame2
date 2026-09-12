@@ -1,4 +1,4 @@
-(ns re-frame.story.promotion-test
+(ns re-frame.story.promotion-cljs-test
   "Tests for the run-artifact → variant promotion bridge (rf2-5x1wt.25,
   spec/017-Testing-Story.md §Promotion — Promotion bridge; NewTestStory
   §C1).
@@ -17,7 +17,10 @@
   The variant-plan compiler is pure data → data and the registrar is a
   pure side-table, so every test runs on both targets with no host — a
   fresh side-table per test via the fixture, and an explicit `:lookup`
-  for `:extends` resolution where needed."
+  for `:extends` resolution where needed.
+
+  Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
+  selects it; under its old `-test` name it ran on the JVM only (rf2-1ep8)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]

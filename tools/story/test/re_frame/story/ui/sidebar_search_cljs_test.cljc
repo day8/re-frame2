@@ -1,4 +1,4 @@
-(ns re-frame.story.ui.sidebar-search-test
+(ns re-frame.story.ui.sidebar-search-cljs-test
   "JVM-portable regression net for the sidebar search-as-you-type filter
   (rf2-yngai). Every fn under test is `.cljc`-pure so this corpus runs
   on both JVM (`clojure -M:test`) and CLJS (`npm run test:cljs`) — see
@@ -13,7 +13,10 @@
   - `filter-grouped-tree`  — story-keeps-children / variant-narrow /
                               prune-empty-stories
   - `filter-workspaces`    — workspace map narrowing
-  - `highlight-segments`   — match / non-match segmentation"
+  - `highlight-segments`   — match / non-match segmentation
+
+  Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
+  selects it; under its old `-test` name it ran on the JVM only (rf2-1ep8)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.ui.sidebar-search :as rf.story.ui.sidebar-search]))
 
