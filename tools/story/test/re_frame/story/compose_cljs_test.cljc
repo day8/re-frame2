@@ -1,4 +1,4 @@
-(ns re-frame.story.compose-test
+(ns re-frame.story.compose-cljs-test
   "Tests for strict `:compose` composition — fragments, checks, total merge
   order, variant-owned-wins, and the silent-conflict failure (rf2-5x1wt.15).
 
@@ -6,7 +6,10 @@
   §Conflict resolution + `ai/findings/NewTestStory` §B3. The compiler is a
   pure data → data fn, so every test runs on both the JVM and CLJS without
   a host: fragment / check / variant bodies are supplied through explicit
-  `:lookup` / `:fragment-lookup` / `:check-lookup` maps of RAW bodies."
+  `:lookup` / `:fragment-lookup` / `:check-lookup` maps of RAW bodies.
+
+  Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
+  selects it; under its old `-test` name it ran on the JVM only (rf2-exlh)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.schemas :as rf.story.schemas]))

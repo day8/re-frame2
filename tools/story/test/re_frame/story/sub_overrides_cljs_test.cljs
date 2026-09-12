@@ -13,8 +13,8 @@
   bound on the render-path resolver, `compute-sub` (the exact seam the
   assertion uses) still returns the REAL app-db value, so the override
   cannot make a false subscription assertion pass. The pure-data resolver
-  tests live JVM-side in `re-frame.story.plan-test`; this file is CLJS
-  because `compute-sub` + `reg-sub` need the framework runtime."
+  tests live in the host-free `re-frame.story.plan-cljs-test`; this file is
+  separate because `compute-sub` + `reg-sub` need the framework runtime."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.subs :as rf.subs]

@@ -18,7 +18,7 @@
    The fix registers ONE `:fragment.login/form-base` fragment whose
    `:setup` is `[[:auth.login/initialise-form]]` and composes it into every
    variant. Because the plan compiler appends a composed fragment's `:setup`
-   BEFORE the variant's own (spec/017 §`:compose`; re-frame.story.compose-test),
+   BEFORE the variant's own (spec/017 §`:compose`; re-frame.story.compose-cljs-test),
    the compiled `[:world :setup]` of EVERY variant must LEAD with
    `[:auth.login/initialise-form]`. This test compiles each registered
    variant plan (a pure data → data compile, no host) and asserts exactly

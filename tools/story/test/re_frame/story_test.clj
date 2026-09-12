@@ -8,7 +8,7 @@
   - Tag membership (`:rf.error/unknown-tag`).
   - `:extends` raw storage at registration + unknown-parent detection at
     plan-compile (the compiler is the merge authority; cycle and depth-cap
-    detection live with it in `re-frame.story.plan-test`).
+    detection live with it in `re-frame.story.plan-cljs-test`).
   - Form-B `:variants` desugaring.
   - Source-coord stamping.
   - Query API (`registrations`, `handler-meta`, `variants-with-tags`,
@@ -307,12 +307,12 @@
 ;; standalone `re-frame.story.extends` resolver, which was retired
 ;; (rf2-6r9j.11) — it had drifted from the compiled-plan merge semantics, so a
 ;; green witness there proved nothing about the shipped runtime. Both now sit
-;; on the merge authority in `re-frame.story.plan-test`
+;; on the merge authority in `re-frame.story.plan-cljs-test`
 ;; (§`extends-cycle-fails`, §`extends-depth-cap-fails`). Being `.cljc` they are
-;; host-free, but the gate that RUNS them is the JVM one (`jvm-tools-story` /
-;; `clojure -M:test` here) — the CLJS `:node-test` build selects on
-;; `cljs-test$`, which a plain `-test` namespace does not match. Same reach as
-;; the JVM-only witnesses they replaced.
+;; host-free, and since that suite took its `-cljs-test` name (rf2-exlh) both
+;; gates run them: `jvm-tools-story` (`clojure -M:test` here) and the CLJS
+;; `:node-test` build, whose `cljs-test$` ns-regexp a plain `-test` namespace
+;; does not match.
 
 ;; ---- Form-B desugaring -------------------------------------------------
 

@@ -1,4 +1,4 @@
-(ns re-frame.story.plan-test
+(ns re-frame.story.plan-cljs-test
   "Tests for the variant-plan compiler + explain base (rf2-5x1wt.10).
 
   Per `tools/story/spec/017-Testing-Story.md` §Four-bucket authoring
@@ -7,7 +7,10 @@
   host: variant bodies are supplied through an explicit `:lookup` map of
   RAW bodies (the parent-chain resolution is the compiler's job, so the
   test bodies still carry `:extends` rather than relying on the
-  registrar's eager merge)."
+  registrar's eager merge).
+
+  Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
+  selects it; under its old `-test` name it ran on the JVM only (rf2-exlh)."
   (:require [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
             [re-frame.story.assertions :as rf.story.assertions]
