@@ -1615,11 +1615,24 @@ own-only assertions). A failed check result MUST show both the check id
 and the underlying assertion records.
 
 A check's assertion atoms run as **terminal expectations**: after the
-script settles, the runner dispatches them in one pass with the variant's
-terminal `:assertions`, against the final state. The pass is deduplicated,
-so an atom a check shares with `:assertions` (or with another check)
-dispatches and records once, and every check naming it groups that one
-record.
+script settles, the runner evaluates them in one pass with the variant's
+terminal `:assertions`, against the final state. That terminal pass is
+deduplicated, so an atom it evaluates that a check shares with
+`:assertions` (or with another check) runs and records once, and every
+check naming it groups that one record.
+
+The deduplication stops at that pass. The tape-evaluated atoms —
+`:rf.assert/schema-error` and the causal / cascade pair
+(`:rf.assert/caused`, `:rf.assert/no-cascade-rerender`) — are not run
+there. The result boundary collects them from every position (terminal
+`:assertions`, every check, in-script checkpoints) without deduplicating,
+and evaluates each occurrence against the epoch tape. For
+`:rf.assert/schema-error` that multiplicity is the contract: each
+declaration consumes exactly one matching violation
+([§Schema rule](#schema-rule)), so a schema-error atom shared by two
+checks, or by a check and `:assertions`, is two expectations and needs
+two violations. Against one violation it records one `:pass` and one
+`:fail`.
 
 ### Canonical P1 assertions
 
