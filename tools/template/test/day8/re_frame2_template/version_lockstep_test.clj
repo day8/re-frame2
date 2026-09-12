@@ -20,6 +20,14 @@
     - org.clojure/clojure      ↔ `implementation/core/deps.edn` :deps
     - org.clojure/clojurescript ↔ `implementation/core/deps.edn` :deps
 
+  One pin OUTSIDE the template rides along, and deliberately:
+  `skills/re-frame2-pair/tests/fixture/package.json`'s react / react-dom
+  ↔ `implementation/package.json` (rf2-ajnk, ruled 2026-09-13: that
+  fixture TRACKS the project's React). It lives here rather than beside
+  the fixture because this suite is the gate the classifier arms on an
+  `implementation/package.json` change, which is exactly the move that
+  left the fixture behind on 18.3.1 — no fixture-side lane runs then.
+
   The package.json reader searches both `:dependencies` and
   `:devDependencies` (first hit wins) so the guard doesn't false-fail
   if the impl tree ever relocates a pin between the two sections.
@@ -75,23 +83,27 @@
   JSON library — the template test artefact has no JSON dep today, and
   the package.json shape is stable enough that a regex (the section
   body, then `\"pkg\": \"value\"` inside it) reads simply and fails
-  loudly on shape drift."
-  [pkg]
-  (let [text     (slurp (io/file (repo-root) "implementation/package.json"))
-        section  (fn [name]
-                   ;; Find `"<name>": { ... }`; the closing brace ends at
-                   ;; the first `}` after the section name.
-                   (some-> (re-find (re-pattern (str "\"" name "\":\\s*\\{([^}]*)\\}"))
-                                    text)
-                           second))
-        pin      (some #(some-> (section %) (pin-from-json-text pkg))
-                       ["dependencies" "devDependencies"])]
-    (when-not pin
-      (throw (ex-info (str "Couldn't find pin for " pkg
-                           " in :dependencies or :devDependencies of "
-                           "implementation/package.json")
-                      {:pkg pkg})))
-    pin))
+  loudly on shape drift.
+
+  The two-arity form reads the same way from another repo-relative
+  package.json (the re-frame2-pair fixture's, below)."
+  ([pkg] (read-package-json-pin "implementation/package.json" pkg))
+  ([rel-path pkg]
+   (let [text     (slurp (io/file (repo-root) rel-path))
+         section  (fn [name]
+                    ;; Find `"<name>": { ... }`; the closing brace ends at
+                    ;; the first `}` after the section name.
+                    (some-> (re-find (re-pattern (str "\"" name "\":\\s*\\{([^}]*)\\}"))
+                                     text)
+                            second))
+         pin      (some #(some-> (section %) (pin-from-json-text pkg))
+                        ["dependencies" "devDependencies"])]
+     (when-not pin
+       (throw (ex-info (str "Couldn't find pin for " pkg
+                            " in :dependencies or :devDependencies of "
+                            rel-path)
+                       {:pkg pkg :package-json rel-path})))
+     pin)))
 
 ;; --- deps.edn :mvn/version readers --------------------------------------
 
@@ -179,6 +191,19 @@
                    "implementation/package.json :react-dom (" pkg-react-dom ")")))
         (finally
           (delete-recursively tmp))))))
+
+(deftest pair-fixture-react-lockstep
+  ;; Not a template literal — see the ns docstring for why it rides here.
+  (testing "re-frame2-pair fixture's react / react-dom match implementation/package.json"
+    (let [fixture "skills/re-frame2-pair/tests/fixture/package.json"]
+      (doseq [pkg ["react" "react-dom"]]
+        (let [impl-pin    (read-package-json-pin pkg)
+              fixture-pin (read-package-json-pin fixture pkg)]
+          (is (= impl-pin fixture-pin)
+              (str fixture " " pkg " (" fixture-pin ") must match "
+                   "implementation/package.json (" impl-pin ") — the fixture "
+                   "TRACKS the project's React (rf2-ajnk). Bump its "
+                   "devDependencies in the same change.")))))))
 
 (deftest shadow-version-lockstep
   (testing "Template's :shadow-version literal matches implementation/package.json"
