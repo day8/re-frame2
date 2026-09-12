@@ -498,9 +498,14 @@ namespace docstring (see `tools/xray/src/day8/re_frame2_xray/registry.cljs`).
 
 ### Adapter resolution
 
-Xray renders pure hiccup, so it can mount only through a host adapter
-whose `:render` slot accepts hiccup render-trees — the **ratom family**
-(stock Reagent, Reagent-slim). The React-hook substrates (UIx, Fresco)
+Since rf2-k97c.3 Xray does **not** mount through the host adapter's
+`:render` at all — its shell is a `re-frame.fresco` boundary painted
+through Xray's **own** React root, so the host's render shape no longer
+decides whether Xray can paint, and the refusal set out below is a
+denylist that has outlived its cause rather than a statement about what
+Xray can render (retiring it is rf2-k97c.4; until that lands the mount
+verbs still refuse on those hosts exactly as described here). The
+React-hook substrates (UIx, Fresco)
 share an **element-shaped** `render` that hands the tree to React
 untouched; a hiccup shell mounted there
 reaches React children as raw CLJS data (fn-as-child console.error

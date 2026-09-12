@@ -14,16 +14,18 @@
   `static/shell_fresco_boundary_dom_cljs_test`, which asks the same two
   questions of the Static surface.
 
-  ## The mount is the PRODUCTION mount
+  ## The mount is the PRODUCTION mount, and since rf2-k97c.3 that means
+  ## XRAY'S OWN ROOT
 
-  `mount.cljs` renders `[rf/frame-provider {:frame …} [shell/shell-view
-  {…}]]` through the installed adapter's `:render`. `shell-view` is still
-  an `rf/reg-view` — severing that call is the parent epic's coupling (1)
-  and a later slice — and it reaches the Fresco tree through ONE private
-  `as-component` bridge. So mounting that same two-level form into a
-  Reagent root IS the shipped path, crossing included, and nothing here
-  reproduces it. [[mount-shell!]] records why the outer provider is not
-  decoration.
+  `mount.cljs` no longer calls the installed adapter's `:render` at all.
+  It owns a Fresco client root and renders `[rf.fresco/frame-provider
+  {:frame …} [shell/ShellView {…}]]` through it, which is the epic's
+  coupling (1) severed — and it is exactly the two-level form
+  [[mount-shell!]] builds below, so these rows drive the shipped path
+  rather than a reproduction of it. The private `as-component` bridge the
+  shell used to reach the Fresco tree through is gone: there is no longer
+  a crossing to bridge. [[mount-shell!]] records why the outer provider is
+  not decoration, and why the re-point is itself this PR's evidence.
 
   Nothing below ever calls a view a second time. Every assertion after
   the mount reads `container.querySelector…` — the DOM React committed
@@ -56,14 +58,16 @@
   reports the skip rather than passing silently."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [reagent.dom.client :as rdc]
-            ["react-dom" :as react-dom]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [reagent.dom.client :as rdc]
+            ["react-dom" :as react-dom]
+            [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.test-support :as rf.test-support]
+            [day8.re-frame2-xray.panels :as panels]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
@@ -80,6 +84,17 @@
   "A second live frame W2 dispatches into as its DEAF LEVER — the
   negative control. A write here must move nothing in the shell above."
   ::other)
+
+(def ^:private embed-app-frame
+  "W5's INSPECTED APPLICATION frame — the one a Story host owns and paints
+  its own tree under. Its epoch ring is what must stay untouched."
+  ::embed-app)
+
+(def ^:private embed-xray-frame
+  "W5's embed frame — the `:frame` opt `panels/mount-shell!` forwards as
+  the shell's own `:frame-id`. Distinct from [[shell-frame]] so W5 cannot
+  ride a frame another row seated."
+  ::embed-xray)
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -160,42 +175,61 @@
   nil)
 
 (defn- mount-shell!
-  "Mount the shell the way `mount.cljs` mounts it — the OUTER
-  `frame-provider` included:
+  "Mount the shell the way `mount.cljs` mounts it SINCE THE ROOT SWAP —
+  through XRAY'S OWN Fresco root, with the OUTER `frame-provider`
+  included:
 
-      [rf/frame-provider {:frame …} [shell/shell-view {…}]]
+      (h/render! handle [h/frame-provider {:frame …} [shell/ShellView {…}]]
+                 container)
 
-  THAT WRAPPER IS LOAD-BEARING AND THIS ROW MEASURED IT. `shell-view` is
-  itself an `rf/reg-view`, and a `reg-view`'s frame-aware wrapper takes
-  its scope from React context; at a bare root there is none, so the
-  first frame-scoped call in its body refuses with
-  `:rf.error/no-frame-context` and NOTHING commits. `mount.cljs:396`
-  carries the provider for its own documented reason (rf2-uu3lp — so the
-  shell's render trace resolves to the trace-disabled `:rf/xray` frame
-  rather than leaking into the inspected app's epoch), and a suite that
-  drops it is not mounting what production mounts.
+  ## THIS RE-POINT IS THE PR'S EVIDENCE, NOT A PORT OF IT
+
+  It used to read `(rdc/create-root …)` and `(rdc/render root [rf/frame-
+  provider … [shell/shell-view …]])` — a REAGENT root rendering a
+  `reg-view`, which is what `mount.cljs` did by calling the installed
+  adapter's `:render`. Under the old door that call was the only one that
+  worked and this one could not: `shell/ShellView` did not exist, and a
+  boundary head is not a legal Reagent hiccup head. Under the new door it
+  is the other way round. So the same four rows below, unchanged in what
+  they assert, are RED against trunk and GREEN here — which is the epic's
+  coupling (1) being severed, measured rather than described.
+
+  THE WRAPPER IS STILL LOAD-BEARING, for a NEW reason with the OPPOSITE
+  failure mode. It used to be about a `reg-view`'s render trace; a Fresco
+  boundary emits none. What it does now is give `ShellView`'s two ambient
+  `rf.fresco/sub` reads their frame — drop it and the shell refuses with
+  `:rf.error/no-frame-context` and nothing commits. That is sabotage plant
+  1, and it is the direct control on the epic's coupling (2).
 
   The provider frame and the shell's `:frame-id` are the same value here,
   as they are in production.
 
-  Committed synchronously — React 19's `root.render` is otherwise async
-  and the first assertion would read an empty container."
+  NO `flushSync` OF OUR OWN: `h/render!` renders inside one already
+  (`impl/mount.cljs`'s `root!`), and nesting `flushSync` is a React
+  warning. The commit is synchronous either way, so the first assertion
+  reads a populated container."
   [frame]
   (let [container (.createElement js/document "div")
-        root      (rdc/create-root container)]
+        handle    (rf.fresco/client-root)]
     (.appendChild (.-body js/document) container)
-    (react-dom/flushSync
-      (fn []
-        (rdc/render root [rf/frame-provider {:frame frame}
-                          [shell/shell-view {:frame-id frame}]])))
-    {:container container :root root}))
+    (rf.fresco/render! handle
+                       [rf.fresco/frame-provider {:frame frame}
+                        [shell/ShellView {:frame-id frame}]]
+                       container)
+    {:container container :root handle}))
 
 (defn- teardown!
-  "Unmount inside `flushSync` so React's cleanup effects — which is where
-  the collector releases a boundary's reads — have RUN by the time the
-  next line reads anything. A bare `.unmount` schedules them."
+  "Release the root through Fresco's own door, so React's cleanup effects
+  — which is where the collector releases a boundary's reads — have RUN by
+  the time the next line reads anything.
+
+  `h/unmount!` unmounts inside `flushSync` itself, so no bare `.unmount`
+  and no wrapper of ours. And it is `unmount!` rather than `release!`
+  DELIBERATELY: `release!` ends with `reset-runtime!`, which empties the
+  collector's tables, so W4's residue assertions would read ZERO whatever
+  the teardown did and could never turn red."
   [root container]
-  (react-dom/flushSync (fn [] (.unmount root)))
+  (rf.fresco/unmount! root)
   (.remove container))
 
 ;; ---- the diagnostic ------------------------------------------------------
@@ -754,4 +788,164 @@
                        ;; hold a mounted root, and a live root leaks into the
                        ;; next namespace's baseline.
                        (unmount!)
+                       (done)))))))))
+
+;; ===========================================================================
+;; W5 — the EMBED door (`panels/mount-shell!`), and the C5 measurement the
+;;      root-swap plan owed
+;; ===========================================================================
+;;
+;; TWO QUESTIONS IN ONE ROW, because they share a mount.
+;;
+;; (1) THE EMBED DOOR STILL WORKS. `panels/mount-shell!` is the entry a Story
+;;     or a custom dev surface uses, and it mounts `[shell/shell-view {…}]`
+;;     from a REAGENT tree through the installed adapter's `:render`. After
+;;     the root swap `shell-view` is no longer a `reg-view` — it is the public
+;;     callable bridge, answering the React element `ShellView` lowers to via
+;;     `rf.fresco/as-element`. Nothing in the node lane can see whether that
+;;     crossing actually commits: `panels_mount_cljs_test` stubs the adapter
+;;     and captures the hiccup `[shell/shell-view {…}]` BEFORE the bridge is
+;;     ever called, so its rows stay green whatever the bridge returns. This
+;;     row calls it for real.
+;;
+;;     AND `as-element` RATHER THAN `as-component` IS WHAT THIS ROW GRADES.
+;;     Every opt is a KEYWORD, and a Reagent `[:>]` crossing converts
+;;     values — `:frame-id ::shell` would arrive as the STRING
+;;     "day8.re-frame2-xray.shell-fresco-boundary-dom-cljs-test/shell",
+;;     naming a frame that does not exist. The frame assertions below are
+;;     what separate a bridge that carried its opts from one that flattened
+;;     them.
+;;
+;; (2) C5'S OPEN QUESTION, ANSWERED BY MEASUREMENT. The root-swap plan raised
+;;     `mount-shell!`'s missing outer `frame-provider` as a POSSIBLE third
+;;     rf2-tqlmq instance and said so explicitly as a question rather than a
+;;     finding — "whether it leaks depends on what frame a Story or custom
+;;     host has in scope, which was not measured". This measures it, in the
+;;     configuration the question was about: an application that owns a live
+;;     frame, its own Reagent root painting under `[rf/frame-provider {:frame
+;;     app}]`, and the Xray embed mounted at a node INSIDE that root's DOM.
+;;
+;;     THE ANSWER TURNS ON A FACT ABOUT REACT RATHER THAN ABOUT XRAY, which
+;;     is why reading the source was never going to settle it: `mount-shell!`
+;;     goes through `rf.substrate.adapter/render`, which creates its OWN
+;;     React root at the node it is given, and REACT CONTEXT DOES NOT CROSS A
+;;     ROOT BOUNDARY. DOM nesting is not React nesting. So the host's
+;;     `frame-provider` is not in scope inside the embed however deeply the
+;;     node is nested, and there is no host frame to fall through TO — which
+;;     is what the plan's "depends what the host has in scope" was worried
+;;     about.
+;;
+;;     Since rf2-k97c.3 the point is doubly moot and in the better direction:
+;;     the bridge opens its OWN provider around `frame-id`, so the embed is
+;;     positively scoped rather than merely unexposed, and a Fresco boundary
+;;     emits no view-render trace for a ring to collect in the first place.
+;;     The row asserts the outcome — the app's epoch ring is untouched in
+;;     COUNT and CONTENTS across a real Xray interaction — so it keeps biting
+;;     whichever of those three reasons a future change removes.
+
+(defn- mount-embed!
+  "The Story-host shape: an application Reagent root painting under its own
+  `[rf/frame-provider {:frame app-frame}]`, with the Xray embed mounted
+  through `panels/mount-shell!` at a node INSIDE that root's DOM."
+  [app-frame xray-frame]
+  (let [app-container (.createElement js/document "div")
+        app-root      (rdc/create-root app-container)
+        embed-node    (.createElement js/document "div")]
+    (.appendChild (.-body js/document) app-container)
+    (react-dom/flushSync
+      (fn []
+        (rdc/render app-root
+                    [rf/frame-provider {:frame app-frame}
+                     [:div {:data-testid "host-app-surface"} "host app"]])))
+    ;; The embed node is a DOM child of the host's painted tree, which is
+    ;; exactly the nesting a Story cell has — and exactly the nesting that
+    ;; does NOT make it a React descendant.
+    (.appendChild app-container embed-node)
+    {:app-container app-container
+     :app-root      app-root
+     :embed-node    embed-node
+     ;; `mount-shell!` answers the adapter's own unmount fn; there is no
+     ;; `panels/unmount-shell!` facade.
+     :unmount       (panels/mount-shell! embed-node {:frame xray-frame
+                                                     :mode  :inline})}))
+
+(deftest w5-the-embed-door-mounts-and-never-touches-the-host-frames-ring
+  (testing "rf2-k97c.3 — `panels/mount-shell!` still paints the shell after
+            the root swap, carries its KEYWORD opts across the bridge
+            intact, and a real Xray chrome interaction leaves the inspected
+            application frame's epoch history unchanged in count AND
+            contents. The C5 measurement, taken rather than assumed."
+    (if-not (browser?)
+      (is true "skipped: no DOM (node lane)")
+      (async done
+        (setup!)
+        (rf/make-frame {:id embed-app-frame})
+        (rf/reg-event :w5/app-inc (fn [{:keys [db]} _]
+                                    {:db (update db :n (fnil inc 0))}))
+        ;; One real application event FIRST, so the ring under inspection is
+        ;; non-empty and `unchanged` below is a claim about real records.
+        (rf/dispatch-sync [:w5/app-inc] {:frame embed-app-frame})
+        (let [{:keys [app-container embed-node unmount]}
+              (mount-embed! embed-app-frame embed-xray-frame)
+              tab-testid (fn [] (some-> (detail-panel-node embed-node)
+                                        (.getAttribute "data-testid")))
+              !before    (atom nil)]
+          (-> (poll-until tab-testid)
+              (.then
+                (fn [_]
+                  (is (some? (testid embed-node "rf-xray-shell"))
+                      (str "the EMBED door commits the shell envelope — the "
+                           "`shell-view` bridge crossed into Xray's own "
+                           "Fresco tree from a Reagent parent"
+                           (uncaught-note)))
+                  (is (some? (testid embed-node "rf-xray-tab-bar"))
+                      "and the migrated L3 tab bar with it")
+                  ;; THE KEYWORD-CROSSING CLAIM. If the opts had gone through
+                  ;; a Reagent `[:>]` conversion, `:frame-id` would be a
+                  ;; string and this frame would hold nothing.
+                  (is (= :epoch (selected-tab-in embed-xray-frame))
+                      (str "the embed's own frame — named by the KEYWORD the "
+                           "bridge carried — holds the shell's state. Got: "
+                           (pr-str (selected-tab-in embed-xray-frame))))
+                  (reset! !before (vec (rf/epoch-history embed-app-frame)))
+                  (is (seq @!before)
+                      "instrument control: the host app's ring is NON-EMPTY,
+                       so `unchanged` below is a claim about real records")
+                  ;; THE ACT: a real click on the embedded chrome.
+                  (if (click! (tab-node embed-node clicked-tab)
+                              (str "the embedded L3 " (name clicked-tab)
+                                   " tab button"))
+                    (poll-until #(= (panel-testid-for clicked-tab) (tab-testid)))
+                    (js/Promise.resolve nil))))
+              (.then
+                (fn [_]
+                  (is (= (panel-testid-for clicked-tab) (tab-testid))
+                      (str "NON-VACUITY: the embedded chrome actually "
+                           "RESPONDED to the click, so the untouched ring "
+                           "below is about a live shell rather than a dead "
+                           "one. Got: " (pr-str (tab-testid))))
+                  (is (= clicked-tab (selected-tab-in embed-xray-frame))
+                      "and the write landed in the embed's OWN frame")
+                  (let [after (vec (rf/epoch-history embed-app-frame))]
+                    (is (= (count @!before) (count after))
+                        (str "C5 MEASURED: the embed adds NO epoch record to "
+                             "the host application's ring. Was "
+                             (count @!before) ", now " (count after)))
+                    (is (= @!before after)
+                        "and leaves every existing record byte-identical —
+                         the missing outer provider `mount-shell!` never had
+                         is not a leak, and cannot become one"))
+                  ;; The ring is LIVE, not merely quiet.
+                  (rf/dispatch-sync [:w5/app-inc] {:frame embed-app-frame})
+                  (is (not= @!before (vec (rf/epoch-history embed-app-frame)))
+                      "control: a genuine APPLICATION event DOES move the
+                       same ring — the equality above is Xray being absent,
+                       not the instrument being deaf")))
+              (.catch (fn [e]
+                        (is false (str "W5 never settled: " (.-message e)
+                                       (uncaught-note)))
+                        nil))
+              (.then (fn [_]
+                       (when unmount (unmount))
+                       (.remove app-container)
                        (done)))))))))

@@ -132,11 +132,14 @@
   inside a boundary body is a LOUD REFUSAL rather than a silent
   fall-through to `:rf/default`, which is the whole point.
 
-  [[shell-view]] is STILL an `rf/reg-view`, deliberately: it is the
-  Reagent root `mount.cljs` renders through the installed adapter's
-  `:render`, and severing that is the parent epic's coupling (1) — a
-  later slice. It reaches the Fresco tree through ONE private
-  `as-component` bridge.
+  [[ShellView]] IS ONE TOO, as of the root swap, and it is the eighth:
+  the shell no longer paints through the installed adapter's `:render`
+  at all — `mount.cljs` owns a Fresco root and heads [[ShellView]] under
+  its own `rf.fresco/frame-provider`. That is the parent epic's coupling
+  (1), severed. [[shell-view]] survives as the public CALLABLE every
+  Reagent caller already holds, and answers the element [[ShellView]]
+  lowers to; the private `as-component` bridge it used to reach the
+  Fresco tree through is gone, because there is no longer a crossing.
 
   Each boundary's body is thin: it reads, and calls a pure `*-tree` fn
   that owns the hiccup. That is `defview`'s own documented
@@ -2988,56 +2991,21 @@
   read swaps the entire surface, so nothing below needs to see it.
 
   The argument is the ordinary one-props-map vector every `defview`
-  takes. [[surface-bridge]] mounts it with none, so it is destructured
-  away."
+  takes. [[ShellView]] heads it with none, so it is destructured away."
   [_props]
   (surface-composer-tree (rf.fresco/sub [:rf.xray/mode])
                          [static-shell/surface {}]
                          [dynamic-chrome {}]))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the migration bridge (rf2-k97c.3) — RETIRED -------------------------
 ;;
-;; Xray's mount path still paints through the INSTALLED ADAPTER's
-;; `:render` (`mount.cljs:396` and the pop-out at `:1688`), so
-;; [[shell-view]] is still an `rf/reg-view` — a Reagent tree — and a
-;; React component is not a legal hiccup head there. Severing that call
-;; is the epic's coupling (1) and is a LATER slice; this bridge is what
-;; keeps the tree green at every step in between.
-;;
-;; `rf.fresco/as-component` is Fresco's own outward door for exactly
-;; this: it answers a real React component for a boundary, which a React
-;; parent (Reagent, UIx or plain JavaScript) mounts UNDER THE FRAME IT IS
-;; ALREADY IN, taking the frame from React context rather than from a
-;; second root. So there is no second root here, no adapter-kind branch,
-;; and no props ABI.
-;;
-;; THE BRIDGE IS PRIVATE, and that is measured rather than defaulted:
-;; [[shell-view]] is the only caller and it lives in this namespace, so no
-;; name has to cross. `surface-composer` itself KEEPS THE NATURAL NAME —
-;; the #9581 spelling the mayor's RULING 1 fixed as the surviving one —
-;; and neither `spec/api-manifest.edn` nor its curated sidecar rows
-;; anything in this namespace, so no hot-zone file moves.
-;;
-;; THIS IS SCAFFOLDING WITH A DEFINED END. When `mount.cljs` owns a
-;; Fresco root, `shell-view` becomes a boundary too, it heads
+;; `surface-composer-component` and `surface-bridge` lived here. Their own
+;; comment named the condition that deletes them — "when `mount.cljs` owns
+;; a Fresco root, `shell-view` becomes a boundary too, it heads
 ;; `surface-composer` directly, `[:>]` goes, and both defs below are
-;; deleted.
-
-(def ^:private surface-composer-component
-  "The React component [[surface-composer]] presents as, for a non-Fresco
-  parent. Declared once at top level beside the view, as
-  `rf.fresco/as-component`'s contract requires — deriving it per render
-  would mint a new component type every time and remount the whole
-  Dynamic surface on each parent render."
-  (rf.fresco/as-component surface-composer))
-
-(defn ^:private surface-bridge
-  "The callable [[shell-view]] mounts. Returns Reagent-shaped hiccup
-  interoping to the React component above; the shell's enclosing
-  `rf/frame-provider` is what puts the instance frame in React context
-  for it."
-  []
-  [:> surface-composer-component {}])
+;; deleted" — and this is that commit. [[ShellView]] heads
+;; `surface-composer` directly below, so nothing crosses out of Fresco and
+;; back in.
 
 ;; ---- shell view ----------------------------------------------------------
 
@@ -3048,28 +3016,40 @@
   opts, the live lens mode and its ONE already-composed surface node.
 
   SPLIT OUT OF [[shell-view]] BY rf2-k97c.3. Genuinely shared between the
-  two lanes rather than reproduced for them: [[shell-view]] passes
-  `[surface-bridge]` (the `as-component` crossing into the Fresco tree)
-  and `test-helpers.dynamic-shell-tree` passes the chrome's
-  already-expanded plain hiccup, so a node-lane row that walks this
-  envelope walks the shipped definitions of the testids, the flex column,
-  the landmark role and every modal mount.
+  two lanes rather than reproduced for them: [[ShellView]] passes
+  `[surface-composer {}]` and `test-helpers.dynamic-shell-tree` passes the
+  chrome's already-expanded plain hiccup, so a node-lane row that walks
+  this envelope walks the shipped definitions of the testids, the flex
+  column, the landmark role and every modal mount.
 
-  EVERYTHING HERE IS STILL REAGENT and stays so until the epic's coupling
-  (1) is severed: the seven modals are `rf/reg-view`s mounted from a
-  `reg-view` tree, which is exactly what they have always been. They are
-  NOT islands — nothing above them is a boundary.
+  ## rf2-k97c.3 — THIS IS A FRESCO TREE NOW, AND THAT IS WHY THE MOUNTS
+  ## BELOW ARE CALLS RATHER THAN HEADS
 
-  `resize-handle/Handle` is the one name here that is no longer a
-  `reg-view`, and it changes nothing at this mount site (rf2-k97c.3).
-  Its file migrated, so `Handle` is now a plain fn answering `[:> …]`
-  over Fresco's `as-component` bridge — which this Reagent tree heads
-  exactly as it always headed the `reg-view`, and which takes the
-  instance frame from the `rf/frame-provider` below through React
-  context. The mode gate stayed on this side of that crossing because
-  `as-component` round-trips prop names but not prop VALUES, and `mode`
-  is a keyword; `Handle` still takes it positionally, so the call below
-  is untouched."
+  [[ShellView]] is a `rf.fresco/defview`, so everything this fn returns is
+  lowered by Fresco's codec. A PLAIN FUNCTION IN HEAD POSITION IS A LOUD
+  ERROR THERE (`:rf.error/fresco-bad-head`, HD-016), and every name below
+  is exactly that: each modal's public `Modal` / `Popup` / `Toast` /
+  `Popover` is the RULING 1 bridge its own file kept — a plain fn
+  answering `[:> …]` over `rf.fresco/as-component` — because a Reagent
+  parent still heads it elsewhere (`panels.cljs`'s `render-panel!`, and
+  each file's own boundary witness suite). So the bridges STAY, and this
+  file stops HEADING them and CALLS them instead: `(palette/Modal)`
+  answers the same `[:> …]` escape, which IS a legal Fresco head form.
+  That is this bead's own ruled call-site rule for a shared plain fn
+  (\"a migrating panel CALLS them — `(mini v 40)` — which is correct on
+  both substrates\"), and it is what Fresco's own refusal message
+  prescribes: *call it, or make it a view*.
+
+  A REG-VIEW CENSUS CANNOT SEE THIS. Slices B1-B6 retired every
+  `rf/reg-view` under these names, which is what the step-0 precondition
+  measures — and replaced each with a plain-fn bridge, which grades
+  `:invalid` down the identical arm. The precondition passing is
+  therefore not evidence that the heads are legal; only the head kind is.
+
+  `resize-handle/Handle` keeps its positional `mode` argument for the
+  reason its own docstring gives — `as-component` round-trips prop names
+  but not prop VALUES, and `mode` is a keyword — so it is called with it,
+  and answers nil outside `:inline` exactly as it did."
   [{:keys [mode modal-positioning lens-mode frame-id]} surface*]
    ;; rf2-uu3lp — the outer `<div>` IS the shell-view's root so the
    ;; source-coord walk has a DOM node to annotate (Spec 006
@@ -3136,7 +3116,7 @@
     ;; Every subscribing child below is wrapped so the instance
     ;; `frame-id` flows through React-context (rf2-lnluk — the provider
     ;; frame is the parameterized instance frame, default `:rf/xray`).
-    [rf/frame-provider {:frame frame-id}
+    [rf.fresco/frame-provider {:frame frame-id}
     ;; Left-edge horizontal resize handle (rf2-x8h9y) — only renders
     ;; in `:inline` (right-rail) mode. Position-absolute pins it to
     ;; the LEFT edge of this flex container; the outer div is
@@ -3145,7 +3125,7 @@
     ;; `:rf.xray/set-panel-width-px`, which clamps + persists +
     ;; pushes `--rf-xray-inline-width` onto the layout host so the
     ;; host's `flex-basis` re-evaluates this paint.
-    [resize-handle/Handle mode]
+    (resize-handle/Handle mode)
     ;; Mode-aware surface (rf2-o5f5f.1). The composer reads
     ;; `:rf.xray/mode` and renders either the Dynamic 4-layer
     ;; chrome or the Static 3-layer surface. Per rf2-8l3uk the
@@ -3165,19 +3145,19 @@
     ;; overlays the chrome. Modal short-circuits to nil when
     ;; `:rf.xray/palette-open?` is false; closed-state cost is one
     ;; subscribe + when-gate.
-    [palette/Modal]
+    (palette/Modal)
     ;; Filter edit popup (rf2-ak4ms) — mounted at shell root so it
     ;; overlays the chrome AND the palette modal (the popup's z-index
     ;; is one above the palette so an edit opened from a palette
     ;; context wins focus). Modal short-circuits to nil when
     ;; `:rf.xray/edit-popup-open?` is false; closed-state cost is
     ;; one subscribe + when-gate.
-    [filters/Modal]
+    (filters/Modal)
     ;; Settings popup (rf2-9poxq) — same mount discipline as the
     ;; palette + edit popup: shell-root mount so subscribes resolve
     ;; through the shell's `:rf/xray` frame-provider, and the modal
     ;; short-circuits to nil when `:rf.xray/settings-open?` is false.
-    [settings-popup/Modal]
+    (settings-popup/Modal)
     ;; Open-in-editor 'pick an editor in Settings' hint toast
     ;; (rf2-4s08ov). Same shell-root mount discipline as the modals so
     ;; its subscribe resolves through the `:rf/xray` frame-provider; the
@@ -3186,7 +3166,7 @@
     ;; Shown when an open-in-editor chip is clicked but no editor is
     ;; effectively configured (host never set `:rf.xray/editor`, no
     ;; operator override) — instead of the silent `vscode:` no-op.
-    [editor-hint/Toast]
+    (editor-hint/Toast)
     ;; Cancellation-cascade popover (rf2-59e7k) — single waterfall view
     ;; of the rf2-wvkn cancellation contract. Opened from the Trace tab
     ;; (right-click a destroy-event row → 'Show cancellation event-bundle')
@@ -3194,7 +3174,7 @@
     ;; mount discipline as the other popovers: shell-root mount so
     ;; subscribes resolve through the `:rf/xray` frame-provider;
     ;; closed-state cost is one subscribe + a when-gate.
-    [cancellation-cascade/Popover]
+    (cancellation-cascade/Popover)
     ;; rf2-nugvv (2026-06-04) — the Share modal (rf2-nqw0v Phase 5) is
     ;; removed. The Machine panel's Share button was its sole UI entry
     ;; point, so the modal, its shell mount, and the share-URL infra
@@ -3204,20 +3184,20 @@
     ;; mount discipline as the other modals: shell-root mount so the
     ;; subscribes resolve through the `:rf/xray` frame-provider;
     ;; closed-state cost is one subscribe + a when-gate.
-    [spine-filters/Modal]
+    (spine-filters/Modal)
     ;; Row context menu (rf2-ikuwt) — small floating popover opened
     ;; by right-click on an L2 event row. Carries 'Mute <event-id>'
     ;; + 'Always hide this event-type…'. Mounted at shell-view root
     ;; so the menu floats above the L2 list's overflow:hidden
     ;; clipping. Closed-state cost is one subscribe + a when-gate.
-    [spine-filters/RowContextMenu]
+    (spine-filters/RowContextMenu)
     ;; App-DB segment-inspector popup (rf2-e9tb0) — opens when any
     ;; path-segment in the App-DB Diff breadcrumb is clicked. Same
     ;; mount discipline as the other modals: shell-root mount so the
     ;; popup's subscribes resolve through the shell's `:rf/xray`
     ;; frame-provider; closed-state cost is one subscribe + a when-
     ;; gate.
-    [app-db-segment-inspector/Popup]
+    (app-db-segment-inspector/Popup)
     ;; Data-display popup stack (rf2-l4625) — overlay surface for the
     ;; "open in popup" affordance on per-panel `[ei/edn-inspector]`
     ;; mounts. Reads `:rf.xray.edn-inspector-popup/stack` + `/entries`;
@@ -3225,14 +3205,47 @@
     ;; one subscribe + a when-gate). Mount discipline matches the
     ;; other modal stacks: shell-root mount so the stack's subscribes
     ;; resolve through the shell's `:rf/xray` frame-provider.
-    [edn-inspector-popup/edn-inspector-popup-stack]]])
+    (edn-inspector-popup/edn-inspector-popup-stack)]])
 
-(rf/reg-view shell-view
-  "The full Xray shell — wraps the 4-layer chrome in a frame-provider
-  so descendant `subscribe` / `dispatch` resolve to the isolated
-  frame. Default `:inline` mode renders in normal document flow inside
-  the app-provided right layout host. `:overlay` and `:popout` remain
-  available debug/manual modes.
+(rf.fresco/defview ShellView
+  "The full Xray shell as a FRESCO BOUNDARY — the head `mount.cljs`
+  renders through Xray's OWN React root (rf2-k97c.3, the epic's coupling
+  (1)). Wraps the 4-layer chrome in a frame-provider so descendant reads
+  and dispatches resolve to the isolated frame. Default `:inline` mode
+  renders in normal document flow inside the app-provided right layout
+  host; `:overlay` and `:popout` remain available debug/manual modes.
+
+  ## What replaced the `rf/reg-view`, and what did not
+
+  This was an `rf/reg-view` painted through the INSTALLED ADAPTER's
+  `:render`. It is now a boundary Fresco paints through its own root, so
+  Xray no longer needs the host to own a renderer that accepts hiccup —
+  which is the whole of what made Xray refuse element-shaped adapters.
+  [[shell-view]] below keeps the public NAME as a callable bridge, so
+  every Reagent caller (`panels.cljs`'s `mount-shell!`, the panel-gallery
+  testbed) is untouched.
+
+  ## THE PROVIDER ABOVE THIS HEAD IS PART OF THE CONTRACT
+
+  Both reads below are `rf.fresco/sub`, so they take their frame from
+  REACT CONTEXT rather than from an argument, and they must resolve to
+  the SAME frame as `:frame-id`. Both doors honour that by construction
+  and neither may drop it:
+
+    * `mount.cljs` renders `[rf.fresco/frame-provider {:frame
+      shell/default-frame-id} [ShellView {:mode …}]]`, and passes no
+      `:frame-id`, so the default IS that frame.
+    * [[shell-view]] wraps this head in a provider naming the very
+      `:frame-id` it forwards.
+
+  AN EXPLICITLY-FRAMED `rf/subscribe` IS NOT AN ALTERNATIVE HERE, and the
+  failure is silent. `(rf/subscribe q {:frame frame-id})` is admitted
+  inside a body and answers the right value, but it contributes ZERO
+  collector edges (HD-002 clause (a)'s forbidden class) — so the shell
+  would paint correctly on first render and then NEVER RE-RENDER when
+  `:rf.xray/mode` moved. Nothing errors. Dropping the provider instead is
+  LOUD (`:rf.error/no-frame-context`), which is why the provider is the
+  contract and the ambient read is the mechanism.
 
   ## `:frame-id` opt (rf2-lnluk) — de-singletoned shell frame
 
@@ -3242,31 +3255,9 @@
   side-by-side (the panel-gallery `:variants-grid`, a Story workspace)
   pass DISTINCT `:frame-id`s so each cell's state (focused epoch,
   selected tab, theme) is fully isolated — driving one shell does not
-  move the others.
-
-  The frame-id flows two ways: it parameterizes the wrapping
-  `[frame-provider {:frame frame-id}]` (so every reg-view descendant
-  resolves to it through React-context), AND it backs the few
-  out-of-render subscribes/dispatches `shell-view` itself issues from
-  OUTSIDE its own provider (the modal-positioning + mode reads below).
-  Handlers register GLOBALLY once under `:rf.xray/*`; only the frame-id
-  for app-db isolation threads through (no per-instance registration).
-
-  ## rf2-k97c.3 — this one stays an `rf/reg-view`, and deliberately
-
-  Everything under [[surface-composer]] is a Fresco boundary now, but
-  `shell-view` is the ROOT `mount.cljs` renders through the installed
-  adapter's `:render` (`mount.cljs:396`, and the pop-out at `:1688`).
-  Severing that call is the parent epic's coupling (1) and is a later
-  slice; until then the root must stay a Reagent tree, and it reaches
-  the Fresco tree through the one private `surface-bridge` above.
-
-  The shell-view itself sits OUTSIDE its own frame-provider (it's the
-  mount root) so React-context inside `shell-view`'s body still resolves
-  to the default — hence the two explicit `{:frame frame-id}` reads
-  below. Every reading child is its own component (a `reg-view` for the
-  modals, a boundary for the chrome) so the surrounding Provider reaches
-  them.
+  move the others. Handlers register GLOBALLY once under `:rf.xray/*`;
+  only the frame-id for app-db isolation threads through (no
+  per-instance registration).
 
   ## `:modal-positioning` opt (rf2-om6fa)
 
@@ -3287,16 +3278,24 @@
   open?`) are now also per-instance — pass a distinct `:frame-id` per
   cell and opening Settings in one cell opens Settings in that cell
   only. (Cells that share a frame-id still share state — that's the
-  contract: one frame, one app-db.)"
-  [& [{:keys [mode modal-positioning frame-id]
-       :or   {mode :inline modal-positioning :fixed
-              frame-id default-frame-id}}]]
+  contract: one frame, one app-db.)
+
+  ## The two render-phase side effects, both deliberate
+
+  `global-styles/install!` already ran during render as a `reg-view` and
+  two testbeds rely on it; it is idempotent (`defonce` plus an id-keyed
+  DOM probe). The `dispatch-sync` is safe under a boundary for a reason
+  that is the collector's rather than this view's: `flush!` defers
+  notification to a macrotask while a body is running
+  (`impl/collector.cljs`), so the write cannot re-enter this render. The
+  `when` guard is what makes it quiesce — once the slot matches the prop
+  it short-circuits."
+  [{:keys [mode modal-positioning frame-id]
+    :or   {mode :inline modal-positioning :fixed
+           frame-id default-frame-id}}]
   ;; rf2-5kfxe.1 — wire Inter + JetBrains Mono once on first paint of
   ;; the shell. Idempotent (`defonce` + id-keyed DOM probe inside) so
-  ;; shadow-cljs `:after-load` and repeated mounts are no-ops. Future
-  ;; cluster commits extend this install with `@keyframes` + the
-  ;; reduced-motion seam so all global stylesheet writes converge on
-  ;; one entry point.
+  ;; shadow-cljs `:after-load` and repeated mounts are no-ops.
   (global-styles/install!)
   ;; Idempotent app-db write so every modal can read the positioning
   ;; via the `:rf.xray/modal-positioning` sub. Guarded against
@@ -3306,13 +3305,12 @@
   ;; children mount and read the sub on this same render pass; without
   ;; sync the first paint of a fresh shell would render every modal's
   ;; backdrop at the default `:fixed` before the async router drains.
-  ;; Sub + dispatch route via the instance `frame-id` so the read/write
-  ;; lands on THIS shell's app-db (`shell-view` itself sits OUTSIDE the
-  ;; `frame-provider` in the tree below — the React-context tier
-  ;; doesn't reach this call site, hence the explicit frame arg). Per
-  ;; rf2-lnluk the explicit frame is the instance `frame-id`, not a
-  ;; `:rf/xray` literal — N shells stay isolated.
-  (let [current-positioning @(rf/subscribe [:rf.xray/modal-positioning] {:frame frame-id})]
+  ;; The READ is ambient (the enclosing provider's frame, which is
+  ;; `frame-id` — see the docstring); the WRITE names `frame-id`
+  ;; explicitly because `dispatch-sync` is not a collector read and has
+  ;; no frame of its own. Per rf2-lnluk that is the instance frame-id,
+  ;; never a `:rf/xray` literal — N shells stay isolated.
+  (let [current-positioning (rf.fresco/sub [:rf.xray/modal-positioning])]
     (when (not= current-positioning modal-positioning)
       (rf/dispatch-sync [:rf.xray/set-modal-positioning modal-positioning]
                         {:frame frame-id})))
@@ -3326,9 +3324,55 @@
      ;; pulse dampening in Static). Post rf2-ad7zx.13 the Figma export
      ;; carries a SINGLE accent (GitHub blue) — the mode class no longer
      ;; re-points `--rf-xray-accent`, so the chrome accent is the same
-     ;; blue in both modes. Subscribed via the explicit instance
-     ;; `frame-id` (same shape as the modal-positioning read above —
-     ;; `shell-view` sits outside its own frame-provider; rf2-lnluk
-     ;; threads the instance frame, not a `:rf/xray` literal).
-     :lens-mode         @(rf/subscribe [:rf.xray/mode] {:frame frame-id})}
-    [surface-bridge]))
+     ;; blue in both modes. An AMBIENT collector read, so the shell
+     ;; actually re-renders when the mode moves.
+     :lens-mode         (rf.fresco/sub [:rf.xray/mode])}
+    [surface-composer {}]))
+
+(defn shell-view
+  "The shell's public callable — the name every REAGENT caller already
+  holds, and the one door `panels.cljs`'s `mount-shell!` and
+  `testbeds/panel_gallery` mount through, UNEDITED by rf2-k97c.3.
+
+  Since rf2-k97c.3 it is the migration bridge rather than the view:
+  [[ShellView]] is the boundary, and this answers the React element it
+  lowers to, already scoped to its frame.
+
+  ## Why `rf.fresco/as-element` and not `rf.fresco/as-component`
+
+  `as-component` is the tree's usual outward door and it is the WRONG one
+  here, for a reason its own contract states: a Reagent parent's `[:>]`
+  runs Reagent's `convert-prop-value` first, so NAMES round-trip across
+  that crossing and VALUES do not. Every opt this view takes is a
+  KEYWORD — `:inline`, `:fixed`, `:rf/xray` — and each would arrive as a
+  bare string, which for `:frame-id` means naming a frame that does not
+  exist. `resize-handle/Handle` met the same wall and answered it by
+  deciding in CLJS and crossing with no props; this view cannot, because
+  the opts are what it is parameterised BY.
+
+  `as-element` is Fresco's own explicit hiccup-to-ReactNode conversion,
+  so the props map crosses as a CLJS value by identity
+  (`codec/boundary-element` hands it over as `rfProps`) and the keywords
+  arrive as keywords. It mints nothing — the component type is
+  [[ShellView]]'s own, minted once by `defview` — so the once-at-top-level
+  rule `as-component` carries does not apply and no parent render can
+  remount the shell.
+
+  ## The provider is HERE rather than in the caller
+
+  `mount-shell!` adds no outer provider of its own — its docstring said
+  `shell-view` opens its own around `frame-id`, and that is now literally
+  true one level higher than it used to be. Opening it here means every
+  Reagent embed gets the instance frame for free, including [[ShellView]]'s
+  own two ambient reads, whatever frame the host happens to have in
+  scope. `shell-view-tree` opens a second provider at the same frame one
+  level down; that one is what the node lane walks, and a re-scope to the
+  frame already in scope costs a context read."
+  [& [{:keys [mode modal-positioning frame-id]
+       :or   {mode :inline modal-positioning :fixed
+              frame-id default-frame-id}}]]
+  (rf.fresco/as-element
+    [rf.fresco/frame-provider {:frame frame-id}
+     [ShellView {:mode              mode
+                 :modal-positioning modal-positioning
+                 :frame-id          frame-id}]]))

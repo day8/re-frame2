@@ -815,7 +815,38 @@
     of colliding on one app-db (rf2-lffg).
 
   Unlike the per-panel mounts, no outer `frame-provider` is added here:
-  `shell-view` opens its own around `frame-id`."
+  `shell-view` opens its own around `frame-id`. Since rf2-k97c.3 that is
+  true one level HIGHER than it used to be — the bridge wraps the shell
+  BOUNDARY in `[rf.fresco/frame-provider {:frame frame-id}]`, so the
+  embed is positively scoped rather than relying on a provider inside the
+  body — and this fn needs no change for it.
+
+  ## The missing outer provider was MEASURED here, not assumed (rf2-k97c.3)
+
+  The root-swap plan raised this absence as a POSSIBLE third rf2-tqlmq
+  instance — Xray's own activity leaking into the inspected application's
+  epoch record — and said in terms that it was a question rather than a
+  finding, because whether it leaked depends on what frame a Story or
+  custom host has in scope, which nobody had measured.
+
+  IT DOES NOT LEAK, AND THE REASON IS ABOUT REACT RATHER THAN ABOUT XRAY,
+  which is why reading this file was never going to settle it:
+  `rf.substrate.adapter/render` creates its OWN React root at
+  `mount-point`, and REACT CONTEXT DOES NOT CROSS A ROOT BOUNDARY. DOM
+  nesting is not React nesting, so a host's `frame-provider` is not in
+  scope inside the embed however deeply the node is nested, and there is
+  no host frame for the shell to fall through TO.
+
+  Measured rather than argued, in the exact configuration the question
+  was about — a host application painting its own Reagent root under
+  `[rf/frame-provider {:frame app}]` with the embed mounted at a node
+  inside that root's DOM, then a REAL click on the embedded L3 tab bar:
+  the host frame's epoch history is unchanged in COUNT and in CONTENTS,
+  beside a control showing the same ring does move for a genuine
+  application event. The row is `w5-the-embed-door-mounts-and-never-
+  touches-the-host-frames-ring` in
+  `shell_fresco_boundary_dom_cljs_test`, and it keeps biting whichever of
+  the three independent reasons a future change removes."
   ([mount-point]      (mount-shell! mount-point nil))
   ([mount-point opts]
    (let [frame-id (get opts :frame shell/default-frame-id)

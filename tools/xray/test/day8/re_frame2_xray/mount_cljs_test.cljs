@@ -22,7 +22,7 @@
   2. **Lazy-mount affordance.** The mount cost (DOM node + substrate
      render) is paid once on first `open!`. Subsequent `open!`s flip
      the container's CSS display only — no re-render, no new DOM
-     node, no second `rf.substrate.adapter/render` call. This is the
+     node, no second `rf.fresco/render!` call. This is the
      spec/007-UX-IA.md §The default landing view <80ms toggle
      target: re-mounting would discard internal state and miss the
      budget.
@@ -49,6 +49,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.fresco :as rf.fresco]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace :as rf.trace]
@@ -208,26 +209,43 @@
 ;; The fixture installs `rf.substrate.plain-atom/adapter` — its `:render` slot
 ;; throws (per substrate/plain_atom.cljc line 39: render is not
 ;; supported on the JVM/headless adapter). Real `open!` calls
-;; `(rf.substrate.adapter/render [shell/shell-view] node nil)`; we
+;; `(rf.fresco/render! [shell/shell-view] node nil)`; we
 ;; intercept that delegation with `with-redefs` so the test never
 ;; spins a React tree. The stub records its arguments + returns a
 ;; sentinel unmount fn so `teardown!` has something to invoke and
 ;; the assertion can verify it was called exactly once.
 
 (defn- mk-render-stub
-  "Build a stub for `rf.substrate.adapter/render`. Returns
-  `{:render-fn ..., :calls (atom []), :unmount-calls (atom 0)}` so
-  tests can assert call counts. The render-fn signature matches the
-  contract: 3 args, returns an unmount fn."
+  "Build a stub for `rf.fresco/render!` — the seam `mount.cljs` paints the
+  shell through since rf2-k97c.3 severed the epic's coupling (1). Returns
+  `{:render-fn ..., :calls (atom []), :unmount-calls (atom 0)}` so tests
+  can assert call counts.
+
+  IT STUBS ONE DOOR AND LETS THE OTHER RUN, which is the whole reason the
+  rows below needed no second binding. Fresco's root API is a PAIR —
+  `render!` then `unmount!` on the SAME handle — where the adapter's
+  `render` answered its own unmount fn. So rather than redefine both, this
+  writes into the handle the live-root map `render!` itself writes
+  (`impl/mount.cljs`'s `mount-client-root!`), and the REAL
+  `rf.fresco/unmount!` then finds a `:unmount!` to call. Every unmount
+  count below is therefore still a claim about `unmount!` having been
+  REACHED, through shipped code, rather than about a second stub.
+
+  The signature is `render!`'s: `[handle tree mount-point]`, answering
+  nil. `:opts` is recorded as nil because `mount.cljs` passes no root
+  options at all — the rows that assert it keep meaning what they meant."
   []
   (let [calls         (atom [])
         unmount-calls (atom 0)
         unmount-fn    (fn unmount-stub []
                         (swap! unmount-calls inc)
                         nil)]
-    {:render-fn     (fn render-stub [tree node opts]
-                      (swap! calls conj {:tree tree :node node :opts opts})
-                      unmount-fn)
+    {:render-fn     (fn render-stub [handle tree node]
+                      (swap! calls conj {:tree tree :node node :opts nil})
+                      (reset! handle {:live?    (fn [] true)
+                                      :update!  (fn [_tree] nil)
+                                      :unmount! unmount-fn})
+                      nil)
      :calls         calls
      :unmount-calls unmount-calls
      :unmount-fn    unmount-fn}))
@@ -271,17 +289,17 @@
 
 (deftest first-open!-creates-dom-node-and-renders
   (testing "first open! creates a fresh <div id=\"rf-xray-root\"> under
-            document.body, delegates to rf.substrate.adapter/render with
+            document.body, delegates to rf.fresco/render! with
             the shell-view tree and the new node, and marks visible"
     (with-stub-document
       (fn [doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (let [result (mount/open!)]
               (is (some? result) "open! returns the mount-state map")
               (is (map? result))
               (is (= 1 (count @calls))
-                  "rf.substrate.adapter/render invoked exactly once")
+                  "rf.fresco/render! invoked exactly once")
               (let [{:keys [tree node opts]} (first @calls)]
                 (is (vector? tree) "render received a hiccup vector")
                 (is (some? node) "render received the mount node")
@@ -306,7 +324,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (let [node (:node @@#'mount/mount-state)]
               (is (= "block" (.-display (.-style node)))
@@ -321,7 +339,7 @@
       (fn [doc]
         (set! (.-querySelector doc) (fn [_selector] nil))
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (let [prior-console (when (exists? js/console) js/console)]
               (set! js/console (js-obj "error" (fn [& _args] nil)))
               (try
@@ -369,7 +387,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render          render-fn
+          (with-redefs [rf.fresco/render!                    render-fn
                         rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/uix})]
             (with-warn-counter*
               (fn [warns]
@@ -385,7 +403,7 @@
                   (is (= 1 @warns) "exactly one console.warn")
                   (is (false? (mount/mounted?)) "nothing mounted")
                   (is (zero? (count @calls))
-                      "rf.substrate.adapter/render never invoked"))))))))))
+                      "rf.fresco/render! never invoked"))))))))))
 
 (deftest open-overlay!-on-react-element-substrate-refuses-cleanly
   (testing "open-overlay! refuses a React-element substrate host the same
@@ -393,7 +411,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render          render-fn
+          (with-redefs [rf.fresco/render!                    render-fn
                         rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/ui})]
             (with-warn-counter*
               (fn [_warns]
@@ -409,7 +427,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render          render-fn
+          (with-redefs [rf.fresco/render!                    render-fn
                         rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/helix})]
             (with-warn-counter*
               (fn [_warns]
@@ -437,7 +455,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render          render-fn
+          (with-redefs [rf.fresco/render!                    render-fn
                         rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/fresco})]
             (with-warn-counter*
               (fn [warns]
@@ -453,7 +471,7 @@
                   (is (= 1 @warns) "exactly one console.warn")
                   (is (false? (mount/mounted?)) "nothing mounted")
                   (is (zero? (count @calls))
-                      "rf.substrate.adapter/render never invoked"))))))))))
+                      "rf.fresco/render! never invoked"))))))))))
 
 (deftest open!-on-ratom-substrate-still-mounts
   (testing "the gate is a denylist of the element-shaped kinds only — a
@@ -462,13 +480,13 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render          render-fn
+          (with-redefs [rf.fresco/render!                    render-fn
                         rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/reagent-slim})]
             (let [result (mount/open!)]
               (is (map? result) "open! returns the mount-state map")
               (is (true? (mount/mounted?)))
               (is (= 1 (count @calls))
-                  "rf.substrate.adapter/render invoked exactly once"))))))))
+                  "rf.fresco/render! invoked exactly once"))))))))
 
 ;; -------------------------------------------------------------------------
 ;; (3) Open — second call (already mounted; no re-render)
@@ -476,14 +494,14 @@
 
 (deftest second-open!-does-not-re-render
   (testing "calling open! when already mounted is a CSS-only show —
-            rf.substrate.adapter/render is NOT invoked again, the
+            rf.fresco/render! is NOT invoked again, the
             existing DOM node is reused, display flips back to block.
             This is the <80ms toggle target the spec calls out:
             re-rendering would discard internal shell state"
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (let [first-state (mount/open!)
                   first-node  (:node first-state)]
               (is (= 1 (count @calls)) "first open! triggered one render")
@@ -512,7 +530,7 @@
     (with-stub-document
       (fn [doc]
         (let [{:keys [render-fn calls unmount-calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (let [pre-close @@#'mount/mount-state]
               (is (some? pre-close))
@@ -548,7 +566,7 @@
           (set! (.-display (.-style host)) "flex"))
         (let [host (.-body doc)
               {:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (is (= "flex" (.-display (.-style host)))
                 "open! preserves the host's pre-Xray inline display")
@@ -569,7 +587,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (is (nil? (mount/close!))
                 "close! returns nil on clean state")
             (is (nil? @@#'mount/mount-state)
@@ -586,7 +604,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn unmount-calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (mount/close!)
             (is (false? (mount/visible?)))
@@ -607,7 +625,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/toggle!)
             (is (= 1 (count @calls))
                 "first toggle! triggers a substrate render")
@@ -620,7 +638,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn unmount-calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (is (true? (mount/visible?)))
             (mount/toggle!)
@@ -638,7 +656,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (mount/close!)
             (is (false? (mount/visible?)))
@@ -655,7 +673,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/toggle!)  ;; #1 open
             (is (true? (mount/visible?)))
             (mount/toggle!)  ;; #2 close
@@ -692,7 +710,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn unmount-calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (is (true? (mount/visible?)) "precondition: shell visible")
             (rf/with-frame :rf/xray
@@ -716,7 +734,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (rf/with-frame :rf/xray
               (rf/dispatch-sync [:rf.xray/close-shell]))
@@ -746,7 +764,7 @@
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)
               popout-calls (atom 0)]
-          (with-redefs [rf.substrate.adapter/render render-fn
+          (with-redefs [rf.fresco/render!           render-fn
                         mount/popout! (fn [] (swap! popout-calls inc) nil)]
             ;; install-fx! is called by register-xray-handlers! in the
             ;; fixture, but redefine-after-register means the fx closure
@@ -771,7 +789,7 @@
     (with-stub-document
       (fn [doc]
         (let [{:keys [render-fn unmount-calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (is (= 1 (.-length (.-children (.-body doc)))))
             (let [pre-node (:node @@#'mount/mount-state)]
@@ -795,7 +813,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (let [first-node (:node @@#'mount/mount-state)]
               (mount/teardown!)
@@ -816,7 +834,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn unmount-calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (is (nil? (mount/teardown!)))
             (is (nil? @@#'mount/mount-state))
             (is (= 0 @unmount-calls)
@@ -832,12 +850,16 @@
       (fn [doc]
         ;; Build a stub render that returns a throwing unmount.
         (let [calls (atom [])]
-          (with-redefs [rf.substrate.adapter/render
-                        (fn [tree node opts]
-                          (swap! calls conj [tree node opts])
-                          (fn throwing-unmount []
-                            (throw (ex-info "unmount blew up"
-                                            {:reason :test}))))]
+          (with-redefs [rf.fresco/render!
+                        (fn [handle tree node]
+                          (swap! calls conj [tree node nil])
+                          (reset! handle
+                                  {:live?    (fn [] true)
+                                   :update!  (fn [_tree] nil)
+                                   :unmount! (fn throwing-unmount []
+                                               (throw (ex-info "unmount blew up"
+                                                               {:reason :test})))})
+                          nil)]
             (mount/open!)
             (is (= 1 (count @calls)))
             ;; teardown! must not propagate the unmount exception.
@@ -863,7 +885,7 @@
     (with-stub-document
       (fn [doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             ;; Tear down the fixture's plain-atom install so
             ;; current-adapter returns nil.
             (rf.substrate.adapter/dispose-adapter!)
@@ -890,7 +912,7 @@
         (config/set-auto-open! false)
         (let [{:keys [render-fn calls]} (mk-render-stub)
               console-calls (atom [])]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (let [prior-console (when (exists? js/console) js/console)]
               (set! js/console (js-obj "error" (fn [& args]
                                                   (swap! console-calls conj args)
@@ -923,7 +945,7 @@
     (with-stub-document
       (fn [doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (rf.substrate.adapter/dispose-adapter!)
             (is (nil? (mount/toggle!))
                 "toggle! returns nil rather than throwing")
@@ -941,7 +963,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (rf.substrate.adapter/dispose-adapter!)
             (is (nil? (mount/open!)) "first open! is a no-op")
             ;; Re-install — same plain-atom adapter the fixture had.
@@ -964,7 +986,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (is (true? (mount/visible?)))
             ;; Forcibly mutate the singleton's :visible? slot — visible?
@@ -980,7 +1002,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (is (false? (mount/mounted?)) "clean baseline")
             (mount/open!)
             (is (true? (mount/mounted?)) "mounted? true after open!")
@@ -1013,7 +1035,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (is (nil? (rf.frame/frame :rf/xray))
                 ":rf/xray is absent on the clean baseline")
             (mount/open!)
@@ -1029,7 +1051,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             ;; Push two events into the trace-bus atom BEFORE the
             ;; first open!. The frame doesn't exist yet, so the
             ;; `mirror-into-xray!` guard skips the dispatch — atom
@@ -1099,7 +1121,7 @@
                              :trigger-event [:cart/add-item]
                              :event-id     :cart/add-item
                              :trace-events []}]]
-          (with-redefs [rf.substrate.adapter/render render-fn
+          (with-redefs [rf.fresco/render!           render-fn
                         ;; Stub `rf/epoch-history` so the `:rf.xray/
                         ;; set-target-frame` event handler's
                         ;; `(rf/epoch-history target)` read returns the
@@ -1142,7 +1164,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn
+          (with-redefs [rf.fresco/render!           render-fn
                         rf/epoch-history (fn [_] [])]
             (mount/open!)
             (rf/with-frame :rf/xray
@@ -1165,7 +1187,7 @@
                              :db-before {} :db-after {:k 1}
                              :trigger-event [:cart/add] :event-id :cart/add
                              :trace-events []}]]
-          (with-redefs [rf.substrate.adapter/render render-fn
+          (with-redefs [rf.fresco/render!           render-fn
                         rf/epoch-history (fn [frame-id]
                                            (case frame-id
                                              :cart-frame cart-records
@@ -1196,7 +1218,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (let [first-frame (rf.frame/frame :rf/xray)
                   first-db    (rf.frame/app-db-container :rf/xray)]
@@ -1232,7 +1254,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn
+          (with-redefs [rf.fresco/render!           render-fn
                         rf/epoch-history (fn [frame-id]
                                            (case frame-id
                                              :cart-frame [{:epoch-id :e-cart :frame :cart-frame
@@ -1285,7 +1307,7 @@
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn
+          (with-redefs [rf.fresco/render!           render-fn
                         rf/epoch-history (fn [_] [])]
             (mount/open!)
             (rf/with-frame :rf/xray
@@ -1521,7 +1543,7 @@
       (fn [_doc]
         (let [{:keys [render-fn unmount-calls]} (mk-render-stub)
               {:keys [window closed?]}          (mk-stub-popout-window)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (seed-popout-state! {:window     window
                                  :unmount-fn (fn []
@@ -1549,7 +1571,7 @@
         (let [{:keys [render-fn]} (mk-render-stub)
               cycle! (fn []
                        (let [{:keys [window]} (mk-stub-popout-window)]
-                         (with-redefs [rf.substrate.adapter/render render-fn]
+                         (with-redefs [rf.fresco/render!           render-fn]
                            (mount/open!)
                            (seed-popout-state! {:window window})
                            (mount/teardown!))))]
@@ -2211,12 +2233,31 @@
             (set! js/document prior)
             (js-delete js/goog.global "document")))))))
 
+(defn- shell-props-in
+  "The props map the `shell/ShellView` boundary head carries in a recorded
+  mount tree, found by WALKING FOR THE HEAD rather than indexing to it, so
+  a re-shaped tree answers nil instead of a plausible wrong value."
+  [tree]
+  (letfn [(walk [node]
+            (when (vector? node)
+              (if (identical? (first node) shell/ShellView)
+                (second node)
+                (some walk (rest node)))))]
+    (walk tree)))
+
 (defn- shell-view-mode-of
-  "Pull the `:mode` prop shell-view was rendered with from a recorded
-  render call. The render tree is `[frame-provider {:frame ...}
-  [shell-view {:mode mode}]]`."
+  "Pull the `:mode` prop the shell boundary was rendered with from a
+  recorded render call.
+
+  FINDS THE HEAD RATHER THAN INDEXING TO IT (rf2-k97c.3, C4). This read
+  `(get-in (:tree call) [2 1])` until the root swap — a positional index
+  into a tree whose shape the swap changes, which silently depended on the
+  provider wrap while asserting nothing about it. It now walks for
+  `shell/ShellView` and takes the props map beside it, so it answers nil
+  rather than a plausible wrong value if the tree is ever re-shaped again,
+  and `ei-shell-scope` below is what asserts the wrap."
   [call]
-  (:mode (get-in (:tree call) [2 1])))
+  (:mode (shell-props-in (:tree call))))
 
 ;; ---- (1) inline → overlay realizes the overlay surface ------------------
 
@@ -2229,7 +2270,7 @@
     (with-two-owner-document
       (fn [{:keys [body host]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (is (= 1 (count @calls)) "first open! rendered once")
             (let [inline-node (:node @@#'mount/mount-state)]
@@ -2274,7 +2315,7 @@
     (with-two-owner-document
       (fn [{:keys [body host]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open-overlay!)
             (is (= 1 (count @calls)) "first open-overlay! rendered once")
             (let [overlay-node (:node @@#'mount/mount-state)]
@@ -2311,7 +2352,7 @@
     (with-two-owner-document
       (fn [{:keys [body]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open-overlay!)
             (let [first-node (:node @@#'mount/mount-state)]
               (mount/open-overlay!)
@@ -2332,7 +2373,7 @@
     (with-two-owner-document
       (fn [{:keys [body host]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (let [first-node (:node @@#'mount/mount-state)]
               (mount/open!)
@@ -2358,7 +2399,7 @@
       (fn [{:keys [body host]}]
         (let [{:keys [render-fn]} (mk-render-stub)
               prior-window        (when (exists? js/window) js/window)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             ;; Install the same browser API exports install.cljs wires,
             ;; pointing at the REAL mount fns so the bridge exercises the
             ;; production late-bind path.
@@ -2404,7 +2445,7 @@
     (with-two-owner-document
       (fn [{:keys [body]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)
             (mount/open-overlay!)               ; render #2 — realize overlay
             (let [overlay-node (:node @@#'mount/mount-state)]
@@ -2431,7 +2472,7 @@
     (with-two-owner-document
       (fn [{:keys [host body]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open-overlay!)
             (mount/open!)                       ; render #2 — realize inline
             (let [inline-node (:node @@#'mount/mount-state)]
@@ -2516,7 +2557,7 @@
         (let [{:keys [render-fn calls]} (mk-render-stub)
               prior-console (when (exists? js/console) js/console)]
           (set! js/console (js-obj "error" (fn [& _args] nil)))
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (try
               (mount/open-overlay!)
               (is (= 1 (count @calls)) "overlay mount rendered once")
@@ -2562,7 +2603,7 @@
     (with-two-owner-document
       (fn [{:keys [body host]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)                           ; render #1 — inline
             (mount/open-overlay!)                   ; render #2 — realize overlay
             (is (= 2 (count @calls)))
@@ -2609,7 +2650,7 @@
         (let [{:keys [render-fn calls]} (mk-render-stub)
               prior-console (when (exists? js/console) js/console)]
           (set! js/console (js-obj "error" (fn [& _args] nil)))
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (try
               (mount/open-overlay!)
               (let [overlay-node (:node @@#'mount/mount-state)
@@ -2655,7 +2696,7 @@
         (let [{:keys [render-fn calls]} (mk-render-stub)
               prior-console (when (exists? js/console) js/console)]
           (set! js/console (js-obj "error" (fn [& _args] nil)))
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (try
               (mount/open-overlay!)
               (mount/close!)                                ; hidden overlay
@@ -2688,7 +2729,7 @@
     (with-two-owner-document
       (fn [{:keys [host]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (is (nil? @@#'mount/mount-state) "cold start")
             (mount/toggle!)
             (is (= 1 (count @calls)))
@@ -2705,7 +2746,7 @@
     (with-two-owner-document
       (fn [{:keys [host body]}]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render!           render-fn]
             (mount/open!)                           ; inline
             (let [inline-node (:node @@#'mount/mount-state)]
               (is (= :inline (:mode (mount/status))))
@@ -2723,76 +2764,76 @@
               (is (= 1 (deep-count-by-id body "rf-xray-root"))))))))))
 
 ;; =========================================================================
-;; EVIDENCE INTEGRITY — Xray's OWN renders must never appear in the
-;; INSPECTED application frame's epoch `:renders` (rf2-k97c.5; the
+;; EVIDENCE INTEGRITY — Xray's OWN activity must never appear in the
+;; INSPECTED application frame's epoch record (rf2-k97c.5; the
 ;; already-realised defect is rf2-tqlmq)
 ;; =========================================================================
 ;;
-;; THE DEFECT. `shell-view` is a `reg-view`, so its `:rf.view/rendered`
-;; trace carries the resolved current-frame. `mount-shell-into!` once
-;; rendered it BARE — the shell's own `[frame-provider {:frame :rf/xray}]`
-;; sat INSIDE its body, around the panels — so `shell-view`'s OWN render
-;; resolved by fall-through to the host page's frame and back-filled into
-;; the INSPECTED app's epoch `:renders` (observed live: `["shell-view" 27]`
-;; in a `:rf/default` boot epoch). A debugger reporting its own activity as
-;; the application's is the worst failure this tool has.
+;; THE ORIGINAL DEFECT. `shell-view` was a `reg-view`, so its
+;; `:rf.view/rendered` trace carried the resolved current-frame.
+;; `mount-shell-into!` once rendered it BARE — the shell's own
+;; `[frame-provider {:frame :rf/xray}]` sat INSIDE its body, around the
+;; panels — so `shell-view`'s OWN render resolved by fall-through to the
+;; host page's frame and back-filled into the INSPECTED app's epoch
+;; `:renders` (observed live: `["shell-view" 27]` in a `:rf/default` boot
+;; epoch). A debugger reporting its own activity as the application's is
+;; the worst failure this tool has.
 ;;
-;; THE FIX (mount.cljs `mount-shell-into!`) moves the provider OUT one
-;; level, so the mount-site tree is
-;;   [rf/frame-provider {:frame shell/default-frame-id} [shell/shell-view …]]
-;; and `shell-view`'s own render resolves to the trace-disabled `:rf/xray`
-;; frame, where the `:rf.trace/frame-no-emit?` gate suppresses the emit.
+;; THE FIX moved the provider OUT one level, and rf2-k97c.3's root swap
+;; keeps it there while changing what it is FOR. The mount-site tree is now
+;;   [rf.fresco/frame-provider {:frame shell/default-frame-id}
+;;    [shell/ShellView …]]
 ;;
-;; WHAT WAS ALREADY PINNED, AND WHAT WAS NOT. The epoch suite's inv-7
-;; (implementation/epoch/test/re_frame/epoch_attribution_test.clj) pins the
-;; EMIT-SIDE GATE: a render already TAGGED with a trace-disabled frame does
-;; not reach the app's epoch. It hand-builds that tag, so it stays green if
-;; the provider moves back inside the shell body — the tag is exactly what
-;; that regression changes. Nothing pinned the MOUNT SITE. This test does,
-;; and it asserts on the epoch record's CONTENTS.
+;; ## THIS PIN WAS RE-AIMED BY rf2-k97c.3, AND BOTH HALVES MOVED
+;;
+;; HALF ONE, THE STRUCTURAL HALF, SURVIVES WITH A NEW KEY. `ei-shell-scope`
+;; walked for `rf/frame-provider` and `shell/shell-view`; both names are
+;; gone from the mount tree, so the walker had to be re-keyed on
+;; `rf.fresco/frame-provider` and the `shell/ShellView` boundary. Its
+;; `:found?` instrument control is what makes that safe to change — a
+;; walker re-keyed onto a name the tree does not carry reports a clean nil
+;; scope, which reads as a PASSING test, and `:found?` is the only thing
+;; that separates those two.
+;;
+;; HALF TWO, THE RENDER-EMIT HALF, WAS REPLACED OUTRIGHT, because its
+;; SUBJECT CEASED TO EXIST. It used to synthesise a `:rf.view/rendered`
+;; through `rf.trace/emit!` and assert the gate suppressed it. A Fresco
+;; boundary emits NO view-render trace at all — measured with a live
+;; control, `rf.view/rendered` reads 108 hits across `implementation/` and
+;; ZERO in `implementation/fresco/src` — so after the swap that half
+;; asserted about an emit NOBODY MAKES. It would have stayed green for ever
+;; and said nothing, which is exactly the hollow-assertion shape this epic
+;; keeps meeting. Note this is the hazard class getting STRICTLY BETTER
+;; rather than merely moving: Xray's renders can no longer reach any
+;; frame's epoch `:renders` structurally, instead of being suppressed by a
+;; gate that could regress.
+;;
+;; What replaces it is a REAL INTERACTION on the EVENT axis, which is where
+;; the guarantee still needs pinning: drive one Xray chrome event and
+;; assert the inspected app frame's epoch history is unchanged in COUNT AND
+;; CONTENTS. An Xray dispatch that leaked into the app's ring would add a
+;; record; one that mutated an existing record would change the contents
+;; while leaving the count alone, so both are asserted.
 ;;
 ;; HOW IT DRIVES THE REAL MACHINERY. Node-test has no jsdom, so there is no
-;; React commit to observe; the suite's `mk-render-stub` captures the hiccup
-;; `mount-shell-into!` hands to the substrate. This test reads the frame
-;; scope out of THAT REAL TREE (modelling `re-frame.views.provider/
-;; current-frame` tier 2 — closest enclosing frame boundary), then emits the
-;; shell's `:rf.view/rendered` through the REAL `re-frame.trace/emit!` under
-;; the frame the tree resolves to, and reads the app frame's epoch back
-;; through the REAL `rf/epoch-history`. Only the React commit is modelled;
-;; the gate, the back-fill and the epoch projection are the shipping code.
-
-(defn- ei-emit-render!
-  "Emit a `:rf.view/rendered` at React-COMMIT timing — post-settle (empty
-  buffer), tags carrying the render-key and the `:frame` the view resolved
-  to. Mirrors the POST-render emit the `:renders` projection sources from."
-  [frame-id view-id]
-  (rf.trace/emit! :rf.view :rf.view/rendered
-                  {:rf.view/render-key [view-id 0]
-                   :frame              frame-id}))
-
-(defn- ei-epoch-by-id
-  "Re-read the frame's ring (back-fills mutate in place) and pull the record
-  matching `record`'s `:epoch-id`."
-  [frame-id record]
-  (some #(when (= (:epoch-id record) (:epoch-id %)) %)
-        (rf/epoch-history frame-id)))
-
-(defn- ei-rendered-view-ids
-  "The view-ids present in an epoch record's `:renders` projection."
-  [record]
-  (->> (:renders record) (map (comp first :render-key)) set))
+;; React commit to observe; the suite's `mk-render-stub` captures the
+;; hiccup `mount-shell-into!` hands to `rf.fresco/render!`. This test reads
+;; the frame scope out of THAT REAL TREE, and reads the app frame's epoch
+;; ring back through the REAL `rf/epoch-history`. Only the React commit is
+;; modelled; the frame seating, the dispatch, the ring and the epoch
+;; projection are the shipping code.
 
 (defn- ei-shell-scope
-  "Resolve, from the hiccup tree `mount-shell-into!` handed to the
-  substrate's `render`, the frame `shell-view`'s OWN render trace would
-  carry.
+  "Resolve, from the hiccup tree `mount-shell-into!` handed to
+  `rf.fresco/render!`, the frame the shell boundary renders under.
 
-  Models `re-frame.views.provider/current-frame` tier 2: descend the tree
-  tracking the scope each `rf/frame-provider` boundary establishes, and
-  report the scope in force at the `shell/shell-view` head. A nil scope is
-  the rf2-tqlmq fall-through — no enclosing provider, so the shell resolves
-  to whatever frame the HOST PAGE established, i.e. the inspected
-  application's.
+  Descends the tree tracking the scope each `rf.fresco/frame-provider`
+  establishes, and reports the scope in force at the `shell/ShellView`
+  head. A nil scope is the rf2-tqlmq fall-through — no enclosing provider.
+  Since the root swap that case is no longer a silent contamination but a
+  LOUD refusal (`ShellView`'s two ambient `rf.fresco/sub` reads have no
+  frame to resolve against), which is strictly better; the pin stays
+  because a loud failure at every user's first paint is still a failure.
 
   Returns `{:found? bool :scope frame-or-nil}`. `:found?` is the instrument
   control: a walker that matched nothing would otherwise report a clean nil
@@ -2802,11 +2843,11 @@
             (when (vector? node)
               (let [head (first node)]
                 (cond
-                  (identical? head rf/frame-provider)
+                  (identical? head rf.fresco/frame-provider)
                   (let [scope' (:frame (second node))]
                     (some #(walk % scope') (drop 2 node)))
 
-                  (identical? head shell/shell-view)
+                  (identical? head shell/ShellView)
                   {:found? true :scope scope}
 
                   :else
@@ -2814,12 +2855,11 @@
     (or (walk tree nil) {:found? false :scope nil})))
 
 (deftest xray-shell-render-never-lands-in-inspected-app-epoch
-  (testing "rf2-k97c.5 (defect rf2-tqlmq) — mount Xray against an
-            application frame, drive ONE application event, and the app
-            frame's epoch record must carry ZERO renders attributable to
-            Xray's own shell. The mount-site frame-provider wrap is what
-            makes the shell's render resolve to the trace-disabled
-            :rf/xray frame; the frame-no-emit gate then suppresses it."
+  (testing "rf2-k97c.5, re-aimed by rf2-k97c.3 — mount Xray against an
+            application frame and the shell must be scoped to its OWN
+            frame in the mount tree; then drive a real Xray chrome event
+            and the application frame's epoch history must be byte-identical
+            to what it was, in count AND contents."
     (with-stub-document
       (fn [_doc]
         (let [app :test/inspected-app
@@ -2833,7 +2873,7 @@
 
           ;; Mount Xray. `open!` runs `ensure-xray-frame!`, registering the
           ;; shell frame with `:rf.trace/frame-no-emit? true`.
-          (with-redefs [rf.substrate.adapter/render render-fn]
+          (with-redefs [rf.fresco/render! render-fn]
             (mount/open!))
 
           (is (= 1 (count @calls))
@@ -2845,53 +2885,73 @@
               "precondition: the INSPECTED app frame is NOT trace-disabled —
                its own renders are still recorded")
 
-          ;; ONE application event on the app frame, producing the epoch
-          ;; whose evidence must stay clean.
+          ;; ---- HALF ONE: the structural claim, re-keyed --------------
+          (let [{:keys [found? scope]} (ei-shell-scope (:tree (first @calls)))]
+            (is (true? found?)
+                "instrument control: the walker LOCATED the ShellView
+                 boundary in the mount tree — the assertion below means a
+                 real scope, not a walker that matched nothing")
+            (is (= shell/default-frame-id scope)
+                "the mount site wraps the shell boundary in the shell's own
+                 frame-provider, so its reads resolve to the Xray frame —
+                 NOT by fall-through to the inspected app (rf2-tqlmq)"))
+
+          ;; rf2-k97c.3 — and the tree is ROOTED at that provider rather
+          ;; than merely carrying one somewhere inside it. This is the row
+          ;; the root-swap plan named as missing: the provider is what gives
+          ;; `ShellView`'s two ambient reads their frame, so a tree that
+          ;; carried it one level too deep would leave the boundary itself
+          ;; outside its own scope.
+          (let [tree (:tree (first @calls))]
+            (is (identical? rf.fresco/frame-provider (first tree))
+                "the tree handed to `render!` is ROOTED at
+                 `rf.fresco/frame-provider`")
+            (is (= {:frame shell/default-frame-id} (second tree))
+                (str "and that provider NAMES `shell/default-frame-id` — the
+                      frame `ensure-xray-frame!` seated, by its Var and not
+                      by a `:rf/xray` literal. Got: "
+                     (pr-str (second tree))))
+            (is (identical? shell/ShellView (first (nth tree 2)))
+                "and the boundary sits directly inside it"))
+
+          ;; ---- HALF TWO: the EVENT axis, by real interaction ----------
+          ;; One application event first, so the ring under inspection is a
+          ;; real one with a record in it rather than an empty ring in which
+          ;; `unchanged` would be vacuous.
           (rf/dispatch-sync [:app/inc] {:frame app})
 
-          (let [epoch (last (rf/epoch-history app))]
-            (is (some? epoch)
+          (let [before (vec (rf/epoch-history app))]
+            (is (seq before)
                 "instrument control: the app frame recorded an epoch for its
-                 event — a later empty :renders means suppression, not an
-                 absent epoch")
-            (is (= :app/inc (:event-id epoch))
-                "the epoch under inspection is the application's own event")
+                 own event — `unchanged` below is a claim about a NON-EMPTY
+                 ring, not about an absent one")
+            (is (= :app/inc (:event-id (last before)))
+                "and the record under inspection is the application's own
+                 event")
 
-            (let [{:keys [found? scope]} (ei-shell-scope (:tree (first @calls)))
-                  ;; nil scope = the rf2-tqlmq fall-through: no enclosing
-                  ;; provider, so the shell renders in the host page's frame.
-                  shell-frame (or scope app)]
-              (is (true? found?)
-                  "instrument control: the walker LOCATED shell-view in the
-                   mount tree — the assertions below mean absence, not a
-                   walker that matched nothing")
-              (is (= shell/default-frame-id scope)
-                  "the mount site wraps shell-view in the shell's own
-                   frame-provider, so its render resolves to the
-                   trace-disabled Xray frame — NOT by fall-through to the
-                   inspected app (rf2-tqlmq)")
+            ;; THE ACT: a real Xray chrome interaction, through the shipped
+            ;; handler, into the shell's own frame — the same door a tab
+            ;; click takes. Nothing about this dispatch names the app.
+            (rf/dispatch-sync [:rf.xray/select-tab :trace]
+                              {:frame shell/default-frame-id})
 
-              ;; Replay the shell's own render at React-commit timing,
-              ;; through the real trace machinery, under the frame the real
-              ;; mount tree resolves to.
-              (ei-emit-render! shell-frame :shell-view)
+            (let [after (vec (rf/epoch-history app))]
+              (is (= (count before) (count after))
+                  (str "an Xray chrome interaction adds NO epoch record to "
+                       "the inspected app's ring. Was " (count before)
+                       ", now " (count after)))
+              (is (= before after)
+                  "and leaves every existing record byte-identical — the
+                   observer does not appear on the observed tape, in count
+                   OR in contents"))
 
-              (let [after (ei-epoch-by-id app epoch)]
-                (is (not (contains? (ei-rendered-view-ids after) :shell-view))
-                    "Xray's own shell-view render did NOT land in the
-                     inspected app frame's epoch :renders")
-                (is (empty? (ei-rendered-view-ids after))
-                    "ZERO renders attributable to Xray in the inspected app
-                     frame's epoch record — the observer does not appear on
-                     the observed tape"))
-
-              ;; POSITIVE CONTROL — the same emit path, tagged with the APP
-              ;; frame, DOES back-fill into this very epoch. Without this the
-              ;; zero above could be a dead instrument rather than the gate.
-              (ei-emit-render! app :app/counter-view)
-              (let [after (ei-epoch-by-id app epoch)]
-                (is (contains? (ei-rendered-view-ids after) :app/counter-view)
-                    "control: a genuine APP-frame render DOES back-fill into
-                     the same epoch — so the emptiness above is the
-                     frame-no-emit gate suppressing Xray, not a broken
-                     read")))))))))
+            ;; POSITIVE CONTROL — the ring is LIVE. Without this, `unchanged`
+            ;; above would also be satisfied by a ring that had stopped
+            ;; recording anything at all, which is a dead instrument rather
+            ;; than a clean one.
+            (rf/dispatch-sync [:app/inc] {:frame app})
+            (let [after-app (vec (rf/epoch-history app))]
+              (is (not= before after-app)
+                  "control: a genuine APPLICATION event DOES move the same
+                   ring — so the equality above is Xray being absent, not
+                   the instrument being deaf"))))))))
