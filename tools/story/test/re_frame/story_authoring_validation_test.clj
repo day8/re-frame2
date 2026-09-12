@@ -36,7 +36,8 @@
   the macro expands them at the parent's expansion site. A consumer
   authoring the combined form expects every generated variant's
   `:source` to point back at the same `(reg-story ...)` call."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
             [re-frame.story.macros :as rf.story.macros]
             [re-frame.story.plan :as rf.story.plan]))
@@ -497,6 +498,64 @@
           (is (= :rf.error/fragment-shape (:rf.error/id (ex-data e)))
               (str label " rejects with :rf.error/fragment-shape")))))))
 
+;; ---- rf2-uys9 — play maps are closed --------------------------------------
+;;
+;; An absent `:auto-run?` means auto-run (`play.runner/default-auto-run?`),
+;; so a misspelt opt-out used to RUN the script with no error. The
+;; `PlaySpec` / `NamedPlaySpec` map branches are closed: the typo rejects
+;; at reg-time, naming the key, WHERE it sits, and the nearest declared key.
+
+(defn- shape-data
+  "Call `f` and return the thrown ex-data, or nil when it did not throw."
+  [f]
+  (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
+(deftest reg-variant-rejects-misspelt-play-map-key
+  (doseq [[label body at]
+          [[":script map, :autorun?"
+            {:setup [] :script {:script [[:dispatch [:x]]] :autorun? false}}
+            "[:script]"]
+           [":script map, :auto-run (no ?)"
+            {:setup [] :script {:script [[:dispatch [:x]]] :auto-run false}}
+            "[:script]"]
+           [":plays entry, :autorun?"
+            {:setup [] :plays [{:name "a" :script [[:dispatch [:x]]]}
+                               {:name "b" :script [] :autorun? false}]}
+            "[:plays 1]"]]]
+    (testing label
+      (let [data   (shape-data #(rf.story/reg-variant* :story.play-typo/v body))
+            reason (str (:reason data))]
+        (is (= :rf.error/variant-shape (:rf.error/id data))
+            "a misspelt play key is a shape error, not a silent auto-run")
+        (is (str/includes? reason (str " in " at " (did you mean :auto-run??)"))
+            ":reason names where the key sits and the key it meant")
+        (is (str/includes? reason (str "Allowed keys in " at ": [:auto-run? :name :script]"))
+            ":reason lists the PLAY map's keys, not the variant body's")
+        (is (not (rf.story/registered? :variant :story.play-typo/v))
+            "nothing is registered")))))
+
+(deftest reg-fragment-rejects-misspelt-play-map-key
+  (testing "a fragment's :script map is held to the same closed shape"
+    (let [data (shape-data #(rf.story/reg-fragment* :fragment.play-typo/f
+                              {:script {:script [] :autorun? false}}))]
+      (is (= :rf.error/fragment-shape (:rf.error/id data)))
+      (is (str/includes? (str (:reason data)) ":autorun? in [:script]")))))
+
+(deftest unknown-key-reason-locates-each-offender
+  (testing "a TOP-level typo keeps the unlocated form — no \" in [\" clause"
+    (let [reason (str (:reason (shape-data #(rf.story/reg-variant* :story.play-typo/top
+                                              {:scripts [[:dispatch [:x]]]}))))]
+      (is (str/includes? reason ":scripts (did you mean :script?)"))
+      (is (str/includes? reason "Allowed keys: ["))
+      (is (not (str/includes? reason " in [")))))
+  (testing "a top-level AND a nested typo are each named against their own map"
+    (let [reason (str (:reason (shape-data #(rf.story/reg-variant* :story.play-typo/both
+                                              {:scriptz []
+                                               :script  {:script [] :autorun? false}}))))]
+      (is (str/includes? reason ":scriptz (did you mean :script?), :autorun? in [:script] (did you mean :auto-run??)"))
+      (is (str/includes? reason "Allowed keys: ["))
+      (is (str/includes? reason "Allowed keys in [:script]: [:auto-run? :name :script]")))))
+
 (deftest reg-variant-canonical-body-round-trips-verbatim
   (testing ":setup / :script (bare vector) register and read back under the
             same keys — the write/read round trip is an identity"
@@ -718,6 +777,54 @@
       (is (= (:line (:source body-a))
              (:line (:source body-b)))
           "both generated variants share the parent's expansion line"))))
+
+;; ---- rf2-pjay — a NON-literal :variants map is desugared at runtime -------
+;;
+;; The macro peels only a LITERAL `:variants` map. A def'd or merged map —
+;; and every programmatic `reg-story*` call — reaches the runtime helper
+;; with `:variants` still on the body, which used to be dropped silently:
+;; story registered, zero variants, success return. The helper now
+;; desugars it through the same `reg-variant*` rail.
+
+(def ^:private formb-variants
+  {:a {:setup [[:init-a]]}
+   :b {:setup [[:init-b]] :tags #{:dev}}})
+
+(deftest reg-story*-desugars-programmatic-variants
+  (testing "the programmatic twin registers each :variants entry as <story-id>/<name>"
+    (is (= :story.prog.formb
+           (rf.story/reg-story* :story.prog.formb {:doc "p" :variants formb-variants})))
+    (is (rf.story/registered? :story :story.prog.formb))
+    (is (= {:setup [[:init-a]]}
+           (dissoc (rf.story/handler-meta :variant :story.prog.formb/a) :source)))
+    (is (= {:setup [[:init-b]] :tags #{:dev}}
+           (dissoc (rf.story/handler-meta :variant :story.prog.formb/b) :source)))
+    (is (= {:doc "p"} (dissoc (rf.story/handler-meta :story :story.prog.formb) :source))
+        "the stored story body never carries :variants")))
+
+(deftest reg-story-macro-desugars-non-literal-variants
+  (testing "a computed :variants map handed to the reg-story MACRO registers its
+            variants, each stamped with the macro site's source coords"
+    (rf.story/reg-story :story.prog.macro (assoc {:doc "m"} :variants formb-variants))
+    (let [story (rf.story/handler-meta :story :story.prog.macro)
+          a     (rf.story/handler-meta :variant :story.prog.macro/a)]
+      (is (= [[:init-a]] (:setup a)))
+      (is (rf.story/registered? :variant :story.prog.macro/b))
+      (is (= 're-frame.story-authoring-validation-test (:ns (:source a))))
+      (is (= (:line (:source story)) (:line (:source a)))
+          "a desugared variant shares the parent's expansion line, as on the literal path"))))
+
+(deftest reg-story*-rejects-malformed-variants
+  (testing "a non-keyword variant name is a :rf.error/story-shape, not a silent drop"
+    (is (= :rf.error/story-shape
+           (:rf.error/id (shape-data #(rf.story/reg-story* :story.prog.badname
+                                        {:variants {"a" {:setup []}}})))))
+    (is (not (rf.story/registered? :story :story.prog.badname))))
+  (testing "a desugared variant body is validated like any reg-variant* body"
+    (let [data (shape-data #(rf.story/reg-story* :story.prog.badbody
+                              {:variants {:a {:scripts [[:dispatch [:x]]]}}}))]
+      (is (= :rf.error/variant-shape (:rf.error/id data)))
+      (is (str/includes? (str (:reason data)) ":scripts (did you mean :script?)")))))
 
 ;; ===========================================================================
 ;; MACRO HELPER — `variant-id-for` enforces keyword grammar
