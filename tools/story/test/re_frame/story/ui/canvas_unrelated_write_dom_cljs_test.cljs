@@ -97,10 +97,16 @@
             (is (= "n=3" (some-> (.querySelector mount-node "[data-test=\"ohc5-probe\"]")
                                  .-textContent))
                 "precondition: the variant rendered")
+            ;; Fixed arities, not `[& args]`: the canvas calls both fns at a
+            ;; known arity, which compiles to a direct-arity dispatch that a
+            ;; variadic stand-in does not answer — the render would throw and
+            ;; every count would read a vacuous 0.
             (with-redefs [rf.story.decorators/resolve-decorators
-                          (fn [& args] (swap! inner inc) (apply resolve args))
+                          (fn ([a] (swap! inner inc) (resolve a))
+                              ([a b] (swap! inner inc) (resolve a b)))
                           rf.story.runtime/snapshot-identity
-                          (fn [& args] (swap! outer inc) (apply snapshot args))]
+                          (fn ([a] (swap! outer inc) (snapshot a))
+                              ([a b] (swap! outer inc) (snapshot a b)))]
               (write-and-flush! assoc :rail-widths {:left 300 :right 320})
               (write-and-flush! rf.story.ui.state/toggle-panel :controls)
               (write-and-flush! rf.story.ui.state/toggle-tag-filter :ohc5-tag)
@@ -109,6 +115,9 @@
               ;; Control: the tick IS a run input.
               (write-and-flush! rf.story.ui.state/bump-hot-reload-tick)
               (is (pos? @outer) "control: a hot-reload tick re-renders the outer canvas")
-              (is (pos? @inner) "control: a hot-reload tick re-renders canvas-inner"))
+              (is (pos? @inner) "control: a hot-reload tick re-renders canvas-inner")
+              (is (= "n=3" (some-> (.querySelector mount-node "[data-test=\"ohc5-probe\"]")
+                                   .-textContent))
+                  "control: the re-rendered view still paints (the render did not throw)"))
             (finally
               (try (.unmount root) (catch :default _ nil)))))))))
