@@ -48,6 +48,7 @@
   so first mount performs registration and seeding after adapter
   readiness. The operation is idempotent."
   (:require [re-frame.core :as rf]
+            [re-frame.fresco :as rf.fresco]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
@@ -376,27 +377,70 @@
       (when-let [shell (shell-node node)]
         (.setAttribute shell "data-rf-xray-mode" mode-name)))))
 
+;; ---- Xray's OWN React root (rf2-k97c.3) ---------------------------------
+;;
+;; THIS IS THE EPIC'S COUPLING (1), SEVERED. Xray used to paint by calling
+;; the INSTALLED ADAPTER's `:render`, which is why a host whose `:render`
+;; takes React ELEMENTS could not host it at all. It now owns a Fresco
+;; client root and paints through that, so what the host installs stops
+;; being Xray's business.
+;;
+;; TWO HANDLES, NOT ONE, AND THE SECOND IS NOT A CONVENIENCE. `render!`
+;; reads its mount-point on the FIRST call through a handle and updates
+;; that same React root on every later one, so a single handle cannot
+;; serve two roots — and the pop-out's root lives in a DIFFERENT DOCUMENT.
+;; Sharing one handle would silently re-render the inline shell when the
+;; pop-out opened.
+;;
+;; `defonce`, so a shadow-cljs `:after-load` keeps the live root rather
+;; than orphaning it; `client-root` does no DOM work and makes no React
+;; call, so it is safe at namespace load.
+
+;; The handle for the inline / overlay shell's React root.
+(defonce ^:private xray-root (rf.fresco/client-root))
+
+;; The handle for the pop-out window's React root — its OWN, because the
+;; pop-out mounts into another document. See the comment above.
+(defonce ^:private xray-popout-root (rf.fresco/client-root))
+
+(defn- render-shell!
+  "Paint `tree` into `node` through `root-handle` and answer the UNMOUNT
+  THUNK the caller stores, so `switch-surface!`, `close!` and `teardown!`
+  keep the `(unmount)` shape they have always had and need no change.
+
+  Fresco's own door is a pair — `render!` then `unmount!` on the same
+  handle — rather than the adapter's render-answers-an-unmount-fn; this
+  closes over the handle so exactly one call site knows that."
+  [root-handle tree node]
+  (rf.fresco/render! root-handle tree node)
+  (fn unmount-xray-root [] (rf.fresco/unmount! root-handle)))
+
 (defn- mount-shell-into! [node mode]
   (ensure-xray-frame!)
-  ;; rf2-tqlmq — wrap `shell-view` ITSELF in the shell's frame-provider at
-  ;; the mount so the whole shell (not just its panels) renders in the
-  ;; Xray frame. `shell-view` is a `reg-view`, so its `:rf.view/rendered`
-  ;; trace carries the resolved `current-frame-id`; rendered BARE (no
-  ;; enclosing provider — its own provider sits INSIDE its body, around
-  ;; the panels) `current-frame-id` fell through to `:rf/default`, so the
-  ;; shell-view's own
-  ;; render trace leaked into the inspected app frame's epoch `:renders`.
-  ;; With the provider moved out one level, `shell-view`'s render resolves
-  ;; to `default-frame-id` (the trace-disabled `:rf/xray` frame registered
-  ;; by `ensure-xray-frame!` just above) and the existing
-  ;; `:rf.trace/frame-no-emit?` gate (trace.cljc/`tagged-frame-trace-
-  ;; disabled?`, which keys off the render emit's `:frame` tag) suppresses
-  ;; it. Threads the shell's actual frame-id (NOT a `:rf/xray` literal),
-  ;; matching the frame `ensure-xray-frame!` registered.
-  (let [unmount (rf.substrate.adapter/render
-                  [rf/frame-provider {:frame shell/default-frame-id}
-                   [shell/shell-view {:mode mode}]]
-                  node nil)]
+  ;; rf2-tqlmq / rf2-k97c.3 — the OUTER `frame-provider` stays, and after
+  ;; the root swap it is load-bearing for a DIFFERENT reason with the
+  ;; OPPOSITE failure mode. It used to be about a render TRACE: `shell-view`
+  ;; was a `reg-view`, and rendered bare its `:rf.view/rendered` emit
+  ;; resolved `current-frame-id` to `:rf/default` and leaked into the
+  ;; inspected app frame's epoch `:renders`. A Fresco boundary emits no
+  ;; view-render trace at all, so that hazard is now structurally absent.
+  ;; What the provider does NOW is give `shell/ShellView`'s two ambient
+  ;; `rf.fresco/sub` reads their frame — drop it and the shell refuses with
+  ;; `:rf.error/no-frame-context` rather than quietly painting into the
+  ;; wrong frame. Silent contamination became a loud refusal, which is
+  ;; strictly better.
+  ;;
+  ;; `frame-provider` and NOT `frame-root`: `frame-root` is an idempotent
+  ;; ENSURE that would REPLACE the frame, silently dropping the
+  ;; `{:images [(xray-image)]}` seating `ensure-xray-frame!` just made.
+  ;; And the NAMED Var rather than a `:rf/xray` literal, matching the frame
+  ;; `ensure-xray-frame!` registered — `frame_singleton_guard_test` ratchets
+  ;; against an allowlist that is empty and must stay so.
+  (let [unmount (render-shell!
+                  xray-root
+                  [rf.fresco/frame-provider {:frame shell/default-frame-id}
+                   [shell/ShellView {:mode mode}]]
+                  node)]
     (set-mode-attrs! node mode)
     (reset! mount-state
             {:node     node
@@ -1685,18 +1729,33 @@
                   (set! (.-id node) "rf-xray-popout-root")
                   (.setAttribute node "data-rf-xray-mode" "popout")
                   (.appendChild body node)
-                  (let [unmount      (rf.substrate.adapter/render
-                                       ;; rf2-tqlmq — same mount-wrap as
-                                       ;; `mount-shell-into!`: wrap the popout
-                                       ;; shell in the shell's frame-provider so
-                                       ;; its own `:rf.view/rendered` trace
-                                       ;; resolves to the trace-disabled Xray
-                                       ;; frame instead of falling through to
-                                       ;; `:rf/default` and leaking into the
-                                       ;; inspected app frame's epoch `:renders`.
-                                       [rf/frame-provider {:frame shell/default-frame-id}
-                                        [shell/shell-view {:mode :popout}]]
-                                       node nil)
+                  (let [unmount      (render-shell!
+                                       ;; rf2-k97c.3 — the pop-out moves onto
+                                       ;; the owned root in the SAME commit as
+                                       ;; the inline shell. Two lines, in a file
+                                       ;; the swap opens anyway, and leaving it
+                                       ;; behind would have left one surface
+                                       ;; painting through the installed
+                                       ;; adapter's `:render` — i.e. coupling (1)
+                                       ;; only half severed, with the pop-out
+                                       ;; still refusing every element-shaped
+                                       ;; host.
+                                       ;;
+                                       ;; ITS OWN HANDLE. `render!` binds a
+                                       ;; handle to its mount-point on the first
+                                       ;; call, and this node lives in the
+                                       ;; pop-out's document; sharing
+                                       ;; `xray-root` would re-render the INLINE
+                                       ;; shell here instead.
+                                       ;;
+                                       ;; Same provider, same reason as
+                                       ;; `mount-shell-into!`: it is what gives
+                                       ;; `ShellView`'s ambient reads their
+                                       ;; frame.
+                                       xray-popout-root
+                                       [rf.fresco/frame-provider {:frame shell/default-frame-id}
+                                        [shell/ShellView {:mode :popout}]]
+                                       node)
                         overlay-node (install-opener-gone-overlay! doc)
                         watchdog-id  (start-opener-gone-watchdog! win overlay-node)
                         ;; rf2-uong — the reload case the watchdog cannot
