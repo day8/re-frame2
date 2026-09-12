@@ -38,6 +38,7 @@
   `:source` to point back at the same `(reg-story ...)` call."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.walk :as walk]
             [re-frame.story :as rf.story]
             [re-frame.story.macros :as rf.story.macros]
             [re-frame.story.plan :as rf.story.plan]))
@@ -825,6 +826,121 @@
                               {:variants {:a {:scripts [[:dispatch [:x]]]}}}))]
       (is (= :rf.error/variant-shape (:rf.error/id data)))
       (is (str/includes? (str (:reason data)) ":scripts (did you mean :script?)")))))
+
+;; ---- rf2-g2k4 — a computed :variants inside a LITERAL body ---------------
+;;
+;; rf2-pjay taught `reg-story*` to desugar a runtime `:variants`, but the
+;; macro never reached it for the commonest shape: a literal outer body
+;; whose `:variants` is a symbol or an expression. The macro classified only
+;; the OUTER map as literal and walked whatever `:variants` held with `for`,
+;; so `{:variants vs}` failed expansion with "Don't know how to create ISeq
+;; from: clojure.lang.Symbol" and `{:variants (merge vs ...)}` with "nth not
+;; supported on this type: Symbol". Only a literal `:variants` MAP is peeled
+;; now; every other `:variants` form reaches `reg-story*` unchanged.
+;;
+;; The public-macro rows expand at TEST time (`eval-here`), not load time, so
+;; a regressed expansion fails its own row instead of the whole namespace.
+
+(defn- expand
+  "`expand-reg-story` for `metadata` at a fixed call site in this ns."
+  [id metadata]
+  (rf.story.macros/expand-reg-story {:line 7 :column 3} "stories.clj"
+                                    're-frame.story-authoring-validation-test
+                                    id metadata))
+
+(defn- eval-here
+  "Expand and run `form` in this ns, at test time."
+  [form]
+  (binding [*ns* (the-ns 're-frame.story-authoring-validation-test)]
+    (eval form)))
+
+(defn- gated?
+  "Is `form` one registration under the production-elision gate?"
+  [form]
+  (and (seq? form)
+       (= 'clojure.core/when (first form))
+       (= 're-frame.story.config/enabled? (second form))))
+
+(defn- reg-call
+  "The registrar call inside one gated registration:
+  `(when enabled? (binding [...] <call>))` → `<call>`."
+  [gated-form]
+  (last (last gated-form)))
+
+(deftest expand-reg-story-forwards-computed-variants-unchanged
+  (doseq [md ['{:doc "s" :variants formb-variants}
+              '{:doc "s" :variants (merge formb-variants {:c {:setup []}})}]]
+    (testing (pr-str (:variants md))
+      (is (gated? (expand :story.g2k4.fwd md))
+          "ONE gated registration — no do-block of peeled variants")
+      (is (= (list 're-frame.story.registrar/reg-story* :story.g2k4.fwd md)
+             (reg-call (expand :story.g2k4.fwd md)))
+          "reg-story* receives the body exactly as written, :variants included"))))
+
+(deftest expand-reg-story-still-peels-a-literal-variants-map
+  (testing "a literal :variants map — even one whose VALUES are symbols — still
+            expands into the parent plus one independent registration per variant"
+    (let [exp (expand :story.g2k4.lit '{:doc "l" :variants {:a {:setup []} :b vb}})]
+      (is (= 'do (first exp)))
+      (is (every? gated? (rest exp)) "each registration is its own gated form")
+      (is (= [(list 're-frame.story.registrar/reg-story*   :story.g2k4.lit {:doc "l"})
+              (list 're-frame.story.registrar/reg-variant* :story.g2k4.lit/a {:setup []})
+              (list 're-frame.story.registrar/reg-variant* :story.g2k4.lit/b 'vb)]
+             (map reg-call (rest exp)))))))
+
+(deftest reg-story-macro-registers-computed-variants-in-a-literal-body
+  (doseq [[id form want]
+          [[:story.g2k4.sym
+            '(rf.story/reg-story :story.g2k4.sym {:doc "s" :variants formb-variants})
+            formb-variants]
+           [:story.g2k4.let
+            '(let [vs formb-variants]
+               (rf.story/reg-story :story.g2k4.let {:doc "s" :variants vs}))
+            formb-variants]
+           [:story.g2k4.merge
+            '(rf.story/reg-story :story.g2k4.merge
+               {:doc "s" :variants (merge formb-variants {:c {:setup [[:init-c]]}})})
+            (assoc formb-variants :c {:setup [[:init-c]]})]]]
+    (testing (name id)
+      (is (= id (eval-here form)))
+      (let [story (rf.story/handler-meta :story id)]
+        (is (= {:doc "s"} (dissoc story :source))
+            "the stored story body never carries :variants")
+        (doseq [[v-name v-body] want
+                :let [v (rf.story/handler-meta :variant
+                                               (rf.story.macros/variant-id-for id v-name))]]
+          (is (= v-body (dissoc v :source)) (str "variant " v-name))
+          (is (= 're-frame.story-authoring-validation-test (:ns (:source v))))
+          (is (integer? (:line (:source v))))
+          (is (= (:line (:source story)) (:line (:source v)))
+              "each variant carries the macro site's coords, as on the literal path"))))))
+
+(def ^:private evaluations
+  "How many times a forwarded `:variants` expression was evaluated."
+  (atom 0))
+
+(deftest reg-story-expansion-elides-both-forms
+  ;; `enabled?` is a JVM `^:const true`, so a production build is simulated by
+  ;; writing `false` over the gate in the expansion before running it.
+  (let [run     (fn [enabled? exp]
+                  (eval-here (walk/postwalk-replace
+                              {'re-frame.story.config/enabled? enabled?} exp)))
+        literal '{:variants {:a {:setup []}}}
+        counted '{:variants (do (swap! evaluations inc) formb-variants)}]
+    (reset! evaluations 0)
+    (testing "gate off: neither form registers, and the forwarded :variants is never evaluated"
+      (run false (expand :story.g2k4.gate-lit literal))
+      (run false (expand :story.g2k4.gate-fwd counted))
+      (is (not (rf.story/registered? :story :story.g2k4.gate-lit)))
+      (is (not (rf.story/registered? :variant :story.g2k4.gate-lit/a)))
+      (is (not (rf.story/registered? :story :story.g2k4.gate-fwd)))
+      (is (zero? @evaluations)))
+    (testing "control, gate on: the same expansions register, evaluating :variants once"
+      (run true (expand :story.g2k4.gate-lit literal))
+      (run true (expand :story.g2k4.gate-fwd counted))
+      (is (rf.story/registered? :variant :story.g2k4.gate-lit/a))
+      (is (rf.story/registered? :variant :story.g2k4.gate-fwd/a))
+      (is (= 1 @evaluations)))))
 
 ;; ===========================================================================
 ;; MACRO HELPER — `variant-id-for` enforces keyword grammar
