@@ -59,9 +59,17 @@
   builds-walk` pins that it is reagent2's walk that answers rather than
   this one.
 
-  `mount.cljs` independently refuses the element-shaped substrates for
-  the public `open!`, so a production Xray only ever mounts on a
-  ratom-family adapter and only ever takes the first arm."
+  AND THE FALLBACK IS NOW REACHABLE IN PRODUCTION, not only under the
+  acceptance harness. This paragraph used to end the other way: `mount.cljs`
+  refused the element-shaped substrates for the public `open!`, so a
+  production Xray only ever mounted on a ratom-family adapter and only ever
+  took the first arm. rf2-k97c.3 gave Xray its own React root and
+  rf2-k97c.4 retired that refusal, so a host on UIx or Fresco now gets a
+  mounted Xray — the installed adapter publishes no `:adapter/as-element`,
+  the routed hook answers nil, and the SECOND arm carries every surviving
+  Reagent island. That is the case the section above describes and the
+  acceptance harness already measures; what changed is only that a real
+  host can be in it."
   (:require [reagent.core       :as stock]
             [re-frame.late-bind :as rf.late-bind]))
 

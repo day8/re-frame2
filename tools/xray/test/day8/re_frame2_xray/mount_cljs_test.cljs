@@ -355,17 +355,28 @@
                   (set! js/console prior-console))))))))))
 
 ;; -------------------------------------------------------------------------
-;; (2b) Substrate render-shape gate (rf2-qgfo4)
+;; (2b) Substrate INDIFFERENCE (rf2-qgfo4 → rf2-k97c.4)
 ;; -------------------------------------------------------------------------
 ;;
-;; Xray's shell is hiccup; the React-hook substrates' `:render` slot takes
-;; substrate-native React ELEMENTS, so mounting there hands raw CLJS data to
-;; React children (fn-as-child console.error + an UNCAUGHT MapEntry
-;; pageerror on every UIx template boot). The mount verbs must refuse those
-;; hosts with the `:unsupported-substrate` diagnostic — one console.warn,
-;; status-API visibility, no mount, no render call — while the ratom family
-;; (and permissive default for custom/test adapters, e.g. the fixture's
-;; plain-atom) mounts exactly as before.
+;; THESE ROWS REPLACE FIVE REFUSAL ROWS, AND THE REPLACEMENT IS THE POINT.
+;; While Xray painted through the INSTALLED adapter's `:render`, an
+;; element-shaped `:render` could not take the hiccup shell, so a
+;; `react-element-render-kinds` denylist refused those kinds with the
+;; `:unsupported-substrate` diagnostic. Five rows pinned that refusal.
+;; rf2-k97c.3 gave Xray its own Fresco root and rf2-k97c.4 retired the
+;; denylist, so what those rows asserted is now FALSE BY DESIGN — and
+;; deleting them without replacement would have left the opposite claim
+;; unpinned, which is how a retirement quietly becomes a coverage hole.
+;;
+;; THE CLAIM NOW: the mount verbs are INDIFFERENT to the installed adapter.
+;; The adapter `:kind` is the ONLY variable across the rows below — same
+;; verb, same stub document, same render stub — and the element-shaped
+;; kinds (`:rf.adapter/uix`, `:rf.adapter/fresco`) mount exactly as the
+;; ratom-family one does. Each row asserts the mount POSITIVELY (a real
+;; `rf.fresco/render!` call) and asserts the refusal is GONE (no
+;; `:unsupported-substrate`, zero `console.warn`), because a row that only
+;; checked the diagnostic's absence would also pass if `open!` had stopped
+;; doing anything at all.
 
 (defn- with-warn-counter*
   "Run `f` with js/console replaced by a warn-counting stub; restores the
@@ -380,10 +391,13 @@
       (finally
         (set! js/console prior-console)))))
 
-(deftest open!-on-react-element-substrate-refuses-cleanly
-  (testing "open! on a UIx host (element-shaped :render) publishes the
-            :unsupported-substrate diagnostic, warns once, and mounts
-            NOTHING — no DOM node, no substrate render call (rf2-qgfo4)"
+(deftest open!-mounts-on-an-element-shaped-substrate
+  (testing "rf2-k97c.4 — open! on a UIx host (element-shaped :render)
+            MOUNTS. This row replaces
+            `open!-on-react-element-substrate-refuses-cleanly`, which
+            asserted the exact opposite while the denylist stood: the shell
+            paints through Xray's own Fresco root, so the host's render
+            shape is not consulted and the refusal has no precondition left"
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
@@ -393,65 +407,33 @@
               (fn [warns]
                 (let [result     (mount/open!)
                       diagnostic (:diagnostic (mount/status))]
-                  (is (= :unsupported-substrate (:reason result))
-                      "open! returns the refusal diagnostic")
-                  (is (false? (:ok? result)))
-                  (is (= :rf.adapter/uix (:adapter result))
-                      "the diagnostic names the installed adapter kind")
-                  (is (= :unsupported-substrate (:reason diagnostic))
-                      "the status API exposes the same diagnostic")
-                  (is (= 1 @warns) "exactly one console.warn")
-                  (is (false? (mount/mounted?)) "nothing mounted")
-                  (is (zero? (count @calls))
-                      "rf.fresco/render! never invoked"))))))))))
+                  (is (true? (mount/mounted?))
+                      "the shell mounted on an element-shaped host")
+                  (is (= 1 (count @calls))
+                      "rf.fresco/render! invoked exactly once — Xray's own
+                       root painted, which is the positive half of the claim")
+                  (is (map? result) "open! returns the mount-state map")
+                  (is (true? (:visible? result)) "and reports it visible")
+                  ;; ---- and the refusal is gone ------------------------
+                  (is (not= :unsupported-substrate (:reason result))
+                      (str "open! no longer refuses on the adapter kind. "
+                           "Got: " (pr-str (:reason result))))
+                  (is (true? (:ok? diagnostic))
+                      (str "the status diagnostic reports health rather than "
+                           "a refusal. Got: " (pr-str diagnostic)))
+                  (is (nil? (:reason diagnostic))
+                      (str "naming no reason at all. Got: "
+                           (pr-str (:reason diagnostic))))
+                  (is (zero? @warns)
+                      (str "and warns about nothing — the one console.warn "
+                           "was the refusal's. Got: " @warns)))))))))))
 
-(deftest open-overlay!-on-react-element-substrate-refuses-cleanly
-  (testing "open-overlay! refuses a React-element substrate host the same
-            way as open! (rf2-qgfo4)"
-    (with-stub-document
-      (fn [_doc]
-        (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.fresco/render!                    render-fn
-                        rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/ui})]
-            (with-warn-counter*
-              (fn [_warns]
-                (let [result (mount/open-overlay!)]
-                  (is (= :unsupported-substrate (:reason result)))
-                  (is (= :rf.adapter/ui (:adapter result)))
-                  (is (false? (mount/mounted?)))
-                  (is (zero? (count @calls))))))))))))
-
-(deftest popout!-on-react-element-substrate-refuses-cleanly
-  (testing "popout! refuses a React-element substrate host BEFORE opening
-            a window (rf2-qgfo4)"
-    (with-stub-document
-      (fn [_doc]
-        (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.fresco/render!                    render-fn
-                        rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/helix})]
-            (with-warn-counter*
-              (fn [_warns]
-                (let [result (mount/popout!)]
-                  (is (= :unsupported-substrate (:reason result)))
-                  (is (nil? @@#'mount/popout-state) "no popout state minted")
-                  (is (zero? (count @calls))))))))))))
-
-(deftest fresco-is-a-member-of-the-react-element-denylist
-  (testing "`:rf.adapter/fresco` is a LIVE member of react-element-render-kinds
-            — re-frame.fresco.substrate builds from
-            spine/make-react-adapter, so its :render is element-shaped
-            (rf2-zkjd5, superseding rf2-wtznc's no-such-kind premise)"
-    (let [kinds @#'mount/react-element-render-kinds]
-      (is (contains? kinds :rf.adapter/fresco)
-          "the shipped Fresco kind must be refused, not fall through")
-      (is (contains? kinds :rf.adapter/uix)
-          "the pre-existing members are untouched"))))
-
-(deftest open!-on-fresco-substrate-refuses-cleanly
-  (testing "open! on a Fresco host publishes the :unsupported-substrate
-            diagnostic, warns once, and mounts NOTHING. Before rf2-zkjd5 the
-            kind was absent from the denylist, so this path MOUNTED and the
-            hiccup shell reached React as raw CLJS data (rf2-zkjd5)"
+(deftest open!-mounts-on-a-fresco-substrate
+  (testing "rf2-k97c.4 — the same for a Fresco host. `:rf.adapter/fresco`
+            was the LAST kind added to the denylist (rf2-zkjd5, because a
+            page following the Fresco install chapter reports it and was
+            taking the permissive path into an uncaught React child error),
+            so it is the kind whose behaviour reverses most recently"
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]
@@ -461,22 +443,74 @@
               (fn [warns]
                 (let [result     (mount/open!)
                       diagnostic (:diagnostic (mount/status))]
-                  (is (= :unsupported-substrate (:reason result))
-                      "open! returns the refusal diagnostic")
-                  (is (false? (:ok? result)))
-                  (is (= :rf.adapter/fresco (:adapter result))
-                      "the diagnostic names the Fresco kind")
-                  (is (= :unsupported-substrate (:reason diagnostic))
-                      "the status API exposes the same diagnostic")
-                  (is (= 1 @warns) "exactly one console.warn")
-                  (is (false? (mount/mounted?)) "nothing mounted")
-                  (is (zero? (count @calls))
-                      "rf.fresco/render! never invoked"))))))))))
+                  (is (true? (mount/mounted?)) "the shell mounted")
+                  (is (= 1 (count @calls))
+                      "rf.fresco/render! invoked exactly once")
+                  (is (not= :unsupported-substrate (:reason result))
+                      (str "no refusal. Got: " (pr-str (:reason result))))
+                  (is (true? (:ok? diagnostic))
+                      (str "diagnostic reports health. Got: "
+                           (pr-str diagnostic)))
+                  (is (zero? @warns) (str "no console.warn. Got: " @warns)))))))))))
 
-(deftest open!-on-ratom-substrate-still-mounts
-  (testing "the gate is a denylist of the element-shaped kinds only — a
-            ratom-family kind mounts exactly as before (polarity guard for
-            react-element-render-kinds)"
+(deftest open-overlay!-mounts-on-an-element-shaped-substrate
+  (testing "rf2-k97c.4 — open-overlay! is indifferent to the installed
+            adapter the same way open! is. It took the refusal through the
+            same guard, so it has to be witnessed losing it separately:
+            the two verbs mount through different node-creation paths"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [rf.fresco/render!                    render-fn
+                        rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/uix})]
+            (with-warn-counter*
+              (fn [warns]
+                (let [result (mount/open-overlay!)]
+                  (is (true? (mount/mounted?)) "the overlay mounted")
+                  (is (= :overlay (:mode result))
+                      (str "on the overlay surface. Got: "
+                           (pr-str (:mode result))))
+                  (is (= 1 (count @calls))
+                      "rf.fresco/render! invoked exactly once")
+                  (is (not= :unsupported-substrate (:reason result))
+                      (str "no refusal. Got: " (pr-str (:reason result))))
+                  (is (zero? @warns)
+                      (str "no console.warn. Got: " @warns)))))))))))
+
+(deftest popout!-no-longer-refuses-an-element-shaped-substrate
+  (testing "rf2-k97c.4 — popout! used to refuse on the adapter kind BEFORE
+            reaching `window.open`. It now walks past that point: with no
+            `js/window` in the node lane the very next step answers
+            `:popup-blocked`, which is this row's literal — it pins that the
+            gate is gone AND that execution reached the step behind it,
+            where an assertion on the refusal's absence alone would also
+            pass if popout! had stopped running at all"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [rf.fresco/render!                    render-fn
+                        rf.substrate.adapter/current-adapter (fn [] {:kind :rf.adapter/fresco})]
+            (with-warn-counter*
+              (fn [warns]
+                (let [result (mount/popout!)]
+                  (is (= :popup-blocked (:reason result))
+                      (str "popout! reached the window step. Got: "
+                           (pr-str (:reason result))))
+                  (is (not= :unsupported-substrate (:reason result))
+                      "and did not refuse on the adapter kind")
+                  (is (zero? @warns)
+                      (str "no console.warn. Got: " @warns))
+                  (is (zero? (count @calls))
+                      "and painted nothing, the window never having
+                       opened"))))))))))
+
+(deftest open!-mounts-on-a-ratom-family-substrate
+  (testing "rf2-k97c.4 — the OTHER half of the pair, and the reason the
+            rows above are a claim about INDIFFERENCE rather than about
+            `open!` having simply stopped consulting anything: the
+            ratom-family host mounts identically, through the same verb and
+            the same stubs, with the adapter `:kind` the only variable
+            between them"
     (with-stub-document
       (fn [_doc]
         (let [{:keys [render-fn calls]} (mk-render-stub)]

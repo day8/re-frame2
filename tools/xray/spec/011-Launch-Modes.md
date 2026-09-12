@@ -604,19 +604,23 @@ The preload MUST NOT mount the shell synchronously during namespace
 load. It MAY schedule a bounded adapter-ready retry. Once the adapter
 is ready, it MUST find the configured layout host and mount the shell
 there. If the host is missing, it MUST emit the diagnostic described in
-§Layout host contract and leave the app running. If the installed
-adapter is a React-element substrate (UIx / Fresco — hosts whose
-`:render` cannot take the hiccup shell, per
+§Layout host contract and leave the app running. **WHICH adapter the
+host installed MUST NOT affect the mount** — the shell paints through
+Xray's own React root, so an element-shaped substrate (UIx / Fresco)
+mounts exactly as a ratom-family one does, per
 [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Adapter
-resolution), it MUST refuse the mount with the
-`:unsupported-substrate` diagnostic (status API + one `console.warn`)
-and leave the app running (rf2-qgfo4). **A Fresco host is refused on its
-OWN kind (rf2-zkjd5)**: `re-frame.fresco.substrate` ships
-`:kind :rf.adapter/fresco` and the install chapter teaches it as the
-default, so the refusal fires on `:rf.adapter/fresco`. A Fresco app that
-installs UIx instead reports `:rf.adapter/uix` and is refused on that
-entry. This supersedes rf2-wtznc, which recorded a Fresco that minted no
-adapter kind at all.
+resolution.
+
+**This paragraph specified the opposite until rf2-k97c.4.** A React-element
+substrate — a host whose `:render` could not take the hiccup shell — MUST
+have been refused with the `:unsupported-substrate` diagnostic (status API
++ one `console.warn`), leaving the app running (rf2-qgfo4), with a Fresco
+host refused on its own `:rf.adapter/fresco` kind rather than riding the
+`:rf.adapter/uix` entry (rf2-zkjd5, superseding rf2-wtznc's premise that
+Fresco minted no adapter kind at all). rf2-k97c.3 moved the shell onto
+Xray's own root, which removed the condition the refusal guarded; the
+diagnostic id stays reserved in the `status` vocabulary and no longer
+fires.
 
 **The foundation side-effects fire on the preload path only (rf2-5w06uu).**
 The two-phase boot above runs at the load of
