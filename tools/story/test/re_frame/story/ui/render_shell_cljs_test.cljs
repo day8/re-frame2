@@ -313,7 +313,7 @@
 ;; consolidation routes BOTH through the shared
 ;; `rf.story.ui.multi-substrate/render-decorated-view` seam, so they paint the same tree.
 ;; These CLJS tests prove the HOST actually applies the decorators — the
-;; existing render_test §decorators-are-view-wrapping only pinned that
+;; existing render_cljs_test §decorators-are-view-wrapping only pinned that
 ;; :decorators RIDE render-inputs, never that the host APPLIES them. Uses a
 ;; REGISTERED variant via the DEFAULT lookup (the production path the
 ;; rf2-din8u gate mandates).

@@ -311,7 +311,7 @@
 ;; body (`:extends` intact, parent NOT merged at registration), so a
 ;; registered variant compiled through the DEFAULT side-table lookup (no
 ;; explicit `:lookup` arg) must walk the parent chain exactly like the
-;; explicit-`:lookup` plan_test cases. setup APPENDS, checks INHERIT, and
+;; explicit-`:lookup` plan_cljs_test cases. setup APPENDS, checks INHERIT, and
 ;; (the rf2-g74i9 fix) decorators INHERIT — all from ONE merge engine
 ;; (`re-frame.story.plan/compile-body`). A registration-time straight-merge
 ;; would have left the compiler seeing a single-element chain and these

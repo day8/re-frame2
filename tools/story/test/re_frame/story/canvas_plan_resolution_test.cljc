@@ -54,7 +54,7 @@
 ;; (see `render-variant-cannot-run-with-no-host`). We MUST NOT
 ;; `rf.story.late-bind/clear!` (that wipes the canonical shims every sibling test ns
 ;; relies on). The fixture snapshots + restores the whole hooks map so any
-;; per-test dissoc is surgical and reverts cleanly (mirrors `render-test`).
+;; per-test dissoc is surgical and reverts cleanly (mirrors `render-cljs-test`).
 
 (defn reset-fixture [test-fn]
   (rf.story.registrar/clear-all!)

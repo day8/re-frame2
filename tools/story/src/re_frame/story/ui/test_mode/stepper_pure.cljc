@@ -21,8 +21,12 @@
 
 ;; ---- step-outcome (full-script step list) -------------------------------
 ;;
-;; The step-debugger walks the FULL coerced :script (every step
-;; type), driving each through the rich-DSL executor. Each step that has
+;; The step-debugger walks the compiled plan's auto-run program (rf2-499z):
+;; the auto-runnable plays' scripts concatenated, or the primary play when
+;; nothing auto-runs, `[:arg]`-substituted against the same run opts Re-run
+;; uses (active modes and cell overrides included, rf2-ad25) and with
+;; `:compose`d fragment scripts prepended. Every step type runs, each
+;; driven through the rich-DSL executor. Each step that has
 ;; run carries a result record (`rf.story.play.runner/step-pass` / `step-fail` /
 ;; `step-skip` / `step-exception`); steps not yet reached carry no result.
 ;; This fold maps the full step vector + the per-step result records onto

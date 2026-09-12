@@ -314,7 +314,7 @@
             behaviour behind the seam — Start parks at the `:setup` state,
             each Step is 1:1 with the cursor, Rewind restores the pre-play
             epoch — is pinned on both runtimes by
-            `re-frame.story.stepper-start-test`."
+            `re-frame.story.stepper-start-cljs-test`."
     (let [vid      :story.unit/begin-seam
           prepared (atom [])
           reset    (atom [])
