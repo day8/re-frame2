@@ -34,26 +34,43 @@
   | 5 | Xray's activity never masquerading as application evidence | [[c5-no-masquerading-as-application-evidence!]] |
   | 6 | clean teardown and reopen without disturbing the host      | [[c6-clean-teardown-and-reopen!]] |
 
-  CRITERION 4 IS PARTIAL AGAINST THE STAGED SUBJECT and says so in its
-  own docstring — it covers `tool state stays out of the application` but
-  NOT `a tool command reaches the application frame it was aimed at`,
-  because the Static surface issues no app-directed command to test with.
-  Read that note before citing criterion 4 as met (rf2-t2ke).
+  CRITERION 4 IS COMPLETE AS OF rf2-3j1v and covers BOTH halves — `tool
+  state stays out of the application` AND `a tool command reaches the
+  application frame it was aimed at`. The second half was unwritable
+  while the subject was the Static ribbon alone, because the Static
+  surface issues no app-directed command; the widening below put the
+  shipped shell on the bench, and with it the Dynamic tab ribbon's
+  `Reset` rewind, which is an app-directed command. The gap note
+  rf2-t2ke left here is kept as history inside
+  [[c4-tool-local-state-and-frame-targeting!]]'s own docstring.
 
-  ## THE SUBJECT: Xray's Static chrome, and why that one
+  ## THE SUBJECT: Xray's SHIPPED SHELL, and how it got here
 
-  [[mount-xray!]] mounts `static.shell/surface` — Xray's Static ribbon, tab
-  bar and detail panel, the largest piece of Xray's OWN CHROME that is
-  already re-authored as `rf.fresco/defview` boundaries. Three of the four
-  chrome layers, not one panel.
+  [[mount-xray!]] mounts `shell/ShellView` — the whole shipped shell, the
+  head `mount.cljs` itself renders: the envelope, the frame-provider, the
+  resize handle, the seven shell-root modal mounts and the mode composer,
+  which paints Xray's Static surface or its Dynamic 4-layer chrome
+  according to the live `:rf.xray/mode` lens.
 
-  It is the right subject because it is the only piece of Xray whose mount
-  is adapter-INDEPENDENT today, and adapter-independence is the whole claim
-  the swap makes. The Dynamic shell is not yet migrated: `shell/shell-view`
-  is still an `rf/reg-view` painted through the installed adapter's
-  `:render`, which is the epic's coupling (1) and a later slice. When that
-  lands, this harness widens by one line — the vector [[mount-xray!]]
-  renders — and every row below is unchanged.
+  IT USED TO MOUNT `static.shell/surface` ALONE, and the paragraph that
+  stood here explained why: the Dynamic shell was not yet migrated —
+  `shell/shell-view` was still an `rf/reg-view` painted through the
+  installed adapter's `:render`, the epic's coupling (1) — so the Static
+  ribbon was the only piece of Xray whose mount was adapter-INDEPENDENT.
+  THAT IS NO LONGER TRUE. rf2-k97c.3 (PR #9708) made the shell a Fresco
+  boundary Xray paints through its own root, and the only surviving
+  `rf/reg-view` under `tools/xray/src` is `shell/event-list`, which
+  cannot migrate because `panel-registry/reg-l4-tab!` carries
+  `:pre [(fn? panel)]`.
+
+  THAT PARAGRAPH PROMISED THE WIDENING WOULD COST ONE LINE — *the vector
+  [[mount-xray!]] renders* — AND IT COST TWO, which is worth recording
+  because the second is easy to miss. `:rf.xray/mode` defaults to
+  `:dynamic` (`registry.cljs`), so mounting the shipped shell and
+  changing nothing else swaps the Static surface out from under every
+  row below, all of which name Static testids. [[setup!]] therefore pins
+  the lens to `:static` before the mount, and with that one extra line
+  every row below IS unchanged, exactly as promised.
 
   ## THE MOUNT VERB: Fresco's own root, which IS the post-swap mechanism
 
@@ -96,6 +113,16 @@
   (:require [cljs.test :refer-macros [is]]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            ;; LOADED FOR ITS HOOKS, NOT FOR A NAME. `rf/restore-epoch!`
+            ;; and `rf/epoch-history` are LATE-BOUND (`:epoch/restore-
+            ;; epoch!`, `:on-absent :false`), so without the artefact on
+            ;; the page the first answers `false` and the second `[]` —
+            ;; and `[]` is the shape a clean history has, which is how a
+            ;; missing artefact reads as a passing row. Criterion 4's
+            ;; rewind arm is the consumer; it asserts a non-empty history
+            ;; and a nil failure flash so an absent artefact reddens here
+            ;; rather than hiding.
+            [re-frame.epoch]
             [re-frame.flows :as rf.flows]
             [re-frame.frame :as rf.frame]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
@@ -103,6 +130,7 @@
             [re-frame.trace :as rf.trace]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.shell :as shell]
+            [day8.re-frame2-xray.static.persistence :as static-persistence]
             [day8.re-frame2-xray.static.shell :as static-shell]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
@@ -178,6 +206,28 @@
   [[clicked-tab]], so `unchanged` names a specific tab rather than the
   value every frame answers with anyway."
   :routes)
+
+(def static-lens
+  "The lens [[setup!]] pins the shipped shell to, so the mode composer
+  paints the Static surface every row below names by testid. Read the
+  widening note in this namespace's docstring for why this is a pin
+  rather than a default."
+  :static)
+
+(def dynamic-lens
+  "The lens criterion 4's REWIND arm switches to. The `Reset` button —
+  the one app-directed command Xray ships — lives on the DYNAMIC tab
+  ribbon and nowhere else, so the arm has to be looking at that surface
+  to press it."
+  :dynamic)
+
+(def reset-button-testid
+  "The literal testid of the Dynamic tab ribbon's `Reset` rewind button
+  (`shell/tab-bar-tree`). Spelled out rather than derived, for the
+  reason every expectation here is: a row that derives its selector the
+  way the subject builds it agrees with the subject under any defect
+  they share."
+  "rf-xray-tab-bar-reset")
 
 (def probe-flow-id
   "The flow criterion 2 registers INTO THE APPLICATION at run time — the
@@ -293,7 +343,28 @@
 
   BOTH applications are seeded, to DIFFERENT values — see
   [[second-app-frame]] for why one application cannot carry criterion 4's
-  claim on its own."
+  claim on its own.
+
+  ## THE LENS PIN, AND WHY IT IS NOT TIDINESS
+
+  `:rf.xray/mode` defaults to `:dynamic`, so [[mount-xray!]] mounting
+  the shipped shell would paint the Dynamic 4-layer chrome and every
+  Static testid below would vanish. Pinning [[static-lens]] BEFORE the
+  mount is what keeps the promise the namespace docstring records — the
+  widening costs this line and the vector, and every row is otherwise
+  unchanged. It is dispatched rather than written into `app-db` because
+  `:rf.xray/set-mode` is the shipped door and there is no other.
+
+  AND THE PERSISTED SLOT IS CLEARED AFTER IT, deliberately.
+  `:rf.xray/set-mode` carries the `:rf.xray.static/persist-mode` fx,
+  which writes localStorage — and `mount.cljs`'s `::hydrate-static-mode`
+  first-mount hook READS that slot, so a lens this harness pinned would
+  silently decide which surface a LATER suite's `open!` paints
+  (`acceptance.substrate-gap-dom-cljs-test` is the one on this page).
+  Clearing returns the page to the `:dynamic` default the hook falls back
+  to, so this harness leaves no trace outside its own frames — which is
+  the posture criteria 4 and 6 assert about Xray and this file should
+  not itself break."
   []
   (reset! !last-uncaught nil)
   (registry/register-xray-handlers!)
@@ -301,23 +372,47 @@
   (rf/make-frame {:id app-frame})
   (rf/make-frame {:id second-app-frame})
   (rf/make-frame {:id other-frame})
+  (rf/dispatch-sync [:rf.xray/set-mode static-lens] {:frame xray-frame})
+  (static-persistence/clear!)
   (rf/dispatch-sync [::app-seed 0] {:frame app-frame})
   (rf/dispatch-sync [::app-seed second-app-seed] {:frame second-app-frame})
   nil)
 
 (defn mount-xray!
-  "Mount Xray's Static chrome through FRESCO'S OWN ROOT, at [[xray-frame]].
+  "Mount Xray's SHIPPED SHELL through FRESCO'S OWN ROOT, at
+  [[xray-frame]].
 
   This is the post-swap mount: Xray creates and owns the React root, the
   installed adapter's `:render` is never called, and the frame context is
   established DELIBERATELY by naming the frame rather than inherited from
   whatever the host's adapter happened to put in scope. `root!` commits
   inside `flushSync`, so the first assertion does not read an empty
-  container."
+  container.
+
+  ## THE VECTOR IS `shell/ShellView`, WHICH IS THE WIDENING (rf2-3j1v)
+
+  It was `[static-shell/surface {}]` — the Static ribbon alone — for as
+  long as the Dynamic shell was an `rf/reg-view`. rf2-k97c.3 made it a
+  Fresco boundary, so the head `mount.cljs` itself renders is now a legal
+  vector here and this is it. The mode composer inside paints the Static
+  surface while [[setup!]]'s lens pin stands, which is why every row
+  written against the narrower subject reads the same DOM it always did;
+  criterion 4's rewind arm flips the lens and gets the Dynamic chrome
+  from the same mount.
+
+  NO OUTER `frame-provider` OF OUR OWN, and its absence is deliberate
+  rather than an omission. `ShellView`'s docstring makes the provider
+  above its head part of its contract — both its reads are ambient
+  `rf.fresco/sub`s — and `root!` supplies exactly that when handed a
+  frame (`impl/mount.cljs`'s `tree`: `(provider frame-kw element)`).
+  Adding a second would put a redundant Provider fiber above the shell
+  for nothing. `:frame-id` is likewise left unnamed so it defaults to
+  `shell/default-frame-id`, which IS [[xray-frame]] — the same
+  frame-is-the-default shape production mounts with."
   []
   (let [container (rf.fresco.impl.mount/fresh-container!)]
     (rf.fresco.impl.mount/root! container xray-frame
-                                [static-shell/surface {}])))
+                                [shell/ShellView {}])))
 
 (defn unmount-xray!
   "Take Xray down the way criterion 6 needs it taken down.
@@ -353,6 +448,23 @@
 
 (defn- tab-node [container tab-id]
   (testid container (str "rf-xray-static-tab-" (name tab-id))))
+
+(defn- reset-button
+  "The Dynamic tab ribbon's `Reset` rewind button, or nil while the
+  Static lens is showing. Criterion 4's rewind arm's one control."
+  [container]
+  (testid container reset-button-testid))
+
+(defn- reset-armed?
+  "Is the `Reset` button committed AND enabled? `shell/tab-bar-tree`
+  gates `:disabled` on `can-reset?`, which is `(some? focus-epoch)` — so
+  this answers `Xray has an epoch to rewind to and is offering to`,
+  which is the precondition the arm presses against. Read off the
+  committed DOM rather than off the sub, because the sub is what the
+  button is supposed to be reporting."
+  [container]
+  (when-some [btn (reset-button container)]
+    (not (.-disabled btn))))
 
 (defn- click!
   "Click a committed node, or FAIL THIS ROW rather than aborting the lane.
@@ -739,39 +851,72 @@
   Static tab selection is an ordinary `app-db` read, which is why it is the
   lever here.
 
-  ## WHAT THIS ROW DOES *NOT* COVER — READ THIS BEFORE CITING IT (rf2-t2ke)
+  ## THE SECOND HALF — AN APP-DIRECTED COMMAND, THROUGH ITS REAL UI PATH
 
   Criterion 4 has TWO halves: Xray's own state stays out of the
   application, and a tool-issued command reaches the application frame it
-  was AIMED at. **THIS ROW COVERS THE FIRST HALF ONLY.**
+  was AIMED at. Everything above is the FIRST half. The REWIND ARM at the
+  bottom is the second (rf2-3j1v).
 
-  Every command it issues is an Xray command landing in an Xray frame.
-  No tool-issued command targets an inspected application — because the
-  staged subject has none to issue. Measured over
-  `tools/xray/src/day8/re_frame2_xray/static/**`: the only `{:frame …}`
+  The command is the Dynamic tab ribbon's `Reset` button — Xray's ONE
+  app-directed affordance, and an existing product command rather than
+  one written for this row. Its whole path is the shipped one: a real
+  browser click on the real `<button data-testid=\"rf-xray-tab-bar-reset\">`,
+  the `:on-click` closure it carries, the dispatcher `tab-bar` captured
+  with `(:dispatch (rf/capture-frame))`, `:rf.xray/reset-to-epoch` with
+  the OBSERVED frame and the focused epoch, the
+  `:rf.xray.fx/restore-epoch` effect, and the framework's own
+  `rf/restore-epoch!` rewinding that frame's `app-db`. Nothing here
+  dispatches on Xray's behalf.
+
+  THREE THINGS IT ASSERTS, AND THEY ARE THE CRITERION'S OWN WORDS:
+
+  - the SELECTED application is rewound to the epoch Xray was pointed
+    at — the command reached the frame it was aimed at;
+  - the UNSELECTED application, at its own distinct seed, is untouched —
+    a command that went everywhere, or to the wrong application, fails
+    here and only here;
+  - the tool's own frame and the deaf lever are untouched, so tool-local
+    isolation survives a command that deliberately does reach outside.
+
+  MISROUTING IT REDDENS THE CASE, which is the criterion's disable
+  clause: point [[setup!]]'s target frame at [[second-app-frame]] instead
+  and the rewind lands in the wrong application — the selected one stays
+  at its post-bump value and the unselected one moves. Both assertions
+  turn, from opposite sides.
+
+  ## THE PROHIBITION THAT STOOD HERE, AND WHY IT NO LONGER BINDS
+  ## (rf2-t2ke, discharged by rf2-3j1v)
+
+  This docstring used to record that the row covered the first half
+  ONLY, that *a regression routing every app-directed Xray command to the
+  wrong application frame would leave this row green*, and that the gap
+  was deliberate. It was, and the measurement behind it stands: over
+  `tools/xray/src/day8/re_frame2_xray/static/**` the only `{:frame …}`
   DISPATCH option anywhere in the Static tree is
-  `defaults/default-frame-id`, which IS the Xray frame. (The `{:frame …}`
-  options in `static/schemas/panel.cljs` are cross-frame READS, not
-  commands.)
+  `defaults/default-frame-id`, which IS the Xray frame — the `{:frame …}`
+  options in `static/schemas/panel.cljs` being cross-frame READS.
+  `static/routes/simulate_nav.cljs` still states the posture in terms —
+  *Xray is a lens, not a remote control* — and the machine simulator
+  still clones the definition into Xray's OWN `app-db` so the host frame
+  is never touched.
 
-  THAT IS DELIBERATE, NOT AN OMISSION, which is why the answer is a
-  documented gap rather than a new product command.
-  `static/routes/simulate_nav.cljs` states the posture in terms — *Xray
-  is a lens, not a remote control* — and the machine simulator clones the
-  definition into Xray's OWN `app-db` precisely so the host frame is
-  never touched. The app-directed affordances, the `(fn [ev] (rf/dispatch
-  ev {:frame frame}))` closures that re-issue an event into the inspected
-  application, all live on the DYNAMIC side, whose shell is still an
-  `rf/reg-view` painted through the installed adapter and is a later
-  slice.
+  WHAT CHANGED IS THE SUBJECT, NOT THE POSTURE. The Static ribbon issues
+  no app-directed command and still issues none; `Reset` is on the
+  DYNAMIC ribbon, which this harness could not mount until rf2-k97c.3
+  made the shell a Fresco boundary. So no product command was invented —
+  the prohibition rf2-t2ke wrote (*the staged Static surface has no such
+  command; do not invent one*) was never lifted, it was routed around by
+  widening the bench.
 
-  SO: A REGRESSION ROUTING EVERY APP-DIRECTED XRAY COMMAND TO THE WRONG
-  APPLICATION FRAME WOULD LEAVE THIS ROW GREEN. That is a known and
-  recorded gap, not a hidden one. Wire the missing half when this harness
-  moves to the shipped shell — the row it needs is one app-directed
-  operation through its real UI path, asserting the SELECTED application
-  moved and the other did not — and until then do not cite this row as
-  full criterion-4 coverage."
+  AND `Reset` IS THE ONLY ONE, which is why the arm below is singular
+  rather than a sample. The `{:frame frame}` dispatch closures across the
+  Dynamic panels all target the SURROUNDING INSTANCE FRAME — Xray's own —
+  and `:rf.xray/set-target-frame` writes Xray's own `app-db` too. The
+  single Xray affordance whose effect lands in an inspected application
+  is this one, and it reaches it through `rf/restore-epoch!` rather than
+  through a `{:frame …}` dispatch option at all — which is exactly why
+  the census that established the prohibition could not see it."
   [{:keys [label]} done]
   (if-not (browser?)
     (do (skip! 4) (done))
@@ -786,7 +931,17 @@
                         {:frame other-frame})
       (let [handle    (mount-xray!)
             container (:container handle)
-            !app-db   (atom nil)]
+            !app-db   (atom nil)
+            ;; The epoch the REWIND ARM aims Xray at — captured below,
+            ;; while the application demonstrably still holds its seed.
+            !rewind   (atom nil)
+            rewind-id (fn [] (:epoch-id @!rewind))
+            observed  (fn [] (rf/subscribe-once [:rf.xray/observed-frame]
+                                                {:frame xray-frame}))
+            focused   (fn [] (rf/subscribe-once [:rf.xray/focus-epoch-id]
+                                                {:frame xray-frame}))
+            flash     (fn [] (rf/subscribe-once [:rf.xray/reset-flash]
+                                                {:frame xray-frame}))]
         (-> (poll-until #(tab-node container clicked-tab))
             (.then
               (fn [_]
@@ -875,7 +1030,133 @@
                          "application ONLY — the first is still {:count 0}. So "
                          "the instrument can tell the two apart, and "
                          "`untouched` above means untouched rather than "
-                         "unreadable. Got: " (pr-str (app-db-of app-frame))))))
+                         "unreadable. Got: " (pr-str (app-db-of app-frame))))
+                ;; ==========================================================
+                ;; THE REWIND ARM (rf2-3j1v) — criterion 4's SECOND half
+                ;; ==========================================================
+                ;;
+                ;; Everything above is `the tool wrote into no application`.
+                ;; From here the tool is made to write into ONE application
+                ;; ON PURPOSE, through the only app-directed command Xray
+                ;; ships, and the claim is that it reached the application
+                ;; it was AIMED at and no other.
+                ;;
+                ;; The rewind target is captured HERE rather than at the
+                ;; top of the row because the assertion immediately above
+                ;; is what licenses it: the application is provably still
+                ;; at its seed, so the last epoch on its ring is provably
+                ;; the `{:count 0}` state this arm rewinds to. Nothing
+                ;; between the two lines can move it.
+                (reset! !rewind (last (rf/epoch-history app-frame)))
+                (is (some? (rewind-id))
+                    (str "[" label "] NON-VACUITY: the application's epoch ring "
+                         "carries a recorded epoch to rewind TO. `rf/epoch-"
+                         "history` answers [] when the epoch artefact is merely "
+                         "absent from the build — the same shape a clean ring "
+                         "answers with — so this is the assertion that makes "
+                         "the rewind below a claim about Xray rather than about "
+                         "a no-op. Ring: "
+                         (pr-str (mapv :epoch-id (rf/epoch-history app-frame)))))
+                ;; ---- move BOTH applications off the rewind point --------
+                ;; The second one is already at (inc second-app-seed) from
+                ;; the instrument control above. Moving the first is what
+                ;; makes `rewound` a change rather than a coincidence.
+                (rf/dispatch-sync [::app-bump] {:frame app-frame})
+                (is (= {:count 1} (app-db-of app-frame))
+                    (str "[" label "] PRECONDITION: the SELECTED application has "
+                         "moved OFF the epoch Xray is about to be pointed at, so "
+                         "the rewind below has somewhere to come back from. "
+                         "Expected {:count 1}, got "
+                         (pr-str (app-db-of app-frame))))
+                ;; ---- aim Xray: observed frame + focused epoch ------------
+                ;; Both are Xray's own tool-local events writing Xray's own
+                ;; app-db — the picker and the epoch pin a user drives from
+                ;; the L1 frame switcher and an L2 row. They decide what the
+                ;; `Reset` button targets; they are not themselves the
+                ;; app-directed command.
+                (rf/dispatch-sync [:rf.xray/set-target-frame app-frame]
+                                  {:frame xray-frame})
+                (rf/dispatch-sync [:rf.xray/select-epoch (rewind-id)]
+                                  {:frame xray-frame})
+                (is (= app-frame (observed))
+                    (str "[" label "] PRECONDITION: Xray is OBSERVING the first "
+                         "application, so the button below is aimed at a known "
+                         "frame rather than wherever the spine drifted. Expected "
+                         (pr-str app-frame) ", got " (pr-str (observed))))
+                (is (= (rewind-id) (focused))
+                    (str "[" label "] PRECONDITION: and its focused epoch is the "
+                         "one captured above — the button carries THIS epoch, "
+                         "not a head the spine re-derived. Expected "
+                         (pr-str (rewind-id)) ", got " (pr-str (focused))))
+                (is (nil? (flash))
+                    (str "[" label "] PRECONDITION: and no stale rewind-failure "
+                         "flash is standing, so a flash after the click is this "
+                         "click's. Got: " (pr-str (flash))))
+                ;; ---- show the surface the command lives on --------------
+                ;; `Reset` is on the DYNAMIC tab ribbon. The lens is Xray's
+                ;; own, tool-local, and the mode composer inside the SAME
+                ;; mount swaps the surface — no second root, no remount.
+                (rf/dispatch-sync [:rf.xray/set-mode dynamic-lens]
+                                  {:frame xray-frame})
+                (static-persistence/clear!)
+                (poll-until #(reset-armed? container))))
+            (.then
+              (fn [_]
+                (is (true? (reset-armed? container))
+                    (str "[" label "] PRECONDITION: the Dynamic ribbon's `Reset` "
+                         "button is committed and ENABLED, so there is a real "
+                         "app-directed control to press. Node: "
+                         (pr-str (some? (reset-button container)))
+                         (uncaught-note)))
+                (if (click! (reset-button container)
+                            "the Dynamic ribbon's Reset button")
+                  ;; `:on-click` dispatches ASYNCHRONOUSLY through the
+                  ;; captured dispatcher, so the effect runs on a later
+                  ;; tick. Poll on the APPLICATION rather than on the
+                  ;; click having happened.
+                  (poll-until #(= {:count 0} (app-db-of app-frame)))
+                  (js/Promise.resolve nil))))
+            (.then
+              (fn [_]
+                (is (= {:count 0} (app-db-of app-frame))
+                    (str "[" label "] criterion 4 — AN APP-DIRECTED XRAY COMMAND "
+                         "REACHED THE APPLICATION IT WAS AIMED AT: a real click "
+                         "on the shipped `Reset` button rewound the SELECTED "
+                         "application to the focused epoch, through the "
+                         "dispatcher the tab-bar boundary captured and the "
+                         "framework's own `restore-epoch!`. Expected {:count 0}, "
+                         "got " (pr-str (app-db-of app-frame))
+                         " — rewind flash: " (pr-str (flash))
+                         (uncaught-note)))
+                (is (nil? (flash))
+                    (str "[" label "] criterion 4 — and the framework ACCEPTED "
+                         "the restore rather than refusing it: no inline failure "
+                         "flash. A refused restore leaves the application "
+                         "unchanged, which is the one way the assertion above "
+                         "could be satisfied by a command that did nothing. Got: "
+                         (pr-str (flash))))
+                (is (= {:count (inc second-app-seed)}
+                       (app-db-of second-app-frame))
+                    (str "[" label "] criterion 4 — and the UNSELECTED "
+                         "application, at its own distinct value, is UNTOUCHED. "
+                         "This is the assertion a misrouted command fails: aim "
+                         "the picker at the second application and the rewind "
+                         "lands here instead, turning this and the one above "
+                         "from opposite sides. Expected {:count "
+                         (inc second-app-seed) "}, got "
+                         (pr-str (app-db-of second-app-frame))))
+                (is (= deaf-frame-tab (selected-tab-in other-frame))
+                    (str "[" label "] criterion 4 — and TOOL-LOCAL ISOLATION "
+                         "SURVIVES a command that deliberately does reach "
+                         "outside: the deaf lever still holds "
+                         (pr-str deaf-frame-tab) ". Got: "
+                         (pr-str (selected-tab-in other-frame))))
+                (is (nil? (:count (app-db-of xray-frame)))
+                    (str "[" label "] criterion 4 — and the restored application "
+                         "state landed in the APPLICATION rather than in the "
+                         "tool's own frame. Xray's `app-db` carries no `:count` "
+                         "at all. Got: "
+                         (pr-str (:count (app-db-of xray-frame)))))))
             (.catch (fail-and-finish (str "[" label "] criterion 4")))
             (.then (fn [_] (unmount-xray! handle) (done))))))))
 
