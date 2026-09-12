@@ -16,10 +16,11 @@
        :auto-playing?  <bool>         ; the interval is ticking
        :cursor         <int>          ; number of steps run so far
        :total          <int>          ; count of play-script STEPS in this run
-       :play-steps     <vector>       ; immutable snapshot of the FULL coerced
-                                      ;   :script step vector (every step
-                                      ;   type; derived via
-                                      ;   re-frame.story.play/variant-play-steps)
+       :play-steps     <vector>       ; immutable snapshot of the compiled
+                                      ;   auto-run program (every step type;
+                                      ;   derived via
+                                      ;   re-frame.story.play/variant-play-steps
+                                      ;   with the run opts)
        :statuses       <vector>       ; `rf.story.ui.test-mode.stepper-pure/enrich-statuses` rows
        :breakpoints    #{<int>}       ; step indices that pause auto-play
        :epoch-stack    <vector>       ; per-step :epoch-id pre-images, for
@@ -53,6 +54,7 @@
             [re-frame.core                                :as rf]
             [re-frame.story.play                          :as rf.story.play]
             [re-frame.story.runtime                       :as rf.story.runtime]
+            [re-frame.story.ui.test-mode.state            :as rf.story.ui.test-mode.state]
             [re-frame.story.ui.test-mode.stepper-pure     :as rf.story.ui.test-mode.stepper-pure]))
 
 ;; ---- ratom ---------------------------------------------------------------
@@ -118,60 +120,70 @@
   stops, so the frame the user is shown at cursor 0 is the one the
   variant's `:setup` describes and every step is still to run.
 
+  `opts` is the `run-variant` opts map. The one-argument form (the Start
+  button's) reads it through `rf.story.ui.test-mode.state/run-opts`, the
+  SAME opts Re-run runs with, and ONE map feeds `prepare-variant`,
+  `variant-play-steps` and `begin-stepper!` alike. So the frame is
+  prepared, listed and stepped against the args the canvas and Re-run use,
+  the controls panel's overrides and the active modes included — never a
+  second program compiled against the static args (rf2-ad25).
+
   Asynchronous: the caller may await the returned promise to drive a
   follow-up auto-resume, but the UI does not need to — the slot's
   `:active?` flag drives the view."
-  [variant-id]
-  ;; If a prior stepper is active for this variant, tear it down first.
-  (when (get @results-atom variant-id)
-    (swap! results-atom update variant-id clear-interval!))
-  (rf.story.play/end-stepper! variant-id)
-  ;; Re-allocate the variant frame so the stepper starts from the
-  ;; documented initial state — WITHOUT running the script.
-  (-> (rf.story.runtime/prepare-variant variant-id)
-      (.then  (fn [_]
-                ;; The stepper walks the FULL coerced :script
-                ;; (every step type), not just the dispatch-bearing
-                ;; events. `rf.story.play/variant-play-steps` returns the complete
-                ;; step vector and `rf.story.play/begin-stepper!` seeds the
-                ;; substrate from the same source.
-                (let [play-steps (rf.story.play/variant-play-steps variant-id)
-                      total      (count play-steps)]
-                  (rf.story.play/begin-stepper! variant-id)
-                  (swap! results-atom assoc variant-id
-                         {:variant-id     variant-id
-                          :active?        true
-                          :auto-playing?  false
-                          :cursor         0
-                          :total          total
-                          :play-steps     (vec play-steps)
-                          :statuses       []
-                          :breakpoints    #{}
-                          :epoch-stack    [(current-epoch-id variant-id)]
-                          :interval-id    nil
-                          :tick-ms        default-tick-ms})
-                  (swap! results-atom update variant-id recompute-statuses)
-                  nil)))
-      (.catch (fn [_]
-                ;; A preparation failure (unknown variant, an invalid
-                ;; `:db-seed`, a throwing loader / `:setup` handler) rejects.
-                ;; Leave the slot cleared so the section returns to its
-                ;; honest inactive state rather than offering step controls
-                ;; over a frame whose `:setup` never ran.
-                ;;
-                ;; This branch is the ONLY thing standing between a failed
-                ;; preparation and an active cursor-0 stepper over it, and
-                ;; only HALF the failures arrive as a throw: a failing
-                ;; `:loaders` / `:setup` handler is CAPTURED onto
-                ;; `[:rf.story/assertions]` by `run-loaders!` / `run-events!`,
-                ;; which then return normally. `prepare-variant` inspects the
-                ;; accumulator and rejects explicitly for that class — do not
-                ;; "simplify" that check away on the reading that a
-                ;; preparation which did not throw succeeded (rf2-k6y2
-                ;; post-merge audit). The records stay on the frame either
-                ;; way, so the pane can still say what failed.
-                (swap! results-atom dissoc variant-id)
-                nil))))
+  ([variant-id] (begin! variant-id (rf.story.ui.test-mode.state/run-opts variant-id)))
+  ([variant-id opts]
+   ;; If a prior stepper is active for this variant, tear it down first.
+   (when (get @results-atom variant-id)
+     (swap! results-atom update variant-id clear-interval!))
+   (rf.story.play/end-stepper! variant-id)
+   ;; Re-allocate the variant frame so the stepper starts from the
+   ;; documented initial state — WITHOUT running the script.
+   (-> (rf.story.runtime/prepare-variant variant-id opts)
+       (.then  (fn [_]
+                 ;; The stepper walks the compiled auto-run program (every
+                 ;; step type), not just the dispatch-bearing events.
+                 ;; `rf.story.play/variant-play-steps` returns the complete
+                 ;; step vector and `rf.story.play/begin-stepper!` seeds the
+                 ;; substrate from the same source — both with the opts the
+                 ;; frame was prepared with.
+                 (let [play-steps (rf.story.play/variant-play-steps variant-id opts)
+                       total      (count play-steps)]
+                   (rf.story.play/begin-stepper! variant-id opts)
+                   (swap! results-atom assoc variant-id
+                          {:variant-id     variant-id
+                           :active?        true
+                           :auto-playing?  false
+                           :cursor         0
+                           :total          total
+                           :play-steps     (vec play-steps)
+                           :statuses       []
+                           :breakpoints    #{}
+                           :epoch-stack    [(current-epoch-id variant-id)]
+                           :interval-id    nil
+                           :tick-ms        default-tick-ms})
+                   (swap! results-atom update variant-id recompute-statuses)
+                   nil)))
+       (.catch (fn [_]
+                 ;; A preparation failure (unknown variant, an invalid
+                 ;; `:db-seed`, a throwing loader / `:setup` handler) rejects.
+                 ;; Leave the slot cleared so the section returns to its
+                 ;; honest inactive state rather than offering step controls
+                 ;; over a frame whose `:setup` never ran.
+                 ;;
+                 ;; This branch is the ONLY thing standing between a failed
+                 ;; preparation and an active cursor-0 stepper over it, and
+                 ;; only HALF the failures arrive as a throw: a failing
+                 ;; `:loaders` / `:setup` handler is CAPTURED onto
+                 ;; `[:rf.story/assertions]` by `run-loaders!` / `run-events!`,
+                 ;; which then return normally. `prepare-variant` inspects the
+                 ;; accumulator and rejects explicitly for that class — do not
+                 ;; "simplify" that check away on the reading that a
+                 ;; preparation which did not throw succeeded (rf2-k6y2
+                 ;; post-merge audit). The records stay on the frame either
+                 ;; way, so the pane can still say what failed.
+                 (swap! results-atom dissoc variant-id)
+                 nil)))))
 
 (defn step!
   "Dispatch the next event in the play sequence. No-ops when the stepper

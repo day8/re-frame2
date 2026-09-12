@@ -407,10 +407,14 @@ will land); watch mode has nothing to detect in that build.
 > [spec/004 §Play sequence execution](004-Assertions.md#play-sequence-execution).
 > What this section locks is the chrome that surfaces it.
 >
-> **rf2-ee38b.3 — full-script stepping.** The substrate walks the FULL
-> coerced `:script` — EVERY step type (`:dispatch` /
+> **rf2-ee38b.3 — full-script stepping.** The substrate walks the
+> compiled plan's auto-run program (rf2-499z) — the auto-runnable plays'
+> scripts concatenated, or the primary play when nothing auto-runs,
+> `[:arg]`-substituted against the same run opts Re-run uses (active modes
+> and cell overrides included, rf2-ad25) and with `:compose`d fragment
+> scripts prepended — EVERY step type (`:dispatch` /
 > `:dispatch-sync` / `:wait` / `:click` / `:type` / `:assert-db` /
-> `:assert-dom`) — driving each through the SAME rich-DSL executor
+> `:assert-dom`), driving each through the SAME rich-DSL executor
 > (`runner-events/run-step!`) the canvas auto-run path uses. Each
 > `step-once!` returns the executed STEP (a coerced step vector) and
 > records the step-result into `play/stepper-state`'s `:results`. The
@@ -652,7 +656,7 @@ The section renders (top-to-bottom):
 |---|---------------------|---------------------------------------------------------------|
 | 1 | Header strip        | "Step-debugger · {progress-label} · playing?" + keyboard hint |
 | 2 | Controls strip      | Start (inactive) OR Stop / Back / Step / Pause/Play / Rewind  |
-| 3 | Step list           | One row per coerced `:script` step (EVERY step type — rf2-ee38b.3) with glyph / index / label / BP chip; active state only |
+| 3 | Step list           | One row per step of the compiled auto-run program (EVERY step type — rf2-ee38b.3) with glyph / index / label / BP chip; active state only |
 | 3'| Inactive hint       | One-line "Click Start to step…" placeholder; inactive only    |
 
 Each step row carries:

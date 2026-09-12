@@ -10,7 +10,7 @@
        :expanded        #{<row-key>}      ; expanded assertion rows
        :expanded-checks #{<check-id>}     ; expanded check groups
        :failed-only?    <bool>            ; failed-only filter
-       :play-events     <vector>          ; flat event-vec list derived from :script
+       :play-events     <vector>          ; dispatch events of the compiled program, run opts threaded
        :epoch-ids       <vector>          ; trailing epoch-id slice
        :selected-step   <int|nil>}
 
@@ -55,6 +55,23 @@
 
 (defonce results-atom (r/atom {}))
 
+(defn run-opts
+  "The `run-variant` opts the `:test` pane runs `variant-id` with, read from
+  shell state: the chrome-wide `:active-modes` and `:substrate`, and the
+  variant's OWN `:cell-overrides` entry — the slots the canvas's `run-key`
+  reads, so the pane runs against the effective args the user has been
+  editing in the controls panel.
+
+  Re-run, the scrubber and the step-debugger all take their opts here, so
+  all three compile ONE program (rf2-ad25). A script `[:arg]` fed by a mode
+  or an override would otherwise be scrubbed or stepped as a different
+  program from the one Re-run executed."
+  [variant-id]
+  (let [shell @rf.story.ui.state/shell-state-atom]
+    {:active-modes   (:active-modes shell)
+     :cell-overrides (get-in shell [:cell-overrides variant-id])
+     :substrate      (:substrate shell)}))
+
 (defn- begin-run!
   "Mark the variant's slot as running. Returns nothing. Stamps the
   shell-state `[:tests :runs]` slot too so the chrome-level test widget
@@ -76,14 +93,18 @@
 
   Folds the run's aggregate into the shell-state `[:tests :runs]` slot
   too — the chrome-level test widget + sidebar dots read off that
-  slot."
-  [variant-id result]
+  slot.
+
+  `opts` is the `run-variant` opts map the run received (`run-opts`)."
+  [variant-id opts result]
   (let [now          (rf.interop/now-ms)
-        ;; `:script` is the canonical phase-4 slot.
-        ;; `rf.story.play/variant-play-events` extracts a flat event-vec list
-        ;; (one per `:dispatch`/`:dispatch-sync` step), the shape the
-        ;; scrubber's slot expects.
-        play-events  (rf.story.play/variant-play-events variant-id)
+        ;; `rf.story.play/variant-play-events` extracts the compiled
+        ;; program's flat event-vec list (one per `:dispatch` /
+        ;; `:dispatch-sync` step), the shape the scrubber's slot expects.
+        ;; Compiled against the run's OWN opts: without them an `[:arg]` a
+        ;; mode or cell override supplied differs from the event the run
+        ;; dispatched, and matches nothing on the tape below (rf2-ad25).
+        play-events  (rf.story.play/variant-play-events variant-id opts)
         ;; rf2-4e545l finding 4: match against THIS run's own scoped
         ;; `:epoch-tape` (the result's raw `:rf/epoch-record` vector,
         ;; each carrying its `:trigger-event`) by trigger-event identity
@@ -182,18 +203,16 @@
   swap the result into local state when it resolves. No-ops if
   the slot already carries `:running?`.
 
-  The variant's run threads its OWN cell-overrides entry from shell
-  state — same lookup the canvas / sidebar / share-url paths perform —
-  so the test pane re-runs against the same effective-args the user has
-  been editing in the controls panel."
+  The run's opts come from `run-opts` — the variant's OWN cell-overrides
+  entry plus the active modes and substrate — so the test pane re-runs
+  against the same effective-args the user has been editing in the
+  controls panel, and the scrubber compiles its events against those
+  same opts."
   [variant-id]
-  (let [shell @rf.story.ui.state/shell-state-atom
-        opts  {:active-modes   (:active-modes shell)
-               :cell-overrides (get-in shell [:cell-overrides variant-id])
-               :substrate      (:substrate shell)}]
+  (let [opts (run-opts variant-id)]
     (begin-run! variant-id)
     (-> (rf.story.runtime/reset-variant variant-id opts)
-        (rf.story.async/then  (fn [r] (store-result! variant-id r) nil))
+        (rf.story.async/then  (fn [r] (store-result! variant-id opts r) nil))
         (rf.story.async/catch* (fn [_]
                         ;; Even a rejection clears :running? so the
                         ;; UI button comes back to "Re-run". Drop
