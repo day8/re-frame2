@@ -117,6 +117,26 @@
       (is (= [] @live-requests)
           "SENTINEL: an unmatched route still issues no live request"))))
 
+(deftest extends-child-flipping-a-route-to-failure-fires-the-failure
+  (testing "a child that :extends an :ok variant and flips the SAME route to
+            :failure gets its failure on a live run (rf2-pwwu). Before the fix
+            the route deep-merged to {:reply {:ok .. :failure ..}}, the stub
+            tested :ok first, and the child silently answered the parent's :ok"
+    (rf.story/reg-variant :story.netext/ok
+                          {:network cart-fixture
+                           :setup   [[:dispatch [:net/load]]]})
+    (rf.story/reg-variant :story.netext/fails
+                          {:extends :story.netext/ok
+                           :network {[:get "/api/cart"]
+                                     {:reply {:failure {:kind :rf.http/http-4xx :status 409}}}}})
+    (let [db (:app-db (run-target :story.netext/fails))]
+      (is (nil? (:cart db)) "the parent's :ok reply did NOT answer")
+      (is (= :rf.http/http-4xx (get-in db [:error :error :kind]))
+          "the child's :failure reply answered")
+      (is (= 409 (get-in db [:error :error :status])))
+      (is (= [] @live-requests)
+          "SENTINEL: no managed request reached the production fx slot"))))
+
 ;; ===========================================================================
 ;; The inline path
 ;; ===========================================================================

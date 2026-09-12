@@ -229,14 +229,14 @@
 ;; ===========================================================================
 
 (deftest network-inherits-through-extends
-  (testing ":network is world context — it inherits root→child (deep-merge)"
+  (testing ":network is world context — it inherits root→child (per-route merge)"
     (let [m {:story.n/parent
              {:network {cart-route {:reply {:ok {:items []}}}}}
              :story.n/child
              {:extends :story.n/parent
               :network {checkout-route {:reply {:failure {:kind :rf.http/http-4xx}}}}}}
           p (plan-of :story.n/child m)]
-      (testing "both parent + child routes present (deep-merge of the world map)"
+      (testing "both parent + child routes present (disjoint routes union)"
         (is (= {:reply {:ok {:items []}}}
                (get-in p [:world :network cart-route])))
         (is (= {:reply {:failure {:kind :rf.http/http-4xx}}}
@@ -244,6 +244,23 @@
       (testing "one managed-stub override covers the inherited + own routes"
         (is (= {:rf.http/managed :rf.http/managed-test-stub}
                (get-in p [:world :frame :fx-overrides])))))))
+
+(deftest network-same-route-child-reply-replaces-parent-through-extends
+  (testing "a child flipping the SAME route :ok -> :failure REPLACES the parent's
+            reply (rf2-pwwu). A route's value is one reply, so the child wins per
+            route — exactly as :compose resolves the same slot. A deep merge
+            compiled {:reply {:ok .. :failure ..}}, which the :reply schema
+            rejects and the stub answers with :ok, losing the failure case."
+    (let [failure {:kind :rf.http/http-4xx :status 409}
+          m {:story.n/ok    {:network {cart-route {:reply {:ok {:items [1]}}}}}
+             :story.n/fails {:extends :story.n/ok
+                             :network {cart-route {:reply {:failure failure}}}}}
+          p (plan-of :story.n/fails m)]
+      (is (= {:reply {:failure failure}}
+             (get-in p [:world :network cart-route]))
+          "the child's reply replaces the parent's wholesale")
+      (is (nil? (rf.story.schemas/validate :variant {:network (get-in p [:world :network])}))
+          "the COMPILED route map satisfies the schema registration applies to bodies"))))
 
 ;; ===========================================================================
 ;; Schema — the Variant schema accepts :network and rejects malformed shapes
