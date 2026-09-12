@@ -1011,8 +1011,8 @@
   "Mount + show the default Xray shell in the app-provided true-inline
   layout host. On first call: register the `:rf/xray` frame, find the
   configured host (`[data-rf-xray-host]` by default), create
-  `#rf-xray-root` inside it, render the shell via the installed
-  substrate adapter, mark visible. On subsequent calls when already
+  `#rf-xray-root` inside it, render the shell through Xray's own
+  React root, mark visible. On subsequent calls when already
   mounted inline: make the container visible (a CSS-only show — the
   <80ms toggle target). When already mounted as the OVERLAY surface:
   realize the requested inline surface — re-parent the shell into the
