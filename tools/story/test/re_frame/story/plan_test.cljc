@@ -735,6 +735,20 @@
              (get-in p [:world :render :sub-overrides])))
       (is (= #{:sub-overrides} (get-in p [:world :fidelity]))))))
 
+(deftest sub-overrides-same-key-child-replaces-parent-through-extends
+  (testing "a child overriding the SAME query key REPLACES the parent's pinned
+            value (rf2-pwwu): the variant chain wins per query key, exactly as
+            :compose resolves it. A deep merge pinned a value neither author
+            wrote — here {:items [1 2] :total 2 :status :empty}."
+    (let [m {:story.cart/full  {:sub-overrides {[:cart/summary] {:items [1 2] :total 2}
+                                                [:cart/open?]   true}}
+             :story.cart/empty {:extends       :story.cart/full
+                                :sub-overrides {[:cart/summary] {:status :empty}}}}
+          p (rf.story.plan/variant-plan :story.cart/empty {:lookup m})]
+      (is (= {[:cart/summary] {:status :empty}   ; child's value, wholesale
+              [:cart/open?]   true}              ; untouched parent key inherited
+             (get-in p [:world :render :sub-overrides]))))))
+
 ;; ---- :db-seed — the MIDDLE fidelity rung (rf2-blw1q) ---------------------
 ;;
 ;; `:db-seed` is the schema-checked direct app-db seed. The compiler accepts
