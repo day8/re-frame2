@@ -407,15 +407,17 @@
 
 (defn- reject-unknown-assertions!
   "FAIL plan construction when any authored assertion atom — terminal
-  `:assertions` OR an in-script `[:assert …]` checkpoint — names an id
+  `:assertions`, a resolved check body's atom, OR an in-script `[:assert …]`
+  checkpoint in any named play — names an id
   that is not in the recognised P1 vocabulary
   (`rf.story.assertions/known-assertion-ids`, spec/017 §Assertions).
   Catching it at compile time surfaces the typo before any run, the same
   way the other `:rf.error/story-*` plan errors do — never letting an
   unknown id record a vacuous `:rf.assert/unknown` pseudo-record at run
-  time. `script-assertions` are the atoms pulled from `[:assert …]`
-  checkpoints (post-fold); `terminal-assertions` are the child's own
-  `:assertions` atoms."
+  time. `script-assertions` are the atoms pulled from the `[:assert …]`
+  checkpoints of EVERY named play (post-fold); `terminal-assertions` are
+  the child's own `:assertions` atoms plus every resolved check body's
+  atoms (rf2-jjhy)."
   [id script-assertions terminal-assertions]
   (let [offenders (into []
                         (comp (remove nil?)
@@ -452,10 +454,10 @@
     boolean, never silently coerced or ignored.
 
   A present, boolean `:require-cause?` on `:rf.assert/no-cascade-rerender`
-  is the sole legal use and passes. `script-assertions` are the atoms pulled
-  from `[:assert …]` checkpoints (post-fold); `terminal-assertions` are the
-  child's own `:assertions` atoms — the SAME two sources
-  `reject-unknown-assertions!` walks."
+  is the sole legal use and passes. `script-assertions` and
+  `terminal-assertions` are the SAME two sources `reject-unknown-assertions!`
+  walks: every named play's checkpoints (post-fold), and the child's own
+  `:assertions` plus every resolved check body's atoms."
   [id script-assertions terminal-assertions]
   (let [offenders
         (into []
@@ -1185,7 +1187,10 @@
   check packs). Defaults to the Story side-table `:check` kind. An
   unregistered check id maps to an empty atom vector (it groups nothing —
   the run-level aggregation still sees any ungrouped records), so a missing
-  check never throws at result-assembly time."
+  check never throws at result-assembly time. Plan construction already
+  FAILS on an unregistered id (`:rf.error/story-check-unknown`), so this
+  tolerance only covers a hand-built plan or a check unregistered after
+  compile."
   ([check-ids] (expand-checks check-ids nil))
   ([check-ids check-lookup]
    (let [lookup (coerce-kind-lookup :check-lookup check-lookup default-check-lookup)]
@@ -1308,6 +1313,23 @@
                          (into composed-checks)
                          distinct
                          vec)
+        ;; Every :checks id — inherited, own or composed — MUST resolve to a
+        ;; registered check, exactly as a `:compose` id must (rf2-jjhy). An
+        ;; unresolved id used to expand to an empty atom vector, and a check
+        ;; over no atoms aggregates `:pass` forever. The resolved bodies'
+        ;; atoms feed the assertion-id guards below; the runtime dispatches
+        ;; them after the script, beside the terminal `:assertions`.
+        check-atoms  (into []
+                           (mapcat (fn [cid]
+                                     (if-let [chk (chk-lookup cid)]
+                                       (:assertions chk)
+                                       (fail! :rf.error/story-check-unknown
+                                              (str "re-frame2-story: :checks on " id
+                                                   " references unregistered check " cid
+                                                   ". Register it with reg-check, or fix"
+                                                   " the spelling of the id.")
+                                              {:variant/id id :check/id cid}))))
+                           checks)
         ;; setup APPENDS: inherited (root→parent), THEN composed fragments
         ;; (declared order), THEN the variant's own setup — variant-owned
         ;; values land last (§Merge rules + §Total resolution order). Each
@@ -1397,21 +1419,23 @@
         scripts*     (mapv (fn [p]
                              (update p :script substitute-args arg-map subs!))
                            scripts)
-        ;; Every authored assertion atom (terminal
-        ;; `:assertions` AND an in-script `[:assert …]` checkpoint, incl.
-        ;; the folded `:assert-db` / `:assert-dom` steps) MUST name a
-        ;; recognised :rf.assert/* id. An unknown id FAILS plan
-        ;; construction here, before any run (spec/017 §Assertions). The
-        ;; script is already folded (`normalize-scripts`), so one walk over
-        ;; the `[:assert …]` checkpoints covers every in-script position.
-        _            (reject-unknown-assertions!
-                       id (script-assertion-atoms script*) assertions)
+        ;; Every authored assertion atom (terminal `:assertions`, a resolved
+        ;; check body's atoms, AND an in-script `[:assert …]` checkpoint in
+        ;; ANY named play, incl. the folded `:assert-db` / `:assert-dom`
+        ;; steps) MUST name a recognised :rf.assert/* id. An unknown id FAILS
+        ;; plan construction here, before any run (spec/017 §Assertions). The
+        ;; plays are already folded (`normalize-scripts`), so one walk over
+        ;; their `[:assert …]` checkpoints covers every in-script position.
+        ;; The walk reads `scripts*` — every play the runner can drive — not
+        ;; the primary play alone (rf2-jjhy).
+        play-atoms   (into [] (mapcat (comp script-assertion-atoms :script)) scripts*)
+        expect-atoms (into assertions check-atoms)
+        _            (reject-unknown-assertions! id play-atoms expect-atoms)
         ;; A causal assertion's `:require-cause?` opt is a strict
         ;; `:rf.assert/no-cascade-rerender` boolean (rf2-x76af2.17): reject
         ;; the key on `:rf.assert/caused` and reject a non-boolean value on
         ;; either id, at compile time, before any run.
-        _            (reject-malformed-causal-opts!
-                       id (script-assertion-atoms script*) assertions)
+        _            (reject-malformed-causal-opts! id play-atoms expect-atoms)
         ;; ---- view-state subscription overrides ----
         ;; `:sub-overrides` composes like `:network`: composed-fragment
         ;; override maps merge in declared order (a later fragment wins a

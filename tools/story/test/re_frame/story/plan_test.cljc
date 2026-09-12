@@ -323,7 +323,10 @@
     (let [m {:story.k/parent {:checks [:check/no-runtime-errors]}
              :story.k/child  {:extends :story.k/parent
                               :checks  [:check/extra]}}
-          p (plan-of :story.k/child m)]
+          ;; Every :checks id must resolve (rf2-jjhy), so thread the bodies.
+          checks {:check/no-runtime-errors {:assertions [[:rf.assert/no-warnings]]}
+                  :check/extra             {:assertions [[:rf.assert/no-warnings]]}}
+          p (rf.story.plan/variant-plan :story.k/child {:lookup m :check-lookup checks})]
       (is (= [:check/no-runtime-errors :check/extra]
              (get-in p [:expect :checks]))))))
 

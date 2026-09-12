@@ -198,7 +198,8 @@
 (deftest compose-mixes-fragments-and-checks-in-declared-order
   (testing "a :compose list interleaving fragments + checks resolves each kind"
     (let [fragments {:fragment/seed {:setup [[:dispatch [:seed]]]}}
-          checks    {:check/clean {:assertions [[:rf.assert/no-warnings]]}}
+          checks    {:check/clean {:assertions [[:rf.assert/no-warnings]]}
+                     :check/own   {:assertions [[:rf.assert/no-warnings]]}}
           variants  {:story.x/v {:compose [:fragment/seed :check/clean]
                                  :checks  [:check/own]}}
           p (compose-plan :story.x/v
@@ -255,7 +256,10 @@
     (let [variants {:story.k/parent {:checks [:check/no-runtime-errors]}
                     :story.k/child  {:extends :story.k/parent
                                      :checks  [:check/extra]}}
-          p (compose-plan :story.k/child {:variants variants})]
+          ;; Every :checks id must resolve (rf2-jjhy).
+          checks   {:check/no-runtime-errors {:assertions [[:rf.assert/no-warnings]]}
+                    :check/extra             {:assertions [[:rf.assert/no-warnings]]}}
+          p (compose-plan :story.k/child {:variants variants :checks checks})]
       (is (= [:check/no-runtime-errors :check/extra]
              (get-in p [:expect :checks]))))))
 

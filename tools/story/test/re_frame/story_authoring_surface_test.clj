@@ -324,6 +324,9 @@
             :lookup arg): setup APPENDS, checks INHERIT, decorators INHERIT"
     (rf.story/reg-decorator :s84-parent-deco
       {:kind :hiccup :wrap (fn [body _] [:div.s84 body])})
+    ;; Every :checks id must resolve to a registered check (rf2-jjhy).
+    (rf.story/reg-check :check/no-runtime-errors {:assertions [[:rf.assert/no-warnings]]})
+    (rf.story/reg-check :check/extra {:assertions [[:rf.assert/no-warnings]]})
     (rf.story/reg-variant :story.s84/parent
       {:setup      [[:dispatch [:s84/p1]] [:dispatch [:s84/p2]]]
        :checks     [:check/no-runtime-errors]

@@ -1001,8 +1001,14 @@
   verdict lands on `:rf.story/assertions` via the ONE recording path —
   `record-result-map` / `rf.story.result/run-result` already folds that accumulator
   into the unified `:pass` / `:fail`. The terminal atoms are the plan's
-  `[:expect :assertions]` (the SAME slot `plan-assertion-atoms` reads), so a
-  REGISTERED variant and an INLINE plan both route here.
+  `[:expect :assertions]` PLUS every expanded check's atoms (`plan-checks` —
+  the SAME two slots `plan-assertion-atoms` reads), so a REGISTERED variant
+  and an INLINE plan both route here. A check is a terminal expectation too,
+  and this is the only dispatcher its atoms reach: without them every check
+  grouped an empty record set and aggregated `:pass` (rf2-b2mt). The union
+  is `distinct`, so an atom a check shares with `:assertions` (or with
+  another check) dispatches — and records — once; `rf.story.result/check-record`
+  groups by atom match, so that one record serves every check naming it.
 
   The tape-evaluated kinds (`:rf.assert/schema-error`, the causal / cascade
   family, the browser-tier oracle family) are NOT double-processed: they
@@ -1016,7 +1022,8 @@
   [variant-id plan]
   (try
     (rf.story.play.runner-events/run-terminal-assertions!
-      variant-id (get-in plan [:expect :assertions]))
+      variant-id (vec (distinct (concat (get-in plan [:expect :assertions])
+                                        (mapcat val (plan-checks plan))))))
     (catch #?(:clj Throwable :cljs :default) _ nil))
   nil)
 
