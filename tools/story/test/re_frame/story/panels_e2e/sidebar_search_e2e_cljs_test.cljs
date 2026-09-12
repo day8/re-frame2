@@ -4,7 +4,7 @@
 
   The pure helpers under `re-frame.story.ui.sidebar-search` already
   have a JVM-portable test corpus
-  (`sidebar_search_test.cljc`). This namespace exercises the
+  (`sidebar_search_cljs_test.cljc`). This namespace exercises the
   **integration** at the live sidebar hiccup level: register variants,
   render the sidebar, drive the `:on-change` handler on the search
   `<input>`, and assert the surviving variant rows match the live

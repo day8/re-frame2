@@ -1,8 +1,8 @@
-(ns re-frame.story.ui.sidebar-signals-test
+(ns re-frame.story.ui.sidebar-signals-cljs-test
   "JVM-portable regression net for the sidebar's five-axis signal chips
   (rf2-ba86n.4, spec/018 §7.1 + §12.6). Every fn under test is `.cljc`-pure
   so this corpus runs on both JVM (`clojure -M:test`) and CLJS
-  (`npm run test:cljs`) — see the sibling `sidebar-search-test`.
+  (`npm run test:cljs`) — see the sibling `sidebar-search-cljs-test`.
 
   ## The contract under test
 
@@ -11,7 +11,10 @@
   fx-overrides are world inputs, NOT fidelity; browser is a runner
   requirement, NOT fidelity; attached / MCP-bound are frame bindings, NOT
   runner tiers. This corpus asserts the derivation keeps them in separate
-  buckets and reads only the variant body's real metadata."
+  buckets and reads only the variant body's real metadata.
+
+  Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
+  selects it; under its old `-test` name it ran on the JVM only (rf2-1ep8)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.ui.sidebar-signals :as rf.story.ui.sidebar-signals]))
 
