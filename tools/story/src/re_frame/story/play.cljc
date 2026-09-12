@@ -44,19 +44,16 @@
   `:rf.assert/effect-emitted` / `:rf.assert/dispatched?` project from the
   epoch tape + stub-call log (the SSOT).
 
-  ## Async surface
+  ## Execution lives elsewhere
 
-  Headless play execution is synchronous — `dispatch-sync` drains
-  run-to-completion (per spec/002), so a sequence of N events
-  completes in N drains. The play-runner returns a resolved promise
-  immediately on completion. Richer runners supply the asynchronous DOM
-  and browser settlement hooks.
+  This module executes no play. Phase 4 — the fold, the settled
+  boundary, `:wait` / `:click` / `:assert-*` and the DOM and browser
+  settlement hooks — runs in `re-frame.story.play.runner-events`: the
+  canvas auto-run drives `run!`, and the step-debugger drives
+  `step-once!` → `run-step!`.
 
   ## Public API
 
-  - `execute-play!`  — runs a play sequence against a variant frame
-                       and returns a resolved promise of the
-                       accumulated assertions vector.
   - `install-trace-listener!` / `remove-trace-listener!` — per-frame
                          trace-listener install + teardown; idempotent.
   - `play-stepper-active?` / `step-once!` — UI play-stepper hooks."
@@ -66,7 +63,6 @@
             [re-frame.trace            :as rf.trace]
             [re-frame.story.args       :as rf.story.args]
             [re-frame.story.assertions :as rf.story.assertions]
-            [re-frame.story.async      :as rf.story.async]
             [re-frame.story.config     :as rf.story.config]
             [re-frame.story.error      :as rf.story.error]
             [re-frame.story.late-bind  :as rf.story.late-bind]
@@ -208,11 +204,13 @@
     nil))
 
 ;; ---------------------------------------------------------------------------
-;; Play sequence execution
+;; Single-event dispatch — the step-debugger's fallback executor
 ;; ---------------------------------------------------------------------------
 
 (defn- dispatch-one!
-  "Dispatch a single event in the play sequence. Wraps `dispatch-sync`
+  "Dispatch a single play event — `step-once!`'s fallback for a dispatch
+  step when the rich-DSL executor (the `:run-play-step` late-bind hook) is
+  absent. Wraps `dispatch-sync`
   with the exception-record path so phase-4 errors land in the
   assertion list rather than aborting the sequence (`004-Assertions.md` §Record-don't-throw semantics +
   `002-Runtime.md` §Error projection).
@@ -236,11 +234,6 @@
   ;; trace events into assertion records. Safe to dispatch-sync now —
   ;; the drain has ended.
   (drain-pending-exceptions! frame-id :phase-4-play))
-
-(defn- read-assertions-after
-  "Return the per-frame assertions vector, post-play."
-  [frame-id]
-  (rf.story.assertions/read-assertions frame-id))
 
 ;; ---------------------------------------------------------------------------
 ;; The stepped program — read from the COMPILED plan (rf2-499z)
@@ -309,55 +302,6 @@
                      (second step))))
            steps))))
 
-(defn execute-play!
-  "Run the play sequence against `variant-id`'s frame. Drives the
-  trace-listener, dispatches each event in order, and returns a
-  resolved promise of the assertions vector.
-
-  Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when` phase 4 + `004-Assertions.md` §Record-don't-throw semantics the sequence runs to completion
-  regardless of which assertions fail. `:rf.error/exception` records
-  cover phase-4 throws.
-
-  `opts` accepts `:install-listener?` (default true) — when false the
-  caller has already installed the listener (e.g. the UI shell). The
-  listener is idempotent so the default-true path is also safe."
-  ([variant-id]
-   (execute-play! variant-id (variant-play-events variant-id) nil))
-  ([variant-id play-events]
-   (execute-play! variant-id play-events nil))
-  ([variant-id play-events {:keys [install-listener?]
-                            :or   {install-listener? true}}]
-   (if-not rf.story.config/enabled?
-     (rf.story.async/resolved [])
-     (rf.story.async/promise
-       (fn [resolve]
-         (try
-           (swap! pending-exceptions assoc variant-id [])
-           (when install-listener?
-             (install-trace-listener! variant-id))
-           (try
-             (doseq [ev play-events]
-               (dispatch-one! variant-id ev))
-             (finally
-               (when install-listener?
-                 ;; Leave the listener in place if the caller declared
-                 ;; ownership; otherwise tear down so destroyed variants
-                 ;; don't accumulate dangling cbs.
-                 (remove-trace-listener! variant-id))))
-           (resolve (read-assertions-after variant-id))
-           (catch #?(:clj Throwable :cljs :default) e
-             ;; A failure inside execute-play itself (not the dispatched
-             ;; events) becomes a phase-4-setup record. The play has not
-             ;; necessarily completed but we still resolve the promise so
-             ;; the caller sees the accumulator. Routed through the shared
-             ;; projection so :stack / :data survive on the record; :event
-             ;; is nil (the failure is in the play harness, not a
-             ;; dispatched event).
-             (rf.story.assertions/record!
-               variant-id
-               (rf.story.error/exception-record variant-id :phase-4-setup nil e))
-             (resolve (read-assertions-after variant-id)))))))))
-
 ;; ---------------------------------------------------------------------------
 ;; UI play-stepper hook
 ;;
@@ -378,7 +322,8 @@
          result records the
          rich-DSL executor returned. The UI shell consumes this to
          render the stepper widget. Used only when the play sequence is
-         being driven step-by-step rather than via `execute-play!`."}
+         being driven step-by-step rather than auto-run by
+         `runner-events/run!`."}
   stepper-state
   (atom {}))
 

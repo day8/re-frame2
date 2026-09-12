@@ -93,20 +93,6 @@
 ;; `capture-phase-errors` brackets phases 1-2 only to keep the
 ;; privacy-suppressed failures' framework fact (rf2-k6y2).
 
-(defonce ^:private capture-counter (atom 0))
-
-(defn- with-trace-listener
-  "Register `listener` against a fresh capture id, run `body-fn` (a
-  0-arg thunk), then remove the listener in a `finally`. Returns
-  `body-fn`'s return value. Factors out the register/try/finally/remove
-  shape shared by every `capture-phase-errors`-style helper."
-  [listener body-fn]
-  (let [cb-id (keyword "re-frame.story.runtime"
-                       (str "capture-" (swap! capture-counter inc)))]
-    (rf/register-listener! :trace cb-id listener)
-    (try (body-fn)
-      (finally (rf/unregister-listener! :trace cb-id)))))
-
 (defn- capture-phase-errors
   "Run `body-fn` (a 0-arg thunk) with a registered trace listener that
   captures the PRIVACY-SUPPRESSED half of a loader / setup phase's failure
@@ -141,7 +127,7 @@
   fact the egress filter cannot erase, rather than on redaction being
   weakened."
   [variant-id body-fn]
-  (with-trace-listener
+  (rf.story.error/with-trace-listener ::capture
     (fn [ev]
       ;; Resolve the suppress decision against the event's own frame
       ;; (per-(tool,frame) visibility).
@@ -842,10 +828,12 @@
   BEFORE phase-1 loaders fire so the privacy gate suppresses sensitive
   loader-phase events and loader-phase handler-exceptions are captured.
   We clear the per-frame `pending-exceptions` slot so the listener has a
-  clean slot; `execute-play!` clears it again at play start. The
-  `redacted-failures` record is cleared in the same breath and for the
-  same reason: it is the privacy-safe half of the phases 0-2 failure
-  picture (`capture-phase-errors`), and `prepare-variant` reads it as a
+  clean slot; phase 4 then drains it after every step (`runner-events`),
+  and the step-debugger's `begin-stepper!` resets it when a stepped
+  session starts. The `redacted-failures` record is cleared in the same
+  breath and for the same reason: it is the privacy-safe half of the
+  phases 0-2 failure picture (`capture-phase-errors`), and
+  `prepare-variant` reads it as a
   yes/no on THIS preparation. Clearing it here — at the same fresh-frame
   boundary that resets `[:rf.story/assertions]` — is what makes both
   halves describe one run rather than an accumulation.
@@ -1134,9 +1122,10 @@
 
 (defn- finalise-run!
   "Build and deliver the result map once phase 4's promise settles.
-  This chain is load-bearing: `execute-play!` resolves the promise to the
-  assertions vector, and we want the result map to read the post-play
-  app-db.
+  This chain is load-bearing: `run-phase-4!` resolves the promise to the
+  assertions vector only once every auto-play has finished and the
+  terminal `:assertions` have settled, and we want the result map to read
+  the post-play app-db.
 
   The `catch*` is the chain's rejection path (rf2-9ppq). Without it a
   throw while assembling the result — or a rejected play promise — left

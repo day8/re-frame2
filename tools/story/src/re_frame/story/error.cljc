@@ -1,6 +1,8 @@
 (ns re-frame.story.error
   "The ONE Throwable→error-map projection + `:rf.error/exception`
-  assertion-record builder, shared across the Story runtime.
+  assertion-record builder, shared across the Story runtime — and the ONE
+  register/try/finally trace-listener bracket its capture sites run inside
+  (`with-trace-listener`).
 
   Lives at the leaf of the require graph (depends on `clojure.core` /
   the host runtime only) so any sibling namespace — `runtime`, `frames`,
@@ -77,7 +79,12 @@
             ;; frame through it, not a hand-rolled `[:tags :frame]` walk.
             ;; Core framework leaf, so the require keeps this ns at the
             ;; leaf of the cycle graph.
-            [re-frame.trace   :as rf.trace])
+            [re-frame.trace   :as rf.trace]
+            ;; The `:trace` listener registry's home namespace — the one the
+            ;; `re-frame.core/register-listener!` facade's `:trace` arm calls.
+            ;; Reached directly for the same leaf-of-the-graph reason as the
+            ;; two requires above.
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:refer-clojure :exclude [error]))
 
 (def pipeline-exception-operations
@@ -104,6 +111,33 @@
   [frame-id ev]
   (and (contains? pipeline-exception-operations (:operation ev))
        (= frame-id (rf.trace/trace-event-frame ev))))
+
+(defonce ^:private trace-listener-counters
+  ;; id-prefix → the last <n> minted under it. One counter PER PREFIX, so
+  ;; each capture site's ids run 1, 2, 3 … on their own.
+  (atom {}))
+
+(defn with-trace-listener
+  "The ONE register/try/finally bracket every Story capture site runs its
+  walk inside (rf2-5zgx): register `listener` on the `:trace` stream under
+  a fresh id minted from `id-prefix`, run `body-fn` (a 0-arg thunk), and
+  remove the listener in a `finally`. Returns `body-fn`'s return value.
+
+  `id-prefix` is a qualified keyword; the n-th bracket under it registers
+  `:<ns>/<name>-<n>`, counted per prefix. `runtime`'s phase-1/2 capture
+  passes `::capture`, and `frames`' setup and teardown walks pass
+  `::setup-capture` / `::teardown-capture`.
+
+  It lives here because both of those namespaces already require this
+  leaf, and `frames` must not require `runtime`: the arrow runs one way,
+  which is why `frames` used to carry its own copies of the bracket."
+  [id-prefix listener body-fn]
+  (let [n     (get (swap! trace-listener-counters update id-prefix (fnil inc 0))
+                   id-prefix)
+        cb-id (keyword (namespace id-prefix) (str (name id-prefix) "-" n))]
+    (rf.trace.tooling/register-listener! cb-id listener)
+    (try (body-fn)
+      (finally (rf.trace.tooling/unregister-listener! cb-id)))))
 
 (defn- elide-ex-data
   "Project an `ex-data` map through `re-frame.projection/project-egress`

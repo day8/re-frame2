@@ -1737,23 +1737,6 @@
   (emit-reports! (:variant/id result) (rf.story.result/result->reports result))
   result)
 
-(defn execute-play!
-  "Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`
-  phase 4 — run the play sequence against a variant
-  frame and return a promise of the assertions vector. Use this when
-  you've already allocated a variant frame (via a prior `run-variant`
-  or `allocate!`) and want to re-run play without tearing the frame
-  down + re-running phases 1-3.
-
-  Returns a `js/Promise` (CLJS) / `CompletableFuture` (JVM) of the
-  assertions vector — the same shape `(:assertions result)` gives."
-  ([variant-id]
-   (rf.story.play/execute-play! variant-id))
-  ([variant-id play-events]
-   (rf.story.play/execute-play! variant-id play-events))
-  ([variant-id play-events opts]
-   (rf.story.play/execute-play! variant-id play-events opts)))
-
 (def force-fx-stub-id
   "Per /spec/007-Stories.md §Effect mocking + `004-Assertions.md`
   §Canonical assertion vocabulary — the registered

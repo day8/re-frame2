@@ -2369,9 +2369,6 @@
   ["re-frame.story" "resolve-decorators"]            {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
                                                      :justification "The decorator half of `resolve-args`: the ordered decorator chain a run will apply. Reference entry in docs/story/api/runtime.md, beside its partner."}
-  ["re-frame.story" "execute-play!"]                 {:tier :tooling :owner "007" :status "post-v1 lib"
-                                                     :action :keep
-                                                     :justification "Runs a play script against an already-materialised variant -- the step-debugger and live-canvas path that drives a script without re-running the whole lifecycle. Reference entry in docs/story/api/runtime.md."}
   ["re-frame.story" "gen-play-snippet"]              {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
                                                      :justification "Emits a pasteable `:script` snippet from a recording -- the last step of the recorder workflow, where the user copies generated script into their variant body. Rowed in tools/story/spec/API.md and taught across the skills' recorder references."}

@@ -1439,8 +1439,9 @@
    (deftest sync-steps-do-not-yield-between
      (testing "rf2-ftow6: a script of pure :dispatch-sync + :assert-db steps
               runs end-to-end without intermediate yields — no extra event
-              dispatches sneak in mid-script. Probes the legacy execute-play!
-              semantics the migration accidentally lost."
+              dispatches sneak in mid-script. Probes the run-to-completion
+              semantics the old bare dispatch-sync play rail had, which the
+              migration accidentally lost."
        (let [n (atom 0)]
          (rf/reg-event :rt/inc (fn [{:keys [db]} _] (swap! n inc) {:db (update db :n (fnil inc 0))}))
          (rf.story/reg-variant :story.runner/sync-tight
