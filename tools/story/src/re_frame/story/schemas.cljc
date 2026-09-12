@@ -454,8 +454,9 @@
   - `:modes` — saved-tuple mode ids opt-in.
   - `:substrates` — default substrate set for variants.
   - `:platforms` — SSR opt-in.
-  - `:variants` — the Form-B combined-form sugar; the macro desugars
-    into N independent `reg-variant` calls.
+  - `:variants` — the Form-B combined-form sugar; desugared into N
+    independent `reg-variant` calls (by the macro for a literal map, by
+    `reg-story*` for anything else).
   - `:dispatch-console?` — Story-shell dispatch console panel opt-in.
     Default false (panel hidden). Set true to surface the per-variant
     dispatch console for this story / its variants. Toolbar
@@ -525,8 +526,9 @@
    ;; not fork that validation — one source of truth.
    [:images     {:optional true} [:vector :any]]
    ;; The Form-B combined-form sugar. Variant-name keys map to variant
-   ;; bodies — the macro expands these into N independent reg-variant
-   ;; calls. Validated separately when the macro desugars.
+   ;; bodies, desugared into N independent reg-variant calls (the macro
+   ;; for a literal map, `reg-story*` otherwise); each body is then
+   ;; validated as a `Variant` on its own registration.
    [:variants   {:optional true} [:map-of :keyword :map]]])
 
 ;; ---- :rf/variant ----------------------------------------------------------
@@ -576,10 +578,15 @@
 
   Per `tools/story/spec/017-Testing-Story.md` §Public vocabulary the
   authoring key for ordered behaviour-under-test is `:script`, and the
-  registered body carries it under that same key."
+  registered body carries it under that same key.
+
+  The map is `{:closed true}` (rf2-uys9): an absent `:auto-run?` means
+  auto-run, so a misspelt opt-out (`:auto-run`, `:autorun?`) would
+  otherwise run the script with no error. It is rejected at registration
+  instead, naming the key, its location and the nearest declared key."
   [:or
    PlayScript
-   [:map
+   [:map {:closed true}
     [:script    PlayScript]
     [:auto-run? {:optional true} :boolean]
     [:name      {:optional true} :string]]])
@@ -590,14 +597,14 @@
   "A single entry in a `:plays` vector. Same shape as `PlaySpec` (map
   form) but `:name` is REQUIRED — multi-play needs a stable label per
   play so the toolbar dropdown + the CI runner can identify each
-  play unambiguously.
+  play unambiguously. Closed, for the same reason as `PlaySpec`.
 
   Example:
       {:name      \"happy path\"
        :auto-run? true
        :script    [[:dispatch-sync [:counter/initialise 3]]
                    [:assert-db [:count] 3]]}"
-  [:map
+  [:map {:closed true}
    [:name      :string]
    [:script    PlayScript]
    [:auto-run? {:optional true} :boolean]])

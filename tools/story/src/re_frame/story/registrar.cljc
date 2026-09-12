@@ -256,34 +256,44 @@
       (when (<= d threshold) k))))
 
 (defn- extra-key-errors
-  "Pull the `:malli.core/extra-key` errors out of a malli `explain`.
-  Each carries the offending key in `:in` and the offending `:map`
-  subschema in `:schema` (from which the declared key set is read).
-  Dedups by unknown key (an `:or` schema reports one per branch)."
+  "Pull the `:malli.core/extra-key` errors out of a malli `explain`, keyed
+  by the full `:in` path. The path's LAST element is the unknown key; what
+  precedes it locates the closed map that rejected it — empty for a
+  top-level slot, `[:script]` / `[:plays 0]` for a nested play map
+  (rf2-uys9). Each value is that map's subschema, from which its declared
+  key set is read. Dedups by path (an `:or` schema reports one per branch)."
   [explain]
   (->> (:errors explain)
        (filter #(= :malli.core/extra-key (:type %)))
        (reduce (fn [acc {:keys [in schema]}]
-                 (let [k (first in)]
-                   (if (contains? acc k) acc (assoc acc k schema))))
+                 (let [in (vec in)]
+                   (if (contains? acc in) acc (assoc acc in schema))))
                {})))
 
 (defn- unknown-key-reason
   "Build the actionable unknown-key clause for the error `:reason`, or
   nil when the explain carries no `:malli.core/extra-key` errors (a
-  different shape failure — :reason falls back to the generic message)."
+  different shape failure — :reason falls back to the generic message).
+  A key rejected by a NESTED closed map is named with its location, and
+  its suggestion and allowed-key list come from that map, not the body."
   [kind explain]
   (let [extras (extra-key-errors explain)]
     (when (seq extras)
-      (let [declared (sort (m/explicit-keys (val (first extras))))
-            clauses  (for [k (sort (keys extras))
-                           :let [hint (nearest-key k declared)]]
-                       (str k
-                            (when hint (str " (did you mean " hint "?)"))))]
+      (let [declared (fn [schema] (sort (m/explicit-keys schema)))
+            at-str   (fn [at] (when (seq at) (str " in " (pr-str at))))
+            entries  (sort-by #(mapv pr-str (key %)) extras)
+            clauses  (for [[in schema] entries
+                           :let [k    (peek in)
+                                 hint (nearest-key k (declared schema))]]
+                       (str k (at-str (pop in))
+                            (when hint (str " (did you mean " hint "?)"))))
+            allowed  (for [[at group] (group-by #(pop (key %)) entries)]
+                       (str "Allowed keys" (at-str at) ": "
+                            (pr-str (vec (declared (val (first group))))) ". "))]
         (str "re-frame2-story: unknown " (name kind) " slot(s) "
              (str/join ", " clauses)
              " — the " (name kind) " authoring body is closed (rf2-mantt). "
-             "Allowed keys: " (pr-str (vec declared)) ". "
+             (apply str allowed)
              "Remove the slot, or fix the typo.")))))
 
 (defn- validate-shape!
@@ -438,7 +448,7 @@
 ;; seven helpers with NO per-kind preprocessing (fragment / check / workspace /
 ;; mode / story-panel / decorator / tag) share their ENTIRE body: auto-install,
 ;; assert the id shape, merge source-coords, validate the shape, store
-;; (`reg-simple!`). `reg-story*` (Form-B `:variants` strip + tag check) and
+;; (`reg-simple!`). `reg-story*` (Form-B `:variants` desugar + tag check) and
 ;; `reg-variant*` (tag check) carry kind-specific steps, so they expand the
 ;; flow inline but still finish through `store!`.
 
@@ -464,23 +474,33 @@
        (validate-shape! kind id)
        (store! kind id)))
 
-(defn reg-story*
-  "Runtime helper for `reg-story` macro. Validates the body, stamps
-  source coords, writes to the side-table. Returns `id`.
+(declare reg-variant*)
 
-  Form-B `:variants` desugaring lives in the *macro* — by the time the
-  helper is called, the body's `:variants` (if any) has been peeled off
-  and the N independent `reg-variant*` calls have been emitted as
-  siblings. So the helper sees only the parent-story slice."
+(defn reg-story*
+  "Runtime helper for `reg-story` macro, and its public programmatic twin.
+  Validates the body, stamps source coords, writes the story to the
+  side-table, then registers each Form-B `:variants` entry. Returns `id`.
+
+  The macro peels a LITERAL `:variants` map at expansion time into N
+  top-level `reg-variant*` forms (hot-reload-by-variant). Any `:variants`
+  that still reaches this helper — a def'd or merged map handed to the
+  macro, or a programmatic call — is desugared HERE through the same
+  `reg-variant*` rail, under the same `<story-id>/<variant-name>` ids and
+  the same bound source coords, rather than dropped (rf2-pjay). The stored
+  story body never carries `:variants`."
   [id body]
   (maybe-auto-install!)
   (assert-id! :story id)
-  (let [body (-> body
-                 (dissoc :variants)               ; Form-B sugar is removed by the macro
-                 merge-coords
-                 (->> (validate-shape! :story id)))
-        _    (validate-tag-membership! id (:tags body))]
-    (store! :story id body)))
+  (let [variants (:variants body)
+        body     (-> body
+                     merge-coords
+                     (->> (validate-shape! :story id))
+                     (dissoc :variants))
+        _        (validate-tag-membership! id (:tags body))]
+    (store! :story id body)
+    (doseq [[v-name v-body] variants]
+      (reg-variant* (keyword (name id) (name v-name)) v-body))
+    id))
 
 (defn reg-variant*
   "Runtime helper for `reg-variant` macro. Per `001-Authoring.md` §Registration macros + spec/017
