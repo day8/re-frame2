@@ -39,13 +39,20 @@
   PASS. They pass at rf2-k97c.3's merge-base too, which is what attributes
   the repair to rf2-7ds8 and not to the island deletion.
 
-  WHAT THAT MEASUREMENT DOES NOT COVER, so the next reader does not widen
-  it: it is [[mount-xray!]]'s path only — Xray's OWN React root, mounting
-  the Static surface. The PUBLIC `open!` path, the other half of the
-  original three-adapter finding, was NOT re-measured. So the reagent-slim
-  arm this docstring offers is now a ~10-line addition somebody should
-  take; it is deliberately not taken here, because the acceptance harness
-  is its own slice's.
+  WHAT THAT MEASUREMENT DID NOT COVER: it was [[mount-xray!]]'s path only
+  — Xray's OWN React root, mounting the Static surface — and the PUBLIC
+  `open!` path, the other half of the original three-adapter finding, was
+  NOT re-measured with it.
+
+  BOTH GAPS ARE NOW CLOSED, and this paragraph is kept because it says
+  what the arm below is and is not evidence for. rf2-now5 took the
+  ~10-line addition this docstring offered: `acceptance.reagent-slim-dom-cljs-test`
+  is this file with one `:require` and one `:adapter` changed, so the six
+  criteria now RUN on reagent-slim every PR rather than having been
+  measured once. The public `open!` path was measured under the same
+  adapter in the same pass and is green; its row lives with the other two
+  public-door rows in `acceptance.substrate-gap-dom-cljs-test`, not here,
+  because this file never calls `open!`.
 
   ## NODE LANE
 
