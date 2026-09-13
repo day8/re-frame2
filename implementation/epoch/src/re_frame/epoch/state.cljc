@@ -281,12 +281,41 @@
 ;; from the one where the parent survived — the counts are identical when the
 ;; cascade commits exactly `depth` records.
 ;;
-;; COMMIT ORDER is where the identity is unambiguous, so the caller ARMS a
-;; one-shot slot for its frame and the commit funnel fills it with the FIRST
-;; epoch-id committed for that frame while the arming stands. The slot is
-;; filled at commit, so it names the parent whether or not the ring still
-;; holds it, and the caller then asks the ring — separately — whether that
-;; epoch is retained.
+;; COMMIT ORDER ALONE IS NOT THAT IDENTITY (rf2-fzbj.19). The router emits
+;; `:rf.event/dispatched` BEFORE it starts the dispatch's own drain, and a
+;; public trace listener is expressly allowed to `dispatch-sync` from there
+;; (see `trace/tooling`'s reentrancy note). That nested cascade runs to
+;; completion — and COMMITS — inside the armed window, before the armed
+;; caller's own event has run at all, so a first-commit slot hands back
+;; another operation's state, effects and trace under the replayed event's
+;; name. Measured witness: source epoch 6, the listener's nested event epoch
+;; 7, the actual replay epoch 8, and the result said `:event-id :review/add`
+;; with `:epoch-id 7`. Filtering by `:event-id` cannot repair it — the same
+;; handler with different arguments produces the same keyword.
+;;
+;; So the slot correlates on DISPATCH IDENTITY, and takes it from the one
+;; ordering the interleave cannot invert. `trace/deliver!` runs EPOCH CAPTURE
+;; as its own stage BEFORE the public tooling fan-out, so capture sees the
+;; armed caller's `:rf.event/dispatched` strictly before any listener body for
+;; that event runs — hence strictly before the listener can create a nested
+;; dispatch at all. The FIRST dispatch-id capture reports for the frame while
+;; the arming stands is therefore the armed caller's own, whatever order the
+;; tooling listeners happen to sit in; every later cascade (a listener's
+;; nested `dispatch-sync`, a queued child, the rest of the drain) is a
+;; different id and is refused. `note-commit!` fills the slot only from the
+;; record carrying THAT id.
+;;
+;; The slot is still filled at COMMIT, so it names the armed caller's epoch
+;; whether or not the ring still holds it, and the caller asks the ring —
+;; separately — whether that epoch is retained. rf2-e0g2's queued-child
+;; counterexample stays fixed for the same reason it was before, and now for a
+;; second: the child is neither the first commit nor the armed dispatch-id.
+;;
+;; `:fallback-epoch-id` keeps the historical first-commit reading for the one
+;; case correlation cannot reach: no `:rf.event/dispatched` was captured for
+;; the frame at all, so there is no id to correlate on. Dispatch ids and that
+;; emit are both dev-gated and vanish together, so this is the no-dispatch-id
+;; posture rather than a silent second-guess of a correlation that failed.
 ;;
 ;; The arming token keeps a second, concurrent arming honest instead of
 ;; silently clobbering: `take-observed-commit!` answers nil for a caller whose
@@ -298,34 +327,70 @@
 (defn arm-commit-observation!
   "Arm a one-shot commit observation for `frame-id`; returns the token to
   hand back to `take-observed-commit!`. Always pair the two — a caller that
-  arms and does not take leaves a slot the next commit writes into."
+  arms and does not take leaves a slot the next commit writes into.
+
+  Arm it IMMEDIATELY before the dispatch whose epoch you want: the armed
+  caller's own dispatch has to be the first one epoch capture sees for the
+  frame, which is what makes the correlation above exact."
   [frame-id]
   (let [token #?(:clj (Object.) :cljs (js-obj))]
     (swap! commit-observations assoc frame-id {:token token})
     token))
 
 (defn take-observed-commit!
-  "Disarm `frame-id`'s observation and return the FIRST epoch-id committed
-  for it while `token`'s arming stood — nil when nothing committed, or when a
-  later arming replaced this one."
+  "Disarm `frame-id`'s observation and return the epoch-id committed by the
+  DISPATCH the arming caller itself started — nil when it committed nothing,
+  or when a later arming replaced this one."
   [frame-id token]
   (let [slot (get @commit-observations frame-id)]
     (when (identical? token (:token slot))
       (swap! commit-observations dissoc frame-id)
-      (:epoch-id slot))))
+      (if (contains? slot :dispatch-id)
+        (:epoch-id slot)
+        (:fallback-epoch-id slot)))))
 
-(defn- note-commit!
-  "Record `epoch-id` against `frame-id`'s armed observation, once. A no-op
-  when nothing is armed (the ordinary hot path: one map read, no write)."
-  [frame-id epoch-id]
-  (when (and epoch-id (contains? @commit-observations frame-id))
+(defn note-observed-dispatch!
+  "Record `dispatch-id` as the armed observation's target for `frame-id`, once.
+
+  Called from the epoch-capture stage on `:rf.event/dispatched`. Capture runs
+  ahead of the public tooling fan-out, so the first id to arrive here is the
+  armed caller's own dispatch and not one a listener started from inside it.
+  A no-op when nothing is armed (the ordinary hot path: one map read, no
+  write), and after the first id has landed."
+  [frame-id dispatch-id]
+  (when (and dispatch-id (contains? @commit-observations frame-id))
     (swap! commit-observations
            (fn [observations]
              (let [slot (get observations frame-id)]
-               (if (and slot (not (contains? slot :epoch-id)))
-                 (assoc observations frame-id (assoc slot :epoch-id epoch-id))
+               (if (and slot (not (contains? slot :dispatch-id)))
+                 (assoc observations frame-id (assoc slot :dispatch-id dispatch-id))
                  observations))))
     nil))
+
+(defn- note-commit!
+  "Record `record`'s epoch-id against `frame-id`'s armed observation, once,
+  when the record was committed by the dispatch the observation targets. A
+  no-op when nothing is armed (the ordinary hot path: one map read, no
+  write)."
+  [frame-id record]
+  (let [epoch-id    (:epoch-id record)
+        dispatch-id (:dispatch-id record)]
+    (when (and epoch-id (contains? @commit-observations frame-id))
+      (swap! commit-observations
+             (fn [observations]
+               (let [slot (get observations frame-id)]
+                 (if-not slot
+                   observations
+                   (let [slot (cond-> slot
+                                (not (contains? slot :fallback-epoch-id))
+                                (assoc :fallback-epoch-id epoch-id)
+
+                                (and (some? dispatch-id)
+                                     (= dispatch-id (:dispatch-id slot))
+                                     (not (contains? slot :epoch-id)))
+                                (assoc :epoch-id epoch-id))]
+                     (assoc observations frame-id slot))))))
+      nil)))
 
 (defn reset-commit-observations!
   "Drop every armed commit observation (fixture / global history reset)."
@@ -1930,7 +1995,9 @@
   The commit observation is filled here rather than in `record!` because it
   answers \"which epoch did this dispatch commit?\", which is true of a record
   the ring immediately evicted — and true at depth 0, where `record!` appends
-  nothing at all."
+  nothing at all. It is handed the WHOLE record rather than the epoch-id alone
+  because the answer is correlated by the record's `:dispatch-id`, not by
+  commit order (rf2-fzbj.19)."
   [frame-id owner-token record]
   (boolean
     (with-frame-owner-lock
@@ -1938,7 +2005,7 @@
         (when (identical? (get @frame-owner-tokens frame-id) owner-token)
           (record! record)
           (set-last-settled-epoch! frame-id (:epoch-id record))
-          (note-commit! frame-id (:epoch-id record))
+          (note-commit! frame-id record)
           true)))))
 
 (defn cleanup-frame-owner!

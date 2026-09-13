@@ -196,6 +196,19 @@
           ;; frame as the EVIDENCE key `:rf.frame/id` and so was
           ;; frame-less here, and dropped, on every real cascade.
           frame-id (:frame event-tags)]
+      ;; rf2-fzbj.19 — dispatch identity for an armed commit observation.
+      ;; `trace/deliver!` runs THIS stage before the public tooling fan-out, so
+      ;; the first `:rf.event/dispatched` to arrive here for a frame is the one
+      ;; the observation's armer started, strictly before any listener body for
+      ;; that event could start a nested cascade of its own. That ordering is
+      ;; what lets `perform-replay!` report the epoch ITS dispatch committed
+      ;; rather than whichever cascade happened to commit first. A no-op —
+      ;; one map read — when nothing is armed, which is every ordinary
+      ;; dispatch. Deliberately ahead of `skip-ops` and every routing branch
+      ;; below: this records identity, it buffers nothing.
+      (when (and frame-id (= :rf.event/dispatched operation))
+        (rf.epoch.state/note-observed-dispatch!
+          frame-id (:rf.trace/dispatch-id event-tags)))
       ;; Any path below that can mutate epoch state first claims the id-keyed
       ;; stores for the exact live frame incarnation. This serialises a fresh
       ;; same-id B publication against stale A's final destroy hook.

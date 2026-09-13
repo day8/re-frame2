@@ -566,3 +566,129 @@
           "the reported epoch is the replayed parent's own record")
       (is (not= (:epoch-id source) (:epoch-id res))
           "…and it is the NEW record, not the source"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-fzbj.19 — a trace listener's own dispatch cannot steal replay's result
+;;
+;; The sibling counterexample to rf2-e0g2 above, and the one it left open. That
+;; one is about a cascade committing AFTER the replayed event; this is about one
+;; committing BEFORE it, while the replayed event has not run at all.
+;;
+;; The router emits `:rf.event/dispatched` before it starts the drain, and a
+;; public trace listener may `dispatch-sync` from there — `trace/tooling`
+;; documents that reentrancy explicitly. The nested cascade then runs to
+;; completion and COMMITS inside replay's armed window. Under the first-commit
+;; observation the response named the CALLBACK's epoch while still reporting
+;; `:event-id` as the replayed event's: a consumer that resolves the returned id
+;; against `epoch-history` — which is precisely what the one-call gesture exists
+;; to let it do — gets another operation's state, effects and trace.
+;;
+;; Both events execute correctly either way. What was wrong was the returned
+;; EVIDENCE, which is why this is P3 and why every assertion below is about
+;; correlation rather than about state.
+;; ---------------------------------------------------------------------------
+
+(def ^:private interleave-frame-id :epoch-replay/interleave)
+
+(defn- register-add-and-other! []
+  (rf/reg-event :review/add
+    (fn [{:keys [db]} [_ amount]] {:db (update db :n (fnil + 0) amount)}))
+  (rf/reg-event :review/other
+    (fn [{:keys [db]} _] {:db (assoc db :other true)})))
+
+(defn- call-with-interleaving-listener
+  "Run `(f)` with a ONE-SHOT public trace listener that dispatches
+  `nested-event` into `interleave-frame-id` the first time it sees an
+  `:rf.event/dispatched` for that frame — i.e. from inside the replay's own
+  dispatch, before the replay drains. Returns `[result fired?]`."
+  [nested-event f]
+  (let [fired? (atom false)]
+    (rf/register-listener! :trace ::interleave
+      (fn [ev]
+        (when (and (= :rf.event/dispatched (:operation ev))
+                   (= interleave-frame-id (get-in ev [:tags :frame]))
+                   (compare-and-set! fired? false true))
+          (rf/dispatch-sync nested-event {:frame interleave-frame-id}))))
+    (try
+      [(f) @fired?]
+      (finally
+        (rf/unregister-listener! :trace ::interleave)))))
+
+(deftest replay-result-names-its-own-dispatch-not-a-callbacks
+  (testing "a trace callback that dispatches a DIFFERENT event during replay's
+            `:rf.event/dispatched` commits first; the reported epoch is still
+            the replayed dispatch's own record, and both events run"
+    (rf/configure! {:epoch-history {:depth 10}})
+    (rf/make-frame {:id interleave-frame-id})
+    (register-add-and-other!)
+    (rf/dispatch-sync [:review/add 1] {:frame interleave-frame-id})
+    (let [source (last (rf/epoch-history interleave-frame-id))
+          [res fired?] (call-with-interleaving-listener
+                         [:review/other]
+                         #(rf/replay-epoch! interleave-frame-id (:epoch-id source)))
+          after  (rf/epoch-history interleave-frame-id)
+          named  (first (filter #(= (:epoch-id res) (:epoch-id %)) after))]
+      (is (true? fired?) "the callback did interleave — the witness is armed")
+      (is (true? (:ok? res)) (str "the replay itself succeeded: " (pr-str res)))
+      (is (= [:review/add :review/other :review/add] (mapv :event-id after))
+          "the callback's event committed BEFORE the replayed event — this is
+           the ordering the first-commit observation could not survive")
+      (is (= {:n 2 :other true} (rf/app-db-value interleave-frame-id))
+          "both events executed correctly; only the returned evidence was wrong")
+      ;; THE TOOTH.
+      (is (= (:epoch-id (last after)) (:epoch-id res))
+          "the reported epoch is the replayed dispatch's OWN new record")
+      (is (= [:review/add 1] (:trigger-event named))
+          (str "…and it resolves to the replayed trigger, not the callback's; "
+               "resolved " (pr-str (:trigger-event named))))
+      (is (= :review/other (:event-id (nth after 1)))
+          "sanity — the callback's record is the one the old code returned"))))
+
+(deftest replay-result-is-not-rescued-by-matching-the-event-id
+  (testing "the SAME handler with DIFFERENT arguments: filtering the history by
+            `:event-id` would still return the callback's record, so the
+            correlation has to be by dispatch identity"
+    (rf/configure! {:epoch-history {:depth 10}})
+    (rf/make-frame {:id interleave-frame-id})
+    (register-add-and-other!)
+    (rf/dispatch-sync [:review/add 1] {:frame interleave-frame-id})
+    (let [source (last (rf/epoch-history interleave-frame-id))
+          [res fired?] (call-with-interleaving-listener
+                         [:review/add 100]
+                         #(rf/replay-epoch! interleave-frame-id (:epoch-id source)))
+          after  (rf/epoch-history interleave-frame-id)
+          named  (first (filter #(= (:epoch-id res) (:epoch-id %)) after))
+          callback-record (first (filter #(= [:review/add 100] (:trigger-event %))
+                                         after))]
+      (is (true? fired?) "the callback did interleave — the witness is armed")
+      (is (true? (:ok? res)) (str "the replay itself succeeded: " (pr-str res)))
+      (is (= [:review/add :review/add :review/add] (mapv :event-id after))
+          "every record carries the SAME event-id — an `:event-id` filter has
+           nothing to discriminate on")
+      (is (= {:n 102} (rf/app-db-value interleave-frame-id))
+          "both dispatches executed: the seed 1, the callback's 100, the replay's 1")
+      ;; THE TOOTH — the assertion an `:event-id` filter cannot pass.
+      (is (= [:review/add 1] (:trigger-event named))
+          (str "the reported epoch resolves to the REPLAYED arguments, not the "
+               "callback's; resolved " (pr-str (:trigger-event named))))
+      (is (not= (:epoch-id callback-record) (:epoch-id res))
+          "the callback's record is never the reported epoch")
+      (is (= (:epoch-id (last after)) (:epoch-id res))
+          "the reported epoch is the replayed dispatch's own new record"))))
+
+(deftest replay-without-a-callback-is-unchanged
+  (testing "the green control: with no interleaving listener the ordinary replay
+            still reports its own new epoch"
+    (rf/configure! {:epoch-history {:depth 10}})
+    (rf/make-frame {:id interleave-frame-id})
+    (register-add-and-other!)
+    (rf/dispatch-sync [:review/add 1] {:frame interleave-frame-id})
+    (let [source (last (rf/epoch-history interleave-frame-id))
+          res    (rf/replay-epoch! interleave-frame-id (:epoch-id source))
+          after  (rf/epoch-history interleave-frame-id)
+          named  (first (filter #(= (:epoch-id res) (:epoch-id %)) after))]
+      (is (true? (:ok? res)) (str "the replay succeeded: " (pr-str res)))
+      (is (= 2 (count after)) "one seed record and one replay record")
+      (is (= (:epoch-id (last after)) (:epoch-id res)))
+      (is (= [:review/add 1] (:trigger-event named)))
+      (is (= {:n 2} (rf/app-db-value interleave-frame-id))))))
