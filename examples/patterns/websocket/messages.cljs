@@ -495,8 +495,13 @@
     {:doc "Fold one inbound frame into app-db. UNTRUSTED INGRESS — the body
            is validated against the closed `InboundMessage` wire union, in
            every build, before this handler runs. It joins the
-           [:messages :received] log, and if it's a correlated reply it also
-           lands at [:messages :last-reply]. Each one gets a monotonic
+           [:messages :received] log, and that is ALL it does. A
+           `:request-id` on the frame is not correlation: the connection
+           machine decides that, and a reply it accepts reaches
+           [:messages :last-reply] through :ws.app/request-reply. A reply
+           it refused — answering a superseded registration, arriving after
+           a timeout, a duplicate — is logged here and moves no outcome.
+           Each one gets a monotonic
            `:rx-seq` stamp on the way in — that's the inbox's stable React
            `:key`. (Server pushes carry no `:request-id`, so we can't lean
            on identity from the wire, and list position shifts as new
@@ -509,9 +514,7 @@
             (update-in [:messages :received]
                        (fn [received]
                          (vec (cons (assoc body :rx-seq rx-seq) (or received [])))))
-            (assoc-in [:messages :rx-count] (inc rx-seq))
-            (cond-> (:request-id body)
-              (assoc-in [:messages :last-reply] body))))}))
+            (assoc-in [:messages :rx-count] (inc rx-seq))))}))
 
   ;; --- app-level events -------------------------------------------------
   (rf/reg-event :ws.app/send
@@ -580,7 +583,8 @@
            different questions: the machine's guards protect its own
            correlation state, this one protects app-db, and a boundary that
            only holds because something upstream is careful is not a
-           boundary. Either way the outcome files at [:messages :last-reply].
+           boundary. Either way the outcome files at [:messages :last-reply],
+           and this handler is that slot's only writer.
            See :ws.app/request for the correlation it completes."
      :schema       [:cat [:= :ws.app/request-reply] schema/RequestOutcome]
      :boundary?    true}
