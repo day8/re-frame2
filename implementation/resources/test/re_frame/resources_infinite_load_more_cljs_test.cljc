@@ -841,12 +841,14 @@
             "the stray owner is NOT a key in :owner-index")
         (is (= #{[:test :w]} (owners-for-key k))
             ":owner-index lists only the original owner against this feed's key"))
-      (testing "the work record carries NO owner (the in-flight page is ownerless)"
+      (testing "the work record never carries the ignored owner — only the feed's held owner"
         (let [e' (entry k)
               rec (rf.resources.work-ledger/get-record (runtime-db) (:current-work e'))]
           (is (some? rec) "a work record exists for the in-flight load-more page")
-          (is (empty? (:owners rec))
-              "the work record's :owners is empty — the ignored owner never joined it")))
+          ;; rf2-gwye.15 — a new page attempt inherits the feed's :active-owners
+          ;; (it mints none), so the row holds exactly ensure's owner.
+          (is (= #{[:test :w]} (:owners rec))
+              "the work record's :owners is the held owner — the ignored owner never joined it")))
       (testing "no leak survives the page reply (the feed stays at one owner)"
         (reply-success! (page [:b] "c2"))
         (let [e' (entry k)]
