@@ -147,8 +147,8 @@ jobs:
   # lights so the build runs unconditionally (push is already path-filtered
   # above, and a manual dispatch always wants a build). The heavy MkDocs
   # build keys its `if:` on this output, while the always-present aggregator
-  # does not — so a docs-irrelevant PR runs only this ~5-second job plus the
-  # rollup, and the build skips.
+  # does not — so a docs-irrelevant PR runs only this ~5-second job, the
+  # unconditional `source-scans` job and the rollup, and the build skips.
   detect:
     name: Detect docs surface
     runs-on: ubuntu-latest
@@ -172,6 +172,10 @@ jobs:
       # core PR would run a duplicate ~15-minute MkDocs build on top of the
       # tools-playground job in test.yml that already builds + smokes the bundle
       # at PR time. Deploy-time coverage here, PR-time coverage there.
+      #
+      # No SCAN rides on this list any more (rf2-vc11): the source scans run in
+      # the unconditional `source-scans` job, so a path missing here can skip
+      # the MkDocs build but can no longer skip a scan.
       - name: Classify changed files against the docs surface
         id: detect
         run: |
@@ -414,6 +418,80 @@ jobs:
       # (rf2-ftkz swept the 26 broken anchors main carried at landing, so the
       # gate is fail-loud wherever it runs).
 
+      # THE SOURCE SCANS ARE NO LONGER HERE (rf2-vc11). The six self-test-then-
+      # live scanner pairs that stood here read only the SOURCE tree, never the
+      # built site, so they moved to the `source-scans` job below, which has no
+      # `docs_surface` guard. Same move, and the same reason, as the two gates
+      # above: behind this job's guard they ran on a PR only when the `detect`
+      # case list matched, and that list is narrower than `push.paths`.
+
+      # Stage the spec/ + migration/ trees under docs/ so MkDocs (which
+      # requires docs_dir to be a child of the config file) can see them.
+      # The local equivalent is `cp -r spec docs/spec && cp -r migration
+      # docs/migration` before `mkdocs build`. The staged copies are
+      # .gitignored — never commit them.
+      - name: Stage spec/ + migration/ into docs/
+        run: |
+          rm -rf docs/spec
+          cp -r spec docs/spec
+          rm -rf docs/migration
+          cp -r migration docs/migration
+
+      # --strict escalates MkDocs WARNINGs to a non-zero exit (rf2-eq90w):
+      # nav entries pointing at missing files (nav.not_found), unresolved
+      # internal links MkDocs can see, and plugin warnings now fail the
+      # build instead of slipping through. This is complementary to the
+      # check_doc_slugs.py gate above, which validates markdown-link
+      # target+anchor drift the WARNING set does not cover.
+      - name: Build site (strict)
+        run: mkdocs build --strict
+
+      - name: Upload Pages artifact
+        # v5 (transitively pins actions/upload-artifact to a SHA, which v3 did not — see rf2-xmmh).
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
+        with:
+          path: site/
+
+  # ---------------------------------------------------------------------------
+  # Source scans (rf2-vc11) — UNCONDITIONAL, on purpose.
+  #
+  # Every step here reads the SOURCE tree (docs/, spec/, skills/, testbeds/,
+  # tools/*/spec, the root support files, implementation/ Clojure source) and
+  # none reads the built site, so none needs the `build` job's JVM, Node,
+  # Cairo or MkDocs setup: all six checkers are stdlib-only Python.
+  #
+  # They lived in `build` until rf2-vc11, behind `docs_surface`, so on a PR
+  # they ran only when the `detect` case list matched, and that list is
+  # deliberately narrower than `push.paths`. A path on push.paths but off the
+  # case list was therefore graded on the trunk push and not on the PR that
+  # introduced it: PR #9748 touched implementation/machines/** only, merged at
+  # a full rollup with `build` skipped, and the main push then ran
+  # check_retired_image_keys.py RED. The case list also omitted that gate's
+  # own script and fixtures, so a PR loosening the gate skipped it too.
+  #
+  # So this job has NO `if:` on detect's output and does not `needs:` detect
+  # at all. It runs on every PR, whatever the diff touches, which removes the
+  # class instead of re-syncing two lists that drift. The heavy MkDocs build
+  # stays narrow. test.yml's `verify-readme-links` made the same move for the
+  # corpus link scan (rf2-v7fui).
+  #
+  # It sits in `docs-required`'s `needs:` (a gate nothing aggregates is a gate
+  # nobody has to pass) and in `deploy`'s, so a red scan still blocks a
+  # publish exactly as it did from inside `build`.
+  # ---------------------------------------------------------------------------
+  source-scans:
+    name: Docs source scans
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.12'
+
       # docs/EP/README.md restates each EP's `Status:` line in its index
       # table; the two drift by hand (EP-0001 sat at `accepted` while the
       # index still said `proposal`). This guard fails the build when an
@@ -572,33 +650,6 @@ jobs:
       - name: Validate no unqualified warm-allocation claim on the publication surface
         run: python scripts/check_allocation_non_claim.py
 
-      # Stage the spec/ + migration/ trees under docs/ so MkDocs (which
-      # requires docs_dir to be a child of the config file) can see them.
-      # The local equivalent is `cp -r spec docs/spec && cp -r migration
-      # docs/migration` before `mkdocs build`. The staged copies are
-      # .gitignored — never commit them.
-      - name: Stage spec/ + migration/ into docs/
-        run: |
-          rm -rf docs/spec
-          cp -r spec docs/spec
-          rm -rf docs/migration
-          cp -r migration docs/migration
-
-      # --strict escalates MkDocs WARNINGs to a non-zero exit (rf2-eq90w):
-      # nav entries pointing at missing files (nav.not_found), unresolved
-      # internal links MkDocs can see, and plugin warnings now fail the
-      # build instead of slipping through. This is complementary to the
-      # check_doc_slugs.py gate above, which validates markdown-link
-      # target+anchor drift the WARNING set does not cover.
-      - name: Build site (strict)
-        run: mkdocs build --strict
-
-      - name: Upload Pages artifact
-        # v5 (transitively pins actions/upload-artifact to a SHA, which v3 did not — see rf2-xmmh).
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
-        with:
-          path: site/
-
   # ---------------------------------------------------------------------------
   # Provenance pins (rf2-kqac1), following rf2-owq6p's census.
   #
@@ -679,7 +730,7 @@ jobs:
     # Only deploy from main pushes — PRs run build only (catch regressions) but don't deploy.
     if: github.event_name == 'push'
     name: Deploy to GitHub Pages
-    needs: build
+    needs: [build, source-scans]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -722,6 +773,9 @@ jobs:
       - build
       # rf2-kqac1 — a gate nothing aggregates is a gate nobody has to pass.
       - provenance-pins
+      # rf2-vc11 — unconditional, so it reports on every PR; leaving it out
+      # would recreate the fail-open that moved it here.
+      - source-scans
     steps:
       - name: Fail if the docs build failed or was cancelled
         if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
