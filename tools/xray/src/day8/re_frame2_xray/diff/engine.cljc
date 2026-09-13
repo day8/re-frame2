@@ -291,9 +291,12 @@
           ;; `[] → [populated]`: per-index :+ at the AFTER indices.
           ;; `[populated] → []`: per-index :- at the BEFORE indices (each
           ;; flows through `project`'s `:vector-removals` channel).
-          ;; Indices descend for the removal so the renderer surfaces them
-          ;; in before order; `resolve-vector-removals` recovers the true
-          ;; before-index regardless.
+          ;; The removals are emitted in DESCENDING index order: `project`
+          ;; replays `:-` edits sequentially against the shrinking sequence
+          ;; (`replay-vector-edits`), and only a descending walk keeps each
+          ;; index naming its ORIGINAL element (rf2-gwye.10 — ascending
+          ;; indices dropped every other removal and invented shifts).
+          ;; `resolve-vector-removals` sorts them back into before order.
           (let [seq? (fn [v] (and (sequential? v) (not (map? v)) (not (set? v))))]
             (and (seq? before-at) (seq? after-at)
                  (or (empty? before-at) (empty? after-at))))
@@ -306,7 +309,7 @@
 
               (and (seq bvec) (empty? avec))
               (mapv (fn [i] [(conj (vec path) i) :-])
-                    (range (count bvec)))
+                    (range (dec (count bvec)) -1 -1))
 
               ;; both empty (shouldn't reach — `:r` implies a value change)
               :else [edit]))

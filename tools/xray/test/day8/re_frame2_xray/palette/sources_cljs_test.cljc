@@ -65,6 +65,25 @@
     (is (every? #(true? (:popout? %)) items)
         "recent events should pop out into event-detail when Ctrl+Enter")))
 
+(deftest recent-event-action-carries-dispatch-and-frame-rf2-gwye-8
+  (testing "rf2-gwye.8 — the action names the DISPATCH and its FRAME, so two
+            runs of the same event vector (or the same dispatch id in two
+            frames) are distinct selections rather than one event value"
+    (let [row   (fn [id dispatch-id frame]
+                  {:id id :op-type :rf.event :operation :rf.event/dispatched
+                   :tags {:rf.trace/dispatch-id dispatch-id
+                          :frame                frame
+                          :rf.event/v           [:counter/inc]}})
+          items (sources/recent-event-items [(row 10 1 :rf/default)
+                                             (row 11 2 :rf/default)
+                                             (row 12 2 :app/other)])]
+      (is (= [[:palette/select-event 1 :rf/default]
+              [:palette/select-event 2 :rf/default]
+              [:palette/select-event 2 :app/other]]
+             (mapv :action items)))
+      (is (every? #(= "[:counter/inc]" (:label %)) items)
+          "the label still shows the event vector"))))
+
 (deftest recent-event-recency-rank-puts-latest-first
   (let [items (sources/recent-event-items sample-trace-buffer)
         latest (first (filter #(zero? (:recency-rank %)) items))]
