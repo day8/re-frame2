@@ -20,7 +20,8 @@
    The rules are simple:
      - The bar fills from 0 to 100% over the duration.
      - The slider retargets the duration live: drag it below elapsed and the
-       bar jumps to full; drag it back up and the timer picks up again.
+       bar jumps to full, with elapsed keeping the time it has measured; drag
+       it back up past elapsed and the timer picks up again.
      - Reset puts elapsed back to zero.
 
    What it shows off:
@@ -140,7 +141,14 @@
               ;; is for the rare wall-clock step backwards (an NTP correction):
               ;; a clock that jumps back must not rewind the timer.
               observed     (max 0 (- time-ms sampled-at-ms))
-              next-elapsed (min (+ elapsed-ms observed) duration-ms)
+              ;; Advance, clamped at the deadline so a late sample fills the
+              ;; bar without overrunning it. The outer `max` is the other
+              ;; half: if the slider has pulled the deadline BELOW the time
+              ;; already measured, that clamp would drag elapsed backwards —
+              ;; and the next drag up would restart a timer that had
+              ;; finished. Measured time is never handed back; only Reset
+              ;; zeroes it.
+              next-elapsed (max elapsed-ms (min (+ elapsed-ms observed) duration-ms))
               done?        (>= next-elapsed duration-ms)]
           (cond-> {:db (-> db
                            (assoc-in [:timer :elapsed-ms] next-elapsed)
@@ -154,7 +162,9 @@
 (rf/reg-event :timer/set-duration
   {:doc "The user dragged the slider, so retarget the duration. Two cases. If a
          tick chain is still running, we just write the new target and let the
-         live tick race toward it. If the chain had already finished but the new
+         live tick race toward it — or, if the target now sits below elapsed,
+         let that tick find itself finished and stop, keeping the time already
+         measured. If the chain had already finished but the new
          duration leaves room to keep going, we revive it with one fresh tick
          under a bumped generation — see the EVENTS note above for why that bump
          matters."

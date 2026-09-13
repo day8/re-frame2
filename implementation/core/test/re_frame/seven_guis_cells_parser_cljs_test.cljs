@@ -291,3 +291,57 @@
             (str raw " carries an actionable message")))))
   (testing "a well-formed formula does NOT parse to an error pair"
     (is (not (cells/parse-error? (cells/parse-formula "=(+ 1 2)"))))))
+
+;; ===========================================================================
+;; evaluate-cell — settled dependencies are reused, not re-walked (rf2-gwye.53)
+;; ===========================================================================
+;;
+;; A chain where each cell doubles the one before — A2 =(+ A1 A1), A3
+;; =(+ A2 A2), … — used to re-walk the same subtree at every reference:
+;; T(n) = 2·T(n-1) + 1, so A21 alone cost 2,097,151 evaluate-cell visits and a
+;; valid 21-cell sheet froze the UI thread. The work is counted through a cell
+;; map that tallies every entry lookup — the evaluator makes one per cell it
+;; visits — so the assertion is a deterministic operation count, not a clock.
+
+(defn- counting-cells
+  "`m` behind an `ILookup` that bumps `counter` on every lookup."
+  [m counter]
+  (reify ILookup
+    (-lookup [_ k] (swap! counter inc) (get m k))
+    (-lookup [_ k not-found] (swap! counter inc) (get m k not-found))))
+
+(defn- chain
+  "A1 holds `a1`; each An for n in 2..`depth` is `(formula-for prev-id)`."
+  [depth a1 formula-for]
+  (into {"A1" (cell-entry (str a1))}
+        (for [n (range 2 (inc depth))]
+          [(str "A" n) (cell-entry (formula-for (str "A" (dec n))))])))
+
+(defn- doubling [prev] (str "=(+ " prev " " prev ")"))
+(defn- plus-one [prev] (str "=(+ " prev " 1)"))
+
+(deftest evaluate-cell-reuses-settled-dependencies
+  (testing "the 21-cell doubling chain yields 2^20 in ONE visit per cell"
+    (let [lookups (atom 0)
+          v       (cells/evaluate-cell "A21" (counting-cells (chain 21 1 doubling) lookups) #{})]
+      (is (= 1048576 v))
+      (is (= 21 @lookups)
+          "each of the 21 cells is read once — the exponential re-walk read 2,097,151")))
+  (testing "control: the equal-depth single-reference chain costs the same 21 visits"
+    (let [lookups (atom 0)
+          v       (cells/evaluate-cell "A21" (counting-cells (chain 21 1 plus-one) lookups) #{})]
+      (is (= 21 v))
+      (is (= 21 @lookups))))
+  (testing "a new snapshot recomputes from its own cells — nothing leaks between snapshots"
+    (let [before (chain 21 1 doubling)
+          after  (assoc before "A1" (cell-entry "2"))]
+      (is (= 1048576 (cells/evaluate-cell "A21" before #{})))
+      (is (= 2097152 (cells/evaluate-cell "A21" after #{})) "editing A1 moves A21")
+      (is (= 1048576 (cells/evaluate-cell "A21" before #{})) "the old snapshot still reads its own value")))
+  (testing "reuse does not stand in for the cycle guard: closing the chain into a
+            loop still reads #CYCLE, and still in one visit per cell"
+    (let [lookups (atom 0)
+          looped  (assoc (chain 21 1 doubling) "A1" (cell-entry "=(+ A21 1)"))]
+      (is (= :error/cycle
+             (cells/evaluate-cell "A21" (counting-cells looped lookups) #{})))
+      (is (= 21 @lookups)))))
