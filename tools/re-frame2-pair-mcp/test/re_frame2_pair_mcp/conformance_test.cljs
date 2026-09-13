@@ -976,8 +976,10 @@
     [["__re_frame2_pair_runtime"  true]
      ["restore-epoch"             true]
      [:default                    nil]]
+    ;; rf2-fzbj.6 — the caller's epoch-id is EDN and rides as quoted
+    ;; literal data, like every other caller-supplied argument.
     :fixture/eval-form-must-contain
-    ["restore-epoch 7"]
+    ["restore-epoch (quote 7)"]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :restored? true :epoch-id 7}}}
@@ -1029,8 +1031,9 @@
                                    :db-changed? true :changed-paths [[:cart]]
                                    :effects-fired [:http] :no-op? false}]
      [:default                    nil]]
+    ;; rf2-fzbj.6 — caller EDN rides quoted (see the restore-epoch row).
     :fixture/eval-form-must-contain
-    ["replay-epoch 7"]
+    ["replay-epoch (quote 7)"]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :replayed? true :source-epoch-id 7 :epoch-id 12}}}

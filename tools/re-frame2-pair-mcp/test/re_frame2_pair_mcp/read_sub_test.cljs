@@ -248,10 +248,13 @@
       (stub-eval! captured {:ok? true :query-v [:state] :frame :rf/xray :value 1})
       (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "[:state]" :frame ":rf/xray"})
           (.then (fn [_]
-                   ;; The inner runtime form is (rt/read-sub! [:state] :rf/xray);
-                   ;; elision wraps it in a let. Assert the frame keyword is
-                   ;; well-formed (not the malformed ::rf/xray).
-                   (is (re-find #"read-sub! \[:state\] :rf/xray" @captured)
+                   ;; The inner runtime form is
+                   ;; (rt/read-sub! (quote [:state]) :rf/xray); elision
+                   ;; wraps it in a let. The query rides QUOTED as caller
+                   ;; EDN (rf2-fzbj.6); the frame is server-coerced, so it
+                   ;; stays a bare keyword — assert it is well-formed (not
+                   ;; the malformed ::rf/xray).
+                   (is (re-find #"read-sub! \(quote \[:state\]\) :rf/xray" @captured)
                        "frame routes to the well-formed :rf/xray keyword")
                    (is (not (re-find #"::rf/xray" @captured))
                        "no malformed double-colon keyword in the form")

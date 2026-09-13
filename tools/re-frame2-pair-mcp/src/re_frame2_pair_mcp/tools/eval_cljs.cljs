@@ -222,9 +222,16 @@
   inside the form must capture a frame api via `(rf/capture-frame)` —
   the ONE public carry primitive — for the binding to survive later
   ticks. We document that asymmetry in the ns docstring rather than
-  enforcing it here — the body is opaque user-supplied source."
+  enforcing it here — the body is opaque user-supplied source.
+
+  rf2-gwye.27 — the caller's source is terminated with a NEWLINE before
+  the closing delimiter. A form ending in a `;` line comment is valid
+  CLJS, and without the break the wrapper's own `)` landed INSIDE that
+  comment: the reader then hit EOF with the collection still open, so a
+  perfectly good annotated expression failed to read before it ever
+  evaluated."
   [form-str frame-kw]
-  (str "(re-frame.core/with-frame " (pr-str frame-kw) " " form-str ")"))
+  (str "(re-frame.core/with-frame " (pr-str frame-kw) " " form-str "\n)"))
 
 (defn eval-cljs-tool [conn args]
   (let [form       (wire/arg args :form)

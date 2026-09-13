@@ -133,7 +133,8 @@
       (is (str/includes? form "re-frame2-pair.runtime/start-recording!"))
       (is (str/includes? form ":signals"))
       (is (str/includes? form "{:focus true}"))
-      (is (str/includes? form ":ms 15000"))
+      ;; rf2-fzbj.6 — the caller's stop bound rides as quoted EDN.
+      (is (str/includes? form ":ms (quote 15000)"))
       (is (str/includes? form ":frame :rf/default"))
       (is (str/includes? form ":max-entries 2000")))
     (testing "the data predicate compiles into a :pred-fn slot (not raw :pred)"

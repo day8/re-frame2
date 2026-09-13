@@ -117,7 +117,9 @@
                      (is (= 12 (:epoch-id edn)) "the NEW epoch id rides through"))
                    (let [parsed (cljs.reader/read-string @captured)]
                      (is (= 're-frame2-pair.runtime/replay-epoch (first parsed)))
-                     (is (= 7 (second parsed)) "epoch-id rides as the integer 7, not the string")
+                     ;; rf2-fzbj.6 — caller EDN rides quoted.
+                     (is (= '(quote 7) (second parsed))
+                         "epoch-id rides as the quoted integer 7, not the string")
                      (is (= 2 (count parsed)) "no frame arg when none was given"))
                    (done)))))))
 
@@ -130,7 +132,7 @@
                                               #js {:epoch-id "12" :frame ":stories"})))
           (.then (fn [_]
                    (let [parsed (cljs.reader/read-string @captured)]
-                     (is (= 12 (second parsed)))
+                     (is (= '(quote 12) (second parsed)))
                      (is (= :stories (nth parsed 2)) "frame is the 2nd runtime arg"))
                    (done)))))))
 

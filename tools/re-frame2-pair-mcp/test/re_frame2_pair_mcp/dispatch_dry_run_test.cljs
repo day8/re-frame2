@@ -800,6 +800,25 @@
                        "a symbol-valued event stays a symbol rather than resolving")
                    (done)))))))
 
+(deftest dry-run-cofx-fact-lists-are-not-evaluated
+  ;; rf2-fzbj.6 — dry-run shares dispatch's opts composition, so it
+  ;; shared the unquoted-opts defect: a scripted fact containing a list
+  ;; was evaluated while the call was built, and the simulation then ran
+  ;; on a different fact from the one scripted.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true :rolled-back? true} 0)
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                             #js {:event "[:review/event]"
+                                                  :cofx "{:review/fact (inc 41)}"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [opts (quoted-datum (nth (runtime-call forms) 2))]
+                     (is (= '(inc 41) (get-in opts [:rf.cofx :review/fact]))
+                         "the simulated dispatch uses the fact the caller scripted"))
+                   (done)))))))
+
 (deftest dry-run-emitter-shaped-event-payload-is-not-spliced
   (async done
     (let [forms   (atom [])

@@ -78,9 +78,12 @@
             ;; replay-epoch's runtime arglist is ([epoch-id]
             ;; [epoch-id frame-id]) — the frame is the SECOND arg, exactly
             ;; like restore-epoch.
+            ;; rf2-fzbj.6 — the epoch-id is EXTERNAL EDN, so it rides as
+            ;; quoted literal data rather than printed source.
+            id-form (ef/rt-quote epoch-id)
             call (if frame
-                   (ef/rt-call 'replay-epoch epoch-id frame)
-                   (ef/rt-call 'replay-epoch epoch-id))
+                   (ef/rt-call 'replay-epoch id-form frame)
+                   (ef/rt-call 'replay-epoch id-form))
             form (ef/emit call)
             on-value
             (fn [v]

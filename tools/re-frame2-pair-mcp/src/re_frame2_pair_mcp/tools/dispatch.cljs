@@ -465,7 +465,7 @@
         :ok
       (let [event-vec  payload
             event-form (ef/rt-quote event-vec)
-            opts-form (cond-> {}
+            opts-map (cond-> {}
                         frame        (assoc :frame frame)
                         fx-overrides (assoc :fx-overrides fx-overrides)
                         ;; rf2-m7x0qb / Tool-Pair §Replay — the
@@ -494,6 +494,19 @@
                         ;; whether or not a `cofx` token was supplied (a record
                         ;; with no scripted facts still re-drives strict).
                         replay?      (assoc :rf.cofx/mint-policy :strict))
+            ;; rf2-fzbj.6 — the opts map is DATA-ONLY, and three of its
+            ;; slots are EXTERNAL EDN the caller supplied (`:rf.cofx`,
+            ;; `:fx-overrides`, `:interceptor-overrides`); the rest are
+            ;; server-composed keywords. `pr-str`'ing the map rendered
+            ;; those caller values as SOURCE, so a scripted coeffect fact
+            ;; `{:review/fact (inc 41)}` reached the router as 42 — the
+            ;; replay used a DIFFERENT causal fact from the one scripted,
+            ;; which is exactly what a recorded cofx exists to prevent.
+            ;; Quoting the WHOLE map is the repair rather than quoting
+            ;; slot-by-slot: `emit-arg` does not recurse into maps, so a
+            ;; per-slot node would print as the IR vector it is. Every
+            ;; value in here is data, so quoting changes nothing else.
+            opts-form (ef/rt-quote opts-map)
             ;; The event is a parsed CLJS vector, and it is EXTERNAL data.
             ;; It rides through `ef/rt-quote` — the literal-data emission
             ;; path — so the runtime fn receives the datum the caller sent,

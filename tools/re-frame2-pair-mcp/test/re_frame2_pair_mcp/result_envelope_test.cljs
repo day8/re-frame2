@@ -16,6 +16,7 @@
        are DISTINCT, and an untagged value MUST flow through unchanged
        (additive codec)."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [cljs.reader]
             [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.result-envelope :as renv]))
@@ -77,6 +78,34 @@
   (is (not (renv/repl-special? "(re-frame.core/dispatch [:e])")) "namespaced call")
   (is (not (renv/repl-special? "'(require 'x)"))
       "a QUOTED require is data, not a special invocation"))
+
+;; ---------------------------------------------------------------------------
+;; rf2-gwye.27 — a form ending in a `;` line comment stays READABLE.
+;;
+;; Every source wrapper appended its closing delimiters directly onto the
+;; caller's last line. A trailing line comment therefore SWALLOWED them,
+;; and the reader hit EOF with the collection still open — so a valid,
+;; annotated expression failed to READ, before it could evaluate, and the
+;; programmer had to strip a comment from otherwise-correct code. The
+;; repair is a newline at the source boundary; these read the generated
+;; source with a real reader rather than inspecting it as a string,
+;; because unreadability IS the defect.
+;; ---------------------------------------------------------------------------
+
+(defn- readable? [src]
+  (try (cljs.reader/read-string src) true
+       (catch :default _ false)))
+
+(deftest wrap-form-survives-a-trailing-line-comment
+  (let [commented "(+ 20 22) ; expected answer"]
+    (is (readable? (renv/wrap-form "(+ 20 22)"))
+        "CONTROL: the same form without a comment reads")
+    (is (readable? (renv/wrap-form commented))
+        "the wrapper's closing delimiters are not swallowed by the comment")
+    (is (readable? (renv/wrap-form "(+ 20 22)\n; comment then nothing"))
+        "a comment on its own trailing line reads too")
+    (is (str/includes? (renv/wrap-form commented) "; expected answer")
+        "the caller's source — comment included — rides through verbatim")))
 
 (deftest wrap-form-returns-repl-special-verbatim
   (let [form "(require 're-frame.epoch)"]

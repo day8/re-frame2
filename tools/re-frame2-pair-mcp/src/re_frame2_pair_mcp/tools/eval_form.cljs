@@ -49,10 +49,16 @@
     up on values containing lists or symbols — which internally-composed
     arguments never are, and EXTERNAL EDN parsed off the wire routinely
     is. Arguments that came from a caller therefore take [[rt-quote]],
-    whose emission evaluates to its datum for every EDN value. This is
-    the boundary `dispatch` / `dispatch-dry-run` sit on (rf2-j2wz); every
-    other call site composes its own arguments and stays on the default
-    path.
+    whose emission evaluates to its datum for every EDN value. THE RULE
+    IS THE ARGUMENT'S PROVENANCE, NOT THE TOOL: every slot carrying EDN
+    parsed off the wire is quoted — the event and the whole data-only
+    opts map on `dispatch` / `dispatch-dry-run` (rf2-j2wz, rf2-fzbj.6),
+    the `db` on `replace-app-db` (rf2-olqo), and the query, path(s),
+    signals, stop bounds, registrar id and epoch-id on `read-sub` /
+    `get-path` / `watch-until` / `record` / `handler-meta` /
+    `restore-epoch` / `replay-epoch` (rf2-fzbj.6). Only server-composed
+    arguments — keywords coerced from closed sets, rendered egress-opts,
+    synthesised predicate source — stay on the default path.
 
   - The runtime prefix lives in ONE place — `runtime-ns`. A rename of
     the runtime ns flows to every callsite by editing one string.
@@ -122,9 +128,9 @@
   That is invisible for internally-composed arguments, whose shapes the
   emitter chose. It is exactly wrong for EXTERNAL EDN parsed off the
   wire, where lists and symbols are ordinary event data and an
-  emitter-shaped vector is payload, not instruction. Data-only tool
-  surfaces (`dispatch`, `dispatch-dry-run`) therefore wrap their parsed
-  event with this node.
+  emitter-shaped vector is payload, not instruction. Every tool surface
+  therefore wraps the arguments it parsed off the wire with this node —
+  see the ns docstring's provenance rule for the roster.
 
   The payload is NEVER walked: `emit` prints it and stops. A quoted form
   evaluates to its datum for every EDN value, which is the whole of what
