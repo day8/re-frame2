@@ -5,18 +5,21 @@
   invokable state machine, so a parent machine can write
 
     {:spawn {:machine-id :rf.http/managed
-              :data       {:request {:method :get :url \"/api/me\"}}}
+              :data       {:request {:url \"/api/me\" :method :get}}}
      :on     {:succeeded :authenticated
               :failed    :login}}
 
   and the wrapper:
     1. issues the request on entry to its `:requesting` state,
-    2. transitions to `:succeeded` / `:failed` on the reply,
-    3. dispatches `[<parent-id> [:succeeded value]]` (or
-       `[<parent-id> [:failed failure]]`) back to the parent, where
+    2. transitions to `:succeeded` / `:failed` on the reply — both `:final?`
+       leaves whose `:output-key` is `:rf/result`, so the wrapper completes
+       the way every child machine does (Spec 005 §Child completion protocol),
+    3. under a `:spawn` parent, dispatches `[<parent-id> [:succeeded value]]`
+       (or `[<parent-id> [:failed failure]]`) back to the parent, where
        `<parent-id>` and `<self-id>` come from spawn-fx's framework-
        reserved injection into the actor's initial `:data`
-       (`:rf/parent-id`, `:rf/self-id`).
+       (`:rf/parent-id`, `:rf/self-id`). Under a `:spawn-all` parent the
+       finality alone folds into the join (see `:dispatch-done`).
 
   The wrapper machine is registered via the `:machines/reg-machine`
   late-bind hook: neither optional artefact statically requires the other.
@@ -43,6 +46,22 @@
 
 ;; ---- machine-shape wrapper spec -------------------------------------------
 
+(defn- parent-to-notify
+  "The parent a terminal state's `:entry` should dispatch to, or nil.
+
+  Only a `:spawn` child notifies its parent by event. A `:spawn-all` child
+  carries the runtime's `:rf/join-child` membership record, and completes
+  through finality alone: the finalize cascade mints the join's completion
+  carrier from `:output-key`. A `:final?` state's `:entry` still runs (Spec 005
+  §Final states §Composition with `:entry` / `:exit`), so without this gate a
+  join child would ALSO send `[:succeeded value]` into its parent — a spurious
+  event that a parent carrying the single-`:spawn` `:on {:succeeded …}` habit
+  transitions on, exiting its `:spawn-all` state and tearing down its own join
+  (rf2-6gxs)."
+  [data]
+  (when (nil? (:rf/join-child data))
+    (:rf/parent-id data)))
+
 (defn http-managed-machine-spec
   "Return the machine-shape wrapper spec for `:rf.http/managed`.
 
@@ -60,22 +79,27 @@
      `:rf/parent-id` / `:rf/self-id` keys stamped by spawn-fx.
    - `:fire-request` builds an args map for the underlying fx,
      overriding `:on-success` / `:on-failure` so the reply lands back
-     at the wrapper actor as `[:rf.http/succeeded value]` /
-     `[:rf.http/failed failure]`.
-   - `:succeeded` / `:failed` are terminal leaf states; their
-     `:entry` dispatches the parent's `[:succeeded value]` or
-     `[:failed failure]`. When `:rf/parent-id` is nil (direct dispatch
-     of `[:rf.http/managed ...]` to the wrapper rather than `:spawn`
-     spawning), the parent-dispatch is a benign no-op."
+     at the wrapper actor as `[:rf.http/succeeded reply]` /
+     `[:rf.http/failed reply]`.
+   - `:record-value` / `:record-failure` store the ONE value a parent sees —
+     `(:value reply)` / `(:error reply)` — under `:rf/result`.
+   - `:succeeded` / `:failed` are `:final?` leaves with `:output-key
+     :rf/result` (`:failed` also `:error? true`), so a `:spawn-all` join
+     resolves on them. Their `:entry` dispatches the parent's
+     `[:succeeded value]` / `[:failed failure]` for a `:spawn` child only;
+     when `:rf/parent-id` is nil (direct dispatch of `[:rf.http/managed ...]`
+     to the wrapper rather than `:spawn` spawning), the parent-dispatch is a
+     benign no-op."
   []
   {:doc "Spec 014 — :rf.http/managed as a child-invokable state machine.
 
          Wraps the :rf.http/managed fx in a machine envelope. Use via
          `:spawn {:machine-id :rf.http/managed :data {:request {...}}}`
-         on a parent machine's state node. The wrapper runs the request
-         on entry, transitions to :succeeded / :failed on the reply,
-         and dispatches `[<parent-id> [:succeeded value]]` (or :failed)
-         back to the parent."
+         on a parent machine's state node, or as a `:spawn-all` child.
+         The wrapper runs the request on entry and finishes in a :final?
+         :succeeded / :failed leaf carrying the value under :rf/result;
+         a :spawn parent also receives `[<parent-id> [:succeeded value]]`
+         (or :failed)."
    :initial :requesting
    :states
    {:requesting
@@ -86,13 +110,18 @@
      :on    {:rf.http/succeeded  {:target :succeeded :action :record-value}
              :rf.http/failed     {:target :failed    :action :record-failure}}}
 
+    ;; Spec 005 §Child completion protocol — `:meta {:terminal? true}` is not
+    ;; a synonym for `:final?`, and a join resolves only on `:final?`.
     :succeeded
-    {:entry :dispatch-done
-     :meta  {:terminal? true}}
+    {:entry      :dispatch-done
+     :final?     true
+     :output-key :rf/result}
 
     :failed
-    {:entry :dispatch-error
-     :meta  {:terminal? true}}}
+    {:entry      :dispatch-error
+     :final?     true
+     :error?     true
+     :output-key :rf/result}}
 
    :actions
    {:fire-request
@@ -104,37 +133,33 @@
       ;; transparent envelope around the fx surface.
       (let [self-id   (:rf/self-id data)
             fx-args   (-> data
-                          (dissoc :rf/self-id :rf/parent-id :rf/invoke-id)
+                          (dissoc :rf/self-id :rf/parent-id :rf/invoke-id :rf/join-child)
                           (assoc :on-success [self-id [:rf.http/succeeded]]
                                  :on-failure [self-id [:rf.http/failed]]))]
         {:fx [[:rf.http/managed fx-args]]}))
 
+    ;; `:rf/result` is what `:output-key` hands a join AND what the terminal
+    ;; `:entry` hands a `:spawn` parent, so both parents see one value.
     :record-value
-    (fn [{data :data [_ payload] :event}]
-      {:data (assoc data :rf/result payload)})
+    (fn [{data :data [_ reply] :event}]
+      {:data (assoc data :rf/result (:value reply))})
 
     :record-failure
-    (fn [{data :data [_ payload] :event}]
-      {:data (assoc data :rf/result payload)})
+    (fn [{data :data [_ reply] :event}]
+      ;; rf2-ibksxg — the reply payload is the canonical envelope; the
+      ;; classified `:rf.http/*` failure map rides under `:error`
+      ;; (`:status :error` / `:cancelled`), not the retired `:failure`.
+      {:data (assoc data :rf/result (:error reply))})
 
     :dispatch-done
     (fn [{data :data}]
-      (let [parent-id (:rf/parent-id data)
-            result    (:rf/result data)
-            value     (:value result)]
-        (when parent-id
-          {:fx [[:dispatch [parent-id [:succeeded value]]]]})))
+      (when-let [parent-id (parent-to-notify data)]
+        {:fx [[:dispatch [parent-id [:succeeded (:rf/result data)]]]]}))
 
     :dispatch-error
     (fn [{data :data}]
-      (let [parent-id (:rf/parent-id data)
-            result    (:rf/result data)
-            ;; rf2-ibksxg — the reply payload is the canonical envelope; the
-            ;; classified `:rf.http/*` failure map rides under `:error`
-            ;; (`:status :error` / `:cancelled`), not the retired `:failure`.
-            failure   (:error result)]
-        (when parent-id
-          {:fx [[:dispatch [parent-id [:failed failure]]]]})))}})
+      (when-let [parent-id (parent-to-notify data)]
+        {:fx [[:dispatch [parent-id [:failed (:rf/result data)]]]]}))}})
 
 (defn register-managed-machine!
   "Register the `:rf.http/managed` machine-shape wrapper via the
