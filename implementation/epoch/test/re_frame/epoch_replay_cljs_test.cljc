@@ -40,6 +40,8 @@
     9. rf2-c74lr — a replay that commits no epoch of its own (its handler now
        opts out of tracing) reports nil, never a record another dispatch
        committed: another thread's, or the replay's own queued child.
+   10. rf2-1mudg — nor its queued GRANDCHILD's: a traced descendant's
+       dispatch is never adopted as the quiet replay's own identity.
 
   `.cljc` under a `-cljs-test` name so the consolidated `:node-test` build
   (`cljs-test$`) AND the artefact's `clojure -M:test` (`.*-test$`) both run
@@ -909,3 +911,83 @@
           "the history is unchanged")
       (is (= {:n 2} (rf/app-db-value interleave-frame-id))
           "the replayed handler ran"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-1mudg — a quiet replay never adopts a traced DESCENDANT's identity
+;;
+;; What rf2-c74lr left open, one generation further down. The quiet parent's
+;; own `:rf.event/dispatched` is suppressed, and so is its child's enqueue emit
+;; (it happens inside the parent's no-emit handler scope). The child itself
+;; runs traced, so when IT queues a grandchild, that enqueue emit arrives —
+;; the first `:rf.event/dispatched` the arming thread reports. The observation
+;; took it for the replay's own dispatch and the commit funnel then correlated
+;; the grandchild's commit to it exactly. Measured on the bead: source epoch 1,
+;; no replay-parent epoch, and a result saying `:epoch-id 3`, resolving to
+;; `[:audit/grandchild]`.
+;;
+;; The first deftest is the tooth. The second is the traced control over the
+;; same three generations: the replay reports its own new parent record.
+;; ---------------------------------------------------------------------------
+
+(defn- register-three-generations!
+  "`:review/parent` enqueues `:review/child` from its SECOND run (see
+  `parent-handler`), and `:review/child` always enqueues `:review/grandchild`,
+  so only the replay settles a two-level queued cascade."
+  []
+  (rf/reg-event :review/grandchild
+    (fn [{:keys [db]} _] {:db (assoc db :grandchild true)}))
+  (rf/reg-event :review/child
+    (fn [{:keys [db]} _]
+      {:db (assoc db :child true)
+       :fx [[:dispatch [:review/grandchild]]]}))
+  (rf/reg-event :review/parent parent-handler))
+
+(deftest quiet-replay-reports-nil-not-its-queued-grandchilds-epoch
+  (testing "the quiet replayed parent enqueues a traced child that enqueues a
+            traced grandchild; all three run, only the source parent, the
+            child and the grandchild commit records, and nil rides back rather
+            than the grandchild's"
+    (rf/configure! {:epoch-history {:depth 10}})
+    (rf/make-frame {:id evict-frame-id})
+    (register-three-generations!)
+    (rf/dispatch-sync [:review/parent] {:frame evict-frame-id})
+    (let [source (last (rf/epoch-history evict-frame-id))
+          _      (reg-quiet! :review/parent parent-handler)
+          res    (rf/replay-epoch! evict-frame-id (:epoch-id source))
+          after  (rf/epoch-history evict-frame-id)]
+      (is (true? (:ok? res)) (str "the replay itself succeeded: " (pr-str res)))
+      (is (= (:epoch-id source) (:source-epoch-id res)))
+      (is (= [[:review/parent] [:review/child] [:review/grandchild]]
+             (mapv :trigger-event after))
+          "the source parent, then the replay's child and grandchild; the
+           quiet parent added no record of its own")
+      (is (= {:runs 2 :child true :grandchild true}
+             (rf/app-db-value evict-frame-id))
+          "the replayed parent, its child and its grandchild all ran")
+      ;; THE TOOTH.
+      (is (nil? (:epoch-id res))
+          (str "the grandchild's record is not the replayed parent's epoch; got "
+               (pr-str (:epoch-id res)) ", resolving to "
+               (pr-str (resolves-to res after)))))))
+
+(deftest traced-replay-over-two-queued-levels-reports-its-own-epoch
+  (testing "the control: the same three generations with the parent traced;
+            the replay reports its OWN new parent record, never the child's or
+            the grandchild's"
+    (rf/configure! {:epoch-history {:depth 10}})
+    (rf/make-frame {:id evict-frame-id})
+    (register-three-generations!)
+    (rf/dispatch-sync [:review/parent] {:frame evict-frame-id})
+    (let [source (last (rf/epoch-history evict-frame-id))
+          res    (rf/replay-epoch! evict-frame-id (:epoch-id source))
+          after  (rf/epoch-history evict-frame-id)]
+      (is (true? (:ok? res)) (str "the replay itself succeeded: " (pr-str res)))
+      (is (= [:review/parent :review/parent :review/child :review/grandchild]
+             (mapv :event-id after))
+          "the source parent, the replay's parent, its child and grandchild")
+      (is (= {:runs 2 :child true :grandchild true}
+             (rf/app-db-value evict-frame-id)))
+      (is (= (:epoch-id (nth after 1)) (:epoch-id res))
+          (str "the reported epoch is the replay's own new parent record; got "
+               (pr-str (:epoch-id res)) ", resolving to "
+               (pr-str (resolves-to res after)))))))
