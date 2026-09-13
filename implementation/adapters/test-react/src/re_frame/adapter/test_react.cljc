@@ -226,28 +226,34 @@
   a render that threw or pre-existing children of an already-committed mount;
   this function deliberately leaves `parent` itself untouched.
 
-  Used by `mount-tree!`'s failed-INITIAL-mount rollback (where the parent never
-  registers) and by `force-teardown-subtree!` (which tears the live subtree
-  root down after its descendants)."
+  Used by `force-teardown-subtree!`, which tears the subtree root down after
+  its descendants — the shape BOTH failed-render rollbacks want."
   [parent]
   (doseq [child @(:children parent)]
     (force-teardown-descendants! child)
     (force-teardown-record! child)))
 
 (defn- force-teardown-subtree!
-  "Force-tear a whole LIVE subtree down GRANDCHILDREN-first: drain every
+  "Force-tear a whole subtree down GRANDCHILDREN-first: drain every
   descendant of `mount` via `force-teardown-descendants!`, then force-tear
   the subtree root record itself via `force-teardown-record!`. Every node — the
   root AND all descendants (pre-existing children as well as any a failed render
   speculatively mounted) — leaves `active-mounts` with its render tree cleared.
 
-  Composes the SAME two forced-teardown primitives that back adapter disposal
-  and the initial-mount rollback, so the paths cannot drift. Used by
-  `trigger-update!`'s failed-UPDATE path: an uncaught update render error
-  unmounts the whole already-committed root, mirroring React 18+ (see
-  `run-render!`'s docstring — a throwing render propagates and React unmounts
-  the root). By contrast, `force-teardown-descendants!` deliberately drains
-  DESCENDANTS only and leaves the supplied parent for its caller to handle."
+  Composes the SAME two forced-teardown primitives that back adapter disposal,
+  so the paths cannot drift. BOTH failed-render rollbacks call it:
+
+  - `trigger-update!`'s failed-UPDATE path — an uncaught update render error
+    unmounts the whole already-committed root, mirroring React 18+ (see
+    `run-render!`'s docstring: a throwing render propagates and React unmounts
+    the root);
+  - `mount-tree!`'s failed-INITIAL-mount rollback — the root there never
+    registered in `active-mounts`, so its `disj` is a no-op, but the record was
+    born `mounted?` true holding the throwing candidate tree and IS exposed to
+    the render body, so it needs the same invalidation (rf2-fzbj.26).
+
+  By contrast, `force-teardown-descendants!` deliberately drains DESCENDANTS
+  only and leaves the supplied parent for its caller to handle."
   [mount]
   (force-teardown-descendants! mount)
   (force-teardown-record! mount))
@@ -265,9 +271,12 @@
   `:children`, so unmounting the parent later cascades to it.
 
   Initial mount is TRANSACTIONAL: if `run-render!` throws (the render body
-  raised), any children the failed render already mounted are rolled back
-  before the original exception is rethrown — a failed mount registers nothing
-  and leaks nothing."
+  raised), the whole speculative subtree is rolled back before the original
+  exception is rethrown — any children the failed render already mounted AND
+  this record itself, which is left terminal (`mounted?` false, render tree
+  nil, a `:forced-teardown` logged) so the handle the render body was handed
+  cannot be updated afterwards. A failed mount registers nothing, leaks
+  nothing, and exposes no live-looking handle."
   [render-tree]
   (let [self-ref (atom nil)   ; forward ref so the thunk can disj the FINAL record
         base     (->MountedComponent
@@ -294,10 +303,27 @@
         ;; unmount surface. Roll them back so the failed initial mount is
         ;; transactional. `run-render!` already restored `render-depth` through
         ;; its own `finally`, so the rollback runs with the guard state correct.
+        ;;
+        ;; THIS RECORD ITSELF IS ROLLED BACK TOO (rf2-fzbj.26), via the same
+        ;; `force-teardown-subtree!` the failed-UPDATE path uses. Draining only
+        ;; the descendants left this record born `mounted? true` (line above)
+        ;; holding the THROWING candidate tree `run-render!` stored before
+        ;; invoking the body — and the render body is handed that record, so a
+        ;; test that retains it keeps a live-looking handle to a mount that never
+        ;; committed. `trigger-update!` accepts any record still marked mounted,
+        ;; so such a handle could log `:did-update` with no preceding
+        ;; `:did-mount`; and because the record never reaches the `conj` below,
+        ;; `dispose-adapter!`'s drain over `active-mounts` cannot repair it
+        ;; either. The `disj` inside `force-teardown-record!` is a harmless
+        ;; no-op here for exactly that reason. A `:forced-teardown` phase IS
+        ;; logged for the failed parent: that is the deliberate observation
+        ;; contract — the rollback is visible in the log, like every other
+        ;; forced teardown — while `:did-mount` and `:did-update` stay absent.
+        ;;
         ;; Run the rollback in its OWN try so a defect there can never MASK the
         ;; render exception — the render error is what the caller must see.
         (try
-          (force-teardown-descendants! mount)
+          (force-teardown-subtree! mount)
           (catch #?(:clj Throwable :cljs :default) _rollback-error
             nil))
         (throw render-error)))
