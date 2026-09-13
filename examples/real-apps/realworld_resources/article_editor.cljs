@@ -40,8 +40,8 @@
    continuation branches save-vs-delete on the reply value (save and delete share
    one instance, so they share one continuation). The nav-token names the
    navigation the write was issued under, so a reply that lands after the reader
-   has left the editor is refused rather than dragging them back. The seed-on-load continuation is the `:realworld/article`
-   ensure's `:reply-to [:editor/article-loaded slug]`, the resource-read
+   has left the editor is refused rather than dragging them back. The
+   seed-on-load continuation is the `:realworld/article` ensure's `:reply-to [:editor/article-loaded slug]`, the resource-read
    counterpart of a mutation completion continuation: a cache-hit fires it
    immediately, a fetch fires it on settle. The reply carries the slug it was for,
    because per-slug reads are distinct cache entries with independent generations
@@ -457,8 +457,9 @@
          reply map as its final arg, observed AFTER the mutation's
          `:invalidates` staled the lists and feed and the instance settled. A
          reply for a navigation the reader has since left is refused whole
-         (WRITE OWNERSHIP above). On a successful SAVE (`:value` carries the saved `{:article …}`),
-         re-seed the editor from the saved article so the draft reads as clean —
+         (WRITE OWNERSHIP above). On a successful SAVE (`:value` carries the
+         saved `{:article …}`), re-seed the editor from the saved article so the
+         draft reads as clean —
          that way the `:can-leave` guard won't block — clear the instance, and
          navigate to the article detail. On a successful DELETE (no `:article` in
          the reply value), clear the slice and instance and head home. Both
@@ -492,8 +493,9 @@
 
 (rf/reg-event :editor/delete
   {:doc "Delete the article (edit mode only). Fires the delete mutation under the
-         same instance the save uses, with the same `:reply-to [:editor/replied]`
-         continuation — which branches save-vs-delete on the reply value."}
+         same instance the save uses, with the same
+         `:reply-to [:editor/replied nav-token]` continuation — which branches
+         save-vs-delete on the reply value."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (when-let [slug (get-in db [:editor :slug])]
       {:fx [[:dispatch [:rf.mutation/execute
