@@ -16,16 +16,30 @@
   It is TOTAL: whatever a handler threw, the projection's output can be
   JSON-encoded.
 
+  `wire-safe-success` is its counterpart for ordinary SUCCESS data, and
+  `edn-result` — the envelope every data-returning handler builds — applies
+  it. Success data is not exception data and the two projections are not
+  interchangeable: see `wire-safe-success`.
+
   No story-mcp ns deps — `cap` / `cursor` / `args` / `egress`
-  / every category ns reaches here. `malli.error` is the sole library
-  require, reached transitively through `re-frame.story` (whose registrar
-  hard-requires `malli.core`), exactly as `re-frame.error` is."
-  (:require [malli.error :as me]))
+  / every category ns reaches here. `malli.error` is the sole third-party
+  require (`clojure.walk` is stdlib), reached transitively through
+  `re-frame.story` (whose registrar hard-requires `malli.core`), exactly as
+  `re-frame.error` is."
+  (:require [clojure.walk :as walk]
+            [malli.error :as me]))
 
 (defn pr-edn
   "Serialise a value to a stable, EDN-round-trippable string. Used to
   embed Story data inside an MCP text content item. Uses `pr-str` —
-  keywords stay keywords, sets stay sets, no JSON lossiness."
+  keywords stay keywords, sets stay sets, no JSON lossiness.
+
+  Round-trippable because `edn-result` projects the payload through
+  `wire-safe-success` FIRST. Given a raw callable — which a supported
+  `:pred` assertion puts in an author's body — `pr-str` emits an
+  `#object[…]` form that is not readable EDN at all; the projection has
+  already replaced it with the readable `{:rf.story-mcp/unencodable …}`
+  marker. The string round-trips; the callable, honestly, does not."
   [v]
   (binding [*print-readably* true]
     (pr-str v)))
@@ -47,14 +61,24 @@
   #?(:clj  (.getName (class v))
      :cljs (pr-str (type v))))
 
+(defn- edn-scalar?
+  "Is `v` one of the EDN scalars — nil, a boolean, a number, a string, a
+  keyword, a symbol, a character, a UUID or an instant (the last two being
+  EDN's built-in tagged literals)?
+
+  The closed set the two projections below share, so they cannot drift on
+  what counts as data. Everything outside it that is not a collection is a
+  live object the JSON encoder cannot write."
+  [v]
+  (or (nil? v) (boolean? v) (number? v) (string? v)
+      (keyword? v) (symbol? v) (char? v) (uuid? v) (inst? v)))
+
 (defn- wire-safe-value
   "Project any value into the EDN value space, which is the shape the JSON
   encoder can write.
 
-  A value survives when it IS data: nil, a boolean, a number, a string, a
-  keyword, a symbol, a character, a UUID or an instant — the closed set of
-  EDN scalars, the last two being EDN's two built-in tagged literals — or a
-  collection of values that survive. Everything else is a live object: a
+  A value survives when it IS data: an `edn-scalar?`, or a collection of
+  values that survive. Everything else is a live object: a
   reified Malli schema, a `Throwable`, an atom, a regex, a function, a bare
   `Object`. Those become `{:rf.story-mcp/unencodable \"<class name>\"}`,
   which says both that a value was there and what kind it was.
@@ -74,9 +98,7 @@
   one."
   [v]
   (cond
-    (or (nil? v) (boolean? v) (number? v) (string? v)
-        (keyword? v) (symbol? v) (char? v) (uuid? v) (inst? v))
-    v
+    (edn-scalar? v) v
 
     (map? v)        (reduce-kv (fn [m k x]
                                  (assoc m (wire-safe-value k) (wire-safe-value x)))
@@ -84,6 +106,57 @@
     (set? v)        (into #{} (map wire-safe-value) v)
     (sequential? v) (mapv wire-safe-value v)
     :else           {unencodable-key (type-name v)}))
+
+(defn wire-safe-success
+  "Project ORDINARY SUCCESS data so the JSON encoder can write it, leaving
+  everything that already IS data exactly as it was.
+
+  ## Why success data needs its own projection at all (rf2-gwye.58)
+
+  `[:assert-db path :pred fn-or-sym]` is a SUPPORTED Story authoring form
+  (`tools/story/spec/001-Authoring.md` §Script steps), so a live function
+  legitimately sits in a registered variant body — and from there in the
+  body `get-variant` returns, the plan `explain-variant` returns, and the
+  assertion evidence a RUN returns. None of that is exception data, so the
+  `wire-safe-ex-data` path never saw it, and a function reaching Cheshire
+  throws PAST the tool handler into `server/handle-frame!`, which answers
+  `-32603 Server fault: Cannot JSON encode object of class: class
+  clojure.core$pos_QMARK_`. Four tools failed that way on a variant Story
+  itself runs `:pass` — the verdict, the evidence and the whole surrounding
+  body discarded over one slot.
+
+  ## The rule: mark the value, keep everything around it
+
+  A callable cannot be reconstructed from JSON or from printed EDN, and
+  pretending otherwise is the lie this replaces: `pr-str` of a function
+  emits `#object[clojure.core$pos_QMARK_ 0x4d1b0d2a …]`, which is neither
+  readable EDN nor free of a build-local address. So the value is replaced —
+  in place — by the same bounded `{:rf.story-mcp/unencodable \"<class
+  name>\"}` marker `wire-safe-value` already uses: it says a value was
+  there, and what kind it was, without an identity hash. Everything else in
+  the payload survives untouched.
+
+  ## Not `wire-safe-ex-data`, and not a reshaping walk
+
+  Two differences, both deliberate:
+
+  - `wire-safe-ex-data` RENAMES `:explain` and `:rf.error/id`. Those are
+    exception vocabulary; on author data they are ordinary keys somebody
+    wrote, and rewriting them would corrupt the very body the author asked
+    to read back.
+  - this walk is TYPE-PRESERVING. `wire-safe-value` rebuilds every
+    collection through `{}` / `#{}` / `mapv`, which is right for an
+    `ex-data` blob but would quietly turn a list into a vector, a sorted map
+    into a hash map, and a record into a plain map — in a payload whose text
+    slot is the byte-stable EDN an agent DIFFS. `clojure.walk/postwalk`
+    rebuilds each collection as its own type (and visits map keys), so a
+    payload carrying no callable comes back equal to what went in."
+  [v]
+  (walk/postwalk (fn [x]
+                   (if (or (edn-scalar? x) (coll? x))
+                     x
+                     {unencodable-key (type-name x)}))
+                 v))
 
 (defn wire-safe-ex-data
   "Project a caught exception's `ex-data` into something the JSON encoder
@@ -182,9 +255,19 @@
 
   The two slots are dual-coded on purpose (per `wire-pipeline`): the
   text slot serves agent hosts that read EDN; the structured slot
-  serves hosts that prefer JSON data — and the cap pipeline sizes both."
+  serves hosts that prefer JSON data — and the cap pipeline sizes both.
+
+  ## The one success projection (rf2-gwye.58)
+
+  `wire-safe-success` runs HERE, once, before either slot is built — so the
+  two slots cannot disagree about a value, and the projection lands ahead of
+  the wire-boundary transforms (dedup, then the token cap) which run after
+  the handler returns. This is the chokepoint every data-returning handler
+  already shares, which is why the projection needs no per-handler opt-in
+  and no roster of which tools might carry a callable."
   [payload]
-  (text-result (pr-edn payload) payload))
+  (let [payload (wire-safe-success payload)]
+    (text-result (pr-edn payload) payload)))
 
 (defn error-result
   "Build a tool-execution error result. Per MCP §Error Handling these

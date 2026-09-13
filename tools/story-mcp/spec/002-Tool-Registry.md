@@ -141,6 +141,19 @@ summary an agent sees the inline `:rf/redacted` sentinels / vanished
 assertions but no signal that the payload was filtered, or by how much —
 the canonical silent-swallow failure mode this MUST closes.
 
+The drop applies to **every** assertion-record copy the projection emits,
+not only the top-level `:assertions` vec. `preview-variant` /
+`run-variant` also group those records under `:checks[*][:assertions]`
+(one check record per named `reg-check`), and a group holds the SAME
+maps the top level does — so dropping a stamped record from one slot
+while shipping it in the other is precisely the silent-swallow mode
+above, with the indicator count asserting the omission that did not
+happen (rf2-gwye.60). Two things are deliberately left alone: each check
+keeps its own authoritative `:status` (hiding a failing record must not
+recompute its check as a vacuous pass), and `:dropped-sensitive` stays
+the count of UNIQUE top-level records, since one record can appear in
+several groups and a per-group count would report a multiple of it.
+
 [conv]: ../../../spec/Conventions.md#cross-mcp-indicator-field-vocabulary-suppression-counters
 [s009]: ../../../spec/009-Instrumentation.md#size-elision-in-traces
 
@@ -397,7 +410,12 @@ The descriptor declares an `:outputSchema`; the official MCP SDK's
 high-level `callTool` rejects an outputSchema-declaring tool that
 returns no `structuredContent` (JSON-RPC -32600), so the structured
 slot rides alongside. The text slot stays the byte-stable source of
-truth for round-tripping.
+truth for round-tripping — for DATA. A supported
+`[:assert-db path :pred fn-or-sym]` assertion can leave a live function
+in an author's body; it crosses as the bounded
+`{:rf.story-mcp/unencodable "<class name>"}` marker in both slots, so
+the text stays readable EDN and the callable is named rather than
+reconstructible (rf2-gwye.58). See [`API.md`](API.md) §`variant->edn`.
 
 ### `get-docs-markdown` (rf2-i0kyy)
 

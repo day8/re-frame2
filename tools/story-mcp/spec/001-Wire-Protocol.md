@@ -10,8 +10,25 @@
 - Each frame is one JSON object on one line; the server reads from
   stdin, writes to stdout. stderr is reserved for diagnostics
   (failure traces; never used for protocol traffic).
+- **Application output is a diagnostic, not a frame** (rf2-gwye.57). A
+  `tools/call` runs the author's own code, and an ordinary `println` in
+  a Story event handler writes to `*out*` — which in the CLI is stdout,
+  where it is not a frame and breaks the client's line parser over a run
+  that SUCCEEDED. So `server/handle-frame!` binds `*out*` to stderr for
+  the duration of a dispatch: such a line lands with the diagnostics and
+  stdout keeps carrying frames only. The JSON reply never travels
+  through `*out*` — the loop holds its writer explicitly. The redirect
+  is scoped to the dispatch (never `System/setOut`), and does not cover
+  LOAD-TIME printing by a namespace `clojure.main` required before
+  `-main` ran; that caveat stands as documented in the README
+  §Loading your project's stories.
 - The server's main loop terminates on stdin EOF; the `shutdown`
-  method is also honoured.
+  method is also honoured. At EOF `-main` also RELEASES what the CLI
+  acquired — Clojure's non-daemon future executor, which every variant
+  run uses — so a session that ran a story exits promptly instead of
+  idling out that pool's 60-second keep-alive (rf2-gwye.59). `run-loop!`
+  never does this: it is the embeddable half, and a library caller's
+  futures must outlive it.
 - **Frame-length cap** (rf2-g9fje): each inbound frame is bounded at
   `re-frame.story-mcp.protocol/max-frame-bytes` (4 MB — well above
   the largest legitimate MCP payload). A frame exceeding the cap is
