@@ -248,10 +248,44 @@ one, and the adapter refuses an answer that comes back with one:
 npx shadow-cljs release examples/login-fresco-server   --config-merge '{:closure-defines {fresco.login.server/build-id "2026-09-02-a1b2c3"}}'
 ```
 
-Then serve `host.clj`'s `handler` from any Ring adapter, with
-`LOGIN_FRESCO_SSR_NODE` pointing at the sidecar's URL, and open the page. The
-client boots through the same `core.cljs` either way: it looks for
-`__rf_payload`, and hydrates when it finds one instead of mounting.
+Then boot the JVM and serve `host.clj`'s `app`, with `LOGIN_FRESCO_SSR_NODE`
+pointing at the sidecar's URL:
+
+```clojure
+(require '[fresco.login.host :as host]
+         '[ring.adapter.jetty :as jetty])
+
+;; Install the SSR substrate adapter in THIS process. Requiring
+;; `re-frame.ssr` publishes its adapter; only `init!` seats one, and without
+;; a seated adapter the first request cannot create its frame — the page
+;; comes back as a bare HTTP 500 with a healthy sidecar sitting idle.
+(host/init!)
+
+;; `host/app`, not `host/handler`. `handler` is the SSR handler alone, and an
+;; SSR handler renders a document for EVERY request it is given — including
+;; the `/main.js` the page it just served asks the browser to fetch. `app`
+;; puts one route in front of it: `/` renders, everything else comes out of
+;; the compiled bundle's output directory, and a miss is a 404 rather than
+;; another login page.
+(jetty/run-jetty host/app {:port 3000 :join? false})
+```
+
+Open `http://localhost:3000`. The client boots through the same `core.cljs`
+either way: it looks for `__rf_payload`, and hydrates when it finds one
+instead of mounting.
+
+Three paths have to agree, and two environment variables move them together
+with the build: the `compile` above writes `out/examples/login-fresco`
+(`LOGIN_FRESCO_CLIENT_DIR`), that build's `:asset-path` is `"."` so its
+generated dependency URLs resolve against the document's own directory, and
+the page is served at `/` — so the output tree is served at `/` too, and
+`host.clj`'s `:script-src` is `/main.js`. Serve the page from some other
+path and the asset mapping moves with it.
+
+A deployment that already has a router and static-asset middleware does not
+need `make-app`: use
+[`ssr-middleware`](../../../../implementation/ssr-ring/src/re_frame/ssr/ring.clj)
+to slot the page in beside the routes it already serves.
 
 **The host runs**, and two gates say so rather than this paragraph. A JVM host
 has to hold the application's state, so `login.model` — the owner of every

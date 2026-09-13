@@ -34,16 +34,43 @@
   halves and a host that reaches past it is refused by the sidecar rather
   than served.
 
-  ## Running it
+  ## Running it — `init!`, then `app`
 
-  See the example README. This namespace loads and runs on a plain Clojure
-  classpath — the shared `login.model` is `.cljc`, so the JVM holds the
-  application's state the same way the browser does — and it is driven,
-  over a real socket against the real sidecar launcher, by
-  `re-frame.ssr.ring.login-host-crossing-test`
-  (`implementation/ssr-ring/test/`, tagged `:crossing`)."
-  (:require [re-frame.ssr.ring :as rf.ssr.ring]
+  Two things a JVM host needs that neither the Node boot nor the browser
+  boot can do for it, because each of those initialises its OWN process:
+
+    (host/init!)                                     ;; installs the adapter
+    (jetty/run-jetty host/app {:port 3000 :join? false})
+
+  `init!` installs the SSR substrate adapter. Requiring `re-frame.ssr`
+  PUBLISHES its adapter; only `rf/init!` INSTALLS one, and without an
+  installed adapter the first request cannot create its frame — `ssr-handler`
+  projects the failure to a bare HTTP 500 before the renderer is reached, so
+  a perfectly healthy sidecar renders nothing (rf2-gwye.61).
+
+  `app` is the whole application: `handler` for the page, and the compiled
+  browser bundle's output tree for everything else. `handler` ALONE renders
+  a document for every request it is given, the `<script>` URL in the page
+  it just served included — so serving it bare answers `/main.js` with
+  another login page and the page never becomes interactive (rf2-gwye.62).
+  Routing is the host application's job, which is what `app` shows; the
+  library's own `ssr-middleware` is the other way to arrange it.
+
+  Composition uses `ring.util.response` / `ring.middleware.content-type`
+  from `ring/ring-core`, which every Ring server adapter already brings.
+
+  This namespace loads and runs on a plain Clojure classpath — the shared
+  `login.model` is `.cljc`, so the JVM holds the application's state the
+  same way the browser does — and it is driven, over a real socket against
+  the real sidecar launcher, by `re-frame.ssr.ring.login-host-crossing-test`
+  (`implementation/ssr-ring/test/`, tagged `:crossing`). See the example
+  README for the build commands the paths below assume."
+  (:require [re-frame.core :as rf]
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.node :as rf.ssr.ring.node]
+            [ring.middleware.content-type :as ring.content-type]
+            [ring.util.response :as ring.response]
             ;; The one render-state list, shared with `server.cljs`.
             [fresco.login.policy :as policy]
             ;; The application, on the JVM: every `auth.login` schema, fx,
@@ -70,6 +97,32 @@
   sidecar is not refused. Render state can carry server-only values, so a
   remote one is the operator's network and transport to secure."
   (or (System/getenv "LOGIN_FRESCO_SSR_NODE") rf.ssr.ring.node/default-endpoint))
+
+(def client-dir
+  "Where the compiled BROWSER bundle landed — the `:output-dir` of
+  `:examples/login-fresco` in `implementation/shadow-cljs.edn`, as seen from
+  the directory the README's build commands are run in.
+
+  That build's `:asset-path` is `\".\"`, which means its generated
+  dependency URLs are resolved against the DOCUMENT's own directory. The
+  page is served at `/`, so this whole tree is served at `/` too: the shell
+  asks for `/main.js` and the runtime then asks for `/cljs-runtime/…`, and
+  both land inside this directory. Move the page off `/` and the asset
+  mapping has to move with it."
+  (or (System/getenv "LOGIN_FRESCO_CLIENT_DIR") "out/examples/login-fresco"))
+
+(defn init!
+  "Boot this JVM: install the SSR substrate adapter.
+
+  A re-frame2 process installs ONE adapter, and installing it is an
+  application-lifecycle act — call this once, before the Ring server starts
+  accepting requests. It is NOT something the library does on a caller's
+  behalf at require time or per request: requiring `re-frame.ssr` publishes
+  the adapter, `rf/init!` seats it, and Spec 006 keeps those two apart on
+  purpose. Idempotent for this adapter, so a REPL that evaluates it twice is
+  fine."
+  []
+  (rf/init! rf.ssr/adapter))
 
 (defn make-handler
   "Build the Ring handler against ONE sidecar. `handler` below is this
@@ -105,8 +158,44 @@
      ;; The client bundle, and the element it adopts. `fresco.login.core/run`
      ;; reads `__rf_payload`, finds one, and HYDRATES rather than mounting.
      :app-element-id "app"
-     :script-src     "/js/main.js"}))
+     ;; The URL `client-dir`'s bundle is mapped to by `make-app` below. It
+     ;; is one fact in two places and they have to agree: a `:script-src`
+     ;; the application does not route is a page that never hydrates.
+     :script-src     "/main.js"}))
 
 (def handler
-  "The Ring handler this deployment serves. Hand it to any Ring adapter."
+  "The PAGE handler — `ssr-handler`, and nothing else. It renders a document
+  for every request it is given, so it wants a route in front of it rather
+  than a socket: serve `app` below, not this."
   (make-handler {:endpoint endpoint :build-id build-id}))
+
+(defn- page-request?
+  "The one route this example renders. Everything else is an asset of the
+  compiled bundle — which is why an unknown path gets a 404 rather than a
+  login page: a miss that renders looks like a working asset URL."
+  [{:keys [request-method uri]}]
+  (and (= :get request-method) (= "/" uri)))
+
+(defn make-app
+  "The whole Ring application: `page-handler` for the page, `client-dir`'s
+  compiled browser bundle for everything else.
+
+  Twelve lines, no router and no server framework — the minimum that makes
+  the documented build/serve sequence produce an interactive page. A real
+  deployment usually has a router and a static-asset middleware already, and
+  would use `re-frame.ssr.ring/ssr-middleware` to slot the page in
+  alongside them."
+  [page-handler client-dir]
+  (fn app [request]
+    (if (page-request? request)
+      (page-handler request)
+      (if-let [asset (ring.response/file-response (:uri request)
+                                                  {:root client-dir})]
+        (ring.content-type/content-type-response asset request)
+        (-> (ring.response/not-found "No such asset in this build.")
+            (ring.response/content-type "text/plain; charset=utf-8"))))))
+
+(def app
+  "What this deployment serves, once `init!` has run. Hand THIS to any Ring
+  adapter."
+  (make-app handler client-dir))
