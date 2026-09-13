@@ -126,15 +126,17 @@ Observability payloads can be unboundedly large — a `:db/state-loaded` event c
 
 Every listener body that walks a payload bounded by user input or by app-db size MUST apply a size cap. Two mechanisms cooperate, and the migration must not conflate them:
 
-- The **wire-elision walker** elides *declared* paths — schema/effect-declared `:sensitive` → `:rf/redacted`, declared `:large` → a `:rf.size/large-elided` marker. Its `:rf.egress/threshold-bytes` is **advisory only**: for an *undeclared* large string over the threshold the walker emits the dev-only `:rf.warning/large-value-unschema'd` nudge and **returns the value unchanged** (per [009 §Size elision in traces](../../spec/009-Instrumentation.md#size-elision-in-traces): *"The walker does not auto-elide unschema'd values"*). It never bounds an undeclared value.
+- The **wire-elision walker** elides *declared* paths — schema/effect-declared `:sensitive` → `:rf/redacted`, declared `:large` → a `:rf.size/large-elided` marker. **App code reaches it through `rf/project-egress`, the one public projection door** — the walker itself (`re-frame.elision/elide-wire-value`) is an internal mechanism with no façade re-export, so a forwarder that requires it directly is an M-1 site. `project-egress` resolves the `:rf.egress/profile` and delegates the per-slot walk; on a kindless value (a bare payload, as here) it walks the whole input and returns the walked value. Its `:rf.egress/threshold-bytes` is **advisory only**: for an *undeclared* large string over the threshold the walker emits the dev-only `:rf.warning/large-value-unschema'd` nudge and **returns the value unchanged** (per [009 §Size elision in traces](../../spec/009-Instrumentation.md#size-elision-in-traces): *"The walker does not auto-elide unschema'd values"*). It never bounds an undeclared value.
 - A **genuine per-payload byte budget** — the hard cap. Because an undeclared oversize value survives the walk, the helper measures the serialised size of the elided result and, when it still exceeds the destination budget, drops the payload to a compact over-budget marker rather than letting it ride off-box. The cap is **per-payload bytes**, applied after sensitive redaction:
 
 ```clojure
 (defn cap-or-elide
   "Returns [payload dropped-count over-budget?].
-   1. Elides DECLARED paths through the wire-elision walker (declared :sensitive →
-      :rf/redacted, declared :large → a :rf.size/large-elided marker — independent
-      of any byte threshold).
+   1. Elides DECLARED paths through rf/project-egress — the ONE public projection
+      door, which delegates the per-slot walk to the wire-elision walker (declared
+      :sensitive → :rf/redacted, declared :large → a :rf.size/large-elided marker —
+      independent of any byte threshold). Never require re-frame.elision directly:
+      it is an internal mechanism, and an app-side require of it is an M-1 site.
    2. Enforces a GENUINE serialised-byte budget on the elided result: an undeclared
       oversize value is NOT bounded by the walker (its threshold is advisory — it
       warns via :rf.warning/large-value-unschema'd and returns the value unchanged),
@@ -149,7 +151,7 @@ Every listener body that walks a payload bounded by user input or by app-db size
                  :rf.egress/include-sensitive? false
                  :rf.egress/include-large?     false
                  :frame                      frame}
-        elided  (re-frame.elision/elide-wire-value v opts)
+        elided  (rf/project-egress v opts)
         ;; Count :rf.size/large-elided markers and :rf/redacted sentinels in elided
         dropped (->> (tree-seq coll? seq elided)
                      (filter #(or (= :rf/redacted %)
@@ -172,7 +174,7 @@ Every listener body that walks a payload bounded by user input or by app-db size
 The cap silently elides — but silent elision is the wrong default for operational observability. Operators need to see that the listener filtered SOMETHING — otherwise a misconfigured schema (forgot `{:sensitive? true}` on a new field) leads to "the dashboard shows nothing" with no diagnostic signal. The pattern is to **emit a counter trace event** every time the listener drops slots:
 
 ```clojure
-(rf/register-listener! :my-app/audit-forwarder
+(rf/register-listener! :trace :my-app/audit-forwarder
   (fn [trace-event]
     (when (and (#{:event/dispatched :event/handler-completed} (:operation trace-event))
                (not (:sensitive? trace-event)))                      ;; default-drop sensitive cascades
@@ -280,8 +282,10 @@ This is the v2-canonical target for the **majority** of "observer (off-box egres
 
 (defn- cap-or-elide
   "Returns [payload dropped-count over-budget?] — elides DECLARED sensitive/large
-   paths (schema-aware walker) plus floor redaction for undeclared sensitive keys,
-   then enforces a genuine serialised-byte budget as a backstop. The walker's
+   paths through rf/project-egress (the one public projection door; it delegates
+   the per-slot walk to the schema-aware wire-elision walker) plus floor redaction
+   for undeclared sensitive keys, then enforces a genuine serialised-byte budget as
+   a backstop. The walker's
    threshold is ADVISORY (it warns on an undeclared large value and returns it
    unchanged, it does not bound it); the :budget-bytes backstop is the hard cap
    that keeps an oversize undeclared value off the wire."
@@ -291,7 +295,7 @@ This is the v2-canonical target for the **majority** of "observer (off-box egres
                         :rf.egress/include-sensitive? false
                         :rf.egress/include-large?     false
                         :frame                      frame}
-        elided         (re-frame.elision/elide-wire-value floor-redacted opts)
+        elided         (rf/project-egress floor-redacted opts)
         dropped        (->> (tree-seq coll? seq elided)
                             (filter #(or (= :rf/redacted %)
                                          (and (map? %) (contains? % :rf.size/large-elided))))
@@ -304,7 +308,7 @@ This is the v2-canonical target for the **majority** of "observer (off-box egres
 
 ;; --- The trace listener registration (the M-13 / M-17 replacement) ---
 
-(rf/register-listener! :my-app/audit-forwarder
+(rf/register-listener! :trace :my-app/audit-forwarder
   (fn audit-forwarder [trace-event]
     (when (and (= :event/dispatched (:operation trace-event))         ;; one event per dispatch
                (not (:sensitive? trace-event)))                       ;; honour framework default-drop
