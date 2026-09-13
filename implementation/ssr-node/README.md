@@ -280,7 +280,9 @@ Joining is the transport's decision, made once, at the edge. The HTTP
 transport has a buffered mode (collect, set `Content-Length`, write once)
 and a streaming mode (write each chunk as it arrives). They are 2
 readings of one protocol, and the witness requires their output to be
-byte-identical. `service.renderToString()` is a wrapper over the same
+byte-identical — even when a chunk boundary splits a surrogate pair, which
+the streaming mode handles by holding back that one code unit until its mate
+arrives. `service.renderToString()` is a wrapper over the same
 generator, so the string-shaped call is the derived one — a streaming
 caller is declining a convenience rather than asking for a second
 semantics.
@@ -386,10 +388,10 @@ does not carry it, and has no render to have torn.
 
 | Code | Meaning |
 |---|---|
-| `:rf.ssr-node/malformed-request` | not an object, or not decodable |
+| `:rf.ssr-node/malformed-request` | not an object, or not decodable — over HTTP, also a request target that is not a valid URL |
 | `:rf.ssr-node/protocol-version` | `protocol` is absent or not this version |
 | `:rf.ssr-node/unknown-request-field` | a field the contract does not name |
-| `:rf.ssr-node/bad-request-field` | a named field of the wrong shape |
+| `:rf.ssr-node/bad-request-field` | a named field of the wrong shape — over HTTP, also a `requestId` no response header can carry |
 | `:rf.ssr-node/request-too-large` | over the body ceiling, or over the one `state` + `runtime` shares |
 | `:rf.ssr-node/unknown-entry` | an id the loaded bundle does not carry |
 | `:rf.ssr-node/state-key-not-allowed` | a `state` or `runtime` key the entry does not declare for that partition |
@@ -399,7 +401,7 @@ does not carry it, and has no render to have torn.
 | `:rf.ssr-node/isolate-lost` | the worker died mid-render, an exception escaped the render call, or the pool could not replace a terminated isolate |
 | `:rf.ssr-node/service-saturated` | no isolate free within the admission budget |
 | `:rf.ssr-node/service-closed` | the service is shutting down |
-| `:rf.ssr-node/malformed-render-module` | the bundle failed validation at boot |
+| `:rf.ssr-node/malformed-render-module` | the bundle failed validation at boot, or its worker never became ready — past the boot deadline, or exiting before it |
 
 The `:rf.ssr-node/*` family is a new reserved-namespace tenant. Cataloguing
 it in `spec/Conventions.md` is a sequenced follow-up; that file is a
@@ -641,6 +643,15 @@ Response headers: `x-rf-ssr-build` (the build identity), `x-rf-ssr-chunks`,
 `requestId`. A refusal answers with `application/json`, the refusal frame
 as its body, and `x-rf-ssr-refusal` carrying the code — 4xx for a caller
 fault, 503 for saturation or shutdown, 504 for a deadline, 500 for ours.
+
+Because that echo is a header, HTTP narrows `requestId` to what Node will
+put in one: a token carrying a control character, a CR/LF, or anything
+above U+00FF is refused `:rf.ssr-node/bad-request-field` (400, with
+`detail.field` `"requestId"`) before any render, rather than failing at the
+response it would have been echoed on. Printable ASCII is the portable
+choice. The in-process API takes any string. A request target that is not a
+valid URL is refused `:rf.ssr-node/malformed-request` (400), and the service
+keeps serving.
 
 ### The ready line
 

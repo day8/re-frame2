@@ -126,7 +126,27 @@ function readBody(req, maxBytes) {
   });
 }
 
-async function handleRender(service, req, res, { maxRequestBytes }) {
+/**
+ * Split a trailing HIGH surrogate off a streamed chunk, to be written with
+ * the next one (rf2-gwye.24).
+ *
+ * `emit` takes JavaScript strings and puts no code-point boundary on them,
+ * so a module splitting its markup at a code-unit offset can end one chunk
+ * on the first half of an astral character and start the next on the
+ * second. Encoding each chunk to UTF-8 on its own turns each half into
+ * U+FFFD — a 200 whose bytes differ from the buffered mode's, which joins
+ * before it encodes. Holding back at most ONE code unit is the whole
+ * repair: the pair is encoded together once its mate arrives, and every
+ * other chunk goes out as promptly as before. One still held at the end is
+ * written alone, which is exactly what the buffered join does with an
+ * unmatched surrogate.
+ */
+function holdTrailingHighSurrogate(text) {
+  const last = text.charCodeAt(text.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? [text.slice(0, -1), text.slice(-1)] : [text, ''];
+}
+
+async function handleRender(service, req, res, requestUrl, { maxRequestBytes }) {
   let renderRequest;
   let requestId;
   try {
@@ -142,8 +162,31 @@ async function handleRender(service, req, res, { maxRequestBytes }) {
     }
     requestId =
       typeof renderRequest?.requestId === 'string' ? renderRequest.requestId : undefined;
+    // THE ECHO IS A HEADER, AND NOT EVERY STRING IS ONE (rf2-gwye.25). An
+    // ellipsis, an emoji or a CR/LF in `requestId` is a valid protocol
+    // string that Node refuses at `writeHead` — which runs AFTER the render,
+    // so a caller's unrepresentable token came back as a `render-threw` 500
+    // from a renderer that had succeeded. Checked here instead, before an
+    // isolate is acquired, and refused as the caller fault it is. The
+    // in-process protocol's string domain is untouched: this is a fact
+    // about HTTP, and the refusal body still carries the token back.
+    if (requestId !== undefined) {
+      try {
+        http.validateHeaderValue('x-rf-ssr-request', requestId);
+      } catch {
+        throw new Refusal(
+          CODE.BAD_REQUEST_FIELD,
+          '`requestId` must be representable as an HTTP header value to be echoed over HTTP',
+          { field: 'requestId' },
+        );
+      }
+    }
   } catch (err) {
-    sendRefusal(res, err instanceof Refusal ? err : new Refusal(CODE.MALFORMED_REQUEST, String(err), {}));
+    sendRefusal(
+      res,
+      err instanceof Refusal ? err : new Refusal(CODE.MALFORMED_REQUEST, String(err), {}),
+      requestId,
+    );
     return;
   }
 
@@ -156,10 +199,12 @@ async function handleRender(service, req, res, { maxRequestBytes }) {
   // caller got could be changed by a magic header or an unpinned
   // in-process option that the operational docs did not teach. Retired
   // under rf2-6r9j.72; `test/bytes.test.cjs` pins that the header is inert.
-  const requestUrl = new URL(req.url, 'http://localhost');
+  // Read off the target the listener already parsed, inside its guard —
+  // one parse, not a second unguarded one (rf2-gwye.22).
   const streaming = requestUrl.searchParams.get('stream') === '1';
 
   const bufferedHtmlChunks = [];
+  let heldHighSurrogate = '';
   try {
     for await (const frame of service.renderFrames(renderRequest)) {
       if (frame.type === 'chunk') {
@@ -174,7 +219,9 @@ async function handleRender(service, req, res, { maxRequestBytes }) {
               ...(requestId ? { 'x-rf-ssr-request': requestId } : {}),
             });
           }
-          res.write(frame.html, 'utf8');
+          const [text, held] = holdTrailingHighSurrogate(heldHighSurrogate + frame.html);
+          heldHighSurrogate = held;
+          if (text) res.write(text, 'utf8');
         } else {
           bufferedHtmlChunks.push(frame.html);
         }
@@ -191,6 +238,7 @@ async function handleRender(service, req, res, { maxRequestBytes }) {
             'x-rf-ssr-build': service.buildId,
           });
         }
+        if (heldHighSurrogate) res.write(heldHighSurrogate, 'utf8');
         res.end();
       } else {
         const body = bufferedHtmlChunks.join('');
@@ -233,12 +281,26 @@ function handleHealth(service, res) {
  */
 function serve({ service, port = 8148, host = '127.0.0.1', maxRequestBytes = 1 << 20 }) {
   const server = http.createServer((req, res) => {
-    const requestUrl = new URL(req.url, 'http://localhost');
+    // CONTAINED HERE, NOT BY THE PROCESS (rf2-gwye.22). Node's HTTP parser
+    // accepts request targets the WHATWG URL constructor refuses — `//`, or
+    // `http://[::1` — and this listener is synchronous with no catch above
+    // it, so the throw was an uncaught exception: one caller's bad request
+    // line took the whole sidecar down, and every render in flight with it.
+    // It is a malformed request like any other, so it gets that refusal.
+    let requestUrl;
+    try {
+      requestUrl = new URL(req.url, 'http://localhost');
+    } catch {
+      return sendRefusal(
+        res,
+        new Refusal(CODE.MALFORMED_REQUEST, 'the request target is not a valid URL', {}),
+      );
+    }
     if (req.method === 'GET' && requestUrl.pathname === '/health') {
       return handleHealth(service, res);
     }
     if (req.method === 'POST' && requestUrl.pathname === '/render') {
-      return void handleRender(service, req, res, { maxRequestBytes });
+      return void handleRender(service, req, res, requestUrl, { maxRequestBytes });
     }
     const body = JSON.stringify({
       type: 'refusal',

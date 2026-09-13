@@ -248,3 +248,145 @@ test('CONTROL — with no deadline in reach, the fault really does run forever',
   // untorn response from a path that forgot to say.
   assert.strictEqual(err.detail.afterChunks, 0, 'a close refusal names the tear count too');
 });
+
+// ---------------------------------------------------------------------------
+// A worker that EXITS before it is ready (rf2-gwye.23)
+//
+// The boot deadline had a hole. A module that calls `process.exit()` while it
+// is evaluated, or from its `boot` hook, raises no `error` and posts no
+// `boot-error` — and the exit CLEARED the boot timer, the only other thing
+// that could settle startup. So startup stayed pending for ever, and a pool
+// start and a replacement both inherited that. `bootTimeoutMs` is left at its
+// 30 s default, far past every bound below, so a green row is the EXIT
+// settling startup rather than the boot timer standing in for it — and a red
+// one reads as a failed assertion, never as a hung file.
+// ---------------------------------------------------------------------------
+
+const { createService } = require('../src/service.cjs');
+const { Isolate } = require('../src/isolate.cjs');
+const { REPLACEMENT_FAILED_REFUSAL } = require('../src/protocol.cjs');
+const { fixture } = require('./_support.cjs');
+// Required while the flag is DISARMED — see the fixture's header.
+const { EXIT_AT_FLAG } = require('./fixtures/exits.cjs');
+
+/** `promise`'s outcome within `ms`, or `pending`. The timer is cleared rather than left holding the loop. */
+async function settledWithin(promise, ms = 3000) {
+  let timer;
+  const outcome = await Promise.race([
+    promise.then(
+      (value) => ({ state: 'resolved', value }),
+      (error) => ({ state: 'rejected', error }),
+    ),
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve({ state: 'pending' }), ms);
+    }),
+  ]);
+  clearTimeout(timer);
+  return outcome;
+}
+
+/** Run `fn` with the fixture's exit armed, disarming it whichever way `fn` went. */
+async function withExitAt(exitAt, fn) {
+  process.env[EXIT_AT_FLAG] = exitAt;
+  try {
+    return await fn();
+  } finally {
+    delete process.env[EXIT_AT_FLAG];
+  }
+}
+
+test('a module that EXITS while booting rejects startup promptly — clean exit or not', async () => {
+  for (const [exitAt, exitCode] of [
+    ['eval', 7],
+    ['boot', 0],
+  ]) {
+    const outcome = await withExitAt(exitAt, () =>
+      settledWithin(createService({ modulePath: fixture('exits'), isolates: 1 })),
+    );
+    if (outcome.state === 'resolved') await outcome.value.close();
+    assert.strictEqual(outcome.state, 'rejected', `${exitAt}: startup must settle, and must not succeed`);
+    assert.strictEqual(outcome.error.code, CODE.MALFORMED_MODULE, exitAt);
+    assert.strictEqual(outcome.error.detail.exitCode, exitCode, `${exitAt}: the exit is what settled it`);
+  }
+  // CONTROL — disarmed, the same module boots, so the rejections above are
+  // the exits and not a module this service would never have accepted.
+  const healthy = await settledWithin(createService({ modulePath: fixture('exits'), isolates: 1 }));
+  assert.strictEqual(healthy.state, 'resolved');
+  await healthy.value.close();
+});
+
+test('a pool start with one sibling exiting rejects, and leaves no thread running', async () => {
+  // Every isolate the pool starts is recorded with its thread and that
+  // thread's exit code, so the row can show the healthy sibling really
+  // booted — it is TERMINATED by the pool (1) rather than exiting by itself
+  // (0) — and really is gone.
+  const started = [];
+  const realStart = Isolate.prototype.start;
+  Isolate.prototype.start = function start() {
+    const booting = realStart.call(this);
+    const record = { worker: this.worker, exitCode: null };
+    this.worker.once('exit', (code) => {
+      record.exitCode = code;
+    });
+    started.push(record);
+    return booting;
+  };
+  try {
+    const outcome = await withExitAt('boot-even-thread', () =>
+      settledWithin(createService({ modulePath: fixture('exits'), isolates: 2 })),
+    );
+    if (outcome.state === 'resolved') await outcome.value.close();
+    assert.strictEqual(started.length, 2, 'both isolates were started');
+    assert.strictEqual(outcome.state, 'rejected', 'one sibling exiting must fail the pool start');
+    assert.strictEqual(outcome.error.code, CODE.MALFORMED_MODULE);
+    assert.deepStrictEqual(
+      started.map((s) => s.exitCode).sort(),
+      [0, 1],
+      'one isolate exited by itself (0), and the pool terminated its healthy sibling (1)',
+    );
+    assert.deepStrictEqual(started.map((s) => s.worker.threadId), [-1, -1], 'and no thread is left running');
+  } finally {
+    Isolate.prototype.start = realStart;
+    // A red row must not become a hung file.
+    await Promise.all(started.map((s) => s.worker.terminate()));
+  }
+});
+
+test('a REPLACEMENT that exits before it is ready refuses its waiter, tells the operator, and lets close finish', async () => {
+  const captured = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = function (chunk, ...rest) {
+    captured.push(String(chunk));
+    return realWrite.call(this, chunk, ...rest);
+  };
+  const service = await createService({ modulePath: fixture('exits'), isolates: 1, admissionTimeoutMs: 10000 });
+  let closed;
+  try {
+    const exits = { protocol: 1, entry: 'app/exits' };
+    // Back to back, in one synchronous run: the first takes the only
+    // isolate, and the second is queued behind it before anything settles.
+    const dying = refusalOf(() => collect(service, exits));
+    const queued = refusalOf(() => collect(service, exits));
+    // CONTROL — the scenario is the one claimed: a caller really is waiting.
+    assert.strictEqual(service.stats().waiting, 1, 'a caller must be queued for the replacement');
+    // Armed only now: the running isolate took its copy of `process.env` at
+    // construction, so this reaches the replacement and nothing else.
+    process.env[EXIT_AT_FLAG] = 'boot';
+
+    assert.strictEqual((await dying).code, CODE.ISOLATE_LOST, 'the render-time exit is unchanged');
+    const waiter = await settledWithin(queued);
+    assert.strictEqual(waiter.state, 'resolved', 'the waiter must be answered, not left to its admission timer');
+    assert.strictEqual(waiter.value?.code, CODE.ISOLATE_LOST);
+    assert.strictEqual(waiter.value.message, REPLACEMENT_FAILED_REFUSAL);
+    assert.strictEqual(service.stats().replacements, 1, 'the pool did try to replace it');
+  } finally {
+    delete process.env[EXIT_AT_FLAG];
+    closed = await settledWithin(service.close());
+    process.stderr.write = realWrite;
+  }
+  assert.strictEqual(closed.state, 'resolved', 'close must not wait for ever on a replacement that exited');
+  assert.ok(
+    captured.join('').includes('[rf.ssr-node] a replacement isolate failed to boot'),
+    'the operator is told, as for any replacement that will not boot',
+  );
+});

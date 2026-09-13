@@ -199,8 +199,25 @@ class Isolate {
         // the operator.
         reject(new Refusal(CODE.MALFORMED_MODULE, err.message, { stack: err.stack }));
       });
-      worker.on('exit', () => {
+      worker.on('exit', (exitCode) => {
         clearTimeout(bootTimer);
+        // THE BOOT ARM OF THIS EVENT (rf2-gwye.23). A worker that exits
+        // before it posts `ready` — a module calling `process.exit()` while
+        // it is evaluated, or from its `boot` hook — raises no `error` and
+        // posts no `boot-error`, and the line above had just cleared the one
+        // other thing that could settle startup. So startup stayed pending
+        // for ever, past `bootTimeoutMs`, and so did everything above it:
+        // `Pool.start`'s `allSettled` never reached its sibling cleanup, and
+        // a replacement never left `startingReplacements`, which `close()`
+        // waits on. A no-op once `ready` has resolved, exactly as the `error`
+        // arm's `reject` is.
+        reject(
+          new Refusal(
+            CODE.MALFORMED_MODULE,
+            `the render module's worker exited (code ${exitCode}) before it became ready`,
+            { modulePath: this.modulePath, exitCode },
+          ),
+        );
         // THE SIBLING ARM, AND IT IDENTIFIES ITSELF THE SAME WAY (rf2-rhyi).
         // `ISOLATE_LOST` covers three distinct causes — a crashed worker, a
         // worker that exited, and a replacement that will not boot — and a
