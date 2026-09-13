@@ -552,3 +552,100 @@
               (remove-host! host)
               (done))
             60))))))
+
+;; ---- the `install!` Usage recipe, executed (rf2-gwye.20) --------------------
+
+(defn- recipe-bootstrap!
+  "`re-frame.ssr.streaming.client/install!`'s Usage recipe, transcribed onto
+  this fixture: the frame exists first, everything the callback touches is
+  bound BEFORE `install!` (readiness can fire synchronously inside it), and
+  the frame is seeded and the root hydrated ONLY from `:on-ready`. The
+  fixture's `hydrate-capturing!` stands in for the adapter's `hydrate-root`
+  so React's complaints are heard. Each readiness appends one entry to `log`."
+  [frame-id host log]
+  (let [container (app-el host)]
+    (rf.ssr.streaming.client/install!
+      {:frame    frame-id
+       :root     host
+       :on-ready (fn [_report]
+                   (try
+                     (let [wrappers-at-ready (count (mounts host))
+                           payload           (rf.ssr/hydrate! {:frame frame-id})]
+                       (swap! log conj
+                              {:wrappers-at-ready wrappers-at-ready
+                               :payload           payload
+                               :hydration         (hydrate-capturing!
+                                                    container
+                                                    [rf/frame-provider {:frame frame-id}
+                                                     [dashboard]])}))
+                     (catch :default t
+                       (swap! log conj {:error t}))))})))
+
+(defn- assert-recipe-booted-once! [log]
+  (is (= 1 (count @log)) "exactly one seed + hydration, and it came from readiness")
+  (let [{:keys [error wrappers-at-ready payload hydration]} (first @log)]
+    (is (nil? error) (str "the recipe's :on-ready did not throw: " error))
+    (is (zero? wrappers-at-ready)
+        "no <rf-suspense> wrapper remained when the recipe took ownership")
+    (is (some? payload) "hydrate! read and installed the final payload")
+    (is (empty? (hydration-complaints (:complaints hydration)))
+        (str "hydrate-root reconciled the finalised DOM with no mismatch; got: "
+             (pr-str (:complaints hydration))))
+    (is (str/includes? (str (:html hydration)) "42375")
+        "React adopted the server DOM rather than discarding it")))
+
+(deftest the-install-recipe-boots-once-from-readiness-on-a-live-stream
+  (testing "rf2-gwye.20: with the payload still in flight the recipe owns
+            nothing; once it lands, exactly one seed + hydration runs, after
+            every wrapper is gone"
+    (if-not (browser?)
+      (is true "skipped under node — no js/document")
+      (let [frame-id :test/recipe-live
+            _        (do (rf/make-frame {:id frame-id :platform :client})
+                         (register-app! frame-id))
+            {:keys [shell chunks failed]} (server-render!)
+            host     (make-host! shell)
+            log      (atom [])]
+        (recipe-bootstrap! frame-id host log)
+        (append-chunk! host (first chunks))
+        (async done
+          (js/setTimeout
+            (fn []
+              (is (empty? @log)
+                  "nothing seeds or hydrates while the payload is still in flight")
+              (append-chunk! host (second chunks))
+              (append-chunk! host (payload-chunk failed))
+              (js/setTimeout
+                (fn []
+                  (try
+                    (assert-recipe-booted-once! log)
+                    (catch :default t
+                      (is false (str "threw asserting the recipe: " t)))
+                    (finally
+                      (remove-host! host)
+                      (done))))
+                40))
+            40))))))
+
+(deftest the-install-recipe-boots-once-on-an-already-buffered-response
+  (testing "rf2-gwye.20: a fully buffered response boots the recipe
+            synchronously inside install!, once, without a later tick"
+    (if-not (browser?)
+      (is true "skipped under node — no js/document")
+      (let [frame-id :test/recipe-buffered
+            _        (do (rf/make-frame {:id frame-id :platform :client})
+                         (register-app! frame-id))
+            {:keys [shell chunks failed]} (server-render!)
+            host     (make-host! shell)
+            log      (atom [])]
+        (doseq [c chunks] (append-chunk! host c))
+        (append-chunk! host (payload-chunk failed))
+        (recipe-bootstrap! frame-id host log)
+        (assert-recipe-booted-once! log)
+        (async done
+          (js/setTimeout
+            (fn []
+              (is (= 1 (count @log)) "a later tick does not boot it a second time")
+              (remove-host! host)
+              (done))
+            60))))))

@@ -158,6 +158,65 @@
             (str label " — rejected: the response accumulator's :redirect "
                  "slot is untouched under -Dre-frame.debug=false"))))))
 
+;; ---------------------------------------------------------------------------
+;; (1b) NETWORK-PATH REFERENCES java.net.URI cannot see the host of
+;; (rf2-gwye.18 / rf2-fzbj.10 finding 1)
+;; ---------------------------------------------------------------------------
+
+(def ^:private network-path-bypasses
+  "Locations a browser resolves OFF-ORIGIN while java.net.URI reports no
+  usable host. Resolved against `https://trusted.example/login` by the
+  WHATWG URL parser (Node 24, measured for rf2-gwye.18):
+
+    ///evil.example/path   → https://evil.example/path   URI: no scheme, NO authority
+    ////evil.example/path  → https://evil.example/path   URI: no scheme, NO authority
+    //evil_example/path    → https://evil_example/path   URI: authority, NO host
+
+  The first two read as a RELATIVE reference to a gate that asks only
+  whether URI found an authority; the third has an authority but no
+  extractable host, which the allowlist arm used to wave through."
+  ["///evil.example/path" "////evil.example/path" "//evil_example/path"])
+
+(deftest a-network-path-reference-cannot-satisfy-either-policy
+  (testing "rf2-gwye.18: a caller that restricted the redirect — relative-only,
+            or a host allowlist — must not be redirected off-origin by a
+            location the browser resolves to a foreign host merely because
+            java.net.URI cannot expose that host. Each is refused with the
+            arm's existing category and reason, and the accumulator keeps
+            its default 200 with no redirect."
+    (doseq [location network-path-bypasses
+            [args expected-reason]
+            [[{:location location :relative-only? true} :relative-only-violation]
+             [{:location location :allow ["trusted.example"]} :not-in-allowlist]]]
+      (let [{:keys [records response]} (reject! args)
+            hits                       (safe-redirect-records records)]
+        (is (nil? (:redirect response))
+            (str (pr-str args) " — refused: no :redirect reaches the accumulator"))
+        (is (= 200 (:status response))
+            (str (pr-str args) " — refused: the status is the untouched default, not a 3xx"))
+        (is (= 1 (count hits))
+            (str (pr-str args) " — exactly one always-on rejection record"))
+        (is (= :rf.error/safe-redirect-host-disallowed (:error (first hits)))
+            (str (pr-str args) " — the policy arm's existing category"))
+        (is (= expected-reason (:reason (first hits)))
+            (str (pr-str args) " — the policy arm's existing reason"))))))
+
+(deftest each-policy-still-passes-its-legitimate-targets
+  (testing "rf2-gwye.18 CONTROL: the fix narrows what counts as relative and
+            what satisfies an allowlist — it must not refuse everything. An
+            ordinary local reference passes relative-only and an allowlist
+            alike, and an explicitly allowed https host passes its allowlist."
+    (doseq [args [{:location "/dashboard" :relative-only? true}
+                  {:location "dashboard/settings?tab=2" :relative-only? true}
+                  {:location "/dashboard" :allow ["trusted.example"]}
+                  {:location "https://trusted.example/path" :allow ["trusted.example"]}
+                  {:location "https://TRUSTED.example/path" :allow ["trusted.example"]}]]
+      (let [{:keys [records response]} (reject! args)]
+        (is (= (:location args) (:location (:redirect response)))
+            (str (pr-str args) " — passes, carrying its own target"))
+        (is (empty? (safe-redirect-records records))
+            (str (pr-str args) " — and ships no rejection record"))))))
+
 ;; ===========================================================================
 ;; (2) THE RECORD — the rejection reaches an off-box shipper in production
 ;; ===========================================================================
