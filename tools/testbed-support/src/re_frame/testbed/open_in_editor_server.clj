@@ -144,11 +144,27 @@
   ;; So the probe asks the dependency instead of predicting it: resolve the
   ;; editor with the same `guessEditor` the launch will use, then ask
   ;; `getArgumentsForPosition` what it would emit for a sentinel filename.
-  ;; `get-args.js` interpolates the position into every case it encodes and
-  ;; falls through to `return [fileName]` for the rest, so an argv that is the
-  ;; sentinel ALONE is exactly the documented drop — no editor list here to
-  ;; keep in step with the dependency, and a future release that learns an
-  ;; editor's position syntax lifts the decline with no edit.
+  ;; `get-args.js` falls through to `return [fileName]` for every command it
+  ;; has no case for, so an argv that is the sentinel ALONE is exactly the
+  ;; documented TOTAL drop — no editor list here to keep in step with the
+  ;; dependency, and a future release that learns an editor's position syntax
+  ;; lifts the decline with no edit.
+  ;;
+  ;; A CASE IT DOES ENCODE CAN STILL DROP HALF THE COORDINATE, which is why
+  ;; the bare-file test is not the whole question. `gvim` and `joe` return
+  ;; `['+<line>', file]` and `rmate`/`mate`/`mine` return `['--line', <line>,
+  ;; file]`: the line survives, the COLUMN is discarded, and the argv is not
+  ;; the bare file, so the test above passes it. All five are reachable by
+  ;; auto-detect — `gvim` sits in the Linux process registry — so a source
+  ;; chip carrying 27:9 would land on line 27 column 1 behind a 200 that
+  ;; suppressed the coordinate-preserving `editor://` fallback.
+  ;;
+  ;; The second probe therefore asks a DIFFERENTIAL question rather than
+  ;; enumerating those five: hold the sentinel file and the line fixed, vary
+  ;; only the column, and compare the two argvs. An editor that encodes the
+  ;; column cannot emit the same argv for two different ones; an editor that
+  ;; discards it cannot emit anything else. Like the test above it names no
+  ;; editor, so a release that learns a column lifts its decline with no edit.
   ;;
   ;; Auto-detect is therefore scanned twice on this path (once here, once
   ;; inside `launchEditor`). The resolved binary cannot be handed back as
@@ -188,6 +204,14 @@
        "var ed=guess(e)[0];"
        "var a=ed?getArgs(ed,'F',line||1,col||1):null;"
        "if(a&&a.length===1&&a[0]==='F'){"
+       "process.exit(" position-unsupported-exit ");}"
+       ;; The column differential. Only a request that ASKS for a column can
+       ;; lose one, so a line-only launch to `gvim` is still served — its
+       ;; coordinate arrives intact. The two sentinel columns are arbitrary
+       ;; and need only differ; the line is held at the value actually being
+       ;; launched so the probe answers about that coordinate and not another.
+       "if(a&&col&&JSON.stringify(getArgs(ed,'F',line||1,3))==="
+       "JSON.stringify(getArgs(ed,'F',line||1,4))){"
        "process.exit(" position-unsupported-exit ");}}"
        "l(f,e,function(file,msg){"
        "process.stderr.write('launch-editor: '+(msg||'no editor found')+'\\n');"
