@@ -85,7 +85,7 @@
    :snapshot     {:state :loading :data {:rf/after-epoch {[:loading] 1} :entered? true}}
    ;; The synthetic timer-elapsed event carries (delay, epoch, decl-path);
    ;; the harness supplies it as the dispatched event.
-   :event        [::after-elapsed 5000 1 [:loading]]
+   :event        [:rf.machine.timer/after-elapsed 5000 1 [:loading]]
    :expect-next-snapshot {:state :timeout :data {:rf/after-epoch {[:loading] 2} :entered? true}}
    ;; Per rf2-3y3y, exiting an :after-bearing state emits a
    ;; :rf.machine/after-cancel fx so the runtime layer releases the

@@ -145,7 +145,7 @@
    :snapshot     {:state :idle :data {:rf/after-epoch {[:authenticated] 2}}}
    ;; The synthetic timer-elapsed event carries (delay, epoch, decl-path):
    ;; the parent-level timer scheduled at epoch 1 for [:authenticated].
-   :event        [::after-elapsed 30000 1 [:authenticated]]
+   :event        [:rf.machine.timer/after-elapsed 30000 1 [:authenticated]]
    :expect-next-snapshot {:state :idle :data {:rf/after-epoch {[:authenticated] 2}}}
    :expect-effects       []
    :expect-trace
