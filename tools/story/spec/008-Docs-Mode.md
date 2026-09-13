@@ -17,7 +17,7 @@
 
 The render shell already exposes every datum the docs pane needs —
 the variant body via the registrar, the resolved arg merge via
-`re-frame.story.args/resolve-args`, the decorator stack via
+`re-frame.story.plan/effective-args`, the decorator stack via
 `re-frame.story.decorators/resolve-decorators`, the workspace
 registry for prose lookups. What was missing was a **read-only
 presentation surface** that gathers them in the same order Storybook
@@ -63,7 +63,7 @@ The pane renders six sections, top-to-bottom:
 |---|-------------|---------------------------------------------------------------------------------|------------------------------------------------|
 | 1 | Header      | variant id, parent-story id, tags, variant `:doc` (or parent `:doc` fallback)   | always                                         |
 | 2 | Prose       | `:body` strings from `:layout :prose` workspaces that reference this variant   | at least one prose block found                 |
-| 3 | Args        | `(args/resolve-args variant-id {:cell-overrides nil})` × variant `:argtypes`    | always (renders "no args resolved" if empty)   |
+| 3 | Args        | `(plan/effective-args variant-id {:cell-overrides nil})` × variant `:argtypes`    | always (renders "no args resolved" if empty)   |
 | 4 | Decorators  | `(decorators/resolve-decorators variant-id {:active-modes … :cell-overrides nil})` | always (renders "no decorators" if empty)      |
 | 5 | Parameters  | variant body's `:modes` / `:substrates` / `:platforms` slots (story fallback)  | always (renders "no … declared" if all empty) |
 | 6 | Tags        | sorted variant tags (parent-story fallback)                                     | always (renders "no tags" if empty)            |
@@ -143,7 +143,7 @@ A three-column table — `key | default | doc` — sorted by arg-key.
 
 - **key.** The arg's keyword.
 - **default.** The resolved value via
-  `args/resolve-args variant-id {:cell-overrides nil}` — the args
+  `plan/effective-args variant-id {:cell-overrides nil}` — the args
   the variant renders WITHOUT runtime overrides. Read-only docs
   shouldn't reflect the user's transient edits in the controls
   panel.

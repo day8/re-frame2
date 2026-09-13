@@ -134,6 +134,7 @@
             [re-frame.core :as rf]
             [re-frame.story.args :as rf.story.args]
             [re-frame.story.decorators :as rf.story.decorators]
+            [re-frame.story.plan      :as rf.story.plan]
             [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.ui.state :as rf.story.ui.state]
             [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
@@ -510,7 +511,7 @@
         substrates   (resolve-substrate-set variant-body story-body
                                             (or (:substrate shell) :reagent))
         view-id      (or (:component variant-body) (:component story-body))
-        eff-args     (rf.story.args/resolve-args
+        eff-args     (rf.story.plan/effective-args
                        variant-id
                        {:active-modes   (:active-modes shell)
                         :cell-overrides (get-in shell [:cell-overrides variant-id])})]

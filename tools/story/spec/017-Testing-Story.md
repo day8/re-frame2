@@ -489,7 +489,7 @@ MUST fail. `explain` MUST show arg substitutions.
 **Run opts feed the SAME effective args the result reports.** The
 effective args are the full precedence chain
 `global < story < active-modes < variant < cell-overrides`
-(`re-frame.story.args/resolve-args`). The runner threads the per-run
+(`re-frame.story.plan/effective-args`). The runner threads the per-run
 layers — the UI/test surfaces' `:active-modes` and `:cell-overrides` —
 INTO plan compilation (the `:run-args` compiler input), so the substituted
 `[:arg key]` placeholders in **setup, script, db-seed, network replies, and

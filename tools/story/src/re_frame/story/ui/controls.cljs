@@ -66,6 +66,7 @@
   (:require [clojure.string                    :as str]
             [reagent.core                      :as r]
             [re-frame.story.budgets            :as rf.story.budgets]
+            [re-frame.story.plan               :as rf.story.plan]
             [re-frame.story.registrar          :as rf.story.registrar]
             [re-frame.story.args               :as rf.story.args]
             [re-frame.story.decorators         :as rf.story.decorators]
@@ -275,7 +276,7 @@
   gets BOTH derived controls AND validation from one source — including
   any `:extends`-inherited / `:compose`-d `:component`."
   ([variant-id]
-   (resolve-argtypes variant-id (rf.story.args/resolve-args variant-id)))
+   (resolve-argtypes variant-id (rf.story.plan/effective-args variant-id)))
   ([variant-id eff-args]
    (let [vb      (rf.story.registrar/handler-meta :variant variant-id)
          story   (rf.story.args/parent-story-id variant-id)
@@ -380,7 +381,7 @@
   through."
   [variant-id path value]
   (let [shell (rf.story.ui.state/get-state)
-        base  (get (rf.story.args/resolve-args variant-id {:active-modes (:active-modes shell)})
+        base  (get (rf.story.plan/effective-args variant-id {:active-modes (:active-modes shell)})
                    (first path))]
     (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override variant-id (vec path) value base)))
 
@@ -958,11 +959,11 @@
     (fn [variant-id]
       (let [shell        @rf.story.ui.state/shell-state-atom
             overrides    (get-in shell [:cell-overrides variant-id])
-            eff-args     (rf.story.args/resolve-args
+            eff-args     (rf.story.plan/effective-args
                            variant-id
                            {:active-modes   (:active-modes shell)
                             :cell-overrides overrides})
-            saved-args   (rf.story.args/resolve-args
+            saved-args   (rf.story.plan/effective-args
                            variant-id
                            {:active-modes (:active-modes shell)})
             argtypes     (resolve-argtypes variant-id eff-args)

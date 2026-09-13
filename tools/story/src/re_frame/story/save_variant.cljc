@@ -41,6 +41,7 @@
             [re-frame.core                       :as rf]
             [re-frame.story.args                 :as rf.story.args]
             [re-frame.story.config               :as rf.story.config]
+            [re-frame.story.plan                 :as rf.story.plan]
             [re-frame.story.predicates           :as rf.story.predicates]
             [re-frame.story.registrar            :as rf.story.registrar]
             [re-frame.story.review-dialog        :as rf.story.review-dialog]
@@ -50,7 +51,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Pure: args-snapshot helper
 ;;
-;; The snapshot IS `(rf.story.args/resolve-args variant-id opts)` — the effective
+;; The snapshot IS `(rf.story.plan/effective-args variant-id opts)` — the effective
 ;; args after the five-layer precedence chain (global < story < modes <
 ;; variant < cell-overrides) collapses. This wrapper exists so callers
 ;; have a single entry point + so the JVM test corpus can pin the
@@ -74,7 +75,7 @@
   ([variant-id]
    (snapshot-args variant-id nil))
   ([variant-id {:keys [active-modes cell-overrides] :as _opts}]
-   (rf.story.args/resolve-args variant-id
+   (rf.story.plan/effective-args variant-id
                       {:active-modes   (or active-modes [])
                        :cell-overrides (or cell-overrides {})})))
 

@@ -120,7 +120,7 @@
     (let [story-id   (rf.story.args/parent-story-id variant-id)
           vb         (rf.story.registrar/handler-meta :variant variant-id)
           sb         (when story-id (rf.story.registrar/handler-meta :story story-id))
-          arg-keys   (set (keys (rf.story.args/resolve-args variant-id)))
+          arg-keys   (set (keys (rf.story.plan/effective-args variant-id)))
           argtype-ks (into (set (keys (:argtypes sb)))
                            (keys (:argtypes vb)))
           schema     (rf.story.view-args/compiled-view-args-schema variant-id)
@@ -334,7 +334,7 @@
   ([shell] (egress-edn-snippet shell (.now js/Date)))
   ([shell now-ms]
    (when-let [vid (:selected-variant shell)]
-     (let [eff    (rf.story.args/resolve-args
+     (let [eff    (rf.story.plan/effective-args
                     vid
                     {:active-modes   (:active-modes shell)
                      :cell-overrides (get-in shell [:cell-overrides vid])})

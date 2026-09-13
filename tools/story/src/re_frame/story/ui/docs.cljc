@@ -55,7 +55,6 @@
             [re-frame.story.ui.markdown :as rf.story.ui.markdown]
             [re-frame.story.ui.test-mode.pure :as rf.story.ui.test-mode.pure]
             #?@(:cljs [[reagent.core :as r]
-                       [re-frame.story.args :as rf.story.args]
                        [re-frame.story.decorators :as rf.story.decorators]
                        [re-frame.story.ui.state :as rf.story.ui.state]])
             [re-frame.story.theme.typography :as rf.story.theme.typography :refer [sans-stack mono-stack]]
@@ -621,7 +620,7 @@
      `:argtypes` entry exists)."
      [variant-id]
      (let [shell    @rf.story.ui.state/shell-state-atom
-           eff-args (rf.story.args/resolve-args
+           eff-args (rf.story.plan/effective-args
                       variant-id
                       {:active-modes (:active-modes shell)
                        ;; :docs is read-only — overrides are deliberately

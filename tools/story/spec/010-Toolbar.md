@@ -122,7 +122,8 @@ The "mode tuple" the toolbar consumes is the registry pair
 `[mode-id body]` where `body` is the above map. The toolbar reads
 `mode-id` for the chip label (rendered as `(str mode-id)`), `:doc` for
 the chip's `title=` tooltip, and ignores `:args` itself — `:args` is
-deep-merged downstream by `re-frame.story.args/resolve-args`.
+deep-merged downstream into the effective args
+(`re-frame.story.plan/effective-args`).
 
 ### Optional grouping — `:axis` (v1)
 
