@@ -13,8 +13,16 @@
 
   Counted at the two seams each render crosses exactly once:
   `rf.story.runtime/snapshot-identity` (outer) and
-  `rf.story.decorators/resolve-decorators` (inner). The hot-reload tick is
-  the control — a run input, so it MUST still reach both.
+  `rf.story.render/resolve-render-sub-overrides` (inner). The hot-reload tick
+  is the control — a run input, so it MUST still reach both.
+
+  The inner seam was `rf.story.decorators/resolve-decorators` until
+  `canvas-inner` stopped calling it: the render now compiles the variant plan
+  ONCE and reads the decorator refs, the effective args, these sub-overrides
+  and the loader classification off that one plan (rf2-gwye.5 / rf2-gwye.7).
+  A spy on a fn the render no longer calls counts zero for BOTH the unrelated
+  writes and the tick, which passes the two `= 0` assertions vacuously — the
+  control is what caught it, which is why the control is here.
 
   Ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` build mounts
   real DOM; `:node-test` also loads it, where the body self-gates on
@@ -29,8 +37,8 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.story :as rf.story]
-            [re-frame.story.decorators :as rf.story.decorators]
             [re-frame.story.loaders :as rf.story.loaders]
+            [re-frame.story.render :as rf.story.render]
             [re-frame.story.runtime :as rf.story.runtime]
             [re-frame.story.ui.canvas :as rf.story.ui.canvas]
             [re-frame.story.ui.state :as rf.story.ui.state]
@@ -89,7 +97,7 @@
               root       (rdc/create-root mount-node)
               inner      (atom 0)
               outer      (atom 0)
-              resolve    rf.story.decorators/resolve-decorators
+              resolve    rf.story.render/resolve-render-sub-overrides
               snapshot   rf.story.runtime/snapshot-identity]
           (try
             (react-dom/flushSync
@@ -101,9 +109,8 @@
             ;; known arity, which compiles to a direct-arity dispatch that a
             ;; variadic stand-in does not answer — the render would throw and
             ;; every count would read a vacuous 0.
-            (with-redefs [rf.story.decorators/resolve-decorators
-                          (fn ([a] (swap! inner inc) (resolve a))
-                              ([a b] (swap! inner inc) (resolve a b)))
+            (with-redefs [rf.story.render/resolve-render-sub-overrides
+                          (fn [a b] (swap! inner inc) (resolve a b))
                           rf.story.runtime/snapshot-identity
                           (fn ([a] (swap! outer inc) (snapshot a))
                               ([a b] (swap! outer inc) (snapshot a b)))]
