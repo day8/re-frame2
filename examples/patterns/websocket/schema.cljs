@@ -286,9 +286,11 @@
    [:draft    :string]
    ;; The inbox log, newest-first, so the view just renders top-down.
    [:received [:vector Message]]
-   ;; The most recent correlated reply. :ws/handle-message updates this only
-   ;; when the body has a :request-id, and :ws.app/request-reply records the
-   ;; same body for the registered callback. Server pushes stay in :received.
+   ;; The most recent correlated OUTCOME: a server reply the connection
+   ;; machine matched to its registration, or a locally minted failure.
+   ;; :ws.app/request-reply is its only writer. :ws/handle-message never
+   ;; touches it, so pushes and replies the machine refused to correlate
+   ;; stay in :received.
    [:last-reply [:maybe :any]]
    ;; The ticking source for each message's :rx-seq stamp.
    [:rx-count :int]])

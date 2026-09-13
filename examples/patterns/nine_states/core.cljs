@@ -458,10 +458,13 @@
       :correct
       ;; State 8 — the brief "nice, that worked" moment. It's transient: as
       ;; soon as the user edits again, an :edit drops the region back to
-      ;; :neutral.
+      ;; :neutral. And since a valid submit clears the draft while Add stays
+      ;; enabled, the very next press can fail validation — that lands in
+      ;; :incorrect, or "Todo added" would out-rank the new error.
       {:tags #{:form/success :form/transient}
-       :on   {:edit  :neutral
-              :reset :neutral}}}}
+       :on   {:submit-invalid :incorrect
+              :edit           :neutral
+              :reset          :neutral}}}}
 
     ;; ---- :mode region — Active / Done ----
     :mode
