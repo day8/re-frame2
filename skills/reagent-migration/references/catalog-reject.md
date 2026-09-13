@@ -119,9 +119,10 @@ carry the old refusal across:
   through a prop, and
   `h/as-component` bridges outward to a React/UIx/Reagent parent. → D-tier.
 - **Callback refs** (MIG-29). A function at `:ref` is React's own contract and
-  Fresco honours it, with the return value as the detach cleanup. Only the
-  *vector* spelling is refused, and it is reserved rather than missing. → D-tier
-  under MIG-17.
+  Fresco honours it, with the return value as the detach cleanup. Nothing at
+  `:ref` is refused: a *vector* there crosses to React as data and the ref
+  never fires, so the callback function is the only spelling. → D-tier under
+  MIG-17.
 - **Dynamic tag heads and runtime-built markup** (MIG-21/30). Fresco walks the
   tree at render; there is no finite grammar and no compiled tier to opt into,
   so a head that evaluates to a keyword and markup a helper returns are both

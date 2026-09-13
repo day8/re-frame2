@@ -234,7 +234,7 @@ exactly where it was.
 | `@(rf/subscribe [:q])` | `(h/sub [:q])`, including in branches, loops, and helpers |
 | `#(rf/dispatch [:x])` | the event vector itself; use `h/event` when callback arguments matter |
 | `r/atom` inside a Form-2 closure | app-db or the forms module; Fresco has no local-state tier |
-| `r/with-let` | ordinary `let`; durable state belongs outside render |
+| `r/with-let` | `h/reg-state` in app-db, or a named native component for DOM-owned state — not a body-local `let`, which re-runs every render and holds nothing across them |
 | Form-3 or `r/create-class` lifecycle | callback refs or a named native component |
 | `r/track`, `reaction`, `r/cursor` | layered subscriptions |
 | `^{:key k}` metadata | `:key` in the props map |
