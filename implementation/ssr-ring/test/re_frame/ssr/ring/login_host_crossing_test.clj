@@ -422,8 +422,9 @@
       (is (str/includes? body "<!DOCTYPE html>") "shell: JVM-built")
       (is (str/includes? body "<div id=\"app\"")
           "shell: the #app root the client hydrator adopts by id")
-      (is (str/includes? body "src=\"/js/main.js\"")
-          "shell: the client bundle the example's README names")
+      (is (str/includes? body "src=\"/main.js\"")
+          "shell: the client bundle, at the URL `host/make-app` maps it to —
+           `/js/` was a path nothing served (rf2-gwye.62)")
       ;; The host names no `:content-type`, so the handler emits none and
       ;; leaves the header to the runtime — asserted as measured rather
       ;; than as assumed.
