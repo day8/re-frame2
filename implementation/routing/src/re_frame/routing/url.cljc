@@ -153,9 +153,23 @@
   the mark set, the escaped controls and the unpaired-surrogate refusal
   all arrive per segment. Splitting on `/` cannot manufacture a fresh
   unpaired surrogate either — U+002F is outside the surrogate range, so
-  no split point ever falls between the halves of a pair."
+  no split point ever falls between the halves of a pair.
+
+  A TERMINAL run of `/` is data, not a separator (rf2-fzbj.12): the
+  incoming-URL normaliser strips raw trailing slashes (`/cart` ≡
+  `/cart/`), so a literal one could never survive `match-url`. It is
+  encoded whole — `a/` emits `a%2F`, `/` emits `%2F` — which `match-url`
+  decodes straight back. Only the body before it is split, so the
+  two-argument split never meets (and silently drops) trailing empty
+  chunks."
   [s]
-  (clojure.string/join "/" (map url-encode (clojure.string/split (str s) #"/"))))
+  (let [s   (str s)
+        end (loop [i (count s)]
+              (if (and (pos? i) (= \/ (nth s (dec i))))
+                (recur (dec i))
+                i))]
+    (str (clojure.string/join "/" (map url-encode (clojure.string/split (subs s 0 end) #"/")))
+         (url-encode (subs s end)))))
 
 #?(:clj
    (defn- hex-nibble
