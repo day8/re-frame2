@@ -1781,7 +1781,16 @@ encoder:
    a topology submap, is PRESERVED, rf2-07gg7h), and replaces any inline-fn
    slot with a names-only opaque label, so the payload is a viewer-safe
    topology with no source/paths/fns. The topology references (state ids,
-   transition targets, guard/action NAMES) survive.
+   transition targets, guard/action NAMES) survive. Both drops apply to
+   RECORD maps only (a state node, a transition candidate, a guard/action
+   entry): the KEYS of `:states`, `:regions`, `:on`, `:after`, `:guards` and
+   `:actions` are identifiers, so a state, event, region, guard or action
+   named `:source-code`, `:source-coords` or `:fn` survives (rf2-gwye.49).
+   A function-valued `:after` delay (Spec 005) is a map KEY, not a slot
+   value, so it becomes an inert `[<label> <n>]` vector key: a delay shape
+   the viewer projects but never runs, numbered so that two anonymous delay
+   functions keep two transitions. The delay function is never called
+   (rf2-fzbj.13).
 3. Canonicalises map / set ordering (per
    [Principles §Reproducible from the registry alone](./Principles.md)).
 4. Wraps in the versioned envelope.

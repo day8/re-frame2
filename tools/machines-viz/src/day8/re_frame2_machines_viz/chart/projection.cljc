@@ -1601,14 +1601,27 @@
                     ;; parent. Emit `:parentId` so xyflow's
                     ;; `adoptUserNodes` path adopts the child + uses
                     ;; the parent's absolute origin as the offset.
-                    (and (not region?) (:parent-id n))
+                    ;;
+                    ;; Region containers are no exception (rf2-fzbj.13).
+                    ;; Since the ROOT-CONTAINER frame (rf2-q129z8) every
+                    ;; region nests under it, ELK positions the region
+                    ;; RELATIVE to the frame, and the region's children
+                    ;; inherit the region's origin — so a region without
+                    ;; `parentId` drags its whole subtree off by the frame
+                    ;; origin while ELK's ROOT-coordinate routes stay put.
+                    (:parent-id n)
                     (assoc :parentId (:parent-id n)
                            :extent   "parent"))))
-              ;; the machine-root node leads (it is the source of a
+              ;; the ROOT-CONTAINER frame leads (every top-level node,
+              ;; region containers included, names it as `parentId`), then
+              ;; the machine-root node (it is the source of a
               ;; machine-level fallback's `__in` edge + event-node, and
               ;; xyflow wants a source-node before any edge that references
               ;; it), alongside region/compound parents.
-              (sort-by #(if (or (:machine-root? %) (:region? %) (:compound? %)) 0 1) nodes))
+              (sort-by #(cond (:root-container? %) 0
+                              (or (:machine-root? %) (:region? %) (:compound? %)) 1
+                              :else 2)
+                       nodes))
 
         ;; events-as-nodes paradigm. Each parsed transition emits ONE
         ;; event-node (xyflow `type "rf2-event"`) plus one or two edges:

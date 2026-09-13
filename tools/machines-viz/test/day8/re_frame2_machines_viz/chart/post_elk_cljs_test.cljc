@@ -434,6 +434,47 @@
       (is (>= (:x (get np audio-rid)) root-x))
       (is (>= (:y (get np audio-rid)) root-y)))))
 
+(deftest transpose-grows-the-frame-to-enclose-the-stacked-column
+  ;; rf2-fzbj.13 — the region containers are the ROOT-CONTAINER frame's
+  ;; `parentId` children (xyflow `:extent "parent"`), so after the re-stack
+  ;; the frame must enclose every band, or xyflow clamps them back inside the
+  ;; box ELK sized for the side-by-side layout. Region positions are
+  ;; frame-relative, as `elk-result->positions` records them.
+  (let [parsed    (layout/project-definition parallel-machine)
+        desc      (post-elk/region-descendant-ids parsed)
+        audio-rid (layout/region-node-id :audio)
+        video-rid (layout/region-node-id :video)
+        child-col (fn [ids]
+                    (into {} (map-indexed
+                               (fn [i id] [id {:x 20 :y (+ 40 (* 80 i))
+                                               :width 120 :height 50}])
+                               ids)))
+        ;; the frame HUGS the side-by-side regions with a 20px right/bottom inset
+        frame     {:x 12 :y 12 :width 680 :height 540}
+        positions (merge
+                    {layout/root-container-id frame
+                     audio-rid {:x 60  :y 120 :width 200 :height 400}
+                     video-rid {:x 460 :y 120 :width 200 :height 400}}
+                    (child-col (sort (get desc audio-rid)))
+                    (child-col (sort (get desc video-rid))))
+        out       (post-elk/transpose-parallel-regions
+                    {:positions positions :edge-points {} :edge-labels {}} parsed)
+        np        (:positions out)
+        new-frame (get np layout/root-container-id)
+        bands     (map #(get np %) [audio-rid video-rid])
+        right     (reduce max (map #(+ (:x %) (:width %)) bands))
+        bottom    (reduce max (map #(+ (:y %) (:height %)) bands))]
+    (testing "sanity: the stacked column outgrows the side-by-side frame"
+      (is (> right (:width frame))))
+    (testing "every stacked band sits inside the frame"
+      (is (<= right (:width new-frame)))
+      (is (<= bottom (:height new-frame))))
+    (testing "the frame keeps its origin and ELK's 20px right inset, and never shrinks"
+      (is (= [12 12] [(:x new-frame) (:y new-frame)]))
+      (is (= (+ right 20) (:width new-frame)))
+      (is (= (:height frame) (:height new-frame))
+          "the column is shorter than the frame, so the height stays"))))
+
 (defn- x-overlap?
   "Do two boxes `{:x :width}` overlap along the x-axis (open intervals)? Pure."
   [a b]
