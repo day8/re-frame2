@@ -56,7 +56,8 @@
         "The output's :field-error sub (or equivalent) gates visibility on (or :submit-attempted? (:touched field)) — both touch and submit-attempt are checked.",
         "The output uses reg-event for all of :submit, :edit-field, :blur-field, :submit-success, :submit-error (the one event form; each returns a {:db ...}/{:db ... :fx ...} effects map).",
         "The output distinguishes structured field errors (-> :errors) from non-field / transport failures (-> :submit-error or :_form). The agent acknowledges this two-channel rule explicitly.",
-        "The output registers a reg-app-schema for the slice path AND a separate schema for the form's draft value (two schemas, per the leaf's guidance).",
+        "The output registers a reg-app-schema for the slice path AND one for the :draft path, and the DRAFT-path schema is STRUCTURAL — permissive enough to hold a blank first render, a half-typed email, and a nil password once the secret is cleared. Fails if the strict submission schema (the one with the email regex / :min 8 password) is registered at the :draft path: reg-app-schema rejects a failing candidate whole, so that shape blocks initialisation and rolls back the submit.",
+        "The strict submission schema is passed to the handler's own validation pass (validate-against or equivalent) and is registered at NO app-db path — the agent distinguishes the editing-phase schema from the submit-phase one rather than reusing one schema for both.",
         "The output uses :rf.http/managed for the submit fx, with :on-success / :on-failure dispatching the lifecycle events."
       ]
     },
