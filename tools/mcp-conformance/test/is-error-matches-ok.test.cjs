@@ -34,7 +34,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { assertIsErrorMatchesOk } = require('./_runner.cjs');
+const { assertIsErrorMatchesOk, structured } = require('./_runner.cjs');
 const { DEDUP_TABLE_KEY, ROOT_CACHE_ID } = require('../lib/dedup-envelope.cjs');
 
 function dedupWrapped(payload) {
@@ -91,6 +91,24 @@ test('assertIsErrorMatchesOk: a non-dedup (plain) envelope still cross-checks as
       structuredContent: { 'ok?': true },
     }),
   );
+});
+
+test('assertIsErrorMatchesOk: a dedup wrapper with siblings is rejected, not graded on its sanitised inner value (rf2-gwye.38)', () => {
+  // The review reproduction: the sibling `ok? false` used to be erased by
+  // expansion, leaving the inner `ok? true` to pass beside isError:false.
+  const resp = {
+    isError: false,
+    structuredContent: Object.assign(dedupWrapped({ 'ok?': true, value: 42 }), {
+      'ok?': false,
+      reason: 'failure',
+    }),
+  };
+  assert.throws(() => structured(resp), /CLOSED single-key map/);
+  assert.throws(() => assertIsErrorMatchesOk('probe', resp), /CLOSED single-key map/);
+  // Control: the same wrapper without siblings is still decoded and graded.
+  const ok = { isError: false, structuredContent: dedupWrapped({ 'ok?': true, value: 42 }) };
+  assert.deepEqual(structured(ok), { 'ok?': true, value: 42 });
+  assert.doesNotThrow(() => assertIsErrorMatchesOk('probe', ok));
 });
 
 test('assertIsErrorMatchesOk: a non-:ok?-shaped result is out of scope (no throw)', () => {

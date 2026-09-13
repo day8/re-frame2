@@ -91,7 +91,9 @@
 // `decodeDedupEnvelope(structuredContent)` — return the expanded
 // payload if `structuredContent` carries the marker, otherwise return
 // the input unchanged. Throws if the marker is present but the cache
-// has no `cache-0` entry (a malformed envelope).
+// has no `cache-0` entry, or the wrapper carries any sibling key (a
+// malformed envelope). Every decoded key is an own data property, so the
+// JSON projection survives exactly — `"__proto__"` included.
 
 'use strict';
 
@@ -165,7 +167,17 @@ function expandCache(cache) {
           typeof expandedKey === 'string' || typeof expandedKey === 'number'
             ? expandedKey
             : JSON.stringify(expandedKey);
-        out[jsKey] = expandValue(v[k]);
+        // DEFINE, never assign (rf2-gwye.36). `out['__proto__'] = …` runs
+        // the inherited `Object.prototype.__proto__` setter instead of
+        // creating the key — the payload entry vanishes and its value
+        // becomes the rebuilt object's prototype. `JSON.parse` keeps that
+        // key as an own data property, so the decoded object must too.
+        Object.defineProperty(out, jsKey, {
+          value: expandValue(v[k]),
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
       }
       return out;
     }
@@ -233,6 +245,23 @@ function decodeDedupEnvelope(structuredContent) {
     !Object.prototype.hasOwnProperty.call(structuredContent, DEDUP_TABLE_KEY)
   ) {
     return structuredContent;
+  }
+  // The wrapper is CLOSED and SINGLE-KEY (rf2-gwye.38), held exactly as
+  // `unwrapClosedOverflow` in `overflow-marker.cjs` holds the overflow
+  // wrapper: the JVM contract pins `DedupTable` as
+  // `[:map {:closed true} [:rf.mcp/dedup-table …]]`. Expansion returns the
+  // cache root and so would ERASE a sibling — a sibling `ok? false` beside
+  // an inner `ok? true` was then graded on the sanitised value. Neither side
+  // has precedence; the envelope is malformed, so reject it here.
+  const siblings = Object.keys(structuredContent).filter((k) => k !== DEDUP_TABLE_KEY);
+  if (siblings.length > 0) {
+    throw new Error(
+      'dedup-envelope: the ' + DEDUP_TABLE_KEY + ' wrapper MUST be the CLOSED ' +
+        'single-key map {"' + DEDUP_TABLE_KEY + '": <cache-map>}; got sibling ' +
+        'key(s) ' + JSON.stringify(siblings) + '. The JVM contract pins ' +
+        '`DedupTable` = [:map {:closed true} [:rf.mcp/dedup-table ...]], and ' +
+        'expanding the cache would silently erase them.',
+    );
   }
   const cache = structuredContent[DEDUP_TABLE_KEY];
   if (!cache || typeof cache !== 'object' || Array.isArray(cache)) {

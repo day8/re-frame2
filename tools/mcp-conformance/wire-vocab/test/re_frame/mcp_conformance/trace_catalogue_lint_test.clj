@@ -57,15 +57,20 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Read a `.cljc` / `.clj` source file as a sequence of top-level forms.
-;; `:read-cond :allow` keeps reader-conditionals as data rather than choosing
-;; a platform branch; `:eof ::eof` terminates the read loop cleanly. We swallow
-;; NOTHING — a read error means a malformed source file and MUST surface.
+;; `:read-cond :preserve` keeps every reader conditional as a
+;; `ReaderConditional` VALUE, all arms intact, and `duplicate-hits` inspects
+;; every arm. (`:allow` picks the JVM arm at read time, so a `:cljs`-only or
+;; spliced emitter never reached the detector — rf2-gwye.40.) Preserve mode
+;; cannot read a SPLICING conditional placed directly inside a map literal
+;; (`{:k v #?@(:cljs [...])}`): such a file fails this gate at read time,
+;; loudly, rather than being skipped. `:eof ::eof` terminates the read loop
+;; cleanly. We swallow NOTHING — a read error MUST surface.
 ;; ---------------------------------------------------------------------------
 
 (defn- read-all-forms [source-text]
   (let [rdr (java.io.PushbackReader. (java.io.StringReader. source-text))
         eof ::eof
-        opts {:eof eof :read-cond :allow}]
+        opts {:eof eof :read-cond :preserve}]
     (loop [forms []]
       (let [form (read opts rdr)]
         (if (= form eof)
@@ -75,19 +80,29 @@
 ;; ---------------------------------------------------------------------------
 ;; Walk every sub-form of the parsed source; collect the map literals that
 ;; carry BOTH a canonical namespaced reply-envelope key AND its bare duplicate.
-;; A hit is [canonical-key bare-key the-offending-map].
+;; A hit is [canonical-key bare-key the-offending-map]. A preserved reader
+;; conditional is not a collection the walk can enter, so each is first
+;; replaced by the vector of ALL its arms — `#?` and splicing `#?@` alike, and
+;; nested ones as the walk reaches them. Each arm is inspected on its own, so
+;; two valid alternatives never combine into a false duplicate.
 ;; ---------------------------------------------------------------------------
+
+(defn- conditional-arms [node]
+  (if (reader-conditional? node)
+    (vec (take-nth 2 (rest (:form node))))
+    node))
 
 (defn- duplicate-hits [forms]
   (let [hits (volatile! [])]
-    (walk/postwalk
+    (walk/prewalk
       (fn [node]
-        (when (map? node)
-          (doseq [[canonical bare] duplicate-key-pairs]
-            (when (and (contains? node canonical)
-                       (contains? node bare))
-              (vswap! hits conj [canonical bare node]))))
-        node)
+        (let [node (conditional-arms node)]
+          (when (map? node)
+            (doseq [[canonical bare] duplicate-key-pairs]
+              (when (and (contains? node canonical)
+                         (contains? node bare))
+                (vswap! hits conj [canonical bare node]))))
+          node))
       forms)
     @hits))
 
@@ -148,3 +163,39 @@
                                 :rf.reply/current {:work/id other :generation 2}})]]
       (is (empty? (duplicate-hits nested))
           "the carried/current correlation gate legitimately nests :work/id"))))
+
+;; ---------------------------------------------------------------------------
+;; (3) The READ boundary — every reader-conditional arm reaches the detector
+;;     (rf2-gwye.40, rf2-fzbj.14 F3). (2) hands `duplicate-hits` an
+;;     already-read literal, so it proves the walk and not the read; these
+;;     go through `read-all-forms` on source TEXT, the path (1) takes.
+;; ---------------------------------------------------------------------------
+
+(defn- hit-pairs [source]
+  (mapv (fn [[canonical bare _m]] [canonical bare])
+        (duplicate-hits (read-all-forms source))))
+
+(deftest every-reader-conditional-arm-is-inspected
+  (let [work-id   [[:rf.reply/work-id :work/id]]
+        completed [[:rf.reply/completed-at :completed-at]]]
+    (testing "a duplicate is reported whichever arm, splice or nesting carries it"
+      (doseq [[label source expected]
+              [["unconditional" "{:rf.reply/work-id w :work/id w}" work-id]
+               ["CLJ-only" "#?(:clj {:rf.reply/work-id w :work/id w})" work-id]
+               ["CLJS-only" "#?(:cljs {:rf.reply/work-id w :work/id w})" work-id]
+               ["CLJS arm beside a valid CLJ arm"
+                "#?(:clj {:rf.reply/work-id w} :cljs {:rf.reply/work-id w :work/id w})"
+                work-id]
+               ["CLJS splice" "[#?@(:clj [] :cljs [{:rf.reply/work-id w :work/id w}])]" work-id]
+               ["nested conditional"
+                "#?(:clj nil :cljs (emit! #?(:cljs {:rf.reply/completed-at t :completed-at t})))"
+                completed]]]
+        (is (= expected (hit-pairs source)) label)))
+    (testing "valid alternatives, a lone :work/id and carried/current maps stay accepted in every arm"
+      (doseq [[label source]
+              [["valid alternatives"
+                "#?(:clj {:rf.reply/work-id w} :cljs {:rf.reply/work-id w})"]
+               ["lone :work/id" "#?(:cljs {:work/id w :generation 1})"]
+               ["carried/current"
+                "#?(:cljs {:rf.reply/work-id w :rf.reply/carried {:work/id w} :rf.reply/current {:work/id o}})"]]]
+        (is (= [] (hit-pairs source)) label)))))

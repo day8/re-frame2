@@ -145,6 +145,35 @@ test('assertOverflowBody: rejects a wrong :limit enum and non-numeric token fiel
   assert.throws(() => assertOverflowBody(validBody({ 'token-count': null }), 'test'), /:token-count MUST be/);
 });
 
+test('fractional :cap-tokens / :token-count are rejected through BOTH slots (rf2-gwye.41)', () => {
+  // Malli pins both fields as `:int`; a `typeof === 'number'` check let
+  // 5000.5 through both validators and the agreement check. Each field is
+  // fractional alone, then both (cap-tokens is checked first).
+  for (const [cap, count, field] of [
+    [5000.5, 6250, 'cap-tokens'],
+    [5000, 6250.5, 'token-count'],
+    [5000.5, 6250.5, 'cap-tokens'],
+  ]) {
+    const text =
+      '{:rf.mcp/overflow {:limit :reached :cap-tokens ' + cap + ' :token-count ' +
+      count + ' :tool "eval-cljs" :hint "raise the cap"}}';
+    const wrapper = { 'rf.mcp/overflow': validBody({ 'cap-tokens': cap, 'token-count': count }) };
+    const want = new RegExp(':' + field + ' MUST be int');
+    assert.throws(() => validateOverflowText(text, 'text-slot'), want, 'text ' + cap + '/' + count);
+    assert.throws(() => validateOverflowWrapper(wrapper, 'structured'), want, 'structured ' + cap + '/' + count);
+  }
+  // Still accepted: the integer body, through both slots, in agreement.
+  const text =
+    '{:rf.mcp/overflow {:limit :reached :cap-tokens 5000 :token-count 6250 ' +
+    ':tool "eval-cljs" :hint "raise the cap"}}';
+  const fromText = validateOverflowText(text, 'text-slot');
+  const fromStructured = validateOverflowWrapper(
+    { 'rf.mcp/overflow': validBody({ hint: 'raise the cap' }) },
+    'structured',
+  );
+  assert.doesNotThrow(() => assertBodiesAgree(fromText, fromStructured, 'dual-slot'));
+});
+
 test('assertOverflowBody: rejects token-count <= cap-tokens (degenerate tripped cap)', () => {
   // Equal is a violation: a tripped cap MUST strictly exceed the budget.
   assert.throws(

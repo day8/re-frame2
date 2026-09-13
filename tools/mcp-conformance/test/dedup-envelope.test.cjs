@@ -415,6 +415,87 @@ test('symbol, keyword and string payloads collapse to ONE JSON token — all thr
   assert.deepEqual(out.a, { big: ['repeat', 'me'] });
 });
 
+// ---------------------------------------------------------------------
+// rf2-gwye.36 (rf2-fzbj.14 F1): an own `__proto__` payload key survives.
+//
+// `JSON.parse` keeps `"__proto__"` as an ordinary own data property, and
+// the codec promises encode-then-decode is the identity on the JSON
+// projection (`tools/mcp-base/spec/dedup.md`). Plain assignment
+// `out['__proto__'] = v` does not create that property: it runs the
+// inherited `Object.prototype.__proto__` setter, so the key vanished and
+// its object value became the rebuilt object's PROTOTYPE — the payload's
+// fields then read back as inherited values.
+//
+// The wire is transcribed from a real encode: `dedup-value` (enabled)
+// over the payload below, serialised with Cheshire. Both strings go
+// through JSON.parse, as the SDK does — an object literal spelling
+// `__proto__:` would set the prototype itself and never carry the key.
+// ---------------------------------------------------------------------
+
+const PROTO_KEY_ORIGINAL =
+  '{"__proto__":{"marker":"root-payload"},' +
+  '"nested":{"__proto__":{"marker":"nested-payload"}},' +
+  '"a":{"items":["repeat","the","subtree"]},' +
+  '"b":{"items":["repeat","the","subtree"]}}';
+
+const PROTO_KEY_WIRE =
+  '{"rf.mcp/dedup-table":{' +
+  '"de-dupe.cache/cache-2":["repeat","the","subtree"],' +
+  '"de-dupe.cache/cache-1":{"items":"de-dupe.cache/cache-2"},' +
+  '"de-dupe.cache/cache-0":{"__proto__":{"marker":"root-payload"},' +
+  '"nested":{"__proto__":{"marker":"nested-payload"}},' +
+  '"a":"de-dupe.cache/cache-1","b":"de-dupe.cache/cache-1"}}}';
+
+test('an own "__proto__" payload key survives expansion, at the root and nested (rf2-gwye.36)', () => {
+  const original = JSON.parse(PROTO_KEY_ORIGINAL);
+  const out = decodeDedupEnvelope(JSON.parse(PROTO_KEY_WIRE));
+  // Strict deep equality compares own keys AND prototypes, so this is the
+  // JSON-projection identity the codec promises.
+  assert.deepEqual(out, original);
+  for (const [where, obj] of [['root', out], ['nested', out.nested]]) {
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(obj, '__proto__'),
+      where + ': "__proto__" is an own key',
+    );
+    assert.equal(Object.getPrototypeOf(obj), Object.prototype, where + ': ordinary prototype');
+    assert.equal(obj.marker, undefined, where + ': no payload value is inherited');
+  }
+  assert.equal(out.a, out.b, 'the shared subtree is still pooled');
+});
+
+// ---------------------------------------------------------------------
+// rf2-gwye.38 (rf2-fzbj.14 F2): the dedup wrapper is CLOSED.
+//
+// The JVM contract pins `DedupTable` as `[:map {:closed true}
+// [:rf.mcp/dedup-table …]]`. The decoder used to check only that the
+// marker was present, then return the expanded cache — erasing any
+// sibling, so a response the JVM schema rejects was graded on a
+// sanitised value. Neither the inner nor a sibling `ok?` wins: the
+// envelope is malformed.
+// ---------------------------------------------------------------------
+
+test('a dedup wrapper carrying a sibling key is rejected, harmless or conflicting (rf2-gwye.38)', () => {
+  const cache = { [cacheId(0)]: { 'ok?': true, value: 42 } };
+  for (const siblings of [{ meta: 'harmless' }, { 'ok?': false, reason: 'failure' }]) {
+    assert.throws(
+      () => decodeDedupEnvelope(Object.assign(envelope(cache), siblings)),
+      (err) => {
+        assert.match(err.message, /CLOSED single-key map/);
+        for (const k of Object.keys(siblings)) {
+          assert.ok(err.message.includes(JSON.stringify(k)), 'names sibling ' + k);
+        }
+        return true;
+      },
+    );
+  }
+  // Still accepted: the same wrapper alone, with arbitrary fields in the
+  // decoded ROOT — the wrapper is closed, the payload is not.
+  const open = { [cacheId(0)]: { 'ok?': true, value: 42, meta: 'additive', reason: 'x' } };
+  assert.deepEqual(decodeDedupEnvelope(envelope(open)), {
+    'ok?': true, value: 42, meta: 'additive', reason: 'x',
+  });
+});
+
 test('POSITIVE CONTROL: the keyword rule did not disable resolution either (rf2-kjv05)', () => {
   // Same shape as the keyword value test, `cache-1` deleted. Widening
   // the escape set must not have turned a dangling genuine reference
