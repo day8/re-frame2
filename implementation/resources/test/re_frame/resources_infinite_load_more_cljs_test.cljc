@@ -57,11 +57,18 @@
 ;; mirrors `resources-invalidation-gc-cljs-test`'s capturing pattern.
 (def ^:private scheduled-timers (atom []))
 
+;; rf2-gwye.15 — captures the opportunistic `:rf.http/managed-abort` fx (the
+;; frame-qualified request-id) so an owner release can be asserted not to
+;; abort a page attempt another held owner still needs.
+(def ^:private aborts (atom []))
+
 (defn- capturing-transport-fixture
   [f]
   (reset! last-managed-args nil)
   (reset! scheduled-timers [])
+  (reset! aborts [])
   (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.http/managed-abort (fn [_ctx request-id] (swap! aborts conj request-id) nil))
   (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
   (f))
 
@@ -876,3 +883,144 @@
         (is (= 2 (rf.resources.state/page-count e)) "the ownerless load-more appended normally")
         (is (= #{[:test :w]} (:active-owners e))
             "still exactly the route/ensure owner — load-more added no owner")))))
+
+;; ===========================================================================
+;; 11. rf2-gwye.15 — new page attempts inherit the feed's held owners
+;; ===========================================================================
+
+(deftest page-attempts-inherit-the-feeds-held-owners
+  ;; A load-more / sweep leg never MINTS an owner, but the owners already
+  ;; holding the feed still need its request: the new work row starts from the
+  ;; entry's :active-owners, so releasing one of two owners does not abort a
+  ;; page the other still needs (Spec 016 §Race).
+  (rf/reg-resource :own/feed (feed-spec {:refetch {:refetch-all-pages? true}}) feed-spec-request)
+  (let [q   {:resource :own/feed :scope :rf.scope/global :params {:filter :recent}}
+        k   (feed-key :own/feed)
+        a   [:test :a]
+        b   [:test :b]
+        rec #(rf.resources.work-ledger/get-record (runtime-db) (:current-work (entry k)))]
+    (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner a)])
+    (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner b)])
+    (reply-success! (page [:a] "c1"))
+    (testing "an ownerless load-more inherits both held owners; releasing one does not abort it"
+      (load-more! :own/feed)
+      (let [wid (:current-work (entry k))]
+        (is (= #{a b} (:owners (rec))) "the load-more row carries the held owners and mints none")
+        (rf/dispatch-sync [:rf.resource/release-owner {:owner a}])
+        (is (not (contains? (set @aborts)
+                            (rf.resources.work-ledger/managed-request-id :rf/default wid)))
+            "the load-more is not aborted while b still holds the feed")
+        (is (= #{b} (:owners (rec))))
+        (reply-success! (page [:b] "c2"))
+        (is (= 2 (rf.resources.state/page-count (entry k))) "its page reply is accepted")))
+    (testing "a refetch-sweep leg inherits the held owner too"
+      (rf/dispatch-sync [:rf.resource/refetch (assoc q :cause [:test :all])])
+      (reply-success! (page [:a*] "c1"))
+      (is (= 1 (:rf.resource/page-index (second (:on-success @last-managed-args))))
+          "the page-1 leg is in flight")
+      (is (= #{b} (:owners (rec))) "the sweep leg row carries the held owner"))))
+
+;; ===========================================================================
+;; 12. rf2-gwye.16 — an accepted page success produces + indexes the feed :tags
+;; ===========================================================================
+
+(defn- tag-members [tag]
+  (get-in (runtime-db) (conj (rf.resources.state/tag-index-path) tag)))
+
+(deftest page-success-produces-feed-tags-so-invalidation-reaches-the-feed
+  (rf/reg-resource :tg/feed (feed-spec) feed-spec-request)
+  (rf/reg-resource :tg/idle-feed (feed-spec) feed-spec-request)
+  (rf/reg-resource :tg/scalar
+                   {:scope         :rf.scope/global
+                    :params-schema [:map [:filter :keyword]]
+                    :tags          (fn [{:keys [filter]} _data] #{[:feed filter]})}
+                   (fn [_params _ctx] {:request {:method :get :url "/api/scalar"}}))
+  (let [kf (feed-key :tg/feed)
+        ki (feed-key :tg/idle-feed)
+        ks (feed-key :tg/scalar)]
+    (ensure! :tg/feed)   (reply-success! (page [:a] "c1"))
+    (ensure! :tg/scalar) (reply-success! {:v 1})
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :tg/idle-feed :scope :rf.scope/global
+                                            :params {:filter :recent} :owner [:test :idle]}])
+    (reply-success! (page [:x] nil))
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :idle]}])
+    (testing "the feed carries its produced tag and is indexed under it, like the scalar"
+      (is (= #{[:feed :recent]} (:tags (entry kf))))
+      (is (= (set (map rf.resources.state/key-id [kf ki ks])) (tag-members [:feed :recent]))))
+    (rf/dispatch-sync [:rf.resource/invalidate-tags {:scope :rf.scope/global
+                                                     :tags #{[:feed :recent]}
+                                                     :cause [:test :write]}])
+    (testing "invalidation refetches the OWNED feed, as it does the owned scalar control"
+      (is (= :fetching (:status (entry kf))) "the owned feed refetches")
+      (is (rf.resources.work-ledger/live-work? (runtime-db) (:current-work (entry kf))))
+      (is (= :fetching (:status (entry ks))) "the scalar control refetches"))
+    (testing "the OWNER-FREE feed goes durably stale without a request"
+      (is (some? (:invalidated-at (entry ki))))
+      (is (= :loaded (:status (entry ki))))
+      (is (nil? (:current-work (entry ki)))))))
+
+(deftest feed-tags-follow-the-accumulated-pages
+  (let [item-tags (fn [{:keys [filter]} pages]
+                    (into #{[:feed filter]}
+                          (comp (mapcat :items) (map (fn [item] [:item item])))
+                          pages))]
+    (rf/reg-resource :tgd/feed (feed-spec {:tags item-tags}) feed-spec-request)
+    (rf/reg-resource :tgd/other (feed-spec {:tags item-tags}) feed-spec-request)
+    (let [k   (feed-key :tgd/feed)
+          ko  (feed-key :tgd/other)
+          kid (rf.resources.state/key-id k)]
+      (ensure! :tgd/other) (reply-success! (page [:a] nil))
+      (ensure! :tgd/feed)  (reply-success! (page [:a] "c1"))
+      (is (= #{[:feed :recent] [:item :a]} (:tags (entry k))) "page 0's items tag the feed")
+      (testing "an appended page adds its items' tags"
+        (load-more! :tgd/feed)
+        (reply-success! (page [:b] nil))
+        (is (= #{[:feed :recent] [:item :a] [:item :b]} (:tags (entry k))))
+        (is (= #{kid} (tag-members [:item :b]))))
+      (testing "a page replaced in place drops the tags only it produced; other keys keep theirs"
+        (rf/dispatch-sync [:rf.resource/refetch {:resource :tgd/feed :scope :rf.scope/global
+                                                 :params {:filter :recent} :cause [:test :refresh]}])
+        (reply-success! (page [:a2] "c1"))
+        (is (= #{[:feed :recent] [:item :a2] [:item :b]} (:tags (entry k))))
+        (is (= #{kid} (tag-members [:item :a2])))
+        (is (= #{(rf.resources.state/key-id ko)} (tag-members [:item :a]))
+            "the obsolete tag no longer indexes this feed; the other feed still holds it")))))
+
+;; ===========================================================================
+;; 13. rf2-gwye.17 — a failed page-0 refresh of a LOADED feed is :refresh-error
+;; ===========================================================================
+
+(deftest loaded-feed-page-0-refresh-failure-is-a-refresh-error
+  (let [k        (load-page-0! :rfe/feed (page [:a] "c1"))
+        q        {:resource :rfe/feed :scope :rf.scope/global :params {:filter :recent}}
+        envelope {:kind :rf.http/http-5xx :status 503}]
+    (rf/dispatch-sync [:rf.resource/refetch (assoc q :cause :focus)])
+    (reply-failure! envelope)
+    (testing "the feed survives :loaded and the failure lands on :refresh-error, never :page-error"
+      (let [e (entry k)]
+        (is (= :loaded (:status e)))
+        (is (= [(page [:a] "c1")] (:data e)) "pages kept")
+        (is (= envelope (:refresh-error e)) "the whole-feed refresh channel")
+        (is (nil? (:page-error e)) "NOT the load-more channel")
+        (is (nil? (:error e)) "NOT the first-load channel")
+        (is (nil? (:current-work e)))))
+    (testing "the public projections agree"
+      (is (= envelope @(rf/subscribe [:rf.resource/refresh-error q])))
+      (is (nil? @(rf/subscribe [:rf.resource/page-error q]))))
+    (testing "the next successful refresh clears it"
+      (rf/dispatch-sync [:rf.resource/refetch (assoc q :cause :focus)])
+      (reply-success! (page [:a*] "c1"))
+      (is (nil? (:refresh-error (entry k)))))))
+
+(deftest loaded-feed-page-0-refresh-failure-stops-the-sweep
+  (testing "a multi-page refresh whose page 0 fails records :refresh-error, keeps every page, chains no leg"
+    (let [k (accumulate-3! :rfs/feed {:refetch {:refetch-all-pages? true}})]
+      (rf/dispatch-sync [:rf.resource/refetch {:resource :rfs/feed :scope :rf.scope/global
+                                               :params {:filter :recent} :cause [:test :refresh-all]}])
+      (reply-failure! {:kind :rf.http/server :status 503})
+      (let [e (entry k)]
+        (is (= :loaded (:status e)))
+        (is (= 3 (rf.resources.state/page-count e)))
+        (is (some? (:refresh-error e)))
+        (is (nil? (:page-error e)))
+        (is (not (contains? e :refetch-sweep)) "the sweep cursor is cleared")))))
