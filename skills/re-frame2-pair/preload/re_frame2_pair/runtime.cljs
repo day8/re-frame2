@@ -636,46 +636,80 @@
   ([id known n] (pure/nearest-ids id known n)))
 
 (defn validate-registered
-  "Validate that `id` is registered under registrar `kind` against the
-   LIVE registry. Returns:
+  "Validate that `id` is registered under registrar `kind` AS FRAME
+   `frame-id` RESOLVES IT. Returns:
 
-     {:ok? true  :kind kind :id id}                         — registered
-     {:ok? false :reason :unknown-id :kind kind :id id
+     {:ok? true  :kind kind :id id :frame f}                — registered
+     {:ok? false :reason :unknown-id :kind kind :id id :frame f
       :nearest [...] :known-count N :hint \"...\"}            — not found
 
    The `:nearest` vector carries up to three closest registered ids by
    edit distance so the agent gets 'unknown :rf/xrayy; did you mean
-   :rf/xray?' instead of a silent no-op. Never throws — a registrar that
-   doesn't exist yields an empty known set, so an unknown id there still
-   reports structured-unknown with `:known-count 0`."
-  [kind id]
-  (let [known (vec (or (try (keys (rf/registrations {:source :store :kind kind})) (catch :default _ nil)) []))]
-    (pure/validate-against-known kind id known)))
+   :rf/xray?' instead of a silent no-op — drawn from THAT FRAME's
+   candidate set, so a suggestion is always an id the caller can
+   actually use here.
+
+   ## Why the frame, and not the process store (rf2-fzbj.15)
+
+   This is the CALL-TIME check in front of `read-sub!` / `dispatch-
+   consequence!`, and those two execute against a FRAME. A frame runs its
+   own sealed image generation, so an `:reg-sub` / `:reg-event` defined
+   INLINE IN AN IMAGE is registered for that frame and absent from the
+   process store — an ordinary supported definition the skill explicitly
+   teaches. Reading `{:source :store}` here rejected exactly those ids
+   with `:reason :unknown-id :known-count 0`, telling the operator
+   'nothing is registered' about an app that dispatches and subscribes
+   perfectly well, and pushing them to raw `eval-cljs` for a gesture the
+   typed tools support. The mismatch runs the other way too: an id in the
+   store but EXCLUDED from the chosen frame's image is now correctly
+   refused rather than validated and then dispatched into a frame that
+   cannot serve it.
+
+   Process-wide DISCOVERY (`registrar-list`, the orient/registry counts)
+   deliberately stays on `{:source :store}` — it is asking what the HOST
+   PROCESS registered, which is a different question from what THIS FRAME
+   runs.
+
+   FAILS LOUD up the eval boundary when `frame-id` does not resolve to a
+   live frame generation (the framework's `:rf.error/frame-no-generation`),
+   exactly as `frame-registrar-list` does. That beats the former
+   catch-all: swallowing it here would report an unresolvable frame as
+   'nothing is registered under :sub', which is a statement about the
+   registrar rather than about the frame that was wrong."
+  [kind id frame-id]
+  (let [known (vec (keys (rf/registrations {:frame frame-id :kind kind})))]
+    (assoc (pure/validate-against-known kind id known) :frame frame-id)))
 
 (defn validate-event-id
-  "Validate the head of an event vector against the `:event` registrar.
-   `event-v` is the parsed event vector; the id is its
-   first element. Returns the `validate-registered` shape, plus echoes
-   the `:event` vector so the wire result carries the resolved value."
-  [event-v]
+  "Validate the head of an event vector against frame `frame-id`'s
+   `:event` registrations. `event-v` is the parsed event vector; the id is
+   its first element. Returns the `validate-registered` shape, plus echoes
+   the `:event` vector so the wire result carries the resolved value.
+
+   `frame-id` is the OPERATING frame the caller is about to dispatch
+   into — the validated frame and the dispatched frame are the same one
+   by construction (rf2-fzbj.15)."
+  [event-v frame-id]
   (let [id (when (sequential? event-v) (first event-v))
-        r  (validate-registered :event id)]
+        r  (validate-registered :event id frame-id)]
     (assoc r :event event-v)))
 
 (defn validate-sub-id
-  "Validate the head of a subscription query-vector against the `:sub`
-   registrar. `query-v` is the parsed sub vector; the id is
-   its first element. Returns the `validate-registered` shape, plus echoes
-   the `:query-v` so the wire result carries the resolved value.
+  "Validate the head of a subscription query-vector against frame
+   `frame-id`'s `:sub` registrations. `query-v` is the parsed sub vector;
+   the id is its first element. Returns the `validate-registered` shape,
+   plus echoes the `:query-v` so the wire result carries the resolved
+   value.
 
    The read-side counterpart of `validate-event-id`: a typo'd sub-id
    (`[:current-userr]`) returns `:reason :unknown-id` with `:nearest`
    matches instead of silently subscribing to a non-existent sub and
    handing back nil/garbage (the typo-silent-nil mistake class a raw
-   `eval-cljs` read invites)."
-  [query-v]
+   `eval-cljs` read invites). `frame-id` is the frame the read will
+   actually subscribe in (rf2-fzbj.15)."
+  [query-v frame-id]
   (let [id (when (sequential? query-v) (first query-v))
-        r  (validate-registered :sub id)]
+        r  (validate-registered :sub id frame-id)]
     (assoc r :query-v query-v)))
 
 (defn- handler-fn-hash
@@ -1081,13 +1115,21 @@
    nil/garbage. `read-sub!` closes that mistake class with the SAME
    discipline `dispatch-consequence!` applies on the write side:
 
-     1. VALIDATE the sub-id (the query-vector's head) against the LIVE
-        `:sub` registrar FIRST (`validate-sub-id`). An unknown id returns
-        the structured `:reason :unknown-id` + `:nearest` matches WITHOUT
-        subscribing — never a silent nil. The result echoes `:query-v`.
-     2. Resolve the operating frame the same way every other read op does
+     1. Resolve the operating frame the same way every other read op does
         (explicit override -> session pin -> sole app frame). No frame ->
         `:reason :ambiguous-frame` (never silently reads `:rf/default`).
+     2. VALIDATE the sub-id (the query-vector's head) against THAT FRAME's
+        `:sub` registrations (`validate-sub-id`). An unknown id returns
+        the structured `:reason :unknown-id` + `:nearest` matches WITHOUT
+        subscribing — never a silent nil. The result echoes `:query-v`.
+
+        Frame BEFORE validation, and the frame's image rather than the
+        process store (rf2-fzbj.15): a sub defined inline in the frame's
+        image is registered for the frame and absent from the store, so
+        store-validation refused an id this very fn was about to
+        subscribe successfully. The two steps are in this order because
+        the frame is now an INPUT to the validation, not merely the
+        target of the read that follows it.
      3. Subscribe + deref ONCE through `rf/subscribe` (the standard cache
         lifecycle), inside a `try`. A deref/computation throw returns
         `:reason :sub-error` carrying the message — a structured error,
@@ -1112,16 +1154,19 @@
       :query-v query-v
       :hint   "a subscription read needs a non-empty query vector, e.g. [:current-user] or [:cart/total]."}
 
+     ;; Frame first: it is the registration universe the validation below
+     ;; reads, so it cannot be resolved after the check (rf2-fzbj.15).
+     (nil? frame-id)
+     (ambiguous-frame-error :read-sub {:query query-v :query-v query-v})
+
      :else
-     (let [v (validate-sub-id query-v)]
+     (let [v (validate-sub-id query-v frame-id)]
        (cond
-         ;; Unknown sub-id — structured error, NO subscribe (no silent
-         ;; nil). Echo the resolved query-v alongside the nearest matches.
+         ;; Unknown sub-id IN THIS FRAME — structured error, NO subscribe
+         ;; (no silent nil). Echo the resolved query-v alongside the
+         ;; nearest matches, which are ids this frame actually carries.
          (not (:ok? v))
          (assoc v :subscribed? false)
-
-         (nil? frame-id)
-         (ambiguous-frame-error :read-sub {:query query-v :query-v query-v})
 
          :else
          (try
@@ -1380,9 +1425,14 @@
 
    Primary forensic op — 'find the epoch where X happened'. Examples:
 
-     ;; find the epoch where :auth-state flipped to :expired
+     ;; find the epoch where :auth-state flipped to :expired — a
+     ;; TRANSITION predicate: the value holds AFTER and did NOT hold
+     ;; BEFORE. Testing `:db-after` alone would match the newest epoch
+     ;; that merely CARRIES the bad value, which on an active UI is some
+     ;; later unrelated event, not the cause (rf2-fzbj.15).
      (find-where
-       (fn [e] (= :expired (get-in (:db-after e) [:auth-state]))))
+       (fn [e] (and (= :expired (get-in (:db-after e) [:auth-state]))
+                    (not= :expired (get-in (:db-before e) [:auth-state])))))
 
      ;; find the epoch that triggered a specific event id
      (find-where
@@ -1924,8 +1974,19 @@
    the tool surfaces it as an error rather than a fake success."
   ([event-v] (dispatch-consequence! event-v {}))
   ([event-v opts]
-   (let [v (validate-event-id event-v)]
-     (if-not (:ok? v)
+   ;; Resolve the operating frame BEFORE validating, and validate against
+   ;; THAT frame's image (rf2-fzbj.15). An event defined inline in the
+   ;; frame's image is registered for the frame and absent from the
+   ;; process store, so store-validation refused ids this fn then
+   ;; dispatched perfectly well. The resolved frame is threaded into
+   ;; `pair-dispatch-sync!` as the explicit override, so the frame that
+   ;; was validated IS the frame that dispatches. A nil frame is left to
+   ;; `pair-dispatch-sync!`, which raises the enriched ambiguous-frame
+   ;; refusal (available frames, current pin, the fix) unchanged.
+   (let [frame-id (or (:frame opts) (current-frame))
+         opts     (cond-> opts frame-id (assoc :frame frame-id))
+         v        (when frame-id (validate-event-id event-v frame-id))]
+     (if (and v (not (:ok? v)))
        ;; Unknown event-id — structured error, NO dispatch (no silent
        ;; no-op). Echo the resolved value alongside the nearest matches.
        (assoc v :resolved event-v :dispatched? false)
