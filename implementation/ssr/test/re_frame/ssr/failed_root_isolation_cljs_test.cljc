@@ -370,6 +370,82 @@
            dead root's install still protects it"))))
 
 ;; ---------------------------------------------------------------------------
+;; A payload the handler REFUSES never claims (rf2-gwye.19 / rf2-fzbj.10)
+;; ---------------------------------------------------------------------------
+;;
+;; The seed-did-not-land case above is a frame that is GONE. This is the
+;; other one: the frame is live, the dispatch is delivered, and `:rf/hydrate`
+;; correctly refuses a malformed partition (Spec 011 §The :rf/hydrate event),
+;; leaving both partitions unchanged. A live incarnation proves the dispatch
+;; reached the frame, not that the seed was accepted, so it cannot be the
+;; evidence a claim rests on.
+
+(def ^:private refused-payloads
+  "The two partition shapes the handler refuses outright."
+  [["a non-map :rf/app-db"     {:rf/app-db []}]
+   ["a non-map :rf/runtime-db" {:rf/app-db {:count 7} :rf/runtime-db []}]])
+
+(deftest a-refused-payload-leaves-no-claim-and-verifies-nothing
+  (testing "through hydrate!: nothing landed, so nothing is claimed, nothing
+            is verified, hydrate! answers as a client-only first load, and the
+            next VALID payload for the same frame installs normally"
+    (doseq [[label refused] refused-payloads]
+      (let [fid      (fresh-frame!)
+            before   (rf/app-db-value fid)
+            verified (atom 0)
+            returned (rf.ssr.boot/hydrate!
+                      {:frame fid :payload refused :root-id :page/bad
+                       :render-tree-fn (fn [] (swap! verified inc) [:div])})]
+        (is (nil? returned)
+            (str label ": nothing was applied, so hydrate! returns nil — the "
+                 "client-only answer a host branches on"))
+        (is (= before (rf/app-db-value fid))
+            (str label ": the handler refused it, so app-db is unchanged"))
+        (is (nil? (rf.ssr.install/installed-payload fid))
+            (str label ": MEASURED before the fix, the refused payload held "
+                 "the ledger claim for a seed that never landed"))
+        (is (zero? @verified)
+            (str label ": no verification runs against a seed that never landed"))
+        (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})
+                               :root-id :page/good})
+        (is (hydrated? fid)
+            (str label ": the corrected payload installs — before the fix it "
+                 "threw :rf.error/frame-payload-conflict against data that "
+                 "was never installed"))
+        (is (= :page/good (:installed-by (rf.ssr.install/installed-payload fid)))
+            (str label ": and the claim is the corrected root's"))))))
+
+(deftest a-refused-root-cannot-block-a-corrected-sibling-sharing-its-frame
+  (testing "through hydrate-page!: a refused first root, a corrected second
+            root on the SAME frame, and an unrelated third root. The refused
+            root takes the client-only outcome; the corrected one seeds the
+            frame; the unrelated one boots as it always did."
+    (reg-bump!)
+    (let [a        (fresh-frame!)
+          b        (fresh-frame!)
+          mounted  (atom [])
+          mount!   (fn [tag] #(swap! mounted conj tag))
+          outcomes (rf.ssr/hydrate-page!
+                    [{:frame a :root-id :page/bad :payload {:rf/app-db []}
+                      :mount-fn (mount! :bad)}
+                     {:frame a :root-id :page/good :payload (payload-for {:count 7})
+                      :mount-fn (mount! :good)}
+                     {:frame b :root-id :page/peer :payload (payload-for {:count 7})
+                      :mount-fn (mount! :peer)}])]
+      (is (= [:hydrated :hydrated :hydrated] (mapv :status outcomes))
+          "MEASURED before the fix: [:hydrated :failed :hydrated] — the corrected
+           root met a conflict with the refused one's claim")
+      (is (nil? (:payload (first outcomes)))
+          "the refused root reports what a client-only root reports: no payload")
+      (is (= [:bad :good :peer] @mounted)
+          "every root mounted, the corrected one included")
+      (is (hydrated? a) "the shared frame carries the corrected server slice")
+      (is (interactive? a) "and it is running")
+      (is (= :page/good (:installed-by (rf.ssr.install/installed-payload a)))
+          "the claim belongs to the root whose seed landed")
+      (is (hydrated? b) "the unrelated root booted as before"))))
+
+;; ---------------------------------------------------------------------------
 ;; A contained failure is never silent
 ;; ---------------------------------------------------------------------------
 
