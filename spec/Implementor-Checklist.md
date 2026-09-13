@@ -483,7 +483,7 @@ For each capability included in Part 1, the implementor makes the per-capability
     - **Epoch history** — `(rf/epoch-history frame-id)`, `(rf/restore-epoch! frame-id epoch-id)`, `(rf/configure! {:epoch-history {:depth N}})`.
     - **Registrar query** — `(rf/registrations {:source :store :kind kind})`, `(rf/handler-meta {:source :store :kind kind :id id})`, the `:rf/machine?` filter over the `:event` registrations, the per-id `:rf/machine` projection off `handler-meta`, `(rf/frame-ids)`, `(rf/frame-meta id)`.
     - **App-db query** — `(rf/app-db-value frame-id)`, `(get-in (rf/app-db-value frame-id) path)`.
-    - **Sub-cache (CLJS-only)** — `(rf/sub-cache frame-id)`.
+    - **Sub-cache (CLJS-only)** — `(re-frame.subs.tooling/sub-cache-snapshot frame-id)`.
     - **Source coords** — `:ns`/`:line`/`:file` keys on registration metadata.
     - **Dispatch + hot-swap + fx-stub** — `dispatch` opts (`:fx-overrides`), re-`reg-*` for hot-swap.
 - **Options by host.** Per host's REPL or live-attach surface: nREPL+CIDER (CLJS / Squint); Node-attached debugger over a dev-build module-replacement boundary for the JS-cross-compile hosts (TypeScript, Melange / ReScript / Reason, Fable, Scala.js, PureScript, Kotlin/JS); or a host-idiomatic REPL the build pipeline exposes. The framework primitives are host-agnostic across the eight.
