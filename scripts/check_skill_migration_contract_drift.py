@@ -2117,6 +2117,69 @@ def _skill_leaf_route_problems(text: str) -> list[tuple[int, str, str]]:
     return problems
 
 
+# --- Rule 7: the retired listener-stream vocabulary (rf2-qnsk).
+#
+# `register-listener!` / `unregister-listener!` take a stream from a CLOSED
+# TWO-member vocabulary, `#{:trace :epoch}` (implementation/core/src/re_frame/
+# core.cljc `listener-streams`); rf2-kuky.69 retired the always-on `:events` /
+# `:errors` members, whose replacement is an `:observability` SINK rather than a
+# listener. A passage still teaching the four-member vocabulary sends a migrator
+# to `(rf/register-listener! :errors ...)`, which installs no monitor at all —
+# it throws `:rf.error/unknown-listener-stream`. The scan unit is the NORMALISED
+# PARAGRAPH, per `_normalised_paragraphs`: the stale shapes are multi-word and a
+# reflow would otherwise retire the rule silently.
+#
+# The anchor deliberately matches the STALE SHAPE only — `:events` / `:errors`
+# presented as current STREAMS, or enumerated inside the closed vocabulary —
+# never the corrected wording, which calls them retired MEMBERS. A sentence
+# carrying a retirement cue is exempt, so prose that names the retirement in
+# passing (as the M-69 row and the observability pointer both do) stays legal.
+LISTENER_STALE_STREAM_RE = re.compile(
+    r"(?:across|over)\s+(?:all\s+)?four\s+streams"
+    r"|`:trace`\s*/\s*`:events`"
+    r"|(?:always-on\s+)?`:events`\s*(?:and|/|,)\s*`:errors`"
+    r"\s+(?:listener\s+)?streams?",
+    re.IGNORECASE,
+)
+LISTENER_RETIRED_CUE_RE = re.compile(
+    r"\bretired\b|\bremoved\b|no listener replacement|not a stream of",
+    re.IGNORECASE,
+)
+LISTENER_STREAM_PROBLEM = (
+    "LISTENER-STREAM-VOCAB: `register-listener!` / `unregister-listener!` take "
+    "a stream from a CLOSED TWO-member vocabulary — `:trace` (dev-only) and "
+    "`:epoch` (via the epoch artefact). rf2-kuky.69 retired the always-on "
+    "`:events` / `:errors` members; they have no listener replacement, and "
+    "either one in the stream slot throws "
+    "`:rf.error/unknown-listener-stream`, so the recipe installs no monitor. "
+    "Production observation is an `:observability` sink — "
+    "`register-observability-sink!` against a frame's policy, or the same "
+    "entry grammar once per process via `(rf/configure! {:observability ...})`. "
+    "State the two-member vocabulary, not the retired four. (rf2-qnsk.)"
+)
+
+
+def listener_stream_vocab_problems(text: str) -> list[tuple[int, str, str]]:
+    """Rule-7 drift in one scanned file: `:events` / `:errors` still taught as
+    members of `register-listener!`'s stream vocabulary, reported only where the
+    match's own SENTENCE carries no retirement cue."""
+    problems: list[tuple[int, str, str]] = []
+    for paragraph, line_of in _normalised_paragraphs(text):
+        for match in LISTENER_STALE_STREAM_RE.finditer(paragraph):
+            sentence = _sentence_around(paragraph, match.start(), match.end())
+            if LISTENER_RETIRED_CUE_RE.search(sentence):
+                continue
+            start = max(0, match.start() - _EXCERPT_LEAD)
+            excerpt = paragraph[start:match.end() + _EXCERPT_TRAIL].strip()
+            if start:
+                excerpt = "... " + excerpt
+            problems.append(
+                (line_of[match.start()], LISTENER_STREAM_PROBLEM, excerpt)
+            )
+            break
+    return problems
+
+
 def _skill_leaf_files() -> list[Path]:
     """The user-facing leaves Rule 6b scans: SKILL.md + references/*.md,
     globbed so a new leaf is covered automatically. MIGRATION_MD is
@@ -2172,6 +2235,9 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
         for lineno, label, excerpt in form3_reactive_owner_problems(text):
             rel = path.relative_to(REPO_ROOT)
             problems.append(f"{rel}:{lineno}: {label}\n    {excerpt}")
+        for lineno, label, excerpt in listener_stream_vocab_problems(text):
+            rel = path.relative_to(REPO_ROOT)
+            problems.append(f"{rel}:{lineno}: {label}\n    {excerpt}")
     return problems, lines_checked
 
 
@@ -2213,7 +2279,8 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "rf2-ynved), Form-3 capture-once retarget-invariance drift "
                 "(rf2-aalo4n), M-0 publication-route drift (Rule 6 — "
                 "rf2-snjn5), skill-leaf stop-and-wait route drift (Rule 6b — "
-                "rf2-qivv), or M-1 classifier / kickoff-anchor drift "
+                "rf2-qivv), retired listener-stream vocabulary (Rule 7 — "
+                "rf2-qnsk), or M-1 classifier / kickoff-anchor drift "
                 "found."
             )
         return 0
@@ -2233,9 +2300,11 @@ def run(*, verbose: bool, ci: bool) -> int:
         "Form-3's per-mount `r/track!` OWNER (a bare `add-watch` on a ratom-family "
         "subscription can never fire — rf2-ynved), the Form-3 capture-once "
         "retarget invariance (FORM-3.md + guided-views-m11.md §M-11 aligned "
-        "— rf2-aalo4n), and the M-0 publication-route lock (author-supplied "
-        "pinned route, no `\"<latest>\"`, no stop-and-wait — rf2-snjn5), to the "
-        "shipped contract."
+        "— rf2-aalo4n), the M-0 publication-route lock (author-supplied "
+        "pinned route, no `\"<latest>\"`, no stop-and-wait — rf2-snjn5), and "
+        "`register-listener!`'s closed TWO-member stream vocabulary "
+        "(`:trace` / `:epoch`; rf2-kuky.69 retired the always-on `:events` / "
+        "`:errors` members — rf2-qnsk), to the shipped contract."
     )
     return 1
 
@@ -3920,6 +3989,84 @@ def _self_test() -> int:
                 "pointer intact) passed the cross-owner leg."
             )
             failures += 1
+
+    # --- Rule 7 (rf2-qnsk) — the retired listener-stream vocabulary. The DIRTY
+    # fixtures are the EXACT pre-fix sentences the migration corpus carried at
+    # trunk c09c413ad6; the CLEAN ones are the repaired wording plus the live
+    # M-69 retirement statement, which names `:events` / `:errors` in passing
+    # and must stay legal. R7-7 is the reflow tooth: the anchor is multi-word,
+    # so a physical-line scan would retire the rule on an editor's wrap.
+    def expect_r7(text: str, *, dirty: bool, label: str) -> None:
+        nonlocal failures
+        found = bool(listener_stream_vocab_problems(text))
+        if found != dirty:
+            want = "flagged" if dirty else "clean"
+            print(f"SELF-TEST FAIL ({label}): expected {want}; got "
+                  f"{'flagged' if found else 'clean'}.")
+            failures += 1
+
+    expect_r7(
+        "The stream is the **first** argument — the verb is one "
+        "stream-parameterised pair across four streams (`:trace` dev-only, "
+        "`:events` and `:errors` always-on, `:epoch` via the epoch artefact), "
+        "and an unknown stream throws `:rf.error/unknown-listener-stream`.",
+        dirty=True,
+        label="R7-1 the pre-fix M-26 four-stream row",
+    )
+    expect_r7(
+        "— which also carries the always-on `:events` and `:errors` "
+        "streams. The stream is the **first** argument, and it is not "
+        "optional: the vocabulary is closed (`:trace` / `:events` / "
+        "`:errors` / `:epoch`) with no bare default.",
+        dirty=True,
+        label="R7-2 the pre-fix M-55 closed-vocabulary sentence",
+    )
+    expect_r7(
+        "… with the raw always-on `:events` / `:errors` streams of "
+        "`(rf/register-listener! stream id f)` beneath it for an intentionally "
+        "corpus-wide hook, and that same verb's `:trace` stream.",
+        dirty=True,
+        label="R7-3 the pre-fix observability-sweep pointer",
+    )
+    expect_r7(
+        "The stream is the **first** argument — the verb is one "
+        "stream-parameterised pair over a closed TWO-member vocabulary — "
+        "`:trace` (dev-only) and `:epoch` (via the epoch artefact); "
+        "rf2-kuky.69 retired the always-on `:events` / `:errors` members, "
+        "whose replacement is an `:observability` sink rather than a listener, "
+        "and an unknown stream throws `:rf.error/unknown-listener-stream`.",
+        dirty=False,
+        label="R7-4 the repaired M-26 row",
+    )
+    expect_r7(
+        "— whose stream is the **first** argument and is not optional: "
+        "the vocabulary is closed and has exactly two members, `:trace` / "
+        "`:epoch`, with no bare default (rf2-kuky.69 retired the always-on "
+        "`:events` / `:errors` members; production observation is an "
+        "`:observability` sink, per M-69 below).",
+        dirty=False,
+        label="R7-5 the repaired M-55 sentence",
+    )
+    expect_r7(
+        "rf2-kuky.69 retired the always-on `:events` / `:errors` listener "
+        "streams, so no raw stream sits beneath the sink.",
+        dirty=False,
+        label="R7-6 a retirement statement naming the members as streams",
+    )
+    expect_r7(
+        "— which also carries the always-on `:events` and\n"
+        "`:errors` streams, and no bare default.",
+        dirty=True,
+        label="R7-7 the stale shape hard-wrapped inside the anchor",
+    )
+    expect_r7(
+        "Error observability is a frame `:observability` `:errors` sink, or "
+        "the same entry grammar once per process via "
+        "`(rf/configure! {:observability …})`.",
+        dirty=False,
+        label="R7-8 the live `:observability` `:errors` sink is not a listener "
+              "stream claim",
+    )
 
     if failures:
         print(f"self-test: {failures} failure(s).")
