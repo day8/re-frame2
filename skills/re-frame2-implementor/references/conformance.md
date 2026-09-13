@@ -12,15 +12,15 @@ EDN fixtures, one canonical interaction each, in two modes (README §Fixture for
 **Derive, never transcribe.** The Mode-B `:call` operator set, the handler-DSL op set, the capability vocabulary, the dynamic-host-only fixture set, and the fixture count are all facts of the corpus **at your pin** — enumerate them there rather than trusting any prose list (this leaf included):
 
 ```bash
-ls spec/conformance/fixtures/*.edn | wc -l                                        # fixture count
-grep -rhoE '^\{? ?:fixture/[a-z0-9?-]+' spec/conformance/fixtures/ | tr -d '{ ' | sort -u  # top-level fixture keys
-grep -rhoE ':call\s+:[a-z][a-z.]*[a-z/-]*' spec/conformance/fixtures/ | sort -u   # Mode-B call ops
-grep -rho ':fsm/[a-z-]*' spec/conformance/fixtures/ | sort -u                     # one family's live tags
-grep -rl ':fixture/dynamic-host-only?' spec/conformance/fixtures/                 # static-host-inapplicable fixtures
-grep -rhoE ':fixture/spec-version\s+"[^"]*"' spec/conformance/fixtures/ | sort -u # spec versions in play
+ls <path-to-re-frame2>/spec/conformance/fixtures/*.edn | wc -l  # fixture count
+grep -rhoE '^\{? ?:fixture/[a-z0-9?-]+' <path-to-re-frame2>/spec/conformance/fixtures/ | tr -d '{ ' | sort -u  # top-level fixture keys
+grep -rl ':fixture/dynamic-host-only?' <path-to-re-frame2>/spec/conformance/fixtures/  # static-host-inapplicable fixtures
+grep -rhoE ':fixture/spec-version\s+"[^"]*"' <path-to-re-frame2>/spec/conformance/fixtures/ | sort -u  # spec versions in play
 ```
 
 The **line anchor** in the key grep is load-bearing, not tidiness. Fixtures also register, dispatch, and handle **event ids in the `:fixture/` namespace** (a fixture that needs a marker event registers one under `:fixture/registry`), and those are values inside the map, not keys of it — an unanchored `:fixture/*` search returns them mixed in with the real keys, and also picks up mentions inside `:fixture/doc` strings and `;;` commentary. Both are false positives for the key floor below: build it against an id and a conforming fixture fails. Anchoring on the top-level map's own keys is the discriminator; once the harness has parsed the fixture, take the key set from the parsed map and skip the text search entirely.
+
+**Capability tags and Mode-B `:call` ops come only from the parsed fixtures** — the union of every `:fixture/capabilities` set and every `:call` value. No text search reads them honestly: a whole-file tag grep also matches fixture ids and doc strings, a `:call` grep counts whitespace variants as distinct ops, and a `:fixture/capabilities` set can span lines, so a line-anchored variant under-reads.
 
 New pure primitives may register a new `:call` op in a later fixture spec version; existing ops are never redefined. A harness that hard-codes a stale list will fail current fixtures or misdiagnose a harness gap as a spec gap.
 
@@ -37,7 +37,7 @@ Six fail-loud floors the harness owes:
 - **Required-family skip.** A `known-skipped` entry naming any capability in a **v1-required** family — any `:core/…`, `:identity/…`, `:flow/…`, `:data-classification/…` tag — fails the run naming it, before a single fixture is filtered. The allowlist exists to record capabilities the port genuinely does not claim; a v1-required family is never one of them. This floor is what makes the reduced path safe **by construction**: a minimum port cannot shrink its denominator by declaring the omission, so "we skipped it on purpose" stops being a route to `claimed-applicable / claimed-applicable`.
 - **Non-vacuous run.** Assert a non-zero runnable-fixture floor — an empty or all-skipped corpus goes RED, never green having exercised nothing.
 
-The middle three are one rule at three depths — capability, operator, key — and all three exist because the README states the principle for capabilities: *"a harness that silently skips unknown capabilities is the shape the spec forbids"* (§Capability tagging). Nothing is special about capabilities there; a silently-skipped key is the same failure wearing a green tick.
+The middle three are one rule at three depths — capability, operator, key. README §Capability tagging makes an unknown capability fail the suite rather than skip, and §Top-level fixture keys applies that reason to keys: a silently-skipped key is the same failure wearing a green tick.
 
 Handler bodies are data: a small DSL (`[:set path value]`, `[:update path [:fn op]]`, `[:get path]`, `[:dispatch event]`, …) realised into host closures — ~50 lines, the complete op table in the README. The CLJS reference's interpreter (`implementation/core/src/re_frame/conformance.cljc`) is one worked example, not a contract.
 

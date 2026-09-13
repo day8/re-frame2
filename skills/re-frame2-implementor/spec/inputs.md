@@ -15,7 +15,7 @@ The most load-bearing files:
 - **`spec/000-Vision.md`** — the eight-host scope footnote, the identity-primitive required properties, the host-profile matrix.
 - **`spec/Implementor-Checklist.md`** — Part 1 (capability declarations), Part 2 (options-by-host for every mechanism — the profile leaf links here instead of restating), Part 3 (conformance consumption). The §Required table (incl. runtime shape policing) and §Security obligations are cited directly.
 - **`spec/conformance/README.md`** — the acceptance test: fixture format, handler-DSL op table, capability tagging, versioning, harness steps. `references/conformance.md` is the operational walk of this doc and defers to it on any disagreement.
-- **`spec/001-Registration.md`, `spec/002-Frames.md`, `spec/006-ReactiveSubstrate.md`, `spec/009-Instrumentation.md`, `spec/015-Data-Classification.md`** — the foundation EP owners in the EP index.
+- **`spec/001-Registration.md`, `spec/002-Frames.md`, `spec/006-ReactiveSubstrate.md`, `spec/009-Instrumentation.md`, `spec/015-Data-Classification.md`, `spec/013-Flows.md`** — the foundation EP owners in the EP index.
 - **`spec/API.md`** — the consolidated public signatures; a standing anchor of the EP loop.
 - **`spec/Ownership.md`** — the "which spec owns this surface" map; the loop's other standing anchor.
 - **`spec/Conventions.md`** — the reserved `:rf/*` scheme, the three unqualified fx-ids, the `:rf/path` algebra and CEDN-1 canonical identity (cardinal rules 10–11).

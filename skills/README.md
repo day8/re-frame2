@@ -105,9 +105,9 @@ the situation they cover:
 ### Implementing the framework
 
 - [`re-frame2-implementor/`](re-frame2-implementor) — guide an
-  engineer building a new re-frame2 implementation — a port to a
-  different host language or substrate, not an application built on the
-  CLJS reference. 2-phase workflow: Phase 1 records the port
+  engineer building a new re-frame2 implementation — a port to one of
+  the eight in-scope JS-cross-compile-to-React+VDOM host languages, not
+  an application built on the CLJS reference. 2-phase workflow: Phase 1 records the port
   profile — spec pin, host/toolchain, host mechanisms, capability claim —
   with no interview by default; Phase 2 walks the EP corpus
   in dependency order with `spec/conformance/` as the acceptance test.
@@ -289,15 +289,37 @@ Single source of truth for the per-leaf size ceiling — per-skill
 
 Recorded exempt on the token test, so the next author cites this list rather
 than re-deriving it. Line counts and LF-normalised bytes, measured
-2026-09-03:
+2026-09-13:
 
-- catalogue-shaped — `re-frame2-pair/references/ops.md` 220 L / 46,461 B;
-  `re-frame2-pair/references/recipes.md` 424 L / 46,086 B;
-  `re-frame2-pair-retro/references/known-frictions.md` 242 L / 16,752 B
+- catalogue-shaped — `re-frame2-pair/references/ops.md` 220 L / 46,966 B;
+  `re-frame2-pair/references/recipes.md` 444 L / 50,343 B;
+  `re-frame2-pair-retro/references/known-frictions.md` 250 L / 17,260 B;
+  `reagent-migration/references/catalog-mechanical.md` 516 L / 24,861 B and
+  `reagent-migration/references/catalog-judgment.md` 370 L / 20,931 B (any
+  row can apply to any view, so each is scanned whole for every view
+  converted)
 - dense teaching — `re-frame2/references/state-machines/reg-machine.md`
-  208 L / 20,599 B; `re-frame2/references/state-machines/spawn.md`
-  199 L / 19,236 B; `re-frame-migration/references/guided-views-m11.md`
-  261 L / 39,701 B
+  208 L / 20,982 B; `re-frame2/references/state-machines/spawn.md`
+  222 L / 20,787 B; `re-frame-migration/references/guided-views-m11.md`
+  261 L / 39,793 B; `re-frame2-implementor/references/phase-2-impl-order.md`
+  99 L / 20,343 B (the EP loop and its index, loaded whole by every EP
+  slice; its largest section, the cross-cutting obligations, binds every
+  port whatever its claim, so a split saves tokens only in a session that
+  stops before any obligation applies, and costs a `SKILL.md` routing row
+  because routing is one level deep)
+- migration phase leaves, where the test holds only in part —
+  `re-frame-migration/references/inventory-and-plan.md` 133 L / 37,685 B
+  (Phase 0a's five steps, one arc read whole); `auto-call-site-rewrites.md`
+  570 L / 51,615 B and `auto-cross-cutting.md` 433 L / 39,617 B (the Type A
+  catalogues a Phase-3 sweep walks in full); `guided-interceptors-subs.md`
+  363 L / 26,618 B (loaded whole when the Phase-0a plan names any of its
+  rules). Two of them have a seam where a split would save tokens for one
+  session shape: `auto-call-site-rewrites.md`'s test-layer block (M-25
+  through M-50, about 14 KB), which a migration with no re-frame test layer
+  never needs, and `guided-interceptors-subs.md`'s M-71 section (about
+  11 KB), for a plan that does not name M-71. Nothing measured shows which
+  shape is common, so they are recorded rather than split; if one shape
+  comes to dominate, those are the seams
 
 The ceilings are grounded in a May 2026 corpus audit (max 203 L, p95
 148 L, median 88 L); leaves that have since outgrown them are refactor
