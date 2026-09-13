@@ -32,7 +32,8 @@
   were repinned when the path-key encoding moved to `canonical-bytes`; the
   empty-set literal (`sha256:e3b0c44298fc1c14`) is unchanged because the
   empty schema set emits no path-key line."
-  (:require [re-frame.schemas.digest]))
+  (:require [re-frame.schemas.digest]
+            [re-frame.schemas.validator]))
 
 ;; ---- the parity test entry point ------------------------------------------
 ;;
@@ -191,3 +192,44 @@
    props-order-pair
    metadata-stripped-pair
    metadata-stripped-inner-pair])
+
+;; ---- ambient printer limits (rf2-gwye.14) ---------------------------------
+;;
+;; A REPL or tool that binds `*print-length*` / `*print-level*` must neither
+;; reach the digest bytes nor leave a truncated serialisation in the
+;; process-wide `default-edn-print` memo. The first two forms collapse to one
+;; string under either bound; the third also sends collection-valued map keys
+;; and set members through the canonicaliser's `pr-str` comparator, where a
+;; bound makes distinct members compare equal and merge.
+
+(def printer-limit-schemas
+  [[:map [:a :int]]
+   [:map [:a :string]]
+   [:map {:doc-keys {[:k 1] :x [:k 2] :y} :doc-set #{[:m 1] [:m 2]}} [:a :int]]])
+
+(def printer-limit-bindings
+  "`[label *print-length* *print-level*]` — each bound alone, then both."
+  [[:print-length 1 nil]
+   [:print-level nil 1]
+   [:both 1 1]])
+
+(defn printer-limit-observations
+  "For each of `printer-limit-bindings`, starting from an EMPTY print memo: the
+  printer bytes and digests of `printer-limit-schemas` computed INSIDE the
+  binding (`:inside`), then re-read after it WITHOUT clearing (`:after`). Both
+  must equal the unbounded `:baseline`. Leaves the memo empty."
+  []
+  (let [observe  (fn []
+                   {:bytes   (mapv re-frame.schemas.validator/run-printer printer-limit-schemas)
+                    :digests (mapv #(compute-digest {[:s] %}) printer-limit-schemas)})
+        _        (re-frame.schemas.validator/clear-edn-print-cache!)
+        baseline (observe)
+        results  (mapv (fn [[label length level]]
+                         (re-frame.schemas.validator/clear-edn-print-cache!)
+                         (let [inside (binding [*print-length* length
+                                                *print-level*  level]
+                                        (observe))]
+                           {:label label :inside inside :after (observe)}))
+                       printer-limit-bindings)]
+    (re-frame.schemas.validator/clear-edn-print-cache!)
+    {:baseline baseline :results results}))

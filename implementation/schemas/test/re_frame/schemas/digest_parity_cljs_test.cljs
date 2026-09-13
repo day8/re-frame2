@@ -62,3 +62,18 @@
       (is (= (count literals) (count (set literals)))
           (str "Fixture literals must be pairwise distinct — got "
                (pr-str literals))))))
+
+;; ---- ambient printer limits (rf2-gwye.14) ---------------------------------
+
+(deftest cljs-printer-limits-never-reach-digest-bytes
+  (testing "rf2-gwye.14 — a bounded *print-length* / *print-level* in the
+            calling context changes neither the bytes and digests computed
+            under it nor what the memo serves once the binding ends"
+    (let [{:keys [baseline results]} (rf.schemas.digest-parity-fixtures/printer-limit-observations)]
+      (is (apply distinct? (:digests baseline))
+          "the unbounded baseline keeps every schema form distinct")
+      (doseq [{:keys [label inside after]} results]
+        (is (= baseline inside)
+            (str (pr-str label) " — bytes and digests inside the binding"))
+        (is (= baseline after)
+            (str (pr-str label) " — memoised bytes and digests read after it"))))))
