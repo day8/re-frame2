@@ -290,3 +290,59 @@
              elapsed without re-anchoring would have handed this sample the
              whole 10000ms back to the previous one, and the display would
              have leapt straight off zero")))))
+
+;; ---------------------------------------------------------------------------
+;; Shortening the duration below elapsed never rewinds it (rf2-gwye.54)
+;; ---------------------------------------------------------------------------
+
+(deftest shortening-below-elapsed-keeps-measured-time
+  (testing "rf2-gwye.54 — a tick still in flight when the slider drops the
+            duration below elapsed stops the chain WITHOUT dragging elapsed
+            down to the new target; raising the duration re-arms only once it
+            clears the time already measured"
+    (with-captured-schedules
+      (fn [f captured]
+        (dispatch-at! f t0 [:timer/initialise])
+        (dispatch-at! f (+ t0 5000) [:timer/tick 0])
+        (is (= 5000 (elapsed-ms f)) "five seconds measured, gen-0 tick pending")
+
+        (reset! captured [])
+        (dispatch-at! f (+ t0 5050) [:timer/set-duration 1000])
+        (is (= 5000 (elapsed-ms f)) "the drag itself leaves elapsed alone")
+        (is (empty? @captured) "and arms nothing — the live chain is still in the air")
+
+        ;; ---- the pending tick lands under the shortened target ----
+        (reset! captured [])
+        (dispatch-at! f (+ t0 5100) [:timer/tick 0])
+        (is (= 5000 (elapsed-ms f))
+            "the tick holds elapsed at the 5000ms already measured — the
+             deadline clamp used to rewind it to the new 1000ms target")
+        (is (empty? @captured) "past its target, so the chain ends")
+
+        ;; ---- raising the target but staying behind elapsed: still stopped ----
+        (reset! captured [])
+        (dispatch-at! f (+ t0 5200) [:timer/set-duration 3000])
+        (is (= 0 (tick-gen f)) "no re-arm: 3000ms is still behind 5000ms measured")
+        (is (empty? @captured) "and nothing scheduled")
+        (is (= 5000 (elapsed-ms f)))
+
+        ;; ---- raising it past elapsed re-arms exactly once, from the drag ----
+        (reset! captured [])
+        (dispatch-at! f (+ t0 6000) [:timer/set-duration 8000])
+        (is (= 1 (tick-gen f)) "re-armed under one fresh generation")
+        (is (= [[:timer/tick 1]] (scheduled-events captured)) "exactly one fresh chain")
+        (reset! captured [])
+        (dispatch-at! f (+ t0 6100) [:timer/tick 1])
+        (is (= 5100 (elapsed-ms f))
+            "the first resumed sample counts the 100ms since the re-arm"))))
+  (testing "an already-finished timer obeys the same rule"
+    (with-captured-schedules
+      (fn [f captured]
+        (dispatch-at! f t0 [:timer/initialise])
+        (dispatch-at! f (+ t0 10000) [:timer/tick 0])
+        (dispatch-at! f (+ t0 11000) [:timer/set-duration 1000])
+        (is (= 10000 (elapsed-ms f)) "shortening a finished timer keeps its elapsed")
+        (reset! captured [])
+        (dispatch-at! f (+ t0 12000) [:timer/set-duration 3000])
+        (is (= 10000 (elapsed-ms f)))
+        (is (empty? @captured) "3000ms is behind 10000ms measured: stays finished")))))

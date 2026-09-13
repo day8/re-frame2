@@ -15,9 +15,11 @@
    How? Every `:cells/value` reads the *whole* cell map (`:cells/all-cells`) as
    its one input. Commit any edit and that map gets a fresh identity, so every
    cell on screen recomputes — dependents and bystanders alike. Sounds
-   wasteful; isn't. The evaluator is a pure function over a small grid, and the
+   wasteful; isn't. The evaluator is a pure function that settles each cell it
+   meets once and reuses that value wherever it's referenced again, so one
+   cell's recompute costs at most one visit per cell it depends on. And the
    subscription layer `=`-dedups every result, so a cell whose value didn't
-   actually move doesn't re-render. We trade a little recompute (cheap) for
+   actually move doesn't re-render. We trade a little recompute (bounded) for
    zero bookkeeping (priceless). The
    [derivation graph](../../../../docs/core/glossary.md#the-derivation-graph)
    has the full story.
@@ -271,37 +273,39 @@
   "Walk an AST to a value. Numbers are themselves, a cell ref defers to
    `evaluate-cell`, and a list applies its operator to evaluated args. Errors
    are values here, not exceptions — they flow upward instead of unwinding the
-   stack."
-  [ast cells visited]
-  (cond
-    (number? ast) ast
-    (nil? ast)    nil
+   stack. `settled` is the evaluation's memo of finished cells (see
+   `evaluate-cell`); the 3-arity starts a fresh one."
+  ([ast cells visited] (evaluate-ast ast cells visited (volatile! {})))
+  ([ast cells visited settled]
+   (cond
+     (number? ast) ast
+     (nil? ast)    nil
 
-    (and (map? ast) (:cell ast))
-    (evaluate-cell (:cell ast) cells visited)
+     (and (map? ast) (:cell ast))
+     (evaluate-cell (:cell ast) cells visited settled)
 
-    (vector? ast)
-    (let [[op & args] ast
-          vals        (mapv #(evaluate-ast % cells visited) args)]
-      ;; Only do arithmetic if every argument actually came back a number.
-      ;; Feeding text or an error marker to `+` would throw, and so would `-`
-      ;; or `/` with no args at all — hence the `seq` guard too.
-      (if (and (seq vals) (every? number? vals))
-        (case (str op)
-          "+" (apply + vals)
-          "-" (apply - vals)
-          "*" (apply * vals)
-          "/" (if (some zero? (rest vals)) :error/div-by-zero (apply / vals))
-          :error/unknown-op)
-        ;; Something upstream wasn't a number. If a real error reached us — a
-        ;; referenced cell's parse-error pair, or a keyword marker like
-        ;; :error/cycle — pass the first one along unchanged so the original
-        ;; cause survives. Otherwise it's plain text in a sum: :error/type.
-        (or (first (filter parse-error? vals))
-            (first (filter keyword? vals))
-            :error/type)))
+     (vector? ast)
+     (let [[op & args] ast
+           vals        (mapv #(evaluate-ast % cells visited settled) args)]
+       ;; Only do arithmetic if every argument actually came back a number.
+       ;; Feeding text or an error marker to `+` would throw, and so would `-`
+       ;; or `/` with no args at all — hence the `seq` guard too.
+       (if (and (seq vals) (every? number? vals))
+         (case (str op)
+           "+" (apply + vals)
+           "-" (apply - vals)
+           "*" (apply * vals)
+           "/" (if (some zero? (rest vals)) :error/div-by-zero (apply / vals))
+           :error/unknown-op)
+         ;; Something upstream wasn't a number. If a real error reached us — a
+         ;; referenced cell's parse-error pair, or a keyword marker like
+         ;; :error/cycle — pass the first one along unchanged so the original
+         ;; cause survives. Otherwise it's plain text in a sum: :error/type.
+         (or (first (filter parse-error? vals))
+             (first (filter keyword? vals))
+             :error/type)))
 
-    :else :error/eval))
+     :else :error/eval)))
 
 (defn evaluate-cell
   "Compute one cell's display value. `visited` is the set of cell ids already on
@@ -311,18 +315,32 @@
    parse returns its stored `[:error/parse msg]` pair as-is, so the actionable
    message rides through to the view; a well-formed formula recurses with itself
    added to the set; a literal parses to a number or stays text; an untouched
-   cell is simply 0."
-  [id cells visited]
-  (cond
-    (visited id)  :error/cycle
-    :else
-    (if-let [{:keys [raw formula? ast]} (get cells id)]
-      (cond
-        (parse-error? ast)   ast
-        formula?             (evaluate-ast ast cells (conj visited id))
-        :else                (let [n (parse-num raw)]
-                               (if (some? n) n raw)))
-      0)))                                       ;; empty cells are 0
+   cell is simply 0.
+
+   `settled` is the other half of the bookkeeping: the cells this evaluation
+   has already FINISHED, with their values. Without it, a cell referenced twice
+   is walked twice — and a chain where each cell doubles the one before
+   (`=(+ A1 A1)`, `=(+ A2 A2)`, …) doubles the work at every step, so 21 cells
+   cost two million visits. Reusing a settled value caps it at one visit per
+   cell. The two sets answer different questions, which is why both exist:
+   `visited` is *on the path right now* (meeting it again is a cycle), `settled`
+   is *done* (just reuse it). The memo lives for one top-level call over one
+   immutable cell map, so a value never outlives the snapshot it came from."
+  ([id cells visited] (evaluate-cell id cells visited (volatile! {})))
+  ([id cells visited settled]
+   (cond
+     (visited id)            :error/cycle
+     (contains? @settled id) (get @settled id)
+     :else
+     (let [value (if-let [{:keys [raw formula? ast]} (get cells id)]
+                   (cond
+                     (parse-error? ast)   ast
+                     formula?             (evaluate-ast ast cells (conj visited id) settled)
+                     :else                (let [n (parse-num raw)]
+                                            (if (some? n) n raw)))
+                   0)]                   ;; empty cells are 0
+       (vswap! settled assoc id value)
+       value))))
 
 ;; ============================================================================
 ;; EVENTS
@@ -367,8 +385,10 @@
 ;; This is where the propagation magic actually lives — which is to say,
 ;; nowhere special. `:cells/value` is parameterised by id, so a view asks for a
 ;; specific cell with `(subscribe [:cells/value "A1"])`. Every such sub reads
-;; the one shared input below and computes from scratch, and `=`-dedup makes
-;; that cheap. No edges, no listeners, no propagation engine.
+;; the one shared input below and computes from scratch — one visit per cell it
+;; depends on, since the evaluator reuses what it has settled — and `=`-dedup
+;; stops an unchanged result from re-rendering. No edges, no listeners, no
+;; propagation engine.
 
 (rf/reg-sub :cells/all-cells
   {:doc "The sparse cell map — only edited cells are present. Every cell's value
