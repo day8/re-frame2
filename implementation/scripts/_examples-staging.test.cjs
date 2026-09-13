@@ -1127,7 +1127,89 @@ it('TEETH: an ASSET request is never a document navigation, however it asks (rf2
   );
 });
 
-itAsync('a history route is RELOADABLE through the real runner server, and assets still 404 (rf2-fzbj.35)', async () => {
+itAsync('the document fallback serves the host page for a history route and 404s every asset (rf2-fzbj.35)', async () => {
+  // The POLICY half of the repair, over real HTTP against the real responder
+  // serve-example starts. Node builtins only, so it runs in every lane —
+  // including `js-harness-self-tests`, which installs no packages at all. The
+  // composition with http-server's `--proxy` is pinned by the argv row in
+  // _local-browser-harness.test.cjs and exercised end to end by the next row
+  // wherever http-server is installed.
+  const http = require('http');
+  const HOST_SENTINEL = 'RF2-FALLBACK-HOST-DOCUMENT';
+  const HTML_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-docfallback-'));
+  fs.writeFileSync(path.join(root, 'index.html'), `<!doctype html><title>${HOST_SENTINEL}</title>`);
+  const fallback = await startDocumentFallbackServer({ indexPath: path.join(root, 'index.html') });
+  const { hostname, port } = new URL(fallback.url);
+  const request = (method, reqPath, accept) =>
+    new Promise((resolve) => {
+      const headers = accept ? { Accept: accept } : {};
+      const req = http.request(
+        { hostname, port, method, path: reqPath, agent: false, headers },
+        (res) => {
+          let body = '';
+          res.setEncoding('utf8');
+          res.on('data', (c) => { body += c; });
+          res.on('end', () => resolve({ status: res.statusCode, body }));
+        },
+      );
+      req.on('error', (err) => resolve({ status: 0, body: String(err) }));
+      req.setTimeout(10000, () => { req.destroy(new Error('request timeout')); });
+      req.end();
+    });
+  try {
+    for (const url of ['/articles/intro', '/articles', '/realworld/profile/bob']) {
+      const r = await request('GET', url, HTML_ACCEPT);
+      assert.strictEqual(r.status, 200, `${url} must get the host page`);
+      assert.ok(r.body.includes(HOST_SENTINEL), `${url} must get the STAGED host page`);
+    }
+    const head = await request('HEAD', '/articles/intro', HTML_ACCEPT);
+    assert.strictEqual(head.status, 200);
+    assert.strictEqual(head.body, '', 'a HEAD answer carries no body');
+    // TEETH: the runner's own first-build probe (no Accept), a browser asset
+    // fetch (*/*) and a broad-Accept asset request all stay 404.
+    for (const [url, accept] of [
+      ['/main.js', undefined],
+      ['/main.js', '*/*'],
+      ['/_shared/css/style.css', HTML_ACCEPT],
+      ['/fixtures/todos.json', HTML_ACCEPT],
+    ]) {
+      const r = await request('GET', url, accept);
+      assert.strictEqual(r.status, 404, `${url} must stay a 404`);
+      assert.ok(!r.body.includes(HOST_SENTINEL), `${url} must never carry the host document`);
+    }
+    // No host page staged means nothing to fall back to: a 404, not a 500.
+    fs.rmSync(path.join(root, 'index.html'));
+    const gone = await request('GET', '/articles/intro', HTML_ACCEPT);
+    assert.strictEqual(gone.status, 404);
+  } finally {
+    await fallback.close();
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  }
+});
+
+// The end-to-end row needs the http-server PACKAGE, and the lane that runs this
+// file in CI (`js-harness-self-tests`) deliberately installs nothing — no
+// `npm ci` — so there it cannot resolve. Register it only where it can run, and
+// say so out loud where it cannot, rather than reporting a PASS that exercised
+// nothing. The row above carries the policy in every lane regardless.
+let HTTP_SERVER_BIN = null;
+try {
+  HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
+    paths: [path.join(__dirname, '..')],
+  });
+} catch {
+  HTTP_SERVER_BIN = null;
+}
+const itAsyncWithHttpServer = HTTP_SERVER_BIN
+  ? itAsync
+  : (label) =>
+      console.log(
+        `  SKIP  ${label}\n        http-server is not installed in this lane (no npm ci); ` +
+          'the fallback responder row above still ran.',
+      );
+
+itAsyncWithHttpServer('a history route is RELOADABLE through the real runner server, and assets still 404 (rf2-fzbj.35)', async () => {
   // End-to-end over the exact path serve-example takes: the shared
   // startLocalHttpServer owner spawning the REAL http-server bin against a
   // synthetic staged root, with the document fallback wired in as its
@@ -1173,7 +1255,7 @@ itAsync('a history route is RELOADABLE through the real runner server, and asset
     const port = await findFreePort();
     const { ready } = await startLocalHttpServer({
       cleanup,
-      httpServerBin: require.resolve('http-server/bin/http-server', { paths: [IMPL_ROOT] }),
+      httpServerBin: HTTP_SERVER_BIN,
       root,
       port,
       cwd: IMPL_ROOT,
