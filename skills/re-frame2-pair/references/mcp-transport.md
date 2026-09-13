@@ -66,7 +66,7 @@ The server exposes **30 tools** (catalogued in `tools/re-frame2-pair-mcp/tool-de
 
 This is the **transport index** — the tool name, its arg signature, and where its per-tool semantics are documented. The behaviour of each tool (return shapes, modes, gotchas) lives once in `ops.md`; this table does not restate it.
 
-The table is **complete by gate**: `scripts/check_skill_mcp_drift.py` cross-checks the descriptor manifest's tool names against the names in this table's first column, so a tool cannot be shipped, counted, and allow-listed while remaining undocumented here, and a row cannot outlive the tool it names.
+The table is **complete by gate for tool NAMES only**: `scripts/check_skill_mcp_drift.py` cross-checks the descriptor manifest's tool names against the names in this table's first column, so a tool cannot be shipped, counted, and allow-listed while remaining undocumented here, and a row cannot outlive the tool it names. The arg signatures are hand-kept and no gate reads them; the descriptor your host received from `tools/list` is the authority on a tool's keys.
 
 | MCP tool | Arg signature | Semantics home |
 |---|---|---|
@@ -86,12 +86,12 @@ The table is **complete by gate**: `scripts/check_skill_mcp_drift.py` cross-chec
 | `read-mounted-boundaries` | `{build?, max-tokens?}` — every Fresco boundary mounted right now, keyed by its read set; no `view-id` arg | [`screen-reads.md` §Fresco evidence](screen-reads.md#fresco-evidence--mounted-boundaries-read-attribution-render-cause) |
 | `read-read-attribution` | `{build?, max-tokens?}` — the reverse edge: which boundaries read each subscription | [`screen-reads.md` §Fresco evidence](screen-reads.md#fresco-evidence--mounted-boundaries-read-attribution-render-cause) |
 | `explain-render` | `{build?, max-tokens?}` — which of a boundary's reads moved, plus retained runs as leads | [`screen-reads.md` §Fresco evidence](screen-reads.md#fresco-evidence--mounted-boundaries-read-attribution-render-cause) |
-| `dispatch` | `{event, sync?, frame?, trace?, await-render?, settle?, queued?, fx-overrides?, cofx?}` | [`ops.md` §Write](ops.md#write) |
-| `dispatch-dry-run` | `{event, frame?, cofx?}` — simulate WITHOUT committing; a caller `fx-overrides` is refused (`:reason :fx-overrides-unsupported`); not `--allow-writes`-gated | [`ops.md` §Write](ops.md#write) |
+| `dispatch` | `{event, sync?, frame?, trace?, await-render?, settle?, queued?, timeout-ms?, fx-overrides?, interceptor-overrides?, cofx?, replay?, include-sensitive?}` — `interceptor-overrides` is a per-call envelope key, replay-relevant like `cofx` (Tool-Pair §Time-travel) | [`ops.md` §Write](ops.md#write) |
+| `dispatch-dry-run` | `{event, frame?, cofx?, include-fx-args?, elision?, include-sensitive?}` — simulate WITHOUT committing; a caller `fx-overrides` is refused (`:reason :fx-overrides-unsupported`); not `--allow-writes`-gated | [`ops.md` §Write](ops.md#write) |
 | `restore-epoch` | `{epoch-id, frame?}` — canonical time-travel undo; `--allow-writes`-gated | [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) |
 | `replay-epoch` | `{epoch-id, frame?}` — one-call strict replay of a retained epoch; `dispatch`'s authority, NOT `--allow-writes`-gated | [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) |
 | `replace-app-db` | `{db, frame?}` — canonical state injection; `--allow-writes`-gated | [`ops.md` §Write](ops.md#write) |
-| `trace-window` | `{ms, limit?, cursor?}` — epoch records added in the last N ms | [`ops.md` §Trace](ops.md#trace) |
+| `trace-window` | `{ms, frame?, limit?, cursor?}` — epoch records added in the last N ms | [`ops.md` §Trace](ops.md#trace) |
 | `watch-epochs` | `{pred?, since-id?, limit?, cursor?}` — pull-mode poll | [`ops.md` §Live watch](ops.md#live-watch) |
 | `watch-until` | `{signals, pred, timeout-ms?}` — block until a signal predicate holds | [`ops.md` §Signal recording](ops.md#signal-recording--blocking-waits) |
 | `record` | `{signals, stop?, max-entries?}` — read-only signal recorder | [`ops.md` §Signal recording](ops.md#signal-recording--blocking-waits) |

@@ -15,7 +15,7 @@ A coding agent working with just the static code is working with a limited persp
 It can:
 
 - use the REPL
-- consume re-frame2's Tool-Pair surfaces directly: the trace stream (`rf/register-listener! :trace`), the retain-N trace buffer (`re-frame.trace.tooling/trace-buffer`), the per-frame epoch history (`epoch-history`), the registered handler/sub/fx/machine introspection API (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `machines`, `app-schemas`, `sub-cache`), and first-class time-travel via `restore-epoch`
+- consume re-frame2's Tool-Pair surfaces directly: the trace stream (`rf/register-listener! :trace`), the retain-N trace buffer (`re-frame.trace.tooling/trace-buffer`), the per-frame epoch history (`epoch-history`), the registered handler/sub/fx/machine introspection API (`registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `app-schemas`, `sub-cache`), and first-class time-travel via `restore-epoch`
 - use re-frame2's source-coord annotation (`data-rf2-source-coord`) — and re-com's `data-rc-src` as a fallback — to bridge live DOM elements back to source `{:ns :line :file}`
 
 With these capabilities, Claude Code can iteratively perform experiments by patching parts of the system, restoring state to a recorded epoch, retrying events and seeing the results.
@@ -131,7 +131,7 @@ Here's the kinds of conversations you can have with Claude.
 
 > **You**: When I first enter the Dashboard panel, the global reset button doesn't work. Fix it, then return to the previous state and fire the same event again, iterating until it works.
 >
-> **Claude**: I called `(rf/restore-epoch! :rf/default <pre-click-epoch-id>)` — the restore returned `true`, so the whole frame-state is back (both partitions: app-db *and* runtime-db, so any machine snapshots / route slice / elision declarations are rewound too). (Caveat: any HTTP requests or navigation that already fired during the original cascade are *not* reversed — restore rewinds durable frame-state, not side effects or transient host state.) The panel-level subscription was wrong; I patched it. Re-ran the event, `app-db` now updates as expected. Want me to put the patch into the source code?
+> **Claude**: I called `restore-epoch {epoch-id: "<pre-click-epoch-id>"}` — it returned `:restored? true`, so the whole frame-state is back (both partitions: app-db *and* runtime-db, so any machine snapshots / route slice / elision declarations are rewound too). (Caveat: any HTTP requests or navigation that already fired during the original cascade are *not* reversed — restore rewinds durable frame-state, not side effects or transient host state.) The panel-level subscription was wrong; I patched it. Re-ran the event, `app-db` now updates as expected. Want me to put the patch into the source code?
 
 ### Stub an effect for a what-if
 
@@ -198,7 +198,7 @@ Useful when you want to force the tool, or when the phrasing of your question do
 
 The skill's first op in a session is `discover-app`, which:
 
-1. Finds the running shadow-cljs nREPL. The MCP server discovers the port on its own (a cascade ending in shadow's `roots/list` / HTTP probe). When discovery misses (no running shadow, a non-default port, an exotic setup), pass `--port-file <abs>` to the server or set `SHADOW_CLJS_NREPL_PORT` (a CWD-independent override).
+1. Finds the running shadow-cljs nREPL. The MCP server discovers the port on its own (a cascade through the MCP host's `roots/list` and shadow's HTTP probe). When discovery misses (no running shadow, a non-default port, an exotic setup), pass `--port-file <abs>` to the server or set `SHADOW_CLJS_NREPL_PORT` (a CWD-independent override).
 2. Verifies a browser runtime is attached to that build.
 3. Checks that `re-frame.core` is loaded and `re-frame.interop/debug-enabled?` is true.
 4. Probes the `re-frame2-pair.runtime` preload marker; refuses with `:reason :runtime-loaded-but-preload-missing` (the normal missing-preload verdict) and a setup hint when absent.

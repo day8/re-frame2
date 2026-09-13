@@ -441,4 +441,4 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 
 **Expected output shape.** A `watch-epochs` pull of epoch records (one per play event), plus a `:status` verdict (`:pass`/`:fail`/`:cannot-run`/`:error`, read via `result-status`/`result-passed?`) and the failing assertion records. A successful loop ends with `:status :pass`.
 
-**Gotcha.** Hot-reloading a variant calls `reset-frame!` on its frame, wiping any REPL-only state you injected (e.g. a `replace-app-db` from a prior iteration setting up a corner case). Bake the corner-case setup into `:setup` or `:loaders` instead — the play-runner re-runs them each iteration, so it is durable across refinements.
+**Gotcha.** Hot-reloading a variant calls Story's `reset-frame!` (in `re-frame.story.frames`) on its frame, wiping any REPL-only state you injected (e.g. a `replace-app-db` from a prior iteration setting up a corner case). Bake the corner-case setup into `:setup` or `:loaders` instead — the play-runner re-runs them each iteration, so it is durable across refinements.

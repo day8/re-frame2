@@ -40,6 +40,7 @@ Ops refuse with a `:reason` rather than guessing. Beyond `:ambiguous-frame` and 
 - `:missing-baseline` → `tail-build` got a `:probe` with no `:baseline`. The baseline must be captured **before** the source edit; a post-edit self-baseline can't distinguish a fast reload from no reload.
 - `:baseline-without-probe` → the mirror image: a `:baseline` with nothing to compare it against. Supply the probe form the baseline came from.
 - `:port-unresolved` → `discover-app {port: N}` found no build serving that port in the shadow-cljs `:dev-http` map. Pass `:build` explicitly, or call `discover-app` with no arg to auto-select.
+- `:rf.error/epoch-artefact-missing` → the app is missing `day8/re-frame2-epoch`, the time-travel artefact. Add it alongside core and require `re-frame.epoch` at boot. `replace-app-db` is the one tool that fails loudly with this, because `rf/replace-frame-state!` refuses to fake an undoable write. Every other epoch surface degrades **silently** instead: `(rf/epoch-history …)` returns `[]`, so `watch-epochs`, `trace-window` and `snapshot`'s `:epochs` slice come back empty, and `restore-epoch` / `replay-epoch` refuse because the facade returns `false`. `discover-app` does not check for the artefact, so it passes throughout. If the app has plainly dispatched and the ring is still `[]`, check the app's deps before clicking around or raising the ring depth.
 
 ## A structured read came back blank
 

@@ -173,10 +173,11 @@ Two-plus app frames are registered and the session hasn't pinned one. Pin one wi
 
 ### Watch ops come back empty
 
-Two likely causes:
+Three likely causes:
 
 - **No epoch history yet.** `(rf/epoch-history :rf/default)` returns `[]` until the app dispatches at least one event. Click around or fire one synthetic dispatch.
 - **No activity matches the predicate**. Try `watch-epochs {}` with no predicate to confirm the transport works, then add filters.
+- **The epoch artefact isn't on the app's classpath.** If the app has plainly dispatched and `(rf/epoch-history :rf/default)` is still `[]`, the app is missing `day8/re-frame2-epoch` (or never requires `re-frame.epoch` at boot). Without it every epoch read is `[]` while `discover-app` still passes — see [`references/errors.md` §Tool-envelope refusals](../references/errors.md#tool-envelope-refusals).
 
 ### DOM ops return `{:src nil}`
 
