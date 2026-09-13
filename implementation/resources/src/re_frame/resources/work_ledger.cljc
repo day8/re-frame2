@@ -213,6 +213,11 @@
                      reply's `:rf.frame/id`)
   - `:resource/key`/`:generation`/`:transport`
   - `:owner`       — the initiating owner (nil-safe; folded into `:owners`)
+  - `:owners`      — the owners ALREADY holding the entry (rf2-gwye.15): a new
+                     read attempt starts from the entry's `:active-owners`, so
+                     releasing one held owner never orphans work another held
+                     owner still needs (Spec 016 §Race). Unioned with `:owner`;
+                     nil-safe.
   - `:cause`       — the initiating cause (nil-safe; folded into `:causes`)
   - `:cancellable?`— best-effort cancel hint (default true)
   - `:started-at`  — epoch-ms
@@ -247,7 +252,7 @@
                      DURABLE record instead (Spec 016 §Read completion
                      continuations)."
   [{:keys [work-id frame-id generation transport
-           owner cause cancellable? started-at deadline-at page-index reply-targets]
+           owner owners cause cancellable? started-at deadline-at page-index reply-targets]
     resource-key :resource/key}]
   (cond-> {:work/id      work-id
            :work/kind    work-kind-resource
@@ -256,7 +261,7 @@
            :generation   generation
            :transport    transport
            :status       :running
-           :owners       (if owner #{owner} #{})
+           :owners       (cond-> (set owners) owner (conj owner))
            :causes       (if cause [cause] [])
            :cancellable? (if (some? cancellable?) cancellable? true)
            :started-at   started-at

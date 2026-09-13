@@ -711,7 +711,13 @@
                           :resource/key scoped-key
                           :generation   generation
                           :transport    transport-id
-                          :owner        owner
+                          ;; rf2-gwye.15 — the new attempt is needed by EVERY
+                          ;; owner holding the entry (`entry'` already carries
+                          ;; any newly attached payload owner), not only by the
+                          ;; payload owner: an ownerless focus / poll /
+                          ;; invalidation refetch must not be abortable by one
+                          ;; of several owners releasing (Spec 016 §Race).
+                          :owners       (:active-owners entry')
                           :cause        cause
                           :started-at   started-at
                           :deadline-at  deadline
@@ -993,7 +999,10 @@
                           :resource/key scoped-key
                           :generation   generation
                           :transport    transport-id
-                          :owner        owner
+                          ;; rf2-gwye.15 — a load-more MINTS no owner, but the
+                          ;; owners already holding the feed still need its
+                          ;; page: the row starts from `:active-owners`.
+                          :owners       (:active-owners entry')
                           :cause        cause
                           :started-at   started-at
                           :deadline-at  deadline
@@ -1162,7 +1171,9 @@
                           :resource/key scoped-key
                           :generation   generation
                           :transport    transport-id
-                          :owner        owner
+                          ;; rf2-gwye.15 — a sweep leg is needed by every owner
+                          ;; holding the feed, like the page-0 fetch it follows.
+                          :owners       (:active-owners entry')
                           :cause        cause
                           :started-at   started-at
                           :deadline-at  deadline
@@ -2876,9 +2887,17 @@
             ;; leg at a time, "in sequence"). `entry-replace-page` preserves the
             ;; cursor, so it rides through to here.
             sweep-leg (rf.resources.state/next-refetch-sweep-leg replaced)
-            entry'    (if sweep-leg
+            swept     (if sweep-leg
                         (rf.resources.state/entry-advance-refetch-sweep replaced)
                         replaced)
+            ;; rf2-gwye.16 — produce the feed's `:tags` over the ACCUMULATED
+            ;; page vector this page just settled into (the entry's `:data`),
+            ;; the infinite twin of the scalar success's produce-and-install, so
+            ;; tag invalidation — and a mutation's `:invalidates` — can find the
+            ;; feed. A resource declaring no `:tags` keeps what it has.
+            tags-fn   (:tags spec)
+            entry'    (cond-> swept
+                        tags-fn (assoc :tags (set (tags-fn (nth resource-key 2) (:data swept)))))
             ;; rf2-c64uiz — the accepted `:reply-to` continuation carries the
             ;; MERGED items list over the POST-settle feed (`entry'`), the SAME
             ;; `:value` shape the fresh-skip cache-hit path delivers, NOT the
@@ -2900,6 +2919,12 @@
                             work-id rf.resources.work-ledger/mark-terminal
                             :completed {:loaded-at loaded-at :page-index page-index})
                           (rf.resources.work-ledger/prune-terminal-for-key resource-key)
+                          ;; rf2-gwye.16 — replace this key's tag-index members
+                          ;; with the tags just produced (old ones removed), as
+                          ;; the scalar success does (rf2-2c2mkh incremental).
+                          (update rf.resources.state/resources-key rf.resources.state/reindex-keys
+                                  (get-in runtime-db (rf.resources.state/entries-path))
+                                  [(rf.resources.state/key-id resource-key)])
                           ;; route readiness: a route-owned blocking infinite
                           ;; feed blocks on page 0 — the accumulated page makes
                           ;; the requirement data-ready.
@@ -2977,11 +3002,17 @@
       arming) so an owner-free errored empty feed is reaped. Spec 016
       reserves `:error` / `:status :error` for first-load (page 0) failure;
 
-    - a LOAD-MORE (page N>0) abort/failure — OR a page-0 abort/failure when
-      the feed ALREADY has accumulated pages (an R6 window-preserving refetch
-      that fails/aborts its replacement page 0 is NOT a first load — there is
-      a feed to keep) — settles to `:loaded` (data kept, no timer re-arming:
-      the timers were already armed on the feed's prior success). A FAILURE
+    - a page-0 FAILURE when the feed ALREADY has accumulated pages (an R6
+      window-preserving refetch whose replacement page 0 fails is NOT a first
+      load — there is a feed to keep) is a whole-feed REFRESH failure
+      (rf2-gwye.17): `entry-failed` returns it to `:loaded`, keeps every page
+      and records `:refresh-error`, exactly as a scalar background refresh
+      does, and stops any sweep;
+
+    - a LOAD-MORE (page N>0) abort/failure — OR a page-0 ABORT when the feed
+      already has accumulated pages — settles to `:loaded` (data kept, no
+      timer re-arming: the timers were already armed on the feed's prior
+      success). A FAILURE
       here is the THIRD error channel: KEEPS ALL accumulated pages and records
       `:page-error` (`entry-page-failed`), so a view shows \"couldn't load
       more — retry\" without losing the feed. The blocking requirement stays
@@ -3010,7 +3041,7 @@
         ;; rf2-byl7bk.3.1 — a FIRST-load failure is a page-0 fetch (`page-index`
         ;; 0) that has NO accumulated pages to keep. A page-0 refetch over a
         ;; feed that already has pages (R6 window-preserving) is NOT a first
-        ;; load — it keeps `:page-error` + `:loaded` (data to keep).
+        ;; load — its failure is a whole-feed refresh (`:refresh-error`, rf2-gwye.17).
         first-load?  (and (some? entry)
                           (= 0 page-index)
                           (zero? (rf.resources.state/page-count entry)))
@@ -3177,13 +3208,45 @@
           (cond-> {:rf.db/runtime rdb'}
             (seq fx) (assoc :fx fx))))
 
+      ;; WHOLE-FEED REFRESH FAILURE (rf2-gwye.17) — a page-0 fetch over a feed
+      ;; that already has pages is a background refresh (a focus / poll /
+      ;; invalidation / manual refetch replacing page 0 in place), NOT a
+      ;; load-more. It settles through the SAME transition the scalar refresh
+      ;; failure uses (`entry-failed`: `:fetching` with data returns to
+      ;; `:loaded`, keeps every page, records `:refresh-error`) and traces
+      ;; `:rf.resource/refresh-failed`, so a view warns "refresh failed" rather
+      ;; than offering a load-more retry. Page 0 is a multi-page sweep's first
+      ;; leg, so a failure here stops the sweep (clear the cursor). No timer
+      ;; re-arming — the feed's timers were armed on its prior success
+      ;; (symmetric with `failed-handler`'s refresh branch).
+      (= 0 page-index)
+      (let [entry' (-> (rf.resources.state/entry-failed entry {:error error})
+                       rf.resources.state/clear-refetch-sweep)
+            rdb'   (-> runtime-db
+                       (assoc-in (rf.resources.state/entry-path resource-key) entry')
+                       (rf.resources.work-ledger/update-record
+                         work-id rf.resources.work-ledger/mark-terminal
+                         :failed {:error error :completed-at completed-at})
+                       (rf.resources.route/reconcile-readiness))]
+        (rf.resources.work-ledger/clear-handle! frame-id work-id)
+        (rf.trace/emit! :rf.event :rf.resource/work-completed
+                     {:rf.frame/id frame-id :resource/key resource-key
+                      :work/id work-id :generation generation :status :failed})
+        (rf.trace/emit! :rf.event :rf.resource/refresh-failed
+                     {:rf.frame/id frame-id :resource/key resource-key
+                      :work/id work-id :generation generation
+                      :status-before (:status entry) :status-after (:status entry')})
+        (emit-resource-replied!
+          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+        (cond-> {:rf.db/runtime rdb'}
+          (seq cont-fxs) (assoc :fx (vec cont-fxs))))
+
       ;; LOAD-MORE PAGE FAILURE — the third error channel: keep the feed,
-      ;; record :page-error, return to :loaded. This is a page N>0 failure, OR
-      ;; a page-0 refetch over a feed that already has pages (R6 window-
-      ;; preserving — there is a feed to keep, so it is not a first load). The
-      ;; blocking requirement stays resolved (the route blocks on page 0,
-      ;; which already landed for any feed that has accumulated pages). Spec 016
-      ;; reserves :page-error for load-more only.
+      ;; record :page-error, return to :loaded. This is a page N>0 failure — a
+      ;; load-more, or a later leg of a multi-page refetch sweep (page 0 is
+      ;; handled above). The blocking requirement stays resolved (the route
+      ;; blocks on page 0, which already landed for any feed that has
+      ;; accumulated pages). Spec 016 reserves :page-error for load-more only.
       :else
       ;; a failed leg STOPS any in-progress refetch sweep (clear the cursor —
       ;; don't chain past a failure; rf2-byl7bk.3.3). The kept-feed +
@@ -3205,9 +3268,9 @@
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')
                       :page-error error})
-        ;; a page-0 refetch over an existing feed that fails is an accepted
-        ;; terminal reply for that attempt — fan out its `:reply-to` (rf2-p1yri7);
-        ;; a load-more (page N>0) carries no `:reply-to`, so this is a no-op.
+        ;; a load-more / later sweep leg (page N>0) carries no `:reply-to`, so
+        ;; this fan-out is a no-op; a page-0 refresh fans out in the branch
+        ;; above (rf2-p1yri7).
         (emit-resource-replied!
           frame-id resource-key work-id (:status reply) (:reply-targets record) false)
         (cond-> {:rf.db/runtime rdb'}
