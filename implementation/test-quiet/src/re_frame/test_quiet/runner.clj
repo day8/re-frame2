@@ -774,24 +774,19 @@
                [#{} []])
        second))
 
-(defn- classpath-file
+(defn- resolved-through-classpath
   "The file `require` will actually load for the classpath-relative resource
-  path `ns-path`, or nil when nothing on THIS run's classpath answers to it.
+  path `ns-path` — a forward-slashed canonical path — or nil when nothing on
+  THIS run's classpath answers to it.
 
-  A resource answered from inside a jar is nil too: a jar entry is never
-  one of the loose source files the discovery walk just handed us, so it is
+  A resource answered from inside a jar is nil too: a jar entry is never one
+  of the loose source files the discovery walk just handed us, so it is
   `some other file` by the only definition that matters here."
   [^String ns-path]
   (when-let [url (io/resource ns-path)]
     (when (= "file" (.getProtocol url))
-      (try (io/file (.toURI url)) (catch Exception _ nil)))))
-
-(defn- canonical-path
-  "`file`'s canonical path, forward-slashed, or nil if the filesystem
-  refuses to answer."
-  [^java.io.File file]
-  (try (str/replace (.getCanonicalPath file) "\\" "/")
-       (catch java.io.IOException _ nil)))
+      (try (str/replace (.getCanonicalPath (io/file (.toURI url))) "\\" "/")
+           (catch Exception _ nil)))))
 
 (defn- own-path-defect
   "Why `file` will not reach the runner as ITS OWN namespace, or nil.
@@ -821,9 +816,9 @@
   (if complaint
     complaint
     (let [ns-path  (ns->path declared ext)
-          resolved (some-> (classpath-file ns-path) canonical-path)]
+          resolved (resolved-through-classpath ns-path)]
       (when-not (or (= rel ns-path)
-                    (and resolved (= resolved (str/replace canonical "\\" "/"))))
+                    (= resolved (str/replace canonical "\\" "/")))
         (str "it declares `" declared "`, which `require` loads from `"
              ns-path "` - "
              (if resolved
