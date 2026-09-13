@@ -33,7 +33,9 @@
    - DISCOVERY: a file whose `(ns ...)` form the reader cannot read
      refuses the run (exit 1, named on stderr) instead of leaving it
      silently short a suite — and the same fixture is green the moment
-     before that file arrives.
+     before that file arrives. Likewise a selected `.cljc` that `require`
+     would never load, because a `.clj` of its namespace answers from
+     another classpath root (rf2-hq1o5).
    - FIXTURES: a namespace whose `use-fixtures` entry is DATA rather
      than a function — the cljs.test `{:before f :after g}` map, whether
      written at the call site or reached through a var — refuses the run
@@ -1676,21 +1678,23 @@
 ;; standing the guard down.
 
 (defn- invoke-quiet-runner-rooted
-  "Relaunch a fresh JVM on `-main` with `classpath-root` on the classpath
-  and `discovery-dir` — which may be nested arbitrarily deep beneath it —
-  as the `-d` value. The harness above passes ONE directory as both, which
-  is precisely the case that cannot distinguish a discovery directory from
-  a classpath root."
-  [^java.io.File classpath-root ^java.io.File discovery-dir & runner-args]
+  "Relaunch a fresh JVM on `-main` with `classpath-roots` appended to the
+  classpath in order and `discovery-dir` — which may be nested arbitrarily
+  deep beneath one of them — as the `-d` value. The harness above passes ONE
+  directory as both, which is precisely the case that cannot distinguish a
+  discovery directory from a classpath root."
+  [classpath-roots ^java.io.File discovery-dir & runner-args]
   (let [java-executable (str (io/file (System/getProperty "java.home") "bin"
                                       (if (str/includes?
                                             (str/lower-case
                                               (System/getProperty "os.name"))
                                             "win")
                                         "java.exe" "java")))
-        classpath       (str (System/getProperty "java.class.path")
-                             (System/getProperty "path.separator")
-                             (.getAbsolutePath classpath-root))
+        path-separator  (System/getProperty "path.separator")
+        classpath       (str/join path-separator
+                                  (cons (System/getProperty "java.class.path")
+                                        (map #(.getAbsolutePath ^java.io.File %)
+                                             classpath-roots)))
         command         (into [java-executable "-cp" classpath "clojure.main"
                                "-m" "re-frame.test-quiet.runner"
                                "-d" (.getAbsolutePath discovery-dir)]
@@ -1728,7 +1732,7 @@
                                 ["probe"      (io/file root "probe")]
                                 ["probe/deep" (io/file root "probe" "deep")]]]
           (let [{:keys [exit out err timed-out?]}
-                (invoke-quiet-runner-rooted root dir
+                (invoke-quiet-runner-rooted [root] dir
                                             "-n" "probe.deep.good-test")]
             (is (not timed-out?) (str "-d " relative " must terminate"))
             (is (zero? exit)
@@ -1755,7 +1759,7 @@
                "  (:require [clojure.test :refer [deftest is]]))\n"
                "(deftest silently-dropped (is (= 1 1)))"))
         (let [{:keys [exit out err]}
-              (invoke-quiet-runner-rooted root (io/file root "probe" "deep"))]
+              (invoke-quiet-runner-rooted [root] (io/file root "probe" "deep"))]
           (is (= 1 exit)
               (str "an unreadable file must still red the lane under a"
                    " nested `-d`; got exit " exit "\n--- stdout ---\n" out
@@ -1769,3 +1773,102 @@
           (is (not (str/includes? out "Ran "))
               (str "and the run is refused before any test executes; got:\n"
                    out)))))))
+
+;; ----------------------------------------------------------------------
+;; A `.cljc` IS NOT WHAT `require` LOADS WHEN A `.clj` ANSWERS (rf2-hq1o5).
+;;
+;; The repair above clears a file when its resource path, looked up on the
+;; real classpath, answers with that very file. It looked the path up under
+;; the DISCOVERED file's extension, and `require` does not: `RT/load` asks
+;; the whole classpath for the namespace's `.clj` first, and for its `.cljc`
+;; only when no `.clj` answers anywhere. So a selected FAILING `.cljc` and an
+;; unselected PASSING `.clj` of the same namespace, in two classpath roots,
+;; cleared the guard — and `collision-defects` could not see the pair,
+;; because the `.clj` sits outside every discovery directory. Measured
+;; before the fix, at a root and a nested `-d` and with the roots in either
+;; order: exit 0, `Ran 1 tests containing 1 assertions.`, and the SHADOW's
+;; marker on stdout. The selected failure never executed.
+;;
+;; The control is what makes the refusal evidence rather than opinion: with
+;; the shadow off the classpath, the identical command runs the `.cljc` and
+;; exits 1 on its failure — so the green above was a real lost failure.
+
+(def ^:private selected-failing-cljc
+  "The SELECTED file: a `.cljc` whose one test fails, and says so on stdout
+  so the output names which file actually ran."
+  (str "(ns probe.deep.mixed-test\n"
+       "  (:require [clojure.test :refer [deftest is]]))\n"
+       "(deftest the-selected-cljc-fails\n"
+       "  (println \"selected-cljc-ran\")\n"
+       "  (is (= :selected :shadow)))"))
+
+(def ^:private unselected-passing-clj
+  "The SHADOW: a `.clj` of the same namespace, in another classpath root and
+  under no discovery directory, whose one test passes."
+  (str "(ns probe.deep.mixed-test\n"
+       "  (:require [clojure.test :refer [deftest is]]))\n"
+       "(deftest the-shadow-clj-passes\n"
+       "  (println \"shadow-clj-ran\")\n"
+       "  (is (= 1 1)))"))
+
+(deftest a-cljc-shadowed-by-a-clj-in-another-root-is-refused
+  (with-fixture-dir
+    (fn [tmp]
+      (let [selected (io/file tmp "selected")
+            shadow   (io/file tmp "shadow")
+            depths   [["<selected root>" selected]
+                      ["probe"           (io/file selected "probe")]]]
+        (write-deep-fixture! selected "probe/deep/mixed_test.cljc"
+                             selected-failing-cljc)
+        (write-deep-fixture! shadow "probe/deep/mixed_test.clj"
+                             unselected-passing-clj)
+
+        (testing "THE GUARD: the selected `.cljc` is refused before any tally,
+                  naming it AND the `.clj` that would load instead — whichever
+                  root comes first, because the extension decides, not the
+                  root order"
+          (doseq [[order roots] [["selected root first" [selected shadow]]
+                                 ["shadow root first"   [shadow selected]]]
+                  [relative dir] depths]
+            (let [{:keys [exit out err timed-out?]}
+                  (invoke-quiet-runner-rooted roots dir
+                                              "-n" "probe.deep.mixed-test")
+                  context (str order ", -d " relative "\n--- stdout ---\n" out
+                               "\n--- stderr ---\n" err)]
+              (is (not timed-out?) (str "must terminate; " context))
+              (is (= 1 exit)
+                  (str "the selected file will never run, so the lane must be"
+                       " refused rather than go green over the shadow; got"
+                       " exit " exit ", " context))
+              (is (str/includes? err "selected/probe/deep/mixed_test.cljc")
+                  (str "the diagnostic names the SELECTED file; " context))
+              (is (str/includes? err "shadow/probe/deep/mixed_test.clj`")
+                  (str "and the file `require` actually loads; " context))
+              (is (str/includes? err "`.clj` before its `.cljc`")
+                  (str "and why that one wins; " context))
+              (is (not (str/includes? out "Ran "))
+                  (str "refused BEFORE a tally exists; " context))
+              (is (not (str/includes? out "shadow-clj-ran"))
+                  (str "so the shadow's test never ran either; " context)))))
+
+        (testing "THE CONTROL: with the shadow off the classpath, the same
+                  command runs the selected `.cljc` and exits 1 on its
+                  failure"
+          (doseq [[relative dir] depths]
+            (let [{:keys [exit out err]}
+                  (invoke-quiet-runner-rooted [selected] dir
+                                              "-n" "probe.deep.mixed-test")
+                  context (str "-d " relative "\n--- stdout ---\n" out
+                               "\n--- stderr ---\n" err)]
+              (is (= 1 exit)
+                  (str "the selected file fails, so the lane is red; got exit "
+                       exit ", " context))
+              (is (str/includes? out "selected-cljc-ran")
+                  (str "and it is the selected `.cljc` that ran; " context))
+              (is (str/includes? out "Ran 1 tests containing 1 assertions.")
+                  (str "exactly once; " context))
+              (is (str/includes? out "1 failures, 0 errors.")
+                  (str "reporting its failure; " context))
+              (is (not (str/includes? err "will not reach the runner"))
+                  (str "and nothing is refused, because nothing shadows it;"
+                       " " context)))))))))

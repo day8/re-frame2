@@ -774,19 +774,50 @@
                [#{} []])
        second))
 
-(defn- resolved-through-classpath
-  "The file `require` will actually load for the classpath-relative resource
-  path `ns-path` — a forward-slashed canonical path — or nil when nothing on
-  THIS run's classpath answers to it.
+(defn- source-file
+  "The loose source file `url` names, as a forward-slashed canonical path,
+  or nil when it names anything else.
 
-  A resource answered from inside a jar is nil too: a jar entry is never one
-  of the loose source files the discovery walk just handed us, so it is
-  `some other file` by the only definition that matters here."
+  A resource answered from inside a jar is nil: a jar entry is never one of
+  the loose source files the discovery walk just handed us, so it is `some
+  other file` by the only definition that matters here."
+  [^java.net.URL url]
+  (when (= "file" (.getProtocol url))
+    (try (str/replace (.getCanonicalPath (io/file (.toURI url))) "\\" "/")
+         (catch Exception _ nil))))
+
+(defn- resolved-through-classpath
+  "The loose file THIS run's classpath answers the resource path `ns-path`
+  with, or nil when nothing answers it or a jar does.
+
+  Answering this one path is NOT the same as being what `require` loads:
+  `require` never asks for the extension a discovered file happens to carry.
+  That question is `load-winner`'s."
   [^String ns-path]
-  (when-let [url (io/resource ns-path)]
-    (when (= "file" (.getProtocol url))
-      (try (str/replace (.getCanonicalPath (io/file (.toURI url))) "\\" "/")
-           (catch Exception _ nil)))))
+  (some-> (io/resource ns-path) source-file))
+
+(def ^:private load-extensions
+  "The order `require` asks the classpath for a namespace's source.
+
+  `clojure.lang.RT/load` asks the WHOLE classpath for `<base>.clj`, and only
+  when nothing anywhere answers does it ask for `<base>.cljc` — so a `.clj`
+  in ANY root beats a `.cljc` in EVERY root, whatever the root order.
+  Measured on Clojure 1.12.0 (rf2-hq1o5): with a `.cljc` in the first root
+  and a `.clj` of the same namespace in the second, `require` loads the
+  `.clj`; swap the roots and it still loads the `.clj`; drop the `.clj` and
+  it loads the `.cljc`. (`RT/load` also takes a compiled `__init.class` over
+  either source when the class is newer; that door is not modelled here.)"
+  [".clj" ".cljc"])
+
+(defn- load-winner
+  "The source `require` will ACTUALLY load for `ns-sym` on this run's
+  classpath: a loose file's forward-slashed canonical path, the resource URL
+  of anything else (a jar entry), or nil when nothing answers at all."
+  [ns-sym]
+  (some (fn [ext]
+          (when-let [url (io/resource (ns->path ns-sym ext))]
+            (or (source-file url) (str url))))
+        load-extensions))
 
 (defn- own-path-defect
   "Why `file` will not reach the runner as ITS OWN namespace, or nil.
@@ -801,31 +832,55 @@
   `-d test/re_frame`, narrowing a large tree during local debugging, is an
   ordinary selection and not a defect, even though every file under it then
   spells a path relative to `-d` that differs from its resource path.  Two
-  answers therefore clear a file, and it is a defect only if NEITHER does:
+  answers therefore say a file spells its own path, and it is a defect if
+  NEITHER does:
 
     - its path relative to the scan directory already IS its resource path
       (the default `-d test` lane, and every temp-dir fixture, which is why
       this arm must stay: nothing there is on the classpath at all); or
-    - `require`'s own resolution of that resource path, on this run's real
-      classpath, lands on THIS VERY FILE.
+    - that resource path, on this run's real classpath, answers with THIS
+      VERY FILE.
 
-  The second arm is strictly weaker than the first, so this rule can only
-  ever clear a file the older path-string comparison reddened — never redden
-  one it cleared."
-  [{:keys [canonical rel ext declared complaint]}]
+  The second arm is strictly weaker than the first, so it can only ever
+  clear a file the older path-string comparison reddened.
+
+  NEITHER ANSWER SAYS THE FILE IS WHAT `require` LOADS (rf2-hq1o5).  Both
+  look the namespace up under the extension the discovered file carries,
+  while `require` asks the whole classpath for the `.clj` first (see
+  `load-extensions`).  So a selected failing `.cljc` in one root and an
+  unselected passing `.clj` of the same namespace in another satisfied both,
+  and `-main` ran the `.clj` and exited 0 without the selected failure ever
+  executing.  A file that spells its own path is therefore STILL a defect
+  when its namespace's `load-winner` is a source outside `discovered` — the
+  canonical paths of every file this run walked.  A winner INSIDE it is a
+  discovered sibling declaring the same namespace, which `collision-defects`
+  names together with this file."
+  [discovered {:keys [canonical rel ext declared complaint]}]
   (if complaint
     complaint
     (let [ns-path  (ns->path declared ext)
+          self     (str/replace canonical "\\" "/")
           resolved (resolved-through-classpath ns-path)]
-      (when-not (or (= rel ns-path)
-                    (= resolved (str/replace canonical "\\" "/")))
+      (if-not (or (= rel ns-path) (= resolved self))
         (str "it declares `" declared "`, which `require` loads from `"
              ns-path "` - "
              (if resolved
                (str "and on this run's classpath that is `" resolved
                     "`, a different file.")
                (str "and nothing on this run's classpath answers to that"
-                    " path, so `require` cannot load this file at all.")))))))
+                    " path, so `require` cannot load this file at all.")))
+        (let [winner (load-winner declared)]
+          (when (and winner
+                     (not= winner self)
+                     (not (contains? discovered winner)))
+            (str "it declares `" declared "`, but `require` loads that"
+                 " namespace from `" winner "`, a different file, so this"
+                 " file never runs"
+                 (if (and (= ext ".cljc") (str/ends-with? winner ".clj"))
+                   (str ": Clojure takes a namespace's `.clj` before its"
+                        " `.cljc` from anywhere on the classpath, whatever"
+                        " the root order.")
+                   "."))))))))
 
 (defn- collision-defects
   "One `[path complaint]` per file for every namespace declared by MORE
@@ -863,22 +918,24 @@
 
   Empty is the only acceptable answer.  Two rules, both required: a file
   must declare a namespace that resolves to ITS OWN FILE — by its path
-  relative to the scan directory, or by `require`'s own resolution against
-  the real classpath, which is what makes a nested `-d` an ordinary
-  selection rather than a defect (`own-path-defect`) — and no two files may
-  declare the SAME one (`collision-defects`).  The first alone leaves the
-  shadowing door open,
-  because it derives each file's extension from that file and so clears a
-  `.clj`/`.cljc` pair — and a repeated relative path under two roots —
-  where each half spells its own path perfectly and only one of them ever
-  loads."
+  relative to the scan directory, or by resolution against the real
+  classpath, which is what makes a nested `-d` an ordinary selection rather
+  than a defect — and that `require` will not load from some source outside
+  the scan instead (`own-path-defect`); and no two files may declare the
+  SAME one (`collision-defects`).  The first alone leaves the shadowing door
+  open inside the scan, because it derives each file's extension from that
+  file and so clears a `.clj`/`.cljc` pair — and a repeated relative path
+  under two roots — where each half spells its own path perfectly and only
+  one of them ever loads."
   [dirs]
-  (let [files (scan dirs)]
+  (let [files      (scan dirs)
+        discovered (set (map #(str/replace (:canonical %) "\\" "/") files))
+        defect     (partial own-path-defect discovered)]
     (vec
       (sort
-        (concat (for [f files :let [complaint (own-path-defect f)] :when complaint]
+        (concat (for [f files :let [complaint (defect f)] :when complaint]
                   [(:path f) complaint])
-                (collision-defects (remove own-path-defect files)))))))
+                (collision-defects (remove defect files)))))))
 
 (defn- verify-discovery!
   "Refuse the run when any file in this lane's discovery directories will
