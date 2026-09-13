@@ -302,6 +302,46 @@
         (is (= frag (:fragment parsed))
             "the fragment recovers byte-exactly")))))
 
+;; ---- splat trailing-slash DATA (rf2-fzbj.12 / rf2-gwye.28) ----------------
+;;
+;; A splat value that ENDS in `/` carries that slash as data — `match-url`
+;; decodes `/f/a%2F` to `{:rest "a/"}` — while the incoming-URL normaliser
+;; strips RAW trailing slashes (`/cart` ≡ `/cart/`). So the emitter must spell
+;; a terminal slash run `%2F`, or rebuilding the URL silently drops it: the
+;; two-argument split discarded the trailing empty chunks, `/f/a%2F` re-emitted
+;; as `/f/a` and rematched `{:rest "a"}`, and the all-slash value emitted `/f/`,
+;; which the route cannot match at all. Embedded separators stay structural, so
+;; the multi-segment rows are the controls.
+
+(deftest splat-trailing-slash-data-survives-route-url-on-both-hosts
+  (rf/reg-route :parity/files {} "/f/*rest")
+  (testing "route-url then match-url preserves every splat value"
+    (doseq [[case-name value emitted]
+            [["one trailing slash"                   "a/"   "/f/a%2F"]
+             ["two trailing slashes"                 "a//"  "/f/a%2F%2F"]
+             ["the all-slash value"                  "/"    "/f/%2F"]
+             ["two slashes and nothing else"         "//"   "/f/%2F%2F"]
+             ["embedded separator (control)"         "a/b"  "/f/a/b"]
+             ["embedded double separator (control)"  "a//b" "/f/a//b"]]]
+      (let [built (rf.routing/route-url {:to :parity/files :params {:rest value}})]
+        (is (= emitted built)
+            (str case-name " " (pr-str value) ": emits the literal canonical URL"))
+        (is (= value (get-in (rf.routing/match-url built) [:params :rest]))
+            (str case-name " " (pr-str value) ": the emitted URL matches back to the same value")))))
+  (testing "a URL arriving with encoded trailing slashes survives re-emission
+            and a second match"
+    (doseq [url ["/f/a%2F" "/f/%2F" "/f/a%2F%2F"]]
+      (let [params  (:params (rf.routing/match-url url))
+            rebuilt (rf.routing/route-url {:to :parity/files :params params})]
+        (is (= url rebuilt)
+            (str url ": re-emits byte-identically"))
+        (is (= params (:params (rf.routing/match-url rebuilt)))
+            (str url ": the rebuilt URL matches to the same params")))))
+  (testing "CONTROL: a RAW trailing slash is still the documented trailing-slash
+            equivalence, not splat data"
+    (is (= "a" (get-in (rf.routing/match-url "/f/a/") [:params :rest]))
+        "/f/a/ and /f/a are one location")))
+
 (deftest route-url-refuses-unpaired-surrogates-in-every-position-on-both-hosts
   (testing "the production prism, not a re-derivation: an unpaired
             surrogate anywhere in the address fails the whole call on

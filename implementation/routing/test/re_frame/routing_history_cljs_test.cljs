@@ -301,6 +301,62 @@
            short-circuits the canonicalize (canonicalising it could fabricate
            an in-app-looking path)"))))
 
+;; rf2-fzbj.12 / rf2-gwye.26: `:rf.route/navigate {:url …}` normalises an
+;; ACCEPTED raw reference to the location the browser will actually reach
+;; BEFORE matching — the same `request-url->app-url` the link door runs — so the
+;; committed route, its params and the pushed history entry describe ONE
+;; location. The raw string used to reach `match-url` verbatim: a same-origin
+;; absolute URL, a protocol-relative same-origin URL and a rooted dot-segment
+;; path all missed `/articles/:id` and committed not-found while the address bar
+;; showed the valid article URL.
+(deftest navigate-raw-url-normalizes-before-matching-cljs-rf2-fzbj-12
+  (register-routes!)
+  (let [doc-origin (.-origin (.-location js/globalThis.window))
+        authority  (subs doc-origin (.indexOf doc-origin "//"))
+        current    (fn [] (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                                  [:rf.runtime/routing :current]))]
+    (testing "every accepted spelling of one location resolves to the same
+              route, params and history entry"
+      (doseq [[case-name raw] [["same-origin absolute"          (str doc-origin "/articles/ok")]
+                               ["same-origin protocol-relative" (str authority "/articles/ok")]
+                               ["rooted dot-segment"            "/x/../articles/ok"]
+                               ["ordinary rooted (control)"     "/articles/ok"]]]
+        ;; Land elsewhere first so the rule-3 identical-nav no-op never masks
+        ;; the navigation under test.
+        (rf/dispatch-sync [:rf.route/navigate {:to :hist/cart}])
+        (rf/dispatch-sync [:rf.route/navigate {:url raw}])
+        (is (= :hist/article (:route-id (current)))
+            (str case-name " " (pr-str raw) ": commits the article route"))
+        (is (= {:id "ok"} (:params (current)))
+            (str case-name " " (pr-str raw) ": params come from the normalised location"))
+        (is (= "/articles/ok" (current-url *history-state*))
+            (str case-name " " (pr-str raw) ": the history entry is the normalised location"))))
+    (testing "query-only and fragment-only references resolve against the
+              current document"
+      (rf/dispatch-sync [:rf.route/navigate {:to :hist/cart}])
+      (rf/dispatch-sync [:rf.route/navigate {:url "?q=1"}])
+      (is (= :hist/cart (:route-id (current)))
+          "query-only: stays on the current document's route")
+      (is (= {"q" "1"} (:query (current)))
+          "query-only: the query rides the current route")
+      (is (= "/cart?q=1" (current-url *history-state*))
+          "query-only: the history entry is the current path plus the query")
+      (rf/dispatch-sync [:rf.route/navigate {:url "#frag"}])
+      (is (= :hist/cart (:route-id (current)))
+          "fragment-only: stays on the current document's route")
+      (is (= "frag" (:fragment (current)))
+          "fragment-only: the fragment lands in the slice")
+      (is (= "/cart?q=1#frag" (current-url *history-state*))
+          "fragment-only: the history entry keeps the current path and query"))
+    (testing "an unmatched normalised reference names the browser's location in
+              both the not-found params and the history entry"
+      (rf/dispatch-sync [:rf.route/navigate {:url "/x/../no/such/path"}])
+      (is (= :rf.route/not-found (:route-id (current))))
+      (is (= {:url "/no/such/path"} (:params (current)))
+          "the not-found params carry the location the browser reaches")
+      (is (= "/no/such/path" (current-url *history-state*))
+          "the pushed entry is that same location"))))
+
 (deftest scroll-position-captured-before-forward-nav-cljs
   (testing "leaving a route captures the current browser scroll position under that route's URL"
     (register-routes!)
