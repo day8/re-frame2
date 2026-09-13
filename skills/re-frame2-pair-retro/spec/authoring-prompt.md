@@ -31,6 +31,8 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > │ └── evals.json (trigger-accuracy fixtures — which prompts should / should not activate)
 > ├── references/
 > │ └── known-frictions.md (recurring pain patterns; the one on-demand leaf)
+> ├── tests/                          # repo-maintenance artifact; excluded from the npm `files` array
+> │ └── duplicate_search_test.clj (command-contract pin on the duplicate-search argv; the skill's only test, looped by CI's skills-structural job)
 > └── spec/
 > ├── design.md
 > ├── inputs.md

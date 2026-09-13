@@ -2,7 +2,7 @@
 name: re-frame2-pair-retro
 description: >
   Retrospect on a `re-frame2-pair` session and turn it into prioritised
-  improvement ideas for the pair skill, scripts, MCP surface, or upstream
+  improvement ideas for the pair skill, preload runtime, MCP surface, or upstream
   `re-frame2` Tool-Pair contract; optionally drafts a GitHub issue the user
   can file. **Not** for ordinary `re-frame2-pair` operation, nor for the
   code/spec/framework work the body's routing matrix sends elsewhere. Requires
@@ -71,7 +71,7 @@ The diagnosis is only as trustworthy as its evidence boundary. Reconstruct causa
 
 ## The retrospective
 
-Deliver the findings that matter, ordered by leverage, in compact prose. For each material finding give: the concrete session evidence (the retry, the stale output, the wait, the workaround — name the moment), why `re-frame2-pair` was not enough, the smallest credible product change at the correct owner (pair skill wording, scripts, MCP surface — or a named missing `re-frame2` behaviour), and its expected effect. Distinguish symptom from cause; count indirect friction (repeated commands, fallbacks to lower-level tools, manual reconstruction, hidden prerequisites) as evidence alongside direct complaints; and notice positive gaps — what almost worked, what should have been the default, what was undiscoverable.
+Deliver the findings that matter, ordered by leverage, in compact prose. For each material finding give: the concrete session evidence (the retry, the stale output, the wait, the workaround — name the moment), why `re-frame2-pair` was not enough, the smallest credible product change at the correct owner (pair skill wording, preload runtime, MCP surface — or a named missing `re-frame2` behaviour), and its expected effect. Distinguish symptom from cause; count indirect friction (repeated commands, fallbacks to lower-level tools, manual reconstruction, hidden prerequisites) as evidence alongside direct complaints; and notice positive gaps — what almost worked, what should have been the default, what was undiscoverable.
 
 There is no required section set, finding count, taxonomy code, or bolder-ideas quota: one dominant finding gets one thorough treatment; several independent findings get a short ordered list. A genuinely higher-upside redesign is welcome after the diagnosis when it is concrete — label it as speculative so the user can triage it differently. If the evidence is too thin for findings, say so plainly and ask for a recap; friction is recognised, not invented.
 
@@ -89,7 +89,7 @@ Make that ownership a **citation, not an adjective** — and as exact as the evi
 
 Keep titles to plain characters (letters, digits, spaces and `- . , / ( ) :`) so they stay safe to paste into a `gh` search. Three worked shapes:
 
-- Tool-shaped — title `pair-tool (discover-app): ladder hint for no-runtime-connected should say reload the tab`; body opens by naming the moment the ladder returned that reason and the session added a preload instead of reloading the tab, so the fix is the hint's wording, not a new surface.
+- Tool-shaped — title `pair-tool (discover-app): no-runtime-connected hint should name the URL to reload when a port was passed`; body opens by naming the moment `discover-app` was called with the tab's port and returned `:no-runtime-connected`, whose hint says only to reload the page, and the user reloaded the wrong tab — while a healthy call's `:freshness` hint already names `http://localhost:<port>` — so the fix is threading the known port into the ladder hint, not a new surface.
 - Framework-shaped — title `framework (Tool-Pair Time-travel, restore-epoch): restore-unknown-epoch tags should carry the oldest retained epoch id`; body opens by quoting the restore-failure row (`:rf.epoch/restore-unknown-epoch`, tags `:frame` / `:rf.epoch/id` / `:history-size`) and noting that a size alone does not tell the user which epoch is still reachable.
 - Ownership unverified — title `framework (Tool-Pair time-travel): restore refusal should name the oldest epoch still reachable`; body carries the same session evidence, missing behaviour and desired outcome, then says plainly that the exact capability/restore row could not be verified from this session's evidence and asks the maintainer to confirm it before triage. The finding still lands; only the citation stays open.
 
