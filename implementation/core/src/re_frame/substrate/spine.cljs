@@ -517,6 +517,47 @@
       (add-watch container k (fn [_ _ prev nu] (on-change prev nu)))
       (fn unsubscribe [] (remove-watch container k)))))
 
+(defn activating-subscribe-container
+  "Wrap a `subscribe-container` so an attaching observer ACTIVATES the
+  container first, through the substrate's `activate!` op. Returns the
+  wrapped fn (rf2-gwye.47 / rf2-fzbj.29 F1).
+
+  Spec 006 §`make-derived-value` requires PUSH — a derived container updates
+  when any source changes, and `subscribe-container` works on it \"as on a base
+  container\" — and §*Watchable is necessary, not sufficient* makes the
+  PLACEMENT normative: a substrate on a demand-driven host activates once per
+  attaching observer, immediately before it installs that observer's change
+  watch and takes its baseline read.
+
+  `add-watch` alone cannot discharge that on a demand-driven host, so
+  `make-subscribe-container` above is only half the contract there. A
+  ratom-family `Reaction` learns its sources ONLY through the substrate's
+  `deref-capture`; a `read-container` taken outside a reactive context runs the
+  compute-fn raw and leaves the reaction watching nothing — watchable, watched,
+  and unable to notify anybody for as long as it lives. A component render is
+  normally that capture context, which is why component-owned subscriptions
+  never meet this and why the mounted-view and diamond suites cannot pin it:
+  the hole is in the DIRECT listener entry point, the one tools and custom
+  substrate consumers reach for, where a stale first paint never updates again.
+
+  `activate!` is the substrate's `:activate-reaction!` op — the SAME one
+  `make-ratom-adapter` routes as `:adapter/activate-derived-value!` for the
+  ViewCell path, so the two attachment routes cannot diverge. It is TOTAL (a
+  no-op on a base container, or on a derived value some other substrate
+  produced in a mixed-substrate test bundle) and IDEMPOTENT (a node already on
+  the push path is left alone), so the second and later observers over one
+  cached node force no recompute, and base-container observers are unaffected.
+
+  Activating BEFORE the watch is what keeps the attach itself silent: the first
+  capture run may move the value from its uncomputed state, and an observer not
+  yet installed cannot be notified of that non-change. Push-based-from-birth
+  substrates (the React-hook spine, plain-atom, test-react) need none of this
+  and use `make-subscribe-container` bare."
+  [subscribe-container activate!]
+  (fn activating-subscribe-container [container on-change]
+    (activate! container)
+    (subscribe-container container on-change)))
+
 ;; ---- derived value --------------------------------------------------------
 ;;
 ;; React-only substrates have no reaction primitive. The substrate
@@ -4046,6 +4087,10 @@
         (fn replace-container! [container new-value]
           (reset! container new-value)
           nil)
+        ;; BARE — the demand-driven activation this family also owes is added
+        ;; by `make-ratom-adapter`, which is where the substrate's
+        ;; `:activate-reaction!` op arrives. Nothing should re-export THIS
+        ;; entry as a contract `subscribe-container`; take the adapter map's.
         subscribe-container
         (make-subscribe-container gensym-prefix-sub)
         ;; Arity-specialised recompute closure via `build-recompute-fn`
@@ -4300,7 +4345,15 @@
                  :make-state-container      (:make-state-container spine-fns)
                  :read-container            (:read-container       spine-fns)
                  :replace-container!        (:replace-container!   spine-fns)
-                 :subscribe-container       (:subscribe-container  spine-fns)
+                 ;; rf2-gwye.47 — the direct listener entry point activates the
+                 ;; container it attaches to, so a demand-driven derived value
+                 ;; observed WITHOUT a component render is on the push path
+                 ;; too. Same `activate-reaction!` the ViewCell route gets
+                 ;; through `:adapter/activate-derived-value!` below; see
+                 ;; `activating-subscribe-container`.
+                 :subscribe-container       (activating-subscribe-container
+                                              (:subscribe-container spine-fns)
+                                              activate-reaction!)
                  :make-derived-value        (:make-derived-value   spine-fns)
                  :render                    (:render               spine-fns)
                  :render-to-string          (:render-to-string     spine-fns)

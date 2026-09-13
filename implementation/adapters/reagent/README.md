@@ -58,27 +58,36 @@ Compose Form-3 with the standard outer/inner split: the outer view is Form-1 (re
   (fn [_initial-spec]
     (let [el-ref        (atom nil)
           vega-instance (atom nil)
-          {:keys [frame dispatch]} (rf/capture-frame)] ; captured once by this mount's factory
+          request       (atom 0)                       ; per-mount request token
+          {:keys [frame dispatch]} (rf/capture-frame)  ; captured once by this mount's factory
+          retire!       (fn []                         ; release the owned view, exactly once
+                          (some-> (first (reset-vals! vega-instance nil)) .finalize))
+          embed!        (fn [spec]
+                          (let [token (swap! request inc)] ; supersedes any in-flight request
+                            (retire!)
+                            (-> (js/vegaEmbed @el-ref (clj->js spec))
+                                (.then (fn [result]
+                                         (let [view (.-view result)]
+                                           (if (= token @request)
+                                             (reset! vega-instance view) ; still the live request
+                                             (.finalize view))))))))]    ; superseded or unmounted
       (r/create-class
         {:display-name "vega-inner"
 
          :component-did-mount
          (fn [this]
            (let [[_ spec] (r/argv this)]
-             (-> (js/vegaEmbed @el-ref (clj->js spec))
-                 (.then (fn [result] (reset! vega-instance (.-view result)))))))
+             (embed! spec)))
 
          :component-did-update
          (fn [this _ _ _]
            (let [[_ new-spec] (r/argv this)]
-             (some-> @vega-instance .finalize)
-             (-> (js/vegaEmbed @el-ref (clj->js new-spec))
-                 (.then (fn [result] (reset! vega-instance (.-view result)))))))
+             (embed! new-spec)))
 
          :component-will-unmount
          (fn [_this]
-           (some-> @vega-instance .finalize)
-           (reset! vega-instance nil)
+           (swap! request inc)                         ; invalidate before teardown
+           (retire!)
            (reset! el-ref nil))
 
          :reagent-render
@@ -91,10 +100,11 @@ Compose Form-3 with the standard outer/inner split: the outer view is Form-1 (re
     [(rf/view :my-app.charts/vega-inner) spec]))
 ```
 
-6 things matter:
+7 things matter:
 
 - The inner owns instance state in closure atoms. `el-ref` and `vega-instance` are per-mount; don't use top-level `def` or `defonce` here — those leak across mounts.
 - Cleanup is mandatory. `:component-will-unmount` releases the library instance and event listeners. Without it, every navigation that unmounts the chart leaks the library's internal state, listeners, and tile/data caches. Cleanup that *fails* is audible rather than silent: when a teardown hook throws during `rf/destroy-adapter!`, the adapter still attempts every remaining Reaction and root and clears its ownership, and then rethrows that first failure to the caller — so a test fixture or hot-reload cycle sees the error instead of a clean `nil` over a library instance that never released. Later failures in the same teardown arrive attached to it as `rfAdapterTeardownSecondaryErrors`. See [Spec 006 §Adapter disposal lifecycle](../../../spec/006-ReactiveSubstrate.md#adapter-disposal-lifecycle).
+- Async initialisation needs an owner, not merely a cleanup call. `vegaEmbed` returns a Promise, so its result can arrive after the mount is gone, or after a newer request has superseded it — and a `.then` that stores its result unconditionally installs a widget no later callback will ever finalize. Ordinary navigation with an in-flight mount, and overlapping prop updates that settle out of order, both hit that. The per-mount `request` token is what makes every completion answerable: `embed!` bumps it, so a result is accepted only while it is still the live request and is finalized on the spot otherwise, and `:component-will-unmount` bumps it *before* it tears down, so work still in flight releases itself. `retire!` reads-and-clears in one step, so the previously accepted instance is released exactly once. One limit worth knowing: if the library also writes into the target element before its Promise settles, guarding the final assignment does not stop those writes — serialise the calls, or give each request its own child element.
 - Capture once in the registered outer callable, before `create-class`. Do not recapture or replace the handle in `:reagent-render` or a lifecycle callback. The callable runs once for each mounted instance under the registered view's frame scope. Lifecycle callbacks fire after that scope has unwound, but the captured operations remain locked to the mount's frame.
 - Lifecycle reads and teardown name the captured frame explicitly. A bare call in a hook raises `:rf.error/no-frame-context`. For a one-shot current value use `(rf/subscribe-once query-v {:frame frame})`. Ordinary reactive values should come from the registered Form-1 outer and arrive as props. If the Form-3 renderer itself must retain a captured reaction, acquire it with `r/with-let` inside `:reagent-render`, deref it there, and release it from `with-let`'s `finally` — not from the class's `:component-will-unmount`. Stock Reagent deliberately preserves that render owner across React StrictMode's transient will-unmount/did-mount replay. A genuinely imperative hook-owned subscription is different: acquire it in `:component-did-mount` through captured `subscribe`, own it in that same hook with a per-mount `(r/track! …)`, and tear both down in `:component-will-unmount` — `r/dispose!` the tracker first, then `(rf/unsubscribe frame query-v)`; the acquire/release pair then balances on every replay as well as on a real unmount. The tracker is mandatory, not decoration. A subscription on this adapter is a `reagent.ratom/Reaction` built without `:auto-run`, and a Reaction learns its sources only through `deref-capture`; a deref taken in a lifecycle hook runs the body raw and leaves the node watching nothing, so it is in no watcher set and cannot be notified. `add-watch` on such a reaction is therefore a trap — the watch is registered and can never fire, and the widget is fed once at mount and deaf thereafter. `r/track!` supplies the missing ownership: its eager first run is both the seed and the `deref-capture`, and re-runs land on the next Reagent flush. Each mount owns its own tracker, so 2 instances observing one shared cached reaction stay independent with no watch keys at all.
 - A captured handle is invariant for the mount. If a surrounding provider retargets from frame A to B, key the Form-3 child by frame so React invokes A's `:component-will-unmount` before mounting a fresh factory that captures B. Stock Reagent may finish its render-owner cleanup in the following microtask, but that cleanup remains locked to A and cannot act through B. Never mutate A's closed-over handle into B.
