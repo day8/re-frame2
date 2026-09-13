@@ -139,7 +139,7 @@ Both layers compose. A machine's `:spawn` spawns a managed request that itself r
 ## Anti-patterns
 
 - **Encoding semantic retry into `:retry :on`.** `:retry` is category + attempt count only. Lift to a state machine the moment retry needs to inspect body, refresh a token, or check app state.
-- **Reaching for the raw `:http` fx when `:rf.http/managed` would do.** `:http` is for wire-level control (custom transport, raw bytes). Common case is `:rf.http/managed` — what pair tools, `:fx-overrides`, and conformance fixtures key off.
+- **Hand-rolling a `reg-fx` HTTP effect (the [`async-effect.md`](async-effect.md) shape) when `:rf.http/managed` would do.** There is no shipped raw `:http` fx; a hand-rolled one is for wire-level control (custom transport, raw bytes). Common case is `:rf.http/managed` — what pair tools, `:fx-overrides`, and conformance fixtures key off.
 - **Decoding before status check.** Runtime classifies status BEFORE decode; `:decode` only runs on 2xx. Don't write decoders that throw on 4xx.
 - **Passing `:reply-to` / `:on-success` / `:on-failure` through the wrapper's `:spawn :data`.** They get overridden — the wrapper self-routes to the parent. Use the fx form directly when you want explicit reply addressing.
 - **Storing the abort handle in `app-db`.** Not a value. Use `:request-id`; the runtime holds the handle.

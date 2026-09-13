@@ -123,7 +123,7 @@ The value under an `:on` event keyword is one of:
               {:target :z}]}}
 ```
 
-The transition's `:target` may be a single keyword (sibling-level) or a vector path (absolute, for cross-level transitions). Per `normalise-on-clause` in `re-frame.machines.transition`.
+The transition's `:target` may be a single keyword (sibling-level) or a vector path (absolute, for cross-level transitions). Per `match-on-clause` in `re-frame.machines.transition`.
 
 An `:on` **key** is one of **three event-descriptor tiers**, resolved most-specific-first *at each level* before the walk moves up to an ancestor: the exact event id, the namespace wildcard `:ns/*` (`:mouse/*`), then the total wildcard `:*`. A guard-blocked candidate is not *enabled*, so it falls through to the next-coarser tier at the same level. Add **`:reenter? true`** to make a self / ancestor target **external** (exit + entry fire, `:after` timers restart, `:spawn` children respawn); without it such a target still re-resolves the target's descendants to `:initial`, and only a **targetless** transition leaves the configuration untouched. Both are catalogued in [`xstate-translation.md`](xstate-translation.md).
 

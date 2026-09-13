@@ -196,6 +196,17 @@ scoped to `skills/re-frame2-implementor` only):
      ordinary test-namespace header, so the guard was fail-open on nearly
      every realistic instance of the defect (rf2-u429 post-merge audit).
 
+ 10. **The retired `:events` / `:errors` listener streams (rf2-81nz).** The
+     router and four leaves still taught `rf/register-listener!` on `:events` /
+     `:errors` as the production shipper wiring, while
+     `production-observability.md` said the streams were retired. The runtime
+     vocabulary is `#{:trace :epoch}`; any other stream throws
+     `:rf.error/unknown-listener-stream`, naming `register-observability-sink!`.
+     `skills-check` cannot see this, because `register-listener!` is a real var
+     and only the stream argument is wrong. Rule 10 refuses `register-listener!`
+     followed by `:events` / `:errors` on one line, UNLESS the word "retired"
+     follows within a short window, which is how a retirement statement reads.
+
 WHAT THIS GUARD IS, AND IS NOT (read before trusting a green run):
     Rules 1-6 are *retrospective token patterns*. Each encodes one regression
     somebody already found, checked against a leaf's own text. Nothing in this
@@ -1379,6 +1390,33 @@ def posture_problems(line: str) -> list[str]:
     return problems
 
 
+# --- Rule 10: the retired `:events` / `:errors` listener streams. The stream
+# may sit bare, in its own code span, or after "on" (all three shipped). A
+# retirement statement is exempt when "retired" follows within the window.
+RETIRED_LISTENER_RE = re.compile(
+    r"register-listener!`?\s+(?:on\s+)?`?:(?:events|errors)\b"
+)
+RETIRED_LISTENER_WINDOW = 80
+
+
+def retired_listener_problems(line: str) -> list[str]:
+    problems: list[str] = []
+    for m in RETIRED_LISTENER_RE.finditer(line):
+        tail = line[m.end():m.end() + RETIRED_LISTENER_WINDOW]
+        if re.search(r"retired", tail, re.IGNORECASE):
+            continue
+        problems.append(
+            "RETIRED-LISTENER-STREAM: `register-listener!` on `:events` / "
+            "`:errors` is retired. The stream vocabulary is `:trace` / `:epoch` "
+            "(dev-only), and any other stream throws "
+            "`:rf.error/unknown-listener-stream`. Production observation is "
+            "`rf/register-observability-sink!` against a frame `:observability` "
+            "entry or the `(rf/configure! {:observability …})` default (see "
+            "references/cross-cutting/production-observability.md)."
+        )
+    return problems
+
+
 def gate_grant_problems(text: str) -> list[str]:
     """Rule 2a — SKILL.md's front-matter must keep every routine gate-running
     grant family (`- Bash(clojure …)`, `- Bash(npm …)`, `- Bash(shadow-cljs …)`).
@@ -1419,7 +1457,8 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
         for lineno, line in enumerate(body.splitlines(), start=1):
             lines_checked += 1
             for label in (beadid_problems(line) + posture_problems(line)
-                          + reply_contract_problems(line)):
+                          + reply_contract_problems(line)
+                          + retired_listener_problems(line)):
                 problems.append(f"{rel}:{lineno}: {label}\n    {line.strip()}")
         # Rules 4 & 5a — the machine-registration footgun and the targetless
         # Managed-HTTP recipe are cross-line shapes (their tokens land on
@@ -1696,6 +1735,34 @@ def _self_test() -> int:
         beadid_problems,
         "a fully-qualified public PR link day8/re-frame2#2863 is fine.",
         dirty=False, label="B3 public PR ref is not a bead id",
+    )
+
+    # --- Rule 10: the retired `:events` / `:errors` listener streams. DIRTY
+    # fixtures are the shipped pre-fix shapes (rf2-81nz).
+    expect(
+        retired_listener_problems,
+        "`production-observability.md` (`rf/register-listener!` on `:events`/`:errors`), `ssr-authoring.md`",
+        dirty=True, label="R10a router gloss, 'on' + code-span streams",
+    )
+    expect(
+        retired_listener_problems,
+        "an off-box shipper registered via `register-listener!` `:errors` receives these records",
+        dirty=True, label="R10b bare code-span stream",
+    )
+    expect(
+        retired_listener_problems,
+        "(rf/register-listener! :errors ::sentry (fn [record] (ship! record)))",
+        dirty=True, label="R10c code form",
+    )
+    expect(
+        retired_listener_problems,
+        "the corpus-wide `register-listener!` `:events` / `:errors` streams were retired, per spec/API.md",
+        dirty=False, label="R10d retirement statement stays legal",
+    )
+    expect(
+        retired_listener_problems,
+        "`register-listener!` on the `:trace` stream; `rf/register-listener! :epoch` for epoch records",
+        dirty=False, label="R10e the two live streams",
     )
 
     # --- Rule 2a: the gate-running grants, over a front-matter body.
