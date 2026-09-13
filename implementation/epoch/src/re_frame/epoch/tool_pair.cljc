@@ -720,10 +720,11 @@
                 not retain it>}
 
   `:epoch-id` names the epoch the REPLAYED EVENT committed and no other. The
-  identity is taken from COMMIT ORDER — a one-shot observation armed on the
-  frame across the dispatch, filled by the commit funnel with the first epoch
-  committed — and then checked against the ring, so an epoch the ring did not
-  keep reports the documented nil.
+  identity is taken from the DISPATCH — a one-shot observation armed on the
+  frame across the dispatch, which learns this dispatch's own id from the
+  epoch-capture stage and is then filled by the commit funnel from the record
+  carrying that id — and then checked against the ring, so an epoch the ring
+  did not keep reports the documented nil.
 
   Reading the ring alone cannot answer this (rf2-e0g2). Replay runs against
   CURRENT state and code (Tool-Pair §Replay), so it may legitimately enqueue
@@ -733,6 +734,15 @@
   would attach the child's operation, state and effects to the parent this
   response names under `:event-id` — wrong causal evidence handed to a tool
   that trusts the chain.
+
+  Nor can COMMIT ORDER answer it (rf2-fzbj.19). The router emits
+  `:rf.event/dispatched` before it starts this dispatch's drain, and a public
+  trace listener may `dispatch-sync` from there; that nested cascade commits
+  INSIDE this window and before the replayed event has run, so the first
+  commit is the callback's and not ours. The armed observation therefore
+  refuses every id but this dispatch's — see the commit-observation section in
+  `re-frame.epoch.state` for why the capture stage's ordering makes that id
+  unambiguous.
 
   A declared recordable fact ABSENT from the recorded token throws the
   canonical `:rf.error/missing-required-cofx` out of the dispatch exactly as
