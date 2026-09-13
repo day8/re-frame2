@@ -14,12 +14,12 @@
   and never stdout. Nothing here prints at load time — that is the README's
   separate \"stdout is the wire\" caveat, not this contract."
   (:require [re-frame.core :as rf]
-            [re-frame.story :as story]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.story :as rf.story]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
-(rf/init! plain-atom/adapter)
+(rf/init! rf.substrate.plain-atom/adapter)
 
-(story/reg-story :story.stdio-fixture {:doc "stdio-roundtrip fixture"})
+(rf.story/reg-story :story.stdio-fixture {:doc "stdio-roundtrip fixture"})
 
 (rf/reg-event :stdio-fixture/quiet
   (fn [{:keys [db]} _]
@@ -40,14 +40,14 @@
     (println "STDIO-FIXTURE-THROW-PRINT")
     (throw (ex-info "stdio fixture: handler failed on purpose" {}))))
 
-(story/reg-variant :story.stdio-fixture/quiet
+(rf.story/reg-variant :story.stdio-fixture/quiet
   {:setup [[:stdio-fixture/quiet]]})
 
-(story/reg-variant :story.stdio-fixture/setup-print
+(rf.story/reg-variant :story.stdio-fixture/setup-print
   {:setup [[:stdio-fixture/print-in-setup]]})
 
-(story/reg-variant :story.stdio-fixture/script-print
+(rf.story/reg-variant :story.stdio-fixture/script-print
   {:script [[:dispatch-sync [:stdio-fixture/print-in-script]]]})
 
-(story/reg-variant :story.stdio-fixture/throw-print
+(rf.story/reg-variant :story.stdio-fixture/throw-print
   {:setup [[:stdio-fixture/print-then-throw]]})
