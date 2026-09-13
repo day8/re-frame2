@@ -220,16 +220,19 @@ This applies only to projects that have adopted master's `dispatch-with` / `disp
 
 ### M-5. `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` are macros
 
-**Type A for `apply` of a `reg-*` symbol** (mechanical: rewrite to direct invocation or a wrapper macro). **Type B for Var-aliasing** (`(def my-reg rf/reg-event)`): if the alias is invoked dynamically, the rewrite requires understanding the call sites; flag for human review.
+**JVM only — CLJS needs no rewrite.** On the JVM (`.clj` files and the `:clj` branch of `.cljc`): **Type A for `apply` of a `reg-*` symbol** (mechanical: rewrite to direct invocation or a wrapper macro). **Type B for Var-aliasing** (`(def my-reg rf/reg-event)`): if the alias is invoked dynamically, the rewrite requires understanding the call sites; flag for human review.
 
 re-frame2's registration functions are **macros** so that source coordinates (`:ns`/`:line`/`:file`) are captured automatically and `:doc` strings can be elided from production builds. In current re-frame releases they are functions; the migration is mechanical for direct invocation and replacement-only for the rare higher-order use cases below. (The v1 event registrars `reg-event-db` / `reg-event-fx` / `reg-event-ctx` are a *separate, larger* break — they collapse to one public `reg-event` per [M-73](#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018); apply M-73 first, then this macro rule applies to the surviving `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx`.)
 
 For code that invokes a surviving registrar directly — `(rf/reg-event :foo (fn [{:keys [db]} _] {:db ...}))`, `(rf/reg-sub :foo (fn [db _] ...))` — the macro change is observably transparent. The break only manifests when a `reg-*` symbol is used as a value: `apply`, `def`-aliased, passed as a higher-order argument, or referenced through a Var.
 
+**The break is host-specific.** On **CLJS**, `re-frame.core` also defines a same-name plain-fn alias for each of these registrars ([Conventions §Convention A](../../spec/Conventions.md#convention-a--same-name-cljs-value-alias-no--twin)): in call position the name expands the macro, and in value position (`apply`, a `def` alias, a higher-order argument) it resolves to that fn — so v1 CLJS code using a registrar as a value keeps compiling and registering, losing only source-coord capture. On the **JVM** the names are macros alone, and value use fails to compile with `Can't take value of a macro: #'re-frame.core/reg-event`.
+
 **What to look for:**
 
 ```clojure
-;; All affected — macros can't be apply'd or aliased as values
+;; JVM: all affected — macros can't be apply'd or aliased as values.
+;; CLJS: each resolves to the same-name fn alias — unaffected.
 (apply rf/reg-event [:foo (fn [{:keys [db]} _] {:db ...})])
 (def my-reg rf/reg-event)                  ;; capturing the Var
 (map (fn [{:keys [id handler]}] (rf/reg-event id handler)) registrations)  ;; OK — invoked directly
@@ -238,11 +241,11 @@ For code that invokes a surviving registrar directly — `(rf/reg-event :foo (fn
 
 **What to do:**
 
-- **For `apply`/Var-aliasing**: refactor to direct invocation. If you have a list of handlers to register, write a macro of your own that expands to a sequence of `reg-event` calls.
-- **For programmatic registration that genuinely needs the function form**: re-frame2 may expose a function variant under a different name (`re-frame.core/reg-event-fn` or similar); flag for human review if this case arises.
-- **Most code uses these directly and is unaffected.**
+- **For `apply`/Var-aliasing on the JVM**: refactor to direct invocation. If you have a list of handlers to register, write a macro of your own that expands to a sequence of `reg-event` calls.
+- **For programmatic registration that genuinely needs the function form**: on CLJS the same-name value alias already is that form — leave the call site alone. On the JVM there is no public `re-frame.core` fn form (Convention A adds no `*` twin); flag for human review.
+- **Most code uses these directly and is unaffected** — and on CLJS, so is code that uses them as values.
 
-**Why:** Spec 001 / 000 commits to source-coord capture and prod-build doc elision, both of which require macros. The trade-off is the (rare) higher-order-use breakage. See [000-Vision.md §Source coordinates require macros](../../spec/000-Vision.md).
+**Why:** Spec 001 / 000 commits to source-coord capture and prod-build doc elision, both of which require macros. The trade-off is the (rare) higher-order-use breakage, and it lands on the JVM only: CLJS keeps a same-name value alias precisely so higher-order callers keep working. See [000-Vision.md §Source coordinates require macros](../../spec/000-Vision.md).
 
 ---
 
@@ -517,7 +520,7 @@ The v1 process-wide `reg-event-error-handler` is dropped in v2. There is **no ap
 
 **What to do:** flag for review. The v1 handler's **observability** half (logging, monitoring fan-out) moves to an `:observability :errors` sink — `(rf/register-observability-sink! <id> f)` plus a frame policy or the `(rf/configure! {:observability …})` process default; its **recovery-steering** half (swallow / substitute) has no v2 equivalent — drop it and rely on the framework's typed per-category default, moving any genuine recovery for *expected* failures to the source (managed-HTTP `:retry`, optional-read fallback).
 
-**Why:** v1's single-slot global error-handler did not compose with multi-frame architectures and was silently override-prone. v2 splits its two concerns cleanly: recovery is framework-owned (the typed per-category default — not an app-config slot; the earlier per-frame `:on-error` recovery policy was removed per rf2-hiqtk8), and observability rides the listener API — one stream-parameterised verb, `(rf/register-listener! stream id f)`, whose `:errors` stream is always-on and whose `:trace` stream is dev-only — giving observer-shaped tools the cross-frame view they need without an app-steering recovery knob.
+**Why:** v1's single-slot global error-handler did not compose with multi-frame architectures and was silently override-prone. v2 splits its two concerns cleanly: recovery is framework-owned (the typed per-category default — not an app-config slot; the earlier per-frame `:on-error` recovery policy was removed per rf2-hiqtk8), and observability moves to the frame's always-on `:observability` `:errors` sink, while observer-shaped tools get their cross-frame view from the listener API's dev-only `:trace` stream (`(rf/register-listener! :trace id f)`; the `:errors` listener stream was retired, rf2-kuky.69) — all without an app-steering recovery knob.
 
 ---
 
@@ -1311,7 +1314,7 @@ rf/trace-api-version                             ;; version slot, never wired
 
 **Why:** each of these v1 surfaces had a v2-canonical equivalent that subsumed the use case (trace listeners, point-event tracing, fx-shaped lifecycle, run-to-completion drain, frame-level error policy, epoch-based capture/restore). Carrying the v1 names as separate documented entries created drift between the API table and the actual v2 surfaces.
 
-For the SSR-head trio (`reg-head` / `render-head` / `active-head`) — these were also flagged in the same triage but carry post-v1 ergonomic value; they are deferred (not dropped). Migration tooling should not attempt to rewrite these. (`sub-topology` was flagged the same way and has since been implemented as part of the v1-✓ public registrar query API — see [O-12](#o-12-introspect-the-static-sub-graph-via-rfsub-topology) for opt-in adoption; platform selection landed as the frame-config key `:platform` rather than a boot call — see [API.md](../../spec/API.md) and Spec 011 §Effect handling on the server.)
+For the SSR-head trio (`reg-head` / `render-head` / `active-head`) — these were also flagged in the same triage but carry post-v1 ergonomic value; they are deferred (not dropped). Migration tooling should not attempt to rewrite these. (`sub-topology` was flagged the same way and has since been implemented as part of the v1-✓ public registrar query API — see [O-12](#o-12-introspect-the-static-sub-graph-via-re-framesubstoolingsub-topology) for opt-in adoption; platform selection landed as the frame-config key `:platform` rather than a boot call — see [API.md](../../spec/API.md) and Spec 011 §Effect handling on the server.)
 
 ---
 
@@ -3148,14 +3151,14 @@ The opt-in modernisation, when it applies:
 
 Do not apply unless the user has explicitly asked to surface the per-element coord index for tooling, or to clean up code-gen call sites.
 
-### O-12. Introspect the static sub-graph via `(rf/sub-topology)`
+### O-12. Introspect the static sub-graph via `re-frame.subs.tooling/sub-topology`
 
-re-frame v1 had no public way to query the static sub-dependency graph; tooling that wanted to draw it walked private state. re-frame2 ships `(rf/sub-topology)` as a v1-✓ public surface (per [002 §The public registrar query API](../../spec/002-Frames.md#the-public-registrar-query-api) and [006 §Subscription topology vs subscription tracking](../../spec/006-ReactiveSubstrate.md#subscription-topology-vs-subscription-tracking)) returning `{sub-id {:inputs [<input-sub-ids>] :doc :ns :line :file}}` — pure data, JVM-runnable, no app-db, no per-frame cache.
+re-frame v1 had no public way to query the static sub-dependency graph; tooling that wanted to draw it walked private state. re-frame2 ships `(re-frame.subs.tooling/sub-topology)` as a v1-✓ public surface (per [002 §The public registrar query API](../../spec/002-Frames.md#the-public-registrar-query-api) and [006 §Subscription topology vs subscription tracking](../../spec/006-ReactiveSubstrate.md#subscription-topology-vs-subscription-tracking)) returning `{sub-id {:input-kind <kind> :inputs <inputs> :doc :ns :line :file}}` — pure data, JVM-runnable, no app-db, no per-frame cache. It is subscription tooling rather than a `re-frame.core` facade read, so require its owning namespace: there is no `rf/sub-topology` (the facade alias was removed, rf2-80mmlf; [API.md §Public registrar query API](../../spec/API.md#public-registrar-query-api)).
 
 Adoption is opt-in:
 
-- **Tools and dev overlays** that previously read private subs state should switch to `(rf/sub-topology)` for the static graph and `(rf/sub-cache frame-id)` (CLJS-only, see M-26) for the runtime view.
-- **Tests** asserting on which subs depend on which can replace ad-hoc fixtures with a single `(rf/sub-topology)` projection.
+- **Tools and dev overlays** that previously read private subs state should switch to `(re-frame.subs.tooling/sub-topology)` for the static graph and `(re-frame.subs.tooling/sub-cache-snapshot frame-id)` (CLJS-only, see M-26) for the runtime view.
+- **Tests** asserting on which subs depend on which can replace ad-hoc fixtures with a single `(re-frame.subs.tooling/sub-topology)` projection.
 
 No application-code rewrite is required. The surface is additive; existing `reg-sub` registrations populate the topology automatically.
 
