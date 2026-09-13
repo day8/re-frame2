@@ -48,6 +48,15 @@
   refuses before the JVM gives up: the sidecar's render-timeout refusal is
   a diagnosable event, a socket the caller abandoned is not.
 
+  That budget bounds the WHOLE exchange, body included (rf2-fzbj.24).
+  `HttpRequest.Builder.timeout` bounds only the phase before the response
+  headers arrive, so a peer that answers 200 promptly and then stalls
+  mid-body is a wait the JDK never ends — and the Ring request, and its
+  frame, are held open for the length of it. The adapter therefore sends
+  ASYNCHRONOUSLY and waits on completion for the budget itself, CANCELLING
+  the exchange when it expires. Both halves throw the same
+  `:rf.error/ssr-node-deadline` with `:observed-by :jvm`.
+
   JSON is `org.clojure/data.json` — ssr-ring's one dependency beyond core
   and ssr, accepted by the ruling (first-party, no transitive deps).
 
@@ -124,7 +133,9 @@
             HttpRequest HttpRequest$BodyPublishers HttpResponse
             HttpResponse$BodyHandlers HttpTimeoutException]
            [java.nio.charset StandardCharsets]
-           [java.time Duration]))
+           [java.time Duration]
+           [java.util.concurrent CompletableFuture ExecutionException TimeUnit
+            TimeoutException]))
 
 (set! *warn-on-reflection* true)
 
@@ -151,6 +162,19 @@
   "The fixed margin the derived HTTP timeout adds for the wire itself —
   loopback round trip, JSON framing, a busy event loop answering."
   500)
+
+(def ^:private completion-grace-ms
+  "The slack the completion wait allows over the derived HTTP budget before
+  it cancels the exchange itself.
+
+  The JDK bounds the phase BEFORE the response headers arrive and
+  classifies it precisely — a connect timeout is unreachability, a
+  header-wait timeout is a deadline. The completion wait exists to bound
+  what the JDK does not: consumption of the response BODY. Sized a little
+  longer than the budget, the JDK's own timer wins whenever it is going to
+  fire at all, so those classifications survive and this wait answers only
+  for the stall the JDK never sees."
+  100)
 
 (def ^:private sidecar-deadline-status
   "The HTTP status the sidecar's transport answers a deadline with — the
@@ -346,19 +370,53 @@
   (.orElse (.firstValue (.headers http-response) header-name) nil))
 
 (defn- send-request!
-  "Send `http-request` on `client`; the response, or the transport-class throw
-  (`unreachable` for no answer, `deadline` for the JVM's own timeout)."
-  ^HttpResponse [^HttpClient client ^HttpRequest http-request opts]
-  (try
-    (.send client http-request (HttpResponse$BodyHandlers/ofString))
-    ;; Order matters: HttpConnectTimeoutException IS-A HttpTimeoutException
-    ;; IS-A IOException. A connect timeout is unreachability, not a
-    ;; deadline; a body-read timeout is the JVM observing the deadline.
-    (catch HttpConnectTimeoutException cause
-      (throw-unreachable! opts cause))
-    (catch HttpTimeoutException _ (throw-deadline! opts :jvm))
-    (catch IOException cause
-      (throw-unreachable! opts cause))))
+  "Send `http-request` on `client` and return the COMPLETED response, or the
+  transport-class throw (`unreachable` for no answer, `deadline` for the
+  JVM's own budget expiring).
+
+  `sendAsync` and a bounded wait on completion, rather than the blocking
+  `send` (rf2-fzbj.24): the derived budget has to bound COMPLETE body
+  consumption, and `HttpRequest.Builder.timeout` does not — a peer that
+  answers 200 promptly and then stalls mid-body is a wait the JDK never
+  ends. Expiry CANCELS the exchange (`cancel(true)` reaches the underlying
+  JDK operation) rather than abandoning a live body reader behind a settled
+  outer result: the throw releases the caller's request frame, so a reader
+  left running would outlive the request that owns it."
+  ^HttpResponse [^HttpClient client ^HttpRequest http-request opts
+                 transport-timeout-ms]
+  (let [^CompletableFuture pending
+        (.sendAsync client http-request (HttpResponse$BodyHandlers/ofString))]
+    (try
+      (.get pending
+            (long (+ transport-timeout-ms completion-grace-ms))
+            TimeUnit/MILLISECONDS)
+      (catch TimeoutException _
+        (.cancel pending true)
+        (throw-deadline! opts :jvm))
+      ;; An interrupted host thread keeps its existing meaning — it is
+      ;; neither a deadline nor unreachability — but the exchange still has
+      ;; to go, and the flag is restored for whoever set it.
+      (catch InterruptedException cause
+        (.cancel pending true)
+        (.interrupt (Thread/currentThread))
+        (throw cause))
+      (catch ExecutionException wrapper
+        (let [cause (or (.getCause wrapper) wrapper)]
+          ;; Order matters: HttpConnectTimeoutException IS-A
+          ;; HttpTimeoutException IS-A IOException. A connect timeout is
+          ;; unreachability, not a deadline; the JDK's header-wait timeout
+          ;; is the JVM observing the deadline.
+          (cond
+            (instance? HttpConnectTimeoutException cause)
+            (throw-unreachable! opts cause)
+
+            (instance? HttpTimeoutException cause)
+            (throw-deadline! opts :jvm)
+
+            (instance? IOException cause)
+            (throw-unreachable! opts cause)
+
+            :else (throw cause)))))))
 
 (defn- interpret-response!
   "The seam result from a sidecar response, or the sidecar-class throw."
@@ -422,5 +480,6 @@
                            :escape-slash false)
             http-request (build-request render-endpoint request-json
                                         transport-timeout-ms)
-            http-response (send-request! client http-request validated-opts)]
+            http-response (send-request! client http-request validated-opts
+                                         transport-timeout-ms)]
         (interpret-response! validated-opts http-response)))))
