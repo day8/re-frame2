@@ -981,6 +981,61 @@
                       nil))
             (.then (fn [_] (restore) (done))))))))
 
+;; ---- rf2-fzbj.11 — an ANONYMOUS request is still frame-owned (CLJS) --------
+;;
+;; The test above names a `:request-id`, so the frame sweep could always find its
+;; handle. `:request-id` is optional, and an ordinary event-handler request
+;; without one has no owning actor either — before rf2-fzbj.11 neither registry
+;; index held it, so frame destroy could not reach it and its backoff timer went
+;; on retrying into the destroyed frame.
+
+(deftest cljs-destroy-frame-cancels-anonymous-backoff-and-suppresses-reply
+  (testing "rf2-fzbj.11 — destroying a frame cancels an ANONYMOUS managed request
+            (no :request-id, no owning actor) sleeping in its backoff window: no
+            second fetch, and no reply"
+    (async done
+      (rf/init! rf.adapter.reagent/adapter)
+      (rf.frame/ensure-default-frame!)
+      (rf/make-frame {:id :frame/anon :doc "the frame that owns the anonymous request"})
+      (rf.http.managed/clear-all-in-flight!)
+      (let [fetch-count (atom 0)
+            replies     (atom [])
+            restore     (with-counting-500-fetch fetch-count)
+            backoff-ms  80]
+        (rf/reg-event :reply/recorder
+          (fn [_ [_ payload]] (swap! replies conj payload) {}))
+        (rf/reg-event :issue-anonymous
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url "/always-500"}
+                    :decode     :json
+                    :retry      {:on           #{:rf.http/http-5xx}
+                                 :max-attempts 5
+                                 :backoff      {:base-ms backoff-ms :factor 1
+                                                :max-ms  backoff-ms}}
+                    :on-failure [:reply/recorder]
+                    :on-success [:reply/recorder]}]]}))
+        (rf/dispatch-sync [:issue-anonymous] {:frame :frame/anon})
+        ;; The stubbed 500 settles in microtasks, so one macrotask later attempt
+        ;; #1 has failed and the request is asleep in its backoff. There is no
+        ;; request-id to poll `in-flight-snapshot` on.
+        (-> (js/Promise. (fn [resolve _] (js/setTimeout resolve 10)))
+            (.then (fn [_]
+                     (is (= 1 @fetch-count) "precondition: attempt #1 fetched")
+                     (rf/destroy-frame! :frame/anon)
+                     (js/Promise.
+                       (fn [resolve _]
+                         (js/setTimeout resolve (+ backoff-ms 150))))))
+            (.then (fn [_]
+                     (is (= 1 @fetch-count)
+                         "the anonymous request's retry MUST NOT fetch after its frame is destroyed")
+                     (is (empty? @replies)
+                         "frame destroy SUPPRESSES the anonymous request's reply")))
+            (.catch (fn [e]
+                      (is false (str "rf2-fzbj.11 — unexpected: " e))
+                      nil))
+            (.then (fn [_] (restore) (done))))))))
+
 ;; ---- rf2-065xo — managed body-prep failure delivery (CLJS) ----------------
 ;;
 ;; The JVM suite (re-frame.http-body-prep-failure-test) pins the same

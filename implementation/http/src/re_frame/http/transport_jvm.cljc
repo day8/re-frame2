@@ -36,7 +36,8 @@
                                   HttpRequest$BodyPublishers
                                   HttpResponse HttpResponse$BodyHandlers]
                    [java.nio.charset Charset StandardCharsets]
-                   [java.time Duration])))
+                   [java.time Duration]
+                   [java.util.concurrent CompletableFuture TimeUnit TimeoutException])))
 
 ;; Reflection warnings catch unhinted calls in this interop-heavy namespace.
 #?(:clj (set! *warn-on-reflection* true))
@@ -164,6 +165,8 @@
        ;; JDK, surfacing the opt-out as a spurious `:rf.http/transport`
        ;; failure. The `(pos? …)` guard collapses `nil`/`0`/negative to
        ;; "no timeout" so the JDK request carries no per-request deadline.
+       ;; This deadline bounds only the wait for response HEADERS; `jvm-fetch`
+       ;; extends the same budget over the body (rf2-fzbj.11).
        (when (and timeout-ms (pos? timeout-ms))
          (.timeout b (Duration/ofMillis (long timeout-ms))))
        (doseq [[k v] (rf.http.encoding/normalize-header-pairs headers)]
@@ -279,35 +282,64 @@
      consults the response headers for the `:auto` sniff, so we resolve it
      AFTER the response is in hand (status known); we only read bytes on a
      2xx (a non-2xx body is the raw error text the 4xx/5xx paths carry,
-     same as CLJS — see `cljs-fetch`)."
+     same as CLJS — see `cljs-fetch`).
+
+     rf2-fzbj.11 — `:timeout-ms` bounds the WHOLE attempt, body included.
+     `HttpRequest.Builder.timeout` (set in `jvm-build-request`) bounds only the
+     wait for response HEADERS, so a server that answered promptly and then
+     stalled its body held the attempt past its budget indefinitely — or
+     delivered success after it. Spec 014 §`:timeout-ms` security defaults
+     names exactly that slow-loris body as what the default exists to bound.
+     The returned future therefore carries its own `orTimeout` deadline, and
+     when that fires the upstream `sendAsync` future is CANCELLED too: that
+     cancellation is what reaches the JDK exchange and closes the connection,
+     where timing out the result alone would leave the download running behind
+     a request the app has already been told timed out. The timeout lands as a
+     `TimeoutException`, which `classify-jvm-error` maps to `:rf.http/timeout`;
+     the JDK withdraws the deadline when the future completes any other way
+     (success, failure, or a lifecycle abort's `.cancel`); and `nil` / `0` arm
+     nothing, exactly as for the builder timeout. The CLJS host gets the same
+     bound by racing fetch-plus-body-read against its timer (`cljs-fetch`)."
      [opts]
      (let [client ^HttpClient (jvm-http-client-for (:redirect opts))
            req    (jvm-build-request opts)
            decode (:decode opts)
-           future-resp (.sendAsync client req
-                                   (HttpResponse$BodyHandlers/ofByteArray))]
-       (.thenApply future-resp
-                   (reify java.util.function.Function
-                     (apply [_ resp]
-                       (let [^HttpResponse r resp
-                             status   (.statusCode r)
-                             ok?      (and (>= status 200) (< status 300))
-                             headers  (jvm-headers->map (.headers r))
-                             ^bytes raw (.body r)
-                             binary?  (and ok?
-                                           (some? (rf.http.decode/binary-read-kind decode headers)))
-                             base     {:ok?         ok?
-                                       :status      status
-                                       :status-text ""
-                                       :headers     headers}]
-                         (if binary?
-                           (assoc base :body-binary raw)
-                           ;; Text path (and every non-2xx): decode the
-                           ;; bytes as a String using the response charset
-                           ;; (defaulting to UTF-8 via `charset-of`), faithfully
-                           ;; reproducing the prior no-arg `ofString` semantics
-                           ;; for the text/error path.
-                           (assoc base :body-text (String. raw ^Charset (charset-of headers)))))))))))
+           timeout-ms (:timeout-ms opts)
+           ^CompletableFuture future-resp
+           (.sendAsync client req (HttpResponse$BodyHandlers/ofByteArray))
+           ^CompletableFuture result
+           (.thenApply future-resp
+                       (reify java.util.function.Function
+                         (apply [_ resp]
+                           (let [^HttpResponse r resp
+                                 status   (.statusCode r)
+                                 ok?      (and (>= status 200) (< status 300))
+                                 headers  (jvm-headers->map (.headers r))
+                                 ^bytes raw (.body r)
+                                 binary?  (and ok?
+                                               (some? (rf.http.decode/binary-read-kind decode headers)))
+                                 base     {:ok?         ok?
+                                           :status      status
+                                           :status-text ""
+                                           :headers     headers}]
+                             (if binary?
+                               (assoc base :body-binary raw)
+                               ;; Text path (and every non-2xx): decode the
+                               ;; bytes as a String using the response charset
+                               ;; (defaulting to UTF-8 via `charset-of`), faithfully
+                               ;; reproducing the prior no-arg `ofString` semantics
+                               ;; for the text/error path.
+                               (assoc base :body-text (String. raw ^Charset (charset-of headers))))))))]
+       ;; rf2-fzbj.11 — the whole-attempt deadline (see docstring). `pos?`
+       ;; keeps `nil` / `0` as the documented opt-outs.
+       (when (and timeout-ms (pos? timeout-ms))
+         (.orTimeout result (long timeout-ms) TimeUnit/MILLISECONDS)
+         (.whenComplete result
+                        (reify java.util.function.BiConsumer
+                          (accept [_ _ t]
+                            (when (instance? TimeoutException t)
+                              (.cancel future-resp true))))))
+       result)))
 
 #?(:clj
    (defn classify-jvm-error
@@ -321,7 +353,9 @@
      happened to contain those words) as `:rf.http/timeout` /
      `:rf.http/aborted`, polluting the failure taxonomy. Anything not
      matching an instance check stays at `:rf.http/transport` — the
-     correct catch-all for unknown JDK failures.
+     correct catch-all for unknown JDK failures. rf2-fzbj.11 — a
+     `java.util.concurrent.TimeoutException` is the whole-attempt deadline
+     `jvm-fetch` arms over body consumption, and is a timeout too.
 
      Per rf2-ee38b.7 the optional `timeout-ms` (the configured per-attempt
      limit, in scope at the `run-attempt!` call sites) fills the
@@ -354,7 +388,8 @@
             msg   (.getMessage cause)
             cls   (.getName (class cause))]
         (cond
-          (instance? java.net.http.HttpTimeoutException cause)
+          (or (instance? java.net.http.HttpTimeoutException cause)
+              (instance? TimeoutException cause))
           {:kind :rf.http/timeout :elapsed-ms elapsed-ms :limit-ms timeout-ms :message msg}
 
           (instance? java.util.concurrent.CancellationException cause)
