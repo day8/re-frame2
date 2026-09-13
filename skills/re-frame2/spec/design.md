@@ -73,7 +73,7 @@ Per Mike's standing memory rule "Findings is local-only" — design exploration 
 
 - ClojureScript application authors writing re-frame2 code.
 - The `reg-*` family — `reg-event` (the one public event registrar), `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-interceptor`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `reg-resource`, `reg-resource-scope`, `reg-mutation`.
-- The canonical patterns — RemoteData, Resources, ResourcesMutations, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection, ReusableComponents, StatefulComponents, FormAction — fourteen, one leaf each under `patterns/`, and the same roster `SKILL.md`'s frontmatter `description` advertises.
+- The canonical patterns — RemoteData, Resources, ResourcesMutations, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection, ReusableComponents, StatefulComponents, FormAction — fourteen, one leaf each under `patterns/`. `SKILL.md`'s frontmatter `description` advertises a subset of them — the 1,024-character description budget cannot carry all fourteen.
 - Frames, regions, tags, machine snapshots, the event-state cycle.
 - Test-authoring (`make-reset-runtime-fixture`, `dispatch-sync`, `compute-sub`, `with-frame`).
 
