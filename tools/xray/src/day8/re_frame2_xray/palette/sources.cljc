@@ -106,7 +106,11 @@
   Recency rank rises with index from the end (the most-recently-
   pushed event is rank 0). Caps at 30 rows by default — beyond that
   the recency bonus is zero anyway, and the palette result list
-  itself is finite."
+  itself is finite.
+
+  The action names the row's dispatch id and frame (rf2-gwye.8) — the
+  identity `:rf.xray/focus-event` selects by. The event vector is only
+  the label: two runs of one event are two different selections."
   ([buffer]
    (recent-event-items buffer 30))
   ([buffer max-rows]
@@ -139,7 +143,9 @@
               :icon         (icon-table :recent-event)
               :recency-rank rank
               :boost        (boost-table :recent-event)
-              :action       [:palette/select-event ev-id]
+              :action       [:palette/select-event
+                             (get-in t [:tags :rf.trace/dispatch-id])
+                             (get-in t [:tags :frame])]
               :modes        #{:dynamic}
               :popout?      true}))
          taken)))))
@@ -212,7 +218,7 @@
   [{:source :setting
     :id     :density-toggle
     :label  "Cycle display density"
-    :hint   "compact / cosy / comfy"
+    :hint   "compact / cosy"
     :icon   (icon-table :setting)
     :boost  (boost-table :setting)
     :action [:palette/cycle-density]

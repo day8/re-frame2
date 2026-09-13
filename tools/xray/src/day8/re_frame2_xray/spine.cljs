@@ -750,11 +750,36 @@
   continues collecting; only auto-scrolling stops. When already in
   `:retro`, toggling is a no-op (the Space key has no meaning when
   the user has already pinned an older row — they would press `L` to
-  resume LIVE in that case)."
-  [db]
-  (if (= :retro (get-in db [:focus :mode]))
-    db
-    (update-in db [:focus :paused?] not)))
+  resume LIVE in that case).
+
+  ## rf2-fzbj.2 — pausing pins what LIVE is SHOWING
+
+  Unpaused LIVE composes the displayed event from the HEAD, ignoring the
+  stored slot, which is routinely empty (fresh mount, after Follow head)
+  or lags a newer head (a click on the then-head). Paused LIVE composes
+  FROM the stored slot. Flipping the flag alone therefore made Space drop
+  the displayed epoch, keep following new arrivals, or jump back to a
+  stale pin. The 2-arity takes `composed` — `compose-focus` of the
+  pre-toggle state, resolved by the event handler from the same sources
+  `:rf.xray/focus` reads — and stores its `:dispatch-id`, `:epoch-id` and
+  `:frame` with `:paused? true` in one write. Resuming only clears
+  `:paused?`: unpaused LIVE ignores the stored pin and follows head again.
+  The 1-arity (no composition to hand) flips the flag alone."
+  ([db]
+   (toggle-live-pause-reducer db nil))
+  ([db composed]
+   (let [focus (:focus db)]
+     (cond
+       (= :retro (or (:mode composed) (:mode focus))) db
+       (:paused? focus) (assoc-in db [:focus :paused?] false)
+       (nil? composed)  (assoc-in db [:focus :paused?] true)
+       :else
+       (update db :focus (fnil merge {})
+               (cond-> {:dispatch-id (:dispatch-id composed)
+                        :epoch-id    (:epoch-id composed)
+                        :mode        :live
+                        :paused?     true}
+                 (:frame composed) (assoc :frame (:frame composed))))))))
 
 (defn set-frame-reducer
   "Pure reducer for `:rf.xray/set-frame <frame-id>`. Writes `:frame`
@@ -1144,9 +1169,14 @@
     (fn [{:keys [db]} _event]
       {:db (follow-head-reducer db)}))
 
+  ;; rf2-fzbj.2 — compose the displayed focus from the same sources the
+  ;; `:rf.xray/focus` sub reads, so pausing pins exactly what LIVE shows.
   (rf/reg-event :rf.xray/toggle-live-pause
     (fn [{:keys [db]} _event]
-      {:db (toggle-live-pause-reducer db)}))
+      {:db (toggle-live-pause-reducer
+             db
+             (compose-focus (:focus db) (db->event-bundles db)
+                            (db->show-ungrouped? db) (db->epoch-history db)))}))
 
   (rf/reg-event :rf.xray/set-frame
     (fn [{:keys [db]} [_ frame-id]]

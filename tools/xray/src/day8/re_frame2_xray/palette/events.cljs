@@ -13,7 +13,7 @@
   Source items in `palette/sources` declare their action as one of:
 
     [:palette/select-panel id]
-    [:palette/select-event ev-id]
+    [:palette/select-event dispatch-id frame-id]
     [:palette/select-frame fid]
     [:palette/inspect-handler kind id]
     [:palette/cycle-density]
@@ -220,6 +220,15 @@
     :never   :os
     :os))
 
+;; ---- density cycle (rf2-gwye.9) -----------------------------------------
+
+(defn- next-density
+  "Pure helper. Flip the two shipped density tiers `:cosy ↔ :compact`.
+  Anything else (nil, a persisted `:comfy`) reads as `:cosy`, as the
+  `:rf.xray/density` sub does, and so flips to `:compact`."
+  [current]
+  (if (= :compact current) :cosy :compact))
+
 ;; ---- install --------------------------------------------------------------
 
 (defn install!
@@ -363,14 +372,17 @@
            :fx (conj base-fx [:dispatch [:rf.xray.static/select-tab (first args)]])}
 
           :palette/select-event
-          ;; Route to the Epoch tab with the event pre-selected. The
-          ;; Epoch panel is the canonical "what happened in this epoch"
-          ;; surface; `:rf.xray/selected-event-id` is the selected-event
-          ;; slot the panels read.
-          {:db (assoc close-db
-                      :selected-tab :epoch
-                      :selected-event-id (first args))
-           :fx base-fx}
+          ;; rf2-gwye.8 — a recent-event pick moves the SHARED spine focus
+          ;; through `:rf.xray/focus-event`, the path an L2 row click takes
+          ;; (frame reseed, epoch resolution, head-aware LIVE/RETRO), and
+          ;; lands on the Epoch tab, which reads that focus. The item names
+          ;; the row's dispatch id + frame: an event vector identifies
+          ;; neither a particular run nor a frame.
+          (let [[dispatch-id frame-id] args]
+            {:db (assoc close-db :selected-tab :epoch)
+             :fx (cond-> base-fx
+                   (some? dispatch-id)
+                   (conj [:dispatch [:rf.xray/focus-event dispatch-id frame-id]]))})
 
           :palette/select-frame
           ;; Drive the frame-picker selection event so the user's
@@ -400,11 +412,16 @@
              :fx base-fx})
 
           :palette/cycle-density
-          ;; Phase 1: density toggle is wired through the existing
-          ;; density-sub once the density-runtime bead lands. The
-          ;; palette event records the user intent so the follow-on
-          ;; bead has the data point.
-          {:db (assoc close-db :density-cycle-requested? true)}
+          ;; rf2-gwye.9 — flip the Settings density control (:cosy ↔
+          ;; :compact) through `:rf.xray/settings-update`, the path the
+          ;; Settings radio takes, so persistence and the font-size apply
+          ;; come with it. Reads the live atom, as `:palette/toggle-theme`
+          ;; does, so no Settings-open prerequisite.
+          {:db close-db
+           :fx (conj base-fx
+                     [:dispatch
+                      [:rf.xray/settings-update :general :density
+                       (next-density (config/get-setting :general :density))]])}
 
           :palette/clear-trace-buffer
           (do

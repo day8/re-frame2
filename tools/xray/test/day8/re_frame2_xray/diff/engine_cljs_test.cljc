@@ -883,6 +883,33 @@
       (is (= :added (engine/op-at p [:a 0])))
       (is (contains? (:wholly-changed-roots p) [:a])))))
 
+(deftest gwye-10-multi-element-sequential-emptied-reports-every-removal
+  (testing "rf2-gwye.10 — emptying a MULTI-element vector or list reports
+            every removed element exactly once and no surviving shift.
+            Editscript emits one whole-value `:r` for these, which the
+            engine expands into per-index `:-` edits; those are replayed
+            against the SHRINKING sequence, so ascending indices named the
+            wrong elements (only `:one`/`:three` of four survived, plus
+            phantom shifts). One-element cases never saw it."
+    (doseq [[before after parent]
+            [[{:a [:one :two]}          {:a []}        [:a]]
+             [{:a '(:one :two :three)}  {:a '()}       [:a]]
+             [{:a {:b [1 2 3 4]}}       {:a {:b []}}   [:a :b]]
+             [[:one :two :three :four]  []             []]
+             ['(:w :x :y :z)            '()            []]]]
+      (let [p        (engine/project before after)
+            removed  (vec (get-in before parent))
+            expected (vec (map-indexed (fn [i v] {:before-index i :before-value v})
+                                       removed))]
+        (is (= expected (get-in p [:vector-removals parent]))
+            (str "every removal reported for " (pr-str before)))
+        (is (= (count removed)
+               (count (filter :rf.xray.diff/vector-removal? (:flat-rows p))))
+            (str "one flat removed row per element for " (pr-str before)))
+        (is (empty? (:shift-suffix p))
+            (str "an emptied collection has no surviving shift for "
+                 (pr-str before)))))))
+
 (deftest yucxn-root-vector-empty-edges
   (testing "rf2-yucxn BUG A — the empty edge at the ROOT (a bare vector):
             `[1] → []` member-removes index 0; `[] → [1]` member-adds it.

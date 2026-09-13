@@ -22,6 +22,7 @@
             [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.palette.recents :as recents]
+            [day8.re-frame2-xray.palette.sources :as sources]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -151,25 +152,57 @@
   (is (= :trace (:selected-tab (xray-db))))
   (is (false? (boolean (:palette-open? (xray-db))))))
 
-(deftest invoke-select-event-routes-to-epoch-tab
-  ;; rf2-qy0nu — :palette/select-event writes :selected-tab to the
-  ;; canonical "what happened in this epoch" L3 tab. rf2-5gl5r retired
-  ;; the Event/Handler tab; the routing target is now `:epoch` (the
-  ;; Epoch panel supersedes it).
-  (setup!)
+;; rf2-gwye.8 — a recent-event pick drives the SHARED spine focus
+;; (`:rf.xray/focus-event`), which the Epoch panel reads; the palette keeps
+;; no selection of its own. Items are built by the real source fn from
+;; producer-shaped trace rows.
+
+(defn- dispatched-row [id dispatch-id frame ev]
+  {:id id :op-type :rf.event :operation :rf.event/dispatched
+   :tags {:rf.trace/dispatch-id dispatch-id :frame frame :rf.event/v ev}})
+
+(defn- invoke-item! [item]
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :recent-event
-        :id     [:foo/bar 1]
-        :label  "[:foo/bar]"
-        :action [:palette/select-event [:foo/bar]]
-        :popout? true}
-       false]))
-  (is (= :epoch (:selected-tab (xray-db))))
-  (is (= [:foo/bar]    (:selected-event-id (xray-db))))
-  (is (false? (boolean (:palette-open? (xray-db))))))
+    (rf/dispatch-sync [:rf.xray/palette-invoke item false])))
+
+(defn- xray-sub [query]
+  (rf/with-frame :rf/xray @(rf/subscribe query)))
+
+(deftest invoke-select-event-focuses-the-chosen-dispatch-rf2-gwye-8
+  (testing "choosing the OLDER of two identical event vectors focuses that
+            dispatch and its epoch, and lands on the Epoch tab"
+    (setup!)
+    (let [rows  [(dispatched-row 1 1 :rf/default [:counter/inc])
+                 (dispatched-row 2 2 :rf/default [:counter/inc])]
+          older (first (sources/recent-event-items rows))]
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/sync-trace-buffer rows])
+        (rf/dispatch-sync [:rf.xray/sync-epoch-history
+                           [{:epoch-id 101 :dispatch-id 1 :frame :rf/default}
+                            {:epoch-id 102 :dispatch-id 2 :frame :rf/default}]]))
+      (is (= [2 102] ((juxt :dispatch-id :epoch-id) (xray-sub [:rf.xray/focus])))
+          "precondition: focus is on the latest event")
+      (invoke-item! older)
+      (is (= [1 101 :rf/default]
+             ((juxt :dispatch-id :epoch-id :frame) (xray-sub [:rf.xray/focus]))))
+      (is (= 101 (get-in (xray-sub [:rf.xray/epoch-pipeline]) [:record :epoch-id]))
+          "the Epoch panel's record is the chosen event's")
+      (is (= :epoch (:selected-tab (xray-db))))
+      (is (false? (boolean (:palette-open? (xray-db))))))))
+
+(deftest invoke-select-event-selects-the-rows-own-frame-rf2-gwye-8
+  (testing "two frames reuse dispatch id 1 — the chosen row's frame wins"
+    (setup!)
+    (let [rows   [(dispatched-row 1 1 :app/a [:counter/inc])
+                  (dispatched-row 2 1 :app/b [:counter/inc])]
+          a-item (first (sources/recent-event-items rows))]
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/sync-trace-buffer rows]))
+      (is (= :app/b (:frame (xray-sub [:rf.xray/focus])))
+          "precondition: focus is on the head frame")
+      (invoke-item! a-item)
+      (is (= [1 :app/a] ((juxt :dispatch-id :frame) (xray-sub [:rf.xray/focus])))))))
 
 (deftest invoke-clear-trace-buffer-empties-buffer
   (setup!)
@@ -198,7 +231,7 @@
        {:source :recent-event
         :id     [:foo/bar 1]
         :label  "[:foo/bar]"
-        :action [:palette/select-event [:foo/bar]]
+        :action [:palette/select-event 1 :rf/default]
         :popout? true}
        true]))
   (is (= 1 @popout-calls)
@@ -313,6 +346,26 @@
        false]))
   (is (= :never (config/get-setting :general :reduced-motion-override))
       "second cycle: :always → :never"))
+
+(deftest invoke-cycle-density-drives-the-settings-control-rf2-gwye-9
+  (testing "rf2-gwye.9 — the palette's density command flips the SAME
+            setting the Settings radio writes (:cosy ↔ :compact), so the
+            config value and the density sub agree, and closes the palette"
+    (setup!)
+    (config/update-setting! :general :density :cosy)
+    (let [item    (first (filter #(= :density-toggle (:id %))
+                                 (sources/setting-items)))
+          density #(xray-sub [:rf.xray/density])]
+      (invoke-item! item)
+      (is (= [:compact :compact]
+             [(config/get-setting :general :density) (density)]))
+      (is (not (contains? (xray-db) :density-cycle-requested?))
+          "no orphan request flag")
+      (is (false? (boolean (:palette-open? (xray-db)))))
+      (invoke-item! item)
+      (is (= [:cosy :cosy]
+             [(config/get-setting :general :density) (density)])
+          "a second invocation cycles back"))))
 
 (deftest invoke-jump-to-settings-opens-popup
   (setup!)

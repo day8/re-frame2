@@ -930,6 +930,83 @@
           "paused LIVE pins focus through arrivals")
       (is (true? (:paused? r))))))
 
+;; rf2-fzbj.2 — Space must freeze the event LIVE is SHOWING. The test above
+;; primes a stored pin equal to head before pausing; these start from the
+;; two ordinary states that do not: no pin at all (fresh / after Follow
+;; head) and a LIVE pin that lags a newer head. The epoch history is seeded
+;; once, up front, because `:rf.xray/sync-epoch-history` also stamps
+;; `[:focus :epoch-id]` (its mount-seed contract) and a re-seed mid-test
+;; would overwrite the very pin under test.
+
+(defn- event-bundle-count []
+  (rf/with-frame :rf/xray
+    (count @(rf/subscribe [:rf.xray/event-bundles]))))
+
+(deftest pause-with-no-stored-pin-freezes-the-shown-event-rf2-fzbj-2
+  (doseq [[label prime!]
+          [["fresh LIVE" (fn [] nil)]
+           ["after Follow head"
+            (fn []
+              (rf/with-frame :rf/xray
+                (rf/dispatch-sync [:rf.xray/focus-event :c1 :rf/default])
+                (rf/dispatch-sync [:rf.xray/follow-head])))]]]
+    (testing label
+      (setup-xray-frame!)
+      (seed-cascades! fixture-cascades)
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/sync-epoch-history
+                           [(epoch :e1 :c1) (epoch :e2 :c2)
+                            (epoch :e3 :c3) (epoch :e4 :c4)]]))
+      (prime!)
+      (is (= [:c3 :e3] ((juxt :dispatch-id :epoch-id) (focus-sub)))
+          "precondition: LIVE shows head c3 / e3")
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/toggle-live-pause]))
+      (let [r (focus-sub)]
+        (is (= [:c3 :e3 :rf/default true]
+               ((juxt :dispatch-id :epoch-id :frame :paused?) r))
+            "pausing pins the shown dispatch AND its epoch"))
+      (seed-cascades! (conj fixture-cascades (cascade :c4 :rf/default)))
+      (is (= 4 (event-bundle-count)) "the buffer keeps collecting while paused")
+      (let [r (focus-sub)]
+        (is (= [:c3 :e3 :rf/default]
+               ((juxt :dispatch-id :epoch-id :frame) r))
+            "a new arrival does not move the paused inspection"))
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/toggle-live-pause]))
+      (let [r (focus-sub)]
+        (is (= [:c4 :e4 false] ((juxt :dispatch-id :epoch-id :paused?) r))
+            "resuming follows the newest event and epoch again")))))
+
+(deftest pause-with-lagging-live-pin-keeps-the-newer-head-rf2-fzbj-2
+  (testing "clicking the then-head stores a LIVE pin; once a newer event
+            lands LIVE shows the newer one, and pausing must freeze THAT
+            rather than jump back to the stale pin"
+    (setup-xray-frame!)
+    (seed-cascades! fixture-cascades)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/sync-epoch-history
+                         [(epoch :e1 :c1) (epoch :e2 :c2)
+                          (epoch :e3 :c3) (epoch :e4 :c4)]])
+      (rf/dispatch-sync [:rf.xray/focus-event :c3 :rf/default]))
+    (seed-cascades! (conj fixture-cascades (cascade :c4 :rf/default)))
+    (is (= [:c4 :e4 :live] ((juxt :dispatch-id :epoch-id :mode) (focus-sub)))
+        "precondition: LIVE has moved on to c4 / e4")
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/toggle-live-pause]))
+    (is (= [:c4 :e4 :live true]
+           ((juxt :dispatch-id :epoch-id :mode :paused?) (focus-sub)))
+        "pause freezes the displayed c4 / e4 — no backward jump to c3")))
+
+(deftest pause-is-a-no-op-in-retro-through-the-registered-event-rf2-fzbj-2
+  (setup-xray-frame!)
+  (seed-cascades! fixture-cascades)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/focus-event :c1 :rf/default])
+    (rf/dispatch-sync [:rf.xray/toggle-live-pause]))
+  (is (= [:c1 :retro false] ((juxt :dispatch-id :mode :paused?) (focus-sub)))
+      "Space has no meaning once an older row is pinned"))
+
 (deftest preview-event-handler-does-not-persist-cross-frame-rekey-rf2-uo0rc5
   (testing "rf2-uo0rc.5 — the :rf.xray/preview-event HANDLER must not
             persist a cross-frame :target-frame / :epoch-history re-key
