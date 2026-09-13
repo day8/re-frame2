@@ -18,6 +18,8 @@ grep -rl ':fixture/dynamic-host-only?' <path-to-re-frame2>/spec/conformance/fixt
 grep -rhoE ':fixture/spec-version\s+"[^"]*"' <path-to-re-frame2>/spec/conformance/fixtures/ | sort -u  # spec versions in play
 ```
 
+**These read the filesystem, so they are the corpus *at your pin* only once cardinal rule 1's `status --porcelain -- spec/` check has come back silent.** An untracked `.edn` in `fixtures/` is a fixture to the glob and to no commit; an uncommitted edit to a tracked one changes an expectation the pin still appears to name. Either way the denominator stops meaning what the profile says it was measured against.
+
 The **line anchor** in the key grep is load-bearing, not tidiness. Fixtures also register, dispatch, and handle **event ids in the `:fixture/` namespace** (a fixture that needs a marker event registers one under `:fixture/registry`), and those are values inside the map, not keys of it — an unanchored `:fixture/*` search returns them mixed in with the real keys, and also picks up mentions inside `:fixture/doc` strings and `;;` commentary. Both are false positives for the key floor below: build it against an id and a conforming fixture fails. Anchoring on the top-level map's own keys is the discriminator; once the harness has parsed the fixture, take the key set from the parsed map and skip the text search entirely.
 
 **Capability tags and Mode-B `:call` ops come only from the parsed fixtures** — the union of every `:fixture/capabilities` set and every `:call` value. No text search reads them: a whole-file tag grep also matches fixture ids and doc strings, a `:call` grep counts whitespace variants as distinct ops, and a `:fixture/capabilities` set can span lines, so a line-anchored grep under-reads.
@@ -100,7 +102,7 @@ The port's README states four things, copied from the profile:
 
 - **Claimed capability tags.**
 - **Conformance score** — `passed / claimed-applicable` from the most recent harness run.
-- **The corpus commit** the score was measured against — the corpus changes, so an unpinned score is unverifiable.
+- **The corpus commit** the score was measured against — the corpus changes, so an unpinned score is unverifiable. State it only for a run whose `spec/` tree was clean at that commit (cardinal rule 1); a score measured over local edits names a commit a consumer cannot reproduce it from.
 - **The EP-006 live sub-cache witness result** — its own pass/fail line beside the score (see above), never inside the fraction.
 
 When the score is `N / N`, the port is fixture-conformant against its claim; when it's `N-k / N`, it is k fixtures from conformant. Either way, the consumer knows where they stand. The score stays a **fixture** result: on a host whose cache mechanism does not intrinsically key by `rf=`, `N / N` alone does not make the port v1-complete while the live witness is red or unrun.

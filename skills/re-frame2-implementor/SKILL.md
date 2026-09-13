@@ -19,6 +19,7 @@ allowed-tools:
   - Bash(gh issue *)
   - Bash(git -C * rev-parse *)
   - Bash(git -C * remote get-url *)
+  - Bash(git -C * status *)
   - Read
   - Edit
   - Write
@@ -45,7 +46,7 @@ Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single
 
 ## Cardinal rules (one-liners; full text in [`references/cardinal-rules.md`](references/cardinal-rules.md))
 
-1. **Spec is the contract — pinned before reading.** Verify the checkout's HEAD and origin against the pin recorded in the port profile, and resolve every contract read through that checkout at the pin — the live-site URLs in this skill are citations, never the reading route; when `implementation/` and `spec/` disagree, the spec wins.
+1. **Spec is the contract — pinned before reading.** Verify the checkout's HEAD and origin against the pin recorded in the port profile **and that its `spec/` tree is clean** (a matching HEAD is not a matching tree — uncommitted edits and untracked fixtures ride under the recorded SHA), then resolve every contract read through that checkout at the pin — the live-site URLs in this skill are citations, never the reading route; when `implementation/` and `spec/` disagree, the spec wins.
 2. **Phase 1 before Phase 2.** Record the profile before implementing; committing it is a done-gate concern, not a pre-code gate.
 3. **Dependency order.** EP 001 → 002 → 006 → views → 009 → 015 → 013 are the foundation (015 Data Classification and 013 Flows are both v1-required — 015 rides the 009 emission boundary, and 013 stands on everything before it); optional EPs sit downstream.
 4. **Substrate-agnostic phrasing.** "The identity primitive", "the render-tree", "the reactive container" — not hiccup / Reagent / keywords.
@@ -67,7 +68,7 @@ Report at whatever granularity fits the work — no fresh-session, one-EP-per-se
 
 ## Kickoff (optional paste-ready prompt)
 
-> *I'm implementing a new port of re-frame2 in this repo. Follow the `re-frame2-implementor` skill. The spec corpus is at `<path-to-re-frame2>/spec/`, pinned at `<sha-or-tag>` — verify the pin and origin per cardinal rule 1 before reading anything. Record the port profile (`references/phase-1-decisions.md`) — this is a minimum port: default every optional capability — the checklist's Q1–Q9 — to no, pick host-idiomatic mechanisms, and ask me only about a choice that materially changes the implementation. The v1-required capabilities are not scope choices, so don't default those away. Then walk the EP loop (`references/phase-2-impl-order.md`) from the foundation in order (001 → 002 → 006 → views → 009 → 015 → 013), bootstrapping the conformance seam alongside the first slice. Run the narrow slice gate after every slice and report exact commands and results. The spec is the contract; the CLJS reference is one worked example. Spec gaps: search upstream issues, draft, and ask me before filing.*
+> *I'm implementing a new port of re-frame2 in this repo. Follow the `re-frame2-implementor` skill. The spec corpus is at `<path-to-re-frame2>/spec/`, pinned at `<sha-or-tag>` — verify the pin, the origin and a clean `spec/` tree per cardinal rule 1 before reading anything. Record the port profile (`references/phase-1-decisions.md`) — this is a minimum port: default every optional capability — the checklist's Q1–Q9 — to no, pick host-idiomatic mechanisms, and ask me only about a choice that materially changes the implementation. The v1-required capabilities are not scope choices, so don't default those away. Then walk the EP loop (`references/phase-2-impl-order.md`) from the foundation in order (001 → 002 → 006 → views → 009 → 015 → 013), bootstrapping the conformance seam alongside the first slice. Run the narrow slice gate after every slice and report exact commands and results. The spec is the contract; the CLJS reference is one worked example. Spec gaps: search upstream issues, draft, and ask me before filing.*
 
 ## Done — "v1-complete against the claim"
 
@@ -77,7 +78,7 @@ Report at whatever granularity fits the work — no fresh-session, one-EP-per-se
 - [ ] EP-006 live sub-cache witness green ([`references/phase-2-impl-order.md` §The EP-006 live sub-cache witness](references/phase-2-impl-order.md#the-ep-006-live-sub-cache-witness-port-owned)) — required whenever the cache mechanism does not intrinsically key by `rf=`: one query through two distinct host allocations, one cache-slot, exactly-once disposal, non-`rf=` negative control. Reported beside the corpus score, never folded into it; the fixtures alone cannot see a reference-keyed live cache.
 - [ ] Optional EPs per the claim; acceptance gate 2 = `claimed-applicable / claimed-applicable`.
 - [ ] The port exposes [`spec/API.md`](https://github.com/day8/re-frame2/blob/main/spec/API.md), adapted to host idiom; tooling-security obligations honoured for any tooling shipped (the conformance harness counts).
-- [ ] Spec gaps filed upstream with approval; the port's README states the claimed tags, the score, and the corpus pin.
+- [ ] Spec gaps filed upstream with approval; the port's README states the claimed tags, the score, and the corpus pin — the score measured over a clean `spec/` tree at that pin.
 
 ## Reference files (all one level deep)
 

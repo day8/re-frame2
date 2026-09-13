@@ -440,6 +440,56 @@
                "step — not day-one, not on the default route (rf2-rc0yh).")))))
 
 ;; ---------------------------------------------------------------------------
+;; Lock 5b — shadow-cljs.md attributes source discovery to the file that
+;; actually owns it (rf2-fzbj.41 F1).
+;;
+;; The leaf's day-one key-by-key walk used to present `:source-paths
+;; ["src" "test"]` as WHY both trees are on the compile classpath. Item 1 of
+;; that same list selects `:deps {:aliases [:shadow]}`, and in that mode the
+;; 3.4.10 launcher ignores `:source-paths` outright — `get-clojure-args`
+;; assembles only `-Sdeps` / `-A<aliases>` / `-J<jvm-opts>`, and `run-clojure`
+;; logs "The configured :source-paths in shadow-cljs.edn were ignored! / When
+;; using :deps they must be configured in deps.edn". The live locations are
+;; deps.edn's `:paths` (app) and the `:shadow` alias's `:extra-paths` (test),
+;; which is exactly what SKILL.md's empty-shadow conversion already says — so
+;; the leaf contradicted its own router.
+;;
+;; The default scaffold masks it: deps.edn duplicates the advertised paths, so
+;; the build works and the false instruction only bites the author who RELOCATES
+;; a source or test dir by editing the ignored key. That is why this is a prose
+;; lock and not a build assertion.
+;; ---------------------------------------------------------------------------
+
+(deftest shadow-cljs-leaf-attributes-source-paths-to-deps-edn
+  (let [body @shadow-cljs-md]
+    (testing "the leaf says :source-paths is ignored under :deps"
+      (is (contains-any? body ["is inert here" "were ignored" "ignores this key"])
+          (str "references/shadow-cljs.md no longer states that shadow-cljs.edn's "
+               ":source-paths is IGNORED in :deps mode. Under `:deps {:aliases "
+               "[:shadow]}` the 3.4.10 launcher takes the whole classpath from "
+               "`clojure -Spath` and warns that :source-paths was ignored; "
+               "presenting that key as the reason the :test build sees test/ sends "
+               "an author relocating a source dir to edit the wrong file "
+               "(rf2-fzbj.41 F1).")))
+    (testing "the leaf names BOTH active deps.edn locations"
+      (is (str/includes? body ":paths")
+          "shadow-cljs.md no longer names deps.edn's `:paths` as the app-dir location.")
+      (is (str/includes? body ":extra-paths")
+          (str "shadow-cljs.md no longer names the `:shadow` alias's `:extra-paths` as "
+               "the test-dir location. Both halves are needed: naming only one leaves "
+               "the other dir looking like shadow-cljs.edn's business.")))
+    (testing "the leaf does not still claim the key puts both trees on the classpath"
+      (is (not (contains-any? body ["Both trees are on the compile classpath"
+                                    "Both trees are on the classpath"]))
+          (str "the superseded wording is back: it attributes source discovery to the "
+               "ignored key. Say deps.edn owns the paths instead.")))
+    (testing "SKILL.md's conversion recipe still agrees (the premise this lock rests on)"
+      (is (str/includes? @skill-md "ignores `shadow-cljs.edn`'s `:source-paths`")
+          (str "SKILL.md's empty-shadow conversion no longer states the ignore rule. "
+               "If that moved deliberately, revisit this lock and the leaf together — "
+               "they must not disagree again.")))))
+
+;; ---------------------------------------------------------------------------
 ;; Lock 6 — user-facing direct-run shadow-cljs commands are qualified with npx.
 ;; ---------------------------------------------------------------------------
 

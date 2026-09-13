@@ -16,9 +16,12 @@ For an unqualified minimum-port request ("build a minimum re-frame2 port in Type
 The contract is `spec/` at a **specific commit**, verified before anything is read (cardinal rule 1):
 
 ```bash
-git -C <path-to-re-frame2> remote get-url origin   # expect: https://github.com/day8/re-frame2(.git)
-git -C <path-to-re-frame2> rev-parse HEAD          # expect: the chosen <SHA-or-tag>
+git -C <path-to-re-frame2> remote get-url origin       # expect: https://github.com/day8/re-frame2(.git)
+git -C <path-to-re-frame2> rev-parse HEAD              # expect: the chosen <SHA-or-tag>
+git -C <path-to-re-frame2> status --porcelain -- spec/ # expect: nothing at all
 ```
+
+**The third line is what makes the first two load-bearing.** Origin and HEAD identify a *commit*; every read below goes through the *working tree*, so without it an uncommitted spec edit or an untracked fixture rides under the recorded SHA and the port implements — and scores against — content that SHA does not carry (cardinal rule 1). Any output: report the divergent paths and stop; never clear them for the engineer.
 
 Record the pin **and the checkout path** in the profile: every contract read in both phases — EP owners, fixed obligations, the conformance README, the fixture corpus — resolves through that verified checkout at the pin (`<path-to-re-frame2>/spec/…`, cardinal rule 1). The `day8.github.io` links in this skill are citations of live main for browsing, never the reading route. Retargeting to a newer upstream HEAD later is a deliberate event: update the pin line, re-derive the capability claim at the new pin, and re-run the harness.
 
@@ -29,7 +32,7 @@ It lives in the port's repo (as `PORT-PROFILE.md`, or a section of the README). 
 ```markdown
 # Port profile — <port name>
 
-- Spec pin: day8/re-frame2 @ <SHA-or-tag>, read from the verified checkout at <path-to-re-frame2> (origin + pin verified <YYYY-MM-DD>)
+- Spec pin: day8/re-frame2 @ <SHA-or-tag>, read from the verified checkout at <path-to-re-frame2> (origin + pin + clean spec/ verified <YYYY-MM-DD>)
 - Host: <language + version; runtime targets; build tool; test runner>
 - Mechanisms (actual choices only):
   - identity primitive: <e.g. branded strings with interning>
