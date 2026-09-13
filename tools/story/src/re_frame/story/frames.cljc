@@ -432,9 +432,9 @@
 ;; "narrower-than-the-decorator stack tears down first".
 
 (defn- apply-loaders-teardown!
-  "Walk the variant body's `:loaders-teardown` vector and dispatch-sync
-  each event into the variant's frame in declared order. Per `002-
-  Runtime.md` §Loader teardown contract.
+  "Walk the supplied `:loaders-teardown` vector — the RUN's resolved cleanup,
+  captured at allocation — and dispatch-sync each event into the variant's
+  frame in declared order. Per `002-Runtime.md` §Loader teardown contract.
 
   Exception handling is identical to `apply-frame-teardown!`: re-frame's
   interceptor chain catches handler throws and emits
@@ -1012,8 +1012,8 @@
   1. Clear lifecycle watchers + per-frame stub-call log; drop the
      per-variant assertion accumulators + the play-runner's per-frame
      run-state via the late-bind hooks.
-  2. Dispatch-sync the variant body's `:loaders-teardown` events
-     (declared order) — cleans up loader-installed narrower
+  2. Dispatch-sync the RUN's `:loaders-teardown` events (declared order,
+     from the allocate-time capture) — cleans up loader-installed narrower
      state. BEFORE the decorator teardown.
   3. Dispatch-sync the `:frame-setup` decorator `:teardown` events
      (reverse-declaration order) — cleans up decorator-installed wider
@@ -1092,9 +1092,11 @@
   1. Drop per-variant assertion accumulators (`drop-assertion-accumulators`
      late-bind shim) + per-frame stub-call log.
   2. Clear lifecycle watchers (`rf.story.loaders/clear-watchers!`).
-  3. Dispatch-sync the variant body's `:loaders-teardown` events in
-     declared order. Exceptions are caught and projected
-     into the variant frame's `:rf.story/assertions` as
+  3. Dispatch-sync the RUN's `:loaders-teardown` events in declared order —
+     the resolved slot captured when this run's frame was allocated, so the
+     cleanup releases what this run's loaders opened even if the
+     registration changed meanwhile (rf2-gwye.6). Exceptions are caught and
+     projected into the variant frame's `:rf.story/assertions` as
      `:rf.error/exception` records with
      `:phase :phase-loaders-teardown`. The walk never aborts.
   4. Dispatch-sync the variant's `:frame-setup` decorator `:teardown`
@@ -1107,7 +1109,7 @@
      inside `rf/destroy-frame!`).
   6. `rf/destroy-frame!` runs the frame's own teardown walk.
 
-  Step 3 fires BEFORE step 4: the variant body's `:loaders-teardown`
+  Step 3 fires BEFORE step 4: the run's `:loaders-teardown`
   cleans up what `:loaders` opened (innermost in resource-scope terms);
   decorator `:teardown` cleans up what decorator `:init` opened
   (outermost). Matches the rule 'narrower-than-the-decorator stack
