@@ -10,7 +10,7 @@
 
 ## Why this is its own rule
 
-[M-13](README.md#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) and [M-17](README.md#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) hand the operator a per-call-site decision — "this `reg-event-error-handler` was an observer; convert to `register-listener!`." That's the right shape for the *mechanical* part. What M-13 / M-17 leave on the floor is the **security and operational consequence** of the conversion: an audit-logger that worked in v1 by hooking the dispatch envelope sees the whole event vector, which may carry passwords / tokens / PII; the v2-canonical `register-listener!` listener receives the same event under `:tags :event-v` and ships it to wherever the listener's body forwards (Sentry, an external SIEM, a local log file). Per [Security.md §Privacy / secret handling](../../spec/Security.md#privacy--secret-handling), the framework defends with `:sensitive?` declarations + the wire-elision walker, but the defense is **declarative** — if the v1 site never declared its observability surface, the v2 port silently leaks the same payloads to a wider audience.
+[M-13](README.md#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) and [M-17](README.md#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) hand the operator a per-call-site decision — "this `reg-event-error-handler` was an observer; convert to `register-listener!`." That's the right shape for the *mechanical* part. What M-13 / M-17 leave on the floor is the **security and operational consequence** of the conversion: an audit-logger that worked in v1 by hooking the dispatch envelope sees the whole event vector, which may carry passwords / tokens / PII; the v2-canonical `register-listener!` listener receives the same event under `[:tags :rf.event/v]` and ships it to wherever the listener's body forwards (Sentry, an external SIEM, a local log file). Per [Security.md §Privacy / secret handling](../../spec/Security.md#privacy--secret-handling), the framework defends with `:sensitive?` declarations + the wire-elision walker, but the defense is **declarative** — if the v1 site never declared its observability surface, the v2 port silently leaks the same payloads to a wider audience.
 
 This rule is the **dedicated sweep** that turns the post-M-13 / post-M-17 observer set into a v2-canonical set with privacy + oversize defenses composed at every egress. It has four sections:
 
@@ -171,28 +171,35 @@ Every listener body that walks a payload bounded by user input or by app-db size
 
 ### Surfacing the dropped count via `register-listener!`
 
-The cap silently elides — but silent elision is the wrong default for operational observability. Operators need to see that the listener filtered SOMETHING — otherwise a misconfigured schema (forgot `{:sensitive? true}` on a new field) leads to "the dashboard shows nothing" with no diagnostic signal. The pattern is to **emit a counter trace event** every time the listener drops slots:
+The cap silently elides — but silent elision is the wrong default for operational observability. Operators need to see that the listener filtered SOMETHING — otherwise a misconfigured schema (forgot `{:sensitive? true}` on a new field) leads to "the dashboard shows nothing" with no diagnostic signal. The pattern is to **dispatch a counter event** into the frame the trace record names every time the listener drops slots:
 
 ```clojure
 (rf/register-listener! :trace :my-app/audit-forwarder
   (fn [trace-event]
-    (when (and (#{:event/dispatched :event/handler-completed} (:operation trace-event))
+    (when (and (= :rf.event/dispatched (:operation trace-event))     ;; one record per dispatch
                (not (:sensitive? trace-event)))                      ;; default-drop sensitive cascades
-      (let [event-v   (-> trace-event :tags :event-v)
+      (let [{event-v     :rf.event/v                                 ;; event, frame and dispatch
+             frame       :frame                                      ;; identity all ride :tags
+             dispatch-id :rf.trace/dispatch-id} (:tags trace-event)
             [bounded
              dropped
              over?]   (cap-or-elide event-v
                                     {:budget-bytes 32768
-                                     :frame        (:frame trace-event)})]
+                                     :frame        frame})]
         (when (or (pos? dropped) over?)
-          ;; Per-batch counter: operator sees how often the cap fires
+          ;; Per-batch counter: operator sees how often the cap fires. Aimed at
+          ;; the SAME live frame; the counter handler opts out of tracing (§4),
+          ;; so this dispatch is never itself forwarded.
           (rf/dispatch [:audit/dropped-counter-inc {:dropped     dropped
                                                     :over-budget over?
-                                                    :operation   (:operation trace-event)}]))
+                                                    :operation   (:operation trace-event)}]
+                       {:frame frame}))
         (sentry/capture-message
           {:message "audit event"
            :extra   {:event/operation   (:operation trace-event)
                      :event/payload     bounded
+                     :event/frame       frame
+                     :event/dispatch-id dispatch-id
                      :event/dropped     dropped
                      :event/over-budget over?}})))))
 ```
@@ -200,13 +207,13 @@ The cap silently elides — but silent elision is the wrong default for operatio
 Two diagnostic signals:
 
 1. **The `:event/dropped` + `:event/over-budget` slots on every forwarded payload** — the operator opening the destination dashboard sees per-event how many declared slots were filtered and whether the byte-budget backstop dropped the payload. Reporting them separately keeps a declared-elision distinct from a genuine over-budget drop — the two must not be conflated.
-2. **The `[:audit/dropped-counter-inc ...]` dispatch into the runtime** — accumulates a counter the operator can query via `(rf/subscribe [:audit/dropped-counter])` for a continuous "how often is the cap firing" view.
+2. **The `[:audit/dropped-counter-inc ...]` dispatch into the runtime** — targeted at the frame the trace record names, it accumulates a counter the operator can query via `(rf/subscribe [:audit/dropped-counter] {:frame frame-id})` for a continuous "how often is the cap firing" view.
 
 The two together let the operator distinguish "the backstop fires twice a day" from "the backstop fires on every event because a misconfigured schema is leaking the whole `app-db`." Both signals MUST land on the rewrite — silent elision is the failure mode this rule defends against.
 
 ### Composition with the framework default
 
-The framework already drops `:sensitive? true` events on the off-box-forwarder default (per [009 §Privacy / sensitive data in traces](../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces) — "Framework-published listener integrations MUST default to suppressing `:sensitive? true` events"). The `(when-not (:sensitive? trace-event) ...)` guard in the listener body composes the default — the listener body never even sees a sensitive-scope cascade. The explicit `cap-or-elide` walk catches the **rest** of the payload — fields whose own schema didn't carry `:sensitive?` but match the floor checklist from §2, plus the size-cap.
+The framework already drops `:sensitive? true` events on the off-box-forwarder default (per [009 §Privacy / sensitive data in traces](../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces) — "Framework-published listener integrations MUST default to suppressing `:sensitive? true` events"). The `(not (:sensitive? trace-event))` guard in the listener body composes the default — the listener body never even sees a sensitive-scope cascade. That flag sits at the **root** of the trace record, not under `:tags`, and the framework stamps it when the run's scope overlaps a classified sensitive path. Event args declared `:sensitive` in `reg-event` registration metadata are already `:rf/redacted` at `[:tags :rf.event/v]` before the listener runs. The explicit `cap-or-elide` walk catches the **rest** of the payload — fields whose own schema didn't carry `:sensitive?` but match the floor checklist from §2, plus the size-cap.
 
 ## 4. Reference mediation interceptor
 
@@ -310,10 +317,11 @@ This is the v2-canonical target for the **majority** of "observer (off-box egres
 
 (rf/register-listener! :trace :my-app/audit-forwarder
   (fn audit-forwarder [trace-event]
-    (when (and (= :event/dispatched (:operation trace-event))         ;; one event per dispatch
+    (when (and (= :rf.event/dispatched (:operation trace-event))      ;; one record per dispatch
                (not (:sensitive? trace-event)))                       ;; honour framework default-drop
-      (let [event-v   (-> trace-event :tags :event-v)
-            frame     (:frame trace-event)
+      (let [{event-v     :rf.event/v                                  ;; event, frame and dispatch
+             frame       :frame                                       ;; identity all ride :tags
+             dispatch-id :rf.trace/dispatch-id} (:tags trace-event)
             [bounded
              dropped
              over?]   (cap-or-elide event-v {:budget-bytes 32768
@@ -322,25 +330,29 @@ This is the v2-canonical target for the **majority** of "observer (off-box egres
           (rf/dispatch [:audit/dropped-counter-inc
                         {:operation   (:operation trace-event)
                          :dropped     dropped
-                         :over-budget over?}]))
+                         :over-budget over?}]
+                       {:frame frame}))                               ;; the SAME live frame
         (sentry/capture-message
           {:message "audit event"
            :extra   {:event/operation   (:operation trace-event)
                      :event/payload     bounded
-                     :event/dispatch-id (:dispatch-id trace-event)
+                     :event/dispatch-id dispatch-id
                      :event/dropped     dropped
                      :event/over-budget over?
                      :event/frame       frame}})))))
 
 ;; --- The dropped-counter event + sub (operator-visible signal #2) ---
+;; :rf.trace/no-emit? keeps the counter's own run off the trace stream, so the
+;; forwarder above never sees, or forwards, the dispatch it just made.
 
-(rf/reg-event-db :audit/dropped-counter-inc
-  (fn [db [_ {:keys [operation dropped over-budget]}]]
-    (-> db
-        (update-in [:audit/counters :total-dropped]           (fnil + 0) (or dropped 0))
-        (update-in [:audit/counters :per-operation operation]  (fnil + 0) (or dropped 0))
-        (cond-> over-budget
-          (update-in [:audit/counters :over-budget]           (fnil inc 0))))))
+(rf/reg-event :audit/dropped-counter-inc
+  {:rf.trace/no-emit? true}
+  (fn [{:keys [db]} [_ {:keys [operation dropped over-budget]}]]
+    {:db (-> db
+             (update-in [:audit/counters :total-dropped]           (fnil + 0) (or dropped 0))
+             (update-in [:audit/counters :per-operation operation]  (fnil + 0) (or dropped 0))
+             (cond-> over-budget
+               (update-in [:audit/counters :over-budget]           (fnil inc 0))))}))
 
 (rf/reg-sub :audit/dropped-counter
   (fn [db _] (:audit/counters db)))
@@ -371,7 +383,8 @@ When the v1 observer assembled a per-cascade summary (an audit-log entry per dra
           (rf/dispatch [:audit/dropped-counter-inc
                         {:operation   :epoch/settled
                          :dropped     dropped
-                         :over-budget over?}]))
+                         :over-budget over?}]
+                       {:frame (:frame epoch-record)}))
         (if over?
           ;; Over budget even after projection — forward the bounded over-budget
           ;; marker, never the oversize record.
