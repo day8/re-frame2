@@ -255,3 +255,89 @@
 
   (testing "and this artefact's own test tree is clean"
     (is (= [] (rf.test-quiet.runner/discovery-defects ["test"])))))
+
+;; ----------------------------------------------------------------------
+;; A DISCOVERY DIRECTORY IS NOT A CLASSPATH ROOT (rf2-fzbj.8).
+;;
+;; `-d` chooses where cognitect SCANS. It does not change resource
+;; resolution: cognitect reads each discovered file's `(ns ...)` form and
+;; hands the name to `require`, which resolves it against the unchanged
+;; classpath. So narrowing a large tree during local debugging —
+;; `-d test/re_frame` under the classpath root `test` — is an ordinary
+;; supported selection, and cognitect runs it.
+;;
+;; Comparing the declared namespace's resource path against a path relative
+;; to `-d` made every file under such a directory a defect: the two strings
+;; are SUPPOSED to differ there. Measured on this artefact before the
+;; repair: `clojure -M:test -d test/re_frame -n
+;; re-frame.test-quiet-pin-passing-test` named all SEVEN files under
+;; `test/re_frame` — the selected one included — and exited 1 before a test
+;; ran, while the identical command through raw `cognitect.test-runner`
+;; exited 0 having run it.
+;;
+;; These rows need the REAL classpath, so they use this artefact's own
+;; tracked `src` and `test` roots rather than a temp tree. A temp-dir
+;; fixture cannot reach the defect at all: nothing in it is on the
+;; classpath, so both halves of the rule are exercised only here.
+
+(deftest a-nested-discovery-directory-is-not-a-defect
+  (testing "THE DEFECT: every file under a nested `-d` spells a path
+            relative to that directory which differs from its resource
+            path, so a path-string comparison names all of them"
+    (let [nested (rf.test-quiet.runner/discovery-defects ["test/re_frame"])]
+      (is (= [] nested)
+          (str "a directory BELOW the classpath root `test` is an ordinary"
+               " discovery selection; cognitect runs it. Got:\n"
+               (str/join "\n" (map pr-str nested))))))
+
+  (testing "the same holds one root over, so this is the rule and not a
+            property of the test tree"
+    (is (= [] (rf.test-quiet.runner/discovery-defects ["src/re_frame/test_quiet"]))))
+
+  (testing "THE CONTROL: the root spelling is still clean, so the repair
+            did not buy the nested case by disarming the guard"
+    (is (= [] (rf.test-quiet.runner/discovery-defects ["test"])))
+    (is (= [] (rf.test-quiet.runner/discovery-defects ["src"])))))
+
+(deftest a-file-the-classpath-answers-with-another-file-is-still-named
+  (testing "THE OTHER HALF: resolution is what clears a file, so a file
+            whose declared namespace `require` answers with a DIFFERENT
+            real file is still refused — this is the shadowing door the
+            rule exists to hold shut, and it is the one case a nested `-d`
+            could plausibly have opened"
+    (with-tree {"shadow.clj" (str "(ns re-frame.test-quiet.runner)\n"
+                                  "(defn totally-different [] :nope)\n")}
+      (fn [dir]
+        (let [defects (rf.test-quiet.runner/discovery-defects [(.getPath dir)])]
+          (is (= ["shadow.clj"] (defect-paths defects))
+              "the stray copy is named")
+          (let [complaint (complaint-for defects "shadow.clj")]
+            (is (str/includes? complaint "re_frame/test_quiet/runner.clj")
+                (str "the complaint names the resource path `require` will"
+                     " load; got: " complaint))
+            (is (str/includes? complaint "a different file")
+                (str "and says the classpath answers it with another file;"
+                     " got: " complaint))
+            (is (str/includes? complaint "src/re_frame/test_quiet/runner.clj")
+                (str "naming that file, because the operator cannot act on"
+                     " `a different file` without knowing which; got: "
+                     complaint))))))))
+
+(deftest a-namespace-nothing-on-the-classpath-answers-says-so
+  (testing "the third outcome: the declaration resolves to a path no
+            classpath root carries, so `require` would throw. The complaint
+            must say THAT, not claim some other file exists"
+    (with-tree {"stray.clj" (str "(ns probe.nothing-answers-this-test\n"
+                                 "  (:require [clojure.test"
+                                 " :refer [deftest is]]))\n"
+                                 "(deftest g (is (= 1 1)))\n")}
+      (fn [dir]
+        ;; The file's own path relative to `-d` is `stray.clj`; its
+        ;; declaration resolves to `probe/nothing_answers_this_test.clj`,
+        ;; which neither matches nor exists anywhere on the classpath.
+        (let [complaint (-> (rf.test-quiet.runner/discovery-defects [(.getPath dir)])
+                            (complaint-for "stray.clj"))]
+          (is (some? complaint) "the file must still be named")
+          (is (str/includes? complaint "nothing on this run's classpath")
+              (str "the complaint must describe the actual mismatch; got: "
+                   complaint)))))))

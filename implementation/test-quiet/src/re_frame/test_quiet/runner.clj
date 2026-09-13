@@ -774,17 +774,63 @@
                [#{} []])
        second))
 
+(defn- classpath-file
+  "The file `require` will actually load for the classpath-relative resource
+  path `ns-path`, or nil when nothing on THIS run's classpath answers to it.
+
+  A resource answered from inside a jar is nil too: a jar entry is never
+  one of the loose source files the discovery walk just handed us, so it is
+  `some other file` by the only definition that matters here."
+  [^String ns-path]
+  (when-let [url (io/resource ns-path)]
+    (when (= "file" (.getProtocol url))
+      (try (io/file (.toURI url)) (catch Exception _ nil)))))
+
+(defn- canonical-path
+  "`file`'s canonical path, forward-slashed, or nil if the filesystem
+  refuses to answer."
+  [^java.io.File file]
+  (try (str/replace (.getCanonicalPath file) "\\" "/")
+       (catch java.io.IOException _ nil)))
+
 (defn- own-path-defect
   "Why `file` will not reach the runner as ITS OWN namespace, or nil.
 
   Either the reader cannot read its `(ns ...)` form — in which case
   discovery drops it and it contributes no namespace at all — or the name
-  it declares resolves to some other file's path."
-  [{:keys [rel ext declared complaint]}]
-  (when (not= rel (some-> declared (ns->path ext)))
-    (or complaint
-        (str "it declares `" declared "`, which discovery resolves to `"
-             (ns->path declared ext) "` - a different file."))))
+  it declares resolves to some other file.
+
+  `-d` CHOOSES WHERE COGNITECT SCANS; IT IS NOT A CLASSPATH ROOT.  Cognitect
+  reads the namespace out of each discovered file and hands it to `require`,
+  which resolves it against the unchanged classpath — so
+  `-d test/re_frame`, narrowing a large tree during local debugging, is an
+  ordinary selection and not a defect, even though every file under it then
+  spells a path relative to `-d` that differs from its resource path.  Two
+  answers therefore clear a file, and it is a defect only if NEITHER does:
+
+    - its path relative to the scan directory already IS its resource path
+      (the default `-d test` lane, and every temp-dir fixture, which is why
+      this arm must stay: nothing there is on the classpath at all); or
+    - `require`'s own resolution of that resource path, on this run's real
+      classpath, lands on THIS VERY FILE.
+
+  The second arm is strictly weaker than the first, so this rule can only
+  ever clear a file the older path-string comparison reddened — never redden
+  one it cleared."
+  [{:keys [canonical rel ext declared complaint]}]
+  (if complaint
+    complaint
+    (let [ns-path  (ns->path declared ext)
+          resolved (some-> (classpath-file ns-path) canonical-path)]
+      (when-not (or (= rel ns-path)
+                    (and resolved (= resolved (str/replace canonical "\\" "/"))))
+        (str "it declares `" declared "`, which `require` loads from `"
+             ns-path "` - "
+             (if resolved
+               (str "and on this run's classpath that is `" resolved
+                    "`, a different file.")
+               (str "and nothing on this run's classpath answers to that"
+                    " path, so `require` cannot load this file at all.")))))))
 
 (defn- collision-defects
   "One `[path complaint]` per file for every namespace declared by MORE
@@ -821,9 +867,12 @@
   namespace, as `[path complaint]` pairs sorted by path.
 
   Empty is the only acceptable answer.  Two rules, both required: a file
-  must declare a namespace that resolves to ITS OWN path
-  (`own-path-defect`), and no two files may declare the SAME one
-  (`collision-defects`).  The first alone leaves the shadowing door open,
+  must declare a namespace that resolves to ITS OWN FILE — by its path
+  relative to the scan directory, or by `require`'s own resolution against
+  the real classpath, which is what makes a nested `-d` an ordinary
+  selection rather than a defect (`own-path-defect`) — and no two files may
+  declare the SAME one (`collision-defects`).  The first alone leaves the
+  shadowing door open,
   because it derives each file's extension from that file and so clears a
   `.clj`/`.cljc` pair — and a repeated relative path under two roots —
   where each half spells its own path perfectly and only one of them ever

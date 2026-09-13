@@ -1648,3 +1648,124 @@
               (str "the run must be refused BEFORE any test executes,"
                    " because by the time a tally exists the missing file is"
                    " already invisible to it; got:\n" out)))))))
+
+;; ----------------------------------------------------------------------
+;; A DISCOVERY DIRECTORY IS NOT A CLASSPATH ROOT (rf2-fzbj.8).
+;;
+;; `-d` chooses where cognitect SCANS. Resource resolution is untouched:
+;; cognitect reads each discovered file's `(ns ...)` form and hands the name
+;; to `require`, which resolves it against the classpath as it stands. So
+;; narrowing a large tree while debugging — `-d test/re_frame` under the
+;; classpath root `test` — is a supported selection that cognitect runs.
+;;
+;; The guard compared each file's path RELATIVE TO `-d` against its
+;; namespace's resource path, which under a nested `-d` are supposed to
+;; differ. Measured on this artefact before the repair: `clojure -M:test
+;; -d test/re_frame -n re-frame.test-quiet-pin-passing-test` named all
+;; SEVEN files under that directory as defects — the requested one
+;; included — and exited 1 before a test ran, while the identical
+;; discovery directory through raw `cognitect.test-runner` exited 0 having
+;; run it.
+;;
+;; The rule itself is pinned against a real classpath in
+;; `re-frame.test-quiet-discovery-integrity-test`. What needs a process is
+;; the end-to-end claim: the SAME namespace, selected through the real
+;; `-main` at three discovery depths, runs and tallies identically — and
+;; a genuinely broken file under the deepest of them is STILL refused, so
+;; the repair bought the nested case by resolving paths rather than by
+;; standing the guard down.
+
+(defn- invoke-quiet-runner-rooted
+  "Relaunch a fresh JVM on `-main` with `classpath-root` on the classpath
+  and `discovery-dir` — which may be nested arbitrarily deep beneath it —
+  as the `-d` value. The harness above passes ONE directory as both, which
+  is precisely the case that cannot distinguish a discovery directory from
+  a classpath root."
+  [^java.io.File classpath-root ^java.io.File discovery-dir & runner-args]
+  (let [java-executable (str (io/file (System/getProperty "java.home") "bin"
+                                      (if (str/includes?
+                                            (str/lower-case
+                                              (System/getProperty "os.name"))
+                                            "win")
+                                        "java.exe" "java")))
+        classpath       (str (System/getProperty "java.class.path")
+                             (System/getProperty "path.separator")
+                             (.getAbsolutePath classpath-root))
+        command         (into [java-executable "-cp" classpath "clojure.main"
+                               "-m" "re-frame.test-quiet.runner"
+                               "-d" (.getAbsolutePath discovery-dir)]
+                              runner-args)
+        process-builder (ProcessBuilder. ^java.util.List command)]
+    ;; Same reason as `invoke-quiet-runner-with-env`: an outer shell that
+    ;; exported `RF2_MIN_TESTS` for another lane must not perturb these pins.
+    (.remove (.environment process-builder) "RF2_MIN_TESTS")
+    (drain-process (.start process-builder))))
+
+(defn- write-deep-fixture!
+  "Write `source` verbatim at `relative-path` under `dir`, creating the
+  intervening directories. Unlike `write-raw-fixture!` the caller owns the
+  whole path, because the nesting IS the subject here."
+  [^java.io.File dir relative-path source]
+  (let [file (io/file dir relative-path)]
+    (.mkdirs (.getParentFile file))
+    (spit file (str source "\n"))))
+
+(deftest a-nested-discovery-directory-runs-the-same-suite
+  (with-fixture-dir
+    (fn [root]
+      ;; Classpath root is `root`; the suite sits two levels down, so its
+      ;; path relative to each candidate `-d` differs from its resource
+      ;; path `probe/deep/good_test.clj` at every depth but the first.
+      (write-deep-fixture! root "probe/deep/good_test.clj"
+        (str "(ns probe.deep.good-test\n"
+             "  (:require [clojure.test :refer [deftest is]]\n"
+             "            [re-frame.test-quiet]))\n"
+             "(deftest a-passing-test (is (= 1 1)))"))
+
+      (testing "the same namespace, selected at three discovery depths,
+                runs and tallies identically"
+        (doseq [[relative dir] [["<root>"     root]
+                                ["probe"      (io/file root "probe")]
+                                ["probe/deep" (io/file root "probe" "deep")]]]
+          (let [{:keys [exit out err timed-out?]}
+                (invoke-quiet-runner-rooted root dir
+                                            "-n" "probe.deep.good-test")]
+            (is (not timed-out?) (str "-d " relative " must terminate"))
+            (is (zero? exit)
+                (str "-d " relative " selects a valid, loadable namespace"
+                     " under the classpath root and must exit 0 — the"
+                     " defect was a refusal before any test ran; got exit "
+                     exit "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+            (is (str/includes? out "Ran 1 tests containing 1 assertions.")
+                (str "and the counts must be the SAME at every depth, or the"
+                     " narrowing silently changed what ran; got -d " relative
+                     ":\n" out))
+            (is (not (str/includes? err "will not reach the runner"))
+                (str "and no file may be complained about; got -d " relative
+                     " stderr:\n" err)))))
+
+      (testing "THE CONTROL: a genuinely undiscoverable file under the
+                DEEPEST discovery directory is still refused, so the repair
+                resolves paths rather than standing the guard down"
+        ;; One unescaped `\"` in the ns docstring: the reader consumes the
+        ;; rest of the file and hits EOF, so discovery drops it silently.
+        (write-deep-fixture! root "probe/deep/unreadable_test.clj"
+          (str "(ns probe.deep.unreadable-test\n"
+               "  \"A docstring with a stray \" quote in it.\"\n"
+               "  (:require [clojure.test :refer [deftest is]]))\n"
+               "(deftest silently-dropped (is (= 1 1)))"))
+        (let [{:keys [exit out err]}
+              (invoke-quiet-runner-rooted root (io/file root "probe" "deep"))]
+          (is (= 1 exit)
+              (str "an unreadable file must still red the lane under a"
+                   " nested `-d`; got exit " exit "\n--- stdout ---\n" out
+                   "\n--- stderr ---\n" err))
+          (is (str/includes? err "unreadable_test.clj")
+              (str "and the diagnostic must name it; got stderr:\n" err))
+          (is (not (str/includes? err "good_test.clj"))
+              (str "while the healthy sibling beside it must NOT be named —"
+                   " naming every file under the directory is the whole"
+                   " defect; got stderr:\n" err))
+          (is (not (str/includes? out "Ran "))
+              (str "and the run is refused before any test executes; got:\n"
+                   out)))))))
