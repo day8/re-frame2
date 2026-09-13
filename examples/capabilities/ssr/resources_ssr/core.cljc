@@ -310,7 +310,10 @@
       (`Thread/sleep`) so the managed-HTTP transport's async reply lands and
       its reply event dispatches — the JVM transport issues requests via
       `HttpClient/sendAsync`, so nothing settles the entry synchronously
-      inside the `:rf.resource/ensure` dispatch itself."
+      inside the `:rf.resource/ensure` dispatch itself.
+
+      `:frame` is the frame ID — `rf/resource-state`'s introspection target
+      keys the frame registry directly. See the call site."
      [{:keys [resource scope params frame]}]
      (let [deadline (+ (System/currentTimeMillis) preload-deadline-ms)]
        (loop []
@@ -364,10 +367,19 @@
            ;; The `[:ssr …]`-owned ensure that `:rf/server-init` kicked off has
            ;; to land on a terminal status (:loaded / :error) before the render
            ;; walk works with real data instead of an in-flight guess.
+           ;;
+           ;; `:frame fid`, not `:frame f`. Most of the public surface takes a
+           ;; frame VALUE or a frame-id keyword interchangeably — `app-db-value`
+           ;; just below is handed `f` — but `rf/resource-state`'s introspection
+           ;; target is the frame ID, which is what the runtime-db read keys the
+           ;; registry by. Hand it the value and every poll reads nil: no entry
+           ;; under that key, no terminal status, and the loop burns the whole
+           ;; `preload-deadline-ms` budget on a page that was ready in
+           ;; milliseconds.
            (await-resource-loaded! {:resource :articles/list
                                      :scope    :rf.scope/global
                                      :params   {}
-                                     :frame    f})
+                                     :frame    fid})
            (let [final-db      (rf/app-db-value f)
                  final-runtime (:rf.db/runtime (rf/frame-state-value f))   ;; this is where :rf.runtime/resources lives
                  hiccup        ((rf/view :app/root))

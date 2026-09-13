@@ -147,14 +147,25 @@
     ;; the host's HTTP request map (Ring-shaped under the bundled adapter), the
     ;; place you'd read URL, headers, and cookies from.
     ;;
-    ;; This particular handler leaves db alone and just fires off the article
-    ;; fetch. An app with routing would stash the matched route here; a page
-    ;; that only ever shows articles has no route worth remembering.
-    {:db db
+    ;; This particular handler marks the page load pending and fires off the
+    ;; article fetch. An app with routing would stash the matched route here; a
+    ;; page that only ever shows articles has no route worth remembering.
+    ;;
+    ;; `:articles/load-state` is the page's OWN completion signal, and the
+    ;; server render is what makes it load-bearing. On the JVM the managed
+    ;; transport issues its request through `HttpClient/sendAsync`, so
+    ;; `make-frame` returning is emphatically NOT the fetch having finished —
+    ;; it only means the synchronous event work drained. Something has to say
+    ;; "this page is done loading", and it has to say so for the FAILURE case
+    ;; too, or a server that waits for articles to turn up waits for ever.
+    ;; `handle-request` blocks on this key reaching a terminal value; the
+    ;; client never reads it.
+    {:db (assoc db :articles/load-state :pending)
      :fx [[:rf.http/managed
            {:request    {:method :get :url "/api/articles"}
             :decode     :json
-            :on-success [:articles/loaded]}]]}))
+            :on-success [:articles/loaded]
+            :on-failure [:articles/load-failed]}]]}))
 
 ;; When the fetch comes back, this is where it lands — the `:on-success` target
 ;; from above. It takes the decoded reply and hands back the next app-db, which
@@ -163,7 +174,15 @@
 ;; on the client after hydration. Write it once.
 (rf/reg-event :articles/loaded
   (fn handler-articles-loaded [{:keys [db]} [_ {:keys [value]}]]
-    {:db (assoc db :articles value)}))
+    {:db (assoc db :articles value :articles/load-state :loaded)}))
+
+;; …and the other half of the outcome. A page load that can only ever record
+;; SUCCESS is a page load the server waits on until its deadline, every time
+;; the upstream is down. This handler is what turns a failed fetch into a
+;; terminal answer `handle-request` can act on immediately.
+(rf/reg-event :articles/load-failed
+  (fn handler-articles-load-failed [{:keys [db]} _]
+    {:db (assoc db :articles/load-state :failed)}))
 
 ;; You'll notice there's no `reg-event` for hydration here. That's on purpose:
 ;; `:rf/hydrate` is a reserved `:rf/*` event that `re-frame.ssr` owns, handler
@@ -250,6 +269,60 @@
   [(rf/view :pages/articles)])
 
 ;; ============================================================================
+;; WAITING FOR THE PAGE LOAD
+;; ============================================================================
+;;
+;; The one step people leave out. `make-frame` drains the SYNCHRONOUS event
+;; work its `:initial-events` set in motion — and that is all it promises. The
+;; article fetch `:rf/server-init` starts is not synchronous: the JVM managed
+;; transport issues it through `HttpClient/sendAsync`. So the moment
+;; `make-frame` returns, the request is very probably still in flight, app-db
+;; still has no `:articles`, and a render taken right there emits "No
+;; articles." over a 200 — a page that looks fine and is wrong.
+;;
+;; So wait, explicitly, on the `:articles/load-state` signal the events above
+;; maintain. Two properties make this a wait rather than a hope:
+;;
+;;   - It is BOUNDED. `page-load-deadline-ms` caps it, the way the framework's
+;;     own SSR blocking drain caps its route-resource wait. A server that
+;;     blocks a request thread for ever on a silent upstream is a worse bug
+;;     than the one we're fixing.
+;;   - It settles on FAILURE too, not just success. Polling for non-nil
+;;     `:articles` would look simpler and would hang for the full deadline on
+;;     every failed fetch — which is exactly why `:rf/server-init` declares an
+;;     `:on-failure` target.
+;;
+;; (This page has no route table, so the framework's route-keyed
+;; `rf.ssr/drain-blocking-resources!` has nothing to drain for it. The
+;; `resources_ssr` sibling explains that split at length.)
+
+#?(:clj
+   (def ^:private page-load-deadline-ms
+     "Wall-clock budget for `await-page-load!` — mirrors the framework's own
+      SSR blocking-drain default (`re-frame.ssr`'s
+      `default-ssr-blocking-timeout-ms`)."
+     5000))
+
+#?(:clj
+   (defn- await-page-load!
+     "Block until this request's page load reaches a terminal
+      `:articles/load-state` (`:loaded` / `:failed`), or the deadline
+      elapses. Returns that terminal value, or `:timed-out`.
+
+      Yields the JVM thread between checks (`Thread/sleep`) so the managed
+      transport's async reply can land and its reply event dispatch — nothing
+      settles inside the `:rf.http/managed` call itself."
+     [f]
+     (let [deadline (+ (System/currentTimeMillis) page-load-deadline-ms)]
+       (loop []
+         (let [state (:articles/load-state (rf/app-db-value f))]
+           (cond
+             (#{:loaded :failed} state)            state
+             (>= (System/currentTimeMillis) deadline) :timed-out
+             :else (do (Thread/sleep 5)
+                       (recur))))))))
+
+;; ============================================================================
 ;; SERVER ENTRY POINT
 ;; ============================================================================
 ;;
@@ -260,8 +333,10 @@
 ;;      :rf.server/request coeffect will read back out.
 ;;   3. make-frame stands up a fresh frame; its :initial-events step fires
 ;;      :rf/server-init, which pulls the request via that coeffect.
-;;   4. The runtime drains — the article fetch resolves, app-db settles, and
-;;      everything quiets down.
+;;   4. await-page-load! blocks until the article fetch reaches a terminal
+;;      outcome — loaded, failed, or out of time. Only `:loaded` goes on to
+;;      render; the other two answer 503 rather than dress a pending request
+;;      up as a finished empty page.
 ;;   5. Render the settled state to a string with the pure hiccup -> HTML
 ;;      emitter.
 ;;   6. Serialise that same state and tuck it into the HTML as the payload.
@@ -270,8 +345,8 @@
 ;;      per request. It drops the frame record and fires
 ;;      `:ssr/on-frame-destroyed`, which hands back the request slot, the
 ;;      response accumulator, and the error-trace buffer. The `finally` covers
-;;      both the happy path and the throw path, so even a request that blows up
-;;      halfway doesn't strand a half-built frame.
+;;      the happy path, the 503 path and the throw path, so no request strands
+;;      a half-built frame.
 
 #?(:clj
    (defn handle-request [request]
@@ -289,70 +364,81 @@
                                :initial-events [[:rf/server-init]]})]
        (try
          (rf/with-frame f
-           (let [final-db      (rf/app-db-value f)        ;; the app-db partition
-                 final-runtime (:rf.db/runtime (rf/frame-state-value f))    ;; the runtime-db partition (serializable)
-                 hiccup   ((rf/view :app/root))
-                 ;; Hash the tree ONCE, then spend that one hash on both
-                 ;; channels below. `render-tree-hash` is a full walk of the
-                 ;; tree, so computing it here rather than letting the emitter
-                 ;; do its own is the difference between one walk and two.
-                 render-hash (rf.ssr/render-tree-hash hiccup)
-                 ;; `:render-hash` stamps data-rf-render-hash="<hex>" onto the
-                 ;; root element. That hex string is the tripwire: the client
-                 ;; recomputes the hash after its first render, and if the two
-                 ;; don't match, the runtime raises :rf.ssr/hydration-mismatch
-                 ;; instead of quietly serving a subtly-broken page.
-                 ;; No `:doctype?` here — this handler wraps a *fragment*
-                 ;; (`<div id='app'>…</div>`) inside its own hand-written
-                 ;; document envelope below, which already opens with
-                 ;; `<!DOCTYPE html>`. `:doctype?` is for a root view that
-                 ;; renders the whole `[:html …]` document; asking for it here
-                 ;; would prefix a *second* doctype onto the fragment and nest
-                 ;; it inside `<div id='app'>`.
-                 ;; The same hash rides in the payload too, so something
-                 ;; without a DOM to parse — a server log line, a CDN cache key
-                 ;; — can read it straight.
-                 html     (rf.ssr/render-to-string hiccup
-                                               {:render-hash render-hash})
-                 ;; You'll notice the payload carries no `:rf/frame-id`, and
-                 ;; that's the intended shape. The server rendered under a
-                 ;; throwaway per-request gensym (`f`); the client hydrates its
-                 ;; own fixed `app-frame` (defined below). The two frames have
-                 ;; nothing to say to each other by name. A `:rf/frame-id` in
-                 ;; the payload isn't a "hydrate into this" instruction — it's
-                 ;; evidence. `rf.ssr/hydrate!` checks any id it finds against the
-                 ;; `:frame` you explicitly pass, and raises
-                 ;; `:rf.error/hydration-frame-id-mismatch` if they disagree.
-                 ;; Leaving it out is the no-argument-to-have-here shape, which
-                 ;; is exactly what this output and the static `index.html`
-                 ;; both use. A deployment that *does* want to carry one stamps
-                 ;; a stable id both sides agree on ahead of time — never a
-                 ;; per-request gensym.
-                 payload  {:rf/version     rf.ssr.payload-policy/pattern-protocol-version  ;; the SSR-owned constant, not a literal
-                           :rf/app-db      final-db        ;; app-db partition
-                           :rf/runtime-db  final-runtime   ;; serializable runtime-db projection
-                           :rf/render-hash render-hash}]
-             {:status  200
-              :headers {"Content-Type" "text/html"}
-              :body
-              (str "<!DOCTYPE html><html><head>"
-                   "<meta charset='utf-8'/>"
-                   "<title>SSR demo</title>"
-                   "</head><body>"
-                   "<div id='app'>" html "</div>"
-                   ;; Run the payload through the EDN-aware escaper before it
-                   ;; goes in the `<script>`. If an article body happened to
-                   ;; contain the literal text `</script>` and we wrote it raw,
-                   ;; the browser would close the script element right there and
-                   ;; eat the rest of our state. The escaper sidesteps that by
-                   ;; rewriting `<` to its unicode reader escape — but *only*
-                   ;; inside EDN string literals, so the client's
-                   ;; `cljs.reader/read-string` still reads it back unchanged.
-                   "<script id='__rf_payload' type='application/edn'>"
-                   (rf.ssr.html-helpers/escape-edn-script-body (pr-str payload))
-                   "</script>"
-                   "<script src='/main.js'></script>"
-                   "</body></html>")}))
+           ;; Step 4 — wait for the page load to finish before reading a thing
+           ;; off the frame. Anything other than `:loaded` is a deliberate
+           ;; terminal outcome, and it answers 503 rather than a 200 carrying
+           ;; an empty page: "still loading" and "loaded, nothing to show" are
+           ;; different answers and a cache must not be able to confuse them.
+           ;; The `finally` below still tears the frame down on this path.
+           (if-let [outcome (#{:failed :timed-out} (await-page-load! f))]
+             {:status  503
+              :headers {"Content-Type" "text/plain; charset=utf-8"
+                        "Cache-Control" "no-store"}
+              :body    (str "Articles unavailable (" (name outcome) ").")}
+             (let [final-db      (rf/app-db-value f)        ;; the app-db partition
+                   final-runtime (:rf.db/runtime (rf/frame-state-value f))    ;; the runtime-db partition (serializable)
+                   hiccup   ((rf/view :app/root))
+                   ;; Hash the tree ONCE, then spend that one hash on both
+                   ;; channels below. `render-tree-hash` is a full walk of the
+                   ;; tree, so computing it here rather than letting the emitter
+                   ;; do its own is the difference between one walk and two.
+                   render-hash (rf.ssr/render-tree-hash hiccup)
+                   ;; `:render-hash` stamps data-rf-render-hash="<hex>" onto the
+                   ;; root element. That hex string is the tripwire: the client
+                   ;; recomputes the hash after its first render, and if the two
+                   ;; don't match, the runtime raises :rf.ssr/hydration-mismatch
+                   ;; instead of quietly serving a subtly-broken page.
+                   ;; No `:doctype?` here — this handler wraps a *fragment*
+                   ;; (`<div id='app'>…</div>`) inside its own hand-written
+                   ;; document envelope below, which already opens with
+                   ;; `<!DOCTYPE html>`. `:doctype?` is for a root view that
+                   ;; renders the whole `[:html …]` document; asking for it here
+                   ;; would prefix a *second* doctype onto the fragment and nest
+                   ;; it inside `<div id='app'>`.
+                   ;; The same hash rides in the payload too, so something
+                   ;; without a DOM to parse — a server log line, a CDN cache key
+                   ;; — can read it straight.
+                   html     (rf.ssr/render-to-string hiccup
+                                                 {:render-hash render-hash})
+                   ;; You'll notice the payload carries no `:rf/frame-id`, and
+                   ;; that's the intended shape. The server rendered under a
+                   ;; throwaway per-request gensym (`f`); the client hydrates its
+                   ;; own fixed `app-frame` (defined below). The two frames have
+                   ;; nothing to say to each other by name. A `:rf/frame-id` in
+                   ;; the payload isn't a "hydrate into this" instruction — it's
+                   ;; evidence. `rf.ssr/hydrate!` checks any id it finds against the
+                   ;; `:frame` you explicitly pass, and raises
+                   ;; `:rf.error/hydration-frame-id-mismatch` if they disagree.
+                   ;; Leaving it out is the no-argument-to-have-here shape, which
+                   ;; is exactly what this output and the static `index.html`
+                   ;; both use. A deployment that *does* want to carry one stamps
+                   ;; a stable id both sides agree on ahead of time — never a
+                   ;; per-request gensym.
+                   payload  {:rf/version     rf.ssr.payload-policy/pattern-protocol-version  ;; the SSR-owned constant, not a literal
+                             :rf/app-db      final-db        ;; app-db partition
+                             :rf/runtime-db  final-runtime   ;; serializable runtime-db projection
+                             :rf/render-hash render-hash}]
+               {:status  200
+                :headers {"Content-Type" "text/html"}
+                :body
+                (str "<!DOCTYPE html><html><head>"
+                     "<meta charset='utf-8'/>"
+                     "<title>SSR demo</title>"
+                     "</head><body>"
+                     "<div id='app'>" html "</div>"
+                     ;; Run the payload through the EDN-aware escaper before it
+                     ;; goes in the `<script>`. If an article body happened to
+                     ;; contain the literal text `</script>` and we wrote it raw,
+                     ;; the browser would close the script element right there and
+                     ;; eat the rest of our state. The escaper sidesteps that by
+                     ;; rewriting `<` to its unicode reader escape — but *only*
+                     ;; inside EDN string literals, so the client's
+                     ;; `cljs.reader/read-string` still reads it back unchanged.
+                     "<script id='__rf_payload' type='application/edn'>"
+                     (rf.ssr.html-helpers/escape-edn-script-body (pr-str payload))
+                     "</script>"
+                     "<script src='/main.js'></script>"
+                     "</body></html>")})))
          ;; Whatever happened above — success or exception — the frame goes
          ;; away here. destroy-frame! fires `:ssr/on-frame-destroyed`, which
          ;; clears the request slot and the SSR side-channel atoms for us, so

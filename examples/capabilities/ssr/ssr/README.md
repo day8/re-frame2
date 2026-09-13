@@ -78,6 +78,16 @@ client picking it up:
   `:fx-overrides` seam, so the render exercises the full
   [pipeline](../../../../docs/core/glossary.md#event-pipeline) without real
   network traffic.
+- Waiting for the page load, deliberately. `make-frame` drains the
+  *synchronous* event work and promises nothing more, so a fetch the
+  JVM transport issued through `HttpClient/sendAsync` is still in
+  flight when it returns. `handle-request` blocks on an explicit
+  `:articles/load-state` outcome before it reads anything off the
+  frame — bounded by a deadline, and settled by failure as well as
+  success, because a page that can only record success waits out its
+  whole budget every time the upstream is down. Anything but `:loaded`
+  answers 503; a pending request must not leave as a 200 carrying an
+  empty page.
 - Pure [hiccup](../../../../docs/core/glossary.md#hiccup) → HTML.
   `ssr/render-to-string` is a pure function from hiccup to an HTML
   string — no React server-render dependency, no DOM, JVM-runnable.
