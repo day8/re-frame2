@@ -898,70 +898,90 @@
 
   ## Every failure is a REJECTION, and every failure leaves nothing behind
 
-  Both of them: a form the codec refuses while `hydrate-root!` is still
-  building its element, which raises on this call's own stack, and an
-  adoption that never completes. A promise-returning door that threw
-  synchronously would throw past every `.catch` a caller had attached and
-  hang the test rather than fail it, so the refusal is handed to the
-  promise — the runtime's own `ex-info` unchanged for the first, this
-  door's timeout for the second.
+  All three of them: an `:initial-events` step whose handler fails, which
+  leaves `mint-frame!` carrying core's own
+  `:rf.error/initial-events-step-failed`; a form the codec refuses while
+  `hydrate-root!` is still building its element, which raises on this
+  call's own stack; and an adoption that never completes. A
+  promise-returning door that threw synchronously would throw past every
+  `.catch` a caller had attached and hang the test rather than fail it,
+  so the refusal is handed to the promise — the runtime's own `ex-info`
+  unchanged for the first two, this door's timeout for the third.
 
-  In both cases the page is put back as the call found it: the frame
+  In every case the page is put back as the call found it: the frame
   destroyed, the root taken down with its adoption window shut, and a
   container this facade minted removed. One the CALLER supplied is left
   where it is (see [[abandon!]])."
   ([form] (hydrate! form {}))
   ([form opts] (hydrate! form opts 3000))
   ([form {:keys [initial-events container html clock]} budget-ms]
-   (let [[frame-kw ordinal] (mint-frame! initial-events)
-         baseline  (census)
-         node      (or container (rf.fresco.impl.mount/fresh-container!))
-         supplied? (some? container)
-         _         (when (some? html) (set! (.-innerHTML node) html))
-         !refusal  (volatile! nil)
-         root      (try (rf.fresco.impl.mount/hydrate-root! node frame-kw form)
-                        (catch :default e (vreset! !refusal e) nil))]
-     (if-some [refusal @!refusal]
-       (do (abandon! frame-kw node supplied? nil)
-           (js/Promise.reject refusal))
-       (let [window   (:adoption root)
-             deadline (+ (js/Date.now) budget-ms)]
-         (js/Promise.
-           (fn [resolve reject]
-             (letfn [(tick []
-                       (cond
-                         (not (rf.fresco.impl.roots/adopting? window))
-                         ;; Past the closer AND past the reap horizon, so the
-                         ;; handle a caller receives is one whose tables have
-                         ;; settled. This is also where the construction
-                         ;; becomes a MOUNT — see [[handle-for]].
-                         ;;
-                         ;; `:clock` is installed HERE and not at the top of
-                         ;; this door, unlike [[mount!]]'s. Adoption is
-                         ;; React's own concurrent business and this promise
-                         ;; is driven by real `setTimeout`s that wait it out;
-                         ;; a clock installed before them would freeze the
-                         ;; wait it is inside, and the caller would hold a
-                         ;; promise that can never resolve. Nothing is lost:
-                         ;; an adopted tray is born settled (rf2-2rtt6.84),
-                         ;; so the timers a hydrated page arms are armed
-                         ;; after this line.
-                         (js/setTimeout
-                           (fn []
-                             (when clock (install-clock!))
-                             (resolve (handle-for root ordinal baseline
-                                                  (boolean clock))))
-                           16)
+   ;; THE REJECTION BOUNDARY ENCLOSES THE SYNCHRONOUS CONSTRUCTION TOO,
+   ;; which is what makes the promise above the WHOLE error channel rather
+   ;; than most of it. `mint-frame!` runs core's strict setup, so a seeding
+   ;; step whose handler throws left this door on the caller's own stack —
+   ;; before the `try` below, before the `js/Promise.` at the bottom, and
+   ;; therefore past every `.catch` the caller wrote. The asynchronous test
+   ;; that resulted did not fail, it TIMED OUT, hiding the real setup
+   ;; failure behind a budget (rf2-gwye.2, witnessed in
+   ;; `re-frame.fresco.test-kit-mounted-dom-cljs-test`).
+   ;;
+   ;; Nothing is rolled back here and nothing needs to be: core destroys
+   ;; the frame it could not build before it raises, and `mint-frame!` is
+   ;; this door's FIRST allocation, so a failure there is a call that
+   ;; allocated nothing. The two branches below that DO hold resources
+   ;; roll themselves back through [[abandon!]] and return their rejection
+   ;; rather than throwing it, so this catch never sees them.
+   (try
+     (let [[frame-kw ordinal] (mint-frame! initial-events)
+           baseline  (census)
+           node      (or container (rf.fresco.impl.mount/fresh-container!))
+           supplied? (some? container)
+           _         (when (some? html) (set! (.-innerHTML node) html))
+           !refusal  (volatile! nil)
+           root      (try (rf.fresco.impl.mount/hydrate-root! node frame-kw form)
+                          (catch :default e (vreset! !refusal e) nil))]
+       (if-some [refusal @!refusal]
+         (do (abandon! frame-kw node supplied? nil)
+             (js/Promise.reject refusal))
+         (let [window   (:adoption root)
+               deadline (+ (js/Date.now) budget-ms)]
+           (js/Promise.
+             (fn [resolve reject]
+               (letfn [(tick []
+                         (cond
+                           (not (rf.fresco.impl.roots/adopting? window))
+                           ;; Past the closer AND past the reap horizon, so the
+                           ;; handle a caller receives is one whose tables have
+                           ;; settled. This is also where the construction
+                           ;; becomes a MOUNT — see [[handle-for]].
+                           ;;
+                           ;; `:clock` is installed HERE and not at the top of
+                           ;; this door, unlike [[mount!]]'s. Adoption is
+                           ;; React's own concurrent business and this promise
+                           ;; is driven by real `setTimeout`s that wait it out;
+                           ;; a clock installed before them would freeze the
+                           ;; wait it is inside, and the caller would hold a
+                           ;; promise that can never resolve. Nothing is lost:
+                           ;; an adopted tray is born settled (rf2-2rtt6.84),
+                           ;; so the timers a hydrated page arms are armed
+                           ;; after this line.
+                           (js/setTimeout
+                             (fn []
+                               (when clock (install-clock!))
+                               (resolve (handle-for root ordinal baseline
+                                                    (boolean clock))))
+                             16)
 
-                         (< deadline (js/Date.now))
-                         (do (abandon! frame-kw node supplied? root)
-                             (reject (ex-info (str "hydrate! waited " budget-ms
-                                                   "ms and this root's adoption window "
-                                                   "never shut — the tree was not adopted.")
-                                              {:frame frame-kw :budget-ms budget-ms})))
+                           (< deadline (js/Date.now))
+                           (do (abandon! frame-kw node supplied? root)
+                               (reject (ex-info (str "hydrate! waited " budget-ms
+                                                     "ms and this root's adoption window "
+                                                     "never shut — the tree was not adopted.")
+                                                {:frame frame-kw :budget-ms budget-ms})))
 
-                         :else (js/setTimeout tick 4)))]
-               (tick)))))))))
+                           :else (js/setTimeout tick 4)))]
+                 (tick)))))))
+     (catch :default e (js/Promise.reject e)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Driving
