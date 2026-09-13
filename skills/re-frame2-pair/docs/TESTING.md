@@ -70,7 +70,9 @@ path must not quietly report as success (`dry_run_sink_pin_test.clj` and
 rollback-failure guarantees, `undo_restore_rejected_pin_test.clj` —
 `undo-to-epoch`'s restore-rejected branch, `raw_state_tap_test.clj` —
 the raw-state tap-elide path, `recorder_test.clj` — the signal
-recorder). That is all twelve `tests/runtime/*_test.clj` files.
+recorder); and the machine door's fn-stripping and id sort
+(`machine_describe_test.clj`). That is every `tests/runtime/*_test.clj`
+file; CI runs them by glob.
 
 **To run:**
 
@@ -217,5 +219,10 @@ Mitigation while E2E remains manual/nightly:
   `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`).
 - Claude-in-the-loop prompt regression (the structural drift detector
   is in `tests/prompts/`; conversation-driving variant is a follow-up).
+- The Fresco evidence tools (`read-mounted-boundaries` /
+  `read-read-attribution` / `explain-render`) against a live runtime in
+  CI: the fixture is Reagent, mcp-conformance calls them only degraded
+  (no nREPL), and pair-mcp's `live-fresco-wire.cjs` runs them against a
+  live Fresco app on demand only.
 
 These remain §8a spike deliverables for the path to beta.

@@ -219,6 +219,34 @@
  (is (str/includes? @skill-md "re-frame2-pair.runtime"))))
 
 ;; ---------------------------------------------------------------------------
+;; Epoch artefact — the one classpath prerequisite discover-app does not
+;; probe (rf2-ef1c). Without `day8/re-frame2-epoch` a core-only app passes
+;; discover-app, then every epoch read comes back `[]` and restore refuses;
+;; only `rf/replace-frame-state!` raises `:rf.error/epoch-artefact-missing`
+;; (Tool-Pair §Time-travel, the *Artefact home* note). So the setup, the
+;; error leaf and the empty-watch troubleshooting must each name it.
+;; ---------------------------------------------------------------------------
+
+(deftest setup-recipe-names-the-epoch-artefact
+  (testing "SKILL.md names the day8/re-frame2-epoch artefact (rf2-ef1c)"
+    (is (str/includes? @skill-md "day8/re-frame2-epoch")
+        (str "SKILL.md no longer names `day8/re-frame2-epoch`. Without it on "
+             "the app classpath discover-app still passes and every epoch "
+             "surface reads empty, so §Setup must say so (rf2-ef1c).")))
+  (testing "errors.md covers the one loud symptom of the missing artefact (rf2-ef1c)"
+    (is (str/includes? @errors-md ":rf.error/epoch-artefact-missing")
+        (str "references/errors.md no longer covers "
+             "`:rf.error/epoch-artefact-missing` — the only symptom of a missing "
+             "epoch artefact that raises rather than reading empty (rf2-ef1c)."))
+    (is (str/includes? @errors-md "day8/re-frame2-epoch")
+        (str "references/errors.md no longer names the `day8/re-frame2-epoch` "
+             "artefact that fixes it (rf2-ef1c).")))
+  (testing "LOCAL_DEV's empty-watch troubleshooting names the artefact (rf2-ef1c)"
+    (is (str/includes? @local-dev-md "day8/re-frame2-epoch")
+        (str "docs/LOCAL_DEV.md no longer lists a missing `day8/re-frame2-epoch` "
+             "as a cause of watch ops coming back empty (rf2-ef1c)."))))
+
+;; ---------------------------------------------------------------------------
 ;; Errors recipe — :runtime-not-preloaded is the most-likely first-run
 ;; failure mode; the recipe must still cover it.
 ;; ---------------------------------------------------------------------------
@@ -356,6 +384,14 @@
     (is (not (str/includes? @readme-md "fourteen ops"))
         (str "README carries the stale 'fourteen ops' count — the MCP surface "
              "is " @tool-count " tools (rf2-ojo3z).")))
+  (testing "README does not advertise the phantom `machines` accessor (rf2-ef1c)"
+    ;; No `defn machines` exists and spec/api-manifest.edn carries no
+    ;; :var "machines" (rf2-kuky.29 / rf2-wrzfb removed it). Machine
+    ;; enumeration is `list-handlers {kind: "machine"}` over the
+    ;; :rf/machine? registrar filter (docs/capabilities.md).
+    (is (not (str/includes? @readme-md "`machines`"))
+        (str "README names a `machines` introspection accessor. There is none: "
+             "list machines with list-handlers {kind: \"machine\"} (rf2-ef1c).")))
   (testing "README does not claim the skill is un-exercised end-to-end"
     (is (not (str/includes? @readme-md "not yet exercised against a running"))
         (str "README carries the stale 'not yet exercised against a running "
@@ -631,6 +667,17 @@
           (str "the Experiment-loop restore step no longer leads with the "
                "dedicated `restore-epoch {epoch-id: …}` tool — the eval form "
                "is the backstop, not the default (rf2-230ekq)."))))
+  (testing "README's time-travel example leads with the restore-epoch tool, not the eval backstop (rf2-ef1c)"
+    ;; README's framework-level `(rf/restore-epoch! frame-id epoch-id)` in
+    ;; §No re-frame-10x dependency names the core API and stays; the needle
+    ;; is the worked example's eval CALL against a concrete frame.
+    (is (not (str/includes? @readme-md "(rf/restore-epoch! :rf/default"))
+        (str "README's worked time-travel example demonstrates the raw eval "
+             "backstop `(rf/restore-epoch! :rf/default …)`. SKILL.md, ops.md "
+             "and recipes.md make the `restore-epoch` tool canonical (rf2-ef1c)."))
+    (is (str/includes? @readme-md "restore-epoch {epoch-id:")
+        (str "README's worked time-travel example no longer calls the "
+             "`restore-epoch {epoch-id: …}` tool (rf2-ef1c).")))
   (testing "the eval write forms are kept as an explicitly-labelled backstop (rf2-230ekq)"
     ;; The backstop must still be documented (gate-OFF server fallback), but
     ;; framed as such — not removed entirely.
