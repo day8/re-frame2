@@ -1,7 +1,7 @@
 (ns re-frame.http.registry
   "In-flight request registries for `:rf.http/managed`.
 
-  Two indexes coexist:
+  Three indexes coexist:
 
    - `in-flight`        — `[frame-id request-id]` → request-handle. Per
                          Spec 014 §Aborts: a `:rf.http/managed-abort`
@@ -15,8 +15,13 @@
                          that actor-id so a `:rf.machine/destroy`
                          cascade can abort every in-flight request the
                          actor had issued.
+   - `anonymous-in-flight` — `frame-id` → [request-handle ...]. A request
+                         carrying NEITHER id is still owned by the frame
+                         that issued it (rf2-fzbj.11), so the frame-
+                         lifecycle sweeps — destroy and epoch restore —
+                         can reach it.
 
-  Both maps are PROCESS-GLOBAL storage with FRAME-SCOPED KEYS (rf2-o8ek).
+  All three maps are PROCESS-GLOBAL storage with FRAME-SCOPED KEYS (rf2-o8ek).
   See §Frame-scoped cancellation identity below for why the frame is part of
   the key and not merely a stamp on the value.
 
@@ -140,6 +145,39 @@
                    (dissoc actor-index k)))))))
   nil)
 
+(defonce anonymous-in-flight
+  ;; frame-id → vector of request-handles carrying NEITHER a request-id nor an
+  ;; actor-id (rf2-fzbj.11).
+  ;;
+  ;; `:request-id` is optional and an ordinary event-handler request has no
+  ;; owning actor, so such a request sits in neither index above — yet its frame
+  ;; still owns it, and Spec 014 §Abort on frame destroy (like the epoch-restore
+  ;; quiesce) must cancel it. While the frame sweeps enumerated only the two
+  ;; id-keyed indexes, an anonymous request outlived its frame: its host work ran
+  ;; on, its backoff kept retrying, and its late reply committed into a successor
+  ;; frame created under the same id.
+  ;;
+  ;; Keyed by frame alone, because the frame is the only owner such a handle
+  ;; has. Entries leave BY IDENTITY on every completion, retry handoff and abort
+  ;; (`clear-in-flight!`), and a frame sweep reads and clears its frame's slot in
+  ;; one step (`abort-frame-handles!`).
+  (atom {}))
+
+(defn- remove-from-anonymous-index!
+  "Drop `handle` from its frame's anonymous slot BY IDENTITY. A no-op when the
+  slot does not hold it — every handle carrying an id, for one."
+  [handle]
+  (let [frame-id (:frame handle)]
+    (swap! anonymous-in-flight
+           (fn [anonymous-index]
+             (if-let [frame-handles (get anonymous-index frame-id)]
+               (let [remaining (vec (remove #(identical? % handle) frame-handles))]
+                 (if (seq remaining)
+                   (assoc anonymous-index frame-id remaining)
+                   (dissoc anonymous-index frame-id)))
+               anonymous-index))))
+  nil)
+
 (defn record-in-flight!
   "Record a request handle. `handle` is the abort-handle map (carries
   `:abort-fn`, `:url`, plus the framework stamps `:request-id` and
@@ -149,8 +187,9 @@
   Returns the (possibly-stamped) handle so the natural-completion
   sites can hold a reference for the 2-arg `clear-in-flight!` cleanup
   path. `request-id` and `actor-id` are both optional (pass nil). When
-  both are nil the handle is unindexed and only reachable via natural
-  completion.
+  both are nil the handle is indexed under its issuing frame alone
+  (`anonymous-in-flight`, rf2-fzbj.11) — omitting the optional ids must not
+  hide a request from the frame-lifecycle sweeps that own its teardown.
 
   rf2-o8ek — the ISSUING FRAME is read off the handle's own `:frame` stamp
   (the transport stamps it from the fx context on both the live-fetch and the
@@ -200,6 +239,9 @@
     (when actor-id
       (swap! actor-in-flight update (scoped-key frame-id actor-id)
              (fnil conj []) stamped-handle))
+    ;; rf2-fzbj.11 — a handle neither id indexes is still owned by its frame.
+    (when-not (or request-id actor-id)
+      (swap! anonymous-in-flight update frame-id (fnil conj []) stamped-handle))
     ;; Only a handle carrying BOTH ids spans two swaps, so only it has a
     ;; midpoint to reconcile.
     (when (and request-id actor-id)
@@ -233,8 +275,9 @@
   see a sibling frame.
 
   A nil `request-id` is a no-op: an anonymous request is indexed only in
-  `actor-in-flight`, where it is reachable only by handle identity — use the
-  2-arg `clear-in-flight!` once the handle is in hand. Returns nil."
+  `actor-in-flight` or `anonymous-in-flight`, where it is reachable only by
+  handle identity — use the 2-arg `clear-in-flight!` once the handle is in
+  hand. Returns nil."
   [frame-id request-id]
   (when request-id
     (let [k (scoped-key frame-id request-id)
@@ -338,7 +381,9 @@
                     (if (identical? (get request-index k) handle)
                       (dissoc request-index k)
                       request-index)))))
-       (remove-from-actor-index! handle)))
+       (remove-from-actor-index! handle)
+       ;; rf2-fzbj.11 — an id-less handle's only slot is its frame's.
+       (remove-from-anonymous-index! handle)))
    nil)
   ([frame-id request-id handle]
    ;; rf2-o8ek audit — the frame-bearing form. A published handle keys itself
@@ -577,10 +622,11 @@
   that was unindexed or that an abort-fn left behind, and guarantee a
   clean registry regardless.
 
-  Walk BOTH indexes: an anonymous-from-actor request (request-id nil) is
-  indexed only in `actor-in-flight`, so iterating `in-flight` alone would
-  miss its armed timer. Dedupe by identity (the same stamped handle sits
-  in both indexes when it carries request-id + actor-id) so each abort-fn
+  Walk EVERY index: an anonymous-from-actor request (request-id nil) is
+  indexed only in `actor-in-flight`, and an anonymous plain request only in
+  `anonymous-in-flight` (rf2-fzbj.11), so iterating `in-flight` alone would
+  miss their armed timers. Dedupe by identity (the same stamped handle sits
+  in both id indexes when it carries request-id + actor-id) so each abort-fn
   fires once — the once-only CAS inside the abort-fn already makes a
   double-fire a harmless no-op, but the dedupe keeps the work minimal.
 
@@ -592,7 +638,8 @@
   rather than real runtime aborts."
   []
   (let [handles (->> (concat (vals @in-flight)
-                             (mapcat val @actor-in-flight))
+                             (mapcat val @actor-in-flight)
+                             (mapcat val @anonymous-in-flight))
                      (reduce (fn [unique-handles handle]
                                (if (some #(identical? % handle) unique-handles)
                                  unique-handles
@@ -605,6 +652,7 @@
           (catch #?(:clj Throwable :cljs :default) _ nil)))))
   (reset! in-flight {})
   (reset! actor-in-flight {})
+  (reset! anonymous-in-flight {})
   ;; rf2-azcmd3 — drop the per-request-id issuance counters too, so the next
   ;; test run starts every request-id at issuance 1.
   (reset! issuance-counters {})
@@ -890,13 +938,21 @@
 (defn- abort-frame-handles!
   "Shared frame-scoped abort walk for the two reply-suppressing frame-lifecycle
   boundaries: epoch restore (`:epoch-restored`) and frame destroy
-  (`:frame-destroyed`). Walks BOTH indexes (an anonymous-from-actor request is
-  only in `actor-in-flight`), filtering on the handle's `:frame` stamp, and
-  dedupes by identity so a handle present in both indexes fires once. For each
-  matching handle: emit the EP-0011 stale-suppression envelope facts with
-  `recovery`, then fire its `:abort-fn` with `reason` — a reply-suppressing
-  reason, so the late completion does NOT deliver to its original `:rf/reply-to`
-  target. The abort-fn cascade clears the registry slot via `clear-in-flight!`.
+  (`:frame-destroyed`). Walks EVERY index — an anonymous-from-actor request is
+  only in `actor-in-flight`, an anonymous plain request only in
+  `anonymous-in-flight` (rf2-fzbj.11) — filtering on the handle's `:frame`
+  stamp, and dedupes by identity so a handle present in both id indexes fires
+  once. For each matching handle: emit the EP-0011 stale-suppression envelope
+  facts with `recovery`, then fire its `:abort-fn` with `reason` — a reply-
+  suppressing reason, so the late completion does NOT deliver to its original
+  `:rf/reply-to` target. The abort-fn cascade clears the registry slot via
+  `clear-in-flight!`.
+
+  The frame's `anonymous-in-flight` slot is read AND cleared in one step, the
+  shape `abort-on-actor-destroy` uses for an actor slot. The sweep cancels
+  everything that slot holds, and clearing it here leaves the frame holding no
+  anonymous handle afterwards — even where an abort landed inside a transport's
+  publication window, whose own cleanup then had no handle to name.
 
   Snapshots the handles before firing so an abort-fn's own `clear-in-flight!`
   swap cannot trip a concurrent-modification on the iteration. Each abort-fn is
@@ -906,8 +962,10 @@
   Returns nil."
   [frame-id reason recovery]
   (when frame-id
-    (let [handles (->> (concat (vals @in-flight)
-                               (mapcat val @actor-in-flight))
+    (let [[anonymous _] (swap-vals! anonymous-in-flight dissoc frame-id)
+          handles (->> (concat (vals @in-flight)
+                               (mapcat val @actor-in-flight)
+                               (get anonymous frame-id))
                        (filter #(= frame-id (:frame %)))
                        (reduce (fn [unique-handles handle]
                                  (if (some #(identical? % handle) unique-handles)
@@ -930,9 +988,10 @@
   (Managed-Effects §restore). The abort-fn cascade clears the registry slot via
   `clear-in-flight!`.
 
-  Walks BOTH indexes (an anonymous-from-actor request is only in
-  `actor-in-flight`), filtering on the handle's `:frame` stamp, and dedupes by
-  identity so a handle present in both indexes fires once. Snapshots the handles
+  Walks EVERY index (an anonymous-from-actor request is only in
+  `actor-in-flight`, an anonymous plain request only in `anonymous-in-flight`),
+  filtering on the handle's `:frame` stamp, and dedupes by identity so a handle
+  present in both id indexes fires once. Snapshots the handles
   before firing so an abort-fn's own `clear-in-flight!` swap cannot trip a
   concurrent-modification on the iteration. Each abort-fn is fired defensively —
   a throwing one must not strand the rest. Idempotent and a no-op for a frame
@@ -945,7 +1004,7 @@
   "Abort every in-flight managed HTTP request issued by `frame-id`, because the
   owning frame is being DESTROYED (rf2-j538f7.8). The frame-teardown counterpart
   of `abort-in-flight-for-frame!` (epoch restore): the SAME frame-filtered,
-  identity-deduped, sibling-preserving walk over both indexes, but fires each
+  identity-deduped, sibling-preserving walk over every index, but fires each
   `:abort-fn` with `:reason :frame-destroyed` and stamps the stale-suppression
   trace with `:recovery :suppressed-on-frame-destroy`.
 

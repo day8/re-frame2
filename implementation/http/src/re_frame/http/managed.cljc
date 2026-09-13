@@ -133,9 +133,9 @@
 ;; Registry surface — the in-flight indexes are internal storage. Tests
 ;; observe them through the immutable snapshot helpers and seed test state
 ;; through `seed-in-flight-for-test!` (which preserves both-index invariants
-;; via `record-in-flight!`); the raw `in-flight` / `actor-in-flight` atoms
-;; are not re-exported because direct mutation would bypass the two-index
-;; cleanup invariant.
+;; via `record-in-flight!`); the raw `in-flight` / `actor-in-flight` /
+;; `anonymous-in-flight` atoms are not re-exported because direct mutation
+;; would bypass the by-identity cleanup invariant.
 (def clear-all-in-flight!        rf.http.registry/clear-all-in-flight!)
 (def in-flight-snapshot          rf.http.registry/in-flight-snapshot)
 (def actor-in-flight-snapshot    rf.http.registry/actor-in-flight-snapshot)
