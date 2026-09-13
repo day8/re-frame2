@@ -243,17 +243,37 @@
   `:identifier-prefix`, handed to `createRoot` as React's
   `identifierPrefix` untouched — no default, no coercion — so a page
   mounting two roots can keep their `useId` values apart. Name neither and
-  the call React receives is the bare one."
+  the call React receives is the bare one.
+
+  THE FIRST TREE IS LOWERED BEFORE `createRoot`, and the order is part of
+  what this fn promises: a construction that fails allocates nothing, so
+  the caller's container is theirs to retry on."
   ([container frame-kw hiccup] (root! container frame-kw hiccup nil))
   ([container frame-kw hiccup opts]
    (ensure-frame! frame-kw (:initial-events opts))
-   (let [ropts  (root-options (:identifier-prefix opts) nil)
-         handle {:root      (if ropts
-                              (react-dom-client/createRoot container ropts)
-                              (react-dom-client/createRoot container))
-                 :frame     frame-kw
-                 :container container}]
-     (render! handle hiccup)
+   (let [ropts   (root-options (:identifier-prefix opts) nil)
+         ;; LOWERED FIRST, and that order is the whole of the failed-
+         ;; construction rule. Lowering runs the CALLER's code — the codec
+         ;; forces a lazy child seq here, so an ordinary `(map fmt rows)`
+         ;; whose formatter throws throws on this line. `createRoot` first
+         ;; and that throw escapes between React taking ownership of the
+         ;; container and this fn returning the only handle that could
+         ;; give it back: `mount-client-root!` never tracks the Root, the
+         ;; public handle stays inert, and neither `h/unmount!` nor
+         ;; `drain-active-roots!` can reach it ever again. Lowered first
+         ;; there is nothing to reach — React was never handed the
+         ;; container. `hydrate-root!` already builds its element before
+         ;; `hydrateRoot`; this is that shape, for that reason
+         ;; (rf2-gwye.1, witnessed in
+         ;; `re-frame.fresco.public-root-lifecycle-dom-cljs-test`).
+         base    {:frame frame-kw :container container}
+         element (tree base hiccup)
+         handle  (assoc base :root (if ropts
+                                     (react-dom-client/createRoot container ropts)
+                                     (react-dom-client/createRoot container)))]
+     ;; `render!`'s line, not `render!` — it would lower the tree a second
+     ;; time, and lowering is where the caller's code runs.
+     (react-dom/flushSync (fn [] (.render (:root handle) element)))
      handle)))
 
 (defn adoption-window-closer
