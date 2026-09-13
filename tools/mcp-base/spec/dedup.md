@@ -96,6 +96,8 @@ No committed gate runs the whole `Clojure → Cheshire → Node` seam in one pro
 
 Compresses `form` into a flat cache map. Slot `cache-0` holds the root; every further slot is a subtree that occurred more than once, replaced at each occurrence by its cache-element symbol. Cache-id allocation is call-local, so the same input always yields the same slot ids.
 
+The encoder reads the value and nothing else. Metadata is not wire data, so the caller's metadata can neither name a slot nor replace a subtree; which slot a subtree occupies is tracked by the walk itself (rf2-gwye.30). A record rebuilds as itself with exactly its own entries: an extension key that the grammar escapes, or that is pooled into a reference, replaces its original spelling rather than landing beside it, in both directions (rf2-gwye.31).
+
 ### `expand cache` → value
 
 The exact inverse. This is the call an agent-side Clojure consumer makes on the value it reads out of `:rf.mcp/dedup-table`.
@@ -139,6 +141,8 @@ Applies structural dedup to `v` and wraps the result in the cross-MCP marker `{:
 #### Why equality, not identity
 
 Values reaching the wire boundary are equality-shared, not identity-shared: re-frame2-pair-mcp reconstructs CLJS values from EDN over bencode (no identity sharing survives the transport), and story-mcp synthesises assertion records and rendered hiccup fresh per call. Equality is what makes the cross-record share-pooling actually fire on the wire boundary.
+
+The equality is **wire** equality: Clojure `=` refined by collection kind. `=` and `hash` both treat `[1 2 3]` and `(1 2 3)` as the same value. The EDN on the wire does not: it prints them differently, reads them back differently, and they answer `vector?` differently. So a vector never shares a slot with a list or seq, at any depth. Two otherwise-equal maps whose children differ in kind stay in separate slots. The counting pass, the repeat check and slot lookup all use this one equivalence. Within a kind, pooling is plain equality, and sorted collections still lower to unsorted (rf2-gwye.32).
 
 ## The wrapper-aware helper stays consumer-side
 
