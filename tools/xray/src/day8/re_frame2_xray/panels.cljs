@@ -309,7 +309,7 @@
   rf2-2n8q — the 4-arity is an ADDITION and the couplings `mount-resources!`
   reserves this fn for are untouched: the frame-provider wrap and the
   `adapter/render` delegation are still written once, here, and are still
-  one edit when the shell becomes a Fresco tree."
+  one edit if the door ever moves (rf2-l1jm keeps it ratom-family)."
   ([panel-view mount-point opts]
    (render-panel! panel-view mount-point opts nil))
   ([panel-view mount-point opts props]
@@ -526,9 +526,10 @@
   ;; `*-bridge` when the shell itself becomes a Fresco tree.
   ;;
   ;; `render-panel!` ITSELF is deliberately untouched: it is the single
-  ;; chokepoint where the frame-provider and adapter/render couplings are
-  ;; severed for the whole embedding contract, and that is one edit in
-  ;; the final commit rather than N edits now.
+  ;; chokepoint where the frame-provider and adapter/render couplings
+  ;; would be severed for the whole embedding contract, and that severing
+  ;; is deliberately NOT made: the embed door is ratom-family by ruling
+  ;; (rf2-l1jm, 2026-09-13), and if it ever moves it is still one edit here.
   ([mount-point opts] (render-panel! resources/Panel-bridge mount-point opts)))
 
 (defn mount-event-spine!
@@ -795,11 +796,12 @@
   entry — composes every panel inside the shell's ribbon + event-list
   + tab-bar + detail-panel chrome.
 
-  This is the same mount path `mount.cljs/open!` uses for the
-  default in-app `[data-rf-xray-host]` mount; exposing it here lets
-  hosts that own their own DOM (Story, custom dev surfaces) mount
-  the shell at any element without going through Xray's auto-open
-  preload.
+  Unlike `mount.cljs/open!`, which paints through a Fresco client root
+  Xray owns (rf2-k97c.3), this door hands hiccup to the HOST's installed
+  adapter and so mounts only on the ratom family (deliberately —
+  rf2-l1jm); exposing it lets hosts that own their own DOM (Story, custom
+  dev surfaces) mount the shell at any element without going through
+  Xray's auto-open preload.
 
   `opts` carries the two props `008-Embedding-Contract.md` §Embed props
   inventory publishes:

@@ -723,7 +723,10 @@ to `rf.substrate.adapter/render` with a HICCUP tree, so a host reaching for
 *that* door needs a `:render` that accepts hiccup, i.e. the ratom family.
 The mount verbs (`open!`, `open-overlay!`, `popout!`, and the preload
 auto-open) do not, and they are the host-facing contract. A host on an
-element-shaped adapter uses the mount verbs.
+element-shaped adapter uses the mount verbs. This is deliberate (ruled under
+rf2-l1jm, 2026-09-13): revisit only when a host on an element-shaped adapter
+actually needs a single panel in its own layout — Story moving stock Reagent
+to reagent-slim is NOT that, reagent-slim being ratom-family too.
 
 ## Rejected substrate options (recorded so they are not re-proposed)
 
