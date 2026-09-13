@@ -925,6 +925,107 @@
                 (is (= {:type :request :tag "B"} (:echo outcome))
                     "B's caller gets B's OWN body, never the superseded request's")))))))))
 
+(defn- late-uncorrelated-reply-cannot-overwrite-correlated-outcome-test []
+  ;; rf2-gwye.55 / rf2-fzbj.34 — the machine refusing to correlate a frame
+  ;; is only half the contract; the app-db slot the view labels "Last
+  ;; correlated reply" must honour that refusal too. `:ws/handle-message`
+  ;; used to write any `:request-id`-bearing frame to [:messages :last-reply],
+  ;; so a vetted but UNCORRELATED reply — an answer to a superseded
+  ;; registration, a reply arriving after its request timed out, a duplicate —
+  ;; replaced the correlated outcome with its own raw, unstamped body, even
+  ;; though the machine fired no callback. The previous test delivers A
+  ;; BEFORE B, which that write happened to paper over; this one delivers B
+  ;; first. Every outcome is recorded by the EXAMPLE's :ws.app/request-reply
+  ;; (the counting target forwards to it), so the slot under test is the
+  ;; shipped one.
+  (log-tb442-reply!)
+  (with-sync-mock!
+    (fn []
+      (with-new-frame [f (new-frame)]
+        (rf/dispatch-sync [:ws/connection
+                           [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
+                          {:frame f})
+        (is (true? (machine-has-tag? f :websocket/connected)))
+        (let [live-id    (socket-id-of (snapshot (:rf.db/runtime (rf/frame-state-value f))))
+              in-flight  #(get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                                  [:data :in-flight])
+              log        #(get-in (rf/app-db-value f) [:messages :reply-log])
+              last-reply #(get-in (rf/app-db-value f) [:messages :last-reply])
+              inbox-tags #(set (keep (comp :tag :echo)
+                                     (get-in (rf/app-db-value f) [:messages :received])))
+              request!   (fn [rid tag]
+                           (rf/dispatch-sync
+                             [:ws/connection
+                              [:ws/request {:request-id rid
+                                            :body       {:type :silent-no-echo :tag tag}
+                                            :reply      [:ws.test/log-tb442-reply]
+                                            :timeout-ms 5000}]]
+                             {:frame f}))
+              reply!     (fn [rid token tag]
+                           (rf/dispatch-sync
+                             [:ws/connection
+                              [:ws/received {:source-socket-id live-id
+                                             :body {:type          :reply
+                                                    :request-id    rid
+                                                    :request-token token
+                                                    :ok            true
+                                                    :echo          {:type :request :tag tag}}}]]
+                             {:frame f}))]
+          ;; --- A/B reuse of one id, B's reply lands FIRST -------------------
+          (let [rid [:feature/load "delta"]]
+            (request! rid "A")
+            (let [tok-a (request-token f rid)]
+              (request! rid "B")
+              (let [tok-b (request-token f rid)]
+                (is (= 1 (count (log))) "A is settled once, as superseded")
+                (reply! rid tok-b "B")
+                (let [b-outcome (last-reply)]
+                  (is (= :ws/server (:origin b-outcome))
+                      "positive control: B's matching reply reaches the slot through its callback, server-stamped")
+                  (is (= tok-b (:request-token b-outcome)))
+                  (is (= {:type :request :tag "B"} (:echo b-outcome)))
+                  (is (= 2 (count (log))) "B's callback fired once")
+
+                  ;; --- A's late reply: valid, vetted, uncorrelated ----------
+                  (reply! rid tok-a "A")
+                  (is (= {} (in-flight)) "the machine correlates nothing")
+                  (is (= 2 (count (log))) "and fires no callback")
+                  (is (= b-outcome (last-reply))
+                      "THE REGRESSION: a superseded registration's late reply does not overwrite the correlated outcome")
+                  (is (= #{"A" "B"} (inbox-tags))
+                      "both vetted wire frames still reach the inbox")
+
+                  ;; --- a duplicate of B's own reply --------------------------
+                  (reply! rid tok-b "B")
+                  (is (= 2 (count (log))) "a duplicate fires no second callback")
+                  (is (= b-outcome (last-reply))
+                      "a duplicate reply does not replace the stamped outcome with its raw body")
+
+                  ;; --- a push only ever touches the inbox --------------------
+                  (messages/send-server-push! (rf/capture-frame f) {:type :push :note "p"})
+                  (is (= b-outcome (last-reply)) "a push leaves the correlated outcome alone")))))
+
+          ;; --- a reply arriving AFTER its request timed out -----------------
+          (let [rid [:feature/load "epsilon"]]
+            (request! rid "T")
+            (let [tok-t (request-token f rid)]
+              (rf/dispatch-sync [:ws/connection
+                                 [:ws/request-timeout {:request-id       rid
+                                                       :token            tok-t
+                                                       :source-socket-id live-id}]]
+                                {:frame f})
+              (let [timeout-outcome (last-reply)
+                    settled         (count (log))]
+                (is (= {:origin :ws/local :request-id rid :ok false :error :ws/timeout}
+                       timeout-outcome)
+                    "positive control: the local timeout is the correlated outcome")
+                (reply! rid tok-t "T")
+                (is (= settled (count (log))) "the late reply fires no callback")
+                (is (= timeout-outcome (last-reply))
+                    "THE REGRESSION: a reply arriving after its timeout does not overwrite the local outcome")
+                (is (contains? (inbox-tags) "T")
+                    "the late reply still joins the inbox")))))))))
+
 (defn- clean-disconnect-fails-in-flight-request-test []
   ;; rf2-b2jpr — a clean :ws/disconnect destroys the only socket capable of
   ;; replying, so leaving :active through the clean door must settle every
@@ -1872,6 +1973,13 @@
             token rides the wire and the reply must echo it back. The later
             registration still settles on the reply that actually answers it"
     (wire-reply-cannot-settle-a-later-same-id-registration-test)))
+
+(deftest websocket-late-uncorrelated-reply-cannot-overwrite-correlated-outcome
+  (testing "rf2-gwye.55 — :ws.app/request-reply is the sole writer of
+            [:messages :last-reply]: a vetted reply the machine refused to
+            correlate (superseded, post-timeout, duplicate) joins the inbox
+            but cannot replace the correlated outcome"
+    (late-uncorrelated-reply-cannot-overwrite-correlated-outcome-test)))
 
 (deftest websocket-clean-disconnect-fails-in-flight-request
   (testing "rf2-b2jpr — a clean :ws/disconnect settles every in-flight request
