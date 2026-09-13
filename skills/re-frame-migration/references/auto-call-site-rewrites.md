@@ -50,6 +50,7 @@ This is the **single, canonical allowlist** of `re-frame.*` namespaces the M-1 s
 - **`re-frame.interop`** (JVM interop) — explicitly preserved (see [`breaking-changes.md` §What stays the same](breaking-changes.md#what-stays-the-same-do-not-change)). Not off-contract; leave it.
 - **`re-frame.spec`** — the namespace is **NOT renamed**; its alias is preserved for back-compat. M-54 renames the `:spec` metadata *key* to `:schema` — it does **not** touch the `re-frame.spec` *namespace* (see [`auto-cross-cutting.md` §M-54](auto-cross-cutting.md#m-54--schema-vocabulary-unification-spec--schema) / [`MIGRATION.md` §M-54](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema)). Leave the require in place; boundary validation is opted into with `:boundary? true` on the registration, never by rewriting the require away.
 - **The v2-only public namespaces** — `re-frame.resources` (declarative server-state; the re-frame-query conversion lands here), `re-frame.fresco` (the re-frame-native view layer the reagent-migration hand-off targets), `re-frame.story` (Story), and the test-side `re-frame.test-helpers` (view-assertion helpers, a documented public exception in `spec/API.md`). Each has manifest rows, and a migration routes *into* the first two — flagging them would have M-1 delete a live import.
+- **`re-frame.subs.tooling`** — the subscription-tooling namespace (`sub-topology` / `sub-cache-snapshot`) that [O-12](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#o-12-introspect-the-static-sub-graph-via-re-framesubstoolingsub-topology) tells tools, dev overlays and tests to require. `re-frame.core` has no alias for either fn (`spec/API.md` §Public registrar query API), so flagging it would have M-1 delete a live import. The exemption covers **this exact namespace only**: bare `re-frame.subs` and its private siblings, such as `re-frame.subs.cache`, stay M-1 sites.
 
 **`re-frame.std-interceptors` is NOT on the surface** — it is off-contract, and its v1 helpers (`unwrap` / `debug` / `trim-v` / `on-changes` / `enrich` / `after`) are removed under M-21, so a require of it is itself an M-1 site and each helper call site is an M-21 / M-19 / M-70 rewrite.
 
@@ -66,11 +67,13 @@ Everything else under `re-frame.*` is off-contract. `re-frame.alpha` is **not** 
 # in step. `adapter\b` exempts all three published adapters (M-38/M-40 destination);
 # `http\b` covers re-frame.http.managed / .http.test-support (the \b fires at
 # the following dot); `spec\b` exempts the preserved re-frame.spec (M-54);
-# `resources|fresco|story|test-helpers` exempt the v2-only public namespaces.
-# Private re-frame.db / .utils / .router / .subs / .registrar / .loggers are NOT
-# listed, so they survive and ARE flagged.
+# `resources|fresco|story|test-helpers` exempt the v2-only public namespaces;
+# `subs\.tooling` exempts exactly the O-12 subscription-tooling namespace, never
+# the whole subs subtree.
+# Private re-frame.db / .utils / .router / .subs / .subs.cache / .registrar /
+# .loggers are NOT listed, so they survive and ARE flagged.
 rg -n '\[\s*re-frame\.[a-z-]+' . \
-  | rg -v '\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|http|ssr|epoch|resources|fresco|story|test-support|test-helpers|spec)\b'
+  | rg -v '\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|http|ssr|epoch|resources|fresco|story|subs\.tooling|test-support|test-helpers|spec)\b'
 ```
 
 (**Do not** reach for an inline negative-lookahead — `rg -n '\[\s*re-frame\.(?!core\b|…)…'` — in the *default* engine: ripgrep's default Rust `regex` engine rejects look-around and exits non-zero *before scanning* with "look-around … is not supported", so the M-1 inventory silently produces nothing and reads as a false-clean sweep. The broad-scan-then-invert-filter form above works on **any** ripgrep build; an equivalent single-command form needs `rg -P`/`--pcre2`, which only works on a ripgrep compiled with PCRE2. Each surviving hit is an M-1 site: find a public equivalent in `re-frame.core`, or — if none — flag for human review with the call site and what it is doing.)

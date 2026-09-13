@@ -209,7 +209,11 @@ A fourth, structurally different guard (rf2-3fc89f.35) rides the same gate:
     must-exempt set with four public namespaces the filter had omitted
     (`re-frame.resources`, `re-frame.story`, `re-frame.fresco`,
     `re-frame.test-helpers`) — the skill routes into two of them, and M-1's
-    rewrite removes the require outright.
+    rewrite removes the require outright. rf2-z9xl added the exact
+    `re-frame.subs.tooling` (O-12 routes tools and tests into it; there is no
+    `re-frame.core` alias) and the private `re-frame.subs.cache` sibling as a
+    must-flag control, so the exemption cannot widen to the `re-frame.subs`
+    subtree.
 
   * **M-51 sweep — the executable unary-`reg-fx` sweep must see every common
     unary shape (rf2-0tur).** M-51 is SILENT-fail: a unary fx handler compiles,
@@ -1354,6 +1358,9 @@ M1_FLAG_NSES = [
     "re-frame.events", "re-frame.registrar", "re-frame.loggers",
     "re-frame.interceptor", "re-frame.fx", "re-frame.cofx",
     "re-frame.std-interceptors",
+    # rf2-z9xl: a private subs sibling. With bare `re-frame.subs` it proves the
+    # `re-frame.subs.tooling` exemption stays exact, not subtree-wide.
+    "re-frame.subs.cache",
 ]
 # The M-1 scan MUST NOT flag these (the public-surface exceptions — the
 # invert-filter removes them).
@@ -1369,6 +1376,9 @@ M1_EXEMPT_NSES = [
     # "remove the :require entirely", so a false flag deletes a live import.
     "re-frame.resources", "re-frame.story", "re-frame.fresco",
     "re-frame.test-helpers",
+    # rf2-z9xl: O-12 tells tools, dev overlays and tests to require this exact
+    # namespace (sub-topology / sub-cache-snapshot), and core has no alias.
+    "re-frame.subs.tooling",
 ]
 
 # Extract the documented rg patterns. The broad-scan line ends `' . \` (space-dot);
@@ -1501,6 +1511,7 @@ def m1_anchor_problems() -> list[str]:
             )
         for token in (
             "re-frame.adapter", "re-frame.spec", "re-frame.interop", "re-frame.core",
+            "re-frame.subs.tooling",
         ):
             if token not in acs:
                 problems.append(
@@ -3088,7 +3099,17 @@ def _self_test() -> int:
     good_broad = re.compile(r"\[\s*re-frame\.[a-z-]+")
     good_invert = re.compile(
         r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
+        r"http|ssr|epoch|resources|fresco|story|subs\.tooling|test-support|"
+        r"test-helpers|spec)\b"
+    )
+    pre_z9xl_invert = re.compile(  # the rf2-0tur filter rf2-z9xl widened
+        r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
         r"http|ssr|epoch|resources|fresco|story|test-support|test-helpers|spec)\b"
+    )
+    subtree_invert = re.compile(  # the over-wide fix rf2-z9xl refuses: all of subs
+        r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
+        r"http|ssr|epoch|resources|fresco|story|subs|test-support|test-helpers|"
+        r"spec)\b"
     )
     bad_invert = re.compile(  # the exact pre-fix filter — no `adapter`, no `spec`
         r"\[\s*re-frame\.(core|interop|schemas|machines|routing|flows|"
@@ -3133,6 +3154,16 @@ def _self_test() -> int:
     for ns in rf2_0tur_nses:
         m1_expect(ns, good_invert, "exempt", f"M1-good-exempt {ns}")
         m1_expect(ns, pre_0tur_invert, "flag", f"M1-regression-detected {ns}")
+    # rf2-z9xl: the exact O-12 tooling namespace is exempt and the rf2-0tur filter
+    # flagged it; bare subs, db and a private subs sibling stay flagged, and the
+    # subtree-wide spelling is caught because it exempts those two subs controls.
+    ns = "re-frame.subs.tooling"
+    m1_expect(ns, good_invert, "exempt", f"M1-good-exempt {ns}")
+    m1_expect(ns, pre_z9xl_invert, "flag", f"M1-regression-detected {ns}")
+    for ns in ("re-frame.subs", "re-frame.db", "re-frame.subs.cache"):
+        m1_expect(ns, good_invert, "flag", f"M1-good-flag {ns}")
+    for ns in ("re-frame.subs", "re-frame.subs.cache"):
+        m1_expect(ns, subtree_invert, "exempt", f"M1-subtree-overreach-seen {ns}")
 
     # --- M-51 sweep fixtures (rf2-0tur) -----------------------------------------
     # The corrected sweep sees all four unary shapes and skips the binary control;
