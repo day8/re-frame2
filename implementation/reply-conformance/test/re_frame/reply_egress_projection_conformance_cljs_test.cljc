@@ -154,9 +154,20 @@
   (testing "trace-summary projects each wire slot under the explicit frame"
     (mk-frame!)
     (let [reply   (assoc (ok-reply)
-                         :correlation {:token "corr-SECRET"}
+                         ;; The SAME `raw-token` the absence predicate hunts for
+                         ;; (rf2-fzbj.23). A private per-slot secret would leave
+                         ;; the recursive checks below searching for a string the
+                         ;; fixture never supplied — they would pass vacuously,
+                         ;; and a regression retaining the correlation secret
+                         ;; beside a correctly redacted leaf would ship green.
+                         :correlation {:token raw-token}
                          :meta        {:blob big-string})
           summary (rf.reply/trace-summary reply {:frame frame-id})]
+      (testing "POSITIVE CONTROL: the detector finds the correlation secret pre-projection"
+        ;; The absence assertions below are only meaningful if the predicate
+        ;; can see this fixture's actual correlation input. Prove it does.
+        (is (embeds-raw-token? (:correlation reply))
+            "the raw token IS present in the un-projected :correlation slot"))
       (testing "the sensitive reply-value leaf is redacted"
         (is (redacted? (get-in summary [:value :token]))
             ":value sensitive leaf redacted"))
