@@ -36,11 +36,40 @@ mirrors.
 
 ## Convention
 
-The harness follows Anthropic's `skill-creator` convention, documented in
-[`anthropics/skills/skills/skill-creator/SKILL.md`](https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md)
-and the schema in
-[`anthropics/skills/skills/skill-creator/references/schemas.md`](https://github.com/anthropics/skills/blob/main/skills/skill-creator/references/schemas.md).
-The same shape is described in Anthropic's public best-practices guide:
+**The wrapper is a repository convention, not an upstream schema.**
+`schema_version` `"2"` names *this repo's* shape — an object
+`{skill_name, schema_version, convention, notes, trigger_dimension,
+behavioural_dimensions, evals: […]}` whose one list mixes two kinds of row.
+Anthropic's `skill-creator` defines a **separate** format for each kind of
+evaluation, and this file is neither of them verbatim (checked against
+upstream commit `3d5951151859`;
+[`re-frame2-pair-retro`'s §Convention](../../re-frame2-pair-retro/evals/README.md#convention)
+walks through the same distinction for a trigger-only corpus):
+
+- **Task evaluation** —
+  [`references/schemas.md` §evals.json](https://github.com/anthropics/skills/blob/3d59511518591fa82e6cfcf0438d68dd5dad3e76/skills/skill-creator/references/schemas.md#evalsjson)
+  is an object `{skill_name, evals: [{id, prompt, expected_output, files?, expectations}]}`
+  with no `should_trigger`. This corpus's `kind: "behavioural"` rows carry
+  those row fields (plus local `kind` / `name` / `dimension` / `leaf`
+  bookkeeping) and are graded as task evals — [How to run](#how-to-run),
+  step 3.
+- **Trigger evaluation (description optimisation)** —
+  [`SKILL.md` §Description Optimization](https://github.com/anthropics/skills/blob/3d59511518591fa82e6cfcf0438d68dd5dad3e76/skills/skill-creator/SKILL.md#description-optimization)
+  takes a **top-level JSON list** of `{"query": …, "should_trigger": …}`
+  objects, and
+  [`scripts/run_eval.py`](https://github.com/anthropics/skills/blob/3d59511518591fa82e6cfcf0438d68dd5dad3e76/skills/skill-creator/scripts/run_eval.py)
+  iterates the loaded document directly, reading `item["query"]` and then
+  `item["should_trigger"]`. This corpus's `kind: "trigger"` rows carry the
+  label, but they sit inside the wrapper and name their text `prompt`: handed
+  over whole, the file dies with a `TypeError`, and merely unwrapped it dies
+  with `KeyError: 'query'`. The behavioural rows are the subtler hazard —
+  they carry no `should_trigger` at all, so a conversion that maps every row
+  gives each one a `null` label, which the loop silently scores as "should
+  not trigger". [How to run](#how-to-run) carries the conversion that selects
+  the trigger kind first.
+
+Anthropic's public best-practices guide describes the evaluations-first
+practice both formats serve:
 [Skill authoring best practices — Build evaluations first](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices#build-evaluations-first).
 
 A single [`evals.json`](evals.json) holds the eval list — it is the sole
@@ -154,8 +183,34 @@ is the reference. The short version:
    safe", and over-generalise "subscribe-once in a handler is fine" to machine
    callbacks — the exact mistakes the leaves exist to prevent.
 
-The harness is intentionally tool-agnostic — `evals.json` is just data. Any
-runner that respects the schema works.
+**Trigger fixtures through the description-optimisation loop — convert
+first.** To tune the frontmatter `description` with skill-creator's loop
+([SKILL.md §Description Optimization](https://github.com/anthropics/skills/blob/3d59511518591fa82e6cfcf0438d68dd5dad3e76/skills/skill-creator/SKILL.md#description-optimization))
+instead of scoring activation by hand as in step 2, hand the loop the
+trigger rows alone, in its own shape (per [Convention](#convention)): select
+the `kind: "trigger"` rows that carry a boolean `should_trigger`, then rename
+`prompt` → `query`:
+
+```bash
+jq '[.evals[]
+     | select(.kind == "trigger" and (.should_trigger | type == "boolean"))
+     | {query: .prompt, should_trigger: .should_trigger}]' \
+  evals.json > <scratch>/trigger-eval.json
+```
+
+That emits one item per trigger fixture, every prompt string and boolean
+label preserved verbatim, and nothing from a behavioural row — `id`, `name`
+and `rationale` are local bookkeeping the loop neither reads nor needs. Do
+not reuse
+[`re-frame2-pair-retro`'s one-liner](../../re-frame2-pair-retro/evals/README.md#how-to-run)
+here: it maps every row, which is right for that trigger-only corpus and
+wrong for this one, where it emits each behavioural row with a `null` label.
+Feed the converted file to `scripts.run_loop` as that README shows, and write
+`trigger-eval.json` somewhere scratch, not into this directory.
+
+The harness is otherwise tool-agnostic — `evals.json` is just data. Any
+runner works that is fed the shape it expects: the converted list above for
+the trigger loop, the behavioural rows for a task grader.
 
 ## What "pass" means
 
