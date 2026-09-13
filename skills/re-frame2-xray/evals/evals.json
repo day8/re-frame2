@@ -68,8 +68,31 @@
  "The output does NOT claim open! is inert in production because no substrate adapter is installed — an app that called rf/init! has one in production too."
  ]
  },
- {"id": 4, "name": "launch-hotkey", "should_trigger": true, "prompt": "What's the Ctrl+Shift+C hotkey wired to?"},
- {"id": 5, "name": "hotkey-mode-toggle", "should_trigger": true, "prompt": "Is there a keyboard shortcut to switch Xray between its Dynamic and Static modes?"},
+ {
+ "id": 4,
+ "name": "launch-hotkey",
+ "should_trigger": true,
+ "prompt": "What's the Ctrl+Shift+C hotkey wired to?",
+ "expected_output": "The agent says Ctrl+Shift+C toggles the Xray shell: the first press mounts and shows it, later presses flip its visibility (the shell stays mounted while hidden). The chord is Ctrl+Shift on every platform, macOS included, because Cmd+Shift+C is Safari's Inspect. It does not claim the chord opens the pop-out. If it lists the other wired keys, it gives them as shipped: Cmd/Ctrl+Shift+M mode toggle, Cmd/Ctrl+K palette, and unshifted l for snap-to-LIVE.",
+ "expectations": [
+ "The output says Ctrl+Shift+C toggles the Xray shell (show / hide; the first press mounts it).",
+ "The output does NOT give the chord as Cmd+Shift+C on macOS — it is Ctrl+Shift+C everywhere (Cmd+Shift+C is Safari's Inspect).",
+ "The output does NOT claim Ctrl+Shift+C (or any hotkey) opens the pop-out window.",
+ "If the output lists the focus-gated spine keys, it gives snap-to-LIVE as unshifted l, not Shift+L."
+ ]
+ },
+ {
+ "id": 5,
+ "name": "hotkey-mode-toggle",
+ "should_trigger": true,
+ "prompt": "Is there a keyboard shortcut to switch Xray between its Dynamic and Static modes?",
+ "expected_output": "The agent answers YES: Cmd/Ctrl+Shift+M (Cmd on macOS, Ctrl elsewhere) toggles Dynamic ↔ Static, the same flip as clicking the L1 mode pill. It does not offer the Ctrl+Shift+C shell toggle or a bare letter as the mode switch.",
+ "expectations": [
+ "The output names Cmd/Ctrl+Shift+M as the Dynamic ↔ Static mode toggle (Cmd on macOS, Ctrl elsewhere).",
+ "The output mentions the L1 mode pill as the equivalent click path.",
+ "The output does NOT give Ctrl+Shift+C (the shell toggle) or a bare letter key as the mode switch."
+ ]
+ },
  {
  "id": 6,
  "name": "panel-route-state",

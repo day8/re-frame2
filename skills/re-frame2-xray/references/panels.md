@@ -77,7 +77,7 @@ letters, not keys: pressing one selects nothing, and the palette entry is
 | Tab | Tooltip | Question it answers |
 |---|---|---|
 | **Machines** *(default)* | `m` | "What machines are registered, and what do they look like?" Registry browse + full topology (picker + zoom/pan/fit) + a 4-mode sub-strip incl. the Sim engine. |
-| **Routes** | `r` | "Which route would `/orders/42` match?" Every registered route + a Simulate-URL input. |
+| **Routes** | `r` | "Which route would `/orders/42` match?" Every registered route + a Simulate-URL input + a per-row Simulate navigation preview (matched params, the `:on-match` event, the expected route slice; hermetic, nothing is dispatched). |
 | **Schemas** | `c` | "Show me the shape of `:order/schema`." Every registered app-db / event / sub schema as its Malli EDN, with `:doc`, searchable, + jump-to-source. |
 | **Flows** | `f` | "What flows are registered?" The flows catalogue. |
 | **Interceptors** | `i` | "What runs, and in what order?" Pure-browse over the registered interceptor chains. |

@@ -124,7 +124,10 @@ full-inventory request, not for routine routing.
 ## Launching Xray — pick a mode
 
 Four launch surfaces ship: one mount facade with three open verbs
-(inline / overlay / window) plus the programmatic `init!`.
+(inline / overlay / window) plus the programmatic `init!`. Xray mounts on
+any installed browser adapter — the ratom family (Reagent, reagent-slim)
+or the React-hook substrates (UIx, Fresco) — because it paints through its
+own React root; all it needs is that the host called `rf/init!`.
 
 | User wants to … | Use | How |
 |---|---|---|
@@ -142,10 +145,14 @@ page loaded, no inline panel = a **missing layout host**: nothing matched
 `[data-rf-xray-host]` when the adapter became ready. Xray fails loudly but
 safely — a `console.error` plus the same diagnostic at
 **`window.day8.re_frame2_xray.status()`**. First response: check the
-console / call `status()`. The three recoveries (add the column · point
-the selector · fall back to `open-overlay!`) and the full decision tree
+console / call `status()`, whose `:diagnostic :reason` names which of four
+it is — `:missing-layout-host`, `:no-substrate-adapter` (the host never
+called its own `rf/init!`), `:auto-open-disabled` (health, not failure),
+or the reserved, never-produced `:unsupported-substrate`. The reason
+table, the three missing-host recoveries (add the column · point the
+selector · fall back to `open-overlay!`) and the full decision tree
 (preload vs `init!`, suppress-auto-open, resize) live in
-[`references/launch-modes.md`](references/launch-modes.md); the pop-out
+[`references/launch-modes.md` §Launch diagnostics](references/launch-modes.md#launch-diagnostics); the pop-out
 lifecycle is in
 [`references/launch-lifecycle.md`](references/launch-lifecycle.md).
 
@@ -160,7 +167,7 @@ per-key contract + suppression knob:
 | `Ctrl+Shift+C` | global | Toggle the Xray shell (`Ctrl+Shift` avoids Safari's `Cmd+Shift+C` Inspect collision). |
 | `Cmd/Ctrl+Shift+M` | global | Toggle mode — Dynamic ↔ Static. |
 | `Cmd/Ctrl+K` | global | Open the command palette (**wired** — don't tell users the K-binding is unavailable); opens the shell first if hidden. |
-| `Space` `L` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts, only while the shell is visible and focused. Space = pause/resume LIVE · `L` = snap to LIVE · `j`/`k` = step focused event · `G` = fast-forward to head · `,`/`s` = Settings popup. |
+| `Space` `l` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts, only while the shell is visible and focused. Space = pause/resume LIVE · `l` (unshifted) = snap to LIVE · `j`/`k` = step focused event · `G` (Shift+G) = fast-forward to head · `,`/`s` = Settings popup. |
 
 Only these are wired: `Esc` is modal-local, not a spine key; the
 **pop-out has no hotkey** (its canonical path is the visible `⛶`
@@ -179,7 +186,7 @@ the control-by-control inventory.
  `:rf/re-frame2-pair`) are filtered out unconditionally — "I can't find
  frame X in the picker" → it's a tool frame.
 - **LIVE vs RETRO spine** — the L2 spine live-tails at the head until you
- pick a historical event or pause; `Space` pauses/resumes, `L` snaps back.
+ pick a historical event or pause; `Space` pauses/resumes, `l` snaps back.
 - **Time-travel: passive inspect vs explicit rewind** — picking an epoch
  is *passive inspection*: panels rebase, the live frame does NOT move.
  Live rewind is the separate, explicit **`Reset` button** on the L3
@@ -211,7 +218,7 @@ deeper question loads at most **one** focused leaf:
 
 | Deep question about… | Load |
 |---|---|
-| Launch in depth — preload, the `[data-rf-xray-host]` contract, missing-host recovery, `open-overlay!` | [`references/launch-modes.md`](references/launch-modes.md) |
+| Launch in depth — preload, the `[data-rf-xray-host]` contract, launch diagnostics + missing-host recovery, `open-overlay!` | [`references/launch-modes.md`](references/launch-modes.md) |
 | Driving Xray from code — `init!` opts, the `focus!` deep-link command | [`references/launch-programmatic.md`](references/launch-programmatic.md) |
 | Pop-out lifecycle, the full hotkey contract, hidden-state semantics, disabling Xray + production posture | [`references/launch-lifecycle.md`](references/launch-lifecycle.md) |
 | The full tab inventory + scope matrix + the Static catalogues (explicit "list every tab") | [`references/panels.md`](references/panels.md) |

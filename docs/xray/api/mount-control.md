@@ -56,7 +56,18 @@ The three verbs are **not** a mode-symmetric triplet — there is no `open-inlin
   ```clojure
   (xray/status) → map
   ```
-- **Description**: Inspectable shell state. Returns `{:mounted? :visible? :last-host-diagnostic ...}`. Reach for this from tests, from a debug-console one-liner, or when wiring a host's "is the panel up?" indicator. The browser-global mirror exposes the same value as `window.day8.re_frame2_xray.status()`.
+- **Description**: Inspectable shell state. Returns `{:mounted? :visible? :mode :diagnostic :host-selector :auto-open?}`. Reach for this from tests, from a debug-console one-liner, or when wiring a host's "is the panel up?" indicator. The browser-global mirror exposes the same value as `window.day8.re_frame2_xray.status()`.
+
+`:diagnostic` is where a launch that did not happen says why. A healthy mount reads `{:ok? true :reason nil}`; otherwise `:reason` is one of four public values, and the set is a contract — a member is retired by reservation, never deleted or reused:
+
+| `:reason` | `:ok?` | Meaning |
+| --- | --- | --- |
+| `:missing-layout-host` | `false` | No element matched the layout-host selector, so nothing mounted. Also logged through `console.error`, with the selector and a host snippet. |
+| `:no-substrate-adapter` | `false` | The preload waited about 6 s for a substrate adapter and none arrived: the host never called `rf/init!`. Recorded only while auto-open is on. |
+| `:auto-open-disabled` | `true` | Auto-open is switched off (`:rf.xray/auto-open? false`). Health, not failure. |
+| `:unsupported-substrate` | — | Reserved and never produced. Xray paints through its own React root, so no installed adapter is refused; the id stays so a consumer keying on it keeps working. |
+
+`popout!` reports its failures in its own return value, not here.
 
 ## Manual install — the alternative to `:preloads`
 

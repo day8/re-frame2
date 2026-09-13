@@ -6,40 +6,36 @@ on a corner it doesn't cover, defer to the spec doc.
 
 ## Decision tree
 
-```
-Is the host app's dev build running with the Xray preload? ── no ──► §Install the preload
- │
- yes
- │
- Has `rf/init!` run? ── no ──► §Programmatic init!
- │
- yes
- │
- Is there a [data-rf-xray-host] in the page layout?
- │
- ┌──────────────┴──────────────┐
- yes no
- │ │
- ▼ ▼
- Xray auto-opened into the Xray logged the missing-host
- inline host on page load. diagnostic (console.error +
- Toggle with Ctrl+Shift+C. window.day8.re_frame2_xray.status)
- │ │
- ▼ ┌────────────┴────────────┐
- Need a second monitor? Can the host give Xray a layout column?
- │ │
- yes ┌─────────┴─────────┐
- │ yes no
- ▼ │ │
- Click the ⛶ top-bar pop-out ▼ ▼
- button (canonical) — same-origin §Layout host §Overlay fallback
- second window reading the opener's contract (open-overlay!) —
- atoms directly; (xray/popout!) (add the column) floats above the host,
- is the secondary code path. no column needed.
-```
+1. **Is the host app's dev build running with the Xray preload?**
+   - **No** → [§Install the preload](#install-the-preload). Installing
+     from code instead? That is
+     [`launch-programmatic.md` §Programmatic init!](launch-programmatic.md#programmatic-init),
+     called *after* the host's `rf/init!`.
+   - **Yes** → question 2.
+2. **Has the host app called its own `(rf/init! adapter)`?**
+   - **No** → call the host's `(rf/init! adapter)` before the app
+     renders. Xray's `init!` installs no adapter and cannot stand in for
+     it. The preload waits about 6 s (120 × 50 ms) for an adapter, then
+     records `:no-substrate-adapter` ([§Launch diagnostics](#launch-diagnostics)).
+   - **Yes** → question 3.
+3. **Is there a `[data-rf-xray-host]` in the page layout?**
+   - **Yes** → Xray auto-opened into the inline host on page load; toggle
+     it with `Ctrl+Shift+C`. **Need a second monitor?**
+     - **No** → done.
+     - **Yes** → click the `⛶` top-bar pop-out button (canonical): a
+       same-origin second window reading the opener's atoms directly.
+       `(xray/popout!)` is the secondary code path
+       ([`launch-lifecycle.md` §Pop-out](launch-lifecycle.md#pop-out-to-a-second-window)).
+   - **No** → Xray logged the `:missing-layout-host` diagnostic
+     (`console.error` + `window.day8.re_frame2_xray.status()`). **Can the
+     host give Xray a layout column?**
+     - **Yes** → [§Layout host contract](#layout-host-contract) — add the
+       column.
+     - **No** → [§Overlay fallback](#overlay-fallback-open-overlay) —
+       `open-overlay!` floats above the host, no column needed.
 
-Two branches of that tree live in sibling leaves: **§Programmatic init!**
-and **§Programmatic focus** in
+Sibling leaves carry the rest: **§Programmatic init!** and
+**§Programmatic focus** in
 [`launch-programmatic.md`](launch-programmatic.md), and **§Pop-out**,
 **§Wired hotkeys** and **§Production posture** in
 [`launch-lifecycle.md`](launch-lifecycle.md).
@@ -75,6 +71,12 @@ matching the `init!` docstring's enumeration in `core.cljs`):
 It schedules an auto-open into `[data-rf-xray-host]` once
 `current-adapter` is ready. The preload MUST NOT mount synchronously
 during namespace load; it MAY schedule a bounded adapter-ready retry.
+
+**Any installed browser adapter will do.** Xray paints through its own
+React root, so the ratom family (Reagent, reagent-slim) and the
+React-hook substrates (UIx, Fresco) mount it alike; all it needs is that
+the host called `rf/init!` with one
+([`008-Embedding-Contract.md` §The minimum host contract](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/008-Embedding-Contract.md#the-minimum-host-contract)).
 
 Idempotency: every step is `defonce`-guarded. shadow-cljs `:after-load`
 reruns are safe — no double-attached listeners, no double-mount, no
@@ -161,18 +163,17 @@ open with no host still emits the actionable missing-host diagnostic.
 App dev pages should keep the default `true` posture and provide
 `[data-rf-xray-host]`.
 
-## Missing host — diagnostic + recovery
+## Launch diagnostics
 
-The single most common "Xray didn't open" cause: the preload ran but no
-element matched the layout-host selector when the substrate adapter became
-ready. Per [`spec/011-Launch-Modes.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/011-Launch-Modes.md)
+When Xray does not appear, `status()` says why. Per
+[`spec/011-Launch-Modes.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/011-Launch-Modes.md)
 Xray **must fail loudly but safely** — it MUST NOT `alert()` and MUST NOT
-block host app startup. The same diagnostic lands in two places (source
+block host app startup. A failure lands in two places (source
 [`mount.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/mount.cljs)
-`missing-host-diagnostic` / `report-diagnostic!`):
+`report-diagnostic!`):
 
-1. **`console.error`** — names the expected selector + the host snippet to
-   add.
+1. **`console.error`** — the message; for a missing host it also names the
+   expected selector + the host snippet to add.
 2. **`window.day8.re_frame2_xray.status()`** — the inspectable mount/API
    status map (wired by `install.cljs`, defined at `mount.cljs` `status`):
 
@@ -189,11 +190,25 @@ block host app startup. The same diagnostic lands in two places (source
     :auto-open?    true}
    ```
 
+`:diagnostic :reason` names the cause. A healthy mount reads
+`{:ok? true :reason nil}`; the four public reasons are:
+
+| `:reason` | `:ok?` | What happened | Fix |
+|---|---|---|---|
+| `:missing-layout-host` | `false` | The adapter was ready but nothing matched the layout-host selector, so nothing mounted. **The most common cause.** | One of the three recoveries below. |
+| `:no-substrate-adapter` | `false` | The preload waited about 6 s (120 × 50 ms) and no substrate adapter was ever installed: the host never called `rf/init!`. Recorded only while auto-open is on. | Call the host's own `(rf/init! adapter)` before app render. Xray's `init!` is not the fix. |
+| `:auto-open-disabled` | `true` | The host set `:rf.xray/auto-open? false`, so the preload skipped the page-load open. Health, not failure. | Open it yourself (`Ctrl+Shift+C` or `(xray/open!)`), or drop the setting ([§Suppress auto-open](#suppress-auto-open)). |
+| `:unsupported-substrate` | — | Reserved and never produced. Xray paints through its own React root, so no installed adapter is refused; the id stays so a consumer keying on it keeps working. | Nothing to fix. |
+
+`popout!` reports its own failures (`:popup-blocked`,
+`:no-substrate-adapter`) in its return value, not here — see
+[`launch-lifecycle.md` §Pop-out](launch-lifecycle.md#pop-out-to-a-second-window).
+
 An explicit `(xray/open!)` / `(xray/toggle!)` against a missing host
 **returns the same diagnostic map** (and logs the `console.error`) rather
 than throwing — so a programmatic caller can branch on `:ok?`.
 
-Three recoveries, in order of preference:
+For `:missing-layout-host`, three recoveries, in order of preference:
 
 - **Add the `[data-rf-xray-host]` column** to your app layout (§Layout host
   contract above) — the default fix.
