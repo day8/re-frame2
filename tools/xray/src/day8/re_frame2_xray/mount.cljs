@@ -160,6 +160,9 @@
 
   - `:missing-layout-host` — no element matched the configured
     `[data-rf-xray-host]` selector; nothing mounted (`console.error`).
+  - `:no-substrate-adapter` — the preload waited about 6 s for a
+    substrate adapter and none arrived: the host never called
+    `rf/init!`. Recorded only while auto-open is on.
   - `:auto-open-disabled` — the preload found auto-open switched off.
     Health, not failure: `:ok?` stays true.
   - `:unsupported-substrate` — **RESERVED, NEVER PRODUCED** (rf2-k97c.4).
@@ -171,8 +174,9 @@
     read surface a consumer may key on; it is not recycled for any other
     meaning.
 
-  `popout!` additionally answers `:no-substrate-adapter` and
-  `:popup-blocked` in its own RETURN value; neither is published here."
+  `popout!` answers `:popup-blocked` and `:no-substrate-adapter` in its
+  own RETURN value and publishes neither here; the preload's
+  `:no-substrate-adapter` above is a separate write."
   []
   {:mounted?      (mounted?)
    :visible?      (visible?)
