@@ -35,7 +35,7 @@ Confirm all three, or stop:
 clojure -Srepro \
   -Sdeps '{:deps {day8/re-frame2-fresco-codemod
                   {:git/url   "https://github.com/day8/re-frame2.git"
-                   :git/sha   "6a5194c0aa029ac1ad34aaf3a62974fd3e5c0221"
+                   :git/sha   "8b17cc53d517de9359f5174a0d2fcfa4748091ab"
                    :deps/root "migration/reagent-to-fresco/codemod"}}}' \
   -M -m re-frame.migration.fresco.codemod path/to/consumer/src/ --report out.edn
 ```
@@ -200,15 +200,41 @@ original and the Fresco candidate against isolated copies of the same seeded
 frame, drives one interaction script through both, and compares canonical DOM
 and the intent stream at each checkpoint.
 
+**Both arms are handed to the Fresco runtime**, so the Reagent original has to
+cross a renderer boundary the way any foreign component does — an unmarked
+`(defn …)` in head position is not a legal Fresco head and raises
+`:rf.error/fresco-bad-head` before anything is compared. Reactify the original
+**once at top level** (a component allocated per render is a new element type
+and remounts the subtree), then cross it with `[:> …]` or a declared
+`h/defhost`:
+
 ```clojure
-(hm/shadow!
- {:reference      [old/article-row {:article-id 7}]
-  :candidate      [new/article-row {:article-id 7}]
-  :initial-events [[:demo/install-fixture]]
-  :script         [{:click "button.edit"}
-                   {:type  ["input.title" "Better title"]}
-                   {:click "button.save"}]})
+;; Once, at top level.
+(def old-article-row (r/reactify-component old/article-row))
+
+(is (= :green
+       (:status
+        (hm/shadow!
+         {:reference      [:> old-article-row {:id 7}]
+          :candidate      [new/article-row {:id 7}]
+          :initial-events [[:demo/install-fixture]]
+          :script         [{:click "button.edit"}
+                           {:type  ["input.title" "Better title"]}
+                           {:click "button.save"}]}))))
 ```
+
+**Use a single-word prop across the crossing, or map it deliberately.** The
+`[:>]` boundary converts prop names, so a kebab `:article-id` arrives on the
+Reagent side as `articleId` while the Fresco candidate still reads
+`:article-id` — a difference the comparator will report that has nothing to do
+with your port. `{:id 7}` sidesteps it; anything longer gets an explicit
+mapping on the reference side.
+
+**An original that dispatches needs its frame carried across the crossing.**
+Reactifying moves the component out of the Fresco render scope, so an ambient
+`dispatch` / `subscribe` closure inside it has no frame to resolve against.
+Supply frame-bound callbacks at the crossing (or keep a capture the original
+already took) — the wrapper alone does not repair arbitrary ambient closures.
 
 Three disciplines make it worth its cost. **Add a sabotage control first** —
 change a candidate prop deliberately and confirm the run turns red at the
@@ -218,8 +244,24 @@ implementations matched *for the flows in the script*. And know its reach: it
 covers canonical DOM and intents, not focus, caret, IME, layout or paint. Those
 need a browser test.
 
-Omit `:script` for interactive development — both mounts stay live and each
-committed render becomes a checkpoint as you use the screen by hand.
+Omit `:script` for interactive development and both mounts stay live. **Nothing
+is compared automatically** — there is no per-commit checkpoint and no click
+mirroring between the two mounts; a reading is taken only when you ask for one.
+So keep the returned handle, drive **both** mounts, and call `:checkpoint!`
+at each point you actually want compared, then `:stop!`:
+
+```clojure
+(let [s (hm/shadow! {:reference [:> old-article-row {:id 7}]
+                     :candidate [new/article-row {:id 7}]})]
+  (try
+    ;; drive both mounts by hand …
+    (is (= :green (:status ((:checkpoint! s)))))
+    (finally ((:stop! s)))))
+```
+
+Read the verdict each time — a checkpoint you never call proves nothing, and
+`:stop!` is the caller's teardown. Focus, caret, IME, layout and paint still
+need a browser test.
 
 When a screen is green and its browser tests pass, **remove the Reagent
 original.** Keeping both copies invites divergence.
@@ -234,7 +276,7 @@ that must not change.
 clojure -Srepro \
   -Sdeps '{:deps {day8/re-frame2-fresco-codemod
                   {:git/url   "https://github.com/day8/re-frame2.git"
-                   :git/sha   "6a5194c0aa029ac1ad34aaf3a62974fd3e5c0221"
+                   :git/sha   "8b17cc53d517de9359f5174a0d2fcfa4748091ab"
                    :deps/root "migration/reagent-to-fresco/codemod"}}}' \
   -M -m re-frame.migration.fresco.codemod --rewrite src/
 ```

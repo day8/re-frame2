@@ -71,7 +71,7 @@ Unlike the view rewrite, the **prop-dialect fixer and the view-substrate API cen
 clojure -Srepro \
   -Sdeps '{:deps {day8/re-frame2-fresco-codemod
                   {:git/url   "https://github.com/day8/re-frame2.git"
-                   :git/sha   "6a5194c0aa029ac1ad34aaf3a62974fd3e5c0221"
+                   :git/sha   "8b17cc53d517de9359f5174a0d2fcfa4748091ab"
                    :deps/root "migration/reagent-to-fresco/codemod"}}}' \
   -M -m re-frame.migration.fresco.codemod path/to/consumer/src/
 ```
