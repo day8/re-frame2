@@ -21,7 +21,8 @@
   per-registration GENERATION token (see the listener-registry section) rather
   than a cross-atom update, so no operation requires an atomic update across two
   of these stores."
-  (:require [re-frame.privacy :as rf.privacy]))
+  (:require [re-frame.privacy :as rf.privacy]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- configuration --------------------------------------------------------
 
@@ -337,6 +338,24 @@
 ;; 1, another thread's epoch 2, no replay epoch, and a result saying
 ;; `:epoch-id 2`. No id means no evidence, and the slot answers nil.
 ;;
+;; AND THE FIRST ID IS THE CALLER'S ONLY WHEN ITS LINEAGE SAYS SO (rf2-1mudg).
+;; "First from the arming thread" presumes the caller's own dispatch reported
+;; at all. A quiet handler's does not, and nor does anything enqueued inside
+;; its handler scope — but a TRACED child it queued runs with tracing on
+;; again, so that child's own queued grandchild was the first
+;; `:rf.event/dispatched` the arming thread reported, was adopted, and its
+;; commit then correlated to it exactly. Measured: source epoch 1, no replay
+;; epoch, and a result saying `:epoch-id 3`, resolving to the grandchild.
+;; Spec 009's run lineage tells the two apart: a dispatch's
+;; `:rf.trace/parent-dispatch-id` is the dispatch whose handler scope enqueued
+;; it, absent at top level. The caller's own dispatch is made from the scope
+;; the caller ARMED in, and everything its cascade enqueues names a run inside
+;; that cascade instead, so the slot records the arming scope's dispatch-id
+;; and the first id the arming thread reports DECIDES: taken when its parent
+;; matches, and otherwise the slot closes with no id. Closing rather than
+;; waiting is what makes it exact — the caller's own emit precedes its drain,
+;; so once a descendant has reported, the caller's never will.
+;;
 ;; The arming token keeps a second, concurrent arming honest instead of
 ;; silently clobbering: `take-observed-commit!` answers nil for a caller whose
 ;; arming was replaced, which is the same "no retained epoch" the documented
@@ -352,12 +371,15 @@
   Arm it IMMEDIATELY before the dispatch whose epoch you want, on the thread
   that makes it: the armed caller's own dispatch has to be the first one epoch
   capture sees for the frame FROM THAT THREAD, which is what makes the
-  correlation above exact."
+  correlation above exact. The slot also records the dispatch-id of the
+  handler scope it is armed in (nil at top level): the armed dispatch carries
+  that as its parent, and nothing its cascade enqueues does (rf2-1mudg)."
   [frame-id]
-  (let [token #?(:clj (Object.) :cljs (js-obj))]
+  (let [token  #?(:clj (Object.) :cljs (js-obj))
+        parent (some-> rf.trace/*handler-scope* :dispatch-id)]
     (swap! commit-observations assoc frame-id
-           #?(:clj  {:token token :thread (Thread/currentThread)}
-              :cljs {:token token}))
+           #?(:clj  {:token token :parent parent :thread (Thread/currentThread)}
+              :cljs {:token token :parent parent}))
     token))
 
 (defn take-observed-commit!
@@ -385,9 +407,14 @@
   ARMING THREAD is the armed caller's own dispatch and not one a listener
   started from inside it. An id reported by any other thread is refused: on
   the JVM another thread's same-frame dispatch can reach this first (rf2-k0nr).
+
+  That first id DECIDES, once: it is the caller's own only when its
+  `parent-dispatch-id` is the scope the caller armed in. Otherwise the
+  caller's own emit was suppressed and this is a descendant's, so the slot
+  closes with no id and no commit can fill it (rf2-1mudg).
   A no-op when nothing is armed (the ordinary hot path: one map read, no
   write), and after the first id has landed."
-  [frame-id dispatch-id]
+  [frame-id dispatch-id parent-dispatch-id]
   (when (and dispatch-id (contains? @commit-observations frame-id))
     (swap! commit-observations
            (fn [observations]
@@ -395,7 +422,10 @@
                (if (and slot
                         (not (contains? slot :dispatch-id))
                         #?(:clj (armed-on-this-thread? slot)))
-                 (assoc observations frame-id (assoc slot :dispatch-id dispatch-id))
+                 (assoc observations frame-id
+                        (assoc slot :dispatch-id
+                               (when (= parent-dispatch-id (:parent slot))
+                                 dispatch-id)))
                  observations))))
     nil))
 
