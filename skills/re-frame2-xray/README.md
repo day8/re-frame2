@@ -19,7 +19,7 @@ Xray is the human-facing panel; when the user asks an agent to inspect or change
 ## Repo contents
 
 - `SKILL.md` — the question-first router: the actor fork, the route card (question → first surface), the launch quick-reference, chrome one-liners, and the leaf-loading guide
-- `references/launch-modes.md` — the launch decision tree (preload, `:rf.xray/layout-host-selector`, host-CSS-variable resize, suppress-auto-open, missing-host recovery, the `open-overlay!` no-layout-host fallback)
+- `references/launch-modes.md` — the launch decision tree (preload, `:rf.xray/layout-host-selector`, host-CSS-variable resize, suppress-auto-open, the four `status()` launch-diagnostic reasons + missing-host recovery, the `open-overlay!` no-layout-host fallback)
 - `references/launch-programmatic.md` — driving Xray from code: `init!` opts and the `focus!` deep-link command
 - `references/launch-lifecycle.md` — pop-out lifecycle, the wired hotkey contract, hidden-state semantics, disabling Xray, production posture
 - `references/panels.md` — the compact canonical tab inventory (10 Dynamic + 5 Static), the scope matrix, and the panel → content-home mapping for surfaces that are not their own tab

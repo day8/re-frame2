@@ -11,16 +11,26 @@ stream. Inventory + scope matrix: [panels.md](panels.md).
 
 Question: **Where is my server state — what owns it, and is it stale?**
 
-The sections, top → bottom:
+The fourteen sections, top → bottom (the two marked *quiet* render
+nothing until they have something to show):
 
 - **STATIC RESOURCE REGISTRY** — every registered resource + scope,
  stale-after, GC-after, and the routes that activate it.
+- **NAMED SCOPE RESOLVERS** — the registered resource-scope resolvers
+ and their inputs.
 - **LIVE INSTANCES** (per frame) — each scoped cache entry with state,
  generation, owner count, and freshness.
 - **WORK LEDGER** — live fetch attempts (running · cancellable ·
  deadline).
+- **WHAT IS STILL RUNNING?** *(quiet)* — live managed-async work in this
+ frame, with its stale-suppression tally.
+- **STALE RACES** *(quiet)* — the arcs that hit the stale-suppression
+ boundary.
 - **ROUTE / RESOURCE GRAPH** — blocking activations (the SSR wait
- points), the lifecycle timeline, cache growth.
+ points) for each route that declares `:resources`.
+- **LIFECYCLE TIMELINE** — this epoch's resource lifecycle events.
+- **INVALIDATION / MUTATION GRAPH** — this epoch's invalidations and
+ what each one matched.
 - **SCOPE RESOLUTION TIMELINE** — which named scope resolver ran, its
  inputs, the resolved scope — including fail-closed nil evidence (a
  scope-requiring site that got nil and produced NO global fallback).
@@ -29,7 +39,10 @@ The sections, top → bottom:
  cache" visible: did the accepted reply continue into app workflow, and
  which scopes a write resolved, refetched, or left stale — fail-closed,
  never an implicit global blast.
-- **SCOPE AUDIT** — every `:rf.scope/global` use + lints.
+- **OPTIMISTIC MUTATIONS** — this epoch's optimistic mutations, plus a
+ loud warning when a `:force` write clobbered a concurrent one.
+- **CACHE GROWTH** — entry, GC-eligible and live-work totals.
+- **SCOPE AUDIT + LINTS** — every `:rf.scope/global` use + lints.
 
 **The absence-is-evidence rule.** A continuation / refetch the runtime
 *suppresses* (a stale or superseded reply, an `ensure` that skips a fresh

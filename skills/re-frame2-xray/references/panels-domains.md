@@ -75,7 +75,9 @@ id; silent when no routes are registered.
 **Open when:** "what route am I on?", "what params resolved?", "did the
 route change this epoch?" To rank an arbitrary URL against every
 registered route, use the Simulate-URL input — promoted in **Static →
-Routes**.
+Routes**, where each row's Simulate navigation button also previews what
+a navigation would land (matched params, the `:on-match` event, the route
+slice) without dispatching anything.
 
 Spec: [`021-Dynamic-Panel-Designs.md` §7](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/021-Dynamic-Panel-Designs.md)
 + [`spec/012-Routing.md`](https://github.com/day8/re-frame2/blob/main/spec/012-Routing.md).

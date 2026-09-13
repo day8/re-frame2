@@ -18,7 +18,7 @@ The canonical facade. The day-to-day require for host integrations: mount contro
 | `close!` | `(close!)` | Hide the shell — flip the container to `display: none`. DOM stays in place. |
 | `toggle!` | `(toggle!)` | Flip visibility. Wired to `Ctrl+Shift+C`. |
 | `popout!` | `(popout!)` | Open Xray in a same-origin second window. Own React root, own keybinding. |
-| `status` | `(status)` → map | Inspectable shell state. `{:mounted? :visible? :last-host-diagnostic ...}`. |
+| `status` | `(status)` → map | Inspectable shell state. `{:mounted? :visible? :mode :diagnostic ...}`; `:diagnostic :reason` names why a launch failed — see [Mount control](mount-control.md#status). |
 | `target-frame` | `(target-frame)` → keyword \| nil | Read the currently-selected inspected-host frame, or `nil` when none is selected (never defaulted to `:rf/default`). One-shot read; not reactive. |
 | `set-target-frame!` | `(set-target-frame! frame-id)` → nil | Set the inspected-host frame Xray targets. `nil` resets to the **unselected** state (not `:rf/default`). |
 | `focus!` | `(focus! command)` → map | Host-facing focus handoff. Story and other hosts use it to focus a panel, epoch, cascade row, app-db path, or source target without rebuilding Xray's diagnostic UI. |

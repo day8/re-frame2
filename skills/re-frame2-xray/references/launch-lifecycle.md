@@ -50,8 +50,20 @@ Caveats inherited from the `window.opener` posture:
  on opener reload; nothing in `tools/xray/src` ever sets that handle, so
  it is normative-future.) Close the pop-out and open a fresh one from the
  reloaded opener.
-- No keybinding is wired pre-alpha. The visible `⛶` top-bar button is the
+- **No key opens the pop-out.** The visible `⛶` top-bar button is the
  canonical chrome launch; the programmatic call is the secondary path.
+ **Inside it, the keyboard works**: the pop-out installs its own keydown
+ listener, so `Cmd/Ctrl+K`, `Cmd/Ctrl+Shift+M` and the spine keys
+ (`Space` `l` `j` `k` `G` `,`/`s`) act on it while it has focus. The one
+ exception is `Ctrl+Shift+C`, which toggles only the opener's in-app
+ shell; in the pop-out that chord is left to the browser.
+
+**Return shapes.** `popout!` returns the pop-out's state map (`:ok? true`,
+and the same map again while that window is open),
+`{:ok? false :reason :popup-blocked}` when the browser refuses
+`window.open`, or `{:ok? false :reason :no-substrate-adapter}` when the
+host has not yet called `rf/init!`. Neither failure is written to
+`status()` ([`launch-modes.md` §Launch diagnostics](launch-modes.md#launch-diagnostics)).
 
 ## Wired hotkeys
 
@@ -64,7 +76,7 @@ Four hotkey families have keydown listeners attached today
 | `Ctrl+Shift+C` | global | Toggle the Xray shell (mount on first press; CSS show/hide thereafter). `Ctrl+Shift` avoids Safari's `Cmd+Shift+C` Inspect collision on macOS. |
 | `Cmd/Ctrl+Shift+M` | global | Toggle mode — Dynamic ↔ Static (`:rf.xray/toggle-mode`). Cmd on macOS, Ctrl elsewhere. |
 | `Cmd/Ctrl+K` | global | Open the command palette (`:rf.xray/palette-toggle`); opens the shell first if it's hidden. Cmd on macOS, Ctrl elsewhere. |
-| `Space` `L` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts. Space = pause/resume LIVE · `L` = snap to LIVE · `j`/`k` = step focused event back/forward · `G` (Shift+G) = fast-forward to head · `,` or `s` = Settings popup. (`Esc` is **not** a wired spine key — it is a modal-local close handler owned by the palette / Settings popup, plus one global case: the shell-level listener dismisses the open-in-editor hint toast when it is open; otherwise Esc falls through to the host.) |
+| `Space` `l` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts. Space = pause/resume LIVE · `l` (unshifted; `Shift+L` does nothing) = snap to LIVE · `j`/`k` = step focused event back/forward · `G` (Shift+G) = fast-forward to head · `,` or `s` = Settings popup. (`Esc` is **not** a wired spine key — it is a modal-local close handler owned by the palette / Settings popup, plus one global case: the shell-level listener dismisses the open-in-editor hint toast when it is open; otherwise Esc falls through to the host.) |
 
 [`spec/007-UX-IA.md` §Keyboard](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/007-UX-IA.md#keyboard)
 catalogues additional shortcuts that remain normative for the future but
