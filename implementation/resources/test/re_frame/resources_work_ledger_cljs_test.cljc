@@ -479,6 +479,44 @@
         (is (contains? (set @aborts) (req wid)) "orphaned request best-effort aborted")
         (is (= :abort-requested (:status (record wid))))))))
 
+(deftest new-attempt-inherits-the-entrys-held-owners
+  ;; rf2-gwye.15 — a NEW attempt (refetch) starts its work row from the
+  ;; entry's :active-owners, not from the payload owner alone, so releasing one
+  ;; held owner never aborts work another held owner still needs (Spec 016
+  ;; §Race). Focus / poll / invalidation / manual refresh all refetch ownerless.
+  (rf/reg-resource :ri/article (article-spec) article-spec-request)
+  (let [q       {:resource :ri/article :scope :rf.scope/global :params {:slug "w"}}
+        k       (rf.resources.state/scoped-resource-key :rf.scope/global :ri/article {:slug "w"})
+        a       [:route :r 1]
+        b       [:app :x 2]
+        settle! #(rf/dispatch-sync (conj (:on-success @last-managed-args)
+                                         {:status :ok :value {:title "W"}}))]
+    (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner a)])
+    (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner b)])
+    (settle!)
+    (testing "an OWNERLESS refetch inherits both held owners; releasing one does not abort it"
+      (rf/dispatch-sync [:rf.resource/refetch (assoc q :cause :focus)])
+      (let [wid (:current-work (entry k))]
+        (is (= #{a b} (:owners (record wid))) "the new row carries the held owners and mints none")
+        (rf/dispatch-sync [:rf.resource/release-owner {:owner a}])
+        (is (not (contains? (set @aborts) (req wid))) "the shared refetch is not aborted")
+        (is (= #{b} (:active-owners (entry k))))
+        (is (= #{b} (:owners (record wid))))
+        (is (rf.resources.work-ledger/live-work? (runtime-db) wid) "still live, so still joinable")
+        (settle!)
+        (is (= :loaded (:status (entry k))) "its reply is accepted")
+        (is (= :completed (:status (record wid))))))
+    (testing "a refetch carrying ONE owner keeps the other; the LAST release aborts once"
+      (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner a)])
+      (rf/dispatch-sync [:rf.resource/refetch (assoc q :owner a :cause [:user :refresh])])
+      (let [wid (:current-work (entry k))]
+        (is (= #{a b} (:owners (record wid))) "the held owner b is not lost")
+        (rf/dispatch-sync [:rf.resource/release-owner {:owner a}])
+        (is (not (contains? (set @aborts) (req wid))) "b still needs it")
+        (rf/dispatch-sync [:rf.resource/release-owner {:owner b}])
+        (is (= 1 (count (filter #{(req wid)} @aborts))) "the last owner's release aborts it, once")
+        (is (= :abort-requested (:status (record wid))))))))
+
 ;; ===========================================================================
 ;; 8. clear-scope / remove settle in-flight rows + opportunistic abort
 ;; ===========================================================================
