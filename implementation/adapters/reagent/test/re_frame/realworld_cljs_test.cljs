@@ -3632,15 +3632,18 @@
           "…and typing still lands"))))
 
 (defn- comment-wire-schema-stays-strict-test []
-  (let [wire (saved-comment 1 "x")]
+  (let [wire    (saved-comment 1 "x")
+        ;; Whatever the app registers for the durable list — asked by PATH, so
+        ;; this reads the registry the validator reads, not a name for it.
+        durable (get app-schema/app-db-schemas [:comments :data])]
     (is (true? (m/validate ws/Comment wire)) "an integer-id comment is a good wire comment")
     (is (false? (m/validate ws/Comment (assoc wire :id "temp-1")))
         "the WIRE Comment still rejects a string id — decode stays strict")
     (is (false? (m/validate ws/CommentsResponse {:comments [(assoc wire :id "c-1")]}))
         "…and so does the list envelope the GET decodes against")
-    (is (true? (m/validate app-schema/DurableComment (assoc wire :id "temp-1")))
-        "the DURABLE comment admits the optimistic card's temp id")
-    (is (false? (m/validate app-schema/DurableComment (assoc wire :id "c-1")))
+    (is (true? (m/validate durable [wire (assoc wire :id "temp-1")]))
+        "the DURABLE [:comments :data] admits the optimistic card's temp id")
+    (is (false? (m/validate durable [(assoc wire :id "c-1")]))
         "…and only a temp id: any other string is still refused")))
 
 (defn- home-render* [f] (rf/compute-sub [:articles.home/render] (rf/frame-state-value f)))
