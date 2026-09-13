@@ -2254,7 +2254,8 @@
 
 (defn replay-epoch
   "(rf/replay-epoch! frame-id epoch-id {:origin :pair}) — the ONE-CALL strict
-   replay of a retained epoch (rf2-ov144, Tool-Pair §Replay). The framework
+   replay of a retained epoch (rf2-ov144; Tool-Pair §Time-travel, the
+   `replay-epoch` and `replay-mint-policy` anchors). The framework
    resolves the raw record in-process and re-drives its `:trigger-event`
    with the recorded post-generation `:rf.cofx` under
    `:rf.cofx/mint-policy :strict` plus the record's own `:fx-overrides` /
