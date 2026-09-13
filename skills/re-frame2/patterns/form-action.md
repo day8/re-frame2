@@ -22,8 +22,8 @@ The prompt mentions: an SSR app handling a form POST, progressive enhancement, "
 Two shapes reach the action handler and they are not the same shape. The no-JS POST body carries the editable fields **plus a CSRF token**; the hydrated client dispatches the fields **alone**. Split the schema along that line — one registration still admits both call sites:
 
 ```clojure
-;; The editable fields: what the user may type, what the form slice's :draft
-;; holds, and what BOTH platforms submit. This is what the handler validates.
+;; The editable fields as a VALID submission: what BOTH platforms submit and what
+;; the handler validates against. Registered at NO path — see the draft below.
 (def AddToCartFields
   [:map
    [:item-id  [:string {:min 1}]]
@@ -37,10 +37,21 @@ Two shapes reach the action handler and they are not the same shape. The no-JS P
   (conj AddToCartFields
         [:csrf-token {:optional true :sensitive? true} [:string {:min 1}]]))
 
-(rf/reg-app-schema [:cart :add-form :draft] AddToCartFields)   ;; the fields, never the token
+;; What :draft may hold at ANY instant — including the rejected submission the
+;; failure arm writes back. STRUCTURAL: keys optional (the arm `select-keys` an
+;; untrusted body) and :quantity admits the string an undecodable `quantity=abc`
+;; arrives as. This is the one that gets registered.
+(def AddToCartDraft
+  [:map
+   [:item-id  {:optional true} :string]
+   [:quantity {:optional true} [:maybe [:or :int :string]]]])
+
+(rf/reg-app-schema [:cart :add-form :draft] AddToCartDraft)   ;; STRUCTURAL — never AddToCartFields, never the token
 ```
 
 One schema doing all three jobs looks like economy and is a live production bug. The hydrated client has no session token to add, so a token-requiring schema sends every client submission down the handler's own validation arm — and that arm is ordinary code, not the elided `:schema` tripwire, so the form 400s in the release build and never navigates. It also makes the draft unsatisfiable by construction, since the failure arm must never write a credential into a slice the page re-renders. The token is not form state and not a field; it is a per-request credential belonging to the POST envelope, and the CSRF arm below gives it a stronger check than any string schema could. Malli maps are open, so `AddToCartFields` validates the server's body unchanged and the extra key passes through to the arm that owns it.
+
+**The draft is typed with neither of those two.** The failure arm writes the submission that just *failed* `AddToCartFields` back into `:draft` — the write that makes the no-JS path honest — and `reg-app-schema` rejects a failing candidate **whole**, `:db` and `:fx` alike. Register `AddToCartFields` at the draft path and a dev build discards the 400, the errors and the repopulated draft together. This is [`forms.md` §The two-schema rule](forms.md#the-two-schema-rule--structural-at-the-path-strict-at-the-submit): structural at the path, strict at the submit.
 
 The view runs on both platforms; the `action` attribute is what makes it work JS-off, and `:on-submit` is purely additive:
 
