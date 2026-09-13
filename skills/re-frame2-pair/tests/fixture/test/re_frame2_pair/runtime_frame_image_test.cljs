@@ -30,7 +30,7 @@
   (:require [cljs.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.epoch]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame2-pair.runtime :as rt]))
 
 ;; A STORE registration, deliberately excluded from the image below — the
@@ -41,7 +41,7 @@
 (def ^:private frame-id :review/frame)
 
 (defn- ensure-frame! []
-  (rf/init! plain-atom/adapter)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (rf/make-frame
     {:id     frame-id
      :images [(rf/image
