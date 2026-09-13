@@ -294,8 +294,8 @@ than re-deriving it. Line counts and LF-normalised bytes, measured
 - catalogue-shaped — `re-frame2-pair/references/ops.md` 220 L / 46,966 B;
   `re-frame2-pair/references/recipes.md` 444 L / 50,343 B;
   `re-frame2-pair-retro/references/known-frictions.md` 250 L / 17,260 B;
-  `reagent-migration/references/catalog-mechanical.md` 516 L / 24,861 B and
-  `reagent-migration/references/catalog-judgment.md` 370 L / 20,931 B (any
+  `reagent-migration/references/catalog-mechanical.md` 439 L / 20,625 B and
+  `reagent-migration/references/catalog-judgment.md` 376 L / 21,266 B (any
   row can apply to any view, so each is scanned whole for every view
   converted)
 - dense teaching — `re-frame2/references/state-machines/reg-machine.md`

@@ -20,7 +20,7 @@ grep -rhoE ':fixture/spec-version\s+"[^"]*"' <path-to-re-frame2>/spec/conformanc
 
 The **line anchor** in the key grep is load-bearing, not tidiness. Fixtures also register, dispatch, and handle **event ids in the `:fixture/` namespace** (a fixture that needs a marker event registers one under `:fixture/registry`), and those are values inside the map, not keys of it — an unanchored `:fixture/*` search returns them mixed in with the real keys, and also picks up mentions inside `:fixture/doc` strings and `;;` commentary. Both are false positives for the key floor below: build it against an id and a conforming fixture fails. Anchoring on the top-level map's own keys is the discriminator; once the harness has parsed the fixture, take the key set from the parsed map and skip the text search entirely.
 
-**Capability tags and Mode-B `:call` ops come only from the parsed fixtures** — the union of every `:fixture/capabilities` set and every `:call` value. No text search reads them honestly: a whole-file tag grep also matches fixture ids and doc strings, a `:call` grep counts whitespace variants as distinct ops, and a `:fixture/capabilities` set can span lines, so a line-anchored variant under-reads.
+**Capability tags and Mode-B `:call` ops come only from the parsed fixtures** — the union of every `:fixture/capabilities` set and every `:call` value. No text search reads them: a whole-file tag grep also matches fixture ids and doc strings, a `:call` grep counts whitespace variants as distinct ops, and a `:fixture/capabilities` set can span lines, so a line-anchored grep under-reads.
 
 New pure primitives may register a new `:call` op in a later fixture spec version; existing ops are never redefined. A harness that hard-codes a stale list will fail current fixtures or misdiagnose a harness gap as a spec gap.
 
@@ -64,7 +64,7 @@ Four families are **v1-required** and always claimed: `:core/*` (pattern-require
 | `:resources/*` | Q9 resources (implies Q8) |
 | `:derivation/algebra-graph` + `:derivation/algebra-graph-subs-machines` | **Nothing declares it — no Q-number, and in particular not Q6** (Q6 is Tool-Pair *adapters*, a different surface: no corpus fixture carries a Tool-Pair tag at all). The family is gated by no question, yet **every** current fixture is cross-tagged, so **in practice Q1** — both carry `:fsm/flat`, so a Q1=no port runs neither; the broad one additionally carries `:flow/basic`, `:rf.http/managed` and two `:routing/*` tags, so a Q2=no or Q8=no port runs only the subs+machines one. Within that, the narrow/broad split is a **breadth** claim rather than a scope question: a graph host spanning only subs+machines claims the narrow tag and known-skips the broad one. Until a required-surface-only derivation fixture exists, do not report derivation coverage as unconditional. Owner: [`spec/Derivations.md` §Graph inspection](https://day8.github.io/re-frame2/spec/Derivations/), which the fixtures themselves cite; the `:derivation-graph` `:call` op is specified there |
 
-**Fixtures are authoritative for what RUNS; the README + owning Spec for what EXISTS to be claimed — and the two diverge in both directions.** The common case is corpus-ahead: the fixtures carry tags the prose lists lag, so enumerate each claimed family from `spec/conformance/fixtures/` at the pin (the greps above). But `:actor/*` is corpus-**behind**: the README and Spec 005 declare capabilities the fixtures don't yet back — a real, spec-mandated capability with no fixture goes on `known-skipped` only if you don't implement it, never because a grep missed it. Cross-check each family against the README's table before finalising the claim.
+**Fixtures are authoritative for what RUNS; the README + owning Spec for what EXISTS to be claimed — and the two diverge in both directions.** The common case is corpus-ahead: the fixtures carry tags the prose lists lag, so enumerate each claimed family from the parsed `:fixture/capabilities` sets at the pin (above). But `:actor/*` is corpus-**behind**: the README and Spec 005 declare capabilities the fixtures don't yet back — a real, spec-mandated capability with no fixture goes on `known-skipped` only if you don't implement it, never because a grep missed it. Cross-check each family against the README's table before finalising the claim.
 
 ### The two out-of-claim flavours
 
@@ -86,7 +86,7 @@ When a fixture fails:
 - **Implementation bug.** The spec for the surface is unambiguous; other ports could pass from the spec alone. Fix the port — the corpus is doing its job.
 - **Spec gap.** The expectation isn't justified by anything in `spec/`; it seems to reflect a choice the CLJS reference made that isn't normative; an AI armed only with `spec/` + the corpus + this skill couldn't reproduce it without consulting `implementation/`. **Don't patch the port to match** — file it per [`cardinal-rules.md` §§8–9](cardinal-rules.md).
 
-The framing from the corpus README is normative here: *"A fixture an AI cannot reproduce without consulting outside sources is a **spec gap**, not an implementation gap."*
+The framing from `spec/Implementor-Checklist.md` Part 3 is normative here: *"A fixture an AI cannot reproduce without consulting outside sources is a **spec gap**, not an implementation gap."*
 
 ## When the corpus itself is incomplete
 
