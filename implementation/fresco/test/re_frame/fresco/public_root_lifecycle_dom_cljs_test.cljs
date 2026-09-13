@@ -42,6 +42,7 @@
   never touches the document, and the document is shared with every other
   browser suite."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -167,6 +168,26 @@
   nil)
 
 (defn- connected? [container] (.-isConnected container))
+
+(defn- react-owned?
+  "Does React still hold a root on `container`? `createRoot` writes an own
+  property named `__reactContainer$<key>` INSIDE the constructor — before
+  any render — and `root.unmount()` blanks it again.
+
+  This is React's private bookkeeping, read here because nothing public
+  says the same thing and the DOM cannot: a root that never rendered
+  leaves the container exactly as empty as one that was never created, so
+  a reading taken off `innerHTML` is green either way. It is therefore
+  never read without the two-direction control in
+  [[a-failed-first-render-leaves-no-root-on-the-callers-container]]
+  standing beside it — a React that renamed or stopped writing the mark
+  reads *unowned everywhere*, which is the reassuring answer, and that
+  control is what goes red rather than the row quietly passing."
+  [container]
+  (boolean (some (fn [k]
+                   (and (str/starts-with? k "__reactContainer$")
+                        (some? (unchecked-get container k))))
+                 (js/Object.keys container))))
 
 ;; ---------------------------------------------------------------------------
 ;; W1 — tearing one root down must not reach the other
@@ -566,6 +587,123 @@
           (detach! ca)
           (detach! cb)
           (is (= [false false] [(connected? ca) (connected? cb)])
+              "this witness left one of its own containers in the shared
+               browser-test document")
+          (rf.fresco.impl.collector/reset-runtime!))))))
+
+;; ---------------------------------------------------------------------------
+;; W6 — a first render that THROWS leaves nothing on the caller's container
+;; ---------------------------------------------------------------------------
+;;
+;; Lowering runs the CALLER's code. `[:ul (map fmt rows)]` is ordinary
+;; hiccup and the codec forces that seq to build the root's children, so a
+;; formatter that throws throws on the way INTO the first render — before
+;; React has been handed a tree, and with no invalid hiccup, no malformed
+;; option and no throwing component body anywhere in it.
+;;
+;; What the row is about is what the door OWNS when that happens.
+;; `h/render!` publishes its live-root map only once the constructor has
+;; returned, so a React root allocated BEFORE the lowering escapes through
+;; the gap: the public handle stays inert, `h/unmount!` is a no-op over
+;; nothing, `drain-active-roots!` has never heard of the root, and the
+;; caller's container carries one that nothing in the package can take
+;; down. The retry then calls `createRoot` on an already-rooted container,
+;; which React complains about in development (rf2-gwye.1 / rf2-fzbj.4
+;; finding 1).
+;;
+;; THE READING IS REACT'S OWN CONTAINER MARK, and the section note on
+;; [[react-owned?]] says why nothing else will do: the DOM is identical
+;; either way, because a root that never rendered leaves the container as
+;; empty as one that was never created. The mark is read only with the
+;; control below driving it in both directions on a working mount first.
+
+(deftest a-failed-first-render-leaves-no-root-on-the-callers-container
+  (if-not (rf.fresco.impl.mount/browser?)
+    (skip! ":node-test has no DOM")
+    (let [_       (fresh!)
+          control (rf.fresco.impl.mount/fresh-container!)
+          ca      (rf.fresco.impl.mount/fresh-container!)
+          probe   (rf.fresco/client-root)
+          a       (rf.fresco/client-root)]
+      (try
+        (testing "the INSTRUMENT first, driven in both directions on a
+                  working mount: a container React has never seen is
+                  unowned, one it holds a root on is owned, and it is
+                  unowned again the moment that root comes down. Without
+                  this the row's own reading is satisfied by a mark that
+                  is never written at all"
+          (is (false? (react-owned? control))
+              "a fresh container already reads as React-owned")
+          (rf.fresco/render! probe
+            [rf.fresco/frame-root {:id frame-a} [panel {:tag "control"}]]
+            control)
+          (is (true? (react-owned? control))
+              "React's container mark was not found on a live root, so the
+               reading below cannot discriminate and this row proves
+               nothing until the mark's spelling is re-established")
+          (rf.fresco/unmount! probe)
+          (is (false? (react-owned? control))
+              "React's container mark outlived the root that wrote it"))
+
+        (let [boom   (js/Error. "row formatting failed")
+              rows   (map (fn [_] (throw boom)) [1])
+              thrown (try (rf.fresco/render! a [:ul rows] ca) ::no-throw
+                          (catch :default e e))]
+
+          (testing "premise: ordinary user code failed while the codec was
+                    lowering the root's children, and the door let the
+                    caller's OWN exception through untouched"
+            (is (identical? boom thrown)
+                (str "h/render! answered " (pr-str thrown)
+                     " instead of the caller's exception")))
+
+          (testing "AND THE CONTAINER IS STILL THE CALLER'S. This is the
+                    reading the row exists for: a root allocated before the
+                    lowering ran would be on this node now, owned by
+                    nothing — the handle never published it, so neither
+                    `h/unmount!` nor the package's disposal drain could
+                    ever reach it again"
+            (is (false? (react-owned? ca))
+                "the failed first render left a React root on the container"))
+
+          (testing "`h/unmount!` after the failed call is safe, and answers
+                    the door's ordinary nil"
+            (is (nil? (rf.fresco/unmount! a))))
+
+          (testing "and the SAME handle mounts normally on the retry. A
+                    second `createRoot` over a container that already had
+                    one is exactly what the leak produces, and React says
+                    so on the console — a SECOND reading of the same fact,
+                    and one that only speaks in a development React, which
+                    is why the mark above is the row's discriminator"
+            (let [errors (atom [])
+                  real   (.-error js/console)]
+              (set! (.-error js/console)
+                    (fn [& args] (swap! errors conj (apply str args))))
+              (try
+                (rf.fresco/render! a
+                  [rf.fresco/frame-root {:id frame-a} [panel {:tag "retry"}]]
+                  ca)
+                (finally (set! (.-error js/console) real)))
+              (is (empty? (filterv #(str/includes? % "createRoot") @errors))
+                  (str "React complained about the retry: " (pr-str @errors)))
+              (is (= "alpha" (text-at ca ".label"))
+                  "the retry through the same handle did not paint")
+              (is (true? (react-owned? ca)))))
+
+          (testing "and that root comes down exactly once"
+            (rf.fresco/unmount! a)
+            (is (= "" (.-innerHTML ca)))
+            (is (false? (react-owned? ca)))
+            (is (nil? (rf.fresco/unmount! a))
+                "a second teardown through the same handle must be a no-op")))
+
+        (finally
+          (rf.fresco/unmount! probe)
+          (rf.fresco/unmount! a)
+          (detach! control)
+          (detach! ca)
+          (is (= [false false] [(connected? control) (connected? ca)])
               "this witness left one of its own containers in the shared
                browser-test document")
           (rf.fresco.impl.collector/reset-runtime!))))))

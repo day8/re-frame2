@@ -94,6 +94,14 @@
 (rf/reg-event ::toggle (fn [{:keys [db]} [_ id]]
                          {:db (update-in db [:todos id :done?] not)}))
 
+(rf/reg-event ::seed-boom
+  ;; A setup step that FAILS, deterministically, and a perfectly ordinary
+  ;; registered event otherwise. Core catches the handler body's throw in
+  ;; band, tears the half-built frame down and raises
+  ;; `:rf.error/initial-events-step-failed` — from INSIDE `rf/make-frame`,
+  ;; which is the first thing `hm/hydrate!` calls.
+  (fn [_ _] (throw (js/Error. "the hydration seed fails, deliberately"))))
+
 (defn- plain-child
   "An ORDINARY function, and that is the whole of it: in child head
   position the runtime refuses a plain function outright (HD-016,
@@ -753,6 +761,81 @@
                        (is (some? (some #(re-find #"early update" %) @reported))
                            (str "got " (pr-str @reported))))
                      (done))))))))
+
+;; The THIRD way into the promise, and the one that used to escape it. The two
+;; rows above fail after `hydrate!` has allocated something — a root whose
+;; element the codec refuses, an adoption that never completes — so both were
+;; already inside the door's own boundary. A failing `:initial-events` step
+;; fails on the FIRST line instead, in `mint-frame!`, which ran outside every
+;; `try` and outside the `js/Promise.` at the bottom. The throw therefore
+;; landed on the CALLER's stack, past every `.catch` they had attached, and an
+;; ordinary `(-> (hm/hydrate! …) (.catch …) (.then done))` row did not go red:
+;; it TIMED OUT, reporting a budget where the real fault was a seeding
+;; handler (rf2-gwye.2 / rf2-fzbj.4 finding 2).
+;;
+;; So the row's first reading is that the call RETURNED, and its last is that
+;; the chain reached its completion continuation — `done` is called from
+;; nowhere else, which is what makes a regression here a red rather than a
+;; hang.
+
+(deftest l3-hydrate-rejects-a-failing-setup-step-and-leaves-nothing-behind
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
+    (async done
+      (let [before   (rf.fresco.test.mounted/census)
+            frames   (set (rf/frame-ids))
+            children (body-children)
+            ;; THE FAULT: a valid registered event, in a valid
+            ;; `:initial-events` vector, whose handler fails the way real
+            ;; application setup can.
+            outcome  (try {:returned (rf.fresco.test.mounted/hydrate!
+                                       [row {:id 1}]
+                                       {:html           "<li class=\"row\">server</li>"
+                                        :initial-events [[::seed 3] [::seed-boom]]})}
+                          (catch :default e {:threw e}))]
+
+        (testing "it did NOT throw on the caller's own stack. A
+                  promise-returning door that throws lands outside every
+                  `.catch` attached to its result, so the chain below would
+                  never run and the row would time out instead of failing"
+          (is (nil? (:threw outcome))
+              (str "hydrate! threw synchronously: " (pr-str (:threw outcome)))))
+
+        (if-not (instance? js/Promise (:returned outcome))
+          ;; Nothing to chain, and `done` is owed from somewhere.
+          (do (is false (str "hydrate! answered " (pr-str outcome)
+                             " rather than a promise"))
+              (done))
+          (-> (:returned outcome)
+              (.then (fn [m]
+                       (is false (str "hydrate! resolved with " (pr-str m)
+                                      " for a setup step that failed")))
+                     (fn [e]
+                       (testing "it REJECTS, with CORE's refusal unchanged —
+                                 same id, same failing step, same index"
+                         (is (instance? ExceptionInfo e)
+                             (str "got " (pr-str e)))
+                         (is (= :rf.error/initial-events-step-failed
+                                (:rf.error/id (ex-data e))))
+                         (is (= [::seed-boom] (:event (ex-data e))))
+                         (is (= 1 (:step-index (ex-data e)))))))
+              (.then (fn [_] (rf.fresco.test.runtime/quiesced!)))
+              (.then (fn [_]
+                       (testing "and the page is as the call found it. Core
+                                 destroyed the frame it could not build, and
+                                 `mint-frame!` is this door's first
+                                 allocation — so a call that failed there
+                                 allocated nothing else to put back"
+                         (is (= frames (set (rf/frame-ids)))
+                             "a frame outlived the construction that failed")
+                         (is (= before (rf.fresco.test.mounted/census))
+                             (str "the census moved: " (pr-str before) " → "
+                                  (pr-str (rf.fresco.test.mounted/census))))
+                         (is (= children (body-children))
+                             "a container was appended for a hydration that
+                              never began"))
+                       ;; Reaching this line at all is the row's last claim.
+                       (done)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W7 — settle-until!: the door for work the router has merely ENQUEUED
