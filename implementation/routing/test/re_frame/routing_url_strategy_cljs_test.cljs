@@ -478,6 +478,44 @@
         (is (= app-path ((:decode strat)))
             (str "decode of " href " strips the base to " app-path))))))
 
+(deftest history-base-mount-root-before-query-or-fragment-cljs-rf2-gwye-29
+  (testing "rf2-gwye.29: a /app-deployed HISTORY app reached at its mount root
+            with a query or fragment and NO terminal slash lands on the app
+            root — on the initial sync and on each browser change through the
+            real listener — rather than decoding to the base-carrying /app?…
+            that misses every route"
+    (register-routes!)
+    (.pushState js/globalThis.window.history nil "" "/app?tab=all")
+    (rf/make-frame {:id :rf/default :url-bound?   true
+                    :url-strategy (rf.routing.strategy/with-base-path
+                                    rf.routing.strategy/history-url-strategy "/app")})
+    (let [current (fn [] (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                                 [:rf.runtime/routing :current]))
+          strat   (rf.routing.strategy/url-strategy-for-frame-id :rf/default)]
+      (is (= :s/home (:route-id (current)))
+          "root + query: the initial sync at /app?tab=all lands on the root route")
+      (is (= {"tab" "all"} (:query (current)))
+          "root + query: the query survives the strip")
+      (doseq [[case-name href app-path]
+              [["root + query"                 "/app?tab=all"          "/?tab=all"]
+               ["root + fragment"              "/app#section"          "/#section"]
+               ["root + query + fragment"      "/app?tab=all#section"  "/?tab=all#section"]
+               ["nested path (control)"        "/app/active"           "/active"]
+               ["sibling + query (control)"    "/application?tab=all"  "/application?tab=all"]]]
+        (.pushState js/globalThis.window.history nil "" href)
+        (is (= app-path ((:decode strat)))
+            (str case-name ": decode of " href " is " app-path)))
+      (.pushState js/globalThis.window.history nil "" "/app/active")
+      (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+      (is (= :s/active (:route-id (current)))
+          "nested path (control): a browser change to /app/active commits :s/active")
+      (.pushState js/globalThis.window.history nil "" "/app#section")
+      (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+      (is (= :s/home (:route-id (current)))
+          "root + fragment: a browser change to /app#section commits the root route")
+      (is (= "section" (:fragment (current)))
+          "root + fragment: the fragment survives the strip"))))
+
 (deftest hash-no-base-push-is-single-hash-irygd6-cljs
   (testing "rf2-irygd6: the HASH strategy WITHOUT a base still pushes a single
             #/active (no double-hash) — the raw :push! leg drives exactly the

@@ -364,6 +364,29 @@
     (is (= "/" (rf.routing.strategy/strip-base-path "/app" "/app"))
         "the bare mount root (url = base) strips to the app root `/`")))
 
+(deftest with-base-path-strips-mount-root-before-query-and-fragment
+  (testing "rf2-gwye.29: the mount root followed DIRECTLY by `?` or `#` is still
+            the mount root. `?` and `#` end the pathname, so they are post-base
+            boundaries alongside end-of-string and `/`; the suffix is kept
+            verbatim behind the app-root slash"
+    (doseq [[case-name url expected]
+            [["root + query"                           "/app?tab=all"          "/?tab=all"]
+             ["root + fragment"                        "/app#section"          "/#section"]
+             ["root + query + fragment"                "/app?tab=all#section"  "/?tab=all#section"]
+             ["bare mount root (control)"              "/app"                  "/"]
+             ["slash root (control)"                   "/app/"                 "/"]
+             ["slash root + query + fragment (control)" "/app/?tab=all#section" "/?tab=all#section"]
+             ["nested path (control)"                  "/app/items/ok"         "/items/ok"]
+             ["sibling + query (control)"              "/application?tab=all"  "/application?tab=all"]
+             ["sibling + fragment (control)"           "/app-admin#x"          "/app-admin#x"]]]
+      (is (= expected (rf.routing.strategy/strip-base-path "/app" url))
+          (str case-name ": " url " strips to " expected))))
+  (testing "the wrapped :decode delivers the app-relative root URL"
+    (let [wrapped (rf.routing.strategy/with-base-path
+                    {:encode identity :decode (constantly "/app?tab=all#section")}
+                    "/app")]
+      (is (= "/?tab=all#section" ((:decode wrapped)))))))
+
 (deftest with-base-path-blank-base-is-a-no-op
   (testing "a blank/nil base returns the wrapped strategy UNCHANGED — no
             wrapping cost for the common no-sub-path app"
