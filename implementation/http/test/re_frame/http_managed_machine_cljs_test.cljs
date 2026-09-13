@@ -82,9 +82,11 @@
 
 (deftest invoke-spawns-wrapper-and-injects-framework-keys
   (testing "parent :spawn {:machine-id :rf.http/managed ...} spawns the wrapper actor and stamps :rf/parent-id / :rf/self-id / :rf/invoke-id into the wrapper's :data (rf2-ijm7)"
-    ;; Install a stub that NEVER replies — gives us a stable
-    ;; :requesting snapshot to inspect without racing against Fetch.
-    (rf.http.test-support/install-managed-request-stubs! {})
+    ;; An fx that genuinely NEVER replies — gives us a stable :requesting
+    ;; snapshot to inspect without racing against Fetch. (Not the route-map
+    ;; test stub: with no matching route it synthesises a transport failure,
+    ;; which fails the wrapper and exits the parent's spawn state — rf2-cveh6.)
+    (rf/reg-fx ::silent (fn [_ _] nil))
     (try
       (rf/reg-machine :cljs/auth2
         {:initial :idle
@@ -99,11 +101,10 @@
       (rf/dispatch-sync
         [:cljs/auth2 [:login]]
         ;; Route the wrapper actor's outgoing :rf.http/managed fx to the
-        ;; stub installed above, so it does NOT issue a real Fetch.
-        ;; Per-call fx-overrides apply for the duration of this drain —
-        ;; including the wrapper actor's child dispatch that emits the
-        ;; underlying fx.
-        {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
+        ;; silent fx above, so it does NOT issue a real Fetch. A per-call
+        ;; override propagates through the spawn into the wrapper actor's own
+        ;; dispatch (Spec 002 §Run propagation, rf2-gbzv9).
+        {:fx-overrides {:rf.http/managed ::silent}})
       (let [db (:rf.db/runtime (rf/frame-state-value :rf/default))]
         (is (= :rf.http/managed#1
                (get-in db [:rf.runtime/machines :spawned :cljs/auth2 [:authenticating]]))
@@ -121,7 +122,7 @@
           (is (= {:url "/api/me" :method :get} (:request wrapper-data))
               "the user's :request is preserved verbatim under :data")))
       (finally
-        (rf.http.test-support/uninstall-managed-request-stubs!)))))
+        (rf/clear :fx ::silent)))))
 
 ;; ---- (2b) nested :request-content-type survives the wrapper pass-through -
 
@@ -132,7 +133,7 @@
     ;; `(:request-content-type request)`), so the Args-carrier example
     ;; MUST nest it under `:request`, not at the top level of `:data`.
     ;; This proves the corrected example shape threads through.
-    (rf.http.test-support/install-managed-request-stubs! {})  ;; no-reply stub: stable :requesting snapshot
+    (rf/reg-fx ::silent (fn [_ _] nil))  ;; never replies: stable :requesting snapshot (rf2-cveh6)
     (try
       (rf/reg-machine :cljs/poster
         {:initial :idle
@@ -149,7 +150,7 @@
           :done {}}})
       (rf/dispatch-sync
         [:cljs/poster [:post]]
-        {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
+        {:fx-overrides {:rf.http/managed ::silent}})
       (let [wrapper-data (:data (snapshot :rf.http/managed#1))]
         (is (= {:url "/api/sessions" :method :post :body {:user "ada"}
                 :request-content-type :json}
@@ -158,7 +159,7 @@
         (is (not (contains? wrapper-data :request-content-type))
             ":request-content-type is NOT promoted to the top level of :data"))
       (finally
-        (rf.http.test-support/uninstall-managed-request-stubs!)))))
+        (rf/clear :fx ::silent)))))
 
 ;; ---- (3) parent state-exit destroys wrapper child + clears registry ----
 
