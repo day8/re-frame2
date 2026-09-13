@@ -14,11 +14,12 @@
     - CLJS consumers needing the surface call
       `re-frame.subs.tooling/<name>` directly. Production counter
       bundles never load this ns and DCE the bodies wholesale.
-    - JVM consumers reach the same fns via the `re-frame.subs/<name>` /
-      `rf/sub-topology` / `rf/sub-cache` convenience aliases in
-      `re-frame.subs` and `re-frame.core` (gated under
-      `#?(:clj ...)`). JVM has no bundle to protect; the aliases
-      cost nothing.
+    - JVM consumers reach the same fns via the `re-frame.subs/<name>`
+      legacy aliases in `re-frame.subs` (gated under `#?(:clj ...)`).
+      JVM has no bundle to protect; the aliases cost nothing.
+    - `re-frame.core` carries NO alias on either host: the
+      `rf/sub-topology` / `rf/sub-cache` facade aliases were removed
+      (rf2-80mmlf), so callers name this ns.
 
   Per Spec 002 §The public registrar query API and Spec 006
   §Subscription topology vs subscription tracking."
