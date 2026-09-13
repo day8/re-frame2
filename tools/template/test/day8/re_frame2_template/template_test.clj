@@ -175,8 +175,10 @@
               tst (get-in scs [:builds :test])]
           (is (= {:aliases [:shadow]} (:deps scs))
               "shadow-cljs.edn reads its classpath from the :shadow alias")
-          (is (= ["src" "test"] (:source-paths scs))
-              ":source-paths is [\"src\" \"test\"]")
+          (is (not (contains? scs :source-paths))
+              (str "shadow-cljs.edn names no :source-paths — under :deps the classpath is "
+                   "deps.edn's (:paths + the :shadow alias's :extra-paths), and shadow "
+                   "prints a WARNING banner and ignores the key on every run (rf2-tsou)"))
           (is (= #{:app :test} (set (keys (:builds scs))))
               "exactly the :app and :test builds")
           (is (= :browser (:target app)) ":app targets :browser")

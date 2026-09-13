@@ -67,8 +67,7 @@ The file bodies between the markers are **derived, not hand-written**: `tests/fi
 ;;           (`mount!`) that re-renders the edited views.
 ;;   :test — the node-side test runner. Picks up every *_test.cljs under
 ;;           test/ and runs it with cljs.test.
-{:deps         {:aliases [:shadow]}
- :source-paths ["src" "test"]
+{:deps {:aliases [:shadow]}
 
  :dev-http {8280 "resources/public"}
 
