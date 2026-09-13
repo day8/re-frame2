@@ -63,10 +63,15 @@
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.node :as rf.ssr.ring.node]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
             ;; THE SUBJECT. Requiring it is half the witness.
             [fresco.login.host :as host]
             [fresco.login.policy :as policy])
-  (:import [java.util.concurrent TimeUnit]))
+  (:import [java.net InetSocketAddress]
+           [java.nio.file Files Path]
+           [java.nio.file.attribute FileAttribute]
+           [java.util.concurrent TimeUnit]
+           [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]))
 
 ;; ===========================================================================
 ;; The runtime reset, plus the application's registrations
@@ -251,6 +256,157 @@
             (str f " keeps no copy of the app-db key list (found "
                  copies " — a second copy can drift the SAFE way, which "
                  "the sidecar cannot refuse)"))))))
+
+;; ===========================================================================
+;; UNTAGGED — the documented LAUNCH: the JVM boot, and the client assets
+;; (rf2-gwye.61, rf2-gwye.62)
+;;
+;; Still no Node. The peer here is an in-process JDK `HttpServer` answering
+;; `/render` the way the sidecar does, which is enough to make the host emit
+;; a real page — and a real page is what carries the `<script src>` the
+;; second row then has to route. The `:crossing` rows below keep the real
+;; launcher; what these two witness is the host APPLICATION around it.
+;; ===========================================================================
+
+(defn- with-render-peer
+  "Run `(f url hits)` against a loopback peer that answers `/render` with
+  `host/build-id` and `body`. `hits` counts the renders it served, so a
+  caller can prove a request did NOT reach the renderer."
+  [^String body f]
+  (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)
+        bytes  (.getBytes body "UTF-8")
+        hits   (atom 0)]
+    (.createContext server "/render"
+                    (proxy [HttpHandler] []
+                      (handle [^HttpExchange ex]
+                        (swap! hits inc)
+                        (.add (.getResponseHeaders ex) "x-rf-ssr-build" host/build-id)
+                        (.sendResponseHeaders ex 200 (alength bytes))
+                        (with-open [out (.getResponseBody ex)] (.write out bytes))
+                        nil)))
+    (.start server)
+    (try
+      (f (str "http://127.0.0.1:" (.getPort (.getAddress server))) hits)
+      (finally (.stop server 0)))))
+
+(def ^:private rendered-marker "<form id=\"stub-rendered-login\"></form>")
+
+(def ^:private page-request
+  "The one route `make-app` renders. It is `/` and not `/login` because the
+  browser build's `:asset-path` is `\".\"`: its generated dependency URLs
+  resolve against the DOCUMENT's directory, so the page and the output tree
+  have to share one."
+  {:uri "/" :request-method :get :headers {}})
+
+(deftest the-documented-boot-installs-the-adapter
+  ;; rf2-gwye.61. The example's Node boot and browser boot each initialise
+  ;; their OWN process; neither can initialise the JVM. Requiring
+  ;; `re-frame.ssr` PUBLISHES its adapter — `rf/init!` is what seats one —
+  ;; so a host whose launch omits it serves a bare 500 with a healthy
+  ;; sidecar sitting idle, before the renderer is ever reached.
+  ;;
+  ;; The suite's own fixture seats the adapter, which is exactly why this
+  ;; row has to unseat it first: a witness for the documented STARTUP cannot
+  ;; run inside a fixture that supplies what the startup is accused of
+  ;; omitting. It reseats it through `host/init!` — the documented boot —
+  ;; so the next fixture run finds what it expects.
+  (with-render-peer rendered-marker
+    (fn [url hits]
+      (let [h (host/make-handler {:endpoint url :build-id host/build-id})]
+        (rf/destroy-adapter!)
+        (testing "NEGATIVE CONTROL — no adapter, and the request dies at frame
+                  setup rather than at the renderer"
+          (is (nil? (rf.substrate.adapter/current-adapter))
+              "nothing is seated — the state the documented launch leaves behind")
+          (let [{:keys [status body]} (h request)]
+            (is (= 500 status) "a bare internal error, not a rendered page")
+            (is (not (str/includes? (str body) rendered-marker))
+                "the sidecar's markup is nowhere — this failed before the render")
+            (is (zero? @hits) "…and the renderer was never dialled")))
+
+        (testing "the documented boot — `host/init!` — seats the SSR adapter,
+                  and the SAME handler then renders"
+          (host/init!)
+          (is (some? (rf.substrate.adapter/current-adapter)))
+          (let [{:keys [status body]} (h request)]
+            (is (= 200 status))
+            (is (str/includes? (str body) rendered-marker)
+                "Node's body markup crossed into the JVM-owned document")
+            (is (= 1 @hits) "…and this one request reached the renderer")))
+
+        (testing "it is idempotent, so a REPL that evaluates the launch twice
+                  is not punished for it"
+          (is (nil? (host/init!))))))))
+
+(deftest the-composed-app-serves-the-client-bundle-at-the-shell-s-script-url
+  ;; rf2-gwye.62. `ssr-handler` renders a document for EVERY request it is
+  ;; given, so serving it bare answered the `<script src>` in the page it had
+  ;; just served with another copy of that page — and the script never ran.
+  ;; Routing is the host application's job; `host/make-app` is the minimum
+  ;; that does it, and this row drives the shell's OWN advertised URL rather
+  ;; than a literal copy of it, so the two cannot drift apart silently.
+  (with-render-peer rendered-marker
+    (fn [url hits]
+      (let [^Path client-dir (Files/createTempDirectory
+                               "rf2-login-fresco-client"
+                               (into-array FileAttribute []))
+            dir-file         (.toFile client-dir)
+            page             (host/make-handler {:endpoint url
+                                                 :build-id host/build-id})
+            app              (host/make-app page (.getAbsolutePath dir-file))]
+        (try
+          (spit (io/file dir-file "main.js") "console.log('login client');")
+          (.mkdirs (io/file dir-file "cljs-runtime"))
+          (spit (io/file dir-file "cljs-runtime" "goog.base.js") "goog.provide('x');")
+
+          (let [{:keys [status body]} (app page-request)
+                script-src (second (re-find #"<script src=\"([^\"]+)\"" (str body)))]
+            (testing "the page route still renders, and advertises a script URL"
+              (is (= 200 status))
+              (is (str/includes? (str body) rendered-marker))
+              (is (= "/main.js" script-src)
+                  "the shell's :script-src — aligned with the asset mapping below"))
+
+            (testing "…and THAT URL serves JavaScript, not another login page"
+              (let [before @hits
+                    {:keys [status headers body]} (app {:uri            script-src
+                                                        :request-method :get
+                                                        :headers        {}})]
+                (is (= 200 status))
+                (is (= "text/javascript" (get headers "Content-Type"))
+                    "a script, by content type — never text/html")
+                (is (= "console.log('login client');" (slurp body))
+                    "the compiled bundle's own bytes")
+                (is (= before @hits)
+                    "no SSR render was performed for an asset fetch"))))
+
+          (testing "the dependency URLs the dev build generates are reachable
+                    too — `:asset-path \".\"` resolves them against the page"
+            (let [{:keys [status headers]} (app {:uri            "/cljs-runtime/goog.base.js"
+                                                 :request-method :get
+                                                 :headers        {}})]
+              (is (= 200 status))
+              (is (= "text/javascript" (get headers "Content-Type")))))
+
+          (testing "an asset this build does not carry is a MISS, not a login
+                    page — a 200 here is what made every wrong URL look served"
+            (let [before @hits
+                  {:keys [status body]} (app {:uri            "/no-such-asset.js"
+                                              :request-method :get
+                                              :headers        {}})]
+              (is (= 404 status))
+              (is (not (str/includes? (str body) rendered-marker)))
+              (is (not (str/includes? (str body) "<!DOCTYPE html")))
+              (is (= before @hits) "and it cost no render")))
+
+          (testing "the mapping is confined to the build's own tree"
+            (is (= 404 (:status (app {:uri            "/../host.clj"
+                                      :request-method :get
+                                      :headers        {}})))))
+
+          (finally
+            (doseq [^java.io.File f (reverse (file-seq dir-file))]
+              (.delete f))))))))
 
 ;; ===========================================================================
 ;; :crossing — the real launcher, a real socket, the advertised handler
