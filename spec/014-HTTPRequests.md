@@ -1136,10 +1136,15 @@ Internally the wrapper machine has:
 `:requesting` listens for three events:
 
 - `:rf.machine.spawn/spawned` — the synthetic event the runtime dispatches to spawns without a `:start` (per [Spec 005 §Spawning](005-StateMachines.md#spawning--dynamic-actors)). The wrapper's `:fire-request` action runs, emitting the underlying `:rf.http/managed` fx with `:on-success` / `:on-failure` pointing back at the wrapper actor's own id (so the reply lands at the wrapper, not at the user's handler).
-- `:rf.http/succeeded` — fired when the underlying fx succeeds; records the reply payload at `:data :rf/result` and transitions to `:succeeded`.
-- `:rf.http/failed` — fired when the underlying fx fails (any of the eight `:rf.http/*` failure categories, per [§Failure categories](#failure-categories-closed-set)); records the reply payload and transitions to `:failed`.
+- `:rf.http/succeeded` — fired when the underlying fx succeeds; records `value` at `:data :rf/result` and transitions to `:succeeded`.
+- `:rf.http/failed` — fired when the underlying fx fails (any of the eight `:rf.http/*` failure categories, per [§Failure categories](#failure-categories-closed-set)); records `failure` at `:data :rf/result` and transitions to `:failed`.
 
-The terminal states' `:entry` dispatches `[<parent-id> [:succeeded value]]` or `[<parent-id> [:failed failure]]` — where `value` is the decoded-and-accepted payload (`(:value reply)` off the canonical reply the wrapper's `:on-success` target received) and `failure` is the classified `:rf.http/*` map (`(:error reply)` per [§Reply payload shape](#reply-payload-shape--the-one-canonical-envelope)). The parent's id comes from `:rf/parent-id` in the wrapper actor's initial `:data` — stamped by `spawn-fx` per [Spec 005 §Spawning](005-StateMachines.md#spawning--dynamic-actors); the wrapper need not be told its parent at spec-write time.
+`value` is the decoded-and-accepted payload (`(:value reply)` off the canonical reply the wrapper's `:on-success` target received) and `failure` is the classified `:rf.http/*` map (`(:error reply)` per [§Reply payload shape](#reply-payload-shape--the-one-canonical-envelope)).
+
+`:succeeded` and `:failed` are `:final?` leaves with `:output-key :rf/result`, and `:failed` also declares `:error? true` — so the wrapper completes the way every child machine does ([Spec 005 §Child completion protocol](005-StateMachines.md#child-completion-protocol)), and a parent receives the same `value` or `failure` whichever spawn form it used:
+
+- **Under `:spawn`**, the terminal state's `:entry` dispatches `[<parent-id> [:succeeded value]]` or `[<parent-id> [:failed failure]]`. The parent's id comes from `:rf/parent-id` in the wrapper actor's initial `:data` — stamped by `spawn-fx` per [Spec 005 §Spawning](005-StateMachines.md#spawning--dynamic-actors); the wrapper need not be told its parent at spec-write time.
+- **Under `:spawn-all`** ([§Multiple wrappers per parent](#multiple-wrappers-per-parent)), that dispatch is suppressed: a join child carries the runtime's `:rf/join-child` record, and its finality alone folds into the join, whose resolution event carries `value` — or `failure`, on `:on-any-failed`. A parent keeping the `:spawn` habit of `:on {:succeeded … :failed …}` is therefore never moved by a join child.
 
 ### Args carrier
 
@@ -1160,7 +1165,7 @@ Every key the [§The args map](#the-args-map) surface accepts may be passed thro
           :failed    :login-failed}}
 ```
 
-The framework-reserved `:rf/*` keys the wrapper itself uses (`:rf/self-id`, `:rf/parent-id`, `:rf/invoke-id`, `:rf/result`) are stripped before the underlying fx call, so they never leak into the request envelope.
+The framework-reserved `:rf/*` keys the wrapper itself uses (`:rf/self-id`, `:rf/parent-id`, `:rf/invoke-id`, `:rf/join-child`, `:rf/result`) are stripped before the underlying fx call, so they never leak into the request envelope.
 
 `:on-success` / `:on-failure` are **not** passed through — the wrapper overrides them to route the reply back to itself. Apps that want explicit reply addressing should keep using the fx form directly; the machine wrapper is for the `:spawn`-orchestrated case.
 
