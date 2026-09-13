@@ -551,7 +551,8 @@
             rolled back and the whole attempt leaves the forest empty — the
             child's own mount-tree! is transactional before its failure
             unwinds through the parent"
-    (let [grandchild-ref (atom nil)]
+    (let [child-ref      (atom nil)
+          grandchild-ref (atom nil)]
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
             #"boom-child-render"
@@ -560,7 +561,11 @@
                (fn [_parent]
                  (rf.adapter.test-react/mount-child!
                    {:rf/component
-                    (fn [_child]
+                    (fn [child]
+                      ;; Capture the CHILD's own record: mount-child! throws, so
+                      ;; its return value never reaches the parent, but the
+                      ;; render body was handed the record itself.
+                      (reset! child-ref child)
                       (reset! grandchild-ref
                               (rf.adapter.test-react/mount-child! [:span "leaf"]))
                       (throw (ex-info "boom-child-render" {})))}))}))
@@ -571,7 +576,18 @@
           "the grandchild the failing child mounted was rolled back — no
            orphaned descendant survives the nested failure")
       (is (false? @(:mounted? @grandchild-ref))
-          "the grandchild record was torn down by the child's own rollback"))))
+          "the grandchild record was torn down by the child's own rollback")
+      ;; rf2-fzbj.26 — the NESTED failed record is invalidated too, not just its
+      ;; descendants: the child's own mount-tree! attempt aborted, so the handle
+      ;; its render body was handed must be terminal exactly like a failed root's.
+      (is (false? @(:mounted? @child-ref))
+          "the failed CHILD's own record is terminal — a nested initial-mount
+           failure invalidates the record it exposed to its render body, not
+           only the grandchildren beneath it (this FAILS pre-fix)")
+      (is (nil? (rf.adapter.test-react/current-render-tree @child-ref))
+          "the failed child's throwing candidate tree was cleared")
+      (is (zero? (phase-count @child-ref :did-mount))
+          "the failed child never committed :did-mount"))))
 
 (deftest failed-mount-leaves-no-did-mount-and-spares-live-sibling-rf2-3fc89f2
   (testing "a failed initial mount records NO :did-mount for the throwing
@@ -606,6 +622,30 @@
            failed parent's own speculative children")
       (is (false? @(:mounted? @child-ref))
           "the speculative child is torn down, not a manually-cleanable phantom")
+      ;; rf2-fzbj.26 — the FAILED PARENT's own exposed handle is terminal too.
+      ;; Rolling back only the descendants left this record saying mounted?=true
+      ;; while holding the throwing candidate tree, invisible to both
+      ;; `mounted-components` and `dispose-adapter!` (it never registered), so a
+      ;; retained handle could still be updated after a mount that never
+      ;; committed.
+      (is (false? @(:mounted? @parent-ref))
+          "the failed parent's record is terminal — a mount that never committed
+           does not leave a live-looking handle behind (this FAILS pre-fix)")
+      (is (nil? (rf.adapter.test-react/current-render-tree @parent-ref))
+          "the throwing candidate tree was cleared, not left exposed as though
+           it had been committed (this FAILS pre-fix)")
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+            #":rf.error/update-after-unmount"
+            (rf.adapter.test-react/trigger-update! @parent-ref [:div :impossible-update]))
+          "a later update on the failed handle is REJECTED through the existing
+           update-after-unmount path (this FAILS pre-fix — the update succeeded)")
+      (is (= 1 (phase-count @parent-ref :render))
+          "the rejected update added no second :render — the failed attempt's
+           single render is still the only one")
+      (is (zero? (phase-count @parent-ref :did-update))
+          "and no :did-update was logged for a mount that never reached
+           :did-mount (this FAILS pre-fix)")
       ;; Clean up the survivor so the fixture's drain has nothing to force.
       (rf.adapter.test-react/unmount! survivor))))
 
