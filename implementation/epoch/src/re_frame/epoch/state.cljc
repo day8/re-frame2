@@ -325,11 +325,17 @@
 ;; counterexample stays fixed for the same reason it was before, and now for a
 ;; second: the child is neither the first commit nor the armed dispatch-id.
 ;;
-;; `:fallback-epoch-id` keeps the historical first-commit reading for the one
-;; case correlation cannot reach: no `:rf.event/dispatched` was captured for
-;; the frame at all, so there is no id to correlate on. Dispatch ids and that
-;; emit are both dev-gated and vanish together, so this is the no-dispatch-id
-;; posture rather than a silent second-guess of a correlation that failed.
+;; THERE IS NO FIRST-COMMIT FALLBACK (rf2-c74lr). One used to answer when no
+;; id had been captured, kept for the posture in which dispatch ids do not
+;; exist. That posture has no epochs either — capture is a trace stage, and
+;; the ring stays empty under the production gate — so the fallback only ever
+;; fired in dev, when the armed caller's OWN dispatch emitted nothing: a
+;; handler registered with `:rf.trace/no-emit?`, whose dispatch commits no
+;; epoch at all. Every commit it could adopt was therefore somebody else's —
+;; another thread's dispatch, or the quiet handler's own queued child — and
+;; replay reported it under the replayed event's name. Measured: source epoch
+;; 1, another thread's epoch 2, no replay epoch, and a result saying
+;; `:epoch-id 2`. No id means no evidence, and the slot answers nil.
 ;;
 ;; The arming token keeps a second, concurrent arming honest instead of
 ;; silently clobbering: `take-observed-commit!` answers nil for a caller whose
@@ -356,15 +362,14 @@
 
 (defn take-observed-commit!
   "Disarm `frame-id`'s observation and return the epoch-id committed by the
-  DISPATCH the arming caller itself started — nil when it committed nothing,
+  DISPATCH the arming caller itself started — nil when it committed nothing
+  (including when capture never heard its id, so no commit is evidence of it),
   or when a later arming replaced this one."
   [frame-id token]
   (let [slot (get @commit-observations frame-id)]
     (when (identical? token (:token slot))
       (swap! commit-observations dissoc frame-id)
-      (if (contains? slot :dispatch-id)
-        (:epoch-id slot)
-        (:fallback-epoch-id slot)))))
+      (:epoch-id slot))))
 
 #?(:clj
    (defn- armed-on-this-thread?
@@ -396,27 +401,21 @@
 
 (defn- note-commit!
   "Record `record`'s epoch-id against `frame-id`'s armed observation, once,
-  when the record was committed by the dispatch the observation targets. A
-  no-op when nothing is armed (the ordinary hot path: one map read, no
-  write)."
+  when the record was committed by the dispatch the observation targets, and
+  never otherwise. A no-op when nothing is armed (the ordinary hot path: one
+  map read, no write)."
   [frame-id record]
   (let [epoch-id    (:epoch-id record)
         dispatch-id (:dispatch-id record)]
-    (when (and epoch-id (contains? @commit-observations frame-id))
+    (when (and epoch-id dispatch-id (contains? @commit-observations frame-id))
       (swap! commit-observations
              (fn [observations]
                (let [slot (get observations frame-id)]
-                 (if-not slot
-                   observations
-                   (let [slot (cond-> slot
-                                (not (contains? slot :fallback-epoch-id))
-                                (assoc :fallback-epoch-id epoch-id)
-
-                                (and (some? dispatch-id)
-                                     (= dispatch-id (:dispatch-id slot))
-                                     (not (contains? slot :epoch-id)))
-                                (assoc :epoch-id epoch-id))]
-                     (assoc observations frame-id slot))))))
+                 (if (and slot
+                          (= dispatch-id (:dispatch-id slot))
+                          (not (contains? slot :epoch-id)))
+                   (assoc observations frame-id (assoc slot :epoch-id epoch-id))
+                   observations))))
       nil)))
 
 (defn reset-commit-observations!

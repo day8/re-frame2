@@ -716,8 +716,8 @@
   the replayed dispatch recorded:
 
     {:ok? true :frame <id> :source-epoch-id <id> :event-id <kw>
-     :epoch-id <the replayed event's own new epoch, nil if the ring could
-                not retain it>}
+     :epoch-id <the replayed event's own new epoch, nil if it committed none
+                or the ring could not retain it>}
 
   `:epoch-id` names the epoch the REPLAYED EVENT committed and no other. The
   identity is taken from the DISPATCH — a one-shot observation armed on the
