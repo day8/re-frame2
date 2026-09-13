@@ -112,7 +112,7 @@ Seven of the ten carry a standalone `mount-<panel>!` facade:
 | Reactive (Views) | `day8.re-frame2-xray.panels.reactive-panel` | `Panel` Fresco boundary |
 | Trace | `day8.re-frame2-xray.panels.trace` | `Panel` Fresco boundary |
 | Machine Inspector | `day8.re-frame2-xray.panels.machine-inspector` | `Panel` Fresco boundary |
-| Routing | `day8.re-frame2-xray.panels.routing` | `Panel`, not an `rf/reg-view` |
+| Routing | `day8.re-frame2-xray.panels.routing` | `Panel` bridge over a private Fresco boundary |
 | Resources | `day8.re-frame2-xray.panels.resources` | `Panel` Fresco boundary |
 
 The remaining three are **L4-only registry tabs** — registered for the tab strip and focusable through `focus!`, but shell-internal and not independently mountable into a host's own layout:
@@ -140,7 +140,7 @@ Five parallel Static-mode panels browse the registrar rather than the event spin
 Several surfaces are **publicly visible** in the CLJS source but explicitly *not part of the contract*. They're documented in the [developer-internal spec](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/API.md) for Xray's maintainers; this reference omits them on purpose.
 
 - **`config.cljc` atom handles.** Every state setter writes to a `defonce` atom (`auto-open?`, `editor`, `keybinding-enabled?`, …); the atoms are reachable as `@day8.re-frame2-xray.config/<atom>` due to CLJS-default-public visibility. The setters are the canonical write path, the getters are the canonical read path. Reaching for the atom directly is reading an internal seam.
-- **Internal `mount-<panel>!` aggregators.** The shell composer calls these to mount individual panels; they're not part of the host-facing embed contract. Full-shell embedding lives at [`008-Embedding-Contract.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/008-Embedding-Contract.md).
+- **Internal `mount-<panel>!` aggregators.** Story's RHS inspector is the one consumer today; a host that builds its own Xray chrome MAY call them (manifest tier `internal-public`), an app never should. They take hiccup and so mount only on a ratom-family adapter — deliberately (rf2-l1jm); an element-shaped host uses the mount verbs. Full-shell embedding lives at [`008-Embedding-Contract.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/008-Embedding-Contract.md).
 - **Predicate / mutation helpers.** `suppress-sensitive?`, `note-suppressed!`, `clamp-panel-width-px`, `editor-uri` — thin wrappers Xray's own modules consume. (The `:sensitive?` stamp predicate itself is the framework's `rf/sensitive?`, called directly.)
 - **`register-toggle-off-callback!` / `unregister-toggle-off-callback!`.** Internal — Xray modules wire their buffer-clear hooks here. Host applications should NOT register.
 
