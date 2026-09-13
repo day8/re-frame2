@@ -1051,6 +1051,78 @@
                    "the live surface is " live " tools (rf2-sdudwy).")))))))
 
 ;; ---------------------------------------------------------------------------
+;; list-handlers kind parity (rf2-fzbj.15 F3)
+;; ---------------------------------------------------------------------------
+;;
+;; ops.md's registrar/list row advertises the kinds `list-handlers`
+;; accepts. It went on offering `flow` and `frame` after rf2-zhef removed
+;; them from the SERVER's parser: `parse-kind` returns nil for both, so a
+;; catalogue-driven call following the skill got the `:invalid-kind`
+;; refusal, and the row presented a reserved, permanently EMPTY registrar
+;; slot as the route to live flows and frames — which have their own
+;; doors.
+;;
+;; The guard reads the kinds the SERVER publishes (the generated
+;; tool-descriptors.edn, the same manifest the tool-count guard above
+;; trusts) and compares them with the row's enumeration, so this cannot
+;; drift again in either direction: a kind the skill offers and the server
+;; refuses, or a kind the server gains and the skill never mentions.
+
+(def ^:private manifest-text
+  (delay (slurp (io/file skill-root ".." ".." "tools" "re-frame2-pair-mcp"
+                         "tool-descriptors.edn"))))
+
+(defn- manifest-kinds
+  "The kinds the live list-handlers descriptor advertises."
+  []
+  (let [t @manifest-text
+        i (str/index-of t "Supported kinds:")
+        _ (assert i "tool-descriptors.edn no longer states list-handlers' supported kinds")
+        s (subs t (+ i (count "Supported kinds:")))
+        s (first (str/split s #"—" 2))]
+    (->> (str/split s #",")
+         (map str/trim)
+         (remove str/blank?)
+         set)))
+
+(defn- ops-row-kinds
+  "The kinds ops.md's registrar/list row advertises."
+  []
+  (let [t @ops-md
+        i (str/index-of t "Supported kinds:")
+        _ (assert i "ops.md's registrar/list row no longer states its supported kinds")
+        s (subs t (+ i (count "Supported kinds:")))
+        s (first (str/split s #"\(the closed registrar set" 2))]
+    (->> (str/split s #"/")
+         (map #(str/replace (str/trim %) "`" ""))
+         (remove str/blank?)
+         set)))
+
+(deftest ops-supported-kinds-match-the-live-server-parser
+  (let [server (manifest-kinds)
+        skill  (ops-row-kinds)]
+    (is (seq server) "read at least one kind from the descriptor manifest")
+    (is (seq skill)  "read at least one kind from ops.md")
+    (is (= server skill)
+        (str "ops.md's list-handlers kinds must match the server's. Only in ops.md: "
+             (pr-str (sort (remove server skill)))
+             "; only in the server manifest: "
+             (pr-str (sort (remove skill server)))
+             ". A kind the skill advertises and the parser refuses returns "
+             ":reason :invalid-kind to an agent following the catalogue (rf2-fzbj.15 F3)."))))
+
+(deftest flow-and-frame-are-not-offered-as-registrar-kinds
+  ;; The specific residue, pinned by name so a re-add is loud: both are
+  ;; reserved-but-empty registrar slots, and each has a real door.
+  (let [skill (ops-row-kinds)]
+    (is (not (contains? skill "flow"))
+        "ops.md must not offer `flow` as a list-handlers kind — flows read through re-frame.flows")
+    (is (not (contains? skill "frame"))
+        "ops.md must not offer `frame` as a list-handlers kind — frames read through frames/list / rf/frame-ids")
+    (is (str/includes? @ops-md "flows-snapshot")
+        "ops.md must name the real flow door where it declines the kind")))
+
+;; ---------------------------------------------------------------------------
 ;; Gated-write allow-list policy drift
 ;; ---------------------------------------------------------------------------
 ;;

@@ -55,8 +55,15 @@
  ;; scope resolver, and the orient assembler — rather than a Babashka mirror
  ;; that could drift from the shipped code (rf2-etsj8p). Run with
  ;; `shadow-cljs compile pure-test && node target/pure-test.js`.
+ ;; The build also carries `runtime-frame-image-test` (rf2-fzbj.15): the
+ ;; call-time id validation resolves through a frame's IMAGE, and only a
+ ;; real frame + real `rf/image` + the real preload can witness that. It
+ ;; is the same artefact under test — the shipped preload — reached one
+ ;; layer up from its pure core, so it runs in the same build rather than
+ ;; in a second one. Hence `-test$` rather than `pure-test$`; the build id
+ ;; and the `test:pure` script keep their names, which CI addresses.
  :pure-test
  {:target :node-test
  :output-to "target/pure-test.js"
- :ns-regexp "pure-test$"
+ :ns-regexp "-test$"
  :autorun false}}}

@@ -110,14 +110,17 @@ Procedure:
 
 1. Ask the user what's wrong in *observable* terms ("the save button is grey", "the dashboard is empty"). Resolve any UI references to source first — `read-ui {selector: "<the element>"}` (returns the producing view-id + source-coord) or, for just the coord, `eval-cljs {form: "(re-frame2-pair.runtime/dom-source-at \"#save\")"}`.
 2. Identify the **app-db key(s) or sub(s)** that govern the observation. If the user can't, trace the recent render for the offending component and walk its sub inputs.
-3. Pinpoint the epoch where the governing key last changed to its current (bad) value with the `find-where` forensic helper (there is no dedicated tool for "when did X happen?" — `eval-cljs` over the runtime fn is the surface):
+3. Pinpoint the epoch where the governing key **changed to** its current (bad) value with the `find-where` forensic helper (there is no dedicated tool for "when did X happen?" — `eval-cljs` over the runtime fn is the surface). Match a **transition**, not a state: the value must hold in `:db-after` **and not hold in `:db-before`**.
    ```
    mcp__re-frame2-pair__eval-cljs {
      form: "(re-frame2-pair.runtime/find-where
-              (fn [e] (= :expired (get-in (:db-after e) [:auth-state]))))"
+              (fn [e] (and (= :expired (get-in (:db-after e) [:auth-state]))
+                           (not= :expired (get-in (:db-before e) [:auth-state])))))"
    }
    ```
+   **Why the `:db-before` clause is load-bearing.** `find-where` returns the NEWEST matching record, and every epoch after the fault still carries the bad value — it was never repaired. A `:db-after`-only predicate therefore matches the most recent event that merely *preserved* the value, which on an active UI is some unrelated later dispatch, and you would report it as the cause. With seed → `[:auth/expire]` → `[:ui/tick]`, the state predicate answers `[:ui/tick]`; the transition predicate answers `[:auth/expire]`.
 4. Report that epoch as the culprit: its `:trigger-event`, the diff between `:db-before` and `:db-after`, and (crucially) the cascade tree. Often the root-cause dispatch is a child of another event — follow `:parent-dispatch-id` upstream via `eval-cljs {form: "(re-frame2-pair.runtime/cascade-of <dispatch-id>)"}`.
+   **A `nil` answer is information, not a dead end.** It means no retained epoch transitions INTO the bad value — the change happened before the ring's horizon. Say that ("the state was already bad in the oldest epoch I can see") rather than falling back to the newest epoch that holds the value, which is the wrong-culprit report this step exists to prevent.
 5. If no single epoch is responsible — the state drifted over many events — use `eval-cljs {form: "(re-frame2-pair.runtime/find-all-where <pred>)"}` to get the trajectory. Narrate the 3–5 most relevant transitions rather than all of them.
 6. Propose a fix. Usually one of: a handler that shouldn't have fired, a handler that did fire but was wrong, or a missing guard.
 
