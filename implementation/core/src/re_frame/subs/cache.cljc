@@ -472,10 +472,13 @@
                           {:where 're-frame.subs.cache/clear-sub-cache!})))
   ([frame-id]
    (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
-     (let [snapshot @cache]
-       ;; Evict the whole cache BEFORE any dispose! call — see the
-       ;; rf2-awhtpc note above.
-       (reset! cache {})
+     ;; Evict the whole cache BEFORE any dispose! call — see the rf2-awhtpc
+     ;; note above — and do it in ONE atomic take, disposing exactly the map
+     ;; it removed (rf2-gwye.4). A separate `@cache` read and `reset!` left a
+     ;; JVM window in which an entry acquired between them was erased without
+     ;; being in the batch, so it was never disposed, and two overlapping
+     ;; clears could each condemn the same entry.
+     (let [[snapshot _] (reset-vals! cache {})]
        ;; Tag the observation port's synchronous node-disposed notifications
        ;; with the INTRINSIC :cache-clear cause (→ :disposed) so an explicit
        ;; teardown is never mislabelled :hmr by a co-pending HMR drain
@@ -555,8 +558,9 @@
   deterministically reasoned `:frame-destroy`. Returns nil."
   [cache frame-id]
   (when cache
-    (let [snapshot @cache]
-      (reset! cache {})
+    ;; One atomic take, as in `clear-sub-cache!` (rf2-gwye.4): the batch
+    ;; disposed is exactly the map this call removed.
+    (let [[snapshot _] (reset-vals! cache {})]
       ;; Tag the observation port's synchronous node-disposed notifications with
       ;; the INTRINSIC :frame-destroy cause (→ :disposed) so a frame teardown is
       ;; never mislabelled :hmr by a co-pending HMR drain (rf2-r8jmdb).
