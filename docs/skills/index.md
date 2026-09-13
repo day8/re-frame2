@@ -28,7 +28,7 @@ The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKI
 | [**re-frame2-setup**](re-frame2-setup.md) | Bootstrap a fresh re-frame2 ClojureScript project from nothing. Walks the author to a working counter under `shadow-cljs watch`. |
 | [**re-frame-migration** (v1→v2)](re-frame-migration.md) | Migrate an existing re-frame v1.x codebase to re-frame2. Applies the mechanical `M-rules` automatically; flags judgment calls. |
 | [**reagent-migration** (views→Fresco)](reagent-migration.md) | The genuinely **optional, second** step after v1→v2: rewrite Reagent **view** code into **Fresco**, re-frame2's re-frame-native view layer. Runs the migration reporter, applies the mechanical `MIG` rewrites, reasons through the judgment calls, declines what Fresco has no equivalent for. The v1→v2 move **completes on its own** — the Reagent adapter is first-class and no view rewrite is required to land on re-frame2. |
-| [**re-frame2-implementor**](re-frame2-implementor.md) | Build a new re-frame2 implementation in a different host language or substrate. Two-phase workflow — Phase 1 locks the decisions; Phase 2 walks the spec corpus with conformance as the acceptance test. |
+| [**re-frame2-implementor**](re-frame2-implementor.md) | Build a new re-frame2 implementation in one of the eight in-scope JS-cross-compile-to-React+VDOM host languages. Two-phase workflow — Phase 1 records the port profile; Phase 2 walks the spec corpus with conformance as the acceptance test. |
 | [**re-frame2-xray**](re-frame2-xray.md) | Read-only tour of the **Xray** devtools panel — how to launch it and which tab, across its Dynamic event-spine and Static registry-browse modes, shows X. |
 | [**re-frame2-pair**](re-frame2-pair.md) | Pair-program with a live, running re-frame2 app. Dispatch events, inspect `app-db`, walk epochs, hot-swap handlers — all via Tool-Pair contract. |
 | [**re-frame2-pair-retro**](re-frame2-pair-retro.md) | Retrospect a `re-frame2-pair` session. Surfaces friction; proposes targeted improvements; routes upstream GitHub issues to re-frame2 when the cause is framework-shaped. |
@@ -42,7 +42,7 @@ A quick decision flow (human-facing rendering of [`skills/README.md` §Skill rou
 - **Already on re-frame2 and want Fresco, the re-frame-native view layer, for your Reagent views?** → `reagent-migration` (a genuinely optional second step — the Reagent adapter is first-class, so staying put is a complete configuration, and Fresco is pre-publication).
 - **Writing new code in an existing v2 project?** → `re-frame2`.
 - **Critiquing existing v2 code on explicit pull (anti-pattern audit)?** → `re-frame2-improver`.
-- **Building a NEW re-frame2 implementation in a different host language or substrate?** → `re-frame2-implementor`.
+- **Building a NEW re-frame2 implementation in one of the eight in-scope JS-cross-compile-to-React+VDOM host languages?** → `re-frame2-implementor`.
 - **Touring the Xray devtools panel — how to launch it, or which tab / mode shows X?** → `re-frame2-xray`.
 - **Debugging or pairing with a running v2 app?** → `re-frame2-pair`.
 - **Just finished a pairing session and noticed friction?** → `re-frame2-pair-retro`.
