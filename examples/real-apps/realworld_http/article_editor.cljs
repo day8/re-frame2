@@ -328,7 +328,14 @@
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
       {:db (assoc db :editor (editor-slice slug blank-draft))
-       :fx [[:dispatch [:ui/article-editor [:use-edit]]]
+       ;; `:reset` first, so a NEW editing session starts the machine clean. A
+       ;; save or delete left pending by an earlier session holds the lifecycle
+       ;; at `:submitting`, and its late settle is refused (WRITE OWNERSHIP
+       ;; below); without the reset this session would stay busy — `:submitting`
+       ;; ignores `:fetch-started` and `:fetch-succeeded` — with every input
+       ;; locked.
+       :fx [[:dispatch [:ui/article-editor [:reset]]]
+            [:dispatch [:ui/article-editor [:use-edit]]]
             [:dispatch [:ui/article-editor [:fetch-started]]]
             [:rf.http/managed
              (rh/request {:method     :get
@@ -399,6 +406,7 @@
   ;; The machine snapshot lives in runtime-db.
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [{:keys [slug draft]} (:editor db)
+          nav-token   (rh/current-nav-token rt)
           mode        (get-in rt [:rf.runtime/machines :snapshots :ui/article-editor :state :mode])
           ;; Flow output — read as plain app-db data.
           can-submit? (get-in db [:editor :can-submit?])
@@ -435,29 +443,64 @@
                                           "/articles")
                             :body       (article-body draft)
                             :decode     schema/ArticleResponse
-                            :on-success [:editor/submit-success]
-                            :on-failure [:editor/submit-error]})]]}))))
+                            ;; The issuing navigation rides both targets
+                            ;; (WRITE OWNERSHIP, just below).
+                            :on-success [:editor/submit-success nav-token]
+                            :on-failure [:editor/submit-error nav-token]})]]}))))
+
+;; ---- WRITE OWNERSHIP ----
+;;
+;; A save or a delete is answered whenever the server says, and a clean draft
+;; (or one the reader chose to discard) leaves the editor freely in the
+;; meantime. The four settles below all write the ONE `[:editor]` slice, drive
+;; the ONE `:ui/article-editor` machine, and two of them navigate — so a
+;; departed session's reply would erase the newer draft the reader is typing,
+;; flip its lifecycle, banner its form with another session's error, or drag
+;; the reader off the page they chose. Each therefore acts only while the
+;; navigation that issued it is still current (`rh/same-navigation?`, REPLY
+;; OWNERSHIP in http.cljs).
+;;
+;; Why not the slug, as `still-editing?` does for the READ? Because a write's
+;; session is not named by one: a `/editor` create draft has no slug, and
+;; leaving `/editor/a` and coming back to it is a new session under the same
+;; slug. The nav-token names the session exactly.
+;;
+;; Refusing strands nothing. The server write stands either way, and a new
+;; editing session resets the slice AND the machine on entry (`:editor/reset`,
+;; `:editor/load-article`), so the busy lifecycle a departed write left behind
+;; is gone before its refused settle arrives.
 
 (rf/reg-event :editor/submit-success
-  (fn [{:keys [db]} [_ {:keys [value]}]]
-    (let [article (:article value)
-          draft   (draft-from-article article)]
-      {:db (assoc db :editor (editor-slice (:slug article) draft))
-       :fx [[:dispatch [:ui/article-editor [:use-edit]]]
-            [:dispatch [:ui/article-editor [:submit-succeeded]]]
-            [:dispatch [:rf.route/navigate {:to :realworld.article/show :params {:slug (:slug article)}}]]]})))
+  {:doc "The save's `:on-success`, carrying the nav-token it was issued under.
+         On the page that issued it, rebase the form onto the saved article and
+         open that article. Refused once the reader has navigated away (WRITE
+         OWNERSHIP above)."}
+  (fn [{:keys [db] rt :rf.db/runtime} [_ nav-token {:keys [value]}]]
+    (when (rh/same-navigation? rt nav-token)
+      (let [article (:article value)
+            draft   (draft-from-article article)]
+        {:db (assoc db :editor (editor-slice (:slug article) draft))
+         :fx [[:dispatch [:ui/article-editor [:use-edit]]]
+              [:dispatch [:ui/article-editor [:submit-succeeded]]]
+              [:dispatch [:rf.route/navigate {:to :realworld.article/show :params {:slug (:slug article)}}]]]}))))
 
 (rf/reg-event :editor/submit-error
-  (fn [{:keys [db]} [_ {:keys [error]}]]
-    {:db (assoc-in db [:editor :submit-error] (rh/failure->message error))
-     :fx [[:dispatch [:ui/article-editor [:submit-failed]]]]}))
+  {:doc "The save's `:on-failure`, gated exactly as `:editor/submit-success`
+         is, so a departed save cannot banner a newer editor's form."}
+  (fn [{:keys [db] rt :rf.db/runtime} [_ nav-token {:keys [error]}]]
+    (when (rh/same-navigation? rt nav-token)
+      {:db (assoc-in db [:editor :submit-error] (rh/failure->message error))
+       :fx [[:dispatch [:ui/article-editor [:submit-failed]]]]})))
 
 (rf/reg-event :editor/delete
   {:doc "Delete the article. No retry — destructive, one click. Broadcasts
          `:submit-started` to push the lifecycle region into :submitting (which
-         flies the :editor/busy tag, so the form locks while it's working)."}
-  (fn [{:keys [db]} _]
-    (let [slug (get-in db [:editor :slug])]
+         flies the :editor/busy tag, so the form locks while it's working).
+         Both reply targets carry the nav-token it was issued under (WRITE
+         OWNERSHIP above)."}
+  (fn [{:keys [db] rt :rf.db/runtime} _]
+    (let [slug      (get-in db [:editor :slug])
+          nav-token (rh/current-nav-token rt)]
       {:fx [[:dispatch [:ui/article-editor [:submit-started]]]
             [:rf.http/managed
              (rh/request {:method     :delete
@@ -466,19 +509,28 @@
                           ;; `:auto` is the right call — it shrugs at an empty
                           ;; body instead of trying to parse one.
                           :decode     :auto
-                          :on-success [:editor/delete-success]
-                          :on-failure [:editor/delete-error]})]]})))
+                          :on-success [:editor/delete-success nav-token]
+                          :on-failure [:editor/delete-error nav-token]})]]})))
 
 (rf/reg-event :editor/delete-success
-  (fn [{:keys [db]} _]
-    {:db (assoc db :editor (editor-slice))
-     :fx [[:dispatch [:ui/article-editor [:reset]]]
-          [:dispatch [:rf.route/navigate {:to :realworld/home}]]]}))
+  {:doc "The DELETE's `:on-success`, carrying the nav-token it was issued
+         under. On the page that issued it, blank the editor and head home.
+         Once the reader has navigated away it is refused: the slice and the
+         machine now belong to whatever they did next — a new draft, say, which
+         this used to wipe before taking them home (WRITE OWNERSHIP above)."}
+  (fn [{:keys [db] rt :rf.db/runtime} [_ nav-token _reply]]
+    (when (rh/same-navigation? rt nav-token)
+      {:db (assoc db :editor (editor-slice))
+       :fx [[:dispatch [:ui/article-editor [:reset]]]
+            [:dispatch [:rf.route/navigate {:to :realworld/home}]]]})))
 
 (rf/reg-event :editor/delete-error
-  (fn [{:keys [db]} [_ {:keys [error]}]]
-    {:db (assoc-in db [:editor :submit-error] (rh/failure->message error))
-     :fx [[:dispatch [:ui/article-editor [:submit-failed]]]]}))
+  {:doc "The DELETE's `:on-failure`, gated exactly as `:editor/delete-success`
+         is, so a departed delete cannot banner a newer editor's form."}
+  (fn [{:keys [db] rt :rf.db/runtime} [_ nav-token {:keys [error]}]]
+    (when (rh/same-navigation? rt nav-token)
+      {:db (assoc-in db [:editor :submit-error] (rh/failure->message error))
+       :fx [[:dispatch [:ui/article-editor [:submit-failed]]]]})))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

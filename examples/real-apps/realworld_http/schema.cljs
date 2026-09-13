@@ -195,6 +195,36 @@
    [:can-submit? {:optional true} :boolean]
    [:submit-error [:maybe :string]]])
 
+;; ----------------------------------------------------------------------------
+;; DURABLE COMMENT — the wire Comment, plus the optimistic card's temp id
+;; ----------------------------------------------------------------------------
+
+(def TempCommentId
+  "The id an optimistically-posted comment wears until the server answers: the
+   `temp-<uuid>` string the recordable `:realworld/temp-comment-id` coeffect
+   mints (comments.cljs). A string by construction, so it can never collide
+   with a real Conduit comment id, which is an `:int`."
+  [:re #"^temp-"])
+
+(def DurableComment
+  "A comment as `[:comments :data]` STORES it: the wire `ws/Comment` with its
+   `:id` widened to admit the optimistic card's `TempCommentId` beside the
+   server's integer.
+
+   Wire and durable part here for the same kind of reason `ws/User` and
+   `ws/SessionUser` do. `:comment-form/submit` conjes the temp card into the
+   slice BEFORE the POST goes out, so validating the durable list against the
+   wire shape rejects that commit — and with the candidate discarded its `:fx`
+   go too, so the POST never leaves either. The decode schemas
+   (`ws/CommentResponse` / `ws/CommentsResponse`) stay strict: a server that
+   answers with a string id is still a broken reply.
+
+   Derived from `ws/Comment` rather than restated, so a field added to the wire
+   shape reaches this one too; the result is still plain vector-form Malli."
+  (into [:map [:id [:or :int TempCommentId]]]
+        (remove (fn [[k]] (= :id k)))
+        (rest ws/Comment)))
+
 ;; ============================================================================
 ;; SCHEMA REGISTRATION
 ;; ============================================================================
@@ -255,7 +285,9 @@
    ;; this one (profile.cljs, SERIALISING THE TOGGLE).
    [:profile.follow-pending]        [:maybe [:set :string]]
    [:comments]                      [:maybe RequestSlice]
-   [:comments :data]                [:maybe [:vector ws/Comment]]
+   ;; The DURABLE comment, not the wire one: the list holds the optimistic
+   ;; card under its temp id while the POST is out (see `DurableComment`).
+   [:comments :data]                [:maybe [:vector DurableComment]]
    [:feed]                          [:maybe RequestSlice]
    [:feed :data]                    [:maybe [:vector ws/Article]]
    [:comment-form]                  [:maybe FormSlice]
