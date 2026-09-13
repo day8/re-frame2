@@ -159,6 +159,30 @@
         (is (= 1 (get-in src [:world :effective-args :n]))
             "the source still carries its own args, unreplaced")))))
 
+;; ---- rf2-gwye.7 — the copied args are the RESOLVED scenario's -------------
+
+(deftest edn-snippet-carries-inherited-and-composed-args
+  (testing "rf2-gwye.7: Copy EDN pins the args the focused cell actually runs
+            with. An :extends parent's (or a :compose fragment's) args beat
+            the story default, exactly as the compiled plan resolves them.
+            Before the fix the snippet read the variant's OWN :args only, so
+            the story default replaced the inherited value in the pasted form."
+    (rf.story/reg-story :story.egress {:args {:n 0 :nested {:v 0}}})
+    (rf.story/reg-variant :story.egress/parent
+                          {:tags #{:dev} :setup [] :args {:n 42 :nested {:v 7}}})
+    (rf.story/reg-variant :story.egress/child
+                          {:tags #{:dev} :setup [] :extends :story.egress/parent})
+    (rf.story/reg-fragment :fragment.egress/args {:args {:n 42 :nested {:v 7}}})
+    (rf.story/reg-variant :story.egress/composed
+                          {:tags #{:dev} :setup [] :compose [:fragment.egress/args]})
+    (doseq [vid [:story.egress/child :story.egress/composed]]
+      (rf.story.ui.state/swap-state! (fn [s] (assoc s :selected-variant vid)))
+      (let [[_ _ body] (reader/read-string
+                         (rf.story.ui.share/egress-edn-snippet
+                           (rf.story.ui.state/get-state) 1700000000000))]
+        (is (= {:n 42 :nested {:v 7}} (:args body))
+            (str vid " — the copied :args are the resolved scenario's, not the story default"))))))
+
 (deftest edn-snippet-nil-without-variant
   (testing "no variant focused → no EDN snippet"
     (is (nil? (rf.story.ui.share/egress-edn-snippet (rf.story.ui.state/get-state))))))
