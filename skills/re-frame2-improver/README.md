@@ -34,7 +34,7 @@ This skill is the on-demand complement to [`re-frame2`](https://github.com/day8/
 
 Link, never copy. Claude Code loads skills from `~/.claude/skills/<name>/`. A `cp -r` copy snapshots the skill and then drifts as the repo is maintained — Claude Code keeps loading the stale copy, which silently falls behind the anti-pattern catalogue. Always link the repo source.
 
-The cross-platform installer at the repo root links every re-frame2 skill (this one included) into `~/.claude/skills/`. See [`skills/README.md` §Installing (link, never copy)](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy) for the canonical installer commands (macOS / Linux + Windows) and the idempotent / `--force` / `--check` behaviour.
+The cross-platform installer (`scripts/install-skills.sh` / `scripts/install-skills.ps1`) links every re-frame2 skill (this one included) into `~/.claude/skills/`. See [`skills/README.md` §Installing (link, never copy)](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy) for the canonical installer commands (macOS / Linux + Windows) and the idempotent / `--force` / `--check` behaviour.
 
 To link just this one skill:
 

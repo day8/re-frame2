@@ -24,6 +24,7 @@ The sibling skill the user just exercised. This skill reads the parent skill's:
 - **`SKILL.md`** — the parent's cardinal rules, primitives, style guidance. Friction often surfaces as "the cardinal rule was right but buried" or "the style guidance didn't fire when it should have".
 - **`references/ops.md` + `references/recipes.md`** — the catalogue the user navigated. Missing ops or missing recipes are first-class findings.
 - **`references/errors.md`** — the error-recovery catalogue. Misleading recovery suggestions are findings.
+- **`references/mcp-transport.md`** — the descriptor-backed tool catalogue. A tool-shaped draft names a tool from it only when the conversation has a checkout; otherwise the name comes from the session evidence or is marked unverified (SKILL.md §Issue drafts).
 - **`references/ops.md` §Hot-reload coordination** — the strict source-edit protocol. Friction here is high-leverage (every source edit triggers it).
 - **`spec/design.md`** (the sibling's) — the locked decisions. This skill respects locks; doesn't propose changes that contradict them.
 
@@ -45,7 +46,7 @@ These shape the skill's voice and structure but aren't quoted directly.
 
 - **The live re-frame2 app's state.** The skill has no runtime access of any kind — no MCP grant, no probe. Live work is `re-frame2-pair`'s domain.
 - **`skills/shared/**`.** The skill is self-contained (design.md L7); the causal/redaction/untrusted-evidence invariants are inlined in `SKILL.md`.
-- **The re-frame2 spec corpus.** The skill doesn't need to teach the framework; it just needs to name which behaviour is missing.
+- **The re-frame2 spec corpus.** The skill doesn't need to teach the framework; it just needs to name which behaviour is missing. One narrow exception: a framework-shaped draft cites the `spec/Tool-Pair.md` capability or restore-failure row it falls short of — read from session evidence or a checkout the conversation actually has, never shipped in the package and never reconstructed from memory (SKILL.md §Issue drafts; design.md pillar 3).
 - **`implementation/**`** and **`docs/core/**`** — same reasoning.
 - **The user's source repo.** The skill works on the pair session itself, not on the app under inspection.
 

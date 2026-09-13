@@ -64,7 +64,7 @@ Route by direction:
 - **Do flag a *reactive* `@(rf/subscribe …)` or a retained reaction** in a handler body — that leaks (the write-signals list above).
 - **Do flag `subscribe-once` inside a machine callback.** A machine `:guard` / `:action` / `:entry` / `:exit` MUST NOT call `subscribe-once` (nor read app-db any other ambient way): an in-callback ambient read is unrecorded, so replay can select a *different* transition ([`spec/006-ReactiveSubstrate.md`](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md) §`subscribe-once`; [`spec/005-StateMachines.md`](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md) §Causal host facts). The fix is **payload threading** (the triggering event carries the fact) or a **declared recordable coeffect** on the machine's `:rf.cofx` record.
 
-Spec source: [`spec/Conventions.md`](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md) (data-only fx) and Cardinal Rule #1. `reg-fx` and `reg-cofx` are public `re-frame.core` exports; there is no `inject-cofx` — coeffect delivery is the `:rf.cofx/requires` declaration.
+Spec source: [`spec/Conventions.md`](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md) (data-only fx). `reg-fx` and `reg-cofx` are public `re-frame.core` exports; there is no `inject-cofx` — coeffect delivery is the `:rf.cofx/requires` declaration.
 
 ## Worked example
 

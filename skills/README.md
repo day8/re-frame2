@@ -164,7 +164,7 @@ migration report is signed off.
 | Migrate Reagent **view** code to **Fresco**, the re-frame-native view layer — the OPTIONAL, SECOND step, done only after the v1→v2 move and only if Fresco is wanted | "migrate my Reagent views to Fresco", "port this component to h/defview", "move off Reagent hiccup", "the re-frame-native views", deref-drop, or a Reagent view surface named in a Fresco context (`r/atom` / `r/with-let` / `r/create-class` / `adapt-react-class` / `@(subscribe …)` in a view / `[:> …]` prop dialect) — **on an already-re-frame2 app** | [`reagent-migration/`](reagent-migration) |
 | Tour the **Xray** in-app devtools panel — how to launch it (true-inline, pop-out, programmatic `init!`, hotkeys, the Dynamic ↔ Static mode toggle) or **which tab / mode surfaces X** | "open Xray", "where is X in Xray", "which Xray panel/tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray hotkey", "Xray popout", "Xray machine inspector", "Xray epoch cascade", "where do Xray issues show up" — the user asks where a *human* looks in the visible panel; the moment they ask the agent to inspect or change the running app (read-only included), that's `re-frame2-pair` | [`re-frame2-xray/`](re-frame2-xray) |
 | Pair-program against a **running** re-frame2 application — attach to a live shadow-cljs nREPL, inspect a frame's `app-db`, dispatch events, hot-swap handlers, walk traces / epochs, time-travel with `restore-epoch` | live runtime is involved; user is operating on (or wants to operate on) a running local app | [`re-frame2-pair/`](re-frame2-pair) |
-| Retrospect on a `re-frame2-pair` session and turn it into prioritised improvement ideas for the pair-tool skill, scripts, MCP surface, or upstream `re-frame2` Tool-Pair contract | concrete `re-frame2-pair` session in the conversation **or** a user-supplied recap of one; user explicitly asks for a retro ("retro on this pair session", "review my re-frame2-pair session", "draft an issue about that"), OR a post-error post-mortem trigger fires within a live re-frame2-pair session | [`re-frame2-pair-retro/`](re-frame2-pair-retro) |
+| Retrospect on a `re-frame2-pair` session and turn it into prioritised improvement ideas for the pair-tool skill, preload runtime, MCP surface, or upstream `re-frame2` Tool-Pair contract | concrete `re-frame2-pair` session in the conversation **or** a user-supplied recap of one; user explicitly asks for a retro ("retro on this pair session", "review my re-frame2-pair session", "draft an issue about that"), OR a post-error post-mortem trigger fires within a live re-frame2-pair session | [`re-frame2-pair-retro/`](re-frame2-pair-retro) |
 | Build a **new re-frame2 implementation** in one of the eight in-scope JS-cross-compile-to-React+VDOM host languages (TypeScript, F# / Fable, Kotlin/JS, Squint, Scala.js, PureScript, Melange / ReScript / Reason — plus ClojureScript, the reference) — porting the pattern, not building an app on the CLJS reference | "port re-frame2", "implement re-frame2 in &lt;language&gt;", "second re-frame2 implementation", "implementor checklist", "conformance corpus", or any prompt about building re-frame2 itself | [`re-frame2-implementor/`](re-frame2-implementor) |
 | Critique **existing** re-frame2 ClojureScript code on explicit pull — review a body of source files (or a user-supplied snippet) against the re-frame2 anti-pattern catalogue, surface findings cross-linked to canonical idioms, and optionally propose inline fixes | "review my re-frame2 code for anti-patterns", "audit this against re-frame2 best practices", "any improvements?", "is there a better re-frame2 pattern here", "spot any anti-patterns in `cart/handlers.cljs`" — **and** a body of re-frame2 source is in scope: read or edited in the conversation, supplied as a snippet, **or** named as a concrete, resolvable `.cljs` / `.cljc` file or directory path the skill can read (the skill reads the named path before critiquing). A path that doesn't resolve does not establish scope — the skill says so and asks for a snippet rather than fabricate. | [`re-frame2-improver/`](re-frame2-improver) |
 | Read re-frame2's full API reference, EP design rationale, principles, conventions, or spec corpus | spec / architecture / design discussion without a running app or active authoring task | [`SKILL-REDIRECT.md`](../SKILL-REDIRECT.md) |
@@ -189,7 +189,7 @@ in a skill shipped to consumer projects — see
 Both kinds of friction target the same repo and carry the tool-vs-framework
 distinction in the draft's title + body:
 
-- pair-tool friction — SKILL.md wording, scripts, recipes, structured-results shapes, attach/discovery, cross-platform behaviour
+- pair-tool friction — SKILL.md wording, preload runtime, recipes, structured-results shapes, attach/discovery, cross-platform behaviour
 - framework / Tool-Pair contract friction — missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings. Name the specific Tool-Pair surface from the consolidated capability table in [`spec/Tool-Pair.md`](../spec/Tool-Pair.md) (the shipped tool catalogue is [`re-frame2-pair/references/mcp-transport.md`](re-frame2-pair/references/mcp-transport.md) — the per-tool table `check_skill_mcp_drift.py` pins against the server's descriptor manifest).
 
 The draft contract lives in [`re-frame2-pair-retro/SKILL.md` §Issue drafts](re-frame2-pair-retro/SKILL.md#issue-drafts).
@@ -249,9 +249,9 @@ and anchors so the absolute form keeps the rename-safety the relative one had.
 
 Skills release through re-frame2's own pipeline (no skill-local CI
 workflows). Deterministic structural tests for
-`re-frame2-pair/`, `re-frame2-setup/`, `re-frame2-pair-retro/` and
-`reagent-migration/` run in `.github/workflows/test.yml` when those skill
-paths change; `reagent-migration`'s cold-start fixture is required PR
+`re-frame2-pair/`, `re-frame2-setup/`, `re-frame2-pair-retro/`,
+`re-frame2-improver/` and `reagent-migration/` run in
+`.github/workflows/test.yml` when those skill paths change; `reagent-migration`'s cold-start fixture is required PR
 coverage, and the remaining behavioural replay fixtures stay
 manual/diagnostic.
 
@@ -431,7 +431,7 @@ conventions (leaf size discipline, single-source routing, one-level
 routing) are the test — a `tests/` dir there would test prose, not
 behaviour. Future skill-authors: do not add one on cargo-cult grounds.
 
-4 skills qualify today:
+5 skills qualify today:
 
 - [`re-frame2-pair/tests/`](re-frame2-pair/tests) (`fixture/`, `prompts/`,
   `runtime/`) — clause (a): the one skill driving a live runtime,
@@ -455,3 +455,10 @@ behaviour. Future skill-authors: do not add one on cargo-cult grounds.
   the prescribed argv from `SKILL.md` verbatim; it is a command-contract
   pin, not a session-evidence scorer, and stays the skill's only test.
   Wired in the `skills-structural` job.
+- [`re-frame2-improver/tests/`](re-frame2-improver/tests)
+  (`storage_materializer_test.clj`) — clause (b): a catalogue leaf's
+  "After" block is the copyable canonical fix, so its shape is a contract
+  boundary with every agent that pastes it. The pin extracts the storage
+  materializer from `references/schemaless-events.md` and reds if it stops
+  being total over absent and unusable storage; it is a document-structural
+  pin, not a CLJS runtime test. Wired in the `skills-structural` job.

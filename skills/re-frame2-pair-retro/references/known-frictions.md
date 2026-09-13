@@ -194,6 +194,14 @@ Typical improvements:
 - check first — this already ships: the pair skill's `errors.md` carries the trace-buffer recipe for recent `:rf.error/*` ops, so "I didn't know how to pull recent errors" is discoverability, i.e. tool-shaped
 - route the fix: an unrecognised error category or unclear inspection recipe → improve the pair tool's error catalogue (`re-frame2-pair/references/errors.md`); a gap in the runtime's behaviour itself (a category the always-on substrate doesn't cover, missing structured `:tags`) → file upstream against `re-frame2`, cross-linking `spec/009-Instrumentation.md §Error observability`
 
+### Blank read or eval-cljs refusal read as a dead connection
+
+Signals:
+- a blank structured read, or an `:rf.error/eval-cljs-*` refusal, was answered by reconnecting or asking the user to reload the tab
+
+Typical improvements:
+- check first — this already ships: the pair skill's `errors.md` names each `eval-cljs` refusal reason and says a blank read is usually a broken op or form, not a stale connection. Unreached is tool-shaped; reached and still misread is a hint-wording gap
+
 ### Tool-catalogue / build-capability uncertainty
 
 Signals:
@@ -225,7 +233,7 @@ Signals:
 - a re-frame2 minor version moves something and the recipe breaks
 
 Typical improvements:
-- audit reach-throughs and replace with public APIs from Tool-Pair; `spec/API.md` §Per-artefact public namespaces draws that line
+- audit reach-throughs and replace with public APIs from Tool-Pair; `spec/API.md` §Conventions (the per-artefact public-namespace table) draws that line
 - file a GitHub issue against `day8/re-frame2` if the public surface is missing the needed capability
 - add a lint or smoke test that flags private-namespace usage
 

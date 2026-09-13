@@ -56,7 +56,7 @@
         "Skill skills/re-frame2-improver/ is invoked and references/boolean-discriminator-subs.md is read.",
         "The output names the anti-pattern as a boolean-discriminator-sub cluster / hand-rolled FSM, citing that 3+ mutually-exclusive `?`-subs read the same [:article :status] path and the view routes via a cond of derefs.",
         "The output's fix collapses the four boolean subs into a SINGLE selector sub with one `case` in the view — EITHER one derivation over the existing [:article :status] slice (the proportionate RemoteData slice-form correction) OR one selector sub over a reg-machine's per-state :tags and a data render-priority table. Both pass. It does NOT leave the boolean cluster standing, and does NOT replace the cond with a cond over multiple :rf.machine/has-tag? derefs in the root view.",
-        "The output cross-links the canonical idiom (skills/re-frame2/references/state-machines/tags.md and/or spec/005-StateMachines.md; Nine States for full page rendering).",
+        "The output cross-links the canonical idiom it actually chose: skills/re-frame2/patterns/remote-data.md / spec/Pattern-RemoteData.md for the slice form, or skills/re-frame2/references/state-machines/tags.md / spec/005-StateMachines.md for the machine form (Nine States for full page rendering).",
         "If the output pastes a machine rewrite, it accounts for the lazy-initialisation boundary — it dispatches the eager-start kick (rf.machine/start) from app/frame init AND/OR keeps an :uninitialised default branch so the snapshot-nil case cannot throw on first paint.",
         "Any view the output pastes carries its frame: it is an rf/reg-view reading through the injected subscribe (or otherwise carries the frame explicitly). A plain (defn …) view with a bare rf/subscribe raises :rf.error/no-frame-context under EP-0002 — no :contextType, no :rf/default floor — so it is not a runnable recommendation."
       ]
@@ -75,7 +75,7 @@
         "The output flags that :items/load-failure does NOT clear :items/loading?, so a failure leaves the UI stuck on the spinner (the classic missing-dissoc-on-failure bug).",
         "The output's PRIMARY correction is the smallest safe repair — clearing :items/loading? on the failure branch (a one-line dissoc / assoc-false) — reported as the immediate correctness fix; it does NOT present a reg-machine rewrite as the only or mandatory fix for the missing cleanup.",
         "If a Nine States / reg-machine move appears, it appears as a distinct OPTIONAL broader redesign separate from the immediate repair (omitting it entirely also passes) — the review is proportionate, not framework advocacy.",
-        "The output cross-links the canonical idiom (skills/re-frame2/patterns/nine-states.md and/or spec/Pattern-NineStates.md).",
+        "The output cross-links the canonical idiom it actually chose: skills/re-frame2/patterns/remote-data.md / spec/Pattern-RemoteData.md for the status-keyword slice form, or skills/re-frame2/patterns/nine-states.md / spec/Pattern-NineStates.md for the machine form.",
         "The prompt is review-only, so the agent applies no Edit — corrections are stated in the findings, not landed in the source."
       ]
     },

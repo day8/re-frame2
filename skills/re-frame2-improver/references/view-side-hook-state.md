@@ -10,6 +10,7 @@ Greppable signals inside `.cljs` / `.cljc` files containing views:
 - `(let [!state (reagent/atom ...)] ...)` inside a view body whose value is then derefed in a sibling component imported elsewhere.
 - React hooks (`uix.core/use-state`, `(.useState js/React ...)`) holding values like `:current-filter`, `:selected-id`, `:modal-open?`, `:form-data` — concerns the rest of the application would want to query or dispatch about.
 - Event handlers (in `events.cljs`) reaching into a view-owned atom — e.g. `(deref view-ns/!current-tab)` from inside a `reg-event` handler.
+- **Under Fresco**, a hook (`use-state` / `useState` / `useReducer`) or an `r/atom` inside an `h/defview` body is a finding whatever it holds. Fresco has no component-local reactive cell, and hooks in a body that branches on data make hook order data-dependent ([`docs/core/fresco/11-ephemeral-state.md`](https://github.com/day8/re-frame2/blob/main/docs/core/fresco/11-ephemeral-state.md)).
 
 Structural signal: the state lives outside `app-db` *but* is consumed by anything other than the very component that declared it.
 
@@ -29,7 +30,7 @@ A `reagent/atom` is legitimate when its state is **render-local** — a hovered-
 
 Move the state to `app-db` behind a `reg-sub`. Reads use `(subscribe [:sub-id])`; writes go through `reg-event`. See [`skills/re-frame2/references/fundamentals/subs.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/subs.md) and [`skills/re-frame2/references/fundamentals/events.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/events.md).
 
-Spec source: [`spec/Principles.md`](https://github.com/day8/re-frame2/blob/main/spec/Principles.md) (single source of truth for application state) and [`spec/000-Vision.md` §Pointers to per-area Specs](https://github.com/day8/re-frame2/blob/main/spec/000-Vision.md#pointers-to-per-area-specs) (views as pure projections).
+Sources: [`docs/core/fresco/11-ephemeral-state.md` §Why one owner matters](https://github.com/day8/re-frame2/blob/main/docs/core/fresco/11-ephemeral-state.md#why-one-owner-matters) (each fact has one owner — no second reactive store beside `app-db`) and [`spec/000-Vision.md` §Pointers to per-area Specs](https://github.com/day8/re-frame2/blob/main/spec/000-Vision.md#pointers-to-per-area-specs) (views as pure projections).
 
 ## Worked example
 
@@ -80,6 +81,7 @@ Both views register with `rf/reg-view`, which injects frame-bound `dispatch` / `
 ## Edge cases — when view-side state is fine
 
 - **Genuinely render-local UI** — hover state, focus-within bookkeeping, drag-and-drop in-flight offsets, transient animation values that no other component consults. These can stay as `reagent/atom` or `useState`.
+- **Under Fresco the render-local exemption does not reach an `h/defview` body** — every fact still has an owner, just not a hook in the view. Hover and focus belong to CSS and the browser; high-rate mechanics (drag offsets, measured geometry) to a React island or declared host; anything another view, a test or Xray reads to `app-db`, where `h/reg-state` mints the per-instance sub + setter pair for open / expanded / selected state ([§Common state and its owner](https://github.com/day8/re-frame2/blob/main/docs/core/fresco/11-ephemeral-state.md#common-state-and-its-owner)).
 - **Performance-critical render-loop state** that would cause `app-db` churn at every frame (60fps animation cursors). Promote to `app-db` only when another part of the app needs to read it.
 - **Form-draft state in tightly-scoped one-shot forms** that don't need Xray/re-frame2-pair debugging or replay. Once the form gets non-trivial, move it to `app-db` behind a state machine — see [`skills/re-frame2/patterns/forms.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/patterns/forms.md).
 - **Component-local refs to DOM nodes** (`useRef`, a callback ref, `(react/createRef)`) — these hold a *handle*, not domain state. Not in scope.
