@@ -648,7 +648,11 @@
         (is (true? (rf/compute-sub [:editor/can-leave?] (state-value f)))
             "after the save reply re-seeds the baseline, the draft is clean → can leave")
         (is (false? (rf/compute-sub [:editor/dirty?] (state-value f)))
-            "the saved draft is no longer dirty")))))
+            "the saved draft is no longer dirty")
+        ;; The ownership control for rf2-gwye.39: this save was issued and
+        ;; answered under ONE navigation, so its continuation still navigates.
+        (is (= :realworld.article/show (route-id f))
+            "on its own page the save continuation still opens the saved article")))))
 
 (defn- saved-tag-list
   "The `:tagList` the save actually put on the wire — read off the lowered
@@ -1844,22 +1848,236 @@
         (is (or (contains? #{:loading :fetching} (:status ae)) (some? (:invalidated-at ae)))
             ":ui/follow-author-replied re-staled [:article slug] → the detail refetches")))))
 
+;; ----------------------------------------------------------------------------
+;; A write outlives the page that issued it (rf2-fzbj.21)
+;; ----------------------------------------------------------------------------
+;;
+;; A mutation runs to completion wherever the reader goes: leaving a page
+;; releases the reads the ROUTE owns, never an independent write. So every
+;; continuation that navigates or writes page-local state has to ask whether
+;; the reader is still on the page that issued it. The detail-page delete asks
+;; the route (`[:ui/article-deleted slug]`, rf2-gwye.42); the editor asks the
+;; navigation (`[:editor/replied nav-token]`, rf2-gwye.39), because a create
+;; draft has no slug to ask about.
+
+(defn- delete-alpha-then-walk-to!
+  "Open /article/alpha, click Delete (the write is held open), then — when a
+   `detour` route request is given — walk there before the server answers.
+   Returns the held delete request."
+  [f detour]
+  (rf/dispatch-sync [:rf.route/navigate {:to :realworld.article/show :params {:slug "alpha"}}]
+                    {:frame f})
+  (reset! last-managed-args nil)
+  (rf/dispatch-sync [:ui/delete-article "alpha"] {:frame f})
+  (let [del @last-managed-args]
+    (is (= :delete (get-in del [:request :method])) "alpha's delete write went out and is held")
+    (when detour
+      (rf/dispatch-sync [:rf.route/navigate detour] {:frame f}))
+    del))
+
+(defn- alpha-delete-status [f]
+  (:status (rf/compute-sub [:rf/mutation {:instance [:delete-article "alpha"]}] (state-value f))))
+
 (deftest delete-article-continuation-navigates-home
   (testing "examples/real-apps/realworld_resources — :ui/delete-article fires the
-            :realworld/delete-article mutation with :reply-to [:ui/article-deleted];
-            the continuation clears the instance and navigates home on :ok"
-    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
-                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+            :realworld/delete-article mutation with :reply-to [:ui/article-deleted slug];
+            settled while the reader is still ON that article, the continuation
+            clears the instance and navigates home"
+    (with-new-frame [f (guarded-frame!)]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
-      ;; Land somewhere other than home so the navigate-home is observable.
-      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.auth/register}] {:frame f})
-      (is (= :realworld.auth/register (route-id f)))
+      (let [del (delete-alpha-then-walk-to! f nil)]
+        (is (= :realworld.article/show (route-id f)) "still on alpha while the write is out")
+        (reply-success! del {} f)
+        (is (= :realworld/home (route-id f))
+            ":ui/article-deleted navigates home on a successful delete from its own page")
+        (is (not= :success (alpha-delete-status f))
+            "…and clears the completed delete instance")))))
+
+(deftest delete-article-continuation-leaves-a-departed-reader-where-they-are
+  (testing "examples/real-apps/realworld_resources — walk from alpha to another
+            article or to a profile before the server answers, and the late
+            success leaves the reader on the page they chose (rf2-gwye.42); the
+            completed instance is still cleared"
+    (doseq [[label detour expect-id expect-params]
+            [["alpha → beta" {:to :realworld.article/show :params {:slug "beta"}}
+              :realworld.article/show {:slug "beta"}]
+             ["alpha → profile/eve" {:to :realworld.profile/show :params {:username "eve"}}
+              :realworld.profile/show {:username "eve"}]]]
+      (testing label
+        (with-new-frame [f (guarded-frame!)]
+          (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+          (let [del (delete-alpha-then-walk-to! f detour)]
+            (is (= expect-id (route-id f)) "the reader has left alpha")
+            (reply-success! del {} f)
+            (is (= expect-id (route-id f))
+                "a LATE delete success does not take the reader home")
+            (is (= expect-params (route-params f)) "…their own newer route stands")
+            (is (not= :success (alpha-delete-status f))
+                "…and the completed delete's instance is still cleared"))))))
+  (testing "a failed delete navigates nowhere, and navigation still works after it"
+    (with-new-frame [f (guarded-frame!)]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      (let [del (delete-alpha-then-walk-to! f nil)]
+        (rf/dispatch-sync (conj (:on-failure del)
+                                {:status :error :error {:kind :rf.http/http-5xx :status 500}})
+                          {:frame f})
+        (is (= {:slug "alpha"} (route-params f)) "a failed delete stays on alpha")
+        (rf/dispatch-sync [:rf.route/navigate {:to :realworld.article/show :params {:slug "beta"}}]
+                          {:frame f})
+        (is (= {:slug "beta"} (route-params f)) "…and the reader can still move on")))))
+
+(deftest editor-write-continuations-stay-with-the-page-that-issued-them
+  (testing "examples/real-apps/realworld_resources — a DELETE answered after a detour
+            to a profile leaves the reader there and the editor slice alone
+            (rf2-gwye.39)"
+    (with-new-frame [f (guarded-frame!)]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "doomed"}}]
+                        {:frame f})
+      (reply-success! @last-managed-args
+                      {:article {:slug "doomed" :title "Doomed" :description "d"
+                                 :body "b" :tagList []}}
+                      f)
       (reset! last-managed-args nil)
-      (rf/dispatch-sync [:ui/delete-article "hello-conduit"] {:frame f})
-      (is (some? @last-managed-args) "the delete mutation lowered a write")
-      (reply-success! @last-managed-args {} f)
-      (is (= :realworld/home (route-id f))
-          ":ui/article-deleted navigates home on a successful delete"))))
+      (rf/dispatch-sync [:editor/delete] {:frame f})
+      (let [del @last-managed-args]
+        (is (= :delete (get-in del [:request :method])) "the delete write went out and is held")
+        (rf/dispatch-sync [:rf.route/navigate {:to :realworld.profile/show
+                                               :params {:username "eve"}}]
+                          {:frame f})
+        (is (= :realworld.profile/show (route-id f)) "the clean editor let the reader leave")
+        (reply-success! del {} f)
+        (is (= :realworld.profile/show (route-id f))
+            "the late delete continuation does not take the reader home")
+        (is (= {:username "eve"} (route-params f)) "…their own route stands")
+        (is (= "doomed" (rf/compute-sub [:editor/slug] (state-value f)))
+            "…and the editor slice it no longer owns is not rewritten"))))
+  (testing "a SAVE answered after a confirmed leave neither re-seeds the editor nor
+            navigates"
+    (with-new-frame [f (guarded-frame!)]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      (rf/dispatch-sync [:editor/register-flow] {:frame f})
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/new}] {:frame f})
+      (rf/dispatch-sync [:editor/edit-field :title "New Title"] {:frame f})
+      (rf/dispatch-sync [:editor/edit-field :description "A desc"] {:frame f})
+      (rf/dispatch-sync [:editor/edit-field :body "Some body"] {:frame f})
+      (reset! last-managed-args nil)
+      (rf/dispatch-sync [:editor/submit] {:frame f})
+      (let [save @last-managed-args]
+        (is (= :post (get-in save [:request :method])) "the create write went out and is held")
+        ;; Still dirty while the save is out, so leaving asks first; the reader
+        ;; confirms, as the shell's dialog would.
+        (rf/dispatch-sync [:rf.route/navigate {:to :realworld.profile/show
+                                               :params {:username "eve"}}]
+                          {:frame f})
+        (let [pending (rf/compute-sub [:rf/pending-navigation] (state-value f))]
+          (is (some? pending) "the dirty draft's :can-leave guard held the navigation")
+          (rf/dispatch-sync [:rf.route/continue (:id pending)] {:frame f}))
+        (is (= :realworld.profile/show (route-id f)) "the reader confirmed the leave")
+        (reply-success! save {:article {:slug "new-title" :title "New Title"
+                                        :description "A desc" :body "Some body"
+                                        :tagList []}}
+                        f)
+        (is (= :realworld.profile/show (route-id f))
+            "a LATE save continuation does not drag the reader to the saved article")
+        (is (nil? (rf/compute-sub [:editor/slug] (state-value f)))
+            "…nor re-seed the editor slice with the saved article"))))
+  (testing "control: entering a NEW editor clears the shared instance, so the old
+            delete's reply never lands and the new session's controls are usable"
+    (with-new-frame [f (guarded-frame!)]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "doomed"}}]
+                        {:frame f})
+      (reply-success! @last-managed-args
+                      {:article {:slug "doomed" :title "Doomed" :description "d"
+                                 :body "b" :tagList []}}
+                      f)
+      (reset! last-managed-args nil)
+      (rf/dispatch-sync [:editor/delete] {:frame f})
+      (let [del  @last-managed-args
+            save #(rf/compute-sub [:rf/mutation {:instance :editor/save}] (state-value f))]
+        (is (true? (:pending? (save))) "the delete is in flight")
+        (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/new}] {:frame f})
+        (is (not (:pending? (save))) "the new session's save control is not busy")
+        (reply-success! del {} f)
+        (is (= :realworld.editor/new (route-id f))
+            "the late delete does not take the new draft's reader home")))))
+
+(defn- feed-requests
+  "Every logged managed-HTTP request for the session feed, in order."
+  []
+  (filterv #(str/includes? (str (get-in % [:request :url])) "/articles/feed")
+           @managed-args-log))
+
+(defn- feed-article [slug author]
+  {:slug slug :title (str "Title " slug) :description "d" :body "b" :tagList []
+   :createdAt "x" :updatedAt "x" :favorited false :favoritesCount 0
+   :author {:username author :bio nil :image nil :following true}})
+
+(defn- follow-then-reenter-feed!
+  "Visit Your Feed and settle it with `before`, walk to `detour`, fire
+   `follow-event` and settle its write with `profile`, then come straight back
+   to Your Feed — well inside its freshness window. Returns how many NEW feed
+   requests the re-entry lowered."
+  [f before detour follow-event profile]
+  (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home :query {:feed "following"}}]
+                    {:frame f})
+  (reply-success! (last (feed-requests)) before f)
+  (is (= :loaded (:status (entry f (feed-key "alice" 1)))) "Your Feed is loaded and cached")
+  (rf/dispatch-sync [:rf.route/navigate detour] {:frame f})
+  (reset! last-managed-args nil)
+  (rf/dispatch-sync follow-event {:frame f})
+  (let [write @last-managed-args]
+    (is (str/includes? (str (get-in write [:request :url])) "/profiles/eve/follow")
+        "the follow write went out")
+    (reply-success! write {:profile profile} f))
+  (let [seen (count (feed-requests))]
+    (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home :query {:feed "following"}}]
+                      {:frame f})
+    (- (count (feed-requests)) seen)))
+
+(deftest follow-and-unfollow-restale-the-session-feed
+  (testing "examples/real-apps/realworld_resources — Your Feed is exactly the
+            articles of the authors you follow, so a follow or unfollow stales the
+            session [:feed] alongside the viewer's [:profile username]
+            (rf2-gwye.35). Without it a feed visited in the last minute is a
+            cache-hit on re-entry, still showing the old membership"
+    (testing "follow from the PROFILE page: an empty cached feed refetches and shows the author"
+      (with-new-frame [f (guarded-frame!)]
+        (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+        (is (= 1 (follow-then-reenter-feed!
+                   f {:articles [] :articlesCount 0}
+                   {:to :realworld.profile/show :params {:username "eve"}}
+                   [:ui/follow "eve" false]
+                   {:username "eve" :bio "" :image "" :following true}))
+            "re-entering Your Feed FETCHES — the follow staled it")
+        (is (true? (-> (entry f (profile-key "eve")) :data :profile :following))
+            "control: the banner was still populated straight from the reply")
+        (reply-success! (last (feed-requests))
+                        {:articles [(feed-article "eve-post" "eve")] :articlesCount 1} f)
+        (is (= ["eve-post"] (mapv :slug (-> (entry f (feed-key "alice" 1)) :data :articles)))
+            "…and the feed now shows the newly followed author's article")))
+    (testing "follow from the ARTICLE page reaches the feed too"
+      (with-new-frame [f (guarded-frame!)]
+        (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+        (is (= 1 (follow-then-reenter-feed!
+                   f {:articles [] :articlesCount 0}
+                   {:to :realworld.article/show :params {:slug "hello-conduit"}}
+                   [:ui/follow-author "hello-conduit" "eve" false]
+                   {:username "eve" :bio "" :image "" :following true}))
+            "re-entering Your Feed FETCHES after a follow from the article page")))
+    (testing "unfollow: a populated cached feed refetches and drops the author"
+      (with-new-frame [f (guarded-frame!)]
+        (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+        (is (= 1 (follow-then-reenter-feed!
+                   f {:articles [(feed-article "eve-post" "eve")] :articlesCount 1}
+                   {:to :realworld.profile/show :params {:username "eve"}}
+                   [:ui/follow "eve" true]
+                   {:username "eve" :bio "" :image "" :following false}))
+            "re-entering Your Feed FETCHES — the unfollow staled it")
+        (reply-success! (last (feed-requests)) {:articles [] :articlesCount 0} f)
+        (is (empty? (-> (entry f (feed-key "alice" 1)) :data :articles))
+            "…and the unfollowed author's article is gone")))))
 
 (deftest auth-guard-return-to-preserves-full-address
   ;; rf2-78x8j (twin of rf2-k5zty in realworld_http) — the return-to stash is the

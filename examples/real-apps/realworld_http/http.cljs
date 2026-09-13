@@ -164,6 +164,35 @@
     out))
 
 ;; ============================================================================
+;; REPLY OWNERSHIP — which navigation issued this request?
+;; ============================================================================
+;;
+;; A managed request outlives the screen that sent it: the reply lands whenever
+;; the network says, and by then the reader may be somewhere else. The article
+;; page answers that with ROUTE identity (`reply-for-current-slug?` /
+;; `article-route-for-slug?`, comments.cljs), because its slices are keyed by
+;; the slug. Two surfaces have no such key. On the home page, Your Feed and the
+;; Global Feed are DIFFERENT request families settling ONE machine, so a reply
+;; from the feed the reader left can settle it for the feed they chose. In the
+;; editor, a fresh `/editor` draft has no slug at all, and returning to the same
+;; article is a new editing session. For those two the identity is the
+;; NAVIGATION itself — the committed route's `:nav-token`, which routing mints
+;; afresh on every navigation. The request captures it, the reply target
+;; carries it, and the settle acts only while it is still the current one.
+
+(defn current-nav-token
+  "The committed navigation's token, read off RUNTIME-db (handlers get it as the
+   `:rf.db/runtime` coeffect). Nil before the first navigation."
+  [rt]
+  (get-in rt [:rf.runtime/routing :current :nav-token]))
+
+(defn same-navigation?
+  "Was a reply's request issued under the navigation that is still current?
+   `nav-token` is what `current-nav-token` read when the request went out."
+  [rt nav-token]
+  (= nav-token (current-nav-token rt)))
+
+;; ============================================================================
 ;; CLOCK — the framework's recordable time fact (:rf/time-ms)
 ;; ============================================================================
 ;;

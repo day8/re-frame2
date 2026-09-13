@@ -235,7 +235,13 @@
 
          It also broadcasts `:fetch-started` into the home machine, nudging the
          `:data` region to `:loading` (or `:refreshing`, if a list is already
-         showing)."}
+         showing).
+
+         Supersession only fires between requests sharing one id, and Your
+         Feed's `:feed/load` is a different id feeding the SAME machine — so
+         both reply targets carry the nav-token this load was issued under,
+         and the settles refuse a reply whose navigation the reader has left
+         (REPLY OWNERSHIP, http.cljs)."}
   ;; The route lives in runtime-db. The 1-indexed `?page=` off the route query
   ;; becomes the wire's limit/offset window via `rh/paginate-path`, which also
   ;; URL-encodes the `:tag` filter. The active tag is a path param; the page is
@@ -247,7 +253,10 @@
           tag       (get-in current [:params :tag])
           page      (or (get-in current [:query :page]) 1)
           path      (rh/paginate-path "/articles" (when tag {:tag tag}) page)
-          has-data? (seq (get-in db [:articles :data]))]
+          has-data? (seq (get-in db [:articles :data]))
+          ;; Which navigation this load serves; both reply targets carry it
+          ;; (REPLY OWNERSHIP, http.cljs).
+          nav-token (rh/current-nav-token rt)]
       {:db (-> db
                (assoc-in [:articles :status] (if has-data? :fetching :loading))
                (assoc-in [:articles :error] nil)
@@ -259,45 +268,58 @@
                           :decode     schema/ArticlesResponse
                           :retry      rh/data-fetch-retry
                           :request-id :articles/load
-                          :on-success [:articles/loaded]
-                          :on-failure [:articles/load-failed]})]]})))
+                          :on-success [:articles/loaded nav-token]
+                          :on-failure [:articles/load-failed nav-token]})]]})))
 
 (rf/reg-event :articles/loaded
   {:doc "The fetch came back happy. Swap in the new list and clear any stale
          error. It arrives as `{:status :ok :value <ArticlesResponse>}` —
-         the same uniform reply shape every managed request returns. Folds the
-         fresh count into the home machine via `:fetch-succeeded`, and the
-         `:data` region's `:resolving` `:always` cascade takes it from there,
-         choosing `:empty` or `:some`."
+         the same uniform reply shape every managed request returns — after
+         the nav-token the request was issued under. Folds the fresh count into
+         the home machine via `:fetch-succeeded`, and the `:data` region's
+         `:resolving` `:always` cascade takes it from there, choosing `:empty`
+         or `:some`.
+
+         Gated on that nav-token first (`rh/same-navigation?`): a reply for a
+         navigation the reader has since left writes nothing and signals
+         nothing. The home machine is shared with Your Feed (favorites.cljs),
+         and its `:empty` / `:some` / `:error` states take no
+         `:fetch-succeeded` — so a departed reply that settled it first would
+         get the CURRENT reply ignored, and leave the page rendering the feed
+         the reader left."
    :rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
-    (let [items (vec (:articles value))
-          ;; `articlesCount` is the GRAND total across all matching articles,
-          ;; not the size of this page — it's what the page count is computed
-          ;; from. If the server leaves it out, fall back to this page's size.
-          total (or (:articlesCount value) (count items))]
-      {:db (-> db
-               (assoc-in [:articles :status] :loaded)
-               (assoc-in [:articles :data] items)
-               (assoc-in [:articles :articles-count] total)
-               (assoc-in [:articles :error] nil)
-               (assoc-in [:articles :loaded-at] time-ms))
-       :fx [[:dispatch [:realworld/articles-home
-                        [:fetch-succeeded {:items items}]]]]})))
+  (fn [{:keys [db rf/time-ms] rt :rf.db/runtime} [_ nav-token {:keys [value]}]]
+    (when (rh/same-navigation? rt nav-token)
+      (let [items (vec (:articles value))
+            ;; `articlesCount` is the GRAND total across all matching articles,
+            ;; not the size of this page — it's what the page count is computed
+            ;; from. If the server leaves it out, fall back to this page's size.
+            total (or (:articlesCount value) (count items))]
+        {:db (-> db
+                 (assoc-in [:articles :status] :loaded)
+                 (assoc-in [:articles :data] items)
+                 (assoc-in [:articles :articles-count] total)
+                 (assoc-in [:articles :error] nil)
+                 (assoc-in [:articles :loaded-at] time-ms))
+         :fx [[:dispatch [:realworld/articles-home
+                          [:fetch-succeeded {:items items}]]]]}))))
 
 (rf/reg-event :articles/load-failed
   {:doc "The fetch failed. Hold on to whatever list was already showing (no
          point blanking the page over a hiccup) and surface a readable error
          message, projected from the failure map. Folds the failure into the
          home machine via `:fetch-failed`, sending the `:data` region to
-         `:error`."}
-  (fn [{:keys [db]} [_ {:keys [error]}]]
-    (let [message (rh/failure->message error)]
-      {:db (-> db
-               (assoc-in [:articles :status] :error)
-               (assoc-in [:articles :error] message))
-       :fx [[:dispatch [:realworld/articles-home
-                        [:fetch-failed {:failure message}]]]]})))
+         `:error`. Gated on the nav-token exactly as `:articles/loaded` is: a
+         departed failure would otherwise strand the shared machine in
+         `:error`, which ignores the current reply's `:fetch-succeeded`."}
+  (fn [{:keys [db] rt :rf.db/runtime} [_ nav-token {:keys [error]}]]
+    (when (rh/same-navigation? rt nav-token)
+      (let [message (rh/failure->message error)]
+        {:db (-> db
+                 (assoc-in [:articles :status] :error)
+                 (assoc-in [:articles :error] message))
+         :fx [[:dispatch [:realworld/articles-home
+                          [:fetch-failed {:failure message}]]]]}))))
 
 (rf/reg-event :articles/cancel
   {:doc "Abort an in-flight :articles/load — say the user wanders off the home

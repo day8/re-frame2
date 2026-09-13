@@ -185,10 +185,22 @@
                          :cause [:follow-author-detail-sync slug]}]]]}
       {})))
 
+(defn- article-route-for-slug?
+  "Is the ACTIVE ROUTE still the detail page for `slug`? True exactly when the
+   committed route is `:realworld.article/show` and its `:slug` param is this
+   one. Reads RUNTIME-db, where the route slice lives. The HTTP twin carries
+   the same predicate (realworld_http/comments.cljs)."
+  [rt slug]
+  (let [{:keys [route-id params]} (get-in rt [:rf.runtime/routing :current])]
+    (and (= :realworld.article/show route-id)
+         (= slug (:slug params)))))
+
 (rf/reg-event :ui/delete-article
   {:doc "Delete the current article from the detail page (author only). Fires the
          `:realworld/delete-article` mutation with a `:reply-to
-         [:ui/article-deleted]` continuation that navigates home on success."}
+         [:ui/article-deleted slug]` continuation that navigates home on success.
+         The target carries the slug the delete was issued on, so the
+         continuation can tell whether the reader is still on that article."}
   (fn [{:keys [db]} [_ slug]]
     (if (nil? (get-in db [:auth :user]))
       {:fx [[:dispatch [:rf.route/navigate {:to :realworld.auth/login}]]]}
@@ -196,19 +208,29 @@
                         {:mutation :realworld/delete-article
                          :params   {:slug slug}
                          :instance [:delete-article slug]
-                         :reply-to [:ui/article-deleted]
+                         :reply-to [:ui/article-deleted slug]
                          :cause    [:click :ui/delete-article slug]}]]]})))
 
 (rf/reg-event :ui/article-deleted
-  {:doc "Delete-article completion continuation (the `:reply-to` target). On `:ok`,
-         clear the delete instance and head home — by the time this fires, the
-         mutation's `:invalidates` has already staled the lists, the feed, and the
-         now-vanished article's detail. The reply carries the `:instance` to
-         clear."}
-  (fn [_ [_ {:keys [status instance]}]]
+  {:doc "Delete-article completion continuation (the `:reply-to` target), carrying
+         the slug the delete was issued on. On `:ok`, clear the delete instance —
+         by the time this fires, the mutation's `:invalidates` has already staled
+         the lists, the feed, and the now-vanished article's detail — and head
+         home, but ONLY while the reader is still on that article's page.
+
+         The mutation runs to completion wherever the reader goes: releasing the
+         article read on the way out does not retire an independent write. So a
+         delete answered after the reader moved to another article or a profile
+         still lands here, and taking them home would throw away the page they
+         chose. Asking the ROUTE rather than a cached slug is what makes a walk
+         to a non-article page visible. The clear stays unconditional: the
+         instance is this delete's own (`[:delete-article slug]`), and nothing
+         else will ever clear it."}
+  (fn [{rt :rf.db/runtime} [_ slug {:keys [status instance]}]]
     (if (= :ok status)
-      {:fx [[:dispatch [:rf.mutation/clear {:instance instance}]]
-            [:dispatch [:rf.route/navigate {:to :realworld/home}]]]}
+      {:fx (cond-> [[:dispatch [:rf.mutation/clear {:instance instance}]]]
+             (article-route-for-slug? rt slug)
+             (conj [:dispatch [:rf.route/navigate {:to :realworld/home}]]))}
       {})))
 
 ;; ============================================================================
@@ -485,8 +507,9 @@
 (reg-view ^{:doc "The article-detail page — a pure function of subs that never
                   dispatches out of band. The two settle continuations it needs are
                   the mutations' own `:reply-to` targets: deleting fires
-                  `:ui/delete-article` → `:reply-to [:ui/article-deleted]`
-                  (navigate home), and following the author fires
+                  `:ui/delete-article` → `:reply-to [:ui/article-deleted slug]`
+                  (navigate home, while still on this article), and following
+                  the author fires
                   `:ui/follow-author` → `:reply-to [:ui/follow-author-replied slug]`
                   (re-stale `[:article slug]` so the embedded author flag
                   refetches). No Form-3 wrapper, no off-render reaction."}

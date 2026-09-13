@@ -64,8 +64,11 @@
          via `rh/paginate-path` — the very same pagination the global feed
          uses."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [page (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
-          path (rh/paginate-path "/articles/feed" nil page)]
+    (let [page      (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
+          path      (rh/paginate-path "/articles/feed" nil page)
+          ;; Which navigation this load serves; both reply targets carry it
+          ;; (REPLY OWNERSHIP, http.cljs).
+          nav-token (rh/current-nav-token rt)]
       {:db (-> db
                (assoc-in [:feed :status]
                          (if (seq (get-in db [:feed :data])) :fetching :loading))
@@ -78,8 +81,8 @@
                           :decode     schema/ArticlesResponse
                           :retry      rh/data-fetch-retry
                           :request-id :feed/load
-                          :on-success [:feed/loaded]
-                          :on-failure [:feed/load-failed]})]]})))
+                          :on-success [:feed/loaded nav-token]
+                          :on-failure [:feed/load-failed nav-token]})]]})))
 
 (rf/reg-event :feed/cancel
   {:doc "Abort an in-flight :feed/load — say the user leaves before it lands.
@@ -92,29 +95,36 @@
 (rf/reg-event :feed/loaded
   {:doc "The user-feed fetch came back happy. Folds the new count into the home
          machine via `:fetch-succeeded`, and the `:data` region's `:resolving`
-         `:always` cascade takes it from there — `:empty` or `:some`."
+         `:always` cascade takes it from there — `:empty` or `:some`. Gated on
+         the nav-token the request was issued under, exactly as
+         `:articles/loaded` is and for the same reason: the two families settle
+         ONE home machine, so a reply for the feed the reader left must not
+         settle it for the feed they chose."
    :rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
-    (let [items (vec (:articles value))
-          total (or (:articlesCount value) (count items))]
-      {:db (-> db
-               (assoc-in [:feed :status] :loaded)
-               (assoc-in [:feed :data] items)
-               (assoc-in [:feed :articles-count] total)
-               (assoc-in [:feed :loaded-at] time-ms))
-       :fx [[:dispatch [:realworld/articles-home
-                        [:fetch-succeeded {:items items}]]]]})))
+  (fn [{:keys [db rf/time-ms] rt :rf.db/runtime} [_ nav-token {:keys [value]}]]
+    (when (rh/same-navigation? rt nav-token)
+      (let [items (vec (:articles value))
+            total (or (:articlesCount value) (count items))]
+        {:db (-> db
+                 (assoc-in [:feed :status] :loaded)
+                 (assoc-in [:feed :data] items)
+                 (assoc-in [:feed :articles-count] total)
+                 (assoc-in [:feed :loaded-at] time-ms))
+         :fx [[:dispatch [:realworld/articles-home
+                          [:fetch-succeeded {:items items}]]]]}))))
 
 (rf/reg-event :feed/load-failed
   {:doc "The user-feed fetch didn't make it. Folds the failure into the home
-         machine via `:fetch-failed`, sending the `:data` region to `:error`."}
-  (fn [{:keys [db]} [_ {:keys [error]}]]
-    (let [message (rh/failure->message error)]
-      {:db (-> db
-               (assoc-in [:feed :status] :error)
-               (assoc-in [:feed :error] message))
-       :fx [[:dispatch [:realworld/articles-home
-                        [:fetch-failed {:failure message}]]]]})))
+         machine via `:fetch-failed`, sending the `:data` region to `:error`.
+         Gated on the nav-token exactly as `:feed/loaded` is."}
+  (fn [{:keys [db] rt :rf.db/runtime} [_ nav-token {:keys [error]}]]
+    (when (rh/same-navigation? rt nav-token)
+      (let [message (rh/failure->message error)]
+        {:db (-> db
+                 (assoc-in [:feed :status] :error)
+                 (assoc-in [:feed :error] message))
+         :fx [[:dispatch [:realworld/articles-home
+                          [:fetch-failed {:failure message}]]]]}))))
 
 ;; ============================================================================
 ;; FAVORITES

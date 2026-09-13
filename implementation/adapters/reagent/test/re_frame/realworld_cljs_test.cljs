@@ -558,7 +558,9 @@
     ;; Authenticate first so this test exercises the optimistic-rollback
     ;; path it is here to cover.
     (rf/dispatch-sync [:auth/store-session {:username "alice" :email "a@b.c" :token "jwt" :bio nil :image nil}] {:frame f})
-    (rf/dispatch-sync [:articles/loaded
+    ;; `nil` is the nav-token the reply carries: this frame never navigated,
+    ;; so nil IS the current navigation and the ownership gate admits it.
+    (rf/dispatch-sync [:articles/loaded nil
                        {:kind :success
                         :value {:articles [{:slug "hello"
                                             :title "Hello"
@@ -2815,7 +2817,9 @@
                         :fx-overrides {:rf.http/managed :realworld.test/favorite-ok}})]
     (rf/dispatch-sync [:articles/initialise] {:frame f})
     (rf/dispatch-sync [:auth/store-session {:username "alice" :email "a@b.c" :token "jwt" :bio nil :image nil}] {:frame f})
-    (rf/dispatch-sync [:articles/loaded
+    ;; `nil` is the nav-token the reply carries: this frame never navigated,
+    ;; so nil IS the current navigation and the ownership gate admits it.
+    (rf/dispatch-sync [:articles/loaded nil
                        {:kind :success
                         :value {:articles [{:slug "hello" :title "Hello" :description "Short"
                                             :body "Body" :tagList [] :createdAt "x" :updatedAt "x"
@@ -3541,6 +3545,311 @@
             be latched at once, and an older settle — success or rollback —
             releases its own username alone (rf2-8icg)"
     (profile-follow-latch-does-not-leak-to-a-bystander-test)))
+
+;; ============================================================================
+;; comment schema, home-feed ownership, editor write ownership (rf2-fzbj.21)
+;; ============================================================================
+;;
+;; Three findings of one review, each a place where a candidate or a reply was
+;; judged against the wrong owner.
+;;
+;;   - COMMENT SCHEMA (rf2-gwye.33). Every comment row above runs on an anon
+;;     frame that registers no app schema, so none of them could see that the
+;;     optimistic card — `:id "temp-<uuid>"` — failed the wire `ws/Comment` the
+;;     app registered at `[:comments :data]`. In a development build that
+;;     rejects the whole `:comment-form/submit` candidate, fx included: no card,
+;;     and no POST. The row below registers the app's REAL schema registry on
+;;     its frame (the AuthSlice row explains why that is the only honest way)
+;;     and drives the real submit with its real temp-id supplier.
+;;
+;;   - HOME FEED OWNERSHIP (rf2-gwye.34). Your Feed (`:feed/load`) and the
+;;     Global Feed (`:articles/load`) carry DIFFERENT request ids, so neither
+;;     supersedes the other, and both settle the ONE `:realworld/articles-home`
+;;     machine. Its `:empty` / `:some` / `:error` states take no
+;;     `:fetch-succeeded`, so whichever reply landed first won — including one
+;;     for the feed the reader had already left.
+;;
+;;   - EDITOR WRITE OWNERSHIP (rf2-gwye.37). A clean editor leaves freely with a
+;;     save or delete still out, and the settle then wrote the ONE `[:editor]`
+;;     slice and navigated, whatever the reader had moved on to.
+;;
+;; All of it reuses `with-held-comment-fx`, the article page's held-request
+;; harness — comment-flavoured only in its name.
+
+(defn- comment-ids* [f]
+  (mapv :id (rf/compute-sub [:comments/data] (rf/frame-state-value f))))
+
+(defn- comment-posts
+  "Every captured comment POST to `slug`, in order."
+  [lowered slug]
+  (filterv #(and (= :post (get-in % [:request :method]))
+                 (str/ends-with? (get-in % [:request :url])
+                                 (str "/articles/" slug "/comments")))
+           lowered))
+
+(defn- app-db-rejections [traces]
+  (filter #(and (= :rf.error/schema-validation-failure (:operation %))
+                (= :app-db (-> % :tags :where)))
+          traces))
+
+(defn- comment-optimistic-card-under-app-schemas-test []
+  (with-held-comment-fx :realworld.test/comment-app-schemas
+    (fn [f lowered]
+      ;; The app's REAL registry on THIS frame — the very value schema.cljs
+      ;; binds to `:rf/default`.
+      (rf/reg-app-schemas app-schema/app-db-schemas {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/article/alpha"] {:frame f})
+      (settle-ok! f (:on-success (req-by-id @lowered [:comments/load "alpha"]))
+                  {:comments [(saved-comment 1 "First!")]})
+      (is (= [1] (comment-ids* f)) "alpha's one existing comment loaded under the app schemas")
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync [:comment-form/edit-field :body "Great read"] {:frame f})
+        (rf/dispatch-sync [:comment-form/submit] {:frame f})
+        (is (empty? (app-db-rejections @traces))
+            "the optimistic candidate passes the app's own schema — no :app-db rejection"))
+      (is (= 2 (count (comment-ids* f)))
+          "ONE optimistic card is on the list (rf2-gwye.33)")
+      (is (str/starts-with? (str (second (comment-ids* f))) "temp-")
+          "…under the real supplier's temp id, not one the test chose")
+      (is (= 1 (count (comment-posts @lowered "alpha")))
+          "…and exactly ONE POST went out — a rejected candidate took its fx with it")
+      (settle-ok! f (:on-success (first (comment-posts @lowered "alpha")))
+                  {:comment (saved-comment 7 "Great read")})
+      (is (= [1 7] (comment-ids* f))
+          "the saved comment replaces the temp card in place, under the server's id")
+      (is (= :idle (:status (comment-form* f))) "the form is released on success")
+      ;; A failed post takes its card back out and leaves the form usable.
+      (rf/dispatch-sync [:comment-form/edit-field :body "Second thoughts"] {:frame f})
+      (rf/dispatch-sync [:comment-form/submit] {:frame f})
+      (is (= 3 (count (comment-ids* f))) "a second optimistic card is on the list")
+      (settle-fail! f (:on-failure (second (comment-posts @lowered "alpha"))))
+      (is (= [1 7] (comment-ids* f)) "a failed post removes its temp card")
+      (is (= :idle (:status (comment-form* f)))
+          "…the form is back at :idle, so the textarea and Post button are enabled")
+      (is (some? (:submit-error (comment-form* f))) "…with the failure surfaced")
+      (rf/dispatch-sync [:comment-form/edit-field :body "Try again"] {:frame f})
+      (is (= "Try again" (get-in (comment-form* f) [:draft :body]))
+          "…and typing still lands"))))
+
+(defn- comment-wire-schema-stays-strict-test []
+  (let [wire (saved-comment 1 "x")]
+    (is (true? (m/validate ws/Comment wire)) "an integer-id comment is a good wire comment")
+    (is (false? (m/validate ws/Comment (assoc wire :id "temp-1")))
+        "the WIRE Comment still rejects a string id — decode stays strict")
+    (is (false? (m/validate ws/CommentsResponse {:comments [(assoc wire :id "c-1")]}))
+        "…and so does the list envelope the GET decodes against")
+    (is (true? (m/validate app-schema/DurableComment (assoc wire :id "temp-1")))
+        "the DURABLE comment admits the optimistic card's temp id")
+    (is (false? (m/validate app-schema/DurableComment (assoc wire :id "c-1")))
+        "…and only a temp id: any other string is still refused")))
+
+(defn- home-render* [f] (rf/compute-sub [:articles.home/render] (rf/frame-state-value f)))
+
+(defn- home-state* [f]
+  (get-in (:rf.db/runtime (rf/frame-state-value f))
+          [:rf.runtime/machines :snapshots :realworld/articles-home :state]))
+
+(defn- home-slugs* [f]
+  (mapv :slug (rf/compute-sub [:articles.home/active-articles] (rf/frame-state-value f))))
+
+(defn- last-req-by-id
+  "The most recent captured request carrying `:request-id` id. A re-issued read
+   (same id, new page) is the LAST one, not the first."
+  [lowered id]
+  (last (filter #(= id (:request-id %)) lowered)))
+
+(defn- articles-of [& slugs]
+  {:articles (mapv #(full-article % (str "Title " %)) slugs) :articlesCount (count slugs)})
+
+(defn- walk-home! [f from to]
+  (rf/dispatch-sync [:rf.route/handle-url-change from] {:frame f})
+  (rf/dispatch-sync [:rf.route/handle-url-change to] {:frame f}))
+
+(defn- home-feed-departed-reply-is-refused-test []
+  (testing "Your Feed → Global Feed: the departed EMPTY feed reply lands first"
+    (with-held-comment-fx :realworld.test/home-feed-to-global
+      (fn [f lowered]
+        (walk-home! f "/?feed=following" "/")
+        (is (= :global (:feed (home-state* f))) "the reader is on the Global Feed")
+        (settle-ok! f (:on-success (last-req-by-id @lowered :feed/load)) (articles-of))
+        (is (= :loading (:data (home-state* f)))
+            "the departed Your Feed reply does not settle the shared machine (rf2-gwye.34)")
+        (settle-ok! f (:on-success (last-req-by-id @lowered :articles/load))
+                    (articles-of "hello-conduit"))
+        (is (= :some (home-render* f))
+            "the Global Feed settles from its OWN reply and renders its articles")
+        (is (= ["hello-conduit"] (home-slugs* f))))))
+  (testing "Global Feed → Your Feed: the departed EMPTY global reply lands first"
+    (with-held-comment-fx :realworld.test/home-global-to-feed
+      (fn [f lowered]
+        (walk-home! f "/" "/?feed=following")
+        (is (= :user-feed (:feed (home-state* f))) "the reader is on Your Feed")
+        (settle-ok! f (:on-success (last-req-by-id @lowered :articles/load)) (articles-of))
+        (settle-ok! f (:on-success (last-req-by-id @lowered :feed/load))
+                    (articles-of "followed-article"))
+        (is (= :some (home-render* f)) "Your Feed renders its own articles")
+        (is (= ["followed-article"] (home-slugs* f))))))
+  (testing "a departed FAILURE landing first does not strand the machine in :error"
+    (with-held-comment-fx :realworld.test/home-feed-fail-first
+      (fn [f lowered]
+        (walk-home! f "/?feed=following" "/")
+        (settle-fail! f (:on-failure (last-req-by-id @lowered :feed/load)))
+        (is (not= :error (:data (home-state* f))) "the departed failure is refused")
+        (settle-ok! f (:on-success (last-req-by-id @lowered :articles/load))
+                    (articles-of "hello-conduit"))
+        (is (= :some (home-render* f)) "the current reply still settles and renders"))))
+  (testing "a departed reply landing AFTER the current one changes nothing"
+    (with-held-comment-fx :realworld.test/home-feed-late-after
+      (fn [f lowered]
+        (walk-home! f "/?feed=following" "/")
+        (settle-ok! f (:on-success (last-req-by-id @lowered :articles/load))
+                    (articles-of "hello-conduit"))
+        (settle-ok! f (:on-success (last-req-by-id @lowered :feed/load)) (articles-of))
+        (settle-fail! f (:on-failure (last-req-by-id @lowered :feed/load)))
+        (is (= :some (home-render* f)) "the Global Feed is still what renders")
+        (is (= ["hello-conduit"] (home-slugs* f))))))
+  (testing "control: a same-feed page change — the current page's reply renders"
+    (with-held-comment-fx :realworld.test/home-feed-page-change
+      (fn [f lowered]
+        (walk-home! f "/" "/?page=2")
+        (settle-ok! f (:on-success (last-req-by-id @lowered :articles/load))
+                    (articles-of "page-two"))
+        (is (= :some (home-render* f)) "the current page's reply settles the machine")
+        (is (= ["page-two"] (home-slugs* f)) "…and its articles are the ones on screen")))))
+
+(defn- editor-slice* [f] (rf/compute-sub [:editor/slice] (rf/frame-state-value f)))
+(defn- route-id* [f] (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+
+(defn- open-clean-editor!
+  "Open /editor/<slug> and settle its held GET, leaving a clean edit draft."
+  [f lowered slug]
+  (rf/dispatch-sync [:rf.route/handle-url-change (str "/editor/" slug)] {:frame f})
+  (settle-ok! f (:on-success (last-req-by-id @lowered [:editor/load-article slug]))
+              {:article (full-article slug (str "Title " slug))})
+  (is (= slug (:slug (editor-slice* f))) (str "the editor holds " slug))
+  (is (true? (rf/compute-sub [:editor/can-leave?] (rf/frame-state-value f)))
+      "…as a clean draft, so leaving needs no confirmation"))
+
+(defn- editor-delete! [f lowered slug]
+  (rf/dispatch-sync [:editor/delete] {:frame f})
+  (let [del (req-by-method+url @lowered :delete (str "/articles/" slug))]
+    (is (some? del) (str slug "'s DELETE went out and is held"))
+    (is (true? (ed-has-tag? f :editor/busy)) "the editor is busy while it is out")
+    del))
+
+(defn- editor-late-delete-keeps-a-newer-draft-test []
+  (with-held-comment-fx :realworld.test/editor-late-delete-new-draft
+    (fn [f lowered]
+      (open-clean-editor! f lowered "alpha")
+      (let [del (editor-delete! f lowered "alpha")]
+        ;; The reader gives up waiting and starts a new article.
+        (rf/dispatch-sync [:rf.route/handle-url-change "/editor"] {:frame f})
+        (rf/dispatch-sync [:editor/edit-field :title "New unsaved draft"] {:frame f})
+        (settle-ok! f (:on-success del) nil)
+        (is (= :realworld.editor/new (route-id* f))
+            "a LATE delete success does not take the reader home (rf2-gwye.37)")
+        (is (= "New unsaved draft" (get-in (editor-slice* f) [:draft :title]))
+            "…and does not wipe the new draft they are typing")
+        (is (false? (ed-has-tag? f :editor/busy))
+            "…and the new session's controls stay usable")))))
+
+(defn- editor-late-delete-after-a-profile-detour-test []
+  (with-held-comment-fx :realworld.test/editor-late-delete-profile
+    (fn [f lowered]
+      (open-clean-editor! f lowered "alpha")
+      (let [del (editor-delete! f lowered "alpha")]
+        (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
+        (settle-ok! f (:on-success del) nil)
+        (is (= :realworld.profile/show (route-id* f))
+            "a LATE delete success does not yank the reader off the profile they chose")
+        (is (= {:username "eve"} (route-params* f)) "…their own route stands")
+        ;; The strand control: the refused settle never reset the machine, so
+        ;; the next editing session has to start clean on its own.
+        (open-clean-editor! f lowered "beta")
+        (is (false? (ed-has-tag? f :editor/busy))
+            "a new editing session is not left busy by the departed delete")
+        (is (true? (ed-has-tag? f :lifecycle/idle)) "…its own load settled it to :idle")))))
+
+(defn- editor-late-failure-and-save-are-refused-test []
+  (testing "a departed DELETE's failure does not banner a newer editor"
+    (with-held-comment-fx :realworld.test/editor-late-delete-fail
+      (fn [f lowered]
+        (open-clean-editor! f lowered "alpha")
+        (let [del (editor-delete! f lowered "alpha")]
+          (rf/dispatch-sync [:rf.route/handle-url-change "/editor"] {:frame f})
+          (rf/dispatch-sync [:editor/edit-field :title "New unsaved draft"] {:frame f})
+          (settle-fail! f (:on-failure del))
+          (is (nil? (:submit-error (editor-slice* f)))
+              "alpha's late DELETE failure does not banner the new draft's form")
+          (is (true? (ed-has-tag? f :lifecycle/idle)) "…nor move its lifecycle")
+          (is (= "New unsaved draft" (get-in (editor-slice* f) [:draft :title])))))))
+  (testing "a departed SAVE's success neither re-seeds the editor nor navigates"
+    (with-held-comment-fx :realworld.test/editor-late-save
+      (fn [f lowered]
+        (open-clean-editor! f lowered "alpha")
+        (rf/dispatch-sync [:editor/edit-field :title "Alpha, edited"] {:frame f})
+        (rf/dispatch-sync [:editor/submit] {:frame f})
+        (let [put (req-by-method+url @lowered :put "/articles/alpha")]
+          (is (some? put) "alpha's PUT went out and is held")
+          ;; The draft is still dirty while the save is out, so leaving asks
+          ;; first; the reader confirms, as the shell's dialog would.
+          (rf/dispatch-sync [:rf.route/navigate {:to :realworld.profile/show
+                                                 :params {:username "eve"}}]
+                            {:frame f})
+          (let [pending (rf/compute-sub [:rf/pending-navigation] (rf/frame-state-value f))]
+            (is (some? pending) "the dirty draft's :can-leave guard held the navigation")
+            (rf/dispatch-sync [:rf.route/continue (:id pending)] {:frame f}))
+          (is (= :realworld.profile/show (route-id* f)) "the reader confirmed and left")
+          (settle-ok! f (:on-success put) {:article (full-article "alpha" "Alpha, edited")})
+          (is (= :realworld.profile/show (route-id* f))
+              "a LATE save success does not drag the reader to the article (rf2-gwye.37)")
+          (is (= {:username "eve"} (route-params* f)) "…their own route stands"))))))
+
+(defn- editor-current-owner-settles-still-land-test []
+  (testing "on the issuing page a DELETE failure still banners and frees the form"
+    (with-held-comment-fx :realworld.test/editor-current-delete-fail
+      (fn [f lowered]
+        (open-clean-editor! f lowered "alpha")
+        (settle-fail! f (:on-failure (editor-delete! f lowered "alpha")))
+        (is (some? (:submit-error (editor-slice* f))) "the failure is surfaced on the form")
+        (is (false? (ed-has-tag? f :editor/busy)) "…and the form is usable again"))))
+  (testing "on the issuing page a held DELETE success still blanks the editor and goes home"
+    (with-held-comment-fx :realworld.test/editor-current-delete-ok
+      (fn [f lowered]
+        (open-clean-editor! f lowered "alpha")
+        (settle-ok! f (:on-success (editor-delete! f lowered "alpha")) nil)
+        (is (= :realworld/home (route-id* f)) "the gate is not vacuous — the delete goes home")
+        (is (nil? (:slug (editor-slice* f))) "…with the editor blanked"))))
+  (testing "on the issuing page a held SAVE success still opens the saved article"
+    (with-held-comment-fx :realworld.test/editor-current-save-ok
+      (fn [f lowered]
+        (open-clean-editor! f lowered "alpha")
+        (rf/dispatch-sync [:editor/edit-field :title "Alpha, edited"] {:frame f})
+        (rf/dispatch-sync [:editor/submit] {:frame f})
+        (settle-ok! f (:on-success (req-by-method+url @lowered :put "/articles/alpha"))
+                    {:article (full-article "alpha" "Alpha, edited")})
+        (is (= :realworld.article/show (route-id* f)) "the save opens the saved article")
+        (is (= {:slug "alpha"} (route-params* f)))))))
+
+(deftest realworld-comment-feed-and-editor-ownership
+  (testing "the optimistic comment passes the PRODUCTION app schemas: one card, one
+            POST, then the server's id; a failure removes the card and frees the form
+            (rf2-gwye.33)"
+    (comment-optimistic-card-under-app-schemas-test))
+  (testing "the wire Comment stays strict; only the durable shape admits a temp id"
+    (comment-wire-schema-stays-strict-test))
+  (testing "a departed home-feed reply cannot settle the machine for the current
+            feed, in either direction (rf2-gwye.34)"
+    (home-feed-departed-reply-is-refused-test))
+  (testing "a late editor DELETE keeps the newer draft and its route (rf2-gwye.37)"
+    (editor-late-delete-keeps-a-newer-draft-test))
+  (testing "a late editor DELETE leaves a profile detour alone, and the next session
+            is not left busy"
+    (editor-late-delete-after-a-profile-detour-test))
+  (testing "a departed failure or save cannot reach a newer page"
+    (editor-late-failure-and-save-are-refused-test))
+  (testing "on the issuing page, save and delete settles still land"
+    (editor-current-owner-settles-still-land-test)))
 
 ;; ============================================================================
 ;; http — failure->message + pure pagination/query helpers

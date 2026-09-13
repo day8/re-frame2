@@ -209,7 +209,23 @@
 ;; read. The reply comes back as a full Profile, so `:populates` can seed the
 ;; banner right away rather than waiting for the refetch. The profile read is
 ;; viewer-scoped (its `:following` is relative to the acting viewer), so both the
-;; populate target and the invalidation descriptor name `{:from-db :realworld/viewer}`.
+;; populate target and the profile descriptor name `{:from-db :realworld/viewer}`.
+;;
+;; It ALSO changes who is in the acting user's Your Feed — that feed is exactly
+;; the articles of the authors they follow — so both writes stale the session
+;; `[:feed]` too, the same cross-scope reach favorite/unfavorite already have.
+;; Without it a feed visited within its freshness window is a cache-hit on
+;; re-entry, and still shows the old membership after the follow succeeded.
+
+(defn- follow-invalidates
+  "Invalidation targets for a follow / unfollow of `username`: the acting
+   viewer's `[:profile username]` read, and the session `[:feed]` whose
+   membership the follow set decides."
+  [username]
+  [{:scope {:from-db :realworld/viewer}
+    :tags  #{[:profile username]}}
+   {:scope {:from-db :realworld/session}
+    :tags  #{[:feed]}}])
 
 (rf/reg-mutation :realworld/follow
   {:doc           "Follow a user. POST /profiles/:username/follow."
@@ -219,8 +235,7 @@
    ;; flips immediately, on the acting viewer's own profile entry.
    :populates     (fn [{:keys [username]} result]
                     {{:resource :realworld/profile :params {:username username} :scope {:from-db :realworld/viewer}} result})
-   :invalidates   (fn [{:keys [username]} _result]
-                    [{:scope {:from-db :realworld/viewer} :tags #{[:profile username]}}])}
+   :invalidates   (fn [{:keys [username]} _result] (follow-invalidates username))}
   (fn [{:keys [username]} _ctx]
     {:request {:method :post :url (rh/full-url (str "/profiles/" username "/follow"))}
      :decode  schema/ProfileResponse}))
@@ -230,8 +245,7 @@
    :params-schema [:map [:username :string]]
    :populates     (fn [{:keys [username]} result]
                     {{:resource :realworld/profile :params {:username username} :scope {:from-db :realworld/viewer}} result})
-   :invalidates   (fn [{:keys [username]} _result]
-                    [{:scope {:from-db :realworld/viewer} :tags #{[:profile username]}}])}
+   :invalidates   (fn [{:keys [username]} _result] (follow-invalidates username))}
   (fn [{:keys [username]} _ctx]
     {:request {:method :delete :url (rh/full-url (str "/profiles/" username "/follow"))}
      :decode  schema/ProfileResponse}))
