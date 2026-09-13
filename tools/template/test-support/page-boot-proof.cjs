@@ -253,6 +253,13 @@ function diagnose(lines) {
             val.textContent.trim().length > 0
           );
         },
+        // `waitForFunction(pageFunction, arg, options)` — the ARG slot is
+        // second and the options third, so an options object passed second is
+        // serialised into the page as an argument the callback never reads,
+        // options stays empty, and the wait silently takes Playwright's
+        // 30-second default instead of the configured budget. Nothing errors;
+        // a page that mounts late just passes.
+        undefined,
         { timeout: TIMEOUT_MS },
       );
     } catch (waitErr) {
@@ -294,6 +301,7 @@ function diagnose(lines) {
     await page.click('#app button');
     await page.waitForFunction(
       () => (document.querySelector('#app span').textContent || '').trim() === '1',
+      undefined, // the ARG slot — see the mount wait above.
       { timeout: TIMEOUT_MS },
     );
 

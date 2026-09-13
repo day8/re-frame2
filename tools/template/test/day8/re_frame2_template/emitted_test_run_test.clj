@@ -720,6 +720,132 @@
           (when (and @clojure-cli-available? @node-available?)
             (compile-and-run-emitted-test! :uix {}))))))
 
+;; ---------------------------------------------------------------------------
+;; The driver's own timeout contract
+;; ---------------------------------------------------------------------------
+;;
+;; Every proof above hands the driver a deadline, and
+;; `run-broken-boot-witness!` hands it a deliberately SHORT one so its
+;; intentional failure is cheap. That only works if the driver honours it.
+;;
+;; Playwright's signature is `waitForFunction(pageFunction, arg, options)`, so
+;; a `{timeout}` object passed SECOND is serialised into the page as an
+;; argument the callback never reads, `options` stays empty, and the wait
+;; takes the library's 30-second default. Nothing errors and nothing is
+;; logged: a page that mounts or reacts late simply passes, and the witnesses
+;; above burn 30 s apiece where they asked for 8. `page.goto` takes its
+;; options correctly, which is what made the variable look partly effective.
+;;
+;; The fixtures below are hand-written HTML rather than an emitted scaffold:
+;; what is under test is the DRIVER, so the page has to be able to fail on
+;; demand, which a healthy generated page cannot. Each defines the two globals
+;; the dev-mode bundle check reads (tooth 3) so the run reaches the wait under
+;; test rather than tripping over the shape check.
+
+(def ^:private timeout-fixture-budget-ms
+  "The configured budget the two failing fixtures are run under. Its exact
+  value is the ASSERTION — the driver's failure must name this number and not
+  Playwright's default — so it is deliberately nothing like 30000."
+  1000)
+
+(defn ^:private timeout-fixture-page
+  "A whole `index.html` for one fixture. `body` is the `#app` subtree and
+  `script` whatever behaviour the case needs beyond the bundle-shape globals."
+  [title body script]
+  (str "<meta charset=\"utf-8\">\n"
+       "<title>" title "</title>\n"
+       "<div id=\"app\">" body "</div>\n"
+       "<script>window.goog = {}; window.cljs = {};\n" script "</script>\n"))
+
+(def ^:private timeout-fixtures
+  "One entry per wait the driver makes. `:expect-timeout?` false is the
+  control: the same short budget must still let a responsive page pass, or
+  `exit 1` would prove nothing but that 1000 ms is too little for anything."
+  [{:name            "never-mounts"
+    :wait            "the MOUNT wait"
+    :expect-timeout? true
+    :page            (timeout-fixture-page "never-mounts" "" "")}
+   {:name            "dead-click"
+    :wait            "the CLICK wait"
+    :expect-timeout? true
+    :page            (timeout-fixture-page
+                       "dead-click"
+                       "<h1>dead click</h1><button>+1</button><span>0</span>"
+                       "")}
+   {:name            "responsive"
+    :wait            "both waits (control)"
+    :expect-timeout? false
+    :page            (timeout-fixture-page
+                       "responsive"
+                       "<h1>responsive</h1><button>+1</button><span>0</span>"
+                       (str "document.querySelector('#app button')"
+                            ".addEventListener('click', function () {\n"
+                            "  document.querySelector('#app span').textContent = '1';\n"
+                            "});\n"))}])
+
+(defn ^:private run-timeout-fixture!
+  "Materialise one fixture as a `resources/public/index.html` and run the real
+  driver over it under `timeout-fixture-budget-ms`. Returns the driver's
+  {:exit :out}."
+  [^java.io.File root {:keys [name page]}]
+  (let [tmp  (tmp-dir (str "rf2-template-proof-timeout-" name "-"))
+        proj (.toFile tmp)]
+    (try
+      (let [public (io/file proj "resources/public")]
+        (.mkdirs public)
+        (spit (io/file public "index.html") page)
+        (run-boot-proof-driver!
+          root proj name :dev
+          {"RF2_TEMPLATE_BROWSER_PROOF_TIMEOUT_MS" (str timeout-fixture-budget-ms)}))
+      (finally (delete-recursively tmp)))))
+
+(deftest boot-proof-honours-the-configured-timeout-test
+  (testing "RF2_TEMPLATE_BROWSER_PROOF_TIMEOUT_MS governs the driver's mount
+            and click waits, not merely its page load"
+    (if-not @emitted-tests-enabled?
+      (skip-if-disabled! "the boot proof's own timeout contract")
+      (if-not @node-available?
+        (do (announce-browser-skip! "the boot proof's timeout contract"
+                                    "`node` is not on PATH")
+            (is true "`node` unavailable — skipping the driver timeout contract"))
+        (doseq [{:keys [name wait expect-timeout?] :as fixture} timeout-fixtures]
+          (testing (str name " — " wait)
+            (let [{:keys [exit out]} (run-timeout-fixture! (repo-root) fixture)
+                  budget-named       (str "Timeout " timeout-fixture-budget-ms "ms exceeded")]
+              (cond
+                (and (= 2 exit) (not @browser-proofs-required?))
+                (do (announce-browser-skip! (str "driver timeout contract — " name) out)
+                    (is true (str "Chromium unavailable — " name " did not run")))
+
+                (= 2 exit)
+                (is false
+                    (str "the driver timeout contract did NOT run for " name
+                         ": Chromium was not launchable and `CI` is set. Output:\n" out))
+
+                expect-timeout?
+                (do (is (= 1 exit)
+                        (str name " must FAIL: " wait " can never be satisfied on this "
+                             "page. Output:\n" out))
+                    ;; The verdict, and the whole point. An exit 1 alone is
+                    ;; earned either way — with the options object in the arg
+                    ;; slot the driver still fails, 30 seconds later, naming
+                    ;; Playwright's default. It is the NUMBER that says whose
+                    ;; deadline was in force.
+                    (is (string/includes? out budget-named)
+                        (str "the driver must name the CONFIGURED budget ("
+                             budget-named "). Naming 30000ms instead means the "
+                             "timeout reached Playwright as a page ARGUMENT "
+                             "rather than as an option, and every wait in this "
+                             "file is running unbounded by the value it asked "
+                             "for. Output:\n" out)))
+
+                :else
+                (is (zero? exit)
+                    (str "CONTROL — a page that mounts and reacts immediately must "
+                         "still PASS under the same short budget, or the two "
+                         "verdicts above prove only that " timeout-fixture-budget-ms
+                         "ms is too little for any page. Output:\n" out))))))))))
+
 ;; ===========================================================================
 ;; The setup skill's default scaffold — derivation lock + black-box fixture
 ;; ===========================================================================
