@@ -12,7 +12,7 @@ The prompt mentions: a form, validation, "show errors after submit", inline fiel
 
 ## The re-frame2 features this pattern uses
 
-- **`reg-app-schema`** for the slice path; **plus** a separate schema for the form's *value* (what the form collects, e.g. `LoginForm`). Two schemas: one for the slice container, one for the draft's shape. Both are **dev-build assertions** — elided from production — so they catch a malformed write while you develop but do not validate user input in the deployed bundle. That job belongs to `:form.feature/submit`'s own validation pass below, which runs unconditionally and is what fills `:errors`.
+- **`reg-app-schema`** for the slice path; **plus** a separate **structural** schema for the draft's shape. Both are **dev-build assertions** — elided from production — so they catch a malformed write while you develop but do not validate user input in the deployed bundle. **The schema you register at the `:draft` path is NOT the schema you submit against** — see the two-schema rule below; the submission schema is never registered anywhere, it is the argument to `:form.feature/submit`'s own validation pass, which runs unconditionally and is what fills `:errors`.
 - **`reg-event :form.feature/initialise`** — seed `:draft` with defaults; `:status :idle` (returns `{:db ...}`).
 - **`reg-event :form.feature/edit-field`** — update `:draft`; add the field to `:touched` (returns `{:db ...}`).
 - **`reg-event :form.feature/blur-field`** — add to `:touched` (if not already); run per-field validation (returns `{:db ...}`).
@@ -83,12 +83,24 @@ The dominant shape. Lifted from `spec/Pattern-Forms.md`; the mirrors are under �
    [:touched           {:default #{}}   [:set :keyword]]
    [:submit-error      {:default nil}   [:maybe :any]]])
 
+;; TWO schemas for the draft, and they are NOT interchangeable.
+;;
+;; LoginDraft is STRUCTURAL — what the :draft slot may legally hold at any
+;; instant of editing. Blank, half-typed and the deliberately-cleared secret
+;; are all legal app-db states, so every field is permissive. This is the one
+;; that gets registered.
+(def LoginDraft
+  [:map [:email :string] [:password [:maybe :string]]])
+
+;; LoginForm is the SUBMISSION schema — what a valid submission looks like.
+;; It is registered at NO path. It is the argument to validate-against in the
+;; submit handler below, which runs unconditionally, production included.
 (def LoginForm
   [:map [:email [:re #".+@.+"]] [:password [:string {:min 8}]]])
 
-(rf/reg-app-schema [:auth :login] FormSlice)              ;; dev-only
-(rf/reg-app-schema [:auth :login :draft] LoginForm)       ;; dev-only — the always-on
-                                                         ;; check is validate-against below
+(rf/reg-app-schema [:auth :login]        FormSlice)   ;; dev-only — slice container
+(rf/reg-app-schema [:auth :login :draft] LoginDraft)  ;; dev-only — STRUCTURAL.
+                                                      ;; NEVER LoginForm here.
 
 (rf/reg-event :form.login/submit
   (fn [{:keys [db]} _]
@@ -123,6 +135,20 @@ The dominant shape. Lifted from `spec/Pattern-Forms.md`; the mirrors are under �
   (fn [[{:keys [draft submitted]}] _]
     (not= draft (or submitted login-form-defaults))))
 ```
+
+### The two-schema rule — structural at the path, strict at the submit
+
+**Registering the submission schema at the `:draft` path breaks the form.** `reg-app-schema` is not a warning: a candidate that fails it is **rejected whole** — the `:db` *and* the `:fx` of the event that produced it, rolled back with a `:rf.error/schema-validation-failure` trace. So a strict `LoginForm` at `[:auth :login :draft]` means the blank first render cannot initialise, a half-typed email cannot commit, and — worst — the secret-clearing discipline above (`assoc-in [:draft :password] nil`) rolls its own submit back, leaving the password in `app-db`, the status `:idle`, and **no request fired**. And because the check is elided from production, the form behaves *differently by build mode*: dead in dev, working-but-unvalidated in release.
+
+Which schema covers which phase:
+
+| Phase | Schema | Where it runs |
+|---|---|---|
+| Any instant of editing — blank, partial, cleared secret | `LoginDraft` (structural: `:string`, `[:maybe :string]`) | `reg-app-schema` at `[… :draft]` — **dev-only** |
+| The slice's own shape (7 keys) | `FormSlice` | `reg-app-schema` at `[… ]` — **dev-only** |
+| Deciding whether *this* submission may go | `LoginForm` (strict) | `validate-against` inside the submit handler — **always on** |
+
+The strict schema loses nothing by not being registered: it is the one that fills `:errors` and gates the request, and it is the only one of the three that runs in the deployed bundle.
 
 ## Canonical declaration — `:form-region` machine form
 

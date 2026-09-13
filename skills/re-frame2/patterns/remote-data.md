@@ -15,7 +15,7 @@ The prompt mentions: fetching data from a server, an HTTP request lifecycle, a l
 The pattern composes:
 
 - **`reg-app-schema`** — schema-binds the slice path, so a write that breaks the slice's shape is caught while you develop (per cardinal rule 4 — schemas at boundaries, not everywhere). It is a **dev-build assertion**, elided from production, which is enough for the slice *container*. The reply landing in `:data` is a different question: that value arrives from a server, and if it has to be validated in the deployed bundle the gate is Managed HTTP's `:decode` on the request, or `:boundary? true` on the `:feature/loaded` registration. See [`../references/fundamentals/schemas.md`](../references/fundamentals/schemas.md).
-- **`reg-event` for `:feature/load`** — dispatches the HTTP effect; picks `:loading` vs `:fetching` based on whether prior `:data` exists; bumps `:attempt`.
+- **`reg-event` for `:feature/load`** — seeds the whole 5-key slice if it is absent (a partial write from `{}` is rejected by the slice schema, taking the request with it), picks `:loading` vs `:fetching` based on whether prior `:data` exists, and bumps `:attempt`.
 - **`reg-event` for `:feature/loaded`** — folds the success reply into the slice and stamps a durable `:loaded-at` from the causal clock (declare `:rf.cofx/requires [:rf/time-ms]`, EP-0017), so it declares and reads the recorded time — not a host-clock read. **`reg-event` for `:feature/load-failed`** — folds the failure; **prior `:data` is kept**, only `:status` and `:error` change (a db-only handler that just returns `{:db ...}`).
 - **`:rf.http/managed` fx** (or the host's HTTP fx) — issues the request; its `:on-success` and `:on-failure` are pure routing sugar that dispatch the lifecycle events. The reply each delivers **is the canonical EP-0011 reply envelope** verbatim (one dialect, no reshape): `{:status :ok :value v …}` / `{:status :error :error m …}` / `{:status :cancelled :error m …}` (see managed-http.md). Read `:value` on `:ok`, the classified `:rf.http/*` map from `:error` on failure.
 - **Layered subs `:feature/status`, `:feature/data`, `:feature/loading?`, `:feature/fetching?`** — convenience subs over the slice. `:loading?` means truly empty + in-flight; `:fetching?` means any in-flight (covers both `:loading` and `:fetching`).
@@ -38,16 +38,28 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
 
 (rf/reg-app-schema [:articles] RequestSlice)
 
+;; The complete slice, written once and reused by :load and :reset. A schema's
+;; `:default` props are validation hints, NOT an app-db seed — nothing
+;; materialises them — so the slice has to be written in full by somebody.
+(def request-slice-init
+  {:status :idle :data nil :error nil :loaded-at nil :attempt 0})
+
 (rf/reg-event :articles/load
   (fn [{:keys [db]} _]
-    ;; First load runs against an EMPTY db — reg-app-schema validates app-db, it
-    ;; does NOT materialise schema :default values into it, so (:attempt) is nil
-    ;; on the first dispatch. Use (fnil inc 0), never bare inc, or it throws.
-    (let [has-data? (some? (get-in db [:articles :data]))]
-      {:db (-> db
-               (assoc-in  [:articles :status] (if has-data? :fetching :loading))
-               (assoc-in  [:articles :error]  nil)
-               (update-in [:articles :attempt] (fnil inc 0)))
+    ;; First load runs against an EMPTY db, so MERGE the full slice under
+    ;; whatever is already there. Touching only :status / :error / :attempt
+    ;; would leave :data and :loaded-at absent, and reg-app-schema rejects the
+    ;; candidate WHOLE — :db and :fx together — so the request would never
+    ;; fire. Merging also makes revalidation free: prior :data and :loaded-at
+    ;; survive, and `inc` is safe without (fnil inc 0) because :attempt is
+    ;; always seeded.
+    (let [slice     (merge request-slice-init (get db :articles))
+          has-data? (some? (:data slice))]
+      {:db (assoc db :articles
+                  (-> slice
+                      (assoc  :status (if has-data? :fetching :loading))
+                      (assoc  :error  nil)
+                      (update :attempt inc)))
        :fx [[:rf.http/managed
              {:request    {:method :get :url "/api/articles"}
               :on-success [:articles/loaded]
@@ -81,12 +93,12 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
              (assoc-in [:articles :status] :error)
              (assoc-in [:articles :error]  error))}))
 
-;; The fourth lifecycle event: seed (or re-seed) the whole slice explicitly.
-;; This is the supported way to initialise the slice — :default schema props
-;; are validation hints, not an app-db seed, so the slice must be written.
+;; The fourth lifecycle event: re-seed the whole slice explicitly (logout,
+;; route teardown, "start again"). :load seeds it too, so this is not a
+;; precondition of the first fetch — it is how you throw the slice away.
 (rf/reg-event :articles/reset
   (fn [{:keys [db]} _]
-    {:db (assoc db :articles {:status :idle :data nil :error nil :loaded-at nil :attempt 0})}))
+    {:db (assoc db :articles request-slice-init)}))
 
 (rf/reg-sub :articles            (fn [db _] (get db :articles)))
 ;; computation fn is (fn [input query-v] value) — a bare keyword in fn position
