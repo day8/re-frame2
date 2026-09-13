@@ -679,6 +679,19 @@
       :else
       (let [[resolved-ms reaction] (resolve-delay-ms frame-id delay-key snapshot)]
         (cond
+          ;; rf2-gwye.21 — delay resolution is itself callback-bearing: a
+          ;; fn-form delay reading a sub through `compute-sub` emits a
+          ;; synchronous `:rf.sub/run`, and a subscription-vector delay
+          ;; subscribes and derefs. A listener there can destroy A and publish
+          ;; same-id B, which may arm its own timer at this very key. Recheck
+          ;; the SAME predicate captured above (a fresh capture would name B)
+          ;; before touching the table. On loss, stop: no reservation over B's
+          ;; slot, and no bare-id `unsubscribe`, which would decrement a ref B
+          ;; holds — A's own sub-cache went with A (see the post-emit abort
+          ;; below for the same rule).
+          (owner-gone?)
+          nil
+
           (or (not (number? resolved-ms))
               (not (pos? resolved-ms)))
           ;; Bad delay resolution — emit advisory and skip.

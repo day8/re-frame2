@@ -231,11 +231,13 @@
   ride the exact owner token, and the timer cancel threads the same gate. For a
   genuinely eventless caller (`eventless-fence`) `owner-gone?` never fires and
   the token is nil — the tail runs exactly as it historically did."
-  [frame-id actor-id teardown-args emit-destroyed!-fn {:keys [owner-gone? owner-token]}]
+  [frame-id actor-id teardown-args emit-destroyed!-fn {:keys [owner-gone? owner-token] :as fence}]
   ;; (1) run the active configuration's `:exit` cascade — its `:exit` actions
   ;; are authored callbacks that may destroy A. An already-entered callback
-  ;; stands; recheck before every subsequent framework action.
-  (rf.machines.lifecycle-fx.exit-cascade/run-child-exit! frame-id actor-id)
+  ;; stands; recheck before every subsequent framework action. rf2-fzbj.1 — the
+  ;; helper takes the same `fence`, so its own post-exit snapshot write and
+  ;; nested exit-effect walk stop at A's loss instead of landing in B.
+  (rf.machines.lifecycle-fx.exit-cascade/run-child-exit! frame-id actor-id fence)
   ;; (2) abort in-flight HTTP — the late-bound `:http/abort-on-actor-destroy`
   ;; hook is callback-bearing. rf2-wjfm — frame-exact: an actor address is
   ;; frame-LOCAL, so the destroying frame is threaded through and a same-named
