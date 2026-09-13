@@ -39,25 +39,37 @@ Schema (CLJS reference):
    [:submit-error      {:default nil}   [:maybe :any]]])
 ```
 
-The form's *value schema* is separate from the slice schema — it describes the shape the form is collecting:
+The form's *value schema* is separate from the slice schema — it describes the shape the form is collecting, and it comes as **two** schemas that are not interchangeable:
 
 ```clojure
+;; STRUCTURAL — what :draft may legally hold at ANY instant of editing. The
+;; blank first render, a half-typed email and a cleared field are all legal
+;; app-db states, so every value is permissive. This is the one registered.
+(def LoginDraft
+  [:map
+   [:email    :string]
+   [:password [:maybe :string]]])
+
+;; The SUBMISSION schema — what a valid submission looks like. Registered at
+;; NO path: it is the argument to validate-against in :form.login/submit below.
 (def LoginForm
   [:map
    [:email    [:re #".+@.+"]]
    [:password [:string {:min 8}]]])
 ```
 
-Both are registered:
+Two are registered, and `LoginForm` is not one of them:
 
 ```clojure
 (rf/reg-app-schema [:auth :login]              FormSlice)
-(rf/reg-app-schema [:auth :login :draft]       LoginForm)            ;; or via the slice's :draft path
+(rf/reg-app-schema [:auth :login :draft]       LoginDraft)           ;; STRUCTURAL — never LoginForm
 ```
 
 In a typed host, both are types: `LoginFormSlice` wraps `FormSlice` parameterised by a `LoginFormDraft` shape.
 
-These registrations are a **development tripwire**, not the form's validation. `reg-app-schema` checks are elided from production builds ([010 §Production builds](010-Schemas.md#production-builds)), so `LoginForm` will catch a malformed draft while you are developing and catch nothing in a release build. The user-facing validation that decides whether the submit button is enabled, and the server-side check that decides whether a submission is accepted, are both ordinary handler code — see [Pattern-FormAction §Validation is the handler's job](Pattern-FormAction.md#validation-is-the-handlers-job) for the server half.
+**Never register the submission schema at the `:draft` path.** An app schema does not warn: a failing candidate rejects the whole event transition, `:db` and `:fx` alike ([010 §Validation order on event processing](010-Schemas.md#validation-order-on-event-processing)). With `LoginForm` there, `:form.login/initialise` cannot seed its own `login-form-defaults` — an empty email fails the regex — and no half-typed edit commits. The strict schema belongs where it can decide something: the submit handler's `validate-against`, which runs in every build.
+
+These registrations are a **development tripwire**, not the form's validation. `reg-app-schema` checks are elided from production builds ([010 §Production builds](010-Schemas.md#production-builds)), so `LoginDraft` will catch a malformed draft while you are developing and catch nothing in a release build. The user-facing validation that decides whether the submit button is enabled, and the server-side check that decides whether a submission is accepted, are both ordinary handler code — see [Pattern-FormAction §Validation is the handler's job](Pattern-FormAction.md#validation-is-the-handlers-job) for the server half.
 
 ## Canonical rules
 
