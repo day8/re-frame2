@@ -1918,13 +1918,23 @@
 
 (defn- subscribe-once-in-frame
   "INTERNAL worker for `subscribe-once`. `target` may be a frame-id
-  keyword or a live frame value; `subscribe-in-frame` / `unsubscribe` each
-  normalize it to its runnable-id ADDRESS, so subscribe-then-unsubscribe
-  here target the same frame for every supported spelling."
+  keyword or a live frame value; `subscribe-in-frame` /
+  `unsubscribe-if-reaction` each normalize it to its runnable-id ADDRESS, so
+  subscribe-then-release here target the same frame for every supported
+  spelling.
+
+  The release is IDENTITY-GUARDED (rf2-gwye.3): it returns the reference this
+  read took on `reaction`, never whatever sits at the address once the deref
+  returns. On the JVM an eviction (`clear-sub-cache!`, hot reload, a
+  generation change) can land mid-deref and another consumer can rebuild the
+  slot; the eviction already took this read's reference, so an address-only
+  release would decrement, and dispose, the successor under its owner. A nil
+  `reaction` (missing-frame recovery) acquired nothing and releases nothing."
   [target query-v]
   (let [reaction (subscribe-in-frame target query-v)
         v        (when reaction @reaction)]
-    (unsubscribe target query-v)
+    (when reaction
+      (unsubscribe-if-reaction target query-v reaction))
     v))
 
 (defn subscribe-once
@@ -2515,8 +2525,9 @@
   still holds `reaction`**, then take the ordinary 1 → 0 in-tick disposal.
 
   Not public API and not an alternative teardown: it exists for holders
-  whose reference can outlive its slot. Two of the three are the React-hook
-  spine's; the third is this namespace's own layer-2+ input release
+  whose reference can outlive its slot. Two of the four are the React-hook
+  spine's; `subscribe-once`'s release is another (rf2-gwye.3: an eviction can
+  land while it derefs); the fourth is this namespace's own layer-2+ input release
   (`release-input-ref!`, rf2-1frc), which outlives its slot for the same
   reason case 2 does — an eviction batch is removed from the cache before it
   is disposed, so an eagerly reacquiring holder can repopulate a slot mid-walk
