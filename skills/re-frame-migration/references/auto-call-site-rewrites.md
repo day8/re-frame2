@@ -49,6 +49,7 @@ This is the **single, canonical allowlist** of `re-frame.*` namespaces the M-1 s
 - **The per-feature artefact namespaces** `re-frame.<feature>` you require *only when the feature is in use* (M-27..M-33): `re-frame.schemas`, `re-frame.machines`, `re-frame.routing`, `re-frame.flows`, `re-frame.http.managed`, `re-frame.ssr`, `re-frame.epoch`, and the test-side `re-frame.test-support` / `re-frame.http.test-support`.
 - **`re-frame.interop`** (JVM interop) — explicitly preserved (see [`breaking-changes.md` §What stays the same](breaking-changes.md#what-stays-the-same-do-not-change)). Not off-contract; leave it.
 - **`re-frame.spec`** — the namespace is **NOT renamed**; its alias is preserved for back-compat. M-54 renames the `:spec` metadata *key* to `:schema` — it does **not** touch the `re-frame.spec` *namespace* (see [`auto-cross-cutting.md` §M-54](auto-cross-cutting.md#m-54--schema-vocabulary-unification-spec--schema) / [`MIGRATION.md` §M-54](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema)). Leave the require in place; boundary validation is opted into with `:boundary? true` on the registration, never by rewriting the require away.
+- **The v2-only public namespaces** — `re-frame.resources` (declarative server-state; the re-frame-query conversion lands here), `re-frame.fresco` (the re-frame-native view layer the reagent-migration hand-off targets), `re-frame.story` (Story), and the test-side `re-frame.test-helpers` (view-assertion helpers, a documented public exception in `spec/API.md`). Each has manifest rows, and a migration routes *into* the first two — flagging them would have M-1 delete a live import.
 
 **`re-frame.std-interceptors` is NOT on the surface** — it is off-contract, and its v1 helpers (`unwrap` / `debug` / `trim-v` / `on-changes` / `enrich` / `after`) are removed under M-21, so a require of it is itself an M-1 site and each helper call site is an M-21 / M-19 / M-70 rewrite.
 
@@ -64,11 +65,12 @@ Everything else under `re-frame.*` is off-contract. `re-frame.alpha` is **not** 
 # The alternation mirrors "The M-1 public-surface exceptions" list — keep the two
 # in step. `adapter\b` exempts all three published adapters (M-38/M-40 destination);
 # `http\b` covers re-frame.http.managed / .http.test-support (the \b fires at
-# the following dot); `spec\b` exempts the preserved re-frame.spec (M-54). Private
-# re-frame.db / .utils / .router / .subs / .registrar / .loggers are NOT listed, so
-# they survive and ARE flagged.
+# the following dot); `spec\b` exempts the preserved re-frame.spec (M-54);
+# `resources|fresco|story|test-helpers` exempt the v2-only public namespaces.
+# Private re-frame.db / .utils / .router / .subs / .registrar / .loggers are NOT
+# listed, so they survive and ARE flagged.
 rg -n '\[\s*re-frame\.[a-z-]+' . \
-  | rg -v '\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|http|ssr|epoch|test-support|spec)\b'
+  | rg -v '\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|http|ssr|epoch|resources|fresco|story|test-support|test-helpers|spec)\b'
 ```
 
 (**Do not** reach for an inline negative-lookahead — `rg -n '\[\s*re-frame\.(?!core\b|…)…'` — in the *default* engine: ripgrep's default Rust `regex` engine rejects look-around and exits non-zero *before scanning* with "look-around … is not supported", so the M-1 inventory silently produces nothing and reads as a false-clean sweep. The broad-scan-then-invert-filter form above works on **any** ripgrep build; an equivalent single-command form needs `rg -P`/`--pcre2`, which only works on a ripgrep compiled with PCRE2. Each surviving hit is an M-1 site: find a public equivalent in `re-frame.core`, or — if none — flag for human review with the call site and what it is doing.)
@@ -409,11 +411,13 @@ The other half of the effect-side sweep: M-8 moves effects *into* `:fx`, M-51 fi
   (fn [_ request] ...))              ;; binary; `m` ignored
 ```
 
-Sweep shape (`rg -U`, because the `fn` sits on the line *after* `reg-fx` — a line-oriented grep misses every hit):
+Sweep shape (`rg -U`, because the `fn` often sits on the line *after* `reg-fx` — a line-oriented grep misses those; the optional newline keeps same-line handlers, and the parameter class admits a destructured `(fn [{:keys [url]}]` — the canonical http-fx v1 shape — while excluding `_`, so an already-rewritten `(fn [_ request]` drops out):
 
 ```bash
-rg -U 'reg-fx[^\n]*\n[^\n]*\(fn \[[a-zA-Z_-]+\]'
+rg -U 'reg-fx[^\n]*\n?[^\n]*\(fn \[[^]\s_][^]]*\]'
 ```
+
+Then cross-check the hit count against `(rf/registrations {:source :store :kind :fx})` at the REPL — every id whose `:ns` is one of the app's namespaces must be a sweep hit or a handler you have confirmed binary — so a zero is a proven zero, not a shape the pattern missed (a `(fn` alone on its own line, say). The sweep also matches a converted handler whose first parameter is named rather than `_` (`(fn [m request]`); skip those.
 
 **This is Type A but SILENT-fail, so grep exhaustively up front — never march the wall.** A unary handler parses and compiles fine; on CLJS there is no arity check, so v2's context-map binds to `args` and the real fx args are **silently dropped**. Details on the failure-visibility axis: [`breaking-changes.md` §Failure-visibility axis](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab); sequencing position is [`sequencing.md`](sequencing.md) row 14a.
 

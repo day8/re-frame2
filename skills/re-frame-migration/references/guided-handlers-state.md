@@ -202,6 +202,8 @@ Present the categorisation per site; confirm with the author; only then apply. F
 | **classic bridge** (stock Reagent 2.x) | `re-frame.adapter.reagent` | `day8/re-frame2-reagent` |
 | **slim rewrite** | `re-frame.adapter.reagent` | `day8/reagent-slim` |
 
+**Pre-publish, the slim row's namespace is different:** the byte-identity above is a property of the *published* `day8/reagent-slim` jar, whose release step renames the adapter namespace, while in the tree the slim adapter is `re-frame.adapter.reagent-slim` — so on M-0's pre-publish `:local/root` / `:git/sha` routes ([`setup.md`](setup.md)) a slim boot line requires `re-frame.adapter.reagent-slim` until the coordinate is repinned to a published `:mvn/version`.
+
 ```clojure
 ;; v1 (both paths) — reagent.dom/render no-ops under React 19 (bridge) / is absent (slim)
 (reagent.dom/render [app] (.getElementById js/document "app"))

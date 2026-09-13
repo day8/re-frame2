@@ -80,7 +80,10 @@ skills/re-frame-migration/
 │   ├── causal-world-inputs.md     # EP-0010 recording rule + EP-0017 reshape (M-72): ambient durable host reads → declared coeffects
 │   ├── runtime-smoke-test.md      # Phase 4: "compiles" isn't done — the live-app-db boot smoke-test loop + done-bar gates
 │   ├── silent-runtime-failures.md # Phase 4: the nine silent-runtime-failure modes as a checklist
+│   ├── issue-filing.md            # Filing an upstream issue against day8/re-frame2
 │   └── output-format.md           # The migration-summary shape
+├── evals/
+│   └── evals.json                 # skill-creator trigger + behavioural eval fixtures
 └── spec/
     ├── design.md                  # Locked design decisions
     ├── inputs.md                  # Canonical inputs the skill leans on
