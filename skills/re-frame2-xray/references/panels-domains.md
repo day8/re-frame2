@@ -57,27 +57,29 @@ Spec: [`021-Dynamic-Panel-Designs.md` §6](https://github.com/day8/re-frame2/blo
 Question: **What did this event do to my routes?** (Display label
 **Routes**.)
 
-A textual route tree with `├─ └─` box-drawing, in two blocks:
+Three stacked sections, top → bottom:
 
-- **Active route tree** (always visible) — each node with one of three
- markers per current state and per-epoch activity:
- - `◉` active this epoch, on the resolved match (the `:to` destination)
- - `◇` registered, traversed (guard phases) this epoch (the `:from`
-   origin)
- - `◀ current` on the current matched route with no activity this epoch
-- **This epoch** — a short dense block: `Phase`, `From`, `To`, `Match`,
- `Events`. The empty state ("No route activity in this epoch.") keeps
- the tree visible above.
+- **Current route** (always visible) — the active route id, its params,
+ and the matched path. Reads a calm caption when the host has no current
+ route.
+- **Navigation this epoch** — `from ──► to` plus the matched params and
+ the outcome. Quiet when the focused event is not a navigation: the empty
+ state reads "No route activity in this epoch." and the sections above and
+ below stay visible.
+- **Route table** (always visible) — the full registered route graph as an
+ indented tree, the current row highlighted, with `from` / `to` overlay
+ glyphs for this epoch's navigation.
 
 Reads the focused cascade's routing trace ops, correlated by dispatch
-id; silent when no routes are registered.
+id; silent (no sections at all) when no routes are registered.
 
 **Open when:** "what route am I on?", "what params resolved?", "did the
-route change this epoch?" To rank an arbitrary URL against every
-registered route, use the Simulate-URL input — promoted in **Static →
-Routes**, where each row's Simulate navigation button also previews what
-a navigation would land (matched params, the `:on-match` event, the route
-slice) without dispatching anything.
+route change this epoch?" **There is no URL input on this tab.** To rank
+an arbitrary URL against every registered route, go to **Static →
+Routes**, which mounts the Simulate-URL input and where each row's
+Simulate navigation button also previews what a navigation would land
+(matched params, the `:on-match` event, the route slice) without
+dispatching anything.
 
 Spec: [`021-Dynamic-Panel-Designs.md` §7](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/021-Dynamic-Panel-Designs.md)
 + [`spec/012-Routing.md`](https://github.com/day8/re-frame2/blob/main/spec/012-Routing.md).
