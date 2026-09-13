@@ -88,12 +88,15 @@ reader work they did not have to do.
 
 Two further honesty obligations ride here:
 
-- **Fresco is PRE-PUBLICATION.** No Maven coordinate, absent from the lockstep
-  array and the release matrix. A project adopts it from source or not at all.
-  The installation page states this itself and resolves the artefact by
-  `:local/root` from a checkout, so there is no coordinate printed there to
-  fail — the honesty obligation is naming the absence, not warning about a bad
-  coordinate. Pre-flight check 3 in `procedure.md` exists for this.
+- **Fresco ships in the same release set as the adapters, so invent no
+  publication gap.** `day8/re-frame2-fresco` is one of the coordinates a `v*`
+  tag publishes — enrolled in `.github/scripts/verify-version-lockstep.sh`'s
+  inventory and the release workflow since rf2-gra70 — at the same VERSION as
+  core and `day8/re-frame2-reagent`. Until a release every artefact resolves
+  from source (`:local/root` or `:git/sha`), Fresco and the Reagent adapter
+  alike, which is the route the installation page shows. The honesty
+  obligation is not to draw the asymmetry "swap to the adapter now, wait for
+  Fresco", which is false. Pre-flight check 3 in `procedure.md` exists for this.
 - **Staying on Reagent is a complete, supported configuration**, never a
   half-migrated one.
 
@@ -165,9 +168,11 @@ class outlived both examples: the shipped guide still restricts key maps to
 map at any event position. Re-derive the examples when citing them; the rule is
 the constant.
 
-**This is now the highest-risk lock in the folder**, because unlike Freehand
-there is no `spec/API.md` roster to check against — Fresco is pre-publication
-and unrostered. The check is reading the source.
+**This is now the highest-risk lock in the folder**, because `spec/API.md`
+carries no Fresco section. The door's names are rostered in
+`spec/api-manifest.edn` (graded by `lint.yml`'s `api-manifest` job), but a
+manifest row names a var, not the call shape a leaf teaches — so the manifest
+plus the door source are the check.
 
 ### L10 — Generic to ANY Reagent consumer app
 
@@ -194,6 +199,7 @@ skills/reagent-migration/
 │   ├── catalog-reject.md          (R-tier — "don't migrate this / stay on Reagent")
 │   ├── procedure.md               (reporter first, then incremental closed-subtree passes; the test kit)
 │   ├── ssr-hydrate.md             (MIG-23's SSR-then-hydrate recipe — severed from catalog-judgment.md under rf2-n87aa; a client-only migration never loads it)
+│   ├── end-state.md               (MIG-24's whole-app adapter question — severed from catalog-mechanical.md under rf2-v0gp; only the final pass loads it)
 │   └── gotchas.md                 (three leftovers/three ids, metadata keys, dialect edges, guide-vs-door)
 ├── evals/
 │   └── evals.json                 (trigger fixtures + behavioural fixtures across the M/D/R tiers)
@@ -213,6 +219,12 @@ the family line ceiling and failed the catalogue test in `skills/README.md`
 §Leaf size discipline: MIG-23's recipe is ~110 self-contained lines that a
 client-only SPA migration — the common case — never reads, yet every D-tier load
 carried it. `SKILL.md` routes to it directly, so the one-level rule holds.
+
+**Eight since rf2-v0gp (2026-09-13).** `end-state.md` was severed from
+`catalog-mechanical.md` on the same test: MIG-24's closing section — what
+follows once no Reagent view remains — is ~80 lines that only the final pass
+needs, yet every M-tier load carried it. `SKILL.md`'s done-checklist routes to
+it directly, and a stub under MIG-24 keeps the rule complete.
 
 ## 5. Where this diverges from `re-frame-migration`
 
@@ -235,6 +247,9 @@ carried it. `SKILL.md` routes to it directly, so the one-level rule holds.
   the view tier, and the shipped codemod is a `[:>]`-dialect reporter/fixer, a
   different population. Revisit only if field use shows the M-tier rewrites are
   applied identically at scale.
-- **OQ3 — what happens to this skill when Fresco publishes?** L2's honesty
-  clauses (pre-publication, adopt-from-source, pre-flight check 3) all change on
-  the day a Maven coordinate exists. Update this folder first, then the skill.
+- **OQ3 — what happens to this skill when Fresco publishes? Resolved.** It
+  fired with rf2-gra70 (2026-08-15), which put Fresco in the release set, and
+  L2 was rewritten to match under rf2-v0gp. A first `v*` tag changes nothing
+  here, because Fresco and the adapters get their coordinates together. What
+  would reopen L2 is the release set changing — Fresco leaving it, or Fresco
+  and the adapters ceasing to ship at one version.

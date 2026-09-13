@@ -241,6 +241,12 @@ does it.
 foreign React component never forces a whole view onto Reagent. The decision is
 *which door*, and it turns on one question: **does this crossing repeat?**
 
+`r/adapt-react-class` is the same crossing in Reagent's older spelling:
+`[(r/adapt-react-class X) props]` becomes `[:> X props]`, which codemod family
+W5 does mechanically, and then takes the decision below. A
+`(def x (r/adapt-react-class X))` used as a head is already a declared,
+repeated crossing — it becomes `(h/defhost x X)`.
+
 - **A one-off crossing → keep `[:> Component …]`.** It is `defhost` with the
   declaration erased: no `:slots`, no `:callbacks` override, no server policy.
   Callbacks are inferred from the spelling on both, so an intent or `h/event`

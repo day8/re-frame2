@@ -12,7 +12,7 @@ re-frame2 ships first-class, actively-supported adapters. `day8/re-frame2-reagen
 
 Rewriting views into Fresco is a separate, optional second step, and it is a rewrite rather than a respelling: views change shape, handlers become data, view-held state leaves the component. 2 facts frame the choice, and the skill states both before it starts:
 
-- Fresco is pre-publication. There is no released Maven coordinate; a project adopts it from source. If yours has no path to that, there is nothing to migrate onto yet.
+- Fresco ships in the same release set as the Reagent adapter, at the same version, so a project resolves it however it already resolves re-frame2 — from source until a release. There is no separate publication gap to wait on.
 - staying on Reagent is a complete, supported configuration — not a half-migrated one. The skill never implies the author should move, because a migration guide that overstates the need costs its reader work they did not have to do.
 
 When to reach for it (narrow): you are already on re-frame2, you know you don't have to do this, and you specifically want Fresco for some views.
@@ -51,7 +51,7 @@ One standing rule governs all of it: emit only what has shipped, and read the do
 
 ## Status
 
-Pre-alpha, and it migrates to a pre-publication view layer with no released Maven coordinate. The skill is authored; it has not been exercised end-to-end against a real Reagent codebase. Its content is grounded against Fresco's shipped source — the public door, the codec, the intent lowering and the slot rule — rather than against the design corpus.
+Pre-alpha, like the view layer it migrates to. The skill is authored; it has not been exercised end-to-end against a real Reagent codebase. Its content is grounded against Fresco's shipped source — the public door, the codec, the intent lowering and the slot rule — rather than against the design corpus.
 
 ## Layout
 
@@ -70,6 +70,7 @@ skills/reagent-migration/
 │   ├── catalog-reject.md      # R-tier — "don't migrate — stay on Reagent"
 │   ├── procedure.md           # report first, then incremental closed-subtree passes
 │   ├── ssr-hydrate.md         # MIG-23's SSR-then-hydrate recipe (client-only work skips it)
+│   ├── end-state.md           # MIG-24's whole-app adapter question (only the final pass reads it)
 │   └── gotchas.md             # the three leftover ids, metadata keys, dialect edges
 ├── evals/
 │   └── evals.json             # trigger fixtures + behavioural fixtures across the M/D/R tiers

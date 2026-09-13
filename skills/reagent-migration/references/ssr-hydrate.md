@@ -118,6 +118,15 @@ different prefix — or none, where the server had one — resolves every genera
 id differently from the bytes it is adopting. A page with one root names none;
 a page with several gives each a distinct prefix.
 
+**Every foreign React crossing is Client-only on the server unless it says
+otherwise.** `:client-only` is `h/defhost`'s default, and a bare `[:> …]` is
+Client-only with no fallback of its own, so each crossing a converted view
+keeps renders its `:fallback` or nothing in the server response and on
+hydration's first pass — where Reagent's `render-to-string` rendered the
+component. Declare `{:server :render}` on a host that is deterministic on the
+server, or give it a `:fallback`; a shadow comparison that is red only inside
+such a region is this policy, not a regression (MIG-09/10).
+
 **Still out of scope:** streaming, React Server Components, islands and
 no-JavaScript progressive enhancement. And a body that reads a clock, a random
 value or a browser global mismatches on either substrate — that is determinism,

@@ -7,18 +7,20 @@
 
 ## 1. Primary input — the shipped Fresco SOURCE
 
-Fresco is **pre-publication and unrostered**: there is no `spec/API.md` section
-and no published API reference to check a verb against. So unlike its
-predecessor, this skill's primary input is the source itself, and reading it is
-the check rather than a polish pass.
+Fresco's door is **rostered in `spec/api-manifest.edn`** (graded by `lint.yml`'s
+`api-manifest` job), but `spec/API.md` carries no Fresco section, so a manifest
+row names a var and nothing there teaches its call shape. The manifest plus the
+door source are the check, and reading the source is the check rather than a
+polish pass.
 
 - **`implementation/fresco/src/re_frame/fresco.cljc`** — the public door, and
   the whole of it. Three macros (`defview`, `event`, `defhost`) and the vars
   (`sub`, `error-boundary`, `reg-state`, `portal`, `route-link`,
-  `as-element`, `as-component`, `mount!`, `hydrate!`, `render!`, `unmount!`).
-  Its docstrings are unusually load-bearing — the four handler shapes, the
-  `defhost` option roster, the `root!` opts and the held-open absences are all
-  stated there.
+  `as-element`, `as-component`, `frame-root`, `frame-provider`,
+  `client-root`, `render!`, `unmount!`) — the fifteen names the manifest
+  rosters. Its docstrings are unusually load-bearing — the four handler
+  shapes, the `defhost` option roster, the `render!` root options and the
+  held-open absences are all stated there.
 - **The `impl/` namespaces beside it**, which is where a *behaviour* is decided:
   - `impl/intent.cljs` — the four `on-*` shapes, the two markers, the two
     reserved heads, the key map and its composition gate, the event-first
@@ -35,7 +37,7 @@ the check rather than a polish pass.
 - **The optional modules** — `forms.cljs`, `motion.cljs`, `overlay.cljs`,
   `native.cljc`, `server.cljs`, `substrate.cljs`. Each names its own public
   surface; `native.cljc` classifies its vars explicitly. `substrate.cljs` is the
-  one MIG-24's end-state section reads: Fresco's own adapter, and the reason
+  one `end-state.md` reads: Fresco's own adapter, and the reason
   the adapter question reopens once no Reagent view is left.
 - **The test kit** — `implementation/fresco/test_kit/src/re_frame/fresco/`
   `test.cljs`, `test/mounted.cljs`, `test/forms.cljs`, `test/runtime.cljs` and
@@ -61,11 +63,14 @@ L2 is the skill's most load-bearing claim, so its sources are named:
   actively-supported view substrate for re-frame2, and the canonical adapter the
   reference test suite runs against".
 - **`CHANGELOG.md`** — `day8/re-frame2-reagent` as "the default browser
-  substrate"; the thirteen published coordinates, which do **not** include
-  Fresco.
-- **`implementation/fresco/deps.edn`** — the pre-publication statement in its
-  own words: no Maven coordinate, absent from the lockstep array and the deploy
-  matrix.
+  substrate"; §What a release publishes lists the fourteen coordinates a `v*`
+  tag publishes, including Fresco beside the Reagent adapter.
+- **`implementation/fresco/deps.edn`** and
+  **`.github/scripts/verify-version-lockstep.sh`** — the publication statement
+  in Fresco's own words (PUBLISHED as of rf2-gra70, shipping from a release
+  stage of its own) and the lockstep `ARTEFACTS` inventory that enrols it.
+  Measure the release set there, never from a guide page: a stale page is how
+  this folder once taught that Fresco lacked a path the adapter had.
 - **`skills/re-frame-migration/`** — what the required first step actually does,
   and that it leaves views on Reagent.
 
@@ -78,7 +83,7 @@ that moved are the argument for re-measuring rather than quoting:
 | Stated | Reality at tip |
 |---|---|
 | an `h/fn` spelling | **fixed.** Swept to `h/event` on 2026-08-15; `docs/core/fresco/api-reference.md` carries the ledger row and no page teaches it |
-| a Maven coordinate on the installation page | **fixed, and by removal.** `00-installation.md` now states `day8/re-frame2-fresco` is not published with no date at which it will be, and resolves it by `:local/root`. There is no coordinate printed to fail — an answer saying so is CORRECT |
+| "`day8/re-frame2-fresco` is not published, and there is no date at which it will be" on the installation page | **fixed 2026-09-13 (rf2-esrp).** Never true against the lockstep inventory, which had enrolled Fresco since rf2-gra70. `00-installation.md` now says Fresco ships in the release set at core's version and resolves from source until a release, like every artefact, and still resolves it by `:local/root` |
 | key maps "valid only at `:on-key-down`/`:on-key-up`" | **stands.** `impl/intent.cljs`'s `lower-prop` reaches `key-map-handler` at every `event-prop?` position; `docs/core/fresco/03-events-as-data.md` still states the restriction |
 | "binding `:value` to a contenteditable throws at the source" | **stands.** No contenteditable guard exists under `implementation/fresco/src/`, and the id `troubleshooting.md` names for it is in no source or spec row |
 
@@ -123,15 +128,18 @@ for *what*.
 1. **A Fresco surface LANDS** → move its cases out of `catalog-reject.md` into
    the mechanical or judgment catalogue with the now-real target, and re-check
    `procedure.md`'s gate list. This has already fired once: the server-render
-   door landed and MIG-23 moved from R to D. The remaining candidate is a data
-   `:ref` spelling (currently reserved and refused).
+   door landed and MIG-23 moved from R to D. The data `:ref` spelling once
+   named here is no longer a candidate: HD-022's amendment (rf2-6c12m.11)
+   retired the reservation, so a vector at `:ref` crosses as data.
 2. **A rule's tier changes** (M↔D↔R) → move its treatment between the
    catalogues, and re-check `procedure.md`'s gate list.
 3. **A new construct needs a rule** → add a before→after (M), a decision (D) or a
    hold (R) to the matching catalogue, and add an eval if it exercises a new
    class.
-4. **A provisional spelling settles** — `hfn`→`h/event` (landed), `root!`→`mount!` — →
+4. **A provisional spelling settles**, as `hfn`→`h/event` did →
    re-verify every emitted verb against the door. The naming ledger holds several
    of these open deliberately, so this is a *when*, not an *if*.
-5. **Fresco publishes a coordinate** → design L2's honesty clauses and
-   `procedure.md`'s pre-flight check 3 all change. Update `spec/` first.
+5. **The release set changes** — Fresco leaves it, or Fresco and the adapters
+   stop shipping at one version → design L2's honesty clauses and
+   `procedure.md`'s pre-flight check 3 change. Update `spec/` first. A first
+   `v*` tag is NOT such a change: every artefact gets its coordinate at once.

@@ -18,14 +18,16 @@ Confirm all three, or stop:
    are on a supported configuration already. Put the trade in front of them —
    [`../SKILL.md`](../SKILL.md) §Read this first carries it as a table — and
    take an explicit yes. Don't migrate views because you can.
-3. **Fresco is actually reachable from the target project's build.** It is
-   **pre-publication**: `day8/re-frame2-fresco` is not published and there is
-   no date at which it will be, so there is no released Maven coordinate to
-   depend on — the installation page says so itself and resolves the artefact
-   by `:local/root` from a checkout.
-   A project can adopt it only by consuming the in-tree / git-source artefact.
-   If it has no path to that, there is nothing to migrate *onto* yet — say so
-   and wait. This is migration honesty, not a reason to publish early.
+3. **Fresco is actually reachable from the target project's build.** This is
+   the check the project already passed to get onto re-frame2, not a second
+   one. `day8/re-frame2-fresco` is in the release set: every re-frame2 release
+   publishes it at the same version as `day8/re-frame2` and
+   `day8/re-frame2-reagent`. Until a release, every artefact resolves from
+   source — `:local/root` from a checkout, as the installation page shows, or
+   a `:git/sha` — Fresco and the Reagent adapter alike. So the route the build
+   already uses for `day8/re-frame2` resolves Fresco at the same version:
+   confirm it does, and add nothing else. Never draw an asymmetry here —
+   "swap to the adapter now, wait for Fresco" is false.
 
 ## Step 0 — Run the reporter, and read both halves
 

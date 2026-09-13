@@ -13,13 +13,15 @@ boots.
 
 ## Add the dependencies
 
-!!! warning "Pre-alpha: no Clojars coordinate"
+!!! note "Fresco ships in the re-frame2 release set"
 
-    `day8/re-frame2-fresco` is **not published**, and there is no date at
-    which it will be. It lives in the re-frame2 monorepo, so today you resolve
-    it — and `day8/re-frame2` with it — from a checkout using `:local/root`.
-    The snippet below resolves against a clone on your own disk, and becomes
-    an ordinary Maven coordinate the day Fresco publishes.
+    `day8/re-frame2-fresco` is one of the coordinates every re-frame2 release
+    publishes, at the same version as `day8/re-frame2` itself, so pin them as
+    a set. Until a release, every re-frame2 artefact resolves from source, and
+    this page resolves Fresco — and `day8/re-frame2` with it — from a checkout
+    using `:local/root`. Once you are on a release, the one `:local/root` entry
+    below becomes an ordinary `{:mvn/version …}` coordinate and nothing else
+    on this page changes.
 
 `:local/root` is relative to *your* `deps.edn`, so clone the monorepo **beside**
 your project directory — the convention the rest of the docs use:
@@ -122,7 +124,7 @@ is checked and what is not.
 | React and react-dom | 19.3.0, on every browser and Node lane Fresco runs | Later 19.x, for the render boundary and the two-hook contract. Below 19.2 the `<Activity>` lifecycle rows have nothing to run on, and 18 and earlier is not supported at all |
 | Browser engine | Chromium, on the headless DOM lane. Firefox and WebKit, whenever a change touches the Fresco surface | Any other engine or version — the substrate targets React's DOM contract rather than any one browser's |
 | ClojureScript and shadow-cljs | 1.12.145 and 3.4.10 | Nothing else is measured |
-| re-frame2 core and `re-frame2-ssr` | the same checkout as Fresco, which `:local/root` is what guarantees | There is no released coordinate yet, so no released-version pair exists to be compatible with |
+| re-frame2 core and `re-frame2-ssr` | the same checkout as Fresco, which `:local/root` is what guarantees | No mixed-version pairing: every release ships all three at one version, so pin them as a set |
 
 The full matrix — every row above, plus the platform axis and the named CI job
 or explicit untested-but-expected label behind each one — is maintained in the

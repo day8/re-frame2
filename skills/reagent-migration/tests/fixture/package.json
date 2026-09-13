@@ -9,7 +9,6 @@
     "react-dom": "19.3.0"
   },
   "scripts": {
-    "test:cold-start": "shadow-cljs compile cold-start-test && node target/cold-start-test.js",
-    "clean": "rm -rf .shadow-cljs target"
+    "test:cold-start": "shadow-cljs compile cold-start-test && node target/cold-start-test.js"
   }
 }

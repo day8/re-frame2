@@ -47,10 +47,8 @@ needs current state, `rf/subscribe-once` is the sanctioned snapshot.
 **So grep the converted bodies for surviving closures rather than finding them
 by clicking.** `#(`, `(fn [`, and any `subscribe` or `dispatch` inside a props
 map — or inside a helper the body inlines — are the search. The fix is MIG-04/05
-(a vector) or MIG-18 (`h/event`, which carries the frame it was lowered in).
-
-This is what cardinal rule 2 — never half-migrate a view — is protecting you
-from.
+(a vector) or MIG-18 (`h/event`, which carries the frame it was lowered in), and
+this is what cardinal rule 2 — never half-migrate a view — protects you from.
 
 ## Reading a complaint
 
@@ -228,8 +226,8 @@ The app's existing `rf/init!` stays — do not delete it as Reagent scaffolding.
 re-frame2 installs no adapter for you and has no default-adapter registry, so
 the install is the app's own explicit line whatever the views are written in,
 and a Reagent adapter under a Fresco tree resolves the *same* frame as the
-Fresco subtree. Full rule: MIG-15 — plus MIG-24's closing section for the one
-case where the choice reopens, an app with no Reagent view left at all.
+Fresco subtree. Full rule: MIG-15 — plus [`end-state.md`](end-state.md) for the
+one case where the choice reopens, an app with no Reagent view left at all.
 
 Hot reload is the SAME `h/render!` through the SAME handle: the first call
 creates the root, every later one updates it. Allocate the handle with
@@ -244,15 +242,9 @@ simply dead.
 
 ## The guide is not the API — read the door
 
-Two of the three spellings this skill used to flag have since been fixed at the
-source; one is still live, and the standing rule outlives all three:
-
-| Claim you may still meet | Reality at the door |
-|---|---|
-| an `h/fn` spelling | shipped is `h/event`. Swept through code and guide alike on 2026-08-15, so no page teaches it now — but older notes and design records still do |
-| "key maps are valid only at `:on-key-down` / `:on-key-up`" | **still stated in the shipped guide, and still wrong**: the intent lowering accepts a map at *any* event position |
-| the reserved vocabulary as four keywords | stale twice over — its `::h/navigate` is now an internal head `h/route-link` mints (an author never writes it), it omits `::h/clear`, and the presence overrides are the motion module's `::motion/mounting` / `::motion/unmounting` |
-
-The former `draft-guide/` corpus **shipped** as `docs/core/fresco/`, so *"it was
-only the draft guide"* no longer sorts true from false. What survives is
-unconditional: **read the door** (`re_frame/fresco.cljc`), not any page — rule 6.
+The shipped guide (`docs/core/fresco/`, the former `draft-guide/`) **still
+restricts key maps to `:on-key-down` / `:on-key-up`**, and the intent lowering
+accepts one at *any* event position. Older notes may still teach `h/fn` (swept
+to `h/event` on 2026-08-15) or a four-keyword reserved vocabulary (stale — see
+§Markers above). The rule outlives every example: **read the door**
+(`re_frame/fresco.cljc`), not any page — rule 6.
