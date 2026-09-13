@@ -3707,7 +3707,10 @@
 
   The router binds this outside the authored interceptor context.  Application
   interceptors may freely replace/rebuild the context map without being able to
-  forge ownership of a fresh same-id incarnation."
+  forge ownership of a fresh same-id incarnation.
+
+  Around the handler pipeline the router also records the dequeued dispatch
+  envelope under `:envelope` (rf2-ix8fd), read through `current-event-envelope`."
   nil)
 
 (defn ^:no-doc call-with-event-owner-token
@@ -3716,14 +3719,39 @@
   The raw dynamic var is private so authored handlers/interceptors cannot
   replace the framework's binding after creating a same-id successor. This
   narrow runner is the only binding seam; a nested authored call cannot change
-  the outer event pipeline's authority once it returns."
+  the outer event pipeline's authority once it returns.
+
+  The 5-arity also records the dequeued `envelope`; the router passes it around
+  the handler pipeline only. It rides the SAME binding map rather than a second
+  dynamic var, so the per-event cost is one more entry in a map that is built
+  anyway, and any nested owner scope drops it by construction."
   ([frame-id token f]
-   (call-with-event-owner-token frame-id token false f))
+   (call-with-event-owner-token frame-id token false nil f))
   ([frame-id token allow-closing? f]
+   (call-with-event-owner-token frame-id token allow-closing? nil f))
+  ([frame-id token allow-closing? envelope f]
    (binding [*event-owner* {:frame          frame-id
                             :token          token
-                            :allow-closing? allow-closing?}]
+                            :allow-closing? allow-closing?
+                            :envelope       envelope}]
      (f))))
+
+(defn ^:no-doc current-event-envelope
+  "Return the dispatch envelope of the event whose handler pipeline is running
+  on frame `frame-id`, or nil outside one (or when the in-flight event belongs
+  to another frame).
+
+  For framework code that runs in a handler BODY and queues a child dispatch,
+  where no fx ctx `(:envelope m)` is in reach. The rf2-ix8fd case is the machine
+  completion carriers. Such code hands the result to `re-frame.fx/child-dispatch!`
+  so the child inherits run propagation (Spec 002 §Run propagation). The
+  envelope is the one the router DEQUEUED, before its machine-origin tag, so
+  `:rf.machine/internal?` is present only when the event itself was a
+  front-of-queue continuation. The caller decides the child's queue position."
+  [frame-id]
+  (let [owner *event-owner*]
+    (when (= frame-id (:frame owner))
+      (:envelope owner))))
 
 (defn ^:no-doc current-event-owner-token
   "Return the router-bound event owner token to framework internals."

@@ -2970,10 +2970,15 @@
   always-on event-emit substrate can report `:elapsed-ms` in its per-
   event record."
   [envelope event-id event frame frame-record handler-meta]
+  ;; rf2-ix8fd — the dequeued `envelope` rides this binding so framework code in
+  ;; a handler BODY (the machine completion carriers) can queue a child that
+  ;; inherits run propagation, via `rf.frame/current-event-envelope`. One more
+  ;; entry in the map this binding already builds; no second dynamic var.
   (rf.frame/call-with-event-owner-token
     frame
     (:drain-lock frame-record)
     (rf.frame/current-event-owner-allows-closing?)
+    envelope
     (fn []
       (let [{:keys [full-chain initial-ctx fx-overrides emit-event
                 schema-sensitive? override-summary]}
