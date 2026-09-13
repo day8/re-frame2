@@ -27,7 +27,12 @@
  *      freshly cleaned dir means no stale prior bundle/asset is ever served as
  *      a fresh run (rf2-rg2tze).
  *   3. Resolves a free port (reusing the examples port resolver) and serves
- *      the output dir over http-server on 127.0.0.1.
+ *      the output dir over http-server on 127.0.0.1, with a history-route
+ *      DOCUMENT FALLBACK behind it (rf2-fzbj.35): an HTML navigation to a path
+ *      no file answers — `/articles/intro` after a refresh, a bookmark or a
+ *      copied link — gets the staged host page so the example's URL-bound
+ *      router can resolve it, while a missing bundle/stylesheet/fixture still
+ *      404s as before.
  *   4. Spawns `shadow-cljs watch <build>` so edits recompile live. A
  *      `--no-watch` flag runs a one-shot `compile` instead (CI-shaped).
  *   5. In watch mode, WAITS for that first compile to actually publish the
@@ -216,6 +221,100 @@ async function waitForFirstBuild({ fetchBody, isAborted, sleep: sleepFn, pollMs 
   }
 }
 
+// ---------------------------------------------------------------------------
+// History-route document fallback (rf2-fzbj.35).
+//
+// THE DEFECT. A history-routed example (`examples/routing` registers `/`,
+// `/articles` and `/articles/:id`; RealWorld does the same under its own
+// prefix) boots at `/` and navigates correctly in-app — its URL-bound router
+// pushes state and re-renders. But the runner serves the staged output dir over
+// a PLAIN STATIC server, so a refresh, a bookmark, a copied link or a direct
+// hit on `/articles/intro` asks that server for a file nothing ever emitted.
+// It answers 404, the app never boots, and the URL synchronisation that would
+// have resolved the route never gets to run. Measured against the real spawn
+// path before the repair: `GET /` 200 with the host body, `GET /articles/intro`
+// 404 without it.
+//
+// THE REPAIR, AND WHY IT IS TWO PIECES. http-server's `--proxy` forwards any
+// request it could not resolve to another origin; the harness exposes that as
+// `unresolvedRequestUrl` and forwards EVERYTHING unresolved, deliberately
+// keeping the policy out of the shared gate seam. This tiny responder is the
+// policy: it answers an HTML DOCUMENT NAVIGATION with the staged host page and
+// everything else with a 404.
+//
+// THE DISCRIMINATION IS LOAD-BEARING, not fastidiousness. A blanket fallback
+// that returned index.html with status 200 for a missing `/main.js` would make
+// waitForFirstBuild above accept a host page as a compiled bundle and resurrect
+// rf2-qwy3 — the runner would announce a live URL over a build that never
+// landed. A missing stylesheet or JSON fixture must stay missing for the same
+// reason: a 200 HTML body in an asset's place is a harder failure to read than
+// the 404 it replaced.
+//
+// So both conditions must hold, and each covers what the other cannot:
+//   - the request ACCEPTS text/html. A browser sends `Accept: text/html,…` for
+//     a document navigation and `*/*` for a `<script src>`/`<link>`/`fetch()`,
+//     so this alone already separates the two for a real browser. It is also
+//     what keeps the runner's own first-build probe honest: that probe sends no
+//     Accept header at all, so it can never be handed HTML.
+//   - the path names no file EXTENSION (or names `.html`). A non-browser client
+//     that sends a broad Accept for an asset — a curl default, a tool — is
+//     still refused. A route segment carrying a dot (`/articles/2026.01`) reads
+//     as an asset here and 404s; that is the safe direction, and a dev runner
+//     is not the place to litigate it.
+function isDocumentNavigationRequest({ method = 'GET', url = '/', accept = '' } = {}) {
+  if (method !== 'GET' && method !== 'HEAD') return false;
+  if (!String(accept).toLowerCase().includes('text/html')) return false;
+  const pathname = String(url).split('?')[0].split('#')[0];
+  const ext = path.extname(pathname).toLowerCase();
+  return ext === '' || ext === '.html';
+}
+
+// Start the responder above on its own ephemeral loopback port and hand back
+// the origin http-server should forward unresolved requests to. `indexPath` is
+// read PER REQUEST so a re-stage during the run is picked up, and a read that
+// fails degrades to a 404 rather than a 500 — an absent host page is exactly
+// the "nothing to fall back to" case.
+function startDocumentFallbackServer({ indexPath, host = '127.0.0.1' }) {
+  const http = require('http');
+  const fs = require('fs');
+  const server = http.createServer((req, res) => {
+    const isDoc = isDocumentNavigationRequest({
+      method: req.method,
+      url: req.url,
+      accept: req.headers.accept || '',
+    });
+    let body = null;
+    if (isDoc) {
+      try {
+        body = fs.readFileSync(indexPath);
+      } catch {
+        body = null;
+      }
+    }
+    if (body == null) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(req.method === 'HEAD' ? undefined : 'Not found');
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': String(body.length),
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+    });
+    res.end(req.method === 'HEAD' ? undefined : body);
+  });
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, host, () => {
+      const { port } = server.address();
+      resolve({
+        url: `http://${host}:${port}`,
+        close: () => new Promise((done) => server.close(() => done())),
+      });
+    });
+  });
+}
+
 function parseArgs(argv) {
   let build = '';
   let watch = true;
@@ -377,6 +476,15 @@ async function main() {
     });
   }
 
+  // Stand up the history-route document fallback BEFORE the static server that
+  // forwards to it, so no request can arrive at a dead origin. Registered for
+  // teardown alongside the tracked children — it is an in-process listener, not
+  // a spawned child, so cleanup.addCleanup (not trackProcess) is its handle.
+  const fallback = await startDocumentFallbackServer({
+    indexPath: path.join(entry.outDir, 'index.html'),
+  });
+  cleanup.addCleanup(fallback.close);
+
   // Serve the example's output dir on loopback (127.0.0.1 — the dev browser
   // hits localhost, which also sidesteps the Windows dual-stack EACCES
   // surprise). The shared harness owns the http-server spawn (with `-c-1` so a
@@ -395,6 +503,10 @@ async function main() {
     isAborted: () => watchDied,
     onExit: (code, signal) => { serverOutcome = { code, signal }; },
     suppressExitDiagnostic: () => interrupted,
+    // Unresolved requests go to the document fallback above, which serves the
+    // staged host page for an HTML navigation and 404s everything else — so a
+    // history route is reloadable while a missing bundle/asset stays missing.
+    unresolvedRequestUrl: fallback.url,
   });
   if (!ready) return 1;
 
@@ -482,7 +594,9 @@ async function cleanupAndExit(code) {
 
 module.exports = {
   decideRunnerExit,
+  isDocumentNavigationRequest,
   parseArgs,
+  startDocumentFallbackServer,
   waitForFirstBuild,
   watchExitAbortsRun,
   BUILD_ENTRYPOINT,

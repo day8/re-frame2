@@ -771,6 +771,38 @@ test('startLocalHttpServer composes the canonical loopback/static argv and reach
   }
 });
 
+test('startLocalHttpServer appends the unresolved-request fallback ONLY when asked (rf2-fzbj.35)', async () => {
+  // serve-example's history-route repair needs http-server to forward a request
+  // no file resolves; the seam is opt-in, so every OTHER caller's argv above
+  // must be untouched. The test above pins the absent case; this pins the
+  // present one — and the ORDER matters, because `--proxy` takes its value as
+  // the next token.
+  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
+  const port = await findFreePort();
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  try {
+    const result = await startLocalHttpServer({
+      cleanup,
+      httpServerBin: binPath,
+      root: dir,
+      port,
+      cwd: dir,
+      readyTimeoutMs: 5000,
+      log: () => {},
+      unresolvedRequestUrl: 'http://127.0.0.1:65001',
+    });
+    assert.equal(result.ready, true);
+    const argv = JSON.parse(fs.readFileSync(path.join(dir, '.fake-argv.json'), 'utf8'));
+    assert.deepEqual(argv, [
+      dir, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1',
+      '--proxy', 'http://127.0.0.1:65001',
+    ]);
+  } finally {
+    await cleanup.cleanup();
+    rmTmp(dir);
+  }
+});
+
 test('startLocalHttpServer tracks the server so process-tree cleanup terminates it (rf2-slapfs)', async () => {
   const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
   const port = await findFreePort();
