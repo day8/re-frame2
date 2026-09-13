@@ -2439,7 +2439,7 @@ Each behaviour is registered once with `reg-interceptor` ([001 §Interceptors](0
 
 ### Run propagation
 
-All three override types propagate transitively through any depth of `:fx [:dispatch ...]` child dispatches. When a handler returns an effect map containing `:dispatch`, the dispatched child inherits the parent envelope's overrides (and `:frame`, `:trace-id`, `:origin`). One mechanism: envelope-field-copying when queueing children; same as `:frame` propagation.
+All three override types propagate transitively through any depth of `:fx [:dispatch ...]` child dispatches. When a handler returns an effect map containing `:dispatch`, the dispatched child inherits the parent envelope's overrides (and `:frame`, `:trace-id`, `:origin`). One mechanism: envelope-field-copying when queueing children; same as `:frame` propagation. A machine spawn queues a child too: the `:rf.machine/spawn` fx's bootstrap dispatch into the newborn actor (its `:start`, or the synthetic `[:rf.machine.spawn/spawned]`) inherits the same keys while stamping its own `:source :machine-spawn`, per [005 §`:source` classification](005-StateMachines.md#source-classification--machine-spawn).
 
 `:source` is **excluded from the inheritance set** — each child dispatch's `:source` reflects its *immediate* trigger. The `:dispatch` fx handler stamps `:source :fx-dispatch`; the `:dispatch-later` fx handler stamps `:source :fx-dispatch-later` — a child dispatch never reports the originating user event's trigger. The actor-identity axis (`:origin`) still propagates so post-mortem filters like "show me only the dispatches I (the pair tool) issued" remain effective end-to-end.
 
