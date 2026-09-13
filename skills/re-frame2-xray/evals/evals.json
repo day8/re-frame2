@@ -118,6 +118,20 @@
  ]
  },
  {
+ "id": 34,
+ "name": "panel-route-simulate-url",
+ "should_trigger": true,
+ "prompt": "Where in Xray do I paste an arbitrary URL like /orders/42 and see which of my registered routes it would match?",
+ "expected_output": "The agent routes to Static mode's Routes tab, which mounts the Simulate-URL input and ranks the pasted URL against every registered route, with a per-row Simulate navigation preview (matched params, the :on-match event, the expected route slice) that dispatches nothing. It does NOT send the reader to the Dynamic Routes tab, which has no URL input: that tab is the focused-epoch lens (Current route, Navigation this epoch, Route table).",
+ "expectations": [
+ "The first surface named in the first paragraph is Static mode's Routes tab (reached via the L1 mode pill or Cmd/Ctrl+Shift+M), not the Dynamic Routes tab.",
+ "The output does NOT claim a Simulate-URL input exists on Dynamic Routes, and does not offer it as an alternative or equivalent place to do this.",
+ "If the Dynamic Routes tab is mentioned at all, it is described by what it actually renders - Current route, Navigation this epoch, and the registered Route table - and as the answer to 'what did this navigation event do?', a different question.",
+ "The per-row Simulate navigation preview is named as hermetic: matched params, the :on-match event and the expected route slice, with nothing dispatched.",
+ "The answer does not dump the full tab inventory for this single routed question, and a deep follow-up loads only references/panels-domains.md."
+ ]
+ },
+ {
  "id": 8,
  "name": "panel-route-machine-canvas",
  "should_trigger": true,

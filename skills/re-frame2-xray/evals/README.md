@@ -40,8 +40,8 @@ when the eval shape changes in a way that breaks readers.
 
 ## Coverage
 
-33 evals, covering Xray's trigger surface and answer quality: 24 positives
-(skill should fire) and 9 negatives (skill should stay quiet). 22
+34 evals, covering Xray's trigger surface and answer quality: 25 positives
+(skill should fire) and 9 negatives (skill should stay quiet). 23
 positives carry the Layer-2 answer-quality `expectations[]`; they target the
 prompts whose answer drifts fastest as the Xray UI moves, plus the
 route-quality contract (one first surface in the first paragraph, no
@@ -55,6 +55,7 @@ only the focused family leaf):
 | 27 | `launch-popout-button` | yes | YES there is a visible `⛶` pop-out button — not programmatic-only, not an invented right-click path. |
 | 3 | `launch-programmatic` | yes | `init!` installs but does NOT open; a mount verb is still required; runs after `rf/init!`; the recipe is not presented as production-safe unguarded. |
 | 33 | `launch-production-safety` | yes | The manual `init!` + mount-verb path has NO `goog.DEBUG` gate — the preload's block is Xray's only one; `open!` gates on adapter presence, which production has; exclusion from the release build is the host's job (dev-only namespace / preload); `test:elision` is a framework-only probe and not proof of Xray's absence. |
+| 34 | `panel-route-simulate-url` | yes | Arbitrary-URL matching → **Static → Routes** (the shipped Simulate-URL input + the hermetic per-row Simulate navigation preview); Dynamic Routes has NO URL input and is the focused-epoch lens (Current route / Navigation this epoch / Route table). |
 | 8 | `panel-route-machine-canvas` | yes | Full topology → Static Machines tab, not the event-driven Dynamic Machine tab; no standalone Machines-Canvas tab. |
 | 6 | `panel-route-state` | yes | Route quality: first paragraph → the Dynamic **app-db** tab (+ the L2 spine to find the changing epoch); first interaction (the inline `← was X` diff); no full-inventory dump. |
 | 7 | `panel-route-machine` | yes | Route quality: first surface → the Dynamic **Machine** tab (event-driven; blank without machine activity); Static Machines is the browse-cold *next* step, not the first surface; no inventory dump. |
@@ -91,7 +92,11 @@ revert to 9 tabs, fails the
 answer-quality layer, and graph-projection-vs-static-mode that pins the
 Graph tab's per-panel projection toggle (Declared/Realized) as distinct from
 the L1 Static mode pill, so the overloaded `static`/`mode` vocabulary cannot
-re-route a user to the wrong control. And the route-quality contract
+re-route a user to the wrong control, and panel-route-simulate-url that pins
+where the URL simulator is actually MOUNTED (Static → Routes, per
+`static/routes/simulate_url.cljs`) against a tour that once advertised it in
+Dynamic Routes, whose shipped `panel-tree` renders three sections and no input
+at all (rf2-fzbj.43). And the route-quality contract
 (rf2-0mw10): panel-route-state, panel-route-machine, static-browse-registry
 and panel-route-resources grade one representative question per scope
 family — focused-epoch, observed-frame/live-structure, Static-definition,

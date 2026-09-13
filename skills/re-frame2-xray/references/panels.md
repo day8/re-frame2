@@ -37,7 +37,7 @@ command palette, `Cmd/Ctrl+K` → "Open Trace panel"; from code, with
 | **Views** | `v` | focused epoch | The reactive cascade (subs + views) as a DAG with render-cause chips (`← :sub-id` vs `← props`). | [panels-state.md](panels-state.md) |
 | **Trace** | `t` | focused epoch | Raw trace events for the focused epoch — flat oldest-first rows, click to expand. | [panels-epoch.md](panels-epoch.md) |
 | **Machine** | `m` | focused epoch | What this event did to machines — topology + transition + guards/actions; blank on a no-machine epoch. | [panels-domains.md](panels-domains.md) |
-| **Routes** | `r` | focused epoch | Current matched route + this epoch's route activity + a Simulate-URL input. | [panels-domains.md](panels-domains.md) |
+| **Routes** | `r` | focused epoch | Current route + this epoch's navigation + the registered-route table. **No URL simulator here** — arbitrary-URL matching is Static → Routes. | [panels-domains.md](panels-domains.md) |
 | **Resources** | `s` | mixed | The declarative server-state lens — registry, live instances, work ledger, mutation/invalidation evidence. | [panels-resources.md](panels-resources.md) |
 | **Graph** | `g` | observed frame / process-global | The EP-0014 derivation/process graph across all five families; its own Declared ↔ Realized projection toggle. | [panels-structure.md](panels-structure.md) |
 | **Frames** | `u` | process-global | The EP-0023 `image → frame` lens — which image loaded each live frame, and how it resolves registrations. | [panels-structure.md](panels-structure.md) |
