@@ -196,7 +196,7 @@
 
 ;; rf2-6r9j.30 — a fixture that actually REACHES `convert-prop-value`'s
 ;; `ifn?` arm: object-backed, satisfies IFn, and satisfies none of the
-;; arms that come first (`js-val?`, `named?`, `map?`, `coll?`, `fn?`).
+;; arms that come first (`js-val?`, `named?`, `map?`, `coll?`).
 ;; A deftype implementing IFn does NOT satisfy the `Fn` marker protocol,
 ;; which is what separates it from a function. Each -invoke records its
 ;; own arguments so a call through the wrapper can be proven to have
@@ -207,38 +207,55 @@
   (-invoke [_ a]   (swap! calls conj [a])      [:called-1 a])
   (-invoke [_ a b] (swap! calls conj [a b])    [:called-2 a b]))
 
-(deftest convert-prop-value-fn-preserves-identity-rf2-wyocr
-  (testing "rf2-wyocr: an object-backed Fn prop — a fn carrying metadata,
-            i.e. cljs.core/MetaFn — passes through the `fn?` arm with ===
-            identity preserved, so React.memo / shouldComponentUpdate
-            bail-outs work on a metadata-bearing handler.
+(deftest convert-prop-value-fn-yields-stable-callable-js-fn-rf2-fzbj-30
+  (testing "rf2-fzbj.30 / rf2-gwye.52: an object-backed Fn prop — a fn
+            carrying metadata, i.e. cljs.core/MetaFn — converts to a REAL
+            JavaScript function, and converting the same handler again
+            returns that SAME function, so the host can invoke it AND
+            React.memo / shouldComponentUpdate / callback-ref identity
+            still hold.
 
-            rf2-6r9j.30: this test used to pass a PLAIN fn, which
-            `goog/typeOf`s as \"function\" and therefore returns from the
-            earlier `js-val?` arm — so it would have stayed green with
-            both `fn?` arms deleted. MetaFn is the ordinary value shape
-            that actually reaches the arm this regression names."
-    (let [handler (with-meta (fn [_e] :clicked) {:rf/probe true})]
+            History: rf2-wyocr passed the MetaFn through unchanged and
+            rf2-6r9j.30 pinned that input identity here. But `goog/typeOf`
+            a MetaFn is \"object\": JavaScript's `f(...)` syntax cannot
+            invoke it, React DOM refuses it as a listener, and a foreign
+            component calling the prop throws. So the witness below is a
+            NATIVE call (`Reflect.apply`), never CLJS invocation or
+            `.call` — MetaFn implements both, which is how the pinned
+            identity looked healthy."
+    (let [calls   (atom [])
+          handler (with-meta (fn [& args]
+                               (swap! calls conj (vec args))
+                               [:handled (vec args)])
+                    {:rf/probe true})]
       ;; Preconditions, asserted rather than assumed — these are what
-      ;; route the value past the earlier arms and INTO `fn?`.
+      ;; route the value past `js-val?` and make the defect real.
       (is (= "object" (goog/typeOf handler))
           "precondition: a metadata-bearing fn is object-backed, so js-val? declines it")
       (is (fn? handler)
-          "precondition: MetaFn satisfies Fn, so the fn? arm takes it")
-      ;; 2-arg form — the production path through `add-converted-nested-prop!`.
-      (let [a (template/convert-prop-value :on-click handler)
-            b (template/convert-prop-value :on-click handler)]
-        (is (identical? handler a)
-            "2-arg: fn returned is the SAME reference passed in (=== check)")
-        (is (identical? a b)
-            "2-arg: two conversions of the same fn produce the same reference"))
-      ;; 1-arg form — used for nested map values.
-      (let [a (template/convert-prop-value handler)
-            b (template/convert-prop-value handler)]
-        (is (identical? handler a)
-            "1-arg form preserves identity too")
-        (is (identical? a b)
-            "1-arg form: repeat conversions return the same reference")))
+          "precondition: MetaFn satisfies Fn")
+      (is (thrown? js/TypeError (js/Reflect.apply handler nil #js []))
+          "precondition: the MetaFn itself is NOT natively callable")
+      (let [one-a   (template/convert-prop-value handler)
+            one-b   (template/convert-prop-value handler)
+            two-a   (template/convert-prop-value :on-click handler)
+            two-b   (template/convert-prop-value :on-click handler)
+            three-a (template/convert-prop-value :on-click handler true)
+            three-b (template/convert-prop-value :on-click handler true)]
+        (doseq [[label out] [["1-arg" one-a] ["2-arg" two-a] ["3-arg" three-a]]]
+          (is (= "function" (goog/typeOf out))
+              (str label ": converts to a real JS function")))
+        (is (identical? one-a one-b)
+            "1-arg: repeated conversion returns the SAME function")
+        (is (identical? two-a two-b)
+            "2-arg: repeated conversion returns the SAME function")
+        (is (identical? three-a three-b)
+            "3-arg: repeated conversion returns the SAME function")
+        ;; Invoke it the way a host does — natively.
+        (is (= [:handled [:x :y]] (js/Reflect.apply two-a nil #js [:x :y]))
+            "a native call forwards the arguments and returns the handler's value")
+        (is (= [[:x :y]] @calls)
+            "the handler itself ran, exactly once")))
     ;; A plain JS fn still passes through unchanged — by the js-val? arm.
     (let [plain (fn [_e] :plain)]
       (is (identical? plain (template/convert-prop-value :on-click plain))
@@ -266,7 +283,7 @@
       (is (not (map? probe))  "precondition: not a map")
       (is (not (coll? probe)) "precondition: not a coll")
       (is (not (fn? probe))
-          "precondition: does NOT satisfy Fn, so the fn? arm declines it")
+          "precondition: does NOT satisfy Fn — the non-MetaFn shape of this arm")
       (is (ifn? probe)
           "precondition: satisfies IFn — this is the arm under test")
       (let [out (template/convert-prop-value :on-select probe)]
@@ -274,6 +291,8 @@
             "the ifn? arm returns a real JS function React can call")
         (is (not (identical? probe out))
             "the wrapper is a distinct value — this arm allocates, by design")
+        (is (identical? out (template/convert-prop-value :on-select probe))
+            "…once per input: repeated conversion returns the SAME function (rf2-fzbj.30)")
         ;; Invoke it the way React would: as a plain JS function.
         (is (= [:called-1 :a] (.call out nil :a))
             "1-arg JS call forwards to the fixture and returns its value")
@@ -287,6 +306,89 @@
             "1-arg form also wraps into a JS function")
         (is (= :called-0 (.call out1 nil))
             "0-arg JS call forwards")))))
+
+(defn- CallsOnSelect
+  "A foreign React function component that calls its callback prop the
+  way third-party JavaScript does — natively, as `props.onSelect(...)`."
+  [^js props]
+  (react/createElement "span" nil (.onSelect props "picked")))
+
+(deftest metafn-callback-prop-is-callable-by-a-foreign-react-component-rf2-fzbj-30
+  (testing "rf2-fzbj.30 / rf2-gwye.52: a real React render of a foreign
+            component that invokes its callback prop natively. Pre-fix the
+            MetaFn object reached `props.onSelect` unchanged and the render
+            threw `props.onSelect is not a function`."
+    (let [meta-handler  (with-meta (fn [v] (str "meta-" v)) {:rf/probe true})
+          plain-handler (fn [v] (str "plain-" v))]
+      (is (= "<span>plain-picked</span>"
+             (rds/renderToStaticMarkup
+               (template/as-element [:> CallsOnSelect {:on-select plain-handler}])))
+          "control: a plain fn prop is called by the foreign component")
+      (is (= "<span>meta-picked</span>"
+             (rds/renderToStaticMarkup
+               (template/as-element [:> CallsOnSelect {:on-select meta-handler}])))
+          "a metadata-bearing fn prop is called by the foreign component too"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-fzbj.30 / rf2-gwye.51 — a component whose render returns a SEQUENCE
+;; renders it as sibling children, whatever its Form classification. Driven
+;; through the real generated class (`as-element` → `fn-to-class` → render
+;; → `wrap-render` → `as-element`), because a `wrap-render`-only `=`
+;; assertion cannot see this bug: a list and the vector it was coerced to
+;; compare equal, yet `as-element` reads the vector as ONE hiccup form.
+;; ---------------------------------------------------------------------------
+
+(defn- seq-rows [] (list ^{:key "a"} [:span "a"] ^{:key "b"} [:span "b"]))
+(defn- seq-empty [] (list))
+(defn- seq-text [] (list "a" "b"))
+
+(defn- static-markup [hiccup]
+  (rds/renderToStaticMarkup (template/as-element hiccup)))
+
+(defn- class-render-output
+  "Instantiate the class `as-element` generates for the component vector
+  `hiccup` and run its React `render` method, returning what React would
+  receive. Unmounts the instance so its render Reaction is disposed."
+  [hiccup]
+  (let [^js el   (template/as-element hiccup)
+        klass    (.-type el)
+        ^js inst (new klass (.-props el))]
+    (try
+      (.render inst)
+      (finally
+        (.componentWillUnmount inst)))))
+
+(deftest untagged-component-sequence-output-renders-siblings-rf2-fzbj-30
+  (testing "an untagged component returning a list renders sibling
+            children through the runtime classification path — keyed
+            elements, an empty sequence and text siblings alike"
+    (is (= "<span>a</span><span>b</span>" (static-markup [seq-rows]))
+        "keyed element siblings, with no wrapper element")
+    (is (= "<div></div>" (static-markup [:div [seq-empty]]))
+        "an empty sequence renders nothing (not an empty hiccup vector)")
+    (is (= "<div>ab</div>" (static-markup [:div [seq-text]]))
+        "text siblings stay text (not misread as an `<a>` tag with a child)")
+    (let [out (class-render-output [seq-rows])]
+      (is (array? out)
+          "the class render hands React an array of children, not one element")
+      (is (= ["a" "b"] (when (array? out) (mapv #(.-key ^js %) out)))
+          "each child keeps its :key"))))
+
+(deftest sequence-output-agrees-across-form-shapes-rf2-fzbj-30
+  (testing "controls: a tagged Form-1, a Form-2 inner renderer and a direct
+            as-element of the same sequence render the same siblings, and a
+            hiccup vector still means ONE element"
+    (let [tagged-form-1 (with-meta (fn [] (seq-rows)) {:reagent2/form :reagent2/form-1})
+          form-2        (fn [] (fn [] (seq-rows)))
+          vector-form-1 (fn [] [:span "one"])]
+      (is (= "<span>a</span><span>b</span>" (static-markup [tagged-form-1]))
+          "compile-time-tagged Form-1")
+      (is (= "<span>a</span><span>b</span>" (static-markup [form-2]))
+          "Form-2 inner renderer")
+      (is (= "<span>a</span><span>b</span>" (static-markup (seq-rows)))
+          "direct as-element of the sequence")
+      (is (= "<span>one</span>" (static-markup [vector-form-1]))
+          "an untagged component returning a hiccup vector still renders one element"))))
 
 (deftest nested-style-keyword-value-stringifies-on-live-path-rf2-fdm4rm
   (testing "rf2-fdm4rm: a nested style-map keyword value reaches React as

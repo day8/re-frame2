@@ -486,6 +486,23 @@
 (defn- ^boolean js-val? [x]
   (not (identical? "object" (goog/typeOf x))))
 
+(def ^:private js-callables
+  "Per-input cache for `js-callable`. Weakly keyed, so a handler that is
+  dropped takes its shim with it."
+  (js/WeakMap.))
+
+(defn- js-callable
+  "A plain JS function forwarding every call to the object-backed callable
+  `f` (a `cljs.core/MetaFn`, or a `deftype`/`reify` implementing `IFn`)
+  and returning its value. The same `f` always yields the same function,
+  so a converted callback prop keeps one identity across renders
+  (rf2-fzbj.30)."
+  [f]
+  (or (.get js-callables f)
+      (let [shim (fn [& args] (apply f args))]
+        (.set js-callables f shim)
+        shim)))
+
 (declare convert-prop-value)
 
 (defn- add-converted-nested-prop!
@@ -579,25 +596,25 @@
       through. This is the arm a PLAIN JS function takes: `goog/typeOf`
       of a function is \"function\", so an ordinary event handler is
       returned here, with its identity intact, and never reaches the
-      `fn?` arm below.
+      `ifn?` arm below.
     - Maps recursively convert (style maps + custom-component prop maps).
     - Coll? values become JS arrays via clj->js (children, vector classes).
-    - `fn?` values pass through verbatim — referentially stable across
-      renders. Since plain functions already left at `js-val?`, the
-      values that REACH this arm are the object-backed ones satisfying
-      `Fn`: chiefly `cljs.core/MetaFn`, what `(with-meta some-fn …)`
-      returns. Those must keep their identity too, so `React.memo` /
-      `shouldComponentUpdate` bail-outs work on a metadata-bearing
-      handler; wrapping one in a fresh closure per render would silently
-      defeat memoisation.
-    - Non-fn `IFn` values are wrapped in a variadic shim so the React
-      side can invoke them as plain JS functions. NOTE that keywords,
-      maps, sets and vectors — the usual \"used as a function\" examples —
-      never get here: keywords and symbols are taken by `named?`, maps by
-      `map?`, and sets and vectors by `coll?`. What reaches this arm is
-      an object-backed callable that satisfies `IFn` without satisfying
-      `Fn`, `named?`, `map?` or `coll?` — a `deftype`/`reify` the caller
-      passes as a prop meaning \"React may call this\".
+    - Any other `IFn` value becomes a real JS function via `js-callable`.
+      Since plain functions already left at `js-val?`, what REACHES this
+      arm is object-backed: chiefly `cljs.core/MetaFn`, what
+      `(with-meta some-fn …)` returns, plus any `deftype`/`reify` the
+      caller passes as a prop meaning \"React may call this\". Such a
+      value is callable through CLJS's invoke protocol (and its own
+      `.call`), but its `typeof` is \"object\", so JavaScript's `f(...)`
+      syntax cannot invoke it: React DOM refuses it as a listener, treats
+      it as an OBJECT ref, and a foreign component calling the prop
+      throws (rf2-fzbj.30 — this arm used to hand a MetaFn back
+      unchanged). The shim is cached per input, so converting the same
+      handler on every render yields the SAME function and `React.memo` /
+      `shouldComponentUpdate` / callback-ref identity hold. NOTE that
+      keywords, maps, sets and vectors — the usual \"used as a function\"
+      examples — never get here: keywords and symbols are taken by
+      `named?`, maps by `map?`, and sets and vectors by `coll?`.
     - Everything else passes through unchanged.
 
   HOT PATH — this runs once per prop on every render, and the ordering
@@ -616,8 +633,7 @@
      (map? prop-value)    (reduce-kv add-converted-nested-prop!
                                      #js {} prop-value)
      (coll? prop-value)   (clj->js prop-value)
-     (fn? prop-value)     prop-value ; pass through — preserves identity
-     (ifn? prop-value)    (fn [& args] (apply prop-value args))
+     (ifn? prop-value)    (js-callable prop-value) ; stable per input
      :else                prop-value))
   ([prop-key prop-value]
    ;; 2-arg form: CUSTOM/INTEROP semantics (the `:>` path + the public
@@ -634,8 +650,7 @@
      (map? prop-value)    (reduce-kv add-converted-nested-prop!
                                      #js {} prop-value)
      (coll? prop-value)   (clj->js prop-value)
-     (fn? prop-value)     prop-value ; pass through — preserves identity
-     (ifn? prop-value)    (fn [& args] (apply prop-value args))
+     (ifn? prop-value)    (js-callable prop-value) ; stable per input
      :else                prop-value))
   ([prop-key prop-value dom-element?]
    ;; 3-arg form: TARGET-AWARE. For a native DOM tag every prop is an
@@ -1168,11 +1183,11 @@
   React accepts `key`, `ref` and `children` on a Fragment and nothing
   else. `:ref` therefore already crosses here and needs no arm of its
   own: the whole map goes through `convert-prop-value`'s `map?` branch,
-  which camelCases the key to `ref` via `cached-prop-name` and answers a
-  function value from the `fn?` arm BY IDENTITY — which is the part that
-  matters, because React detaches and reattaches on a changed ref
-  identity. An object ref falls to the `:else` arm and is likewise
-  untouched. React answers either with a `FragmentInstance` rather than a
+  which camelCases the key to `ref` via `cached-prop-name` and hands a
+  plain function back BY IDENTITY (a metadata-bearing one as its single
+  cached `js-callable` shim) — which is the part that matters, because
+  React detaches and reattaches on a changed ref identity. An object ref
+  falls to the `:else` arm and is likewise untouched. React answers either with a `FragmentInstance` rather than a
   DOM node. This docstring previously said only `:key` was meaningful
   here; that was true before React 19.3 and is no longer."
   [argv]

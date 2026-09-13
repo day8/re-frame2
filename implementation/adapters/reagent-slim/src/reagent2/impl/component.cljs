@@ -367,9 +367,14 @@
             (set! (.-cljsRenderFn c) inner)
             (apply inner args))
 
-          ;; Seq-as-fragment shape — coerce to a vector for React's
-          ;; children-of-a-fragment handling.
-          (seq? out) (vec out)
+          ;; A sequence is SIBLING children and must reach `as-element`
+          ;; still a seq: a vector there means ONE hiccup form, so the
+          ;; `(vec out)` this arm used to do made the first child a head —
+          ;; `:rf.error/template-bad-tag` for keyed elements, an empty-vector
+          ;; error for `()`, and `("a" "b")` rendered as `<a>b</a>`
+          ;; (rf2-fzbj.30). `doall` keeps the realization inside the render
+          ;; Reaction, where `vec` had it, without changing the shape.
+          (seq? out) (doall out)
 
           ;; Anything else (a React element, a primitive) flows
           ;; through unchanged.
