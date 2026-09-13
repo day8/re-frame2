@@ -198,7 +198,13 @@
     form-str
     (str
     "(try"
-    "  (let [result# (try {:rf2pair/ok (do " form-str ")}"
+    ;; rf2-gwye.27 — the caller's source is terminated with a NEWLINE
+    ;; before the wrapper's closing delimiters. A form ending in a `;`
+    ;; line comment is valid CLJS; without the break it swallowed the
+    ;; `)}` that closes the `do` and the map, and the reader reached EOF
+    ;; with both still open — the eval failed to READ rather than
+    ;; returning the value the caller's form evaluates to.
+    "  (let [result# (try {:rf2pair/ok (do " form-str "\n)}"
     "                     (catch :default e# {:rf2pair/threw e#}))]"
     "    (if (contains? result# :rf2pair/threw)"
     "      (let [e# (:rf2pair/threw result#)]"

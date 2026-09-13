@@ -75,10 +75,15 @@
 
   Uses `(some? (.-then v))` rather than `(instance? js/Promise v)` so
   any thenable (jQuery deferreds, axios responses, promise shims) is
-  recognised — matching the JS-ecosystem `await` semantic."
+  recognised — matching the JS-ecosystem `await` semantic.
+
+  rf2-gwye.27 — the caller's source is terminated with a NEWLINE before
+  this wrapper's closing delimiter, so a form ending in a `;` line
+  comment does not swallow it and leave the reader at EOF with the
+  collection open."
   [form-str mailbox-id]
   (str
-    "(let [user-fn# (fn [] " form-str ")"
+    "(let [user-fn# (fn [] " form-str "\n)"
     "      v# (user-fn#)"
     "      mailbox# (or (.-__rf2pair_await__ js/globalThis)"
     "                   (let [m# (cljs.core/js-obj)]"

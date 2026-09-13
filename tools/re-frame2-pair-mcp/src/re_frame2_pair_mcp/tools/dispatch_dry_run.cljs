@@ -321,7 +321,13 @@
             ;; regardless of whether `eval-cljs` is enabled. Dry-run shares
             ;; `dispatch`'s parser and emitter, so it shares this seam too.
             event-form (ef/rt-quote event-vec)
-            opts-form (cond-> {}
+            ;; rf2-fzbj.6 — the opts map is DATA-ONLY and its `:rf.cofx`
+            ;; slot is EXTERNAL EDN, so the whole map rides as quoted
+            ;; literal data, exactly as `dispatch` emits it. Unquoted, a
+            ;; scripted coeffect fact containing a list was EVALUATED
+            ;; while the call was built, so the simulation ran on a
+            ;; different fact from the one the caller scripted.
+            opts-map (cond-> {}
                         frame        (assoc :frame frame)
                         ;; EP-0017 — thread the scripted
                         ;; recordable coeffects under the flat `:rf.cofx`
@@ -332,6 +338,7 @@
                         ;; `:rf/time-ms` when absent) so the simulated state
                         ;; is reproducible.
                         cofx         (assoc :rf.cofx cofx))
+            opts-form (ef/rt-quote opts-map)
             ;; The runtime returns the structured dry-run envelope. We
             ;; transform it server-side in two composed stages (the walker
             ;; reaches the live elision registry only app-side):

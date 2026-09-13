@@ -82,8 +82,13 @@
   (let [frame-src   (if frame
                       (ef/emit frame)
                       (ef/emit (ef/rt-call 'current-frame)))
+        ;; rf2-fzbj.6 — the parsed `signals` are EXTERNAL EDN (a `{:sub
+        ;; [:id args]}` signal carries arbitrary caller data), so they ride
+        ;; as QUOTED literal data. Printed unquoted, a list inside a sub
+        ;; query is a call and a symbol a name lookup, so the sampler would
+        ;; watch a DIFFERENT signal from the one requested.
         sample-call (ef/rt-call 'sample-signals
-                                signals
+                                (ef/rt-quote signals)
                                 (ef/rt-raw frame-src)
                                 (ef/rt-raw egress-opts))]
     (ef/emit

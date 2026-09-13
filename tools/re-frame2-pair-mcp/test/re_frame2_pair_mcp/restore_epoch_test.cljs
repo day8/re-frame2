@@ -122,7 +122,11 @@
                      (is (= 7 (:epoch-id edn)) "integer id round-trips through the envelope"))
                    (let [parsed (cljs.reader/read-string @captured)]
                      (is (= 're-frame2-pair.runtime/restore-epoch (first parsed)))
-                     (is (= 7 (second parsed)) "epoch-id rides as the integer 7, not \"7\""))
+                     ;; rf2-fzbj.6 — the caller's epoch-id is EDN, so it
+                     ;; rides as `(quote 7)`: the same datum, emitted the
+                     ;; way every caller-supplied argument now is.
+                     (is (= '(quote 7) (second parsed))
+                         "epoch-id rides as the quoted integer 7, not \"7\""))
                    (done)))))))
 
 (deftest passes-frame-as-second-arg
@@ -136,8 +140,9 @@
                                                     #js {:epoch-id "12" :frame ":stories"})))))
           (.then (fn [_]
                    (let [parsed (cljs.reader/read-string @captured)]
-                     ;; (rt/restore-epoch 12 :stories) — frame is the 2nd arg.
-                     (is (= 12 (second parsed)))
+                     ;; (rt/restore-epoch (quote 12) :stories) — frame is
+                     ;; the 2nd arg; the caller's id rides quoted.
+                     (is (= '(quote 12) (second parsed)))
                      (is (= :stories (nth parsed 2))))
                    (done)))))))
 

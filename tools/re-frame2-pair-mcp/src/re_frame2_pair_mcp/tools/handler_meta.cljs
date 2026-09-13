@@ -278,11 +278,16 @@
   `(rf/handler-meta {:frame f …})` read) and surfaces the resolved
   descriptor's `:rf.provenance/ns` + inline/image + `:standard` facts plus
   the `:rf.image/coordinate` rollup. Same `:not-registered` / `handler-fn`
-  hygiene as `registrar-describe`."
+  hygiene as `registrar-describe`.
+
+  rf2-fzbj.6 — `id` is EXTERNAL EDN (`parse-id` reads whatever the caller
+  sent, including the composite-vector ids this tool documents), so it
+  rides as QUOTED literal data. `kind` and `frame` are server-coerced from
+  closed sets and stay on the default path."
   [frame kind id]
   (if (some? frame)
-    (ef/emit (ef/rt-call 'frame-registrar-describe frame kind id))
-    (ef/emit (ef/rt-call 'registrar-describe kind id))))
+    (ef/emit (ef/rt-call 'frame-registrar-describe frame kind (ef/rt-quote id)))
+    (ef/emit (ef/rt-call 'registrar-describe kind (ef/rt-quote id)))))
 
 (defn- machine-form
   "Build the eval form for a `:machine` drill — `machine-describe` on the
@@ -293,9 +298,10 @@
 
   One `rt-call`, exactly like every other kind: a single expression, a
   single round-trip, and no framework var named on this side of the
-  wire."
+  wire. `id` is caller EDN and rides quoted, as it does on the registrar
+  door above (rf2-fzbj.6)."
   [id]
-  (ef/emit (ef/rt-call 'machine-describe id)))
+  (ef/emit (ef/rt-call 'machine-describe (ef/rt-quote id))))
 
 (defn- uniform-miss
   "Normalise the runtime's machine-door miss reason to the tool's.

@@ -102,11 +102,22 @@
   in `egress-opts` decides the floor. A bare `:elision false` still
   redacts sensitive (large passes via the overlay); only a deliberate
   full-raw opt-in (`:elision false` AND `:include-sensitive true`) names
-  `:rf.egress/local-raw`, under which the projection is the identity."
+  `:rf.egress/local-raw`, under which the projection is the identity.
+
+  rf2-fzbj.6 — `query-v` is EXTERNAL EDN parsed off the wire, so it rides
+  through `ef/rt-quote` (the literal-data emission path), not the default
+  `pr-str` arg path. Printed unquoted, a nested list in the query is a
+  function call and a symbol a name lookup, so `read-sub!` would be handed
+  whatever those evaluate to — a DIFFERENT subscription from the one asked
+  for — while the call is being CONSTRUCTED, before any validation and
+  regardless of whether `eval-cljs` is enabled. The same repair `dispatch`
+  took on its event (rf2-j2wz). `frame` is a server-coerced keyword and
+  stays on the default path."
   [query-v frame frame-edn egress-opts]
-  (let [read-call (if frame
-                    (ef/rt-call 'read-sub! query-v frame)
-                    (ef/rt-call 'read-sub! query-v))]
+  (let [query-form (ef/rt-quote query-v)
+        read-call (if frame
+                    (ef/rt-call 'read-sub! query-form frame)
+                    (ef/rt-call 'read-sub! query-form))]
     (ef/emit
       (ef/rt-let
         ['res read-call]

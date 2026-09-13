@@ -230,9 +230,14 @@
   as a string literal."
   [stop]
   (let [pred-src (pred-source (:pred stop))
+        ;; rf2-fzbj.6 — `:ms` / `:changes` are caller-supplied EDN, so they
+        ;; ride as QUOTED literal data rather than printed source. The
+        ;; runtime wants integers and rejects anything else; what quoting
+        ;; buys is that a non-integer value reaches that check as the datum
+        ;; the caller sent instead of being EVALUATED on the way there.
         pairs    (cond-> []
-                   (some? (:ms stop))      (conj (str ":ms " (pr-str (:ms stop))))
-                   (some? (:changes stop)) (conj (str ":changes " (pr-str (:changes stop))))
+                   (some? (:ms stop))      (conj (str ":ms " (ef/emit (ef/rt-quote (:ms stop)))))
+                   (some? (:changes stop)) (conj (str ":changes " (ef/emit (ef/rt-quote (:changes stop)))))
                    pred-src                (conj (str ":pred-fn " pred-src)))]
     (str "{" (str/join " " pairs) "}")))
 
@@ -248,9 +253,13 @@
   `:include-sensitive` posture). It rides as `:elide-opts` so the runtime's sampler projects
   each `:app-db` / `:sub` value for off-box egress before it lands in the
   change-log. The map is a plain EDN literal (no synthesised source), so
-  it inlines verbatim."
+  it inlines verbatim.
+
+  rf2-fzbj.6 — `:signals` is EXTERNAL EDN parsed off the wire, so it rides
+  as QUOTED literal data; the internally-synthesised `:pred-fn` stays raw
+  source, which is the whole distinction this mixed map turns on."
   [signals stop frame max-entries egress-opts]
-  (let [opts-pairs (cond-> [(str ":signals " (pr-str (vec signals)))
+  (let [opts-pairs (cond-> [(str ":signals " (ef/emit (ef/rt-quote (vec signals))))
                             (str ":stop " (stop-map-src stop))
                             (str ":elide-opts " egress-opts)]
                      frame       (conj (str ":frame " (pr-str frame)))

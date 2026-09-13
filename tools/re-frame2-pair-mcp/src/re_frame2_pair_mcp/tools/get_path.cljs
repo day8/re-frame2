@@ -97,8 +97,12 @@
                         "               (tree-seq coll? seq elided-v)))")]
     (ef/emit
       (ef/rt-let
+        ;; rf2-fzbj.6 — the caller's path is EXTERNAL EDN, so it binds as
+        ;; QUOTED literal data. Printed unquoted, a list segment is a call
+        ;; and a symbol a name lookup, so `get-in` would read a DIFFERENT
+        ;; key from the one requested and answer `:ok? true` about it.
         ['db       snapshot-call
-         'path     path
+         'path     (ef/rt-quote path)
          'missing  (ef/rt-raw "#js {}")
          'v        (ef/rt-raw "(get-in db path missing)")
          'elided-v (ef/rt-raw elide-call)
@@ -144,7 +148,10 @@
                          "      (if (identical? raw-v missing)"
                          "        (assoc acc p {:exists? false :value nil})"
                          "        (assoc acc p {:exists? true :value " elide-call "}))))"
-                         "  {} " (pr-str (vec paths)) ")"))]
+                         ;; rf2-fzbj.6 — the caller's paths collection is
+                         ;; EXTERNAL EDN and rides as QUOTED literal data,
+                         ;; exactly as the singular `path` binding does.
+                         "  {} " (ef/emit (ef/rt-quote (vec paths))) ")"))]
         (ef/rt-raw
           (str "{:ok? true :results results"
                " :elided-count (count (filter #(and (map? %) (contains? % :rf.size/large-elided))"

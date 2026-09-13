@@ -132,6 +132,17 @@
   [captured]
   (second (cljs.reader/read-string @captured)))
 
+(defn- opts-arg
+  "The opts map the captured runtime call carries.
+
+  rf2-fzbj.6 — the data-only opts map rides QUOTED, like the event beside
+  it, because three of its slots (`:rf.cofx`, `:fx-overrides`,
+  `:interceptor-overrides`) are EDN the caller supplied and printing
+  rendered them as source. Unwrapping here keeps every opts assertion
+  below about the VALUE the runtime receives."
+  [captured]
+  (quoted-datum (nth (cljs.reader/read-string @captured) 2)))
+
 ;; ---------------------------------------------------------------------------
 ;; Narrow integration arms — the exhaustive event-parse matrix (nil / blank
 ;; / unreadable / map / keyword / list / symbol / scalar / vector, with the
@@ -837,7 +848,8 @@
                                            :sync true})))
           (.then (fn [_]
                    (let [parsed (cljs.reader/read-string @captured)
-                         opts   (nth parsed 2)]
+                         ;; rf2-fzbj.6 — the opts map rides quoted.
+                         opts   (quoted-datum (nth parsed 2))]
                      (is (= 're-frame2-pair.runtime/dispatch-consequence! (first parsed)))
                      (is (= [:rf.xray/focus-event 85] (quoted-datum (second parsed))))
                      (is (= :rf/xray (:frame opts))
@@ -863,7 +875,7 @@
                                            :frame "rf/xray"
                                            :sync true})))
           (.then (fn [_]
-                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                   (let [opts (opts-arg captured)]
                      (is (= :rf/xray (:frame opts))))
                    (done)))))))
 
@@ -878,7 +890,7 @@
               (dispatch/dispatch-tool (fresh-conn)
                                       #js {:event "[:counter/inc]"})))
           (.then (fn [_]
-                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                   (let [opts (opts-arg captured)]
                      (is (not (contains? opts :frame))
                          "no :frame opt when the arg is absent"))
                    (done)))))))
@@ -1293,7 +1305,7 @@
                                            :fx-overrides #js {":http" ":stub-http"}})))
           (.then (fn [r]
                    (is (not (err? r)))
-                   (let [opts (nth (cljs.reader/read-string @captured) 2)
+                   (let [opts (opts-arg captured)
                          overrides (:fx-overrides opts)]
                      (is (= {:http :stub-http} overrides)
                          "override target is the KEYWORD :stub-http, not the string \":stub-http\"")
@@ -1359,7 +1371,8 @@
           (.then (fn [r]
                    (is (not (err? r)))
                    (let [parsed (cljs.reader/read-string @captured)
-                         opts   (nth parsed 2)]
+                         ;; rf2-fzbj.6 — the opts map rides quoted.
+                         opts   (quoted-datum (nth parsed 2))]
                      (is (= [:todo/add {:text "buy milk"}] (quoted-datum (second parsed))))
                      (is (= {:rf/time-ms 1781078400123} (:rf.cofx opts))
                          "cofx is threaded under the :rf.cofx opts key the router reads")
@@ -1382,7 +1395,7 @@
                                            :sync true
                                            :cofx "{:rf/time-ms 1700000000000 :counter/delta 4 :rf.route/location {:path \"/todos\"}}"})))
           (.then (fn [_]
-                   (let [opts (nth (cljs.reader/read-string @captured) 2)
+                   (let [opts (opts-arg captured)
                          cofx (:rf.cofx opts)]
                      (is (= 1700000000000 (:rf/time-ms cofx)))
                      (is (= 4 (:counter/delta cofx))
@@ -1402,7 +1415,7 @@
               (dispatch/dispatch-tool (fresh-conn)
                                       #js {:event "[:counter/inc]" :sync true})))
           (.then (fn [_]
-                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                   (let [opts (opts-arg captured)]
                      (is (not (contains? opts :rf.cofx))
                          "no :rf.cofx opt when the arg is absent"))
                    (done)))))))
@@ -1476,7 +1489,7 @@
                                            :cofx "{:rf/time-ms 1781078400123 :counter/delta 4}"})))
           (.then (fn [r]
                    (is (not (err? r)))
-                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                   (let [opts (opts-arg captured)]
                      (is (= {:rf/time-ms 1781078400123 :counter/delta 4} (:rf.cofx opts))
                          "the recorded :rf.cofx token rides verbatim")
                      (is (= :strict (:rf.cofx/mint-policy opts))
@@ -1497,7 +1510,7 @@
               (dispatch/dispatch-tool (fresh-conn)
                                       #js {:event "[:counter/inc]" :replay true})))
           (.then (fn [_]
-                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                   (let [opts (opts-arg captured)]
                      (is (= :strict (:rf.cofx/mint-policy opts))
                          "replay is strict regardless of a supplied cofx token")
                      (is (not (contains? opts :rf.cofx))
@@ -1517,7 +1530,7 @@
                                       #js {:event "[:todo/add {:text \"x\"}]"
                                            :cofx "{:rf/time-ms 1781078400123}"})))
           (.then (fn [_]
-                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                   (let [opts (opts-arg captured)]
                      (is (= {:rf/time-ms 1781078400123} (:rf.cofx opts))
                          "the scripted token still rides")
                      (is (not (contains? opts :rf.cofx/mint-policy))
@@ -1535,7 +1548,7 @@
               (dispatch/dispatch-tool (fresh-conn)
                                       #js {:event "[:counter/inc]" :sync true})))
           (.then (fn [_]
-                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                   (let [opts (opts-arg captured)]
                      (is (not (contains? opts :rf.cofx/mint-policy))
                          "no strict opt without the replay affordance")
                      (is (not (contains? opts :rf.cofx))))
@@ -1575,7 +1588,7 @@
                                            :interceptor-overrides #js {":auth/required" ":story/skip-auth"}})))
           (.then (fn [r]
                    (is (not (err? r)))
-                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                   (let [opts (opts-arg captured)]
                      (is (= {:auth/required :story/skip-auth} (:interceptor-overrides opts))
                          "the ref key/value coerce to keyword refs in the emitted opts"))
                    (done)))))))
@@ -1594,7 +1607,7 @@
                                            #js {"[:rf.interceptor/path [:cart]]" nil
                                                 ":audit/record-event" nil}})))
           (.then (fn [_]
-                   (let [opts (nth (cljs.reader/read-string @captured) 2)
+                   (let [opts (opts-arg captured)
                          overrides (:interceptor-overrides opts)]
                      (is (= nil (get overrides [:rf.interceptor/path [:cart]]))
                          "the parameterized ref key coerces to an [id arg] 2-vector")
@@ -1614,7 +1627,7 @@
               (dispatch/dispatch-tool (fresh-conn)
                                       #js {:event "[:counter/inc]" :sync true})))
           (.then (fn [_]
-                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                   (let [opts (opts-arg captured)]
                      (is (not (contains? opts :interceptor-overrides))
                          "no :interceptor-overrides opt when the arg is absent"))
                    (done)))))))
@@ -1663,7 +1676,7 @@
                                            :interceptor-overrides #js {":audit/record-event" nil}})))
           (.then (fn [r]
                    (is (not (err? r)))
-                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                   (let [opts (opts-arg captured)]
                      (is (= {:rf/time-ms 1781078400123 :counter/delta 4} (:rf.cofx opts))
                          "the recorded :rf.cofx token rides verbatim")
                      (is (= :strict (:rf.cofx/mint-policy opts))
@@ -1770,6 +1783,62 @@
                        "the tagged vector rides through as the vector it is")
                    (is (not (str/includes? @captured "dispatch-consequence! (inc 41)"))
                        "no raw-source splice in the runtime call")
+                   (done)))))))
+
+;; rf2-fzbj.6 — the OPTS map beside the event carries caller EDN too.
+;;
+;; rf2-j2wz quoted the event and left the opts map printing, and the opts
+;; map is where the scripted coeffects ride. So a `cofx "{:review/fact
+;; (inc 41)}"` reached the router as `{:review/fact 42}` — the replay ran
+;; on a DIFFERENT causal fact from the one scripted, which is precisely
+;; the determinism a recorded cofx exists to provide. Same mechanism for
+;; a parameterised `:interceptor-overrides` value.
+
+(deftest cofx-fact-lists-are-not-evaluated-before-dispatch
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :no-op? true}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:review/event]"
+                                           :cofx "{:review/fact (inc 41)}"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (is (= '(inc 41) (get-in (opts-arg captured) [:rf.cofx :review/fact]))
+                       "the scripted fact reaches the router as the datum it was")
+                   (is (not (str/includes? @captured ":review/fact 42"))
+                       "and was not evaluated while the call was constructed")
+                   (done)))))))
+
+(deftest cofx-fact-symbols-are-not-resolved-before-dispatch
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :no-op? true}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:review/event]"
+                                           :cofx "{:review/fact js/window}"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (is (= 'js/window (get-in (opts-arg captured) [:rf.cofx :review/fact]))
+                       "a symbol-valued fact stays a symbol rather than resolving")
+                   (done)))))))
+
+(deftest ordinary-opts-are-unchanged-by-quoting
+  ;; CONTROL — the everyday opts (a frame keyword, an integer-valued
+  ;; cofx) print and quote alike, so the repair must leave them alone.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :no-op? true}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:counter/inc]"
+                                           :frame ":rf/xray"
+                                           :cofx "{:rf/time-ms 1781078400123}"})))
+          (.then (fn [_]
+                   (let [opts (opts-arg captured)]
+                     (is (= :rf/xray (:frame opts)))
+                     (is (= {:rf/time-ms 1781078400123} (:rf.cofx opts))))
                    (done)))))))
 
 (deftest await-render-event-payload-is-quoted-too

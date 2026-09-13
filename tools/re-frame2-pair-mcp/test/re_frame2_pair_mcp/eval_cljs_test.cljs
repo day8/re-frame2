@@ -31,9 +31,11 @@
   polling loop sees the same `:pending` → `:resolved` / `:rejected`
   transitions a real browser would emit, without spinning a runtime."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
+            [cljs.reader]
             [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.tools.await-promise :as await-promise]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]))
 
 ;; eval-cljs defaults ON (the operator opts OUT via --no-eval). The
@@ -731,6 +733,57 @@
                                non-probe-forms)
                          "original user form rides inside the wrap"))
                    (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-gwye.27 — a caller form ending in a `;` line comment stays readable
+;; through EVERY wrapper composition.
+;;
+;; `(+ 20 22) ; expected answer` is valid CLJS that evaluates to 42. Each
+;; wrapper appended its closing delimiters onto that comment's line, so
+;; the comment swallowed them and the reader reached EOF with the
+;; collection open — the eval failed to READ, and the programmer had to
+;; edit correct code to get an answer. The frame wrapper composes with
+;; the other two, so a newline outside a previously built frame wrapper
+;; would not help: its `)` was already inside the comment.
+;; ---------------------------------------------------------------------------
+
+(defn- readable? [src]
+  (try (cljs.reader/read-string src) true
+       (catch :default _ false)))
+
+(deftest trailing-line-comment-survives-the-frame-wrapper
+  (async done
+    (let [forms (atom [])]
+      (-> (with-form-recorder! {:runtime? true :eval-value 42 :forms-atom forms}
+            (fn []
+              (eval-cljs/eval-cljs-tool
+                (fresh-conn)
+                #js {:form "(+ 20 22) ; expected answer"
+                     :frame ":rf/xray"
+                     :build "app"})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [sent (->> @forms (remove sentinel-probe?))]
+                     (is (seq sent) "the tool emitted a form to evaluate")
+                     (is (every? readable? sent)
+                         "every emitted form reads — the comment swallowed no delimiter")
+                     (is (some #(str/includes? % "; expected answer") sent)
+                         "the caller's comment rides through verbatim"))
+                   (done)))))))
+
+(deftest await-and-frame-wrappers-survive-a-trailing-line-comment
+  ;; The await wrapper is a pure fn, and the frame+await composition is
+  ;; the wrapper order the tool builds (frame first, await outside).
+  (let [commented "(+ 20 22) ; expected answer"
+        framed    (str "(re-frame.core/with-frame :rf/xray " commented "\n)")]
+    (is (readable? (await-promise/wrap-form "(+ 20 22)" "mbox"))
+        "CONTROL: the await wrapper reads without a comment")
+    (is (readable? (await-promise/wrap-form commented "mbox"))
+        "await wrapper: the comment swallows no closing delimiter")
+    (is (readable? framed)
+        "frame wrapper: its own closing paren is not inside the comment")
+    (is (readable? (await-promise/wrap-form framed "mbox"))
+        "frame + await compose without an unreadable boundary")))
 
 (deftest frame-arg-omitted-leaves-form-unwrapped
   ;; Without :frame the form crosses the wire verbatim — no with-
