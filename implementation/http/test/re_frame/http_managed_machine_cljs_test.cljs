@@ -42,9 +42,12 @@
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
+;; `:async? true` — the (4) :spawn-all rows are `async`, and cljs.test aborts a
+;; namespace holding async tests unless its fixtures are the map form.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter
+     :async?  true
      :init-fn (fn []
                 (rf.machines/reset-timers!)
                 (rf.http.managed/clear-all-in-flight!))}))
