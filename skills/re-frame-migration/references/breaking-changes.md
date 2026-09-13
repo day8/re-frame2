@@ -174,7 +174,7 @@ The author **must** ask for these. They are never auto-applied as part of a rout
 | Adopt the Spec 012 routing surface | **O-8** | If you have a third-party router (reitit/secretary/bidi), this is the move-to-`reg-route` rewrite. Pairs with M-14. |
 | Orient against Spec 000's `C-000.NN` contract clauses (implementor-facing) | O-10 | No user-code rewrite. |
 | Switch generated-machine-spec callers from `reg-machine` to `reg-machine*` | O-11 | Source-coord stamping. Codegen pipelines only. |
-| Introspect static sub-graph via `(rf/sub-topology)` | O-12 | Replaces ad-hoc walks of private sub state. |
+| Introspect static sub-graph via `(re-frame.subs.tooling/sub-topology)` | O-12 | Replaces ad-hoc walks of private sub state. |
 | Move from Reagent to UIx via `day8/re-frame2-uix` | **O-13** | Substrate swap. Not part of v1→v2; never auto-applied. |
 | Replace hand-rolled spawn-and-join with `:spawn-all` | **O-15** | Machine modernisation. The hand-rolled form continues to work. |
 | `day8.re-frame/async-flow-fx` coord; `:async-flow` fx in handlers (boot / wizard / init orchestration) | **O-16** | Convert async **sequences** to `reg-machine` **state machines** (Spec 005) — NOT reactive flows. Type B (ask first) **for the conversion path**. **NOT optional that you act:** `async-flow-fx` calls the removed `re-frame.core/console` and **fails to compile on v2** — see [§v1 add-on libraries fail to COMPILE on v2](#v1-add-on-libraries-fail-to-compile-on-v2--replacementremoval-is-forced-not-opt-in). Convert (this rule) or remove it before the app compiles. **Translation guide + worked before→after: [`async-flow-to-machines.md`](async-flow-to-machines.md).** |

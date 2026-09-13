@@ -175,7 +175,7 @@ Two contract facts, each pinned against the shipped spec:
     the NEGATION test; the SCAN UNIT is a normalised paragraph, and the two are
     independent. The first cut ran the pattern over `text.splitlines()`, which
     made both banned phrases evade the lock the moment an author reflowed the
-    paragraph — `leave the dependency\nalone` (the shape's `\s+` never reaches
+    paragraph — `leave the dependency\nalone` (the shape's `\\s+` never reaches
     a newline `splitlines` has already cut) and `wait until a\nrelease lands`
     (whose `[^.\n]` excludes one outright). An editor's wrap, not a rewrite,
     and invisible in review (rf2-qivv post-merge audit). Paragraphs are joined
@@ -205,7 +205,22 @@ A fourth, structurally different guard (rf2-3fc89f.35) rides the same gate:
     the leaf's own invert-filter and runs it over representative requires, plus
     pins the exceptions-definition anchor, the breaking-changes / inventory links
     to it, the kickoff `ls-tree`/`rg` allowance, and the M-22 Type-A label. See
-    `m1_classifier_problems()` / `m1_anchor_problems()`.
+    `m1_classifier_problems()` / `m1_anchor_problems()`. rf2-0tur widened the
+    must-exempt set with four public namespaces the filter had omitted
+    (`re-frame.resources`, `re-frame.story`, `re-frame.fresco`,
+    `re-frame.test-helpers`) — the skill routes into two of them, and M-1's
+    rewrite removes the require outright.
+
+  * **M-51 sweep — the executable unary-`reg-fx` sweep must see every common
+    unary shape (rf2-0tur).** M-51 is SILENT-fail: a unary fx handler compiles,
+    binds v2's context map to its only parameter and drops the real args with no
+    error, and the leaf's `rg -U` sweep is its only detector. The earlier
+    pattern required a newline between `reg-fx` and `fn` AND a bare-symbol
+    parameter, so it saw one of four common unary shapes — a same-line handler
+    and the destructured `(fn [{:keys [...]}] ...)` http-fx v1 shape were
+    invisible. This guard extracts the leaf's own sweep pattern and runs it over
+    four unary shapes, which it must all match, and a binary control, which it
+    must not. See `m51_sweep_problems()`.
 
 Scan surface: the user-facing migration-skill leaves (SKILL.md + references/*.md)
 PLUS the migration corpus the skill treats as source of truth
@@ -1349,6 +1364,11 @@ M1_EXEMPT_NSES = [
     "re-frame.schemas", "re-frame.machines", "re-frame.routing", "re-frame.flows",
     "re-frame.http.managed", "re-frame.http.test-support",
     "re-frame.ssr", "re-frame.epoch", "re-frame.test-support",
+    # rf2-0tur: public namespaces with manifest rows that the list omitted — the
+    # skill routes INTO two of them (resources, fresco), and M-1's rewrite says
+    # "remove the :require entirely", so a false flag deletes a live import.
+    "re-frame.resources", "re-frame.story", "re-frame.fresco",
+    "re-frame.test-helpers",
 ]
 
 # Extract the documented rg patterns. The broad-scan line ends `' . \` (space-dot);
@@ -1356,6 +1376,59 @@ M1_EXEMPT_NSES = [
 # the trailing ` .` skips the prose look-around counter-example further down.
 _M1_BROAD_RE = re.compile(r"rg -n '([^']*re-frame[^']*)' \.")
 _M1_INVERT_RE = re.compile(r"rg -v '([^']*re-frame[^']*)'")
+
+# M-51 sweep (rf2-0tur). M-51 is SILENT-fail — a unary fx handler compiles, binds
+# v2's context map to its only param and drops the real args — and the leaf's
+# `rg -U` sweep is its only detector, so the sweep must see every common unary
+# shape. Four unary shapes a v1 codebase carries (next-line and same-line,
+# bare-symbol and destructured; `{:keys [...]}` is the http-fx v1 shape) plus the
+# rewritten binary form as a control the sweep must NOT match.
+M51_UNARY_SHAPES = (
+    ("next-line bare-symbol",
+     "(rf/reg-fx :toast/show\n  (fn [message] (show-toast! message)))"),
+    ("same-line bare-symbol",
+     "(rf/reg-fx :datadog/log (fn [entry] (log! entry)))"),
+    ("next-line map-destructured",
+     "(rf/reg-fx :http-xhrio\n  (fn [{:keys [uri on-success]}] (send-xhr! uri on-success)))"),
+    ("same-line map-destructured",
+     "(rf/reg-fx :analytics/track (fn [{:keys [event props]}] (track! event props)))"),
+)
+M51_BINARY_CONTROL = "(rf/reg-fx :http-xhrio\n  (fn [_ request] (send-xhr! request)))"
+_M51_SWEEP_RE = re.compile(r"rg -U(?: -\w+)* '([^']*reg-fx[^']*)'")
+
+
+def _m51_sweep_misses(pattern: re.Pattern) -> list[str]:
+    """Each way `pattern` misclassifies the M-51 fixture."""
+    misses = [
+        f"misses the unary {label} shape"
+        for label, shape in M51_UNARY_SHAPES
+        if not pattern.search(shape)
+    ]
+    if pattern.search(M51_BINARY_CONTROL):
+        misses.append("matches the binary `(fn [_ request] ...)` control")
+    return misses
+
+
+def m51_sweep_problems() -> list[str]:
+    """Run the leaf's own M-51 sweep pattern over the five-shape fixture."""
+    if not AUTO_CALL_SITE_MD.is_file():
+        return [f"SETUP: M-51 leaf missing: {AUTO_CALL_SITE_MD.relative_to(REPO_ROOT)}"]
+    m = _M51_SWEEP_RE.search(_slurp(AUTO_CALL_SITE_MD))
+    if not m:
+        return [
+            "M51-SWEEP-SETUP: could not locate the documented `rg -U '...reg-fx...'` "
+            "sweep in auto-call-site-rewrites.md — M-51's only detector drifted."
+        ]
+    try:
+        pattern = re.compile(m.group(1))
+    except re.error as exc:  # pragma: no cover - defends against a mangled edit
+        return [f"M51-SWEEP-SETUP: documented M-51 sweep is not a valid regex: {exc}"]
+    return [
+        f"M51-SWEEP-BLIND: the documented M-51 sweep {miss}. M-51 is SILENT-fail "
+        "and this sweep is its only detector: a missed shape is a unary fx handler "
+        "that drops its real args with no error (rf2-0tur)."
+        for miss in _m51_sweep_misses(pattern)
+    ]
 
 
 def _require_line(ns: str) -> str:
@@ -2105,6 +2178,7 @@ def run(*, verbose: bool, ci: bool) -> int:
     problems, lines_checked = find_drift(files)
     problems.extend(m1_classifier_problems())
     problems.extend(m1_anchor_problems())
+    problems.extend(m51_sweep_problems())
     problems.extend(form3_capture_once_retarget_problems())
     problems.extend(m0_publication_route_problems())
     problems.extend(skill_leaf_publication_route_problems())
@@ -3014,11 +3088,19 @@ def _self_test() -> int:
     good_broad = re.compile(r"\[\s*re-frame\.[a-z-]+")
     good_invert = re.compile(
         r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
-        r"http|ssr|epoch|test-support|spec)\b"
+        r"http|ssr|epoch|resources|fresco|story|test-support|test-helpers|spec)\b"
     )
     bad_invert = re.compile(  # the exact pre-fix filter — no `adapter`, no `spec`
         r"\[\s*re-frame\.(core|interop|schemas|machines|routing|flows|"
         r"http|http-managed|http-test-support|ssr|epoch|test-support)\b"
+    )
+    pre_0tur_invert = re.compile(  # the rf2-3fc89f.35 filter rf2-0tur widened
+        r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
+        r"http|ssr|epoch|test-support|spec)\b"
+    )
+    rf2_0tur_nses = (
+        "re-frame.resources", "re-frame.story", "re-frame.fresco",
+        "re-frame.test-helpers",
     )
 
     def m1_expect(ns: str, pattern: re.Pattern, want: str, label: str) -> None:
@@ -3046,6 +3128,30 @@ def _self_test() -> int:
     # is the exact rf2-3fc89f.35 false-positive the corrected filter removes.
     for ns in ("re-frame.adapter.reagent", "re-frame.adapter.uix", "re-frame.spec"):
         m1_expect(ns, bad_invert, "flag", f"M1-regression-detected {ns}")
+    # rf2-0tur: the four public namespaces the filter omitted are exempt under the
+    # widened filter, and the pre-rf2-0tur filter flags every one of them.
+    for ns in rf2_0tur_nses:
+        m1_expect(ns, good_invert, "exempt", f"M1-good-exempt {ns}")
+        m1_expect(ns, pre_0tur_invert, "flag", f"M1-regression-detected {ns}")
+
+    # --- M-51 sweep fixtures (rf2-0tur) -----------------------------------------
+    # The corrected sweep sees all four unary shapes and skips the binary control;
+    # the exact pre-fix sweep (newline required, bare-symbol param only) sees one.
+    good_m51 = re.compile(r"reg-fx[^\n]*\n?[^\n]*\(fn \[[^]\s_][^]]*\]")
+    bad_m51 = re.compile(r"reg-fx[^\n]*\n[^\n]*\(fn \[[a-zA-Z_-]+\]")
+    if _m51_sweep_misses(good_m51):
+        print(
+            "SELF-TEST FAIL (M51-good): the corrected M-51 sweep "
+            f"{_m51_sweep_misses(good_m51)!r}"
+        )
+        failures += 1
+    bad_misses = _m51_sweep_misses(bad_m51)
+    if len(bad_misses) != 3 or any("control" in m for m in bad_misses):
+        print(
+            "SELF-TEST FAIL (M51-regression-detected): the pre-fix sweep must miss "
+            f"exactly 3 of the 4 unary shapes and skip the control, got {bad_misses!r}"
+        )
+        failures += 1
 
     # --- Rule 5b fixtures — captured-subscribe acquisition (rf2-v84zn) ----------
     # A structurally faithful copy of the ONE canonical exceptional Form-3: the
