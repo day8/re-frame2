@@ -363,6 +363,16 @@ returns no `structuredContent` (JSON-RPC -32600), so the structured
 slot is emitted alongside the text. The text slot remains the
 byte-stable source of truth for round-tripping.
 
+A value that is not DATA does not round-trip, and no longer pretends to.
+A supported `[:assert-db path :pred fn-or-sym]` assertion
+([`tools/story/spec/001-Authoring.md`](../../story/spec/001-Authoring.md))
+may put a live function in an author's body, and it crosses both slots as
+the bounded `{:rf.story-mcp/unencodable "<class name>"}` marker
+(rf2-gwye.58) — the text stays readable EDN, and the callable is NAMED
+rather than reconstructible. Before that projection the raw function
+reached the JSON encoder and took the whole response down as a `-32603`
+server fault, body and run verdict with it.
+
 **Errors.** `isError: true` when `:variant-id` is not registered.
 
 ### `explain-variant` (rf2-ba86n.17)

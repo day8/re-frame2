@@ -5309,3 +5309,105 @@
         (is (pos? (:token-count body))
             ":token-count reflects the over-budget count")
         (is (= 1 (:cap-tokens body)))))))
+
+;; ---------------------------------------------------------------------------
+;; Named-check assertion copies honour the sensitive-record filter
+;; (rf2-gwye.60).
+;;
+;; A `:checks` group carries the SAME assertion-record maps as the top-level
+;; `:assertions` vec (`re-frame.story.result/check-record`), so a record the
+;; egress drops at the top level must not ride back out inside a group.
+;; Driven through the real `run-loop!` and looked for in the ENCODED frame —
+;; both slots — rather than in a handler's return value.
+;; ---------------------------------------------------------------------------
+
+(def ^:private check-private-sentinel "CHECK-PRIVATE-SENTINEL")
+
+(defn- reg-check-private-fixture!
+  "A variant whose setup seeds the accumulator with a programmer-stamped
+  `:sensitive? true` record (the record-don't-throw contract the
+  sensitive-assertion tests above already use), and whose TWO named checks
+  both expand to the atom that record matches — so one source record lands
+  in both groups, and a per-group drop count would double-count it."
+  []
+  (rf/reg-event :story-mcp.test/seed-private-record
+    (fn [{:keys [db]} _]
+      {:db        (assoc db
+                         :flag :yes
+                         :rf.story/assertions
+                         [{:assertion  :rf.assert/path-equals
+                           :payload    [[:flag] :yes]
+                           :passed?    false
+                           :sensitive? true
+                           :actual     check-private-sentinel
+                           :expected   :yes
+                           :reason     check-private-sentinel}])
+       :sensitive [[:rf.story/assertions]]}))
+  (rf.story/reg-check :check.button/private-a {:assertions [[:rf.assert/path-equals [:flag] :yes]]})
+  (rf.story/reg-check :check.button/private-b {:assertions [[:rf.assert/path-equals [:flag] :yes]]})
+  (rf.story/reg-variant :story.button/checked-private
+    {:setup  [[:story-mcp.test/seed-private-record]]
+     :checks [:check.button/private-a :check.button/private-b]}))
+
+(defn- call-checked-private
+  "One `tools/call` of `tool` on the checked-private variant through the real
+  `run-loop!`; returns the decoded response frame."
+  [tool args]
+  (first (run-frames!
+           (str (cheshire/generate-string
+                  {:jsonrpc "2.0" :id 1 :method "tools/call"
+                   :params  {:name      tool
+                             :arguments (merge {:variant-id "story.button/checked-private"
+                                                :max-tokens 0}
+                                               args)}})
+                "\n"))))
+
+(deftest named-check-assertion-copies-honour-the-sensitive-filter
+  (reg-check-private-fixture!)
+  (doseq [tool  ["run-variant" "preview-variant"]
+          dedup [true false]]
+    (testing (str tool " dedup=" dedup ", operator gate closed, caller asks anyway")
+      (let [frame (call-checked-private tool {:dedup dedup :include-sensitive true})]
+        (is (nil? (:error frame))
+            (str "a result envelope, not a protocol error: " (pr-str (:error frame))))
+        (is (not (clojure.string/includes? (pr-str frame) check-private-sentinel))
+            "no copy of the dropped record crosses the wire, in either slot")
+        (when-not dedup
+          (let [s (get-in frame [:result :structuredContent])]
+            (is (= 1 (:dropped-sensitive s))
+                "one source record, counted once — not once per group it appeared in")
+            (is (= #{"check.button/private-a" "check.button/private-b"}
+                   (set (map :check (:checks s))))
+                "check identity survives")
+            (is (every? #(= "fail" (:status %)) (:checks s))
+                "each check keeps its authoritative verdict — hiding its failure does not recompute a pass")
+            (is (every? #(and (seq (:assertions %)) (not-any? :sensitive? (:assertions %)))
+                        (:checks s))
+                "each group keeps its benign records and loses only the stamped one"))))))
+  (testing "both gates open restores the record inside the groups"
+    (rf.story-mcp.config/set-allow-sensitive-reads! true)
+    (let [frame (call-checked-private "run-variant" {:dedup false :include-sensitive true})
+          s     (get-in frame [:result :structuredContent])]
+      (is (clojure.string/includes? (pr-str frame) check-private-sentinel))
+      (is (every? #(some :sensitive? (:assertions %)) (:checks s))))))
+
+;; ---------------------------------------------------------------------------
+;; `run-loop!` leaves Clojure's executors alone (rf2-gwye.59).
+;;
+;; The CLI's `-main` releases Clojure's future/agent executor once stdin
+;; closes, so a session that ran a variant exits promptly instead of idling
+;; out the pool's keep-alive. That release belongs to the process OWNER:
+;; `run-loop!` is the embeddable half, and an embedding caller's later
+;; futures — and later sessions — must keep working after it returns.
+;; ---------------------------------------------------------------------------
+
+(deftest run-loop-leaves-clojure-futures-usable-after-eof
+  (let [frames (run-frames!
+                 (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
+                      "\"params\":{\"name\":\"run-variant\",\"arguments\":"
+                      "{\"variant-id\":\"story.button/primary\",\"dedup\":false,"
+                      "\"max-tokens\":0}}}\n"))]
+    (is (= "pass" (get-in (first frames) [:result :structuredContent :status]))
+        "precondition: the session really ran a variant on a worker future")
+    (is (= 42 (deref (future 42) 5000 ::timed-out))
+        "a future submitted after run-loop! returned still runs")))

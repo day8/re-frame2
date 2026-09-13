@@ -13,7 +13,15 @@
   3. Client sends `notifications/initialized` (no response). Accepted
      but NOT required — see the relaxation note.
   4. Client sends `tools/list`, `tools/call`, etc.; we dispatch.
-  5. Shutdown: client closes stdin → readLine returns nil → we exit.
+  5. Shutdown: client closes stdin → readLine returns nil → we exit,
+     releasing the execution resources `-main` acquired (see `-main`).
+
+  ## stdout belongs to the protocol
+
+  stdout carries frames and nothing else, so `handle-frame!` binds
+  application `*out*` to stderr for the duration of a dispatch: a `println`
+  inside a Story event handler is a diagnostic, not a frame. See
+  `handle-frame!`.
 
   ## Pre-initialize state enforcement
 
@@ -280,7 +288,30 @@
   Public for tests."
   [state ^java.io.Writer writer message]
   (try
-    (when-let [resp (dispatch state message)]
+    ;; APPLICATION OUTPUT IS NOT PROTOCOL TRAFFIC (rf2-gwye.57).
+    ;;
+    ;; stdout carries one JSON frame per line (spec/001-Wire-Protocol.md
+    ;; §Transport). But a tool call runs the USER's code — a Story variant's
+    ;; event handlers — and an ordinary `println` in a handler writes to
+    ;; `*out*`, which in the CLI is stdout. One such line is not a frame, so
+    ;; the client's line parser rejects it and the session breaks, over a run
+    ;; that SUCCEEDED. Requiring every event handler to know it might be
+    ;; running under MCP is the wrong contract.
+    ;;
+    ;; So at this boundary — the server's own dispatch, the one place that
+    ;; knows the difference — application output is bound to stderr, which the
+    ;; transport reserves for diagnostics. The JSON reply does not travel
+    ;; through `*out*` at all: `writer` is held explicitly and written below,
+    ;; so redirecting the dynamic var cannot touch it. `future` conveys
+    ;; dynamic bindings, so the redirect reaches `run-variant-blocking`'s
+    ;; worker thread with it.
+    ;;
+    ;; Scoped to dispatch, never process-wide: no `System/setOut`, nothing an
+    ;; embedding caller of `run-loop!` keeps after the call returns. The
+    ;; separate LOAD-TIME caveat stands as documented (README §Loading your
+    ;; project's stories) — code `clojure.main` ran before `-main` printed
+    ;; before this boundary existed to redirect it.
+    (when-let [resp (binding [*out* *err*] (dispatch state message))]
       (rf.story-mcp.protocol/write-frame! writer resp))
     (catch Throwable e
       (log! "handler threw:" (ex-message e))
@@ -402,7 +433,27 @@
 (defn -main
   "Entry point. Boots, then runs the stdio JSON-RPC loop until stdin
   closes. The agent host launches this as a subprocess and terminates it
-  by closing stdin (or sending SIGTERM after a timeout)."
+  by closing stdin (or sending SIGTERM after a timeout).
+
+  ## Releasing the executor at EOF (rf2-gwye.59)
+
+  `-main` OWNS this process, so it releases what the process acquired.
+  `tools.lifecycle/run-variant-blocking` runs every variant on a `future`,
+  which is Clojure's cached send-off pool: NON-DAEMON threads with a
+  60-second keep-alive. So after a session that actually ran a story, the
+  read loop returns at EOF, `-main` returns, and the JVM then sits there for
+  the rest of that minute with nothing to do — measured at 60,021 ms
+  stdin-to-exit against 71 ms for a session that ran nothing. A host
+  restarting its MCP servers collects a pile of idle JVMs.
+
+  `shutdown-agents` is in a `finally` so an abnormal exit releases it too.
+  It is HERE and not in `run-loop!` deliberately: `run-loop!` is the
+  embeddable half, and shutting the pool down inside it would break the next
+  session — and every future — of a library caller that never asked this
+  server to end its process."
   [& argv]
-  (boot! (parse-args argv))
-  (run-stdio!))
+  (try
+    (boot! (parse-args argv))
+    (run-stdio!)
+    (finally
+      (shutdown-agents))))

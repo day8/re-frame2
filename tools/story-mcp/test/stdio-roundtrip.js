@@ -1,7 +1,9 @@
 // Stdio integration test for tools/story-mcp.
 //
-// Spawns the JVM story-mcp server via `clojure -M -m re-frame.story-mcp.server`
-// and walks the MCP handshake against it:
+// Spawns the JVM story-mcp server via
+// `clojure -M -i test/fixtures/stdio_prelude.clj -m re-frame.story-mcp.server`
+// (the README's preload launch shape — the prelude installs plain-atom and
+// registers a small fixture story) and walks the MCP handshake against it:
 //
 //   - initialize                  (negotiate protocolVersion 2025-06-18)
 //   - notifications/initialized   (notification, no response)
@@ -22,7 +24,15 @@
 //                                 (expect gated tool-execution error — proves
 //                                  the gating contract per spec/003)
 //   - tools/call no-such-tool     (expect method-not-found protocol error)
+//   - tools/call run-variant on the prelude's REGISTERED variants, whose
+//                                 handlers println after the server is up
+//                                 (expect every stdout line to parse as JSON,
+//                                  each marker on stderr only, the run
+//                                  verdicts intact — rf2-gwye.57)
 //   - ping                        (empty result, liveness probe)
+//   - close stdin                 (expect the server to exit 0 ON ITS OWN
+//                                  within a short bound — no kill on the
+//                                  success path, rf2-gwye.59)
 //
 // The representative agent-loop workflow against a running server with
 // --allow-writes enabled lives in the SDK-driven conformance harness
@@ -52,7 +62,22 @@ const TOOL_NAMES = JSON.parse(
 // We spawn the binary directly — no shell wrap — so Node 24+'s
 // shell-with-args deprecation (DEP0190) stays quiet.
 const CLOJURE = process.env.STORY_MCP_CMD || 'clojure';
-const ARGS = ['-M', '-m', 're-frame.story-mcp.server'];
+const ARGS = ['-M', '-i', 'test/fixtures/stdio_prelude.clj', '-m', 're-frame.story-mcp.server'];
+
+// Application output markers the prelude's handlers print under the server's
+// own dispatch (rf2-gwye.57). Each must reach stderr and never stdout.
+const APP_OUTPUT_MARKERS = [
+  'STDIO-FIXTURE-SETUP-PRINT',
+  'STDIO-FIXTURE-SCRIPT-PRINT',
+  'STDIO-FIXTURE-THROW-PRINT',
+];
+
+// After the last reply the harness CLOSES stdin and waits for the server to
+// exit on its own (rf2-gwye.59). A JVM that has released its executors exits
+// in well under a second; before that fix a session that ran a variant idled
+// out Clojure's 60 s executor keep-alive, so this bound separates the two
+// with room to spare on a slow runner.
+const EXIT_AFTER_EOF_BOUND_MS = 10000;
 
 function run() {
   return new Promise((resolve, reject) => {
@@ -62,12 +87,22 @@ function run() {
       cwd: CWD,
       env,
     });
-    child.stderr.on('data', (d) => process.stderr.write('[server] ' + d.toString()));
+    let stderrText = '';
+    child.stderr.on('data', (d) => {
+      stderrText += d.toString();
+      process.stderr.write('[server] ' + d.toString());
+    });
+    // Registered up front so the exit is observed however early it happens.
+    const exited = new Promise((r) =>
+      child.on('close', (code, signal) => r({ code, signal, at: Date.now() })),
+    );
 
     let next = 1;
     const pending = new Map();
     let buf = '';
+    let rawStdout = '';
     child.stdout.on('data', (chunk) => {
+      rawStdout += chunk.toString('utf8');
       buf += chunk.toString('utf8');
       let i;
       while ((i = buf.indexOf('\n')) >= 0) {
@@ -297,6 +332,41 @@ function run() {
       }
       console.log('OK   tools/call no-such-tool -> -32601 method-not-found');
 
+      // 6b. tools/call run-variant on REGISTERED variants whose handlers
+      // println (rf2-gwye.57). stdout is the protocol stream, so application
+      // output emitted under the server's dispatch must go to stderr. The line
+      // parser above fails the run on any non-JSON stdout line; these calls are
+      // what give it something to catch. `quiet` is the control, and the
+      // print-then-throw handler proves a failing run is contained too.
+      const runVariant = (variantId) =>
+        call('tools/call', {
+          name: 'run-variant',
+          arguments: { 'variant-id': variantId, dedup: false, 'max-tokens': 0 },
+        });
+      for (const [variantId, ran] of [
+        ['story.stdio-fixture/quiet', 'quiet'],
+        ['story.stdio-fixture/setup-print', 'setup'],
+        ['story.stdio-fixture/script-print', 'script'],
+      ]) {
+        const r = await runVariant(variantId);
+        const s = r.result?.structuredContent;
+        if (r.error || r.result?.isError || s?.status !== 'pass' || s?.['app-db']?.ran !== ran) {
+          throw new Error(
+            'run-variant ' + variantId + ' should pass with app-db.ran=' + ran + '; got: ' +
+              JSON.stringify(r).slice(0, 600),
+          );
+        }
+      }
+      const thrownResp = await runVariant('story.stdio-fixture/throw-print');
+      const thrownStatus = thrownResp.result?.structuredContent?.status;
+      if (thrownResp.error || thrownResp.result?.isError || thrownStatus === 'pass' || !thrownStatus) {
+        throw new Error(
+          'run-variant on a throwing handler should return a non-pass run verdict; got: ' +
+            JSON.stringify(thrownResp).slice(0, 600),
+        );
+      }
+      console.log('OK   tools/call run-variant (registered, printing handlers) -> verdicts intact (throwing handler -> ' + thrownStatus + ')');
+
       // 7. ping — empty result, MCP §Utilities/ping liveness probe.
       const pingResp = await call('ping', {});
       if (pingResp.result === undefined || Object.keys(pingResp.result || {}).length !== 0) {
@@ -304,8 +374,38 @@ function run() {
       }
       console.log('OK   ping -> empty result {}');
 
+      for (const marker of APP_OUTPUT_MARKERS) {
+        if (rawStdout.includes(marker)) {
+          throw new Error('application output ' + marker + ' reached stdout (the protocol stream)');
+        }
+        if (!stderrText.includes(marker)) {
+          throw new Error('application output ' + marker + ' never reached stderr');
+        }
+      }
+      console.log('OK   application output -> stderr only; every stdout line parsed as JSON');
+
+      // 8. Close stdin and let the server exit ON ITS OWN — no kill on this
+      // path (rf2-gwye.59). The session above ran variants on Clojure's
+      // future executor; the CLI must release it at EOF rather than idle out
+      // its keep-alive.
       clearTimeout(watchdog);
-      child.kill();
+      const eofAt = Date.now();
+      child.stdin.end();
+      const exit = await Promise.race([
+        exited,
+        new Promise((r) => setTimeout(() => r(null), EXIT_AFTER_EOF_BOUND_MS)),
+      ]);
+      if (exit === null) {
+        throw new Error(
+          'server still running ' + EXIT_AFTER_EOF_BOUND_MS + ' ms after stdin EOF ' +
+            '(a session that ran variants must release its executors and exit)',
+        );
+      }
+      if (exit.code !== 0) {
+        throw new Error('server exited ' + exit.code + ' (signal ' + exit.signal + ') after stdin EOF; expected 0');
+      }
+      console.log('OK   stdin EOF -> server exited 0 on its own in ' + (exit.at - eofAt) + ' ms');
+
       console.log('\nSTORY-MCP STDIO ROUND-TRIP GREEN');
       resolve();
     })().catch((e) => {

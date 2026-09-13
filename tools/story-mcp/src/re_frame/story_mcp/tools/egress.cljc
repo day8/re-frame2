@@ -235,6 +235,37 @@
     (nil? records) [[] 0]
     :else          (rf.mcp-base.sensitive/strip-sensitive records false)))
 
+(defn scrub-checks
+  "Apply the SAME sensitive-record drop to the assertion group nested inside
+  each named check record (rf2-gwye.60).
+
+  A check record (`re-frame.story.result/check-record`) groups the very
+  assertion-record MAPS that also ride the top-level `:assertions` vec — the
+  producer collects them by id + payload, it does not copy them into some
+  other shape. So a record `scrub-assertions+count` drops at the top level is
+  still sitting in `:checks[*][:assertions]`, carrying its `:actual` /
+  `:reason`, and a response that says `:dropped-sensitive 1` ships it anyway.
+  Adding a named check to a variant must not defeat the filter.
+
+  What is deliberately NOT done here:
+
+  - the check's own `:status` is left alone. It is the authoritative verdict
+    over the records that RAN; recomputing it after hiding its only failure
+    would turn a failed check into a vacuous pass, which is the worse lie.
+  - the drops are NOT counted. One source record can appear in several
+    groups (two checks expanding to the same assertion atom), so counting per
+    group would report a multiple of the truth. The `:dropped-sensitive`
+    indicator stays the caller's UNIQUE top-level count.
+
+  `include?` is the same opt-out the rest of the egress honours — when true
+  `scrub-assertions+count` returns the group unchanged."
+  [checks include?]
+  (mapv (fn [check]
+          (cond-> check
+            (contains? check :assertions)
+            (update :assertions #(first (scrub-assertions+count % include?)))))
+        checks))
+
 ;; ---------------------------------------------------------------------------
 ;; Derived-tree path-based projection (EP-0025 fail-open)
 ;; ---------------------------------------------------------------------------

@@ -264,7 +264,8 @@ tools/story-mcp/
         └── write.cljc                            ; gated: register-variant, unregister-variant
 └── test/
     ├── fixtures/tool-names.json                  ; canonical tool-name list (shared JVM + Node fixture)
-    ├── stdio-roundtrip.js                        ; Node stdio JSON-RPC roundtrip (initialize → tools/list → tools/call)
+    ├── fixtures/stdio_prelude.clj                ; preloaded story + printing handlers for the stdio roundtrip
+    ├── stdio-roundtrip.js                        ; Node stdio JSON-RPC roundtrip (initialize → tools/list → tools/call → run-variant → stdin EOF)
     └── re_frame/story_mcp/
         ├── protocol_test.clj                     ; wire-format coverage
         ├── tools_test.clj                        ; per-tool semantics + dispatcher + run-loop

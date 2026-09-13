@@ -171,7 +171,9 @@
                             :elapsed-ms   (:elapsed-ms outcome)
                             :app-db       (rf.story-mcp.tools.egress/elide-app-db raw-db vk incl?)
                             :assertions   assertions
-                            :checks       (vec (:checks outcome))
+                            ;; Same filter as `:assertions` — the check groups
+                            ;; carry the same records (rf2-gwye.60).
+                            :checks       (rf.story-mcp.tools.egress/scrub-checks (:checks outcome) incl?)
                             ;; Derived trees are PATH-projected through scrub-rendered:
                             ;; a value AT a classified path redacts, a re-keyed copy
                             ;; ships raw (EP-0025 fail-open). `run-variant` produces

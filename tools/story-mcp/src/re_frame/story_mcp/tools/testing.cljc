@@ -130,7 +130,12 @@
                                   :frame              (:frame outcome vk)
                                   :app-db             (rf.story-mcp.tools.egress/elide-app-db raw-db vk incl?)
                                   :assertions         assertions
-                                  :checks             (vec (:checks outcome))
+                                  ;; The check groups carry the SAME records as
+                                  ;; `:assertions` above, so they take the same
+                                  ;; sensitive-record filter — otherwise a named
+                                  ;; check ships back the record this response
+                                  ;; reports as dropped (rf2-gwye.60).
+                                  :checks             (rf.story-mcp.tools.egress/scrub-checks (:checks outcome) incl?)
                                   :consumed-selectors (:consumed-selectors outcome #{})
                                   ;; Evidence-slot projections (.4 — one tape, one
                                   ;; projection). Every value-bearing slot is

@@ -61,6 +61,7 @@
   re-frame.error`, so these messages are hand-rolled at each throw and a
   shared builder cannot enforce them — only a boundary assertion can."
   (:require [cheshire.core :as cheshire]
+            [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.error]
@@ -451,3 +452,89 @@
             "the guard names what failed")
         (is (string? (cheshire/generate-string projected))
             "and its fallback encodes")))))
+
+;; ---- success payloads: a callable is a marker, not a server fault ----------
+;;
+;; rf2-gwye.58. Everything above guards the ERROR path. `[:assert-db path
+;; :pred fn-or-sym]` is a SUPPORTED Story authoring form
+;; (tools/story/spec/001-Authoring.md), so a live fn legitimately sits in
+;; ordinary SUCCESS data: the registered body, its explain plan, and the run's
+;; assertion evidence. Before the success projection all four tools below
+;; answered `-32603 Server fault: Cannot JSON encode object of class: class
+;; clojure.core$pos_QMARK_` — the run-variant one over a verdict of `:pass`.
+
+(def ^:private predicate-body
+  {:doc     "predicate assertion"
+   :db-seed {:count 1}
+   ;; Two author keys `wire-safe-ex-data` REWRITES on an exception payload.
+   ;; Success data is not an exception, so they must ride exactly as written.
+   :args    {:explain "author-explain" :rf.error/id "author-literal"}
+   :script  [[:assert-db [:count] :pred pos?]]})
+
+(def ^:private equality-body
+  (assoc predicate-body :script [[:assert-db [:count] 1]]))
+
+(def ^:private success-tools
+  ["get-variant" "variant->edn" "explain-variant" "run-variant"])
+
+(defn- call-success-tool
+  "Drive `tool` on `variant-id` through the real boundary, uncapped, with
+  dedup at its default (`dedup? true`) or explicitly off."
+  [tool variant-id dedup?]
+  (call-tool tool (str "{\"variant-id\":\"" variant-id "\",\"max-tokens\":0"
+                       (when-not dedup? ",\"dedup\":false") "}")))
+
+(deftest callable-in-a-success-payload-crosses-as-a-marker
+  (rf.story/reg-variant* :story.button/predicate predicate-body)
+  (is (= :pass (:status @(rf.story/run-variant :story.button/predicate)))
+      "precondition: Story itself runs the predicate form green")
+  (doseq [tool success-tools, dedup? [true false]]
+    (testing (str tool " dedup=" dedup?)
+      (let [[line frame] (call-success-tool tool "story.button/predicate" dedup?)]
+        (is (nil? (:error frame))
+            (str "a result envelope, not a protocol fault: " line))
+        (is (nil? (get-in frame [:result :isError]))
+            "a success, not a tool error")
+        (is (str/includes? line "clojure.core$pos_QMARK_")
+            "the callable is still named, by its class")
+        (is (not (str/includes? line "#object"))
+            "no raw printed object in either slot")
+        (is (nil? (re-find address-in-line line))
+            "and no identity hash")))))
+
+(deftest callable-projection-keeps-the-surrounding-data
+  (rf.story/reg-variant* :story.button/predicate predicate-body)
+  (let [s    (fn [tool] (structured (second (call-success-tool tool "story.button/predicate" false))))
+        body (:body (s "get-variant"))]
+    (testing "get-variant: the body survives, and the callable is marked in place"
+      (is (= 1 (get-in body [:db-seed :count])))
+      (is (= {:rf.story-mcp/unencodable "clojure.core$pos_QMARK_"}
+             (get-in body [:script 0 3]))))
+    (testing "literal author keys are not reinterpreted as exception vocabulary"
+      (is (= {:explain "author-explain" :rf.error/id "author-literal"}
+             (:args body))))
+    (testing "the text slot is still readable EDN carrying the same marker"
+      (let [[_ frame] (call-success-tool "variant->edn" "story.button/predicate" false)]
+        (is (= {:rf.story-mcp/unencodable "clojure.core$pos_QMARK_"}
+               (get-in (edn/read-string (result-text frame)) [:script 0 3])))))
+    (testing "variant->edn and explain-variant carry the same author data"
+      (is (= body (s "variant->edn")))
+      (is (= "story.button/predicate" (:variant-id (s "explain-variant"))))
+      (is (map? (:explain (s "explain-variant")))))
+    (testing "run-variant: the verdict and its evidence cross"
+      (let [r (s "run-variant")]
+        (is (= "pass" (:status r)))
+        (is (seq (:assertions r)))))))
+
+(deftest equality-only-assertion-carries-no-marker
+  ;; The control: a projection that marked everything would pass both tests
+  ;; above and be useless.
+  (rf.story/reg-variant* :story.button/equality equality-body)
+  (doseq [tool success-tools]
+    (testing tool
+      (let [[line frame] (call-success-tool tool "story.button/equality" false)]
+        (is (nil? (:error frame)))
+        (is (not (str/includes? line "rf.story-mcp/unencodable"))
+            "plain data is never marked"))))
+  (is (= "pass" (:status (structured (second (call-success-tool "run-variant" "story.button/equality" false)))))
+      "and the equality-only run still crosses with its verdict"))
