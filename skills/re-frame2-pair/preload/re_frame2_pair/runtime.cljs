@@ -974,8 +974,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defn sub-cache
-  "(rf/sub-cache frame-id) — public Tool-Pair surface returning
-   `{query-v {:value v :ref-count n}}` for every materialised
+  "Tool-Pair sub-cache read: `(rf.subs.tooling/sub-cache-snapshot frame-id)`,
+   returning `{query-v {:value v :ref-count n}}` for every materialised
    subscription in the operating frame. CLJS-only; nil on JVM."
   ([] (sub-cache (current-frame)))
   ([frame-id]

@@ -1573,7 +1573,7 @@ External tools consume re-frame2 through stable surfaces. Production builds elid
 | Hoisted top-level fields (`:source`, `:recovery`) | Preserved |
 | `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`) | Preserved |
 | Compile-time elision via `goog.DEBUG=false` + `:advanced` | Preserved |
-| Public registrar query API (`registrations`/`handler-meta`/`frame-ids`/`frame-meta`/`app-db-value`/`frame-state-value`/`sub-topology`/`sub-cache`) | See [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api) |
+| Public registrar query API (`registrations`/`handler-meta`/`frame-ids`/`frame-meta`/`app-db-value`/`frame-state-value`/`sub-topology`/`sub-cache-snapshot`) | See [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api) |
 | Hot-reload notifications (`:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced`, `:rf.frame/created`, `:rf.frame/destroyed`) | Trace events |
 
 ### Capabilities tools depend on
