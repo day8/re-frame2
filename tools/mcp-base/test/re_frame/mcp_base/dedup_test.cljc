@@ -493,3 +493,141 @@
         "the repeated element really was pooled")
     (is (= payload (rf.mcp-base.dedup/expand cache))
         "expand is equal to the input")))
+
+;; ---- Caller metadata is not encoder bookkeeping (rf2-gwye.30) ---------------
+;;
+;; The encoder used to tell a first-sighted pooled subtree apart by tagging it
+;; with `:cache-id` METADATA — and then trusted that key on ANY subtree, so a
+;; unique map carrying the caller's own `:cache-id` was replaced by the
+;; caller's value, and that value became a slot key outside the allocator's
+;; grammar. Metadata is not wire data; it must not move the output at all.
+
+(defn- allocator-keys?
+  "True when `cache` is keyed by exactly `cache-0` … `cache-(n-1)` — the
+  allocator's own slots and nothing else."
+  [cache]
+  (= (set (keys cache))
+     (set (map rf.mcp-base.dedup/make-cache-element (range (count cache))))))
+
+(deftest caller-cache-id-metadata-on-a-unique-subtree-changes-nothing
+  (let [payload {:user (with-meta {:x 1} {:cache-id 7})}]
+    (is (identical? payload (rf.mcp-base.dedup/dedup-value payload true))
+        "no subtree repeats ⇒ verbatim passthrough, whatever the metadata says")
+    (is (= {(rf.mcp-base.dedup/make-cache-element 0) payload}
+           (rf.mcp-base.dedup/de-dupe-eq payload))
+        "the raw cache is root-only: no slot was invented for the metadata")
+    (is (identical? payload (rf.mcp-base.dedup/dedup-value payload false))
+        "opting out stays a strict passthrough")))
+
+(deftest caller-cache-id-metadata-beside-a-real-repeat-expands-exactly
+  (let [shared  (with-meta {:v [1 2 3]} {:cache-id 'other/id})
+        payload {:user  (with-meta {:x 1} {:cache-id 7})
+                 :other (with-meta {:y 2} {:cache-id 'other/id})
+                 :a     shared
+                 :b     shared}
+        out     (rf.mcp-base.dedup/dedup-value payload true)
+        cache   (get out rf.mcp-base.vocab/dedup-table-key)]
+    (is (contains? out rf.mcp-base.vocab/dedup-table-key) "non-vacuity: a real wrap")
+    (is (< 1 (count cache)) "the repeated subtree really was pooled")
+    (is (allocator-keys? cache)
+        "every slot key is the allocator's — no caller metadata value became one")
+    (is (= payload (rf.mcp-base.dedup/expand cache)))))
+
+;; ---- Record extension keys are REPLACED, not added beside (rf2-gwye.31) ----
+;;
+;; Both walks rebuilt a record by conj-ing each transformed entry back into the
+;; ORIGINAL record. A fixed field's key never changes, but an extension key can
+;; — escaped on the way out, unescaped on the way back, or replaced by a slot
+;; reference — and conj kept the old spelling beside the new one.
+
+(defrecord KeyedRecord [x])
+
+(deftest record-extension-keys-are-replaced-not-duplicated
+  (let [shared  [7 8 9]
+        rec     (assoc (->KeyedRecord shared)
+                       :de-dupe.cache/cache-1  :kw
+                       'de-dupe.cache/cache-1  :sym
+                       "de-dupe.cache/cache-1" :str
+                       ;; escapes to `!!cache-1` while `cache-1` escapes to THIS
+                       ;; spelling: pins that every original entry is read
+                       ;; before any rebuilt one is written over it.
+                       :de-dupe.cache/!cache-1 :already-escaped
+                       [4 5 6]                 :pooled-key)
+        payload {:record rec :again shared :also [4 5 6]}
+        out     (rf.mcp-base.dedup/dedup-value payload true)
+        cache   (get out rf.mcp-base.vocab/dedup-table-key)
+        slot-of (fn [v] (some (fn [[k cv]] (when (= v cv) k)) cache))
+        encoded (:record (get cache (rf.mcp-base.dedup/make-cache-element 0)))
+        back    (rf.mcp-base.dedup/expand cache)]
+    (is (contains? out rf.mcp-base.vocab/dedup-table-key) "non-vacuity: a real wrap")
+    (testing "the encoded record carries each key ONCE, in its wire spelling"
+      (is (instance? KeyedRecord encoded))
+      (is (= #{:x
+               :de-dupe.cache/!cache-1 'de-dupe.cache/!cache-1 "de-dupe.cache/!cache-1"
+               :de-dupe.cache/!!cache-1
+               (slot-of [4 5 6])}
+             (set (keys encoded)))
+          "no original spelling survives beside its escaped or pooled replacement")
+      (is (= :kw (get encoded :de-dupe.cache/!cache-1)))
+      (is (= :already-escaped (get encoded :de-dupe.cache/!!cache-1))))
+    (testing "expansion restores exactly the original entries, and the type"
+      (is (= payload back))
+      (is (instance? KeyedRecord (:record back)))
+      (is (= (set (keys rec)) (set (keys (:record back))))
+          "no escaped spelling survives beside its restored original"))
+    (testing "controls"
+      (let [control (assoc payload :record (into {} rec))]
+        (is (= control (rf.mcp-base.dedup/expand
+                         (get (rf.mcp-base.dedup/dedup-value control true)
+                              rf.mcp-base.vocab/dedup-table-key)))
+            "the same entries in an ordinary map round-trip"))
+      (is (identical? payload (rf.mcp-base.dedup/dedup-value payload false))))))
+
+;; ---- Lists and vectors are different EDN (rf2-gwye.32) ----------------------
+;;
+;; `(= '(1 2 3) [1 2 3])` and their hashes agree, so pooling by `=` alone put
+;; a list and a vector in ONE slot and both came back as whichever was seen
+;; first. The wire prints them differently, so pooling must not merge them —
+;; at any depth, including inside containers that are otherwise equal.
+
+(deftest equal-lists-and-vectors-keep-their-kind
+  (let [shared {:big [:repeat :me]}]
+    (doseq [payload [(array-map :list '(1 2 3) :vector [1 2 3] :a shared :b shared)
+                     (array-map :vector [1 2 3] :list '(1 2 3) :a shared :b shared)]]
+      (let [out  (rf.mcp-base.dedup/dedup-value payload true)
+            back (rf.mcp-base.dedup/expand (get out rf.mcp-base.vocab/dedup-table-key))]
+        (is (contains? out rf.mcp-base.vocab/dedup-table-key) "non-vacuity: a real wrap")
+        (is (= payload back))
+        (is (list? (:list back)) "the list comes back a list, in either order")
+        (is (vector? (:vector back)) "the vector comes back a vector, in either order")))))
+
+(deftest same-kind-repeats-still-pool-one-slot-per-kind
+  (let [payload (array-map :l1 '(1 2 3) :v1 [1 2 3] :l2 '(1 2 3) :v2 [1 2 3])
+        out     (rf.mcp-base.dedup/dedup-value payload true)
+        cache   (get out rf.mcp-base.vocab/dedup-table-key)
+        root    (get cache (rf.mcp-base.dedup/make-cache-element 0))
+        back    (rf.mcp-base.dedup/expand cache)]
+    (is (= 3 (count cache)) "the root plus ONE slot per kind")
+    (is (= (:l1 root) (:l2 root)) "the two lists share a slot")
+    (is (= (:v1 root) (:v2 root)) "the two vectors share a slot")
+    (is (not= (:l1 root) (:v1 root)) "and the list slot is not the vector slot")
+    (is (= payload back))
+    (is (every? list? [(:l1 back) (:l2 back)]))
+    (is (every? vector? [(:v1 back) (:v2 back)]))))
+
+(deftest equal-containers-with-differently-kinded-children-keep-their-kinds
+  (let [shared  {:big [:repeat :me]}
+        payload (array-map :in-val-l {:child '(1 2 3)}  :in-val-v {:child [1 2 3]}
+                           :in-key-l {'(1 2 3) :child}  :in-key-v {[1 2 3] :child}
+                           :in-set-l #{'(1 2 3)}        :in-set-v #{[1 2 3]}
+                           :a shared :b shared)
+        out     (rf.mcp-base.dedup/dedup-value payload true)
+        back    (rf.mcp-base.dedup/expand (get out rf.mcp-base.vocab/dedup-table-key))]
+    (is (contains? out rf.mcp-base.vocab/dedup-table-key) "non-vacuity: a real wrap")
+    (is (= payload back))
+    (is (list?   (get-in back [:in-val-l :child])))
+    (is (vector? (get-in back [:in-val-v :child])))
+    (is (list?   (first (keys (:in-key-l back)))) "a key keeps its kind")
+    (is (vector? (first (keys (:in-key-v back)))))
+    (is (list?   (first (:in-set-l back))) "a set element keeps its kind")
+    (is (vector? (first (:in-set-v back))))))
