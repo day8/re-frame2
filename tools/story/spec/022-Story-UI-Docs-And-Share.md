@@ -281,7 +281,7 @@ Share semantics:
   (`re-frame.story.ui.share/declared-arg-keys`). Both drop classes feed the
   share-import hint's `:dropped` count, so a stale override DOWNGRADES the
   reproducibility status and surfaces the drift banner instead of being
-  installed as an orphan live arg `args/resolve-args` would merge into the
+  installed as an orphan live arg `plan/effective-args` would merge into the
   recipient's effective state (a partial artifact masquerading as full);
 - mount URL hydration runs in TWO passes with a SINGLE authoritative owner
   per slot (rf2-ovb1en — `re-frame.story.ui.shell/hydrate-url-state!`):

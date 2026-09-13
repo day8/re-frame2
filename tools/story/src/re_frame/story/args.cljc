@@ -120,7 +120,14 @@
   Returns the deep-merged args map. If the variant or its parent
   story is unregistered, the corresponding layer contributes `{}`. The
   fn never throws on a missing artefact; callers decide whether to surface
-  an inline diagnostic or record a `:rf.error/unknown-variant` assertion."
+  an inline diagnostic or record a `:rf.error/unknown-variant` assertion.
+
+  THE VARIANT LAYER HERE IS THE VARIANT'S OWN `:args`, read off the raw
+  side-table body — this fn resolves the five AMBIENT/RUN layers and does
+  NOT walk `:extends` / `:compose`, which the plan compiler owns. Ask
+  `re-frame.story.plan/effective-args` for the effective scenario args
+  (the value `run-variant` reports); reach for this fn only when the raw
+  layer fold is what you mean."
   ([variant-id]
    (resolve-args variant-id nil))
   ([variant-id {:keys [active-modes cell-overrides] :as _opts}]

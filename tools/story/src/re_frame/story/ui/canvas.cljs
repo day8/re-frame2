@@ -305,12 +305,19 @@
   composed / extended overrides; routing both through the compiled plan
   removes the divergence (single source of truth).
 
+  `plan` is the render's ALREADY-COMPILED variant plan — the one
+  `canvas-inner` compiles once for the whole render (decorators, effective
+  args, loader classification and these overrides all read it), rather than a
+  second compile of its own, which also cost the run opts: recompiled bare,
+  an `[:arg key]` resolvable only through an active-mode / cell-override layer
+  threw `:rf.error/story-missing-arg` here.
+
   `eff-args` is the post-control effective args; `resolve-render-sub-overrides`
   re-substitutes the RAW (pre-`[:arg]`) overrides against them so a
   control-driven override value reflects the live control, exactly as on the
   render-variant path."
-  [variant-id eff-args]
-  (rf.story.render/resolve-render-sub-overrides (rf.story.plan/variant-plan variant-id) eff-args))
+  [plan eff-args]
+  (rf.story.render/resolve-render-sub-overrides plan eff-args))
 
 (defn sub-overrides-scope
   "A Reagent component that wraps `child`'s render in the override-context
@@ -535,22 +542,37 @@
         ;; canvas decorator recompile needs the same opts.
         run-opts       {:active-modes   (:active-modes rk)
                         :cell-overrides (:cell-overrides rk)}
-        decorator-pack (rf.story.decorators/resolve-decorators variant-id run-opts)
-        eff-args       (rf.story.args/resolve-args variant-id run-opts)
+        ;; ONE plan compile per render, and every SCENARIO-shaped read below
+        ;; comes off it: the decorator stack, the effective args, the
+        ;; view-state sub-overrides, the events-only classification. The canvas
+        ;; used to compile twice (inside `resolve-decorators`, then inside the
+        ;; sub-override resolver) and answer the args and loader questions from
+        ;; the RAW registered body — so a variant that `:extends` or
+        ;; `:compose`s its args rendered the story default while `run-variant`
+        ;; reported the inherited value (rf2-gwye.7), and one that inherited
+        ;; `:loaders` was misclassified as events-only, suppressing the
+        ;; skeleton for a fixture that does have loading to do (rf2-gwye.5).
+        plan           (rf.story.plan/variant-plan
+                         variant-id
+                         {:run-args (rf.story.args/run-arg-layers variant-id run-opts)})
+        decorator-pack (rf.story.decorators/resolve-decorator-refs
+                         (get-in plan [:world :decorators] []))
+        eff-args       (get-in plan [:world :effective-args] {})
         assertions     (rf.story.runtime/read-assertions variant-id)
         ;; Resolve the variant's view-state subscription
         ;; overrides (arg-substituted) for the render-path binding below.
-        sub-ovr        (resolve-sub-overrides variant-id eff-args)
+        sub-ovr        (resolve-sub-overrides plan eff-args)
         substrates     (variant-substrate-set variant-id (:substrate rk))
         multi?         (and variant-id (> (count substrates) 1))
         ;; Events-only variants take the lifecycle fast-
         ;; path (`mount-ready!` jumps :pre-mount → :ready directly) so
         ;; the skeleton must not engage even on the brief render
         ;; window before `frames/allocate!` runs. Pure-data check
-        ;; against the variant body + decorator stack, mirroring
-        ;; `loaders/events-only-variant?`.
+        ;; against the RESOLVED loader world + decorator stack — the same
+        ;; `[:world …]` slots `frames/allocate!` classifies from, so the
+        ;; canvas and the runtime agree about which variants load.
         events-only?   (rf.story.loaders/events-only-variant?
-                         variant-body decorator-pack)
+                         (:world plan) decorator-pack)
         ;; rf2-4iu7tu: events-only?'s skeleton suppression (below /
         ;; `loading-phase?`'s events-only? arm) means THIS render — not
         ;; `component-did-mount` — is the one that reaches `frame-provider`

@@ -105,6 +105,7 @@
   (:require [re-frame.late-bind         :as rf.late-bind]
             [re-frame.story.args        :as rf.story.args]
             [re-frame.story.fingerprint :as rf.story.fingerprint]
+            [re-frame.story.plan        :as rf.story.plan]
             [re-frame.story.registrar   :as rf.story.registrar]
             [re-frame.story.tags        :as rf.story.tags]))
 
@@ -293,7 +294,7 @@
   ([variant-id {:keys [active-modes cell-overrides substrate] :as _opts}]
    (let [variant      (variant-body-slice variant-id)
          story        (story-body-slice variant-id)
-         effective    (rf.story.args/resolve-args variant-id
+         effective    (rf.story.plan/effective-args variant-id
                                          {:active-modes   active-modes
                                           :cell-overrides cell-overrides})
          ;; EP-0002 — the variant frame is the explicit

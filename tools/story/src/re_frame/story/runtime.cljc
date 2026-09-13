@@ -270,14 +270,15 @@
   routing past them keeps the phase reads honest: `current-state`
   stays `:ready` end-to-end.
 
-  The loader BODY (`:loaders` + `:loaders-complete-when`)
-  defaults to the registered variant body but MAY be supplied explicitly,
-  so the inline-plan path (which has no registration) feeds the loader
-  slots the compiler carried onto the plan's `:world`. The default keeps
-  the registered path reading the side-table verbatim."
-  ([variant-id] (run-loaders! variant-id (rf.story.frames/variant-body variant-id)))
-  ([variant-id loader-body]
-   (if (= :ready (rf.story.loaders/current-state variant-id))
+  The loader BODY (`:loaders` + `:loaders-complete-when`) is ALWAYS supplied
+  by the caller, and always comes off the COMPILED PLAN's `:world` — the
+  registered path through `prepare-context`, the inline path (which has no
+  registration) through `prepare-inline-context`. It used to default to the
+  raw registered body, which is what made a variant that only `:extends` (or
+  `:compose`s) a loader fixture run no loaders at all while reporting `:pass`
+  (rf2-gwye.5): the compiler resolves those slots, the side-table does not."
+  [variant-id loader-body]
+  (if (= :ready (rf.story.loaders/current-state variant-id))
     ;; Events-only fast-path. Lifecycle already terminal-
     ;; for-mount; the loader cascade has nothing to do.
     true
@@ -306,7 +307,7 @@
             true)
           (do
             (record-loader-incomplete! variant-id variant-body)
-            false)))))))
+            false))))))
 
 ;; ---- error recording -----------------------------------------------------
 
@@ -767,6 +768,11 @@
      ;; with no `:extends`, and is the strictly-more-correct extends-aware
      ;; value when the variant inherits args.
      :effective-args   (get-in plan [:world :effective-args] {})
+     ;; The RESOLVED loader world phase 1 executes — the twin of the inline
+     ;; path's `:loader-body`. `:loaders` / `:loaders-complete-when` fold in
+     ;; the composed fragments and the `:extends` chain, which the raw
+     ;; registered body this phase used to read cannot express (rf2-gwye.5).
+     :loader-body      (select-keys (:world plan) [:loaders :loaders-complete-when])
      :snapshot         (rf.story.identity/snapshot-identity variant-id opts)}))
 
 (defn- ensure-fresh-frame!
@@ -848,10 +854,11 @@
   project evidence from this run only, and so do the tape-projected
   assertions (rf2-3okc).
 
-  Classification comes from the already-compiled plan's
-  `[:world :sensitive]` / `[:world :large]` slots, after `:extends`
-  resolution. Registered and inline plans therefore apply inherited
-  classification through the same allocation boundary."
+  The frame is allocated FROM the already-compiled plan's `:world`, so the
+  classification (`:sensitive` / `:large`), the lowered frame `:fx-overrides`
+  and the loader world (`:loaders` / `:loaders-complete-when` /
+  `:loaders-teardown`) all reach the frame `:extends`- and `:compose`-resolved.
+  Registered and inline plans therefore allocate from the same shape."
   [{:keys [variant-id decorator-stack plan] :as ctx}]
   (ensure-fresh-frame! variant-id)
   ;; rf2-shx4 — realize the compiled `:network` fixture BEFORE allocation, so
@@ -860,13 +867,11 @@
   ;; emits the `{:rf.http/managed :rf.http/managed-test-stub}` redirect but
   ;; registers nothing, so without this the variant reached the REAL transport.
   (rf.story.network/install-for-frame! variant-id (get-in plan [:world :network]))
-  (rf.story.frames/allocate! variant-id decorator-stack
-                     (select-keys (:world plan) [:sensitive :large])
-                     ;; …and carry the plan's lowered frame `:fx-overrides`
-                     ;; (the redirect above) onto the frame — the registered
-                     ;; path dropped it entirely; `allocate-inline!` already
-                     ;; merged it.
-                     (get-in plan [:world :frame :fx-overrides]))
+  ;; Allocate from the compiled `:world` — one argument carrying every
+  ;; scenario slot the frame needs (classification, the lowered frame
+  ;; `:fx-overrides`, the resolved loader world), rather than a positional
+  ;; list that grew one entry per slot somebody noticed was missing.
+  (rf.story.frames/allocate! variant-id decorator-stack (:world plan))
   (swap! rf.story.play/pending-exceptions assoc variant-id [])
   (rf.story.config/reset-redacted-failures! variant-id)
   (rf.story.play/install-trace-listener! variant-id)
@@ -952,15 +957,12 @@
   "Phase 1: drive loaders to completion. Thin wrapper that returns
   `ctx` so the orchestrator stays a clean threaded pipeline.
 
-  The loader body defaults to the registered variant body
-  (`run-loaders!` 1-arity); an inline run threads `:loader-body` on the
-  ctx (the plan's `:world` loader slots), so an inline plan's loaders run
-  through the SAME phase fn without reading the side-table."
+  The loader body is the ctx's `:loader-body` — the compiled plan's `:world`
+  loader slots — on BOTH paths: `prepare-context` puts the registered run's
+  there, `prepare-inline-context` the inline run's. Neither reads the
+  side-table, so an inherited / composed fixture runs (rf2-gwye.5)."
   [{:keys [variant-id loader-body] :as ctx}]
-  (assoc ctx :loaders-complete?
-         (if (contains? ctx :loader-body)
-           (run-loaders! variant-id loader-body)
-           (run-loaders! variant-id))))
+  (assoc ctx :loaders-complete? (run-loaders! variant-id loader-body)))
 
 (defn- run-phase-2!
   "Phase 2: dispatch the plan's `[:world :setup]`, then mark events

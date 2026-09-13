@@ -1814,10 +1814,12 @@
 
 (defn resolve-args
   "Per `002-Runtime.md` §Args resolution precedence — materialise the effective args map for a
-  variant render given the active modes + cell overrides. See
-  `re-frame.story.args/resolve-args`."
-  ([variant-id]       (rf.story.args/resolve-args variant-id))
-  ([variant-id opts]  (rf.story.args/resolve-args variant-id opts)))
+  variant render given the active modes + cell overrides. The variant layer is
+  the `:extends`-merged / `:compose`-folded one the plan compiler resolves, so
+  this is the SAME value `run-variant` reports as `:effective-args`. See
+  `re-frame.story.plan/effective-args`."
+  ([variant-id]       (rf.story.plan/effective-args variant-id))
+  ([variant-id opts]  (rf.story.plan/effective-args variant-id opts)))
 
 (defn resolve-decorators
   "Per `002-Runtime.md` §Decorator composition order — return the variant's resolved decorator stack

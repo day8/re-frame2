@@ -140,6 +140,25 @@
   allocated-decorator-stacks
   (atom {}))
 
+;; Per-frame ALLOCATE-TIME `:loaders-teardown`, for exactly the reason the
+;; decorator capture above exists (rf2-gwye.6). Teardown used to re-read the
+;; CURRENT registration, so an ordinary edit / hot-reload between a run and its
+;; destroy ran a cleanup whose `:loaders` never fired and skipped the cleanup
+;; for the resource the live run actually opened — closing the wrong socket,
+;; timer or subscription, or none at all. The capture is the RESOLVED slot
+;; (the compiled plan's, when the caller threaded a `world`), so an inherited /
+;; composed cleanup is owned by the run too. PRESENCE is the signal, not
+;; contents: a run that owns NO cleanup captures `[]`, and teardown must run
+;; that empty vector rather than fall back to a cleanup the newest
+;; registration grew after the run started. Evicted by `run-teardown-walks!`.
+(defonce
+  ^{:doc "frame-id → the `:loaders-teardown` events CAPTURED at `allocate!`
+         time (resolved from the compiled plan's `:world` when one was
+         threaded). Read (and evicted) by `run-teardown-walks!` so a run's
+         cleanup releases what that run opened."}
+  allocated-loaders-teardown
+  (atom {}))
+
 (defn- ensure-stub-event!
   "Register a `reg-fx` handler under `stub-id` that handles a
   redirected fx call. Idempotent — re-registration replaces the slot
@@ -690,35 +709,35 @@
   story-runtime which expects a fresh app-db; the caller (`runtime/
   reset-variant`) destroys first.
 
-  `classification` (optional, 3-arity; rf2-lsr95i) is the variant's
-  EFFECTIVE `:sensitive`/`:large` app-db classification — a map with
-  `:sensitive`/`:large` keys, already `:extends`-merged root→child. The
-  runtime (`run-phase-0!`) threads its ALREADY-COMPILED plan's `[:world
-  :sensitive]` / `[:world :large]` here (`plan/variant-plan` folds
-  `:sensitive`/`:large` through the `:extends` chain via `context-keys`
-  — the SAME merge `allocate-inline!` already receives for an inline
-  plan run, rf2-cmjly3 finding 12). Omitted (2-arity — direct/test
-  callers with no compiled plan on hand) falls back to the raw variant
-  body's OWN `:sensitive`/`:large`, i.e. no `:extends` inheritance; that
-  is only correct for a variant with no `:extends` parent, which is what
-  every such caller in this codebase exercises. Before this fn threaded
-  a classification arg, `allocate!` ALWAYS read the raw un-merged body —
-  so a variant that only `:extends`ed a classified parent, declaring no
-  classification itself, silently dropped the parent's redaction.
+  `world` (optional) is the ALREADY-COMPILED plan's `:world` — the SCENARIO
+  this frame is allocated for, with `:extends` and `:compose` resolved. The
+  runtime (`run-phase-0!`) threads `(:world plan)`; three groups of slots are
+  read off it:
 
-  `plan-fx-overrides` (optional, 4-arity; rf2-shx4) is the compiled plan's
-  `[:world :frame :fx-overrides]` map — the lowering `:network` folds
-  `{:rf.http/managed :rf.http/managed-test-stub}` into. It merges UNDER the
-  decorator stack's materialised stubs (the plan map wins), exactly as
-  `allocate-inline!` has always merged its own. Omitted (2-/3-arity) leaves
-  the decorator stubs alone. Before this arity existed the registered path
-  passed only the decorator stack, so an authored `:network` fixture's
-  redirect never reached the frame and the variant executed the REAL
-  `:rf.http/managed` transport."
-  ([variant-id decorator-stack] (allocate! variant-id decorator-stack nil nil))
-  ([variant-id decorator-stack classification]
-   (allocate! variant-id decorator-stack classification nil))
-  ([variant-id decorator-stack classification plan-fx-overrides]
+  - `:sensitive` / `:large` — the EFFECTIVE app-db classification
+    (rf2-lsr95i). `plan/variant-plan` folds them through the `:extends` chain
+    via `context-keys` — the SAME merge `allocate-inline!` receives for an
+    inline plan run (rf2-cmjly3 finding 12). Reading the raw body here
+    silently dropped a classified parent's redaction from a child that only
+    `:extends`ed it.
+  - `[:frame :fx-overrides]` — the compiled frame overrides (rf2-shx4), e.g.
+    the `:network` lowering's `{:rf.http/managed :rf.http/managed-test-stub}`
+    redirect. They merge UNDER the decorator stack's materialised stubs (the
+    plan map wins), exactly as `allocate-inline!` merges its own; without
+    them an authored `:network` fixture reached the REAL transport.
+  - `:loaders` / `:loaders-complete-when` / `:loaders-teardown` — the RESOLVED
+    loader world (rf2-gwye.5). The events-only classification is taken from
+    it, so a variant that only `:extends` (or `:compose`s) a loader fixture
+    takes the four-phase path that fixture needs instead of jumping to
+    `:ready` with its loaders unrun; and its `:loaders-teardown` is CAPTURED
+    for this run in `allocated-loaders-teardown` (rf2-gwye.6).
+
+  Omitted (2-arity — direct / test callers with no compiled plan on hand)
+  every slot falls back to the RAW registered body, i.e. no `:extends` /
+  `:compose` resolution. That is only correct for a variant with neither,
+  which is what every such caller in this codebase exercises."
+  ([variant-id decorator-stack] (allocate! variant-id decorator-stack nil))
+  ([variant-id decorator-stack world]
    (when rf.story.config/enabled?
      (install-canonical-frame-events!)
      (let [fx-stack       (rf.story.decorators/fx-overrides-map (:fx-override decorator-stack))
@@ -731,12 +750,19 @@
            ;; path passed only the decorator stack, so an authored `:network`
            ;; fixture's redirect was silently dropped and the variant reached
            ;; the REAL `:rf.http/managed` transport.
-           fx-overrides   (merge decor-fx plan-fx-overrides)
+           fx-overrides   (merge decor-fx (get-in world [:frame :fx-overrides]))
            ;; Inline the variant-body lookup (`variant-body` is defined
            ;; lower in this ns) — go through the registrar directly so
            ;; the events-only classification doesn't depend
            ;; on the file's declaration order.
            v-body         (rf.story.registrar/handler-meta :variant variant-id)
+           ;; THE SCENARIO THIS FRAME IS ALLOCATED FOR: the compiled plan's
+           ;; `:world` when the caller has one (every `run-variant` /
+           ;; `prepare-run!` path), else the raw registered body for the
+           ;; 2-arity direct callers. Every `:extends`/`:compose`-sensitive
+           ;; slot below reads THIS, so the classification, the loader world
+           ;; and the captured cleanup all describe ONE scenario.
+           scenario       (or world v-body)
            ;; EP-0026 §Default Image / §Layered Resolution — the FULL `:images`
            ;; vector this variant frame is created with:
            ;;
@@ -768,9 +794,12 @@
            ;; plus the image ids (for frame-meta tooling read-back).
            config-map     (variant-frame-config
                             variant-id fx-overrides
-                            (assoc (select-keys v-body [:sensitive :large])
+                            (assoc (select-keys scenario [:sensitive :large])
                                    :image-ids (keep image-id author-images)))
-           events-only?   (rf.story.loaders/events-only-variant? v-body decorator-stack)]
+           ;; Classify off the RESOLVED loader world: an inherited or composed
+           ;; `:loaders` / `:loaders-complete-when` keeps the variant off the
+           ;; events-only fast path, so its fixture actually runs (rf2-gwye.5).
+           events-only?   (rf.story.loaders/events-only-variant? scenario decorator-stack)]
        ;; EP-0023 §Stories / §Frame-derived live registration resolution
        ;; — the frame carries the resolved, sealed image GENERATION so
        ;; `process-event!`'s `call-with-frame-resolution` routes the whole cascade
@@ -798,12 +827,12 @@
        ;; already redacted in any trace the variant's setup emits. (The frame
        ;; annotation that previously rode the frame config is removed.)
        ;;
-       ;; rf2-lsr95i: prefer the caller-supplied EFFECTIVE (`:extends`-merged)
-       ;; classification; fall back to the raw body's own `:sensitive`/`:large`
-       ;; only when no `classification` was threaded (the 2-arity direct/test
-       ;; callers below `run-phase-0!`, none of which exercise `:extends`).
+       ;; rf2-lsr95i: the EFFECTIVE (`:extends`-merged) classification when a
+       ;; compiled `world` was threaded; the raw body's own
+       ;; `:sensitive`/`:large` for the 2-arity direct / test callers below
+       ;; `run-phase-0!`, none of which exercise `:extends`.
        (apply-variant-classification!
-         variant-id (or classification (select-keys v-body [:sensitive :large])))
+         variant-id (select-keys scenario [:sensitive :large]))
        ;; Drive the lifecycle by variant shape. Events-only
        ;; variants jump straight to :ready (no skeleton ever shows);
        ;; everything else takes the classical four-phase route through
@@ -822,6 +851,15 @@
        ;; re-run path (run-phase-0!) reset-state!'s teardown reads the PRIOR
        ;; stash BEFORE this line overwrites it with the current stack.
        (swap! allocated-decorator-stacks assoc variant-id decorator-stack)
+       ;; …and the RESOLVED `:loaders-teardown` this run owns, for the same
+       ;; reason and with the same lifetime (rf2-gwye.6). Stashed even when
+       ;; EMPTY: presence is what tells teardown this run's cleanup is known,
+       ;; so a cleanup added to the registration AFTER the run started never
+       ;; fires against a resource it never opened. In the re-run path
+       ;; (`run-phase-0!`) `reset-state!`'s teardown consumes the PRIOR capture
+       ;; before this line overwrites it.
+       (swap! allocated-loaders-teardown assoc variant-id
+              (vec (:loaders-teardown scenario)))
        variant-id))))
 
 ;; ---- inline-plan allocation ----------------------------------------------
@@ -1008,12 +1046,24 @@
   ;; rather than a require this `.cljc` cannot make.
   (when-let [drop (rf.story.late-bind/get-fn :drop-a11y-state)]
     (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
-  ;; Step 3 — variant body :loaders-teardown. Runs BEFORE
-  ;; decorator teardown so loader-installed narrower state is cleaned
-  ;; up before decorator-installed wider state.
+  ;; Step 3 — the run's :loaders-teardown. Runs BEFORE decorator teardown so
+  ;; loader-installed narrower state is cleaned up before decorator-installed
+  ;; wider state.
+  ;;
+  ;; The events come from the ALLOCATE-TIME capture (rf2-gwye.6), mirroring
+  ;; step 4's decorator capture: cleanup must release what THIS run's loaders
+  ;; opened, and re-reading the registration here handed an edited body's
+  ;; cleanup to a run that never set it up. The capture is also the RESOLVED
+  ;; slot, so an `:extends`-inherited / `:compose`d cleanup runs at all
+  ;; (rf2-gwye.5). Falls back to the current registration only for a frame
+  ;; torn down without going through `allocate!`'s stash path; `find`, not
+  ;; `get`, so a run that captured NO cleanup keeps its empty answer.
   (try
-    (let [v-body (rf.story.registrar/handler-meta :variant variant-id)
-          evs    (:loaders-teardown v-body)]
+    (let [captured (find @allocated-loaders-teardown variant-id)
+          evs      (if captured
+                     (val captured)
+                     (:loaders-teardown (rf.story.registrar/handler-meta :variant variant-id)))]
+      (swap! allocated-loaders-teardown dissoc variant-id)
       (when (seq evs)
         (apply-loaders-teardown! variant-id evs)))
     (catch #?(:clj Throwable :cljs :default) _ nil))

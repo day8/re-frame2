@@ -77,6 +77,7 @@
                        [re-frame.story.args :as rf.story.args]
                        [re-frame.story.config :as rf.story.config]
                        [re-frame.story.decorators :as rf.story.decorators]
+                       [re-frame.story.plan    :as rf.story.plan]
                        [re-frame.story.runtime :as rf.story.runtime]
                        ;; The merged `rf/frame-provider {:frame …}` shape
                        ;; routes through Reagent's `:r>` interop head, which
@@ -367,7 +368,7 @@
                                                    [:cell-overrides
                                                     variant-id])}
            decorator-pack (rf.story.decorators/resolve-decorators variant-id run-opts)
-           eff-args       (rf.story.args/resolve-args variant-id run-opts)
+           eff-args       (rf.story.plan/effective-args variant-id run-opts)
            assertions     (rf.story.runtime/read-assertions variant-id)
            errors         (:errors decorator-pack)]
        ;; Per rf2-9la06: stamp `data-test-variant` on each cell so

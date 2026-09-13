@@ -181,15 +181,28 @@ with?", the runtime composes them in this strict order (later wins):
 2. **Story args** — `:args` on the parent story.
 3. **Mode args** — the active `:mode`'s `:args` (deep-merge, not
    replace).
-4. **Variant args** — `:args` on the variant.
+4. **Variant args** — the variant's `:args` AFTER the `:extends` merge and
+   the `:compose` fold (root → fragments → child, last wins — see
+   [`017-Testing-Story.md`](017-Testing-Story.md) §Total merge order). The
+   plan compiler owns this layer.
 5. **Cell-local args** — runtime overrides from controls, supplied as
    `:cell-overrides` by programmatic callers.
 
 `(story/resolve-args variant-id {:active-modes [...]
                                 :cell-overrides {...}})` is the facade
-lookup. `re-frame.story.args/get-effective-args` is the sub-namespace
-alias with the same options. Plan execution additionally resolves the
-variant's inherited/composed args through the single plan compiler.
+lookup. It routes through `re-frame.story.plan/effective-args` — the
+compiled plan's `[:world :effective-args]`, the SAME value `run-variant`
+reports — so every surface that asks "what args does this variant render,
+save or share with?" gets one answer: the canvas, the controls panel, docs,
+snapshot identity, the save snapshot and Copy EDN agree with the run.
+
+`re-frame.story.args/resolve-args` (and its `get-effective-args` alias) is
+the PRIMITIVE underneath: it folds the four ambient / per-run layers around
+the variant's OWN `:args` and does NOT walk `:extends` / `:compose`. Reach
+for it only when that raw fold is what you mean. A consumer that wants the
+scenario's args and calls it renders a story default in place of an
+inherited value, and saving that snapshot writes the default onto a new
+variant as an override the author never made (rf2-gwye.7).
 
 Deep-merge (per Storybook's convention) for nested maps;
 override-by-replacement for vectors. This convention matches Phase 1
@@ -229,6 +242,13 @@ Strict order, per spec/007:
    - Evaluate `:loaders-complete-when` if provided. If truthy,
      proceed. Otherwise wait for the next non-loader event;
      re-evaluate.
+
+   `:loaders` and `:loaders-complete-when` here are the RESOLVED slots the
+   plan compiler produced — composed fragments' loaders first, then the
+   `:extends`-merged variant chain's — never the raw registered body, which
+   cannot see an inherited or composed fixture. Reading the raw body ran no
+   loaders at all for a child that only `:extends` or `:compose`s one, and
+   reported the run as passing (rf2-gwye.5).
 2. **Phase 2 — Events.** For each event in
    `(concat story-events variant-events)`:
    - `dispatch-sync` in order. Drain to completion between events.
@@ -566,9 +586,15 @@ the variant body).
    closures inspecting every future trace event.
 2. Lifecycle watchers are cleared
    (`loaders/clear-watchers!`).
-3. **The variant body's `:loaders-teardown` events dispatch-sync into
-   the variant frame in declared order.** Symmetric counterpart of
-   `:loaders` (rf2-lqs0b).
+3. **The RUN's `:loaders-teardown` events dispatch-sync into the variant
+   frame in declared order.** Symmetric counterpart of `:loaders`
+   (rf2-lqs0b). "The run's" is load-bearing: the events are the RESOLVED
+   slot (composed + inherited, like `:loaders`) CAPTURED when the frame was
+   allocated, so the cleanup releases what THIS run's loaders opened.
+   Re-reading the current registration at teardown meant an ordinary edit or
+   hot reload between a run and its destroy ran a cleanup whose setup never
+   fired, and skipped the one that did (rf2-gwye.6). A cleanup edited, added
+   or removed while a variant is mounted takes effect on the NEXT run.
 4. **The variant's `:frame-setup` decorator `:teardown` events
    dispatch-sync into the variant frame** in reverse-declaration order
    (innermost decorator's teardown runs first, outermost last).

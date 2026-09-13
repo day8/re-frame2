@@ -78,8 +78,8 @@
             #?@(:cljs [[reagent.core              :as r]
                        [re-frame.core             :as rf]
                        [re-frame.late-bind        :as rf.late-bind]
-                       [re-frame.story.args       :as rf.story.args]
                        [re-frame.story.config     :as rf.story.config]
+                       [re-frame.story.plan       :as rf.story.plan]
                        [re-frame.story.registrar  :as rf.story.registrar]
                        [re-frame.story.view-args  :as rf.story.view-args]
                        [re-frame.story.ui.trace-buffer :as rf.story.ui.trace-buffer]])
@@ -470,7 +470,7 @@
                trace-rows     (project-failures events)
                schema         (resolve-component-schema variant-id)
                vfns           (validator-fns)
-               eff-args       (rf.story.args/resolve-args variant-id)
+               eff-args       (rf.story.plan/effective-args variant-id)
                args-viols     (args-violations eff-args schema vfns)
                schema-known?  (some? schema)
                validator-on?  (some? (:validate vfns))]

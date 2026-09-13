@@ -1968,6 +1968,40 @@
               "re-frame2-story: variant-plan target must be a keyword id or a map"
               {:target target})))))
 
+(defn effective-args
+  "Return the effective args a run of REGISTERED `variant-id` executes with:
+  the compiled plan's `[:world :effective-args]` — the `:extends`-merged and
+  `:compose`-folded variant arg layer with the ambient + per-run layers
+  (`rf.story.args/run-arg-layers`) folded around it.
+
+  `opts` is the `{:active-modes [...] :cell-overrides {...}}` shape
+  `rf.story.args/resolve-args` takes.
+
+  This is the ONE answer to \"what args does this variant render / save /
+  share with?\", and it is the SAME value `run-variant` reports. The plan
+  compiler is the single authority for the variant layer;
+  `rf.story.args/resolve-args` reads `:args` off the raw side-table body, so
+  it cannot see an inherited or composed one — a child that only `:extends` a
+  parent resolved there as the STORY DEFAULT, and saving that snapshot wrote
+  the default onto a new variant as an explicit override the author never
+  made (rf2-gwye.7). Consumers needing the effective scenario args route
+  here rather than re-walking `:extends` / `:compose` themselves.
+
+  Best-effort, like every other tooling read over the compiler
+  (`rf.story.view-args/compiled-view-args-schema`): a plan that cannot compile
+  — an unregistered variant, an unresolvable `[:arg key]`, a view-args
+  violation — falls back to `rf.story.args/resolve-args`, so a caller
+  rendering a broken registration still sees the layers that DO resolve
+  instead of an exception."
+  ([variant-id] (effective-args variant-id nil))
+  ([variant-id opts]
+   (or (try
+         (get-in (variant-plan variant-id
+                               {:run-args (rf.story.args/run-arg-layers variant-id opts)})
+                 [:world :effective-args])
+         (catch #?(:clj Exception :cljs :default) _ nil))
+       (rf.story.args/resolve-args variant-id opts))))
+
 (defn explain
   "Return the `:explain` map for `target` (§Explain API). Convenience over
   `(:explain (variant-plan target opts))`. Shows the source chain, parent
