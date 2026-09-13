@@ -677,6 +677,124 @@
                (-> payload :rf/app-db :articles first :title))
             "the payload round-trips through the EDN reader unchanged")))))
 
+;; ============================================================================
+;; ssr — the page load has to SETTLE before the render (rf2-gwye.43,
+;; rf2-fzbj.37 F1).
+;;
+;; `make-frame` drains the SYNCHRONOUS event work its `:initial-events` start,
+;; and that is all it promises. The article fetch `:rf/server-init` kicks off
+;; is not synchronous — the JVM managed transport issues it through
+;; `HttpClient/sendAsync` — so the pre-fix `handle-request` read `app-db` the
+;; instant `make-frame` returned, rendered "No articles." over a 200, and
+;; destroyed the only frame the reply could have landed in. The static
+;; `index.html` masked it (its article state is baked in) and so did every
+;; test here, because a synchronous canned stub HAS settled by then.
+;;
+;; The fix gives the load an explicit `:articles/load-state` outcome
+;; (`:pending` → `:loaded` / `:failed`) and blocks on it, bounded, before
+;; reading anything off the frame. These two tests pin both halves: a genuinely
+;; DELAYED reply is waited for, and a non-`:loaded` outcome answers 503 rather
+;; than dressing a pending request up as a finished empty page.
+;; ============================================================================
+
+(deftest ssr-example-handle-request-waits-for-a-delayed-article-reply
+  (testing "examples/capabilities/ssr/ssr — a reply that lands AFTER `make-frame`
+            returns is still in the rendered HTML and in the hydration payload;
+            the handler waits for the page load rather than racing it
+            (rf2-gwye.43)"
+    (require 'ssr.core :reload)
+    (init-ssr!)
+    ;; The one difference from `install-canned-articles-stub!`: `:after-ms`.
+    ;; The canned stub defers its reply through `:dispatch-later` (rf2-j1mo4),
+    ;; so `:articles/loaded` fires on a host timer well after `make-frame`'s
+    ;; synchronous drain has finished — the shape a real `sendAsync` reply has.
+    (rf/reg-fx :ssr.http/delayed-canned-articles
+      {:platforms #{:server :client}}
+      (fn [frame-ctx args-map]
+        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
+          (stub frame-ctx
+                (assoc args-map
+                       :after-ms 150
+                       :value [{:id "a" :title "Article A" :body "Body A"}])))))
+    (let [handle-request (resolve 'ssr.core/handle-request)
+          frames-before  (set (keys @rf.frame/frames))
+          resp           (rf/with-fx-overrides
+                           {:rf.http/managed :ssr.http/delayed-canned-articles}
+                           (handle-request {:uri "/articles"}))]
+      (is (= 200 (:status resp)))
+      (is (clojure.string/includes? (:body resp) "Article A")
+          "the delayed article reached the rendered HTML")
+      (is (not (clojure.string/includes? (:body resp) "No articles."))
+          (str "the empty-state render is the pre-fix symptom: it means the "
+               "handler returned before the reply landed"))
+      (let [payload (extract-payload-edn (:body resp))]
+        (is (= [{:id "a" :title "Article A" :body "Body A"}]
+               (:articles (:rf/app-db payload)))
+            "and the hydration payload carries it too, not an empty app-db"))
+      (is (empty? (clojure.set/difference (set (keys @rf.frame/frames))
+                                          frames-before))
+          "the per-request frame is still torn down on the waited path"))))
+
+(deftest ssr-example-handle-request-terminates-deliberately-on-failure-and-deadline
+  (testing "examples/capabilities/ssr/ssr — a failed fetch and an exhausted
+            deadline each answer 503 and leave no frame behind, rather than
+            presenting unresolved work as a successful empty page
+            (rf2-gwye.43)"
+    (require 'ssr.core :reload)
+    (init-ssr!)
+    (let [handle-request (resolve 'ssr.core/handle-request)]
+      (testing "a failed reply settles immediately on :failed"
+        ;; The `:on-failure` target is what makes this terminal. Without it the
+        ;; load-state would sit at `:pending` and every failed fetch would cost
+        ;; the full deadline.
+        (rf/reg-fx :ssr.http/canned-articles-failure
+          {:platforms #{:server :client}}
+          (fn [frame-ctx args-map]
+            (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
+              (stub frame-ctx (assoc args-map :kind :rf.http/transport)))))
+        (let [frames-before (set (keys @rf.frame/frames))
+              started       (System/currentTimeMillis)
+              resp          (rf/with-fx-overrides
+                              {:rf.http/managed :ssr.http/canned-articles-failure}
+                              (handle-request {:uri "/articles"}))
+              elapsed       (- (System/currentTimeMillis) started)]
+          (is (= 503 (:status resp))
+              "a failed article fetch is not a 200")
+          (is (not (clojure.string/includes? (:body resp) "No articles."))
+              "and it does not render the empty page as though the load finished")
+          (is (< elapsed 2000)
+              (str "the :on-failure outcome is terminal, so the handler must not "
+                   "burn the deadline; took " elapsed "ms"))
+          (is (empty? (clojure.set/difference (set (keys @rf.frame/frames))
+                                              frames-before))
+              "the 503 path tears the per-request frame down too")))
+      (testing "a reply that never arrives stops at the deadline"
+        ;; A stub that does nothing: the request is issued and no reply is ever
+        ;; dispatched, so `:articles/load-state` stays `:pending`. Shorten the
+        ;; example's own budget so the test costs milliseconds rather than the
+        ;; shipped five seconds.
+        (rf/reg-fx :ssr.http/never-replies
+          {:platforms #{:server :client}}
+          (fn [_frame-ctx _args-map] nil))
+        (let [frames-before (set (keys @rf.frame/frames))
+              started       (System/currentTimeMillis)
+              resp          (with-redefs-fn
+                              {(resolve 'ssr.core/page-load-deadline-ms) 50}
+                              (fn []
+                                (rf/with-fx-overrides
+                                  {:rf.http/managed :ssr.http/never-replies}
+                                  (handle-request {:uri "/articles"}))))
+              elapsed       (- (System/currentTimeMillis) started)]
+          (is (= 503 (:status resp))
+              "an unresolved load answers 503, never a 200 empty page")
+          (is (clojure.string/includes? (:body resp) "timed-out")
+              "and says which terminal outcome it was")
+          (is (< elapsed 2000)
+              (str "the wait is bounded by the deadline; took " elapsed "ms"))
+          (is (empty? (clojure.set/difference (set (keys @rf.frame/frames))
+                                              frames-before))
+              "the deadline path leaves no live request frame"))))))
+
 (deftest ssr-streaming-example-final-payload-hydrates-without-frame-id-mismatch
   (testing "examples/capabilities/ssr/ssr_streaming — the dynamic `handle-request`
             `:final-payload` feeds into `rf.ssr/hydrate!` against the example's
@@ -701,6 +819,50 @@
             "hydrate! applied the final-payload (no frame-id conflict thrown)")
         (is (= 3 (count (:cards (rf/app-db-value client-frame))))
             "the client app-db carries the three streamed cards after hydration")))))
+
+;; ============================================================================
+;; ssr_streaming — the request frame is released on the FAILURE path too
+;; (rf2-gwye.45, rf2-fzbj.37 F3).
+;;
+;; The streaming handler used to hold `destroy-frame!` as the last binding of
+;; one long `let`, so it ran only when every preceding binding had succeeded.
+;; The deliberate `:card.flaky` boundary was never the problem — the drain
+;; turns that into a `:failed?` chunk and returns normally. What leaked was a
+;; failure OUTSIDE that recovery: a shell walk or final-payload build that
+;; throws returns through the exception and past the destroy, stranding one
+;; frame per failed request in a long-lived host. The fix is the `try`/`finally`
+;; the non-streaming sibling already demonstrates.
+;; ============================================================================
+
+(deftest ssr-streaming-example-releases-its-frame-on-an-outer-render-failure
+  (testing "examples/capabilities/ssr/ssr_streaming — the happy path (including
+            the intentional :card.flaky fallback) and an outer shell-render
+            failure both leave the frame registry at its captured baseline, and
+            the original exception still propagates (rf2-gwye.45)"
+    (require 'ssr-streaming.core :reload)
+    (init-ssr!)
+    (let [handle-request (resolve 'ssr-streaming.core/handle-request)
+          frames-before  (set (keys @rf.frame/frames))]
+      ;; Baseline: the ordinary request, whose one deliberately-throwing card is
+      ;; recovered inside the boundary, already leaves nothing behind.
+      (let [result (handle-request {:uri "/dashboard"})]
+        (is (= #{:card.flaky} (:failed-boundaries result))
+            "the intentional card failure is still isolated by its boundary")
+        (is (empty? (clojure.set/difference (set (keys @rf.frame/frames))
+                                            frames-before))
+            "the happy path leaves the registry at its baseline"))
+      ;; And now a failure the boundary CANNOT catch, injected after the frame
+      ;; has been allocated: the shell walk itself throws.
+      (with-redefs [rf.ssr/streaming-render-shell
+                    (fn [& _] (throw (ex-info "boom — shell render failure" {})))]
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (handle-request {:uri "/dashboard"}))
+            "the outer render throw propagates (the example does not swallow it)")
+        (let [new-frames (clojure.set/difference (set (keys @rf.frame/frames))
+                                                 frames-before)]
+          (is (empty? new-frames)
+              (str "the `finally` must release the per-request frame on the "
+                   "throw path; leaked frames: " (pr-str new-frames))))))))
 
 (deftest resources-ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch
   (testing "examples/capabilities/ssr/resources_ssr — the payload the dynamic
@@ -1119,6 +1281,69 @@
           "after the release the SAME invalidation refetches nothing (still 1 in
            total) — the release genuinely ended the hold rather than only
            emptying a set"))))
+
+;; ============================================================================
+;; resources_ssr — the preload poll reads the resource it means to await
+;; (rf2-gwye.44, rf2-fzbj.37 F2).
+;;
+;; `await-resource-loaded!` used to be handed `:frame f` — the frame VALUE
+;; `make-frame` returns. `rf/resource-state`'s introspection target is the
+;; frame ID (it keys the frame registry directly), so every poll read nil, no
+;; poll ever saw a terminal status, and the loop ran to `preload-deadline-ms`
+;; on EVERY request, including one whose resource was already `:loaded`. The
+;; response still carried the article, so a content-only assertion passed over
+;; the top of a five-second stall and an entirely ineffective readiness check.
+;;
+;; This test is keyed on the two things a content assertion cannot see: the
+;; target the poll actually reads, and how many times it goes round.
+;; ============================================================================
+
+(deftest resources-ssr-example-preload-poll-exits-on-the-resource-it-awaits
+  (testing "examples/capabilities/ssr/resources_ssr — a synchronously loaded
+            resource exits the preload poll at once, on a terminal status read
+            from the request's OWN entry, instead of exhausting
+            preload-deadline-ms against an unrecognised key (rf2-gwye.44)"
+    (require 'resources-ssr.core :reload)
+    (init-ssr!)
+    (rf/reg-fx :resources-ssr.http/canned
+      {:platforms #{:server :client}}
+      (fn [frame-ctx args-map]
+        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
+          (stub frame-ctx
+                (assoc args-map
+                       :value [{:slug "welcome" :title "Welcome to re-frame2"}])))))
+    (let [handle-request (resolve 'resources-ssr.core/handle-request)
+          original       rf/resource-state
+          polls          (atom [])
+          ;; Spy on the public introspection read the example's poll goes
+          ;; through, recording what it was ASKED and what it got back, and
+          ;; returning the real answer unchanged.
+          resp           (with-redefs [rf/resource-state
+                                       (fn [opts]
+                                         (let [entry (original opts)]
+                                           (swap! polls conj
+                                                  {:keyword-target? (keyword? (:frame opts))
+                                                   :status          (:status entry)})
+                                           entry))]
+                           (rf/with-fx-overrides
+                             {:rf.http/managed :resources-ssr.http/canned}
+                             (handle-request {:uri "/articles"})))]
+      (is (= 200 (:status resp)))
+      (is (clojure.string/includes? (:body resp) "Welcome to re-frame2")
+          "the page still renders the loaded article (behaviour preserved)")
+      (is (seq @polls) "the example's preload poll ran at all")
+      (is (every? :keyword-target? @polls)
+          "every poll addresses the frame by ID — a frame VALUE is not a
+           registry key and reads as an absent entry")
+      (is (= :loaded (:status (last @polls)))
+          "the poll's final read saw the request's own entry settle :loaded —
+           pre-fix every read returned nil under an unrecognised key")
+      ;; The count is the sharp instrument here: pre-fix this was ~850 polls of
+      ;; nil across the whole five-second budget. A synchronously loaded
+      ;; resource settles before the first read.
+      (is (< (count @polls) 20)
+          (str "a settled resource exits the poll immediately rather than "
+               "burning preload-deadline-ms; polls: " (count @polls))))))
 
 ;; ============================================================================
 ;; state-machine-walkthrough — chapter §Headless testing. Two flavours:

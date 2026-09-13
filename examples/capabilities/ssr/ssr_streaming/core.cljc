@@ -202,75 +202,86 @@
            _   (rf/reg-app-schema [:cards] {:frame fid} CardsSchema)
            _   (rf/make-frame {:id fid :doc "ssr-streaming-example frame"
                                :platform :server
-                               :initial-events [[:rf/server-init]]})
-           hiccup (rf/with-frame fid ((rf/view :dashboard/root)))
-           {:keys [shell-html continuations]}
-           (rf/with-frame fid (rf.ssr/streaming-render-shell hiccup))
-           ;; Render the shell handed us one continuation per boundary —
-           ;; the slow subtrees it deferred. Drain them in order, collecting
-           ;; each resolved subtree's HTML plus its hydration delta. This is
-           ;; the loop the writer thread would run, flushing each chunk the
-           ;; moment it's ready.
-           resolved-chunks
-           (mapv (fn [entry]
-                   (let [{:keys [id html delta failed?]}
-                         (rf/with-frame fid
-                           (rf.ssr/streaming-render-continuation fid entry))]
-                     {:id    id
-                      :template (if failed?
-                                  (rf.ssr/streaming-failed-template id html)
-                                  (rf.ssr/streaming-resolved-template id html))
-                      :delta-script (when (and (not failed?) (some? delta))
-                                      (rf.ssr/streaming-hydrate-delta-script
-                                        id (pr-str delta)))
-                      :failed? failed?}))
-                 continuations)
-           ;; Which boundaries blew up. The server has always known this
-           ;; per continuation; carrying it into the final payload is what
-           ;; lets the client's boundary re-render its declared fallback
-           ;; instead of every view inferring failure from missing state.
-           failed-boundaries (into #{} (comp (filter :failed?) (map :id))
-                                   resolved-chunks)
-           render-hash (rf/with-frame fid (rf.ssr/render-tree-hash hiccup))
-           ;; The final payload: the canonical, whole app-db. This is the
-           ;; load-bearing idea of the example. Those per-card deltas are a
-           ;; speed bet — they exist only to paint each region early. This
-           ;; payload is the truth, and if a delta ever disagrees with it,
-           ;; the payload wins. You get streaming's latency with a single
-           ;; authoritative hydrate's correctness.
-           ;;
-           ;; `:payload` decides what crosses the wire, and it's fail-closed
-           ;; — nothing leaves unless you say so. This demo's app-db is safe
-           ;; to ship whole (every key the dashboard fills is meant for the
-           ;; client), so we opt in with `:rf.ssr.payload/whole-app-db`. Real
-           ;; apps usually pass an explicit allowlist of top-level keys
-           ;; instead.
-           final-payload (rf/with-frame fid
-                           (rf.ssr/streaming-build-final-payload
-                             fid render-hash
-                             ;; No `:version` — the builder sources `:rf/version`
-                             ;; from the SSR artefact's compiled-in
-                             ;; pattern-protocol constant, so both wire ends agree
-                             ;; with no hand-pinned literal.
-                             {:payload :rf.ssr.payload/whole-app-db
-                              :failed-boundaries failed-boundaries}))
-           ;; Strip the payload's `:rf/frame-id` before it goes over the
-           ;; wire. The two sides don't share a frame id: the server renders
-           ;; under this per-request gensym frame (`fid`), the client hydrates
-           ;; a fixed `app-frame` (below). When `rf.ssr/hydrate!` sees a frame-id on the
-           ;; wire, it checks it against the client's explicit `:frame` and
-           ;; fails closed if they differ — which a gensym always would. Send
-           ;; no frame-id and the client's explicit target simply stands. (If
-           ;; you do want one on the wire, share a stable id both sides agree
-           ;; on, not a gensym.) See the
-           ;; [SSR guide — hydrate, then verify](../../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify).
-           final-payload (dissoc final-payload :rf/frame-id)
-           _ (rf/destroy-frame! fid)]
-       {:shell shell-html
-        :resolved-chunks resolved-chunks
-        :final-payload final-payload
-        :failed-boundaries failed-boundaries
-        :render-hash render-hash})))
+                               :initial-events [[:rf/server-init]]})]
+       ;; Everything from here on owns a live frame, so it runs inside
+       ;; `try`/`finally` — the same shape the non-streaming sibling uses.
+       ;; A boundary that throws is already handled (the drain below turns it
+       ;; into a `:failed?` chunk); what this covers is a failure OUTSIDE
+       ;; that recovery — a shell walk or a final-payload build that blows up.
+       ;; Without the `finally` those paths return through the exception and
+       ;; the per-request frame survives it, so a long-lived host leaks one
+       ;; frame per failed request. The original exception still propagates:
+       ;; `finally` releases the frame, it does not swallow the error.
+       (try
+         (let [hiccup (rf/with-frame fid ((rf/view :dashboard/root)))
+               {:keys [shell-html continuations]}
+               (rf/with-frame fid (rf.ssr/streaming-render-shell hiccup))
+               ;; Render the shell handed us one continuation per boundary —
+               ;; the slow subtrees it deferred. Drain them in order, collecting
+               ;; each resolved subtree's HTML plus its hydration delta. This is
+               ;; the loop the writer thread would run, flushing each chunk the
+               ;; moment it's ready.
+               resolved-chunks
+               (mapv (fn [entry]
+                       (let [{:keys [id html delta failed?]}
+                             (rf/with-frame fid
+                               (rf.ssr/streaming-render-continuation fid entry))]
+                         {:id    id
+                          :template (if failed?
+                                      (rf.ssr/streaming-failed-template id html)
+                                      (rf.ssr/streaming-resolved-template id html))
+                          :delta-script (when (and (not failed?) (some? delta))
+                                          (rf.ssr/streaming-hydrate-delta-script
+                                            id (pr-str delta)))
+                          :failed? failed?}))
+                     continuations)
+               ;; Which boundaries blew up. The server has always known this
+               ;; per continuation; carrying it into the final payload is what
+               ;; lets the client's boundary re-render its declared fallback
+               ;; instead of every view inferring failure from missing state.
+               failed-boundaries (into #{} (comp (filter :failed?) (map :id))
+                                       resolved-chunks)
+               render-hash (rf/with-frame fid (rf.ssr/render-tree-hash hiccup))
+               ;; The final payload: the canonical, whole app-db. This is the
+               ;; load-bearing idea of the example. Those per-card deltas are a
+               ;; speed bet — they exist only to paint each region early. This
+               ;; payload is the truth, and if a delta ever disagrees with it,
+               ;; the payload wins. You get streaming's latency with a single
+               ;; authoritative hydrate's correctness.
+               ;;
+               ;; `:payload` decides what crosses the wire, and it's fail-closed
+               ;; — nothing leaves unless you say so. This demo's app-db is safe
+               ;; to ship whole (every key the dashboard fills is meant for the
+               ;; client), so we opt in with `:rf.ssr.payload/whole-app-db`. Real
+               ;; apps usually pass an explicit allowlist of top-level keys
+               ;; instead.
+               final-payload (rf/with-frame fid
+                               (rf.ssr/streaming-build-final-payload
+                                 fid render-hash
+                                 ;; No `:version` — the builder sources `:rf/version`
+                                 ;; from the SSR artefact's compiled-in
+                                 ;; pattern-protocol constant, so both wire ends agree
+                                 ;; with no hand-pinned literal.
+                                 {:payload :rf.ssr.payload/whole-app-db
+                                  :failed-boundaries failed-boundaries}))
+               ;; Strip the payload's `:rf/frame-id` before it goes over the
+               ;; wire. The two sides don't share a frame id: the server renders
+               ;; under this per-request gensym frame (`fid`), the client hydrates
+               ;; a fixed `app-frame` (below). When `rf.ssr/hydrate!` sees a frame-id on the
+               ;; wire, it checks it against the client's explicit `:frame` and
+               ;; fails closed if they differ — which a gensym always would. Send
+               ;; no frame-id and the client's explicit target simply stands. (If
+               ;; you do want one on the wire, share a stable id both sides agree
+               ;; on, not a gensym.) See the
+               ;; [SSR guide — hydrate, then verify](../../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify).
+               final-payload (dissoc final-payload :rf/frame-id)]
+           {:shell shell-html
+            :resolved-chunks resolved-chunks
+            :final-payload final-payload
+            :failed-boundaries failed-boundaries
+            :render-hash render-hash})
+         (finally
+           (rf/destroy-frame! fid))))))
 
 ;; ============================================================================
 ;; CLIENT ENTRY POINT (.cljs branch — browser hydration)
