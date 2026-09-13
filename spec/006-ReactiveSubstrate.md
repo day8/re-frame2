@@ -1190,7 +1190,7 @@ Semantically, `subscribe-once` is `subscribe` + deref + immediate `unsubscribe`:
 subscribe-once(frame-id, query-v):
   r ← subscribe(frame-id, query-v)                     ;; cache hit OR miss; ref-count += 1
   v ← deref r                                          ;; current cached value
-  unsubscribe(frame-id, query-v)                       ;; ref-count -= 1; on 1→0, dispose synchronously
+  unsubscribe r                                        ;; release THIS reaction, not the address; ref-count -= 1; on 1→0, dispose synchronously
   return v
 ```
 
