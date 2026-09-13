@@ -6,7 +6,7 @@
 
 The `re-frame2-setup` skill bootstraps a greenfield re-frame2 project. The author starts with nothing (or close to nothing — a `deps.edn` they intend to fill in, an empty `package.json`, no source). When the skill is done, the author has a project that compiles under `shadow-cljs watch`, mounts a working counter in the browser, and is ready to switch to the [`re-frame2`](re-frame2.md) skill for writing application code.
 
-The skill teaches **only** the re-frame2-specific wiring: which artefacts to add, the lockstep VERSION discipline (all ten publishable framework artefacts ship at the same version, with `day8/re-frame2-xray` riding the same line; mixing versions is unsupported), the canonical `(rf/init! reagent-adapter/adapter)` entry-namespace shape, and a counter that exercises every layer end-to-end (event → handler → app-db change → sub recompute → view re-render). It does not teach `deps.edn`, `npm`, or `shadow-cljs` themselves — those are assumed.
+The skill teaches **only** the re-frame2-specific wiring: which artefacts to add, the lockstep VERSION discipline (every `day8/re-frame2*` framework artefact ships at one VERSION, per [Conventions §Lockstep versioning through 1.0](../../spec/Conventions.md#lockstep-versioning-through-10); mixing versions is unsupported; Xray and Story are tools and ship on their own `xray-v*` / `story-v*` tags), the canonical `(rf/init! reagent-adapter/adapter)` entry-namespace shape, and a counter that exercises every layer end-to-end (event → handler → app-db change → sub recompute → view re-render). It does not teach `deps.edn`, `npm`, or `shadow-cljs` themselves — those are assumed.
 
 ## When to reach for it
 
@@ -14,7 +14,7 @@ Load this skill when **any** of these are true:
 
 - The author has just created a new directory and wants re-frame2 set up in it.
 - The author has an existing CLJS project but no re-frame2 wiring yet.
-- The author says *"start a re-frame2 project"*, *"scaffold re-frame2"*, *"how do I set up re-frame2"*, *"add re-frame2 to my repo"*, *"give me a hello-world re-frame2 app"*.
+- The author says *"start a re-frame2 project"*, *"scaffold re-frame2"*, *"how do I set up re-frame2"*, *"give me a hello-world re-frame2 app"*.
 - A counter / event / sub fails to compile because the build doesn't yet know what `re-frame.core` or `re-frame.adapter.reagent` is.
 
 Do **not** use this skill for:
