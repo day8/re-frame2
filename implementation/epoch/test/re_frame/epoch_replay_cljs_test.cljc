@@ -34,6 +34,9 @@
     7. rf2-e0g2 — the reported `:epoch-id` is the replayed dispatch's OWN
        epoch, or nil when the ring could not retain it — never a queued
        child's record that happened to survive the parent's eviction.
+    8. rf2-k0nr (JVM only) — another thread's same-frame dispatch landing
+       between replay's observation arming and its dispatch never becomes
+       the reported epoch.
 
   `.cljc` under a `-cljs-test` name so the consolidated `:node-test` build
   (`cljs-test$`) AND the artefact's `clojure -M:test` (`.*-test$`) both run
@@ -42,11 +45,13 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
+            #?(:clj [re-frame.epoch.state :as rf.epoch.state])
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             ;; Side-effect require — publishes the machines late-bind hooks
             ;; for the restore→replay composition proof below.
-            [re-frame.machines]))
+            [re-frame.machines])
+  #?(:clj (:import [java.util.concurrent CountDownLatch TimeUnit])))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -692,3 +697,109 @@
       (is (= (:epoch-id (last after)) (:epoch-id res)))
       (is (= [:review/add 1] (:trigger-event named)))
       (is (= {:n 2} (rf/app-db-value interleave-frame-id))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-k0nr — another JVM thread's dispatch cannot steal replay's result
+;;
+;; The concurrent sibling of the listener case above. There the stranger's
+;; dispatch starts on the replay's OWN thread, after the replay's
+;; `:rf.event/dispatched`; here it starts on ANOTHER thread, in the gap between
+;; the replay arming its observation and entering `dispatch-sync!`. Its
+;; `:rf.event/dispatched` arrived first, the frame-wide observation adopted its
+;; id, and the response named its epoch — measured before the fix as source
+;; epoch 1, the other thread's epoch 2, the replay's own epoch 3, and a result
+;; saying `:epoch-id 2`.
+;;
+;; The gap is PLACED, not raced: the real `arm-commit-observation!` runs, then
+;; the replay thread parks on a latch until the other thread's dispatch has
+;; returned. No sleep decides anything. JVM only — CLJS has one thread and no
+;; such gap.
+;;
+;; The first deftest is the tooth. The eviction companion is not: the other
+;; thread's record is OLDER than the replay's, so the ring always evicts it
+;; first and the old code answered nil there too. It pins that the documented
+;; nil survives the interleave.
+;; ---------------------------------------------------------------------------
+
+#?(:clj
+   (defn- replay-with-foreign-dispatch-after-arming
+     "Replay `source-epoch-id` in `fid` on a background thread, parking that
+     thread immediately AFTER the real observation arming while THIS thread
+     dispatch-syncs `foreign-event` into the same frame. Then release the
+     replay and return its result.
+
+     `with-redefs` is process-global, which is deliberate: only the replay
+     arms, so only the replay thread can reach the park. The latch bounds are
+     guards that turn a regression into one failed deftest, not waits."
+     [fid source-epoch-id foreign-event]
+     (let [armed    (CountDownLatch. 1)
+           release  (CountDownLatch. 1)
+           real-arm rf.epoch.state/arm-commit-observation!]
+       (with-redefs [rf.epoch.state/arm-commit-observation!
+                     (fn [frame]
+                       (let [token (real-arm frame)]
+                         (.countDown armed)
+                         (.await release 10 TimeUnit/SECONDS)
+                         token))]
+         (let [replay (future (rf/replay-epoch! fid source-epoch-id))]
+           (try
+             (is (.await armed 10 TimeUnit/SECONDS)
+                 "the replay thread armed its observation and parked")
+             (rf/dispatch-sync foreign-event {:frame fid})
+             (finally
+               (.countDown release)))
+           (deref replay 10000 ::timeout))))))
+
+#?(:clj
+   (deftest replay-result-names-its-own-dispatch-not-another-threads
+     (testing "another thread's same-frame dispatch commits between replay's
+               observation arming and its dispatch; the reported epoch is still
+               the replay's own record, and both dispatches run"
+       (rf/configure! {:epoch-history {:depth 10}})
+       (rf/make-frame {:id interleave-frame-id})
+       (register-add-and-other!)
+       (rf/dispatch-sync [:review/add 1] {:frame interleave-frame-id})
+       (let [source  (last (rf/epoch-history interleave-frame-id))
+             res     (replay-with-foreign-dispatch-after-arming
+                       interleave-frame-id (:epoch-id source) [:review/add 100])
+             after   (rf/epoch-history interleave-frame-id)
+             named   (first (filter #(= (:epoch-id res) (:epoch-id %)) after))
+             foreign (first (filter #(= [:review/add 100] (:trigger-event %))
+                                    after))]
+         (is (true? (:ok? res)) (str "the replay itself succeeded: " (pr-str res)))
+         (is (= (:epoch-id source) (:source-epoch-id res)))
+         (is (= [[:review/add 1] [:review/add 100] [:review/add 1]]
+                (mapv :trigger-event after))
+             "the other thread's dispatch committed INSIDE replay's armed window,
+              before the replayed event ran")
+         (is (= {:n 102} (rf/app-db-value interleave-frame-id))
+             "both dispatches executed; only the returned evidence was at stake")
+         ;; THE TOOTH.
+         (is (= (:epoch-id (last after)) (:epoch-id res))
+             "the reported epoch is the replay's OWN new record")
+         (is (= [:review/add 1] (:trigger-event named))
+             (str "…and it resolves to the replayed arguments, not the other "
+                  "thread's; resolved " (pr-str (:trigger-event named))))
+         (is (not= (:epoch-id foreign) (:epoch-id res))
+             "the other thread's record is never the reported epoch")))))
+
+#?(:clj
+   (deftest replay-reports-nil-not-another-threads-epoch-when-its-own-was-evicted
+     (testing "the same interleave with the replay's own record evicted by its
+               queued child: the documented nil, never the other thread's id"
+       (rf/configure! {:epoch-history {:depth 1}})
+       (rf/make-frame {:id evict-frame-id})
+       (register-parent-and-child!)
+       (register-add-and-other!)
+       (rf/dispatch-sync [:review/parent] {:frame evict-frame-id})
+       (let [source (last (rf/epoch-history evict-frame-id))
+             res    (replay-with-foreign-dispatch-after-arming
+                      evict-frame-id (:epoch-id source) [:review/other])
+             after  (rf/epoch-history evict-frame-id)]
+         (is (true? (:ok? res)) (str "the dispatch itself succeeded: " (pr-str res)))
+         (is (= [:review/child] (mapv :event-id after))
+             "the replayed parent's queued child evicted the parent's record")
+         (is (nil? (:epoch-id res))
+             "the ring could not retain the replay's own epoch, so nil rides back")
+         (is (= {:runs 2 :child true :other true} (rf/app-db-value evict-frame-id))
+             "the other thread's event, the replayed parent and its child all ran")))))
