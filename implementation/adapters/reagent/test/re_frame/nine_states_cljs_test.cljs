@@ -283,6 +283,43 @@
           "the abandoned load's items never land"))))
 
 ;; ----------------------------------------------------------------------------
+;; SUCCESS THEN INVALID SUBMIT (rf2-gwye.56)
+;;
+;; A valid submit clears the draft and lands the :form region at :correct.
+;; Add stays enabled, so pressing it again submits the now-empty draft, which
+;; fails validation. The per-state fixtures above each start from a fresh frame
+;; and never make that :correct -> :submit-invalid step, which used to be
+;; unhandled: the form stayed :correct and "Todo added" out-ranked the new
+;; field error in the render-priority table.
+;; ----------------------------------------------------------------------------
+
+(deftest success-then-invalid-submit-selects-incorrect
+  (testing "a failing submit straight after a successful one leaves :correct for :incorrect"
+    (with-new-frame [f (new-frame)]
+      (let [items  #(rf/compute-sub [:todos/items] (rf/frame-state-value f))
+            errors #(get-in (rf/app-db-value f) [:new-todo :errors])]
+        (rf/dispatch-sync [:new-todo/edit-field :title "Buy milk"] {:frame f})
+        (rf/dispatch-sync [:new-todo/submit] {:frame f})
+        (is (= :correct (render-model f)) "precondition: the first submit succeeded")
+        (is (= 1 (count (items))))
+
+        ;; Add again, with the draft the success path just cleared.
+        (rf/dispatch-sync [:new-todo/submit] {:frame f})
+        (is (= 1 (count (items))) "the invalid submit adds nothing")
+        (is (seq (:title (errors))) "the title error is recorded")
+        (is (machine-has-tag? f :form/invalid) "the :form region is :incorrect")
+        (is (not (machine-has-tag? f :form/success)) "the success acknowledgement is gone")
+        (is (= :incorrect (render-model f))
+            "THE REGRESSION: the page renders the error, not \"Todo added\"")
+
+        ;; And the form still recovers to :correct on the next valid submit.
+        (rf/dispatch-sync [:new-todo/edit-field :title "Buy eggs"] {:frame f})
+        (rf/dispatch-sync [:new-todo/submit] {:frame f})
+        (is (= :correct (render-model f)) "a later valid submit returns to :correct")
+        (is (= ["Buy milk" "Buy eggs"] (mapv :title (items)))
+            "and adds exactly one further item")))))
+
+;; ----------------------------------------------------------------------------
 ;; STORY LIFECYCLE — :error variant
 ;;
 ;; The `:story.nine-states-lifecycle/error` variant in
