@@ -630,7 +630,10 @@
   carrying its frame identity SELF-SUMMARIZES by default: a caller need not
   thread the identity back through `opts` just to apply the right egress
   policy. Explicit `:frame` still wins (an inspector may target
-  a different policy frame), and resolution still fails closed — if neither
+  a different policy frame), and it wins by KEY PRESENCE — explicit
+  `{:frame nil}` says NO frame governs this summary and fails closed, exactly
+  as it does at `elide-wire-value`; only an OMITTED `:frame` key lets the
+  carried stamp supply policy. Resolution still fails closed — if neither
   an explicit `:frame` nor a carried `:rf.frame/id` names a LIVE frame, the
   wire slots redact to the `:rf/redacted` sentinel rather than ship under no
   policy (`elide-wire-value` enforces the live-frame gate; the carried stamp
@@ -656,8 +659,16 @@
   ([reply] (trace-summary reply nil))
   ([reply opts]
    (let [force-redact? (true? (:rf.privacy/force-redact-wire? opts))
+         ;; PRESENCE, not truthiness (rf2-gwye.64). The carried stamp seeds
+         ;; `:frame` only when the caller OMITTED the key. `(nil? (:frame
+         ;; opts))` made `{:frame nil}` — "no frame governs this summary" —
+         ;; indistinguishable from "no `:frame` key", so the carried stamp
+         ;; overrode the caller's explicit nil and the wire slots shipped
+         ;; under a policy the caller had just declined. The walker below
+         ;; already reads `:frame` by key presence and fails closed on an
+         ;; explicit nil; this seed is what hid that from reply callers.
          opts (cond-> opts
-                (and (nil? (:frame opts)) (contains? reply :rf.frame/id))
+                (and (not (contains? opts :frame)) (contains? reply :rf.frame/id))
                 (assoc :frame (:rf.frame/id reply)))
          ;; `:rf.privacy/force-redact-wire?` is THIS layer's own option — it
          ;; is consumed above and is not part of the walker's CLOSED egress

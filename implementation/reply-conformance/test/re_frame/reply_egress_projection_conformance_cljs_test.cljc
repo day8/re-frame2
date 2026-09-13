@@ -301,6 +301,61 @@
             "the explicit unresolved frame wins and fails closed")))))
 
 ;; ---------------------------------------------------------------------------
+;; Explicit `{:frame nil}` — "no frame governs this summary" — is SAYABLE
+;; (rf2-gwye.64). `elide-wire-value` reads `:frame` by KEY PRESENCE and fails
+;; closed on an explicit nil; `trace-summary` seeded the carried stamp on
+;; `(nil? (:frame opts))`, which made explicit nil indistinguishable from an
+;; omitted key, so the caller's frameless request silently ran under the
+;; carried frame's policy and shipped RAW wire values.
+;; ---------------------------------------------------------------------------
+
+(deftest explicit-nil-frame-is-honoured-and-fails-closed
+  (mk-frame!)
+  (testing "explicit {:frame nil} redacts every wire slot and keeps identity facts"
+    (let [reply   (assoc (ok-reply)
+                         :error       {:token raw-token}
+                         :correlation {:token raw-token}
+                         :meta        {:token raw-token})
+          summary (rf.reply/trace-summary reply {:frame nil})]
+      (testing "PRE-CONTROL: the raw token IS present in every un-projected wire slot"
+        (is (every? #(embeds-raw-token? (get reply %)) [:value :error :correlation :meta])
+            "the fixture supplies the secret in all four wire slots"))
+      (is (redacted? (:value summary))       ":value fails closed under an explicit nil frame")
+      (is (redacted? (:error summary))       ":error fails closed under an explicit nil frame")
+      (is (redacted? (:correlation summary)) ":correlation fails closed under an explicit nil frame")
+      (is (redacted? (:meta summary))        ":meta fails closed under an explicit nil frame")
+      (is (not (embeds-raw-token? summary))
+          "no raw token survives anywhere under an explicit nil frame")
+      (testing "identity facts still ride verbatim — only wire slots fail closed"
+        (is (= work-id (:rf.reply/work-id summary)) ":rf.reply/work-id verbatim")
+        (is (= :ok (:status summary))               ":status verbatim")
+        (is (= frame-id (:rf.frame/id summary))     "the carried :rf.frame/id rides as identity"))))
+  (testing "an ambient live frame cannot supply policy either — nil OWNS the resolution"
+    (binding [rf.frame/*current-frame* frame-id]
+      (let [summary (rf.reply/trace-summary (ok-reply) {:frame nil})]
+        (is (redacted? (:value summary))
+            "explicit nil beats the ambient scope, not just the carried stamp"))))
+  (testing "CONTROL: an OMITTED :frame key still lets the carried stamp supply policy"
+    (binding [rf.frame/*current-frame* nil]
+      (let [summary (rf.reply/trace-summary (ok-reply) nil)]
+        (is (redacted? (get-in summary [:value :token]))
+            "the carried frame redacts its sensitive leaf")
+        (is (= 3 (get-in summary [:value :public :count]))
+            "per-leaf policy, NOT the whole-slot redact explicit nil produces"))))
+  (testing "CONTROL: explicit nil retains the deliberate raw opt-out"
+    (let [summary (rf.reply/trace-summary (ok-reply)
+                                          {:frame nil :rf.egress/include-sensitive? true})]
+      (is (= raw-token (get-in summary [:value :token]))
+          "a caller waiving sensitive redaction still sees the raw value")))
+  (testing "CONTROL: forced wire redaction still wins over the raw opt-out"
+    (let [summary (rf.reply/trace-summary (ok-reply)
+                                          {:frame nil
+                                           :rf.egress/include-sensitive?    true
+                                           :rf.privacy/force-redact-wire?   true})]
+      (is (redacted? (:value summary))
+          "forced redaction substitutes the sentinel wholesale, bypassing the walk"))))
+
+;; ---------------------------------------------------------------------------
 ;; Record-level egress protects classified fields except under local-raw.
 ;; ---------------------------------------------------------------------------
 
