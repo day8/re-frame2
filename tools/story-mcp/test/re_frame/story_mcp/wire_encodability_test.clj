@@ -538,3 +538,85 @@
             "plain data is never marked"))))
   (is (= "pass" (:status (structured (second (call-success-tool "run-variant" "story.button/equality" false)))))
       "and the equality-only run still crosses with its verdict"))
+
+;; ---- success payloads: a record's respelled extension key (rf2-8m1i) -------
+;;
+;; `clojure.walk` rebuilds a record by conj-ing the walked entries back into
+;; the ORIGINAL record. So an extension key the projection respells gained its
+;; marker while the raw callable key stayed beside it, and Cheshire wrote that
+;; key as a JSON member name carrying its identity hash. The `:v` field was
+;; projected correctly all along; only the extension key leaked.
+
+(defrecord Sample [v])
+
+(def ^:private pos-marker
+  {:rf.story-mcp/unencodable "clojure.core$pos_QMARK_"})
+
+(def ^:private record-args
+  {:record (assoc (->Sample pos?) pos? :extension)
+   ;; Data-only shapes beside it, which the projection must leave alone.
+   :shapes {:list '(1 2 3) :set #{:a :b} :vec [1 [2 3]]}})
+
+(deftest record-extension-key-crosses-get-variant-as-a-marker
+  ;; The bead's reproducer, registered through Story's public surface.
+  (rf.story/reg-story :story.audit {})
+  (rf.story/reg-variant* :story.audit/record {:args record-args})
+  (doseq [dedup? [true false]]
+    (testing (str "get-variant dedup=" dedup?)
+      (let [[line frame] (call-success-tool "get-variant" "story.audit/record" dedup?)
+            text         (result-text frame)]
+        (is (nil? (:error frame))
+            (str "a result envelope, not a protocol fault: " line))
+        (is (nil? (get-in frame [:result :isError]))
+            "a success, not a tool error")
+        (is (not (str/includes? line "#object"))
+            "no raw printed object in the encoded frame")
+        (is (not (str/includes? text "#object"))
+            "nor in the text slot")
+        (is (not (str/includes? line "pos_QMARK_@"))
+            "no callable identity string, which is how the surviving key encoded")
+        (is (nil? (re-find address-in-line line))
+            "and no identity hash of any kind")
+
+        (testing "the structured slot carries the record's two entries, no third"
+          (is (= 2 (count (get-in (structured frame) [:body :args :record])))))
+
+        (testing "the text slot keeps the record's type and ordinary field"
+          (let [read-back (edn/read-string {:default tagged-literal} text)
+                rec       (get-in read-back [:body :args :record])
+                shapes    (get-in read-back [:body :args :shapes])]
+            (is (tagged-literal? rec)
+                "the record still prints as a record literal")
+            (is (= (symbol (.getName Sample)) (:tag rec))
+                "of its own type")
+            (is (= pos-marker (:v (:form rec)))
+                "the ordinary field is marked in place")
+            (is (= :extension (get (:form rec) pos-marker))
+                "the replacement marker carries the extension's value")
+            (is (= 2 (count (:form rec)))
+                "and the original callable key is gone")
+            (is (= (:shapes record-args) shapes)
+                "data-only shapes survive")
+            (is (and (list? (:list shapes)) (set? (:set shapes)) (vector? (:vec shapes)))
+                "each as its own collection type")))))))
+
+(deftest wire-safe-success-drops-a-record-key-it-respells
+  ;; The fast guard under the boundary test above.
+  (let [out (rf.story-mcp.tools.result/wire-safe-success
+              (assoc (->Sample pos?) pos? :extension :note "kept"))]
+    (is (instance? Sample out) "the record keeps its type")
+    (is (not (contains? out pos?)) "the original callable key is gone")
+    (is (= :extension (get out pos-marker)) "its replacement carries the value")
+    (is (= pos-marker (:v out)) "the fixed field is marked in place")
+    (is (= "kept" (:note out)) "a data-only extension key rides unchanged")
+    (is (= 3 (count out)) "and nothing else was added"))
+  (testing "control: data-only payloads come back equal AND of the same type"
+    (let [in  {:rec    (assoc (->Sample [1 2]) :ext {:a 1})
+               :sorted (sorted-map :b 2 :a 1)
+               :list   '(1 (2 3))
+               :set    #{:x}}
+          out (rf.story-mcp.tools.result/wire-safe-success in)]
+      (is (= in out))
+      (is (instance? Sample (:rec out)))
+      (is (sorted? (:sorted out)))
+      (is (and (list? (:list out)) (list? (second (:list out))))))))

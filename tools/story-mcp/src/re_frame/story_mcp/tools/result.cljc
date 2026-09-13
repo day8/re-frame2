@@ -107,6 +107,26 @@
     (sequential? v) (mapv wire-safe-value v)
     :else           {unencodable-key (type-name v)}))
 
+(defn- rebuild-record
+  "`record` with each entry replaced by `(f entry)`, keeping the record's
+  type. A copy of the private `rebuild-record` in `re-frame.mcp-base.dedup`,
+  which solved the same problem for the dedup walk (rf2-gwye.31).
+
+  A record has no `empty`, so its entries are written back into the
+  original, and an extension key that `f` respells must therefore REPLACE
+  its original or both spellings survive. A fixed field's key is a keyword,
+  which the projection never respells, so the `dissoc` only ever meets
+  extension keys and the record keeps its type. Every entry is rebuilt
+  before any is written, so a new spelling that matches another entry's old
+  one cannot overwrite that entry before it is read."
+  [f record]
+  (let [rebuilt (mapv (fn [entry] [(key entry) (f entry)]) record)]
+    (reduce (fn [r [_ entry]] (conj r entry))
+            (reduce (fn [r [k [k' _]]] (if (= k k') r (dissoc r k)))
+                    record
+                    rebuilt)
+            rebuilt)))
+
 (defn wire-safe-success
   "Project ORDINARY SUCCESS data so the JSON encoder can write it, leaving
   everything that already IS data exactly as it was.
@@ -148,15 +168,29 @@
     collection through `{}` / `#{}` / `mapv`, which is right for an
     `ex-data` blob but would quietly turn a list into a vector, a sorted map
     into a hash map, and a record into a plain map — in a payload whose text
-    slot is the byte-stable EDN an agent DIFFS. `clojure.walk/postwalk`
-    rebuilds each collection as its own type (and visits map keys), so a
-    payload carrying no callable comes back equal to what went in."
+    slot is the byte-stable EDN an agent DIFFS. The walk rebuilds each
+    collection as its own type (and visits map keys), so a payload carrying
+    no callable comes back equal to what went in.
+
+  ## Records: a respelled key REPLACES its original (rf2-8m1i)
+
+  The walk is `clojure.walk/walk` everywhere except a record, which
+  `rebuild-record` handles. `clojure.walk` rebuilds a record by `conj`-ing
+  the walked entries back into the ORIGINAL record, so an extension key the
+  projection respells — `(assoc (->Sample pos?) pos? :extension)` — gained
+  its marker while the raw `pos?` key stayed too, and Cheshire wrote that
+  key as its identity string. Every other slot of that record was projected
+  correctly, which is why the leak was easy to miss."
   [v]
-  (walk/postwalk (fn [x]
-                   (if (or (edn-scalar? x) (coll? x))
-                     x
-                     {unencodable-key (type-name x)}))
-                 v))
+  (letfn [(project [x]
+            (if (or (edn-scalar? x) (coll? x))
+              x
+              {unencodable-key (type-name x)}))
+          (walk-success [form]
+            (project (if (record? form)
+                       (rebuild-record walk-success form)
+                       (walk/walk walk-success identity form))))]
+    (walk-success v)))
 
 (defn wire-safe-ex-data
   "Project a caught exception's `ex-data` into something the JSON encoder
