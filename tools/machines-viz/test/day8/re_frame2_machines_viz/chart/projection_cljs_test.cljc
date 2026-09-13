@@ -393,16 +393,81 @@
 (deftest xyflow-graph-region-children-wire-parent-id
   (testing "rf2-lkwev + rf2-xh1lm — every state inside a region carries
             `:parentId` (the region container id) + `:extent \"parent\"`
-            so xyflow v12's sub-flow nests + clamps it; the region
-            container itself carries NEITHER"
+            so xyflow v12's sub-flow nests + clamps it; rf2-fzbj.13 — the
+            region container ITSELF nests the same way under the
+            ROOT-CONTAINER frame ELK lays it out in"
     (let [parsed (layout/project-definition parallel-machine)
           graph  (projection/xyflow-graph parsed {} {})
           region (node-by-id graph (layout/region-node-id :audio))
           muted  (node-by-id graph (layout/region-scoped-id :audio [:muted]))]
       (is (= (layout/region-node-id :audio) (:parentId muted)))
       (is (= "parent" (:extent muted)))
-      (is (nil? (:parentId region)) "region container is not nested")
-      (is (nil? (:extent region))))))
+      (is (= layout/root-container-id (:parentId region))
+          "the region container nests under the root-container frame")
+      (is (= "parent" (:extent region))))))
+
+(defn- elk-parent-of
+  "`{child-id parent-id}` read off the NESTED `->elk-children` tree — ELK's
+  own ancestry, independent of the xyflow projection under test."
+  ([children] (elk-parent-of children nil))
+  ([children parent]
+   (reduce (fn [acc c]
+             (cond-> (merge acc (elk-parent-of (:children c) (:id c)))
+               parent (assoc (:id c) parent)))
+           {}
+           children)))
+
+(defn- chain-sum
+  "The absolute `{:x :y}` of `id`: its own position plus every ancestor's,
+  walking `parent-of` out to the root — ELK's frame arithmetic, and xyflow's
+  `adoptUserNodes` arithmetic over a `parentId` chain."
+  [pos-of parent-of id]
+  (loop [id id acc {:x 0 :y 0}]
+    (if (nil? id)
+      acc
+      (let [p (pos-of id)]
+        (recur (parent-of id) {:x (+ (:x acc) (:x p)) :y (+ (:y acc) (:y p))})))))
+
+(deftest xyflow-graph-parallel-absolute-positions-match-elk-ancestry
+  (testing "rf2-fzbj.13 — with the frame at a NON-ZERO origin, the absolute
+            position xyflow derives from each projected node's `parentId`
+            chain equals the sum of its ELK ancestry, for region containers,
+            leaves, event-nodes and initial markers alike. Pre-fix every
+            region dropped its frame parent, so each region subtree landed
+            short by exactly the frame origin."
+    (let [parsed    (layout/project-definition parallel-machine)
+          elk-par   (elk-parent-of (projection/->elk-children parsed))
+          elk-ids   (into (set (keys elk-par)) (vals elk-par))
+          ;; parent-relative positions, distinct per node; the frame sits at
+          ;; (100, 200) so a lost frame parent cannot hide in a zero.
+          positions (into {}
+                          (map-indexed (fn [i id]
+                                         [id (if (= id layout/root-container-id)
+                                               {:x 100 :y 200 :width 900 :height 700}
+                                               {:x (+ 10 i) :y (+ 20 i)
+                                                :width 152 :height 58})]))
+                          (sort elk-ids))
+          graph     (projection/xyflow-graph parsed positions {})
+          by-id     (into {} (map (juxt :id identity)) (:nodes graph))
+          xy-abs    (fn [id] (chain-sum (comp :position by-id) (comp :parentId by-id) id))
+          elk-abs   (fn [id] (chain-sum positions elk-par id))
+          markers   (filter #(= "initial-marker" (:type %)) (:nodes graph))]
+      (testing "every region nests under the frame in ELK AND in xyflow"
+        (doseq [r (filter :region? (:nodes parsed))]
+          (is (= layout/root-container-id (get elk-par (:id r))))
+          (is (= layout/root-container-id (:parentId (by-id (:id r)))))))
+      (testing "every ELK-laid node: frame, regions, leaves, event-nodes"
+        (is (some #(str/starts-with? % "__rf2_event_") elk-ids)
+            "sanity: the fixture lays out event-nodes too")
+        (doseq [id elk-ids]
+          (is (= (elk-abs id) (xy-abs id))
+              (str id " — xyflow's absolute position disagrees with ELK's"))))
+      (testing "every initial marker sits in its container's ELK frame"
+        (is (seq markers) "sanity: the regions project initial markers")
+        (doseq [m markers]
+          (is (= (merge-with + (:position m) (elk-abs (:parentId m)))
+                 (xy-abs (:id m)))
+              (str (:id m) " — marker offset from its container's ELK frame")))))))
 
 (deftest xyflow-graph-region-children-do-not-emit-pre-v12-parent-node
   (testing "rf2-xh1lm — the projector emits the v12 `:parentId` shape

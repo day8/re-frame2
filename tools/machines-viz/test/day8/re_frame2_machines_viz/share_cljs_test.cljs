@@ -26,6 +26,7 @@
             [clojure.string :as str]
             [clojure.walk]
             [cognitect.transit :as transit]
+            [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.grammar :as grammar]
             [day8.re-frame2-machines-viz.share :as share]))
 
@@ -599,6 +600,122 @@
           "the executable :fn slot is still dropped")
       (is (contains? (:guards dfn) :ready?)
           "the guard NAME (its key) survives, names-only"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-fzbj.13 / rf2-gwye.48 — a function-valued `:after` delay (Spec 005) is a
+;; map KEY, so the value-side fn handling never reached it: the fn survived
+;; sanitisation and Transit refused to write it. It now shares as an inert
+;; numbered vector label, and the delay fn is never called.
+
+(defn- round-trip-definition
+  "Encode definition `d` as a share-URL and return the decoded `:definition`."
+  [d]
+  (-> (encode (assoc chart-state :definition d))
+      share/decode-share-url
+      :rf.machines-viz.share/chart
+      :definition))
+
+(deftest fn-valued-after-delay-shares-as-an-inert-label
+  (testing "rf2-fzbj.13 — a fn delay key encodes (Transit writes no fn),
+            decodes to a projectable definition, keeps its timed transition,
+            and the fn is never invoked"
+    (let [calls    (atom 0)
+          delay-fn (fn [_ctx] (swap! calls inc) 1000)
+          d        {:initial :idle
+                    :states  {:idle {:after {delay-fn :done}}
+                              :done {}}}
+          dfn      (round-trip-definition d)
+          after    (get-in dfn [:states :idle :after])]
+      (is (= 1 (count after)) "the one delayed transition survives")
+      (is (vector? (key (first after))) "its key became an inert vector label")
+      (is (= :done (val (first after))) "its target is intact")
+      (is (grammar/valid-definition? (grammar/desugar-grammar dfn))
+          "the decoded definition is a valid, projectable machine")
+      (is (= (layout/semantic-counts d) (layout/semantic-counts dfn))
+          "the same states and transitions as the original")
+      (is (zero? @calls) "the delay fn was never called"))))
+
+(deftest distinct-anonymous-fn-delays-keep-distinct-transitions
+  (testing "rf2-fzbj.13 — two anonymous delay fns share a label, so the
+            numbering is what keeps them from merging into one key"
+    (let [d   {:initial :idle
+               :states  {:idle {:after {(fn [_] 100) :a
+                                        (fn [_] 200) :b}}
+                         :a {} :b {}}}
+          dfn (round-trip-definition d)]
+      (is (= 2 (count (get-in dfn [:states :idle :after]))))
+      (is (= #{:a :b} (set (vals (get-in dfn [:states :idle :after])))))
+      (is (= (layout/semantic-counts d) (layout/semantic-counts dfn))))))
+
+(deftest literal-and-subscription-delays-round-trip-unchanged
+  (testing "rf2-fzbj.13 — the fn-key rewrite leaves literal ms and
+            subscription-vector delay keys exactly as authored"
+    (let [d {:initial :idle
+             :states  {:idle {:after {1000              :a
+                                      [:timeouts/retry] :b}}
+                       :a {} :b {}}}]
+      (is (= d (round-trip-definition d))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-gwye.49 — `:source-code` / `:source-coords` are debug fields on a RECORD
+;; (a state node, transition candidate or guard/action entry), but they are
+;; also valid topology ids. The pre-fix walk dropped the key wherever it
+;; appeared, so a state, event, region, guard or action with either name
+;; vanished while validation still passed.
+
+(def debug-named-topology
+  "Every id spelled like a debug field, beside GENUINE debug fields on the
+  same records that must still go."
+  {:initial :source-code
+   :guards  {:source-coords {:fn          (fn [_] true)
+                             :source-code "(fn [_] true)"}}
+   :actions {:source-code   {:fn            (fn [_] nil)
+                             :source-coords {:file "/Users/mike/proj/x.cljs" :line 9}}}
+   :states  {:source-code   {:on            {:source-code   {:target        :source-coords
+                                                             :guard         :source-coords
+                                                             :action        :source-code
+                                                             :source-coords {:file "/Users/mike/proj/x.cljs"
+                                                                             :line 12}}
+                                             :source-coords :source-code}
+                             :source-coords {:file "/Users/mike/proj/x.cljs" :line 10}}
+             :source-coords {:on {:go :source-code}}}})
+
+(deftest debug-named-topology-ids-survive-sharing
+  (testing "rf2-gwye.49 — state, event, guard and action ids spelled
+            `:source-code` / `:source-coords` survive; genuine annotations on
+            the same records are still stripped"
+    (let [url (encode (assoc chart-state :definition debug-named-topology))
+          dfn (:definition (:rf.machines-viz.share/chart (share/decode-share-url url)))]
+      (is (= #{:source-code :source-coords} (set (keys (:states dfn))))
+          "both STATE ids survive")
+      (is (= :source-code (:initial dfn)))
+      (is (= #{:source-code :source-coords}
+             (set (keys (get-in dfn [:states :source-code :on]))))
+          "both EVENT ids survive")
+      (is (= :source-coords (get-in dfn [:states :source-code :on :source-code :target])))
+      (is (= :source-code (get-in dfn [:states :source-code :on :source-coords])))
+      (is (contains? (:guards dfn) :source-coords) "the GUARD id survives")
+      (is (contains? (:actions dfn) :source-code) "the ACTION id survives")
+      (is (= (layout/semantic-counts debug-named-topology) (layout/semantic-counts dfn))
+          "no state or transition is lost")
+      (testing "the genuine annotations on those same records are gone"
+        (is (not (str/includes? url "Users")) "no local path in the URL bytes")
+        (is (not (contains? (get-in dfn [:states :source-code]) :source-coords)))
+        (is (not (contains? (get-in dfn [:states :source-code :on :source-code])
+                            :source-coords)))
+        (is (= {} (get-in dfn [:guards :source-coords]))
+            "the guard keeps its name and loses :fn and :source-code")
+        (is (= {} (get-in dfn [:actions :source-code]))
+            "the action keeps its name and loses :fn and :source-coords")))))
+
+(deftest debug-named-region-ids-survive-sharing
+  (testing "rf2-gwye.49 — parallel REGION ids spelled like debug fields survive"
+    (let [d   {:type    :parallel
+               :regions {:source-code   {:initial :a :states {:a {:on {:go :b}} :b {}}}
+                         :source-coords {:initial :p :states {:p {}}}}}
+          dfn (round-trip-definition d)]
+      (is (= d dfn))
+      (is (= (layout/semantic-counts d) (layout/semantic-counts dfn))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Versioning + failure modes

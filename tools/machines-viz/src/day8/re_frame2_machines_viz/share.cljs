@@ -204,7 +204,13 @@
 ;; and a live `:fn` value can make Transit encoding FAIL outright. We sanitise
 ;; the definition STRUCTURALLY before validation / Transit:
 ;;
-;;   - recursively DROP `:source-coords` / `:source-code` everywhere;
+;;   - recursively DROP `:source-coords` / `:source-code` on every RECORD map
+;;     (state node, transition candidate, guard/action entry) — never as the
+;;     KEY of an identifier-indexed map, where either spelling is a valid
+;;     state / event / region / guard / action id (rf2-gwye.49);
+;;   - replace a fn-valued map KEY (Spec 005's function-valued `:after` delay)
+;;     with an inert numbered `[<label> <n>]` vector (rf2-fzbj.13) — the fn is
+;;     never called, and distinct anonymous delays stay distinct transitions;
 ;;   - DROP executable `:fn` values (the `{<id> {:fn …}}` entry collapses to a
 ;;     names-only marker — the topology reference by id survives);
 ;;   - replace any remaining LIVE fn value (an inline `:guard` / `:action` /
@@ -215,7 +221,9 @@
 (def ^:private source-debug-keys
   "Reference-site debug fields the macro co-locates inside `:states` /
   `:guards` / `:actions` (Spec 005 §Source-coord
-  stamping). Stripped wholesale from a share payload."
+  stamping). Stripped from every RECORD map in a share payload — never as
+  the key of an identifier-indexed map (`identifier-indexed-slots`), where
+  they are valid topology ids."
   #{:source-coords :source-code})
 
 (def ^:private fn-label-marker
@@ -232,38 +240,74 @@
         (keyword "rf.machines-viz.share" (str "fn-" (name n))))
       fn-label-marker))
 
+(def ^:private identifier-indexed-slots
+  "rf2-gwye.49 — definition slots whose map KEYS are topology IDENTIFIERS
+  (state / region / event / guard / action ids, and `:after` delays) rather
+  than record fields. A key in one of these maps is a name the topology
+  references, so it survives sanitisation however it is spelled —
+  `:source-code`, `:source-coords` and `:fn` are all valid ids — and only its
+  VALUE is walked. The debug-field and executable-`:fn` drops apply to RECORD
+  maps alone: the state nodes, transition candidates and guard/action entries
+  the macro stamps."
+  #{:states :regions :on :after :guards :actions})
+
+(defn- fn-key-label
+  "rf2-fzbj.13 — the inert stand-in for a fn-valued map KEY (Spec 005's
+  function-valued `:after` delay): a `[<names-only label> <n>]` vector. The
+  share grammar accepts it as a subscription-vector-shaped delay, so the
+  viewer projects the timed transition without ever holding — or calling —
+  the fn. `n` numbers the fn keys of ONE map, so two anonymous delays, which
+  share a label, keep two transitions instead of merging into one."
+  [f n]
+  [(fn-name-label f) n])
+
 (defn- sanitise-definition
   "rf2-m285a — recursively rewrite a (possibly macro-stamped) machine
   definition into a viewer-safe topology payload: drop `:source-coords` /
   `:source-code`, drop executable `:fn` values, and replace any live fn slot
   with an opaque label. Preserves all topology references (state ids,
-  targets, guard/action NAMES via their map keys). Pure structural walk."
-  [x]
-  (cond
-    (fn? x) (fn-name-label x)
+  targets, guard/action NAMES via their map keys). Pure structural walk.
 
-    (map? x)
-    (into (empty x)
-          (keep (fn [[k v]]
-                  (cond
-                    ;; Drop reference-site source/debug fields entirely.
-                    (contains? source-debug-keys k) nil
-                    ;; rf2-07gg7h — drop the EXECUTABLE fn off a co-located
-                    ;; `{:fn <fn> …}` entry (the `:guards` / `:actions`
-                    ;; slot form): the entry's KEY already
-                    ;; carries the name the topology references; the body is
-                    ;; lossy by contract. Gate on `(fn? v)` so a topology key
-                    ;; that HAPPENS to be named `:fn` (a state id, event id,
-                    ;; or region id whose VALUE is a topology submap, never a
-                    ;; fn) is PRESERVED — only the executable slot is stripped.
-                    (and (= :fn k) (fn? v))          nil
-                    :else [k (sanitise-definition v)]))
-                x))
+  `identifiers?` is true while walking a map whose keys are topology ids
+  (`identifier-indexed-slots`, rf2-gwye.49): those keys are kept verbatim and
+  only the values are sanitised. A fn-valued KEY in any map becomes a
+  `fn-key-label` (rf2-fzbj.13), numbered in a stable order so the encoded
+  bytes do not depend on map iteration order."
+  ([x] (sanitise-definition x false))
+  ([x identifiers?]
+   (cond
+     (fn? x) (fn-name-label x)
 
-    (set? x)    (into #{} (map sanitise-definition x))
-    (vector? x) (mapv sanitise-definition x)
-    (seq? x)    (map sanitise-definition x)
-    :else       x))
+     (map? x)
+     (let [entries
+           (keep (fn [[k v]]
+                   (cond
+                     identifiers?                    [k (sanitise-definition v)]
+                     ;; Drop reference-site source/debug fields entirely.
+                     (contains? source-debug-keys k) nil
+                     ;; rf2-07gg7h — drop the EXECUTABLE fn off a co-located
+                     ;; `{:fn <fn> …}` entry (the `:guards` / `:actions`
+                     ;; slot form): the entry's KEY already
+                     ;; carries the name the topology references; the body is
+                     ;; lossy by contract. Gate on `(fn? v)` so a topology key
+                     ;; that HAPPENS to be named `:fn` (a state id, event id,
+                     ;; or region id whose VALUE is a topology submap, never a
+                     ;; fn) is PRESERVED — only the executable slot is stripped.
+                     (and (= :fn k) (fn? v))         nil
+                     :else [k (sanitise-definition
+                                v (contains? identifier-indexed-slots k))]))
+                 x)
+           {fn-keyed true plain false} (group-by #(fn? (first %)) entries)]
+       (into (empty x)
+             (concat plain
+                     (map-indexed (fn [n [f v]] [(fn-key-label f n) v])
+                                  (sort-by (fn [[f v]] (pr-str [(fn-name-label f) v]))
+                                           fn-keyed)))))
+
+     (set? x)    (into #{} (map sanitise-definition x))
+     (vector? x) (mapv sanitise-definition x)
+     (seq? x)    (map sanitise-definition x)
+     :else       x)))
 
 ;; ---------------------------------------------------------------------------
 ;; Schema validation — narrow allowlist

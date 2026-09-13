@@ -500,7 +500,11 @@
        region edges keep their ELK routes — the interior transpose moved
        their endpoints consistently, but ELK's absolute bend-points would
        now mismatch, so intra-region routes are cleared too and fall back to
-       the clean bezier through the transposed handles."
+       the clean bezier through the transposed handles.
+    4. GROW the regions' parent frame (the ROOT-CONTAINER) to enclose the
+       re-stacked column, keeping ELK's right/bottom inset and never
+       shrinking it — the regions are the frame's `parentId` children, so an
+       undersized frame would clamp them (rf2-fzbj.13)."
   [{:keys [positions edge-points edge-labels] :as layout} parsed]
   (if-not (:parallel? parsed)
     layout
@@ -593,9 +597,35 @@
                       (mapcat (fn [e] [(str (:id e) "__in") (str (:id e) "__out")])))
                 edges)
           pruned-points (apply dissoc edge-points stale-edge-ids)
-          pruned-labels (apply dissoc edge-labels stale-edge-ids)]
+          pruned-labels (apply dissoc edge-labels stale-edge-ids)
+          ;; 4 — rf2-fzbj.13: GROW the regions' frame to enclose the column.
+          ;; The region containers are children of the ROOT-CONTAINER frame
+          ;; (xyflow `parentId` + `:extent "parent"`), and ELK sized that
+          ;; frame for the side-by-side layout the re-stack just replaced.
+          ;; Left alone, the taller column overflows it and xyflow clamps the
+          ;; bands back inside, piling them up. Keep the right/bottom inset
+          ;; ELK left around the regions; never shrink (the header may need
+          ;; the width).
+          frame-id      (some :parent-id region-nodes)
+          frame         (get positions frame-id)
+          far-edge      (fn [ps axis size]
+                          (reduce max 0 (map (fn [r]
+                                               (let [p (get ps (:id r))]
+                                                 (+ (or (axis p) 0) (or (size p) 0))))
+                                             region-nodes)))
+          framed-positions
+          (if (and (:width frame) (:height frame))
+            (assoc new-positions frame-id
+                   (assoc frame
+                          :width  (max (:width frame)
+                                       (+ (far-edge new-positions :x :width)
+                                          (- (:width frame) (far-edge positions :x :width))))
+                          :height (max (:height frame)
+                                       (+ (far-edge new-positions :y :height)
+                                          (- (:height frame) (far-edge positions :y :height))))))
+            new-positions)]
       (assoc layout
-             :positions   new-positions
+             :positions   framed-positions
              :edge-points pruned-points
              :edge-labels pruned-labels))))
 
