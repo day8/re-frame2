@@ -64,7 +64,7 @@ The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/
 
 | Order | Rule | Why here |
 |---|---|---|
-| 5 | **M-5** | `reg-*` are macros now; higher-order use breaks at compile time. Surface before behaviour-shape rules. |
+| 5 | **M-5** | Higher-order / value-position `reg-*` use — a compile-time break on the **JVM** only; on CLJS the same names resolve to plain fns in value position (Convention A) and the hit is left alone. Surface before behaviour-shape rules so the host classification happens once. |
 | 6 | **M-22** | `reg-view` is a defn-shape macro; keyword-shape calls fail to expand. Compile-level. |
 | 7 | **M-23** | `re-frame.alpha` namespace removed. Compile-level (require fails). |
 | 8 | **M-24** | `rf/h` removed. Compile-level (symbol unresolved). |
@@ -167,7 +167,7 @@ Order of presentation within the batch (most-blocking first):
 5. **M-17** — multi-frame `reg-global-interceptor`: each-frame vs trace-listener vs default-only.
 6. **M-21** — `on-changes` / `enrich` / `after`: flow / schema / registered-interceptor (`reg-interceptor` + ref by id) / fx routing.
 7. **M-10** — reserved-namespace collisions.
-8. **M-5** Var-aliasing — refactor to direct invocation.
+8. **M-5** Var-aliasing — **JVM value-position hits only**; refactor to direct invocation (CLJS hits are not sites).
 9. **M-13** — `reg-event-error-handler` policy.
 10. **M-12** — render-count test re-baselines.
 11. **M-19** (only if requested) — opt-in map-payload migration per event-id.

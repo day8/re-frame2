@@ -8,7 +8,7 @@ When an agent migrating a v1 codebase needs to answer *"is this error name old o
 
 The migration touches three surfaces that hand-off to the error event stream:
 
-- **M-13** — `reg-event-error-handler` is gone, and there is **no** app-steering frame-level `:on-error` recovery policy that replaces it (recovery is framework-owned — the typed per-category default). The observability replacement is the one stream-parameterized `register-listener!` verb (the `:trace` stream for dev-loop observation, the `:errors` stream for always-on production egress), consuming events from the catalogue.
+- **M-13** — `reg-event-error-handler` is gone, and there is **no** app-steering frame-level `:on-error` recovery policy that replaces it (recovery is framework-owned — the typed per-category default). The observability replacement is **two different mechanisms, not two streams of one verb**: always-on production egress is the frame's `:observability :errors` **sink** (`register-observability-sink!`), and dev-loop observation is the one stream-parameterized `register-listener!` verb's `:trace` stream, consuming events from the catalogue.
 - **M-17 / M-26** — observer-shaped interceptors / post-event callbacks become trace listeners; they filter on `:operation` / `:op-type` from the catalogue.
 - **M-23** — `re-frame.alpha` lifecycle annotations dropped; some user error-recognition code referenced old category names.
 
@@ -46,7 +46,7 @@ v1's process-wide `reg-event-error-handler` is **dropped**. There is **no app-st
 
 A v1 error-handler that returned a substitute value or swallowed an error has **no v2 equivalent** — drop the steering and rely on the framework's typed default, moving any genuine recovery to the source.
 
-## Trace listener vs. error-emit listener (dev-only vs. always-on)
+## Trace listener vs. observability sink (dev-only vs. always-on)
 
 Listener registration is **one stream-parameterized verb** — `(register-listener! stream id f)`, with `stream` a leading **required** keyword whose vocabulary is exactly two members: `:trace` / `:epoch` (an unknown stream throws `:rf.error/unknown-listener-stream` — no bare-trace default, no compatibility aliases, per [API.md §`register-listener!`](https://github.com/day8/re-frame2/blob/main/spec/API.md#error-emit-always-on-production-survivable)). The former per-channel `register-(trace|epoch)-listener!` facade pairs were collapsed into this one verb; the always-on `:events` / `:errors` members were then **retired**, and they have no listener replacement at all. **Both surviving streams are dev-only.** The dev/prod axis is therefore not a choice between two streams of one verb — it is a choice between two *mechanisms*, and picking the wrong one for production monitoring is the single most common error-handling mistake in a migration:
 
@@ -78,14 +78,14 @@ The error-handling surface is **split** across the dev/prod gate. Getting this b
 
 **Always-on (survives `:advanced` + `goog.DEBUG=false`):**
 
-- **The `:errors` stream of `register-listener!`** (the error-emit listener) — the single error-observability surface. It is NOT gated by `re-frame.interop/debug-enabled?` — it rides a small always-on error-emit substrate (`re-frame.error-emit`) that survives production builds (CLJS `goog.DEBUG=false` AND JVM `-Dre-frame.debug=false`), fanning out one tight record per catalogued promoted `:rf.error/*` event, the bounded `:rf.error/frame-teardown-failed` report on a frame destroy whose cleanup hooks threw, and the EP-0008-promoted non-event SSR records (the error-keyed union above), per [Spec 009 §What is available in production](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md#what-is-available-in-production). On a JVM SSR host the dev trace surface elides under `-Dre-frame.debug=false` (default-on; production deployments set it), but this always-on axis keeps delivering — so a migrated SSR app's production error egress survives the JVM gate.
+- **The frame's `:observability :errors` sink** — the single error-observability surface, wired with `register-observability-sink!` plus a frame policy or the `(rf/configure! {:observability …})` process default. **Not** a stream of `register-listener!`: the `:errors` (and `:events`) listener members were retired from the facade (rf2-kuky.69) and `register-listener!` now throws `:rf.error/unknown-listener-stream` on either. The sink is NOT gated by `re-frame.interop/debug-enabled?` — it rides a small always-on error-emit substrate (`re-frame.error-emit`) that survives production builds (CLJS `goog.DEBUG=false` AND JVM `-Dre-frame.debug=false`), fanning out one tight record per catalogued promoted `:rf.error/*` event, the bounded `:rf.error/frame-teardown-failed` report on a frame destroy whose cleanup hooks threw, and the EP-0008-promoted non-event SSR records (the error-keyed union above), per [Spec 009 §What is available in production](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md#what-is-available-in-production). On a JVM SSR host the dev trace surface elides under `-Dre-frame.debug=false` (default-on; production deployments set it), but this always-on axis keeps delivering — so a migrated SSR app's production error egress survives the JVM gate.
 
 **Dev-only (production-elided per [Spec 009 §Production builds](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code)):**
 
 - The raw **trace stream** — `(register-listener! :trace …)` listeners — no events delivered in prod.
 - Dev-side enrichments on the always-on path: `:rf.trace/dispatch-id` correlation, `:rf.trace/trigger-handler` source-coord, and the retain-N ring buffer.
 
-So: route **production** error monitoring through the `:errors` stream (always-on); use the `:trace` stream only for the **dev** loop.
+So: route **production** error monitoring through the `:observability :errors` **sink** (always-on); use `register-listener!`'s `:trace` stream only for the **dev** loop. They are two mechanisms, not two settings of one.
 
 ## Stale advice the migration agent will encounter
 
@@ -99,7 +99,7 @@ Specific drift to watch:
 
 ## When to point an author at this leaf
 
-- They're wiring an error-observability listener for M-13 (`register-listener!` — the `:errors` or `:trace` stream) and need to know what events arrive.
+- They're wiring error observability for M-13 — an `:observability :errors` sink for production, or a `(register-listener! :trace …)` listener for the dev loop — and need to know what events arrive.
 - They're writing a `register-listener!` listener and ask "which categories are errors vs warnings vs informational?"
 - They have a `(case operation …)` shape and want a complete list of arms.
 - A test asserts on an error event's `:operation` keyword and they need the canonical name.
