@@ -87,6 +87,15 @@ fall-through is declined with 422 `editor-position-unsupported`, and the
 browser's `editor://` fallback — which does carry the position — opens the file
 at the right place instead.
 
+The whole coordinate, not most of it. Some cases `launch-editor` *does* encode
+carry the line and discard the column: `gvim` and `joe` are launched with
+`+<line>`, `rmate`/`mate`/`mine` with `--line <line>`. None of those is a
+bare-file launch, so the fall-through test above cannot see them — a request
+asking for 27:9 would land on line 27, column 1, behind a 200. A request that
+asks for a **column** the chosen binary would not carry is therefore declined
+the same way, while the same binary still serves a request that asks only for a
+line, because that coordinate does arrive.
+
 Two routes answer that question, because the endpoint does not always choose
 the binary:
 
@@ -99,16 +108,21 @@ the binary:
   it picks a binary from the running process list, and that list reaches
   editors with no position case (Brackets on every platform; on Windows also
   `Cursor.exe`, whose capitalised process name the lowercase `cursor` case does
-  not match). The launch shim therefore asks `get-args.js` itself what it would
-  emit before launching, and declines the same way if the coordinate would be
-  dropped. A nil preference then falls back to the default `vscode://` scheme,
-  and a `{:custom …}` preference to its own template — which auto-detect had
-  been ignoring.
+  not match) — and editors with a *partial* one, `gvim` being in the Linux
+  process registry. The launch shim therefore asks `get-args.js` itself what it
+  would emit before launching, and declines the same way if any requested
+  component would be dropped: the argv for the bare file, or — when a column
+  was asked for — an argv that does not move when the column does. Neither
+  test names an editor, so a `launch-editor` release that learns one lifts its
+  decline with no edit here. A nil preference then falls back to the default
+  `vscode://` scheme, and a `{:custom …}` preference to its own template —
+  which auto-detect had been ignoring.
 
 A request carrying no line or column is not declined for position support:
 there is no position to lose, and classpath resolution is worth having. The
-ordinary admission, file and launch checks still apply. Editors whose position
-`launch-editor` does encode are unaffected and keep preferring the endpoint.
+ordinary admission, file and launch checks still apply. Editors that carry
+every component the request asked for are unaffected and keep preferring the
+endpoint.
 
 ## Endpoint wire contract
 

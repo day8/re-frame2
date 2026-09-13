@@ -1246,14 +1246,20 @@
 (def ^:private dependency-probe-script
   "Ask the INSTALLED `launch-editor` what it would do — the same two questions
   `launch-shim` asks, put to the same two modules. Emits `key<TAB><json>` per
-  line. `F` is a sentinel filename: `get-args.js` interpolates the position
-  into every case it encodes and falls through to `return [fileName]` for the
-  rest, so an argv of the sentinel ALONE is exactly the documented drop."
+  line. `F` is a sentinel filename: `get-args.js` falls through to
+  `return [fileName]` for every command it has no case for, so an argv of the
+  sentinel ALONE is exactly the documented TOTAL drop."
   (str "var g=require('launch-editor/guess');"
        "var a=require('launch-editor/get-args');"
        "function say(k,v){process.stdout.write(k+'\\t'+JSON.stringify(v)+'\\n');}"
        "['code','code-insiders','cursor','zed','idea','windsurf'].forEach("
        "function(c){say(c,a(c,'F',27,9));});"
+       ;; The PARTIAL-drop class: cases `get-args.js` DOES encode, which carry
+       ;; the line and discard the column. Neither is the bare file, so the
+       ;; total-drop test cannot see them — this is what the shim's column
+       ;; differential is for. Two shapes, one probe each.
+       "say('gvim',a('gvim','F',27,9));"
+       "say('rmate',a('rmate','F',27,9));"
        ;; The auto-detect class: names that appear in the process registries
        ;; but not in the get-args switch.
        "say('brackets',a('Brackets','F',27,9));"
@@ -1293,7 +1299,7 @@
       (let [probe (run-dependency-probe)]
         (testing "the probe returned the keys it was asked for (a silently
                   empty map must not read as a pass)"
-          (is (= 11 (count probe)) "every probed key came back")
+          (is (= 13 (count probe)) "every probed key came back")
           (is (contains? probe "windsurf")))
 
         (testing "every command this endpoint DECLARES position-blind really is
@@ -1314,7 +1320,24 @@
               (is (not= "[\"F\"]" argv)
                   (str cmd " is not a bare-file launch"))
               (is (str/includes? argv "27")
-                  (str cmd " argv carries the requested line")))))
+                  (str cmd " argv carries the requested line"))
+              ;; The COLUMN, not merely the line. `gvim` below shows the two
+              ;; are separate promises: a case can encode one and drop the
+              ;; other, so an argv that merely differs from `["F"]` and
+              ;; carries a line proves nothing about the column the caller
+              ;; asked for.
+              (is (str/includes? argv "9")
+                  (str cmd " argv carries the requested COLUMN")))))
+
+        (testing "PARTIAL DROP — cases the dependency DOES encode, which carry
+                  the line and discard the column. Neither is a bare-file
+                  launch, so the check above passes them; this is the premise
+                  the shim's column differential rests on, and a release that
+                  learns either editor's column makes it red"
+          (is (= "[\"+27\",\"F\"]" (get probe "gvim"))
+              "gvim gets the line as `+27` and no column at all")
+          (is (= "[\"--line\",27,\"F\"]" (get probe "rmate"))
+              "rmate gets `--line 27` and no column at all"))
 
         (testing "AUTO-DETECT reaches position-blind binaries the declared set
                   cannot name — the audit's finding. Brackets is in all three
@@ -1392,6 +1415,33 @@
                       exist) but NOT as the decline, so widening the gate did
                       not turn column-only into a blanket refusal"
               (let [{:keys [ok message]} (rf.testbed.open-in-editor-server/launch! f nil 7 "nonexistent-dir/zed")]
+                (is (false? ok) "the nonexistent binary could not be launched")
+                (is (not= rf.testbed.open-in-editor-server/position-unsupported-error message)
+                    "…and it was a launch failure, not a capability refusal")))
+
+            ;; PARTIAL position loss. Every case above turns on a command
+            ;; `get-args.js` has NO case for, whose argv is the bare file.
+            ;; `gvim` has a case — `['+<line>', file]` — so its argv is not
+            ;; the bare file and the total-drop test waves it through, while
+            ;; the COLUMN is gone. It is reachable by auto-detect (the Linux
+            ;; process registry maps a running `gvim` to it), so a 27:9 chip
+            ;; landed on column 1 behind a 200 that suppressed the
+            ;; coordinate-preserving `editor://` fallback.
+            (testing "COLUMN DROPPED BY AN ENCODED CASE: gvim carries the line
+                      and discards the column, so a request that asks for one
+                      is declined on the same terms as a total drop"
+              (is (= {:ok false :message rf.testbed.open-in-editor-server/position-unsupported-error}
+                     (rf.testbed.open-in-editor-server/launch! f 27 9 "nonexistent-dir/gvim"))
+                  "line 27 would arrive, column 9 would not — a 200 here would claim both did")
+              (is (= {:ok false :message rf.testbed.open-in-editor-server/position-unsupported-error}
+                     (rf.testbed.open-in-editor-server/launch! f nil 9 "nonexistent-dir/gvim"))
+                  "a column with no line normalises to 1:9, and the 9 is still lost"))
+
+            (testing "PARTIAL-DROP POSITIVE CONTROL — the SAME command with a
+                      LINE ALONE still reaches the launcher, because the
+                      coordinate it asked for survives. This is what keeps the
+                      differential a column question rather than a gvim ban"
+              (let [{:keys [ok message]} (rf.testbed.open-in-editor-server/launch! f 27 nil "nonexistent-dir/gvim")]
                 (is (false? ok) "the nonexistent binary could not be launched")
                 (is (not= rf.testbed.open-in-editor-server/position-unsupported-error message)
                     "…and it was a launch failure, not a capability refusal")))))))))
