@@ -48,6 +48,11 @@
   upstream identity-based variant was dropped rather than carried as a
   branch nothing takes.
 
+  It is WIRE equality: `=` refined by collection kind (`wire=`). Clojure
+  equality holds `[1 2 3]` and `(1 2 3)` equal, but the EDN on the wire
+  does not, so a vector never shares a slot with a list or seq — at any
+  depth — and each comes back as itself.
+
   ## Wire shape
 
   A deduped payload is wrapped in a top-level marker:
@@ -198,6 +203,16 @@
 ;;      taken as one pre-alpha cut across the codec, the spec and the Node
 ;;      decoder; the cache-element namespace, the `cache-N` key spelling and
 ;;      the `:rf.mcp/dedup-table` envelope are untouched.
+;;   6. Three places where `expand` was not the exact inverse (rf2-fzbj.9).
+;;      Upstream marked a pooled subtree with `:cache-id` METADATA and read
+;;      that key back off every subtree, so a caller's own `:cache-id`
+;;      replaced their data; the slot now travels through the walk as a
+;;      return value (rf2-gwye.30). Both walks conj-ed a record's rebuilt
+;;      entries onto the original, so a respelled extension key kept its old
+;;      spelling beside the new one (`rebuild-record`, rf2-gwye.31). And
+;;      pooling by `=` alone merged a vector with an equal list or seq
+;;      (`wire=`, rf2-gwye.32). Output changes only for inputs that hit one
+;;      of the three, and the wire shape does not change at all.
 ;;
 ;; ---------------------------------------------------------------------------
 
@@ -349,7 +364,7 @@
      :clj  (instance? clojure.lang.IRecord form)))
 
 (defn ^:private rebuild-into
-  "The empty collection `side-walk` rebuilds `form` into.
+  "The empty collection `walk` rebuilds `form` into.
 
   `(empty form)` for everything EXCEPT a sorted map or sorted set,
   which lower to their unsorted counterparts. Substitution replaces a
@@ -370,24 +385,45 @@
     (with-meta (if (map? form) {} #{}) (meta form))
     (empty form)))
 
-(defn ^:private side-walk
-  "Like `clojure.walk/walk`, but `outer` receives BOTH the original form
-  and the rebuilt one — which is what lets the encoder read the
-  `:cache-id` metadata `inner` attached before the rebuild dropped it.
-  Recognises every Clojure collection; consumes seqs as with `doall`.
-  Sorted maps/sets rebuild unsorted — see `rebuild-into`."
-  [inner outer form]
-  (cond
-    (list? form)       (outer form (apply list (doall (map inner form))))
-    (map-entry?* form) (outer form (vec (doall (map inner form))))
-    (seq? form)        (outer form (doall (map inner form)))
-    (record?* form)    (outer form (reduce (fn [r x] (conj r (inner x))) form form))
-    (coll? form)       (outer form (into (rebuild-into form) (doall (map inner form))))
-    :else              (outer form form)))
+(defn ^:private rebuild-record
+  "`record` with each entry replaced by `(f entry)`, the rebuilt `[k v]`.
 
-(defn ^:private side-prewalk
-  [inner outer form]
-  (side-walk (partial side-prewalk inner outer) outer (inner form)))
+  A record cannot be rebuilt from `empty` (it has none), so its entries
+  are written back into the original — which makes a RESPELLED key the
+  hazard: an extension key that `f` escapes, unescapes or pools into a
+  slot reference must REPLACE its original, or both spellings survive
+  and the record gains an entry (rf2-gwye.31). A fixed field's key is a
+  plain keyword that no transform respells, so the `dissoc` below only
+  ever meets extension keys and the record keeps its type. Every entry
+  is rebuilt before any is written, so a key whose new spelling is
+  another entry's old one cannot overwrite that entry before it is read."
+  [f record]
+  (let [rebuilt (mapv (fn [entry] [(key entry) (f entry)]) record)]
+    (reduce (fn [r [_ entry]] (conj r entry))
+            (reduce (fn [r [k [k' _]]] (if (= k k') r (dissoc r k)))
+                    record
+                    rebuilt)
+            rebuilt)))
+
+(defn ^:private walk
+  "`form` rebuilt with `f` applied to each of its children — as
+  `clojure.walk/walk` with an identity `outer`. Recognises every Clojure
+  collection; consumes seqs as with `doall`. Sorted maps/sets rebuild
+  unsorted (see `rebuild-into`); records rebuild as themselves (see
+  `rebuild-record`)."
+  [f form]
+  (cond
+    (list? form)       (apply list (doall (map f form)))
+    (map-entry?* form) (vec (doall (map f form)))
+    (seq? form)        (doall (map f form))
+    (record?* form)    (rebuild-record f form)
+    (coll? form)       (into (rebuild-into form) (doall (map f form)))
+    :else              form))
+
+(defn ^:private prewalk
+  "`f` applied to `form`, then to every child of the result, recursively."
+  [f form]
+  (walk (partial prewalk f) (f form)))
 
 (defn ^:private cacheable?
   "True for the forms worth pooling. Scalars are cheaper inline than as a
@@ -403,6 +439,39 @@
            (seq? element)
            (coll? element))))
 
+;; ---- The pooling equivalence ------------------------------------------------
+
+(defn ^:private same-kinds?
+  "Given `(= a b)`, true when `a` and `b` are also the same EDN.
+
+  Clojure equality — and `hash` — erase one distinction the wire keeps:
+  `(= [1 2 3] '(1 2 3))`, yet the two print, read back and answer
+  `vector?` differently. So a vector matches only a vector, and a list
+  or seq only a list or seq, at EVERY depth: two equal maps whose
+  children differ in kind are just as different on the wire. Map keys
+  and set elements are paired through `find` / `get`, which hand back
+  `b`'s own key or element for `a`'s equal one, querying in the same
+  direction `=` itself does (rf2-gwye.32)."
+  [a b]
+  (cond
+    (identical? a b) true
+    (sequential? a)  (and (= (vector? a) (vector? b))
+                          (every? true? (map same-kinds? a b)))
+    (map? a)         (every? (fn [[k v]]
+                               (let [[k' v'] (find b k)]
+                                 (and (same-kinds? k k') (same-kinds? v v'))))
+                             a)
+    (set? a)         (every? (fn [x] (same-kinds? (get a x) x)) b)
+    :else            true))
+
+(defn ^:private wire=
+  "The one equivalence the encoder pools by: `=`, refined by
+  `same-kinds?`. The counting pass, the repeat check and slot lookup all
+  use it, so they cannot disagree about what one slot may hold. It is
+  still EQUALITY, not identity — see the namespace docstring."
+  [a b]
+  (and (= a b) (same-kinds? a b)))
+
 ;; ---- Pass 1: count candidates ----------------------------------------------
 ;;
 ;; Only subtrees seen MORE THAN ONCE are worth a cache slot, so the encoder
@@ -413,7 +482,7 @@
   (let [h      (hash element)
         bucket (or (bucket-get store h) [])]
     (if-let [entry (some (fn [entry]
-                           (when (= (:element entry) element) entry))
+                           (when (wire= (:element entry) element) entry))
                          bucket)]
       (bucket-set! store h (mapv (fn [bucket-entry]
                                    (if (identical? bucket-entry entry)
@@ -425,13 +494,12 @@
 (defn ^:private count-cacheable-elements
   [form]
   (let [store (new-bucket-store)]
-    (side-prewalk (fn [element]
-                    (when (and (not (identical? element form))
-                               (cacheable? element))
-                      (count-cacheable-element! store element))
-                    element)
-                  (fn [_org-element element] element)
-                  form)
+    (prewalk (fn [element]
+               (when (and (not (identical? element form))
+                          (cacheable? element))
+                 (count-cacheable-element! store element))
+               element)
+             form)
     store))
 
 (defn ^:private repeated-cacheable?
@@ -441,7 +509,7 @@
     (boolean
       (some (fn [{candidate :element :keys [count]}]
               (and (< 1 count)
-                   (= element candidate)))
+                   (wire= element candidate)))
             bucket))))
 
 ;; ---- Pass 2: substitute -----------------------------------------------------
@@ -453,21 +521,19 @@
     (vswap! counter inc)
     cache-id))
 
-(defn ^:private check-in-cache
-  "First sighting of `element`: record it and return the element tagged
-  with its freshly allocated `:cache-id` (the rebuild reads that tag off
-  the original). Later sightings: return the cache-element symbol, which
-  IS the substitution."
-  [element store counter]
-  (let [h      (hash element)
-        bucket (or (bucket-get store h) [])]
-    (if-let [cache-id (some (fn [[cached-element cache-id]]
-                              (when (= cached-element element) cache-id))
-                            bucket)]
-      cache-id
-      (let [cache-id (next-cache-id! counter)]
-        (bucket-set! store h (conj bucket [element cache-id]))
-        (with-meta element {:cache-id cache-id})))))
+(defn ^:private pooled-id
+  "The cache-element symbol already allocated for `element` in `store`,
+  or nil on its first sighting."
+  [store element]
+  (some (fn [[cached-element cache-id]]
+          (when (wire= cached-element element) cache-id))
+        (bucket-get store (hash element))))
+
+(defn ^:private pool!
+  "Record `cache-id` as the slot for `element` in `store`."
+  [store element cache-id]
+  (let [h (hash element)]
+    (bucket-set! store h (conj (or (bucket-get store h) []) [element cache-id]))))
 
 (defn ^:private escape-literals
   "`escape-token` applied throughout `form`.
@@ -477,7 +543,7 @@
   hashing different values for any subtree holding a colliding literal,
   and the pooling would quietly stop firing for exactly those subtrees."
   [form]
-  (side-prewalk escape-token (fn [_org-element element] element) form))
+  (prewalk escape-token form))
 
 (defn de-dupe-eq
   "Compress `form` into a flat cache map keyed by `de-dupe.cache/cache-N`
@@ -499,27 +565,35 @@
         counter          (volatile! 1)
         compressed-cache (volatile! {})
         candidate-counts (count-cacheable-elements form)
-        values-store     (new-bucket-store)
-        process-element  (fn [element]
-                           ;; The root itself is slot 0, never a substitution;
-                           ;; map entries and scalars are not cacheable; and a
-                           ;; subtree seen once is cheaper inline.
-                           (if (or (identical? element form)
-                                   (not (cacheable? element))
-                                   (not (repeated-cacheable? candidate-counts element)))
-                             element
-                             (check-in-cache element values-store counter)))
-        outer-fn         (fn [org-element element]
-                           (if (and (cacheable? org-element)
-                                    (not (identical? org-element form)))
-                             (if-let [id (:cache-id (meta org-element))]
-                               (do (vswap! compressed-cache assoc id element)
-                                   id)
-                               element)
-                             element))
-        cache-0          (side-prewalk process-element outer-fn form)]
-    (vswap! compressed-cache assoc (make-cache-element 0) cache-0)
-    @compressed-cache))
+        values-store     (new-bucket-store)]
+    ;; The slot a subtree occupies travels through the walk as a return
+    ;; value, never on the subtree: upstream tagged first sightings with
+    ;; `:cache-id` METADATA and read that key back off every subtree, so a
+    ;; caller's own `:cache-id` replaced their data (rf2-gwye.30).
+    ;;
+    ;; Each rebuilt value is BOUND before it is stored: `vswap!` reads the
+    ;; cache before evaluating its arguments, so storing the result of a
+    ;; descent inline would write back a snapshot taken before the descent
+    ;; stored the slots nested inside it.
+    (letfn [(substitute [element]
+              ;; Map entries and scalars are not cacheable, and a subtree
+              ;; seen once is cheaper inline: rebuild those in place.
+              (if-not (and (cacheable? element)
+                           (repeated-cacheable? candidate-counts element))
+                (walk substitute element)
+                (or (pooled-id values-store element)
+                    ;; First sighting. The id is allocated BEFORE the
+                    ;; descent, so a parent's slot numbers ahead of its
+                    ;; children's.
+                    (let [cache-id (next-cache-id! counter)
+                          _        (pool! values-store element cache-id)
+                          rebuilt  (walk substitute element)]
+                      (vswap! compressed-cache assoc cache-id rebuilt)
+                      cache-id))))]
+      ;; The root itself is slot 0, never a substitution.
+      (let [cache-0 (walk substitute form)]
+        (vswap! compressed-cache assoc (make-cache-element 0) cache-0))
+      @compressed-cache)))
 
 ;; ---- The inverse ------------------------------------------------------------
 
@@ -534,7 +608,7 @@
                 (list? value)          (apply list (map expand-value value))
                 (map-entry?* value)    (vec (map expand-value value))
                 (seq? value)           (doall (map expand-value value))
-                (record?* value)       (reduce (fn [r x] (conj r (expand-value x))) value value)
+                (record?* value)       (rebuild-record expand-value value)
                 (coll? value)          (into (empty value) (map expand-value value))
                 ;; Scalars — and the one scalar shape that is not simply
                 ;; itself: an escaped literal, which sheds one marker
