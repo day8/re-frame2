@@ -16,7 +16,7 @@ The skill is **guidance + workflow** layered on top of `spec/`. The skill does n
 
 1. **Correctness** — workflow over explanations. The skill walks the two phases; the engineer (with their session) makes the decisions. Verification posture per L3 below.
 2. **Idiomaticness** — verified against `spec/` + `spec/Implementor-Checklist.md` + `spec/conformance/`. The skill is downstream of the spec; if the spec is authoritative, the skill is correct by construction.
-3. **Context economy** — `SKILL.md` is a router; four small leaves load on demand, each under the family's 16 KB ceiling. The leaves cite spec sections by URL — citations of live main; every contract read resolves through the profile's verified checkout at the pin, per cardinal rule 1 — and teach *derivation* (grep the corpus at the pin) instead of carrying catalogues that age.
+3. **Context economy** — `SKILL.md` is a router; four leaves load on demand. Three sit under the family's 16 KB ceiling; `phase-2-impl-order.md` is over it and recorded exempt in `skills/README.md` §Leaf size discipline. The leaves cite spec sections by URL — citations of live main; every contract read resolves through the profile's verified checkout at the pin, per cardinal rule 1 — and teach *derivation* (grep the corpus at the pin) instead of carrying catalogues that age.
 4. **Assume training knowledge** — the engineer knows what reactive substrates, FSMs, persistent data structures, and EDN are. The skill teaches the **re-frame2-specific binding**: which choices are real, which EPs depend on which, how the conformance corpus grades a claim.
 
 ## 3. Locked decisions
@@ -43,7 +43,7 @@ References to "the identity primitive", "the render-tree", "the reactive contain
 
 ### L5 — Conformance corpus is the acceptance test — and the working loop
 
-`spec/conformance/` is the objective measure of "is this re-frame2?", and since the 2026-08 reduction it is also the *working material*: fixture facts (capability tags, operator sets, spec versions, counts) are **derived at the pin** by the harness and the agent, never transcribed into skill prose where they age. The harness bootstraps before or alongside the first foundation slice, and fails loud on unknown spec versions, capabilities, DSL ops, and call ops.
+`spec/conformance/` is the objective measure of "is this re-frame2?", and since the 2026-08 reduction it is also the *working material*: fixture facts (capability tags, operator sets, spec versions, counts) are **derived at the pin** by the harness and the agent, never transcribed into skill prose where they age. The harness bootstraps before or alongside the first foundation slice, and fails loud on every floor `references/conformance.md` §The harness lists — the one enumeration, which `SKILL.md` and the EP-loop leaf point at rather than restate.
 
 ### L6 — Spec gaps file GitHub issues, not silent extrapolations
 
@@ -84,7 +84,7 @@ skills/re-frame2-implementor/
 ├── LICENSE (MIT)
 ├── package.json (npm metadata)
 ├── .claude-plugin/plugin.json (Claude Code plugin metadata)
-├── evals/evals.json (trigger-accuracy fixtures for the description)
+├── evals/evals.json (schema 2: trigger-accuracy fixtures, plus expected_output + expectations[] on the two highest-drift behaviours)
 ├── references/
 │ ├── cardinal-rules.md (the eleven rules + anti-pattern corollaries)
 │ ├── phase-1-decisions.md (the port profile: defaults, spec pin, template)
