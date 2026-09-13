@@ -36,9 +36,9 @@ client dispatches the editable fields **alone**. One schema describes what they
 share, and it is the one everything else is built from.
 
 ```clojure
-;; The editable fields — what the user may type, what the form slice's :draft
-;; holds, and what BOTH platforms submit. This is the schema the handler
-;; validates against.
+;; The editable fields as a VALID submission — what BOTH platforms submit, and
+;; the schema the handler validates against. Registered at NO path: the draft
+;; below is typed with a structural schema instead.
 (def AddToCartFields
   [:map
    [:item-id  [:string {:min 1}]]
@@ -53,8 +53,17 @@ share, and it is the one everything else is built from.
   (conj AddToCartFields
         [:csrf-token {:optional true :sensitive? true} [:string {:min 1}]]))
 
+;; What `[:cart :add-form :draft]` may hold at ANY instant — including the
+;; rejected submission the failure arm writes back. STRUCTURAL: keys optional
+;; (the arm `select-keys` an untrusted body), and :quantity admits the string an
+;; undecodable `quantity=abc` arrives as. This is the one that gets registered.
+(def AddToCartDraft
+  [:map
+   [:item-id  {:optional true} :string]
+   [:quantity {:optional true} [:maybe [:or :int :string]]]])
+
 (rf/reg-app-schema [:cart :add-form]        FormSlice)
-(rf/reg-app-schema [:cart :add-form :draft] AddToCartFields)   ;; the fields, never the token
+(rf/reg-app-schema [:cart :add-form :draft] AddToCartDraft)   ;; STRUCTURAL — never AddToCartFields, never the token
 ```
 
 (`FormSlice` is the standard slice from [Pattern-Forms §Form slice](Pattern-Forms.md#the-form-slice).)
@@ -83,6 +92,17 @@ equality compare against the session's active token, in the server-guarded CSRF
 arm — which is strictly stronger than any string schema could be. Malli maps
 are open, so `AddToCartFields` validates the server's POST body unchanged; the
 extra key simply passes through to the arm that owns it.
+
+**Why the draft is typed with neither of them.** The failure arm writes the
+submission that just *failed* `AddToCartFields` back into `:draft` — the write
+[§Failure path](#failure-path--re-render-with-errors) calls what makes the no-JS
+path honest. An app schema rejects a failing candidate whole, `:db` and `:fx`
+alike ([010 §Validation order on event processing](010-Schemas.md#validation-order-on-event-processing)),
+so with `AddToCartFields` at the draft path a development build discards the
+400, the errors and the repopulated draft together. The draft path takes the
+structural `AddToCartDraft`; the strict schema runs where it can decide
+something, in the handler's validation arm (the same rule as
+[Pattern-Forms §The form slice](Pattern-Forms.md#the-form-slice)).
 
 ### The view (runs on both platforms)
 

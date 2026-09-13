@@ -130,7 +130,12 @@
       (let [schema-forms (forms (fence "(def AddToCartFields"))
             seam-forms   (forms (fence "defn decode-form-params"))
             helper-forms (forms (fence "defn write-form-errors"))
-            handler-form (first (forms (fence "rf/reg-event :cart/add-item")))]
+            handler-form (first (forms (fence "rf/reg-event :cart/add-item")))
+            ;; The symbol the page registers at the form slice's `:draft` path.
+            draft-sym    (->> schema-forms
+                              (filter #(= [:cart :add-form :draft] (second %)))
+                              first
+                              (#(nth % 2)))]
         ;; The two `def`s (skip the `reg-app-schema` calls — `rf` is not
         ;; required here and `FormSlice` lives in Pattern-Forms).
         (doseq [f schema-forms :when (= 'def (first f))]
@@ -156,11 +161,16 @@
          :event-schema (eval (:schema (nth handler-form 2)))
          ;; The registration form's last element is the handler fn.
          :handler    (eval (last handler-form))
-         ;; The symbol the page types the form slice's `:draft` with.
-         :draft-schema-sym (->> schema-forms
-                                (filter #(= [:cart :add-form :draft] (second %)))
-                                first
-                                (#(nth % 2)))}))))
+         ;; The schema the page registers at the form slice's `:draft` path,
+         ;; by symbol and by VALUE. Deftest 3 validates what the arm really
+         ;; writes against the value; a registration naming a schema no fence
+         ;; defines fails loudly here rather than pinning nothing.
+         :draft-schema-sym draft-sym
+         :draft-schema     (let [v (resolve draft-sym)]
+                             (assert v (str "the page registers " draft-sym
+                                            " at [:cart :add-form :draft] but"
+                                            " no fence defines it"))
+                             @v)}))))
 
 ;; ---------------------------------------------------------------------------
 ;; The two canonical call sites, derived from the page rather than invented
@@ -414,13 +424,28 @@
             `[:cart :add-form :draft]` and separately rules that the token must
             never enter that draft. When both pointed at the token-requiring
             schema the canonical draft was invalid BY CONSTRUCTION. Proven here
-            against what the real handler writes, not against a transcription."
-    (let [{:keys [fields draft-schema-sym]} @example
+            against what the real handler writes, not against a transcription.
+
+            rf2-ex1r: the same defect one level down. The page then registered
+            the strict SUBMISSION schema at that path, while the arm writes back
+            the very values that just FAILED it — and `reg-app-schema` rejects a
+            failing candidate WHOLE, `:db` and `:fx` alike, so a dev build threw
+            away the 400, the errors and the repopulated draft together. The
+            assertion meant to catch that patched `:quantity` to a valid 1
+            before validating, so it could not; it now validates the write
+            UNPATCHED, against the schema the page really registers."
+    (let [{:keys [fields draft-schema]} @example
           bad-post (assoc @server-post :quantity 0)
           {:keys [db fx]} (invoke {:server? true :active-token "tok-abc"} bad-post)
-          drafted  (get-in db [:cart :add-form :draft])]
-      (is (= 'AddToCartFields draft-schema-sym)
-          "the draft is typed with the FIELD schema, not the POST envelope")
+          drafted  (get-in db [:cart :add-form :draft])
+          ;; `quantity=abc` cannot be decoded, so it reaches the arm — and the
+          ;; draft — as the string it arrived as. Driven through the page's own
+          ;; seam, not typed here.
+          garbled  (-> (parse-form-urlencoded
+                        "csrf-token=tok-abc&item-id=sku-1&quantity=abc")
+                       decode-post
+                       (->> (invoke {:server? true :active-token "tok-abc"}))
+                       (get-in [:db :cart :add-form :draft]))]
       (is (= [[:rf.server/set-status 400]] fx)
           "a malformed POST is answered 400 by the handler's own arm")
       (is (= {:item-id "sku-1" :quantity 0} drafted)
@@ -428,9 +453,21 @@
            re-render reads the SLICE, so without this the user's input is lost")
       (is (not (contains? drafted :csrf-token))
           "and the token did NOT, because the page re-renders this slice")
-      (is (m/validate fields (assoc drafted :quantity 1))
-          "the draft the arm writes is a value the registered draft schema can
-           accept — it is not unsatisfiable by construction")
+      (is (m/validate draft-schema drafted)
+          "the value the arm REALLY writes — the rejected submission, unpatched
+           — satisfies the schema registered at the draft path, so
+           reg-app-schema keeps the candidate and the 400 page survives a dev
+           build")
+      (is (not (m/validate fields drafted))
+          "control: that same value is exactly what the SUBMISSION schema
+           refuses, so the assertion above does not pass merely because the two
+           schemas agree. With `fields` registered at the draft path it goes
+           red — which is what it did before rf2-ex1r")
+      (is (= {:item-id "sku-1" :quantity "abc"} garbled)
+          "an undecodable quantity reaches the draft as the string it arrived as")
+      (is (m/validate draft-schema garbled)
+          "and the registered draft schema admits that too — the other value
+           the arm legitimately writes")
       (is (seq (get-in db [:cart :add-form :errors]))
           "errors were written beside it")
       (is (nil? (get-in db [:cart :items]))
