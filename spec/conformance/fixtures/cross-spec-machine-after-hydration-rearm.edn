@@ -262,7 +262,7 @@
                           :timeout {}}}
    :snapshot   {:state :waiting
                 :data  {:entries 1 :rf/after-epoch {[:waiting] 1}}}
-   :event      [::after-elapsed 5000 1 [:waiting]]
+   :event      [:rf.machine.timer/after-elapsed 5000 1 [:waiting]]
    :expect-next-snapshot {:state :timeout
                           :data  {:entries 1 :rf/after-epoch {[:waiting] 2}}}
    :expect-effects [[:rf.machine/after-cancel

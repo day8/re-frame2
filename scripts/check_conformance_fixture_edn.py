@@ -4,7 +4,8 @@
 The invariant this gate enforces:
 
     Every file under `spec/conformance/fixtures/` is a well-formed EDN file
-    holding EXACTLY ONE top-level form, with nothing after it.
+    holding EXACTLY ONE top-level form, with nothing after it — and it is
+    PLAIN EDN: no auto-resolved `::name` keyword outside a string (rf2-vc2a).
 
 The defect this prevents (rf2-5mr6): both fixture loaders read a fixture with
 `clojure.edn/read-string` over the whole file. `read-string` returns the FIRST
@@ -30,6 +31,14 @@ EVERY HALF OF THE CHECK IS LOAD-BEARING, and none alone is enough:
 So this scans for four things: each closer matching the delimiter kind it
 closes, bracket depth that never goes negative, a final depth of zero, and
 exactly one top-level form.
+
+And one more, which is about portability rather than about what the
+reference loaders silently discard (rf2-vc2a): no `::` outside a string or
+comment. `::name` is Clojure reader syntax, not EDN — `clojure.edn` itself
+rejects it — so a port's spec-conformant EDN reader throws on such a fixture.
+The reference loaders used to paper over six `::after-elapsed` tokens with a
+regex rewrite, which a port cannot know to replicate. A `::` INSIDE a string
+(the CEDN byte strings carry `"k::answer"`) is ordinary EDN and passes.
 
 WHY A SCANNER AND NOT A PARSER. Python has no EDN reader in the stdlib, and
 this gate must run in the fast-PR spine with no dependency to install. The
@@ -99,6 +108,7 @@ class Scan:
         "unterminated_string_line",
         "mismatch",
         "unclosed_opener",
+        "auto_resolved_keyword",
     )
 
     def __init__(self) -> None:
@@ -114,6 +124,8 @@ class Scan:
         # (opener_char, opener_line) for the outermost delimiter still open at
         # end of file, else None.
         self.unclosed_opener: tuple[str, int] | None = None
+        # (token, line) for the first `::` outside a string or comment.
+        self.auto_resolved_keyword: tuple[str, int] | None = None
 
     @property
     def ok(self) -> bool:
@@ -123,6 +135,7 @@ class Scan:
             and self.top_level_forms == 1
             and self.unterminated_string_line is None
             and self.mismatch is None
+            and self.auto_resolved_keyword is None
         )
 
     def summary(self) -> str:
@@ -213,6 +226,17 @@ def scan_edn(text: str) -> Scan:
             i += 1
             continue
 
+        if ch == ":" and text.startswith("::", i):
+            # Outside a string, comment or char literal — all consumed above —
+            # `::` is never EDN (rf2-vc2a). Record the first, whole token.
+            if s.auto_resolved_keyword is None:
+                j = i + 2
+                while j < n and text[j] not in _WS + "\n;\"" + _OPEN + _CLOSE:
+                    j += 1
+                s.auto_resolved_keyword = (text[i:j], line)
+            i += 2
+            continue
+
         if ch in _OPEN:
             stack.append((ch, line))
             depth += 1
@@ -288,6 +312,14 @@ def _defect_reason(s: Scan) -> str | None:
             f"only the FIRST, so everything after it is silently discarded "
             f"({s.summary()})"
         )
+    if s.auto_resolved_keyword is not None:
+        token, token_line = s.auto_resolved_keyword
+        return (
+            f"auto-resolved keyword `{token}` at line {token_line} — `::name` "
+            f"is Clojure reader syntax, not EDN, so a conforming EDN reader "
+            f"(clojure.edn included) rejects it. Write the keyword fully "
+            f"qualified, e.g. `:rf.machine.timer/after-elapsed` (rf2-vc2a)"
+        )
     return None
 
 
@@ -330,10 +362,13 @@ def check(fixtures_root: Path, verbose: bool = False, ci: bool = False) -> tuple
             "returns the first form and ignores the rest — so a fixture in this "
             "state loads, runs and reports as PASSING while the assertions "
             "outside the first form are never executed. (rf2-x91a, rf2-5mr6)\n"
+            "It must also be PLAIN EDN — every keyword fully qualified — so a "
+            "port's EDN reader loads it with no resolver or rewrite. (rf2-vc2a)\n"
         )
     elif verbose:
         sys.stderr.write(
-            f"all {n_scanned} conformance fixture(s) are one well-formed EDN form.\n"
+            f"all {n_scanned} conformance fixture(s) are one well-formed, "
+            f"plain-EDN form.\n"
         )
 
     return n_scanned, len(findings)
@@ -409,6 +444,22 @@ _ONLY_COMMENTS = """;; nothing but commentary
 ;; and more of it
 """
 
+# rf2-vc2a exactly: structurally perfect, one form, and still not EDN — the
+# bare `::after-elapsed` token is Clojure reader syntax. Every aggregate
+# number is the clean file's, so only the `::` rule can red this.
+_AUTO_RESOLVED_KEYWORD = """;; a conformance fixture
+{:call  :machine-transition
+ :event [::after-elapsed 5000 1 [:loading]]}
+"""
+
+# `::` inside a string (the CEDN byte strings) or a comment is ordinary EDN
+# and must NOT be flagged — otherwise the gate reds the corpus for no reason.
+_DOUBLE_COLON_NOT_A_TOKEN = """;; a comment may say ::after-elapsed freely
+{:call   :cedn/encode
+ :expect "k::answer"
+ :event  [:rf.machine.timer/after-elapsed 5000 1 [:loading]]}
+"""
+
 
 def _run_self_tests(verbose: bool = False) -> int:
     cases: list[tuple[str, str, int]] = [
@@ -422,6 +473,8 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("bad_unclosed_form.edn", _UNCLOSED, 1),
         ("bad_unterminated_string.edn", _UNTERMINATED_STRING, 1),
         ("bad_no_form_at_all.edn", _ONLY_COMMENTS, 1),
+        ("bad_auto_resolved_keyword.edn", _AUTO_RESOLVED_KEYWORD, 1),
+        ("ok_double_colon_in_string_and_comment.edn", _DOUBLE_COLON_NOT_A_TOKEN, 0),
     ]
 
     failures = 0

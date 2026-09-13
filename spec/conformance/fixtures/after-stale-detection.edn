@@ -83,7 +83,7 @@
                    :timeout {}
                    :ready   {}}}
    :snapshot     {:state :ready :data {:rf/after-epoch {[:loading] 2}}}
-   :event        [::after-elapsed 5000 1 [:loading]]
+   :event        [:rf.machine.timer/after-elapsed 5000 1 [:loading]]
    :expect-next-snapshot {:state :ready :data {:rf/after-epoch {[:loading] 2}}}
    :expect-effects       []
    :expect-trace

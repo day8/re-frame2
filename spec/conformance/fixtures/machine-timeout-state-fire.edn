@@ -69,7 +69,7 @@
                              :on-timeout {:target :timed-out}}
                    :timed-out {}}}
    :snapshot     {:state :waiting :data {:rf/after-epoch {[:waiting] 1}}}
-   :event        [::after-elapsed 5000 1 [:waiting]]
+   :event        [:rf.machine.timer/after-elapsed 5000 1 [:waiting]]
    :expect-next-snapshot {:state :timed-out :data {:rf/after-epoch {[:waiting] 2}}}
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure

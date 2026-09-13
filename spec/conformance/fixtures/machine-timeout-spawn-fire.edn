@@ -110,7 +110,7 @@
    :snapshot     {:state :loading
                   :data  {:rf/spawned     {[:loading] :fetch/user#1}
                           :rf/after-epoch {[:loading] 1}}}
-   :event        [::after-elapsed 10000 1 [:loading]]
+   :event        [:rf.machine.timer/after-elapsed 10000 1 [:loading]]
    :expect-next-snapshot {:state :timed-out
                           :data  {:rf/spawned     {[:loading] :fetch/user#1}
                                   :rf/after-epoch {[:loading] 2}}}

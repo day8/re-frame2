@@ -26,6 +26,8 @@ EDN is the natural data format for the CLJS reference. For other-host implementa
 
 A JSON-translated corpus may be published in the future for hosts where EDN is too much friction; if and when it ships, the JSON form will be mechanically derived from the EDN source so the two cannot drift. Until then, the EDN files in `fixtures/` are the canonical source. Implementors targeting non-EDN hosts either ship a small EDN reader (~200 lines for any host with hash-maps and vectors) or translate the corpus locally as part of harness bootstrap.
 
+The fixtures are plain EDN, so a conforming EDN reader loads every one of them with no resolver and no rewrite: every keyword is written fully qualified — the synthetic machine-timer event is `:rf.machine.timer/after-elapsed`, never Clojure's auto-resolved `::after-elapsed`, which is reader syntax rather than EDN.
+
 ## Fixture format
 
 Each fixture is an EDN map. A fixture exercises the spec in one of two modes:
