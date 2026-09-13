@@ -122,7 +122,7 @@ All under `re-frame.story`.
 | `assertions-passing?` | `(assertions-passing? result)` | [`004-Assertions.md`](004-Assertions.md) |
 | `valid-variant-id?` | `(valid-variant-id? [ns-part name-part])` — true iff the DECOMPOSED `[ns-part name-part]` strings name a canonical `:story.<path>/<variant>` id. STRING-shape grammar so an MCP write path validates a caller id BEFORE interning a keyword (the `fresh-keyword-checked` `shape-ok?` predicate). | [`001-Authoring.md`](001-Authoring.md) §Story id grammar |
 | `variant-share-url` | `(variant-share-url variant-id)` / `(variant-share-url variant-id opts)` / `(variant-share-url variant-id base-url opts)` | [`005-SOTA-Features.md`](005-SOTA-Features.md) §Share URL (retired QR popover). The no-base forms return a query fragment without a leading `?`. |
-| `resolve-args` | `(resolve-args variant-id)` / `(resolve-args variant-id opts)` | Five-layer args resolution; opts use `:active-modes` and `:cell-overrides`, not `:mode` / `:overrides`. |
+| `resolve-args` | `(resolve-args variant-id)` / `(resolve-args variant-id opts)` | Five-layer args resolution, whose variant layer is the `:extends`/`:compose`-resolved one (routes through `re-frame.story.plan/effective-args`, so it equals a run's `:effective-args`); opts use `:active-modes` and `:cell-overrides`, not `:mode` / `:overrides`. |
 | `resolve-decorators` | `(resolve-decorators variant-id)` / `(resolve-decorators variant-id opts)` | The compiled decorator stack; accepts the same run-arg layers. See [`002-Runtime.md`](002-Runtime.md). |
 
 ### Execution verbs — `run` / `is` / `explain`
