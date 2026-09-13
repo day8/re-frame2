@@ -368,7 +368,7 @@ The HTTP **carrier** capability (redacting secret-bearing header / query-param n
 
 <a id="direct-reads-and-fail-closed-frame-resolution"></a><a id="cross-tool-visibility-grain"></a>
 
-Direct reads bypass trace protection — `rf/app-db-value`, `rf/sub-cache`, an MCP `get-path`. Any direct read that crosses an egress boundary **must project app-side, with the frame known**:
+Direct reads bypass trace protection — `rf/app-db-value`, `re-frame.subs.tooling/sub-cache-snapshot`, an MCP `get-path`. Any direct read that crosses an egress boundary **must project app-side, with the frame known**:
 
 ```clojure
 (rf/project-egress value

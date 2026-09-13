@@ -422,7 +422,7 @@ The panel observes; the framework records.
 
 | Surface | Spec | Use |
 |---|---|---|
-| `(rf/sub-cache frame-id)` (CLJS only) | Tool-Pair | The live cache map: per-`[query-v]` cached value, ref-count, input subs, layer (1 / 2 / 3+). Drives sub-status decoration. |
+| `(re-frame.subs.tooling/sub-cache-snapshot frame-id)` (CLJS only) | Tool-Pair | The live cache map: per-`[query-v]` cached value, ref-count, input subs, layer (1 / 2 / 3+). Drives sub-status decoration. |
 | `:rf/epoch-record :sub-runs` | [Spec-Schemas §`:rf/epoch-record`](../../../spec/Spec-Schemas.md#rfepoch-record) | Per-cascade `:sub-id` / `:query-v` / `:recomputed?` — every sub that re-ran. |
 | `:rf/epoch-record :renders` | Same | Per-cascade list of component-render entries; tagged with `:owning-frame` (per Spec 009 / render-tracker). |
 | `:rf/epoch-record :db-before` / `:db-after` | Same | Changed-paths derivation used to attribute layer-1 invalidations to specific `app-db` slices. |
@@ -475,7 +475,7 @@ ELIDED · N bytes]` yellow drillable. See
 
 ## JVM behaviour
 
-The Views tab is **CLJS-only** in the same way `(rf/sub-cache
+The Views tab is **CLJS-only** in the same way `(re-frame.subs.tooling/sub-cache-snapshot
 frame-id)` is CLJS-only. JVM-hosted Xray surfaces — pair-tool
 dashboards that render epoch records server-side — render the
 re-render reason from `:sub-runs` correlations (every entry has
