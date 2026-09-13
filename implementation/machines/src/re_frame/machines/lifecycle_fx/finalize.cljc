@@ -140,19 +140,16 @@
 
   Dispatched (not raised) because the parent is a SEPARATE actor — symmetric
   with `dispatch-spawn-error!` and with how the spawn fx dispatches `:start`
-  into a newborn child. No-op when the `:router/dispatch!` hook is absent
-  (pure-fn / conformance callers). `:source :machine-spawn` labels the
-  dispatch so the Epoch panel attributes it to the spawn lifecycle.
-
-  Unlike the spawn fx's bootstrap dispatch, this carrier does NOT yet inherit
-  the finishing envelope's run-propagation keys (Spec 002 §Run propagation):
-  it runs in the child's handler body, where core exposes no envelope
-  (rf2-ix8fd)."
+  into a newborn child. It queues through the shared carrier seam
+  `spawn-error/dispatch-carrier!`, so it is a child of the event that FINISHED
+  the child actor and inherits that envelope's run propagation (Spec 002 §Run
+  propagation, rf2-ix8fd). It keeps `:source :machine-spawn` so the Epoch panel
+  attributes it to the spawn lifecycle. No-op when the `:router/dispatch!` hook
+  is absent (pure-fn / conformance callers)."
   [frame-id parent-id invoke-id completion]
-  (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
-    (dispatch! [parent-id [rf.machines.transition/spawn-done-event-id invoke-id completion]]
-               {:frame frame-id :source :machine-spawn}))
-  nil)
+  (rf.machines.lifecycle-fx.spawn-error/dispatch-carrier!
+    frame-id
+    [parent-id [rf.machines.transition/spawn-done-event-id invoke-id completion]]))
 
 ;; ---- final-state resolution -----------------------------------------------
 

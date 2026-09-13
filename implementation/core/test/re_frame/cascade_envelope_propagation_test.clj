@@ -218,6 +218,33 @@
         (is (= :unit-test (:source env)))
         (is (= [:test/run] (:event env)))))))
 
+;; ---- the in-flight envelope, for framework code in a handler BODY (rf2-ix8fd)
+
+(deftest in-flight-envelope-is-bound-for-the-handler-call
+  (testing "`current-event-envelope` hands a handler body the dequeued envelope,
+            scoped to its frame — the seam the machine completion carriers use to
+            queue a child through `child-dispatch!` without an fx ctx"
+    (let [seen (atom nil)]
+      (rf/reg-fx :test/http (fn [_ _]))
+      (rf/reg-fx :test/http.stub (fn [_ _]))
+      (rf/reg-event :test/peek
+        (fn [_ _]
+          (reset! seen {:own   (rf.frame/current-event-envelope :rf/default)
+                        :other (rf.frame/current-event-envelope :test/other-frame)})
+          {}))
+      (rf/dispatch-sync [:test/peek]
+                        {:fx-overrides {:test/http :test/http.stub}
+                         :origin       :test
+                         :trace-id     ::peek})
+      (let [{:keys [own other]} @seen]
+        (is (= [:test/peek] (:event own)) "the handler saw its own dequeued envelope")
+        (is (= {:test/http :test/http.stub} (:fx-overrides own)))
+        (is (= :test (:origin own)))
+        (is (= ::peek (:trace-id own)))
+        (is (nil? other) "scoped to the in-flight event's frame")))
+    (is (nil? (rf.frame/current-event-envelope :rf/default))
+        "unbound outside any handler pipeline")))
+
 ;; ---- :dispatch-later propagates inheritable keys --------------------------
 ;;
 ;; :dispatch-later wraps in set-timeout!; we can verify the opts the

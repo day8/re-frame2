@@ -310,30 +310,78 @@
               "the :live foil folded — proving the strict no-fold is policy-driven, not incidental"))))))
 
 ;; ---------------------------------------------------------------------------
-;; (5) DELETED — `transport-propagates-strict-to-inherited-resolution-dispatch`
+;; (5) the completion carrier inherits the FINISHING event's per-call mint
+;;     policy into the parent's join resolution.
 ;;
-;; That test pinned the RETIRED `:rf.machine/join-dispatch` transport by name.
-;; Its property was that a per-call `:strict` on a child's own COMPLETING
-;; DISPATCH inherited, through the transport's re-dispatch, into the parent's
-;; join-RESOLUTION dispatch, so a generator-backed cofx required by the parent's
-;; resolution action was refused too.
+;; HISTORY. The original (5), `transport-propagates-strict-to-inherited-
+;; resolution-dispatch`, pinned the retired `:rf.machine/join-dispatch`
+;; transport. When that transport went, the runtime began minting the carrier
+;; inside finalize with `{:frame … :source :machine-spawn}` and NO policy. The
+;; test was deleted, and this comment recorded the gap as deliberate:
+;; reinstating the inheritance "would mean threading the router's effective mint
+;; policy through finalize, which is new machinery no bead has asked for".
 ;;
-;; There is no child-authored completing dispatch any more, and no transport to
-;; inherit through: the child reaches `:final?` and the runtime mints the carrier
-;; inside finalize (`lifecycle-fx.finalize/dispatch-spawn-done!`), dispatching it
-;; with `{:frame … :source :machine-spawn}` and no mint policy. Measured on the
-;; migrated fixture: the parent's resolution action mints its fact under the
-;; runtime default `:live` even when the child's completing event carried
-;; `:rf.cofx/mint-policy :strict`.
-;;
-;; This is a DELIBERATE consequence of deleting the transport, not an oversight,
-;; and it is recorded here rather than silently dropped. The composition proof
-;; that matters for replay is unaffected and still green: `re-frame.join-strict-
-;; mint-epoch-replay-test` drives the real `rf/epoch-history` + `rf/restore-epoch!`
-;; seam, where every event — the child's completion and the parent's resolution
-;; alike — is replayed from its OWN record with its OWN recorded cofx, which is
-;; the path a real replay takes. Reinstating per-call policy inheritance would
-;; mean threading the router's effective mint policy through finalize, which is
-;; new machinery no bead has asked for; if it is ever wanted, it belongs to the
-;; cofx/replay area rather than to the child-completion protocol.
+;; rf2-ix8fd OVERTURNS that. A bead now asks for exactly that machinery, and for
+;; more than the policy. Core exposes the in-flight envelope to a handler body,
+;; and both carriers queue through `rf.fx/child-dispatch!`, the SAME seam as
+;; `:dispatch`, so the per-call policy rides with no key list of its own. EP-0017
+;; §6 is why it must: a `:strict` replay or test intends the no-host-read
+;; discipline for the whole cascade, and the spawn edge (rf2-gbzv9) already
+;; carries it INTO the child. Letting the completion drop back to `:live` on the
+;; way OUT is the silent fallback §6 forbids. The epoch-replay proof
+;; (`re-frame.join-strict-mint-epoch-replay-test`) is unchanged: there every
+;; event is replayed from its own record anyway.
 ;; ---------------------------------------------------------------------------
+
+(defn- reg-resolution-parent!
+  "A one-child `:all` join parent whose join-RESOLUTION advance runs a named
+  action declaring the generator-backed `:strictmint/roll`. So the policy the
+  COMPLETION CARRIER runs under decides whether the parent reaches `:ready`."
+  [parent-kw child-kw]
+  (rf/reg-machine parent-kw
+    {:initial :idle
+     :data    {}
+     :states  {:idle   {:on {:start :racing}}
+               :racing {:spawn-all
+                        {:children        [{:id :a :machine-id child-kw :start [:set-id :a]}]
+                         :join            :all
+                         :on-all-complete [:all/done]}
+                        :on {:all/done {:target :ready :action :res-action}}}
+               :ready  {}}
+     :actions {:res-action
+               {:rf.cofx/requires [:strictmint/roll]
+                :fn (fn [{data :data cofx :rf.cofx}]
+                      {:data (assoc data :roll (:strictmint/roll cofx))})}}}))
+
+(deftest completion-carrier-inherits-strict-into-the-join-resolution
+  (testing "rf2-ix8fd — under a per-call `:strict` on the event that FINISHES
+            the child, the completion carrier inherits `:strict`, so the parent's
+            resolution action does NOT mint its generator-backed fact
+            (missing-required) and the parent never reaches `:ready`. The `:live`
+            foil mints it and advances, so the policy genuinely crosses the
+            child→parent edge rather than riding along as an inert keyword."
+    (let [live-calls (atom 0)]
+      (reg-roll! live-calls 6)
+      (rf/reg-machine :sm5l/ca (mk-plain-child))
+      (reg-resolution-parent! :sm5l/rp :sm5l/ca)
+      (rf/dispatch-sync [:sm5l/rp [:start]])
+      (let [a (get-in (join-state :sm5l/rp) [:children :a])]
+        (rf/dispatch-sync [a [:go]])                        ;; default :live
+        (is (= 1 @live-calls) "the :live resolution minted its downstream fact")
+        (is (= :ready (rf.machines.test-support/machine-state :sm5l/rp))
+            "the :live join resolved and advanced through the resolution action")))
+    (let [strict-calls (atom 0)]
+      (reg-roll! strict-calls 6)
+      (rf/reg-machine :sm5s/ca (mk-plain-child))
+      (reg-resolution-parent! :sm5s/rp :sm5s/ca)
+      (rf/dispatch-sync [:sm5s/rp [:start]])
+      (let [a (get-in (join-state :sm5s/rp) [:children :a])]
+        (rf.machines.test-support/reset-captured!)
+        (rf/dispatch-sync [a [:go]]
+                          {:rf.cofx {:rf/time-ms 1} :rf.cofx/mint-policy :strict})
+        (is (zero? @strict-calls)
+            "the inherited :strict reached the resolution — its generator was NOT run")
+        (is (not= :ready (rf.machines.test-support/machine-state :sm5s/rp))
+            "the resolution action failed missing-required, so the parent did not advance")
+        (is (= 1 (count (missing-required-errors)))
+            "the canonical missing-fact outcome fired at the inherited resolution")))))

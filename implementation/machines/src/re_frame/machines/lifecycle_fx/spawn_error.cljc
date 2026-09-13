@@ -32,11 +32,14 @@
   hatch is the lower-level form.
 
   This namespace is a LEAF over the spawn-resolution helpers it needs
-  (`resolver` + `paths` + `transition` + `late-bind`), so both `finalize` and
-  `registration` may require it without a load cycle. The `:spawn`-at-invoke-id
-  lookup lives in `rf.machines.lifecycle-fx.resolver/spawn-spec-at`;
-  `transition` is retained only for the reserved `spawn-error-event-id`."
-  (:require [re-frame.late-bind :as rf.late-bind]
+  (`resolver` + `paths` + `transition`, plus core's `frame` / `fx`), so both
+  `finalize` and `registration` may require it without a load cycle. That is
+  also why it owns `dispatch-carrier!`, the queueing seam BOTH completion
+  carriers share. The `:spawn`-at-invoke-id lookup lives in
+  `rf.machines.lifecycle-fx.resolver/spawn-spec-at`; `transition` is retained
+  only for the reserved `spawn-error-event-id`."
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.fx :as rf.fx]
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.machines.transition :as rf.machines.transition]
@@ -107,6 +110,34 @@
               :on-error
               some?))))
 
+(defn dispatch-carrier!
+  "Queue a completion carrier `event` into the spawning parent on `frame-id`.
+  This is the ONE seam both carriers use: `[:rf.machine.spawn/done …]` from
+  `finalize` and `[:rf.machine.spawn/error …]` from `dispatch-spawn-error!`.
+
+  rf2-ix8fd — a carrier is minted while the child's handler is processing the
+  event that FINISHED it, so it is a child of THAT event (Spec 002 §Run
+  propagation). It queues through the reserved-dispatch seam
+  `rf.fx/child-dispatch!` with the in-flight envelope core exposes to a handler
+  body (`rf.frame/current-event-envelope`). The finishing event's per-call
+  `:fx-overrides` / `:interceptor-overrides`, its `:trace-id` / `:origin`, and
+  its per-call mint policy therefore reach the parent's continuation. A
+  completion caused by a FRESH event, such as an `:after` wake-up, inherits
+  nothing, because that event carried nothing.
+
+  `:source :machine-spawn` is re-stamped, never inherited. `:rf.machine/internal?`
+  is dropped so the carrier keeps its FIFO place, as it always has. Outside a
+  router pipeline (pure-fn / conformance callers) the envelope is nil and
+  `child-dispatch!` falls back to `{:frame frame-id}`; it no-ops when the
+  `:router/dispatch!` hook is absent."
+  [frame-id event]
+  (rf.fx/child-dispatch! frame-id
+                         (some-> (rf.frame/current-event-envelope frame-id)
+                                 (dissoc :rf.machine/internal?))
+                         event
+                         {:source :machine-spawn})
+  nil)
+
 (defn dispatch-spawn-error!
   "Dispatch the reserved parent-failure event
   `[<parent-id> [:rf.machine.spawn/error <invoke-id> <error>]]` into the
@@ -114,14 +145,10 @@
   transition. `error` is the failure payload that rides on the
   parent transition's `:event` (the child's `:output-key` slot for the
   error-leaf trigger, or the exception envelope for the action-exception
-  trigger). No-op when the `:router/dispatch!` hook is absent (pure-fn /
-  conformance callers). `:source :machine-spawn` labels the dispatch so the
-  Epoch panel attributes it to the spawn lifecycle. Like `dispatch-spawn-done!`
-  it does NOT yet inherit the run-propagation keys (Spec 002 §Run
-  propagation): it runs in a handler body, where core exposes no envelope
-  (rf2-ix8fd)."
+  trigger). Queued through `dispatch-carrier!`, so like `dispatch-spawn-done!`
+  it inherits the finishing event's run propagation and keeps
+  `:source :machine-spawn`. That makes it the declarative twin of the
+  `[:fx [[:dispatch …]]]` escape hatch, which inherits the same way."
   [frame-id parent-id invoke-id error]
-  (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
-    (dispatch! [parent-id [rf.machines.transition/spawn-error-event-id invoke-id error]]
-               {:frame frame-id :source :machine-spawn}))
-  nil)
+  (dispatch-carrier! frame-id
+                     [parent-id [rf.machines.transition/spawn-error-event-id invoke-id error]]))
