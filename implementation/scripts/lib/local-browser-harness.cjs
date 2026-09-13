@@ -586,6 +586,25 @@ function ownedReadinessFailureDiagnostic(result, port, timeoutMs) {
 //                 console.error, matching every caller's current output).
 //   - failureTailLines — how many trailing captured lines to print on a
 //                 readiness failure (default 40).
+//   - unresolvedRequestUrl — OPT-IN (default null, i.e. today's behaviour
+//                 unchanged for every gate). An absolute `http://host:port`
+//                 origin that http-server forwards a request to when no file
+//                 under `root` resolves it — its `--proxy` fallback. The ONLY
+//                 caller is serve-example's history-route document fallback
+//                 (rf2-fzbj.35): a history-routed example serves fine at `/`
+//                 and navigates fine in-app, but a refresh or a direct hit on
+//                 `/articles/intro` asks a STATIC server for a file that was
+//                 never emitted, so the app never boots and its otherwise
+//                 correct URL synchronisation never runs.
+//                 THE DISCRIMINATION IS NOT HERE, DELIBERATELY. This seam
+//                 forwards EVERY unresolved request; deciding which of them is
+//                 an HTML document navigation (and so gets the host page) and
+//                 which is a genuinely missing asset (and so must stay a 404)
+//                 belongs to the caller that owns the staged host page. A
+//                 blanket 200-HTML fallback here would make serve-example's
+//                 own first-build wait accept a host page as a compiled
+//                 `main.js` and resurrect rf2-qwy3, so no gate gets this for
+//                 free — a caller opts in and brings its own responder.
 //
 // Returns { server, ready, output, isDown }:
 //   - server  — the tracked ChildProcess (for the caller's own waits).
@@ -615,6 +634,7 @@ async function startLocalHttpServer(opts = {}) {
     suppressExitDiagnostic = () => false,
     log = (msg) => console.error(msg),
     failureTailLines = 40,
+    unresolvedRequestUrl = null,
   } = opts;
 
   // Owned readiness is the DEFAULT lifecycle (rf2-3fc89f.14): a local browser
@@ -660,6 +680,12 @@ async function startLocalHttpServer(opts = {}) {
     '-s',
     '-c-1',
   ];
+  // Opt-in only: absent (the default, and every gate's posture) the argv is
+  // byte-for-byte what it always was, so http-server keeps answering an
+  // unresolved request with its own 404. The ownership token is a REAL file
+  // under `root`, so it resolves before this fallback is ever consulted and
+  // the readiness handshake below is unaffected either way.
+  if (unresolvedRequestUrl) args.push('--proxy', unresolvedRequestUrl);
   const stdio = captureOutput
     ? ['ignore', 'pipe', 'pipe']
     : ['ignore', 'inherit', 'inherit'];

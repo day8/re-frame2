@@ -1053,6 +1053,201 @@ it('TEETH: the watch exit handler delegates its classification to watchExitAbort
   );
 });
 
+// ---------------------------------------------------------------------------
+// HISTORY-ROUTE DOCUMENT FALLBACK (rf2-fzbj.35).
+//
+// The runner served the staged output dir over a PLAIN static server, so a
+// history-routed example (examples/routing registers `/`, `/articles` and
+// `/articles/:id`) was reloadable only at `/`. A refresh, a bookmark, a copied
+// link or a direct hit on `/articles/intro` asked that server for a file no
+// build ever emits: 404, the app never booted, and the URL synchronisation that
+// would have resolved the route never ran. Measured against the real spawn path
+// before the repair — `GET /` 200 with the host body, `GET /articles/intro` 404
+// without it.
+//
+// These pin BOTH halves of the repair, because each without the other is a
+// defect: an HTML document navigation now gets the staged host page, and
+// EVERYTHING ELSE still 404s. A blanket fallback would hand waitForFirstBuild
+// above a host page in place of a compiled main.js and resurrect rf2-qwy3.
+const {
+  isDocumentNavigationRequest,
+  startDocumentFallbackServer,
+} = require('../../examples/scripts/serve-example.cjs');
+
+it('a document navigation to a history route is recognised (rf2-fzbj.35)', () => {
+  const HTML = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+  for (const url of ['/', '/articles', '/articles/intro', '/realworld/profile/bob', '/index.html']) {
+    assert.strictEqual(
+      isDocumentNavigationRequest({ method: 'GET', url, accept: HTML }),
+      true,
+      `${url} is an HTML navigation a history-routed example must be able to serve`,
+    );
+  }
+  // A browser's back/forward cache probes with HEAD; same document, same answer.
+  assert.strictEqual(
+    isDocumentNavigationRequest({ method: 'HEAD', url: '/articles/intro', accept: HTML }),
+    true,
+  );
+  // A query string / fragment is not part of the path's extension test.
+  assert.strictEqual(
+    isDocumentNavigationRequest({ method: 'GET', url: '/articles/intro?page=2#top', accept: HTML }),
+    true,
+  );
+});
+
+it('TEETH: an ASSET request is never a document navigation, however it asks (rf2-fzbj.35)', () => {
+  const HTML = 'text/html,application/xhtml+xml,*/*;q=0.8';
+  // The shape a browser really sends for <script src>/<link>/fetch(): no
+  // text/html in Accept. This is the case that keeps a missing bundle missing.
+  assert.strictEqual(
+    isDocumentNavigationRequest({ method: 'GET', url: '/main.js', accept: '*/*' }),
+    false,
+  );
+  // The runner's OWN first-build probe sends no Accept header at all. If this
+  // ever returned true, waitForFirstBuild would accept the host page as the
+  // compiled bundle and announce a live URL over a build that never landed.
+  assert.strictEqual(isDocumentNavigationRequest({ method: 'GET', url: '/main.js' }), false);
+  assert.strictEqual(
+    isDocumentNavigationRequest({ method: 'GET', url: '/main.js', accept: '' }),
+    false,
+  );
+  // And a broad-Accept client (curl, a tool) asking for an asset is refused on
+  // the extension, which is the half the Accept test cannot reach.
+  for (const url of ['/main.js', '/_shared/css/style.css', '/fixtures/todos.json', '/img/og.png']) {
+    assert.strictEqual(
+      isDocumentNavigationRequest({ method: 'GET', url, accept: HTML }),
+      false,
+      `${url} names an asset extension and must stay a 404, not become HTML`,
+    );
+  }
+  // Not a navigation method.
+  assert.strictEqual(
+    isDocumentNavigationRequest({ method: 'POST', url: '/articles', accept: HTML }),
+    false,
+  );
+});
+
+itAsync('a history route is RELOADABLE through the real runner server, and assets still 404 (rf2-fzbj.35)', async () => {
+  // End-to-end over the exact path serve-example takes: the shared
+  // startLocalHttpServer owner spawning the REAL http-server bin against a
+  // synthetic staged root, with the document fallback wired in as its
+  // unresolved-request origin. No shadow-cljs, no browser.
+  const http = require('http');
+  const {
+    createHarnessCleanup,
+    findFreePort,
+    startLocalHttpServer,
+  } = require('./lib/local-browser-harness.cjs');
+
+  const IMPL_ROOT = path.join(__dirname, '..');
+  const HOST_SENTINEL = 'RF2-STAGED-HOST-DOCUMENT';
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-histroute-'));
+  fs.writeFileSync(
+    path.join(root, 'index.html'),
+    `<!doctype html><title>${HOST_SENTINEL}</title><script src="main.js"></script>`,
+  );
+  fs.writeFileSync(path.join(root, 'main.js'), 'console.log("booted");');
+
+  const HTML_ACCEPT = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+  const get = (port, reqPath, accept) =>
+    new Promise((resolve) => {
+      const headers = accept ? { Accept: accept } : {};
+      const req = http.get(
+        { hostname: '127.0.0.1', port, path: reqPath, agent: false, headers },
+        (res) => {
+          let body = '';
+          res.setEncoding('utf8');
+          res.on('data', (c) => { body += c; });
+          res.on('end', () => resolve({ status: res.statusCode, body }));
+        },
+      );
+      req.on('error', (err) => resolve({ status: 0, body: String(err) }));
+      req.setTimeout(10000, () => { req.destroy(new Error('request timeout')); });
+    });
+
+  const fallback = await startDocumentFallbackServer({
+    indexPath: path.join(root, 'index.html'),
+  });
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  try {
+    const port = await findFreePort();
+    const { ready } = await startLocalHttpServer({
+      cleanup,
+      httpServerBin: require.resolve('http-server/bin/http-server', { paths: [IMPL_ROOT] }),
+      root,
+      port,
+      cwd: IMPL_ROOT,
+      readyTimeoutMs: 30000,
+      log: () => {},
+      unresolvedRequestUrl: fallback.url,
+    });
+    assert.strictEqual(ready, true, 'the staged root must reach owned readiness');
+
+    // The defect, repaired: a deep history route serves the host document.
+    for (const url of ['/articles/intro', '/articles', '/realworld/profile/bob']) {
+      const r = await get(port, url, HTML_ACCEPT);
+      assert.strictEqual(r.status, 200, `${url} must serve the host page, not 404`);
+      assert.ok(r.body.includes(HOST_SENTINEL), `${url} must serve the STAGED host page`);
+    }
+    // Unchanged: the root and a real emitted asset.
+    const rootRes = await get(port, '/', HTML_ACCEPT);
+    assert.strictEqual(rootRes.status, 200);
+    assert.ok(rootRes.body.includes(HOST_SENTINEL));
+    const bundle = await get(port, '/main.js', '*/*');
+    assert.strictEqual(bundle.status, 200);
+    assert.ok(bundle.body.includes('booted'), 'a real asset must still be served from disk');
+
+    // TEETH: a MISSING asset must not become a successful HTML body. This is
+    // the rf2-qwy3 guard — the runner's first-build probe fetches /main.js with
+    // no Accept header, so a fallback that answered it would let the runner
+    // advertise a live URL over a build that never landed.
+    for (const [url, accept] of [
+      ['/missing.js', '*/*'],
+      ['/missing.js', HTML_ACCEPT],
+      ['/_shared/css/style.css', HTML_ACCEPT],
+      ['/fixtures/todos.json', HTML_ACCEPT],
+      ['/not-built.js', undefined],
+    ]) {
+      const r = await get(port, url, accept);
+      assert.notStrictEqual(r.status, 200, `${url} must stay a failing request`);
+      assert.ok(
+        !r.body.includes(HOST_SENTINEL),
+        `${url} must never be answered with the host document`,
+      );
+    }
+  } finally {
+    await cleanup.cleanup().catch(() => {});
+    await fallback.close();
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  }
+});
+
+it('TEETH: serve-example wires the document fallback into its own server (rf2-fzbj.35)', () => {
+  // The call-site pin. The helpers above can be perfect and the runner still
+  // serve a 404 on refresh if it never hands the fallback origin to the server
+  // it starts — which is exactly the pre-fix state.
+  assert.ok(
+    /startDocumentFallbackServer\(/.test(SERVE_EXAMPLE_SRC),
+    'serve-example must stand up the document fallback',
+  );
+  assert.ok(
+    /unresolvedRequestUrl:\s*fallback\.url/.test(SERVE_EXAMPLE_SRC),
+    'serve-example must hand the fallback origin to startLocalHttpServer as its ' +
+      'unresolved-request target, or a history route still 404s on refresh',
+  );
+  const fallbackAt = SERVE_EXAMPLE_SRC.indexOf('await startDocumentFallbackServer(');
+  const serverAt = SERVE_EXAMPLE_SRC.indexOf('await startLocalHttpServer(');
+  assert.ok(fallbackAt !== -1 && serverAt !== -1);
+  assert.ok(
+    fallbackAt < serverAt,
+    'the fallback must be listening before the server that forwards to it starts',
+  );
+  assert.ok(
+    /cleanup\.addCleanup\(fallback\.close\)/.test(SERVE_EXAMPLE_SRC),
+    'the fallback listener must be torn down with the rest of the run',
+  );
+});
+
 // Drain the queued async cases, then own the summary + exit code for the whole
 // file (both the synchronous `it` results already counted in `failed` and these).
 (async () => {
