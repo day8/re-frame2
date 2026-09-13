@@ -72,7 +72,7 @@
     (rf/make-frame {:id frame-id})
     (seed! 5000)
     (rf.trace.tooling/register-listener!
-      ::replace
+      ::swap-observer
       (fn [ev]
         (when (and replace?
                    (= :rf.sub/run (:operation ev))
@@ -92,7 +92,7 @@
         (rf.machines.timer/after-schedule-fx {:frame frame-id} args)
         (then {:fired? @fired? :b-entry @b-entry :arms @arms :cancels cancels}))
       (finally
-        (rf.trace.tooling/unregister-listener! ::replace)
+        (rf.trace.tooling/unregister-listener! ::swap-observer)
         (swap! rf.machines.timer/after-timers dissoc frame-id)))))
 
 (deftest delay-resolution-loss-preserves-successor-timer
