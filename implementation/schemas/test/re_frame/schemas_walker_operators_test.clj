@@ -115,6 +115,25 @@
               [:tail :string]]
              [:row])))))
 
+(deftest variable-width-sequence-descends-index-free
+  (testing "rf2-gwye.11 — a :cat / :catn whose width is not fixed cannot pin a
+            flag to a position; its elements descend at the SHARED base-path,
+            like :sequential"
+    (is (= {[:ev :tok] {:sensitive? true :source :schema}}
+           (rf.schemas/extract-sensitive-paths-from-schema
+             [:cat [:* :int] [:map [:tok {:sensitive? true} :string]]]
+             [:ev])))
+    (is (= {[:row] {:sensitive? true :source :schema}}
+           (rf.schemas/extract-sensitive-paths-from-schema
+             [:catn [:head [:? :int]] [:tail {:sensitive? true} :string]]
+             [:row]))
+        "a :catn entry flag claims the base-path")
+    (is (= {[:ev] {:sensitive? true :source :schema}}
+           (rf.schemas/extract-sensitive-paths-from-schema
+             [:* [:cat :int [:string {:sensitive? true}]]]
+             [:ev]))
+        "a fixed-width :cat spliced into a regex op owns no positions")))
+
 (deftest and-descends-at-parent-path
   (testing ":and — every child descends at the parent path"
     (is (= {[:slot] {:sensitive? true :source :schema}}

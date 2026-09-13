@@ -103,12 +103,19 @@
 (defn- compute-edn-print
   "The pure serialisation step behind `default-edn-print` — `pr-str`
   over a canonicalised EDN form with the digest pipeline's print-flag
-  bindings. Same `schema-value` always returns byte-identical bytes."
+  bindings. Same `schema-value` always returns byte-identical bytes.
+
+  `*print-length*` / `*print-level*` are reset too: an ambient REPL or tool
+  binding would otherwise truncate both the canonicaliser's `pr-str` key
+  comparator and the final bytes, and the memo would keep the truncated
+  string process-wide (rf2-gwye.14)."
   [schema-value]
   (binding [*print-meta*           false
             *print-readably*       true
             *print-dup*            false
-            *print-namespace-maps* false]
+            *print-namespace-maps* false
+            *print-length*         nil
+            *print-level*          nil]
     (pr-str (canonicalise-schema-form schema-value))))
 
 ;; The process-lifetime print cache is bounded by boot-time schema

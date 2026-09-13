@@ -66,7 +66,11 @@
   — `(conj c i)` in `re-frame.elision`), which matches a position-pinned
   declaration exactly. No elision-side change is required — the index fork
   is schema-agnostic (it walks the runtime value), so `:cat`/`:catn`/`:tuple`
-  all align through the same generic path."
+  all align through the same generic path.
+
+  `:tuple` is always positional. A `:cat` / `:catn` is positional only when
+  `fixed-width-sequence?` holds and it is not itself spliced into an
+  enclosing regex op; otherwise its elements descend index-free (rf2-gwye.11)."
   #{:tuple :cat :catn})
 
 (defn- schema-properties
@@ -85,6 +89,39 @@
     (if (and (seq schema-tail) (map? (first schema-tail)))
       (subvec schema-tail 1)
       schema-tail)))
+
+(def ^:private regex-ops
+  "Malli's sequence (regex) operators. As an element of an enclosing sequence
+  one of these is SPLICED into it and consumes zero, one or many input values,
+  so its input position cannot be read off its schema position (rf2-gwye.11)."
+  #{:cat :catn :alt :altn :? :* :+ :repeat})
+
+(defn- sequence-element-schema
+  "The element schema of a `:tuple` / `:cat` / `:catn` child: the bare child,
+  or a `:catn` entry's `[name props? schema]` schema part (nil if malformed)."
+  [op child]
+  (if (= op :catn)
+    (when (and (vector? child) (>= (count child) 2))
+      (if (map? (nth child 1))
+        (nth child 2 nil)
+        (nth child 1)))
+    child))
+
+(defn- fixed-width-sequence?
+  "True when input index `i` provably addresses element `i`: always for a
+  `:tuple`, and for a `:cat` / `:catn` only when every element consumes
+  exactly one value — a keyword, symbol, fn, or non-regex vector form. A
+  regex, malformed or compiled element makes the width unknowable from the
+  pure data (rf2-gwye.11), so the node falls back to a whole-node decision."
+  [op children]
+  (or (= op :tuple)
+      (every? (fn [child]
+                (let [element (sequence-element-schema op child)]
+                  (or (keyword? element) (symbol? element) (fn? element)
+                      (and (vector? element)
+                           (pos? (count element))
+                           (not (contains? regex-ops (nth element 0)))))))
+              children)))
 
 (defn- declaration-from-properties
   "Build a declaration map `{flag-key true :source :schema}` (plus
@@ -106,6 +143,8 @@
     (cond-> {flag-key true
              :source  :schema}
       (some? (:hint props)) (assoc :hint (:hint props)))))
+
+(declare ^:private walk-flags)
 
 (defn walk-flagged-schema
   "Walk a Malli EDN schema form at `base-path`, populating `acc` with
@@ -148,6 +187,14 @@
       literal-index fork (`fork-index-paths` — `(conj c i)`), which matches
       a position-pinned declaration exactly.
 
+      That precision needs a FIXED-WIDTH sequence (`fixed-width-sequence?`)
+      that is not itself spliced into an enclosing regex op. A `:cat` /
+      `:catn` with a regex element (`[:cat [:* :int] Payload]`) cannot map an
+      input index to an element, so it descends like `:sequential` — every
+      element at the SAME `base-path`, `:catn` entry flags claiming
+      `base-path` — and value-path alignment falls back to the whole node
+      (rf2-gwye.11).
+
     - Other positional / nameless container ops (`:vector`, `:set`,
       `:sequential`, `:maybe`, `:and`, `:or`, `:not`, …) descend into each
       child at the SAME `base-path` — these ops are homogeneous (one
@@ -163,6 +210,13 @@
   ([flag-key schema base-path]
    (walk-flagged-schema flag-key schema base-path {}))
   ([flag-key schema base-path acc]
+   (walk-flags flag-key schema base-path acc false)))
+
+(defn- walk-flags
+  "The recursion behind `walk-flagged-schema`. `spliced?` is true when
+  `schema` is an element of a regex op, where a `:cat` / `:catn` is spliced
+  into the enclosing sequence and owns no input positions (rf2-gwye.11)."
+  ([flag-key schema base-path acc spliced?]
    (cond
      ;; Keyword schema (`:string`, `:int`, `:any`, registry-name kw, …)
      ;; — no slot props on a bare keyword; nothing to nominate.
@@ -175,7 +229,12 @@
                                            flag-key (schema-properties schema))]
                       (assoc acc base-path declaration)
                       acc)
-           children (schema-children schema)]
+           children (schema-children schema)
+           ;; A regex op's elements are spliced into its own sequence.
+           splices? (contains? regex-ops op)
+           positional? (and (contains? position-bearing-ops op)
+                            (not (and spliced? splices?))
+                            (fixed-width-sequence? op children))]
        (cond
          (contains? name-bearing-ops op)
          (reduce
@@ -196,12 +255,16 @@
                                             (assoc acc slot-path declaration)
                                             acc)]
                  (if (some? child-schema)
-                   (walk-flagged-schema flag-key child-schema slot-path acc)
+                   (walk-flags flag-key child-schema slot-path acc false)
                    acc))))
            acc'
            children)
 
-         (contains? dispatch-bearing-ops op)
+         ;; A non-positional `:catn` is entry-shaped exactly like a
+         ;; dispatch-bearing op: entry flags and element schemas both claim
+         ;; the base-path (rf2-gwye.11).
+         (or (contains? dispatch-bearing-ops op)
+             (and (= op :catn) (not positional?)))
          (reduce
            (fn [acc child]
              (if-not (vector? child)
@@ -218,7 +281,7 @@
                                             (assoc acc base-path declaration)
                                             acc)]
                  (if (some? child-schema)
-                   (walk-flagged-schema flag-key child-schema base-path acc)
+                   (walk-flags flag-key child-schema base-path acc splices?)
                    acc))))
            acc'
            children)
@@ -235,8 +298,10 @@
          ;; `:catn` elements are NAME-bearing entries (`[name props? schema]`)
          ;; — the flag may live in the entry's own props OR the element
          ;; schema's props, both claiming `(conj base i)`. Either shape
-         ;; descends the element schema at the position-pinned path.
-         (contains? position-bearing-ops op)
+         ;; descends the element schema at the position-pinned path. A
+         ;; variable-width or spliced `:cat` is not `positional?` and takes
+         ;; the index-free `:else` descent instead (rf2-gwye.11).
+         positional?
          (first
            (reduce
              (fn [[acc i] child]
@@ -263,7 +328,7 @@
                            (assoc acc slot-path entry-declaration)
                            acc)]
                  [(if (some? element-schema)
-                    (walk-flagged-schema flag-key element-schema slot-path acc)
+                    (walk-flags flag-key element-schema slot-path acc splices?)
                     acc)
                   (inc i)]))
              [acc' 0]
@@ -271,7 +336,7 @@
 
          :else
          (reduce (fn [acc child]
-                   (walk-flagged-schema flag-key child base-path acc))
+                   (walk-flags flag-key child base-path acc splices?))
                  acc'
                  children)))
 
@@ -672,10 +737,14 @@
             ;; failure — the rf2-4q681i fix. `:tuple`/`:cat` element `segment` is
             ;; `children[segment]` (bare schema); `:catn` element `segment` is a
             ;; NAME-bearing entry (`[name props? schema]`) so we descend into
-            ;; its schema part.
+            ;; its schema part. A VARIABLE-WIDTH `:cat` / `:catn` (a regex
+            ;; element) cannot say which element input index `segment`
+            ;; addresses — `children[segment]` may be a different child — so
+            ;; it falls back to the whole node (rf2-gwye.11).
             (contains? position-bearing-ops op)
             (if-let [child (when (and (int? segment)
-                                      (< segment (count children)))
+                                      (< segment (count children))
+                                      (fixed-width-sequence? op children))
                              (nth children segment))]
               (let [element-schema (if (= op :catn)
                                      (if (and (vector? child) (>= (count child) 2))
@@ -793,6 +862,9 @@
       failure reports the CALLER-SUPPLIED extra key itself as the segment —
       user data, possibly a credential — so the key-not-found branch fails
       closed INCLUDING the current segment.
+    - A VARIABLE-WIDTH `:cat` / `:catn` (a regex element such as `:*` /
+      `:?`, rf2-gwye.11) cannot say which element an index addresses, so it
+      takes the FAIL-CLOSED tail below.
     - Transparent wrappers contribute NO `:in` segment — descend without
       consuming. `:maybe` is genuinely single-child (`[:maybe inner]`) so
       the lockstep walk continues precisely. `:and` / `:or` are MULTI-child
@@ -920,6 +992,13 @@
                 (recur value-schema
                        (subvec remaining-path 1)
                        (conj sanitized-path sanitized-segment)))
+
+              ;; A VARIABLE-WIDTH `:cat` / `:catn` (rf2-gwye.11) — the input
+              ;; index does not identify the element, so the lockstep walk
+              ;; cannot continue. Fail CLOSED like any ambiguous op.
+              (and (contains? position-bearing-ops op)
+                   (not (fixed-width-sequence? op children)))
+              (fail-closed-tail sanitized-path remaining-path)
 
               ;; Other index-bearing ops — the segment is a navigable index
               ;; (`:vector` / `:sequential` / `:tuple` / `:cat` / `:catn`);

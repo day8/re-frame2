@@ -50,6 +50,8 @@
             ;; half (re-frame.schemas-sensitive-path-cljs-test) asserts the
             ;; SAME cases so privacy behaviour cannot diverge by host.
             [re-frame.schemas.walker-sanitize-path-fixtures :as rf.schemas.walker-sanitize-path-fixtures]
+            ;; Shared cross-host variable-width sequence corpus (rf2-gwye.11).
+            [re-frame.schemas.sequence-width-fixtures :as rf.schemas.sequence-width-fixtures]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
@@ -2287,3 +2289,26 @@
           "no :sensitive? stamp — nothing in the schema is sensitive")
       (is (= [:plain "extra-key"] (-> v :tags :path))
           "the extra key rides verbatim in :path — precise diagnostics kept"))))
+
+;; ---- variable-width :cat / :catn (rf2-gwye.11 / rf2-fzbj.25) --------------
+;; A regex element consumes zero or many values, so a :cat input index is not
+;; its schema child index. The shared corpus pins the leak shapes and the
+;; non-sensitive controls; the CLJS half asserts the same corpus.
+
+(deftest app-db-validation-variable-width-sequence-never-leaks-sensitive-value
+  (testing "rf2-gwye.11 — a regex element before a sensitive payload no longer
+            misaligns the redaction decision"
+    (doseq [{:keys [desc schema value]} rf.schemas.sequence-width-fixtures/leak-cases]
+      (let [v (app-db-failure-trace [:items] schema {:items value} :items/bad)]
+        (is (some? v) (str desc " — a trace fired"))
+        (is (true? (:sensitive? v)) (str desc " — :sensitive? stamped"))
+        (is (= :rf/redacted (-> v :tags :value)) (str desc " — :value redacted"))
+        (is (not (str/includes? (pr-str v) rf.schemas.sequence-width-fixtures/secret))
+            (str desc " — the secret is in no trace slot"))))))
+
+(deftest app-db-validation-variable-width-fix-keeps-non-sensitive-values
+  (testing "rf2-gwye.11 control — non-sensitive failures still report their value"
+    (doseq [{:keys [desc schema value expected]} rf.schemas.sequence-width-fixtures/precise-cases]
+      (let [v (app-db-failure-trace [:items] schema {:items value} :items/bad)]
+        (is (some? v) (str desc " — a trace fired"))
+        (is (= expected (-> v :tags :value)) desc)))))
