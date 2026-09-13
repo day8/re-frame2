@@ -305,6 +305,20 @@
 ;; different id and is refused. `note-commit!` fills the slot only from the
 ;; record carrying THAT id.
 ;;
+;; THAT ORDERING IS PER THREAD, NOT PER FRAME (rf2-k0nr). It puts the armed
+;; caller's emit ahead of anything the caller's OWN thread does next, and says
+;; nothing about another JVM thread. A same-frame dispatch there emits its
+;; `:rf.event/dispatched` on ITS thread and before any drain lock — the router
+;; emits ahead of `drain-block!`, and an async `dispatch!` emits at enqueue —
+;; so no frame boundary keeps it out of the gap between the arming and the
+;; armed caller's `dispatch-sync!`, and a frame-wide first arrival adopted it.
+;; Measured: source epoch 1, the other thread's epoch 2, the replay's own
+;; epoch 3, and the result said `:epoch-id 2`. So the slot also records the
+;; thread that armed it, and only that thread may supply the id. The armed
+;; caller's `dispatch-sync!` emits synchronously on the calling thread, so the
+;; first id that thread reports is its own. CLJS has one thread: there is no
+;; check to make and nothing changes.
+;;
 ;; The slot is still filled at COMMIT, so it names the armed caller's epoch
 ;; whether or not the ring still holds it, and the caller asks the ring —
 ;; separately — whether that epoch is retained. rf2-e0g2's queued-child
@@ -329,12 +343,15 @@
   hand back to `take-observed-commit!`. Always pair the two — a caller that
   arms and does not take leaves a slot the next commit writes into.
 
-  Arm it IMMEDIATELY before the dispatch whose epoch you want: the armed
-  caller's own dispatch has to be the first one epoch capture sees for the
-  frame, which is what makes the correlation above exact."
+  Arm it IMMEDIATELY before the dispatch whose epoch you want, on the thread
+  that makes it: the armed caller's own dispatch has to be the first one epoch
+  capture sees for the frame FROM THAT THREAD, which is what makes the
+  correlation above exact."
   [frame-id]
   (let [token #?(:clj (Object.) :cljs (js-obj))]
-    (swap! commit-observations assoc frame-id {:token token})
+    (swap! commit-observations assoc frame-id
+           #?(:clj  {:token token :thread (Thread/currentThread)}
+              :cljs {:token token}))
     token))
 
 (defn take-observed-commit!
@@ -349,12 +366,20 @@
         (:epoch-id slot)
         (:fallback-epoch-id slot)))))
 
+#?(:clj
+   (defn- armed-on-this-thread?
+     "True when `slot` was armed by the calling thread (rf2-k0nr)."
+     [slot]
+     (identical? (Thread/currentThread) (:thread slot))))
+
 (defn note-observed-dispatch!
   "Record `dispatch-id` as the armed observation's target for `frame-id`, once.
 
   Called from the epoch-capture stage on `:rf.event/dispatched`. Capture runs
-  ahead of the public tooling fan-out, so the first id to arrive here is the
-  armed caller's own dispatch and not one a listener started from inside it.
+  ahead of the public tooling fan-out, so the first id to arrive here FROM THE
+  ARMING THREAD is the armed caller's own dispatch and not one a listener
+  started from inside it. An id reported by any other thread is refused: on
+  the JVM another thread's same-frame dispatch can reach this first (rf2-k0nr).
   A no-op when nothing is armed (the ordinary hot path: one map read, no
   write), and after the first id has landed."
   [frame-id dispatch-id]
@@ -362,7 +387,9 @@
     (swap! commit-observations
            (fn [observations]
              (let [slot (get observations frame-id)]
-               (if (and slot (not (contains? slot :dispatch-id)))
+               (if (and slot
+                        (not (contains? slot :dispatch-id))
+                        #?(:clj (armed-on-this-thread? slot)))
                  (assoc observations frame-id (assoc slot :dispatch-id dispatch-id))
                  observations))))
     nil))
