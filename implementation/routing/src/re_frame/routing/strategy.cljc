@@ -259,22 +259,26 @@
 
 (defn strip-base-path
   "Strip `base` off the front of path-form `url`, returning the app-relative
-  `/`-rooted remainder. `url` is under the base only when it EQUALS `base` (the
-  mount root) or starts with `(str base \"/\")` (a path-SEGMENT boundary) — a
-  bare string-prefix test would mis-slice a prefix-sharing SIBLING (base `/app`
-  must NOT strip `/application`, `/apple`, `/app-admin`). A `url` that is not
-  under the base — including such a sibling, or a fully unrelated URL — is
-  returned unchanged (defensive: fails safe rather than mis-slicing the path).
-  A blank `base` is a no-op. Pure."
+  `/`-rooted remainder. `url` is under the base only when `base` is followed by
+  the END of the string (the mount root), by `/` (a path-SEGMENT boundary), or
+  by `?` / `#` (the pathname ends there: the mount root carrying a query or
+  fragment, `/app?tab=all` → `/?tab=all` — rf2-gwye.29). A bare string-prefix
+  test would mis-slice a prefix-sharing SIBLING (base `/app` must NOT strip
+  `/application`, `/apple`, `/app-admin`). A `url` that is not under the base —
+  including such a sibling, or a fully unrelated URL — is returned unchanged
+  (defensive: fails safe rather than mis-slicing the path). A blank `base` is a
+  no-op. Pure."
   [base url]
-  (if (and (seq base)
-           (or (= url base)
-               (clojure.string/starts-with? url (str base "/"))))
-    (let [remainder (subs url (count base))]
-      (if (clojure.string/starts-with? remainder "/")
-        remainder
-        (str "/" remainder)))
-    url))
+  (let [n (count base)]
+    (if (and (seq base)
+             (clojure.string/starts-with? url base)
+             (or (= n (count url))
+                 (contains? #{"/" "?" "#"} (subs url n (inc n)))))
+      (let [remainder (subs url n)]
+        (if (clojure.string/starts-with? remainder "/")
+          remainder
+          (str "/" remainder)))
+      url)))
 
 (defn fragment-form-strategy?
   "PURE: does `strategy` put the app route INSIDE the URL FRAGMENT — the shape

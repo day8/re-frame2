@@ -302,17 +302,29 @@
                 ;;   - `(:fragment target)` is nil on a malformed URL (the
                 ;;     fragment may itself be the decode-fail site) and the
                 ;;     matched fragment otherwise.
+                ;;
+                ;; rf2-fzbj.12: the ACCEPTED reference is first resolved to the
+                ;; location the browser will actually reach — the same
+                ;; `request-url->app-url` the link door runs. Matched raw, a
+                ;; same-origin absolute URL, a protocol-relative one, a
+                ;; dot-segment path or a pure `?query` / `#fragment` missed and
+                ;; committed not-found while the pushed URL displayed a valid
+                ;; route. That ONE effective URL feeds the match, the unmatched
+                ;; fallback params, the guards and history; the plan's `:source`
+                ;; keeps the caller's string as provenance. On the JVM / with no
+                ;; window the helper is identity (the fail-closed policy).
                 (some? url-target)
-                (let [{:keys [match matched? malformed? throw-reason target]}
-                      (rf.routing.resolve/url-resolution url-target)]
+                (let [app-url (rf.routing.url/request-url->app-url url-target)
+                      {:keys [match matched? malformed? throw-reason target]}
+                      (rf.routing.resolve/url-resolution app-url)]
                   {:route-id         (or (:route-id match) :rf.route/not-found)
                    :path-params      (if matched? (:params match) (:params target))
                    :query-params     (:query match {})
                    :matched-fragment (:fragment target)
-                   :unmatched-url    (when-not matched? url-target)
+                   :unmatched-url    (when-not matched? app-url)
                    :throw-reason     throw-reason
                    :malformed?       malformed?
-                   :requested-url    url-target})
+                   :requested-url    app-url})
 
                 ;; Route-id destination -- build a FRESH address (omitted
                 ;; :query/:fragment empty, exactly as today).
