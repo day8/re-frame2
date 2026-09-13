@@ -23,6 +23,7 @@
   seed the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]`."
   (:require [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
+            [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.machines.classification :as rf.machines.classification]
@@ -799,7 +800,7 @@
 
   Because no per-instance registration exists, replacing a captured frame
   state also restores actor liveness without registrar drift."
-  [{frame-id :frame} args]
+  [{frame-id :frame envelope :envelope} args]
   (let [;; EP-0002 carried invariant: `:rf.machine/spawn` runs inside a
         ;; pipeline run, so the fx context ALWAYS carries the envelope
         ;; frame as `:frame` (the HELD stamp). A nil stamp is an invariant
@@ -856,7 +857,7 @@
       (reject-unregistered-spawn! frame-id (:machine-id args))
 
       :else
-      (spawn-fx* frame-id args))))
+      (spawn-fx* frame-id envelope args))))
 
 ;; ---- generated-address collision (rf2-1sip) --------------------------------
 
@@ -1081,9 +1082,11 @@
 (defn- spawn-fx*
   "The accepted-spawn body of `spawn-fx` — runs only after the
   `unregistered-spawn-type?` fail-closed gate has let the spawn
-  through. `frame-id` is the resolved (non-nil-stamped) frame; `args` the
-  spawn args. Returns the allocated `spawned-id`."
-  [frame-id args]
+  through. `frame-id` is the resolved (non-nil-stamped) frame; `envelope` the
+  spawning dispatch's envelope off the fx ctx (nil for a direct caller), whose
+  inheritable keys ride the newborn's bootstrap dispatch; `args` the spawn
+  args. Returns the allocated `spawned-id`."
+  [frame-id envelope args]
   (let [;; A's exact-frame-incarnation continuation predicate (rf2-vxgfnd.153).
         ;; The `[:schemas :data]` spawn validator (`validate-spawn-data!`, run
         ;; inside `spawn-rejected?` below) is APPLICATION code that can
@@ -1398,7 +1401,6 @@
         ;; supply :start receive a synthetic [:rf.machine.spawn/spawned] so
         ;; generic child machines can declare their first transition out of an
         ;; :initial state at spec-write time.
-        (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
         ;; Stamp `:source :machine-spawn` on the actor-bootstrap dispatch so
         ;; the Epoch panel's DISPATCH step labels it "from machine spawn"
         ;; rather than `:unknown` or `:fx-dispatch` (which would be the value
@@ -1407,12 +1409,22 @@
         ;; actor-bootstrap cascades. `:source` is the single functional-origin
         ;; discriminator (closed-enum per Spec-Schemas
         ;; §`:rf/dispatch-envelope`).
-        (let [start (:start args)
-              opts  {:frame              frame-id
-                     :source             :machine-spawn}]
-          (if (some? start)
-            (dispatch! [spawned-id start] opts)
-            (dispatch! [spawned-id [:rf.machine.spawn/spawned]] opts))))))))))
+        ;;
+        ;; rf2-gbzv9 — a spawn QUEUES A CHILD (Spec 002 §Run propagation), so
+        ;; the bootstrap dispatch goes through the reserved-dispatch seam
+        ;; `rf.fx/child-dispatch!`: the spawning envelope's inheritable keys
+        ;; (`:fx-overrides`, `:interceptor-overrides`, `:trace-id`,
+        ;; `:origin`, the per-call mint policy) ride into the newborn, so a
+        ;; per-call override reaches every fx the child fires. `:source` is
+        ;; re-stamped, never inherited. `:rf.machine/internal?` is dropped so
+        ;; the newborn's first event keeps its FIFO place — the spawn is
+        ;; not a front-of-queue macrostep continuation. A nil envelope (a
+        ;; direct caller) falls back to `{:frame frame-id}`.
+        (let [start (:start args)]
+          (rf.fx/child-dispatch! frame-id
+                                 (some-> envelope (dissoc :rf.machine/internal?))
+                                 [spawned-id (if (some? start) start [:rf.machine.spawn/spawned])]
+                                 {:source :machine-spawn}))))))))
     spawned-id))
 
 ;; ---- :rf.machine/spawn-all-init -------------------------------------------

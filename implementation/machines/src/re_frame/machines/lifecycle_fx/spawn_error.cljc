@@ -116,7 +116,10 @@
   error-leaf trigger, or the exception envelope for the action-exception
   trigger). No-op when the `:router/dispatch!` hook is absent (pure-fn /
   conformance callers). `:source :machine-spawn` labels the dispatch so the
-  Epoch panel attributes it to the spawn lifecycle."
+  Epoch panel attributes it to the spawn lifecycle. Like `dispatch-spawn-done!`
+  it does NOT yet inherit the run-propagation keys (Spec 002 §Run
+  propagation): it runs in a handler body, where core exposes no envelope
+  (rf2-ix8fd)."
   [frame-id parent-id invoke-id error]
   (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
     (dispatch! [parent-id [rf.machines.transition/spawn-error-event-id invoke-id error]]
