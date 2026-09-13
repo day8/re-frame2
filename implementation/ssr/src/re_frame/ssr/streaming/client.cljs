@@ -764,22 +764,37 @@
   Idempotent per chunk: the same resolved node is applied at most once
   even if the observer batches or the initial sweep races a mutation.
 
-  Usage (streaming-aware Reagent bootstrap):
+  Usage (streaming-aware Reagent-slim bootstrap, readiness-driven):
 
-      #?(:cljs
-         (defn ^:export run []
-           (rf/init! reagent-slim-adapter/adapter)
-           ;; Install BEFORE the first chunks may have arrived so the
-           ;; observer catches them; the initial sweep also covers chunks
-           ;; that landed before the bundle executed.
-           (streaming-client/install! {:frame :app/main})
-           (rdc/render react-root
-             [rf/frame-provider {:frame :app/main}
-              [(rf/view :app/root)]])
-           ;; Reconcile against the canonical payload once it lands.
-           ;; (A host typically polls / observes for `__rf_payload`, or
-           ;; the streaming bootstrap calls `ssr/hydrate!` on completion.)
-           ))"
+      ;; (:require [re-frame.core :as rf]
+      ;;           [re-frame.ssr :as ssr]
+      ;;           [re-frame.ssr.streaming.client :as streaming-client]
+      ;;           [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
+      ;;           [reagent2.dom.client :as rdc])
+      (defn ^:export run []
+        (rf/init! reagent-slim-adapter/adapter)
+        ;; The live target frame exists FIRST: deltas merge into it as
+        ;; chunks land, and `hydrate!` seeds it at readiness.
+        (rf/make-frame {:id :app/main :platform :client})
+        ;; Bind everything `:on-ready` touches BEFORE `install!` — on an
+        ;; already-buffered response it fires synchronously INSIDE it.
+        (let [container (js/document.getElementById \"app\")]
+          ;; Install early: the observer catches chunks as they stream in,
+          ;; and the initial sweep covers any that landed before the bundle.
+          (streaming-client/install!
+            {:frame    :app/main
+             :on-ready (fn [_readiness-report]
+                         ;; Finalised: chunks applied, wrappers unwrapped,
+                         ;; observer disconnected. Now, and only now, seed
+                         ;; from the canonical payload and adopt the DOM.
+                         (ssr/hydrate! {:frame :app/main})
+                         (rdc/hydrate-root container
+                           [rf/frame-provider {:frame :app/main}
+                            [(rf/view :app/root)]]))})))
+
+  Nothing touches the streamed root before `:on-ready`: no `create-root`,
+  no early `hydrate-root`, no polling for `__rf_payload`. Keep the returned
+  `stop!` only if the host may abandon the stream (see above)."
   ([] (install! {}))
   ([{:keys [frame root payload-id on-ready]
      ;; No implicit default: a nil frame is an absent target that

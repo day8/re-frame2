@@ -916,15 +916,18 @@
 ;;      :rf.error/safe-redirect-invalid-url (:reason :scheme-without-host).
 ;;   3. :relative-only? true AND the URL is NOT a relative reference →
 ;;      :rf.error/safe-redirect-host-disallowed (:reason :relative-only-violation).
-;;      A relative reference is `scheme == nil AND authority == nil`
-;;      (e.g. `/dashboard`, `dashboard`, `a/b`). A protocol-relative
-;;      `//evil.example.com` HAS an authority and is therefore NOT
-;;      relative — it is rejected under :relative-only? .
-;;   4. :allow [...] supplied AND URL's host not in allowlist →
+;;      A relative reference is `scheme == nil AND authority == nil` AND
+;;      the raw string does not begin `//` (e.g. `/dashboard`, `dashboard`,
+;;      `a/b`). A protocol-relative `//evil.example.com` is NOT relative,
+;;      and neither is `///evil.example.com`: java.net.URI reports that one
+;;      with no authority at all, but a browser skips the extra slashes and
+;;      takes the next segment as the HOST (rf2-gwye.18).
+;;   4. :allow [...] supplied AND the URL is not a relative reference AND
+;;      its host is not in the allowlist →
 ;;      :rf.error/safe-redirect-host-disallowed (:reason :not-in-allowlist).
-;;      A non-relative target that reaches this gate has, after step 2c,
-;;      an extractable host; if it is absent from the allowlist it is
-;;      rejected.
+;;      A non-relative target whose host java.net.URI cannot extract
+;;      (`//evil_example/path`, `///evil.example/path`) names no allowlisted
+;;      host, so it is rejected rather than waved through.
 ;;   5. Pass — set Location header (same shape as redirect-fx).
 ;;
 ;; All failure modes EMIT (via re-frame.trace) rather than THROW.
@@ -1140,10 +1143,12 @@
         (:reason :scheme-without-host) — the scheme-bearing open-redirect
         bypass that defeats a host-presence-only gate
     3.  :relative-only? true + URL is NOT a relative reference (has a
-        scheme OR an authority — incl. protocol-relative `//host`) →
+        scheme OR an authority OR a raw `//` prefix — incl. protocol-relative
+        `//host` and `///host`) →
         :rf.error/safe-redirect-host-disallowed (:reason :relative-only-violation)
-    4.  :allow supplied + host ∉ allow → :rf.error/safe-redirect-host-disallowed
-        (:reason :not-in-allowlist)
+    4.  :allow supplied + non-relative URL whose host ∉ allow (a host
+        java.net.URI cannot extract is ∉ allow) →
+        :rf.error/safe-redirect-host-disallowed (:reason :not-in-allowlist)
     5.  Pass → set :redirect (same shape as :rf.server/redirect)
 
   An attacker-controlled `?next=...` parameter therefore cannot redirect
@@ -1231,7 +1236,16 @@
                 ;; `http:evil.example.com` has a scheme and is NOT
                 ;; relative — even though Java reports its host as nil.
                 ;; The policy is based on URL shape, not host presence alone.
-                relative? (and (nil? scheme) (nil? authority))]
+                ;;
+                ;; A raw `//` prefix is a NETWORK-PATH reference whatever
+                ;; java.net.URI makes of it (rf2-gwye.18). URI parses
+                ;; `///evil.example/path` with NO authority, yet a browser
+                ;; skips the extra slashes and navigates to
+                ;; https://evil.example/path. The prefix, not URI's
+                ;; authority alone, decides that a target is not relative.
+                relative? (and (nil? scheme)
+                               (nil? authority)
+                               (not (clojure.string/starts-with? location "//")))]
             (cond
               ;; Step 2: scheme rejection (post-parse path — covers
               ;; schemes whose body DID parse cleanly, e.g.
@@ -1279,18 +1293,22 @@
                                           :host     host
                                           :reason   :relative-only-violation})
 
-              ;; Step 4: :allow [...] allowlist. After step 2c every
-              ;; non-relative target reaching here has an extractable
-              ;; host. A relative reference (no host) is allowed through
-              ;; — :allow gates absolute targets, it does not block
-              ;; same-origin relative redirects. DNS hostnames are
+              ;; Step 4: :allow [...] allowlist. A relative reference (no
+              ;; host) is allowed through — :allow gates absolute targets,
+              ;; it does not block same-origin relative redirects. Every
+              ;; NON-relative target must name an allowlisted host, and one
+              ;; whose host java.net.URI cannot extract names none: step 2c
+              ;; only catches that for a scheme-bearing URL, while a browser
+              ;; still resolves a host for `//evil_example/path` and
+              ;; `///evil.example/path` (rf2-gwye.18). DNS hostnames are
               ;; case-insensitive (RFC 1035 §2.3.3), so lower-case both
               ;; sides — matching the header/cookie token-grammar
               ;; treatment elsewhere in this file.
               (and (seq allow)
-                   host
-                   (not (contains? (into #{} (map clojure.string/lower-case) allow)
-                                   (clojure.string/lower-case host))))
+                   (not relative?)
+                   (not (and host
+                             (contains? (into #{} (map clojure.string/lower-case) allow)
+                                        (clojure.string/lower-case host)))))
               (emit-safe-redirect-error! :rf.error/safe-redirect-host-disallowed
                                          {:frame    frame
                                           :location location
