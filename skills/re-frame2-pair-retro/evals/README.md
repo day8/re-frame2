@@ -46,15 +46,37 @@ that is by design.
 
 ## Convention
 
-The fixtures follow Anthropic's `skill-creator` convention, documented in
-[`anthropics/skills/skills/skill-creator/SKILL.md`](https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md)
-and the schema in
-[`anthropics/skills/skills/skill-creator/references/schemas.md`](https://github.com/anthropics/skills/blob/main/skills/skill-creator/references/schemas.md).
-The same shape is described in Anthropic's public best-practices guide:
+**The wrapper is a repository convention, not an upstream schema.**
+`schema_version` `"1"` names *this repo's* shape — an object
+`{skill_name, schema_version, convention, notes, evals: […]}` carrying
+trigger fields — shared with the sibling `skills/re-frame2/evals/` and
+`skills/re-frame2-setup/evals/` corpora. Anthropic's `skill-creator`
+defines **two different** formats, and this file is neither of them
+verbatim (checked against upstream commit `3d5951151859`):
+
+- **Task evaluation** —
+  [`references/schemas.md` §evals.json](https://github.com/anthropics/skills/blob/3d59511518591fa82e6cfcf0438d68dd5dad3e76/skills/skill-creator/references/schemas.md#evalsjson)
+  is an object `{skill_name, evals: [{id, prompt, expected_output, files?, expectations}]}`.
+  It carries no `should_trigger` at all, so it cannot express a trigger corpus.
+- **Trigger evaluation (description optimisation)** —
+  [`SKILL.md` §Description Optimization](https://github.com/anthropics/skills/blob/3d59511518591fa82e6cfcf0438d68dd5dad3e76/skills/skill-creator/SKILL.md#description-optimization)
+  takes a **top-level JSON list** of `{"query": …, "should_trigger": …}` objects.
+  [`scripts/run_eval.py`](https://github.com/anthropics/skills/blob/3d59511518591fa82e6cfcf0438d68dd5dad3e76/skills/skill-creator/scripts/run_eval.py)
+  iterates the loaded document directly and reads `item["query"]`.
+
+This corpus borrows the task format's *wrapper* and fills it with trigger
+fields, so it matches neither: handed to the trigger runner whole it dies
+on `item["query"]` with a `TypeError` (the top level is an object, so
+iteration yields key strings), and merely unwrapped to `payload["evals"]`
+it dies with `KeyError: 'query'` (the field here is named `prompt`).
+[§How to run](#how-to-run) carries the one-line conversion — run it, do not
+hand `evals.json` to the loop directly.
+
+Anthropic's public best-practices guide describes the evaluations-first
+practice both formats serve:
 [Skill authoring best practices — Build evaluations first](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices#build-evaluations-first).
 
-A single `evals.json` holds a trigger-only fixture list (`schema_version`
-`"1"`). Each entry carries:
+Each entry in `evals` carries:
 
 - `id` — unique integer
 - `name` — short kebab-case slug, unique across the corpus; the per-run
@@ -79,9 +101,32 @@ it is verified by manual replay.
 
 ## How to run
 
-The skill-creator description-optimisation loop ([SKILL.md
-§"Running and evaluating test cases"](https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md))
+The skill-creator description-optimisation loop
+([SKILL.md §Description Optimization](https://github.com/anthropics/skills/blob/3d59511518591fa82e6cfcf0438d68dd5dad3e76/skills/skill-creator/SKILL.md#description-optimization))
 is the reference: score the skill's activation decision against each entry's
 `should_trigger`, and tune the frontmatter `description` until train/held-out
-trigger accuracy holds. The harness is intentionally tool-agnostic —
-`evals.json` is just data; any runner that respects the schema works.
+trigger accuracy holds.
+
+**Convert first.** Per [§Convention](#convention) the loop reads a top-level
+list of `query` / `should_trigger` objects, so drop this file's wrapper and
+rename `prompt` → `query`:
+
+```bash
+jq '[.evals[] | {query: .prompt, should_trigger: .should_trigger}]' \
+  evals/evals.json > trigger-eval.json
+```
+
+That emits one item per fixture, every prompt string and boolean label
+preserved verbatim and nothing else — `id`, `name` and `rationale` are local
+bookkeeping the loop neither reads nor needs. Feed the converted file:
+
+```bash
+python -m scripts.run_loop \
+  --eval-set <abs-path>/trigger-eval.json \
+  --skill-path <abs-path>/skills/re-frame2-pair-retro \
+  --model <model-id> --max-iterations 5 --verbose
+```
+
+Write `trigger-eval.json` somewhere scratch, not into this directory. The
+harness is otherwise tool-agnostic — `evals.json` is just data; any runner
+fed the converted shape works.

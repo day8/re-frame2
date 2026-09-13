@@ -75,12 +75,19 @@ Greppable signals — flag when **any** match AND no production gate is wired:
 
 (rf/reg-event :article/loaded
   (fn [{:keys [db]} [_ reply]]                                  ;; reply envelope appended as the last arg
-    {:db (assoc-in db [:article :data] (:value reply))}))       ;; :value already validated by :decode Article (prod) + path schema (dev)
+    {:db (-> db
+             (assoc-in [:article :data]   (:value reply))       ;; :value already validated by :decode Article (prod) + path schema (dev)
+             (assoc-in [:article :status] :loaded)              ;; SETTLE the lifecycle — :loading is not a terminal state
+             (assoc-in [:article :error]  nil))}))              ;; clear a stale error from an earlier attempt
 
 (rf/reg-event :article/load-failed
   (fn [{:keys [db]} [_ reply]]
-    {:db (assoc-in db [:article :error] (:error reply))}))      ;; classified :rf.http/* map at :error
+    {:db (-> db
+             (assoc-in [:article :error]  (:error reply))       ;; classified :rf.http/* map at :error
+             (assoc-in [:article :status] :error))}))           ;; settle it on the failure branch too
 ```
+
+**Both reply handlers settle `[:article :status]`, and that is part of the fix, not decoration.** A completion handler that writes only `:data` — or only `:error` — leaves the `:loading` sentinel up for ever on a page that reads status, which is the missing-terminator defect [`manual-loading-flags.md`](manual-loading-flags.md) exists to diagnose. `:decode` cannot repair it: the payload arrived and validated fine, the lifecycle simply never closed. Status and error stay off `[:article :data]`, so `reg-app-schema` still sees an `Article` and nothing else; the four-state slice is [`skills/re-frame2/patterns/remote-data.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/patterns/remote-data.md).
 
 ## Regression example — body-read boundaries need the value validated, not the event
 
