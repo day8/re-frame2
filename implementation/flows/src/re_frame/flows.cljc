@@ -469,14 +469,37 @@
   binding wraps the whole pass because the throw is raised deep inside it, and
   unwinds with it because the settle is synchronous.
 
+  The pass ALSO runs under `owner-token`'s exact-owner trace continuation
+  (rf2-gwye.63). `:exact-owner-token` fences the pass's own writes — cache,
+  output, validation — but a trace it emits is a separate callback pipeline
+  whose stages recheck ownership only while a continuation predicate is
+  installed (`trace/continuation-live?` reads the always-true default
+  otherwise), and this settle runs inside the cold serialized region, which
+  DEFERS listener delivery past the release. `deferred-continue` captures
+  whatever predicate stood at emit time, so without this wrap the dependent's
+  `:rf.flow/computed` fan-out carries the always-continue default: a listener
+  that destroys A mid-fan-out no longer suppresses the listeners behind it,
+  and the observer receives A's computed evidence after A's destruction was
+  claimed. Every other route already supplies one — the ordinary event route
+  inherits the router's, and the sibling direct register / replace / clear
+  emits install their own (rf2-pwum1g, rf2-rxsldx). The scope wraps the WHOLE
+  pass, not the computed emit alone, so the sibling skip / failure / schema
+  observations cannot escape it either, and it AND-composes with any enclosing
+  predicate.
+
   `registry/clear-flow` calls this through the seam it publishes; the
   `:require` runs the other way."
   [frame-id owner-token]
   (when-let [db (rf.frame/frame-app-db-value frame-id)]
     (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)
-          settled    (binding [*pass-caller* :direct-clear]
-                       (run-flows-on-db frame-id db runtime-db
-                                        {:exact-owner-token owner-token}))]
+          pass       #(binding [*pass-caller* :direct-clear]
+                        (run-flows-on-db frame-id db runtime-db
+                                         {:exact-owner-token owner-token}))
+          settled    (if rf.interop/debug-enabled?
+                       (rf.trace/call-with-continuation-predicate
+                         #(rf.frame/event-continuation-live? frame-id owner-token)
+                         pass)
+                       (pass))]
       (when-not (or (= stale-incarnation settled)
                     (identical? settled db))
         (rf.frame/swap-frame-db-exact! frame-id owner-token (constantly settled)))))
