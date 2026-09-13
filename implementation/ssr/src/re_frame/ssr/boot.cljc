@@ -279,7 +279,8 @@
   live payload and the roots using it untouched.
 
   Returns the payload that was applied (or `nil` on a client-only first
-  load) so the caller can branch on \"was this server-rendered?\" without
+  load, and `nil` when `:rf/hydrate` refused a malformed payload — nothing
+  was applied, so the frame IS client-only and no claim is made) so the caller can branch on \"was this server-rendered?\" without
   re-reading the DOM. A no-op second install still returns the payload —
   the page WAS server-rendered, whichever root got there first.
 
@@ -323,14 +324,32 @@
         payload (or payload
                     #?(:cljs (read-server-payload
                                (or element-id rf.ssr.constants/payload-script-id))
-                       :clj nil))]
+                       :clj nil))
+        ;; A payload the `:rf/hydrate` handler will REFUSE — not a map, or a
+        ;; present-but-non-map partition (Spec 011 §The :rf/hydrate event) —
+        ;; never commits, so it must never CLAIM (rf2-gwye.19). The seed check
+        ;; below cannot see a refusal: the handler leaves the frame live and
+        ;; returns normally, and a live incarnation proves only that the
+        ;; dispatch was delivered. So the handler's OWN predicate screens the
+        ;; payload here, before the ledger is touched. A nil payload is the
+        ;; client-only first load, not a refusal.
+        refusal (when payload
+                  (rf.ssr.hydrate/malformed-hydration-payload-reason payload))]
     (when payload
       ;; The payload's `:rf/frame-id` is metadata and validation
       ;; evidence, NOT a no-opts target resolver. Validate it against the
       ;; explicit client target: a conflict is a structured mismatch (the
       ;; server hydrated a different frame than the client is installing
       ;; into), surfaced rather than silently picking a side.
-      (validate-payload-frame-id! frame payload)
+      (validate-payload-frame-id! frame payload))
+    ;; A refused payload is still DISPATCHED, so the handler emits its
+    ;; always-on `:rf.error/malformed-hydration-payload` record exactly as it
+    ;; does for a direct `dispatch-sync`. It leaves both partitions alone,
+    ;; claims nothing and verifies nothing, and `hydrate!` returns nil — the
+    ;; client-only answer, which is what the frame now is.
+    (when refusal
+      (rf.router/dispatch-sync! [:rf/hydrate payload] {:frame frame}))
+    (when (and payload (not refusal))
       ;; PREFLIGHT (S5) — manifest discovery/validation -> payload install
       ;; decision, BEFORE anything is seeded (004C §10). The frame-id
       ;; validation above runs FIRST: a payload rendered for a different
@@ -379,9 +398,10 @@
           ;; an absent or destroyed frame is a NO-OP, not a throw — the
           ;; router reports it on its own always-on axis and returns
           ;; normally. So the condition is checked directly, and the check
-          ;; is the frame's INCARNATION token: the seed landed only if the
-          ;; exact incarnation that was live when we claimed is still live
-          ;; now. A nil token (the frame was never there) is not live, so an
+          ;; is the frame's INCARNATION token: for a payload the handler
+          ;; accepts (a refused one never gets here — see `refusal` above),
+          ;; the seed landed only if the exact incarnation that was live when
+          ;; we claimed is still live now. A nil token (the frame was never there) is not live, so an
           ;; absent frame releases too; a destroy-and-recreate during the
           ;; dispatch yields a different token and also releases. This is
           ;; the same pinned-token admission rule a cold `reg-flow` uses to
@@ -420,7 +440,7 @@
               ;; its own scope (or ignores it — a plain-hiccup fn) is unaffected.
               (when render-tree-fn
                 (rf.ssr.hydrate/verify-hydration! frame ((rf.frame/bind-fn frame render-tree-fn)))))))))
-    payload))
+    (when-not refusal payload)))
 
 ;; ---------------------------------------------------------------------------
 ;; Failed-root isolation (S5) — Spec 011 §Failed-root isolation

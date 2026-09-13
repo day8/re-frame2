@@ -53,7 +53,7 @@
              :else (pr-str (type slice-val)))
        "); hydration rejected — the client frame-state is left unchanged"))
 
-(defn- malformed-hydration-payload-reason
+(defn malformed-hydration-payload-reason
   "Fail-closed guard for the `:rf/hydrate` boundary.
   The payload is a DESERIALISED, UNTRUSTED transport input (the server's
   `pr-str`'d EDN, round-tripped through `cljs.reader/read-string` at the
@@ -73,7 +73,11 @@
   with each partition key either absent or carrying a map). A wholly-ABSENT
   app-db / runtime-db slice key is NOT malformed — it is the documented
   client-only / no-server-slice first-load shape that falls back to the
-  existing partition value."
+  existing partition value.
+
+  Public because `re-frame.ssr.boot/hydrate!` screens with this SAME
+  predicate before it claims a payload id (rf2-gwye.19): a payload the
+  handler refuses never commits, so it must never claim."
   [payload]
   (cond
     (not (map? payload))
