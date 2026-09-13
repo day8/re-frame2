@@ -56,6 +56,25 @@
     (swap! observed conj f)
     ($ :div (str "f=" f))))
 
+;; rf2-fzbj.28 — the IMPERATIVE resolver's SECOND tier, in a UIx render.
+;; `use-frame` reads React context and nothing else (rf2-kuky.62), but bare
+;; zero-arity `(rf/capture-frame)` funnels through
+;; `rf.frame/require-current-frame!` → `resolve-current-frame`, whose order is
+;; dynamic-var FIRST, React context SECOND, error last — and the UIx adapter
+;; routes that reader's context tier to
+;; `rf.adapter.context/function-component-current-frame` at install time. So a
+;; bare capture inside a UIx render beneath a boundary resolves the BOUNDARY's
+;; frame. The adapter README used to claim the opposite (that a bare capture
+;; reads only the dynamic tier and necessarily raises
+;; `:rf.error/no-frame-context` under a context-provided frame), contradicting
+;; its own shipped testbed; this probe is what keeps the corrected prose true.
+(def ^:private captured (atom []))
+
+(defui ProbeBareCaptureFrame []
+  (let [f (:frame (rf/capture-frame))]
+    (swap! captured conj f)
+    ($ :div (str "c=" f))))
+
 (defn- browser? []
   (and (exists? js/document)
        (some? (.-createElement js/document))))
@@ -122,3 +141,57 @@
             ;; `:rf/default` floor.
             (is (not-any? #{:rf/default} @observed)
                 "neither boundary resolved to the :rf/default floor")))))))
+
+(deftest bare-capture-frame-resolves-the-provider-frame-rf2-fzbj28
+  (testing "UIx — zero-arity (rf/capture-frame) inside a render resolves the
+            context-provided frame through the imperative resolver's second
+            tier, with the dynamic tier explicitly cleared (rf2-fzbj.28)"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
+      (let [act-fn (get-act)]
+        (if (nil? act-fn)
+          (is true "act() not reachable from this runner; skipping")
+          ;; The dynamic tier is cleared, so tier 1 cannot answer and the only
+          ;; frame available to the capture is the one the boundary scoped.
+          (binding [rf.frame/*current-frame* nil]
+            (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+
+            ;; NEGATIVE CONTROL FIRST, and it runs OUTSIDE any render: with no
+            ;; boundary the context slot holds the no-provider sentinel, so the
+            ;; capture has nothing to resolve and fails CLOSED. This is what
+            ;; makes the positive row below discriminating — it rules out a
+            ;; capture that would have answered anyway.
+            (is (thrown-with-msg? :default #":rf.error/no-frame-context"
+                  (rf/capture-frame))
+                "outside any boundary, with the dynamic tier cleared, a bare
+                 capture raises :rf.error/no-frame-context — no :rf/default floor")
+
+            ;; A deliberately NON-default frame id: were the capture answering
+            ;; from a synthesised floor rather than from the provider, this row
+            ;; would read :rf/default and fail.
+            (testing "under frame-provider (SCOPE) → the scoped frame id"
+              (reset! captured [])
+              (let [frame-kw :rf.uix-fcr/bare-capture-provider-frame]
+                (rf/make-frame {:id frame-kw
+                                :doc "rf2-fzbj.28 bare capture-frame SCOPE probe"})
+                (mount-and-render! act-fn
+                  ($ rf.adapter.uix/frame-provider {:frame frame-kw}
+                     ($ ProbeBareCaptureFrame)))
+                (is (some #{frame-kw} @captured)
+                    "bare (rf/capture-frame) resolved the SCOPE-provided frame —
+                     the README's old 'dynamic tier only' claim is false")
+                (is (not-any? #{:rf/default} @captured)
+                    "and it was the provider's frame, not a synthesised floor")))
+
+            (testing "under frame-root (ENSURE) → the ENSUREd frame id"
+              (reset! captured [])
+              (let [frame-kw :rf.uix-fcr/bare-capture-root-frame]
+                (mount-and-render! act-fn
+                  ($ rf.adapter.uix/frame-root {:id frame-kw}
+                     ($ ProbeBareCaptureFrame)))
+                (is (some #{frame-kw} @captured)
+                    "bare (rf/capture-frame) resolves beneath the ENSURE boundary
+                     too — the shape the shipped UIx testbed already uses")))
+
+            (is (not-any? #{rf.adapter.context/no-provider-sentinel} @captured)
+                "the no-provider sentinel never reached the capture as a frame id")))))))
