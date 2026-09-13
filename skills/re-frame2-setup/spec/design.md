@@ -27,7 +27,7 @@ These are not up for re-litigation. A future authoring pass MUST preserve them u
 
 The re-frame2 VERSION changes. The skill's default `deps.edn` / `package.json` carry the generator template's reviewed pins as literals — but only because `references/first-counter.md` is **rendered from the template** by `tests/first_counter_derivation.clj` and drift-locked (L13); no leaf hand-types a `day8/re-frame2*` version, and prose never restates the numbers as authority ("read the leaf, not this sentence"). The override paths in `references/deps-versions.md` keep `<VERSION>` / `<SHA>` as the author-supplied slots they are; the default route writes no placeholder. (The original L1 forbade any hardcoded VERSION in a written file, which forced a discovery step onto the default path; rf2-rc0yh slice B replaced discovery with derivation.)
 
-### L2 — All ten artefacts ship at the same VERSION
+### L2 — Every `day8/re-frame2*` artefact ships at the same VERSION
 
 The author picks the VERSION once (or takes the default); every `day8/re-frame2-*` dep gets that same version. Mixing versions across artefacts is unsupported. This rule lands in both SKILL.md and `references/deps-versions.md`.
 
@@ -136,7 +136,7 @@ The `description` is "pushy" and lists the greenfield-trigger phrases the shippe
 ## 7. Anti-patterns the skill explicitly resists
 
 - **Hand-typing artefact versions** — L1: the pins are derived, and prose never restates them as authority.
-- **Mixing versions across the ten artefacts** — L2 cardinal rule.
+- **Mixing versions across the `day8/re-frame2*` artefacts** — L2 cardinal rule.
 - **Adding per-feature artefacts, devtools, schemas or policy defensively** — L3 + `references/deps-versions.md`'s "pay-as-you-go" framing.
 - **A full multi-substrate decision tree at greenfield** — L4. Reagent is the default; UIx is a three-file swap, not a branching interview.
 - **Interviewing the author when a reviewed default exists** — L11. A missing pin / name / substrate / tooling answer is a default, not a question; the only stops are the explicit-latest confirmation and a genuinely non-greenfield project.

@@ -698,6 +698,13 @@
       (is (str/includes? skill "http://localhost:8280/")
           (str "SKILL.md no longer reports the actual dev URL "
                "(http://localhost:8280/) (rf2-rc0yh)."))
+      (is (contains-any? skill ["never exits" "never terminates" "does not exit"])
+          (str "SKILL.md step 5 no longer says the watch never exits. Run in the "
+               "foreground, `npx shadow-cljs watch app` blocks until the tool timeout "
+               "kills it, and the skill reports a URL nothing serves (rf2-pv9d)."))
+      (is (contains-any? skill ["detached" "background"])
+          (str "SKILL.md step 5 no longer says to run the watch detached — the "
+               "harness's background-run option, or a redirected `&` (rf2-pv9d)."))
       (is (contains-any? skill ["not the mount" "does not prove the mount"
                                 "don't claim the mount" "compile success alone"])
           (str "SKILL.md dropped the honesty line: compile success proves the "
@@ -714,16 +721,35 @@
 (def ^:private skills-index-md
   (delay (slurp-rel repo-root "skills/README.md")))
 
+(def ^:private literal-artefact-count
+  "A literal count of the lockstep roster — `all ten`, `ten Maven artefacts`,
+   `fourteen coordinates`. The roster moves (eleven, then ten, then fourteen),
+   so the setup prose states the rule — every day8/re-frame2* artefact ships
+   at one VERSION — and points at the roster rather than counting it. Scoped
+   to artefact/coordinate nouns so `twelve files` stays legal."
+  #"(?i)\ball\s+(?:ten|eleven|twelve|thirteen|fourteen)\s+(?:[^\s.;:,()]+\s+){0,3}?(?:artefacts?|artifacts?|coordinates|coords|ship)\b|\b(?:ten|eleven|twelve|thirteen|fourteen)\s+(?:[^\s.;:,()]+\s+){0,3}?(?:artefacts?|artifacts?|coordinates|coords)\b")
+
 (deftest docs-setup-page-no-stale-artefact-count
-  (testing "docs/skills/re-frame2-setup.md does not re-teach the stale 'all eleven' lockstep count"
-    (let [body @docs-setup-page-md]
-      (is (not (re-find #"(?i)eleven" body))
-          (str "docs/skills/re-frame2-setup.md re-teaches the stale "
-               "\"all eleven ship at the same version\" lockstep count. The "
-               "current contract is TEN publishable framework artefacts."))
-      (is (re-find #"(?i)\ball ten\b" body)
-          (str "docs/skills/re-frame2-setup.md no longer states the TEN "
-               "publishable framework artefacts ship in lockstep."))))
+  (testing "the setup prose states lockstep as a rule, never as a literal artefact count"
+    (doseq [[label body] [["docs/skills/re-frame2-setup.md" @docs-setup-page-md]
+                          ["SKILL.md" @skill-md]
+                          ["references/deps-versions.md" @deps-versions-md]]]
+      (is (nil? (re-find literal-artefact-count body))
+          (str label " counts the lockstep roster (" (pr-str (re-find literal-artefact-count body))
+               "). The count goes stale on the next roster change — it read ten against "
+               "fourteen at rf2-pv9d. Say every day8/re-frame2* artefact ships at one "
+               "VERSION and point at spec/Conventions.md §Lockstep versioning through 1.0."))))
+  (testing "docs/skills/re-frame2-setup.md keeps the tools off the framework tag and the omitted trigger off the page"
+    (let [body (str/lower-case @docs-setup-page-md)]
+      (is (not (str/includes? body "riding the same line"))
+          (str "docs/skills/re-frame2-setup.md puts day8/re-frame2-xray on the framework "
+               "release line again. Xray and Story ship on their own xray-v* / story-v* "
+               "tags (references/deps-versions.md; docs/release-process.md) (rf2-pv9d)."))
+      (is (not (str/includes? body "add re-frame2 to my repo"))
+          (str "docs/skills/re-frame2-setup.md lists \"add re-frame2 to my repo\" as a "
+               "trigger. The description deliberately omits it (spec/design.md §6): it "
+               "also matches the non-trivial-existing-app case the skill routes away "
+               "(eval id 10) (rf2-pv9d)."))))
   (testing "docs/skills/re-frame2-setup.md teaches the reduced twelve-file scaffold"
     (is (str/includes? @docs-setup-page-md "twelve files")
         (str "docs/skills/re-frame2-setup.md no longer describes the twelve-file "
