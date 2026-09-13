@@ -61,7 +61,7 @@ Every `:rf.error/*` trace event carries `:rf.trace/trigger-handler` — `{:kind 
 
 ## Error observability
 
-Errors are not steered by app policy — recovery is framework-owned (the per-category typed default: frame-destroyed recovers + emits, sub-exception returns `nil`, handler-exception fails loud without crashing the app). Observability is the always-on `:errors` stream of `rf/register-listener!`, whose payload is an **error-keyed union of several record shapes**:
+Errors are not steered by app policy — recovery is framework-owned (the per-category typed default: frame-destroyed recovers + emits, sub-exception returns `nil`, handler-exception fails loud without crashing the app). Observability rides the always-on error-emit substrate, which carries **no public registration verb**: rf2-kuky.69 retired the `:errors` and `:events` streams from `rf/register-listener!`, whose vocabulary is now exactly `#{:trace :epoch}`. The production door is the frame-owned `:observability :errors` sink — declared on the frame's `make-frame` / `frame-root` config or once per process with `(rf/configure! {:observability …})`, and wired with `rf/register-observability-sink!` — which hands the sink an **already-projected** record. The underlying record is an **error-keyed union of several record shapes**:
 
 - per-event error record `{:error :event :event-id :frame :time :exception :elapsed-ms}` (plus `:source-coord` for macro-registered handlers), fanned out per production-reachable `:rf.error/*`;
 - frame-teardown report `{:error :rf.error/frame-teardown-failed :frame :hook-failures :reason :recovery :time}` — one bounded record per destroy whose cleanup hooks threw (EP-0008);
