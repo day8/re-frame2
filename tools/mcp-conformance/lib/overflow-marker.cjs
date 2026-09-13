@@ -62,11 +62,12 @@ const EDN_PARSE_OPTS = { mapAs: 'object', keywordAs: 'string', setAs: 'array' };
 // cross-encoding grep gate (`js-assertOverflowBody-pins-every-re-frame2-pair-
 // overflow-required-field`) reads THIS data table by name (it slurps this
 // file — see `live-re-frame2-pair-overflow-js-rel`) so a drift in either
-// direction trips the JVM-side test.
+// direction trips the JVM-side test. `int` means an INTEGER, as Malli's
+// `:int` does — `typeof === 'number'` let 5000.5 through (rf2-gwye.41).
 const REQUIRED_FIELDS = [
   ['limit',       (v) => v === 'reached',          'enum :reached'],
-  ['cap-tokens',  (v) => typeof v === 'number',    'int'],
-  ['token-count', (v) => typeof v === 'number',    'int'],
+  ['cap-tokens',  (v) => Number.isInteger(v),      'int'],
+  ['token-count', (v) => Number.isInteger(v),      'int'],
   ['tool',        (v) => typeof v === 'string',    'string|keyword'],
   ['hint',        (v) => typeof v === 'string',    'string|keyword'],
 ];

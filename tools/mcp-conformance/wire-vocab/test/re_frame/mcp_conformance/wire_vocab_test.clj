@@ -980,9 +980,9 @@
    [":limit :reached"
     "['limit',       (v) => v === 'reached',          'enum :reached']"]
    [":cap-tokens : int"
-    "['cap-tokens',  (v) => typeof v === 'number',    'int']"]
+    "['cap-tokens',  (v) => Number.isInteger(v),      'int']"]
    [":token-count : int"
-    "['token-count', (v) => typeof v === 'number',    'int']"]
+    "['token-count', (v) => Number.isInteger(v),      'int']"]
    [":tool : string|keyword"
     "['tool',        (v) => typeof v === 'string',    'string|keyword']"]
    [":hint : string|keyword"
