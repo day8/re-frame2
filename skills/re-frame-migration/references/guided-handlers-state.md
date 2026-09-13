@@ -43,24 +43,33 @@ Present every call site with its file:line and the four options; collect the aut
 
 ## M-5 — Var-aliased `reg-*`
 
-**Type A for `apply` of a `reg-*` symbol** (mechanical — rewrite to direct invocation or to a wrapper macro of the author's own); **Type B for Var-aliasing** (`(def my-reg rf/reg-event)`) — when the alias is invoked dynamically the rewrite depends on understanding the call sites, so it is presented, not applied. One section, two dispositions: classify each hit before you touch it.
+**READ THE HOST FIRST — most hits are not migration sites at all.** On **CLJS**, `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` (and `dispatch` / `dispatch-sync` / `subscribe` / `reg-interceptor`) are macros in *call* position and plain **fn Vars in value position, under the same name** — [Conventions §Convention A](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md#convention-a--same-name-cljs-value-alias-no--twin). So `(apply rf/reg-sub …)`, `(def register-sub rf/reg-sub)` and `(map #(apply rf/reg-event %) pairs)` **work as written and are left alone**. On the **JVM** the same names are macros only, and value-position use is a real compile-time failure.
 
-**Apply M-73 first.** `reg-event-db` / `reg-event-fx` are removed and `reg-event-ctx` is demoted (EP-0018); they survive only as façade stubs that raise `:rf.error/reg-event-db-removed` (and `-fx-removed` / `-ctx-removed`) at registration, aborting the rest of the namespace load. So run the **M-73** collapse to `reg-event` first — this macro rule then applies to the surviving `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx`.
+So the rule is: **classify by host and by position before you touch a hit.**
 
-**Identify**:
+| Host | Position | Disposition |
+|---|---|---|
+| CLJS | value (`apply`, `def`-alias, HoF arg, `let`-binding, `(or f rf/reg-sub)`) | **Leave as-is.** Not a site. |
+| CLJS | call (ordinary `(rf/reg-sub :id …)`) | Macro path; unaffected by this rule. |
+| JVM (`.clj` / the `#?(:clj …)` branch of a `.cljc`) | value | **Type B** — real break; rewrite via the decision shape below. |
+
+**The one thing the CLJS value path loses is call-site source-coordinate capture.** The macro stamps `:rf.trace/trigger-handler` from `&form`; the fn value cannot. Tooling (Xray, 10x) then shows the registration without a click-to-jump source link. That is the whole tradeoff — state it once to the author and move on; it is not a reason to rewrite working code.
+
+**Apply M-73 first.** `reg-event-db` / `reg-event-fx` are removed and `reg-event-ctx` is demoted (EP-0018); they survive only as façade stubs that raise `:rf.error/reg-event-db-removed` (and `-fx-removed` / `-ctx-removed`) at registration, aborting the rest of the namespace load. So run the **M-73** collapse to `reg-event` first. M-73 is a genuine migration target on **both** hosts; this rule then applies to the surviving `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` names.
+
+**Identify** (the shapes to classify, not a list of breakages):
 
 ```clojure
-(def my-reg rf/reg-event)         ; capturing the Var as a value — Type B
-(apply rf/reg-event [:id handler]) ; apply over a macro — Type A
-(map #(apply rf/reg-event %&) ...) ; same shape inside higher-order code — Type A
+(def my-reg rf/reg-event)          ; value position — CLJS: fine. JVM: Type B.
+(apply rf/reg-event [:id handler]) ; value position — CLJS: fine. JVM: Type B.
+(map #(apply rf/reg-event %) pairs); value position — CLJS: fine. JVM: Type B.
 ```
 
-**Risk**: `reg-*` are macros in v2; they can't be Var-aliased or `apply`d. The code fails at compile time. The fix shape depends on whether the higher-order use was essential (e.g. registering a generated list of handlers) or accidental (capturing the Var "just because").
-
-**Decision shape**:
+**Decision shape — JVM value-position hits only**:
 
 1. **Refactor to direct invocation**. The author has a list of `[id handler]` pairs; replace `(apply rf/reg-event pair)` with a macro of their own that expands to a sequence of direct `reg-event` calls.
-2. **Use the functional surface** (where it exists). Exactly two plain-fn partners ship, and they *can* be Var-aliased: `rf/reg-view*` (on the `re-frame.core` façade) and `re-frame.machines/reg-machine*` (in its owning namespace — it is **not** a façade export, so require `[re-frame.machines :as rf.machines]` and call `rf.machines/reg-machine*`). For `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx`, no such partner ships today. If the author truly needs the functional form, **file a GitHub issue against `day8/re-frame2`** rather than working around.
+2. **Call the owning-namespace fn.** Every registrar delegates to a plain fn that is callable from both hosts: `re-frame.events/reg-event`, `re-frame.subs/reg-sub`, `re-frame.fx/reg-fx`, `re-frame.cofx/reg-cofx`. Note this crosses **M-1** (an off-contract `re-frame.*` require), so it is a deliberate, reported exception rather than a default — prefer (1) where the registration list is known at compile time.
+3. **The two `*`-suffixed partners are a different mechanism, and they stay.** `rf/reg-view*` (on the `re-frame.core` façade) and `re-frame.machines/reg-machine*` (in its owning namespace — **not** a façade export, so require `[re-frame.machines :as rf.machines]` and call `rf.machines/reg-machine*`) exist because those two macros walk a literal form / `def` a Var, which a same-name value alias cannot do. There is deliberately **no** `reg-event*` / `reg-sub*` — Convention A covers those — so do **not** file an issue asking for one.
 
 ---
 

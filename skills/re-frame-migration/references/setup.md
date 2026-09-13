@@ -83,7 +83,15 @@ The point at M-0 is narrow: clear the dead 10x preload **now** so the post-M-0 c
                 [day8/re-frame2-reagent "<VERSION>"]]}
 ```
 
-If the project's `shadow-cljs.edn` reads deps from `deps.edn` (the default; `:deps true` or unspecified), edit `deps.edn` only — `shadow-cljs.edn` will pick up the change.
+**Shadow picks ONE dependency source, and it is not additive — read its mode before you edit anything.** `shadow-cljs` branches on two top-level keys in `shadow-cljs.edn`, in this order:
+
+| `shadow-cljs.edn` | Mode | The file Shadow actually reads |
+|---|---|---|
+| `:deps true` or `:deps {…}` (e.g. `{:aliases [:shadow]}`) | tools.deps | **`deps.edn` only.** Shadow's own `:dependencies` / `:source-paths` are **IGNORED** — it prints `WARNING: The configured :dependencies in shadow-cljs.edn were ignored! When using :deps they must be configured in deps.edn`. |
+| `:lein true` or `:lein {…}` (and no `:deps`) | Leiningen | **`project.clj` only**, with the same ignored-warning for Shadow's own lists. |
+| neither key present | standalone (**the default**) | **`shadow-cljs.edn`'s own `:dependencies` / `:source-paths`.** A `deps.edn` beside it is used by REPL/tooling but not by this build. |
+
+So a `shadow-cljs.edn` with **no** `:deps` key is the standalone case — editing `deps.edn` alone leaves the build resolving v1. Edit the file the selected mode reads; do not edit both "to be safe", which only hides which classpath is live. (Verified against shadow-cljs 3.4.10's own CLI: the tools.deps branch is taken only when `:deps` is truthy, and the classpath command branches identically.)
 
 ### `bb.edn` (Babashka)
 
@@ -190,7 +198,7 @@ In practice most v1 codebases add **none** of these: state machines, flows, mana
 
 ## Edge cases
 
-**`shadow-cljs.edn` with `:dependencies` AND `deps.edn` with `:deps` — which wins?** shadow-cljs reads from both; `:dependencies` in `shadow-cljs.edn` is additive. Update whichever currently holds the `re-frame/re-frame` coord — that's the one in scope. If both hold it (rare), update both.
+**`shadow-cljs.edn` with `:dependencies` AND a `deps.edn` — which wins?** The mode switch above decides, and the loser is **ignored, not merged**. With `:deps` set in `shadow-cljs.edn`, `deps.edn` (under the named aliases) is the whole classpath and Shadow's `:dependencies` are discarded with a warning — so a v1 coord left there is inert, and a v2 coord added there never arrives. With `:deps` absent, the reverse: Shadow's own `:dependencies` are the classpath and `deps.edn` is not read for this build. Update the list the selected mode reads; if the other file also holds a `re-frame/re-frame` coord, say so in the report (it is dead weight for the build but can still poison a REPL / test classpath that *does* read it) rather than treating "edit both" as the fix. Where the project genuinely wants to move modes, do the whole conversion explicitly — see the coordinate shapes in [`deps-versions.md` §Choosing the coordinate](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape) — and note that switching to `:deps` also moves `:source-paths` into `deps.edn`'s `:paths`.
 
 **Lein with `:profiles` overlays.** If the project pins `re-frame` in `:dependencies` and overrides it in `:profiles {:dev {:dependencies ...}}`, update both — the profile override would otherwise shadow the swap silently.
 
@@ -213,6 +221,7 @@ Excluding the *named* add-ons and re-compiling, only to still see `re-frame.core
 
 - **tools.deps (`deps.edn`):** `clojure -Stree` shows the full resolved tree — search the output for any `re-frame/re-frame` node (it should be absent; only `day8/re-frame2` + the adapter should appear). `clojure -Spath` prints the realised classpath — it must contain **no** `re-frame/re-frame` jar (look for a `re-frame/re-frame/<1.x.x>/…jar` Maven-cache path). For an `:aliases`-gated dev/test classpath, run the check **under the same aliases** the build uses (e.g. `clojure -A:dev -Stree`), because a leak can hide behind a profile/alias.
 - **Leiningen (`project.clj`):** `lein deps :tree` (and `lein with-profile +dev deps :tree` for profile overlays) — confirm no `[re-frame "1.x.x"]` node survives.
+- **Standalone shadow-cljs (no `:deps`, no `:lein`):** neither command above reads the build's classpath. Ask Shadow itself — `npx shadow-cljs classpath` — and confirm no `re-frame/re-frame` jar appears. This is also the check that catches a mode mix-up: if the output surprises you, or Shadow prints `The configured :dependencies in shadow-cljs.edn were ignored!`, you edited the wrong file.
 - **shadow-cljs:** `npx shadow-cljs classpath` (or inspect the resolved deps it prints on build) — grep the output for `re-frame/re-frame`. If shadow reads deps from `deps.edn`, the `clojure -Stree`/`-Spath` checks above are authoritative.
 
 Only once the check shows a single source of `re-frame.core` (v2) is it safe to compile. A surviving v1 jar means `re-frame.core` may resolve to v1 at compile/load time regardless of which coords you *think* you swapped.
