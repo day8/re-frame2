@@ -205,10 +205,15 @@
       ;; rather than whichever cascade happened to commit first. A no-op —
       ;; one map read — when nothing is armed, which is every ordinary
       ;; dispatch. Deliberately ahead of `skip-ops` and every routing branch
-      ;; below: this records identity, it buffers nothing.
+      ;; below: this records identity, it buffers nothing. The lineage parent
+      ;; rides along so a quiet caller's traced descendant — which reports
+      ;; first when the caller's own emit is suppressed — is told apart from
+      ;; the caller rather than adopted (rf2-1mudg).
       (when (and frame-id (= :rf.event/dispatched operation))
         (rf.epoch.state/note-observed-dispatch!
-          frame-id (:rf.trace/dispatch-id event-tags)))
+          frame-id
+          (:rf.trace/dispatch-id event-tags)
+          (:rf.trace/parent-dispatch-id event-tags)))
       ;; Any path below that can mutate epoch state first claims the id-keyed
       ;; stores for the exact live frame incarnation. This serialises a fresh
       ;; same-id B publication against stale A's final destroy hook.
