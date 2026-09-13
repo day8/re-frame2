@@ -27,6 +27,31 @@
 //                      response is clean and `afterChunks` is 0.
 //   `app/exits-torn` — a chunk has already reached the caller, so the
 //                      response is TORN and the count says so.
+//
+// AND AN EXIT BEFORE READINESS (rf2-gwye.23), which reaches the same `'exit'`
+// event in the one phase where no render is pending to be refused. It is
+// switched by an environment flag for the reason `flaky-boot.cjs` gives: a
+// worker takes its own copy of `process.env` when its thread is constructed,
+// so a flag set after the pool is up reaches the next REPLACEMENT and nothing
+// already running.
+//
+//   `eval`             — the thread exits (code 7) while this module is
+//                        being evaluated, before `boot` exists to be called.
+//   `boot`             — the `boot` hook exits with code 0. A clean exit is
+//                        still a startup that never finished.
+//   `boot-even-thread` — `boot` exits only on an even thread id. A pool
+//                        constructs its isolates back to back, so their ids
+//                        are consecutive and exactly one of a pair exits —
+//                        the only way to put a healthy sibling beside it.
+//
+// Never `require` this file in the test process with the flag armed: `eval`
+// would exit THAT thread, which is the whole test run.
+
+const { threadId } = require('node:worker_threads');
+
+const EXIT_AT_FLAG = 'RF2_SSR_NODE_EXIT_AT';
+const exitAt = process.env[EXIT_AT_FLAG];
+if (exitAt === 'eval') process.exit(7);
 
 const ENTRY = { stateAllowlist: [':for-exit'], runtimeAllowlist: [] };
 
@@ -36,6 +61,10 @@ module.exports = {
   entries: {
     'app/exits': ENTRY,
     'app/exits-torn': ENTRY,
+  },
+
+  boot() {
+    if (exitAt === 'boot' || (exitAt === 'boot-even-thread' && threadId % 2 === 0)) process.exit(0);
   },
 
   render({ entry }, emit) {
@@ -50,3 +79,5 @@ module.exports = {
     return new Promise(() => {});
   },
 };
+
+module.exports.EXIT_AT_FLAG = EXIT_AT_FLAG;

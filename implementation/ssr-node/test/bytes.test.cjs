@@ -344,3 +344,160 @@ test('the state ceiling also binds INSIDE the protocol, not only at the socket',
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// The edge's own failure modes (rf2-gwye.22, rf2-gwye.24, rf2-gwye.25)
+//
+// Three ways the transport used to fail a request the protocol beneath it
+// had no quarrel with. Each is a fact about HTTP rather than about the
+// service, which is why the rows live here.
+// ---------------------------------------------------------------------------
+
+const net = require('node:net');
+const { CODE } = require('../src/protocol.cjs');
+
+/**
+ * One raw HTTP/1.1 GET on its own socket, answered as text. `fetch` cannot
+ * send these targets at all — it parses the URL before it dials — so the
+ * request line is written by hand, as a misbehaving caller would write it.
+ */
+function rawGet(port, target) {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(port, '127.0.0.1', () => {
+      socket.end(`GET ${target} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n`);
+    });
+    let text = '';
+    socket.setEncoding('latin1');
+    socket.on('data', (chunk) => {
+      text += chunk;
+    });
+    socket.on('end', () => resolve(text));
+    socket.on('error', reject);
+    socket.setTimeout(5000, () => socket.destroy(new Error(`no answer to GET ${target}`)));
+  });
+}
+
+test('a target the URL parser refuses is a 400, and the SAME service keeps serving', async () => {
+  // The request listener parsed the target with no catch above it, so a
+  // target Node's HTTP parser accepts and the WHATWG URL constructor does
+  // not was an uncaught exception: one caller's bad request line took the
+  // whole sidecar down, and every render in flight with it. Before the fix
+  // this row does not fail — the process does.
+  await withService('chunked', { isolates: 1 }, async (service) => {
+    const http = await serve({ service, port: 0 });
+    const ok = { protocol: 1, entry: 'app/root', state: { ':bytes': '["<p>ok</p>"]' } };
+    try {
+      for (const target of ['//', 'http://[::1']) {
+        // CONTROL — the URL constructor really does refuse it, or there is
+        // nothing here to contain.
+        assert.throws(() => new URL(target, 'http://localhost'), { code: 'ERR_INVALID_URL' });
+
+        const raw = await rawGet(http.port, target);
+        assert.strictEqual(raw.split('\r\n')[0], 'HTTP/1.1 400 Bad Request', `${target}: ${raw}`);
+        // The discriminator. Node's own parser answers a request line it
+        // rejects with a bare 400 of its own, so this header is what shows
+        // the request got past the parser and into the listener.
+        assert.match(raw, /\r\nx-rf-ssr-refusal: :rf\.ssr-node\/malformed-request\r\n/i, target);
+
+        const health = await fetch(`http://127.0.0.1:${http.port}/health`);
+        assert.strictEqual(health.status, 200, `/health after ${target}`);
+        const render = await post(`http://127.0.0.1:${http.port}/render`, ok);
+        assert.strictEqual(render.status, 200, `a render after ${target}`);
+        assert.strictEqual(render.text, '<p>ok</p>');
+      }
+      // The routes the guard sits in front of are unchanged.
+      assert.strictEqual((await rawGet(http.port, '/missing')).split('\r\n')[0], 'HTTP/1.1 404 Not Found');
+    } finally {
+      await http.close();
+    }
+  });
+});
+
+test('a surrogate pair SPLIT across streamed chunks arrives as the bytes the buffered mode sends', async () => {
+  // `emit` takes strings and promises no code-point boundary, so a module
+  // splitting markup at a code-unit offset can hand the halves of one astral
+  // character to two chunks. Encoding each chunk alone turned each half into
+  // U+FFFD — a 200 whose bytes differed from the buffered response. The
+  // reference is the joined string's own UTF-8 rather than either mode, so
+  // the two cannot agree on a wrong answer; the unmatched surrogate is the
+  // control that the reference is Node's encoding and not a cleaned one.
+  const cases = [
+    ['a split pair', ['<p>\uD834', '\uDD1E</p>']],
+    ['an empty chunk between the halves', ['<p>\uD834', '', '\uDD1E</p>']],
+    ['several split pairs', ['\uD834', '\uDD1E\uD834', '\uDD1E<i>\uD83D', '\uDE00</i>']],
+    ['a high surrogate never matched', ['<p>', '\uD834']],
+  ];
+  await withService('chunked', { isolates: 1 }, async (service) => {
+    const http = await serve({ service, port: 0 });
+    try {
+      for (const [name, parts] of cases) {
+        const expected = Buffer.from(parts.join(''), 'utf8');
+        const body = { protocol: 1, entry: 'app/root', state: { ':bytes': JSON.stringify(parts) } };
+        const buffered = await post(`http://127.0.0.1:${http.port}/render`, body);
+        const streamed = await post(`http://127.0.0.1:${http.port}/render?stream=1`, body);
+        assert.strictEqual(buffered.status, 200, name);
+        assert.strictEqual(streamed.status, 200, name);
+        assert.strictEqual(buffered.buf.toString('hex'), expected.toString('hex'), `${name}: buffered`);
+        assert.strictEqual(streamed.buf.toString('hex'), expected.toString('hex'), `${name}: streamed`);
+        assert.strictEqual(buffered.headers.get('content-length'), String(expected.length), name);
+        assert.strictEqual(streamed.headers.get('content-length'), null, name);
+      }
+    } finally {
+      await http.close();
+    }
+  });
+});
+
+test('a requestId no HTTP header can carry is refused as a caller fault, before any render', async () => {
+  // HTTP echoes `requestId` in `x-rf-ssr-request`, and Node refuses a header
+  // value outside its character set at `writeHead` — which ran AFTER the
+  // render, so the answer was a `render-threw` 500 blaming a renderer that
+  // had succeeded. Every id below is a valid protocol string, and the first
+  // loop shows the in-process API still takes each one.
+  const ids = ['correlation-…', 'correlation-\u{1F600}', 'correlation\r\nx-injected: 1'];
+  const body = (requestId) => ({
+    protocol: 1,
+    entry: 'app/root',
+    requestId,
+    state: { ':bytes': '["<p>ok</p>"]' },
+  });
+  await withService('chunked', { isolates: 1 }, async (service) => {
+    for (const id of ids) {
+      assert.strictEqual((await service.renderToString(body(id))).requestId, id, 'in-process, any string correlates');
+    }
+    // The discriminator: every render the TRANSPORT asks for is counted, so
+    // "refused before the renderer" is observed rather than read off a status.
+    const rendered = [];
+    const renderFrames = service.renderFrames.bind(service);
+    service.renderFrames = (request) => {
+      rendered.push(request.requestId);
+      return renderFrames(request);
+    };
+    const http = await serve({ service, port: 0 });
+    try {
+      for (const id of ids) {
+        for (const selector of ['/render', '/render?stream=1']) {
+          const res = await post(`http://127.0.0.1:${http.port}${selector}`, body(id));
+          assert.strictEqual(res.status, 400, `${selector} ${JSON.stringify(id)}: ${res.text}`);
+          assert.strictEqual(res.headers.get('x-rf-ssr-refusal'), CODE.BAD_REQUEST_FIELD);
+          const frame = JSON.parse(res.text);
+          assert.strictEqual(frame.detail.field, 'requestId');
+          assert.strictEqual(frame.requestId, id, 'the refusal body still carries the token back');
+        }
+      }
+      assert.deepStrictEqual(rendered, [], 'no unrepresentable id may reach the renderer');
+
+      // CONTROL — an ASCII id still renders and is echoed in both modes, and
+      // the counter really does count.
+      for (const selector of ['/render', '/render?stream=1']) {
+        const res = await post(`http://127.0.0.1:${http.port}${selector}`, body('corr-ascii-1'));
+        assert.strictEqual(res.status, 200, res.text);
+        assert.strictEqual(res.headers.get('x-rf-ssr-request'), 'corr-ascii-1');
+        assert.strictEqual(res.text, '<p>ok</p>');
+      }
+      assert.deepStrictEqual(rendered, ['corr-ascii-1', 'corr-ascii-1']);
+    } finally {
+      await http.close();
+    }
+  });
+});
