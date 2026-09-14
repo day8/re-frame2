@@ -42,7 +42,15 @@
 
   Violations are stored in a local atom `frame-id → [violation ...]`
   keyed by the variant frame id. The right-panel component reads this
-  atom reactively."
+  atom reactively.
+
+  axe-core's INCOMPLETE results — checks it could not decide, such as
+  colour contrast over a background it cannot compute — are stored
+  beside them in `incomplete-by-frame`, never folded in. An incomplete
+  result is not a violation and not a failure, so it emits no warning
+  and never reaches `:rf.assert/a11y` or `:rf.assert/no-warnings`. It is
+  kept so a scan with no violations does not read as a clean bill while
+  axe left checks for a person to look at."
   (:require [clojure.string :as string]
             [reagent.core :as r]
             [re-frame.core :as rf]
@@ -61,6 +69,15 @@
          A violation is an axe-core result map with `:id`, `:impact`,
          `:description`, `:help`, `:nodes`."}
   violations-by-frame
+  (r/atom {}))
+
+(defonce
+  ^{:doc "Per-frame incomplete bag. `{frame-id → [result ...]}` — axe-core's
+         `incomplete` results, the same object shape as a violation. Kept
+         BESIDE `violations-by-frame` so neither the violations shape nor
+         anything reading it (the executor seam, `:rf.assert/no-warnings`)
+         changes: incomplete is shown and returned, never failed."}
+  incomplete-by-frame
   (r/atom {}))
 
 (defonce
@@ -103,7 +120,8 @@
   Why it matters that this runs at all. The violations bag holds raw
   axe-core violation objects, each referencing the offending elements
   through `:nodes` / `:target`; an entry that outlives its frame pins
-  that variant's DETACHED DOM subtree for the life of the page.
+  that variant's DETACHED DOM subtree for the life of the page. The
+  incomplete bag holds the same objects and is dropped with it.
 
   Dropping the slot also revokes any in-flight run's claim on it: the
   run's token lives IN the slot, so it no longer matches and the
@@ -111,6 +129,7 @@
   `stale-run?`)."
   [frame-id]
   (swap! violations-by-frame dissoc frame-id)
+  (swap! incomplete-by-frame dissoc frame-id)
   (swap! run-state           dissoc frame-id)
   nil)
 
@@ -146,6 +165,7 @@
   a specific opt-in shape should call `set-cdn-opt-in!` explicitly."
   []
   (reset! violations-by-frame {})
+  (reset! incomplete-by-frame {})
   (reset! run-state {})
   nil)
 
@@ -464,7 +484,9 @@
   context object.
 
   Per `005-SOTA-Features.md` §a11y, violations surface into `:rf.assert/no-warnings`
-  via the trace-warning hook."
+  via the trace-warning hook. axe-core's incomplete results are stored
+  beside them in `incomplete-by-frame` and emit no warning: they are
+  shown, not failed."
   ([frame-id]
    (run-axe! frame-id (find-variant-root frame-id)))
   ([frame-id context]
@@ -519,6 +541,7 @@
                                             (some? (.-nodeType context)))
                                    context)]
                    (swap! violations-by-frame assoc frame-id (vec (array-seq vs)))
+                   (swap! incomplete-by-frame assoc frame-id (vec (some-> (.-incomplete results) array-seq)))
                    (doseq [v (array-seq vs)]
                      (record-violation-overlay! scope-el v)
                      (emit-warning-for-violation frame-id v))
@@ -624,25 +647,58 @@
     "minor"    (:impact-minor styles)
     (:impact-moderate styles)))
 
+(defn scan-summary
+  "The line the panel shows for `frame-id` once its scan is done: the
+  violations count, then the incomplete count. Both are always named,
+  because a scan reading zero violations beside incomplete checks is not
+  a clean bill. The violations clause is worded as it always was, so a
+  reader keyed on it keeps working."
+  [frame-id]
+  (str (count (get @violations-by-frame frame-id [])) " violation(s) found in variant, "
+       (count (get @incomplete-by-frame frame-id [])) " incomplete"))
+
+(defn- first-target
+  "The first CSS selector axe-core attached to result `r`'s first node, or nil."
+  [^js r]
+  (let [nodes (.-nodes r)]
+    (when (and nodes (pos? (.-length nodes)))
+      (let [targets (.-target (aget nodes 0))]
+        (when (and targets (pos? (.-length targets)))
+          (aget targets 0))))))
+
+(defn incomplete-row
+  "One axe-core incomplete result: a check axe could not decide. Rendered
+  in the neutral secondary colour rather than a violation's impact colour,
+  because it is something to look at, not a failure."
+  [^js r]
+  (let [target (first-target r)]
+    [:div {:style             (merge (:violation styles)
+                                     {:background        "transparent"
+                                      :border-left-color "#888"
+                                      :color             (:text-secondary rf.story.theme.colors/tokens)})
+           :data-test         "story-a11y-incomplete"
+           :data-a11y-id      (.-id r)
+           :data-a11y-target  (or target "")}
+     [:div {:style (:v-help styles)} (.-help r)]
+     (when target
+       [:div {:style (:v-target styles)} (str "→ " target)])
+     [:div {:style {:color (:text-tertiary rf.story.theme.colors/tokens) :font-size (:micro rf.story.theme.typography/type-scale)}}
+      (str ":" (.-id r) " · " (count (.-nodes r)) " node(s) to check by hand")]]))
+
 (defn violation-row
   [^js v]
   (let [impact (.-impact v)
-        nodes  (.-nodes v)
-        first-target (when (and nodes (pos? (.-length nodes)))
-                       (let [n0 (aget nodes 0)
-                             targets (.-target n0)]
-                         (when (and targets (pos? (.-length targets)))
-                           (aget targets 0))))]
+        target (first-target v)]
     [:div {:style            (merge (:violation styles) (impact-style impact))
            :data-test        "story-a11y-violation"
            :data-a11y-id     (.-id v)
            :data-a11y-impact (or impact "")
            :data-a11y-help   (.-help v)
-           :data-a11y-target (or first-target "")}
+           :data-a11y-target (or target "")}
      [:div {:style (:v-help styles)} (.-help v)]
      [:div {:style (:v-desc styles)} (.-description v)]
-     (when first-target
-       [:div {:style (:v-target styles)} (str "→ " first-target)])
+     (when target
+       [:div {:style (:v-target styles)} (str "→ " target)])
      [:div {:style {:color (:text-tertiary rf.story.theme.colors/tokens) :font-size (:micro rf.story.theme.typography/type-scale)}}
       (str ":" (.-id v) " · " (or impact "moderate"))]]))
 
@@ -689,6 +745,7 @@
   [variant-id]
   (ensure-stylesheet!)
   (let [vs    (get @violations-by-frame variant-id [])
+        incomplete (get @incomplete-by-frame variant-id [])
         state (status-for variant-id)
         busy? (or (= state :loading) (= state :running))]
     [:div {:style (:wrap styles)}
@@ -715,7 +772,7 @@
         :error      "axe-core failed to load (offline, CSP, or SRI mismatch)"
         :no-root    "no variant mounted — switch to :dev mode and re-run"
         :no-consent "axe-core load needs your approval (see below)"
-        :done       (str (count vs) " violation(s) found in variant"))]
+        :done       (scan-summary variant-id))]
      (cond
        (= state :no-consent)
        [consent-prompt variant-id]
@@ -723,13 +780,19 @@
        (= state :idle)
        nil
 
-       (empty? vs)
-       [:div {:style (:empty styles)} "no violations"]
+       (and (empty? vs) (empty? incomplete))
+       [:div {:style (:empty styles)} "no violations, nothing incomplete"]
 
        :else
        [:div
         (for [[i v] (map-indexed vector vs)]
-          ^{:key i} [violation-row v])])]))
+          ^{:key i} [violation-row v])
+        (when (seq incomplete)
+          [:div
+           [:div {:style (merge (:section-h styles) {:margin-top "8px"})}
+            "incomplete: axe could not decide these, so check them by hand"]
+           (for [[i r] (map-indexed vector incomplete)]
+             ^{:key (str "incomplete-" i)} [incomplete-row r])])])]))
 
 ;; ---- panel registration -------------------------------------------------
 
