@@ -1,4 +1,4 @@
-shadow-cljs - config: C:\Users\miket\code\re-frame2\implementation\shadow-cljs.edn
+shadow-cljs - config: <HOME>\code\re-frame2\implementation\shadow-cljs.edn
 shadow-cljs - socket connect failed, server process dead?
 shadow-cljs - :dev-http http://localhost:8021 serving ["out/browser-test"]
 shadow-cljs - :dev-http http://localhost:8022 serving ["out/browser-test-schemas-boundary-prod"]

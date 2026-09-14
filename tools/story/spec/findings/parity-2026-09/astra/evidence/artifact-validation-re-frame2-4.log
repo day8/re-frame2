@@ -1,4 +1,4 @@
-gate root: C:\Users\miket\code\re-frame2
+gate root: <HOME>\code\re-frame2
 report.md: 3344 words
 parity-matrix.md: 1825 words
 evaluation-plan.md: 3301 words
@@ -8,7 +8,7 @@ evidence\sibling-synthesis.md: 1288 words
 evidence\source-map.md: 506 words
 evidence\fable-mcp-receipt\README.md: 112 words
 {
-  "root": "C:\\Users\\miket\\code\\re-frame2",
+  "root": "<HOME>\\code\\re-frame2",
   "files": 8,
   "localLinks": 163,
   "tableRows": 155,

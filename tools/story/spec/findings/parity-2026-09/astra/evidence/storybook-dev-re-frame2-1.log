@@ -2,7 +2,7 @@ node:internal/modules/cjs/loader:1424
   throw err;
   ^
 
-Error: Cannot find module 'C:\Users\miket\code\re-frame2\ai\findings\Story\astra\evidence\storybook-fixture\node_modules\storybook\bin\index.cjs'
+Error: Cannot find module '<HOME>\code\re-frame2\ai\findings\Story\astra\evidence\storybook-fixture\node_modules\storybook\bin\index.cjs'
     at Module._resolveFilename (node:internal/modules/cjs/loader:1421:15)
     at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
     at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)

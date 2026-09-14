@@ -39,7 +39,7 @@ Record commands, absolute checkout roots, dependency versions, exit codes, skips
 
 ## Environment and artifacts
 
-All commands ran against `C:/Users/miket/code/re-frame2`, with no tracked production changes. Findings and fixtures are ignored local artifacts. Windows 11 Home 10.0.26200, Intel Core Ultra 9 275HX (24 logical processors), Node 24.13.0, Temurin Java 21.0.10, Playwright 1.59.1, and its Chromium 147.0.7727.15 were used. Browser journey screenshots use 1440×1000. Existing repository dependencies and compiler caches were present. This is one machine and exploratory samples, not a controlled speed comparison.
+All commands ran against `<HOME>/code/re-frame2`, with no tracked production changes. Findings and fixtures are ignored local artifacts. Windows 11 Home 10.0.26200, Intel Core Ultra 9 275HX (24 logical processors), Node 24.13.0, Temurin Java 21.0.10, Playwright 1.59.1, and its Chromium 147.0.7727.15 were used. Browser journey screenshots use 1440×1000. Existing repository dependencies and compiler caches were present. This is one machine and exploratory samples, not a controlled speed comparison.
 
 Story used `:examples/login-form` and its actual Reagent-hosted UI. The root launch URL returned HTTP 404; `/index.html?variant=story.login-form%2Ferror#/stories` worked. The compiler logged 760 files, 540 compiled, zero warnings, 28.57 seconds. Storybook used the [isolated React fixture](evidence/storybook-fixture/package.json) with its retained lockfile. Its package install reported 226 packages in 24 seconds. Both startup contexts differ too much to rank performance.
 
@@ -78,22 +78,22 @@ Prerequisites: the recorded checkout/dependencies, a working JDK/CLJS toolchain,
 
 ```powershell
 # Story watcher: separate terminal/process, cwd must be implementation.
-Set-Location C:/Users/miket/code/re-frame2/implementation
-node C:/Users/miket/code/re-frame2/implementation/node_modules/shadow-cljs/cli/runner.js watch :examples/login-form
+Set-Location <HOME>/code/re-frame2/implementation
+node <HOME>/code/re-frame2/implementation/node_modules/shadow-cljs/cli/runner.js watch :examples/login-form
 
 # Storybook: separate terminal/process.
-Set-Location C:/Users/miket/code/re-frame2/ai/findings/Story/astra/evidence/storybook-fixture
+Set-Location <HOME>/code/re-frame2/ai/findings/Story/astra/evidence/storybook-fixture
 npm ci --no-audit --no-fund
-node C:/Users/miket/code/re-frame2/ai/findings/Story/astra/evidence/storybook-fixture/node_modules/storybook/dist/bin/dispatcher.js dev --port 6106 --ci --no-open --disable-telemetry
+node <HOME>/code/re-frame2/ai/findings/Story/astra/evidence/storybook-fixture/node_modules/storybook/dist/bin/dispatcher.js dev --port 6106 --ci --no-open --disable-telemetry
 
 # Browser observations: repo root is required by these scratch scripts.
-Set-Location C:/Users/miket/code/re-frame2
-node C:/Users/miket/code/re-frame2/ai/findings/Story/astra/evidence/story-journeys.cjs
-node C:/Users/miket/code/re-frame2/ai/findings/Story/astra/evidence/story-public-run.cjs
-node C:/Users/miket/code/re-frame2/ai/findings/Story/astra/evidence/story-roundtrip-probes.cjs
-node C:/Users/miket/code/re-frame2/ai/findings/Story/astra/evidence/story-a11y.cjs
-node C:/Users/miket/code/re-frame2/ai/findings/Story/astra/evidence/storybook-journeys.cjs
-node C:/Users/miket/code/re-frame2/ai/findings/Story/astra/evidence/sibling-followup.cjs
+Set-Location <HOME>/code/re-frame2
+node <HOME>/code/re-frame2/ai/findings/Story/astra/evidence/story-journeys.cjs
+node <HOME>/code/re-frame2/ai/findings/Story/astra/evidence/story-public-run.cjs
+node <HOME>/code/re-frame2/ai/findings/Story/astra/evidence/story-roundtrip-probes.cjs
+node <HOME>/code/re-frame2/ai/findings/Story/astra/evidence/story-a11y.cjs
+node <HOME>/code/re-frame2/ai/findings/Story/astra/evidence/storybook-journeys.cjs
+node <HOME>/code/re-frame2/ai/findings/Story/astra/evidence/sibling-followup.cjs
 ```
 
 These scratch scripts are evidence collectors and can exit zero while recording a product defect. Read their JSON assertions/statuses. Preserve original evidence before rerunning because their JSON/screenshot output names are fixed. Temporary registrations exist only in the browser runtime. The scripts create fresh browser contexts; startup help and first-use axe opt-in are intentional steps.
@@ -101,10 +101,10 @@ These scratch scripts are evidence collectors and can exit zero while recording 
 For the automated Storybook control, the executed command was the fixture's local Vitest CLI with JSON reporting. This example uses fresh attempt **3** after the two retained research attempts; increment again on any subsequent run. The fixture config names its story project and the JSON names each actual story; verify those paths and test counts before accepting an exit code.
 
 ```powershell
-Set-Location C:/Users/miket/code/re-frame2/ai/findings/Story/astra/evidence/storybook-fixture
-node C:/Users/miket/code/re-frame2/ai/findings/Story/astra/evidence/storybook-fixture/node_modules/vitest/vitest.mjs run --reporter=json --outputFile=C:/Users/miket/code/re-frame2/ai/findings/Story/astra/evidence/storybook-tests-attempt-3.json > C:/Users/miket/code/re-frame2/ai/findings/Story/astra/evidence/storybook-tests-re-frame2-3.log 2>&1
+Set-Location <HOME>/code/re-frame2/ai/findings/Story/astra/evidence/storybook-fixture
+node <HOME>/code/re-frame2/ai/findings/Story/astra/evidence/storybook-fixture/node_modules/vitest/vitest.mjs run --reporter=json --outputFile=<HOME>/code/re-frame2/ai/findings/Story/astra/evidence/storybook-tests-attempt-3.json > <HOME>/code/re-frame2/ai/findings/Story/astra/evidence/storybook-tests-re-frame2-3.log 2>&1
 $storyTestExit = $LASTEXITCODE
-Set-Content C:/Users/miket/code/re-frame2/ai/findings/Story/astra/evidence/storybook-tests-re-frame2-3.exit $storyTestExit
+Set-Content <HOME>/code/re-frame2/ai/findings/Story/astra/evidence/storybook-tests-re-frame2-3.exit $storyTestExit
 ```
 
 Expected result remains **exit 1 with exactly the deliberate failure**. The retained successful investigation is [attempt 2 log](evidence/storybook-tests-re-frame2-2.log), [exit](evidence/storybook-tests-re-frame2-2.exit), and [JSON](evidence/storybook-tests-auto-annotations.json). This independent fixture is not a repository gate; no broad repository suite was run for ignored research documents. For future repository gates, use absolute paths and the required checkout banner or deliberate negative control, and retain unique ignored log/exit pairs.

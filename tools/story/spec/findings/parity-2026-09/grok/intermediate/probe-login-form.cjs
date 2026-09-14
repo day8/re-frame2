@@ -1,7 +1,7 @@
 'use strict';
 // Playwright probe of the login-form Story shell. Read-only.
 const { chromium } = require(require('path').join(
-  'C:/Users/miket/code/re-frame2/implementation/node_modules/playwright'
+  '<HOME>/code/re-frame2/implementation/node_modules/playwright'
 ));
 const fs = require('fs');
 const path = require('path');
