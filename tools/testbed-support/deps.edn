@@ -18,5 +18,12 @@
  {:test {:extra-paths ["test"]
          :extra-deps  {day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}
                        io.github.cognitect-labs/test-runner
-                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}
+                       ;; The server namespace requires `shadow.http.push-state`,
+                       ;; shadow's own `:dev-http` default, and its tests call the
+                       ;; real one. Under `shadow-cljs server`/`watch` the launcher
+                       ;; supplies this jar itself, so only the JVM test classpath
+                       ;; needs the pin. Version tracks implementation/package.json's
+                       ;; `shadow-cljs` entry, like every other pin of it in the tree.
+                       thheller/shadow-cljs {:mvn/version "3.4.10"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}

@@ -40,11 +40,12 @@ The commands are:
 | Screenshot | A PNG of the canvas. |
 | Static build | The command for producing a standalone Story site. |
 
-The browser address bar is already meaningful. Selecting
-`:story.login/error` produces a URL like:
+The browser address bar is already meaningful. Selecting the error state in the
+login-form testbed from [chapter 1](01-first-variant.md), where it is registered
+as `:story.login-form/error`, produces a URL like:
 
 ```text
-http://localhost:8041/?variant=story.login%2Ferror#/stories
+http://localhost:8043/?variant=story.login-form%2Ferror#/stories
 ```
 
 That is a small thing, but small things matter. If a tool has a stateful UI and
