@@ -67,7 +67,8 @@
             [re-frame.story.ui.sidebar-signals :as rf.story.ui.sidebar-signals]
             [re-frame.story.ui.sidebar-styles :refer [styles]]
             [re-frame.story.ui.state          :as rf.story.ui.state]
-            [re-frame.story.ui.watch          :as rf.story.ui.watch]))
+            [re-frame.story.ui.watch          :as rf.story.ui.watch]
+            [re-frame.story.ui.workspace      :as rf.story.ui.workspace]))
 
 ;; Styles live in `re-frame.story.ui.sidebar-styles` (pure-data leaf,
 ;; no Reagent dep). Required as `styles` above so the in-file call
@@ -619,18 +620,20 @@
   #{:grid :variants-grid :tabs})
 
 (defn workspace-grid-grouping
-  "Pure data → data: the variants-grid grouping summary for a workspace
-  `body`, or nil when the workspace is not a grid layout. Returns
-  `{:layout <kw> :count <n>}` — `:count` is the number of cells the grid
-  enumerates (the body's `:variants` count; a `:variants-grid` that
-  enumerates from the registry reports its explicit `:variants` count when
-  present, else 0). Lets the sidebar render a compact 'GRID · N' header so
-  a generated / matrix grid reads as one group rather than loose siblings.
-  Public so the JVM + CLJS test corpus can exercise the projection."
-  [body]
+  "The variants-grid grouping summary for the workspace `body` registered
+  under `workspace-id`, or nil when the workspace is not a grid layout.
+  Returns `{:layout <kw> :count <n>}` — `:count` is the number of cells the
+  grid actually renders: the cell vector `rf.story.ui.workspace/resolve-layout`
+  produces for the same workspace. A `:variants-grid` enumerates its anchor
+  story's variants from the registry (`:for`, or the `Workspace.<path>` id)
+  and carries no `:variants` slot, so counting that slot read 0 for a grid
+  rendering five cells. Lets the sidebar render a compact 'GRID · N' header
+  so a generated / matrix grid reads as one group rather than loose
+  siblings. Public so the test corpus can exercise the projection."
+  [workspace-id body]
   (when (and (map? body) (contains? grid-layouts (:layout body)))
     {:layout (:layout body)
-     :count  (count (:variants body))}))
+     :count  (count (rf.story.ui.workspace/resolve-layout workspace-id body))}))
 
 (defn- workspace-row
   [workspace-id selected? body]
@@ -639,7 +642,7 @@
                      (fn [s] (-> s
                                  (rf.story.ui.state/select-workspace workspace-id)
                                  (rf.story.ui.state/select-variant nil)))))
-        grouping (workspace-grid-grouping body)]
+        grouping (workspace-grid-grouping workspace-id body)]
   [:<>
    ;; rf2-ba86n.4 — variants-grid grouping affordance (spec/018 §7.1). A
    ;; grid workspace leads with a compact group header naming its layout +
