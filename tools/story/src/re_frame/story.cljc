@@ -1611,10 +1611,24 @@
   parent chain, composed fragments/checks, field-level merge decisions,
   strict conflicts, args + substitutions, view-arg schema + effective-args
   validation, final setup/script order, checks/assertions, runner
-  requirements, platforms, tags). Convenience over
-  `(:explain (variant-plan target opts))`."
-  ([target]      (rf.story.plan/explain target))
-  ([target opts] (rf.story.plan/explain target opts)))
+  requirements, platforms, tags).
+
+  Explains the scenario `run` executes. For a keyword `target` (a registered
+  variant) the ambient + per-run arg layers — global-args, the parent story's
+  `:args`, and any `:active-modes` / `:cell-overrides` in `opts` — are folded
+  in through `rf.story.args/run-arg-layers`, so `:args` / `:effective-args`
+  match `effective-args` and the run result (rf2-noxox); a caller-supplied
+  `:run-args` wins. A map `target` (an inline plan) runs with no ambient
+  layers and is explained the same way. The bare compile stays explicit:
+  `(:explain (variant-plan target opts))` carries the variant-chain arg layer
+  alone."
+  ([target] (explain target nil))
+  ([target opts]
+   (rf.story.plan/explain
+     target
+     (if (and (keyword? target) (not (contains? opts :run-args)))
+       (assoc opts :run-args (rf.story.args/run-arg-layers target opts))
+       opts))))
 
 (defn render-variant
   "Per spec/017 §Args, controls, and `render-variant` — render `target`'s
