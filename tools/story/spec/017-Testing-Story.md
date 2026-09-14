@@ -3154,6 +3154,19 @@ provenance view: the replayable + identifying core (`:artifact/kind`,
 it came from and re-derive the run; it does not drag a full epoch tape
 into the registrar side-table.
 
+**Source intent.** A promotion MUST preserve the judgement of the variant
+the artifact was captured from, so a promoted regression fails for the
+reason its source failed. When the artifact records its source variant
+(`[:source :variant/id]` or `[:result :variant/id]`) and that variant is
+registered, the promoted body carries the source's own terminal
+`:assertions` and `:checks`. When the artifact holds only the
+dispatch-only projection of the source's step program, as a Test-mode
+capture does, the body carries the source's full step program instead, so
+interactions, waits and `[:assert …]` checkpoints survive. This happens at
+the promotion boundary only: ordinary `:extends` inheritance is unchanged,
+and terminal assertions and `:script` stay child-only. An artifact that
+records no registered source is promoted as captured.
+
 ## Run artifact and replay
 
 The `:rf.test/run-artifact` shape (§Artifacts — Run artifact) is the
