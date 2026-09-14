@@ -822,7 +822,7 @@ inspects. It is the frame-scoped sibling of the handler-scoped
 the gate survives hot-reload. This config is NOT a `configure!` key — it
 is a framework `make-frame` option Xray sets internally. See
 [framework API §`:rf.trace/frame-no-emit?`](../../../spec/API.md) +
-[`013-Trace-Consumer.md` §Tool-frame trace gate](./013-Trace-Consumer.md). (Xray
+[`013-Trace-Consumer.md` §Framework-side: emission suppressed at source](./013-Trace-Consumer.md#framework-side-emission-suppressed-at-source). (Xray
 adds a second, ingest-side belt-and-braces drop for the residual cases
 the frame gate misses — see 013.)
 
