@@ -28,10 +28,10 @@ clojure -Tnew create :template io.github.day8/re-frame2-template \
         :name acme/my-app
 ```
 
-What lands is a twelve-file counter SPA: `deps.edn`, `shadow-cljs.edn`,
+What lands is a thirteen-file counter SPA: `deps.edn`, `shadow-cljs.edn`,
 `package.json`, a short `README.md`, `.gitignore`, the host page and its
 stylesheet, `core.cljs` / `events.cljs` / `subs.cljs` / `views.cljs`,
-and one focused `events_test.cljs`. A programmer, or the agent working
+`stories.cljs` for Story, and one focused `events_test.cljs`. A programmer, or the agent working
 with them, can read it in one sitting, run it, test it, release it, and
 replace the counter with their first feature. See
 [002-Generated-Shape.md](002-Generated-Shape.md).
@@ -74,10 +74,15 @@ and recognises the shape. That continuity is deliberate.
   `shadow-cljs watch app` immediately — no follow-up edits required.
 - **Small enough to read and replace.** The scaffold contains the
   counter dataflow and the lifecycle facts needed to edit it, and
-  nothing that the app has not asked for. Everything else — devtools,
-  the component playground, schemas, HTTP, SSR, styling frameworks,
-  linters, CI — attaches afterwards through its own documented recipe,
-  which the generated README's next-steps section links.
+  nothing that the app has not asked for, bar Story (below). Everything
+  else — devtools, schemas, HTTP, SSR, styling frameworks, linters, CI —
+  attaches afterwards through its own documented recipe, which the
+  generated README's next-steps section links.
+- **Story from the first run.** The dev build serves Story, the
+  component playground, at `#/stories`: one story, one variant, a
+  schema-derived control and a passing Test run, with no edit. A
+  release never carries it. See [DESIGN-RATIONALE §10](DESIGN-RATIONALE.md),
+  its 2026-09-14 amendment.
 - **Substrate-agnostic shell, substrate-specific views.** Events,
   subs, the build config and the host page are shared; only the entry
   point, the view and the substrate's coordinates differ.
@@ -100,13 +105,14 @@ and recognises the shape. That continuity is deliberate.
   carried (Story, SSR, Tailwind CSS) are gone, and no `:include-xray?`
   or `:minimal?` replaces them; a second template or a prompt sequence
   is out of scope in the same way. Every capability
-  beyond the counter is a post-generation step, and a future substrate
+  beyond the counter and its story is a post-generation step, and a future substrate
   arrives as a new VALUE of `:substrate`, never as a second key. See
   [DESIGN-RATIONALE §10](DESIGN-RATIONALE.md) for why.
-- **Bundling devtools or the playground by default.**
-  [Xray](../../xray/) and [Story](../../story/) each attach through their
-  own installation page in a few edits; the scaffold links those pages
-  rather than pre-wiring either.
+- **Bundling devtools by default.** [Xray](../../xray/) attaches through
+  its own installation page in a few edits; the scaffold links that page
+  rather than pre-wiring it. [Story](../../story/) is the exception, and
+  it is wiring rather than a flag: every scaffold carries it, on the dev
+  build only.
 - **Multi-frame scaffolds.** Frames (Spec 002) are a runtime concern.
   The template emits a single-frame app.
 - **Server-side hosting.** The scaffold is a pure client-side SPA.

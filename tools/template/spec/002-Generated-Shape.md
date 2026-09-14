@@ -6,15 +6,15 @@
 
 ## What lands in the user's directory
 
-For `:name acme/my-app` on either substrate — twelve files:
+For `:name acme/my-app` on either substrate — thirteen files:
 
 ```
 my-app/
 ├── .gitignore
 ├── README.md                 run / test / release / what is here / next steps
-├── deps.edn                  re-frame2 + the substrate adapter + view library; :shadow alias
-├── package.json              react + react-dom + shadow-cljs; watch / release / test scripts
-├── shadow-cljs.edn           :app (watch / release) + :test (:node-test) builds
+├── deps.edn                  re-frame2 + the substrate adapter + view library; :shadow + :dev aliases
+├── package.json              react + react-dom + shadow-cljs + Story's @xyflow/react + elkjs; scripts
+├── shadow-cljs.edn           :app (watch / release; :dev boots stories/init) + :test builds
 ├── resources/public/
 │   ├── index.html            host page; loads /js/main.js + /css/app.css
 │   └── css/app.css           a handful of rules
@@ -22,25 +22,31 @@ my-app/
 │   ├── core.cljs             installs the adapter; mount! is the ^:dev/after-load hook
 │   ├── events.cljs           :counter/initialise, :counter/increment
 │   ├── subs.cljs             :counter/value
-│   └── views.cljs            the counter view (substrate-specific)
+│   ├── views.cljs            the counter view (substrate-specific)
+│   └── stories.cljs          the dev entry + the counter's story (substrate-specific)
 └── test/acme/my_app/
     └── events_test.cljs      cljs.test over the events + sub, under the plain-atom adapter
 ```
 
-The set is the same for `:reagent` and `:uix`; `deps.edn`, `core.cljs`
-and `views.cljs` differ in content
+The set is the same for `:reagent` and `:uix`; `deps.edn`, `core.cljs`,
+`views.cljs` and `stories.cljs` differ in content
 ([001-Substrate-Variants.md](001-Substrate-Variants.md) §What each
 variant emits). The suite pins this manifest as a set EQUALITY per
 substrate, so a file reappearing is as red as one going missing.
 
 `deps.edn` carries two framework coordinates — `day8/re-frame2` and the
-adapter — on one `{{rf2-version}}` pin, the substrate's view library, and
-a deps-only `:shadow` alias (shadow-cljs on the classpath, `test/` on
-`:extra-paths`). `shadow-cljs.edn` reads its classpath from that alias.
-`package.json` declares `shadow-cljs`, `react` and `react-dom` at the
-lockstep pins and nothing else. Nothing in the tree names Xray, Story,
-SSR, schemas, machines, a linter, a formatter, a hook manager or a CI
-provider.
+adapter — on one `{{rf2-version}}` pin, the substrate's view library, a
+deps-only `:shadow` alias (shadow-cljs on the classpath, `test/` on
+`:extra-paths`), and a `:dev` alias carrying Story, `day8/re-frame2-story`,
+as a `:local/root` into a re-frame2 checkout beside the project until
+Story is published. `shadow-cljs.edn` reads its classpath from both
+aliases; its `:app` build's `:dev` override boots
+`{{namespace}}.stories/init` in `watch` and `compile`, and a release
+boots `{{namespace}}.core/init`, which never requires Story.
+`package.json` declares `shadow-cljs`, `react`, `react-dom` and Story's
+`@xyflow/react` and `elkjs` at the lockstep pins and nothing else.
+Nothing in the tree names Xray, SSR, schemas, machines, a linter, a
+formatter, a hook manager or a CI provider.
 
 ## The counter
 
@@ -59,6 +65,20 @@ shape the developer reads about in [the Guide — app-db](../../../docs/core/app
 and the canonical
 [`examples/core/counter`](../../../examples/core/counter/)
 example.
+
+## Story
+
+`stories.cljs` registers one story, `:story.counter`, over the
+`counter-app` view with `{:heading "Counter"}` as its args, and one
+variant, `:story.counter/clicked-twice`, whose `:setup` seeds the
+counter and increments it twice and whose `:script` asserts
+`[:counter/value]` is `2` (tags `#{:dev :docs :test}`). The view's
+`:rf/props` schema, `[:map [:heading {:optional true} :string]]`, is
+what Story derives the `:heading` control from. The exported `init`
+mounts the Story shell when the page opens on `#/stories` — renaming
+the `#app` node first, so `core/mount!`'s after-load re-render finds no
+node to paint over the shell — and calls `core/init` on every other
+page.
 
 ## Hot-reload contract
 
@@ -120,8 +140,8 @@ tools/template/
     │   ├── events.cljs                   ; emitted under src/<nested-dirs>/
     │   ├── subs.cljs
     │   └── events_test.cljs              ; emitted under test/<nested-dirs>/
-    ├── _reagent/                         ; deps.edn / core.cljs / views.cljs
-    └── _uix/                             ; deps.edn / core.cljs / views.cljs
+    ├── _reagent/                         ; deps.edn / core.cljs / views.cljs / stories.cljs
+    └── _uix/                             ; deps.edn / core.cljs / views.cljs / stories.cljs
 ```
 
 `root/` files are bulk-copied by deps-new's `:root` mechanism with
@@ -198,6 +218,8 @@ the template's own additions.
 | `{{rf2-version}}` | re-frame2 framework coord version | `0.0.1.alpha` |
 | `{{shadow-version}}` | shadow-cljs pin | `3.4.10` |
 | `{{react-version}}` | react & react-dom pin | `19.2.0` |
+| `{{xyflow-version}}` | `@xyflow/react` pin — Story's shell embeds Xray's machine canvas | `12.4.2` |
+| `{{elkjs-version}}` | `elkjs` pin — that canvas's layout engine | `0.11.1` |
 
 `{{namespace}}` and `{{nested-dirs}}` are explicitly derived in
 `data-fn` rather than relying on the `->subst-map` later stage —
@@ -212,8 +234,8 @@ selection in `template-fn`.
 
 ## Pin lockstep
 
-`:rf2-version`, `:shadow-version`, and `:react-version` are defined
-inline in `data-fn` (see
+`:rf2-version`, `:shadow-version`, `:react-version`, `:xyflow-version`
+and `:elkjs-version` are defined inline in `data-fn` (see
 [`src/day8/re_frame2_template/hooks.clj`](../src/day8/re_frame2_template/hooks.clj)).
 They are bumped in lockstep with the repo-root `VERSION` and
 `implementation/package.json` per
@@ -225,6 +247,9 @@ They are bumped in lockstep with the repo-root `VERSION` and
 - `:react-version` matches `implementation/package.json`
   :devDependencies/react (and react-dom — those two are kept
   pinned together).
+- `:xyflow-version` and `:elkjs-version` match the base versions of
+  `implementation/package.json`'s `@xyflow/react` and `elkjs`, the
+  versions Story is built and tested against.
 
 The view-library pins (`reagent/reagent`, `com.pitch/uix.core`) and the
 Clojure / ClojureScript pins live in the per-substrate `deps.edn`

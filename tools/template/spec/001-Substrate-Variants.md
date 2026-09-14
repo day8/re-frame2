@@ -16,9 +16,9 @@ example targets first. UIx is equally supported; the choice is the
 developer's, surfaced via the `:substrate` top-level k/v argument.
 
 `:substrate` is the template's **one and only selector**. Every value
-of it emits the same twelve-file manifest
+of it emits the same thirteen-file manifest
 ([002-Generated-Shape.md](002-Generated-Shape.md)); the value swaps
-exactly three of those files.
+exactly four of those files.
 
 ## Invocation form
 
@@ -84,6 +84,12 @@ Both variants emit the same project shape. The substrate choice swaps:
   `init`.
 - `views.cljs` — the counter view. Reagent uses `rf/reg-view` and
   hiccup; UIx uses `defui` with `$`, `use-sub` and `use-frame`.
+- `stories.cljs` — the dev build's entry and the counter's story. Both
+  install their own adapter on `#/stories` and hand every other page to
+  `core/init`. Reagent's story names a `reg-view` whose `:rf/props`
+  schema sits on the view; UIx registers the `defui` with
+  `rf/reg-view*` and that schema, and gives Story a `:uix` render
+  function.
 
 The other nine files are substrate-invariant: `events.cljs`,
 `subs.cljs`, `events_test.cljs`, `shadow-cljs.edn`, `package.json` and
@@ -117,7 +123,7 @@ and the resource tree:
    `valid-substrates` is derived from that map.
 2. A resource sub-tree at
    `resources/day8/re_frame2_template/_<substrate>/` holding its
-   `deps.edn`, `core.cljs` and `views.cljs`.
+   `deps.edn`, `core.cljs`, `views.cljs` and `stories.cljs`.
 3. One arm in `template-fn`'s `case`, naming that tree.
 
 Then run the suite: the shape, static-parse and behavioural tests are

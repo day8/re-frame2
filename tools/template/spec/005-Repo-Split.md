@@ -95,9 +95,10 @@ github.com/day8/re-frame2-template/        ; external repo (NEW) — the TEMPLAT
 
 <framework root>/                          ; a day8/re-frame2 checkout, consumed as a TEST FIXTURE
 ├── VERSION                                ; the FRAMEWORK version — the :rf2-version lockstep target
-├── skills/re-frame2-setup/references/     ; first-counter.md — the twelve-file leaf parity fixture
+├── skills/re-frame2-setup/references/     ; first-counter.md — the thirteen-file leaf parity fixture
+├── tools/story/                           ; src (surface audit) + the :dev Story coordinate
 └── implementation/
-    ├── package.json                       ; react / react-dom / shadow-cljs pins
+    ├── package.json                       ; react / react-dom / shadow-cljs / @xyflow/react / elkjs pins
     ├── node_modules/                      ; populated by `npm ci`; junctioned into every emitted project
     ├── core/                              ; deps.edn (clojure/clojurescript pins) + src/re_frame (surface audit)
     └── adapters/reagent/, adapters/uix/   ; deps.edn (substrate pins) + src (surface audit)
@@ -386,18 +387,17 @@ a loud message in the fast local loop — the idiom
 not acceptable for any tier in the table above: they are the pin, surface
 and behavioural coverage the release gate rests on.
 
-**Retired coupling, removed from this plan.** Earlier drafts of this
-section listed dependencies the suite no longer has: that
-`template_emission_test.clj` resolves emitted symbols against
-`tools/story/src/`, and that `emitted_test_run_test.clj` rewrites the
-generated `deps.edn` to `:local/root` paths under `tools/xray` and
-`tools/story`. Neither holds today. The emission audit resolves against
-`implementation/core/src/re_frame` and the per-substrate adapter sources
-only; the deps rewrite touches exactly two coordinates, `day8/re-frame2`
-and the substrate adapter. Story, Xray and the schema coordinates survive
-in `template_test.clj` only as **retired-coord guards** — assertions that
-the emitted app does *not* carry them — so they are contract to keep, not
-a dependency to migrate. Likewise the `root/` bulk-copy holds `README.md`
+**Story coupling, restored (rf2-1bkoc).** Earlier drafts of this
+section listed two dependencies the suite then shed and now has again:
+`template_emission_test.clj` resolves the emitted `stories.cljs`'s
+`re-frame.story` symbols against `tools/story/src/`, and
+`emitted_test_run_test.clj` rewrites the generated `deps.edn`'s Story
+coordinate to a `:local/root` under `tools/story`, beside core and the
+substrate adapter. The split has to carry both: the framework fixture
+must include `tools/story`. Xray and the schema coordinates survive in
+`template_test.clj` only as **retired-coord guards** — assertions that
+the emitted app does *not* carry them — so they are contract to keep,
+not a dependency to migrate. Likewise the `root/` bulk-copy holds `README.md`
 and `resources/public/` only: the Lefthook and `dev/` entries earlier
 drafts inventoried are not in the tree, and no SSR artefact is emitted.
 
@@ -611,7 +611,7 @@ and the test-architecture setup per §3.2.1):
      - **emitted-tree contract** (`template_test`) — including the
        retired-coord guards;
      - **setup-leaf parity** (`emitted_test_run_test`) — the emitted
-       Reagent tree against the twelve-file manifest in
+       Reagent tree against the thirteen-file manifest in
        `skills/re-frame2-setup/references/first-counter.md`;
      - **behavioural compile / run + browser** (`emitted_test_run_test`)
        — compile the emitted app against `:local/root` framework paths,
