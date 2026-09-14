@@ -94,6 +94,28 @@ global < mode < story < variant < live control override
 That gives you the Storybook globals gesture without hiding it in code. A mode
 is just named data.
 
+## A decorator for every story
+
+Storybook keeps project-wide wrappers such as a theme provider in `preview.ts`.
+In Story it is one registration, made once in your stories namespace:
+
+```clojure
+(story/reg-global-decorator :app/theme
+  {:kind :hiccup
+   :wrap (fn [body _args] [:div.app-theme body])})
+```
+
+Every variant now renders inside `:app/theme`. Globals are the outermost layer,
+so the stack reads global, then story, then variant, with the earliest-registered
+global outermost. The difference from `preview.ts` is that the chain is data,
+not a module: `story/variant-plan` carries the resolved stack under
+`[:world :decorators]`, and Docs mode's Decorators table lists the global first.
+Explain does not show decorators yet. Neither `story/explain` nor the Explain
+panel lists the stack, so check the plan or Docs mode when you want to know what
+wraps a variant. The
+[registration reference](api/registration.md#reg-global-decorator) covers
+`clear-global-decorator` and the `configure!` form.
+
 ## Extends
 
 `:extends` specializes another variant:
