@@ -276,20 +276,65 @@
                                   {:validate string-validator
                                    :explain  string-explainer})))))
 
-(deftest args-violations-skips-missing-keys-when-validator-accepts
-  (testing "a missing arg key passes through to the validator as nil;
-            a validator that accepts nil records no violation, one
-            that rejects nil records a violation. The walker doesn't
-            short-circuit on missing keys — it routes through the
-            registered validator like the framework does"
+(deftest args-violations-decides-absent-keys-by-presence-not-by-validator
+  (testing "an absent REQUIRED key is a violation whatever the child
+            validator says about nil — one that rejects nil and one that
+            accepts it agree (rf2-scheh: this test used to pin the
+            opposite, routing the absent key's nil through the child)"
     (let [args   {:name "alice"}    ;; :age missing
-          schema [:map [:name :string] [:age :int]]
-          viols  (rf.story.ui.schema-validation/args-violations args schema
-                                     {:validate string-validator
-                                      :explain  string-explainer})]
-      (is (= 1 (count viols)))
-      (is (= :age (-> viols first :key)))
-      (is (nil?   (-> viols first :value))))))
+          schema [:map [:name :string] [:age :int]]]
+      (doseq [vfns [{:validate string-validator :explain string-explainer}
+                    {:validate truthy-validator :explain nil}]]
+        (let [viols (rf.story.ui.schema-validation/args-violations args schema vfns)]
+          (is (= [:age] (mapv :key viols)))
+          (is (nil? (-> viols first :value)))))))
+  (testing "an absent OPTIONAL key is no violation, even under a validator
+            that rejects nil"
+    (is (= [] (rf.story.ui.schema-validation/args-violations
+                {:name "alice"}
+                [:map [:name :string] [:age {:optional true} :int]]
+                {:validate string-validator :explain string-explainer})))))
+
+;; ---- pure: args-violations agrees with Malli's map rule (rf2-scheh) -----
+;;
+;; The five-shape discriminator, against REAL Malli. Each shape first asks
+;; Malli about the WHOLE map (the oracle), then checks the per-key rows
+;; agree: absence is judged by the entry's optionality, a present value by
+;; its child schema.
+
+(def ^:private malli-fns {:validate m/validate :explain m/explain})
+
+(def ^:private optional-heading [:map [:heading {:optional true} [:string {:min 1}]]])
+
+(def ^:private required-nullable-heading [:map [:heading [:maybe :string]]])
+
+(defn- malli-violation-keys [args schema]
+  (mapv :key (rf.story.ui.schema-validation/args-violations args schema malli-fns)))
+
+(deftest args-violations-respects-optionality-and-key-presence
+  (testing "1. optional entry, key absent → no violation"
+    (is (m/validate optional-heading {}) "ORACLE — Malli accepts the omitted optional key")
+    (is (= [] (malli-violation-keys {} optional-heading))))
+  (testing "2. required nullable entry, key absent → a :heading violation"
+    (is (not (m/validate required-nullable-heading {})) "ORACLE — Malli rejects the missing required key")
+    (is (m/validate [:maybe :string] nil) "the child alone accepts nil, so presence must decide")
+    (is (= [:heading] (malli-violation-keys {} required-nullable-heading)))
+    (let [row (first (rf.story.ui.schema-validation/args-violations
+                       {} required-nullable-heading malli-fns))]
+      (is (nil? (:value row)))
+      (is (= [:maybe :string] (:schema row)))
+      (is (= ":heading: schema violation"
+             (rf.story.ui.schema-validation/format-explain (:explain row)))
+          "the explanation locates the missing key rather than a nil the child accepts")))
+  (testing "3. optional entry, present invalid value → a violation"
+    (is (not (m/validate optional-heading {:heading ""})) "ORACLE")
+    (is (= [:heading] (malli-violation-keys {:heading ""} optional-heading))))
+  (testing "4. optional entry, present valid value → no violation"
+    (is (m/validate optional-heading {:heading "Sign in"}) "ORACLE")
+    (is (= [] (malli-violation-keys {:heading "Sign in"} optional-heading))))
+  (testing "5. required nullable entry, present nil → no violation"
+    (is (m/validate required-nullable-heading {:heading nil}) "ORACLE")
+    (is (= [] (malli-violation-keys {:heading nil} required-nullable-heading)))))
 
 (deftest args-violations-non-map-schema-root-violation
   (testing "a non-:map top-level schema validates the whole args
