@@ -485,6 +485,13 @@
 ;; dispatch-free source. `:compose` is child-only, so no `:extends` recovers
 ;; the check and no artifact records it: the promotion has to carry the
 ;; source's resolved check ids, so these pin the check count too.
+;; And a checkpoint that reads a RUN INPUT (rf2-cml0h). Test mode runs a
+;; variant with the controls panel's `:cell-overrides` and the chrome's
+;; `:active-modes`, so a checkpoint's `[:arg]` can be supplied only by the run,
+;; or overridden by it. Capture and promotion must compile the source with
+;; those inputs: otherwise a required input fails the compile and nothing is
+;; captured, and an overridden default promotes the default, not the value
+;; that ran.
 
 #?(:clj
    (defn- reg-inc!
@@ -533,14 +540,16 @@
 #?(:clj
    (defn- fault-fix-fault
      "Run `id` under the fault, then against the fixed app, then under the
-     restored fault."
-     [id]
-     (reg-inc! false)
-     (let [faulty (run-verdict id)]
-       (reg-inc! true)
-       (let [fixed (run-verdict id)]
-         (reg-inc! false)
-         [faulty fixed (run-verdict id)]))))
+     restored fault. `reg-app!` installs the app, faulty when given false; it
+     defaults to `reg-inc!`."
+     ([id] (fault-fix-fault id reg-inc!))
+     ([id reg-app!]
+      (reg-app! false)
+      (let [faulty (run-verdict id)]
+        (reg-app! true)
+        (let [fixed (run-verdict id)]
+          (reg-app! false)
+          [faulty fixed (run-verdict id)])))))
 
 #?(:clj
    (defn- assert-promotions-fail-pass-fail
@@ -664,6 +673,101 @@
           :setup   [[:promo/inc]]
           :compose [:check.promo/n-is-one]}
          1))))
+
+#?(:clj
+   (defn- reg-boot!
+     "The app under test for a run-input checkpoint. `fixed?` false is the
+     FAULT — `:promo/boot` seeds `:n` 1 where the run expects 2."
+     [fixed?]
+     (rf/reg-event :promo/boot
+       (fn [{:keys [db]} _]
+         {:db (assoc db :n (if fixed? 2 1))}))))
+
+#?(:clj
+   (defn- assert-run-input-promotion-fail-pass-fail
+     "Run `source-body` under `source-id` with the Test-mode `run-opts`, capture
+     the failing run and promote it the way the dialog does, and check the
+     capture holds the checkpoint value the run asserted (2) and the promotion
+     runs fail / pass / fail with its source's one assertion."
+     [source-id source-body run-opts]
+     (rf.story/install-canonical-vocabulary!)
+     (reg-boot! false)
+     (rf.story.registrar/reg-variant* source-id source-body)
+     (let [result      (rf.story.async/deref-blocking (rf.story/run source-id run-opts) 10000)
+           play-events (rf.story.play/variant-play-events source-id run-opts)
+           capture     (rf.story.ui.promotion/result->artifact result play-events run-opts)
+           promoted    (keyword (namespace source-id) (str (name source-id) "-dialog"))
+           failing     {:status :fail :assertions 1 :checks 0}]
+       (is (= failing (verdict result))
+           "the source fails on its one checkpoint under the fault")
+       (is (= [] play-events)
+           "precondition: the script dispatches nothing")
+       (when (is (some? capture) "the run is capturable")
+         (is (= [[:assert [:rf.assert/path-equals [:n] 2]]] (:event-program capture))
+             "the capture asserts the value the run asserted")
+         (rf.story.promotion/promote-run-artifact!
+           capture
+           (rf.story.ui.promotion/draft->promote-opts
+             {:variant-id promoted :tags #{:test} :setup-count 0 :extends source-id}))
+         (is (= [failing {:status :pass :assertions 1 :checks 0} failing]
+                (fault-fix-fault promoted reg-boot!))
+             (str promoted " runs fail / pass / fail with its source's one assertion"))))))
+
+#?(:clj
+   (deftest promoted-regression-keeps-a-required-run-input
+     (testing "a checkpoint-only source whose [:arg] has NO default, run with
+               the :cell-overrides that supply it: capture compiles the source
+               with the run's inputs, so it is available rather than nil, and
+               the promotion runs fail / pass / fail (rf2-cml0h)"
+       (assert-run-input-promotion-fail-pass-fail
+         :story.promo/required-input
+         {:tags   #{:test}
+          :setup  [[:promo/boot]]
+          :script [[:assert [:rf.assert/path-equals [:n] [:arg :expected]]]]}
+         {:cell-overrides {:expected 2}}))))
+
+#?(:clj
+   (deftest promoted-regression-keeps-an-overridden-run-input
+     (testing "a checkpoint-only source whose [:arg] defaults to 1, run with
+               :cell-overrides {:expected 2}: the capture asserts the executed
+               2, so the dialog's default promotion of the failing run still
+               fails against the unchanged app, then passes and fails as the
+               boot handler is fixed and refaulted (rf2-cml0h)"
+       (assert-run-input-promotion-fail-pass-fail
+         :story.promo/overridden-input
+         {:tags   #{:test}
+          :args   {:expected 1}
+          :setup  [[:promo/boot]]
+          :script [[:assert [:rf.assert/path-equals [:n] [:arg :expected]]]]}
+         {:cell-overrides {:expected 2}}))))
+
+(deftest promotion-compiles-the-source-with-the-captured-run-inputs
+  (testing "promotion compiles the source with the run inputs a Test-mode
+            capture recorded, so a dispatch-only capture whose dispatch carries
+            a run-only [:arg] is still replaced by the source's full program,
+            and a composed check is still carried although the source does not
+            compile without that input (rf2-cml0h)"
+    (rf.story.registrar/reg-check* :check.promo/n-is-two
+      {:assertions [[:rf.assert/path-equals [:n] 2]]})
+    (rf.story.registrar/reg-variant* :story.promo/input-driven
+      {:script  [[:dispatch [:promo/set [:arg :n]]]
+                 [:assert [:rf.assert/path-equals [:n] [:arg :n]]]]
+       :compose [:check.promo/n-is-two]})
+    (let [run-opts {:cell-overrides {:n 2}}
+          capture  (rf.story.ui.promotion/result->artifact
+                     {:status :fail :variant/id :story.promo/input-driven}
+                     (rf.story.play/variant-play-events :story.promo/input-driven run-opts)
+                     run-opts)
+          body     (rf.story.promotion/artifact->variant-body
+                     capture {:extends :story.promo/input-driven})]
+      (is (= [[:dispatch [:promo/set 2]]] (:event-program capture))
+          "precondition: Test mode captures the dispatch that ran")
+      (is (= [[:dispatch [:promo/set 2]]
+              [:assert [:rf.assert/path-equals [:n] 2]]]
+             (:script body))
+          "the source's full program, compiled with the run's inputs")
+      (is (= [:check.promo/n-is-two] (:checks body))
+          "the composed check, resolved from the source compiled with the run's inputs"))))
 
 (deftest ordinary-extends-inheritance-is-unchanged
   (testing "a plain :extends child still gets NO terminal assertions from its

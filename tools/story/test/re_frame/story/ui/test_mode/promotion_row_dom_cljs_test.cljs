@@ -8,7 +8,9 @@
   program (`:play-events`), which for that shape is empty, and the promotion
   row is gated on a capturable artifact, so the row never rendered and the
   demo could not be promoted from Test mode. Whether the row renders is a
-  React commit fact, so this mounts the real pane.
+  React commit fact, so this mounts the real pane. The same row must survive
+  a checkpoint that reads an input only the run's `:cell-overrides` supply
+  (rf2-cml0h): the gate compiles the source with the inputs the run received.
 
   The fixture mirrors `login-form.stories-cljs-test`: the source-store
   baseline is captured ONCE at ns load, so the variant frames' `login-form.**`
@@ -28,6 +30,7 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.story :as rf.story]
             [re-frame.story.loaders :as rf.story.loaders]
+            [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.ui.state :as rf.story.ui.state]
             [re-frame.story.ui.test-mode.state :as rf.story.ui.test-mode.state]
             [re-frame.story.ui.test-mode.view :as rf.story.ui.test-mode.view]
@@ -113,6 +116,46 @@
                                 [variant-id :play-events]))
                   "precondition: the script dispatches nothing, so the run's
                    dispatch-only projection is empty")
+              (poll-until
+                #(.querySelector node "[data-test=\"story-test-promotion-row\"]")
+                3000
+                (fn [row]
+                  (is (some? row) "the promotion row is offered for this run")
+                  (finish))))))))))
+
+(def ^:private run-input-variant-id :story.login-form/idle-run-input)
+
+(deftest run-input-checkpoint-variant-offers-promotion
+  (testing "after a Test-mode run of a checkpoint-only variant whose [:arg]
+            only the controls panel's :cell-overrides supply, the pane still
+            renders the promotion row: capture compiles the source with the
+            inputs the run received (rf2-cml0h)"
+    (if-not (browser?)
+      (is true ":node-test — no DOM; :browser-test runs the real assertion")
+      (async done
+        (rf.story.registrar/reg-variant* run-input-variant-id
+          {:extends :story.login-form/idle
+           :script  [[:assert [:rf.assert/state-is :login/flow [:arg :expected]]]]})
+        (rf.story.ui.state/swap-state!
+          assoc-in [:cell-overrides run-input-variant-id] {:expected :idle})
+        (let [node   (js/document.createElement "div")
+              _      (js/document.body.appendChild node)
+              root   (rdc/create-root node)
+              finish (fn []
+                       (try (.unmount root) (catch :default _ nil))
+                       (.remove node)
+                       (done))]
+          (react-dom/flushSync
+            (fn [] (rdc/render root [rf.story.ui.test-mode.view/test-view run-input-variant-id])))
+          (poll-until
+            #(:result (get @rf.story.ui.test-mode.state/results-atom run-input-variant-id))
+            10000
+            (fn [result]
+              (is (= :pass (:status result))
+                  "precondition: the pane's auto-run received its input")
+              (is (= [] (get-in @rf.story.ui.test-mode.state/results-atom
+                                [run-input-variant-id :play-events]))
+                  "precondition: the script dispatches nothing")
               (poll-until
                 #(.querySelector node "[data-test=\"story-test-promotion-row\"]")
                 3000
