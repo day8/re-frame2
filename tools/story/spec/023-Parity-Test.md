@@ -351,7 +351,8 @@ A2, A5, B2, B3, C1, X1, X3. Behind
 or unpaid: A1, A3, A7, B7, X2, C3. Unknown: a11y beyond one run, navigation at
 catalogue scale, determinism runs, whether the global decorator stack shows in
 `explain`, the recorder as a capture path, `story:build` outside this
-repository, and every comparative ergonomic claim (§9).
+repository (answered: exercised once in a scratch consumer, X2), and every
+comparative ergonomic claim (§9).
 
 | Job | w | Pin S / B | Pin status | Trunk status | Bead |
 |---|---|---|---|---|---|
@@ -374,7 +375,7 @@ repository, and every comparative ergonomic claim (§9).
 | C3 | 1 | 1 / 1 | DIVERGENT | Chapter 09 names the two hosts (PR #9801); source-verified only. | rf2-szjjx (host rule, OPEN) |
 | C4 | 2 | 1.5 / 0 | WIN | `explain` folds story-level args (PR #9799); re-executed by probe 7; the panel not re-walked. | — |
 | X1 | 1 | 2 / 2 | MATCH | Unchanged. | — |
-| X2 | 1 | 1 / 2 | GAP | Unchanged. | — |
+| X2 | 1 | 1 / 2 | GAP | Consumer recipe documented (chapter 08 §Static builds; 013 §Downstream pattern) and exercised once in a scratch consumer outside this repository: release build, headless catalogue and deep link checked. Not re-scored. | rf2-0vwg7 |
 | X3 | 1 | 1 / 2 | DIVERGENT | Unchanged. | — |
 | X4 | — | — | OUT | — | — |
 
