@@ -213,6 +213,28 @@
       (is (empty? (rf.story.registrar/registrations :variant))
           "the unqualified :variant-id registers nothing"))))
 
+(deftest promotion-refuses-a-missing-artifact
+  (testing "promote-run-artifact! refuses a nil or non-artifact exactly as it
+            refuses a missing id, and registers nothing. A nil artifact used to
+            register a hollow body that ran :pass with zero assertions
+            (rf2-vgthk)"
+    (doseq [not-an-artifact [nil [[:dispatch [:counter/inc]]]]]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #"story-promote-no-artifact"
+            (rf.story.promotion/promote-run-artifact!
+              not-an-artifact {:variant/id :story.counter/hollow}))
+          (str "refused: " (pr-str not-an-artifact))))
+    (is (empty? (rf.story.registrar/registrations :variant))
+        "a refused promotion registers nothing"))
+  (testing "materialize-variant-plan refuses the same inputs"
+    (doseq [not-an-artifact [nil [[:dispatch [:counter/inc]]]]]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #"story-promote-no-artifact"
+            (rf.story.promotion/materialize-variant-plan not-an-artifact))
+          (str "refused: " (pr-str not-an-artifact))))))
+
 (deftest promote-registers-the-named-variant
   (testing "the explicit named call DOES register a curated variant"
     (let [art (sample-artifact)
@@ -452,6 +474,13 @@
 ;;   - IN-PROGRAM — an `[:assert …]` checkpoint inside `:script` (survived the
 ;;     API route, whose artifact keeps the whole program; lost on the dialog
 ;;     route's dispatch-only capture).
+;; Then two SETUP-bearing shapes whose `:script` dispatches nothing (rf2-vgthk):
+;; a `:setup` precondition with declarative `:assertions` and no `:script`, and
+;; the login_form testbed's `:setup` plus `[:assert …]`-only `:script`. The
+;; dialog's dispatch-only capture of either is EMPTY, so it used to capture
+;; nothing, and the promotion registered a hollow body that ran `:pass` with
+;; zero assertions. Their `:setup` reaches the promoted variant through the
+;; draft's `:extends`, exactly as it does for a dispatch-bearing source.
 
 #?(:clj
    (defn- reg-inc!
@@ -558,6 +587,30 @@
          {:tags   #{:test}
           :script [[:dispatch [:promo/inc]]
                    [:dispatch [:rf.assert/path-equals [:n] 1]]]}))))
+
+#?(:clj
+   (deftest promoted-regression-keeps-a-setup-only-source-expectation
+     (testing "a source with a :setup precondition, a declarative :assertions
+               entry and NO :script dispatches nothing, so the dialog's
+               dispatch-only capture is empty. Both routes must still run
+               fail / pass / fail with the source's one assertion (rf2-vgthk)"
+       (assert-promotions-fail-pass-fail
+         :story.promo/setup-declared
+         {:tags       #{:test}
+          :setup      [[:promo/inc]]
+          :assertions [[:rf.assert/path-equals [:n] 1]]}))))
+
+#?(:clj
+   (deftest promoted-regression-keeps-a-checkpoint-only-script
+     (testing "the login_form testbed's shape: a :setup precondition and a
+               :script of [:assert …] checkpoints only. The script dispatches
+               nothing, and the checkpoint must still survive both routes
+               (rf2-vgthk)"
+       (assert-promotions-fail-pass-fail
+         :story.promo/setup-checkpoint
+         {:tags   #{:test}
+          :setup  [[:promo/inc]]
+          :script [[:assert [:rf.assert/path-equals [:n] 1]]]}))))
 
 (deftest ordinary-extends-inheritance-is-unchanged
   (testing "a plain :extends child still gets NO terminal assertions from its
