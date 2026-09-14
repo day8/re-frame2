@@ -12,12 +12,15 @@
   ## Coverage layers
 
   - **Pure data** (JVM + CLJS): `bound-variants` cap / expand /
-    no-bound-when-small; `workspace-grid-grouping` grid-vs-non-grid.
+    no-bound-when-small; `workspace-grid-grouping` grid-vs-non-grid, and a
+    registry-enumerated `:variants-grid` counting the cells it renders.
   - **CLJS-only**: `signal-chips` renders one chip per axis, keeps the
     five axes in DISTINCT `data-axis` groups, and never collapses world
     inputs / runner / frame-binding into fidelity."
   (:require [clojure.test :refer [deftest is testing]]
-            #?@(:cljs [[re-frame.story.ui.sidebar :as rf.story.ui.sidebar]])))
+            #?@(:cljs [[re-frame.story :as rf.story]
+                       [re-frame.story.ui.sidebar :as rf.story.ui.sidebar]
+                       [re-frame.story.ui.workspace :as rf.story.ui.workspace]])))
 
 ;; ---- pure: large-list bounding ------------------------------------------
 
@@ -51,18 +54,40 @@
 
 #?(:cljs
    (deftest workspace-grid-grouping-projection
-     (testing "a :variants-grid workspace reports its layout + cell count"
-       (is (= {:layout :variants-grid :count 3}
-              (rf.story.ui.sidebar/workspace-grid-grouping
-                {:layout :variants-grid :variants [:a :b :c]}))))
-     (testing ":grid and :tabs are also grid groups"
+     (testing ":grid and :tabs are grid groups counting their declared cells"
        (is (= {:layout :grid :count 2}
-              (rf.story.ui.sidebar/workspace-grid-grouping {:layout :grid :variants [:a :b]})))
+              (rf.story.ui.sidebar/workspace-grid-grouping
+                :Workspace.x/g {:layout :grid :variants [:a :b]})))
        (is (= {:layout :tabs :count 1}
-              (rf.story.ui.sidebar/workspace-grid-grouping {:layout :tabs :variants [:a]}))))
+              (rf.story.ui.sidebar/workspace-grid-grouping
+                :Workspace.x/t {:layout :tabs :variants [:a]}))))
      (testing "a non-grid layout (prose / custom) is NOT a grid group"
-       (is (nil? (rf.story.ui.sidebar/workspace-grid-grouping {:layout :prose})))
-       (is (nil? (rf.story.ui.sidebar/workspace-grid-grouping {:layout :custom}))))))
+       (is (nil? (rf.story.ui.sidebar/workspace-grid-grouping :Workspace.x/p {:layout :prose})))
+       (is (nil? (rf.story.ui.sidebar/workspace-grid-grouping :Workspace.x/c {:layout :custom}))))))
+
+;; rf2-dacnd — the sidebar read "VARIANTS-GRID · 0" for a grid rendering five
+;; cells: a `:variants-grid` enumerates its anchor story's variants from the
+;; registry and carries no `:variants` slot, which is what the count read.
+
+#?(:cljs
+   (deftest variants-grid-count-is-the-cells-it-renders-rf2-dacnd
+     (rf.story/clear-all!)
+     (try
+       (doseq [v [:story.rf2-dacnd/a :story.rf2-dacnd/b :story.rf2-dacnd/c
+                  :story.rf2-dacnd/d :story.rf2-dacnd/e]]
+         (rf.story/reg-variant v {:setup []}))
+       (testing "a `:for`-anchored grid counts the five cells it renders"
+         (let [body {:layout :variants-grid :for :story.rf2-dacnd}]
+           (is (= 5 (count (rf.story.ui.workspace/resolve-layout :Workspace.any/auto body)))
+               "control: the grid itself resolves five cells")
+           (is (= {:layout :variants-grid :count 5}
+                  (rf.story.ui.sidebar/workspace-grid-grouping :Workspace.any/auto body)))))
+       (testing "an id-anchored grid (`:Workspace.<path>` → `:story.<path>`) counts them too"
+         (is (= {:layout :variants-grid :count 5}
+                (rf.story.ui.sidebar/workspace-grid-grouping
+                  :Workspace.rf2-dacnd/auto {:layout :variants-grid}))))
+       (finally
+         (rf.story/clear-all!)))))
 
 ;; ---- CLJS-only: rendered signal-chip hiccup -----------------------------
 
