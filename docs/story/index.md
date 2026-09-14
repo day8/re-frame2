@@ -89,31 +89,42 @@ matrices. It is the "put every awkward UI state on one screen" example.
 
 ## Install Story
 
-The generator template emits no Story wiring, so a freshly scaffolded app and a long-lived one attach Story the same way: the dev alias, the require and the mount below.
+The generator template emits no Story wiring, so a freshly scaffolded app and a long-lived one attach Story the same way: a dev alias, two npm packages, a require and a mount.
 
-For an existing checkout during alpha, use the local tool. `:local/root` is relative to *your* `deps.edn`, so the path assumes a re-frame2 clone sitting **beside** your project directory:
+**This page assumes a `:local/root` install.** During alpha no re-frame2 artefact is published to Clojars, so every `day8/re-frame2*` coordinate resolves from a local re-frame2 checkout — your app's own `day8/re-frame2` and `day8/re-frame2-reagent` included — and all of them must come from the *same* checkout. `:local/root` is relative to *your* `deps.edn`, so the paths below assume that clone sits **beside** your project directory; adjust them if it does not.
 
 ```clojure
-;; deps.edn — resolved from a re-frame2 checkout beside your project
-{:aliases
+;; deps.edn — the re-frame2 lines, resolved from a checkout beside your project
+{:deps
+ {day8/re-frame2         {:local/root "../re-frame2/implementation/core"}
+  day8/re-frame2-reagent {:local/root "../re-frame2/implementation/adapters/reagent"}}
+ :aliases
  {:dev
   {:extra-deps {day8/re-frame2-story {:local/root "../re-frame2/tools/story"}}}}}
 ```
 
+shadow-cljs puts an alias on its classpath only when `shadow-cljs.edn` names it, so the `:dev` alias does nothing until you add it there. In the generator template that means `{:deps {:aliases [:shadow]}}` becomes `{:deps {:aliases [:shadow :dev]}}`.
+
+Story's shell embeds Xray, whose machine canvas requires two npm packages a plain re-frame2 app does not carry. Install them beside the `react` and `react-dom` your app already has, at the versions re-frame2's own build resolves:
+
+```bash
+npm install --save-dev @xyflow/react@12.4.2 elkjs@0.11.1
+```
+
 Then require your stories namespace from your dev entry point and mount the
-shell on the Story route:
+shell on the Story route. `mount-shell!` takes the DOM node and nothing else:
 
 ```clojure
 (ns my-app.core
   (:require [re-frame.core :as rf]
             [re-frame.story :as story]
-            [my-app.adapters.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [my-app.stories]))
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
   (when (= "#/stories" js/window.location.hash)
-    (story/mount-shell! (js/document.getElementById "app") {})))
+    (story/mount-shell! (js/document.getElementById "app"))))
 ```
 
 Loading `my-app.stories` fires the `reg-*` calls. The first registration
