@@ -142,10 +142,12 @@ mirror the same shape for their own apps.
 The entry-point ns
 (`counter-with-stories.story-static`) is a small static-export
 companion to the example's `core.cljs` — it requires the same
-`stories.cljs` registrations, installs the canonical vocabulary, and
-mounts the shell directly via `(story/mount-shell! ...)`. No hash
-routing, no live-counter view; the published bundle exists to render
-the Story playground.
+`stories.cljs` registrations (whose first `reg-*` call auto-installs
+the canonical vocabulary, so the ns makes no explicit install call),
+installs the substrate adapter with `(rf/init! ...)`, applies its
+`configure!` defaults, and mounts the shell directly via
+`(story/mount-shell! ...)`. No hash routing, no live-counter view; the
+published bundle exists to render the Story playground.
 
 ## Invocation
 
@@ -166,8 +168,10 @@ The script:
    build timestamp — so downstream tooling can introspect the
    artefact without re-parsing shadow's output.
 
-Overridable via environment variables for downstream apps with their
-own static-export build:
+Overridable via environment variables, so the same driver can release
+another static-export build declared in this repository's
+`implementation/shadow-cljs.edn`. An app outside this repository does
+not run this script at all; see [§Downstream pattern](#downstream-pattern).
 
 | Env var | Default | Purpose |
 |---|---|---|
@@ -185,8 +189,9 @@ or `<repo>/tools/` (rf2-p8f2s — tool-owned testbeds). Out-of-tree paths
 `RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1`. The check is a safety net
 against accidents (env unset / mistyped path turning a build into a
 `rm -rf` outside the repo), not a hardened sandbox — devs running this
-script already control the process. Downstream consumers publishing
-into a sibling docs-site staging area set the opt-in flag explicitly.
+script already control the process. A build in this repository that
+publishes into a sibling docs-site staging area sets the opt-in flag
+explicitly.
 
 ## Output shape
 
@@ -196,11 +201,14 @@ After `npm run story:build`:
 implementation/out/story-static/counter-with-stories/
 ├── index.html               # the host page (staged from story_static.index.html)
 ├── main.js                  # the advanced-compiled bundle
-├── manifest.json            # build metadata
-├── cljs-runtime/            # shadow-cljs runtime siblings (advanced compile only)
-│   └── ...
-└── (assets staged by the shadow build, if any)
+├── manifest.json            # Story's build metadata, written by story:build
+└── manifest.edn             # shadow-cljs's module manifest
 ```
+
+A `release` writes no `cljs-runtime/` directory; one appears only when
+a `watch` or `compile` of the same build shares the output directory. A
+[downstream build](#downstream-pattern) produces the same tree without
+`manifest.json`, which only this repository's driver writes.
 
 The directory is deployable as-is. Every relative `<script>` / asset
 reference resolves correctly under any URL prefix because the build
@@ -285,22 +293,36 @@ their `staticwebapp.config.json` under Azure, etc.).
 
 ## Downstream pattern
 
-A consumer publishing their own app's playground:
+An app outside this repository publishes its own playground from the
+same three pieces the worked example uses, and releases them itself.
+`npm run story:build` and its `STORY_BUILD_*` knobs belong to this
+repository's `implementation/package.json` and release builds declared
+in this repository's `implementation/shadow-cljs.edn`, so a consumer
+does not run them. The tutorial form of these steps is
+[`docs/story/08-snapshot-identity-and-sharing.md` §Static builds](../../../docs/story/08-snapshot-identity-and-sharing.md#static-builds).
 
 1. Add a `<app>.story-static` ns mirroring
-   `counter_with_stories/story_static.cljs`. The body installs the
-   canonical vocabulary, applies any `configure!` defaults, and calls
+   `counter_with_stories/story_static.cljs`. Its `run` fn requires the
+   app's stories ns (the first `reg-*` call auto-installs the canonical
+   vocabulary), installs the substrate adapter with `(rf/init! ...)`,
+   applies any `configure!` defaults without a `:rf.story/project-root`
+   (§Self-containment), and calls
    `(story/mount-shell! (js/document.getElementById "app"))`.
-2. Add a `:story-static/<app>` shadow-cljs build mirroring
-   `:story-static/counter-with-stories`, pointing
-   `:init-fn` at `<app>.story-static/run` and setting
+2. Add a `:story-static/<app>` build to the app's own `shadow-cljs.edn`
+   mirroring `:story-static/counter-with-stories`: `:output-dir
+   "out/story-static/<app>"`, `:asset-path "."`, `:init-fn` at
+   `<app>.story-static/run`, and
    `:closure-defines {re-frame.story.config/static-mode? true}`.
-3. Add an `<app>.story_static.index.html` host page (a 12-line shim
-   mirroring `counter_with_stories/story_static.index.html`).
-4. Run `STORY_BUILD_TARGET=story-static/<app>
-   STORY_BUILD_INDEX_HTML=<path-to-shim>.html npm run story:build`.
-5. Publish `implementation/out/story-static/<app>/` to the host of
-   choice.
+3. Add a host page mirroring
+   `counter_with_stories/story_static.index.html`: a `<div id="app">`
+   and a `<script src="main.js">`.
+4. Release the build and stage the host page as `index.html` beside
+   `main.js`, the two steps `story:build` performs for the worked
+   example. The tutorial names that script `story:build` in the app's
+   own `package.json`, which is also the command the Share dialog's
+   Static build row copies.
+5. Publish `out/story-static/<app>/` to the host of choice
+   (§Deploy targets).
 
 ## Cross-references
 
