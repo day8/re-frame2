@@ -25,14 +25,16 @@ platform gating.
             [re-frame.test-support :as ts]
             [my-app.views]))
 
-(use-fixtures :each (ts/make-reset-runtime-fixture {}))
+(use-fixtures :each
+  (ts/make-reset-runtime-fixture {:adapter       ssr/adapter     ;; the server-side substrate a frame needs
+                                  :ambient-frame nil}))          ;; nil: each test makes its own frame
 
 (deftest article-page-renders-its-title
   (rf/with-new-frame [f (rf/make-frame
                           {:initial-events
                            [[:rf/set-db {:articles {"intro" {:title "Welcome"}}}]
                             [:rf.route/handle-url-change "/articles/intro"]]})]
-    (let [html (ssr/render-to-string [app-root] {})]   ;; renders against the with-new-frame scope
+    (let [html (ssr/render-to-string [(rf/view :app/root)] {})]   ;; renders against the with-new-frame scope
       (is (clojure.string/includes? html "Welcome")))))
 ```
 
@@ -63,7 +65,8 @@ Two SSR surfaces are deliberately test-shaped:
     ```clojure
     (deftest payload-policy-is-mandatory
       (is (= :rf.error/ssr-missing-payload-policy
-             (try (ssr-ring/ssr-handler {:root-view [(rf/view :app/root)]})
+             (try (ssr-ring/ssr-handler {:initial-events [[:rf/server-init]]   ;; every required opt but :payload
+                                         :root-view      [(rf/view :app/root)]})
                   (catch Exception e (:rf.error/id (ex-data e)))))))
     ```
 
