@@ -94,7 +94,7 @@ A failing run becomes a regression variant only when the new variant keeps the r
   ```
 
   The registered body carries the source's whole program (setup and script, `[:assert …]` checkpoints included) and the source's own `:assertions` and `:checks`.
-- **From Test mode** — the browser, where a human or a `re-frame2-pair` session drives it. The Test-mode promote dialog captures the run's dispatches, carries the registered source's `:assertions` and `:checks`, and replaces a dispatch-only capture with the source's full program. A variant whose `:script` has no dispatch step shows no promote row in Test mode today; use the API route.
+- **From Test mode** — the browser, where a human or a `re-frame2-pair` session drives it. The Test-mode promote dialog captures the run's dispatches, carries the registered source's `:assertions` and `:checks`, and replaces a dispatch-only capture with the source's full program. A variant whose `:script` has no dispatch step (every login-form testbed variant) promotes from Test mode too: the dialog captures that variant's own stepped program.
 - **Over MCP, with this skill's tools.** `preview-variant` the source and note its assertion count, `get-variant` it, then `register-variant` a new id whose body `:extends` the source and restates the source's `:script` and `:assertions`. Neither of those two inherits through `:extends` (`:setup` and `:checks` do), so a body that only `:extends` the source runs `:status :pass` with no assertions at all. A `register-variant` registration lives as long as the server process, and fixing the app means relaunching it, so land the promoted body (`variant->edn` prints it) in a namespace the launch alias loads before the next two checks.
 
 Whichever route, apply one acceptance, in order:
