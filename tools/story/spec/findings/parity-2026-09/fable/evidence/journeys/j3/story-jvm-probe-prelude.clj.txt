@@ -1,0 +1,19 @@
+;; J3 verification probe (rf2-a1v8a): can the headless JVM host hold the login_form testbed?
+(require '[re-frame.core :as rf]
+         '[re-frame.frame :as rf.frame]
+         '[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+         '[re-frame.story :as rf.story])
+(rf/init! rf.substrate.plain-atom/adapter)
+(rf.story/install-canonical-vocabulary!)
+(rf.frame/ensure-default-frame!)
+(binding [*out* *err*]
+  (doseq [ns-sym '[login-form.events login-form.stories]]
+    (try
+      (require ns-sym)
+      (println "probe: required" ns-sym)
+      (catch Throwable t
+        (println "probe: cannot require" ns-sym "->" (.getName (class t)) (.getMessage t)))))
+  (println "probe: classpath has testbed dir?"
+           (boolean (some #(re-find #"testbeds" %) (clojure.string/split (System/getProperty "java.class.path") #";|:"))))
+  (println "probe: login_form/events.cljs on classpath?" (boolean (clojure.java.io/resource "login_form/events.cljs")))
+  (println "probe: login_form/events.clj(c) on classpath?" (boolean (or (clojure.java.io/resource "login_form/events.clj") (clojure.java.io/resource "login_form/events.cljc")))))

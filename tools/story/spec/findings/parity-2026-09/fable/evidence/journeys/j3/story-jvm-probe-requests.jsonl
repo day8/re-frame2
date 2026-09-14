@@ -1,0 +1,4 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"j3-probe","version":"0"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list-stories","arguments":{}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get-variant","arguments":{"variant-id":":story.login-form/retry-to-success"}}}
+{"jsonrpc":"2.0","id":4,"method":"shutdown","params":{}}
