@@ -1,0 +1,11 @@
+{
+  "started": "2026-09-13T23:42:28.542Z",
+  "commit": "98e8ffe9cb339295fe2fa459900d9d9647fab015",
+  "bead": "rf2-ax6vt",
+  "agents": [
+    "/root/storybook_research",
+    "/root/alternatives_research",
+    "/root/story_source_research"
+  ],
+  "prompt_sha256": "3f03a5e29f607c84429ca9e06e4c0ad74d6c8a14e80cbe8a6b595ebc8f1fbc7c"
+}

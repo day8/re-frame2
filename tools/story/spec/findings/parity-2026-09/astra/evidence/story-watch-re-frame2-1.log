@@ -1,0 +1,27 @@
+shadow-cljs - config: C:\Users\miket\code\re-frame2\implementation\shadow-cljs.edn
+shadow-cljs - socket connect failed, server process dead?
+shadow-cljs - :dev-http http://localhost:8021 serving ["out/browser-test"]
+shadow-cljs - :dev-http http://localhost:8022 serving ["out/browser-test-schemas-boundary-prod"]
+shadow-cljs - :dev-http http://localhost:8023 serving ["out/browser-test-prod-elision"]
+shadow-cljs - :dev-http http://localhost:8030 serving ["../tools/xray/testbeds/two_frame_isolation" "out/examples/two-frame-isolation"]
+shadow-cljs - :dev-http http://localhost:8031 serving ["../tools/xray/testbeds/standard_epochs" "out/examples/standard-epochs"]
+shadow-cljs - :dev-http http://localhost:8032 serving ["../tools/xray/testbeds/routes_epochs" "out/examples/routes-epochs"]
+shadow-cljs - :dev-http http://localhost:8033 serving ["../tools/xray/testbeds/machine_epochs" "out/examples/machine-epochs"]
+shadow-cljs - :dev-http http://localhost:8034 serving ["../tools/xray/testbeds/edn_inspector" "out/examples/edn-inspector"]
+shadow-cljs - :dev-http http://localhost:8035 serving ["../tools/xray/testbeds/managed_http" "out/examples/managed-http"]
+shadow-cljs - :dev-http http://localhost:8040 serving ["../examples/patterns/nine_states" "out/examples/nine-states-with-stories"]
+shadow-cljs - :dev-http http://localhost:8041 serving ["../examples/core/login" "out/examples/login-with-stories"]
+shadow-cljs - :dev-http http://localhost:8042 serving ["../tools/story/testbeds/counter_with_stories" "out/examples/counter-with-stories"]
+shadow-cljs - :dev-http http://localhost:8043 serving ["../tools/story/testbeds/login_form" "out/examples/login-form"]
+shadow-cljs - :dev-http http://localhost:8044 serving ["../examples/capabilities/resources/linearlite" "out/examples/linearlite"]
+shadow-cljs - :dev-http http://localhost:8045 serving ["../tools/story/testbeds/fresco_counter" "out/examples/fresco-counter"]
+shadow-cljs - :dev-http http://localhost:8060 serving ["../testbeds/tenant_switcher" "out/testbeds/tenant-switcher"]
+shadow-cljs - :dev-http http://localhost:8061 serving ["fresco/testbed/hmr" "out/fresco-hmr-testbed"]
+shadow-cljs - :dev-http http://localhost:8765 serving ["../tools/xray/testbeds/panel_gallery" "out/testbeds/panel-gallery"]
+shadow-cljs - server version: 3.4.10 running at http://localhost:9630
+shadow-cljs - nREPL server started on port 64196
+shadow-cljs - nREPL port has been written to .shadow-cljs/nrepl.port
+shadow-cljs - watching build :examples/login-form
+[:examples/login-form] Configuring build.
+[:examples/login-form] Compiling ...
+[:examples/login-form] Build completed. (760 files, 540 compiled, 0 warnings, 28.57s)

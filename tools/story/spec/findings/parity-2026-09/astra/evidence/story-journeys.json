@@ -1,0 +1,55 @@
+{
+  "at": "2026-09-13T23:51:19.523Z",
+  "browser": "147.0.7727.15",
+  "checks": [
+    {
+      "name": "controls update the real view",
+      "status": "passed",
+      "ms": 161,
+      "result": {
+        "heading": "Research sign in"
+      }
+    },
+    {
+      "name": "Test mode executes the current variant",
+      "status": "passed",
+      "ms": 381,
+      "result": {
+        "testText": ":story.login-form/error\nparent story: :story.login-form\nRe-run\nran 10:00:04 · 46 ms\nRUNNER\n:headless\nREQUIRED\n#{:app-db}\nSUMMARY\n1 PASSED\n✓ 1 passed ✗ 0 failed ⊘ 0 cannot-run\nSTEP-DEBUGGER\nSpace pause · → step · ← back · R rewind\nStart\nClick Start to step through the :script sequence one event at a time.\nASSERTIONS\nfailed only\n\tASSERTION\tDETAIL\n●\t:rf.assert/state-is [:login/flow :error]\t\nevidence spine pending — failures will link here once the evidence panel lands",
+        "sidebar": "TESTS · 1/5\n✓ 1\n✗ 0\n○ 4\nRun all\n○ watch"
+      }
+    },
+    {
+      "name": "all five registered scenarios run",
+      "status": "passed",
+      "ms": 293,
+      "result": "TESTS · ✓ 5\n✓ 5\n✗ 0\nRun all\n○ watch"
+    },
+    {
+      "name": "five application states render side by side",
+      "status": "passed",
+      "ms": 264,
+      "result": {
+        "cards": [
+          "Sign instate: :idleSign in",
+          "Sign instate: :submittingSigning in…",
+          "Research sign instate: :errorTry againCancelInvalid credentials.(attempt 1)",
+          "Sign instate: :submitting-retryRetrying…",
+          "Sign instate: :authenticatedWelcome, ada@example.com.Sign out"
+        ],
+        "frames": []
+      }
+    },
+    {
+      "name": "public runtime JavaScript bridge available",
+      "status": "passed",
+      "ms": 1,
+      "result": {
+        "story": "function",
+        "read": "function",
+        "plan": "function"
+      }
+    }
+  ],
+  "pageErrors": []
+}

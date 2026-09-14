@@ -1,0 +1,31 @@
+{
+  "capturedUtc": "2026-09-14T04:15:49.8001119Z",
+  "revision": "35e3c00fb99fc7b646e142edaa70bc4ab7599c5f",
+  "files": [
+    {
+      "path": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\fable\\evidence.md",
+      "sha256": "847D71411E87590B5B95943B0B265EDC24E3AD0B6D7B516F5712AC364FDB9A42",
+      "modified": "2026-09-14T04:10:05.3494173Z"
+    },
+    {
+      "path": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\fable\\matrix.md",
+      "sha256": "8DF487BC2CDA1552B19A9088C5A78ED51152E014C9197F3250C989C52CAA5C8C",
+      "modified": "2026-09-14T04:10:02.1930079Z"
+    },
+    {
+      "path": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\fable\\report.md",
+      "sha256": "3A0007C37B72E48859EFC1F99F806D1542398E06B50F02766165DE89BC737E19",
+      "modified": "2026-09-14T04:10:02.1651062Z"
+    },
+    {
+      "path": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\fable\\rubric.md",
+      "sha256": "84BFB78567A667FC5954C855BD87DA4B646FD0801E169BB5D02CE389114BFDE9",
+      "modified": "2026-09-14T01:10:25.2080245Z"
+    },
+    {
+      "path": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\grok\\report.md",
+      "sha256": "72ED067E4A4B52B1BF6FBC03C161F142342DD16BD97F6E208E5B23D468D7D2EB",
+      "modified": "2026-09-14T04:15:23.0415948Z"
+    }
+  ]
+}

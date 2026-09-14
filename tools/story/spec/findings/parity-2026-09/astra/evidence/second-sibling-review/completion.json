@@ -1,0 +1,44 @@
+{
+  "timeUtc": "2026-09-14T04:26:45.0746885Z",
+  "sourcePin": "35e3c00fb99fc7b646e142edaa70bc4ab7599c5f",
+  "originalBrowserPin": "98e8ffe9cb339295fe2fa459900d9d9647fab015",
+  "task": "rf2-ow0ci",
+  "tests": 64,
+  "assertions": 422,
+  "failures": 0,
+  "errors": 0,
+  "artifactValidationExit": 0,
+  "promptUnchanged": true,
+  "artifacts": [
+    {
+      "file": "report.md",
+      "sha256": "C7496BB5160E2230A5D358BB3ABA0CEA19C6864B6D8622A4D722C18145C020A7"
+    },
+    {
+      "file": "parity-matrix.md",
+      "sha256": "87438373CC2EE3A9B5D030A156B944216C0844C04C6A7991784FF9A01F0EB2F9"
+    },
+    {
+      "file": "evaluation-plan.md",
+      "sha256": "B197417D17ED444F667FAA052B28B36E77B427FFBA9AD583370417F8DC7A254D"
+    },
+    {
+      "file": "critique-for-fable.md",
+      "sha256": "8252B0F9BBAA7987CF5EDC0FA4FABDDD764F9834C2FD4916E9610E38992A5FF9"
+    },
+    {
+      "file": "evidence/second-sibling-review.md",
+      "sha256": "233BBFAAD51C30B48924DDCA0D6E5914E2AFB67CE8FAC78773DE27DEA38DA8D9"
+    }
+  ],
+  "finalCheckpoint": "bdd49e0524",
+  "finalGitHead": "8b876b54667cb1d617bd2b41dd9f406e5d72e904",
+  "finalValidation": {
+    "files": 8,
+    "exit": 0,
+    "tableRows": 155,
+    "attempt": 4,
+    "localLinks": 163
+  },
+  "laterSourceChange": "7cfd11e1fc: plan.cljc comments/docstring only, checked; executable behavior unchanged."
+}

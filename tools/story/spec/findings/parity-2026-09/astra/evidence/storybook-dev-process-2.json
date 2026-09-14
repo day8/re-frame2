@@ -1,0 +1,16 @@
+{
+  "pid": 51428,
+  "command": "C:\\Program Files\\nodejs\\node.exe",
+  "args": [
+    "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\storybook-fixture\\node_modules\\storybook\\dist\\bin\\dispatcher.js",
+    "dev",
+    "--port",
+    "6106",
+    "--ci",
+    "--no-open",
+    "--disable-telemetry"
+  ],
+  "cwd": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\storybook-fixture",
+  "started": "2026-09-13T23:49:10.656Z",
+  "log": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\storybook-dev-re-frame2-2.log"
+}
