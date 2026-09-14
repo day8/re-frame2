@@ -9,7 +9,8 @@
     rendered (absent ones marked, never dropped).
   - `explain-for`       — error-trapping over the pure plan compiler
     (a missing arg / unknown variant surfaces as `:error`, not a
-    thrown exception).
+    thrown exception), and the ambient arg layers (global + story) it
+    folds in so the panel shows the args the variant renders with.
   - the string shapers (`chain-label` / `conflict-summary` / `raw-edn`).
 
   CLJS-side (the React render of each `:render-as`, the raw-EDN toggle,
@@ -20,6 +21,9 @@
             [clojure.string :as str]
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])
+            [re-frame.story.config :as rf.story.config]
+            [re-frame.story.plan :as rf.story.plan]
+            [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.ui.explain-panel :as rf.story.ui.explain-panel]))
 
 ;; ---------------------------------------------------------------------------
@@ -153,6 +157,52 @@
       (is (map? (:explain result)))
       ;; the always-present provenance slot proves we got a real plan
       (is (= [:inline/x] (get-in result [:explain :source-chain]))))))
+
+;; ---------------------------------------------------------------------------
+;; explain-for — the ambient arg layers (rf2-noxox)
+;;
+;; The pure compiler folds global-args and the parent story's `:args` only
+;; when handed `:run-args`; a bare `plan/explain` carries the variant-chain
+;; layer alone, by design (`plan/variant-plan`'s `:run-args` opt). The panel
+;; is scenario-facing, so it must show the args the variant actually renders
+;; with — the value `plan/effective-args` and the run result report. Pinned
+;; in both directions: story args fill a variant that has none, and a
+;; variant's own args still win over its story's.
+;; ---------------------------------------------------------------------------
+
+(deftest explain-for-folds-story-and-global-args
+  (let [globals-before (rf.story.config/get-global-args)]
+    (rf.story.registrar/clear-all!)
+    (try
+      (rf.story.registrar/reg-story*   :story.explain.args {:args {:heading "Sign in"}})
+      (rf.story.registrar/reg-variant* :story.explain.args/inherits {})
+      (rf.story.registrar/reg-variant* :story.explain.args/overrides {:args {:heading "Register"}})
+      (testing "a variant with no args of its own shows its STORY's args"
+        (let [{:keys [explain error]} (rf.story.ui.explain-panel/explain-for
+                                        :story.explain.args/inherits)
+              by-id (into {} (map (juxt :id identity))
+                          (rf.story.ui.explain-panel/explain-sections explain))]
+          (is (nil? error) (str "expected clean compile, got: " error))
+          (is (= {:heading "Sign in"} (:args explain)))
+          (is (= {:heading "Sign in"} (:effective-args explain)))
+          (is (true? (boolean (:present? (get by-id "args"))))
+              "the Args section renders, not 'not available'")
+          (is (true? (boolean (:present? (get by-id "effective-args")))))))
+      (testing "a variant's OWN args still override its story's"
+        (let [{:keys [explain]} (rf.story.ui.explain-panel/explain-for
+                                  :story.explain.args/overrides)]
+          (is (= {:heading "Register"} (:args explain)))
+          (is (= {:heading "Register"} (:effective-args explain)))))
+      (testing "global-args sit beneath the story layer"
+        (rf.story.config/set-global-args! {:theme :dark :heading "global"})
+        (is (= {:theme :dark :heading "Sign in"}
+               (get-in (rf.story.ui.explain-panel/explain-for :story.explain.args/inherits)
+                       [:explain :effective-args]))))
+      (testing "the pure compiler stays explicit — the fold is the panel's"
+        (is (= {} (:effective-args (rf.story.plan/explain :story.explain.args/inherits)))))
+      (finally
+        (rf.story.config/set-global-args! globals-before)
+        (rf.story.registrar/clear-all!)))))
 
 ;; ---------------------------------------------------------------------------
 ;; string shapers
