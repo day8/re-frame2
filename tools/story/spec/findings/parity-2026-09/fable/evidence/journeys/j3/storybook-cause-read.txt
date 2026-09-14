@@ -1,0 +1,2 @@
+13:  const [user,setUser]=useState('');
+16:    try {const result=await authenticate(email,password);setUser("");setState('authenticated');}
