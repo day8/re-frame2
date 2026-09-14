@@ -32,7 +32,10 @@
   The fixture mirrors `login-form.stories-cljs-test` and
   `promotion-row-dom-cljs-test`: the source-store baseline is captured once at
   ns load, so the variant frames' `login-form.**` image resolves whatever a
-  sibling test ns cleared first.
+  sibling test ns cleared first. Unlike those two, these tests RENDER the
+  card, and the `:reagent` substrate resolves a view through the registrar,
+  which `rf.story/clear-all!` wipes. So the registrar as it stood at ns load
+  (the login views, events and subs registered) is restored as well.
 
   `-dom-cljs-test$` opts the file into the `:browser-test` build. `:node-test`
   also loads it (its `cljs-test$` regex matches); the DOM bodies self-gate on
@@ -67,6 +70,12 @@
 
 (def ^:private source-store-baseline @rf.source-store/kind->id->ns->descriptor)
 
+;; Captured once at ns load, after the `:require` chain has registered the
+;; login views, events and subs. A sibling test ns's fixture can clear the
+;; registrar before this ns's tests run, and the card cannot render without
+;; its view.
+(def ^:private ns-load-registrar (rf.test-support/snapshot-registrar))
+
 (defn- before! []
   (reset! registrar-snapshot (rf.test-support/snapshot-registrar))
   (reset! rf.frame/frames {})
@@ -75,6 +84,7 @@
   (rf.machines/reset-timers!)
   (rf.story.loaders/clear-watchers!)
   (rf.story/clear-all!)
+  (rf.test-support/restore-registrar! ns-load-registrar)
   (reset! rf.source-store/kind->id->ns->descriptor source-store-baseline)
   (rf.machines/install-machine-runtime!)
   (rf.story.ui.state/reset-shell-state!)
@@ -109,6 +119,12 @@
                   (> (.now js/Date) deadline) (f nil)
                   :else                       (js/setTimeout poll 25))))]
       (poll))))
+
+(defn- rendered-text
+  "What a mount node actually painted, for a precondition's failure message."
+  [^js node]
+  (let [text (or (.-textContent node) "")]
+    (pr-str (subs text 0 (min 300 (count text))))))
 
 (defn- append-to-body! [^js el]
   (js/document.body.appendChild el)
@@ -193,7 +209,9 @@
             #(.querySelector node "[data-test=\"login-heading\"]")
             10000
             (fn [heading]
-              (is (some? heading) "precondition: the login card rendered in the canvas")
+              (is (some? heading)
+                  (str "precondition: the login card rendered in the canvas; the mount node reads "
+                       (rendered-text node)))
               (when heading
                 (assert-subject-boundary! node control)
                 (let [wrap  (.querySelector node "section[aria-label=\"Variant canvas\"]")
@@ -227,7 +245,9 @@
             #(.querySelector node "[data-test=\"login-heading\"]")
             10000
             (fn [heading]
-              (is (some? heading) "precondition: the login card rendered in the cell")
+              (is (some? heading)
+                  (str "precondition: the login card rendered in the cell; the mount node reads "
+                       (rendered-text node)))
               (when heading
                 (assert-subject-boundary! node control)
                 (let [cell  (.querySelector node "[data-test-variant]")
