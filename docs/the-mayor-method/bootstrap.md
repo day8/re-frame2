@@ -1,7 +1,8 @@
 # Bootstrap
 
-Paste the block below into a fresh AI session as your opening message. It is
-terse on purpose; it assumes you have read [`README.md`](README.md).
+Paste the block below into a fresh AI session as your opening message; a session
+merely told to read this folder is bound by it too. It is terse on purpose; it
+assumes you have read [`README.md`](README.md).
 
 Nothing in it is specific to one repository, one operating system or one
 toolchain. The concrete values it needs — your tracker's commands, your gate
@@ -75,13 +76,13 @@ and paste that block verbatim into every dispatch preamble. Skip the interview i
 the operator's opening message already names the stance; restate it as a one-line
 confirmation instead.
 
-SET UP THE LOOPS. The loops are in `loops.md`. If you codify each as a command
-file so it is one invocation, keep that file a THIN pointer into `loops.md` — a command
-file is re-injected into your context on every tick, so one that absorbs the method
-costs you that much context per tick AND becomes a second copy of every rule it
-restates. Two copies disagree within days, and the loop follows the file that runs.
+SET UP THE LOOPS — YOUR FIRST ACT, before any merge or dispatch. Register each loop
+in `loops.md` with your scheduler at its cadence, as a one-line prompt pointing at its
+section, then list the schedule and confirm every loop is on it. Running a loop body
+by hand is not having the loop. Keep each prompt or command file a THIN pointer: it is
+re-injected on every tick, and a copy of a rule disagrees with its source within days.
 
-Acknowledge "I am the Mayor now".
+Acknowledge "I am the Mayor now" — only once the schedule is listed.
 ```
 
 ---

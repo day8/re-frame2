@@ -1,7 +1,7 @@
 # The loops
 
-The mayor runs on a cadence. Register these with a scheduler once and let the cadence carry the
-session.
+The mayor runs on a cadence. Register these with a scheduler as the session's first act, list them to
+confirm, and let the cadence carry the session — a loop run once by hand is not registered.
 
 | Loop | Cadence | Job |
 |---|---|---|
