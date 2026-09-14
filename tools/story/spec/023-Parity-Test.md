@@ -198,9 +198,9 @@ every measurement with its evidence strength (§3.3).
    `npx shadow-cljs watch :examples/login-form` and open
    `http://localhost:8043/index.html#/stories` in a browser or in headless
    Playwright. Close the first-run help with Escape, and select a variant
-   before looking for `role="tab"`: the mode tabs mount only once a variant is
-   selected. Record each check as pass or fail with a DOM excerpt or a
-   screenshot:
+   before looking for `role="tab"`: an earlier walk that queried the tab strip
+   with no variant selected found no tabs. Record each check as pass or fail
+   with a DOM excerpt or a screenshot:
    - `/idle` shows schema-derived controls, with inline validation for an
      invalid value (A3).
    - The auto grid's sidebar header counts the cells it renders: five (A4).
