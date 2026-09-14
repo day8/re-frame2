@@ -94,13 +94,16 @@
   throws; a compile failure is surfaced to the user as an error state
   rather than blanking the panel.
 
-  The panel explains the SCENARIO, so it compiles with the ambient arg
-  layers (global-args + the parent story's `:args`) folded in through
-  `rf.story.args/run-arg-layers` — exactly as `rf.story.plan/effective-args`
-  does. The bare compiler deliberately carries the variant-chain layer
-  alone, so without them a variant whose args live on its story showed
-  `{}` for Args / Effective args while every other surface showed the
-  story's values (rf2-noxox).
+  The panel explains the SCENARIO, so a registered (keyword) variant
+  compiles with the ambient arg layers (global-args + the parent story's
+  `:args`) folded in through `rf.story.args/run-arg-layers` — the same rule
+  as `story/explain` and `rf.story.plan/effective-args`; an inline plan map
+  runs with no ambient layers and is explained bare. The bare compiler
+  deliberately carries the variant-chain layer alone, so without the fold a
+  variant whose args live on its story showed `{}` for Args / Effective
+  args while every other surface showed the story's values (rf2-noxox).
+  This calls the compiler rather than the `story/explain` facade because
+  `re-frame.story` loads the shell that mounts this panel.
 
   `nil` variant-id yields `{:error ...}` so the caller renders the
   no-variant empty state via a separate branch — this fn is only called
@@ -109,7 +112,8 @@
   (try
     {:explain (rf.story.plan/explain
                 variant-id
-                {:run-args (rf.story.args/run-arg-layers variant-id)})}
+                (when (keyword? variant-id)
+                  {:run-args (rf.story.args/run-arg-layers variant-id)}))}
     (catch #?(:clj Throwable :cljs :default) e
       {:error (or #?(:clj (.getMessage ^Throwable e)
                      :cljs (.-message e))
