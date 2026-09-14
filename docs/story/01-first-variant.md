@@ -88,6 +88,36 @@ global < mode < story < variant < live control override
 Most variants start with only `:setup` and `:script`; args become important when
 you want to explore presentation inputs.
 
+## A schema on the view gives you Controls
+
+`:args` are view inputs, so the view is where a valid input is defined. Give the
+view a Malli props schema under `:rf/props` on its registration:
+
+```clojure
+(ns my-app.views
+  (:require [re-frame.core :as rf]))
+
+(rf/reg-view ^{:rf/props [:map [:heading {:optional true} [:string {:min 1}]]]}
+          login-card [{:keys [heading]}]
+  [:section
+   [:h3 (or heading "Sign in")]
+   [login-form]])
+```
+
+The story file does not change. Select `/idle` and open Controls: Story reads the
+schema off the variant's `:component` and derives a control for each arg, so
+`:heading` gets a text field. Clear the field and the row shows an inline
+`schema:` error, with a banner saying the arg violates the component's schema:
+an empty heading is not a valid render of this view. Without a schema, Story can
+only guess a control from the value, and its schema check reports "no schema
+registered for the variant's :component".
+
+Controls follow the schema's shape: `:string` gives a text field, `:int` and
+`:double` a number field, `:boolean` a checkbox, `[:enum ...]` a select, and
+`:map`, `:vector`, `:set` and `:tuple` nest their children. `:rf/props` is the
+canonical key; a `:schema` key in the same place also works. Where a derived
+control is not the one you want, the story's or variant's `:argtypes` wins.
+
 ## Every variant gets a frame
 
 This is the rule that makes Story more than a component gallery:

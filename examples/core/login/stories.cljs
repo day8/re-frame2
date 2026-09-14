@@ -163,14 +163,18 @@
 
   ;; -------------------------------------------------------------------------
   ;; reg-story — the parent. Think of it as the shared backdrop: its
-  ;; `:component` (the example's `root-view`) and `:tags` flow down to every
-  ;; variant, so each variant only has to describe what makes it different.
+  ;; `:component` (the example's `root-view`), `:args` and `:tags` flow down
+  ;; to every variant, so each variant only has to describe what makes it
+  ;; different. `root-view` declares a props schema (`:rf/props`), so the
+  ;; `:heading` arg gets a Controls row derived from it — clear the heading
+  ;; and the row shows an inline schema error.
   ;; -------------------------------------------------------------------------
 
   (rf.story/reg-story :story.login
     {:doc        "The login form — every reachable state of the
                  `:auth.login/flow` machine, as runnable variants."
      :component  :login.core/root-view
+     :args       {:heading "Sign in"}
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
