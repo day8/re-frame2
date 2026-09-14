@@ -185,7 +185,8 @@
   The body carries the four-bucket authoring vocabulary — preconditions on
   `:setup`, behaviour-under-test on `:script` (per the projection rule),
   the trimmed source-artifact link on `:run-artifact` — plus the author's
-  `:doc` / `:tags` / `:extends`. The snippet is the readable mirror of what
+  `:doc` / `:tags` / `:extends`, the run's `:network` / `:fx-overrides`
+  world, and the source's `:checks` / `:assertions`. The snippet is the readable mirror of what
   the IMPURE promote call registers, so what the user reviews IS what gets
   committed."
   [artifact draft]
@@ -195,10 +196,15 @@
         ;; Render the body keys in a stable, readable order. The body is
         ;; data the substrate produced; we pr-str each slot so the snippet
         ;; round-trips through read-string + the registrar.
-        ;; `:checks` / `:assertions` are the source expectations the
-        ;; substrate carries (rf2-5vmog); omitting them here would paste a
-        ;; regression that cannot fail.
-        order      [:doc :extends :setup :script :checks :assertions :tags :args :run-artifact]
+        ;; A body slot missing from this list is dropped from the snippet
+        ;; silently, so every slot `artifact->variant-body` can emit that
+        ;; changes what the pasted variant DOES must be here:
+        ;; `:network` / `:fx-overrides` are the runnable world the substrate
+        ;; lifts off the artifact (rf2-vf8es) — without them a pasted
+        ;; regression runs against real HTTP and real effects (rf2-siyxz);
+        ;; `:checks` / `:assertions` are the source expectations it carries
+        ;; (rf2-5vmog) — without them it cannot fail.
+        order      [:doc :extends :network :fx-overrides :setup :script :checks :assertions :tags :args :run-artifact]
         body-keys  (->> order
                         (keep (fn [k]
                                 (when (contains? body k)

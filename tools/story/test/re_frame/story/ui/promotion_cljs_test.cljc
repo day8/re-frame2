@@ -19,7 +19,15 @@
   `:node-test` build (ns suffix `-cljs-test`)."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
+            [#?(:clj clojure.edn :cljs cljs.reader) :as edn]
+            [re-frame.core :as rf]
+            [re-frame.frame :as rf.frame]
+            [re-frame.http.managed]       ;; production managed-HTTP fx surface (:rf.http/managed)
+            [re-frame.http.test-support]  ;; stub install seam + canned-stub handlers
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story.artifact  :as rf.story.artifact]
+            [re-frame.story.determinism :as rf.story.determinism]
+            [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.promotion :as rf.story.promotion]
             [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.ui.promotion :as rf.story.ui.promotion]))
@@ -186,6 +194,98 @@
       (is (str/includes? snip ":assertions"))
       (is (str/includes? snip (pr-str [[:rf.assert/path-equals [:count] 1]]))
           "the carried assertion is rendered verbatim"))))
+
+;; ===========================================================================
+;; The snippet keeps the run's world: :network and :fx-overrides (rf2-siyxz)
+;; ===========================================================================
+;;
+;; `artifact->variant-body` lifts a run artifact's `:network` route map and its
+;; non-HTTP `:fx-decisions` onto the body's `:network` / `:fx-overrides` slots
+;; (rf2-vf8es), and `promote!` registers them. The snippet renders only the
+;; keys in its order list, so a slot the list omits is silently absent from
+;; what the author pastes. These tests take a REAL run — a compiled plan,
+;; coerced by the determinism seam, replayed — through the dialog's own
+;; capture rule and snippet, read the snippet back and register it. So they
+;; pin what the promotion path produces, not just what the formatter prints.
+;;
+;; The draft has no `:extends`, as for a capture with no registered origin. An
+;; origin authoring the same world would hand it to the pasted variant through
+;; the parent chain and hide the gap; without one the body slot is the only
+;; carrier.
+
+(defn- replayed-run
+  "Compile `body` as the unregistered variant `variant-id`, coerce the plan to
+  a run artifact through `determinism/->artifact`, and replay it into a fresh
+  frame. The run-result's `:run-artifact` back-link is what the dialog's
+  `result->artifact` captures."
+  [variant-id body]
+  (try (rf/init! rf.substrate.plain-atom/adapter)
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
+  (rf.frame/ensure-default-frame!)
+  (rf.story.artifact/replay-run-artifact
+    (rf.story.determinism/->artifact
+      (rf.story.plan/variant-plan variant-id {:lookup {variant-id body}}))))
+
+(defn- paste-promotion-snippet!
+  "Capture `result` and render its copy-to-source snippet as the dialog does,
+  then read the snippet back and register the pasted form. Returns the body
+  `promote!` would register, the body read back, and the pasted id."
+  [result promoted-id]
+  (let [artifact      (rf.story.ui.promotion/result->artifact result [])
+        draft         {:variant-id promoted-id :tags #{:test} :setup-count 0}
+        [_ id pasted] (edn/read-string
+                        (rf.story.ui.promotion/promotion-snippet artifact draft))]
+    (rf.story.registrar/reg-variant* id pasted)
+    {:body   (rf.story.promotion/artifact->variant-body
+               artifact (rf.story.ui.promotion/draft->promote-opts draft))
+     :pasted pasted
+     :id     id}))
+
+(deftest promotion-snippet-keeps-network-stubs
+  (testing "a promoted :network-stubbed run pastes back into a variant that
+            still installs its route stubs (rf2-siyxz)"
+    (rf/reg-event :promo-snip/get-cart
+      (fn [{:keys [db]} [_ msg reply]]
+        (if reply
+          {:db (assoc db :got reply)}
+          {:fx [[:rf.http/managed {:request  {:method :get :url "/api/cart"}
+                                   :decode   :json
+                                   :reply-to [:promo-snip/get-cart msg]}]]})))
+    (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
+          run    (replayed-run :story.promo-snip/net
+                               {:network routes
+                                :script  [[:dispatch [:promo-snip/get-cart]]]})
+          {:keys [body pasted id]} (paste-promotion-snippet!
+                                     run :story.promo-snip/net-regression)]
+      (is (= routes (:network body))
+          "the promotion path puts the run's route map on the body")
+      (is (= body pasted)
+          "the snippet reads back to exactly the body promote! registers")
+      (is (= routes (:network (rf.story.registrar/handler-meta :variant id)))
+          "the pasted variant carries :network")
+      (is (= routes (get-in (rf.story.plan/variant-plan id) [:world :network]))
+          "the pasted variant compiles to the route stubs its run installs"))))
+
+(deftest promotion-snippet-keeps-fx-overrides
+  (testing "a promoted run that redirected a non-HTTP effect pastes back into a
+            variant that still redirects it (rf2-siyxz)"
+    (rf/reg-fx :promo-snip/toast {:platforms #{:client :server}} (fn [_ _] nil))
+    (rf/reg-fx :promo-snip/toast-stub {:platforms #{:client :server}} (fn [_ _] nil))
+    (rf/reg-event :promo-snip/save (fn [_ _] {:fx [[:promo-snip/toast "saved"]]}))
+    (let [overrides {:promo-snip/toast :promo-snip/toast-stub}
+          run       (replayed-run :story.promo-snip/fx
+                                  {:fx-overrides overrides
+                                   :script       [[:dispatch [:promo-snip/save]]]})
+          {:keys [body pasted id]} (paste-promotion-snippet!
+                                     run :story.promo-snip/fx-regression)]
+      (is (= overrides (:fx-overrides body))
+          "the promotion path puts the run's fx decisions on the body")
+      (is (= body pasted)
+          "the snippet reads back to exactly the body promote! registers")
+      (is (= overrides (:fx-overrides (rf.story.registrar/handler-meta :variant id)))
+          "the pasted variant carries :fx-overrides")
+      (is (= overrides (get-in (rf.story.plan/variant-plan id) [:world :frame :fx-overrides]))
+          "the pasted variant compiles to the same fx redirect"))))
 
 ;; ===========================================================================
 ;; CLJS-only: the capture store
