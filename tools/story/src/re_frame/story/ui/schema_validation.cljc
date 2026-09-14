@@ -203,10 +203,20 @@
   maps for the args that fail their entry schema.
 
   When the schema is a `[:map ...]` form the walker checks every
-  registered entry against the matching value in `args` and collects
-  the failures. When the schema is anything else (top-level
-  non-`:map` shape) the walker validates the whole `args` map against
-  the schema and returns a single `::root` violation when it fails.
+  registered entry and collects the failures, judging each by key
+  presence first — Malli's own map rule, and the rule
+  `re-frame.story.plan/validate-effective-args` applies at plan
+  construction:
+
+    - key absent, entry `{:optional true}` → conforms;
+    - key absent, entry required → a violation, even when the child
+      schema accepts nil (`:value` nil, `:explain` the validator's
+      account of the absent key);
+    - key present → its value is validated against the child schema.
+
+  When the schema is anything else (top-level non-`:map` shape) the
+  walker validates the whole `args` map against the schema and returns
+  a single `::root` violation when it fails.
 
   Per Spec 010 §Recommended soft-pass when the validator is absent
   (`nil`), every value passes — the panel reports 'no violations'.
@@ -238,17 +248,29 @@
       (nil? schema)
       []
 
-      ;; Top-level :map — walk entries.
+      ;; Top-level :map — walk entries, key presence first.
       (map-schema? schema)
       (into []
-            (keep (fn [[k child-schema]]
-                    (let [v (get args k)]
-                      (when-not (validate child-schema v)
+            (keep (fn [entry]
+                    (let [k     (map-entry-key entry)
+                          child (map-entry-schema entry)]
+                      (cond
+                        (contains? args k)
+                        (let [v (get args k)]
+                          (when-not (validate child v)
+                            {:key     k
+                             :value   v
+                             :schema  child
+                             :explain (when explain (explain child v))}))
+
+                        (not (:optional (rf.story.malli-schema/schema-properties entry)))
                         {:key     k
-                         :value   v
-                         :schema  child-schema
-                         :explain (when explain (explain child-schema v))}))))
-            (map-entries schema))
+                         :value   nil
+                         :schema  child
+                         ;; Explain the one-entry map, not the child: the
+                         ;; child alone may accept nil; the absence is the fault.
+                         :explain (when explain (explain [:map entry] {}))}))))
+            (schema-children schema))
 
       ;; Top-level non-:map — validate whole args against the schema.
       :else
