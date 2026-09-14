@@ -40,6 +40,10 @@
             [re-frame.story.async      :as rf.story.async]
             [re-frame.story.loaders    :as rf.story.loaders]
             [re-frame.test-support     :as rf.test-support]
+            [malli.core                :as m]
+            [re-frame.story.view-args  :as rf.story.view-args]
+            [re-frame.story.ui.controls :as rf.story.ui.controls]
+            [re-frame.story.ui.schema-validation :as rf.story.ui.schema-validation]
             [login-form.events]
             [login-form.subs]
             [login-form.stories :as lf-stories]
@@ -259,3 +263,57 @@
     (is (empty? (set/intersection (rf.story/variants-of :story.login)
                                   (rf.story/variants-of :story.login-form)))
         "no variant id is shared between the two decks")))
+
+;; ---- rf2-wmoer: both login views carry a props schema Story reads --------
+;;
+;; Story's Controls panel derives rows from, and checks committed args
+;; against, the `:rf/props` schema on the variant's `:component` view. Neither
+;; login view carried one, so every login deck showed "no schema registered for
+;; the variant's :component". These pin, for each deck, that its component
+;; resolves a schema through the production path (compiled plan -> default
+;; `:view` lookup), that Controls derives a text row for `:heading`, and that an
+;; empty heading is a violation while the registered one conforms.
+;;
+;; The view metadata is captured once at ns-load, after the `:require` chain
+;; fired `reg-view`, and re-registered in the test body. A sibling ns whose
+;; fixture clears the `:view` kind would otherwise empty the production lookup
+;; depending on run order — the same reason `source-store-baseline` above is
+;; captured at load rather than per test.
+
+(def ^:private view-meta-at-load
+  {:login-form.views/login-card (rf.registrar/handler-meta :view :login-form.views/login-card)
+   :login.core/root-view        (rf.registrar/handler-meta :view :login.core/root-view)})
+
+(def ^:private malli-validator
+  "A `{:validate :explain}` pair backed by Malli — the shape the Controls and
+  schema-validation panels thread from the late-bind hook."
+  {:validate (fn [schema value] (m/validate schema value))
+   :explain  (fn [schema value] (m/explain schema value))})
+
+(defn- heading-violations
+  "The arg keys `args` violates under `schema`."
+  [schema args]
+  (mapv :key (rf.story.ui.schema-validation/args-violations args schema malli-validator)))
+
+(defn- check-heading-props-schema
+  [variant-id view-id]
+  (let [view-meta (get view-meta-at-load view-id)]
+    (when (is (some? view-meta) (str view-id " was registered at ns-load"))
+      (rf.registrar/register! :view view-id view-meta)
+      (let [schema (rf.story.view-args/compiled-view-args-schema variant-id)]
+        (is (some? schema)
+            (str variant-id " resolves its component's props schema"))
+        (is (= {:widget :text}
+               (:heading (rf.story.ui.controls/resolve-argtypes variant-id)))
+            ":heading derives a text control")
+        (is (= [] (heading-violations schema {:heading "Sign in"}))
+            "the registered heading conforms")
+        (is (= [:heading] (heading-violations schema {:heading ""}))
+            "an empty heading is a violation")))))
+
+(deftest login-views-carry-a-props-schema
+  (testing ":story.login-form/idle → :login-form.views/login-card (testbed)"
+    (check-heading-props-schema :story.login-form/idle :login-form.views/login-card))
+  (testing ":story.login/empty → :login.core/root-view (example)"
+    (login-stories/register-all!)
+    (check-heading-props-schema :story.login/empty :login.core/root-view)))

@@ -105,9 +105,15 @@
        locked? [locked-panel]
        :else   [login-form])]))
 
-(rf/reg-view root-view []
+;; The page. `:rf/props` is its props schema (Malli). The app mounts it
+;; with no props, so the heading falls back to "Sign in"; the Story showcase
+;; passes `:heading` as an arg, and Story derives a Controls row from this
+;; schema and checks the value against it on every render.
+(rf/reg-view ^{:doc      "The page: a heading over the login banner."
+               :rf/props [:map [:heading {:optional true} [:string {:min 1}]]]}
+          root-view [{:keys [heading]}]
   [:div.app
-   [:h1 "Sign in"]
+   [:h1 (or heading "Sign in")]
    [login-banner]])
 
 ;; ============================================================================

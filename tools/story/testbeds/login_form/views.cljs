@@ -94,9 +94,16 @@
 ;;
 ;; This is the view a Story variant points at via `:component`. The
 ;; same view renders in the live testbed at `#/`.
+;;
+;; `:rf/props` is the view's props schema (Malli). Story reads it off the
+;; view registration: the Controls panel derives its `:heading` row from
+;; it, and every committed arg is checked against it, so clearing the
+;; heading shows an inline schema error. `:heading` is optional because
+;; the view falls back to "Sign in".
 ;; ---------------------------------------------------------------------------
 
-(reg-view login-card [{:keys [heading]}]
+(reg-view ^{:rf/props [:map [:heading {:optional true} [:string {:min 1}]]]}
+          login-card [{:keys [heading]}]
   (let [authed? @(rf/subscribe [:rf.machine/has-tag? :login/flow :auth/authenticated])
         email   @(subscribe [:login/email])
         state   @(subscribe [:login/state])]
