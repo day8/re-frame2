@@ -16,31 +16,42 @@ That is the whole trick. The route *causes* the fetch, a subscription *reads* th
 
 ## Step 1 — add the resources artefact and point at an API
 
-Resources ship as their own optional artefact, the way routing did in Part 1 — you only pay for the machinery you use. Add it, plus the managed-HTTP transport it sits on top of (the piece that actually talks to the network). Add both deps and restart `npm run dev`:
+Resources ship as their own optional artefact, the way routing did in Part 1 — you only pay for the machinery you use. Add it, plus the managed-HTTP transport it sits on top of (the piece that actually talks to the network), which ships as a second artefact, `day8/re-frame2-http`. Your `deps.edn` now reads like this — the compiler and the `:dev` alias from setup stay where they were — then restart `npm run dev`:
 
 ```clojure
-{:deps {day8/re-frame2              {:local/root "../re-frame2/implementation/core"}
+{:deps {thheller/shadow-cljs        {:mvn/version "3.4.10"}
+        day8/re-frame2              {:local/root "../re-frame2/implementation/core"}
         day8/re-frame2-reagent      {:local/root "../re-frame2/implementation/adapters/reagent"}
         day8/re-frame2-routing      {:local/root "../re-frame2/implementation/routing"}
-        day8/re-frame2-resources    {:local/root "../re-frame2/implementation/resources"}}}
+        day8/re-frame2-http         {:local/root "../re-frame2/implementation/http"}
+        day8/re-frame2-resources    {:local/root "../re-frame2/implementation/resources"}}
+ :aliases {:dev {:extra-deps {day8/re-frame2-xray {:local/root "../re-frame2/tools/xray"}}}}}
 ```
 
-Now a tiny namespace that says where the API is:
+Leave out `day8/re-frame2-http` and the `re-frame.http.managed` require below can't be found: the resources artefact reaches the transport late-bound, so it doesn't put it on your classpath for you.
+
+Now a tiny namespace that says where the API is. Make it `.cljc` rather than `.cljs` — it holds no browser code, and [Part 5](05-test-and-ship.md) loads it on the JVM:
 
 ```clojure
-;; src/conduit/api.cljs
+;; src/conduit/api.cljc
 (ns conduit.api)
 
-(def api-base "https://api.realworld.io/api")
+;; The current official hosted RealWorld API.
+(def api-base "https://api.realworld.show/api")
+
+;; Running the upstream reference backend locally instead? Use this line:
+;; (def api-base "http://localhost:3000/api")
 ```
 
 The Conduit API answers `GET /articles` with `{:articles [...] :articlesCount N}` and `GET /articles/:slug` with `{:article {...}}`. A resource stores whatever the request decodes — verbatim, no reshaping — so you'll reach into `(:articles data)` and `(:article data)` when you render. The data keeps the shape the server gave it.
 
 One word from Step 1 is worth pinning down before we go further: *transport*. The two deps you added are two layers, on purpose. The transport handles the network — sockets, retries, the raw request — and the resource sits a level above it, describing *what* to read and *how fresh* it must be. The resource never touches a socket; it hands the transport a request and gets a decoded value back.
 
-!!! note "Want to run offline?"
+!!! note "Hosted or local?"
 
-    Install the in-repo demo stub instead of pointing at the hosted Conduit — see `examples/real-apps/realworld_resources/http.cljs` for the canned-response override, which serves the same routes without a network.
+    `https://api.realworld.show/api` is the API the RealWorld project hosts today, and it accepts browser requests from `localhost`, so your dev server can call it directly. To keep everything on your own machine instead, run the project's reference backend, [nitro-prisma-zod-realworld-example-app](https://github.com/realworld-apps/nitro-prisma-zod-realworld-example-app): install [Bun](https://bun.sh), clone it with `--recurse-submodules`, then run `make setup` and `JWT_SECRET=<any-string> bun run dev` in the checkout. It keeps its data in a local SQLite file and serves `http://localhost:3000/api` — swap the commented line in `conduit.api`. Either way, create two accounts before [Part 3](03-auth-and-forms.md) (a `POST /users` to the API does it), so you can watch one reader's data stay out of the other's cache.
+
+    The finished example in this repo runs with no network at all, but it gets there with an in-page backend that has a single demo user — every sign-in is the same person — so it can't show Part 3's viewer switch, and it isn't something your project can point at.
 
 !!! warning "Gotcha — forgot to require `re-frame.resources`?"
 
@@ -50,10 +61,10 @@ One word from Step 1 is worth pinning down before we go further: *transport*. Th
 
 A **[resource](../glossary.md#resource)** is a server read registered once. You describe the read — its identity, its freshness, the request to make — and from then on the runtime owns fetching, caching, and revalidation.
 
-Here are the two reads our app needs. Create `conduit/resources.cljs`:
+Here are the two reads our app needs. Create `src/conduit/resources.cljc` (`.cljc` again — registrations carry no browser code):
 
 ```clojure
-;; src/conduit/resources.cljs
+;; src/conduit/resources.cljc
 ;; Adapted from examples/real-apps/realworld_resources/resources.cljs
 (ns conduit.resources
   (:require [re-frame.core :as rf]
@@ -63,7 +74,7 @@ Here are the two reads our app needs. Create `conduit/resources.cljs`:
 
 (rf/reg-resource :conduit/articles
   {:params-schema  [:map [:page {:optional true} [:maybe :int]]]
-   :scope          :rf.scope/global          ; a public list — every viewer gets the same answer
+   :scope          :rf.scope/global          ; nobody can sign in yet — Part 3 changes this
    :stale-after-ms 60000
    :gc-after-ms    300000
    :tags           (fn [_params data]
@@ -106,7 +117,7 @@ The request fn lives in the **third slot**, not inside the metadata map. This tr
 Most of the config map is optional knobs you reach for later. Four keys carry the core idea, and each is a decision the framework wants you to make on purpose rather than by accident:
 
 - **`:params-schema`** is the read's *identity*. Every variable that changes the server's answer belongs in params, because params are exactly what the cache keys on. `:conduit/article` with `{:slug "hello"}` and `{:slug "world"}` are two distinct cache entries; that's not configuration, it's just what "identity" means here.
-- **`:scope`** is an explicit, auditable claim about *who shares the answer*. `:rf.scope/global` says "this read is the same for everyone" — a public article list. A [scope](../glossary.md#scope) that isn't global is a *leak boundary*, and you'll meet those in Part 3.
+- **`:scope`** is an explicit, auditable claim about *who shares the answer*. `:rf.scope/global` says "this read is the same for everyone", and right now that's true: nobody can sign in, so every request is anonymous and every reader gets the same bytes. It stops being true the moment a request carries a token — Conduit's articles embed `favorited` and `following` flags *relative to whoever is asking* — so [Part 3](03-auth-and-forms.md#whose-cache-is-it-scope-reads-by-viewer) moves both reads to a viewer scope. A [scope](../glossary.md#scope) that isn't global is a *leak boundary*.
 - **`:stale-after-ms`** is the freshness policy. Fresh for a minute, then the next ensure refetches in the background.
 - **`:tags`** name the *facts* the data contains. The two `:tags` lines look like dead weight right now; they earn their keep in Part 4, where a later write invalidates exactly the reads it broke. Read past them for now — we'll come back and collect on them.
 
@@ -116,7 +127,7 @@ Most of the config map is optional knobs you reach for later. Four keys carry th
 
 !!! note "Why is `:scope` required, with no default?"
 
-    Because the cache's leak boundary is too important to infer. A user-scoped read silently registered as global would serve one user's private data to another from a shared cache — a security bug the framework can't lint its way out of after the fact. So you state the intent *once*, at the registration site. A `reg-resource` with no `:scope` is a loud `:rf.error/resource-missing-scope-policy` at registration — "I forgot this read is user-scoped" is unrepresentable rather than a 2am incident. You'll meet the non-global scopes — a `:rf.scope/session` value, the `{:from-db <id>}` named resolver — in Part 3; here, `:rf.scope/global` is the honest answer for a public list.
+    Because the cache's leak boundary is too important to infer. A user-scoped read silently registered as global would serve one user's private data to another from a shared cache — a security bug the framework can't lint its way out of after the fact. So you state the intent *once*, at the registration site. A `reg-resource` with no `:scope` is a loud `:rf.error/resource-missing-scope-policy` at registration — "I forgot this read is user-scoped" is unrepresentable rather than a 2am incident. You'll meet the non-global scopes in Part 3 (a `{:from-db <id>}` named resolver that derives a viewer scope) and Part 4 (a session scope); here, with every request still anonymous, `:rf.scope/global` is the honest answer.
 
 ??? note "The rest of the metadata keys"
 
@@ -140,7 +151,19 @@ Here's the part that quietly rearranges people's mental furniture the first time
 
 We've declared the reads but nothing fetches yet. A resource doesn't fetch until something *causes* it, and the cleanest cause is the page that needs it.
 
-`:resources` is route metadata; add it to the two routes from Part 1 (in `core.cljs`):
+`:resources` is route metadata; add it to the two routes from Part 1, in `core.cljs`. A route can only plan a resource that is already registered, so `core` loads `conduit.resources` first — add it to the `ns` form. This is the boot-loading path for every registration namespace from here on: one nobody requires never runs.
+
+```clojure
+(ns conduit.core
+  (:require [re-frame.core :as rf]
+            [re-frame.routing]
+            [re-frame.adapter.reagent :as reagent-adapter]
+            [conduit.resources]              ;; Part 2: registers the reads at load
+            [conduit.articles :as articles])
+  (:require-macros [re-frame.core :refer [reg-view]]))
+```
+
+Then the routes:
 
 ```clojure
 (rf/reg-route :conduit/home
@@ -192,10 +215,21 @@ Notice what you *didn't* write: a fetch call. There is no `http-get`, no `then`,
 
 The data is fetching. Now the view reads it — passively, the same way it would read anything else. Views still never touch the cache directly. They read the `:rf/resource` subscription — a [subscription](../../core/glossary.md#subscription) being a read-only view into state that recomputes when that state changes — and what it hands back is a single ready-to-render map: the data, plus everything the view needs to know about *how* it's doing (loading, fetching, errored, stale). It takes the `{:resource … :params …}` query and returns that map; it's the read the views below use.
 
-Here's the rewritten home page. Read the resource, branch on its state:
+Here's the rewritten home page, with three small presentational views it needs defined above it (a view has to exist before the view that uses it). Read the resource, branch on its state:
 
 ```clojure
 ;; src/conduit/articles.cljs  (views; the subs and seed are gone)
+(reg-view feed-skeleton []
+  [:div.article-preview "Loading articles…"])
+
+(reg-view feed-error [{:keys [kind status]}]
+  [:div.article-preview.error-messages
+   "Couldn't load articles (" (name kind) (when status (str " " status)) ")."])
+
+(reg-view article-error [{:keys [kind status]}]
+  [:div.error-messages
+   "Couldn't load this article (" (name kind) (when status (str " " status)) ")."])
+
 (reg-view home-page []
   (let [state    @(rf/subscribe [:rf/resource {:resource :conduit/articles :params {}}])
         articles (:articles (:data state))]
@@ -208,7 +242,13 @@ Here's the rewritten home page. Read the resource, branch on its state:
         (empty? articles)                              [:div.article-preview "No articles are here… yet."]
         :else
         [:<>
-         (when (:fetching? state) [:div.feed-refreshing "Refreshing…"])
+         [:button.btn.btn-sm.btn-outline-secondary
+          {:on-click #(dispatch [:rf.resource/refetch {:resource :conduit/articles
+                                                       :params   {}
+                                                       :cause    [:manual :feed/refresh]}])}
+          "↻ Refresh"]
+         (when (:fetching? state)      [:div.feed-refreshing "Refreshing…"])
+         (when (:refresh-error state)  [:div.feed-refresh-error "Couldn't refresh — showing the last list."])
          (for [article articles]
            ^{:key (:slug article)}
            [article-preview {:article article}])])]]))
@@ -311,7 +351,7 @@ The article page is simpler, because `:blocking? true` guarantees the read has a
       :else [feed-skeleton])))
 ```
 
-`article-preview`, `feed-skeleton`, `feed-error`, and `article-error` are small presentational views. Keep Part 1's `article-preview` and add the three new ones; none of them fetch — they just render the view-model the resource handed them.
+`article-preview` is Part 1's, unchanged; `feed-skeleton`, `feed-error`, and `article-error` are the three from the top of the file. None of them fetch — they just render the view-model the resource handed them. (A child view receives one props map, so `[feed-error (:error state)]` hands it the failure map itself.)
 
 !!! warning "Gotcha — the params must match exactly (this one bites everyone once)"
 
@@ -319,7 +359,7 @@ The article page is simpler, because `:blocking? true` guarantees the read has a
 
 ## Step 5 — refresh on demand
 
-The route causes the *first* fetch, and `:stale-after-ms` causes background refreshes on its own. When you want a user-triggered refresh — a "↻" button on the feed — dispatch `:rf.resource/refetch` with the same identity and a `:cause` for the trace:
+The route causes the *first* fetch, and `:stale-after-ms` causes background refreshes on its own. When you want a user-triggered refresh — the "↻ Refresh" button already on the home page — dispatch `:rf.resource/refetch` with the same identity and a `:cause` for the trace:
 
 ```clojure
 ;; in an event handler, or straight from a button's on-click
@@ -338,7 +378,8 @@ With the dev build running and Xray open:
 1. **Load the home page.** The feed shows a skeleton, then the article list. The route-entry event row in Xray shows the ensure it caused — an [event](../../core/glossary.md#event) being an inert data vector recording that something happened. The Resources panel shows the `:conduit/articles` entry walk `:idle → :loading → :loaded`.
 2. **Open an article, then press Back and open it again.** The second open is a **cache hit**. The Resources panel shows it served from cache, and there's no new network row in the timeline. You wrote zero caching code; identity — scope + resource + params — is the entire mechanism that makes the second read free.
 3. **Wait a minute, then revisit the home page.** The list is now past its `:stale-after-ms` window, so the route entry ensures it into `:fetching` — the old list stays on screen (you set `:keep-previous? true`) while a quiet background refetch runs. Stale-while-revalidate, declared in one number.
-4. **Break the network** (offline in dev tools, or point `api-base` at a bad host) **and reload.** The first load fails into the `:error` branch and your error view renders — a real failure, owned by a view *you* wrote, not an uncaught promise rejection scrolling past in the console.
+4. **Refresh with the network off.** With the list on screen, switch dev tools to offline and click **↻ Refresh**. The refetch fails, and the list stays put: the entry is still `:loaded`, its `:refresh-error` now holds the failure, and your "Couldn't refresh" line appears. A failed refresh is a footnote, exactly as promised. Go back online.
+5. **Break a first load** (point `api-base` at a host that doesn't answer) **and reload.** The first load fails into the `:error` branch and your error view renders — a real failure, owned by a view *you* wrote, not an uncaught promise rejection scrolling past in the console.
 
 Step back and notice there's still just one loop here: events write state, subs read it, views render it. A resource didn't bolt on a second system or a parallel data path. It moved the fetch/cache/staleness bookkeeping *into* the runtime, behind the same subs-and-events shape you already learned in Part 1. New power, same shape — that's the deal re-frame2 keeps making.
 

@@ -224,7 +224,8 @@ Those `rf/route-link`s point at a route id that doesn't exist yet. We add it nex
 Routing ships as its own artefact, so apps that don't route don't have to carry it. The setup page's `deps.edn` doesn't include it yet. Add it beside the core and adapter entries, then restart `npm run dev` — the watcher resolves `deps.edn` only at startup, so a new dependency won't appear until you bounce it:
 
 ```clojure
-{:deps    {day8/re-frame2         {:local/root "../re-frame2/implementation/core"}
+{:deps    {thheller/shadow-cljs   {:mvn/version "3.4.10"}
+           day8/re-frame2         {:local/root "../re-frame2/implementation/core"}
            day8/re-frame2-reagent {:local/root "../re-frame2/implementation/adapters/reagent"}
            day8/re-frame2-routing {:local/root "../re-frame2/implementation/routing"}}
  :aliases {:dev {:extra-deps {day8/re-frame2-xray {:local/root "../re-frame2/tools/xray"}}}}}
