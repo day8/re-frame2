@@ -74,12 +74,14 @@ So even seeding canned data is an event — there's no back door for "the first 
 
 **The one map out** is the [**effect map**](../../core/glossary.md#effect-map): a description of what should happen next. Read it as *"the next state, plus anything else to do."* Its `:db` key is the new app-db — and since seeding canned data touches nothing else, this handler returns `{:db …}` and hands back the whole initial map. That's all an initialise event really is: a function that ignores the world and returns the starting state.
 
-The effect map is a small, **closed** vocabulary — exactly two keys:
+The effect map is a small, **closed** vocabulary, and two keys do almost all the work:
 
 - `:db` — the next app-db.
 - `:fx` — a vector of [effects](../../core/glossary.md#effect) to run: dispatches, HTTP, navigation, anything that reaches the outside world.
 
-This handler uses only `:db`, because seeding canned data touches nothing outside the map — no DOM, no network, no clock. You'll meet `:fx` in Part 2, when the feed starts loading from a server and the handler genuinely needs the outside world. Crucially, the vocabulary is *closed*: return a third key and you get a [fail-loud](../../core/glossary.md#fail-loud-not-silent) error, not a silent no-op. A typo in an effect key surfaces the instant the handler runs, instead of vanishing into a feature that mysteriously never happens.
+The rest of the set is short and framework-defined. The one this tutorial uses arrives in [Part 3](03-auth-and-forms.md#keeping-the-jwt-redacted-on-both-surfaces): `:sensitive`, a data-classification key returned beside `:db` that marks an app-db path for redaction as part of the same commit.
+
+This handler uses only `:db`, because seeding canned data touches nothing outside the map — no DOM, no network, no clock. You'll meet `:fx` in Part 2, when the feed starts loading from a server and the handler genuinely needs the outside world. Crucially, the vocabulary is *closed*: return a key outside it and you get a [fail-loud](../../core/glossary.md#fail-loud-not-silent) error, not a silent no-op. A typo in an effect key surfaces the instant the handler runs, instead of vanishing into a feature that mysteriously never happens.
 
 This replaces the placeholder `:app/initialise` that setup dropped into `core.cljs`. Delete that old registration now, so the two don't fight over the same id — Step 4 rewrites the rest of that file anyway.
 
