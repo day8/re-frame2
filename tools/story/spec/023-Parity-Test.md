@@ -208,7 +208,7 @@ every measurement with its evidence strength (§3.3).
      reproduces the selected variant and says what it does not carry (A6).
    - The Explain panel's ARGS and EFFECTIVE ARGS show the story's heading (C4).
    - A deliberately failing variant's Tests-pane row renders a link to its
-     Evidence beat (B5; see rf2-v5p6l).
+     Evidence beat (B5; since PR #9830, rf2-v5p6l).
    - The upgrade dialog's snippet pastes and compiles without the pin (B4).
    - Test-mode promotion: a login-form variant, whose `:script` dispatches
      nothing, and a variant whose `:script` dispatches (register one from the
@@ -216,7 +216,8 @@ every measurement with its evidence strength (§3.3).
      source's reason, passes after the fix and fails when the fault returns
      (B6).
    - The computed `color` of the subject's heading against its own
-     background (A7; the canvas colour policy is rf2-w72ij).
+     background (A7; chrome text styles stop at the subject since PR #9827,
+     rf2-w72ij).
    - The a11y panel's violations **and** incomplete counts (step 6).
 
 4. **The JVM probes** (B2, B4, B6, C4). The scripts and their expected output
@@ -370,9 +371,9 @@ order (JVM probe at `2284727767`, PR #9822; re-run at `e4d07929c9`).
 | B1 | 3 | 2 / 1 | WIN | Unchanged; the detection control held on both sides. | — |
 | B2 | 3 | 2 / 2 | MATCH | `:plan-hash` and `:run-hash` attached (PR #9796); re-executed by probe 7 and the MCP loop. | — |
 | B3 | 2 | 2 / 2 | MATCH | Unchanged. | — |
-| B4 | 2 | 2 / 0.5 | WIN | The upgrade snippet parses and drops a single parent's pin (PRs #9803, #9810); re-executed by probe 5b; pins composed from fragments survive. | rf2-yt6ak (held) |
-| B5 | 3 | 1.5 / 1 | WIN | The Tests-pane row became a button (PR #9795), but its link never renders for a real failed assertion; the gesture is unpaid. | rf2-v5p6l (held) |
-| B6 | 1 | 1 / 0 | WIN | Promotion carries the source's expectations (PR #9804), and the Test-mode dialog captures a variant whose `:script` dispatches nothing (PR #9819). Re-scored at `2284727767` from probes 6c and 6d, re-executed: every probed shape reads fail / pass / fail on both routes, so **S 1.5 / B 0, WIN**. Not 2, for one caveat: checks a source composes through `:compose` are dropped on both routes. The browser dialog is not re-walked. | rf2-6h2z3 (held) |
+| B4 | 2 | 2 / 0.5 | WIN | The upgrade snippet parses and drops a single parent's pin (PRs #9803, #9810); re-executed by probe 5b; a pinning composed fragment is now dropped and named too (PR #9828), not re-probed. | rf2-yt6ak (fixed) |
+| B5 | 3 | 1.5 / 1 | WIN | The Tests-pane row became a button (PR #9795), and a real failed assertion's row now links to its own retained Evidence beat (PR #9830); not re-walked, so not re-scored. | rf2-v5p6l (fixed) |
+| B6 | 1 | 1 / 0 | WIN | Promotion carries the source's expectations (PR #9804), and the Test-mode dialog captures a variant whose `:script` dispatches nothing (PR #9819). Re-scored at `2284727767` from probes 6c and 6d, re-executed: every probed shape reads fail / pass / fail on both routes, so **S 1.5 / B 0, WIN**. Not 2, for one caveat at that re-score: checks a source composes through `:compose` were dropped on both routes; PR #9829 now carries them, not re-probed, so not re-scored. The browser dialog is not re-walked. | rf2-6h2z3 (fixed) |
 | B7 | 2 | 1 / 1.5 | GAP / TARGET | The a11y panel and `read-a11y-violations` now report axe-core's incomplete checks beside violations (login-form `/idle`: 0 violations and 1 incomplete `color-contrast` rule on 5 nodes, panel and a direct `axe.run` agree); the visual assertion still compares the identity key, not pixels ([`017`](017-Testing-Story.md#visual-a11y-and-browser-checks)). | rf2-ia2if (experiment) |
 | C1 | 2 | 2 / 1.5 | MATCH | Re-executed by the MCP loop (19 tools). | — |
 | C2 | 3 | 2 / 1 | WIN | The skill leaf was corrected (PR #9798); re-executed by the MCP loop. | — |

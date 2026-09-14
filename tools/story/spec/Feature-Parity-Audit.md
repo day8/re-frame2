@@ -61,9 +61,9 @@ ids are 023's.
 | Gap | Job | Status | Bead |
 |---|---|---|---|
 | Test-mode promotion cannot capture a variant whose `:script` has no dispatch step (every login-form testbed variant has that shape), and the JVM bridge registers a hollow body from a nil artifact | B6 | fixed (PR #9819): the dialog captures the variant's own stepped program, and promotion refuses a nil artifact | rf2-vgthk |
-| A failed assertion's Tests-pane row never renders its link to the Evidence beat: canonical assertion records carry no dispatch id | B5 | held for Mike | rf2-v5p6l |
-| A fidelity upgrade keeps `:sub-overrides` pins that arrive through composed fragments | B4 | held for Mike | rf2-yt6ak |
-| Document isolation: a frame isolates app-db, effects and loaders, not CSS, focus, portals or timers; the canvas is a stamped `div` in one page (`ui/canvas.cljs:728`) | A7 | recorded, not to be built until a real user names a CSS-isolation job; the canvas colour policy is an operator call (rf2-w72ij) | — |
+| A failed assertion's Tests-pane row never renders its link to the Evidence beat: canonical assertion records carry no dispatch id | B5 | fixed (PR #9830): the row resolves to its own retained Evidence beat, and its link opens it | rf2-v5p6l |
+| A fidelity upgrade keeps `:sub-overrides` pins that arrive through composed fragments | B4 | fixed (PR #9828): the upgrade drops a pinning composed fragment and names it, with its queries, in a trailing comment | rf2-yt6ak |
+| Document isolation: a frame isolates app-db, effects and loaders, not CSS, focus, portals or timers; the canvas is a stamped `div` in one page (`ui/canvas.cljs:734`) | A7 | recorded, not to be built until a real user names a CSS-isolation job; chrome no longer leaks text styles or its backdrop into the subject (PR #9827, ruled B) | rf2-w72ij |
 | Everyday visual review: `:rf.assert/visual-snapshot` compares the identity key, and no local capture-and-compare path exists. (The a11y panel and `read-a11y-violations` now report incomplete checks beside violations, so zero violations no longer reads as a clean bill.) | B7 | visual: an experiment before any decision; a11y incomplete: fixed | rf2-ia2if; rf2-0ae7o.2 |
 | No scaffolder: a fresh app from `tools/template` does not reach `#/stories` | A1 | OPEN (carried from [D-1]) | rf2-1bkoc |
 
