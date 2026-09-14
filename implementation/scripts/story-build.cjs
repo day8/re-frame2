@@ -2,7 +2,7 @@
 /*
  * `story:build` — the Story static-export driver (rf2-8wgpm).
  *
- * Per tools/story/spec/013-Static-Build.md the invocation:
+ * Per tools/story/spec/013-Static-Build.md §Invocation the script:
  *
  *   1. Releases the `:story-static/counter-with-stories` shadow-cljs
  *      build (`:advanced` compile, `:closure-defines` with
@@ -12,25 +12,26 @@
  *      tools/story/testbeds/counter_with_stories/story_static.index.html as
  *      `index.html` next to the bundled `main.js` so the output
  *      directory is publishable as-is (the `:asset-path "."` means
- *      every cljs_base / cljs-runtime sibling resolves relative to the
- *      page, so the bundle works under any prefix).
+ *      every sibling module resolves relative to the page, so the
+ *      bundle works under any prefix).
  *
  *   3. Writes a `manifest.json` next to the bundle declaring the build
- *      target, the source ns, and the bundle's intent so consumers /
- *      downstream tooling can introspect without re-parsing the shadow
- *      output.
+ *      target, the source HTML, the closure-defines and the build time,
+ *      so downstream tooling can introspect the export without
+ *      re-parsing the shadow output.
  *
  * This is the canonical sanity-test rig for the static-export
  * surface — the counter_with_stories example is the worked example
- * the rest of the docs site points at. Downstream consumers point
- * the same invocation at their own stories ns by:
+ * the rest of the docs site points at. `STORY_BUILD_TARGET` and the
+ * two path knobs below point it at another static-export build
+ * declared in this repository's shadow-cljs.edn.
  *
- *   - Adding a `:story-static/<their-app>` build to their shadow-cljs.edn
- *     (mirroring the entry below).
- *   - Adding their `<app>.story-static/run` ns that requires their
- *     stories ns + calls `(story/install-canonical-vocabulary!)` +
- *     `(story/mount-shell! (js/document.getElementById "app"))`.
- *   - Re-running this script with `STORY_BUILD_TARGET=<their-target>`.
+ * An app outside this repository does not run this script: it declares
+ * its own `:story-static/<app>` build, `<app>.story-static/run` ns and
+ * host page, then releases the build and stages the page itself. Those
+ * steps are specified in tools/story/spec/013-Static-Build.md
+ * §Downstream pattern and taught in
+ * docs/story/08-snapshot-identity-and-sharing.md §Static builds.
  */
 
 'use strict';
