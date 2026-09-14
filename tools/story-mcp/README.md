@@ -35,6 +35,30 @@ absence means this host could not look at all.
   [`tools/README.md`](../README.md) the dependency arrow flows
   tool → implementation; this jar is on a separate classpath root.
 
+## Which host to use
+
+This server is one of two Story hosts, and one rule picks between them
+before the first call. The same four lines sit in the two skill leaves
+that teach agents Story:
+[`skills/re-frame2/references/tooling/story-mcp-loop.md`](../../skills/re-frame2/references/tooling/story-mcp-loop.md#which-host-to-use)
+and
+[`skills/re-frame2-pair/references/stories.md`](../../skills/re-frame2-pair/references/stories.md#which-host-to-use).
+
+1. **No browser in the loop → story-mcp over stdio.** The `re-frame2` skill owns this half: registry reads, `explain-variant`, `preview-variant` (it runs the variant headlessly and returns the unified run-result) and the gated `register-variant`. A tool that needs a rendered substrate or a live a11y engine answers `:rf.error/story-mcp-capability-unavailable`; that is the verdict, not a failure.
+2. **A human's live workshop in the loop → re-frame2-pair.** The `re-frame2-pair` skill owns this half: `eval-cljs` into the browser's Story registry over `re-frame.story/*`, drive the live variant frame with the ordinary Pair tools, and read the a11y panel.
+3. **Never both for one edit.** A variant id registered in both hosts names two frames with two app-dbs, so a read in one host describes nothing the other ran.
+4. **When in doubt, start on the JVM**, and move to the browser only when a tool answers capability-unavailable.
+
+Whatever launches this server can call all nineteen tools, but the skills
+allow-list a subset: no skill allow-lists the four Testing tools
+(`run-variant`, `read-failures`, `snapshot-identity`,
+`read-a11y-violations`), so an operator reaches them by launching the
+server directly for an explicitly headless run. The promote,
+fidelity-upgrade and explain recipes are in the `re-frame2` skill leaf
+above. `register-variant` neither requires nor synthesises a parent
+story: a variant registers and runs whether or not its `:story.<path>`
+parent is registered, and without one it inherits nothing from a parent.
+
 ## Quick start
 
 ```bash

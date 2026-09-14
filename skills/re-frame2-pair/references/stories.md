@@ -9,7 +9,18 @@
 - They want a variant *asserted* against: was the play sequence valid, did the cascade meet its `:rf.assert/*` expectations, did axe-core find a regression.
 - They want one variant's state read or mutated without touching another's, or two scenarios of the same component compared side by side.
 
-Do **not** load this leaf to author variant bodies from scratch with no runtime in the loop — that is `skills/re-frame2/references/tooling/stories.md`. And do not load it to run Story **headlessly**: see [§Headless Story is a different task](#headless-story-is-a-different-task) at the foot of this page.
+Do **not** load this leaf to author variant bodies from scratch with no runtime in the loop — that is `skills/re-frame2/references/tooling/stories.md`. And do not load it to run Story **headlessly**: [§Which host to use](#which-host-to-use) sends that to story-mcp, and [§Headless Story is a different task](#headless-story-is-a-different-task) at the foot of this page says why.
+
+## Which host to use
+
+Apply this before the first call. The same four lines sit in the `re-frame2` skill's [`story-mcp-loop.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/story-mcp-loop.md#which-host-to-use) and in [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md#which-host-to-use).
+
+1. **No browser in the loop → story-mcp over stdio.** The `re-frame2` skill owns this half: registry reads, `explain-variant`, `preview-variant` (it runs the variant headlessly and returns the unified run-result) and the gated `register-variant`. A tool that needs a rendered substrate or a live a11y engine answers `:rf.error/story-mcp-capability-unavailable`; that is the verdict, not a failure.
+2. **A human's live workshop in the loop → re-frame2-pair.** The `re-frame2-pair` skill owns this half: `eval-cljs` into the browser's Story registry over `re-frame.story/*`, drive the live variant frame with the ordinary Pair tools, and read the a11y panel.
+3. **Never both for one edit.** A variant id registered in both hosts names two frames with two app-dbs, so a read in one host describes nothing the other ran.
+4. **When in doubt, start on the JVM**, and move to the browser only when a tool answers capability-unavailable.
+
+This leaf is the second half. A pair session never starts or calls the story-mcp server, and no skill allow-lists that server's four Testing tools — the browser run is `re-frame.story/run-variant` through `eval-cljs`, below.
 
 ## The identity — variant-id IS the frame-id
 
@@ -126,6 +137,34 @@ mcp__re-frame2-pair__eval-cljs {
 `stop-recording!` returns the recorder state — `:recording?` false, `:events` the captured event vectors in declared order, `:cofx` index-aligned with them, `:variant-id` naming the source. Stopping preserves that capture, so `(re-frame.story/recorder-state)` re-reads the same `:events` if you split the two round-trips. Passing `:cofx` is optional; without it the pasted snippet restamps coeffects on replay instead of re-presenting the recorded ones. The user lands the returned string back in source.
 
 `gen-play-snippet` renders the bare `:events` stream — **dispatched events only**. Canvas clicks, typed input and form submits are captured too, but into `:entries`, and this snippet is blind to them: for those, `(re-frame.story/recording->script-body entries opts)` returns the live `{:script [...] :auto-run? …}` body, and the shell's own REC save dialog renders the rich pasteable form. What is captured at all is not free-form either: the trace-bus listener only offers `:rf.event/dispatched` events whose `:frame` matches the recording target, and `re-frame.story.recorder/recordable-event?` then drops Story's internal namespaces (`:rf.assert/*`, `:rf.story/*`, `re-frame.story.*`).
+
+## Three recipes, in the browser
+
+The same three recipes, with their host-neutral wording, are in the `re-frame2` skill's [`story-mcp-loop.md` §Three recipes](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/story-mcp-loop.md#three-recipes); these are their browser forms. Each registration made through `eval-cljs` lives in the heap only, so the user lands the result in source — `(re-frame.story/variant->edn id)` returns the body.
+
+**Promote a failing run.** The Test-mode promote dialog captures the run's dispatches, carries the registered source's `:assertions` and `:checks`, and replaces a dispatch-only capture with the source's full program. A variant whose `:script` has no dispatch step shows no promote row in Test mode today; use the API route, which is one eval:
+
+```
+mcp__re-frame2-pair__eval-cljs {
+  form: "(re-frame.story/promote-run-artifact!
+           (re-frame.story.determinism/->artifact
+             (re-frame.story/variant-plan :story.cart/checkout-fails))
+           {:variant/id :story.cart/checkout-regression})"
+}
+```
+
+The registered body carries the source's whole program and its own `:assertions` and `:checks`. Then apply one acceptance, in order, re-running the promoted variant with `re-frame.story/run-variant` (§Enumerate, run, operate) after each change: with the fault in place it **fails**, with the same assertion count as the source; with the app fixed it **passes**; with the fault restored it **fails** again. Only that sequence proves a repair. An agent that edits the expected value instead of the app has repaired nothing: its variant passes under the fault and fails once the app is fixed.
+
+**Upgrade a pinned state's fidelity.** The Story shell loads `re-frame.story.ui.view-state` (its Controls panel requires it), so the copy-paste scaffold is one eval:
+
+```
+mcp__re-frame2-pair__eval-cljs {form: "(re-frame.story.ui.view-state/upgrade-snippet :story.cart/pinned :real-setup)"}
+;; => "(story/reg-variant :story.cart/pinned-upgraded\n  {… :setup [[:dispatch [:your/setup-event {}]]]})\n;; upgrade of …"
+```
+
+It returns ONE `(story/reg-variant …)` form that drops the `:sub-overrides` pin and leaves a `:setup` placeholder to fill. Once the filled form is registered, `(:fidelity (re-frame.story/explain :story.cart/pinned-upgraded))` must not contain `:sub-overrides` unless you kept a pin on purpose. Do not skip that check. A pin that reaches the source through a composed fragment (`:compose`) survives the upgrade today, because the scaffold re-emits `:compose` unchanged. Remove that fragment's pin by hand.
+
+**Explain before running.** Read `(re-frame.story/explain id)` (the table above) before you edit a declaration: its `:args` and `:effective-args` fold in the ambient layers — global args, the parent story's `:args`, and any `:active-modes` / `:cell-overrides` in its opts — so they are the values a run uses. The pure compiler `re-frame.story.plan/explain` folds the ambient layers only when handed `:run-args`, so called bare it shows the variant's own layer alone, by design.
 
 ## What is per-variant, and what is not
 
