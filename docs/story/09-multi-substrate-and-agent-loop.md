@@ -6,6 +6,31 @@ tools, and coding agents. The practical takeaway is simple: Story's UI, test
 runner, static docs, and agent surface are meant to read the same registry and
 run the same variants.
 
+## Two hosts
+
+An agent drives Story in one of two hosts, and each host owns its own frames.
+
+- **The story-mcp server** is a stdio process in its own JVM. It sees the
+  stories loaded into that JVM, runs variants in frames it allocates there,
+  and has no bridge to a browser. A browser-only read such as
+  `list-substrates` or `read-a11y-violations` therefore answers with a
+  capability-unavailable error, never an empty result.
+- **The browser** is the app you have open. An agent reaches its Story
+  registry through re-frame2-pair's `eval-cljs`, then reads, dispatches to
+  and traces a variant with the ordinary pair tools, because a variant is a
+  frame.
+
+A variant id registered in both hosts names two frames with two separate
+app-dbs, so run a whole loop in the host that holds the frame you care about.
+The `re-frame2` skill covers the story-mcp authoring loop in
+[`story-mcp-loop.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/story-mcp-loop.md);
+the `re-frame2-pair` skill covers the browser in
+[`stories.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/stories.md).
+The story-mcp
+[README states the same split](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md#what-it-is),
+and [Two surfaces, one live door](api/mcp-surface.md#two-surfaces-one-live-door)
+covers the boundary in more depth.
+
 ## Substrates
 
 A Story body names a view id and application behaviour. It does not contain
@@ -69,13 +94,14 @@ The repo also carries Story-related skill documentation under `skills/`. Those
 skills are not a second Story model. They are operating instructions for agents
 using the same Story and Story-MCP surfaces.
 
-The useful loop is:
+The useful loop, run inside one of the two hosts above, is:
 
 1. list or get the variant;
 2. preview it if needed;
 3. run it;
 4. read failures;
-5. inspect the same frame/epochs through pair or Xray tooling;
+5. in the browser host, inspect the same frame/epochs through pair or Xray
+   tooling;
 6. record or register a refined variant when writes are explicitly allowed.
 
 That loop is only good if it mirrors the human loop. If the agent sees a
