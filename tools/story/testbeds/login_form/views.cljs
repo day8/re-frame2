@@ -111,6 +111,10 @@
                            :border          "1px solid #ddd"
                            :border-radius   "6px"
                            :background      "#fff"
+                           ;; Declare the foreground too: a subject inherits
+                           ;; the Story canvas's light chrome text colour,
+                           ;; which is unreadable on this white card.
+                           :color           "#1f2328"
                            :font-family     "system-ui, sans-serif"
                            :min-width       "320px"
                            :max-width       "360px"}
