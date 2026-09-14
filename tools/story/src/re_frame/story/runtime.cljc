@@ -37,6 +37,7 @@
             [re-frame.story.config    :as rf.story.config]
             [re-frame.story.decorators :as rf.story.decorators]
             [re-frame.story.error     :as rf.story.error]
+            [re-frame.story.fingerprint :as rf.story.fingerprint]
             [re-frame.story.frames    :as rf.story.frames]
             [re-frame.story.identity  :as rf.story.identity]
             [re-frame.story.loaders   :as rf.story.loaders]
@@ -685,6 +686,14 @@
                     :decorators      decorator-stack
                     :effective-args  effective-args
                     :lifecycle       (rf.story.loaders/current-state variant-id)})
+      ;; `:plan-hash` — the identity of the plan that RAN (compiled with this
+      ;; run's arg layers), over the SAME `rf.story.fingerprint/plan-hash` slice
+      ;; `render-variant` hashes, so a run and a render of one scenario agree
+      ;; (spec/017 §Run result). `:run-hash` is minted by `run-result` itself.
+      ;; Omitted when the ctx carries no plan (a throw before plan compile),
+      ;; rather than hashing a plan that does not exist.
+      (some? plan)
+      (assoc :plan-hash (rf.story.fingerprint/plan-hash plan))
       ;; EP-0023 §Stories — surface the behaviour-variant
       ;; IMAGE ids the run resolved behaviour against, so Test mode / MCP /
       ;; Xray can show WHICH behaviour set ran. Present only for a behaviour

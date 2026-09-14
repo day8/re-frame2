@@ -158,6 +158,28 @@
                  (rf.story/explain-run-result s)))))))
 
 ;; ===========================================================================
+;; SNAPSHOT IDENTITY rides the wire (rf2-7vz97)
+;; ===========================================================================
+
+(deftest run-variant-wire-carries-plan-and-run-hash
+  (testing "the MCP run-variant payload carries the :plan-hash / :run-hash the
+            run minted — strings, reproduced on rerun, the plan hash equal to the
+            public primitive over the variant's plan (never a pinned digest)"
+    (is (string? (:run-hash (rf.story.result/run-result {:epoch-tape []})))
+        "the pure CLJS run boundary mints one")
+    (let [s1 (:structuredContent (invoke "run-variant" {:variant-id "story.cart/red"}))
+          s2 (:structuredContent (invoke "run-variant" {:variant-id "story.cart/red"}))]
+      (is (= :fail (:status s1)) "non-vacuity: the real red run, not an error shape")
+      (is (string? (:plan-hash s1)))
+      (is (string? (:run-hash s1)))
+      (is (= (rf.story/plan-hash (rf.story/variant-plan :story.cart/red))
+             (:plan-hash s1)))
+      (is (= (:plan-hash s1) (:plan-hash s2)))
+      (is (= (:run-hash s1) (:run-hash s2)))
+      (is (rf.story/valid-run-result? s1)
+          (str "the wire payload still conforms; " (rf.story/explain-run-result s1))))))
+
+;; ===========================================================================
 ;; ACCESSOR AGREEMENT — result-passed? agrees with result-status everywhere
 ;; ===========================================================================
 
