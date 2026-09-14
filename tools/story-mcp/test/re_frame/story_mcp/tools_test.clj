@@ -460,7 +460,8 @@
       ;; carries it. NOT pinned: `run-variant` / `read-failures` (and the
       ;; other Testing-category run tools) — this leaf is an author/refine
       ;; recipe and the run/self-heal loop lives on a `re-frame2-pair`
-      ;; handoff, so those live in pair's allow-list, not
+      ;; handoff (a pair session calls `re-frame.story/*` through `eval-cljs`),
+      ;; and the MCP run tools are allow-listed by no skill, so they stay out of
       ;; this skill's catalogue. The Testing-tools split is asserted below.
       (doseq [t ["register-variant" "unregister-variant" "preview-variant"
                  "get-variant" "explain-variant" "get-story-instructions"
