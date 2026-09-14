@@ -196,7 +196,8 @@
   `:setup`, behaviour-under-test on `:script` (per the projection rule),
   the trimmed source-artifact link on `:run-artifact` — plus the author's
   `:doc` / `:tags` / `:extends`, the run's `:network` / `:fx-overrides`
-  world, and the source's `:checks` / `:assertions`. The snippet is the readable mirror of what
+  world, and the source's carried `:checks` (composed ones included) /
+  `:assertions`. The snippet is the readable mirror of what
   the IMPURE promote call registers, so what the user reviews IS what gets
   committed."
   [artifact draft]
@@ -213,7 +214,8 @@
         ;; lifts off the artifact (rf2-vf8es) — without them a pasted
         ;; regression runs against real HTTP and real effects (rf2-siyxz);
         ;; `:checks` / `:assertions` are the source expectations it carries
-        ;; (rf2-5vmog) — without them it cannot fail.
+        ;; (rf2-5vmog), composed checks included (rf2-6h2z3) — without them
+        ;; it cannot fail.
         order      [:doc :extends :network :fx-overrides :setup :script :checks :assertions :tags :args :run-artifact]
         body-keys  (->> order
                         (keep (fn [k]
