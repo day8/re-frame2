@@ -146,13 +146,42 @@
                         :source        {:ns 'story.login :file "stories.cljs" :line 12 :column 1}}
    :story.login/locked {:extends :story.login/error
                         :args    {:message "Locked out"}}
-   :story.login/seeded {:db-seed {:login {:state :idle}}}})
+   :story.login/seeded {:db-seed {:login {:state :idle}}}
+   ;; `:compose` is child-only, so a composed pin reaches the upgrade only
+   ;; when the scaffold RE-EMITS the source's slots — i.e. when the source
+   ;; also pins directly. These two are that mixed shape (rf2-yt6ak).
+   :story.login/composed-pin     {:sub-overrides {[:login/own] "own pin"}
+                                  :compose       [:fragment.login/pinned-email]
+                                  :args          {:heading "context"}}
+   :story.login/composed-context {:sub-overrides {[:login/own] "own pin"}
+                                  :compose       [:fragment.login/context]}})
+
+(def ^:private upgrade-fragments
+  "Raw fragment bodies for the `:compose` ids above: one pins a subscription,
+  one carries only context."
+  {:fragment.login/pinned-email {:sub-overrides {[:login/email] "PINNED"}}
+   :fragment.login/context      {:args {:subtitle "from the fragment"}}})
+
+(defn- emit-upgrade
+  "The snippet `upgrade-snippet` emits for `source-id` against the raw lookups."
+  [source-id rung]
+  (rf.story.ui.view-state/upgrade-snippet source-id rung {:lookup          upgrade-lookup
+                                                          :fragment-lookup upgrade-fragments}))
 
 (defn- read-upgrade
   "Read the snippet `upgrade-snippet` emits back as EDN → `(op id body)`."
   [source-id rung]
-  (edn/read-string
-    (rf.story.ui.view-state/upgrade-snippet source-id rung {:lookup upgrade-lookup})))
+  (edn/read-string (emit-upgrade source-id rung)))
+
+(defn- compile-completed-upgrade
+  "Complete the upgrade scaffold for `source-id` the way an author does —
+  fill the `:setup` slot — and compile the child against the same raw
+  lookups. Returns `[emitted-body plan]`."
+  [source-id]
+  (let [[_ id body] (read-upgrade source-id :real-setup)
+        completed   (assoc body :setup [[:dispatch [:login/set-email "REAL"]]])]
+    [body (rf.story.plan/variant-plan id {:lookup          (assoc upgrade-lookup id completed)
+                                          :fragment-lookup upgrade-fragments})]))
 
 (deftest upgrade-snippet-reads-back-as-one-reg-variant-form
   (testing "every shape the generator emits parses — the rung note sits on its
@@ -162,6 +191,8 @@
                               [:story.login/error :db-seed]
                               [:story.login/locked :real-setup]
                               [:story.login/seeded :real-setup]
+                              [:story.login/composed-pin :real-setup]
+                              [:story.login/composed-context :real-setup]
                               [:story.nope/unregistered :real-setup]]]
       (let [[op id body] (read-upgrade source-id rung)]
         (is (= 'story/reg-variant op) (str source-id " → " rung))
@@ -218,6 +249,38 @@
         (is (= #{:real-setup} (get-in plan [:world :fidelity])))
         (is (= {:heading "Sign in" :message "Invalid password"} (get-in plan [:world :args]))
             "context from the extended ancestor and the source both reach the plan")))))
+
+(deftest completed-upgrade-drops-pins-composed-from-fragments
+  (testing "a source that pins directly AND composes a pinning fragment: the
+            scaffold re-emits the source's own slots, so a `:compose` copied
+            as-is carries the fragment's pin into the child (rf2-yt6ak)"
+    (testing "control — the source rests on both pins"
+      (is (= {[:login/own] "own pin" [:login/email] "PINNED"}
+             (get-in (rf.story.plan/variant-plan :story.login/composed-pin
+                                                 {:lookup          upgrade-lookup
+                                                  :fragment-lookup upgrade-fragments})
+                     [:world :render :sub-overrides]))))
+    (let [[body plan] (compile-completed-upgrade :story.login/composed-pin)]
+      (is (= #{:real-setup} (get-in plan [:world :fidelity])))
+      (is (empty? (get-in plan [:world :render :sub-overrides]))
+          "no pinned subscription reaches the child's render path")
+      (is (not (contains? body :compose)) "the pinning fragment is dropped from :compose")
+      (is (= {:heading "context"} (get-in plan [:world :args]))
+          "the source's own context carries forward")
+      (is (str/includes? (emit-upgrade :story.login/composed-pin :real-setup)
+                         ";; not composed: :fragment.login/pinned-email (pins [:login/email])")
+          "the dropped fragment and its pin are named for the author"))))
+
+(deftest completed-upgrade-keeps-pin-free-composed-fragments
+  (testing "control — a composed fragment that pins nothing stays in :compose,
+            and its context still reaches the completed child"
+    (let [[body plan] (compile-completed-upgrade :story.login/composed-context)]
+      (is (= [:fragment.login/context] (:compose body)))
+      (is (= #{:real-setup} (get-in plan [:world :fidelity])))
+      (is (= {:subtitle "from the fragment"} (get-in plan [:world :args])))
+      (is (not (str/includes? (emit-upgrade :story.login/composed-context :real-setup)
+                              "not composed"))
+          "nothing was dropped, so nothing is named"))))
 
 ;; ---------------------------------------------------------------------------
 ;; provenance summaries — source shown
