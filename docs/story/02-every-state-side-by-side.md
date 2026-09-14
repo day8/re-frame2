@@ -74,6 +74,18 @@ Each cell gets its own frame. If a cell dispatches an event, it mutates that
 cell's frame, not the grid's other frames. You can review states without
 accidentally testing a shared global app-db.
 
+A frame isolates state, not the page. Each cell's frame has its own app-db,
+event queue, subscription cache and epoch history (see
+[Spec 002 §What lives in a frame](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#what-lives-in-a-frame)),
+but every cell renders into the one page that hosts the shell. That page's
+stylesheets reach every cell, only one element on it can hold focus, and a
+modal that a view portals into `document.body` lands on the shared page,
+outside its cell. Storybook renders stories in a preview iframe, although its
+docs pages can render them inline in the page itself; Story's canvas and
+workspaces have no iframe mode. So a job such as checking that a design
+system's CSS holds up without the host page's stylesheets around it may need
+an iframe boundary, and Story does not provide one.
+
 There is also `:variants-grid`, which auto-enumerates variants under a parent
 story:
 
