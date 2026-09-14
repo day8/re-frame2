@@ -1,0 +1,76 @@
+{
+  "at": "2026-09-13T23:51:22.384Z",
+  "browser": "147.0.7727.15",
+  "url": "http://localhost:6106/?path=/story/research-login--retry-to-success",
+  "errors": [],
+  "manager": "Component test is rendering.\nComponent test is running.\nComponent test completed successfully.\nStorybook\nSkip to content\nGet started\n24%\nRender your first component\nChange a story with Controls\nPublish your Storybook for feedback\nSearch for components\n⌃ K\nStories\nRESEARCH\nLogin\nDocs\nIdle\nRetry To Success\nSkip to content\nDeliberate Failure\nStorybook 10.6\nLearn what's new in Storybook\nComponent tests\nRun tests\nRun component tests\nNot run\nInteractions\nCoverage\nAccessibility\nToolbar\n100%\nMain preview area\nSkip to sidebar\nAddon panel\nControls\n1\nActions\n2\nInteractions\n11\nAccessibility\nName\tControl\nheading*\t\n\nauthenticate*\t-",
+  "preview": "Sign in\n\nState: authenticated\n\nWelcome, ada@example.com\n\nSign out",
+  "buttons": [
+    "Get started",
+    "",
+    "24%00%",
+    "Render your first component",
+    "Change a story with Controls",
+    "Publish your Storybook for feedback",
+    "",
+    "",
+    "Research",
+    "",
+    "Login",
+    "",
+    "Run tests",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "inputs": [
+    {
+      "type": "search",
+      "value": "",
+      "placeholder": "Find components",
+      "aria": null
+    },
+    {
+      "type": "checkbox",
+      "value": "on",
+      "placeholder": "",
+      "aria": null
+    },
+    {
+      "type": "checkbox",
+      "value": "on",
+      "placeholder": "",
+      "aria": null
+    },
+    {
+      "type": "checkbox",
+      "value": "on",
+      "placeholder": "",
+      "aria": null
+    },
+    {
+      "type": "textarea",
+      "value": "Sign in",
+      "placeholder": "Edit string...",
+      "aria": null
+    },
+    {
+      "type": "textarea",
+      "value": "x",
+      "placeholder": "",
+      "aria": null
+    }
+  ]
+}

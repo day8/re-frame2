@@ -1,0 +1,19 @@
+
+> test
+> vitest run --reporter=json --outputFile=../storybook-tests.json
+
+│ ┌────────────────────────────────────────────────────────────────────────────┐
+│ │  Info: Found a setup file with "setProjectAnnotations".                    │
+│ │  Skipping automatic provisioning of preview annotations to avoid           │
+│ │  conflicts. Since Storybook 10.3, "@storybook/addon-vitest" applies these  │
+│ │   automatically.                                                           │
+│ │  You can safely remove the "setProjectAnnotations" call from your setup    │
+│ │  file, or remove the file entirely if you don't have custom code there.    │
+│ └────────────────────────────────────────────────────────────────────────────┘
+│
+●  Storybook collects completely anonymous usage telemetry. We use it to
+│  shape Storybook's roadmap and prioritize features. You can learn more,
+│  including how to opt out, at ]8;;https://storybook.js.org/telemetryhttps://storybook.js.org/telemetry]8;;
+9:48:26 am [vite] (client) [optimizer] scanning dependencies...
+9:48:27 am [vite] (client) [optimizer] bundling dependencies...
+JSON report written to C:/Users/miket/code/re-frame2/ai/findings/Story/astra/evidence/storybook-tests.json

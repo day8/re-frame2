@@ -1,0 +1,46 @@
+{
+  "finalReadUtc": "2026-09-14T00:25:03.1021163Z",
+  "files": [
+    {
+      "path": "ai/findings/Story/grok/report.md",
+      "sha256": "E263BD4A3F591373872D420CEA416829A41492E7695452FE2C71FD1AF46D047C"
+    },
+    {
+      "path": "ai/findings/Story/grok/intermediate/advantage.md",
+      "sha256": "2FD2D08CE420A39794A52AA283E30AD8304055EC951C3D98BC2255DE8F554DF1"
+    },
+    {
+      "path": "ai/findings/Story/grok/intermediate/closeness-test.md",
+      "sha256": "1FA9CABB6D2513C9A02284D71CB9CBA14030915B959BEA83DC6F14BDBBEEE48C"
+    },
+    {
+      "path": "ai/findings/Story/grok/intermediate/landscape.md",
+      "sha256": "96D6D388280EED43A2D362123B5D159B84A4A67A1DA116EE8C901A556081A400"
+    },
+    {
+      "path": "ai/findings/Story/grok/intermediate/evidence-ledger.md",
+      "sha256": "41C0F74197A167FD95BD7465DE3282A12EF3C5E21F98A3F7F7EA287670E70F2C"
+    },
+    {
+      "path": "ai/findings/Story/grok/intermediate/synthesis.md",
+      "sha256": "EAE4A6E0C8324B38552DB4D2BC1EB17B21F24C927A7732C5D6CAFDD01DC2BE20"
+    },
+    {
+      "path": "ai/findings/Story/fable/rubric.md",
+      "sha256": "2BE46E29CDAB37325865EC65BB91E3D783F3BA28963C7FF6923839A0A4A264EF"
+    },
+    {
+      "path": "ai/findings/Story/fable/matrix.md",
+      "sha256": "6A3981402CB994270DC03B95D64814A8F1080E6E65158273AA05EDD1C233703C"
+    },
+    {
+      "path": "ai/findings/Story/fable/evidence.md",
+      "sha256": "63CA6164293E0EF029C1C8E9786F8C023FC72838C3951338159A92C596E4F2BF"
+    },
+    {
+      "path": "ai/findings/Story/fable/report.md",
+      "sha256": "26F5721B245E4CD3485A516A09250DC5476CD852B487E6DAABFA6764BFE3986E"
+    }
+  ],
+  "note": "Both sibling main reports and available supporting material read. Implementation unchanged from research baseline."
+}

@@ -1,0 +1,31 @@
+{
+  "at": "2026-09-13T23:54:08.025Z",
+  "browser": "147.0.7727.15",
+  "checks": [
+    {
+      "name": "inferred heading control updates real view",
+      "status": "passed",
+      "ms": 145,
+      "result": "Research sign in\n\nState: idle\n\nEmail \n\nPassword \n\nSign in"
+    },
+    {
+      "name": "asynchronous retry succeeds and exposes interaction steps",
+      "status": "passed",
+      "ms": 1402,
+      "result": {
+        "manager": "Component test is rendering.\nComponent test is running.\nComponent test completed successfully.\nStorybook\nSkip to content\nGet started\n29%\nAdd 5 components\nChange a story with Controls\nPublish your Storybook for feedback\nSearch for components\n⌃ K\nStories\nRESEARCH\nLogin\nDocs\nIdle\nRetry To Success\nSkip to content\nDeliberate Failure\nStorybook 10.6\nLearn what's new in Storybook\nComponent tests\nRun tests\nRun component tests\nNot run\nInteractions\nCoverage\nAccessibility\nToolbar\n100%\nMain preview area\nSkip to sidebar\nAddon panel\nControls\n1\nActions\n2\nInteractions\n11\nAccessibility\nPASS\nScroll to end\nLogin.stories.tsx\nInteraction steps\nA rejected login shows the error\nuserEvent.type(within(<div#storybook-root>).getByLabelText(\"Email\"), \"ada@example.com\")\nuserEvent.type(within(<div#storybook-root>).getByLabelText(\"Password\"), \"wrong\")\nuserEvent.click(within(<div#storybook-root>).getByRole(\"button\", { name: \"Sign in\" }))\nwithin(<div#storybook-root>).findByRole(\"alert\")\nexpect(<p>Invalid credentials.</p>).toHaveTextContent(\"Invalid credentials.\")\nRetry with corrected credentials succeeds\nuserEvent.clear(within(<div#storybook-root>).getByLabelText(\"Password\"))\nuserEvent.type(within(<div#storybook-root>).getByLabelText(\"Password\"), \"correct-horse\")\nuserEvent.click(within(<div#storybook-root>).getByRole(\"button\", { name: \"Retry\" }))\nwithin(<div#storybook-root>).findByText(\"Welcome, ada@example.com\")\nexpect(<p>Welcome, ada@example.com</p>).toBeVisible()\nexpect(authenticate).toHaveBeenCalledTimes(2)",
+        "preview": "Sign in\n\nState: authenticated\n\nWelcome, ada@example.com\n\nSign out"
+      }
+    },
+    {
+      "name": "deliberate expectation fault is visible with expected and actual values",
+      "status": "passed",
+      "ms": 1532,
+      "result": {
+        "manager": "Component test failed.\nComponent test is rendering.\nComponent test is running.\nStorybook\nSkip to content\nGet started\n29%\nAdd 5 components\nChange a story with Controls\nPublish your Storybook for feedback\nSearch for components\n⌃ K\nStories\nRESEARCH\nLogin\nDocs\nIdle\nRetry To Success\nDeliberate Failure\nSkip to content\nStorybook 10.6\nLearn what's new in Storybook\nComponent tests\nRun tests\nRun component tests\nNot run\nInteractions\nCoverage\nAccessibility\nToolbar\n100%\nMain preview area\nSkip to sidebar\nAddon panel\nControls\n1\nActions\n1\nInteractions\nAccessibility\nFAIL\nScroll to error\nLogin.stories.tsx\nInteraction steps\nDetect the wrong expected welcome user\nuserEvent.type(within(<div#storybook-root>).getByLabelText(\"Email\"), \"ada@example.com\")\nuserEvent.type(within(<div#storybook-root>).getByLabelText(\"Password\"), \"correct-horse\")\nuserEvent.click(within(<div#storybook-root>).getByRole(\"button\", { name: \"Sign in\" }))\nwithin(<div#storybook-root>).findByText(\"Welcome, ada@example.com\")\nexpect(<p>Welcome, ada@example.com</p>).toHaveTextContent(\"Welcome, grace@example.com\")\nexpect(element).toHaveTextContent()\n\nExpected element to have text content:\n  Welcome, grace@example.com\nReceived:\n  Welcome, ada@example.com\n",
+        "preview": "Sign in\n\nState: authenticated\n\nWelcome, ada@example.com\n\nSign out"
+      }
+    }
+  ],
+  "pageErrors": []
+}

@@ -1,0 +1,22 @@
+gate root: C:/Users/miket/code/re-frame2
+namespace source: re-frame.story.promotion-cljs-test file:/C:/Users/miket/code/re-frame2/tools/story/test/re_frame/story/promotion_cljs_test.cljc
+namespace source: re-frame.story.ui.promotion-cljs-test file:/C:/Users/miket/code/re-frame2/tools/story/test/re_frame/story/ui/promotion_cljs_test.cljc
+namespace source: re-frame.story.ui.view-state-upgrade-test file:/C:/Users/miket/code/re-frame2/tools/story/test/re_frame/story/ui/view_state_upgrade_test.clj
+namespace source: re-frame.story.ui.view-state-test file:/C:/Users/miket/code/re-frame2/tools/story/test/re_frame/story/ui/view_state_test.cljc
+namespace source: re-frame.story.run-result-hashes-test file:/C:/Users/miket/code/re-frame2/tools/story/test/re_frame/story/run_result_hashes_test.clj
+namespace source: re-frame.story.ui.explain-panel-test file:/C:/Users/miket/code/re-frame2/tools/story/test/re_frame/story/ui/explain_panel_test.cljc
+
+Testing re-frame.story.promotion-cljs-test
+
+Testing re-frame.story.ui.promotion-cljs-test
+
+Testing re-frame.story.ui.view-state-upgrade-test
+
+Testing re-frame.story.ui.view-state-test
+
+Testing re-frame.story.run-result-hashes-test
+
+Testing re-frame.story.ui.explain-panel-test
+
+Ran 64 tests containing 422 assertions.
+0 failures, 0 errors.

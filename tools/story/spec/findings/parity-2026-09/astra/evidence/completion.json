@@ -1,0 +1,30 @@
+{
+  "completedUtc": "2026-09-14T00:27:14.3493169Z",
+  "researchBaseline": "98e8ffe9cb339295fe2fa459900d9d9647fab015",
+  "checkpointCommit": "26472e0c026fc3a8bcb9f0eec38644e04970b9f3",
+  "bead": "rf2-ax6vt",
+  "status": "closed",
+  "gitPush": "succeeded; HEAD equals origin/main; working tree clean",
+  "doltPush": "succeeded",
+  "files": [
+    {
+      "name": "report.md",
+      "sha256": "14982D5FAE9ED42F70DFD76C5F06BB78E615BC576BB94D626D2467B2319ED434"
+    },
+    {
+      "name": "parity-matrix.md",
+      "sha256": "227BBA80A834DA84AD908DD22748C8EFBF463CD5D58EC5DE3CE0D1BAB35B3463"
+    },
+    {
+      "name": "evaluation-plan.md",
+      "sha256": "CF5939275F952C2D37C83C42A72214CD994B0856399A82FF0B496FFCCE8BE707"
+    },
+    {
+      "name": "prompt.md",
+      "sha256": "3F03A5E29F607C84429CA9E06E4C0AD74D6C8A14E80CBE8A6B595EBC8F1FBC7C"
+    }
+  ],
+  "artifactValidation": "exit 0; 165 local links; 136 table rows; prompt unchanged",
+  "productionChanges": 0,
+  "ownedBackgroundProcessesStopped": true
+}

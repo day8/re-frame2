@@ -1,0 +1,25 @@
+{
+  "at": "2026-09-13T23:52:30.422Z",
+  "available": [
+    "reg_story_STAR_",
+    "reg_variant_STAR_",
+    "reg_story_panel_STAR_",
+    "variants_of",
+    "variants_by_story",
+    "variants_with_tags_cache",
+    "compute_variants_with_tags",
+    "variants_with_tags"
+  ],
+  "uiPromotion": [
+    "artifact_id",
+    "artifact_label",
+    "result__GT_artifact",
+    "promotion_snippet"
+  ],
+  "upgradeSnippet": "(story/reg-variant :story.login-form/research-pinned-upgraded\n  {:extends :story.login-form/research-pinned\n   :setup   [[:dispatch [:your/setup-event {}]]] ; real events — proves handlers + app-db})\n;; upgrade of :story.login-form/research-pinned — drop :sub-overrides; the artifact stays a variant.",
+  "upgradedPlan": "{:world {:args {}, :effective-args {}, :scripts [], :fidelity #{:real-setup :sub-overrides}, :component :login-form.views/login-card, :setup [[:dispatch [:login/flow [:login/dismiss]]] [:dispatch [:login/flow [:login/dismiss]]]], :argtypes {}, :substrates #{:reagent}, :render {:sub-overrides {[:login/email] \"PINNED\"}}, :platforms #{:client}}, :expect {:checks [], :assertions []}, :script []}",
+  "originalResult": "{:status :fail, :assertions [{:path [:missing], :payload [[:missing] 42], :source nil, :reason \"expected 42 at [:missing] but got nil\", :passed? false, :status :fail, :expected 42, :elapsed-ms 0.19999998807907104, :actual nil, :assertion :rf.assert/path-equals}], :checks [], :runner :headless}",
+  "promotedBody": "{:run-artifact {:artifact/kind :rf.test/run-artifact, :event-program [[:dispatch [:login/flow [:login/dismiss]]]], :fx-decisions {}}, :doc \"Promoted from a :rf.test/run-artifact run artifact (spec/017 §Promotion).\", :script [[:dispatch [:login/flow [:login/dismiss]]]], :extends :story.login-form/research-failure, :tags #{:test}}",
+  "promotedResult": "{:status :pass, :assertions [], :checks [], :runner :headless}",
+  "promotionPreservesFailure": false
+}

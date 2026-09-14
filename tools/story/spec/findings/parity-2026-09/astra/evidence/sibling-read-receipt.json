@@ -1,0 +1,46 @@
+{
+  "readUtc": "2026-09-14T00:19:25.7391404Z",
+  "files": [
+    {
+      "path": "ai/findings/Story/grok/report.md",
+      "bytes": 14988,
+      "sha256": "E263BD4A3F591373872D420CEA416829A41492E7695452FE2C71FD1AF46D047C"
+    },
+    {
+      "path": "ai/findings/Story/grok/intermediate/advantage.md",
+      "bytes": 7996,
+      "sha256": "2FD2D08CE420A39794A52AA283E30AD8304055EC951C3D98BC2255DE8F554DF1"
+    },
+    {
+      "path": "ai/findings/Story/grok/intermediate/closeness-test.md",
+      "bytes": 7308,
+      "sha256": "1FA9CABB6D2513C9A02284D71CB9CBA14030915B959BEA83DC6F14BDBBEEE48C"
+    },
+    {
+      "path": "ai/findings/Story/grok/intermediate/landscape.md",
+      "bytes": 11866,
+      "sha256": "96D6D388280EED43A2D362123B5D159B84A4A67A1DA116EE8C901A556081A400"
+    },
+    {
+      "path": "ai/findings/Story/grok/intermediate/evidence-ledger.md",
+      "bytes": 4226,
+      "sha256": "41C0F74197A167FD95BD7465DE3282A12EF3C5E21F98A3F7F7EA287670E70F2C"
+    },
+    {
+      "path": "ai/findings/Story/grok/intermediate/synthesis.md",
+      "bytes": 2937,
+      "sha256": "EAE4A6E0C8324B38552DB4D2BC1EB17B21F24C927A7732C5D6CAFDD01DC2BE20"
+    },
+    {
+      "path": "ai/findings/Story/fable/rubric.md",
+      "bytes": 10944,
+      "sha256": "2BE46E29CDAB37325865EC65BB91E3D783F3BA28963C7FF6923839A0A4A264EF"
+    },
+    {
+      "path": "ai/findings/Story/fable/matrix.md",
+      "bytes": 26507,
+      "sha256": "6A3981402CB994270DC03B95D64814A8F1080E6E65158273AA05EDD1C233703C"
+    }
+  ],
+  "missing": "ai/findings/Story/fable/report.md"
+}

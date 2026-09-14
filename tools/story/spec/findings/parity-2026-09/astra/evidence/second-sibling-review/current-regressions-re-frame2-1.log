@@ -1,0 +1,16 @@
+Unknown option: "-m"
+
+USAGE:
+
+clj -m cognitect.test-runner <options>
+
+  -d, --dir DIRNAME            Name of the directory containing tests. Defaults to "test".
+  -n, --namespace SYMBOL       Symbol indicating a specific namespace to test.
+  -r, --namespace-regex REGEX  Regex for namespaces to test.
+  -v, --var SYMBOL             Symbol indicating the fully qualified name of a specific test.
+  -i, --include KEYWORD        Run only tests that have this metadata keyword.
+  -e, --exclude KEYWORD        Exclude tests with this metadata keyword.
+  -H, --test-help              Display this help message
+
+All options may be repeated multiple times for a logical OR effect.
+If neither -n nor -r is supplied, use -r #".*-test$" (ns'es ending in '-test')

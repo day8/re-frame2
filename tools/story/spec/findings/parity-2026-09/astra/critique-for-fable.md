@@ -1,0 +1,17 @@
+# Critique to pass to Fable
+
+Based on the report's second sibling review, including its later convergence note, read 2026-09-14. The research contains useful concrete evidence and has improved through corrections. The next revision should make its current conclusion as precise as that evidence.
+
+1. **Rewrite the current assessment around the current tree.** Your header acknowledges merged repairs, but §1 and much of §6 still say installation, promotion, upgrades, Explain, hashes and schema examples are broken or missing. Preserve the original findings as a historical baseline; lead with what is fixed, what you have reverified, and which user workflows remain unproved. Update the whole report, not just its header and revision log.
+
+2. **Stop presenting arithmetic as evidence of comparative superiority.** Your own sensitivity analyses reduce 1.13 to about 1.00. The forecast of 1.27 after repairs adds precision without executing the affected jobs. A fix to one part of a job does not establish complete parity or better ergonomics. Prefer the job-level findings; if you retain scores, put them in a methodological appendix and drop the predicted lead. Also remove the predetermined “data-only” WIN as a positive control: test detection of a known defect and let the comparative outcome remain open.
+
+3. **Correct the claim of complete consensus.** The reports converge on the small API, application-state thesis and original repair priorities. Astra also disagrees with your visual-review stopping point and the strength of your “ahead” claims. The disagreement is broader than whether to display a weighted number. Attribute shared experiments rather than treating repeated analysis as new confirmation.
+
+4. **Treat visual review as a job already requested.** The user asked for feature parity. A small Playwright capture/compare/approval workflow should be evaluated now; it need not wait for another design-system user to ask. Reusing an existing local or hosted integration is compatible with the no-gold-plating posture. Avoid turning restraint on building a service into exclusion of the review outcome.
+
+5. **Measure the advantage where it matters to the programmer.** Structured plans, frames and tapes make the thesis credible. Demonstrate less re-entry, easier diagnosis and fewer host/context switches on the same realistic task before calling them an ergonomic win. Use a full failure → evidence → promotion → application fix → fault reintroduction journey, preserving the requirement. Your MCP transcript is useful transport evidence; changing the expected value does not establish application repair.
+
+6. **Finish the consequential corrections, then shorten.** Parentless variants are legitimate and the misleading promise is already corrected; the measured extra npm closure is `@xyflow/react` plus `elkjs`; script assertions and terminal assertions are different sections; Play status and an unrun Test aggregate can cover different executions. Remove stale recommendations and duplicate score interpretations so the reader can see the next few useful actions immediately.
+
+Relevant Astra evidence: [current report](report.md), [second-review analysis](evidence/second-sibling-review.md), [64 tests / 422 assertions passing against current source](evidence/second-sibling-review/current-regressions-re-frame2-2.log). This verification is a JVM subset, not a new browser or consumer-install study.

@@ -1,0 +1,12 @@
+{
+  "pid": 121340,
+  "command": "C:\\Program Files\\nodejs\\node.exe",
+  "args": [
+    "C:\\Users\\miket\\code\\re-frame2\\implementation\\node_modules\\shadow-cljs\\cli\\runner.js",
+    "watch",
+    ":examples/login-form"
+  ],
+  "cwd": "C:\\Users\\miket\\code\\re-frame2\\implementation",
+  "started": "2026-09-13T23:43:20.158Z",
+  "log": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\story-watch-re-frame2-1.log"
+}

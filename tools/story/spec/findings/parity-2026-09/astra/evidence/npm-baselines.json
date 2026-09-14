@@ -1,0 +1,86 @@
+{
+  "checked": "2026-09-13T23:44:15.521Z",
+  "vite": {
+    "version": "8.3.0",
+    "peerDependencies": {
+      "tsx": "^4.8.1",
+      "jiti": ">=1.21.0",
+      "less": "^4.0.0",
+      "sass": "^1.70.0",
+      "yaml": "^2.4.2",
+      "stylus": ">=0.54.8",
+      "terser": "^5.16.0",
+      "esbuild": "^0.27.0 || ^0.28.0",
+      "sugarss": "^5.0.0",
+      "@types/node": "^20.19.0 || >=22.12.0",
+      "sass-embedded": "^1.70.0",
+      "@vitejs/devtools": "^0.7.1"
+    },
+    "engines": {
+      "node": "^20.19.0 || >=22.12.0"
+    }
+  },
+  "vitest": {
+    "version": "5.0.0",
+    "peerDependencies": {
+      "vite": "^6.4.0 || ^7.0.0 || ^8.0.0",
+      "jsdom": "*",
+      "happy-dom": "*",
+      "@vitest/ui": "5.0.0",
+      "@types/node": "^22.0.0 || >=24.0.0",
+      "@edge-runtime/vm": "*",
+      "@opentelemetry/api": "^1.9.0",
+      "@vitest/coverage-v8": "5.0.0",
+      "@vitest/browser-preview": "5.0.0",
+      "@vitest/coverage-istanbul": "5.0.0",
+      "@vitest/browser-playwright": "5.0.0",
+      "@vitest/browser-webdriverio": "^5.0.0-beta.5 || >=5.0.0"
+    },
+    "engines": {
+      "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+    }
+  },
+  "@vitest/browser-playwright": {
+    "version": "5.0.0",
+    "peerDependencies": {
+      "vitest": "5.0.0",
+      "playwright": "*"
+    }
+  },
+  "@storybook/addon-vitest": {
+    "version": "10.6.0",
+    "peerDependencies": {
+      "vitest": "^3.0.0 || ^4.0.0",
+      "storybook": "^10.6.0",
+      "@vitest/runner": "^3.0.0 || ^4.0.0",
+      "@vitest/browser": "^3.0.0 || ^4.0.0",
+      "@vitest/browser-playwright": "^4.0.0"
+    }
+  },
+  "@storybook/addon-docs": {
+    "version": "10.6.0",
+    "peerDependencies": {
+      "storybook": "^10.6.0",
+      "@types/react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0"
+    }
+  },
+  "@storybook/addon-a11y": {
+    "version": "10.6.0",
+    "peerDependencies": {
+      "storybook": "^10.6.0"
+    }
+  },
+  "typescript": {
+    "version": "7.0.2",
+    "engines": {
+      "node": ">=16.20.0"
+    }
+  },
+  "msw-storybook-addon": {
+    "version": "3.0.0",
+    "peerDependencies": {
+      "msw": ">=2",
+      "storybook": ">=9"
+    }
+  }
+}
