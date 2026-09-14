@@ -9,7 +9,8 @@
             [clojure.string :as str]
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]
-            [re-frame.testbed.open-in-editor-server :as rf.testbed.open-in-editor-server])
+            [re-frame.testbed.open-in-editor-server :as rf.testbed.open-in-editor-server]
+            [shadow.http.push-state :as shadow.push-state])
   (:import [java.net URL URLClassLoader]
            [java.io File]))
 
@@ -1198,6 +1199,79 @@
       (is (= file (#'rf.source-coords.editor-uri/compose-path nil file))
           (str tool " composes to itself with no project-root — the
                composition step the retired pipeline used to feed")))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-78s0d — a page load falls through to shadow's own index handling
+;; ---------------------------------------------------------------------------
+;;
+;; Naming a `:handler` on a `:dev-http` entry replaces shadow's push-state
+;; default, so a `handler` answering 404 to everything off-endpoint made every
+;; wired port 404 at `/`. These requests carry the two keys shadow's
+;; `start-build-server` adds before calling the handler — `:http-roots` and
+;; `:http-config` — over a throwaway root holding an `index.html`.
+
+(def ^:private index-body "<!doctype html><title>oies index</title>")
+
+(defn- with-index-root*
+  "Call `f` with the absolute path of a throwaway root holding an `index.html`."
+  [f]
+  (let [root  (.toFile (java.nio.file.Files/createTempDirectory
+                         "oies-index-root-"
+                         (make-array java.nio.file.attribute.FileAttribute 0)))
+        index (io/file root "index.html")]
+    (try
+      (spit index index-body)
+      (f (.getAbsolutePath root))
+      (finally
+        (.delete index)
+        (.delete root)))))
+
+(defn- page-req
+  "A request for `uri` as shadow hands it to the handler: a browser's HTML
+  Accept, and the root list shadow assocs in."
+  [method uri root & {:keys [query-string]}]
+  {:uri            uri
+   :request-method method
+   :query-string   query-string
+   :remote-addr    "127.0.0.1"
+   :headers        {"host"   "localhost:8043"
+                    "accept" "text/html,application/xhtml+xml,*/*;q=0.8"}
+   :http-roots     [root]
+   :http-config    {}})
+
+(deftest off-endpoint-page-load-serves-the-root-index
+  (testing "a browser GET of `/` — which no static root answers, because shadow
+            serves its roots with index files off — reaches shadow's own
+            push-state handler through `handler` and gets the root's
+            index.html, so the `/#/stories` URLs that shadow-cljs.edn and the
+            dev-testbed launcher print open as written"
+    (with-index-root*
+      (fn [root]
+        (doseq [[label r] [["GET `/`" (page-req :get "/" root)]
+                           ["GET `/` carrying a Story share query"
+                            (page-req :get "/" root
+                                      :query-string "variant=story.login-form%2Ferror")]
+                           ["HEAD `/`" (page-req :head "/" root)]]]
+          (let [resp (rf.testbed.open-in-editor-server/handler r)]
+            (is (= 200 (:status resp)) (str label " answers 200"))
+            (is (= index-body (:body resp)) (str label " serves the root's index.html"))
+            (is (= (shadow.push-state/handle r) resp)
+                (str label " answers exactly what shadow answers on a port
+                     with no handler")))))))
+  (testing "…and ONLY a page load. The same request as a POST — same index on
+            disk, same HTML Accept — still answers a non-2xx, which is the
+            off-endpoint contract pinned above. That pin cannot witness this on
+            its own: it installs no root and sends no Accept, so shadow's
+            handler would 404 its request too"
+    (with-index-root*
+      (fn [root]
+        (let [r (page-req :post "/" root)]
+          (is (= 200 (:status (shadow.push-state/handle r)))
+              "control: shadow's own handler WOULD serve this POST the index,
+               so the method gate is what keeps the 404")
+          (is (= 404 (:status (rf.testbed.open-in-editor-server/handler r)))
+              "handler keeps the 404, so the client's editor:// fallback
+               still fires"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-1i1ec (audit) — auto-detect is a capability question too

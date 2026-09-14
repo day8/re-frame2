@@ -8,7 +8,9 @@
   shadow-cljs server and is never part of a browser bundle."
   (:require [clojure.string :as str]
             [re-frame.source-coords :as rf.source-coords]
-            [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri])
+            [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]
+            ;; Always present: this namespace only runs inside shadow's server.
+            [shadow.http.push-state :as shadow.push-state])
   (:import [java.net InetAddress URI]
            [java.io File InputStream InputStreamReader]
            [java.util.concurrent TimeUnit]))
@@ -591,10 +593,32 @@
           (catch IllegalArgumentException _
             (json-resp 400 ao {:ok false :error "malformed-query"})))))))
 
+(def ^:private page-load-methods
+  "Request methods that load a page, and so may fall through to shadow's own
+  index handling."
+  #{:get :head})
+
 (defn handler
-  "shadow-cljs `:dev-http` fallback entry point."
+  "shadow-cljs `:dev-http` fallback entry point: this namespace's endpoint,
+  layered over shadow's own default rather than replacing it.
+
+  Naming a `:handler` REPLACES that default. `start-build-server` in
+  `shadow.cljs.devtools.server.dev-http` falls back to
+  `shadow.http.push-state/handle` only when no handler is named, and serves
+  the file roots with index files off, so answering 404 here made every wired
+  port 404 at `/` — only `/index.html` loaded, and every printed `/#/stories`
+  URL failed (rf2-78s0d). A page load the roots did not resolve therefore goes
+  to shadow's push-state handler, which answers exactly as it does on a port
+  with no handler: the first root's `index.html` for a request accepting HTML.
+
+  Only a page load. Push-state never looks at the method, so delegating a POST
+  would hand one that accepts HTML the index page and a 200 — and a non-2xx
+  for an off-endpoint POST is what sends the client to its `editor://` URI
+  fallback. Every other off-endpoint request keeps the plain 404."
   [req]
   (or (handle req)
+      (when (contains? page-load-methods (:request-method req))
+        (shadow.push-state/handle req))
       {:status 404
        :headers {"content-type" "text/plain"}
        :body "not found"}))
