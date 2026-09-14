@@ -1,0 +1,23 @@
+J1-story start 2026-09-14 20:17:45 AUSEST
+G5 retain edit 20:20:13
+G13 land upgrade 20:23:27
+G20 land expectations 20:25:15
+G24 add script checkpoint 20:29:14
+J1 control restore 20:30:36
+J1 control replant 20:31:23
+J1-storybook start 2026-09-14 20:32:20 AUSEST
+B6 add play 20:34:43
+J1 storybook control restore 20:36:22
+J1 storybook control replant 20:36:33
+J2 G12 land promoted 20:45:37
+J2 story fix 20:49:05
+J2 story refault 20:49:11
+J2-storybook start 2026-09-14 20:50:06 AUSEST
+J2 storybook B7 host switch: read Login.tsx submit() 20:53:05
+J2 storybook fix 20:53:05
+J2 storybook refault 20:53:15
+J3-story verification probe start 2026-09-14 20:54:41 AUSEST
+J3-storybook start 2026-09-14 20:55:49 AUSEST
+J3 storybook B5 host switch to filesystem: read submit(), repair app 20:57:20
+J3 storybook B6 test-run after repair 20:58:50
+J3 storybook B7 re-fault test-run 20:58:52
