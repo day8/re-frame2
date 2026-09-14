@@ -1,0 +1,48 @@
+diff --git a/tools/story/testbeds/login_form/events.cljs b/tools/story/testbeds/login_form/events.cljs
+index bf6b062faa..59a782c9b4 100644
+--- a/tools/story/testbeds/login_form/events.cljs
++++ b/tools/story/testbeds/login_form/events.cljs
+@@ -74,7 +74,7 @@
+     ;; Capture the email so the success banner can greet the user
+     ;; by handle. Production might capture the full claims set.
+     (fn [{data :data [_ {:keys [email]}] :event}]
+-      {:data (assoc data :email email :error nil)})
++      {:data (assoc data :error nil)})
+ 
+     :issue-request
+     ;; Issue the login HTTP request. The fx-id `:rf.http/managed`
+diff --git a/tools/story/testbeds/login_form/stories.cljs b/tools/story/testbeds/login_form/stories.cljs
+index 77d7f21f31..2362f2e130 100644
+--- a/tools/story/testbeds/login_form/stories.cljs
++++ b/tools/story/testbeds/login_form/stories.cljs
+@@ -292,3 +292,30 @@
+ 
+ ;; Fire the registrations once at namespace load.
+ (register-all!)
++
++;; J1 retain (rf2-a1v8a measurement, uncommitted): the save dialog's snippet,
++;; alias translated story -> rf.story, plus a hand-typed pin of the welcome picture.
++(rf.story/reg-variant :story.login-form/welcome-back
++  {:extends :story.login-form/idle
++   :args {:heading "Welcome back"}
++   :sub-overrides {[:login/state] :authenticated
++                   [:login/email] "ada@example.com"
++                   [:rf.machine/has-tag? :login/flow :auth/authenticated] true}})
++
++;; J1 strengthen (rf2-a1v8a measurement, uncommitted): the upgrade dialog's scaffold,
++;; alias translated, :setup filled from the authenticated variant's events, fx stub copied.
++(rf.story/reg-variant :story.login-form/welcome-back-upgraded
++  {:extends :story.login-form/idle
++   :args {:heading "Welcome back"}
++   :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
++   ;; real events — proves handlers + app-db
++   :setup [[:dispatch [:login/flow [:login/submit {:email "ada@example.com" :password "correct-horse"}]]]
++           [:dispatch [:login/flow [:login/success {:value {:user {:email "ada@example.com"} :token "story-token"}}]]]]})
++
++;; J1 behaviour check (rf2-a1v8a measurement, uncommitted): the add-expectations
++;; dialog's form, alias translated story -> rf.story, id kept as generated.
++(rf.story/reg-variant :story.login-form/expects-427199
++  {:extends :story.login-form/welcome-back-upgraded
++   :assertions [[:rf.assert/sub-equals [:login/email] "ada@example.com"]]
++   :script [[:assert [:rf.assert/sub-equals [:login/email] "ada@example.com"]]]
++   :tags #{:test}})
