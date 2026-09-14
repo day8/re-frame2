@@ -1,6 +1,6 @@
 # Attributed Fable MCP receipt
 
-Copied during sibling synthesis from the scratch root identified in [Fable's evidence document](../../../fable/evidence.md): `C:/Users/miket/AppData/Local/Temp/claude/C--Users-miket-code-re-frame2/42c31ef4-cd81-4ccf-920a-6070745a6efa/scratchpad`.
+Copied during sibling synthesis from the scratch root identified in [Fable's evidence document](../../../fable/evidence.md): `<HOME>/AppData/Local/Temp/claude/C--Users-<user>-code-re-frame2/42c31ef4-cd81-4ccf-920a-6070745a6efa/scratchpad`.
 
 These are **Fable's executions**, inspected by Astra, not a new Astra MCP run:
 

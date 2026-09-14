@@ -4,32 +4,32 @@
   "currentHead": "7cfd11e1fc5aa0810fdaa4f0d6659f7874aeca4c",
   "files": [
     {
-      "path": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\fable\\evidence.md",
-      "snapshot": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\second-sibling-review\\final-fable\\evidence.md",
+      "path": "<HOME>\\code\\re-frame2\\ai\\findings\\Story\\fable\\evidence.md",
+      "snapshot": "<HOME>\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\second-sibling-review\\final-fable\\evidence.md",
       "sha256": "B7113455C57CD1831A1CEEF8C6F6D11F059DBD7C5B00E98269BAE77C93944EF1",
       "modified": "2026-09-14T04:16:54.2547501Z"
     },
     {
-      "path": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\fable\\matrix.md",
-      "snapshot": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\second-sibling-review\\final-fable\\matrix.md",
+      "path": "<HOME>\\code\\re-frame2\\ai\\findings\\Story\\fable\\matrix.md",
+      "snapshot": "<HOME>\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\second-sibling-review\\final-fable\\matrix.md",
       "sha256": "1106D510454B7235F1F9FD72C470606E0E3580DF3DD2BC1CCE1B10F777EF23AD",
       "modified": "2026-09-14T04:16:54.2537508Z"
     },
     {
-      "path": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\fable\\report.md",
-      "snapshot": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\second-sibling-review\\final-fable\\report.md",
+      "path": "<HOME>\\code\\re-frame2\\ai\\findings\\Story\\fable\\report.md",
+      "snapshot": "<HOME>\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\second-sibling-review\\final-fable\\report.md",
       "sha256": "A4DDC4B48995843B7C9AA902F9EB68910388ACA8CDCFFA75C9FD946AFF53A7FE",
       "modified": "2026-09-14T04:17:43.1175045Z"
     },
     {
-      "path": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\fable\\rubric.md",
-      "snapshot": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\second-sibling-review\\final-fable\\rubric.md",
+      "path": "<HOME>\\code\\re-frame2\\ai\\findings\\Story\\fable\\rubric.md",
+      "snapshot": "<HOME>\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\second-sibling-review\\final-fable\\rubric.md",
       "sha256": "AA21FF35019589DB4786B9D8B4590AA1E01D6F296A5F54722F07F9031DF620C3",
       "modified": "2026-09-14T04:16:54.2537508Z"
     },
     {
-      "path": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\grok\\report.md",
-      "snapshot": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\second-sibling-review\\final-grok\\report.md",
+      "path": "<HOME>\\code\\re-frame2\\ai\\findings\\Story\\grok\\report.md",
+      "snapshot": "<HOME>\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\second-sibling-review\\final-grok\\report.md",
       "sha256": "7879C657C7D766194E27EB75AB91F29170DD950D678899C303C1401205A27EEA",
       "modified": "2026-09-14T04:19:06.7637039Z"
     }

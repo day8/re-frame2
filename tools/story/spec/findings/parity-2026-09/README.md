@@ -45,6 +45,10 @@ its own worktree cannot see. The layout is unchanged so the reports' relative li
 - `scripts/check_doc_slugs.py` excludes every directory named `findings` by design
   (exploratory work), so the links inside this folder are **not** gate-checked; the
   reports' relative links were preserved by keeping the layout, not by a gate.
+- Personal home paths in the evidence (receipts, process logs, the scratchpad root the
+  probes were run from) are scrubbed to `<HOME>` / `<user>` so the repo's portability
+  gate (`scripts/check-no-hardcoded-paths.sh`) holds; the `ai/` originals keep the
+  literal paths. Nothing else in the files was altered.
 - The repo ignores gate logs (`*-re-frame2-N.log` / `.exit`); the small ones the
   reports link as evidence were added deliberately with `git add -f` so those links
   resolve. Anything over 200 KB was left out and is named in the commit message.

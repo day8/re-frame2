@@ -1,10 +1,10 @@
-gate root: C:/Users/miket/code/re-frame2
-namespace source: re-frame.story.promotion-cljs-test file:/C:/Users/miket/code/re-frame2/tools/story/test/re_frame/story/promotion_cljs_test.cljc
-namespace source: re-frame.story.ui.promotion-cljs-test file:/C:/Users/miket/code/re-frame2/tools/story/test/re_frame/story/ui/promotion_cljs_test.cljc
-namespace source: re-frame.story.ui.view-state-upgrade-test file:/C:/Users/miket/code/re-frame2/tools/story/test/re_frame/story/ui/view_state_upgrade_test.clj
-namespace source: re-frame.story.ui.view-state-test file:/C:/Users/miket/code/re-frame2/tools/story/test/re_frame/story/ui/view_state_test.cljc
-namespace source: re-frame.story.run-result-hashes-test file:/C:/Users/miket/code/re-frame2/tools/story/test/re_frame/story/run_result_hashes_test.clj
-namespace source: re-frame.story.ui.explain-panel-test file:/C:/Users/miket/code/re-frame2/tools/story/test/re_frame/story/ui/explain_panel_test.cljc
+gate root: <HOME>/code/re-frame2
+namespace source: re-frame.story.promotion-cljs-test file:/<HOME>/code/re-frame2/tools/story/test/re_frame/story/promotion_cljs_test.cljc
+namespace source: re-frame.story.ui.promotion-cljs-test file:/<HOME>/code/re-frame2/tools/story/test/re_frame/story/ui/promotion_cljs_test.cljc
+namespace source: re-frame.story.ui.view-state-upgrade-test file:/<HOME>/code/re-frame2/tools/story/test/re_frame/story/ui/view_state_upgrade_test.clj
+namespace source: re-frame.story.ui.view-state-test file:/<HOME>/code/re-frame2/tools/story/test/re_frame/story/ui/view_state_test.cljc
+namespace source: re-frame.story.run-result-hashes-test file:/<HOME>/code/re-frame2/tools/story/test/re_frame/story/run_result_hashes_test.clj
+namespace source: re-frame.story.ui.explain-panel-test file:/<HOME>/code/re-frame2/tools/story/test/re_frame/story/ui/explain_panel_test.cljc
 
 Testing re-frame.story.promotion-cljs-test
 

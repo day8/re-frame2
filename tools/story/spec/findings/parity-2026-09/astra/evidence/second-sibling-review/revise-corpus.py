@@ -159,7 +159,7 @@ Executed six current JVM namespaces: core promotion, UI promotion helpers, upgra
 Reproduction from `tools/story` uses the local test dependencies and the absolute collector path:
 
 ```powershell
-clojure -Sdeps '{:aliases {:research {:main-opts ["C:/Users/miket/code/re-frame2/ai/findings/Story/astra/evidence/second-sibling-review/current-regressions.clj"]}}}' -M:test:research
+clojure -Sdeps '{:aliases {:research {:main-opts ["<HOME>/code/re-frame2/ai/findings/Story/astra/evidence/second-sibling-review/current-regressions.clj"]}}}' -M:test:research
 ```
 
 Preserve its fixed EDN output before rerunning and use fresh ignored log/exit filenames. This is a focused research check, not the full Story suite or a browser test. Source inspection of a landed browser test and its worker's merge receipt are separate evidence categories.

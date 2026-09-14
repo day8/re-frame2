@@ -12,15 +12,15 @@
   "promptSha256": "3F03A5E29F607C84429CA9E06E4C0AD74D6C8A14E80CBE8A6B595EBC8F1FBC7C",
   "independentDraftHashes": [
     {
-      "Path": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\independent-draft\\evaluation-plan.md",
+      "Path": "<HOME>\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\independent-draft\\evaluation-plan.md",
       "Hash": "E0305CBC0C00F312ACF1221659792AD90B31C60D91D7AA4BC2E799380DB3D52E"
     },
     {
-      "Path": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\independent-draft\\parity-matrix.md",
+      "Path": "<HOME>\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\independent-draft\\parity-matrix.md",
       "Hash": "60DD7E311E2E2F52342A8AEB230BBAF7B7B31EBBE13569F741CB8F19963B1C8B"
     },
     {
-      "Path": "C:\\Users\\miket\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\independent-draft\\report.md",
+      "Path": "<HOME>\\code\\re-frame2\\ai\\findings\\Story\\astra\\evidence\\independent-draft\\report.md",
       "Hash": "67251F9E97286E39D3AA756DBBAC69A15C7F10449377B872E6F86C8582D46B5B"
     }
   ]

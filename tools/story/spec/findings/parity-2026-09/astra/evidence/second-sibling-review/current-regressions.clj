@@ -1,5 +1,5 @@
 (require '[clojure.test :as t] '[clojure.java.io :as io])
-(def research-root "C:/Users/miket/code/re-frame2")
+(def research-root "<HOME>/code/re-frame2")
 (println "gate root:" research-root)
 (def test-namespaces
   '[re-frame.story.promotion-cljs-test

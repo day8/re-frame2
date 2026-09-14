@@ -27,7 +27,7 @@ Look for improvements that remove concepts, configuration, repeated work, and un
 
 ## Working scope and deliverables
 
-The repository root is `C:/Users/miket/code/re-frame2`. Resolve paths against the checkout you actually inspect. Read applicable `AGENTS.md` and `CLAUDE.md` instructions and run `bd prime`. Use beads for task tracking as required by the repository. Read relevant existing beads, including later notes and rulings, to avoid proposing already-resolved work; treat their factual claims as leads to verify independently.
+The repository root is `<HOME>/code/re-frame2`. Resolve paths against the checkout you actually inspect. Read applicable `AGENTS.md` and `CLAUDE.md` instructions and run `bd prime`. Use beads for task tracking as required by the repository. Read relevant existing beads, including later notes and rulings, to avoid proposing already-resolved work; treat their factual claims as leads to verify independently.
 
 Write:
 
