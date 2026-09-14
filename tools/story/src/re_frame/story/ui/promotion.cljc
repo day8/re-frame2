@@ -126,17 +126,32 @@
   lets promotion find the source variant (`source-variant-id`) and carry its
   expectations and its full program.
 
+  `run-opts` is the `run-variant` opts map the run received (Test mode's
+  `state/run-opts`), whose `:active-modes` and `:cell-overrides` fed any
+  `[:arg]` the run substituted. They compile 3's program, and the artifact
+  records them under `[:source :run-opts]` so promotion compiles the source
+  with the same inputs: a required input stays capturable and an overridden
+  default stays the value that ran (rf2-cml0h). `play-events` must come from
+  the same opts, as `store-result!` compiles them. `:substrate` feeds no
+  `[:arg]` and is not recorded. Without `run-opts` nothing is recorded and
+  only the ambient arg layers compile in.
+
   Returns nil when there is nothing to capture: no back-link, no
   play-events, and no registered variant whose plan compiles."
-  [result play-events]
-  (or (let [linked (:run-artifact result)]
-        (when (rf.story.artifact/run-artifact? linked) linked))
-      (when-let [program (if (seq play-events)
-                           (vec play-events)
-                           (rf.story.promotion/source-program (:variant/id result)))]
-        (rf.story.artifact/make-run-artifact
-          {:event-program program
-           :result        result}))))
+  ([result play-events] (result->artifact result play-events nil))
+  ([result play-events run-opts]
+   (or (let [linked (:run-artifact result)]
+         (when (rf.story.artifact/run-artifact? linked) linked))
+       (let [inputs (not-empty
+                      (into {} (filter (comp seq val))
+                            (select-keys run-opts [:active-modes :cell-overrides])))]
+         (when-let [program (if (seq play-events)
+                              (vec play-events)
+                              (rf.story.promotion/source-program (:variant/id result) inputs))]
+           (rf.story.artifact/make-run-artifact
+             (cond-> {:event-program program
+                      :result        result}
+               inputs (assoc :source {:run-opts inputs}))))))))
 
 ;; ===========================================================================
 ;; PURE: the promotion draft  (name / doc / tags / setup-cut)
@@ -271,12 +286,14 @@
      "Capture a Test-mode run (its `result` + flat `play-events`) into the
      store under `origin` (the variant the run came from). Derives the
      artifact via `result->artifact` (prefers a replay back-link; else the
-     play-events; else the stepped program of the variant the result names).
+     play-events; else the stepped program of the variant the result names),
+     compiled with `run-opts`, the opts the run received.
      No-op when there's nothing to capture. Returns the captured artifact
      id, or nil."
-     [result play-events origin]
-     (when-let [art (result->artifact result play-events)]
-       (capture! art origin))))
+     ([result play-events origin] (capture-from-result! result play-events origin nil))
+     ([result play-events origin run-opts]
+      (when-let [art (result->artifact result play-events run-opts)]
+        (capture! art origin)))))
 
 #?(:cljs
    (defn captured-entries

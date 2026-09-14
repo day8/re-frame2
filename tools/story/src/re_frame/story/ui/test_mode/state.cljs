@@ -12,6 +12,7 @@
        :failed-only?    <bool>            ; failed-only filter
        :play-events     <vector>          ; dispatch events of the compiled program, run opts threaded
        :epoch-ids       <vector>          ; trailing epoch-id slice
+       :run-opts        <map>             ; the `run-opts` the run received, for promotion capture
        :selected-step   <int|nil>}
 
   `:result` is the ONE unified run-result the runtime returns
@@ -121,6 +122,10 @@
             :expanded      #{}
             :play-events   (vec play-events)
             :epoch-ids     epoch-ids
+            ;; Promotion captures THIS run, so it compiles the source with the
+            ;; opts the run received, not whatever the controls hold when the
+            ;; promote button is pressed (rf2-cml0h).
+            :run-opts      opts
             :selected-step nil})
     (let [summary (-> (rf.story.ui.state/aggregate-summary (:assertions result))
                       (assoc :ran-at-ms  now

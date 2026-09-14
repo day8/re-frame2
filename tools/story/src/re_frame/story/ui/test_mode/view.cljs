@@ -602,9 +602,10 @@
   [variant-id]
   (let [slot        (get @rf.story.ui.test-mode.state/results-atom variant-id)
         result      (:result slot)
-        play-events (or (:play-events slot) [])]
+        play-events (or (:play-events slot) [])
+        run-opts    (:run-opts slot)]
     (when (and result
-               (some? (rf.story.ui.promotion/result->artifact result play-events)))
+               (some? (rf.story.ui.promotion/result->artifact result play-events run-opts)))
       [:div {:style     (:evidence-row styles)
              :data-test "story-test-promotion-row"}
        [:button
@@ -620,7 +621,7 @@
          :title     "Capture this run as an artifact and promote it to a curated regression variant"
          :on-click  (fn [_]
                       (when-let [id (rf.story.ui.promotion/capture-from-result!
-                                      result play-events variant-id)]
+                                      result play-events variant-id run-opts)]
                         (rf.story.ui.promotion/open! id)))}
         "promote run → regression variant…"]
        [:span {:style {:margin-left "8px"
