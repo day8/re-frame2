@@ -35,17 +35,17 @@ test('visual review of the :test-tagged variants', async ({ page, browserName })
 
   await page.goto(`${BASE}#/stories`, { waitUntil: 'load', timeout: WAIT_MS });
   await page.waitForFunction(
-    () => window.re_frame?.story?.registrar?.registrations
-      && cljs.core.count(re_frame.story.registrar.registrations(cljs.core.keyword('variant'))) > 0,
+    () => window.re_frame?.story?.registrations
+      && cljs.core.count(re_frame.story.registrations(cljs.core.keyword('variant'))) > 0,
     null, { timeout: WAIT_MS });
   const { variants, themes } = await page.evaluate(() => {
-    const reg = re_frame.story.registrar;
+    const story = re_frame.story; // the public re-frame.story query API, via the dev build's globals
     const kw = cljs.core.keyword;
     const fqns = (ks) => Array.from(cljs.core.to_array(ks)).map((k) => k.fqn).sort();
-    const themeModes = Array.from(cljs.core.to_array(reg.registrations(kw('mode'))))
+    const themeModes = Array.from(cljs.core.to_array(story.registrations(kw('mode'))))
       .filter((e) => cljs.core.get(cljs.core.val(e), kw('axis'))?.fqn === 'theme')
       .map((e) => cljs.core.key(e));
-    return { variants: fqns(reg.variants_with_tags(cljs.core.vector(kw('test')))), themes: fqns(themeModes) };
+    return { variants: fqns(story.variants_with_tags(cljs.core.vector(kw('test')))), themes: fqns(themeModes) };
   });
   console.log(`VISUAL enumerated ${variants.length} :test-tagged variants x themes [${themes.join(', ')}]`);
   expect(variants.length, 'no :test-tagged variants, so nothing was reviewed').toBeGreaterThan(0);
