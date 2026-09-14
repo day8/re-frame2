@@ -453,30 +453,33 @@
 ;;     API route, whose artifact keeps the whole program; lost on the dialog
 ;;     route's dispatch-only capture).
 
-(defn- reg-inc!
-  "The app under test. `fixed?` false is the FAULT — `:promo/inc` never
-  moves the counter; true is the repair."
-  [fixed?]
-  (rf/reg-event :promo/inc
-    (fn [{:keys [db]} _]
-      {:db (if fixed? (update db :n (fnil inc 0)) (assoc db :n 0))})))
+#?(:clj
+   (defn- reg-inc!
+     "The app under test. `fixed?` false is the FAULT — `:promo/inc` never
+     moves the counter; true is the repair."
+     [fixed?]
+     (rf/reg-event :promo/inc
+       (fn [{:keys [db]} _]
+         {:db (if fixed? (update db :n (fnil inc 0)) (assoc db :n 0))}))))
 
-(defn- dialog-promote!
-  "Promote `source-id`'s run `result` the way the Test-mode dialog does: its
-  capture over the dispatch-only play-events, then its default draft."
-  [source-id result promoted-id]
-  (rf.story.promotion/promote-run-artifact!
-    (rf.story.ui.promotion/result->artifact
-      result (rf.story.play/variant-play-events source-id))
-    (rf.story.ui.promotion/draft->promote-opts
-      {:variant-id promoted-id :tags #{:test} :setup-count 0 :extends source-id})))
+#?(:clj
+   (defn- dialog-promote!
+     "Promote `source-id`'s run `result` the way the Test-mode dialog does:
+     its capture over the dispatch-only play-events, then its default draft."
+     [source-id result promoted-id]
+     (rf.story.promotion/promote-run-artifact!
+       (rf.story.ui.promotion/result->artifact
+         result (rf.story.play/variant-play-events source-id))
+       (rf.story.ui.promotion/draft->promote-opts
+         {:variant-id promoted-id :tags #{:test} :setup-count 0 :extends source-id}))))
 
-(defn- api-promote!
-  "Promote a plan-derived artifact of `source-id` with only a `:variant/id`."
-  [source-id promoted-id]
-  (rf.story.promotion/promote-run-artifact!
-    (rf.story.determinism/->artifact (rf.story.plan/variant-plan source-id))
-    {:variant/id promoted-id}))
+#?(:clj
+   (defn- api-promote!
+     "Promote a plan-derived artifact of `source-id` with only a `:variant/id`."
+     [source-id promoted-id]
+     (rf.story.promotion/promote-run-artifact!
+       (rf.story.determinism/->artifact (rf.story.plan/variant-plan source-id))
+       {:variant/id promoted-id})))
 
 #?(:clj
    (defn- run-verdict
