@@ -85,3 +85,25 @@
     (is (= (:plan-hash r1) (:plan-hash r2))
         "the minted anonymous frame id does not leak into the plan identity")
     (is (= (:run-hash r1) (:run-hash r2)))))
+
+(deftest story-level-args-run-and-render-agree
+  ;; rf2-851t0 — the run compiles WITH the ambient arg layers, so render prep
+  ;; must too: otherwise a story-level arg is missing from render's
+  ;; `:effective-args`, and so from its `:plan-hash` (which hashes `:world`),
+  ;; and a placeholder only the story resolves throws. The agreement check in
+  ;; `registered-variant-run-carries-both-hashes` cannot see this, because
+  ;; that variant has no args for the two paths to disagree about.
+  (rf.story/reg-story :story.hashes.args {:args {:status :loaded}})
+  (rf.story/reg-variant :story.hashes.args/inherits
+    {:tags   #{:test}
+     :script {:script [[:dispatch-sync [:hashes/set-status [:arg :status]]]
+                       [:assert-db [:status] :loaded]]}})
+  (let [run      (run-blocking :story.hashes.args/inherits)
+        prepared (rf.story.render/prepare-render :story.hashes.args/inherits)]
+    (is (= :pass (:status run)) "non-vacuity: the story's arg resolved and the run passed")
+    (testing "render prep resolves the story-level arg the run executed with"
+      (is (= {:status :loaded} (:effective-args prepared)))
+      (is (= (:effective-args run) (:effective-args prepared))))
+    (testing ":plan-hash agrees between run and render"
+      (is (string? (:plan-hash prepared)))
+      (is (= (:plan-hash run) (:plan-hash prepared))))))

@@ -24,7 +24,9 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [#?(:clj clojure.edn :cljs cljs.reader) :as edn]
+            [re-frame.story.config :as rf.story.config]
             [re-frame.story.plan :as rf.story.plan]
+            [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.ui.view-state :as rf.story.ui.view-state]))
 
 ;; ---------------------------------------------------------------------------
@@ -310,3 +312,39 @@
     (let [m (rf.story.ui.view-state/compile-model :story.nope/missing [])]
       (is (string? (:error m)))
       (is (not (str/blank? (:error m)))))))
+
+;; ---------------------------------------------------------------------------
+;; compile-model — the ambient arg layers (rf2-851t0)
+;;
+;; The run resolves an `[:arg key]` through global-args and the parent
+;; story's `:args`; the pure compiler folds those only when handed
+;; `:run-args`. The panel must compile the variant the way it runs, or a
+;; variant that runs fine shows a missing-arg error.
+;; ---------------------------------------------------------------------------
+
+(deftest compile-model-folds-story-and-global-args
+  (let [globals-before (rf.story.config/get-global-args)]
+    (rf.story.registrar/clear-all!)
+    (try
+      (rf.story.registrar/reg-story*   :story.vs.args {:args {:heading "Sign in"}})
+      (rf.story.registrar/reg-variant* :story.vs.args/uses-story-arg
+                                       {:setup [[:dispatch [:vs/set [:arg :heading]]]]})
+      (rf.story.registrar/reg-variant* :story.vs.args/uses-global-arg
+                                       {:setup [[:dispatch [:vs/set [:arg :theme]]]]})
+      (testing "a placeholder only the STORY resolves compiles, as it runs"
+        (let [m (rf.story.ui.view-state/compile-model :story.vs.args/uses-story-arg [])]
+          (is (nil? (:error m)) (str "expected clean compile, got: " (:error m)))
+          (is (= [:vs/set] (get-in m [:setup :events]))
+              "non-vacuity: the compiled model carries the variant's setup")))
+      (testing "a placeholder only GLOBAL-args resolves compiles too"
+        (rf.story.config/set-global-args! {:theme :dark})
+        (let [m (rf.story.ui.view-state/compile-model :story.vs.args/uses-global-arg [])]
+          (is (nil? (:error m)) (str "expected clean compile, got: " (:error m)))))
+      (testing "the pure compiler stays explicit — the fold is the panel's"
+        (is (thrown-with-msg?
+              #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+              #"story-missing-arg"
+              (rf.story.plan/variant-plan :story.vs.args/uses-story-arg))))
+      (finally
+        (rf.story.config/set-global-args! globals-before)
+        (rf.story.registrar/clear-all!)))))
