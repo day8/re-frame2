@@ -53,7 +53,8 @@
   (→ `:real-setup`) or `:db-seed` (→ `:db-seed`) slot to fill in,
   dropping the `:sub-overrides`. It `:extends` the source only when the
   source's chain pins nothing — `:extends` inherits a pin — and otherwise
-  re-emits the source's own slots over its nearest pin-free ancestor. The
+  re-emits the source's own slots over its nearest pin-free ancestor,
+  leaving out any composed fragment that pins. The
   upgrade emits a copy-paste scaffold the author completes, exactly as
   save-variant / author-expectations do (source is never written
   directly).
@@ -400,6 +401,12 @@
   [variant-id]
   (rf.story.registrar/handler-meta :variant variant-id))
 
+(defn- default-fragment-lookup
+  "Raw fragment-body lookup off the Story side-table — the same default the
+  plan compiler resolves `:compose` through."
+  [fragment-id]
+  (rf.story.registrar/handler-meta :fragment fragment-id))
+
 (defn upgrade-snippet
   "Build the copy-paste EDN scaffold that UPGRADES `source-variant-id` to
   the `target-rung` fidelity, KEEPING it a `reg-variant` (same artifact
@@ -426,17 +433,27 @@
     source are named in a trailing comment rather than merged here — the
     plan compiler stays the single merge authority.
 
+  Re-emitting the source's own slots re-emits its `:compose`, and a composed
+  fragment's `:sub-overrides` reach the child exactly as a direct pin would.
+  So each composed fragment that pins is DROPPED from the emitted `:compose`
+  and named, with the queries it pinned, in a trailing comment; the author
+  re-adds whatever other context it carried by hand. Fragments that pin
+  nothing stay. (When no layer pins, the source is extended and its
+  child-only `:compose` does not reach the child at all.)
+
   An existing value for the rung's slot is kept rather than duplicated.
   `opts` `:lookup` — a `(variant-id) → raw-body` fn or `{id → body}` map —
-  defaults to the Story side-table. Pure given the lookup.
+  and `:fragment-lookup`, the same shape for `:compose` ids, default to the
+  Story side-table. Pure given the lookups.
 
   Hand-built body (rather than `save-variant/gen-variant-snippet`, which
   only emits `:args`) so the rung slot reads honestly, but reusing the
   same `(story/reg-variant <id> { … })` envelope + alias."
   ([source-variant-id target-rung]
    (upgrade-snippet source-variant-id target-rung nil))
-  ([source-variant-id target-rung {:keys [lookup]}]
+  ([source-variant-id target-rung {:keys [lookup fragment-lookup]}]
    (let [lookup  (or lookup default-variant-lookup)
+         fragment-lookup (or fragment-lookup default-fragment-lookup)
          {slot :key :keys [placeholder note]}
          (or (get upgrade-slots target-rung)
              (throw (ex-info (str "re-frame2-story: no upgrade slot for rung " target-rung)
@@ -450,12 +467,28 @@
          base    (if pin-at
                    (when (pos? pin-at) (:variant/id (nth chain (dec pin-at))))
                    source-variant-id)
-         own     (when pin-at (apply dissoc body not-restated))
+         ;; [fragment-id pinned-queries] for each composed fragment that pins —
+         ;; only when the source's own slots, `:compose` among them, are re-emitted.
+         composed-pins (when pin-at
+                         (into [] (comp (distinct)
+                                        (keep (fn [fragment-id]
+                                                (when-let [pins (not-empty (:sub-overrides
+                                                                             (fragment-lookup fragment-id)))]
+                                                  [fragment-id (keys pins)]))))
+                               (:compose body)))
+         dropped (set (map first composed-pins))
+         own     (when pin-at
+                   (let [own  (apply dissoc body not-restated)
+                         kept (into [] (remove dropped) (:compose own))]
+                     (cond
+                       (empty? dropped) own
+                       (seq kept)       (assoc own :compose kept)
+                       :else            (dissoc own :compose))))
          skipped (when pin-at
                    (map :variant/id (subvec chain pin-at (dec (count chain)))))
-         pinned  (into [] (comp (mapcat #(keys (get-in % [:body :sub-overrides])))
-                                (distinct))
-                       chain)
+         pinned  (into [] (distinct)
+                       (concat (mapcat #(keys (get-in % [:body :sub-overrides])) chain)
+                               (mapcat second composed-pins)))
          lines   (concat
                    (when base [(str ":extends " (pr-str base))])
                    (for [[k v] (sort-by (comp str key) (dissoc own slot))]
@@ -473,7 +506,14 @@
             " — the artifact stays a variant.")
           (when (seq skipped)
             (str "\n;; not carried: " (apply str (interpose ", " (map pr-str skipped)))
-                 " — pinned layers of its :extends chain; copy any other slots you still need."))))))
+                 " — pinned layers of its :extends chain; copy any other slots you still need."))
+          (when (seq composed-pins)
+            (str "\n;; not composed: "
+                 (apply str (interpose ", " (for [[fragment-id queries] composed-pins]
+                                              (str (pr-str fragment-id) " (pins "
+                                                   (apply str (interpose " " (map pr-str queries)))
+                                                   ")"))))
+                 " — pinning fragments of its :compose; re-add any other context they carry by hand."))))))
 
 ;; ===========================================================================
 ;; PURE: the composed section model (host-free)
