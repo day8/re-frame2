@@ -93,17 +93,23 @@
   ;; and a placeholder only the story resolves throws. The agreement check in
   ;; `registered-variant-run-carries-both-hashes` cannot see this, because
   ;; that variant has no args for the two paths to disagree about.
+  ;; `plain` uses no placeholder, so without the fold render still compiles
+  ;; and the defect shows as the hash disagreement itself; `inherits` uses
+  ;; one, so without the fold render prep throws.
   (rf.story/reg-story :story.hashes.args {:args {:status :loaded}})
+  (rf.story/reg-variant :story.hashes.args/plain {:tags #{:test} :script loaded-script})
   (rf.story/reg-variant :story.hashes.args/inherits
     {:tags   #{:test}
      :script {:script [[:dispatch-sync [:hashes/set-status [:arg :status]]]
                        [:assert-db [:status] :loaded]]}})
-  (let [run      (run-blocking :story.hashes.args/inherits)
-        prepared (rf.story.render/prepare-render :story.hashes.args/inherits)]
-    (is (= :pass (:status run)) "non-vacuity: the story's arg resolved and the run passed")
-    (testing "render prep resolves the story-level arg the run executed with"
-      (is (= {:status :loaded} (:effective-args prepared)))
-      (is (= (:effective-args run) (:effective-args prepared))))
-    (testing ":plan-hash agrees between run and render"
-      (is (string? (:plan-hash prepared)))
-      (is (= (:plan-hash run) (:plan-hash prepared))))))
+  (doseq [id [:story.hashes.args/plain :story.hashes.args/inherits]]
+    (testing (str id)
+      (let [run      (run-blocking id)
+            prepared (rf.story.render/prepare-render id)]
+        (is (= :pass (:status run)) "non-vacuity: a real run, not an error shape")
+        (testing "render prep carries the story-level arg the run executed with"
+          (is (= {:status :loaded} (:effective-args prepared)))
+          (is (= (:effective-args run) (:effective-args prepared))))
+        (testing ":plan-hash agrees between run and render"
+          (is (string? (:plan-hash prepared)))
+          (is (= (:plan-hash run) (:plan-hash prepared))))))))
