@@ -2,23 +2,42 @@
 
 In [Part 2](02-server-data.md) Conduit learned to read server data. Now it learns
 *who you are* — forms, JWT, route guards — still mostly app-db and managed HTTP.
-Session-scoped resources and mutations return in
+Once requests carry a token, Part 2's article reads move to a viewer scope too;
+session-scoped resources and mutations follow in
 [Part 4](04-mutations-and-invalidation.md).
 
 You'll add a sign-in page, a sign-up page, a session that survives reload, routes
 that refuse to open while signed out, and a clean sign-out. Most of it lands in one
-new namespace, `conduit/auth.cljs`.
+new namespace, `src/conduit/auth.cljc` — `.cljc` so [Part 5](05-test-and-ship.md) can
+load it on the JVM; the few forms that touch the browser sit behind `#?(:cljs …)`.
 
 Here's the idea the whole part rests on. **A form is a tiny state machine.** Strip away the inputs and login is `idle → submitting → submitted | error`, plus a draft and an error map. Build that *once*, and every later form is a fill-in-the-blanks job.
 
 re-frame2 ships no forms library and no auth plugin on purpose — you'll see why in a moment. What it gives you instead is a convention: one map shape, a small event lifecycle, one error-visibility rule. It's built from the same [events](../../core/glossary.md#event) and [subscriptions](../../core/glossary.md#subscription) as everything else, so nothing here is a new *kind* of thing to learn.
 
 ```clojure
+;; src/conduit/auth.cljc
 (ns conduit.auth
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.routing])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.routing]
+            [re-frame.schemas]
+            #?(:clj [cheshire.core :as json])
+            [conduit.api :as api]
+            [conduit.scope]))            ;; written in "Whose cache is it?", below
+```
+
+`re-frame.schemas` backs the form-slice schema you'll meet in a moment, and it ships as one more artefact — add `day8/re-frame2-schemas` beside the others, compiler and `:dev` alias unchanged. There's no `:require-macros` this time: it's a ClojureScript-only option, so a `.cljc` file calls the view macro through its alias, as `rf/reg-view`.
+
+```clojure
+{:deps {thheller/shadow-cljs        {:mvn/version "3.4.10"}
+        day8/re-frame2              {:local/root "../re-frame2/implementation/core"}
+        day8/re-frame2-reagent      {:local/root "../re-frame2/implementation/adapters/reagent"}
+        day8/re-frame2-routing      {:local/root "../re-frame2/implementation/routing"}
+        day8/re-frame2-http         {:local/root "../re-frame2/implementation/http"}
+        day8/re-frame2-resources    {:local/root "../re-frame2/implementation/resources"}
+        day8/re-frame2-schemas      {:local/root "../re-frame2/implementation/schemas"}}
+ :aliases {:dev {:extra-deps {day8/re-frame2-xray {:local/root "../re-frame2/tools/xray"}}}}}
 ```
 
 ??? info "For JavaScript developers"
@@ -65,10 +84,14 @@ Because the slice is just an [app-db](../../core/glossary.md#app-db) path, bind 
    [:submit-attempted? {:optional true} :boolean]
    [:submit-error      [:maybe :any]]])
 
-;; one shape, reused at every form's path
-(rf/reg-app-schemas {[:auth :login-form]    FormSlice
-                     [:auth :register-form] FormSlice})
+;; one shape, reused at every form's path — :maybe, because a form's slice
+;; doesn't exist until its route seeds it
+(rf/with-frame :rf/default
+  (rf/reg-app-schemas {[:auth :login-form]    [:maybe FormSlice]
+                       [:auth :register-form] [:maybe FormSlice]}))
 ```
+
+Two details keep that registration honest. Schemas are registered per frame, and no frame is in scope while a namespace loads, so `with-frame` names the app's frame id — it registers against the id and creates nothing. And the check runs on *every* app-db write, so a bare `FormSlice` would reject each write made before the login route seeds its slice, the boot seed included; `:maybe` admits the absent slice and checks it once it exists.
 
 The check is dev-only — it asserts something about code *you* wrote, so a release build takes you at your word and [elides](../../core/glossary.md#elide) it — and it costs nothing shipped. That is true of this checkpoint, not of every one: the checks the framework relies on to keep its own promises hold in every build, and [Part 5](05-test-and-ship.md#7-ship-it-the-release-build) draws the line. (`reg-app-schemas` is the bulk form; `reg-app-schema` registers one path at a time.)
 
@@ -170,8 +193,6 @@ Here's a register-form validator showing both a per-field error and a cross-fiel
 Part 2 fetched *cached server state* — data the app reads repeatedly and wants to hold onto, so it wrapped those in [resources](../glossary.md#resource). Login is the opposite: a one-shot command you fire once and don't cache. So it skips the resource machinery and uses a plain [managed HTTP request](../glossary.md#managed-http) — a single round-trip the framework runs as an [effect](../../core/glossary.md#effect), handing you back the reply as a normal event. The shape is: validate the draft; if it's clean, flip `:status` to `:submitting` and hand the round-trip to `:rf.http/managed`:
 
 ```clojure
-(def api "https://api.realworld.io/api")
-
 (defn validate-login [{:keys [email password]}]
   (cond-> {}
     (not (re-find #".+@.+" email)) (assoc :email ["is invalid"])
@@ -189,7 +210,7 @@ Part 2 fetched *cached server state* — data the app reads repeatedly and wants
                  (assoc-in [:auth :login-form :submit-error] nil))
          :fx [[:rf.http/managed
                {:request    {:method :post
-                             :url    (str api "/users/login")
+                             :url    (str api/api-base "/users/login")
                              :body   {:user draft}
                              :request-content-type :json}
                 :decode     :json
@@ -260,8 +281,9 @@ Failure sorts into two shapes, and here's the second rule the part leans on. **S
   "Failure map -> the slice's :errors shape; nil when not a structured rejection."
   [{:keys [kind body]}]
   (when (and (= kind :rf.http/http-4xx) (string? body))
-    (let [parsed (try (js->clj (js/JSON.parse body) :keywordize-keys true)
-                      (catch :default _ nil))]
+    (let [parsed (try #?(:cljs (js->clj (js/JSON.parse body) :keywordize-keys true)
+                         :clj  (json/parse-string body true))
+                      (catch #?(:cljs :default :clj Exception) _ nil))]
       (when-let [errs (:errors parsed)]
         (reduce-kv (fn [m k msgs]
                      (let [msgs (mapv #(str (name k) " " %) msgs)]
@@ -279,7 +301,7 @@ Failure sorts into two shapes, and here's the second rule the part leans on. **S
                                         "Couldn't reach the server — please try again."))})))
 ```
 
-The reason this reads cleanly is the framework's classification order. On a 4xx the body is surfaced **raw** at `:body` (decode is skipped on non-2xx), so `failure->form-errors` gets exactly the bytes the server sent and decides what to do with them. A `:rf.http/transport` failure — the network was down, the server never answered — carries no `:body` to parse, so it falls through to the generic `:submit-error` string. The payoff is that the view never grows a branch for "is this a server error or a client error?" — both validation kinds arrive as `:errors`, both render through the same `field-error` subscription. Only the genuinely shapeless failure gets its own plain string.
+The parse is the first form in the file that needs a host: in the browser it's `JSON.parse`, on the JVM it's Cheshire — the JSON codec the HTTP artefact already puts on the JVM classpath — and the reader conditional picks. The reason the rest reads cleanly is the framework's classification order. On a 4xx the body is surfaced **raw** at `:body` (decode is skipped on non-2xx), so `failure->form-errors` gets exactly the bytes the server sent and decides what to do with them. A `:rf.http/transport` failure — the network was down, the server never answered — carries no `:body` to parse, so it falls through to the generic `:submit-error` string. The payoff is that the view never grows a branch for "is this a server error or a client error?" — both validation kinds arrive as `:errors`, both render through the same `field-error` subscription. Only the genuinely shapeless failure gets its own plain string.
 
 ??? note "Going deeper"
 
@@ -294,7 +316,7 @@ The reason this reads cleanly is the framework's classification order. On a 4xx 
 The rules already live in subs and handlers, which means the [view](../../core/glossary.md#view) — the pure function from subscription values to UI — is the thinnest layer. Read, render, dispatch:
 
 ```clojure
-(reg-view login-page []
+(rf/reg-view login-page []
   (let [{:keys [draft status submit-error]} @(subscribe [:auth.login-form/slice])
         email-err @(subscribe [:auth.login-form/field-error :email])
         pw-err    @(subscribe [:auth.login-form/field-error :password])
@@ -343,11 +365,13 @@ localStorage is the outside world, so it sits behind an [effect](../../core/glos
   {:doc "Write the JWT to localStorage (truthy token) or remove it (nil)."
    :platforms #{:client}}
   (fn [_frame-ctx {:keys [token]}]
-    (when-let [ls (.-localStorage js/globalThis)]
-      (if token
-        (.setItem    ls "jwtToken" token)
-        (.removeItem ls "jwtToken")))))
+    #?(:cljs (when-let [ls (.-localStorage js/globalThis)]
+               (if token
+                 (.setItem    ls "jwtToken" token)
+                 (.removeItem ls "jwtToken"))))))
 ```
+
+The body sits behind `#?(:cljs …)` for a plainer reason than the platform gate: `js/globalThis` names nothing on the JVM, so without the conditional this `.cljc` file wouldn't compile there at all.
 
 ### The read — a coeffect
 
@@ -361,7 +385,7 @@ The read happens at boot. Reading the world is a [coeffect](../../core/glossary.
          epoch-restore re-present the captured token rather than re-reading
          storage. Never read ambiently by a handler."}
   (fn []
-    (some-> (.-localStorage js/globalThis) (.getItem "jwtToken"))))
+    #?(:cljs (some-> (.-localStorage js/globalThis) (.getItem "jwtToken")))))
 
 (rf/reg-event :auth/initialise
   {:rf.cofx/requires [:auth.session/token]}
@@ -372,7 +396,7 @@ The read happens at boot. Reading the world is a [coeffect](../../core/glossary.
              ;; off-box egress. The JWT renders as a redaction sentinel everywhere.
              :sensitive [[:auth :token]]}
       token (assoc :fx [[:rf.http/managed
-                         {:request    {:method :get :url (str api "/user")}
+                         {:request    {:method :get :url (str api/api-base "/user")}
                           :decode     :json
                           :on-success [:auth/session-restored]
                           :on-failure [:auth/session-expired]}]]))))
@@ -449,20 +473,60 @@ The point is that classifying the app-db path does *not* by itself redact the re
 The boot events belong in the frame's **`:initial-events`**, and the ordering that buys you is the point of this whole subsection:
 
 ```clojure
-;; core.cljs — additions to Part 1's boot
-(rf/with-frame :rf/default
-  (rf/reg-http-interceptor :conduit/bearer-auth {:before bearer-auth}))
+;; src/conduit/core.cljs — the ns loads auth, and run is rewritten
+(ns conduit.core
+  (:require [re-frame.core :as rf]
+            [re-frame.routing]
+            [re-frame.adapter.reagent :as reagent-adapter]
+            [conduit.resources]              ;; Part 2: registers the reads at load
+            [conduit.auth :as auth]          ;; Part 3
+            [conduit.articles :as articles])
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
-(rf/make-frame
-  {:id             :rf/default
-   :doc            "The Conduit app frame."
-   :url-bound?     true                        ;; the frame's routing tracks the browser URL
-   ;; Runs in order, synchronously, at frame creation — and BEFORE the frame's
-   ;; first URL→route sync. :auth/initialise (above) folds the saved JWT into
-   ;; [:auth :token], classifies that path, and fires the GET /user restore.
-   :initial-events [[:app/initialise]
-                    [:auth/initialise]]})
+;; …routes as before…
+
+(reg-view header []
+  (let [user @(subscribe [:auth/user])]
+    [:nav.navbar
+     [:div.container
+      [rf/route-link {:to :conduit/home :class "navbar-brand"} "conduit"]
+      (if user
+        [:span.nav-user (:username user) " "
+         [:button.btn.btn-sm {:on-click #(dispatch [:auth/logout])} "Sign out"]]
+        [rf/route-link {:to :conduit.auth/login :class "nav-link"} "Sign in"])]]))
+
+(reg-view root-view []
+  [:div.app
+   [header]
+   (if @(subscribe [:auth/restoring?])        ;; see "Whose cache is it?", below
+     [:div.container.page [:p "Restoring your session…"]]
+     (case @(subscribe [:rf.route/id])
+       :conduit/home          [articles/home-page]
+       :conduit.article/show  [articles/article-page]
+       :conduit.auth/login    [auth/login-page]
+       :rf.route/not-found    [not-found-page]
+       [not-found-page]))])
+
+(defn run []
+  (rf/init! reagent-adapter/adapter)
+  (rf/with-frame :rf/default
+    (rf/reg-http-interceptor :conduit/bearer-auth {:before auth/bearer-auth}))
+  (rf/make-frame
+    {:id             :rf/default
+     :doc            "The Conduit app frame."
+     :url-bound?     true                        ;; the frame's routing tracks the browser URL
+     ;; Runs in order, synchronously, at frame creation — and BEFORE the frame's
+     ;; first URL→route sync. :auth/initialise (above) folds the saved JWT into
+     ;; [:auth :token], classifies that path, and fires the GET /user restore.
+     :initial-events [[:app/initialise]
+                      [:auth/initialise]]})
+  (reagent-adapter/render! app-root
+    [rf/frame-provider {:frame :rf/default}
+     [root-view]]
+    (js/document.getElementById "app")))
 ```
+
+`not-found-page` and `app-root` are Part 1's, unchanged. The Part 1 `with-frame` / `dispatch-sync` seed is gone: `:app/initialise` is the first `:initial-events` step now.
 
 Two things about that order, one obvious and one not.
 
@@ -478,7 +542,73 @@ The one that catches people: **`:url-bound? true` performs its first URL→route
 
     Getting the restore into `:initial-events` closes half the gap, and it is worth being precise about which half. `:initial-events` steps settle **synchronous** work; an in-flight request is not awaited. So when the first URL is resolved, `[:auth :token]` is populated and `[:auth :user]` is still `nil` — `GET /user` has gone out and nothing has come back. Conduit gives you no choice about that: the persisted credential is a bearer token, and the identity has to be fetched.
 
-    Which means a protected deep link *is* refused on that first resolution, and the next section's denial handler is where that refusal is given the right meaning: "we don't know yet" rather than "you're not signed in". If your own API lets you cache the signed-in user alongside the token, you can side-step the whole window — restore both at boot and there is nothing to wait for. [Add authentication](../../core/how-to/add-auth.md#read-the-saved-session-back-at-boot) teaches that simpler shape.
+    Which means a protected deep link *is* refused on that first resolution, and the guard section's denial handler is where that refusal is given the right meaning: "we don't know yet" rather than "you're not signed in". If your own API lets you cache the signed-in user alongside the token, you can side-step the whole window — restore both at boot and there is nothing to wait for. [Add authentication](../../core/how-to/add-auth.md#read-the-saved-session-back-at-boot) teaches that simpler shape.
+
+## Whose cache is it? Scope reads by viewer
+
+The bearer interceptor just changed what Part 2's two reads mean. `GET /articles` and `GET /articles/:slug` still work signed out, but signed in, the server answers *for you*: each article carries `favorited`, and its author carries `following`, relative to whoever sent the token. Part 2 registered both reads `:rf.scope/global`, so the cache would hand the first reader's copy — flags and all — to the next reader who asks for the same params. Readable by anyone is not the same as identical for everyone.
+
+The repair is the one the finished example uses: a named **scope resolver** that answers "who is reading?" from app-db, with both registrations pointing at it.
+
+```clojure
+;; src/conduit/scope.cljc
+;; cf. examples/real-apps/realworld_resources/scope.cljs
+(ns conduit.scope
+  (:require [clojure.string :as str]
+            [re-frame.core :as rf]
+            [re-frame.resources]))
+
+(rf/reg-resource-scope :conduit/viewer
+  {:doc    "Whose copy of a public read is this? The signed-in username, a
+            confirmed anonymous reader, or nil (fail-closed) while a saved
+            token has not been checked yet."
+   :inputs {:username [:db [:auth :user :username]]
+            :token    [:db [:auth :token]]}}
+  (fn [{:keys [username token]} _ctx]
+    (cond
+      username           [:rf.scope/viewer {:username username}]
+      (str/blank? token) [:rf.scope/viewer :anonymous]
+      :else              nil)))
+```
+
+Three answers, and the third is the careful one. A signed-in reader gets a scope of their own. A reader with no token is anonymous, and anonymous readers genuinely do share one copy. But between boot and the `GET /user` reply there *is* a token and no user yet: a request sent then carries credentials, so its answer isn't anonymous, and it doesn't yet belong to anyone the app can name. The resolver returns `nil`, and `nil` fails closed — a subscription raises "scope unresolved" and a route plan refuses, rather than guessing.
+
+Now point Part 2's reads at it. In `src/conduit/resources.cljc`, add `[conduit.scope]` to the requires and change both `:scope` lines to:
+
+```clojure
+   :scope          {:from-db :conduit/viewer}
+```
+
+Nothing else in Part 2 changes. The routes carry no `:scope`, so they inherit the registration's, and so does every `:rf/resource` subscription.
+
+Three places in the app now have to respect the new identity.
+
+**The shell waits out a restore.** While the resolver says `nil`, subscribing to either read is a loud error, so the root view shows a holding line instead of a page — the `:auth/restoring?` branch in the shell above:
+
+```clojure
+(rf/reg-sub :auth/restoring?
+  {:doc "A saved token is in hand but GET /user hasn't answered yet: the viewer is unknown."}
+  (fn [db _]
+    (and (nil? (get-in db [:auth :user]))
+         (not (str/blank? (get-in db [:auth :token]))))))
+```
+
+**A restore replans the page it's on.** The first URL was resolved while the viewer was unknown, so its reads failed closed. When the reply lands, nothing asks again on its own: a subscription re-keys to the new scope, but re-keying never fetches, and navigating to the page you're already on is deliberately a no-op. `:rf.route/replan-resources` is the command for exactly this — it reruns the current route's reads under the current identity, without navigating. Replace the two restore handlers from earlier so both outcomes dispatch it:
+
+```clojure
+(rf/reg-event :auth/session-restored
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (assoc-in db [:auth :user] (dissoc (:user value) :token))
+     :fx [[:dispatch [:rf.route/replan-resources {:cause [:session-restore]}]]]}))
+
+(rf/reg-event :auth/session-expired
+  (fn [{:keys [db]} _]
+    {:db (update db :auth assoc :user nil :token nil)  ;; targeted: form slices survive
+     :fx [[:auth.session/persist {:token nil}]
+          [:dispatch [:rf.route/replan-resources {:cause [:session-restore-failed]}]]]}))
+```
+
+**Signing in and out change the reader.** Signing in needs nothing extra: login ends by navigating to a different page, and a newly entered route plans its reads under whoever is signed in now. Signing out needs two more steps, and [Sign out](#sign-out) shows them.
 
 ## The guard
 
@@ -492,6 +622,9 @@ Extend Part 1's registrations with the guard (and, while we're here, a tag — f
    :can-enter [:conduit/signed-in?]
    :on-match  [[:settings/load]]}
   "/settings")
+
+(rf/reg-sub :auth/user
+  (fn [db _] (get-in db [:auth :user])))
 
 (rf/reg-sub :conduit/signed-in?
   {:doc "The :can-enter auth guard: true when a user is signed in."
@@ -546,7 +679,7 @@ Dispatch `[:auth/settle-deferred-entry]` from **both** restore outcomes — `:au
 
 Why a branch in the handler rather than a smarter guard? Because `:can-enter` is a **closed boolean**, deliberately. A guard that could answer "ask me again later" would put a tri-state into every app's auth sub, and every guard would have to handle it. Mid-restore the honest answer to "is this visitor signed in?" is `false` — there is no user. What the *refusal* means is a policy question, and policy lives in the handler. And waiting is safe precisely because refusal is terminal: nothing committed, no `:on-match`, no resources — there is no protected page on screen to be exposed while we find out.
 
-While you're deferring, say so on screen. A deferred entry commits no route, so a `case` over `:rf.route/id` falls through to your not-found page — a lie to tell a reader who turns out to be signed in. One sub (`(and (nil? user) (some? token))`) and a "Restoring your session…" branch in the shell is the whole fix; both RealWorld examples carry it.
+While you're deferring, say so on screen. A deferred entry commits no route, so a `case` over `:rf.route/id` would fall through to your not-found page — a lie to tell a reader who turns out to be signed in. The shell's `:auth/restoring?` branch from [Whose cache is it?](#whose-cache-is-it-scope-reads-by-viewer) already covers it: the reads needed the same holding line, for the same window.
 
 Three more pieces are doing precise work:
 
@@ -569,8 +702,9 @@ Then watch the harder one. Signed in, reload directly on `/settings`. The ledger
 `:can-enter` stops you *entering* a route. The mirror-image need — stop you *leaving* one with unsaved work — is `:can-leave`, and the editor is the natural place for it. It names a subscription the runtime consults *before* navigating away; `true` allows, `false` blocks:
 
 ```clojure
+;; a preview — Part 4 builds the editor and registers these for real
 (rf/reg-sub :editor/can-leave?
-  {:inputs [[:auth.article-form/dirty?]]}     ;; the dirty? sub from earlier, on the editor's slice
+  {:inputs [[:editor/dirty?]]}               ;; a dirty? sub, on the editor's slice
   (fn [[dirty?] _] (not dirty?)))            ;; clean draft → leave freely; dirty → block
 
 (rf/reg-route :conduit.editor/new
@@ -605,30 +739,35 @@ Teardown is just setup reversed, in one event. Wire `(dispatch [:auth/logout])` 
 ```clojure
 (rf/reg-event :auth/logout
   (fn [{:keys [db]} _]
-    {:db (assoc db :auth {:user nil :token nil})
-     :fx [[:auth.session/persist {:token nil}]
-          [:dispatch [:rf.route/navigate {:to :conduit/home}]]]}))
+    (let [old-viewer (rf/resolve-resource-scope db :conduit/viewer)]
+      {:db (assoc db :auth {:user nil :token nil})
+       :fx (cond-> [[:auth.session/persist {:token nil}]]
+             old-viewer (conj [:dispatch [:rf.resource/clear-scope {:scope old-viewer :cause :logout}]])
+             true       (conj [:dispatch [:rf.route/navigate {:to :conduit/home}]]
+                              [:dispatch [:rf.route/replan-resources {:cause [:logout]}]]))})))
 ```
+
+Two of those steps are about the cache, and both follow from [Whose cache is it?](#whose-cache-is-it-scope-reads-by-viewer). `rf/resolve-resource-scope` runs the viewer resolver against the handler's `db` — the value *before* this event, which still knows who is leaving — and `:rf.resource/clear-scope` evicts that reader's entries. The replan comes after the navigate. From another page, the navigate plans the home page's reads and the replan finds them already in place; but signed out *on* the home page, the navigate is a no-op, and the replan is what fetches the anonymous list.
 
 Nothing else to unhook, which is the nice part. The bearer interceptor reads app-db per request, so the header stops the instant the token is `nil`. The guard starts intercepting again for the same reason. State went away, and behaviour followed. That's the whole dividend of keeping the session *in* app-db rather than in scattered closures: there's exactly one place to clear, and everything that read it goes quiet on its own.
 
-!!! note "What about the previous user's cached server data?"
+!!! note "Clearing is the second line, not the fence"
 
-    Logout clears `:auth`, but Part 2's [resource](../glossary.md#resource) caches (the feed, the profile) still hold the departed user's data until they're re-fetched or evicted. If a fresh sign-in could show a flash of the old user's content, clear those caches in the same logout event — one more named, traced step, not a scattered checklist. The how-to [Add authentication](../../core/how-to/add-auth.md) covers the cache-teardown shape in full.
+    Scope is what keeps readers apart: the next reader's `{:username …}` entries are different cache keys from the last one's, so they couldn't be served each other's copies even if those lingered. The clear drops the departing reader's [resource](../glossary.md#resource) entries the moment they leave, aborts anything of theirs still in flight, and records what it removed. [Add authentication](../../core/how-to/add-auth.md#6-logout-is-a-teardown) covers the teardown shape in full.
 
 ### The second trigger: the server signs you out
 
 The navbar is not the only thing that ends a session. A JWT that was valid at boot expires while the reader sits on `/settings`, and the route guard cannot notice — it reads cached auth state, and that state still says *signed in*. Entry was already allowed; the next authenticated request is where the truth turns up. So catch it on the response side of the interceptor chain you registered for `bearer-auth` — same chain, other leg:
 
 ```clojure
-(rf/with-frame :rf/default
-  (rf/reg-http-interceptor :conduit/expired-session
-    {:after (fn [ctx response]
-              (when (and (= :error (:status response))
-                         (= :rf.http/http-4xx (get-in response [:error :kind]))
-                         (= 401 (get-in response [:error :status])))
-                (rf/dispatch [:auth/logout] {:frame (:frame ctx)}))
-              response)}))                     ;; :after MUST return the response
+;; core.cljs, in run — inside the same with-frame as :conduit/bearer-auth
+(rf/reg-http-interceptor :conduit/expired-session
+  {:after (fn [ctx response]
+            (when (and (= :error (:status response))
+                       (= :rf.http/http-4xx (get-in response [:error :kind]))
+                       (= 401 (get-in response [:error :status])))
+              (rf/dispatch [:auth/logout] {:frame (:frame ctx)}))
+            response)})                     ;; :after MUST return the response
 ```
 
 Two details earn their keep. Mind the **two `:status` levels**: the reply envelope's `:status` is `:error`, and the HTTP code lives *inside* the failure map at `[:error :status]`, under a framework-owned `:kind` — branch on those, never on a stringified message. And carry the frame from `ctx`: the reply arrives in a transport callback, where a bare `rf/dispatch` can hit `:rf.error/no-frame-context`.
