@@ -148,10 +148,14 @@ The same three recipes, with their host-neutral wording, are in the `re-frame2` 
 mcp__re-frame2-pair__eval-cljs {
   form: "(re-frame.story/promote-run-artifact!
            (re-frame.story.determinism/->artifact
-             (re-frame.story/variant-plan :story.cart/checkout-fails))
+             (re-frame.story/variant-plan
+               :story.cart/checkout-fails
+               {:run-args (re-frame.story.args/run-arg-layers :story.cart/checkout-fails)}))
            {:variant/id :story.cart/checkout-regression})"
 }
 ```
+
+`:run-args` folds in the layers a run applies around the variant: global args and the parent story's `:args`. Without it the plan sees the variant's own `:args` alone, so a script that substitutes a story-level `[:arg …]` throws `:rf.error/story-missing-arg`. If the failing run passed `:active-modes` or `:cell-overrides`, pass that same opts map as `run-arg-layers`' second argument.
 
 The registered body carries the source's whole program and its own `:assertions` and `:checks`. Then apply one acceptance, in order, re-running the promoted variant with `re-frame.story/run-variant` (§Enumerate, run, operate) after each change: with the fault in place it **fails**, with the same assertion count as the source; with the app fixed it **passes**; with the fault restored it **fails** again. Only that sequence proves a repair. An agent that edits the expected value instead of the app has repaired nothing: its variant passes under the fault and fails once the app is fixed.
 
