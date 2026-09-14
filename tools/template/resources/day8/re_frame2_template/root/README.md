@@ -13,6 +13,10 @@ npx shadow-cljs watch app
 Open <http://localhost:8280>. Edit `src/{{nested-dirs}}/views.cljs` and
 save: the page re-renders in place, keeping its state.
 
+Open <http://localhost:8280/#/stories> for Story, the component
+playground: the counter as a story with one variant, a control for its
+`:heading`, and a Test mode that runs the variant's assertion.
+
 ## Test
 
 ```sh
@@ -30,7 +34,8 @@ npm run release
 ```
 
 The optimised bundle lands in `resources/public/js/main.js`; serve
-`resources/public/` from any static host.
+`resources/public/` from any static host. Story is not in it: a release
+boots `core.cljs`, which never requires Story.
 
 ## What is here
 
@@ -42,8 +47,11 @@ The optimised bundle lands in `resources/public/js/main.js`; serve
 - `events.cljs` — `:counter/initialise` seeds app-db and
   `:counter/increment` bumps it. Pure functions of the coeffects map.
 - `subs.cljs` — `:counter/value`, a pure extractor over app-db.
-- `views.cljs` — the counter: one button that dispatches, one span that
-  subscribes.
+- `views.cljs` — the counter: a heading, one button that dispatches, one
+  span that subscribes.
+- `stories.cljs` — the dev build's entry point: one story, one variant,
+  and the `#/stories` route that mounts Story. Its `:dev` alias in
+  `deps.edn` and the two extra npm packages in `package.json` are Story's.
 
 This is the same counter the guide walks through. Replace it with your
 first feature.
@@ -55,5 +63,6 @@ first feature.
 - [Xray](https://github.com/day8/re-frame2/blob/main/docs/xray/01-installation.md)
   — the in-app devtools panel. Four edits attach it to your dev build.
 - [Story](https://github.com/day8/re-frame2/blob/main/docs/story/index.md)
-  — the component playground. A dev alias, a require and a mount.
+  — the component playground `stories.cljs` already wires; the tutorial
+  starts there.
 - [Worked examples](https://github.com/day8/re-frame2/tree/main/examples).

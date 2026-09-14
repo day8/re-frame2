@@ -1,14 +1,17 @@
 ;; {{name}} — shadow-cljs build config.
 ;;
 ;; Two builds:
-;;   :app  — watch / release. Compiles to resources/public/js/main.js and
-;;           boots {{namespace}}.core/init. shadow calls :init-fn ONCE, at
-;;           bundle load; after a hot reload it calls the build's
-;;           ^:dev/after-load hooks instead, so core.cljs carries one
-;;           (`mount!`) that re-renders the edited views.
+;;   :app  — watch / release. Compiles to resources/public/js/main.js. shadow
+;;           calls :init-fn ONCE, at bundle load; after a hot reload it calls
+;;           the build's ^:dev/after-load hooks instead, so core.cljs carries
+;;           one (`mount!`) that re-renders the edited views.
+;;           A release boots {{namespace}}.core/init. `watch` and `compile`
+;;           boot {{namespace}}.stories/init instead (the :dev entry below),
+;;           which mounts Story on #/stories and hands every other page to
+;;           core/init — so Story rides the dev bundle and never the release.
 ;;   :test — the node-side test runner. Picks up every *_test.cljs under
 ;;           test/ and runs it with cljs.test.
-{:deps {:aliases [:shadow]}
+{:deps {:aliases [:shadow :dev]}
 
  :dev-http {8280 "resources/public"}
 
@@ -16,7 +19,8 @@
  {:app  {:target     :browser
          :output-dir "resources/public/js"
          :asset-path "/js"
-         :modules    {:main {:init-fn {{namespace}}.core/init}}}
+         :modules    {:main {:init-fn {{namespace}}.core/init}}
+         :dev        {:modules {:main {:init-fn {{namespace}}.stories/init}}}}
 
   :test {:target    :node-test
          :output-to "out/node-test.js"
