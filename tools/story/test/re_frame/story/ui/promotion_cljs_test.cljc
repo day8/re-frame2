@@ -109,9 +109,40 @@
           "both bare events lift into the dispatch program"))))
 
 (deftest result->artifact-nil-when-nothing-replayable
-  (testing "no back-link AND no play-events → nothing to capture"
+  (testing "no back-link, no play-events AND no registered source → nothing to
+            capture"
     (is (nil? (rf.story.ui.promotion/result->artifact {:status :pass} [])))
-    (is (nil? (rf.story.ui.promotion/result->artifact nil [])))))
+    (is (nil? (rf.story.ui.promotion/result->artifact nil [])))
+    (is (nil? (rf.story.ui.promotion/result->artifact
+                {:status :fail :variant/id :story.x/never-registered} []))
+        "a result naming a variant that is not registered has no program to
+         capture")))
+
+(deftest result->artifact-captures-the-source-program-when-nothing-was-dispatched
+  (testing "a run whose script dispatches nothing — a :setup precondition and
+            [:assert …] checkpoints only, the login_form testbed's shape —
+            captures the source variant's stepped program with the result
+            attached, so promotion reads its source (rf2-vgthk)"
+    (rf.story.registrar/reg-variant* :story.x/checkpoints
+      {:setup  [[:x/boot]]
+       :script [[:assert [:rf.assert/path-equals [:n] 1]]]})
+    (let [result {:status :fail :variant/id :story.x/checkpoints}
+          art    (rf.story.ui.promotion/result->artifact result [])]
+      (is (rf.story.artifact/run-artifact? art))
+      (is (= [[:assert [:rf.assert/path-equals [:n] 1]]] (:event-program art))
+          "the stepped :script program. :setup is NOT folded in: the dialog's
+           default draft :extends the source, which already supplies it")
+      (is (= result (:result art)))
+      (is (= :story.x/checkpoints (rf.story.promotion/source-variant-id art)))))
+  (testing "a source with no :script captures an empty program — its :setup
+            arrives through :extends and its :assertions through promotion"
+    (rf.story.registrar/reg-variant* :story.x/declared
+      {:setup      [[:x/boot]]
+       :assertions [[:rf.assert/path-equals [:n] 1]]})
+    (let [art (rf.story.ui.promotion/result->artifact
+                {:status :fail :variant/id :story.x/declared} [])]
+      (is (rf.story.artifact/run-artifact? art))
+      (is (= [] (:event-program art))))))
 
 ;; ===========================================================================
 ;; PURE: draft → promote-opts + snippet
