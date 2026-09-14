@@ -27,6 +27,7 @@
   bulk of the pane's correctness without a DOM round-trip."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core             :as rf]
+            [re-frame.epoch            :as rf.epoch]
             [re-frame.frame            :as rf.frame]
             [re-frame.machines         :as rf.machines]
             [re-frame.registrar        :as rf.registrar]
@@ -34,6 +35,7 @@
             [re-frame.story            :as rf.story]
             [re-frame.story.async      :as rf.story.async]
             [re-frame.story.loaders    :as rf.story.loaders]
+            [re-frame.story.play.evidence      :as rf.story.play.evidence]
             [re-frame.story.ui.evidence-spine  :as rf.story.ui.evidence-spine]
             [re-frame.story.ui.state   :as rf.story.ui.state]
             [re-frame.story.ui.test-mode.pure  :as rf.story.ui.test-mode.pure]
@@ -131,6 +133,97 @@
                 (rf.story.ui.test-mode.pure/assertion-row
                   {:assertion :rf.assert/path-equals :passed? false :dispatch-id 101})))
         "no narrative, no beat to land on")))
+
+;; ===========================================================================
+;; rf2-v5p6l — the same link, driven by a REAL run rather than a hand-built row
+;;
+;; The two tests above build their rows by hand, which is exactly the coverage
+;; that could not see canonical assertion records arriving with no
+;; `:dispatch-id`. These take the record from a real `story/run`, project it
+;; through `assertion-row`, and click the link the pane renders for it. The
+;; expected beat is found by its TRIGGER EVENT, never by dispatch id.
+;; ===========================================================================
+
+(defn- beat-for-trigger
+  "The `:beat-idx` of the retained beat whose trigger event is `event`, or nil."
+  [narrative event]
+  (some #(when (= event (:trigger-event %)) (:beat-idx %))
+        (rf.story.play.evidence/narrative-beats narrative)))
+
+(deftest real-failed-row-link-opens-its-own-non-first-beat-rf2-v5p6l
+  (testing "a failed :assert-db after a dispatch step: the row's link opens
+            the Evidence panel on the assertion's own, non-first beat"
+    (rf.epoch/clear-history!)
+    (reset! rf.story.ui.evidence-spine/selection-atom {})
+    (rf.story.ui.state/swap-state! assoc-in
+                                   [:panel-visibility rf.story.ui.evidence-spine/panel-key] false)
+    (rf/reg-event :evidence-link/set
+      (fn [{:keys [db]} _] {:db (assoc db :count 2)}))
+    (rf.story/reg-variant :story.evidence-link/retained
+      {:script {:script [[:dispatch-sync [:evidence-link/set]]
+                         [:assert-db [:count] 99]]}})
+    (async done
+      (-> (rf.story/run :story.evidence-link/retained)
+          (rf.story.async/then
+            (fn [result]
+              (try
+                (let [narrative (:narrative result)
+                      row       (rf.story.ui.test-mode.pure/assertion-row
+                                  (first (:assertions result)))
+                      own-beat  (beat-for-trigger narrative [:rf.assert/path-equals [:count] 99])
+                      link      (rf.story.ui.test-mode.view/row-evidence-link
+                                  :story.evidence-link/retained narrative row)]
+                  (is (= :fail (:status row)))
+                  (is (pos-int? own-beat)
+                      "the assertion's own epoch is retained, and it is not the first beat")
+                  (is (some? (:dispatch-id row))
+                      "the row carries the dispatch coordinate the router bound")
+                  (is (= own-beat (rf.story.ui.evidence-spine/row->beat-index narrative row))
+                      "the row resolves to the assertion's own beat")
+                  (is (some? link) "the pane renders the evidence link for the real row")
+                  (when link
+                    (rf.test-helpers/invoke-handler link :on-click nil)
+                    (is (true? (get-in (rf.story.ui.state/get-state)
+                                       [:panel-visibility rf.story.ui.evidence-spine/panel-key]))
+                        "the click opens the Evidence panel")
+                    (is (= own-beat (rf.story.ui.evidence-spine/selected-beat-idx
+                                      :story.evidence-link/retained))
+                        "the click selects the assertion's own beat")))
+                (finally
+                  (rf.story/destroy-variant! :story.evidence-link/retained)
+                  (done)))))))))
+
+(deftest real-unretained-row-renders-no-link-rf2-v5p6l
+  (testing "a failed assertion whose epoch the ring evicted renders no link,
+            so a click can never land on a neighbouring beat"
+    (rf.epoch/clear-history!)
+    (rf/configure! {:epoch-history {:depth 1}})
+    (rf/reg-event :evidence-link/set
+      (fn [{:keys [db]} _] {:db (assoc db :count 2)}))
+    (rf.story/reg-variant :story.evidence-link/unretained
+      {:script {:script [[:assert-db [:count] 99]
+                         [:dispatch-sync [:evidence-link/set]]]}})
+    (async done
+      (-> (rf.story/run :story.evidence-link/unretained)
+          (rf.story.async/then
+            (fn [result]
+              (try
+                (let [narrative (:narrative result)
+                      row       (rf.story.ui.test-mode.pure/assertion-row
+                                  (first (:assertions result)))]
+                  (is (= :fail (:status row)))
+                  (is (nil? (beat-for-trigger narrative [:rf.assert/path-equals [:count] 99]))
+                      "control: the depth-1 ring evicted the assertion's own epoch")
+                  (is (some? (beat-for-trigger narrative [:evidence-link/set]))
+                      "control: the later dispatch step's epoch is the one retained")
+                  (is (nil? (rf.story.ui.test-mode.view/row-evidence-link
+                              :story.evidence-link/unretained narrative row))
+                      "no link is rendered for a row whose beat was not retained"))
+                (finally
+                  ;; `:depth` is process-global — restore the framework default.
+                  (rf/configure! {:epoch-history {:depth 50}})
+                  (rf.story/destroy-variant! :story.evidence-link/unretained)
+                  (done)))))))))
 
 ;; ===========================================================================
 ;; rf2-aoqyy — pass / fail / skip row detail
