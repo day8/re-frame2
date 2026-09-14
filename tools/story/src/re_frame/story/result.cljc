@@ -57,6 +57,7 @@
   the vectors here; the assembly never touches the runtime."
   (:require [malli.core                   :as m]
             [re-frame.story.assertions    :as rf.story.assertions]
+            [re-frame.story.fingerprint   :as rf.story.fingerprint]
             [re-frame.story.play.evidence :as rf.story.play.evidence]
             [re-frame.story.requirements  :as rf.story.requirements]
             [re-frame.story.verdict       :as rf.story.verdict]))
@@ -756,6 +757,13 @@
 ;; THE UNIFIED RUN RESULT  (spec/017 §Run result)
 ;; ===========================================================================
 
+(defn- with-run-hash
+  "Stamp `result` with `:run-hash` over its own behavioural slice
+  (`rf.story.fingerprint/run-hash`). The hash names those slots, so it is
+  never an independent input — any value already present is overwritten."
+  [result]
+  (assoc result :run-hash (rf.story.fingerprint/run-hash result)))
+
 (defn run-result
   "Assemble the ONE unified run-result (spec/017 §Run result) from a run's
   evidence + accumulated assertions + plan slots. Pure data → data — the
@@ -828,9 +836,17 @@
                           `unmet-steps`). Folded into the status + surfaced
                           on `:cannot-run`.
   - `:app-db`           — the final (post-run) app-db, redacted upstream.
-  - `:variant/id` / `:plan-hash` / `:run-hash` / `:runner` /
-    `:required-runner` / `:fidelity` / `:elapsed-ms` — passed through
-    verbatim when present (the API-stable identity / timing slots).
+  - `:variant/id` / `:plan-hash` / `:runner` / `:required-runner` /
+    `:fidelity` / `:elapsed-ms` — passed through verbatim when present
+    (the API-stable identity / timing slots). `:plan-hash` is the caller's
+    to supply because only the caller holds the plan.
+
+  `:run-hash` is NOT an input: it is DERIVED here over the assembled
+  result's `rf.story.fingerprint/run-hash-input-keys` slice, so every result
+  this boundary mints carries one and it cannot disagree with the slots it
+  names (a caller-supplied value is overwritten). Slots a caller merges on
+  afterwards (`:frame`, `:snapshot`, `:effective-args`, …) sit outside that
+  slice, so they cannot stale it.
 
   The verdict: `rf.story.requirements/aggregate-status` over the assertion records +
   the `:unmet` refusals gives the assertion-side status; the agreement
@@ -924,7 +940,7 @@
         status         (if (and tape-red? (#{:pass :cannot-run} base-status))
                          :fail
                          base-status)
-        identity-slots (select-keys parts [:variant/id :plan-hash :run-hash
+        identity-slots (select-keys parts [:variant/id :plan-hash
                                             :runner :required-runner :fidelity
                                             :elapsed-ms])]
     (cond-> (merge {:status             status
@@ -943,7 +959,9 @@
                     :app-db             app-db}
                    evidence-slots
                    identity-slots)
-      (seq unmet) (assoc :cannot-run unmet))))
+      (seq unmet) (assoc :cannot-run unmet)
+      ;; LAST, so the hash is over the result it rides on.
+      true        with-run-hash)))
 
 ;; ===========================================================================
 ;; clojure.test / cljs.test BRIDGE PROJECTION  (spec/017 §Unified run result)

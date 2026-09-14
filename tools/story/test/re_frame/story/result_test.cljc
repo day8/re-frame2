@@ -19,6 +19,7 @@
             [malli.core               :as m]
             [re-frame.epoch.capture   :as rf.epoch.capture]
             [re-frame.story.assertions :as rf.story.assertions]
+            [re-frame.story.fingerprint :as rf.story.fingerprint]
             [re-frame.story.result   :as rf.story.result]
             [re-frame.story.play.evidence :as rf.story.play.evidence]
             [re-frame.story.requirements  :as rf.story.requirements]))
@@ -1217,6 +1218,42 @@
       (let [r (rf.story.result/run-result parts)]
         (is (rf.story.result/valid-run-result? r)
             (str "assembled result must conform: " (pr-str (rf.story.result/explain-run-result r))))))))
+
+;; ===========================================================================
+;; SNAPSHOT IDENTITY — `:run-hash` is derived, `:plan-hash` rides through
+;; (rf2-7vz97, spec/017 §Run result)
+;; ===========================================================================
+;;
+;; PRESENCE, AGREEMENT and DETERMINISM — never a literal digest. A hash VALUE
+;; legitimately moves whenever a hashed slot's content changes, so a pinned
+;; hex string would read an unrelated change as a regression.
+
+(deftest run-result-derives-a-deterministic-run-hash
+  (let [parts {:variant/id :story.x/y
+               :app-db     {:n 1}
+               :assertions [{:assertion :rf.assert/path-equals
+                             :payload [[:n] 1] :passed? true}]}
+        r     (rf.story.result/run-result parts)]
+    (testing "every assembled result carries a :run-hash string"
+      (is (string? (:run-hash r)))
+      (is (string? (:run-hash (rf.story.result/run-result {})))
+          "the vacuous-green result too"))
+    (testing "it IS the public primitive over the result's own slice"
+      (is (= (rf.story.fingerprint/run-hash r) (:run-hash r))))
+    (testing "the same parts hash the same, twice"
+      (is (= (:run-hash r) (:run-hash (rf.story.result/run-result parts)))))
+    (testing "a volatile slot does not perturb it; a behavioural slot does"
+      (is (= (:run-hash r)
+             (:run-hash (rf.story.result/run-result (assoc parts :elapsed-ms 999)))))
+      (is (not= (:run-hash r)
+                (:run-hash (rf.story.result/run-result (assoc parts :app-db {:n 2}))))))
+    (testing "a caller-supplied :run-hash is not trusted over the derived one"
+      (is (= (:run-hash r)
+             (:run-hash (rf.story.result/run-result (assoc parts :run-hash "not-a-hash"))))))
+    (testing ":plan-hash is the caller's, passed through verbatim"
+      (is (= "plan-identity"
+             (:plan-hash (rf.story.result/run-result (assoc parts :plan-hash "plan-identity")))))
+      (is (not (contains? r :plan-hash)) "absent when the caller holds no plan"))))
 
 (deftest run-result-schema-pins-the-verdict-and-rejects-passing
   (testing ":status is required and must be one of the four verdicts"
