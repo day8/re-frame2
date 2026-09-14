@@ -207,7 +207,7 @@ You've used three keys on `:rf.mutation/execute` (`:mutation`, `:instance`, `:ca
 |---|---|---|
 | `:mutation` | yes | The registered mutation id to run. |
 | `:params` | yes | Params for this write — validated and canonicalized against the mutation's `:params-schema`. |
-| `:instance` | yes | The instance id that keys this submission's lifecycle (caller-supplied, as here, or generated). |
+| `:instance` | no | The instance id that keys this submission's lifecycle. Supply one, as here, when a view watches the write; omit it and the runtime generates a fresh id per submission, so two submissions never share a lifecycle. |
 | `:scope` | no | The execution scope the invalidation/patch/populate defaults to. Omit it and the mutation falls back to its spec `:scope`, then to `:rf.scope/global` (writes are fail-open on a *missing* scope — see the scope footgun below). |
 | `:cause` | no | Trace/diagnostic data explaining what triggered the write. Pure metadata; it changes no behaviour, it just makes the trace readable. |
 | `:reply-to` | no | A continuation event target dispatched once the write settles — the subject of the **Publish** section below. |
