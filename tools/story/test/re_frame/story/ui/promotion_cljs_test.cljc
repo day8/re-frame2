@@ -144,6 +144,27 @@
       (is (rf.story.artifact/run-artifact? art))
       (is (= [] (:event-program art))))))
 
+(deftest result->artifact-compiles-the-source-program-with-the-run-inputs
+  (testing "a run whose checkpoint reads an input only an active mode supplies
+            captures the source's program compiled with the run's inputs and
+            records them for promotion. :substrate is not a compile input and
+            is not recorded (rf2-cml0h)"
+    (rf.story.registrar/reg-mode* :Mode.x/expect-two {:args {:expected 2}})
+    (rf.story.registrar/reg-variant* :story.x/mode-input
+      {:setup  [[:x/boot]]
+       :script [[:assert [:rf.assert/path-equals [:n] [:arg :expected]]]]})
+    (let [result   {:status :fail :variant/id :story.x/mode-input}
+          run-opts {:active-modes   [:Mode.x/expect-two]
+                    :cell-overrides nil
+                    :substrate      :reagent}
+          art      (rf.story.ui.promotion/result->artifact result [] run-opts)]
+      (is (nil? (rf.story.ui.promotion/result->artifact result []))
+          "without the run's inputs the source does not compile, as before")
+      (is (= [[:assert [:rf.assert/path-equals [:n] 2]]] (:event-program art))
+          "the checkpoint holds the value the mode supplied")
+      (is (= {:active-modes [:Mode.x/expect-two]} (get-in art [:source :run-opts]))
+          "the artifact records the compile inputs, and only those"))))
+
 ;; ===========================================================================
 ;; PURE: draft → promote-opts + snippet
 ;; ===========================================================================
