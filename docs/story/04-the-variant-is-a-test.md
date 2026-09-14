@@ -114,7 +114,8 @@ Every runner returns one result shape. The important keys are:
  :app-db     {...}
  :effects    [...]
  :warnings   [...]
- :evidence   {...}
+ :epoch-tape [...]        ; evidence source, when retained
+ :narrative  [...]        ; scrubbable projection
  :plan-hash  "..."
  :run-hash   "..."}
 ```
