@@ -108,24 +108,34 @@
 ;; ===========================================================================
 
 (defn result->artifact
-  "Derive a capturable `:rf.test/run-artifact` from a Test-mode run.
+  "Derive a capturable `:rf.test/run-artifact` from a Test-mode run. Data →
+  data; registers nothing. The program comes from the first of:
 
-  Pure data → data. A REPLAYED run already carries a `:run-artifact`
-  back-link (stamped by `re-frame.story.artifact/replay-result`) — when
-  present, that IS the artifact (it carries the seed / fx-decisions /
-  shrink-path the substrate captured). Otherwise synthesize one from the
-  run's flat `play-events` + the projected `result`, so a plain Test-mode
-  run is still capturable as a regression source: the event program is the
-  behaviour the run exercised, and the `:result` rides along as evidence.
+  1. A `:run-artifact` back-link. A REPLAYED run carries one (stamped by
+     `re-frame.story.artifact/replay-result`), and it IS the artifact — the
+     seed / fx-decisions / shrink-path the substrate captured.
+  2. The run's flat `play-events`: the dispatches the run exercised.
+  3. The stepped program of the variant the result names
+     (`rf.story.promotion/source-program`, read from the Story side-table),
+     for a run whose script dispatched nothing — `:setup` preconditions and
+     `[:assert …]` checkpoints only, or no `:script` at all (rf2-vgthk).
+     `:setup` is not folded in: the dialog's default draft `:extends` that
+     variant, which already supplies it.
 
-  Returns nil when there is nothing to capture (no back-link AND no
-  play-events) — promotion needs a replayable program."
+  For 2 and 3 the projected `result` rides along as evidence, and it is what
+  lets promotion find the source variant (`source-variant-id`) and carry its
+  expectations and its full program.
+
+  Returns nil when there is nothing to capture: no back-link, no
+  play-events, and no registered variant whose plan compiles."
   [result play-events]
   (or (let [linked (:run-artifact result)]
         (when (rf.story.artifact/run-artifact? linked) linked))
-      (when (seq play-events)
+      (when-let [program (if (seq play-events)
+                           (vec play-events)
+                           (rf.story.promotion/source-program (:variant/id result)))]
         (rf.story.artifact/make-run-artifact
-          {:event-program (vec play-events)
+          {:event-program program
            :result        result}))))
 
 ;; ===========================================================================
@@ -258,9 +268,10 @@
    (defn capture-from-result!
      "Capture a Test-mode run (its `result` + flat `play-events`) into the
      store under `origin` (the variant the run came from). Derives the
-     artifact via `result->artifact` (prefers a replay back-link; else
-     synthesizes from the play-events). No-op when there's nothing
-     replayable to capture. Returns the captured artifact id, or nil."
+     artifact via `result->artifact` (prefers a replay back-link; else the
+     play-events; else the stepped program of the variant the result names).
+     No-op when there's nothing to capture. Returns the captured artifact
+     id, or nil."
      [result play-events origin]
      (when-let [art (result->artifact result play-events)]
        (capture! art origin))))

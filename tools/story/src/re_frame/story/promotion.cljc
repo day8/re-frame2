@@ -66,7 +66,8 @@
   is the single impure entry; it gates on `re-frame.story.config/enabled?`
   so a production CLJS build short-circuits before touching the side-table
   (mirroring `save-variant`)."
-  (:require [re-frame.story.config     :as rf.story.config]
+  (:require [re-frame.story.artifact   :as rf.story.artifact]
+            [re-frame.story.config     :as rf.story.config]
             [re-frame.story.plan       :as rf.story.plan]
             [re-frame.story.play       :as rf.story.play]
             [re-frame.story.play.runner :as rf.story.play.runner]
@@ -160,6 +161,18 @@
                        (= (step-events program) (step-events steps)))
               (vec steps))))
         program)))
+
+(defn source-program
+  "The step program registered variant `source-id` executes (see
+  `source-steps`), or nil when `source-id` names no registered variant or its
+  plan does not compile here. A variant with no `:script` yields `[]`.
+
+  Test mode captures this for a run whose script dispatched nothing, which
+  has no dispatch-only projection to stand in for it (rf2-vgthk). Reads the
+  Story side-table; registers nothing."
+  [source-id]
+  (when (and source-id (rf.story.registrar/handler-meta :variant source-id))
+    (source-steps source-id)))
 
 ;; ===========================================================================
 ;; Runnable reproducibility slots (rf2-vf8es)
@@ -385,6 +398,26 @@
        (some? args)   (assoc :args args)))))
 
 ;; ===========================================================================
+;; The artifact precondition (rf2-vgthk)
+;; ===========================================================================
+
+(defn- refuse-non-artifact!
+  "Throw `:rf.error/story-promote-no-artifact` unless `artifact` is a
+  `:rf.test/run-artifact`, naming `where` as the refusing entry point. A body
+  built from nil has no program and no source to carry expectations from, so
+  it would register a hollow variant that runs `:pass` with zero assertions."
+  [artifact where]
+  (when-not (rf.story.artifact/run-artifact? artifact)
+    (throw (ex-info ":rf.error/story-promote-no-artifact"
+                    {:rf.error/id :rf.error/story-promote-no-artifact
+                     :where       where
+                     :recovery    :supply-run-artifact
+                     :reason      (str "re-frame2-story: " where " requires a "
+                                       ":rf.test/run-artifact — a nil or "
+                                       "non-artifact has no program to promote "
+                                       "(spec/017 §Promotion).")}))))
+
+;; ===========================================================================
 ;; materialize-variant-plan — PURE, registers NOTHING
 ;; ===========================================================================
 
@@ -421,11 +454,13 @@
     registrar).
 
   Returns the normalized plan map with a `:run-artifact` source link.
-  FAILS with the compiler's structured `:rf.error/story-*` ex-info on an
-  unknown `:extends` parent, an `:extends` cycle, a missing `[:arg …]`,
-  or view-args that violate the view schema."
+  FAILS with `:rf.error/story-promote-no-artifact` on a nil or non-artifact
+  (rf2-vgthk), and with the compiler's structured `:rf.error/story-*` ex-info
+  on an unknown `:extends` parent, an `:extends` cycle, a missing
+  `[:arg …]`, or view-args that violate the view schema."
   ([artifact] (materialize-variant-plan artifact nil))
   ([artifact {:keys [lookup view-lookup validator-fns] :as opts}]
+   (refuse-non-artifact! artifact 'rf.story/materialize-variant-plan)
    (let [variant-id   (:variant/id opts)
          body         (artifact->variant-body artifact opts)
          target       (cond-> body
@@ -457,6 +492,11 @@
   `:rf.error/story-promote-no-id`: registration without a name is exactly
   the auto-register the projection rule forbids.
 
+  `artifact` MUST be a `:rf.test/run-artifact`. A nil or non-artifact throws
+  `:rf.error/story-promote-no-artifact` and registers nothing (rf2-vgthk):
+  the body it would build has no program and no source to carry
+  expectations from, so it would pass with zero assertions.
+
   `opts` MAY also carry the `artifact->variant-body` slots (`:setup` /
   `:script` / `:setup-count` / `:doc` / `:extends` / `:tags` / `:args`).
 
@@ -486,6 +526,7 @@
                                          "artifact is never auto-registered (spec/017 "
                                          "§Promotion).")
                        :artifact    (provenance-link artifact)})))
+    (refuse-non-artifact! artifact 'rf.story/promote-run-artifact!)
     (when rf.story.config/enabled?
       (let [body (artifact->variant-body artifact opts)]
         (rf.story.registrar/reg-variant* variant-id body)))))
