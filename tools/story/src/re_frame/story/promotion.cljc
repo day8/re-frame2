@@ -170,21 +170,29 @@
            nil
            (throw e)))))
 
+(defn- recorded-run-opts
+  "The run inputs a Test-mode capture recorded on `artifact` under
+  `[:source :run-opts]` (see `re-frame.story.ui.promotion/result->artifact`):
+  the `:active-modes` / `:cell-overrides` its source ran with, or nil."
+  [artifact]
+  (get-in artifact [:source :run-opts]))
+
 (defn- source-steps
-  "The step program `source-id` executes (`rf.story.play/variant-play-steps`,
-  the program Test mode projects its capture from), or nil when the source's
-  plan does not compile here."
-  [source-id]
-  (unless-plan-fails #(rf.story.play/variant-play-steps source-id)))
+  "The step program `source-id` executes under `run-opts`
+  (`rf.story.play/variant-play-steps`, the program Test mode projects its
+  capture from), or nil when the source's plan does not compile here."
+  [source-id run-opts]
+  (unless-plan-fails #(rf.story.play/variant-play-steps source-id run-opts)))
 
 (defn- source-plan
-  "`source-id`'s compiled plan, folded with the arg layers a run of it compiles
-  with (as `variant-play-steps` does), or nil when it does not compile here.
-  `source-expectations` reads the compiler's resolution of its checks off it."
-  [source-id]
+  "`source-id`'s compiled plan, folded with the arg layers a run of it under
+  `run-opts` compiles with (as `variant-play-steps` does), or nil when it does
+  not compile here. `source-expectations` reads the compiler's resolution of
+  its checks off it."
+  [source-id run-opts]
   (unless-plan-fails
     #(rf.story.plan/variant-plan
-       source-id {:run-args (rf.story.args/run-arg-layers source-id nil)})))
+       source-id {:run-args (rf.story.args/run-arg-layers source-id run-opts)})))
 
 (defn retained-program
   "The event program a promotion builds from: the source variant's FULL step
@@ -194,12 +202,14 @@
   The shadow test is exact, so a program that is genuinely different — a
   generated, shrunk or recorded run — is never replaced: every artifact step
   is a dispatch, the source program carries at least one step that is not,
-  and the two dispatch sequences are equal. Reads the Story side-table;
-  registers nothing."
+  and the two dispatch sequences are equal. The source program is compiled
+  with the run inputs the artifact recorded, so a dispatch whose `[:arg]` a
+  mode or cell override supplied still matches its source (rf2-cml0h). Reads
+  the Story side-table; registers nothing."
   [artifact source-id]
   (let [program (vec (:event-program artifact))]
     (or (when (and source-id (every? dispatch-step? program))
-          (let [steps (source-steps source-id)]
+          (let [steps (source-steps source-id (recorded-run-opts artifact))]
             (when (and (some (complement dispatch-step?) steps)
                        (= (step-events program) (step-events steps)))
               (vec steps))))
@@ -210,12 +220,17 @@
   `source-steps`), or nil when `source-id` names no registered variant or its
   plan does not compile here. A variant with no `:script` yields `[]`.
 
+  `run-opts` is the `run-variant` opts map of the run being captured; its
+  `:active-modes` and `:cell-overrides` compile in as they did for the run
+  (rf2-cml0h). Without it only the ambient arg layers apply.
+
   Test mode captures this for a run whose script dispatched nothing, which
   has no dispatch-only projection to stand in for it (rf2-vgthk). Reads the
   Story side-table; registers nothing."
-  [source-id]
-  (when (and source-id (rf.story.registrar/handler-meta :variant source-id))
-    (source-steps source-id)))
+  ([source-id] (source-program source-id nil))
+  ([source-id run-opts]
+   (when (and source-id (rf.story.registrar/handler-meta :variant source-id))
+     (source-steps source-id run-opts))))
 
 ;; ===========================================================================
 ;; Runnable reproducibility slots (rf2-vf8es)
@@ -398,6 +413,9 @@
   - a dispatch-only capture is replaced by the source's full step program,
     so clicks, typing, waits and `[:assert …]` checkpoints survive
     (`retained-program`).
+  Both compile the source with the run inputs a Test-mode capture recorded
+  (`[:source :run-opts]`), so an `[:arg]` a mode or cell override supplied
+  resolves to the value that ran (rf2-cml0h).
   An artifact with no registered source is promoted exactly as captured.
   Registers nothing; the source is read from the Story side-table.
 
@@ -425,7 +443,8 @@
                                   (assoc artifact :event-program program) opts)
          {:keys [assertions checks]} (source-expectations
                                        source-body
-                                       (when source-body (source-plan source-id))
+                                       (when source-body
+                                         (source-plan source-id (recorded-run-opts artifact)))
                                        (and (some? extends) (= extends source-id)))
          network       (:network artifact)
          has-network?  (boolean (seq network))
