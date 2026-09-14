@@ -1,0 +1,77 @@
+
+ RUN  v4.1.11 <scratch>/storyjourneys-a-worker-storybook
+
+ ❯ |storybook (chromium)| src/Login.stories.tsx (4 tests | 1 failed | 3 skipped) 1608ms
+   × Retry To Success 1604ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |storybook (chromium)| src/Login.stories.tsx > Retry To Success
+TestingLibraryElementError: 
+[34mClick to debug the error directly in Storybook: http://localhost:6006/?path=/story/research-login--retry-to-success&addonPanel=storybook/interactions/panel[39m
+
+Unable to find an element with the text: Welcome, ada@example.com. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+<div>
+  <main
+    style="font-family: system-ui; max-width: 380px; padding: 24px;"
+  >
+    <h1>
+      Sign in
+    </h1>
+    <p
+      role="status"
+    >
+      State: 
+      authenticated
+    </p>
+    <p>
+      Welcome, 
+    </p>
+    <button>
+      Sign out
+    </button>
+  </main>
+</div>
+
+Ignored nodes: comments, script, style
+<div>
+  <main
+    style="font-family: system-ui; max-width: 380px; padding: 24px;"
+  >
+    <h1>
+      Sign in
+    </h1>
+    <p
+      role="status"
+    >
+      State: 
+      authenticated
+    </p>
+    <p>
+      Welcome, 
+    </p>
+    <button>
+      Sign out
+    </button>
+  </main>
+</div>
+ ❯ waitForWrapper node_modules/@testing-library/dom/dist/@testing-library/dom.esm.js:1127:26
+ ❯ node_modules/@testing-library/dom/dist/@testing-library/dom.esm.js:1207:11
+ ❯ findByText src/Login.stories.tsx:17:44
+     15| export const Idle:Story={};
+     16| export const RetryToSuccess:Story={
+     17|   play:async({canvas,userEvent,step,args})=>{
+       |                                            ^
+     18|     await step('A rejected login shows the error',async()=>{
+     19|       await userEvent.type(canvas.getByLabelText('Email'),'ada@example…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+   Start at  20:51:03
+   Duration  12.06s (transform 0ms, setup 3.44s, import 126ms, tests 1.61s, environment 0ms)
+
