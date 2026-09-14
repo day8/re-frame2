@@ -202,6 +202,11 @@
     `{arg-key value}` map), deep-merged on top of the plan's effective
     args (spec/017 §Args — the post-control-override args).
 
+  A keyword `target` compiles with the ambient arg layers (global-args +
+  the parent story's `:args`, via `rf.story.args/run-arg-layers`), exactly
+  as `story/run` does, so the plan-time effective args and `:plan-hash`
+  match the run's; an inline map target compiles bare.
+
   Returns one of:
 
   - `{:status :invalid-args :plan … :plan-hash … :frame … :effective-args
@@ -224,8 +229,16 @@
   distinct from a malformed registration."
   ([target] (prepare-render target nil))
   ([target {:keys [control-overrides validator-fns] :as opts}]
-   (let [compile-opts (select-keys opts [:lookup :view-lookup :validator-fns
-                                         :sub-lookup :fragment-lookup :check-lookup])
+   (let [;; A registered (keyword) variant compiles WITH the ambient arg
+         ;; layers (global-args + the parent story's `:args`), as the run
+         ;; does (`runtime/prepare-context`), so a story-level `[:arg key]`
+         ;; resolves and `:plan-hash` agrees with the run's. The control
+         ;; overrides still layer on top, below. An inline map target runs
+         ;; with no ambient layers, so it compiles bare (rf2-851t0).
+         compile-opts (cond-> (select-keys opts [:lookup :view-lookup :validator-fns
+                                                 :sub-lookup :fragment-lookup :check-lookup])
+                        (keyword? target)
+                        (assoc :run-args (rf.story.args/run-arg-layers target)))
          plan         (rf.story.plan/variant-plan target compile-opts)
          frame        (:variant/id plan)
          plan-eff     (get-in plan [:world :effective-args] {})

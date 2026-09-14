@@ -92,7 +92,8 @@
   `config/enabled?`-gated controls panel mount, so production builds
   never invoke it and closure DCEs the lot (same contract as the rest of
   the Story UI). The pure `.cljc` helpers carry no DOM / Reagent dep."
-  (:require [re-frame.story.plan :as rf.story.plan]
+  (:require [re-frame.story.args :as rf.story.args]
+            [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.predicates :as rf.story.predicates]
             [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.ui.schema-validation :as rf.story.ui.schema-validation]
@@ -514,22 +515,25 @@
   arg, an unknown variant, a sub-override that violates its output
   schema). Never throws — a compile failure is a render state, not a
   blank panel (mirrors `explain-panel/explain-for`). Pure-ish: reads the
-  Story side-table through the compiler's default lookup."
+  Story side-table through the compiler's default lookup.
+
+  A registered (keyword) variant compiles with the ambient arg layers
+  (global-args + the parent story's `:args`) folded in through
+  `rf.story.args/run-arg-layers`, the same rule as `explain-for` and the
+  run, so a variant whose `[:arg key]` resolves only through its story
+  compiles here instead of reporting a missing arg (rf2-851t0). An inline
+  plan map runs with no ambient layers and compiles bare."
   [variant-id trace-events]
-  #?(:clj
-     (try
-       (view-state-model (rf.story.plan/variant-plan variant-id)
-                         (rf.story.plan/explain variant-id)
-                         trace-events)
-       (catch Throwable e
-         {:error (or (.getMessage e) (str e))}))
-     :cljs
-     (try
-       (view-state-model (rf.story.plan/variant-plan variant-id)
-                         (rf.story.plan/explain variant-id)
-                         trace-events)
-       (catch :default e
-         {:error (or (.-message e) (str e))}))))
+  (try
+    (let [opts (when (keyword? variant-id)
+                 {:run-args (rf.story.args/run-arg-layers variant-id)})]
+      (view-state-model (rf.story.plan/variant-plan variant-id opts)
+                        (rf.story.plan/explain variant-id opts)
+                        trace-events))
+    (catch #?(:clj Throwable :cljs :default) e
+      {:error (or #?(:clj (.getMessage ^Throwable e)
+                     :cljs (.-message e))
+                  (str e))})))
 
 ;; ===========================================================================
 ;; CLJS: rendering
