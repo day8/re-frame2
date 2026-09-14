@@ -142,7 +142,7 @@ mcp__re-frame2-pair__eval-cljs {
 
 The same three recipes, with their host-neutral wording, are in the `re-frame2` skill's [`story-mcp-loop.md` §Three recipes](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/story-mcp-loop.md#three-recipes); these are their browser forms. Each registration made through `eval-cljs` lives in the heap only, so the user lands the result in source — `(re-frame.story/variant->edn id)` returns the body.
 
-**Promote a failing run.** The Test-mode promote dialog captures the run's dispatches, carries the registered source's `:assertions` and `:checks`, and replaces a dispatch-only capture with the source's full program. A variant whose `:script` has no dispatch step (every login-form testbed variant) promotes from Test mode too: the dialog captures that variant's own stepped program. The API route is one eval:
+**Promote a failing run.** The Test-mode promote dialog captures the run's dispatches, carries the registered source's `:assertions` and the checks its verdict depends on (composed ones included), and replaces a dispatch-only capture with the source's full program. A variant whose `:script` has no dispatch step (every login-form testbed variant) promotes from Test mode too: the dialog captures that variant's own stepped program. The API route is one eval:
 
 ```
 mcp__re-frame2-pair__eval-cljs {
@@ -157,7 +157,7 @@ mcp__re-frame2-pair__eval-cljs {
 
 `:run-args` folds in the layers a run applies around the variant: global args and the parent story's `:args`. Without it the plan sees the variant's own `:args` alone, so a script that substitutes a story-level `[:arg …]` throws `:rf.error/story-missing-arg`. If the failing run passed `:active-modes` or `:cell-overrides`, pass that same opts map as `run-arg-layers`' second argument.
 
-The registered body carries the source's whole program and its own `:assertions` and `:checks`. Then apply one acceptance, in order, re-running the promoted variant with `re-frame.story/run-variant` (§Enumerate, run, operate) after each change: with the fault in place it **fails**, with the same assertion count as the source; with the app fixed it **passes**; with the fault restored it **fails** again. Only that sequence proves a repair. An agent that edits the expected value instead of the app has repaired nothing: its variant passes under the fault and fails once the app is fixed.
+The registered body carries the source's whole program, its own `:assertions`, and the check ids its verdict depends on as the compiler resolves them: composed checks too, and inherited ones when the body does not `:extends` the source, each id once. Then apply one acceptance, in order, re-running the promoted variant with `re-frame.story/run-variant` (§Enumerate, run, operate) after each change: with the fault in place it **fails**, with the same assertion count as the source; with the app fixed it **passes**; with the fault restored it **fails** again. Only that sequence proves a repair. An agent that edits the expected value instead of the app has repaired nothing: its variant passes under the fault and fails once the app is fixed.
 
 **Upgrade a pinned state's fidelity.** The Story shell loads `re-frame.story.ui.view-state` (its Controls panel requires it), so the copy-paste scaffold is one eval:
 
@@ -166,7 +166,7 @@ mcp__re-frame2-pair__eval-cljs {form: "(re-frame.story.ui.view-state/upgrade-sni
 ;; => "(story/reg-variant :story.cart/pinned-upgraded\n  {… :setup [[:dispatch [:your/setup-event {}]]]})\n;; upgrade of …"
 ```
 
-It returns ONE `(story/reg-variant …)` form that drops the `:sub-overrides` pin and leaves a `:setup` placeholder to fill. Once the filled form is registered, `(:fidelity (re-frame.story/explain :story.cart/pinned-upgraded))` must not contain `:sub-overrides` unless you kept a pin on purpose. Do not skip that check. A pin that reaches the source through a composed fragment (`:compose`) survives the upgrade today, because the scaffold re-emits `:compose` unchanged. Remove that fragment's pin by hand.
+It returns ONE `(story/reg-variant …)` form that drops the `:sub-overrides` pin and leaves a `:setup` placeholder to fill. Once the filled form is registered, `(:fidelity (re-frame.story/explain :story.cart/pinned-upgraded))` must not contain `:sub-overrides` unless you kept a pin on purpose. Do not skip that check. A composed fragment (`:compose`) that pins is dropped from the form and named, with the queries it pinned, in a trailing `;;` comment; its `:args` and `:setup` are not inlined, so re-add whatever you still need from it by hand. Fragments that pin nothing stay.
 
 **Explain before running.** Read `(re-frame.story/explain id)` (the table above) before you edit a declaration: its `:args` and `:effective-args` fold in the ambient layers — global args, the parent story's `:args`, and any `:active-modes` / `:cell-overrides` in its opts — so they are the values a run uses. The pure compiler `re-frame.story.plan/explain` folds the ambient layers only when handed `:run-args`, so called bare it shows the variant's own layer alone, by design.
 
