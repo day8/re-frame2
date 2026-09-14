@@ -281,6 +281,9 @@
     1. Drop Xray-internal events (frame = `:rf/xray`) — the
        `re-frame.trace/emit!` source-side gate covers most of these,
        but the listener belt-and-braces against any that slipped past.
+       Also drop Xray's own sub traces that arrive FRAMELESS (a
+       render-time cold read runs outside any event run), keyed on the
+       sub-id's reserved `rf.xray` namespace (rf2-izhgo).
     2. Apply the privacy gate — `:sensitive?` events bump the
        suppressed counter and skip the frameless secondary ring + the
        mirror-sync request. The framework's per-frame ring does NOT
@@ -305,6 +308,19 @@
       ;; Self-emitted sub-reads / view-renders from Xray's own panels
       ;; would otherwise drown the host event in `:ungrouped` noise.
       (self-noise/xray-internal-event? event)
+      nil
+
+      ;; rf2-izhgo — Xray's own sub reads that arrive FRAMELESS. A
+      ;; render-time cold read (the shell's first mount) runs outside any
+      ;; event run, so core leaves its `:rf.sub/run` frameless (Spec 009
+      ;; §Frame identity) and the frame check above cannot see it; core's
+      ;; sub classification also fails a frameless read closed to
+      ;; `:sensitive? true`. Past this point each one would be counted as
+      ;; a redacted HOST event and cost a `:rf.xray/note-sensitive-
+      ;; suppressed` dispatch into `:rf/xray` — 126 in one mount, past the
+      ;; router's depth cap. The sub-id in Xray's reserved namespace is
+      ;; the identity the missing frame would have carried.
+      (self-noise/xray-internal-event-id? (get-in event [:tags :rf.sub/id]))
       nil
 
       ;; Spec 009 §Privacy — drop sensitive events while the local-render
