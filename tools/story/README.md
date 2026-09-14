@@ -43,11 +43,11 @@ core jar does not transitively pull stdio / JSON-RPC machinery.
 (ns app.stories.login-form
   (:require [re-frame.core :as rf]
             [re-frame.story :as story]
-            [app.auth.views :refer [login-form]]))
+            [app.auth.views]))   ; loading it runs the reg-view calls
 
 (story/reg-story :story.auth.login-form
   {:doc        "The login form component."
-   :component  login-form
+   :component  :app.auth.views/login-form
    :decorators [[:centered-layout]
                 [:theme :light]]
    :args       {:placeholder  "you@example.com"
@@ -63,8 +63,8 @@ core jar does not transitively pull stdio / JSON-RPC machinery.
    :setup  [[:auth/initialise]
             [:auth/email-changed "not-an-email"]
             [:auth/login-pressed]]
-   :script [[:dispatch-sync [:rf.assert/path-equals [:auth :status] :rejected]]
-            [:dispatch-sync [:rf.assert/no-warnings]]]
+   :script [[:assert [:rf.assert/path-equals [:auth :status] :rejected]]
+            [:assert [:rf.assert/no-warnings]]]
    :tags   #{:dev :docs :test}})
 ```
 
