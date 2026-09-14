@@ -195,7 +195,10 @@
         ;; Render the body keys in a stable, readable order. The body is
         ;; data the substrate produced; we pr-str each slot so the snippet
         ;; round-trips through read-string + the registrar.
-        order      [:doc :extends :setup :script :tags :args :run-artifact]
+        ;; `:checks` / `:assertions` are the source expectations the
+        ;; substrate carries (rf2-5vmog); omitting them here would paste a
+        ;; regression that cannot fail.
+        order      [:doc :extends :setup :script :checks :assertions :tags :args :run-artifact]
         body-keys  (->> order
                         (keep (fn [k]
                                 (when (contains? body k)
