@@ -74,6 +74,7 @@
             [re-frame.interop             :as rf.interop]
             [re-frame.privacy             :as rf.privacy]
             [re-frame.subs                :as rf.subs]
+            [re-frame.trace               :as rf.trace]
             [re-frame.story.config        :as rf.story.config]
             [re-frame.story.late-bind     :as rf.story.late-bind]
             [re-frame.story.play.evidence :as rf.story.play.evidence]
@@ -379,16 +380,23 @@
     frame-id    (assoc :source-coord (source-coord-for-variant frame-id))
     extras      (merge extras)))
 
-(defn- dispatch-id-from-cofx
-  "Walk the cofx map for the current dispatch's id. Re-frame's router
-  threads `:dispatch-id` onto the dispatch envelope (per spec/009
-  §Dispatch correlation); the standard cofx initial-context surface
-  (per spec/002 §Routing) lifts the envelope keys onto cofx directly.
+(defn- current-dispatch-id
+  "The id of the dispatch whose handler is running, read first from the
+  identity the router itself binds around every handler execution:
+  `rf.trace/*handler-scope*`'s `:dispatch-id` (Spec 009 §Handler-scope).
+  That is the coordinate the dispatch's committed epoch carries, so a
+  canonical assertion record stamped with it resolves to its own beat in
+  the Test pane's Evidence link.
 
-  Falls back to `(get cofx :rf/play-dispatch-id)` (when the play-runner
-  stamped it on the event vector for offline contexts) and finally nil."
+  The router does NOT lift the dispatch id onto the coeffects map, so a
+  cofx-only read left every routed record without one (rf2-v5p6l).
+  Outside any router scope the lookup falls back to a caller-stamped
+  `:dispatch-id` coeffect, then the play-runner's offline
+  `:rf/play-dispatch-id` stamp, and finally nil. Identity is never
+  inferred from the payload."
   [cofx]
-  (or (:dispatch-id cofx)
+  (or (some-> rf.trace/*handler-scope* :dispatch-id)
+      (:dispatch-id cofx)
       (:rf/play-dispatch-id cofx)
       nil))
 
@@ -1172,7 +1180,7 @@
     (let [start-ms     (rf.interop/now-ms)
           payload      (vec (rest event-vec))
           frame-id     (frame-id-from-cofx cofx)
-          dispatch-id  (dispatch-id-from-cofx cofx)
+          dispatch-id  (current-dispatch-id cofx)
           extras       (case evaluator-kind
                          :path-equals     (evaluate-path-equals     frame-id db payload)
                          :path-matches    (evaluate-path-matches    frame-id db payload)
