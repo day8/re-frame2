@@ -26,21 +26,51 @@ Before a write can invalidate a read, the reads have to be *labelled* so a write
 
 Each resource declared [`:tags`](../glossary.md#cache-tag) on its cached data. The article detail carries `[:article slug]`. The lists carry `[:article-list]` plus a tag per article they contain. Those tags are the shared vocabulary between writes and reads: a read says "my data is tagged `[:article slug]`," and later a write can say "I just made `[:article slug]` stale" — and the runtime matches the two up, no read named directly. Tags are how a write breaks a read it has never heard of.
 
-One read is still missing: the **personal feed** (`GET /articles/feed`). Part 2 left it out on purpose, because what it returns depends on *who is asking* — your feed and another user's feed are different data from the same URL. That's the job of a [**scope**](../glossary.md#scope), a resource's leak boundary: Part 2's resources all shared `:rf.scope/global`, but the feed needs a *different* scope per signed-in user. ([Server state](../concepts.md) teaches viewer-relative scope in full.)
+One read is still missing: the **personal feed** (`GET /articles/feed`). Part 2 left it out on purpose. [Part 3](03-auth-and-forms.md#whose-cache-is-it-scope-reads-by-viewer) already scoped the article reads by *viewer*, because a signed-in reader's copy carries their own `favorited` flags. The feed goes further: it only exists for a signed-in user, and it's a different list for each one. That's a **session** [scope](../glossary.md#scope), a resource's leak boundary — one per signed-in user, and none at all when nobody is. ([Server state](../concepts.md) teaches scope in full.)
 
-To key the cache per user, register a **named scope resolver** — a pure function that reads [app-db](../../core/glossary.md#app-db) and returns a scope value, or `nil`:
+Add a second **named scope resolver** beside Part 3's `:conduit/viewer` — a pure function that reads [app-db](../../core/glossary.md#app-db) and returns a scope value, or `nil`:
 
 ```clojure
-;; src/conduit/scope.cljs
-;; cf. examples/real-apps/realworld_resources/scope.cljs
+;; add to src/conduit/scope.cljc
 (rf/reg-resource-scope :conduit/session
-  {:doc    "The session's cache scope — nil when logged out (fail-closed)."
+  {:doc    "The signed-in user's own reads — nil when logged out (fail-closed)."
    :inputs {:username [:db [:auth :user :username]]}}
   (fn [{:keys [username]} _ctx]
     (when username [:rf.scope/session {:username username}])))
 ```
 
-Now register `:conduit/feed` exactly like Part 2's resources — tagged `#{[:feed]}` — but with `:scope {:from-db :conduit/session}` (meaning "resolve my scope through the `:conduit/session` resolver") instead of the default `:rf.scope/global`. Its cache entries are keyed by the signed-in username, so each user gets their own.
+Then register `:conduit/feed` the way Part 2 registered the list, but with `:scope {:from-db :conduit/session}` — "resolve my scope through the `:conduit/session` resolver". Its entries are keyed by the signed-in username, so each user gets their own:
+
+```clojure
+;; add to src/conduit/resources.cljc
+(rf/reg-resource :conduit/feed
+  {:params-schema  [:map]
+   :scope          {:from-db :conduit/session}
+   :stale-after-ms 60000
+   :gc-after-ms    300000
+   :tags           (fn [_params data]
+                     (into #{[:feed]}
+                           (map (fn [a] [:article (:slug a)]) (:articles data))))}
+  (fn [_params _ctx]
+    {:request {:method :get
+               :url    (str api/api-base "/articles/feed")}
+     :decode  :json}))
+```
+
+Sign-out now has a second scope to clear, so extend Part 3's `:auth/logout` to resolve and clear both:
+
+```clojure
+(rf/reg-event :auth/logout
+  (fn [{:keys [db]} _]
+    (let [old-viewer  (rf/resolve-resource-scope db :conduit/viewer)
+          old-session (rf/resolve-resource-scope db :conduit/session)]
+      {:db (assoc db :auth {:user nil :token nil})
+       :fx (cond-> [[:auth.session/persist {:token nil}]]
+             old-viewer  (conj [:dispatch [:rf.resource/clear-scope {:scope old-viewer :cause :logout}]])
+             old-session (conj [:dispatch [:rf.resource/clear-scope {:scope old-session :cause :logout}]])
+             true        (conj [:dispatch [:rf.route/navigate {:to :conduit/home}]]
+                               [:dispatch [:rf.route/replan-resources {:cause [:logout]}]]))})))
+```
 
 Returning `nil` when logged out is [**fail-closed**](../../core/glossary.md#fail-loud-not-silent) (deny by default when an identity can't be resolved): the scope can't be computed, so the read simply *fails* rather than serving the previous user's feed from a default entry. The same idea recurs on the write side below.
 
@@ -51,43 +81,41 @@ That's the whole setup. The reads are tagged; the feed is scoped. Now let's writ
 A mutation is the write-side counterpart of a resource. Where a resource describes a *read* and how its result is cached, a mutation describes a *write* and what that write makes stale. You register it with `reg-mutation`. Here is the favorite write, and at first read it's just two consequence keys plus a request fn:
 
 ```clojure
-;; src/conduit/mutations.cljs
+;; src/conduit/mutations.cljc
 ;; cf. examples/real-apps/realworld_resources/mutations.cljs
 (ns conduit.mutations
   (:require [re-frame.core :as rf]
             [re-frame.resources]      ;; reg-mutation + the :rf.mutation/* surface
             [re-frame.http.managed]   ;; the transport mutations lower through
-            ;; Part 3's api base in a helper: (defn full-url [path] (str api path))
-            [conduit.http :as rh]
-            [conduit.schema :as schema]))
+            [conduit.api :as api]
+            [conduit.scope]))         ;; the :conduit/viewer and :conduit/session resolvers
 
 (rf/reg-mutation :conduit/favorite
   {:doc           "Favorite an article. POST /articles/:slug/favorite."
    :params-schema [:map [:slug :string]]
-   :scope         :rf.scope/global
-   ;; Seed the cached article detail from the write's own reply — the heart
-   ;; flips the moment the server confirms.
+   ;; Seed the signed-in viewer's cached article detail from the write's own
+   ;; reply — the heart flips the moment the server confirms.
    :populates     (fn [{:keys [slug]} result]
-                    {{:resource :conduit/article :params {:slug slug} :scope :rf.scope/global}
+                    {{:resource :conduit/article :params {:slug slug} :scope {:from-db :conduit/viewer}}
                      result})
-   ;; The reads this write breaks: article + lists (global scope), and the
+   ;; The reads this write breaks: the article + lists (viewer scope), and the
    ;; signed-in user's feed (session scope).
    :invalidates   (fn [{:keys [slug]} _result]
-                    [{:scope :rf.scope/global
+                    [{:scope {:from-db :conduit/viewer}
                       :tags  #{[:article slug] [:article-list]}}
                      {:scope {:from-db :conduit/session}
                       :tags  #{[:feed]}}])}
   (fn [{:keys [slug]} _ctx]
     {:request {:method :post
-               :url    (rh/full-url (str "/articles/" slug "/favorite"))}
-     :decode  schema/ArticleResponse}))
+               :url    (str api/api-base "/articles/" slug "/favorite")}
+     :decode  :json}))
 ```
 
 Three things do the work:
 
 - **The request fn** (the third positional argument) describes the HTTP write the way a resource describes its read. It must *not* supply `:on-success` / `:on-failure` / `:request-id` — the runtime decides where the reply goes, not you. The runtime owns the reply target and discards a *stale* reply (a slow response to a write the user already superseded) before it can do any damage — you'll see that further down.
-- **`:invalidates`** declares which tags the write makes stale on success. Favoriting breaks reads in *two* scopes: the article and lists are global, while your feed is keyed by session. So it returns a vector of *descriptors* — one per scope, each a map naming a scope and the tags it stales there. The second descriptor's scope is computed by running the `:conduit/session` resolver from earlier, at *settle time* (the moment the write's reply comes back and its consequences are applied). One write, both scopes, declared once.
-- **`:populates`** seeds an exact cache entry from the write's own reply, *before* the invalidation runs. The favorite endpoint replies with the full updated article, so we write it straight into the `:conduit/article` entry — skipping a refetch entirely. One catch: the value you populate has to be in the *same shape the resource stores*. A normal load of `:conduit/article` caches the whole `{:article …}` map the server sent, so we hand `:populates` that same whole map (`result`), not just the article inside it. A populated entry counts as freshly loaded, so this mutation's own invalidation won't turn around and refetch the key it just learned.
+- **`:invalidates`** declares which tags the write makes stale on success. Favoriting breaks reads in *two* scopes: the article and lists live in the signed-in reader's viewer scope, while your feed is keyed by session. So it returns a vector of *descriptors* — one per scope, each a map naming a scope and the tags it stales there. Each descriptor's scope is computed by running its resolver at *settle time* (the moment the write's reply comes back and its consequences are applied). One write, both scopes, declared once.
+- **`:populates`** seeds an exact cache entry from the write's own reply, *before* the invalidation runs. The favorite endpoint replies with the full updated article, so we write it straight into this reader's `:conduit/article` entry — the target names the same `{:from-db :conduit/viewer}` scope the read was registered with, so it lands in the entry the article page is showing — skipping a refetch entirely. One catch: the value you populate has to be in the *same shape the resource stores*. A normal load of `:conduit/article` caches the whole `{:article …}` map the server sent, so we hand `:populates` that same whole map (`result`), not just the article inside it. A populated entry counts as freshly loaded, so this mutation's own invalidation won't turn around and refetch the key it just learned.
 
 Register `:conduit/unfavorite` the same way — same shape, `:method :delete`. The full registration surface is catalogued in [Concepts → Writes invalidate by tag](../concepts.md#writes-invalidate-by-tag--causally).
 
@@ -106,8 +134,12 @@ That's a complete, working favorite write. The next section fires it; the deeper
 A resource is "a subscription you read and an event you fire" (a [*subscription*](../../core/glossary.md#subscription) is a read of derived state; an [*event*](../../core/glossary.md#event) is something you [`dispatch`](../../core/glossary.md#dispatch)). A mutation is the mirror image: **an event you fire and an instance you watch.** The UI never calls the mutation directly. Instead it dispatches `:rf.mutation/execute` — `dispatch` being how every event enters the system:
 
 ```clojure
-;; src/conduit/views.cljs
+;; src/conduit/views.cljc — .cljc: nothing here touches the browser
 ;; cf. examples/real-apps/realworld_resources/views.cljs
+(ns conduit.views
+  (:require [re-frame.core :as rf]
+            [conduit.mutations]))
+
 (rf/reg-event :ui/favorite
   (fn [{:keys [db]} [_ slug favorited?]]
     (if (nil? (get-in db [:auth :user]))
@@ -119,9 +151,9 @@ A resource is "a subscription you read and an event you fire" (a [*subscription*
                          :instance [:favorite slug]
                          :cause    [:click :ui/favorite slug]}]]]})))
 
-(reg-view favorite-button [{:keys [article]}]
+(rf/reg-view favorite-button [{:keys [article]}]
   (let [{:keys [slug favorited favoritesCount]} article
-        fav @(rf/subscribe [:rf/mutation {:instance [:favorite slug]}])]
+        fav @(subscribe [:rf/mutation {:instance [:favorite slug]}])]
     [:button.btn.btn-outline-primary.btn-sm
      {:type     "button"
       :class    (when favorited "active")
@@ -148,7 +180,16 @@ That's where `:disabled (:pending? fav)` comes from. No `app-db` bookkeeping, no
 
     A favorite heart can afford to ignore a failed write (the count just doesn't move). A form can't. When a write fails, the instance settles `{:status :error, :error <envelope>}`, and the view shows it by reading the *same* instance — `(when (:error? fav) [error-banner (:error fav)])`. The `:error` value is the closed `:rf.http/*` failure envelope managed HTTP produces (the same shape a resource's `:error` carries — [Part 2](02-server-data.md)); branch on its `:kind`, render its message, never parse a string. The editor below leans on exactly this: its `:reply-to` handler does nothing on failure precisely because the form is *already* showing the instance's `:error`.
 
-Notice what the view *doesn't* do: it never invalidates anything. Add this button to the article cards from Part 1 and to the article page, and you're done. Favoriting behaves identically everywhere, because the write's consequences live on the write, not on the call site.
+Notice what the view *doesn't* do: it never invalidates anything. Put the button on the article page — require `[conduit.views :as views]` in `articles.cljs` and add it to the banner — and on the article cards too if you like:
+
+```clojure
+;; in article-page (src/conduit/articles.cljs)
+       [:div.banner [:div.container
+                     [:h1 (:title article)]
+                     [views/favorite-button {:article article}]]]
+```
+
+Favoriting behaves identically everywhere, because the write's consequences live on the write, not on the call site.
 
 ??? info "Coming from RTK Query?"
 
@@ -204,7 +245,7 @@ need; the favorite above already works without any of it.
 ```clojure
 ;; bump a comment count on the article detail without refetching it
 :patches (fn [{:keys [slug]} _result]
-           {{:resource :conduit/article :params {:slug slug} :scope :rf.scope/global}
+           {{:resource :conduit/article :params {:slug slug} :scope {:from-db :conduit/viewer}}
             (fn [old] (update-in old [:article :commentsCount] inc))})
 ```
 
@@ -214,15 +255,14 @@ need; the favorite above already works without any of it.
 (rf/reg-mutation :conduit/delete-article
   {:doc           "Delete an article. DELETE /articles/:slug."
    :params-schema [:map [:slug :string]]
-   :scope         :rf.scope/global
    ;; drop the dead article's detail entry, then stale the lists + feed
    :removes       (fn [{:keys [slug]} _result]
-                    [{:resource :conduit/article :params {:slug slug} :scope :rf.scope/global}])
+                    [{:resource :conduit/article :params {:slug slug} :scope {:from-db :conduit/viewer}}])
    :invalidates   (fn [_ _result]
-                    [{:scope :rf.scope/global :tags #{[:article-list]}}
+                    [{:scope {:from-db :conduit/viewer} :tags #{[:article-list]}}
                      {:scope {:from-db :conduit/session} :tags #{[:feed]}}])}
   (fn [{:keys [slug]} _ctx]
-    {:request {:method :delete :url (rh/full-url (str "/articles/" slug))}}))
+    {:request {:method :delete :url (str api/api-base "/articles/" slug)}}))
 ```
 
 The order is fixed and worth internalising: **patch/populate/remove first, then invalidate.** The seeds and surgical edits land, *then* the tag sweep marks the broader reads stale. That's why a `:populates`'d entry doesn't immediately refetch (it just learned the truth from the write reply) while a merely-tagged list does.
@@ -263,7 +303,7 @@ The footgun looks like this. A mutation with **no `:scope`** defaults its execut
 (rf/reg-mutation :conduit/post-to-feed
   {:params-schema [:map …]
    :invalidates   (fn [_ _result] #{[:feed]})}   ;; resolves to :rf.scope/global
-  (fn [_ _] {:request {:method :post :url (rh/full-url "/articles")}}))
+  (fn [_ _] {:request {:method :post :url (str api/api-base "/articles")}}))
 ```
 
 quietly *misses* `:conduit/feed`, because that resource is `:scope {:from-db :conduit/session}` — its entries live under `[:rf.scope/session {:username …}]`, never under global. The feed stays stale.
@@ -315,11 +355,10 @@ Add `:optimistic-tags` — the tag-addressed twin of `:invalidates`. Where `:inv
 (rf/reg-mutation :conduit/favorite
   {:doc           "Favorite an article (optimistic). POST /articles/:slug/favorite."
    :params-schema [:map [:slug :string]]
-   :scope         :rf.scope/global
    ;; FORWARD: flip the heart + bump the count on every entry tagged
    ;; [:article slug] — the detail, every list, the session feed — at once.
    :optimistic-tags (fn [{:keys [slug]}]
-                      [{:scope :rf.scope/global
+                      [{:scope {:from-db :conduit/viewer}
                         :tags  #{[:article slug]}
                         :patch (fn [data] (favorite-patch true slug data))}
                        {:scope {:from-db :conduit/session}
@@ -327,15 +366,15 @@ Add `:optimistic-tags` — the tag-addressed twin of `:invalidates`. Where `:inv
                         :patch (fn [data] (favorite-patch true slug data))}])
    ;; COMMIT on :ok — the reply's authoritative Article overwrites the guess.
    :populates     (fn [{:keys [slug]} result]
-                    {{:resource :conduit/article :params {:slug slug} :scope :rf.scope/global}
+                    {{:resource :conduit/article :params {:slug slug} :scope {:from-db :conduit/viewer}}
                      result})
    :invalidates   (fn [{:keys [slug]} _result]
-                    [{:scope :rf.scope/global :tags #{[:article slug] [:article-list]}}
+                    [{:scope {:from-db :conduit/viewer} :tags #{[:article slug] [:article-list]}}
                      {:scope {:from-db :conduit/session} :tags #{[:feed]}}])
    :on-conflict   :invalidate}
   (fn [{:keys [slug]} _ctx]
-    {:request {:method :post :url (rh/full-url (str "/articles/" slug "/favorite"))}
-     :decode  schema/ArticleResponse}))
+    {:request {:method :post :url (str api/api-base "/articles/" slug "/favorite")}
+     :decode  :json}))
 ```
 
 We reach for `:optimistic-tags` here for the same reason favoriting needs *tagged* invalidation — the article shows up in lists you can't enumerate by hand, and the flip must land in all of them at once. When the write touches exactly *one* known entry instead (a settings toggle on a single profile, say), there's a sibling key, **`:optimistic`** — the exact-target twin of `:patches`, `(fn [params] {target patch-fn})` over the same `{:resource :params :scope}` target maps. Same machinery, narrower aim: a `nil` patch-fn is an optimistic *remove* (the entry vanishes on click, restored on rollback), and a patch over an absent key is an optimistic *seed*. Both fall out of the recorded snapshot for free.
@@ -369,20 +408,19 @@ First, the write. Create and edit share one mutation that switches POST/PUT on w
                    [:description :string]
                    [:body  :string]
                    [:tagList [:vector :string]]]
-   :scope         :rf.scope/global
    ;; Lists always go stale; an edit also stales its own detail entry. A new
    ;; article has no prior slug — its detail loads fresh on navigate.
    :invalidates   (fn [{:keys [slug]} _result]
-                    [{:scope :rf.scope/global
+                    [{:scope {:from-db :conduit/viewer}
                       :tags  (cond-> #{[:article-list]}
                                slug (conj [:article slug]))}
                      {:scope {:from-db :conduit/session}
                       :tags  #{[:feed]}}])}
   (fn [{:keys [slug] :as draft} _ctx]
     {:request {:method (if slug :put :post)
-               :url    (rh/full-url (if slug (str "/articles/" slug) "/articles"))
+               :url    (str api/api-base (if slug (str "/articles/" slug) "/articles"))
                :body   {:article (select-keys draft [:title :description :body :tagList])}}
-     :decode  schema/ArticleResponse}))
+     :decode  :json}))
 ```
 
 The editor's `app-db` slice is an ordinary form in Part 3's mold: a `:draft` the inputs edit, plus a `:baseline` (the article as loaded, or blank) so we can tell whether anything actually changed. Note what's *not* here: there's no `:status` field. The submission lifecycle Part 3 hand-rolled lives on the mutation instance instead — one of the things you get back by moving to mutations.
@@ -499,7 +537,8 @@ One gap is left. Write half an article, click the site logo, and the draft silen
 (rf/reg-sub :editor/can-leave? {:inputs [[:editor/dirty?]]}
   (fn [[dirty?] _] (not dirty?)))
 
-;; src/conduit/routing.cljs — a new route for the editor, with the guard.
+;; also src/conduit/editor.cljs — the editor's route, with the guard Part 3 previewed.
+;; Add [conduit.editor] to core.cljs's requires so these registrations load.
 (rf/reg-route :conduit.editor/new
   {:tags      #{:requires-auth}
    :on-match  [[:editor/initialise]]
