@@ -22,9 +22,16 @@
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" type="image/svg+xml" href="_shared/img/favicon.svg">
   <link rel="stylesheet" href="_shared/css/style.css">
+  <!-- The dev build mounts Xray into the `[data-rf-xray-host]` column beside the
+       app (the `:devtools` preload on this build in shadow-cljs.edn, as
+       examples/core/counter does). A release build loads no Xray, so the
+       column stays empty there. -->
 </head>
 <body>
-  <div id="app"></div>
+  <div class="rf2-testbed-shell">
+    <div id="app"></div>
+    <aside data-rf-xray-host></aside>
+  </div>
   <script src="main.js"></script>
 </body>
 </html>

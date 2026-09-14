@@ -1768,7 +1768,13 @@
   {:target     :browser
    :output-dir "out/examples/realworld-resources"
    :asset-path "."
-   :modules    {:main {:init-fn realworld-resources.core/run}}}
+   :modules    {:main {:init-fn realworld-resources.core/run}}
+   ;; rf2-trjh7 — Xray in dev, the same preload `:examples/counter` carries, so
+   ;; favouriting an article shows the write and the reads it invalidated in
+   ;; Xray's Resources panel. `:devtools` is honoured by `watch` / `compile`
+   ;; and NOT by `release`, so the production bundle carries no Xray. The page
+   ;; supplies the `[data-rf-xray-host]` column Xray mounts into.
+   :devtools   {:preloads [day8.re-frame2-xray.preload]}}
 
   ;; Pattern-Boot example (rf2-dsm2). Demonstrates the canonical
   ;; re-frame2 application-boot shape: a single :app/boot state
