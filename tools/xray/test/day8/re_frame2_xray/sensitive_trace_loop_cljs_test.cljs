@@ -155,17 +155,21 @@
 
 (deftest xray-own-frameless-sub-reads-cost-no-queue-slot
   (testing "rf2-izhgo — a shell-mount burst of Xray's own frameless sub reads
-            is structural self-noise: it bumps no REDACTED counter and puts
-            nothing on `:rf/xray`'s queue. Pre-fix both read 126."
-    (is (zero? (xray-queue-depth))
-        "precondition: nothing is queued on Xray's frame")
-    (dotimes [_ shell-mount-burst]
-      (emit-frameless-sub-run! :rf.xray/mode)
-      (emit-frameless-sub-run! :rf.xray.edn-inspector/widths))
-    (is (zero? (config/suppressed-count))
-        "Xray's own reads are not redacted host data")
-    (is (zero? (xray-queue-depth))
-        "so none of them costs a dispatch into Xray's own queue")))
+            is structural self-noise: it bumps no REDACTED counter and adds
+            nothing to `:rf/xray`'s queue. Pre-fix both moved by 126."
+    ;; A BASELINE, not zero: the fixture's own `reset-suppressed-count!`
+    ;; runs with `:rf/xray` already seated, so its reset dispatch is
+    ;; legitimately sitting in the queue before the burst begins.
+    (let [baseline (xray-queue-depth)]
+      ;; Both a bare `rf.xray` id and a sub-namespace id — the shell mount
+      ;; reads both shapes (`:rf.xray/mode`, `:rf.xray.edn-inspector/widths`).
+      (doseq [sub-id (take shell-mount-burst
+                           (cycle [:rf.xray/mode :rf.xray.edn-inspector/widths]))]
+        (emit-frameless-sub-run! sub-id))
+      (is (zero? (config/suppressed-count))
+          "Xray's own reads are not redacted host data")
+      (is (= baseline (xray-queue-depth))
+          "so none of them costs a dispatch into Xray's own queue"))))
 
 (deftest control-a-host-frameless-sub-read-is-still-redacted
   (testing "rf2-izhgo — the control for the regression above: the SAME
