@@ -37,6 +37,9 @@
             [re-frame.story.async      :as rf.story.async]
             [re-frame.story.config     :as rf.story.config]
             [re-frame.story.loaders    :as rf.story.loaders]
+            [re-frame.story.play.evidence     :as rf.story.play.evidence]
+            [re-frame.story.ui.evidence-spine :as rf.story.ui.evidence-spine]
+            [re-frame.story.ui.test-mode.pure :as rf.story.ui.test-mode.pure]
             [re-frame.trace            :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
@@ -845,3 +848,74 @@
          no longer fails it")
     (rf.story/destroy-variant! :story.okc/fx)
     (rf.story/destroy-variant! :story.okc/warn)))
+
+;; ===========================================================================
+;; rf2-v5p6l — a REAL failed assertion resolves to its OWN retained beat
+;;
+;; The Test pane resolves a failed row to its Evidence beat through the
+;; record's `:dispatch-id` (`test-mode.pure/assertion-row` keeps it,
+;; `evidence-spine/row->beat-index` resolves it). The coverage that shipped
+;; that linkage built its rows BY HAND, so it could not see that canonical
+;; records never carried the coordinate. These records come from a real
+;; `story/run` instead, and the expected beat is found by its TRIGGER EVENT,
+;; never by dispatch id, so the expectation does not lean on the coordinate
+;; under test.
+;; ===========================================================================
+
+(defn- beat-for-trigger
+  "The `:beat-idx` of the retained beat whose trigger event is `event`, or nil."
+  [narrative event]
+  (some #(when (= event (:trigger-event %)) (:beat-idx %))
+        (rf.story.play.evidence/narrative-beats narrative)))
+
+(deftest real-failed-assertion-resolves-to-its-own-non-first-beat-rf2-v5p6l
+  (testing "a failed :assert-db after a dispatch step resolves to the
+            assertion's own retained beat, which is not the first beat"
+    (rf/reg-event :evidence-link/set
+      (fn [{:keys [db]} _] {:db (assoc db :count 2)}))
+    (rf.story/reg-variant :story.evidence-link/retained
+      {:script {:script [[:dispatch-sync [:evidence-link/set]]
+                         [:assert-db [:count] 99]]}})
+    (let [result    (rf.story.async/deref-blocking
+                      (rf.story/run :story.evidence-link/retained) 5000)
+          narrative (:narrative result)
+          record    (first (:assertions result))
+          row       (rf.story.ui.test-mode.pure/assertion-row record)
+          own-beat  (beat-for-trigger narrative [:rf.assert/path-equals [:count] 99])]
+      (is (= :fail (:status result)))
+      (is (= :fail (:status row)))
+      (is (pos-int? own-beat)
+          "the assertion's own epoch is retained, and it is not the first beat")
+      (is (some? (:dispatch-id record))
+          "the canonical record carries the dispatch coordinate the router bound")
+      (is (= (:dispatch-id record) (:dispatch-id row))
+          "the row keeps the record's coordinate")
+      (is (= own-beat (rf.story.ui.evidence-spine/row->beat-index narrative row))
+          "the row resolves to the assertion's own beat"))
+    (rf.story/destroy-variant! :story.evidence-link/retained)))
+
+(deftest real-unretained-assertion-resolves-to-no-beat-rf2-v5p6l
+  (testing "a failed assertion whose epoch the ring evicted resolves to no
+            beat, so no link can land on a neighbouring beat"
+    (try
+      (rf/configure! {:epoch-history {:depth 1}})
+      (rf/reg-event :evidence-link/set
+        (fn [{:keys [db]} _] {:db (assoc db :count 2)}))
+      (rf.story/reg-variant :story.evidence-link/unretained
+        {:script {:script [[:assert-db [:count] 99]
+                           [:dispatch-sync [:evidence-link/set]]]}})
+      (let [result    (rf.story.async/deref-blocking
+                        (rf.story/run :story.evidence-link/unretained) 5000)
+            narrative (:narrative result)
+            row       (rf.story.ui.test-mode.pure/assertion-row (first (:assertions result)))]
+        (is (= :fail (:status row)))
+        (is (nil? (beat-for-trigger narrative [:rf.assert/path-equals [:count] 99]))
+            "control: the depth-1 ring evicted the assertion's own epoch")
+        (is (some? (beat-for-trigger narrative [:evidence-link/set]))
+            "control: the later dispatch step's epoch is the one retained")
+        (is (nil? (rf.story.ui.evidence-spine/row->beat-index narrative row))
+            "the row resolves to no beat"))
+      (finally
+        ;; `:depth` is process-global — restore the framework default.
+        (rf/configure! {:epoch-history {:depth 50}})
+        (rf.story/destroy-variant! :story.evidence-link/unretained)))))
