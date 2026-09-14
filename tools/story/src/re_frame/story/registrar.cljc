@@ -636,9 +636,8 @@
   Builds the index in one pass instead of the O(S × V) pattern of calling
   `variants-of` per story (used e.g. by `tool-list-stories` in story-mcp).
   Variant ids whose namespace doesn't match any registered story id are
-  skipped — they're
-  orphans (the registrar's reg-time validation forbids them under normal
-  use, but the index stays defensive)."
+  orphans and are skipped. `reg-variant*` does not require a parent story,
+  so orphans are admissible; they simply have no story key to index under."
   []
   (let [story-keys-by-name (into {}
                                  (map (fn [sid] [(name sid) sid]))
