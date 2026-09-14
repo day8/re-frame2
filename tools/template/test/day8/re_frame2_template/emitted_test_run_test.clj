@@ -71,7 +71,7 @@
 
    ## The setup skill's default scaffold
 
-   `skills/re-frame2-setup/references/first-counter.md` ships the twelve
+   `skills/re-frame2-setup/references/first-counter.md` ships the thirteen
    files the skill's default route writes, rendered from THIS template by
    the skill's `tests/first_counter_derivation.clj`. Two tests at the
    bottom consume that leaf as a consumer would: an ungated one asserts
@@ -153,17 +153,17 @@
     rel))
 
 (defn- rewrite-deps-for-local-run!
-  "Swap the two `day8/re-frame2*` :mvn/version coords in a project's
-  deps.edn for `:local/root` paths into the in-repo source tree, then
-  write it back. Core and the substrate adapter are the whole set: since
-  rf2-zq34m both callers hand this a deps.edn carrying exactly those two
-  framework coords (the emitted scaffold; the setup skill's derived leaf,
-  which `mount-skill-scaffold!` asserts against `reduced-day-one-coords`
-  right after this call), and `template_test.clj` forbids every other
-  `day8/re-frame2*` coordinate in an emitted project. A future fixture
-  that deliberately adds an optional artefact adds its rewrite here
-  together with a test that reaches the new arm — speculative arms for
-  coordinates no caller declares are what this docstring replaced."
+  "Point a project's `day8/re-frame2*` coordinates at the in-repo source
+  tree, then write the deps.edn back. Core and the substrate adapter,
+  emitted as `:mvn/version`, become `:local/root` paths; so does Story's
+  `:dev` alias coordinate when the deps.edn carries one, because it is
+  emitted as a `:local/root` into a re-frame2 checkout BESIDE the project,
+  which a temp directory is not (rf2-1bkoc). That is the whole set: both
+  callers hand this a deps.edn carrying exactly those coordinates (the
+  emitted scaffold; the setup skill's derived leaf, which
+  `mount-skill-scaffold!` asserts against `reduced-day-one-coords` right
+  after this call), and `template_test.clj` forbids every other
+  `day8/re-frame2*` coordinate in an emitted project."
   [^java.io.File root ^java.io.File proj-dir substrate]
   (let [deps-file (io/file proj-dir "deps.edn")
         deps      (edn/read-string (slurp deps-file))
@@ -177,11 +177,14 @@
         adapter-coord (symbol "day8" (str "re-frame2-" (name substrate)))
         adapter-path  (substrate-local-root root substrate)
         rewritten
-        (-> deps
-            (assoc-in [:deps 'day8/re-frame2]
-                      {:local/root (rel-of "implementation/core")})
-            (assoc-in [:deps adapter-coord]
-                      {:local/root (rel-of adapter-path)}))]
+        (cond-> (-> deps
+                    (assoc-in [:deps 'day8/re-frame2]
+                              {:local/root (rel-of "implementation/core")})
+                    (assoc-in [:deps adapter-coord]
+                              {:local/root (rel-of adapter-path)}))
+          (get-in deps [:aliases :dev :extra-deps 'day8/re-frame2-story])
+          (assoc-in [:aliases :dev :extra-deps 'day8/re-frame2-story]
+                    {:local/root (rel-of "tools/story")}))]
     (spit deps-file (with-out-str (pprint/pprint rewritten)))))
 
 ;; --- node_modules symlink --------------------------------------------------
@@ -573,7 +576,7 @@
 
 (defn- compile-and-run-emitted-test!
   "For one substrate: generate a tmp app, rewrite deps.edn → :local/root,
-  link node_modules, `clojure -M:shadow compile app test`, prove the
+  link node_modules, `clojure -M:shadow:dev compile app test`, prove the
   emitted package.json is complete, boot the real page in Chromium (and,
   when `boot-witness?`, prove that proof bites), run `node
   out/node-test.js`, then build the `:advanced` release and boot the real
@@ -605,14 +608,17 @@
                    "implementation/) and the OS allows a symlink or `mklink /J`."))
 
           ;; --- compile ---------------------------------------------------
-          ;; The emitted :shadow alias is deps-only, so name the CLI ns.
+          ;; The emitted :shadow alias is deps-only, so name the CLI ns. `compile
+          ;; app` boots stories/init, so Story's :dev alias rides along; the
+          ;; release below runs without it, so a release that reached Story
+          ;; would fail to compile.
           (testing (str label " — shadow-cljs compile app test")
             (let [{:keys [exit out]}
-                  (run-process! ["clojure" "-M:shadow" "-m" "shadow.cljs.devtools.cli"
+                  (run-process! ["clojure" "-M:shadow:dev" "-m" "shadow.cljs.devtools.cli"
                                  "compile" "app" "test"]
                                 proj env)]
               (is (zero? exit)
-                  (str "`clojure -M:shadow compile app test` exited " exit
+                  (str "`clojure -M:shadow:dev compile app test` exited " exit
                        " for " label ". Output:\n" out))))
 
           ;; --- the two teeth, before the release overwrites the dev bundle
@@ -852,11 +858,11 @@
 ;;
 ;; `skills/re-frame2-setup/references/first-counter.md` carries, between
 ;; `<!-- BEGIN generated … -->` / `<!-- END generated -->` markers, the
-;; twelve files the skill's default route writes — one `### `path`` heading
+;; thirteen files the skill's default route writes — one `### `path`` heading
 ;; and one fenced block per file — rendered from this template for its
 ;; reference project `acme/my-app` by the skill's
 ;; `tests/first_counter_derivation.clj`. `references/entry-namespace.md`
-;; carries the three files the `:uix` substrate swaps, the same way.
+;; carries the four files the `:uix` substrate swaps, the same way.
 ;;
 ;;   * `setup-skill-leaves-are-the-template-emission-test` (ungated, cheap):
 ;;     runs the REAL deps-new pipeline for `acme/my-app` on both substrates
@@ -953,17 +959,18 @@
                                      (= body (string/replace (get reagent path "") "Reagent" "UIx")))
                                    differs))
           swapped    (apply dissoc differs (keys label-only))]
-      (is (= 12 (count reagent))
-          (str "the template's Reagent emission is not twelve files: " (pr-str (keys reagent))))
+      (is (= 13 (count reagent))
+          (str "the template's Reagent emission is not thirteen files: " (pr-str (keys reagent))))
       (assert-leaf-equals-emission! "first-counter.md" (read-leaf-files "first-counter.md") reagent)
       (is (= #{"README.md" "package.json"} (set (keys label-only)))
           (str "the files that differ between substrates by the display label alone are "
                (pr-str (keys label-only)) " — the setup skill's UIx route tells the author "
                "to swap the label in README.md and package.json; revisit that sentence."))
-      (is (= #{"deps.edn" "src/acme/my_app/core.cljs" "src/acme/my_app/views.cljs"}
+      (is (= #{"deps.edn" "src/acme/my_app/core.cljs" "src/acme/my_app/views.cljs"
+               "src/acme/my_app/stories.cljs"}
              (set (keys swapped)))
           (str "the two substrates now differ structurally in " (pr-str (keys swapped))
-               " — the setup skill's UIx route is documented as a three-file swap; "
+               " — the setup skill's UIx route is documented as a four-file swap; "
                "regenerate the leaves and update SKILL.md cardinal rule 3 together."))
       (assert-leaf-equals-emission! "entry-namespace.md §UIx greenfield"
                                     (read-leaf-files "entry-namespace.md") swapped))))
@@ -1002,7 +1009,7 @@
       (try
         (spit views broken)
         (let [{:keys [exit out]}
-              (run-process! ["clojure" "-M:shadow" "-m" "shadow.cljs.devtools.cli"
+              (run-process! ["clojure" "-M:shadow:dev" "-m" "shadow.cljs.devtools.cli"
                              "compile" "app"]
                             proj env)]
           (is (zero? exit)
@@ -1035,15 +1042,15 @@
       (let [files (read-leaf-files "first-counter.md")
             proj  (io/file (.toString tmp) "my-app")]
         (.mkdirs proj)
-        (is (= 12 (count files))
-            (str "first-counter.md must carry the twelve-file manifest; found "
+        (is (= 13 (count files))
+            (str "first-counter.md must carry the thirteen-file manifest; found "
                  (count files) ": " (pr-str (keys files))))
         (materialise-leaf! proj files)
 
-        ;; --- SKILL.md step 2: point the two framework coords at the checkout.
+        ;; --- SKILL.md step 2: point the framework coords at the checkout.
         ;; `rewrite-deps-for-local-run!` is the function the template tiers
-        ;; use; it rewrites core + the adapter and nothing else, which is
-        ;; exactly the leaf's day-one set. The shape assertion below is the
+        ;; use; it rewrites core, the adapter and Story's :dev coordinate, which
+        ;; is exactly the leaf's set. The shape assertion below is the
         ;; dependency-honesty tooth: the shipped deps.edn must carry the
         ;; reduced set directly, not resolve anything through a transitive
         ;; edge, and the step must leave both framework coords as :local/root.
@@ -1068,15 +1075,15 @@
                    "`mklink /J` junction."))
 
           ;; --- compile: both builds the shipped shadow-cljs.edn declares ------
-          (testing (str label " — clojure -M:shadow compile app test")
+          (testing (str label " — clojure -M:shadow:dev compile app test")
             (let [{:keys [exit out]}
-                  (run-process! ["clojure" "-M:shadow" "-m" "shadow.cljs.devtools.cli"
+                  (run-process! ["clojure" "-M:shadow:dev" "-m" "shadow.cljs.devtools.cli"
                                  "compile" "app" "test"]
                                 proj env)]
               (is (zero? exit)
-                  (str "`clojure -M:shadow compile app test` exited " exit
+                  (str "`clojure -M:shadow:dev compile app test` exited " exit
                        " for the setup skill's SHIPPED default scaffold "
-                       "(skills/re-frame2-setup/references/first-counter.md, the twelve "
+                       "(skills/re-frame2-setup/references/first-counter.md, the thirteen "
                        "files an author gets). Output:\n" out))
               (let [bundle (io/file proj "resources/public/js/main.js")]
                 (is (and (.isFile bundle) (pos? (.length bundle)))

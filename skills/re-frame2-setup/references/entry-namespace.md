@@ -1,11 +1,10 @@
 # Entry namespace
 
-The **boot lifecycle** of `core.cljs` — the entry namespace shadow-cljs's `:init-fn` points at, where re-frame2 wires up to the substrate (Reagent by default) and to the DOM. The file itself is in [`first-counter.md`](first-counter.md) (`src/acme/my_app/core.cljs`); this leaf explains the ceremony it performs so you understand each line rather than pasting it blind, and carries the three files an explicit **UIx** request swaps in.
+The **boot lifecycle** of `core.cljs` — the entry namespace shadow-cljs's `:init-fn` points at, where re-frame2 wires up to the substrate (Reagent by default) and to the DOM. The file itself is in [`first-counter.md`](first-counter.md) (`src/acme/my_app/core.cljs`); this leaf explains the ceremony it performs so you understand each line rather than pasting it blind, and carries the four files an explicit **UIx** request swaps in.
 
 ## Contents
 
 - The entry-namespace lifecycle
-- Order of operations
 - Why `rf/init!` exists (and why it's explicit)
 - The React root pattern (`defonce` + `client-root`)
 - Where everything else goes
@@ -16,42 +15,35 @@ The **boot lifecycle** of `core.cljs` — the entry namespace shadow-cljs's `:in
 
 ## The entry-namespace lifecycle
 
-`core.cljs` is the `ns` form, a `defonce` client-root handle, and **two** fns: the exported `init` shadow-cljs calls once, and a `^:dev/after-load mount!` the hot reload calls. Reading it top to bottom:
+`core.cljs` is the `ns` form, a `defonce` client-root handle, and **two** fns: the exported `init` shadow-cljs calls once, and a `^:dev/after-load mount!` the hot reload calls. `init` does two things, **in this order**:
 
-1. `(rf/init! rf.adapter.reagent/adapter)` — install the Reagent adapter. No frame exists yet.
-2. `(mount!)` — `(rf.adapter.reagent/render! app-root … el)` the tree wrapped in `[rf/frame-root {:id app-frame :initial-events [[:counter/initialise]]} …]` into `#app`. The first call creates the React root; every later call renders into that same root. `frame-root` is the ENSURE element: it **creates** the frame the first time (running the `:initial-events` seed synchronously, so the first render sees the seeded app-db), **reuses** the live frame without re-seeding on every later render, and provides it so every bare `dispatch` / `subscribe` under it resolves against that frame.
+1. `(rf/init! rf.adapter.reagent/adapter)` — install the Reagent adapter and the runtime capabilities. No frame exists yet.
+2. `(mount!)` — `(rf.adapter.reagent/render! app-root … el)` the tree wrapped in `[rf/frame-root {:id app-frame :initial-events [[:counter/initialise]]} …]` into `#app`. `frame-root` is the ENSURE element: it **creates** the frame the first time (running the `:initial-events` seed synchronously, so the first render sees the seeded app-db), **reuses** the live frame without re-seeding on every later render, and provides it so every bare `dispatch` / `subscribe` under it resolves against that frame. (`frame-provider` is the SCOPE-only sibling: it provides an **already-created** frame, e.g. one built with `rf/make-frame`, and fails loud given `{:id …}`.)
 
-**Why the mount is its own fn: the `^:dev/after-load` metadata on `mount!` is what gives you hot reload.** shadow-cljs calls the module `:init-fn` once, at bundle load. A reload loads the new code and then calls the build's `^:dev/after-load` hooks — it does not call `:init-fn` again, and with no hook configured it says so (`reloading code but no :after-load hooks are configured!`) while the page goes on painting the old view. Splitting the entry keeps the one-time ceremony (`init!`) out of the reload path while `mount!` re-renders the edited views. `defonce` keeps the same handle across saves, so the adapter never creates a second root, and the re-rendered `frame-root` finds the frame already live and leaves your state alone — a hot reload is a **no-op for app state**; the `:initial-events` seed runs once, at frame creation (refresh the tab to re-seed).
+Render *without* `frame-root` (or a `frame-provider` around an existing frame) and every `subscribe` / `dispatch` in the tree raises `:rf.error/no-frame-context` — the runtime refuses to guess a frame. Render before `rf/init!` and `frame-root`'s frame creation finds no substrate adapter: `:rf.error/no-adapter-installed`.
 
-`app-frame` is `:rf/default`, the generator template's frame id — under EP-0002 (the carried-frame invariant) it is **not** auto-registered; the view's `frame-root` creates it at mount. Any id works; keep the one `def` and the `:id` in step. The entry symbol is `init`, matching the template's `:init-fn acme.my-app.core/init`; the name is yours as long as `:init-fn` points at it. (The repo's `examples/core/counter/core.cljs` names its entry fn `run` — the same lazy-root + `frame-root` ENSURE boot; see [`boot-and-mount-an-app.md`](https://github.com/day8/re-frame2/blob/main/docs/core/how-to/boot-and-mount-an-app.md).)
+**Why the mount is its own fn: the `^:dev/after-load` metadata on `mount!` is what gives you hot reload.** shadow-cljs calls the module `:init-fn` once, at bundle load. A reload loads the new code and then calls the build's `^:dev/after-load` hooks — it does not call `:init-fn` again, and with no hook configured it says so (`reloading code but no :after-load hooks are configured!`) while the page goes on painting the old view. Splitting the entry keeps the one-time ceremony (`init!`) out of the reload path while `mount!` re-renders the edited views. The re-rendered `frame-root` finds the frame already live and leaves your state alone — a hot reload is a **no-op for app state**; the `:initial-events` seed runs once, at frame creation (refresh the tab to re-seed).
 
-## Order of operations
-
-`init` must do these two things, **in this order**, every time:
-
-1. **`(rf/init! rf.adapter.reagent/adapter)`** — install the substrate adapter. `init!` installs the adapter and runtime capabilities only; it creates **no** frame.
-2. **`(mount!)`** — the `^:dev/after-load` fn whose body renders `[rf/frame-root {:id app-frame :initial-events [[:counter/initialise]]} [views/counter-app]]` into the retained root. Step 1 is the one-time ceremony and stays in `init`; step 2 is the only one a hot reload re-runs. `frame-root` creates the frame the first time — running the seed **synchronously at frame creation** — then reuses it without re-seeding, so a hot reload never clobbers state and editing what `:counter/initialise` writes changes what a fresh mount seeds. (`frame-provider` is the SCOPE-only sibling: it provides an **already-created** frame, e.g. one built programmatically with `rf/make-frame`, and fails loud given `{:id …}`.)
-
-If you render *without* `frame-root` (or a `frame-provider` around an existing frame), every `subscribe` / `dispatch` in the tree raises `:rf.error/no-frame-context` — the runtime refuses to guess a frame. If you render before `rf/init!`, `frame-root`'s frame creation finds no substrate adapter and you get `:rf.error/no-adapter-installed`.
+`app-frame` is `:rf/default`, the generator template's frame id — under EP-0002 (the carried-frame invariant) it is **not** auto-registered; the view's `frame-root` creates it at mount. Any id works; keep the one `def` and the `:id` in step. The entry symbol is `init`, matching the template's `:init-fn acme.my-app.core/init`; `stories.cljs`, the dev build's entry, hands every page but `#/stories` to it, so a rename touches both. [`boot-and-mount-an-app.md`](https://github.com/day8/re-frame2/blob/main/docs/core/how-to/boot-and-mount-an-app.md) walks the same boot.
 
 ## Why `rf/init!` exists (and why it's explicit)
 
 re-frame2 splits **the registry** (the process-wide handler / sub / fx map your `reg-*` forms write to) from **the substrate** (Reagent / UIx / plain atom), supplied at boot via an *adapter map*. `rf/init!` is when that adapter map + the runtime capabilities are **installed**, before any frame exists. Three consequences:
 
 - **Adapters are values, not magic.** `re-frame.adapter.reagent/adapter` is a regular CLJS var holding a map. `rf/init!` takes that value directly — no global registration, no name-based lookup. Swap it for `re-frame.adapter.uix/adapter` and you have a UIx app.
-- **`rf/init!` is idempotent for the adapter it seated — safe to call more than once.** A hot reload re-runs `mount!`, not `init`, so in the ordinary loop `rf/init!` runs exactly once per page load. A namespace reload that re-evaluates `init`, a REPL call, or a second entry point all re-enter it safely — a second `init!` with the *same* adapter installs nothing and creates no frame. Leave it unguarded in `init` (don't wrap it in a `defonce`). A **different** adapter raises `:rf.error/adapter-already-installed` rather than being ignored; to swap substrates, `(rf/destroy-adapter!)` first. "Same" means the same canonical `:rf.adapter/*` `:kind` — a stable token that survives a reload re-evaluating the adapter Var, so every shipped adapter reloads cleanly. A **custom** map carrying no canonical kind falls back to object identity, so re-evaluating *its* Var and re-calling `init!` does raise: hold it in a `defonce`, or call `rf/destroy-adapter!` in the after-load fn.
+- **`rf/init!` is idempotent for the adapter it seated — safe to call more than once.** A hot reload re-runs `mount!`, not `init`, so in the ordinary loop `rf/init!` runs exactly once per page load; a REPL call or a second entry point re-enters it safely, because the *same* adapter installs nothing and creates no frame. Leave it unguarded in `init`. A **different** adapter raises `:rf.error/adapter-already-installed`; to swap substrates, `(rf/destroy-adapter!)` first. "Same" means the same canonical `:rf.adapter/*` `:kind`, so every shipped adapter survives a reload that re-evaluates its Var.
 - **No implicit boot.** No default adapter — multi-substrate support and the per-frame substrate-config model (Spec 006) mean the runtime must know *which* adapter you want before any subscription resolves, so you supply it at boot via the explicit `init!`.
 
-**You don't construct the adapter map — you require the namespace and pass its exported `adapter` var.** The map implements the reactive-substrate adapter contract of [Spec 006](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md); constructing or extending it is the **`re-frame2-implementor`** skill's territory, not greenfield's.
+**You don't construct the adapter map — you require the namespace and pass its exported `adapter` var.** Constructing or extending one ([Spec 006](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md)) is the **`re-frame2-implementor`** skill's territory.
 
 ## The React root pattern (`defonce` + `client-root`)
 
 The entry ns holds the adapter's client-root handle in a `defonce`, allocated inert at namespace load and filled by the first `render!` through it. Two contractual bits:
 
-- **`defonce` + `rf.adapter.reagent/client-root`** — `core.cljs` reloads on every save, and `mount!` runs again on each one; the `defonce` keeps the same handle, and the handle keeps the same React root: the first `render!` creates it, every later one renders into it. React 19 complains loudly if `create-root` is called a second time on a live DOM node (or silently mounts two fighting roots) — with the adapter owning the root that cannot happen, and there is no raw root or create-or-render branch in your file. Every reload renders into that same retained root, which is why your app-db and your scroll position survive a save.
+- **`defonce` + `rf.adapter.reagent/client-root`** — `core.cljs` reloads on every save, and `mount!` runs again on each one; the `defonce` keeps the same handle, and the handle keeps the same React root. React 19 complains loudly if `create-root` is called twice on a live DOM node; with the adapter owning the root that cannot happen, which is why your app-db and your scroll position survive a save.
 - **`(js/document.getElementById "app")`** — must match the `id` in `index.html`. Mismatch here is the most common cause of a blank page with no console error.
 
-`render!` takes the handle, the tree, and the DOM node; the node is read on the first call only. `reagent.dom.client` is never required by the entry ns — the adapter drives it for you (the same three functions come with `day8/reagent-slim`, so the file is byte-for-byte the same on either coordinate).
+`render!` takes the handle, the tree, and the DOM node; the node is read on the first call only. `reagent.dom.client` is never required by the entry ns — the adapter drives it for you.
 
 ## Where everything else goes
 
@@ -62,20 +54,21 @@ src/acme/my_app/
 ├── core.cljs        ; the entry ns (this leaf)
 ├── events.cljs      ; rf/reg-event  — :counter/initialise, :counter/increment
 ├── subs.cljs        ; rf/reg-sub    — :counter/value
-└── views.cljs       ; rf/reg-view   — counter-buttons, counter-app
+├── views.cljs       ; rf/reg-view   — counter-buttons, counter-app
+└── stories.cljs     ; Story         — the counter's story; the dev build's entry
 ```
 
 `views.cljs` requires just `[re-frame.core :as rf]` and calls `rf/reg-view` fully qualified — the macro defines the view symbol, registers it under `(keyword *ns* sym)`, and binds `dispatch` / `subscribe` to the frame in scope at render time. Per-app effects (`rf/reg-fx`) go beside the events. The folder shape is a convention; re-frame2 has no opinion about it.
 
 ## UIx greenfield
 
-This skill scaffolds against **Reagent**. An explicit UIx request is the **same twelve-file project with three files swapped** — the template's `:substrate :uix` emission. `deps.edn` trades the Reagent adapter + `reagent/reagent` for the UIx adapter + `com.pitch/uix.core` (no `uix.dom`); `core.cljs` boots identically — `client-root` + `render!` — with `frame-root` as a `$` element; `views.cljs` is `defui` + `$`, because UIx has **no auto-injection** — components read subscriptions through the adapter's `use-sub` hook and get `dispatch` off `use-frame` (capture-frame in hook position, destructured once per render). The other nine files — `package.json`, `shadow-cljs.edn`, `.gitignore`, `index.html`, `app.css`, `events.cljs`, `subs.cljs`, `events_test.cljs`, `README.md` — are identical to the Reagent scaffold, bar the display label: the generator writes `UIx` where `package.json`'s `description` and the README's first sentence say `Reagent`. The dataflow is a framework concern, not a substrate one, and no Xray, schema or devtools piece rides either route. Do **not** reach for the Reagent `rf/reg-view` views on a UIx app, and do not re-derive the events or subs per substrate.
+This skill scaffolds against **Reagent**. An explicit UIx request is the **same thirteen-file project with four files swapped** — the template's `:substrate :uix` emission. `deps.edn` trades the Reagent adapter + `reagent/reagent` for the UIx adapter + `com.pitch/uix.core` (no `uix.dom`); `core.cljs` boots identically — `client-root` + `render!` — with `frame-root` as a `$` element; `views.cljs` is `defui` + `$`, because UIx has **no auto-injection** — components read subscriptions through the adapter's `use-sub` hook and get `dispatch` off `use-frame` (capture-frame in hook position, destructured once per render); `stories.cljs` registers the `defui` under a keyword with its `:rf/props` schema and gives Story a UIx render function. The other nine files are identical to the Reagent scaffold, bar the display label: the generator writes `UIx` where `package.json`'s `description` and the README's first sentence say `Reagent`. Do **not** reach for the Reagent `rf/reg-view` views on a UIx app, and do not re-derive the events or subs per substrate.
 
 > **Heads-up on the UIx version target.** `spec/006-ReactiveSubstrate.md` names **UIx 2.x** (hooks-based) as the design target, but the template pins **`com.pitch/uix` `1.4.4`** — the **known-good, tested** set. Use the template pin; treat UIx 2.x as an unverified manual override to test before relying on it. The pin below is read off the template's `_uix/deps.edn`, so it follows a template bump automatically.
 
-> **Pre-publish coordinate shape.** The two `day8/re-frame2*` coords below carry the template's forward-correct `:mvn/version`; until the framework is on Clojars, point them at a checkout (`:local/root "<RE_FRAME2>/implementation/core"` and `…/implementation/adapters/uix`) exactly as `SKILL.md` step 2 does for Reagent. The `com.pitch/uix.*` deps are on Clojars and keep `:mvn/version`.
+> **Pre-publish coordinate shape.** The `day8/re-frame2` and `day8/re-frame2-uix` coords below carry the template's forward-correct `:mvn/version`; until the framework is on Clojars, point them at a checkout (`:local/root "<RE_FRAME2>/implementation/core"` and `…/implementation/adapters/uix`), and Story's `:dev` path at `<RE_FRAME2>/tools/story`, exactly as `SKILL.md` step 2 does for Reagent. The `com.pitch/uix.*` deps are on Clojars and keep `:mvn/version`.
 
-The three files, derived from the template's `_uix/` tree by `tests/first_counter_derivation.clj` (regenerate with `bb tests/first_counter_derivation.clj`; do not hand-edit the bodies):
+The four files, derived from the template's `_uix/` tree by `tests/first_counter_derivation.clj` (regenerate with `bb tests/first_counter_derivation.clj`; do not hand-edit the bodies):
 
 <!-- BEGIN generated by tests/first_counter_derivation.clj -->
 
@@ -84,7 +77,7 @@ The three files, derived from the template's `_uix/` tree by `tests/first_counte
 ```clojure
 ;; acme/my-app — re-frame2 application (UIx).
 ;;
-;; The two day8/re-frame2 coordinates ride one version; bump them together.
+;; The day8/re-frame2 coordinates ride one version; bump them together.
 ;; uix.core is direct: the views author with `$` and `defui`. uix.dom is
 ;; NOT — the adapter's `client-root` / `render!` own the React Root.
 {:paths ["src"]
@@ -95,11 +88,15 @@ The three files, derived from the template's `_uix/` tree by `tests/first_counte
          day8/re-frame2-uix        {:mvn/version "0.0.1.alpha"}
          com.pitch/uix.core        {:mvn/version "1.4.4"}}
 
- ;; shadow-cljs.edn reads its classpath from this alias. Deps only — the
+ ;; shadow-cljs.edn reads its classpath from these aliases. Deps only — the
  ;; `npx shadow-cljs` wrapper supplies its own `-m`, so no :main-opts here.
  :aliases
  {:shadow {:extra-paths ["test"]
-           :extra-deps  {thheller/shadow-cljs {:mvn/version "3.4.10"}}}}}
+           :extra-deps  {thheller/shadow-cljs {:mvn/version "3.4.10"}}}
+
+  ;; Story (stories.cljs), from a re-frame2 checkout beside this project
+  ;; until Story is published.
+  :dev    {:extra-deps {day8/re-frame2-story {:local/root "../re-frame2/tools/story"}}}}}
 ```
 
 ### `src/acme/my_app/core.cljs`
@@ -147,6 +144,59 @@ The three files, derived from the template's `_uix/` tree by `tests/first_counte
   (mount!))
 ```
 
+### `src/acme/my_app/stories.cljs`
+
+```clojure
+(ns acme.my-app.stories
+  "Story, the component playground, at http://localhost:8280/#/stories.
+   The dev build boots `init` here; a release boots `core/init`, so Story
+   never reaches the release bundle."
+  (:require [uix.core             :refer [$]]
+            [re-frame.core        :as rf]
+            [re-frame.story       :as story]
+            [re-frame.adapter.uix :as rf.adapter.uix]
+            [acme.my-app.core   :as core]
+            [acme.my-app.views  :as views]))
+
+;; A story names its view by keyword, so register the `defui`; the
+;; `:rf/props` schema gives each of the story's args a control.
+(rf/reg-view* :acme.my-app.views/counter-app
+  {:rf/props [:map [:heading {:optional true} :string]]}
+  views/counter-app)
+
+;; Story renders a UIx view through the function registered for `:uix`.
+(story/register-substrate! :uix
+  (fn [_variant-id view-id args]
+    ($ (rf/view view-id) args)))
+
+;; A variant is one state of the story: the events that set it up and the
+;; assertions Test mode runs.
+(story/reg-story :story.counter
+  {:doc        "The counter view."
+   :component  :acme.my-app.views/counter-app
+   :args       {:heading "Counter"}
+   :tags       #{:dev :docs}
+   :substrates #{:uix}})
+
+(story/reg-variant :story.counter/clicked-twice
+  {:doc    "Seeded, then +1 twice."
+   :setup  [[:counter/initialise] [:counter/increment] [:counter/increment]]
+   :script [[:assert [:rf.assert/sub-equals [:counter/value] 2]]]
+   :tags   #{:dev :docs :test}})
+
+;; `#/stories` mounts the Story shell (open or reload that URL); every other
+;; page boots the app.
+(defn ^:export init []
+  (if (= "#/stories" js/window.location.hash)
+    (let [node (js/document.getElementById "app")]
+      (rf/init! rf.adapter.uix/adapter)
+      ;; core/mount! re-renders #app after every save; renaming the node
+      ;; keeps it off the shell.
+      (set! (.-id node) "stories")
+      (story/mount-shell! node))
+    (core/init)))
+```
+
 ### `src/acme/my_app/views.cljs`
 
 ```clojure
@@ -164,20 +214,16 @@ The three files, derived from the template's `_uix/` tree by `tests/first_counte
        ($ :button {:on-click #(dispatch [:counter/increment])} "+1")
        ($ :span {:style #js {:margin "0 1em"}} value))))
 
-(defui counter-app []
+(defui counter-app [{:keys [heading]}]
   ($ :div
-     ($ :h1 "acme/my-app")
+     ($ :h1 (or heading "acme/my-app"))
      ($ counter-buttons)))
 ```
 
 <!-- END generated -->
 
-
-
-The adapter's `frame-root` ensures + provides the app frame for its subtree; rendering without it raises `:rf.error/no-frame-context` on the first subscribe. The `^:dev/after-load mount!` split is the same as the Reagent entry, and this route needs it exactly as much. The fastest path to the same project is the generator itself — `clojure -Tnew create … :substrate :uix`, which the skill runs when the author asks for the generator route: the exact pre-publish command, with its **absolute** `:local/root` into the reviewed checkout's `tools/template`, is in [`README.md` §Running the generator pre-publish](../README.md#running-the-generator-pre-publish).
+The `^:dev/after-load mount!` split is the same as the Reagent entry. The generator writes the same project — `clojure -Tnew create … :substrate :uix`, which the skill runs when the author asks for the generator route; the exact pre-publish command is in [`README.md` §Running the generator pre-publish](../README.md#running-the-generator-pre-publish).
 
 ## Differences from re-frame v1
 
-For a v1 dev starting fresh, three things changed at the entry-namespace layer: the render surface is now the adapter's client root (`rf.adapter.reagent/render!` through a `defonce` `client-root` handle, over React 19's `reagent.dom.client` Root API, which you never call yourself); boot is **explicit** (`(rf/init! rf.adapter.reagent/adapter)` is mandatory — no self-install); and there is **no implicit global `app-db`** — the root `frame-root {:id … :initial-events …}` ENSURE element creates your one app frame at mount (the runtime never infers a default; multi-frame apps add more roots/providers). Views are registered with the `reg-view` macro (v1 used plain `defn`).
-
-The full v1→v2 story is the migration skill's territory (`migration/from-re-frame-v1/`, via `SKILL-REDIRECT.md`); this skill is greenfield-only.
+For a v1 dev starting fresh, three things changed at the entry-namespace layer: rendering goes through the adapter's client root (`rf.adapter.reagent/render!` through a `defonce` `client-root` handle — you never call React 19's `reagent.dom.client` Root API yourself); boot is **explicit** (`(rf/init! rf.adapter.reagent/adapter)` is mandatory — no self-install); and there is **no implicit global `app-db`** — the root `frame-root {:id … :initial-events …}` ENSURE element creates your app frame at mount. Views are registered with the `reg-view` macro (v1 used plain `defn`). The full v1→v2 story is the migration skill's territory (`migration/from-re-frame-v1/`, via `SKILL-REDIRECT.md`); this skill is greenfield-only.

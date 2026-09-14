@@ -14,8 +14,7 @@ Open <http://localhost:8280>. Edit `src/{{nested-dirs}}/views.cljs` and
 save: the page re-renders in place, keeping its state.
 
 Open <http://localhost:8280/#/stories> for Story, the component
-playground: the counter as a story with one variant, a control for its
-`:heading`, and a Test mode that runs the variant's assertion.
+playground.
 
 ## Test
 
@@ -34,8 +33,8 @@ npm run release
 ```
 
 The optimised bundle lands in `resources/public/js/main.js`; serve
-`resources/public/` from any static host. Story is not in it: a release
-boots `core.cljs`, which never requires Story.
+`resources/public/` from any static host. A release boots `core.cljs`,
+so Story stays out of it.
 
 ## What is here
 
@@ -49,9 +48,8 @@ boots `core.cljs`, which never requires Story.
 - `subs.cljs` — `:counter/value`, a pure extractor over app-db.
 - `views.cljs` — the counter: a heading, one button that dispatches, one
   span that subscribes.
-- `stories.cljs` — the dev build's entry point: one story, one variant,
-  and the `#/stories` route that mounts Story. Its `:dev` alias in
-  `deps.edn` and the two extra npm packages in `package.json` are Story's.
+- `stories.cljs` — the counter's story, and the dev build's entry point.
+  The `:dev` alias and the `@xyflow/react` / `elkjs` packages are Story's.
 
 This is the same counter the guide walks through. Replace it with your
 first feature.
@@ -63,6 +61,5 @@ first feature.
 - [Xray](https://github.com/day8/re-frame2/blob/main/docs/xray/01-installation.md)
   — the in-app devtools panel. Four edits attach it to your dev build.
 - [Story](https://github.com/day8/re-frame2/blob/main/docs/story/index.md)
-  — the component playground `stories.cljs` already wires; the tutorial
-  starts there.
+  — the component playground; `stories.cljs` is your first story.
 - [Worked examples](https://github.com/day8/re-frame2/tree/main/examples).

@@ -1,7 +1,7 @@
 ;;;; tests/project_identity_test.clj — the manual route's project-identity
 ;;;; rule, held to the generator template's own derivation.
 ;;;;
-;;;; The setup skill has TWO routes to the same twelve files (SKILL.md
+;;;; The setup skill has TWO routes to the same thirteen files (SKILL.md
 ;;;; cardinal rule 4): the manual route writes `references/first-counter.md`'s
 ;;;; bodies itself, and the generator route shells `clojure -Tnew create …`.
 ;;;; Only the generator route derives the project's several identities — the

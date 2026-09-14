@@ -134,6 +134,9 @@
    ["re-frame.adapter.reagent"      "implementation/adapters/reagent/src"]
    ["re-frame.adapter.uix"          "implementation/adapters/uix/src"]
    ["re-frame.fresco"              "implementation/fresco/src"]
+   ;; Story is a tools-tier artefact, and the one an emission names outside
+   ;; `implementation/`: the dev build's `stories.cljs` requires it.
+   ["re-frame.story"                "tools/story/src"]
    ;; Core ships everything else, `re-frame.adapter.use-frame` and
    ;; `re-frame.adapter.context` included — the `adapter` segment is not
    ;; itself evidence of a separate coordinate.
@@ -301,6 +304,7 @@
    "src/acme/my_app/events.cljs"
    "src/acme/my_app/subs.cljs"
    "src/acme/my_app/views.cljs"
+   "src/acme/my_app/stories.cljs"
    "test/acme/my_app/events_test.cljs"])
 
 (defn- run-for-substrate!
@@ -344,6 +348,8 @@
                 [re-frame.adapter.reagent-slim  "implementation/adapters/reagent-slim/src/re_frame/adapter/reagent_slim.cljs"]
                 [re-frame.fresco               "implementation/fresco/src/re_frame/fresco.cljc"]
                 [re-frame.fresco.substrate     "implementation/fresco/src/re_frame/fresco/substrate.cljs"]
+                ;; The tools-tier family an emission names (stories.cljs).
+                [re-frame.story                 "tools/story/src/re_frame/story.cljc"]
                 ;; `adapter` in the name is not evidence of a separate
                 ;; coordinate: this one really does ship from core.
                 [re-frame.adapter.use-frame     "implementation/core/src/re_frame/adapter/use_frame.cljs"]]]
@@ -416,5 +422,41 @@
             (is (re-find #"frame-root\s+\{:id\s+app-frame\s+:initial-events\s+\[\[:counter/initialise\]\]\}" core)
                 (str substrate ": the frame-root element seeds via :initial-events "
                      "[[:counter/initialise]] — the seed boundary a reload never replays")))
+          (finally
+            (delete-recursively tmp)))))))
+
+;; --- The Story entry (rf2-1bkoc) --------------------------------------------
+;;
+;; shadow-cljs.edn's `:dev` override boots `stories/init` in watch and
+;; compile, and a release boots `core/init`. Two facts keep that honest, and
+;; both are pinned here on the emitted source. `core.cljs` never names Story,
+;; so nothing a release compiles reaches it. And `stories/init` renames the
+;; mount node BEFORE it mounts the shell: `core/mount!` is a
+;; `^:dev/after-load` hook that runs after every save, and on a node still
+;; called `app` it renders the counter over the shell — measured, with
+;; React's second-`createRoot` error in the console.
+
+(deftest story-entry-lifecycle-test
+  (testing "stories/init sends #/stories to the shell on a renamed node and every
+            other page to core/init; core.cljs never names Story"
+    (doseq [substrate [:reagent :uix]]
+      (let [tmp (tmp-dir "rf2-emission-story-entry-")]
+        (try
+          (let [proj    (run-template! tmp "acme/my-app" substrate)
+                stories (slurp (io/file proj "src/acme/my_app/stories.cljs"))
+                core    (slurp (io/file proj "src/acme/my_app/core.cljs"))
+                rename  (string/index-of stories "(set! (.-id node) \"stories\")")
+                mount   (string/index-of stories "(story/mount-shell! node)")]
+            (is (string/includes? stories "(defn ^:export init []")
+                (str substrate ": stories.cljs defines the dev entry `init`"))
+            (is (string/includes? stories "(= \"#/stories\" js/window.location.hash)")
+                (str substrate ": init routes on the #/stories hash"))
+            (is (and rename mount (< rename mount))
+                (str substrate ": init renames the mount node before it mounts the "
+                     "shell, so core/mount! finds no #app to render over it after a save"))
+            (is (string/includes? stories "(core/init)")
+                (str substrate ": every other page boots the app through core/init"))
+            (is (not (string/includes? core "re-frame.story"))
+                (str substrate ": core.cljs never requires Story")))
           (finally
             (delete-recursively tmp)))))))

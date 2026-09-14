@@ -9,8 +9,7 @@
    [:button {:on-click #(dispatch [:counter/increment])} "+1"]
    [:span {:style {:margin "0 1em"}} @(subscribe [:counter/value])]])
 
-;; `:rf/props` is the view's props schema. Story derives the `:heading`
-;; control from it (stories.cljs).
+;; The `:rf/props` schema gives the story's `:heading` a control.
 (rf/reg-view ^{:rf/props [:map [:heading {:optional true} :string]]}
   counter-app [{:keys [heading]}]
   [:div

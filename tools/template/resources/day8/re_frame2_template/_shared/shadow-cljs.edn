@@ -1,14 +1,13 @@
 ;; {{name}} — shadow-cljs build config.
 ;;
 ;; Two builds:
-;;   :app  — watch / release. Compiles to resources/public/js/main.js. shadow
-;;           calls :init-fn ONCE, at bundle load; after a hot reload it calls
-;;           the build's ^:dev/after-load hooks instead, so core.cljs carries
-;;           one (`mount!`) that re-renders the edited views.
-;;           A release boots {{namespace}}.core/init. `watch` and `compile`
-;;           boot {{namespace}}.stories/init instead (the :dev entry below),
-;;           which mounts Story on #/stories and hands every other page to
-;;           core/init — so Story rides the dev bundle and never the release.
+;;   :app  — watch / release. Compiles to resources/public/js/main.js and
+;;           boots {{namespace}}.core/init. shadow calls :init-fn ONCE, at
+;;           bundle load; after a hot reload it calls the build's
+;;           ^:dev/after-load hooks instead, so core.cljs carries one
+;;           (`mount!`) that re-renders the edited views. `watch` and
+;;           `compile` boot {{namespace}}.stories/init instead (:dev), which
+;;           adds Story on #/stories; a release carries no Story.
 ;;   :test — the node-side test runner. Picks up every *_test.cljs under
 ;;           test/ and runs it with cljs.test.
 {:deps {:aliases [:shadow :dev]}

@@ -221,6 +221,34 @@
         (finally
           (delete-recursively tmp))))))
 
+(defn- base-version
+  "Strip a leading npm range operator so a range in
+  `implementation/package.json` (`elkjs` is `^0.11.1` there) compares with
+  the exact pin the template emits. The lockfile resolves that range to the
+  same version."
+  [pin]
+  (string/replace-first pin #"^[~^=]+" ""))
+
+(deftest story-npm-lockstep
+  (testing "The two npm packages Story's shell needs match implementation/package.json"
+    (let [tmp (tmp-dir "rf2-template-lockstep-story-npm-")]
+      (try
+        (let [root    (run-template! tmp "acme/my-app" :reagent)
+              pj-text (slurp (io/file root "package.json"))]
+          (doseq [[pkg literal] [["@xyflow/react" ":xyflow-version"]
+                                 ["elkjs"         ":elkjs-version"]]]
+            (let [impl-pin (read-package-json-pin pkg)
+                  tpl-pin  (extract-pin pj-text pkg)]
+              (is (some? tpl-pin)
+                  (str "the emitted package.json declares " pkg))
+              (is (= (base-version impl-pin) tpl-pin)
+                  (str "Template " literal " (" tpl-pin ") must match "
+                       "implementation/package.json " pkg " (" impl-pin ") — P5 "
+                       "lockstep. Bump " literal " in "
+                       "tools/template/src/day8/re_frame2_template/hooks.clj.")))))
+        (finally
+          (delete-recursively tmp))))))
+
 (deftest rf2-version-lockstep
   (testing "Template's :rf2-version literal matches repo-root VERSION"
     (let [version-file (read-version-file)

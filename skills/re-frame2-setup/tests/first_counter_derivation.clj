@@ -1,12 +1,12 @@
 ;;;; tests/first_counter_derivation.clj — derives the setup skill's default
 ;;;; scaffold from the generator template.
 ;;;;
-;;;; `references/first-counter.md` ships the twelve files the skill writes on
+;;;; `references/first-counter.md` ships the thirteen files the skill writes on
 ;;;; its default route. Those files are NOT hand-maintained: they are the
 ;;;; generator template's own emission for its reference project
 ;;;; (`:name acme/my-app`, the default `:reagent` substrate), rendered into
 ;;;; the leaf by this script. `references/entry-namespace.md` §UIx greenfield
-;;;; carries the three files the `:uix` substrate swaps, rendered the same
+;;;; carries the four files the `:uix` substrate swaps, rendered the same
 ;;;; way from the template's `_uix/` tree. One source of truth
 ;;;; (`tools/template/`), two derived views of it.
 ;;;;
@@ -191,12 +191,14 @@
 (def end-marker   "<!-- END generated -->")
 
 (def ^:private reading-order
-  "The order the leaf presents the twelve files: build config first, then
-   the page, then the source, then the starter test and the README."
+  "The order the leaf presents the thirteen files: build config first, then
+   the page, then the source and its stories, then the starter test and the
+   README."
   ["deps.edn" "package.json" "shadow-cljs.edn" ".gitignore"
    "resources/public/index.html" "resources/public/css/app.css"
    "src/acme/my_app/core.cljs" "src/acme/my_app/events.cljs"
    "src/acme/my_app/subs.cljs" "src/acme/my_app/views.cljs"
+   "src/acme/my_app/stories.cljs"
    "test/acme/my_app/events_test.cljs" "README.md"])
 
 (defn- fence-lang [path]
