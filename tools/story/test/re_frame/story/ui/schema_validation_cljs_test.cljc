@@ -21,12 +21,15 @@
     registered variant."
   (:require [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
-            #?@(:cljs [[re-frame.core             :as rf]
+            #?@(:cljs [[reagent.core              :as r]
+                       [reagent.ratom             :as ratom]
+                       [re-frame.core             :as rf]
                        [re-frame.frame            :as rf.frame]
                        [re-frame.registrar        :as rf.registrar]
                        [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
                        [re-frame.story            :as rf.story]
-                       [re-frame.story.ui.panels  :as rf.story.ui.panels]])
+                       [re-frame.story.ui.panels  :as rf.story.ui.panels]
+                       [re-frame.story.ui.state   :as rf.story.ui.state]])
             [re-frame.story.ui.schema-validation :as rf.story.ui.schema-validation]))
 
 ;; ---- fixtures ------------------------------------------------------------
@@ -439,6 +442,103 @@
          (is (vector? out))
          (is (re-find (re-pattern (str rf.story.ui.schema-validation/panel-id))
                       (pr-str out)))))))
+
+;; ---- CLJS-only: the panel validates the LIVE Controls value (rf2-lzzrw) --
+;;
+;; Controls validates `effective-args` resolved with the active modes and the
+;; variant's cell overrides. The panel used to resolve with NO opts, so it saw
+;; the stored args, and it derefed no shell state, so a control edit never
+;; re-rendered it. Each witness drives shell state and reads what the panel
+;; RENDERS; a test that only checked stored args would pass either way.
+
+#?(:cljs
+   (def ^:private heading-schema
+     "The login card's props schema (rf2-fhjke's measured case)."
+     [:map [:heading {:optional true} [:string {:min 1}]]]))
+
+#?(:cljs
+   (defn- panel-violation-keys
+     "The arg keys the rendered panel reports as violating, or `:empty` when
+     it renders its 'no args violations' state. The rows are
+     `[args-violation-row v]` component vectors, so read `v` off each."
+     [tree]
+     (let [nodes (atom [])]
+       (letfn [(walk [n]
+                 (cond
+                   (vector? n) (do (swap! nodes conj n) (doseq [c (rest n)] (walk c)))
+                   (seq? n)    (doseq [c n] (walk c))))]
+         (walk tree))
+       (let [test-id (fn [n] (:data-test (when (map? (second n)) (second n))))]
+         (if (some #(= "story-schema-args-empty" (test-id %)) @nodes)
+           :empty
+           (when-let [rows (some #(when (= "story-schema-args-violations" (test-id %)) %) @nodes)]
+             (->> (drop 2 rows)
+                  (mapcat #(if (seq? %) % [%]))
+                  (mapv (comp :key second)))))))))
+
+#?(:cljs
+   (defn- assert-live-validator!
+     "PRECONDITION: a validator that really rejects the value under test, so
+     a soft-pass (no validator on the classpath) cannot stand in for a result."
+     []
+     (let [vfns (rf.story.ui.schema-validation/validator-fns)]
+       (is (fn? (:validate vfns)) "PRECONDITION — a live validator is registered")
+       (is (= [:heading]
+              (mapv :key (rf.story.ui.schema-validation/args-violations
+                           {:heading ""} heading-schema vfns)))
+           "PRECONDITION — the reader flags a cleared :heading"))))
+
+#?(:cljs
+   (deftest ^:cljs panel-reports-the-cell-override-and-re-renders-on-a-control-edit
+     (testing "a Controls edit that clears :heading reaches the panel through
+               shell state — it reports the violation, and the edit alone
+               re-runs its render (no manual refresh)"
+       (reset-all!)
+       (rf.story.ui.state/reset-shell-state!)
+       (assert-live-validator!)
+       (rf/reg-view* :view.lzzrw/card {:rf/props heading-schema} (fn [_] [:div]))
+       (rf.story/reg-variant :story.lzzrw/card
+         {:component :view.lzzrw/card :args {:heading "Sign in"} :setup []})
+       (let [vid     :story.lzzrw/card
+             render  (rf.story.ui.schema-validation/panel vid)
+             renders (atom 0)
+             tracked (r/track! (fn [] (swap! renders inc) (render vid)))]
+         (try
+           (is (= :empty (panel-violation-keys @tracked))
+               "CONTROL — the stored args conform, so the panel starts clean")
+           (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override-scalar
+                                          vid :heading "")
+           (ratom/flush!)
+           (is (= 2 @renders)
+               "the shell-state edit re-ran the panel's render")
+           (is (= [:heading] (panel-violation-keys @tracked))
+               "the panel reports the override's violation, as Controls does")
+           (finally
+             (r/dispose! tracked)
+             (rf.story.ui.state/reset-shell-state!)))))))
+
+#?(:cljs
+   (deftest ^:cljs panel-resolves-args-under-the-active-modes
+     (testing "an active mode that supplies an invalid :heading (the variant
+               declares none, so the story's valid default would otherwise
+               show) makes the panel report the violation"
+       (reset-all!)
+       (rf.story.ui.state/reset-shell-state!)
+       (assert-live-validator!)
+       (rf/reg-view* :view.lzzrw/moded {:rf/props heading-schema} (fn [_] [:div]))
+       (rf.story/reg-story :story.lzzrw-moded
+         {:component :view.lzzrw/moded :args {:heading "Sign in"}})
+       (rf.story/reg-mode :Mode.lzzrw/blank {:args {:heading ""}})
+       (rf.story/reg-variant :story.lzzrw-moded/v {:setup []})
+       (let [vid :story.lzzrw-moded/v]
+         (try
+           (is (= :empty (panel-violation-keys ((rf.story.ui.schema-validation/panel vid) vid)))
+               "CONTROL — with no mode active the story default conforms")
+           (rf.story.ui.state/swap-state! rf.story.ui.state/set-active-modes [:Mode.lzzrw/blank])
+           (is (= [:heading] (panel-violation-keys ((rf.story.ui.schema-validation/panel vid) vid)))
+               "the panel resolves args under the active mode, as Controls does")
+           (finally
+             (rf.story.ui.state/reset-shell-state!)))))))
 
 #?(:cljs
    (deftest ^:cljs validator-fns-defaults-to-nil-without-schemas-artefact
