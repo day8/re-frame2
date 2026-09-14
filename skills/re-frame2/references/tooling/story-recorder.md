@@ -125,7 +125,7 @@ Authoring rule for tools consuming `gen-play-snippet` output: treat any `[:rf/re
 - Capture boundary, public API, MCP wiring rationale → `tools/story/spec/005-SOTA-Features.md` §Test Codegen.
 - Trace-bus listener primitive → `tools/story/spec/003-Render-Shell.md` §Trace bus, and Spec 009 §Listener contract.
 - Variant body shape (where the recorded `:script` lands) → `stories.md` (sibling leaf).
-- Story-MCP author/refine side + the run-side handoff to `re-frame2-pair` (which owns `run-variant` / `read-failures`) → `story-mcp-loop.md` (sibling leaf).
+- Story-MCP author/refine side + the run-side handoff to `re-frame2-pair`, whose session runs the loop by calling `re-frame.story/run-variant` through `eval-cljs` (the story-mcp `run-variant` / `read-failures` tools are allow-listed by no skill) → `story-mcp-loop.md` (sibling leaf).
 
 ---
 

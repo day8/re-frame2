@@ -28,9 +28,11 @@ allowed-tools:
   - Bash(npx *)
   - Bash(shadow-cljs *)
   - Bash(clj-kondo *)
-  # story-mcp author/refine tools only; the run-side tools (run-variant /
-  # read-failures / …) live in re-frame2-pair. Split
-  # pinned by scripts/check_skill_mcp_drift.py; see references/tooling/story-mcp-loop.md.
+  # story-mcp author/refine tools only. The run-side tools (run-variant /
+  # read-failures / …) are allow-listed by no skill: the run loop belongs to a
+  # re-frame2-pair session calling re-frame.story/* through eval-cljs, and
+  # scripts/check_skill_mcp_drift.py marks them intentional_server_only here while
+  # its single-host rule keeps them out of re-frame2-pair; see references/tooling/story-mcp-loop.md.
   - mcp__re-frame2-story-mcp__get-story-instructions
   - mcp__re-frame2-story-mcp__list-stories
   - mcp__re-frame2-story-mcp__get-story
