@@ -32,8 +32,14 @@
             [re-frame.story.artifact :as rf.story.artifact]
             [re-frame.story.determinism :as rf.story.determinism]
             [re-frame.story.plan :as rf.story.plan]
+            [re-frame.story.play :as rf.story.play]
             [re-frame.story.promotion :as rf.story.promotion]
-            [re-frame.story.registrar :as rf.story.registrar]))
+            [re-frame.story.registrar :as rf.story.registrar]
+            ;; the Test-mode dialog's pure capture + draft helpers — the
+            ;; rf2-5vmog tests promote exactly the way the dialog does
+            [re-frame.story.ui.promotion :as rf.story.ui.promotion]
+            ;; `deref-blocking` is JVM-only; the run-based tests are `:clj`-gated
+            #?@(:clj [[re-frame.story.async :as rf.story.async]])))
 
 ;; ---- fixtures -----------------------------------------------------------
 ;;
@@ -419,3 +425,235 @@
       (is (= :ok (:status (:got (:app-db ran))))
           "the route stub matched on the promoted-variant run — NOT a
            fail-closed 'no stub matched' transport failure"))))
+
+;; ===========================================================================
+;; rf2-5vmog — a promoted regression fails for the reason its source failed
+;; ===========================================================================
+;;
+;; A run artifact records a program, not a judgement. Before the fix
+;; `artifact->variant-body` copied neither the source variant's terminal
+;; `:assertions` nor its `:checks`, so a source that ran `:fail` promoted
+;; into a variant that ran `:pass` with ZERO assertions. Test mode's capture
+;; (`result->artifact` over the dispatch-only `variant-play-events`) also
+;; dropped every `:script` step that is not a dispatch, so an in-script
+;; `[:assert …]` checkpoint vanished the same way.
+;;
+;; The acceptance is fail/pass/fail against the APP: the promoted variant
+;; fails under the original fault with the SAME assertion count as its
+;; source, passes BY that assertion once the handler is fixed, and fails
+;; again when the fault is restored. Two promotion routes:
+;;   - DIALOG — the Test-mode dialog's own capture helper and default draft
+;;     (`:extends` the origin, `:setup-count 0`, `#{:test}`);
+;;   - API — spec/017's own example: a plan-derived artifact promoted with
+;;     nothing but a `:variant/id`.
+;; And two expectation positions, because the measured boundary lies between
+;; them:
+;;   - DECLARATIVE — `:assertions` beside the program (lost on both routes);
+;;   - IN-PROGRAM — an `[:assert …]` checkpoint inside `:script` (survived the
+;;     API route, whose artifact keeps the whole program; lost on the dialog
+;;     route's dispatch-only capture).
+
+(defn- reg-inc!
+  "The app under test. `fixed?` false is the FAULT — `:promo/inc` never
+  moves the counter; true is the repair."
+  [fixed?]
+  (rf/reg-event :promo/inc
+    (fn [{:keys [db]} _]
+      {:db (if fixed? (update db :n (fnil inc 0)) (assoc db :n 0))})))
+
+(defn- dialog-promote!
+  "Promote `source-id`'s run `result` the way the Test-mode dialog does: its
+  capture over the dispatch-only play-events, then its default draft."
+  [source-id result promoted-id]
+  (rf.story.promotion/promote-run-artifact!
+    (rf.story.ui.promotion/result->artifact
+      result (rf.story.play/variant-play-events source-id))
+    (rf.story.ui.promotion/draft->promote-opts
+      {:variant-id promoted-id :tags #{:test} :setup-count 0 :extends source-id})))
+
+(defn- api-promote!
+  "Promote a plan-derived artifact of `source-id` with only a `:variant/id`."
+  [source-id promoted-id]
+  (rf.story.promotion/promote-run-artifact!
+    (rf.story.determinism/->artifact (rf.story.plan/variant-plan source-id))
+    {:variant/id promoted-id}))
+
+#?(:clj
+   (defn- run-verdict
+     "Run variant `id` headless and keep what a regression is judged by."
+     [id]
+     (let [result (rf.story.async/deref-blocking (rf.story/run id) 10000)]
+       {:status (:status result) :assertions (count (:assertions result))})))
+
+#?(:clj
+   (defn- fault-fix-fault
+     "Run `id` under the fault, then against the fixed app, then under the
+     restored fault."
+     [id]
+     (reg-inc! false)
+     (let [faulty (run-verdict id)]
+       (reg-inc! true)
+       (let [fixed (run-verdict id)]
+         (reg-inc! false)
+         [faulty fixed (run-verdict id)]))))
+
+#?(:clj
+   (defn- assert-promotions-fail-pass-fail
+     "Register `source-body` under `source-id`, check it fails on its one
+     assertion, promote it by both routes, and check each promotion runs
+     fail / pass / fail with one assertion throughout."
+     [source-id source-body]
+     (rf.story/install-canonical-vocabulary!)
+     (reg-inc! false)
+     (rf.story.registrar/reg-variant* source-id source-body)
+     (let [result   (rf.story.async/deref-blocking (rf.story/run source-id) 10000)
+           dialog   (keyword (namespace source-id) (str (name source-id) "-dialog"))
+           api      (keyword (namespace source-id) (str (name source-id) "-api"))
+           failing  {:status :fail :assertions 1}]
+       (is (= failing {:status (:status result) :assertions (count (:assertions result))})
+           "the source fails on its one assertion under the fault")
+       (dialog-promote! source-id result dialog)
+       (api-promote! source-id api)
+       (doseq [id [dialog api]]
+         (is (= [failing {:status :pass :assertions 1} failing]
+                (fault-fix-fault id))
+             (str id " runs fail / pass / fail with its source's one assertion"))))))
+
+#?(:clj
+   (deftest promoted-regression-keeps-its-declarative-expectation
+     (testing "a source failing on a DECLARATIVE :assertions entry promotes, by
+               the dialog route and the API route, into a variant that fails
+               with the same assertion count, passes BY that assertion once the
+               app is fixed, and fails when the fault returns (rf2-5vmog)"
+       (assert-promotions-fail-pass-fail
+         :story.promo/declared
+         {:tags       #{:test}
+          :script     [[:dispatch [:promo/inc]]]
+          :assertions [[:rf.assert/path-equals [:n] 1]]}))))
+
+#?(:clj
+   (deftest promoted-regression-keeps-its-in-script-checkpoint
+     (testing "an [:assert …] checkpoint INSIDE the program survives both routes:
+               the API artifact retains the whole program (the positive control
+               — this held before the fix), and the dialog's dispatch-only
+               capture is now replaced by the source's full program (rf2-5vmog)"
+       (assert-promotions-fail-pass-fail
+         :story.promo/checkpoint
+         {:tags   #{:test}
+          :script [[:dispatch [:promo/inc]]
+                   [:assert [:rf.assert/path-equals [:n] 1]]]}))))
+
+#?(:clj
+   (deftest promoted-regression-keeps-a-dispatched-assertion-event
+     (testing "REGRESSION GUARD — the one shape that survived before the fix: an
+               :rf.assert/* event DISPATCHED by the program rides :event-program
+               on both routes. The source program is all dispatches, so nothing
+               is replaced and nothing is carried; it must still run
+               fail / pass / fail (rf2-5vmog)"
+       (assert-promotions-fail-pass-fail
+         :story.promo/dispatched
+         {:tags   #{:test}
+          :script [[:dispatch [:promo/inc]]
+                   [:dispatch [:rf.assert/path-equals [:n] 1]]]}))))
+
+(deftest ordinary-extends-inheritance-is-unchanged
+  (testing "a plain :extends child still gets NO terminal assertions from its
+            parent — promotion carries them, inheritance deliberately does not"
+    (rf.story.registrar/reg-variant* :story.promo/parent
+      {:script     [[:dispatch [:promo/inc]]]
+       :assertions [[:rf.assert/path-equals [:n] 1]]})
+    (rf.story.registrar/reg-variant* :story.promo/plain-child
+      {:extends :story.promo/parent})
+    (is (= [[:rf.assert/path-equals [:n] 1]]
+           (get-in (rf.story.plan/variant-plan :story.promo/parent) [:expect :assertions])))
+    (is (= [] (get-in (rf.story.plan/variant-plan :story.promo/plain-child)
+                      [:expect :assertions])))))
+
+(deftest only-the-recorded-source-variant-is-carried
+  (rf.story.registrar/reg-variant* :story.promo/recorded
+    {:script     [[:dispatch [:promo/inc]]]
+     :assertions [[:rf.assert/path-equals [:n] 1]]})
+  (let [program [[:dispatch [:promo/inc]]]]
+    (testing "the source is read off the artifact: [:result :variant/id] (a
+              Test-mode capture) or [:source :variant/id] (a plan-derived one)"
+      (doseq [art [(rf.story.artifact/make-run-artifact
+                     {:event-program program
+                      :result        {:status :fail :variant/id :story.promo/recorded}})
+                   (rf.story.artifact/make-run-artifact
+                     {:event-program program
+                      :source        {:tool :determinism-gate :variant/id :story.promo/recorded}})]]
+        (is (= :story.promo/recorded (rf.story.promotion/source-variant-id art)))
+        (is (= [[:rf.assert/path-equals [:n] 1]]
+               (:assertions (rf.story.promotion/artifact->variant-body art))))))
+    (testing "an :extends parent is NOT a source — an artifact that records no
+              source is promoted exactly as captured"
+      (let [body (rf.story.promotion/artifact->variant-body
+                   (rf.story.artifact/make-run-artifact {:event-program program})
+                   {:extends :story.promo/recorded})]
+        (is (not (contains? body :assertions)))
+        (is (= program (:script body)))))
+    (testing "a recorded source that is not registered carries nothing"
+      (let [body (rf.story.promotion/artifact->variant-body
+                   (rf.story.artifact/make-run-artifact
+                     {:event-program program
+                      :result        {:variant/id :story.promo/never-registered}}))]
+        (is (not (contains? body :assertions)))
+        (is (= program (:script body)))))))
+
+(deftest source-expectations-carries-own-assertions-and-checks
+  (is (= {:assertions [[:rf.assert/path-equals [:n] 1]]
+          :checks     [:story.promo/some-check]}
+         (rf.story.promotion/source-expectations
+           {:script     [[:dispatch [:promo/inc]]]
+            :checks     [:story.promo/some-check]
+            :assertions [[:rf.assert/path-equals [:n] 1]]})))
+  (is (= {} (rf.story.promotion/source-expectations {:script [[:dispatch [:promo/inc]]]}))
+      "empty slots are omitted, so a body without expectations gains no keys")
+  (is (= {} (rf.story.promotion/source-expectations nil))))
+
+(def ^:private dom-script
+  "A DOM-driven play: typing, a click, a wait and two checkpoints, behind one
+  dispatch (Test mode offers promotion only for a run with a dispatch)."
+  [[:dispatch [:promo/open]]
+   [:type "[data-test=promo-name]" "Ada"]
+   [:click "[data-test=promo-save]"]
+   [:wait 20]
+   [:assert-dom "[data-test=promo-name]" :visible]
+   [:assert [:rf.assert/path-equals [:saved] "Ada"]]])
+
+(deftest promoted-dom-driven-variant-retains-its-script
+  (testing "the dialog's dispatch-only capture of a DOM-driven variant promotes
+            into a body carrying the source's FULL step program, so the promoted
+            plan types, clicks, waits and asserts exactly as its source does and
+            declares the same expectations and the same DOM runner requirement.
+            The browser suite `re-frame.story.promotion-dom-cljs-test` runs it
+            fail / pass / fail (rf2-5vmog)"
+    (rf.story.registrar/install-canonical-tags!)
+    (rf.story.registrar/reg-variant* :story.promo/dom
+      {:tags       #{:test}
+       :script     dom-script
+       :assertions [[:rf.assert/path-equals [:saved] "Ada"]]})
+    (let [capture  (rf.story.ui.promotion/result->artifact
+                     {:status :fail :variant/id :story.promo/dom}
+                     (rf.story.play/variant-play-events :story.promo/dom))
+          body     (rf.story.promotion/artifact->variant-body
+                     capture
+                     (rf.story.ui.promotion/draft->promote-opts
+                       {:variant-id  :story.promo/dom-promoted
+                        :tags        #{:test}
+                        :setup-count 0
+                        :extends     :story.promo/dom}))
+          source   (rf.story.plan/variant-plan :story.promo/dom)
+          promoted (rf.story.plan/variant-plan
+                     (assoc body :variant/id :story.promo/dom-promoted))]
+      (is (= [[:dispatch [:promo/open]]] (:event-program capture))
+          "Test mode captures only the dispatch — typing, click, wait and both
+           checkpoints are absent from the artifact itself")
+      (is (= (rf.story.play/variant-play-steps :story.promo/dom) (:script body))
+          "the promoted body carries the source's full step program, in order")
+      (is (= (:script source) (:script promoted)))
+      (is (= (:expect source) (:expect promoted))
+          "the same checks and the same terminal assertions")
+      (is (= (:required-runner source) (:required-runner promoted)))
+      (is (contains? (:required-runner promoted) :dom)
+          "the promoted variant is still DOM-driven, not a flattened event replay"))))
