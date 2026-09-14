@@ -220,6 +220,19 @@ Reload the browser and you are back to the seeded world, logged out. The state l
 
 To run against a real backend instead: point `realworld-resources.http/api-base` at the official hosted Conduit API (<https://api.realworld.show/api>) or a local reference backend on `http://localhost:3000/api`, and remove the demo-stub `:fx-overrides` line in `core.cljs`. The frame-wide `:realworld/bearer-auth` interceptor then attaches the JWT to every authenticated call.
 
+## Not exercised here, shown there
+
+Conduit is the whole CRUD loop, but it is not the whole Resources surface. Each capability below is real, and this example deliberately leaves it to a place that shows it:
+
+| Not exercised in Conduit | Where it is shown |
+|---|---|
+| **Server rendering and hydration.** Conduit is client-only (`routing.cljs`, and the mount in `core.cljs`). | [`examples/capabilities/ssr/resources_ssr/`](../../capabilities/ssr/resources_ssr/) — resources preloaded on the server and hydrated on the client. |
+| **Infinite reads.** Conduit pages by `limit`/`offset` behind numbered controls (`page->limit-offset` in `resources.cljs`); no resource declares `:infinite`. | [`examples/capabilities/resources/infinite_feed/`](../../capabilities/resources/infinite_feed/) — an `:infinite true` resource grown by `:rf.resource/load-more`. |
+| **Prefetch on intent.** No route link declares `:prefetch`. | The same [`infinite_feed`](../../capabilities/resources/infinite_feed/) example, whose route link carries `:prefetch :intent`. |
+| **Polling.** No resource declares `:poll-interval-ms`; Conduit revalidates on focus and reconnect instead. | [Spec 016 §Polling](../../../spec/016-Resources.md#polling). No example polls. |
+| **`:patches`.** Conduit's writes commit through `:populates` and `:invalidates`. | [`examples/capabilities/resources/linearlite/`](../../capabilities/resources/linearlite/) — each write folds the saved value back in with `:patches`. |
+| **`:removes`.** Deleting an article invalidates its reads rather than evicting the entry. | [Invalidate after a mutation §4](../../../docs/resources/how-to/invalidate-after-a-mutation.md#4-optional-the-other-cache-consequences). No example uses it. |
+
 ## RealWorld contract conformance
 
 This example follows the official RealWorld "Conduit" contract: its route shapes, the `localStorage["jwtToken"]` session key, the form `name` attributes, the selectors, and the favorite/follow toggle conventions. It reads the contract the same way the `realworld_http/` sibling does. One caveat: the contract assumes one app per origin, but the repo's dev orchestrator serves both this app and the sibling from a single origin, so the two share — and clobber — each other's `jwtToken` there. Serve the app standalone (one app per origin) and the problem goes away.
