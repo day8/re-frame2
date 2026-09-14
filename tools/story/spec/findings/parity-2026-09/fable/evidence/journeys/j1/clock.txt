@@ -1,0 +1,11 @@
+J1-story start 2026-09-14 20:17:45 AUSEST
+G5 retain edit 20:20:13
+G13 land upgrade 20:23:27
+G20 land expectations 20:25:15
+G24 add script checkpoint 20:29:14
+J1 control restore 20:30:36
+J1 control replant 20:31:23
+J1-storybook start 2026-09-14 20:32:20 AUSEST
+B6 add play 20:34:43
+J1 storybook control restore 20:36:22
+J1 storybook control replant 20:36:33
