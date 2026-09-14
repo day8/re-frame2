@@ -1,0 +1,3 @@
+13:  const [user,setUser]=useState('');
+14:  async function submit(event:React.FormEvent) {
+16:    try {const result=await authenticate(email,password);setUser("");setState('authenticated');}
