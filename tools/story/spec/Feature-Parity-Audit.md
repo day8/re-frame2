@@ -22,6 +22,57 @@
 
 ## TL;DR
 
+**2026-09-14:** the ten gaps this manifest named are re-verified below. Nine
+are closed and one, the scaffolder [D-1], is open (rf2-1bkoc); the 2026-09
+research also found six gaps this manifest did not name. The standing way to
+measure closeness is now the job-based test in
+[`023-Parity-Test.md`](023-Parity-Test.md), which carries the protocol, the
+per-job table and its bead ids. Re-run that rather than re-walking these 33
+axes; the "28 of 33" reading below is history.
+
+## 2026-09-14 re-verification
+
+Re-verified at trunk `911c2fed80` against source, not against this manifest's
+own claims. "Source-verified" means the landed change was read and nothing was
+run; the per-job walk that would re-score it is rf2-4gijz.
+
+| Gap | 2026-05-20 | 2026-09-14 status | Closed by |
+|---|---|---|---|
+| [C-1] global decorator | missing, P2 | closed: `reg-global-decorator` and `configure! :global-decorators` | rf2-835ey (PR #1664); rf2-9qpk3 (PR #1760) |
+| [C-2] rich prose | plain text | closed: markdown, a CommonMark subset | rf2-wl7yr (PR #1764) |
+| [C-3] loader teardown | missing, P2 | closed: `:loaders-teardown` | rf2-lqs0b (PR #1762) |
+| [C-4] per-story docs rollup | missing, P3 | closed: the story rollup page | rf2-8j7wg (PR #1764) |
+| [C-5] args undermarketed | P3, docs | closed: args are branded in the docs, and a shipped view now carries a props schema so derived controls can be seen; source-verified only | PR #1759; rf2-wmoer (PR #9800); PR #9807 |
+| [D-1] scaffolder | missing | **open**: `tools/template` carries no Story wiring | rf2-1bkoc |
+| [D-2] vocabulary install ceremony | mandatory | closed: the first `reg-*` auto-installs the canonical vocabulary | rf2-p1ydc (PR #1722); PR #1761 |
+| [D-3] Playwright recipe | missing | closed: `Tutorial-Playwright.md`, beside `Tutorial-CLJS-Unit.md` | rf2-6qqry (PR #1670); PR #1759 |
+| [I-1] frame-as-isolation | undermarketed | closed for STATE; chapter 02 now says a frame isolates state, not the page (the document half is gap A7 below) | PR #1759; rf2-b7o66 (PR #9801) |
+| [I-2] schema-derived controls | undermarketed | closed: taught, and demonstrated on the login-form testbed; source-verified only | PR #1759; rf2-wmoer (PR #9800) |
+
+**The reference moved too.** Storybook 10.6 (released 2026-09-02) installs
+`@storybook/addon-vitest` and `@storybook/addon-a11y` by default and ships
+`@storybook/addon-mcp` in preview, so the older "no peer has MCP" reading is
+false. [`023-Parity-Test.md`](023-Parity-Test.md) §8 carries the comparison set
+with versions and read dates.
+
+**Gaps this manifest did not name**, found by the 2026-09-14 research. The job
+ids are 023's.
+
+| Gap | Job | Status | Bead |
+|---|---|---|---|
+| Test-mode promotion cannot capture a variant whose `:script` has no dispatch step (every login-form testbed variant has that shape), and the JVM bridge registers a hollow body from a nil artifact | B6 | OPEN | rf2-vgthk |
+| A failed assertion's Tests-pane row never renders its link to the Evidence beat: canonical assertion records carry no dispatch id | B5 | held for Mike | rf2-v5p6l |
+| A fidelity upgrade keeps `:sub-overrides` pins that arrive through composed fragments | B4 | held for Mike | rf2-yt6ak |
+| Document isolation: a frame isolates app-db, effects and loaders, not CSS, focus, portals or timers; the canvas is a stamped `div` in one page (`ui/canvas.cljs:728`) | A7 | recorded, not to be built until a real user names a CSS-isolation job; the canvas colour policy is an operator call (rf2-w72ij) | — |
+| Everyday visual review: `:rf.assert/visual-snapshot` compares the identity key, and no local capture-and-compare path exists | B7 | an experiment before any decision | rf2-ia2if |
+| No scaffolder: a fresh app from `tools/template` does not reach `#/stories` | A1 | OPEN (carried from [D-1]) | rf2-1bkoc |
+
+## 2026-05-20 audit (history)
+
+The manifest below is unedited apart from its heading levels.
+
+### TL;DR (as written 2026-05-20)
+
 Story matches or exceeds Storybook on 28 of 33 capability axes audited.
 Five genuine capability gaps remain:
 
@@ -54,7 +105,7 @@ Two **insight gaps** the spec covers correctly but undermarkets:
 
 The rest is matches or wins. See §Per-axis status table below.
 
-## Phase A method
+### Phase A method
 
 Storybook React tutorial axes walked (33):
 
@@ -86,7 +137,7 @@ set already covers 7 chapters; the prior finding's 18-chapter outline
 covers the remainder. The forcing-function part of the brief is fulfilled
 by the prior pass; this manifest captures the gap-only summary.
 
-## Per-axis status table
+### Per-axis status table
 
 | # | Storybook capability | Story counterpart | Status | Category | Fix scope | Suggested priority | Notes |
 |---|---|---|---|---|---|---|---|
@@ -133,9 +184,9 @@ by the prior pass; this manifest captures the gap-only summary.
 
 **Score:** 28 wins or matches · 5 capability gaps · 3 DX gaps · 2 insight gaps · 3 divergent-by-design (composition / VR service / custom-chrome-themes — all locked rejections).
 
-## Per-gap briefs
+### Per-gap briefs
 
-### [C-1] No global decorator primitive (P2, M)
+#### [C-1] No global decorator primitive (P2, M)
 
 Storybook ships `preview.ts` with `decorators: [...]` — an array applied
 to every story in the project. Story's `reg-decorator` registers a
@@ -157,7 +208,7 @@ shape applies to decorators (story-level wraps innermost, etc.).
 Bead body should reference both [C-1] here and [F-1] in the prior
 finding.
 
-### [C-2] No MDX / rich-prose rendering (P3, S-M)
+#### [C-2] No MDX / rich-prose rendering (P3, S-M)
 
 Story's docs pane renders prose as `pre-wrap` plain text — explicitly
 out-of-scope at v1 per `008-Docs-Mode.md` §Out of scope. Storybook's
@@ -187,7 +238,7 @@ layer, keeping the EDN-first contract). See
 Doc-Blocks-equivalent canvas / source / args-table components remain the
 separate chrome surfaces they already were.
 
-### [C-3] No loader-teardown hook (P2, M)
+#### [C-3] No loader-teardown hook (P2, M)
 
 `destroy-variant!` tears down the variant's frame, but a long-lived
 fx registered by `:loaders` (websocket open, interval, geolocation
@@ -207,7 +258,7 @@ fix.
 
 **Status:** filed as `rf2-NEW-3` (= F-3) in the prior finding.
 
-### [C-4] No per-story-rollup docs page (P3, S)
+#### [C-4] No per-story-rollup docs page (P3, S)
 
 Storybook's `Component.docs` (or `<Meta of={...} />` in MDX) gives
 each component a single docs page that aggregates all its variants.
@@ -231,7 +282,7 @@ spec acknowledges this as v2; this manifest surfaces it as a
 candidate to promote to v1.1 since rollup docs are foundational to
 Storybook's docs UX.
 
-### [C-5] "Args" mental model is undermarketed (P3, S — doc-only)
+#### [C-5] "Args" mental model is undermarketed (P3, S — doc-only)
 
 Story has args. Five-layer precedence. Schema-derived controls. All
 of this is strictly stronger than Storybook's args + argTypes —
@@ -253,7 +304,7 @@ Pair with F-5 (schema → controls auto-derivation promotion).
 **Status:** **NEW insight gap, partly overlaps F-5.** File as a
 follow-on bead alongside F-5; consider folding them together.
 
-### [D-1] No `npx storybook init`-style one-liner scaffolder (P3, S)
+#### [D-1] No `npx storybook init`-style one-liner scaffolder (P3, S)
 
 Storybook's `npx storybook init` walks the user through framework
 detection, deps install, config scaffolding, and example-story
@@ -274,7 +325,7 @@ namespace + the boot call. Optional: a `bb new` template that
 **Status:** **NEW DX gap, not in prior tutorial-walk findings.**
 File as follow-on bead.
 
-### [D-2] `install-canonical-vocabulary!` boot ceremony (P4, S)
+#### [D-2] `install-canonical-vocabulary!` boot ceremony (P4, S)
 
 Every Story consumer must call `(story/install-canonical-vocabulary!)`
 exactly once at boot — or registrations fail with
@@ -287,7 +338,7 @@ auto-install on first `reg-*`) per the most recent commit
 (a7bed2e1e). Worth verifying whether F-11 is now closed or whether
 there's a residual edge.
 
-### [D-3] No tutorial-shape Playwright recipe for end-users (P3, S)
+#### [D-3] No tutorial-shape Playwright recipe for end-users (P3, S)
 
 The CLJS Story project ships `story_feature_load.cjs` +
 `story_browser_scenarios.cjs` (gate-level coverage) +
@@ -300,7 +351,7 @@ test-runner docs lands and has to read the gate's source.
 spec slot exists at `tools/story/spec/Tutorial-Playwright.md` (file
 created); audit didn't verify whether content was written.
 
-### [I-1] Frame-as-isolation is the stateful-stories answer (P3, S — doc-only)
+#### [I-1] Frame-as-isolation is the stateful-stories answer (P3, S — doc-only)
 
 Storybook recommends `useArgs()` and the Args panel for stateful
 stories — with the limitation that hooks-inside-stories trip React
@@ -311,7 +362,7 @@ no cross-cell bleed in a `:variants-grid` workspace.
 **Status:** filed as `rf2-NEW-4` (= F-4) in the prior finding.
 Doc-only addition to `001-Authoring.md`.
 
-### [I-2] Schema → controls auto-derivation is THE controls story (P3, S — doc-only)
+#### [I-2] Schema → controls auto-derivation is THE controls story (P3, S — doc-only)
 
 The schema-derivation pipeline (`001-Authoring.md` §Schema-derivation
 pipeline) reads as implementation detail. A reader expecting
@@ -323,7 +374,7 @@ the view's Malli schema) as the headline.
 Doc-only — promote the schema-derivation table to a top-level
 §Controls section.
 
-## Deliberately-deferred Storybook capabilities (NOT gaps)
+### Deliberately-deferred Storybook capabilities (NOT gaps)
 
 These are SB capabilities Story rejects by design. They are NOT gaps;
 they are divergent-by-design. The locks are in
@@ -344,7 +395,7 @@ rationale pointer.
 | Throw-on-first-failure assertion semantics | rejected | `DESIGN-RATIONALE.md` §Rejected: throw-on-first-failure | Record-don't-throw shows the full picture of what went wrong vs. Storybook's "first failure halts everything." |
 | In-process MCP server | rejected (delegated) | `DESIGN-RATIONALE.md` §separate-mcp-jar | stdio + JSON-RPC machinery doesn't belong in every Story consumer's bundle. `tools/story-mcp/` is the separate jar. |
 
-## Polish posture vs Storybook
+### Polish posture vs Storybook
 
 The prior tutorial-walk finding §5 (Visual polish observations) covers
 this dimension; the verdict was **"chrome competitive with Storybook 9
@@ -367,7 +418,7 @@ Three polish dimensions explicitly evaluated:
 No polish-gap beads filed. The chrome differentiators are intentional
 and the identity is ahead.
 
-## Filing plan (Phase B input for Mike)
+### Filing plan (Phase B input for Mike)
 
 The candidates for Phase C implementation beads are categorised below by
 priority. The prior tutorial-walk finding already filed `rf2-NEW-1`
@@ -376,7 +427,7 @@ through `rf2-NEW-12`; this manifest **adds five new candidates**
 prior findings under the [F-N] cross-reference**. Mike's Phase B
 decision is which subset to action.
 
-### P2 candidates (block tutorial completeness)
+#### P2 candidates (block tutorial completeness)
 
 | Candidate | Source | Scope | Notes |
 |---|---|---|---|
@@ -384,7 +435,7 @@ decision is which subset to action.
 | **C-3 / F-3** — Loader-teardown hook | prior finding | M | `rf2-NEW-3` filed; spec drift |
 | **F-2** — Loader failure modes doc | prior finding | S (doc) | `rf2-NEW-2` filed; addition to `002-Runtime.md` |
 
-### P3 candidates (polish / discoverability)
+#### P3 candidates (polish / discoverability)
 
 | Candidate | Source | Scope | Notes |
 |---|---|---|---|
@@ -399,14 +450,14 @@ decision is which subset to action.
 | **F-8** — Tutorial-Embed.md / share+embed recipe | prior finding | S (doc) | ~~content TBD~~ — `Tutorial-Embed.md` is now a substantive recipe (318 lines: share-URL + `?embed=1` embed-mode walkthrough) |
 | **F-10** — `:play` vs `:play-script` canonical decision | prior finding | — | **RESOLVED** via rf2-0wrud / commit 3f5ae2512 (2026-05-20): `:play` removed entirely; `:play-script` is the only canonical slot. Tutorial set should use `:play-script` everywhere |
 
-### P4 candidates (naming / ergonomic nits)
+#### P4 candidates (naming / ergonomic nits)
 
 | Candidate | Source | Scope | Notes |
 |---|---|---|---|
 | **F-9** — `:for` slot doc addition | prior finding | S (doc) | `rf2-NEW-9` filed |
 | **D-2 / F-11** — Auto-install canonical vocabulary | prior finding | S | `rf2-NEW-11` filed; **partially shipped via rf2-p1ydc** — verify residual scope |
 
-### Phase D (tutorial set) gate
+#### Phase D (tutorial set) gate
 
 The shipped `docs/story/01..07` tutorial chapters cover seven concepts.
 The prior finding's 18-chapter outline maps the full tutorial ladder.
@@ -415,7 +466,7 @@ landing — specifically C-1, C-3, F-2 — plus the P3 doc-only items
 (C-5, I-1, I-2, F-7, F-8, F-10) which are independent and parallel-
 dispatchable.
 
-## Cross-references
+### Cross-references
 
 - Prior tutorial-walk finding: `ai/findings/2026-05-20-story-tutorial-set.md` (local-only; rf2-l6jev).
 - Parallel API audit: `ai/findings/2026-05-20-tools-story-api-review.md` (local-only; rf2-u6o12).

@@ -252,6 +252,24 @@ leverage:
 - Xray can expose runtime causality that ordinary component-story tools
   cannot reconstruct.
 
+Each surpass item carries a tier: **BUILT** (shipped, with an executed probe
+or test behind it), **SPECIFIED** (the contract is written and the code does
+not yet do all of it) or **IMAGINED** (named, neither specified nor built).
+The tiers were read at trunk `911c2fed80` (2026-09-14) and are re-read by
+[`023-Parity-Test.md`](023-Parity-Test.md); a tier moves on evidence, never on
+a merged fix alone.
+
+| Surpass item | Tier | Evidence |
+|---|---|---|
+| Variants are executable application plans | BUILT | A data-only variant runs to `:fail` with actual and expected on the record (`story_is_test.clj` `story-is-reports-per-assertion-fail`; 023's detection control, job B1) |
+| Tests, docs, canvas, agent calls and replay share one plan | BUILT | `story/run` and story-mcp `run-variant` carry `:plan-hash` / `:run-hash`, and a run and a render of one scenario agree (PR #9796; `run_result_hashes_test.clj`, `run_result_roundtrip_test.clj`; 023 probe 7) |
+| Story MCP and the skills drive the UI's plan/result path | BUILT for story-mcp; the skills' host-decision rule is OPEN (rf2-szjjx) | The stdio loop runs a variant to `:fail`, re-registers it and runs it to `:pass` over the unified result (023 protocol step 5) |
+| Every run can produce an epoch-backed evidence tape | BUILT | `:epoch-tape` and `:narrative` on every `story/run` result (023 probe 7; `play/evidence_test.cljc`) |
+| Failures explain themselves | BUILT in data; SPECIFIED in the UI gesture until rf2-v5p6l | The tape, narrative and effects ride the result; a failed assertion's Tests-pane row does not render its link to the Evidence beat (rf2-v5p6l, held) |
+| Explicit args with honest fidelity rungs | BUILT for the rung labels and the single-parent upgrade (PR #9803); pins composed from fragments survive the upgrade (rf2-yt6ak, held) | 023 probe 5b; `view_state_upgrade_test.clj` |
+| Generated failures promote to curated variants | BUILT for dispatch-bearing scripts (PR #9804); SPECIFIED for dispatch-free scripts until rf2-vgthk | 023 probes 6c and 6d; [`017-Testing-Story.md`](017-Testing-Story.md) §Promotion |
+| Xray exposes runtime causality | BUILT | The per-variant Xray embed paints its panels (`xray_embed_e2e_cljs_test.cljs`); the per-cell cascade with source coordinates was walked on the login-form testbed at the research pin |
+
 Story should not copy Storybook's weaker patterns:
 
 - addon sprawl as the primary extension model;

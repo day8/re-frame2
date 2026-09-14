@@ -2215,6 +2215,17 @@ make a successful render a passing test.
  :error optional-error}
 ```
 
+**The identity hashes are attached, not promised.** `story/run` (JVM and
+CLJS) and story-mcp `run-variant` return both strings (rf2-7vz97, PR
+#9796). `re-frame.story.result/run-result` derives `:run-hash` over the
+assembled result's `run-hash-input-keys` slice, so every result that
+boundary mints carries one and a caller-supplied value is overwritten.
+The runtime stamps `:plan-hash` over the plan that ran, the same slice
+`render-variant` hashes, so a run and a render of one scenario agree;
+`:plan-hash` is absent only when no plan compiled (a throw before plan
+compile). Both are equal across reruns of a deterministic scenario, so
+comparing them tells a changed plan from changed behaviour.
+
 Assertion record:
 
 ```clojure
@@ -2484,6 +2495,21 @@ uses `render-variant`, not a browser-tier test run by default.
 
 This API is required before composition is considered complete.
 Composition without explanation is hidden global state.
+
+**Which arg layers `explain` folds.** `(story/explain target opts)` explains
+the scenario `story/run` executes, so the promise that
+`[:explain :effective-args]` is the map feeding the view holds for a
+registered variant. For a keyword target it folds the ambient and per-run
+layers (global args, the parent story's `:args`, and any `:active-modes` /
+`:cell-overrides` in `opts`) through `re-frame.story.args/run-arg-layers`, so
+`[:explain :args]` and `[:explain :effective-args]` equal
+`plan/effective-args` and the run result's `:effective-args`; a
+caller-supplied `:run-args` wins (rf2-noxox, PR #9799). The Explain panel
+compiles a keyword target the same way, and so do `render/prepare-render`
+and the View-State panel (rf2-851t0, PR #9810). The pure compiler is the
+other reading and stays explicit: `(:explain (variant-plan target opts))`
+with no `:run-args`, and any inline map target (which runs with no ambient
+layers), carries the variant-chain arg layer alone.
 
 ## Epoch tape and narrative
 
@@ -2948,7 +2974,7 @@ the plan compiler (`re-frame.story.assertions/known-assertion-ids`):
 
 | Assertion | Token | Runner | Proof |
 |---|---|---|---|
-| `:rf.assert/visual-snapshot` | `:pixels` | `:browser` | real-browser screenshot + pixel diff (or the reused `content-hash` snapshot identity) |
+| `:rf.assert/visual-snapshot` | `:pixels` | `:browser` | the reused `content-hash` snapshot identity, compared against a baseline: the key, not pixels (see below) |
 | `:rf.assert/a11y` | `:a11y-engine` | `:browser` | axe-style scan (reuses the `re-frame.story.ui.a11y` axe-core hook) |
 | `:rf.assert/a11y-structural` | `:hiccup-structure` | `:hiccup` | pure structural a11y facts over the rendered hiccup tree |
 
@@ -2961,6 +2987,18 @@ browser or the axe engine. Because the hiccup tree is data, it is fully
 JVM-testable and the `:hiccup` runner satisfies it. Semantic checks that
 genuinely need layout/contrast (colour contrast, computed visibility) stay
 on `:rf.assert/a11y`.
+
+**What `:rf.assert/visual-snapshot` compares today: the identity key, not
+pixels.** Under a browser the finding passes when no baseline is supplied, and
+otherwise iff the variant's `snapshot-identity` `:content-hash` equals the
+baseline's (`re-frame.story.play.browser/eval-visual-snapshot`). That hash is
+over declarations (the variant and story bodies, effective args and tags, the
+view-schema digest, active modes and substrate), not over loaded CSS, the view
+implementation, fonts or any rendered output. `:pixels` names a real-browser
+screenshot and pixel diff, and nothing in the tree fulfils it: no runner
+captures a screenshot and diffs it against a baseline. A green visual snapshot
+therefore means "the declared inputs did not change", never "the pixels did
+not change". A local capture-and-compare experiment is rf2-ia2if.
 
 ### The executor: reuse, not a second system
 
@@ -2979,8 +3017,8 @@ a differ or a second axe loader:
 
 - visual — `re-frame.story.identity/snapshot-identity` (the `content-hash`
   visual-regression KEY the MCP `snapshot-identity` tool already surfaces)
-  is the snapshot identity the finding records; a real pixel diff lands
-  with the `:pixels` browser runner;
+  is the snapshot identity the finding records; nothing in the tree
+  fulfils `:pixels` yet, so no pixel diff exists (see above);
 - a11y — `re-frame.story.ui.a11y` (the in-browser axe-core panel + its
   `violations-by-frame` atom the MCP `read-a11y-violations` tool already reads). The
   CLJS-only panel REGISTERS its violations-reader into a one-way late-bound
@@ -3166,6 +3204,24 @@ interactions, waits and `[:assert …]` checkpoints survive. This happens at
 the promotion boundary only: ordinary `:extends` inheritance is unchanged,
 and terminal assertions and `:script` stay child-only. An artifact that
 records no registered source is promoted as captured.
+
+**The capture boundary, and the hole that remains.** What a promotion can
+carry depends on what the capture handed it. The API route, an artifact
+built from the compiled plan (`determinism/->artifact` of `variant-plan`),
+carries every source shape. The Test-mode dialog captures
+`play/variant-play-events`, which keeps a script's `:dispatch` /
+`:dispatch-sync` steps and nothing else. For a source whose `:script` carries
+at least one dispatch, Source intent above restores the full step program and
+the declarative `:assertions` / `:checks`, so the promoted variant fails under
+the fault, passes after the fix and fails again when the fault returns. A
+source whose `:script` has **no** dispatch step (setup events plus
+`[:assert …]` checkpoints, the shape of every `:story.login-form/*` testbed
+variant and of the first variant in `docs/story/01-first-variant.md`) yields
+no play events. `ui.promotion/result->artifact` then returns nil and the Test
+pane offers no promote affordance; on the JVM `promote-run-artifact!` refuses
+a missing `:variant/id` but not a nil artifact, and registers a body that
+passes with no assertions. That hole is open until rf2-vgthk; probe 6d in
+[`023-Parity-Test.md`](023-Parity-Test.md) reproduces it.
 
 ## Run artifact and replay
 
