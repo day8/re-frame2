@@ -49,11 +49,14 @@
   A user can UPGRADE a low-fidelity state to a higher rung WITHOUT
   changing the artifact kind — it stays a `reg-variant`. The section
   offers, per available higher rung, a scaffold snippet
-  (`upgrade-snippet`) that re-emits the SAME variant (`:extends` the
-  source) with a `:setup` (→ `:real-setup`) or `:db-seed` (→ `:db-seed`)
-  slot to fill in, dropping the `:sub-overrides`. The upgrade emits a
-  copy-paste scaffold the author completes, exactly as save-variant /
-  author-expectations do (source is never written directly).
+  (`upgrade-snippet`) that re-emits the SAME variant with a `:setup`
+  (→ `:real-setup`) or `:db-seed` (→ `:db-seed`) slot to fill in,
+  dropping the `:sub-overrides`. It `:extends` the source only when the
+  source's chain pins nothing — `:extends` inherits a pin — and otherwise
+  re-emits the source's own slots over its nearest pin-free ancestor. The
+  upgrade emits a copy-paste scaffold the author completes, exactly as
+  save-variant / author-expectations do (source is never written
+  directly).
 
   ## Schema-generated value entry (rf2-xon7j)
 
@@ -91,6 +94,7 @@
   the Story UI). The pure `.cljc` helpers carry no DOM / Reagent dep."
   (:require [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.predicates :as rf.story.predicates]
+            [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.ui.schema-validation :as rf.story.ui.schema-validation]
             ;; `clojure.string` is consumed ONLY by the `:cljs` render
             ;; helpers (`str/join` in the provenance lines); the pure
@@ -370,34 +374,105 @@
   (keyword (or (namespace source-variant-id) "story.upgraded")
            (str (name (or source-variant-id :variant)) "-upgraded")))
 
+(def ^:private upgrade-slots
+  "Per target rung: the authoring slot an upgrade adds, the placeholder the
+  author fills, and the one-line note. The note is emitted on ITS OWN LINE
+  above the slot, never after it: the slot is the body's last line, and a
+  `;` comment there swallows the envelope's closing `})`, so the snippet no
+  longer reads (rf2-mw9th)."
+  {:real-setup {:key         :setup
+                :placeholder "[[:dispatch [:your/setup-event {}]]]"
+                :note        ";; real events — proves handlers + app-db"}
+   :db-seed    {:key         :db-seed
+                :placeholder "{}"
+                :note        ";; schema-checked direct app-db seed — fill the validated state shape"}})
+
+(def ^:private not-restated
+  "Source slots an upgrade never re-emits: `:extends` is re-pointed, the
+  `:sub-overrides` are the pin being dropped, and `:source` is the
+  registrar's coords stamp rather than anything the author wrote."
+  #{:extends :sub-overrides :source})
+
+(defn- default-variant-lookup
+  "Raw variant-body lookup off the Story side-table — the same default the
+  plan compiler resolves `:extends` through."
+  [variant-id]
+  (rf.story.registrar/handler-meta :variant variant-id))
+
 (defn upgrade-snippet
   "Build the copy-paste EDN scaffold that UPGRADES `source-variant-id` to
   the `target-rung` fidelity, KEEPING it a `reg-variant` (same artifact
-  kind). Pure data → string.
+  kind). Returns a string that reads back as ONE `(story/reg-variant …)`
+  form.
 
-  The scaffold `:extends` the source (so `:component` / `:decorators` /
-  args carry forward) and adds the rung's authoring slot for the author
-  to fill — `:setup` for `:real-setup`, `:db-seed` for `:db-seed` — while
-  dropping the `:sub-overrides` (the upgrade replaces the picture with
-  real evidence). Raw values are placeholders the author completes; this
-  surface deliberately does not type them (rf2-xon7j is separate).
+  The scaffold carries the source's context forward and adds the rung's
+  authoring slot for the author to fill — `:setup` for `:real-setup`,
+  `:db-seed` for `:db-seed` — while dropping the `:sub-overrides` (the
+  upgrade replaces the picture with real evidence). Raw values are
+  placeholders the author completes; this surface deliberately does not
+  type them (rf2-xon7j is separate).
+
+  HOW the pin is dropped. `:extends` inherits `:sub-overrides` — per query,
+  child wins, and nothing deletes an entry — so a scaffold that `:extends` a
+  pinning source keeps the pin whatever it adds. The generator therefore
+  walks the source's RAW `:extends` chain
+  (`rf.story.plan/resolve-source-chain`) and:
+
+  - no layer pins → `:extends` the source, so its context flows down;
+  - a layer pins → `:extends` the nearest ancestor ABOVE the first pinning
+    layer (none when the root pins) and re-emits the source's OWN slots
+    minus `not-restated`. Pinned layers between that ancestor and the
+    source are named in a trailing comment rather than merged here — the
+    plan compiler stays the single merge authority.
+
+  An existing value for the rung's slot is kept rather than duplicated.
+  `opts` `:lookup` — a `(variant-id) → raw-body` fn or `{id → body}` map —
+  defaults to the Story side-table. Pure given the lookup.
 
   Hand-built body (rather than `save-variant/gen-variant-snippet`, which
   only emits `:args`) so the rung slot reads honestly, but reusing the
-  same `(story/reg-variant <id> {:extends <src> …})` shape + alias."
-  [source-variant-id target-rung]
-  (let [new-id (upgraded-variant-id source-variant-id)
-        slot   (case target-rung
-                 :real-setup
-                 ":setup   [[:dispatch [:your/setup-event {}]]] ; real events — proves handlers + app-db"
-                 :db-seed
-                 ":db-seed {} ; schema-checked direct app-db seed — fill the validated state shape")]
-    (str (rf.story.predicates/reg-variant-envelope
-           "story" new-id
-           (str ":extends " (pr-str source-variant-id) "\n"
-                "   " slot))
-         "\n;; upgrade of " (pr-str source-variant-id)
-         " — drop :sub-overrides; the artifact stays a variant.")))
+  same `(story/reg-variant <id> { … })` envelope + alias."
+  ([source-variant-id target-rung]
+   (upgrade-snippet source-variant-id target-rung nil))
+  ([source-variant-id target-rung {:keys [lookup]}]
+   (let [lookup  (or lookup default-variant-lookup)
+         {slot :key :keys [placeholder note]}
+         (or (get upgrade-slots target-rung)
+             (throw (ex-info (str "re-frame2-story: no upgrade slot for rung " target-rung)
+                             {:target-rung target-rung})))
+         body    (lookup source-variant-id)
+         chain   (when body
+                   (rf.story.plan/resolve-source-chain source-variant-id body lookup))
+         pin-at  (first (keep-indexed (fn [i layer]
+                                        (when (seq (get-in layer [:body :sub-overrides])) i))
+                                      chain))
+         base    (if pin-at
+                   (when (pos? pin-at) (:variant/id (nth chain (dec pin-at))))
+                   source-variant-id)
+         own     (when pin-at (apply dissoc body not-restated))
+         skipped (when pin-at
+                   (map :variant/id (subvec chain pin-at (dec (count chain)))))
+         pinned  (into [] (comp (mapcat #(keys (get-in % [:body :sub-overrides])))
+                                (distinct))
+                       chain)
+         lines   (concat
+                   (when base [(str ":extends " (pr-str base))])
+                   (for [[k v] (sort-by (comp str key) (dissoc own slot))]
+                     (str (pr-str k) " " (pr-str v)))
+                   [note
+                    (str (pr-str slot) " "
+                         (if (contains? own slot) (pr-str (get own slot)) placeholder))])]
+     (str (rf.story.predicates/reg-variant-envelope
+            "story" (upgraded-variant-id source-variant-id)
+            (apply str (interpose "\n   " lines)))
+          "\n;; upgrade of " (pr-str source-variant-id)
+          (if pin-at
+            (str " — drops :sub-overrides on " (pr-str pinned)
+                 " rather than :extends-ing the pin; the artifact stays a variant.")
+            " — the artifact stays a variant.")
+          (when (seq skipped)
+            (str "\n;; not carried: " (apply str (interpose ", " (map pr-str skipped)))
+                 " — pinned layers of its :extends chain; copy any other slots you still need."))))))
 
 ;; ===========================================================================
 ;; PURE: the composed section model (host-free)
@@ -1094,8 +1169,8 @@
               :hint             [:div
                                  (str "Copy this scaffold into your stories namespace and fill the "
                                       (name target-rung)
-                                      " slot. The upgraded artifact stays a variant — "
-                                      "drop the :sub-overrides once real evidence drives the state. "
+                                      " slot. The upgraded artifact stays a variant and carries "
+                                      "no :sub-overrides — real evidence drives the state. "
                                       "Source is never written directly.")]
               :snippet          snippet
               ;; The scaffold's id is DERIVED (the upgrade keeps it a
