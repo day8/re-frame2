@@ -1,6 +1,6 @@
 ;; {{name}} — re-frame2 application (UIx).
 ;;
-;; The two day8/re-frame2 coordinates ride one version; bump them together.
+;; The day8/re-frame2 coordinates ride one version; bump them together.
 ;; uix.core is direct: the views author with `$` and `defui`. uix.dom is
 ;; NOT — the adapter's `client-root` / `render!` own the React Root.
 {:paths ["src"]
@@ -11,8 +11,13 @@
          day8/re-frame2-uix        {:mvn/version "{{rf2-version}}"}
          com.pitch/uix.core        {:mvn/version "1.4.4"}}
 
- ;; shadow-cljs.edn reads its classpath from this alias. Deps only — the
+ ;; shadow-cljs.edn reads its classpath from these aliases. Deps only — the
  ;; `npx shadow-cljs` wrapper supplies its own `-m`, so no :main-opts here.
  :aliases
  {:shadow {:extra-paths ["test"]
-           :extra-deps  {thheller/shadow-cljs {:mvn/version "{{shadow-version}}"}}}}}
+           :extra-deps  {thheller/shadow-cljs {:mvn/version "{{shadow-version}}"}}}
+
+  ;; Story, the component playground (src/{{nested-dirs}}/stories.cljs).
+  ;; Until Story is published it resolves from a re-frame2 checkout beside
+  ;; this project; then it is a :mvn/version at the version above.
+  :dev    {:extra-deps {day8/re-frame2-story {:local/root "../re-frame2/tools/story"}}}}}

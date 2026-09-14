@@ -9,14 +9,16 @@
      3. `post-process-fn` prints the generated project's next steps.
 
    The template has ONE selector, `:substrate` (`:reagent` by default, or
-   `:uix`), and emits the same twelve-file counter SPA for every value of
-   it. Only `deps.edn`, `core.cljs` and `views.cljs` differ per substrate;
-   they live under `_<substrate>/` and `template-fn` picks the tree. A new
+   `:uix`), and emits the same thirteen-file counter SPA for every value of
+   it — the counter, its test, and the Story wiring that puts the counter
+   in the component playground on the dev build. Only `deps.edn`,
+   `core.cljs`, `views.cljs` and `stories.cljs` differ per substrate; they
+   live under `_<substrate>/` and `template-fn` picks the tree. A new
    substrate is one `substrate-registry` entry, one `_<substrate>/` tree of
-   those three files, and one arm in `template-fn`'s `case`.
+   those four files, and one arm in `template-fn`'s `case`.
 
    deps-new performs flat `{{key}}` substitution, so the one per-substrate
-   difference outside those three files — the display name — rides a
+   difference outside those four files — the display name — rides a
    substitution value (`{{substrate-label}}`). Unknown arguments fail
    closed."
   (:require [clojure.set :as set]
@@ -185,10 +187,13 @@
      :npm-name        (->npm-name main)
      ;; Checked against the repository's sources of truth (VERSION,
      ;; implementation/package.json) by version_lockstep_test.clj; bump
-     ;; them together.
+     ;; them together. The last two are the npm packages Story's shell needs
+     ;; beyond React (the machine canvas of the Xray it embeds).
      :rf2-version     "0.0.1.alpha"
      :shadow-version  "3.4.10"
-     :react-version   "19.3.0"}))
+     :react-version   "19.3.0"
+     :xyflow-version  "12.4.2"
+     :elkjs-version   "0.11.1"}))
 
 ;; -- template-fn --------------------------------------------------------------
 ;;
@@ -202,8 +207,8 @@
 
 (defn template-fn
   "Attach the file transforms: the substrate-agnostic `_shared/` files,
-   renamed into place, then the chosen substrate's `deps.edn`, `core.cljs`
-   and `views.cljs`."
+   renamed into place, then the chosen substrate's `deps.edn`, `core.cljs`,
+   `views.cljs` and `stories.cljs`."
   [edn data]
   (let [nested          (:nested-dirs data)
         src             (fn [f] (str "src/" nested "/" f))
@@ -215,9 +220,10 @@
                            "subs.cljs"        (src "subs.cljs")
                            "events_test.cljs" (str "test/" nested "/events_test.cljs")}
                           :only]]
-        substrate-files {"deps.edn"   "deps.edn"
-                         "core.cljs"  (src "core.cljs")
-                         "views.cljs" (src "views.cljs")}
+        substrate-files {"deps.edn"     "deps.edn"
+                         "core.cljs"    (src "core.cljs")
+                         "views.cljs"   (src "views.cljs")
+                         "stories.cljs" (src "stories.cljs")}
         ;; One arm per substrate, naming its resource tree.
         per-substrate   (case (:substrate data)
                           :reagent [["_reagent" "." substrate-files :only]]
@@ -237,7 +243,7 @@
   (println (str "  cd " (:target-dir data)))
   (println "  npm install")
   (println "  npx shadow-cljs watch app")
-  (println "Then open http://localhost:8280")
+  (println "Then open http://localhost:8280, and http://localhost:8280/#/stories for Story")
   (println (str "Until day8/re-frame2 is published, point its coordinates in "
                 "deps.edn at a checkout with :local/root before the first watch."))
   nil)

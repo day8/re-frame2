@@ -1,6 +1,6 @@
 ;; {{name}} — re-frame2 application (Reagent).
 ;;
-;; The two day8/re-frame2 coordinates ride one version; bump them together.
+;; The day8/re-frame2 coordinates ride one version; bump them together.
 {:paths ["src"]
 
  :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
@@ -9,8 +9,13 @@
          day8/re-frame2-reagent    {:mvn/version "{{rf2-version}}"}
          reagent/reagent           {:mvn/version "2.0.1"}}
 
- ;; shadow-cljs.edn reads its classpath from this alias. Deps only — the
+ ;; shadow-cljs.edn reads its classpath from these aliases. Deps only — the
  ;; `npx shadow-cljs` wrapper supplies its own `-m`, so no :main-opts here.
  :aliases
  {:shadow {:extra-paths ["test"]
-           :extra-deps  {thheller/shadow-cljs {:mvn/version "{{shadow-version}}"}}}}}
+           :extra-deps  {thheller/shadow-cljs {:mvn/version "{{shadow-version}}"}}}
+
+  ;; Story, the component playground (src/{{nested-dirs}}/stories.cljs).
+  ;; Until Story is published it resolves from a re-frame2 checkout beside
+  ;; this project; then it is a :mvn/version at the version above.
+  :dev    {:extra-deps {day8/re-frame2-story {:local/root "../re-frame2/tools/story"}}}}}

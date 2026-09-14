@@ -9,7 +9,9 @@
     "test":    "shadow-cljs compile test && node out/node-test.js"
   },
   "devDependencies": {
-    "shadow-cljs": "{{shadow-version}}"
+    "shadow-cljs":   "{{shadow-version}}",
+    "@xyflow/react": "{{xyflow-version}}",
+    "elkjs":         "{{elkjs-version}}"
   },
   "dependencies": {
     "react":     "{{react-version}}",

@@ -12,7 +12,7 @@
        ($ :button {:on-click #(dispatch [:counter/increment])} "+1")
        ($ :span {:style #js {:margin "0 1em"}} value))))
 
-(defui counter-app []
+(defui counter-app [{:keys [heading]}]
   ($ :div
-     ($ :h1 "{{name}}")
+     ($ :h1 (or heading "{{name}}"))
      ($ counter-buttons)))
