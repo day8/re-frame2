@@ -11,7 +11,7 @@
             [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]
             [re-frame.testbed.open-in-editor-server :as rf.testbed.open-in-editor-server]
             [shadow.http.push-state :as shadow.push-state])
-  (:import [java.net URL URLClassLoader]
+  (:import [java.net InetAddress InetSocketAddress URL URLClassLoader]
            [java.io File]))
 
 ;; A `+`-bearing classpath root confirms that delegation preserves URI semantics.
@@ -69,9 +69,10 @@
 (defn ^:private req
   "Build a minimal endpoint request; nil host/origin values omit the header.
 
-  `:remote-addr` carries the TCP peer the way shadow-cljs's Ring adapter does
-  — a bare numeric address from `InetAddress.getHostAddress` — and defaults to
-  loopback because every honest testbed caller is one. Pass `:peer` to model a
+  `:remote-addr` carries the TCP peer as a bare numeric literal — the shape a
+  `getHostAddress`-based Ring adapter sends — and defaults to loopback because
+  every honest testbed caller is one. shadow-http's own `SocketAddress`
+  rendering is built from real objects by `socket-peer`. Pass `:peer` to model a
   remote caller; pass `:peer :absent` to model an adapter that supplied none."
   [{:keys [method host origin file peer]
     :or   {method :post host "localhost:8031" peer "127.0.0.1"}}]
@@ -251,8 +252,8 @@
 (deftest guard-allows-every-loopback-peer-representation
   (testing "each address a Ring adapter can put in :remote-addr for a genuine
             loopback caller still reaches launch!"
-    ;; shadow-cljs's adapter emits `InetAddress.getHostAddress`, so IPv6
-    ;; loopback arrives EXPANDED as 0:0:0:0:0:0:0:1 — never the `::1` spelling.
+    ;; `InetAddress.getHostAddress` emits IPv6 loopback EXPANDED as
+    ;; 0:0:0:0:0:0:0:1 — never the `::1` spelling.
     (doseq [peer ["127.0.0.1" "127.0.0.53" "0:0:0:0:0:0:0:1" "::1"
                   "::ffff:127.0.0.1" "::1%1"]]
       (let [calls (atom [])]
@@ -282,6 +283,124 @@
                   "127.0.0.1, 10.0.0.5" "127.0.0.1:52344" 12345]]
       (is (not (#'rf.testbed.open-in-editor-server/loopback-peer? addr))
           (str "refused peer: " (pr-str addr))))))
+
+;; rf2-8fms7 — shadow-http 0.1.8, which serves shadow-cljs 3.4.10's `:dev-http`,
+;; sets `:remote-addr (str (.getRemoteAddress request))`: the accepted socket's
+;; `InetSocketAddress.toString`, not a bare literal. Every peer above is
+;; hand-typed in the bare shape, which is why this suite stayed green while the
+;; check refused every real loopback caller on that server. The peers below are
+;; BUILT the way shadow-http builds them, from real `java.net` objects.
+
+(defn- socket-peer
+  "`:remote-addr` exactly as shadow-http renders an accepted socket's peer:
+  `str` of an `InetSocketAddress` over `addr`."
+  [^InetAddress addr]
+  (str (InetSocketAddress. addr (int 54321))))
+
+(defn- ip
+  "The `InetAddress` for a numeric literal; `getByName` parses one without a
+  lookup."
+  ^InetAddress [^String literal]
+  (InetAddress/getByName literal))
+
+(defn- named
+  "An `InetAddress` whose hostname half is `host` over the bytes of `literal`,
+  built with no lookup in either direction: the object an accepted socket's
+  address becomes once something reverse-resolves it, with the answer chosen
+  by the test, as a PTR record's owner would choose it."
+  ^InetAddress [^String host ^String literal]
+  (InetAddress/getByAddress host (.getAddress (ip literal))))
+
+(deftest loopback-peer?-accepts-shadow-http-socket-renderings
+  (testing "loopback callers as shadow-http renders them are accepted: IPv4,
+            IPv6 (bracketed and expanded), an address in 127.0.0.0/8 other than
+            127.0.0.1, and renderings carrying a hostname half, which is
+            never read"
+    (doseq [addr [(ip "127.0.0.1")
+                  (ip "::1")
+                  (ip "127.0.0.53")
+                  (InetAddress/getLoopbackAddress)
+                  (named "localhost" "::1")
+                  (named "attacker.example" "127.0.0.1")]]
+      (let [peer (socket-peer addr)]
+        (is (re-find #"/.*:54321$" peer)
+            (str "control: the input is the socket rendering, not a bare literal: " peer))
+        (is (#'rf.testbed.open-in-editor-server/loopback-peer? peer)
+            (str "loopback socket peer: " peer)))))
+  (testing "…and through `handle`: the launch POST reaches `launch!` and the
+            OPTIONS preflight answers 204. On shadow-cljs 3.4.10 both answered
+            403"
+    (doseq [peer [(socket-peer (ip "127.0.0.1")) (socket-peer (ip "::1"))]]
+      (let [calls (atom [])]
+        (with-launch-spy calls
+          (let [post      (rf.testbed.open-in-editor-server/handle
+                            (req {:method :post :host "localhost:8031"
+                                  :peer peer :file "fake_ns/core.cljs"}))
+                preflight (rf.testbed.open-in-editor-server/handle
+                            (req {:method :options :host "localhost:8031"
+                                  :origin "http://localhost:8042" :peer peer}))]
+            (is (= 200 (:status post)) (str "launch POST from " peer))
+            (is (= 1 (count @calls)) (str "launch! ran for " peer))
+            (is (= 204 (:status preflight)) (str "preflight from " peer))))))))
+
+(deftest loopback-peer?-refuses-non-loopback-socket-renderings
+  (testing "a non-loopback socket peer is refused, IPv4 and IPv6 alike"
+    (doseq [addr [(ip "10.0.0.1") (ip "192.168.1.1") (ip "0.0.0.0")
+                  (ip "2606:4700:4700::1111") (ip "::") (ip "fe80::1%1")]]
+      (let [peer (socket-peer addr)]
+        (is (not (#'rf.testbed.open-in-editor-server/loopback-peer? peer))
+            (str "refused socket peer: " peer)))))
+  (testing "the HOSTNAME half never admits a peer, however loopback it reads:
+            it is a reverse lookup's answer, and the PTR record's owner
+            chooses it"
+    (doseq [peer [(socket-peer (named "localhost" "10.0.0.1"))
+                  (socket-peer (named "localhost" "2001:db8::1"))
+                  (socket-peer (named "127.0.0.1" "203.0.113.7"))
+                  (socket-peer (named "127.0.0.1.attacker.example" "192.168.1.1"))
+                  (str (InetSocketAddress/createUnresolved "localhost" 54321))]]
+      (is (not (#'rf.testbed.open-in-editor-server/loopback-peer? peer))
+          (str "refused socket peer: " peer))))
+  (testing "a rendering this check does not recognise fails closed"
+    (doseq [peer ["/" "/:54321" "/127.0.0.1" "/[::1]" "127.0.0.1/"
+                  "/127.0.0.1:54321/" "/127.0.0.1:port" "/[127.0.0.1]:54321"
+                  "/0:0:0:0:0:0:0:1:54321" "localhost/" "localhost/localhost:54321"]]
+      (is (not (#'rf.testbed.open-in-editor-server/loopback-peer? peer))
+          (str "refused unrecognised rendering: " (pr-str peer)))))
+  (testing "…and through `handle`: a remote socket peer is 403 for the launch
+            POST and the preflight alike, however loopback its Host, Origin
+            and hostname half read, and never launches"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (doseq [peer [(socket-peer (named "localhost" "203.0.113.7"))
+                      (socket-peer (ip "2001:db8::5"))]]
+          (is (= 403 (:status (rf.testbed.open-in-editor-server/handle
+                                (req {:method :post :host "localhost:8031"
+                                      :origin "http://localhost:8042"
+                                      :peer peer :file "/etc/passwd"}))))
+              (str "remote socket peer POST: " peer))
+          (is (= 403 (:status (rf.testbed.open-in-editor-server/handle
+                                (req {:method :options :host "localhost:8031"
+                                      :origin "http://localhost:8042"
+                                      :peer peer}))))
+              (str "remote socket peer preflight: " peer)))
+        (is (zero? (count @calls)) "launch! was not called")))))
+
+(deftest peer-literal-never-hands-getByName-a-name
+  (testing "the literal is read after the LAST `/`, its port and brackets
+            removed, and the bare literal still passes through"
+    (is (= "127.0.0.1"
+           (#'rf.testbed.open-in-editor-server/peer-literal (socket-peer (ip "127.0.0.1")))))
+    (is (= "0:0:0:0:0:0:0:1"
+           (#'rf.testbed.open-in-editor-server/peer-literal (socket-peer (named "localhost" "::1")))))
+    (is (= "127.0.0.1" (#'rf.testbed.open-in-editor-server/peer-literal "127.0.0.1"))))
+  (testing "a string `InetAddress/getByName` would RESOLVE rather than parse is
+            never returned. Measured with a JVM hosts file mapping each bare
+            value to 127.0.0.1: the looser filter this replaced admitted all
+            three as loopback"
+    (doseq [s ["127.0.0.999" "1.2.3.456" ".::1"
+               "/127.0.0.999:54321" "localhost/1.2.3.456:54321"]]
+      (is (nil? (#'rf.testbed.open-in-editor-server/peer-literal s))
+          (str "never reaches getByName: " (pr-str s))))))
 
 (deftest guard-rejects-non-post-drive-by
   (testing "a simple GET drive-by (the `<img>`/`<form>`/`no-cors` class) is

@@ -404,6 +404,47 @@
                  ;; a bare IPv4 in 127.0.0.0/8
                  (re-matches #"127\.\d{1,3}\.\d{1,3}\.\d{1,3}" bare)))))))
 
+(defn ^:private peer-literal
+  "The numeric address literal in a `:remote-addr` value, or nil when the value
+  is not a shape `loopback-peer?` recognises.
+
+  Two shapes arrive. A Ring adapter that fills `:remote-addr` from
+  `InetAddress.getHostAddress` sends the bare literal. shadow-http 0.1.8, which
+  serves shadow-cljs 3.4.10's `:dev-http`, sends `(str (.getRemoteAddress
+  request))` instead: the accepted socket's `InetSocketAddress.toString`, so
+  `/127.0.0.1:54321` or `/[0:0:0:0:0:0:0:1]:54321`, and
+  `<hostname>/<literal>:<port>` once anything has reverse-resolved that
+  address. Only the literal after the LAST `/` is read, its port and IPv6
+  brackets removed. The hostname half is a reverse lookup's answer, chosen by
+  whoever controls the PTR record, so it is never parsed, trusted or resolved.
+
+  The literal goes to `InetAddress/getByName`, which parses a genuine literal
+  without a lookup but RESOLVES anything it cannot parse as one. So a literal
+  is returned only where `getByName` must take its literal branch: a dotted
+  quad with every octet at most 255, or a colon form led by a hex digit or `:`,
+  which `getByName` either parses or refuses. The looser filter this replaced
+  let `127.0.0.999`, `1.2.3.456` and `.::1` through to a name lookup, and a
+  hosts-file entry for any of them admitted it as loopback (rf2-8fms7)."
+  [remote-addr]
+  (when (and (string? remote-addr) (not (str/blank? remote-addr)))
+    (let [s       (str/trim remote-addr)
+          slash   (str/last-index-of s "/")
+          literal (if slash
+                    ;; `[v6]:port` or `v4:port` only — a rendering missing its
+                    ;; port, or an unbracketed IPv6 one, is not recognised.
+                    (let [socket-part (subs s (inc slash))]
+                      (or (second (re-matches #"\[([^\]]*:[^\]]*)\]:\d{1,5}" socket-part))
+                          (second (re-matches #"([^:\[\]]+):\d{1,5}" socket-part))))
+                    s)
+          ;; A scope id (`::1%lo0`) names an interface, not a different address.
+          literal (some-> literal (str/split #"%") first)]
+      (when (and (string? literal)
+                 (or (and (str/includes? literal ":")
+                          (re-matches #"[0-9A-Fa-f:][0-9A-Fa-f:.]*" literal))
+                     (and (re-matches #"\d{1,3}(?:\.\d{1,3}){3}" literal)
+                          (every? #(<= (parse-long %) 255) (str/split literal #"\.")))))
+        literal))))
+
 (defn ^:private loopback-peer?
   "Is `remote-addr` — Ring's TCP peer for this request — a loopback address?
 
@@ -415,8 +456,11 @@
   a shadow-cljs `:dev-http` server is a direct listener, so honouring one would
   hand the decision straight back to the client.
 
-  shadow-cljs fills `:remote-addr` from `InetAddress.getHostAddress`, so values
-  arriving here are bare numeric literals — never names, never `addr:port`.
+  The value is a bare numeric literal from a `getHostAddress`-based Ring
+  adapter, and a stringified `InetSocketAddress` such as `/127.0.0.1:54321`
+  from shadow-http, which serves shadow-cljs's `:dev-http`. `peer-literal`
+  reads the literal out of either and ignores any hostname half. It is never
+  a name: `localhost` is refused.
 
   Accepted, and why each belongs in the set:
 
@@ -430,22 +474,16 @@
     an IPv4 loopback client.
 
   Everything else fails closed, missing and malformed values included. Parsing
-  happens only once the string already looks like a numeric literal, so nothing
-  can reach name resolution: `getByName` would resolve `localhost` — or any
-  attacker-chosen name pointing at 127.0.0.1 — to a loopback address."
+  happens only on a string `peer-literal` has confirmed `getByName` will parse
+  as a literal, so nothing can reach name resolution: `getByName` would resolve
+  `localhost` — or any attacker-chosen name pointing at 127.0.0.1 — to a
+  loopback address."
   [remote-addr]
   (boolean
-    (when (and (string? remote-addr) (not (str/blank? remote-addr)))
-      ;; A scope id (`::1%lo0`) names an interface, not a different address.
-      (let [s (first (str/split (str/trim remote-addr) #"%"))]
-        (when (and (string? s)
-                   ;; Numeric literals only — see the docstring's last note.
-                   (re-matches #"[0-9A-Fa-f:.]+" s)
-                   (or (str/includes? s ":")
-                       (re-matches #"\d{1,3}(?:\.\d{1,3}){3}" s)))
-          (try
-            (.isLoopbackAddress (InetAddress/getByName s))
-            (catch Throwable _ false)))))))
+    (when-let [literal (peer-literal remote-addr)]
+      (try
+        (.isLoopbackAddress (InetAddress/getByName ^String literal))
+        (catch Throwable _ false)))))
 
 (defn ^:private origin-host
   "Extract an Origin host, rejecting blank, malformed, and opaque origins."
