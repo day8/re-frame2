@@ -68,8 +68,98 @@
   (mirroring `save-variant`)."
   (:require [re-frame.story.config     :as rf.story.config]
             [re-frame.story.plan       :as rf.story.plan]
+            [re-frame.story.play       :as rf.story.play]
             [re-frame.story.play.runner :as rf.story.play.runner]
             [re-frame.story.registrar  :as rf.story.registrar]))
+
+;; ===========================================================================
+;; The source variant's intent (rf2-5vmog)
+;; ===========================================================================
+;;
+;; A promoted regression must be able to FAIL for the reason its source
+;; failed. Two things carried that reason and neither survived:
+;;
+;;   - DECLARATIVE expectations authored beside the program — the source's
+;;     terminal `:assertions` (and `:checks`). The body used to copy neither,
+;;     so a source that ran `:fail` promoted into a variant that ran `:pass`
+;;     with zero assertions.
+;;   - `:script` steps that are not dispatches — clicks, typing, waits and
+;;     `[:assert …]` checkpoints. Test mode captures a run as the flat
+;;     DISPATCH-ONLY projection of its program (`variant-play-events`), so
+;;     those steps never reached the artifact at all.
+;;
+;; Ordinary `:extends` inheritance is deliberately NOT the fix: terminal
+;; assertions and `:script` stay child-only, a coherent reuse rule. Promotion
+;; is the one transformation that must preserve intent, so it carries them
+;; explicitly, and only from the variant the artifact records as its source.
+
+(defn source-variant-id
+  "The id of the variant a run `artifact` was captured from, or nil. Pure
+  data → data.
+
+  Read from the artifact's own record of its run, never from promotion
+  `opts`: `[:source :variant/id]` (stamped by
+  `re-frame.story.determinism/->artifact` from the compiled plan) or
+  `[:result :variant/id]` (the run-result identity slot a Test-mode capture
+  carries). An `:extends` parent is NOT a source — a promoted variant may
+  extend anything, and a parent's terminal assertions are its own."
+  [artifact]
+  (or (get-in artifact [:source :variant/id])
+      (get-in artifact [:result :variant/id])))
+
+(defn source-expectations
+  "The declarative expectations a promotion carries from `source-body` (the
+  source variant's registered body): its own `:assertions` and `:checks`,
+  as `{:assertions … :checks …}` with empty slots omitted. Pure data → data.
+
+  `:assertions` is the load-bearing slot — terminal assertions never inherit
+  through `:extends`, so without this a promoted regression has nothing to
+  fail on. `:checks` do inherit, and the plan compiler de-duplicates a check
+  that arrives both ways, so carrying them is idempotent for a promotion
+  that extends its source and keeps them for one that does not."
+  [source-body]
+  (cond-> {}
+    (seq (:assertions source-body)) (assoc :assertions (vec (:assertions source-body)))
+    (seq (:checks source-body))     (assoc :checks (vec (:checks source-body)))))
+
+(defn- dispatch-step?
+  [step]
+  (contains? #{:dispatch :dispatch-sync} (rf.story.play.runner/step-type step)))
+
+(defn- step-events
+  [steps]
+  (into [] (keep rf.story.play.runner/step-event) steps))
+
+(defn- source-steps
+  "The step program `source-id` executes (`rf.story.play/variant-play-steps`,
+  the program Test mode projects its capture from), or nil when the source's
+  plan does not compile here. Only a plan-construction failure is swallowed,
+  exactly as `variant-play-events` does; anything else is a real error."
+  [source-id]
+  (try (rf.story.play/variant-play-steps source-id)
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+         (if (= 'rf.story/variant-plan (:where (ex-data e)))
+           nil
+           (throw e)))))
+
+(defn retained-program
+  "The event program a promotion builds from: the source variant's FULL step
+  program when `artifact` carries only its dispatch-only shadow, else the
+  artifact's own `:event-program`.
+
+  The shadow test is exact, so a program that is genuinely different — a
+  generated, shrunk or recorded run — is never replaced: every artifact step
+  is a dispatch, the source program carries at least one step that is not,
+  and the two dispatch sequences are equal. Reads the Story side-table;
+  registers nothing."
+  [artifact source-id]
+  (let [program (vec (:event-program artifact))]
+    (or (when (and source-id (every? dispatch-step? program))
+          (let [steps (source-steps source-id)]
+            (when (and (some (complement dispatch-step?) steps)
+                       (= (step-events program) (step-events steps)))
+              (vec steps))))
+        program)))
 
 ;; ===========================================================================
 ;; Runnable reproducibility slots (rf2-vf8es)
@@ -241,6 +331,18 @@
     `:network` is present (the `:network` slot owns it — see
     `lift-fx-overrides`), so the two surfaces never conflict.
 
+  The SOURCE VARIANT'S INTENT is carried too (rf2-5vmog), so a promoted
+  regression fails for the reason its source failed. When the artifact
+  records the variant it was captured from (`source-variant-id`) and that
+  variant is registered:
+  - its own terminal `:assertions` and `:checks` land on the body
+    (`source-expectations`) — `:extends` alone would drop the assertions;
+  - a dispatch-only capture is replaced by the source's full step program,
+    so clicks, typing, waits and `[:assert …]` checkpoints survive
+    (`retained-program`).
+  An artifact with no registered source is promoted exactly as captured.
+  Registers nothing; the source is read from the Story side-table.
+
   `opts`:
   - `:setup` / `:script` / `:setup-count` — the program partition policy
     (see `partition-program`).
@@ -257,7 +359,13 @@
   the only provenance."
   ([artifact] (artifact->variant-body artifact nil))
   ([artifact {:keys [doc extends tags args] :as opts}]
-   (let [{:keys [setup script]} (partition-program artifact opts)
+   (let [source-id     (source-variant-id artifact)
+         source-body   (when source-id
+                         (rf.story.registrar/handler-meta :variant source-id))
+         program       (retained-program artifact (when source-body source-id))
+         {:keys [setup script]} (partition-program
+                                  (assoc artifact :event-program program) opts)
+         {:keys [assertions checks]} (source-expectations source-body)
          network       (:network artifact)
          has-network?  (boolean (seq network))
          fx-overrides  (lift-fx-overrides (:fx-decisions artifact) has-network?)]
@@ -268,6 +376,8 @@
                                      " run artifact (spec/017 §Promotion)."))}
        (seq setup)    (assoc :setup setup)
        (seq script)   (assoc :script script)
+       (seq checks)   (assoc :checks checks)
+       (seq assertions) (assoc :assertions assertions)
        has-network?   (assoc :network network)
        (some? fx-overrides) (assoc :fx-overrides fx-overrides)
        (some? extends) (assoc :extends extends)
