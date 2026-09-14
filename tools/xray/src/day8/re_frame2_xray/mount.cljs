@@ -1240,6 +1240,18 @@
   (reset! auto-open-state {:started? false :attempts 0})
   nil)
 
+(defn- instruction-set-registered?
+  "True while Xray's `:rf.xray/*` instruction set is still registered, probed
+  by one event `registry/register-xray-handlers!` always installs.
+
+  Reads by registration ID, deliberately NOT by `:rf.provenance/ns`: selecting
+  by provenance is the image guard's job, so a set that is present but
+  mis-stamped still reaches that guard and fails loud. This answers only
+  whether the registrar was cleared since the preload registered Xray."
+  []
+  (some? (rf/handler-meta {:source :store :kind :event
+                           :id :rf.xray/set-target-frame})))
+
 (defn boot-on-runtime-ready!
   "Preload entry: wait briefly for the host app to call `rf/init!`, then run
   Xray's two runtime-dependent boot steps — SEAT the shell frame, and open
@@ -1268,7 +1280,24 @@
   What stays lazy is the FIRST-MOUNT seed/hydrate fan-out. It harvests the
   trace rings the user has already produced BEFORE opening Xray, so it belongs
   at first open and keeps its own `seeded-frame-ids` guard inside
-  `ensure-xray-frame!` — which skips the redundant re-seat and runs the hooks."
+  `ensure-xray-frame!` — which skips the redundant re-seat and runs the hooks.
+
+  ## A registrar cleared under the preload (rf2-atecy)
+
+  The preload arms this loop when it LOADS, and a tick acts on whatever runtime
+  exists when it lands. If the registrar was cleared in between
+  (`rf.registrar/clear-all!`, a test-fixture API), the instruction set step 1
+  of the preload registered is gone, and a seat would build Xray's image over
+  a pool with no Xray registration in it — core's deliberate
+  `:rf.error/image-zero-match` guard, thrown from a timer. In a node-test
+  bundle the preload is loaded by test namespaces, so a `--test=` selection
+  whose fixtures clear the registrar crashed node before it printed a verdict.
+
+  So the adapter branch seats only while the instruction set is still
+  registered, and otherwise ends the loop: there is no Xray left to seat, and
+  whatever cleared the registrar owns registering it again. The guard itself
+  is untouched and still fails loud for every explicit seat
+  (`ensure-seated!`, `ensure-xray-frame!`)."
   []
   (when (compare-and-set! auto-open-state {:started? false :attempts 0}
                           {:started? true :attempts 0})
@@ -1287,7 +1316,11 @@
                   @mount-state nil
 
                   (rf.substrate.adapter/current-adapter)
-                  (do
+                  ;; A registrar cleared since the preload registered Xray
+                  ;; leaves nothing to seat, so the boot ends here instead of
+                  ;; building an image over a pool without Xray in it
+                  ;; (rf2-atecy — see §A registrar cleared under the preload).
+                  (when (instruction-set-registered?)
                     ;; Idempotent (`xray-frame-seated?` skips a re-seat), and
                     ;; seed-free — `open!` here, or a later first open, still
                     ;; runs the first-mount hooks through `ensure-xray-frame!`.
