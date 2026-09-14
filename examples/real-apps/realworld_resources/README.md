@@ -220,6 +220,19 @@ Reload the browser and you are back to the seeded world, logged out. The state l
 
 To run against a real backend instead: point `realworld-resources.http/api-base` at the official hosted Conduit API (<https://api.realworld.show/api>) or a local reference backend on `http://localhost:3000/api`, and remove the demo-stub `:fx-overrides` line in `core.cljs`. The frame-wide `:realworld/bearer-auth` interceptor then attaches the JWT to every authenticated call.
 
+### Watch the loop in Xray
+
+The same dev command mounts [Xray](../../../tools/xray/README.md), re-frame2's devtools, in a column to the right of the app. The build pulls it in through a dev-only `:devtools` preload, the one `examples/counter` uses; `shadow-cljs release examples/realworld-resources` ignores that block, so the production bundle carries no Xray.
+
+1. Sign in, open **Your Feed** once so the session feed is cached, then go back to **Global Feed**.
+2. Open Xray's **Resources** tab and favourite an article.
+
+One click, and the tab shows all of its consequences ([Xray spec 024](../../../tools/xray/spec/024-Resources-Panel.md) catalogues the sections):
+
+- **Invalidation / mutation graph**: `:realworld/favorite` with its two descriptors — `[:article slug] [:article-list] [:favorited-articles username]` under the viewer scope, `[:feed]` under the session scope. The first matches the list on screen and refetches it; the second matches the cached feed and marks it stale, so it refetches when you next open **Your Feed**.
+- **Live instances**: a `:realworld/article` entry for that slug, `loaded` at generation 0 with no owner. No fetch put it there — `:populates` seeded it from the reply, which is also why the mutation row counts it populate-exempt from its own refetch.
+- **Optimistic mutations**: the favourite's optimistic patch, `reconciled (committed)`.
+
 ## Not exercised here, shown there
 
 Conduit is the whole CRUD loop, but it is not the whole Resources surface. Each capability below is real, and this example deliberately leaves it to a place that shows it:
